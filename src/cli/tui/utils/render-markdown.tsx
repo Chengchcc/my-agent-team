@@ -1,7 +1,7 @@
 import { Text } from 'ink';
 import { marked, type Token } from 'marked';
 import React from 'react';
-import { CodeBlock } from '../CodeBlock';
+import { CodeBlock } from '../components/CodeBlock';
 
  
 const TerminalRenderer = require('marked-terminal').default;

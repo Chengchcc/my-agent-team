@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
-import { renderMarkdownTokens } from './utils/render-markdown';
+import { renderMarkdownTokens } from '../utils/render-markdown';
 import { debugLog } from '../../../utils/debug';
 
 const DEBUG_PREVIEW_LENGTH = 200;

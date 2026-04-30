@@ -1,0 +1,105 @@
+// ── Hotkey context available at dispatch time ──
+
+export interface KeymapContext {
+  streaming: boolean;
+  pendingCount: number;
+  focusedToolId: string | null;
+}
+
+// ── Callbacks passed from App ──
+
+export interface InputBoxCallbacks {
+  onFocusPrev?: () => void;
+  onFocusNext?: () => void;
+  onToggleExpand?: () => void;
+  onToggleDebug?: () => void;
+  onToggleThinking?: () => void;
+  onClearPending?: () => void;
+}
+
+// ── A single hotkey binding ──
+
+export interface Hotkey {
+  /** Human-readable label shown in footer hints */
+  label: string;
+  /** The key name (ink's `input` param) */
+  key: string;
+  /** Require Ctrl held */
+  ctrl?: boolean;
+  /** Require Meta held */
+  meta?: boolean;
+  /** Require Shift held */
+  shift?: boolean;
+  /** If set, only fires when this condition is true */
+  guard?: (ctx: KeymapContext) => boolean;
+  /** The callback to invoke */
+  handler: () => void;
+}
+
+// ── Register all global hotkeys in one place ──
+
+export function buildHotkeys(cbs: {
+  onToggleThinking?: () => void;
+  onToggleDebug?: () => void;
+  onAbort?: () => void;
+  onFocusPrev?: () => void;
+  onFocusNext?: () => void;
+  onToggleExpand?: () => void;
+  onClearPending?: () => void;
+}): Hotkey[] {
+  return [
+    {
+      label: 'Ctrl+T',
+      key: 't',
+      ctrl: true,
+      handler: () => cbs.onToggleThinking?.(),
+    },
+    {
+      label: 'Ctrl+D',
+      key: 'd',
+      ctrl: true,
+      handler: () => cbs.onToggleDebug?.(),
+    },
+    {
+      label: 'Esc',
+      key: 'escape',
+      guard: (ctx) => ctx.streaming,
+      handler: () => cbs.onAbort?.(),
+    },
+    {
+      label: 'Ctrl+↑',
+      key: 'upArrow',
+      ctrl: true,
+      handler: () => cbs.onFocusPrev?.(),
+    },
+    {
+      label: 'Ctrl+↓',
+      key: 'downArrow',
+      ctrl: true,
+      handler: () => cbs.onFocusNext?.(),
+    },
+    {
+      label: 'Ctrl+O',
+      key: 'o',
+      ctrl: true,
+      handler: () => cbs.onToggleExpand?.(),
+    },
+    {
+      label: 'Space',
+      key: ' ',
+      guard: (ctx) => ctx.focusedToolId !== null,
+      handler: () => cbs.onToggleExpand?.(),
+    },
+    {
+      label: 'Ctrl+K',
+      key: 'k',
+      ctrl: true,
+      guard: (ctx) => ctx.pendingCount > 0,
+      handler: () => cbs.onClearPending?.(),
+    },
+  ];
+}
+
+// ── Footer hints (single source of truth) ──
+
+export const FOOTER_HINTS = '↑↓ hist · esc clr · ctrl+↑↓ focus · tab complete · /exit';

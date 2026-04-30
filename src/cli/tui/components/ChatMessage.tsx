@@ -2,7 +2,7 @@ import type { Message } from '../../../types';
 import { Box, Text } from 'ink';
 import React, { useMemo } from 'react';
 import { ToolCallMessage, ConnectedToolCallMessage } from './ToolCallMessage';
-import { renderMarkdownTokens } from './utils/render-markdown';
+import { renderMarkdownTokens } from '../utils/render-markdown';
 import { debugLog } from '../../../utils/debug';
 
 const MIN_TOOL_GROUP_SIZE = 3;

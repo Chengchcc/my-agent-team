@@ -12,6 +12,11 @@ export function PermissionPrompt({ request, onSubmit }: PermissionPromptProps) {
   submitRef.current = onSubmit;
   const submittedRef = useRef(false);
 
+  // Reset submitted flag when a new request comes in
+  useEffect(() => {
+    submittedRef.current = false;
+  }, [request]);
+
   const handleSubmit = useCallback((response: PermissionResponse) => {
     if (submittedRef.current) return;
     submittedRef.current = true;

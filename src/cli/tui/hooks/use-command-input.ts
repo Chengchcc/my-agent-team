@@ -292,6 +292,7 @@ export function useCommandInput({
 
         // Regular enter - submit
         const resolvedText = resolvePastePlaceholders(editorStateRef.current.text);
+        if (!resolvedText.trim()) return;
         const markerRe = createPasteMarkerRe();
         let m: RegExpExecArray | null;
         while ((m = markerRe.exec(editorStateRef.current.text)) !== null) {
@@ -406,6 +407,10 @@ export function useCommandInput({
       }
 
       exitBrowsing();
+      // Filter terminal control sequences (e.g. focus-in/out on tab switch).
+      // Ink interprets \x1b as Escape; the remaining CSI tail ([I]/[O]) arrives
+      // as a separate input call, so both forms must be caught.
+      if (input.includes('\x1b') || input === '[I' || input === '[O') return;
       updateEditorState(prev => insertTextAtCursor(prev, input));
     },
     { isActive: true },
