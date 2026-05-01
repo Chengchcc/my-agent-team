@@ -1,6 +1,6 @@
 import { Subject, BehaviorSubject, Subscription } from 'rxjs';
 import { throttleTime } from 'rxjs/operators';
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import { useTuiStore } from '../state/store';
 import { findStableBoundary } from './findStableBoundary';
 
@@ -39,17 +39,33 @@ class Committer {
     store.streamingStop();
 
     this.prevSnapshot = new Map();
-    this.snapshot$.next(this.prevSnapshot);
+    // Defer clearing the snapshot so React can unmount subscribers first.
+    // Immediate snapshot$.next(new Map()) would trigger a getSnapshot call
+    // while LiveTextSegment is still mounted, re-entering the render loop.
+    queueMicrotask(() => {
+      if (!useTuiStore.getState().live) {
+        this.snapshot$.next(new Map());
+      }
+    });
   }
 
   useSegmentFrame(segId: string): SegFrame | null {
-    return useSyncExternalStore(
-      (cb) => {
-        const sub = this.snapshot$.subscribe(() => cb());
+    const self = this;
+
+    const subscribe = useCallback(
+      (cb: () => void) => {
+        const sub = self.snapshot$.subscribe(() => cb());
         return () => sub.unsubscribe();
       },
-      () => this.snapshot$.getValue().get(segId) ?? null,
+      [],
     );
+
+    const getSnapshot = useCallback(
+      () => self.snapshot$.getValue().get(segId) ?? null,
+      [segId],
+    );
+
+    return useSyncExternalStore(subscribe, getSnapshot);
   }
 
   destroy(): void {
@@ -68,13 +84,13 @@ class Committer {
 
   private buildSnapshot(): Snapshot {
     const store = useTuiStore.getState();
-    const last = store.finalized[store.finalized.length - 1];
-    if (last?.kind !== 'assistant-message' || last.status !== 'streaming') {
+    const live = store.live;
+    if (live?.kind !== 'assistant-message' || live.status !== 'streaming') {
       return new Map();
     }
 
     const next = new Map<string, SegFrame>();
-    for (const seg of last.segments) {
+    for (const seg of live.segments) {
       if (seg.kind !== 'text') continue;
       const result = findStableBoundary(seg.content);
       const committedLength = result.committable

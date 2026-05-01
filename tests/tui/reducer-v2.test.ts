@@ -1,16 +1,15 @@
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { useTuiStore, resetNextId } from '../../src/cli/tui/state/store';
 
-// Helper: get a fresh store snapshot
 function store() {
   return useTuiStore.getState();
 }
 
-// Helper: reset store to empty between tests
 function resetStore() {
   resetNextId();
   useTuiStore.setState({
     finalized: [],
+    live: null,
     interaction: { focusedToolId: null, expandedTools: new Set(), ignoredErrors: new Set(), pendingInputs: [] },
     stats: { promptTokens: 0, completionTokens: 0, contextTokens: 0, tokenLimit: 0, streaming: false, streamingStartTime: null, interrupted: false },
   });
@@ -19,55 +18,61 @@ function resetStore() {
 describe('turn lifecycle (core 6 actions)', () => {
   beforeEach(resetStore);
 
-  test('turnStart creates streaming assistant-message in finalized', () => {
+  test('turnStart creates streaming assistant-message in live', () => {
     store().userSubmit('u1', 'hello');
     store().turnStart('a1');
     const s = store();
-    expect(s.finalized).toHaveLength(2);
+    // finalized only has the user message
+    expect(s.finalized).toHaveLength(1);
     expect(s.finalized[0]).toEqual({ kind: 'user-message', id: 'u1', content: 'hello' });
-    const asst = s.finalized[1]!;
-    expect(asst).toEqual({ kind: 'assistant-message', id: 'a1', segments: [], status: 'streaming' });
+    // live holds the streaming assistant
+    expect(s.live).toEqual({ kind: 'assistant-message', id: 'a1', segments: [], status: 'streaming' });
   });
 
-  test('textDelta appends and merges text segments', () => {
+  test('textDelta appends and merges text segments in live', () => {
     store().turnStart('a1');
     store().textDelta('Hello');
     store().textDelta(' world');
-    const asst = store().finalized[0]!;
-    expect(asst.kind).toBe('assistant-message');
-    if (asst.kind === 'assistant-message') {
-      expect(asst.segments).toHaveLength(1);
-      expect(asst.segments[0]).toEqual({ kind: 'text', id: expect.any(String), content: 'Hello world', committedLength: 0 });
+    const s = store();
+    expect(s.live?.kind).toBe('assistant-message');
+    if (s.live?.kind === 'assistant-message') {
+      expect(s.live.segments).toHaveLength(1);
+      expect(s.live.segments[0]).toEqual({ kind: 'text', id: expect.any(String), content: 'Hello world', committedLength: 0 });
     }
   });
 
-  test('toolStart and toolDone interleave with text', () => {
+  test('toolStart and toolDone interleave with text in live', () => {
     store().turnStart('a1');
     store().textDelta('Let me ');
     store().toolStart('t1', 'read', { path: 'f.ts' });
     store().toolDone('t1', { kind: 'ok', content: '...', durationMs: 42 });
     store().textDelta('done.');
 
-    const asst = store().finalized[0]!;
-    expect(asst.kind).toBe('assistant-message');
-    if (asst.kind === 'assistant-message') {
-      expect(asst.segments).toHaveLength(3);
-      expect(asst.segments[0]).toEqual({ kind: 'text', id: expect.any(String), content: 'Let me ', committedLength: 0 });
-      expect(asst.segments[1]).toMatchObject({ kind: 'tool_call', id: 't1', name: 'read', input: { path: 'f.ts' } });
-      const tc = asst.segments[1]!;
+    const s = store();
+    expect(s.live?.kind).toBe('assistant-message');
+    if (s.live?.kind === 'assistant-message') {
+      expect(s.live.segments).toHaveLength(3);
+      expect(s.live.segments[0]).toEqual({ kind: 'text', id: expect.any(String), content: 'Let me ', committedLength: 0 });
+      expect(s.live.segments[1]).toMatchObject({ kind: 'tool_call', id: 't1', name: 'read', input: { path: 'f.ts' } });
+      const tc = s.live.segments[1]!;
       if (tc.kind === 'tool_call') {
         expect(tc.result).toEqual({ kind: 'ok', content: '...', durationMs: 42 });
       }
-      expect(asst.segments[2]).toEqual({ kind: 'text', id: expect.any(String), content: 'done.', committedLength: 0 });
+      expect(s.live.segments[2]).toEqual({ kind: 'text', id: expect.any(String), content: 'done.', committedLength: 0 });
     }
   });
 
-  test('turnDone marks assistant done and commits all text', () => {
+  test('turnDone moves live to finalized and clears live', () => {
     store().turnStart('a1');
     store().textDelta('response');
     store().turnDone();
 
-    const asst = store().finalized[0]!;
+    const s = store();
+    // live is cleared
+    expect(s.live).toBeNull();
+    // finalized has the done assistant-message
+    expect(s.finalized).toHaveLength(1);
+    const asst = s.finalized[0]!;
     expect(asst.kind).toBe('assistant-message');
     if (asst.kind === 'assistant-message') {
       expect(asst.status).toBe('done');
@@ -75,32 +80,31 @@ describe('turn lifecycle (core 6 actions)', () => {
     }
   });
 
-  test('commitAdvance increments committedLength on text segment', () => {
+  test('commitAdvance increments committedLength on live text segment', () => {
     store().turnStart('a1');
     store().textDelta('hello world');
-    // Find the text segment id
-    const asst = store().finalized[0]!;
-    const segId = (asst.kind === 'assistant-message' && asst.segments[0]?.kind === 'text') ? asst.segments[0].id : '';
+    const s = store();
+    const segId = (s.live?.kind === 'assistant-message' && s.live.segments[0]?.kind === 'text') ? s.live.segments[0].id : '';
     expect(segId).toBeTruthy();
 
     store().commitAdvance(segId, 5);
-    const updated = store().finalized[0]!;
-    if (updated.kind === 'assistant-message' && updated.segments[0]?.kind === 'text') {
-      expect(updated.segments[0].committedLength).toBe(5);
+    const updated = store();
+    if (updated.live?.kind === 'assistant-message' && updated.live.segments[0]?.kind === 'text') {
+      expect(updated.live.segments[0].committedLength).toBe(5);
     }
   });
 
   test('commitAdvance is monotonic (never decreases)', () => {
     store().turnStart('a1');
     store().textDelta('hello world');
-    const asst = store().finalized[0]!;
-    const segId = (asst.kind === 'assistant-message' && asst.segments[0]?.kind === 'text') ? asst.segments[0].id : '';
+    const s = store();
+    const segId = (s.live?.kind === 'assistant-message' && s.live.segments[0]?.kind === 'text') ? s.live.segments[0].id : '';
 
     store().commitAdvance(segId, 5);
     store().commitAdvance(segId, 3); // should be ignored
-    const updated = store().finalized[0]!;
-    if (updated.kind === 'assistant-message' && updated.segments[0]?.kind === 'text') {
-      expect(updated.segments[0].committedLength).toBe(5); // stays at 5
+    const updated = store();
+    if (updated.live?.kind === 'assistant-message' && updated.live.segments[0]?.kind === 'text') {
+      expect(updated.live.segments[0].committedLength).toBe(5);
     }
   });
 });
@@ -123,9 +127,11 @@ describe('auxiliary actions', () => {
     expect(store().finalized).toEqual([{ kind: 'system-notice', id: 'n1', content: 'Saved session' }]);
   });
 
-  test('clearActive stops streaming', () => {
+  test('clearActive clears live and stops streaming', () => {
+    store().turnStart('a1');
     store().streamingStart();
     store().clearActive();
+    expect(store().live).toBeNull();
     expect(store().stats.streaming).toBe(false);
   });
 });
@@ -208,8 +214,8 @@ describe('stats actions', () => {
     expect(store().stats.completionTokens).toBe(50);
 
     store().accumulateUsage({ prompt_tokens: 80, completion_tokens: 40 });
-    expect(store().stats.promptTokens).toBe(80);   // latest snapshot
-    expect(store().stats.completionTokens).toBe(90);  // accumulated
+    expect(store().stats.promptTokens).toBe(80);
+    expect(store().stats.completionTokens).toBe(90);
   });
 
   test('setInterrupted sets interrupted flag', () => {
@@ -221,7 +227,9 @@ describe('stats actions', () => {
 describe('resetFromMessages (resume path)', () => {
   beforeEach(resetStore);
 
-  test('converts messages to finalized items with status done', () => {
+  test('converts messages to finalized items with status done, clears live', () => {
+    store().turnStart('old-live');
+    // resetFromMessages should clear live
     store().resetFromMessages([
       { role: 'user', id: 'u1', content: 'hello' },
       { role: 'assistant', id: 'a1', content: '', blocks: [
@@ -232,6 +240,7 @@ describe('resetFromMessages (resume path)', () => {
     ]);
 
     const s = store();
+    expect(s.live).toBeNull();
     expect(s.finalized).toHaveLength(2);
     expect(s.finalized[0]).toEqual({ kind: 'user-message', id: 'u1', content: 'hello' });
     const am = s.finalized[1]!;
@@ -240,7 +249,6 @@ describe('resetFromMessages (resume path)', () => {
       expect(am.status).toBe('done');
       expect(am.segments).toHaveLength(2);
       expect(am.segments[0]).toMatchObject({ kind: 'text', content: 'hi there' });
-      // committedLength equals content.length for done messages
       if (am.segments[0]?.kind === 'text') {
         expect(am.segments[0].committedLength).toBe('hi there'.length);
       }
@@ -282,36 +290,44 @@ describe('resetFromMessages (resume path)', () => {
 describe('selectors', () => {
   beforeEach(resetStore);
 
-  test('useLiveItem returns last streaming assistant-message', () => {
+  test('useLiveItem returns live streaming assistant', () => {
     store().turnStart('a1');
     store().textDelta('streaming...');
 
-    // Access via getState directly (selector functions test via hook in integration)
     const s = store();
-    const last = s.finalized[s.finalized.length - 1];
-    expect(last?.kind).toBe('assistant-message');
-    if (last?.kind === 'assistant-message') {
-      expect(last.status).toBe('streaming');
+    expect(s.live?.kind).toBe('assistant-message');
+    if (s.live?.kind === 'assistant-message') {
+      expect(s.live.status).toBe('streaming');
+      expect(s.live.segments).toHaveLength(1);
     }
+    // finalized should be empty (streaming item is not in finalized)
+    expect(s.finalized).toHaveLength(0);
   });
 
-  test('frozen items exclude streaming assistant', () => {
+  test('turnDone moves item to finalized and clears live', () => {
     store().userSubmit('u1', 'first');
     store().turnStart('a1');
     store().textDelta('ok');
     store().turnDone();
 
+    // Second turn
     store().userSubmit('u2', 'second');
     store().turnStart('a2');
     store().textDelta('in progress...');
-    // streaming, not done
 
     const s = store();
-    // Last is the streaming one
-    const last = s.finalized[s.finalized.length - 1];
-    expect(last?.kind).toBe('assistant-message');
-    if (last?.kind === 'assistant-message') {
-      expect(last.status).toBe('streaming');
+    // finalized has user1 + assistant1 + user2
+    expect(s.finalized).toHaveLength(3);
+    expect(s.finalized[0]!.kind).toBe('user-message');
+    expect(s.finalized[1]!.kind).toBe('assistant-message');
+    if (s.finalized[1]!.kind === 'assistant-message') {
+      expect(s.finalized[1]!.status).toBe('done');
+    }
+    expect(s.finalized[2]!.kind).toBe('user-message');
+    // live has the current streaming assistant
+    expect(s.live?.kind).toBe('assistant-message');
+    if (s.live?.kind === 'assistant-message') {
+      expect(s.live.status).toBe('streaming');
     }
   });
 });

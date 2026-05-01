@@ -14,10 +14,21 @@ import type {
 import { initialInteraction, initialStats } from './types';
 import type { Message, ContentBlock } from '../../../types';
 
+// ── Live assistant type ──
+
+type LiveAssistant = Extract<FinalItem, { kind: 'assistant-message' }>;
+
 // ── Store type ──
 
 export interface TuiStore {
+  /**
+   * Append-only scrollback rendered by Ink <Static>.
+   * **Invariant**: items in finalized MUST NOT be mutated after insertion.
+   * The streaming assistant lives in `live` and is only pushed here by turnDone.
+   */
   finalized: FinalItem[];
+  /** The currently streaming assistant message. Only one at a time. Rendered by ActiveAssistantView. */
+  live: LiveAssistant | null;
   interaction: InteractionState;
   stats: StatsState;
 
@@ -59,6 +70,7 @@ export interface TuiStore {
 export const useTuiStore = create<TuiStore>()(
   immer((set) => ({
     finalized: [],
+    live: null,
     interaction: { ...initialInteraction, expandedTools: new Set(), ignoredErrors: new Set() },
     stats: { ...initialStats },
 
@@ -66,19 +78,18 @@ export const useTuiStore = create<TuiStore>()(
 
     turnStart: (assistantId) =>
       set((s) => {
-        s.finalized.push({
+        s.live = {
           kind: 'assistant-message',
           id: assistantId,
           segments: [],
           status: 'streaming',
-        });
+        };
       }),
 
     textDelta: (delta) =>
       set((s) => {
-        const last = s.finalized[s.finalized.length - 1];
-        if (last?.kind !== 'assistant-message' || last.status !== 'streaming') return;
-        const segs = last.segments;
+        if (s.live?.kind !== 'assistant-message' || s.live.status !== 'streaming') return;
+        const segs = s.live.segments;
         const tail = segs[segs.length - 1];
         if (tail?.kind === 'text') {
           tail.content += delta;
@@ -89,16 +100,14 @@ export const useTuiStore = create<TuiStore>()(
 
     toolStart: (id, name, input) =>
       set((s) => {
-        const last = s.finalized[s.finalized.length - 1];
-        if (last?.kind !== 'assistant-message' || last.status !== 'streaming') return;
-        last.segments.push({ kind: 'tool_call', id, name, input, result: null });
+        if (s.live?.kind !== 'assistant-message' || s.live.status !== 'streaming') return;
+        s.live.segments.push({ kind: 'tool_call', id, name, input, result: null });
       }),
 
     toolDone: (id, result) =>
       set((s) => {
-        const last = s.finalized[s.finalized.length - 1];
-        if (last?.kind !== 'assistant-message' || last.status !== 'streaming') return;
-        for (const seg of last.segments) {
+        if (s.live?.kind !== 'assistant-message' || s.live.status !== 'streaming') return;
+        for (const seg of s.live.segments) {
           if (seg.kind === 'tool_call' && seg.id === id) {
             seg.result = result;
             return;
@@ -108,6 +117,18 @@ export const useTuiStore = create<TuiStore>()(
 
     commitAdvance: (segId, newCommittedLength) =>
       set((s) => {
+        // Check live first
+        if (s.live?.kind === 'assistant-message') {
+          for (const seg of s.live.segments) {
+            if (seg.kind === 'text' && seg.id === segId) {
+              if (newCommittedLength > seg.committedLength) {
+                seg.committedLength = newCommittedLength;
+              }
+              return;
+            }
+          }
+        }
+        // Then check finalized (resume/compact path — committedLength may need advancing)
         for (const item of s.finalized) {
           if (item.kind !== 'assistant-message') continue;
           for (const seg of item.segments) {
@@ -123,12 +144,13 @@ export const useTuiStore = create<TuiStore>()(
 
     turnDone: () =>
       set((s) => {
-        const last = s.finalized[s.finalized.length - 1];
-        if (last?.kind !== 'assistant-message' || last.status !== 'streaming') return;
-        last.status = 'done';
-        for (const seg of last.segments) {
+        if (s.live?.kind !== 'assistant-message' || s.live.status !== 'streaming') return;
+        s.live.status = 'done';
+        for (const seg of s.live.segments) {
           if (seg.kind === 'text') seg.committedLength = seg.content.length;
         }
+        s.finalized.push(s.live as FinalItem);
+        s.live = null;
       }),
 
     // ── Auxiliary ──
@@ -151,10 +173,12 @@ export const useTuiStore = create<TuiStore>()(
     resetFromMessages: (messages) =>
       set((s) => {
         s.finalized = messagesToFinalizedItems(messages);
+        s.live = null;
       }),
 
     clearActive: () =>
       set((s) => {
+        s.live = null;
         s.stats.streaming = false;
         s.stats.streamingStartTime = null;
       }),
@@ -252,22 +276,23 @@ export const useTuiStore = create<TuiStore>()(
 
 // ── Selectors ──
 
+/** The currently streaming assistant message, or null. Rendered by ActiveAssistantView. */
 export function useLiveItem(): FinalItem | null {
-  return useTuiStore((s) => {
-    const last = s.finalized[s.finalized.length - 1];
-    if (last?.kind === 'assistant-message' && last.status === 'streaming') return last;
-    return null;
-  });
+  return useTuiStore((s) => s.live);
 }
 
+/**
+ * All finalized items EXCLUDING the live streaming one.
+ * Safe to pass to Ink <Static> — these items never mutate after insertion.
+ */
 export function useFrozenItems(): FinalItem[] {
+  return useTuiStore((s) => s.finalized);
+}
+
+/** All items including the live streaming one (for overlays that need to search everything). */
+export function useFinalized(): FinalItem[] {
   return useTuiStore((s) => {
-    // Everything except the last streaming assistant-message
-    if (s.finalized.length === 0) return s.finalized;
-    const last = s.finalized[s.finalized.length - 1]!;
-    if (last.kind === 'assistant-message' && last.status === 'streaming') {
-      return s.finalized.slice(0, -1);
-    }
+    if (s.live?.kind === 'assistant-message') return [...s.finalized, s.live];
     return s.finalized;
   });
 }
@@ -278,10 +303,6 @@ export function useInteraction() {
 
 export function useStats() {
   return useTuiStore((s) => s.stats);
-}
-
-export function useFinalized() {
-  return useTuiStore((s) => s.finalized);
 }
 
 export function useStreaming() {
@@ -343,7 +364,7 @@ function blocksToSegments(
         kind: 'text',
         id: `ts-${nextId()}`,
         content: block.text,
-        committedLength: block.text.length, // already done, everything committed
+        committedLength: block.text.length,
       });
     } else if (block.type === 'tool_use') {
       const result = toolResults.get(block.id);

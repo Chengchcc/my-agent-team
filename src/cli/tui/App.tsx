@@ -55,16 +55,15 @@ function getFocusableToolIds(): string[] {
   const s = useTuiStore.getState();
   const ids: string[] = [];
   // Check the live item first
-  const live = s.finalized[s.finalized.length - 1];
-  if (live?.kind === 'assistant-message') {
-    for (const seg of live.segments) {
+  if (s.live?.kind === 'assistant-message') {
+    for (const seg of s.live.segments) {
       if (seg.kind === 'tool_call') ids.push(seg.id);
     }
   }
-  // Then check the last done assistant-message
+  // Then check the last done assistant-message in finalized
   for (let i = s.finalized.length - 1; i >= 0; i--) {
     const item = s.finalized[i]!;
-    if (item.kind === 'assistant-message' && item.status === 'done') {
+    if (item.kind === 'assistant-message') {
       for (const seg of item.segments) {
         if (seg.kind === 'tool_call') ids.push(seg.id);
       }
