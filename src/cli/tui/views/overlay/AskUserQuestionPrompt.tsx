@@ -1,7 +1,7 @@
 // src/cli/tui/components/AskUserQuestionPrompt.tsx
 import { Box, Text, useInput } from 'ink';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import type { AskUserQuestionItem, AskUserQuestionResult } from '../../../tools';
+import type { AskUserQuestionItem, AskUserQuestionResult } from '../../../../tools';
 
 function buildInitialSelections(questions: AskUserQuestionItem[]): string[][] {
   return questions.map((q) => (q.multi_select ? [] : [q.options[0]!.label]));

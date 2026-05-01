@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useCallback, useEffect, useRef } from 'react';
-import type { PermissionRequest, PermissionResponse } from '../../../tools';
+import type { PermissionRequest, PermissionResponse } from '../../../../tools';
 
 interface PermissionPromptProps {
   request: PermissionRequest;

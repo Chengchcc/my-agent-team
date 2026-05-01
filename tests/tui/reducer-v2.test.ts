@@ -1,10 +1,10 @@
 import { describe, test, expect } from 'bun:test';
-import { finalizedReducer, pushFinalizedAssistant } from '../../src/cli/tui-v2/state/finalized-reducer';
-import { activeReducer, activeToSegments } from '../../src/cli/tui-v2/state/active-reducer';
-import { interactionReducer } from '../../src/cli/tui-v2/state/interaction-reducer';
-import { statsReducer } from '../../src/cli/tui-v2/state/stats-reducer';
-import { uiReducer, initialUIState } from '../../src/cli/tui-v2/state/dispatch';
-import type { FinalItem, ActiveState, InteractionState, StatsState } from '../../src/cli/tui-v2/state/types';
+import { finalizedReducer, pushFinalizedAssistant } from '../../src/cli/tui/state/finalized-reducer';
+import { activeReducer, activeToSegments } from '../../src/cli/tui/state/active-reducer';
+import { interactionReducer } from '../../src/cli/tui/state/interaction-reducer';
+import { statsReducer } from '../../src/cli/tui/state/stats-reducer';
+import { uiReducer, initialUIState } from '../../src/cli/tui/state/dispatch';
+import type { FinalItem, ActiveState, InteractionState, StatsState } from '../../src/cli/tui/state/types';
 
 describe('finalizedReducer', () => {
   test('USER_SUBMIT immediately adds user message', () => {

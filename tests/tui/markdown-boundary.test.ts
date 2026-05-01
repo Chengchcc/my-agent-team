@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { findStableBoundary } from '../../src/cli/tui-v2/views/active/findStableBoundary';
+import { findStableBoundary } from '../../src/cli/tui/views/active/findStableBoundary';
 
 describe('findStableBoundary', () => {
   test('empty string returns 0', () => {
