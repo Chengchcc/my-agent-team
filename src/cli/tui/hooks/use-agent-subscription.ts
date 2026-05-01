@@ -1,71 +1,49 @@
 import { useCallback, useRef } from 'react';
 import { nanoid } from 'nanoid';
-import type { UIAction } from '../state/types';
+import { useTuiStore } from '../state/store';
 import type { Agent } from '../../../agent';
 import type { AgentEvent } from '../../../agent/loop-types';
 
-type AgentLoopDispatch = (a: UIAction) => void;
-type FlushFn = () => void;
-type PendingState = { pendingText: string; flushScheduled: boolean };
-
 function dispatchAgentEvent(
   event: AgentEvent,
-  _dispatch: AgentLoopDispatch,
-  pending: PendingState,
-  flushText: FlushFn,
   agent: Agent,
 ): void {
+  const store = useTuiStore.getState();
+
   switch (event.type) {
     case 'thinking_delta':
-      _dispatch({ type: 'THINKING_DELTA', delta: event.delta });
+      // No corresponding UI action in the new model; thinking is internal
       break;
 
     case 'text_delta':
-      pending.pendingText += event.delta;
-      if (!pending.flushScheduled) {
-        pending.flushScheduled = true;
-        queueMicrotask(flushText);
-      }
+      store.textDelta(event.delta);
       break;
 
     case 'tool_call_start':
-      if (pending.pendingText) flushText();
-      _dispatch({
-        type: 'TOOL_START',
-        id: event.toolCall.id,
-        name: event.toolCall.name,
-        input: event.toolCall.arguments,
-      });
+      store.toolStart(event.toolCall.id, event.toolCall.name, event.toolCall.arguments);
       break;
 
     case 'tool_call_result':
-      _dispatch({
-        type: 'TOOL_DONE',
-        id: event.toolCall.id,
-        result: event.isError
-          ? { kind: 'error' as const, message: String(event.result ?? 'unknown error'), durationMs: event.durationMs }
-          : { kind: 'ok' as const, content: String(event.result ?? ''), durationMs: event.durationMs },
-      });
+      store.toolDone(event.toolCall.id, event.isError
+        ? { kind: 'error' as const, message: String(event.result ?? 'unknown error'), durationMs: event.durationMs }
+        : { kind: 'ok' as const, content: String(event.result ?? ''), durationMs: event.durationMs },
+      );
       break;
 
     case 'turn_complete':
       if (event.usage) {
-        _dispatch({
-          type: 'ACCUMULATE_USAGE',
-          usage: {
-            prompt_tokens: event.usage.prompt_tokens,
-            completion_tokens: event.usage.completion_tokens,
-          },
+        store.accumulateUsage({
+          prompt_tokens: event.usage.prompt_tokens,
+          completion_tokens: event.usage.completion_tokens,
         });
       }
-      _dispatch({
-        type: 'SET_CONTEXT_TOKENS',
-        tokens: agent.getContextManager().getCurrentTokens(),
-      });
+      store.setContextTokens(agent.getContextManager().getCurrentTokens());
+      store.turnDone();
+      store.streamingStop();
       break;
 
     case 'agent_error':
-      _dispatch({ type: 'STREAM_TEXT_DELTA', delta: `\n\nError: ${event.error.message}` });
+      store.textDelta(`\n\nError: ${event.error.message}`);
       break;
 
     case 'thinking_done':
@@ -83,23 +61,13 @@ function dispatchAgentEvent(
 export function useAgentSubscription(agent: Agent) {
   const abortRef = useRef<AbortController | null>(null);
 
-  const submit = useCallback(async (text: string, _dispatch: (a: UIAction) => void) => {
+  const submit = useCallback(async (text: string) => {
     const userId = `user-${nanoid()}`;
     const assistantId = `assistant-${nanoid()}`;
 
-    _dispatch({ type: 'USER_SUBMIT', id: userId, content: text });
-    _dispatch({ type: 'ASSISTANT_START', id: assistantId });
-    _dispatch({ type: 'STREAMING_START' });
-
-    const pending: PendingState = { pendingText: '', flushScheduled: false };
-
-    function flushText() {
-      if (pending.pendingText) {
-        _dispatch({ type: 'STREAM_TEXT_DELTA', delta: pending.pendingText });
-        pending.pendingText = '';
-      }
-      pending.flushScheduled = false;
-    }
+    useTuiStore.getState().userSubmit(userId, text);
+    useTuiStore.getState().turnStart(assistantId);
+    useTuiStore.getState().streamingStart();
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -110,21 +78,21 @@ export function useAgentSubscription(agent: Agent) {
         undefined,
         { signal: controller.signal },
       ) as AsyncIterable<AgentEvent>) {
-        dispatchAgentEvent(event, _dispatch, pending, flushText, agent);
+        dispatchAgentEvent(event, agent);
       }
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        flushText();
-        _dispatch({ type: 'SET_INTERRUPTED', interrupted: true });
+        useTuiStore.getState().turnDone();
+        useTuiStore.getState().streamingStop();
+        useTuiStore.getState().setInterrupted(true);
       } else {
         const msg = err instanceof Error ? err.message : String(err);
-        flushText();
-        _dispatch({ type: 'STREAM_TEXT_DELTA', delta: `\n\nError: ${msg}` });
+        useTuiStore.getState().textDelta(`\n\nError: ${msg}`);
+        useTuiStore.getState().turnDone();
+        useTuiStore.getState().streamingStop();
       }
     }
 
-    flushText();
-    _dispatch({ type: 'FLUSH_TO_FINALIZED' });
     abortRef.current = null;
   }, [agent]);
 

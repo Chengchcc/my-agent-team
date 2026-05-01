@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { useStatsSelector } from '../../state/selectors';
+import { useTuiStore } from '../../state/store';
 
 const SESSION_ID_DISPLAY_LENGTH = 8;
 
@@ -22,7 +22,7 @@ interface HeaderProps {
 }
 
 export function Header({ model, sessionId }: HeaderProps) {
-  const interrupted = useStatsSelector(s => s.interrupted);
+  const interrupted = useTuiStore(s => s.stats.interrupted);
   const status = interrupted ? 'interrupted' as const : 'connected' as const;
   const st = STATUS_DOTS[status]!;
 

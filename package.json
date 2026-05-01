@@ -47,6 +47,7 @@
     "dotenv": "^16.4.7",
     "fast-glob": "^3.3.3",
     "gray-matter": "^4.0.3",
+    "immer": "^11.1.4",
     "ink": "^5.0.1",
     "ink-scroll-view": "^0.3.6",
     "js-yaml": "^4.1.1",
@@ -57,6 +58,7 @@
     "prismjs": "^1.29.0",
     "react": "^18.3.1",
     "use-context-selector": "^2.0.0",
-    "zod": "^3.22.4"
+    "zod": "^3.22.4",
+    "zustand": "^5.0.12"
   }
 }

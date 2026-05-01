@@ -6,10 +6,7 @@ import { HighlightedInput } from '../../../tui/components/HighlightedInput';
 import { CommandList } from '../../../tui/components/CommandList';
 import { FilePicker } from '../../../tui/components/FilePicker';
 import type { PromptSubmission, SlashCommand } from '../../../tui/command-registry';
-import {
-  useInteractionSelector,
-  useStatsSelector,
-} from '../../state/selectors';
+import { useTuiStore } from '../../state/store';
 import { buildHotkeys } from './keymap';
 import type { InputBoxCallbacks } from './keymap';
 
@@ -27,9 +24,9 @@ const PENDING_TRUNC = 117;
 
 export function InputBox({ commands, onSubmit, onAbort, callbacks }: InputBoxProps) {
   useBracketedPaste();
-  const streaming = useStatsSelector(s => s.streaming);
-  const pendingInputs = useInteractionSelector(s => s.pendingInputs);
-  const focusedToolId = useInteractionSelector(s => s.focusedToolId);
+  const streaming = useTuiStore(s => s.stats.streaming);
+  const pendingInputs = useTuiStore(s => s.interaction.pendingInputs);
+  const focusedToolId = useTuiStore(s => s.interaction.focusedToolId);
 
   const commandInputOpts = { commands, streaming, onSubmit };
   const {

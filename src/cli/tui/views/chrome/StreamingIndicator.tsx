@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Text } from 'ink';
-import { useStatsSelector } from '../../state/selectors';
+import { useTuiStore } from '../../state/store';
 
 const MS_PER_SECOND = 1000;
 const TICK_MS = 250;
@@ -9,9 +9,9 @@ const SECS_WIDTH = 3;
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 export function StreamingIndicator() {
-  const streaming = useStatsSelector(s => s.streaming);
-  const streamingStartTime = useStatsSelector(s => s.streamingStartTime);
-  const interrupted = useStatsSelector(s => s.interrupted);
+  const streaming = useTuiStore(s => s.stats.streaming);
+  const streamingStartTime = useTuiStore(s => s.stats.streamingStartTime);
+  const interrupted = useTuiStore(s => s.stats.interrupted);
 
   const [tick, setTick] = useState(0);
   useEffect(() => {

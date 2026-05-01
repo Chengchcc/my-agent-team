@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Text } from 'ink';
-import { useStatsSelector, useInteractionSelector } from '../../state/selectors';
+import { useTuiStore } from '../../state/store';
 
 const TOKENS_PER_K = 1000;
 const CTX_DANGER_PCT = 0.9;
@@ -11,12 +11,12 @@ const PCT_W = 3;
 const OUT_W = 5;
 
 export function Footer() {
-  const contextTokens = useStatsSelector(s => s.contextTokens);
-  const tokenLimit = useStatsSelector(s => s.tokenLimit);
-  const completionTokens = useStatsSelector(s => s.completionTokens);
-  const interrupted = useStatsSelector(s => s.interrupted);
-  const streaming = useStatsSelector(s => s.streaming);
-  const focusedToolId = useInteractionSelector(s => s.focusedToolId);
+  const contextTokens = useTuiStore(s => s.stats.contextTokens);
+  const tokenLimit = useTuiStore(s => s.stats.tokenLimit);
+  const completionTokens = useTuiStore(s => s.stats.completionTokens);
+  const interrupted = useTuiStore(s => s.stats.interrupted);
+  const streaming = useTuiStore(s => s.stats.streaming);
+  const focusedToolId = useTuiStore(s => s.interaction.focusedToolId);
 
   const contextPct = tokenLimit > 0 ? contextTokens / tokenLimit : 0;
   const ctxColor = contextPct > CTX_DANGER_PCT ? 'red' as const : contextPct > CTX_WARN_PCT ? 'yellow' as const : null;

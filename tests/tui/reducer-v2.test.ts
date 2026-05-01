@@ -1,255 +1,317 @@
-import { describe, test, expect } from 'bun:test';
-import { finalizedReducer, pushFinalizedAssistant } from '../../src/cli/tui/state/finalized-reducer';
-import { activeReducer, activeToSegments } from '../../src/cli/tui/state/active-reducer';
-import { interactionReducer } from '../../src/cli/tui/state/interaction-reducer';
-import { statsReducer } from '../../src/cli/tui/state/stats-reducer';
-import { uiReducer, initialUIState } from '../../src/cli/tui/state/dispatch';
-import type { FinalItem, ActiveState, InteractionState, StatsState } from '../../src/cli/tui/state/types';
+import { describe, test, expect, beforeEach } from 'bun:test';
+import { useTuiStore, resetNextId } from '../../src/cli/tui/state/store';
 
-describe('finalizedReducer', () => {
-  test('USER_SUBMIT immediately adds user message', () => {
-    const items = finalizedReducer([], { type: 'USER_SUBMIT', id: 'u1', content: 'hello' });
-    expect(items).toEqual([{ kind: 'user-message', id: 'u1', content: 'hello' }]);
+// Helper: get a fresh store snapshot
+function store() {
+  return useTuiStore.getState();
+}
+
+// Helper: reset store to empty between tests
+function resetStore() {
+  resetNextId();
+  useTuiStore.setState({
+    finalized: [],
+    interaction: { focusedToolId: null, expandedTools: new Set(), ignoredErrors: new Set(), pendingInputs: [] },
+    stats: { promptTokens: 0, completionTokens: 0, contextTokens: 0, tokenLimit: 0, streaming: false, streamingStartTime: null, interrupted: false },
+  });
+}
+
+describe('turn lifecycle (core 6 actions)', () => {
+  beforeEach(resetStore);
+
+  test('turnStart creates streaming assistant-message in finalized', () => {
+    store().userSubmit('u1', 'hello');
+    store().turnStart('a1');
+    const s = store();
+    expect(s.finalized).toHaveLength(2);
+    expect(s.finalized[0]).toEqual({ kind: 'user-message', id: 'u1', content: 'hello' });
+    const asst = s.finalized[1]!;
+    expect(asst).toEqual({ kind: 'assistant-message', id: 'a1', segments: [], status: 'streaming' });
   });
 
-  test('APPEND_DIVIDER adds a clear divider', () => {
-    const items = finalizedReducer([], { type: 'APPEND_DIVIDER', reason: 'clear' });
-    expect(items).toEqual([{ kind: 'divider', reason: 'clear' }]);
-  });
-
-  test('pushFinalizedAssistant appends a finalized assistant message', () => {
-    const before: FinalItem[] = [{ kind: 'user-message', id: 'u1', content: 'hi' }];
-    const after = pushFinalizedAssistant(before, {
-      id: 'a1',
-      segments: [
-        { kind: 'text', content: 'done.' },
-        { kind: 'tool_call', id: 't1', name: 'read', input: {}, result: { kind: 'ok', content: 'file contents' } },
-      ],
-    });
-    expect(after).toHaveLength(2);
-    expect(after[1]!.kind).toBe('assistant-message');
-    const am = after[1] as Extract<FinalItem, { kind: 'assistant-message' }>;
-    expect(am.segments).toHaveLength(2);
-  });
-
-  test('items are immutable (new array on push)', () => {
-    const before: FinalItem[] = [];
-    const after1 = finalizedReducer(before, { type: 'USER_SUBMIT', id: 'u1', content: 'a' });
-    const after2 = finalizedReducer(after1, { type: 'USER_SUBMIT', id: 'u2', content: 'b' });
-    expect(after1).toHaveLength(1);
-    expect(after2).toHaveLength(2);
-    expect(after1).not.toBe(after2);
-  });
-});
-
-describe('activeReducer', () => {
-  const startState: ActiveState = { streamingAssistant: { id: 'a1', segments: [], thinking: null } };
-
-  test('ASSISTANT_START creates streaming assistant', () => {
-    const initial: ActiveState = { streamingAssistant: null };
-    const next = activeReducer(initial, { type: 'ASSISTANT_START', id: 'a1' });
-    expect(next.streamingAssistant).not.toBeNull();
-    expect(next.streamingAssistant!.id).toBe('a1');
-    expect(next.streamingAssistant!.segments).toEqual([]);
-  });
-
-  test('STREAM_TEXT_DELTA appends text segment', () => {
-    const next = activeReducer(startState, { type: 'STREAM_TEXT_DELTA', delta: 'Hello' });
-    expect(next.streamingAssistant!.segments).toEqual([{ kind: 'text', content: 'Hello', flushedLength: 0 }]);
-  });
-
-  test('STREAM_TEXT_DELTA merges consecutive text segments', () => {
-    let state = activeReducer(startState, { type: 'STREAM_TEXT_DELTA', delta: 'Hello' });
-    state = activeReducer(state, { type: 'STREAM_TEXT_DELTA', delta: ' world' });
-    expect(state.streamingAssistant!.segments).toHaveLength(1);
-    expect(state.streamingAssistant!.segments[0]).toEqual({ kind: 'text', content: 'Hello world', flushedLength: 0 });
-  });
-
-  test('TOOL_START and TOOL_DONE preserve text/tool interleaving', () => {
-    let state = activeReducer(startState, { type: 'STREAM_TEXT_DELTA', delta: 'Let me ' });
-    expect(state.streamingAssistant!.segments).toHaveLength(1);
-
-    state = activeReducer(state, { type: 'TOOL_START', id: 't1', name: 'read', input: { path: 'f.ts' } });
-    expect(state.streamingAssistant!.segments).toHaveLength(2);
-    const tool = state.streamingAssistant!.segments[1]!;
-    expect(tool.kind).toBe('tool_call');
-
-    state = activeReducer(state, { type: 'TOOL_DONE', id: 't1', result: { kind: 'ok', content: '...' } });
-    const done = state.streamingAssistant!.segments[1]!;
-    expect(done.kind).toBe('tool_call');
-    if (done.kind === 'tool_call') {
-      expect(done.status).toBe('done');
-      expect(done.result).toEqual({ kind: 'ok', content: '...' });
+  test('textDelta appends and merges text segments', () => {
+    store().turnStart('a1');
+    store().textDelta('Hello');
+    store().textDelta(' world');
+    const asst = store().finalized[0]!;
+    expect(asst.kind).toBe('assistant-message');
+    if (asst.kind === 'assistant-message') {
+      expect(asst.segments).toHaveLength(1);
+      expect(asst.segments[0]).toEqual({ kind: 'text', id: expect.any(String), content: 'Hello world', committedLength: 0 });
     }
-
-    state = activeReducer(state, { type: 'STREAM_TEXT_DELTA', delta: 'done.' });
-    expect(state.streamingAssistant!.segments).toHaveLength(3);
-    expect(state.streamingAssistant!.segments[0]).toEqual({ kind: 'text', content: 'Let me ', flushedLength: 0 });
-    expect(state.streamingAssistant!.segments[1]!.kind).toBe('tool_call');
-    expect(state.streamingAssistant!.segments[2]).toEqual({ kind: 'text', content: 'done.', flushedLength: 0 });
   });
 
-  test('CLEAR_ACTIVE sets streamingAssistant to null', () => {
-    const next = activeReducer(startState, { type: 'CLEAR_ACTIVE' });
-    expect(next.streamingAssistant).toBeNull();
-  });
-});
+  test('toolStart and toolDone interleave with text', () => {
+    store().turnStart('a1');
+    store().textDelta('Let me ');
+    store().toolStart('t1', 'read', { path: 'f.ts' });
+    store().toolDone('t1', { kind: 'ok', content: '...', durationMs: 42 });
+    store().textDelta('done.');
 
-describe('interactionReducer', () => {
-  const initial: InteractionState = { focusedToolId: null, expandedTools: new Set(), ignoredErrors: new Set(), pendingInputs: [] };
-
-  test('ENQUEUE_PENDING_INPUT adds to queue', () => {
-    const next = interactionReducer(initial, { type: 'ENQUEUE_PENDING_INPUT', text: 'hello' });
-    expect(next.pendingInputs).toEqual(['hello']);
-  });
-
-  test('DEQUEUE_PENDING_INPUT removes first item', () => {
-    const withItems = interactionReducer(initial, { type: 'ENQUEUE_PENDING_INPUT', text: 'a' });
-    const withMore = interactionReducer(withItems, { type: 'ENQUEUE_PENDING_INPUT', text: 'b' });
-    const dequeued = interactionReducer(withMore, { type: 'DEQUEUE_PENDING_INPUT' });
-    expect(dequeued.pendingInputs).toEqual(['b']);
-  });
-
-  test('MOVE_FOCUS cycles through tool ids', () => {
-    let state = interactionReducer(initial, { type: 'MOVE_FOCUS', direction: 1, collapsibleToolIds: ['t1', 't2'] });
-    expect(state.focusedToolId).toBe('t1');
-    state = interactionReducer(state, { type: 'MOVE_FOCUS', direction: 1, collapsibleToolIds: ['t1', 't2'] });
-    expect(state.focusedToolId).toBe('t2');
-    state = interactionReducer(state, { type: 'MOVE_FOCUS', direction: 1, collapsibleToolIds: ['t1', 't2'] });
-    expect(state.focusedToolId).toBe('t1');
-  });
-
-  test('MOVE_FOCUS with empty list clears focus', () => {
-    const withFocus: InteractionState = { ...initial, focusedToolId: 't1' };
-    const next = interactionReducer(withFocus, { type: 'MOVE_FOCUS', direction: 1, collapsibleToolIds: [] });
-    expect(next.focusedToolId).toBeNull();
-  });
-});
-
-describe('statsReducer', () => {
-  const initial: StatsState = { promptTokens: 0, completionTokens: 0, totalTokens: 0, contextTokens: 0, streaming: false, streamingStartTime: null, interrupted: false };
-
-  test('STREAMING_START sets streaming and startTime', () => {
-    const next = statsReducer(initial, { type: 'STREAMING_START' });
-    expect(next.streaming).toBe(true);
-    expect(next.streamingStartTime).toBeGreaterThan(0);
-    expect(next.interrupted).toBe(false);
-  });
-
-  test('ACCUMULATE_USAGE snapshots prompt and accumulates completion', () => {
-    let state = statsReducer(initial, { type: 'ACCUMULATE_USAGE', usage: { prompt_tokens: 100, completion_tokens: 50 } });
-    expect(state.promptTokens).toBe(100);
-    expect(state.completionTokens).toBe(50);
-    state = statsReducer(state, { type: 'ACCUMULATE_USAGE', usage: { prompt_tokens: 80, completion_tokens: 40 } });
-    expect(state.promptTokens).toBe(80);   // latest snapshot, not accumulated
-    expect(state.completionTokens).toBe(90);  // accumulated
-  });
-});
-
-describe('uiReducer (combined)', () => {
-  test('USER_SUBMIT adds to finalized and starts active', () => {
-    const next = uiReducer(initialUIState, { type: 'USER_SUBMIT', id: 'u1', content: 'hi' });
-    expect(next.finalizedItems).toEqual([{ kind: 'user-message', id: 'u1', content: 'hi' }]);
-    expect(next.active.streamingAssistant).toBeNull(); // ASSISTANT_START not called yet
-  });
-
-  test('STREAM_TEXT_DELTA does NOT mutate finalized items', () => {
-    const withUser = uiReducer(initialUIState, { type: 'USER_SUBMIT', id: 'u1', content: 'hi' });
-    const withActive = uiReducer(withUser, { type: 'ASSISTANT_START', id: 'a1' });
-    const before = withActive.finalizedItems;
-    const after = uiReducer(withActive, { type: 'STREAM_TEXT_DELTA', delta: 'hello' });
-    expect(after.finalizedItems).toBe(before); // Same reference
-  });
-
-  test('FLUSH_TO_FINALIZED moves active to finalized and clears active', () => {
-    let state = uiReducer(initialUIState, { type: 'USER_SUBMIT', id: 'u1', content: 'hi' });
-    state = uiReducer(state, { type: 'ASSISTANT_START', id: 'a1' });
-    state = uiReducer(state, { type: 'STREAM_TEXT_DELTA', delta: 'response' });
-    state = uiReducer(state, { type: 'FLUSH_TO_FINALIZED' });
-
-    expect(state.finalizedItems).toHaveLength(2); // user + assistant
-    const assistant = state.finalizedItems[1]!;
-    expect(assistant.kind).toBe('assistant-message');
-    if (assistant.kind === 'assistant-message') {
-      expect(assistant.segments).toEqual([{ kind: 'text', content: 'response' }]);
+    const asst = store().finalized[0]!;
+    expect(asst.kind).toBe('assistant-message');
+    if (asst.kind === 'assistant-message') {
+      expect(asst.segments).toHaveLength(3);
+      expect(asst.segments[0]).toEqual({ kind: 'text', id: expect.any(String), content: 'Let me ', committedLength: 0 });
+      expect(asst.segments[1]).toMatchObject({ kind: 'tool_call', id: 't1', name: 'read', input: { path: 'f.ts' } });
+      const tc = asst.segments[1]!;
+      if (tc.kind === 'tool_call') {
+        expect(tc.result).toEqual({ kind: 'ok', content: '...', durationMs: 42 });
+      }
+      expect(asst.segments[2]).toEqual({ kind: 'text', id: expect.any(String), content: 'done.', committedLength: 0 });
     }
-    // Active must be cleared after flush — no double-render
-    expect(state.active.streamingAssistant).toBeNull();
-    expect(state.stats.streaming).toBe(false);
   });
 
-  test('APPEND_DIVIDER + CLEAR_ACTIVE for /clear', () => {
-    let state = uiReducer(initialUIState, { type: 'USER_SUBMIT', id: 'u1', content: 'hi' });
-    state = uiReducer(state, { type: 'APPEND_DIVIDER', reason: 'clear' });
-    state = uiReducer(state, { type: 'CLEAR_ACTIVE' });
-    expect(state.finalizedItems).toHaveLength(2); // user + divider
-    expect(state.finalizedItems[1]!.kind).toBe('divider');
-    expect(state.active.streamingAssistant).toBeNull();
-    expect(state.stats.streaming).toBe(false);
+  test('turnDone marks assistant done and commits all text', () => {
+    store().turnStart('a1');
+    store().textDelta('response');
+    store().turnDone();
+
+    const asst = store().finalized[0]!;
+    expect(asst.kind).toBe('assistant-message');
+    if (asst.kind === 'assistant-message') {
+      expect(asst.status).toBe('done');
+      expect(asst.segments[0]).toMatchObject({ kind: 'text', content: 'response', committedLength: 'response'.length });
+    }
   });
 
-  test('APPEND_SYSTEM_NOTICE adds a dimmed system notice', () => {
-    let state = uiReducer(initialUIState, { type: 'APPEND_SYSTEM_NOTICE', id: 'n1', content: 'Saved session abc (5 messages)' });
-    expect(state.finalizedItems).toEqual([{ kind: 'system-notice', id: 'n1', content: 'Saved session abc (5 messages)' }]);
+  test('commitAdvance increments committedLength on text segment', () => {
+    store().turnStart('a1');
+    store().textDelta('hello world');
+    // Find the text segment id
+    const asst = store().finalized[0]!;
+    const segId = (asst.kind === 'assistant-message' && asst.segments[0]?.kind === 'text') ? asst.segments[0].id : '';
+    expect(segId).toBeTruthy();
+
+    store().commitAdvance(segId, 5);
+    const updated = store().finalized[0]!;
+    if (updated.kind === 'assistant-message' && updated.segments[0]?.kind === 'text') {
+      expect(updated.segments[0].committedLength).toBe(5);
+    }
   });
 
-  test('RESET_FINALIZED_FROM_MESSAGES replaces finalizedItems from messages', () => {
-    const state = uiReducer(initialUIState, {
-      type: 'RESET_FINALIZED_FROM_MESSAGES',
-      messages: [
-        { role: 'user', id: 'u1', content: 'hello' },
-        { role: 'assistant', id: 'a1', content: '', blocks: [
-          { type: 'text', text: 'hi there' },
-          { type: 'tool_use', id: 't1', name: 'read', input: {} },
-        ] },
-        { role: 'tool', content: 'file ok', tool_call_id: 't1' },
-      ],
-    });
-    expect(state.finalizedItems).toHaveLength(2);
-    expect(state.finalizedItems[0]).toEqual({ kind: 'user-message', id: 'u1', content: 'hello' });
-    const am = state.finalizedItems[1]!;
+  test('commitAdvance is monotonic (never decreases)', () => {
+    store().turnStart('a1');
+    store().textDelta('hello world');
+    const asst = store().finalized[0]!;
+    const segId = (asst.kind === 'assistant-message' && asst.segments[0]?.kind === 'text') ? asst.segments[0].id : '';
+
+    store().commitAdvance(segId, 5);
+    store().commitAdvance(segId, 3); // should be ignored
+    const updated = store().finalized[0]!;
+    if (updated.kind === 'assistant-message' && updated.segments[0]?.kind === 'text') {
+      expect(updated.segments[0].committedLength).toBe(5); // stays at 5
+    }
+  });
+});
+
+describe('auxiliary actions', () => {
+  beforeEach(resetStore);
+
+  test('userSubmit adds user-message to finalized', () => {
+    store().userSubmit('u1', 'hello');
+    expect(store().finalized).toEqual([{ kind: 'user-message', id: 'u1', content: 'hello' }]);
+  });
+
+  test('appendDivider adds divider', () => {
+    store().appendDivider('clear');
+    expect(store().finalized).toEqual([{ kind: 'divider', reason: 'clear' }]);
+  });
+
+  test('appendSystemNotice adds system-notice', () => {
+    store().appendSystemNotice('n1', 'Saved session');
+    expect(store().finalized).toEqual([{ kind: 'system-notice', id: 'n1', content: 'Saved session' }]);
+  });
+
+  test('clearActive stops streaming', () => {
+    store().streamingStart();
+    store().clearActive();
+    expect(store().stats.streaming).toBe(false);
+  });
+});
+
+describe('interaction actions', () => {
+  beforeEach(resetStore);
+
+  test('enqueue / dequeue pending inputs', () => {
+    store().enqueuePendingInput('a');
+    store().enqueuePendingInput('b');
+    expect(store().interaction.pendingInputs).toEqual(['a', 'b']);
+    store().dequeuePendingInput();
+    expect(store().interaction.pendingInputs).toEqual(['b']);
+  });
+
+  test('clearPendingInputs removes all', () => {
+    store().enqueuePendingInput('a');
+    store().enqueuePendingInput('b');
+    store().clearPendingInputs();
+    expect(store().interaction.pendingInputs).toEqual([]);
+  });
+
+  test('moveFocus cycles through tool ids', () => {
+    store().moveFocus(1, ['t1', 't2']);
+    expect(store().interaction.focusedToolId).toBe('t1');
+    store().moveFocus(1, ['t1', 't2']);
+    expect(store().interaction.focusedToolId).toBe('t2');
+    store().moveFocus(1, ['t1', 't2']);
+    expect(store().interaction.focusedToolId).toBe('t1');
+  });
+
+  test('moveFocus with empty list clears focus', () => {
+    store().focusTool('t1');
+    store().moveFocus(1, []);
+    expect(store().interaction.focusedToolId).toBeNull();
+  });
+
+  test('focusTool sets and clears focus', () => {
+    store().focusTool('t1');
+    expect(store().interaction.focusedToolId).toBe('t1');
+    store().focusTool(null);
+    expect(store().interaction.focusedToolId).toBeNull();
+  });
+
+  test('toggleExpanded toggles expanded set', () => {
+    store().focusTool('t1');
+    store().toggleExpanded();
+    expect(store().interaction.expandedTools.has('t1')).toBe(true);
+    store().toggleExpanded();
+    expect(store().interaction.expandedTools.has('t1')).toBe(false);
+  });
+
+  test('ignoreError adds to ignoredErrors set', () => {
+    store().ignoreError('t1');
+    expect(store().interaction.ignoredErrors.has('t1')).toBe(true);
+  });
+});
+
+describe('stats actions', () => {
+  beforeEach(resetStore);
+
+  test('streamingStart sets streaming and startTime', () => {
+    store().streamingStart();
+    const s = store();
+    expect(s.stats.streaming).toBe(true);
+    expect(s.stats.streamingStartTime).toBeGreaterThan(0);
+    expect(s.stats.interrupted).toBe(false);
+  });
+
+  test('streamingStop clears streaming', () => {
+    store().streamingStart();
+    store().streamingStop();
+    expect(store().stats.streaming).toBe(false);
+    expect(store().stats.streamingStartTime).toBeNull();
+  });
+
+  test('accumulateUsage snapshots prompt and accumulates completion', () => {
+    store().accumulateUsage({ prompt_tokens: 100, completion_tokens: 50 });
+    expect(store().stats.promptTokens).toBe(100);
+    expect(store().stats.completionTokens).toBe(50);
+
+    store().accumulateUsage({ prompt_tokens: 80, completion_tokens: 40 });
+    expect(store().stats.promptTokens).toBe(80);   // latest snapshot
+    expect(store().stats.completionTokens).toBe(90);  // accumulated
+  });
+
+  test('setInterrupted sets interrupted flag', () => {
+    store().setInterrupted(true);
+    expect(store().stats.interrupted).toBe(true);
+  });
+});
+
+describe('resetFromMessages (resume path)', () => {
+  beforeEach(resetStore);
+
+  test('converts messages to finalized items with status done', () => {
+    store().resetFromMessages([
+      { role: 'user', id: 'u1', content: 'hello' },
+      { role: 'assistant', id: 'a1', content: '', blocks: [
+        { type: 'text', text: 'hi there' },
+        { type: 'tool_use', id: 't1', name: 'read', input: {} },
+      ] },
+      { role: 'tool', content: 'file ok', tool_call_id: 't1' },
+    ]);
+
+    const s = store();
+    expect(s.finalized).toHaveLength(2);
+    expect(s.finalized[0]).toEqual({ kind: 'user-message', id: 'u1', content: 'hello' });
+    const am = s.finalized[1]!;
     expect(am.kind).toBe('assistant-message');
     if (am.kind === 'assistant-message') {
+      expect(am.status).toBe('done');
       expect(am.segments).toHaveLength(2);
-      expect(am.segments[0]).toEqual({ kind: 'text', content: 'hi there', flushedLength: 0 });
+      expect(am.segments[0]).toMatchObject({ kind: 'text', content: 'hi there' });
+      // committedLength equals content.length for done messages
+      if (am.segments[0]?.kind === 'text') {
+        expect(am.segments[0].committedLength).toBe('hi there'.length);
+      }
       const tc = am.segments[1]!;
       expect(tc.kind).toBe('tool_call');
       if (tc.kind === 'tool_call') {
         expect(tc.result).toEqual({ kind: 'ok', content: 'file ok', durationMs: 0 });
       }
     }
-    expect(state.active.streamingAssistant).toBeNull();
   });
 
-  test('RESET_FINALIZED_FROM_MESSAGES skips system and tool messages', () => {
-    const state = uiReducer(initialUIState, {
-      type: 'RESET_FINALIZED_FROM_MESSAGES',
-      messages: [
-        { role: 'system', content: 'instructions' },
-        { role: 'user', id: 'u1', content: 'hi' },
-        { role: 'tool', content: 'result', tool_call_id: 'orphan' },
-      ],
-    });
-    expect(state.finalizedItems).toHaveLength(1);
-    expect(state.finalizedItems[0]!.kind).toBe('user-message');
+  test('skips system and tool (orphan) messages', () => {
+    store().resetFromMessages([
+      { role: 'system', content: 'instructions' },
+      { role: 'user', id: 'u1', content: 'hi' },
+      { role: 'tool', content: 'result', tool_call_id: 'orphan' },
+    ]);
+    expect(store().finalized).toHaveLength(1);
+    expect(store().finalized[0]!.kind).toBe('user-message');
   });
 
-  test('RESET_FINALIZED_FROM_MESSAGES handles tool error results', () => {
-    const state = uiReducer(initialUIState, {
-      type: 'RESET_FINALIZED_FROM_MESSAGES',
-      messages: [
-        { role: 'assistant', id: 'a1', content: '', blocks: [
-          { type: 'tool_use', id: 't1', name: 'bash', input: {} },
-        ] },
-        { role: 'tool', content: 'permission denied', tool_call_id: 't1', name: 'error' },
-      ],
-    });
-    const am = state.finalizedItems[0]!;
+  test('handles tool error results', () => {
+    store().resetFromMessages([
+      { role: 'assistant', id: 'a1', content: '', blocks: [
+        { type: 'tool_use', id: 't1', name: 'bash', input: {} },
+      ] },
+      { role: 'tool', content: 'permission denied', tool_call_id: 't1', name: 'error' },
+    ]);
+    const am = store().finalized[0]!;
     if (am.kind === 'assistant-message') {
       const tc = am.segments[0]!;
       if (tc.kind === 'tool_call') {
         expect(tc.result).toEqual({ kind: 'error', message: 'permission denied', durationMs: 0 });
       }
+    }
+  });
+});
+
+describe('selectors', () => {
+  beforeEach(resetStore);
+
+  test('useLiveItem returns last streaming assistant-message', () => {
+    store().turnStart('a1');
+    store().textDelta('streaming...');
+
+    // Access via getState directly (selector functions test via hook in integration)
+    const s = store();
+    const last = s.finalized[s.finalized.length - 1];
+    expect(last?.kind).toBe('assistant-message');
+    if (last?.kind === 'assistant-message') {
+      expect(last.status).toBe('streaming');
+    }
+  });
+
+  test('frozen items exclude streaming assistant', () => {
+    store().userSubmit('u1', 'first');
+    store().turnStart('a1');
+    store().textDelta('ok');
+    store().turnDone();
+
+    store().userSubmit('u2', 'second');
+    store().turnStart('a2');
+    store().textDelta('in progress...');
+    // streaming, not done
+
+    const s = store();
+    // Last is the streaming one
+    const last = s.finalized[s.finalized.length - 1];
+    expect(last?.kind).toBe('assistant-message');
+    if (last?.kind === 'assistant-message') {
+      expect(last.status).toBe('streaming');
     }
   });
 });

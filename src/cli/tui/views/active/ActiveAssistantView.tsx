@@ -3,9 +3,13 @@ import { Box, Text } from 'ink';
 import { MarkdownStreamText } from './MarkdownStreamText';
 import { formatToolCallTitle } from '../../../tui/utils/tool-format';
 import type { ToolCall } from '../../../../types';
-import type { ActiveState, ActiveSegment } from '../../state/types';
 
-type StreamingAssistant = NonNullable<ActiveState['streamingAssistant']>;
+// Local types matching the compatibility adapter in App.tsx
+interface CompatTextSeg { kind: 'text'; content: string; flushedLength: number }
+interface CompatToolSeg { kind: 'tool_call'; id: string; name: string; input: unknown; result: { kind: 'ok'; content: string; durationMs: number } | { kind: 'error'; message: string; durationMs: number } | null; status: 'running' | 'done' | 'error' }
+type CompatSeg = CompatTextSeg | CompatToolSeg;
+
+type StreamingAssistant = { id: string; segments: CompatSeg[]; thinking: string | null };
 
 const THINKING_TRUNCATION = 100;
 
@@ -27,7 +31,7 @@ export function ActiveAssistantView({ assistant, onCommitChunk }: ActiveAssistan
             <Text dimColor>{'  '}{truncate(assistant.thinking, THINKING_TRUNCATION)}</Text>
           </Box>
         ) : null}
-        {assistant.segments.map((seg: ActiveSegment, i: number) => {
+        {assistant.segments.map((seg, i) => {
           if (seg.kind === 'text') {
             return <MarkdownStreamText
               key={i}
@@ -49,7 +53,7 @@ function getToolCallTitle(name: string, input: unknown): string {
   return formatToolCallTitle({ id: '', name, arguments: args } satisfies ToolCall);
 }
 
-const ActiveToolCallSegment = React.memo(function ActiveToolCallSegment({ seg }: { seg: ActiveSegment & { kind: 'tool_call' } }) {
+const ActiveToolCallSegment = React.memo(function ActiveToolCallSegment({ seg }: { seg: CompatToolSeg }) {
   const title = getToolCallTitle(seg.name, seg.input);
   return (
     <Box paddingX={1}>

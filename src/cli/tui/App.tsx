@@ -1,12 +1,6 @@
-import React, { useReducer, useMemo, useCallback, useRef, useState, useEffect } from 'react';
-import { Box, Static, useInput } from 'ink';
-import { uiReducer, initialUIState } from './state/dispatch';
-import {
-  FinalizedContext,
-  ActiveContext,
-  InteractionContext,
-  StatsContext,
-} from './state/selectors';
+import React, { useMemo, useCallback, useRef, useEffect } from 'react';
+import { Box, Static } from 'ink';
+import { useTuiStore, useFinalized, useLiveItem, useStreaming } from './state/store';
 import { FinalItemView } from './views/final/FinalItemView';
 import { ActiveAssistantView } from './views/active/ActiveAssistantView';
 import { FocusedToolDetail } from './views/overlay/FocusedToolDetail';
@@ -21,12 +15,9 @@ import { AskUserQuestionPrompt } from './views/overlay/AskUserQuestionPrompt';
 import { PermissionPrompt } from './views/overlay/PermissionPrompt';
 import type { PromptSubmission, SlashCommand } from './command-registry';
 import type { CommandHandlerContext } from './types';
-import type { UIAction } from './state/types';
 import type { Agent } from '../../agent';
 import type { SessionStore } from '../../session/store';
-import type { ActiveState, FinalItem } from './state/types';
-import type { AskUserQuestionRequest, AskUserQuestionResult } from '../../tools';
-import type { PermissionRequest, PermissionResponse } from '../../tools';
+import type { FinalItem } from './state/types';
 
 interface AppProps {
   agent: Agent;
@@ -34,14 +25,13 @@ interface AppProps {
   skillCommands: SlashCommand[];
 }
 
-function finalItemKey(item: { kind: string; id?: string; reason?: string }): string {
+function finalItemKey(item: FinalItem): string {
   if (item.kind === 'banner') return 'banner';
-  if (item.kind === 'divider') return `divider-${item.reason ?? 'unknown'}`;
+  if (item.kind === 'divider') return `divider-${item.reason}`;
   return item.id ?? 'unknown';
 }
 
 function buildV2CommandContext(
-  dispatch: React.MutableRefObject<React.Dispatch<UIAction>>,
   agent: Agent,
   sessionStore: SessionStore,
   noticIdx: React.MutableRefObject<number>,
@@ -51,51 +41,54 @@ function buildV2CommandContext(
     agent,
     sessionStore,
     args,
-    onOutput: (content) => dispatch.current({
-      type: 'APPEND_SYSTEM_NOTICE',
-      id: `notice-${noticIdx.current++}`,
-      content,
-    }),
+    onOutput: (content) => useTuiStore.getState().appendSystemNotice(`notice-${noticIdx.current++}`, content),
     refreshMessages: () => {
       const cm = agent.getContextManager?.();
       const msgs = cm?.getMessages?.() ?? [];
-      dispatch.current({ type: 'RESET_FINALIZED_FROM_MESSAGES', messages: msgs });
-      dispatch.current({ type: 'SET_CONTEXT_TOKENS', tokens: cm?.getCurrentTokens() ?? 0 });
+      useTuiStore.getState().resetFromMessages(msgs);
+      useTuiStore.getState().setContextTokens(cm?.getCurrentTokens() ?? 0);
     },
   };
 }
 
-export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
-  const [state, dispatch] = useReducer(uiReducer, initialUIState);
-  const dispatchRef = useRef(dispatch);
-  dispatchRef.current = dispatch;
+function getFocusableToolIds(): string[] {
+  const s = useTuiStore.getState();
+  const ids: string[] = [];
+  // Check the live item first
+  const live = s.finalized[s.finalized.length - 1];
+  if (live?.kind === 'assistant-message') {
+    for (const seg of live.segments) {
+      if (seg.kind === 'tool_call') ids.push(seg.id);
+    }
+  }
+  // Then check the last done assistant-message
+  for (let i = s.finalized.length - 1; i >= 0; i--) {
+    const item = s.finalized[i]!;
+    if (item.kind === 'assistant-message' && item.status === 'done') {
+      for (const seg of item.segments) {
+        if (seg.kind === 'tool_call') ids.push(seg.id);
+      }
+      break;
+    }
+  }
+  return ids;
+}
 
-  const chunkIdx = useRef(0);
+export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
   const noticIdx = useRef(0);
-  const handleCommitStreamingChunk = useCallback(
-    (chunk: string) => dispatchRef.current({ type: 'APPEND_STREAMING_CHUNK', id: `c-${chunkIdx.current++}`, content: chunk }),
-    [],
-  );
+  const pendingRef = useRef<string[]>([]);
 
   const { submit, abort } = useAgentSubscription(agent);
   const { askUserQuestionRequest, respondWithAnswers } = useAskUserQuestionManager();
   const { permissionRequest, respondToPermission } = usePermissionManager();
 
-  const stateRef = useRef(state);
-  stateRef.current = state;
-
-  const streamingRef = useRef(state.stats.streaming);
-  streamingRef.current = state.stats.streaming;
-
-  // Pending input queue — ref for actual data, dispatch for UI
-  const pendingRef = useRef<string[]>([]);
+  const streaming = useStreaming();
 
   const handleSubmit = useCallback(
     async (submission: PromptSubmission) => {
-      // During streaming, enqueue as pending
-      if (streamingRef.current) {
+      if (streaming) {
         pendingRef.current.push(submission.text);
-        dispatchRef.current({ type: 'ENQUEUE_PENDING_INPUT', text: submission.text });
+        useTuiStore.getState().enqueuePendingInput(submission.text);
         return;
       }
 
@@ -103,15 +96,14 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
 
       if (text === '/clear' || text === '/cls') {
         agent.clear?.();
-        dispatchRef.current({ type: 'APPEND_DIVIDER', reason: 'clear' });
-        dispatchRef.current({ type: 'CLEAR_ACTIVE' });
+        useTuiStore.getState().appendDivider('clear');
+        useTuiStore.getState().clearActive();
         return;
       }
       if (text === '/compact') {
-        dispatchRef.current({ type: 'APPEND_DIVIDER', reason: 'compact' });
+        useTuiStore.getState().appendDivider('compact');
         const contextManager = agent.getContextManager?.();
         if (contextManager) {
-          // Fire-and-forget — compaction can be slow (LLM summarisation)
           contextManager.forceCompact().catch(() => {});
         }
         return;
@@ -129,7 +121,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
           const builtinCommands = getBuiltinCommands(sessionStore);
           const matched = builtinCommands.find(c => c.name.toLowerCase() === commandName && c.handler);
           if (matched) {
-            await matched.handler!(buildV2CommandContext(dispatchRef, agent, sessionStore, noticIdx, args));
+            await matched.handler!(buildV2CommandContext(agent, sessionStore, noticIdx, args));
             return;
           }
         }
@@ -139,50 +131,43 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
         ? `Please use the "${submission.requestedSkillName}" skill for this request. ${submission.text}`
         : submission.text;
 
-      await submit(messageText, dispatchRef.current);
+      await submit(messageText);
 
-      // Drain pending input queue — snapshot to prevent concurrent
-      // modification if new inputs are enqueued during drain.
       while (pendingRef.current.length > 0) {
         const pending = [...pendingRef.current];
         pendingRef.current = [];
         for (const next of pending) {
-          dispatchRef.current({ type: 'DEQUEUE_PENDING_INPUT' });
-          await submit(next, dispatchRef.current);
+          useTuiStore.getState().dequeuePendingInput();
+          await submit(next);
         }
       }
     },
-    [submit, agent, sessionStore],
+    [submit, agent, sessionStore, streaming],
   );
 
   const handleAbort = useCallback(() => {
     abort();
-    dispatchRef.current({ type: 'SET_INTERRUPTED', interrupted: true });
+    useTuiStore.getState().setInterrupted(true);
   }, [abort]);
 
   const handleFocusPrev = useCallback(() => {
-    const toolIds = getFocusableToolIds(stateRef.current);
-    dispatchRef.current({ type: 'MOVE_FOCUS', direction: -1, collapsibleToolIds: toolIds });
+    const toolIds = getFocusableToolIds();
+    useTuiStore.getState().moveFocus(-1, toolIds);
   }, []);
 
   const handleFocusNext = useCallback(() => {
-    const toolIds = getFocusableToolIds(stateRef.current);
-    dispatchRef.current({ type: 'MOVE_FOCUS', direction: 1, collapsibleToolIds: toolIds });
+    const toolIds = getFocusableToolIds();
+    useTuiStore.getState().moveFocus(1, toolIds);
   }, []);
 
   const handleToggleExpand = useCallback(() => {
-    dispatchRef.current({ type: 'TOGGLE_EXPANDED' });
+    useTuiStore.getState().toggleExpanded();
   }, []);
 
   const handleClearPending = useCallback(() => {
     pendingRef.current = [];
-    dispatchRef.current({ type: 'CLEAR_PENDING_INPUTS' });
+    useTuiStore.getState().clearPendingInputs();
   }, []);
-
-  const [, toggleThinking] = useState(true);
-  const handleToggleThinking = useCallback(() => toggleThinking(prev => !prev), []);
-  const [, toggleDebug] = useState(false);
-  const handleToggleDebug = useCallback(() => toggleDebug(prev => !prev), []);
 
   const callbacks: InputBoxCallbacks = useMemo(
     () => ({
@@ -190,121 +175,31 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
       onFocusNext: handleFocusNext,
       onToggleExpand: handleToggleExpand,
       onClearPending: handleClearPending,
-      onToggleThinking: handleToggleThinking,
-      onToggleDebug: handleToggleDebug,
     }),
-    [handleFocusPrev, handleFocusNext, handleToggleExpand, handleClearPending, handleToggleThinking, handleToggleDebug],
+    [handleFocusPrev, handleFocusNext, handleToggleExpand, handleClearPending],
   );
 
   // Initialize context token tracking
   useEffect(() => {
     const cm = agent.getContextManager?.();
     if (!cm) return;
-    dispatchRef.current({ type: 'SET_TOKEN_LIMIT', limit: cm.getTokenLimit() });
-    dispatchRef.current({ type: 'SET_CONTEXT_TOKENS', tokens: cm.getCurrentTokens() });
+    useTuiStore.getState().setTokenLimit(cm.getTokenLimit());
+    useTuiStore.getState().setContextTokens(cm.getCurrentTokens());
   }, [agent]);
 
   const allCommands = useMemo(() => [...getBuiltinCommands(sessionStore), ...skillCommands], [sessionStore, skillCommands]);
 
-  const itemsWithBanner = useMemo(() => [
-    { kind: 'banner' as const, model: agent.getModelName(), sessionId: sessionStore.getSessionId() },
-    ...state.finalizedItems,
-  ], [state.finalizedItems, agent, sessionStore]);
+  const banner: FinalItem = useMemo(
+    () => ({ kind: 'banner' as const, model: agent.getModelName(), sessionId: sessionStore.getSessionId() }),
+    [agent, sessionStore],
+  );
+
+  const finalized = useFinalized();
+  const liveItem = useLiveItem();
+
+  const itemsWithBanner = useMemo(() => [banner, ...finalized], [banner, finalized]);
 
   const showPrompt = askUserQuestionRequest != null || permissionRequest != null;
-
-  return (
-    <FinalizedContext.Provider value={itemsWithBanner}>
-      <ActiveContext.Provider value={state.active}>
-        <InteractionContext.Provider value={state.interaction}>
-          <StatsContext.Provider value={state.stats}>
-            <AppLayout
-              itemsWithBanner={itemsWithBanner}
-              active={state.active}
-              showPrompt={showPrompt}
-              askUserQuestionRequest={askUserQuestionRequest}
-              permissionRequest={permissionRequest}
-              respondWithAnswers={respondWithAnswers}
-              respondToPermission={respondToPermission}
-              allCommands={allCommands}
-              handleSubmit={(s) => { void handleSubmit(s); }}
-              handleAbort={handleAbort}
-              callbacks={callbacks}
-              onCommitStreamingChunk={handleCommitStreamingChunk}
-            />
-          </StatsContext.Provider>
-        </InteractionContext.Provider>
-      </ActiveContext.Provider>
-    </FinalizedContext.Provider>
-  );
-}
-
-function getFocusableToolIds(state: ReturnType<typeof uiReducer>): string[] {
-  const ids: string[] = [];
-  if (state.active.streamingAssistant) {
-    for (const seg of state.active.streamingAssistant.segments) {
-      if (seg.kind === 'tool_call') ids.push(seg.id);
-    }
-  }
-  for (let i = state.finalizedItems.length - 1; i >= 0; i--) {
-    const item = state.finalizedItems[i]!;
-    if (item.kind === 'assistant-message') {
-      for (const seg of item.segments) {
-        if (seg.kind === 'tool_call') ids.push(seg.id);
-      }
-      break;
-    }
-  }
-  return ids;
-}
-
-// ── Inner layout (separated to keep AppV2 under the 150-line limit) ──
-
-interface AppLayoutProps {
-  itemsWithBanner: FinalItem[];
-  active: ActiveState;
-  showPrompt: boolean;
-  askUserQuestionRequest: AskUserQuestionRequest | null;
-  permissionRequest: PermissionRequest | null;
-  respondWithAnswers: (result: AskUserQuestionResult) => void;
-  respondToPermission: (response: PermissionResponse) => void;
-  allCommands: SlashCommand[];
-  handleSubmit: (submission: PromptSubmission) => void;
-  handleAbort: () => void;
-  callbacks: InputBoxCallbacks;
-  onCommitStreamingChunk?: (chunk: string) => void;
-}
-
-function AppLayout({
-  itemsWithBanner,
-  active,
-  showPrompt,
-  askUserQuestionRequest,
-  permissionRequest,
-  respondWithAnswers,
-  respondToPermission,
-  allCommands,
-  handleSubmit,
-  handleAbort,
-  callbacks,
-  onCommitStreamingChunk,
-}: AppLayoutProps) {
-  // Global keyboard shortcuts active when InputBox is hidden (permission / ask-question prompts).
-  // PermissionPrompt handles y/a/n via its own useInput.
-  useInput((_input, key) => {
-    if (key.escape) {
-      handleAbort();
-      return;
-    }
-    if (key.upArrow && key.ctrl) {
-      callbacks.onFocusPrev?.();
-      return;
-    }
-    if (key.downArrow && key.ctrl) {
-      callbacks.onFocusNext?.();
-      return;
-    }
-  }, { isActive: showPrompt });
 
   return (
     <Box flexDirection="column">
@@ -312,14 +207,26 @@ function AppLayout({
         {(item) => <FinalItemView key={finalItemKey(item)} item={item} />}
       </Static>
       <Box flexDirection="column">
-        {active.streamingAssistant != null && (
+        {liveItem != null && liveItem.kind === 'assistant-message' && (
           <ActiveAssistantView
-            assistant={active.streamingAssistant}
-            {...(onCommitStreamingChunk !== undefined ? { onCommitChunk: onCommitStreamingChunk } : {})}
+            assistant={toActiveAssistant(liveItem)}
+            onCommitChunk={(chunk) => {
+              const segs = liveItem.segments;
+              for (let i = segs.length - 1; i >= 0; i--) {
+                const seg = segs[i]!;
+                if (seg.kind === 'text') {
+                  const newLen = seg.committedLength + chunk.length;
+                  if (newLen <= seg.content.length) {
+                    useTuiStore.getState().commitAdvance(seg.id, newLen);
+                  }
+                  break;
+                }
+              }
+            }}
           />
         )}
         <StreamingIndicator />
-        <FocusedToolDetail finalizedItems={itemsWithBanner} active={active} />
+        <FocusedToolDetail finalizedItems={itemsWithBanner} />
         {askUserQuestionRequest != null && (
           <AskUserQuestionPrompt
             questions={askUserQuestionRequest.params.questions}
@@ -335,9 +242,7 @@ function AppLayout({
         {!showPrompt && (
           <InputBox
             commands={allCommands}
-            onSubmit={(s) => {
-              handleSubmit(s);
-            }}
+            onSubmit={(s) => { void handleSubmit(s); }}
             onAbort={handleAbort}
             callbacks={callbacks}
           />
@@ -346,4 +251,41 @@ function AppLayout({
       </Box>
     </Box>
   );
+}
+
+// ── Compatibility adapter for ActiveAssistantView ──
+
+interface CompatActiveAssistant {
+  id: string;
+  segments: Array<
+    | { kind: 'text'; content: string; flushedLength: number }
+    | { kind: 'tool_call'; id: string; name: string; input: unknown; result: { kind: 'ok'; content: string; durationMs: number } | { kind: 'error'; message: string; durationMs: number } | null; status: 'running' | 'done' | 'error' }
+  >;
+  thinking: null;
+}
+
+function toActiveAssistant(item: Extract<FinalItem, { kind: 'assistant-message' }>): CompatActiveAssistant {
+  return {
+    id: item.id,
+    thinking: null,
+    segments: item.segments.map((seg): CompatActiveAssistant['segments'][number] => {
+      if (seg.kind === 'text') {
+        return { kind: 'text', content: seg.content, flushedLength: seg.committedLength };
+      }
+      // tool_call: derive status from result presence
+      const result = seg.result;
+      let status: 'running' | 'done' | 'error' = 'running';
+      if (result) {
+        status = result.kind === 'error' ? 'error' : 'done';
+      }
+      return {
+        kind: 'tool_call',
+        id: seg.id,
+        name: seg.name,
+        input: seg.input,
+        result,
+        status,
+      };
+    }),
+  };
 }

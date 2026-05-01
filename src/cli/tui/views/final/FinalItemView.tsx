@@ -3,7 +3,6 @@ import type { FinalItem } from '../../state/types';
 import { Header } from '../chrome/Header';
 import { UserMessageView } from './UserMessageView';
 import { AssistantMessageView } from './AssistantMessageView';
-import { MarkdownText } from './MarkdownText';
 import { DividerView } from './DividerView';
 import { SystemNoticeView } from './SystemNoticeView';
 
@@ -19,8 +18,6 @@ export const FinalItemView = React.memo(function FinalItemView({ item }: FinalIt
       return <UserMessageView content={item.content} />;
     case 'assistant-message':
       return <AssistantMessageView segments={item.segments} />;
-    case 'streaming-chunk':
-      return <MarkdownText content={item.content} />;
     case 'divider':
       return <DividerView reason={item.reason} />;
     case 'system-notice':
