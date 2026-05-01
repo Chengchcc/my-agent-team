@@ -2,14 +2,17 @@
  * Find the largest index b such that s.slice(0, b) will never change its
  * markdown parse structure no matter what characters are appended later.
  *
- * Used by streaming markdown to split content into:
- *   stable = s.slice(0, b)  → renderMarkdownTokens (memo-able)
- *   tail   = s.slice(b)     → plain <Text> (always safe)
- *
- * Returns a value in [0, s.length].
+ * Returns a boundary in [0, s.length] and a committable flag indicating
+ * whether the stable portion contains at least one complete block-level
+ * element (heading, paragraph, closed fence, list item, or table row).
  */
-export function findStableBoundary(s: string): number {
-  if (!s) return 0;
+export interface StableResult {
+  boundary: number;
+  committable: boolean;
+}
+
+export function findStableBoundary(s: string): StableResult {
+  if (!s) return { boundary: 0, committable: false };
 
   const len = s.length;
   let inFence = false;
@@ -65,14 +68,35 @@ export function findStableBoundary(s: string): number {
 
   // Preferred: last paragraph boundary (double newline)
   const para = clipped.lastIndexOf('\n\n');
-  if (para >= 0) return para + 2;
+  if (para >= 0) {
+    const boundary = para + 2;
+    return { boundary, committable: hasCompleteBlock(s.slice(0, boundary)) };
+  }
 
   // Fallback: last single newline whose preceding line is inline-stable
   const nl = findLastSafeNewline(clipped);
-  if (nl >= 0) return nl + 1;
+  if (nl >= 0) {
+    const boundary = nl + 1;
+    return { boundary, committable: hasCompleteBlock(s.slice(0, boundary)) };
+  }
 
-  // Last resort: nothing is stable, render everything as tail text
-  return 0;
+  // Last resort: nothing is stable
+  return { boundary: 0, committable: false };
+}
+
+// ── Block completeness check ──
+
+function hasCompleteBlock(s: string): boolean {
+  if (!s.trim()) return false;
+  // A complete heading
+  if (/^#{1,6}\s+\S/m.test(s)) return true;
+  // A closed fenced code block
+  if (/```[\s\S]*?```/.test(s) || /~~~[\s\S]*?~~~/.test(s)) return true;
+  // A paragraph (non-empty line followed by blank line or end)
+  if (/\S.*\S/.test(s) && s.endsWith('\n\n')) return true;
+  // A list item (line starting with - * or 1.)
+  if (/^\s*[-*]\s+\S/m.test(s) || /^\s*\d+\.\s+\S/m.test(s)) return true;
+  return false;
 }
 
 // ── Helpers ──
@@ -117,7 +141,6 @@ function lineStartOf(s: string, pos: number): number {
 }
 
 function isLineInlineStable(line: string): boolean {
-  // Must have matched backtick pairs
   const backticks = (line.match(/`+/g) ?? []).map(m => m.length);
   let tickOpen = false;
   for (const n of backticks) {
@@ -125,7 +148,6 @@ function isLineInlineStable(line: string): boolean {
   }
   if (tickOpen) return false;
 
-  // Must have balanced [] and completed (...) URLs
   let bracketDepth = 0;
   let inUrl = false;
   for (let k = 0; k < line.length; k++) {
@@ -144,10 +166,8 @@ function isLineInlineStable(line: string): boolean {
   }
   if (bracketDepth > 0 || inUrl) return false;
 
-  // Trailing lone backslash
   if (line.endsWith('\\') && !line.endsWith('\\\\')) return false;
 
-  // Unmatched emphasis markers
   if (/[*_~]$/.test(line) && !/\s[*_~]$/.test(line)) {
     const stars = (line.match(/\*+/g) ?? []).map(m => m.length);
     let unmatched = 0;
@@ -162,7 +182,6 @@ function isPartialTableHeader(s: string, nl: number): boolean {
   const ls = lineStartOf(s, nl);
   const line = s.slice(ls, nl);
   if (!/^\s*\|.*\|\s*$/.test(line)) return false;
-  // Alignment rows (e.g. |---|) are not headers themselves; skip them
   if (/^\s*\|?[-:\s|]+\|?\s*$/.test(line)) return false;
   const nextStart = nl + 1;
   const nextEnd = s.indexOf('\n', nextStart);

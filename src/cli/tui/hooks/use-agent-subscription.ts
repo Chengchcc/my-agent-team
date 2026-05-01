@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { nanoid } from 'nanoid';
 import { useTuiStore } from '../state/store';
+import { getCommitter } from '../streaming/committer';
 import type { Agent } from '../../../agent';
 import type { AgentEvent } from '../../../agent/loop-types';
 
@@ -9,14 +10,14 @@ function dispatchAgentEvent(
   agent: Agent,
 ): void {
   const store = useTuiStore.getState();
+  const committer = getCommitter();
 
   switch (event.type) {
     case 'thinking_delta':
-      // No corresponding UI action in the new model; thinking is internal
       break;
 
     case 'text_delta':
-      store.textDelta(event.delta);
+      committer.onDelta(event.delta);
       break;
 
     case 'tool_call_start':
@@ -38,12 +39,11 @@ function dispatchAgentEvent(
         });
       }
       store.setContextTokens(agent.getContextManager().getCurrentTokens());
-      store.turnDone();
-      store.streamingStop();
+      committer.onTurnDone();
       break;
 
     case 'agent_error':
-      store.textDelta(`\n\nError: ${event.error.message}`);
+      committer.onDelta(`\n\nError: ${event.error.message}`);
       break;
 
     case 'thinking_done':
@@ -81,15 +81,14 @@ export function useAgentSubscription(agent: Agent) {
         dispatchAgentEvent(event, agent);
       }
     } catch (err: unknown) {
+      const committer = getCommitter();
       if (err instanceof DOMException && err.name === 'AbortError') {
-        useTuiStore.getState().turnDone();
-        useTuiStore.getState().streamingStop();
+        committer.onTurnDone();
         useTuiStore.getState().setInterrupted(true);
       } else {
         const msg = err instanceof Error ? err.message : String(err);
-        useTuiStore.getState().textDelta(`\n\nError: ${msg}`);
-        useTuiStore.getState().turnDone();
-        useTuiStore.getState().streamingStop();
+        committer.onDelta(`\n\nError: ${msg}`);
+        committer.onTurnDone();
       }
     }
 

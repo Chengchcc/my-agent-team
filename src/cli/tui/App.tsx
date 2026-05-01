@@ -208,22 +208,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
       </Static>
       <Box flexDirection="column">
         {liveItem != null && liveItem.kind === 'assistant-message' && (
-          <ActiveAssistantView
-            assistant={toActiveAssistant(liveItem)}
-            onCommitChunk={(chunk) => {
-              const segs = liveItem.segments;
-              for (let i = segs.length - 1; i >= 0; i--) {
-                const seg = segs[i]!;
-                if (seg.kind === 'text') {
-                  const newLen = seg.committedLength + chunk.length;
-                  if (newLen <= seg.content.length) {
-                    useTuiStore.getState().commitAdvance(seg.id, newLen);
-                  }
-                  break;
-                }
-              }
-            }}
-          />
+          <ActiveAssistantView assistant={toActiveAssistant(liveItem)} />
         )}
         <StreamingIndicator />
         <FocusedToolDetail finalizedItems={itemsWithBanner} />
@@ -258,7 +243,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
 interface CompatActiveAssistant {
   id: string;
   segments: Array<
-    | { kind: 'text'; content: string; flushedLength: number }
+    | { kind: 'text'; id: string; content: string }
     | { kind: 'tool_call'; id: string; name: string; input: unknown; result: { kind: 'ok'; content: string; durationMs: number } | { kind: 'error'; message: string; durationMs: number } | null; status: 'running' | 'done' | 'error' }
   >;
   thinking: null;
@@ -270,7 +255,7 @@ function toActiveAssistant(item: Extract<FinalItem, { kind: 'assistant-message' 
     thinking: null,
     segments: item.segments.map((seg): CompatActiveAssistant['segments'][number] => {
       if (seg.kind === 'text') {
-        return { kind: 'text', content: seg.content, flushedLength: seg.committedLength };
+        return { kind: 'text', id: seg.id, content: seg.content };
       }
       // tool_call: derive status from result presence
       const result = seg.result;

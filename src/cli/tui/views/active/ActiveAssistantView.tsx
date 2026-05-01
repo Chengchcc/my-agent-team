@@ -1,11 +1,11 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { MarkdownStreamText } from './MarkdownStreamText';
+import { LiveTextSegment } from './LiveTextSegment';
 import { formatToolCallTitle } from '../../../tui/utils/tool-format';
 import type { ToolCall } from '../../../../types';
 
 // Local types matching the compatibility adapter in App.tsx
-interface CompatTextSeg { kind: 'text'; content: string; flushedLength: number }
+interface CompatTextSeg { kind: 'text'; id: string; content: string }
 interface CompatToolSeg { kind: 'tool_call'; id: string; name: string; input: unknown; result: { kind: 'ok'; content: string; durationMs: number } | { kind: 'error'; message: string; durationMs: number } | null; status: 'running' | 'done' | 'error' }
 type CompatSeg = CompatTextSeg | CompatToolSeg;
 
@@ -15,10 +15,9 @@ const THINKING_TRUNCATION = 100;
 
 interface ActiveAssistantViewProps {
   assistant: StreamingAssistant;
-  onCommitChunk?: (chunk: string) => void;
 }
 
-export function ActiveAssistantView({ assistant, onCommitChunk }: ActiveAssistantViewProps) {
+export function ActiveAssistantView({ assistant }: ActiveAssistantViewProps) {
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>
@@ -31,13 +30,9 @@ export function ActiveAssistantView({ assistant, onCommitChunk }: ActiveAssistan
             <Text dimColor>{'  '}{truncate(assistant.thinking, THINKING_TRUNCATION)}</Text>
           </Box>
         ) : null}
-        {assistant.segments.map((seg, i) => {
+        {assistant.segments.map((seg) => {
           if (seg.kind === 'text') {
-            return <MarkdownStreamText
-              key={i}
-              content={seg.content}
-              {...(onCommitChunk !== undefined ? { onStableParagraph: onCommitChunk } : {})}
-            />;
+            return <LiveTextSegment key={seg.id} segId={seg.id} />;
           }
           return (
             <ActiveToolCallSegment key={seg.id} seg={seg} />
