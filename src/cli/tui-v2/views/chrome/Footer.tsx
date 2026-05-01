@@ -1,26 +1,58 @@
-import React from 'react';
-import { Box, Text } from 'ink';
-import { useStatsSelector } from '../../state/selectors';
-import { FOOTER_HINTS } from './keymap';
+import React, { useMemo } from 'react';
+import { Text } from 'ink';
+import { useStatsSelector, useInteractionSelector } from '../../state/selectors';
 
 const TOKENS_PER_K = 1000;
+const CTX_DANGER_PCT = 0.9;
+const CTX_WARN_PCT = 0.7;
+const PCT_BASE = 100;
+const CTX_W = 5;
+const PCT_W = 3;
+const OUT_W = 5;
 
 export function Footer() {
-  const totalTokens = useStatsSelector(s => s.totalTokens);
   const contextTokens = useStatsSelector(s => s.contextTokens);
+  const tokenLimit = useStatsSelector(s => s.tokenLimit);
+  const completionTokens = useStatsSelector(s => s.completionTokens);
+  const interrupted = useStatsSelector(s => s.interrupted);
   const streaming = useStatsSelector(s => s.streaming);
+  const focusedToolId = useInteractionSelector(s => s.focusedToolId);
 
+  const contextPct = tokenLimit > 0 ? contextTokens / tokenLimit : 0;
+  const ctxColor = contextPct > CTX_DANGER_PCT ? 'red' as const : contextPct > CTX_WARN_PCT ? 'yellow' as const : null;
+
+  const ctxStr = (contextTokens / TOKENS_PER_K).toFixed(1).padStart(CTX_W);
+  const limitStr = tokenLimit > 0 ? `${(tokenLimit / TOKENS_PER_K).toFixed(0)}k` : ' ---';
+  const pctStr = tokenLimit > 0 ? `${(contextPct * PCT_BASE).toFixed(0).padStart(PCT_W)}%` : ' ---';
+  const outStr = `${(completionTokens / TOKENS_PER_K).toFixed(1).padStart(OUT_W)}k`;
+
+  const status = interrupted ? '⚠ interrupted' : streaming ? '● streaming' : '○ idle      ';
+
+  const hints = useMemo(() => {
+    const parts = ['↑↓ hist · esc clr · ctrl+↑↓ focus · tab'];
+    if (focusedToolId) parts.push('space: expand');
+    return parts.join(' · ');
+  }, [focusedToolId]);
+
+  const ctxField = ctxColor
+    ? <Text color={ctxColor}>{ctxStr}</Text>
+    : <Text>{ctxStr}</Text>;
+
+  const pctField = ctxColor
+    ? <Text color={ctxColor}>{pctStr}</Text>
+    : <Text>{pctStr}</Text>;
+
+  // Fixed-width layout — no flex, no gap, no justify-content.
+  // Every numeric field uses padStart so digit changes don't shift column boundaries.
   return (
-    <Box flexDirection="row" justifyContent="space-between" marginTop={1}>
-      <Text dimColor>{FOOTER_HINTS}</Text>
-      <Box gap={1}>
-        {totalTokens > 0 && (
-          <Text dimColor>
-            ctx: {(contextTokens / TOKENS_PER_K).toFixed(1)}k · total: {(totalTokens / TOKENS_PER_K).toFixed(1)}k
-          </Text>
-        )}
-        <Text dimColor>{streaming ? '● streaming' : '○ idle'}</Text>
-      </Box>
-    </Box>
+    <Text dimColor>
+      {hints}  ctx:{' '}
+      {ctxField}
+      /{limitStr} (
+      {pctField}
+      )  out:{' '}
+      <Text>{outStr}</Text>
+      {' '}{status}
+    </Text>
   );
 }

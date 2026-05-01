@@ -4,6 +4,12 @@ import { useStatsSelector } from '../../state/selectors';
 
 const SESSION_ID_DISPLAY_LENGTH = 8;
 
+const HAMSTER_LOGO = `\
+▄█▄█▄
+█●█●█
+▀███▀
+ █ █`;
+
 const STATUS_DOTS: Record<string, { char: string; color: string; label: string }> = {
   connected:    { char: '*', color: 'green',  label: 'connected' },
   interrupted:  { char: 'x', color: 'red',    label: 'interrupted' },
@@ -23,11 +29,14 @@ export function Header({ model, sessionId }: HeaderProps) {
   return (
     <Box flexDirection="row" alignItems="center" gap={1} width="100%" justifyContent="space-between">
       <Box flexDirection="row" alignItems="center" gap={1}>
-        <Text bold color="cyan">my-agent</Text>
-        {model ? <Text dimColor> - {model}</Text> : null}
-        <Text dimColor> - </Text>
-        <Text color={st.color}>{st.char}</Text>
-        <Text dimColor> {st.label}</Text>
+        <Text>{HAMSTER_LOGO}</Text>
+        <Text>
+          <Text bold color="cyan">my-agent</Text>
+          {model ? <Text dimColor> - {model}</Text> : null}
+          <Text dimColor> - </Text>
+          <Text color={st.color}>{st.char}</Text>
+          <Text dimColor> {st.label}</Text>
+        </Text>
       </Box>
       {sessionId ? <Text dimColor>session:{sessionId.slice(0, SESSION_ID_DISPLAY_LENGTH)}</Text> : null}
     </Box>

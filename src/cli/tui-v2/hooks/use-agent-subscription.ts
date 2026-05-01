@@ -13,6 +13,7 @@ function dispatchAgentEvent(
   _dispatch: AgentLoopDispatch,
   pending: PendingState,
   flushText: FlushFn,
+  agent: Agent,
 ): void {
   switch (event.type) {
     case 'thinking_delta':
@@ -54,10 +55,13 @@ function dispatchAgentEvent(
           usage: {
             prompt_tokens: event.usage.prompt_tokens,
             completion_tokens: event.usage.completion_tokens,
-            total_tokens: event.usage.total_tokens,
           },
         });
       }
+      _dispatch({
+        type: 'SET_CONTEXT_TOKENS',
+        tokens: agent.getContextManager().getCurrentTokens(),
+      });
       break;
 
     case 'agent_error':
@@ -106,7 +110,7 @@ export function useAgentSubscription(agent: Agent) {
         undefined,
         { signal: controller.signal },
       ) as AsyncIterable<AgentEvent>) {
-        dispatchAgentEvent(event, _dispatch, pending, flushText);
+        dispatchAgentEvent(event, _dispatch, pending, flushText, agent);
       }
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {

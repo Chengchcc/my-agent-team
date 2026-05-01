@@ -9,6 +9,9 @@ export function finalizedReducer(items: FinalItem[], action: FinalizedAction): F
       // FLUSH_TO_FINALIZED in activeReducer handles pushing the finalized item.
       return items;
 
+    case 'APPEND_STREAMING_CHUNK':
+      return [...items, { kind: 'streaming-chunk', id: action.id, content: action.content }];
+
     case 'APPEND_DIVIDER':
       return [...items, { kind: 'divider', reason: action.reason }];
 

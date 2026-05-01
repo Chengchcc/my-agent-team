@@ -14,8 +14,8 @@ export const InteractionContext = createSelectorContext<InteractionState>({
 export const StatsContext = createSelectorContext<StatsState>({
   promptTokens: 0,
   completionTokens: 0,
-  totalTokens: 0,
   contextTokens: 0,
+  tokenLimit: 0,
   streaming: false,
   streamingStartTime: null,
   interrupted: false,

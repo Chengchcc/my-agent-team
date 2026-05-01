@@ -27,6 +27,19 @@ const AT_FILE_DEBOUNCE_MS = 120;
 const PASTE_FOLD_LINE_THRESHOLD = 3;
 const PASTE_FOLD_CHAR_THRESHOLD = 200;
 
+function findMarkerAtCursor(text: string, cursor: number): { id: string; start: number; end: number } | null {
+  const re = createPasteMarkerRe();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const start = m.index;
+    const end = start + m[0].length;
+    if (cursor > start && cursor < end) {
+      return { id: m[1]!, start, end };
+    }
+  }
+  return null;
+}
+
 function getAtQuery(text: string): { query: string; start: number } | null {
   const lastAt = text.lastIndexOf('@');
   if (lastAt === -1) return null;
@@ -66,9 +79,6 @@ export function useCommandInput({
   const [dismissedAtQuery, setDismissedAtQuery] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [atSelectedIndex, setAtSelectedIndex] = useState(0);
-  const [pasteFolded, setPasteFolded] = useState(false);
-  const pasteFoldedRef = useRef(pasteFolded);
-  useEffect(() => { pasteFoldedRef.current = pasteFolded; }, [pasteFolded]);
   const [welcomeMessage] = useState(
     () => WELCOME_MESSAGES[Math.floor(Math.random() * WELCOME_MESSAGES.length)] ?? "What's on your mind?",
   );
@@ -89,7 +99,12 @@ export function useCommandInput({
   const atQuery = useMemo(() => getAtQuery(editorState.text), [editorState.text]);
   const [atFiles, setAtFiles] = useState<string[]>([]);
   useEffect(() => {
-    if (!atQuery || atQuery.query.length < 2) {
+    if (!atQuery) {
+      setAtFiles([]);
+      return;
+    }
+    // Trigger glob from length ≥ 1 (was ≥ 2 — too slow to appear)
+    if (atQuery.query.length < 1) {
       setAtFiles([]);
       return;
     }
@@ -110,16 +125,16 @@ export function useCommandInput({
     }, AT_FILE_DEBOUNCE_MS);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [atQuery?.query]);
-  const atFilePickerOpen = atQuery !== null && dismissedAtQuery !== atQuery.query && atFiles.length > 0;
+  const atFilePickerOpen = atQuery !== null && dismissedAtQuery !== atQuery.query;
 
   const hasMarkers = hasPasteMarkers(editorState.text);
   const { displayText, displayCursorOffset, pasteLineCount } = useMemo(() => {
-    if (!pasteFolded || !hasMarkers) {
+    if (!hasMarkers) {
       return { displayText: editorState.text, displayCursorOffset: editorState.cursorOffset, pasteLineCount: 0 };
     }
     const folded = getFoldedDisplay(editorState.text, editorState.cursorOffset);
     return { displayText: folded.displayText, displayCursorOffset: folded.displayCursorOffset, pasteLineCount: folded.totalPasteLines };
-  }, [pasteFolded, editorState.text, editorState.cursorOffset, hasMarkers]);
+  }, [editorState.text, editorState.cursorOffset, hasMarkers]);
 
   useEffect(() => {
     setSelectedIndex((currentIndex) => {
@@ -147,16 +162,16 @@ export function useCommandInput({
   };
 
   const updateEditorState = (next: InputEditorState | ((prev: InputEditorState) => InputEditorState)) => {
+    let newState: InputEditorState;
     if (typeof next === 'function') {
-      setEditorState((prevState) => {
-        const newState = next(prevState);
-        dismissIfChanged(newState.text);
-        return newState;
-      });
+      newState = next(editorStateRef.current);
+      setEditorState(newState);
     } else {
+      newState = next;
       setEditorState(next);
-      dismissIfChanged(next.text);
     }
+    dismissIfChanged(newState.text);
+    editorStateRef.current = newState;
   };
 
   const acceptSelectedCommand = () => {
@@ -207,7 +222,6 @@ export function useCommandInput({
           }
           setEditorState({ text: fallback ?? '', cursorOffset: fallback?.length ?? 0 });
           setDismissedQuery(null);
-          setPasteFolded(false);
           return;
         }
         if (editorStateRef.current.text.length > 0) {
@@ -219,7 +233,6 @@ export function useCommandInput({
           }
           setEditorState({ text: '', cursorOffset: 0 });
           setDismissedQuery(null);
-          setPasteFolded(false);
         } else {
           onAbort?.();
         }
@@ -304,45 +317,112 @@ export function useCommandInput({
         setDismissedQuery(null);
         setSelectedIndex(0);
         setFirstMessage(false);
-        setPasteFolded(false);
         return;
       }
 
-      // Paste fold guard: restrict editing while paste placeholders exist
-      if (pasteFoldedRef.current) {
-        if (input === ' ') {
+      // Detect tagged paste chunk from PasteBufferingStdin.
+      // Must be BEFORE the fold guard so subsequent pastes always arrive.
+      // Use [\w-]+ instead of \w+ because nanoid may generate IDs with hyphens
+      const pasteMatch = /^\x01PASTE\x01([\w-]+)\x01([\s\S]*?)\x01$/.exec(input);
+      if (pasteMatch) {
+        const id = pasteMatch[1]!;
+        const content = pasteMatch[2]!;
+        const lineCount = content.split('\n').length;
+        if (lineCount > PASTE_FOLD_LINE_THRESHOLD || content.length > PASTE_FOLD_CHAR_THRESHOLD) {
+          attachmentMap.set(id, content);
+          exitBrowsing();
+          const marker = createPasteMarker(id);
+          updateEditorState(prev => insertTextAtCursor(prev, marker));
+        } else {
+          exitBrowsing();
+          updateEditorState(prev => insertTextAtCursor(prev, content));
+        }
+        return;
+      }
+
+      // Paste fold guard: only intercept when cursor is inside a marker.
+      // Input outside markers passes through to normal handling below.
+      if (hasPasteMarkers(editorStateRef.current.text)) {
+        const markerAtCursor = findMarkerAtCursor(editorStateRef.current.text, editorStateRef.current.cursorOffset);
+
+        // Space inside a marker: expand all markers
+        if (input === ' ' && markerAtCursor) {
           const resolved = resolvePastePlaceholders(editorStateRef.current.text);
           updateEditorState({ text: resolved, cursorOffset: resolved.length });
-          setPasteFolded(false);
           return;
         }
+
+        // Backspace/Delete near a marker: remove the whole marker so the
+        // suffix (⟫) can't be orphaned by a single-character delete.
         if (key.backspace || key.delete) {
-          const markerRe = createPasteMarkerRe();
-          let match: RegExpExecArray | null;
           let markerToRemove: { id: string; start: number; end: number } | null = null;
-          while ((match = markerRe.exec(editorStateRef.current.text)) !== null) {
-            const mStart = match.index;
-            const mEnd = mStart + match[0].length;
-            const cursor = editorStateRef.current.cursorOffset;
-            const inside = key.backspace
-              ? cursor > mStart && cursor <= mEnd
-              : cursor >= mStart && cursor < mEnd;
-            if (inside) { markerToRemove = { id: match[1]!, start: mStart, end: mEnd }; break; }
+          const cursor = editorStateRef.current.cursorOffset;
+          const deletePos = key.backspace ? cursor - 1 : cursor;
+          if (deletePos >= 0) {
+            const markerRe = createPasteMarkerRe();
+            let match: RegExpExecArray | null;
+            while ((match = markerRe.exec(editorStateRef.current.text)) !== null) {
+              const mStart = match.index;
+              const mEnd = mStart + match[0].length;
+              if (deletePos >= mStart && deletePos < mEnd) {
+                markerToRemove = { id: match[1]!, start: mStart, end: mEnd };
+                break;
+              }
+            }
           }
           if (markerToRemove) {
             const before = editorStateRef.current.text.slice(0, markerToRemove.start);
             const after = editorStateRef.current.text.slice(markerToRemove.end);
             attachmentMap.delete(markerToRemove.id);
             updateEditorState({ text: before + after, cursorOffset: markerToRemove.start });
-            if (!hasPasteMarkers(before + after)) {
-              setPasteFolded(false);
-            }
           } else {
             updateEditorState(prev => removeCharacterBeforeCursor(prev));
           }
           return;
         }
-        if (!key.leftArrow && !key.rightArrow && !key.upArrow && !key.downArrow) return;
+
+        // Arrow navigation across markers: the display cursor is pinned
+        // inside the placeholder, so single-step movement is invisible.
+        // Jump to the marker edge instead.
+        if (key.leftArrow) {
+          const cursor = editorStateRef.current.cursorOffset;
+          if (markerAtCursor) {
+            const to = markerAtCursor.start;
+            updateEditorState({ text: editorStateRef.current.text, cursorOffset: to });
+          } else if (cursor > 0) {
+            // About to step into a marker from the right?
+            const peek = findMarkerAtCursor(editorStateRef.current.text, cursor - 1);
+            if (peek) {
+              updateEditorState({ text: editorStateRef.current.text, cursorOffset: peek.start });
+            } else {
+              updateEditorState(prev => moveCursorLeft(prev));
+            }
+          }
+          return;
+        }
+
+        if (key.rightArrow) {
+          const cursor = editorStateRef.current.cursorOffset;
+          if (markerAtCursor) {
+            const to = markerAtCursor.end;
+            updateEditorState({ text: editorStateRef.current.text, cursorOffset: to });
+          } else if (cursor < editorStateRef.current.text.length) {
+            // About to step into a marker from the left?
+            const peek = findMarkerAtCursor(editorStateRef.current.text, cursor);
+            if (peek && cursor === peek.start - 1) {
+              updateEditorState({ text: editorStateRef.current.text, cursorOffset: peek.end });
+            } else {
+              updateEditorState(prev => moveCursorRight(prev));
+            }
+          }
+          return;
+        }
+
+        // Block character input inside marker to prevent corrupting it
+        if (markerAtCursor && input && !key.ctrl && !key.meta) {
+          return;
+        }
+        // Cursor is outside any marker — let input fall through normally
       }
 
       if (key.leftArrow) {
@@ -385,27 +465,6 @@ export function useCommandInput({
         return;
       }
 
-      // Detect tagged paste chunk from PasteBufferingStdin
-      // Use [\w-]+ instead of \w+ because nanoid may generate IDs with hyphens
-      const pasteMatch = /^\x01PASTE\x01([\w-]+)\x01([\s\S]*?)\x01$/.exec(input);
-      if (pasteMatch) {
-        const id = pasteMatch[1]!;
-        const content = pasteMatch[2]!;
-        const lineCount = content.split('\n').length;
-        // Only fold substantial pastes; small snippets are inserted directly
-        if (lineCount > PASTE_FOLD_LINE_THRESHOLD || content.length > PASTE_FOLD_CHAR_THRESHOLD) {
-          attachmentMap.set(id, content);
-          exitBrowsing();
-          const marker = createPasteMarker(id);
-          updateEditorState(prev => insertTextAtCursor(prev, marker));
-          setPasteFolded(true);
-        } else {
-          exitBrowsing();
-          updateEditorState(prev => insertTextAtCursor(prev, content));
-        }
-        return;
-      }
-
       exitBrowsing();
       // Filter terminal control sequences (e.g. focus-in/out on tab switch).
       // Ink interprets \x1b as Escape; the remaining CSI tail ([I]/[O]) arrives
@@ -426,7 +485,6 @@ export function useCommandInput({
     cursorOffset: editorState.cursorOffset,
     displayText,
     displayCursorOffset,
-    pasteFolded,
     pasteLineCount,
     atFiles,
     atSelectedIndex,

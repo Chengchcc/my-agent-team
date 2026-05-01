@@ -1,4 +1,4 @@
-import React, { useReducer, useMemo, useCallback, useRef, useState } from 'react';
+import React, { useReducer, useMemo, useCallback, useRef, useState, useEffect } from 'react';
 import { Box, Static, useInput } from 'ink';
 import { uiReducer, initialUIState } from './state/dispatch';
 import {
@@ -42,6 +42,12 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
   const [state, dispatch] = useReducer(uiReducer, initialUIState);
   const dispatchRef = useRef(dispatch);
   dispatchRef.current = dispatch;
+
+  const chunkIdx = useRef(0);
+  const handleCommitStreamingChunk = useCallback(
+    (chunk: string) => dispatchRef.current({ type: 'APPEND_STREAMING_CHUNK', id: `c-${chunkIdx.current++}`, content: chunk }),
+    [],
+  );
 
   const { submit, abort } = useAgentSubscription(agent);
   const { askUserQuestionRequest, respondWithAnswers } = useAskUserQuestionManager();
@@ -151,15 +157,10 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
     dispatchRef.current({ type: 'CLEAR_PENDING_INPUTS' });
   }, []);
 
-  const [_thinkingCollapsed, setThinkingCollapsed] = useState(true);
-  const handleToggleThinking = useCallback(() => {
-    setThinkingCollapsed(prev => !prev);
-  }, []);
-
-  const [_debugShow, setDebugShow] = useState(false);
-  const handleToggleDebug = useCallback(() => {
-    setDebugShow(prev => !prev);
-  }, []);
+  const [, toggleThinking] = useState(true);
+  const handleToggleThinking = useCallback(() => toggleThinking(prev => !prev), []);
+  const [, toggleDebug] = useState(false);
+  const handleToggleDebug = useCallback(() => toggleDebug(prev => !prev), []);
 
   const callbacks: InputBoxCallbacks = useMemo(
     () => ({
@@ -173,14 +174,20 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
     [handleFocusPrev, handleFocusNext, handleToggleExpand, handleClearPending, handleToggleThinking, handleToggleDebug],
   );
 
+  // Initialize context token tracking
+  useEffect(() => {
+    const cm = agent.getContextManager?.();
+    if (!cm) return;
+    dispatchRef.current({ type: 'SET_TOKEN_LIMIT', limit: cm.getTokenLimit() });
+    dispatchRef.current({ type: 'SET_CONTEXT_TOKENS', tokens: cm.getCurrentTokens() });
+  }, [agent]);
+
   const allCommands = useMemo(() => [...getBuiltinCommands(sessionStore), ...skillCommands], [sessionStore, skillCommands]);
 
-  // agent and sessionStore are stable references, no need to include in deps
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const itemsWithBanner = useMemo(() => [
     { kind: 'banner' as const, model: agent.getModelName(), sessionId: sessionStore.getSessionId() },
     ...state.finalizedItems,
-  ], [state.finalizedItems]);
+  ], [state.finalizedItems, agent, sessionStore]);
 
   const showPrompt = askUserQuestionRequest != null || permissionRequest != null;
 
@@ -201,6 +208,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
               handleSubmit={(s) => { void handleSubmit(s); }}
               handleAbort={handleAbort}
               callbacks={callbacks}
+              onCommitStreamingChunk={handleCommitStreamingChunk}
             />
           </StatsContext.Provider>
         </InteractionContext.Provider>
@@ -242,6 +250,7 @@ interface AppLayoutProps {
   handleSubmit: (submission: PromptSubmission) => void;
   handleAbort: () => void;
   callbacks: InputBoxCallbacks;
+  onCommitStreamingChunk?: (chunk: string) => void;
 }
 
 function AppLayout({
@@ -256,6 +265,7 @@ function AppLayout({
   handleSubmit,
   handleAbort,
   callbacks,
+  onCommitStreamingChunk,
 }: AppLayoutProps) {
   // Global keyboard shortcuts active when InputBox is hidden (permission / ask-question prompts).
   // PermissionPrompt handles y/a/n via its own useInput.
@@ -281,7 +291,10 @@ function AppLayout({
       </Static>
       <Box flexDirection="column">
         {active.streamingAssistant != null && (
-          <ActiveAssistantView assistant={active.streamingAssistant} />
+          <ActiveAssistantView
+            assistant={active.streamingAssistant}
+            {...(onCommitStreamingChunk !== undefined ? { onCommitChunk: onCommitStreamingChunk } : {})}
+          />
         )}
         <StreamingIndicator />
         <FocusedToolDetail finalizedItems={itemsWithBanner} active={active} />

@@ -55,14 +55,14 @@ describe('activeReducer', () => {
 
   test('STREAM_TEXT_DELTA appends text segment', () => {
     const next = activeReducer(startState, { type: 'STREAM_TEXT_DELTA', delta: 'Hello' });
-    expect(next.streamingAssistant!.segments).toEqual([{ kind: 'text', content: 'Hello' }]);
+    expect(next.streamingAssistant!.segments).toEqual([{ kind: 'text', content: 'Hello', flushedLength: 0 }]);
   });
 
   test('STREAM_TEXT_DELTA merges consecutive text segments', () => {
     let state = activeReducer(startState, { type: 'STREAM_TEXT_DELTA', delta: 'Hello' });
     state = activeReducer(state, { type: 'STREAM_TEXT_DELTA', delta: ' world' });
     expect(state.streamingAssistant!.segments).toHaveLength(1);
-    expect(state.streamingAssistant!.segments[0]).toEqual({ kind: 'text', content: 'Hello world' });
+    expect(state.streamingAssistant!.segments[0]).toEqual({ kind: 'text', content: 'Hello world', flushedLength: 0 });
   });
 
   test('TOOL_START and TOOL_DONE preserve text/tool interleaving', () => {
@@ -84,9 +84,9 @@ describe('activeReducer', () => {
 
     state = activeReducer(state, { type: 'STREAM_TEXT_DELTA', delta: 'done.' });
     expect(state.streamingAssistant!.segments).toHaveLength(3);
-    expect(state.streamingAssistant!.segments[0]).toEqual({ kind: 'text', content: 'Let me ' });
+    expect(state.streamingAssistant!.segments[0]).toEqual({ kind: 'text', content: 'Let me ', flushedLength: 0 });
     expect(state.streamingAssistant!.segments[1]!.kind).toBe('tool_call');
-    expect(state.streamingAssistant!.segments[2]).toEqual({ kind: 'text', content: 'done.' });
+    expect(state.streamingAssistant!.segments[2]).toEqual({ kind: 'text', content: 'done.', flushedLength: 0 });
   });
 
   test('CLEAR_ACTIVE sets streamingAssistant to null', () => {
@@ -136,15 +136,13 @@ describe('statsReducer', () => {
     expect(next.interrupted).toBe(false);
   });
 
-  test('ACCUMULATE_USAGE adds to all token counters', () => {
-    let state = statsReducer(initial, { type: 'ACCUMULATE_USAGE', usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 } });
+  test('ACCUMULATE_USAGE snapshots prompt and accumulates completion', () => {
+    let state = statsReducer(initial, { type: 'ACCUMULATE_USAGE', usage: { prompt_tokens: 100, completion_tokens: 50 } });
     expect(state.promptTokens).toBe(100);
     expect(state.completionTokens).toBe(50);
-    expect(state.totalTokens).toBe(150);
-    state = statsReducer(state, { type: 'ACCUMULATE_USAGE', usage: { prompt_tokens: 80, completion_tokens: 40, total_tokens: 120 } });
-    expect(state.promptTokens).toBe(180);
-    expect(state.completionTokens).toBe(90);
-    expect(state.totalTokens).toBe(270);
+    state = statsReducer(state, { type: 'ACCUMULATE_USAGE', usage: { prompt_tokens: 80, completion_tokens: 40 } });
+    expect(state.promptTokens).toBe(80);   // latest snapshot, not accumulated
+    expect(state.completionTokens).toBe(90);  // accumulated
   });
 });
 

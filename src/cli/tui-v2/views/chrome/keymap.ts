@@ -4,6 +4,8 @@ export interface KeymapContext {
   streaming: boolean;
   pendingCount: number;
   focusedToolId: string | null;
+  atFilePickerOpen: boolean;
+  pickerOpen: boolean;
 }
 
 // ── Callbacks passed from App ──
@@ -87,7 +89,9 @@ export function buildHotkeys(cbs: {
     {
       label: 'Space',
       key: ' ',
-      guard: (ctx) => ctx.focusedToolId !== null,
+      guard: (ctx) => ctx.focusedToolId !== null
+                   && !ctx.atFilePickerOpen
+                   && !ctx.pickerOpen,
       handler: () => cbs.onToggleExpand?.(),
     },
     {

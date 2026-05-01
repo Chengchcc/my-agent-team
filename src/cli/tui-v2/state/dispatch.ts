@@ -32,6 +32,28 @@ export function uiReducer(state: UIState, action: UIAction): UIState {
       };
     }
 
+    // Append streaming text chunk to Static and advance flushed offset
+    case 'APPEND_STREAMING_CHUNK': {
+      if (!state.active.streamingAssistant) return state;
+      const segs = state.active.streamingAssistant.segments;
+      let lastTextFlushed = 0;
+      for (let i = segs.length - 1; i >= 0; i--) {
+        const seg = segs[i]!;
+        if (seg.kind === 'text') {
+          lastTextFlushed = seg.flushedLength;
+          break;
+        }
+      }
+      return {
+        ...state,
+        finalizedItems: finalizedReducer(state.finalizedItems, action),
+        active: activeReducer(state.active, {
+          type: 'ADVANCE_FLUSHED_LENGTH',
+          length: lastTextFlushed + action.content.length,
+        }),
+      };
+    }
+
     case 'CLEAR_ACTIVE':
       return {
         ...state,
@@ -65,7 +87,7 @@ export { initialUIState };
 // ── Action type guards ──
 
 function isFinalizedAction(a: UIAction): a is FinalizedAction {
-  return a.type === 'USER_SUBMIT' || a.type === 'ASSISTANT_DONE' || a.type === 'APPEND_DIVIDER';
+  return a.type === 'USER_SUBMIT' || a.type === 'ASSISTANT_DONE' || a.type === 'APPEND_STREAMING_CHUNK' || a.type === 'APPEND_DIVIDER';
 }
 
 function isActiveAction(a: UIAction): a is ActiveAction {
@@ -76,6 +98,7 @@ function isActiveAction(a: UIAction): a is ActiveAction {
     a.type === 'TOOL_START' ||
     a.type === 'TOOL_DONE' ||
     a.type === 'TOOL_ERROR' ||
+    a.type === 'ADVANCE_FLUSHED_LENGTH' ||
     a.type === 'FLUSH_TO_FINALIZED' ||
     a.type === 'CLEAR_ACTIVE'
   );
@@ -100,6 +123,7 @@ function isStatsAction(a: UIAction): a is StatsAction {
     a.type === 'STREAMING_STOP' ||
     a.type === 'ACCUMULATE_USAGE' ||
     a.type === 'SET_CONTEXT_TOKENS' ||
+    a.type === 'SET_TOKEN_LIMIT' ||
     a.type === 'SET_INTERRUPTED'
   );
 }

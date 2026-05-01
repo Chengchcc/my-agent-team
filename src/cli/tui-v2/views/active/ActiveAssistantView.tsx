@@ -11,9 +11,10 @@ const THINKING_TRUNCATION = 100;
 
 interface ActiveAssistantViewProps {
   assistant: StreamingAssistant;
+  onCommitChunk?: (chunk: string) => void;
 }
 
-export function ActiveAssistantView({ assistant }: ActiveAssistantViewProps) {
+export function ActiveAssistantView({ assistant, onCommitChunk }: ActiveAssistantViewProps) {
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>
@@ -28,7 +29,11 @@ export function ActiveAssistantView({ assistant }: ActiveAssistantViewProps) {
         ) : null}
         {assistant.segments.map((seg: ActiveSegment, i: number) => {
           if (seg.kind === 'text') {
-            return <MarkdownStreamText key={i} content={seg.content} />;
+            return <MarkdownStreamText
+              key={i}
+              content={seg.content}
+              {...(onCommitChunk !== undefined ? { onStableParagraph: onCommitChunk } : {})}
+            />;
           }
           return (
             <ActiveToolCallSegment key={seg.id} seg={seg} />

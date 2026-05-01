@@ -20,7 +20,7 @@ export function activeReducer(state: ActiveState, action: ActiveAction): ActiveS
       const merged =
         last?.kind === 'text'
           ? replaceLast(segs, { ...last, content: last.content + action.delta })
-          : [...segs, { kind: 'text' as const, content: action.delta }];
+          : [...segs, { kind: 'text' as const, content: action.delta, flushedLength: 0 }];
       return {
         streamingAssistant: { ...state.streamingAssistant, segments: merged },
       };
@@ -84,6 +84,21 @@ export function activeReducer(state: ActiveState, action: ActiveAction): ActiveS
       };
     }
 
+    case 'ADVANCE_FLUSHED_LENGTH': {
+      if (!state.streamingAssistant) return state;
+      const segs = state.streamingAssistant.segments;
+      // Advance flushedLength on the last text segment
+      for (let i = segs.length - 1; i >= 0; i--) {
+        const seg = segs[i]!;
+        if (seg.kind === 'text') {
+          const updated = [...segs];
+          updated[i] = { ...seg, kind: 'text' as const, content: seg.content, flushedLength: action.length };
+          return { streamingAssistant: { ...state.streamingAssistant, segments: updated } };
+        }
+      }
+      return state;
+    }
+
     case 'FLUSH_TO_FINALIZED':
       // Handled by top-level reducer that reads both slices.
       return state;
@@ -99,7 +114,11 @@ export function activeReducer(state: ActiveState, action: ActiveAction): ActiveS
 export function activeToSegments(active: ActiveState): AssistantSegment[] {
   if (!active.streamingAssistant) return [];
   return active.streamingAssistant.segments.map(seg => {
-    if (seg.kind === 'text') return seg;
+    if (seg.kind === 'text') {
+      const remaining = seg.content.slice(seg.flushedLength);
+      if (!remaining) return null;
+      return { kind: 'text' as const, content: remaining };
+    }
     return {
       kind: 'tool_call' as const,
       id: seg.id,
@@ -107,7 +126,7 @@ export function activeToSegments(active: ActiveState): AssistantSegment[] {
       input: seg.input,
       result: seg.result,
     };
-  });
+  }).filter(Boolean) as AssistantSegment[];
 }
 
 function replaceLast<T>(arr: T[], item: T): T[] {

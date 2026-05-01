@@ -3,6 +3,7 @@
 export interface TextSegment {
   kind: 'text';
   content: string;
+  flushedLength: number;
 }
 
 export interface ToolCallSegment {
@@ -30,6 +31,7 @@ export type FinalItem =
   | { kind: 'banner'; model: string; sessionId: string | null }
   | { kind: 'user-message'; id: string; content: string }
   | { kind: 'assistant-message'; id: string; segments: AssistantSegment[] }
+  | { kind: 'streaming-chunk'; id: string; content: string }
   | { kind: 'divider'; reason: 'clear' | 'compact' };
 
 // ── Slice states ──
@@ -52,8 +54,8 @@ export interface InteractionState {
 export interface StatsState {
   promptTokens: number;
   completionTokens: number;
-  totalTokens: number;
   contextTokens: number;
+  tokenLimit: number;
   streaming: boolean;
   streamingStartTime: number | null;
   interrupted: boolean;
@@ -71,6 +73,7 @@ export interface UIState {
 export type FinalizedAction =
   | { type: 'USER_SUBMIT'; id: string; content: string }
   | { type: 'ASSISTANT_DONE' }
+  | { type: 'APPEND_STREAMING_CHUNK'; id: string; content: string }
   | { type: 'APPEND_DIVIDER'; reason: 'clear' | 'compact' };
 
 export type ActiveAction =
@@ -80,6 +83,7 @@ export type ActiveAction =
   | { type: 'TOOL_START'; id: string; name: string; input: unknown }
   | { type: 'TOOL_DONE'; id: string; result: ToolCallResult }
   | { type: 'TOOL_ERROR'; id: string; message: string; durationMs: number }
+  | { type: 'ADVANCE_FLUSHED_LENGTH'; length: number }
   | { type: 'FLUSH_TO_FINALIZED' }
   | { type: 'CLEAR_ACTIVE' };
 
@@ -96,8 +100,9 @@ export type InteractionAction =
 export type StatsAction =
   | { type: 'STREAMING_START' }
   | { type: 'STREAMING_STOP' }
-  | { type: 'ACCUMULATE_USAGE'; usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } }
+  | { type: 'ACCUMULATE_USAGE'; usage: { prompt_tokens: number; completion_tokens: number } }
   | { type: 'SET_CONTEXT_TOKENS'; tokens: number }
+  | { type: 'SET_TOKEN_LIMIT'; limit: number }
   | { type: 'SET_INTERRUPTED'; interrupted: boolean };
 
 export type UIAction = FinalizedAction | ActiveAction | InteractionAction | StatsAction;
@@ -118,8 +123,8 @@ export const initialInteraction: InteractionState = {
 export const initialStats: StatsState = {
   promptTokens: 0,
   completionTokens: 0,
-  totalTokens: 0,
   contextTokens: 0,
+  tokenLimit: 0,
   streaming: false,
   streamingStartTime: null,
   interrupted: false,

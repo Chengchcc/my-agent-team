@@ -40,6 +40,7 @@ export function InputBox({ commands, onSubmit, onAbort, callbacks }: InputBoxPro
     selectedIndex,
     displayText,
     displayCursorOffset,
+    pasteLineCount,
     atFiles,
     atSelectedIndex,
     atFilePickerOpen,
@@ -51,28 +52,32 @@ export function InputBox({ commands, onSubmit, onAbort, callbacks }: InputBoxPro
 
   useInput((input, key) => {
     for (const hk of hotkeys) {
-      if (hk.guard && !hk.guard({ streaming, pendingCount: pendingInputs.length, focusedToolId })) continue;
-      if (input === hk.key) {
-        // Escape key is special — check key.escape instead of input match
-        if (hk.key === 'escape' && !key.escape) continue;
-        // Ctrl key
-        if (hk.ctrl && !key.ctrl) continue;
-        // Meta key
-        if (hk.meta && !key.meta) continue;
-        // Shift key
-        if (hk.shift && !key.shift) continue;
-        // Space — only match literal space, not any whitespace
-        if (hk.key === ' ' && input !== ' ') continue;
-        hk.handler();
-        return;
-      }
+      if (hk.guard && !hk.guard({ streaming, pendingCount: pendingInputs.length, focusedToolId, atFilePickerOpen, pickerOpen })) continue;
+
+      // Special keys (upArrow, downArrow, escape, etc.) are exposed as key.*
+      // booleans by Ink, not as input characters. Check the named property first,
+      // fall back to input string comparison for regular character keys.
+      const matched = hk.key in key
+        ? key[hk.key as keyof typeof key] === true
+        : input === hk.key;
+
+      if (!matched) continue;
+      if (hk.ctrl && !key.ctrl) continue;
+      if (hk.meta && !key.meta) continue;
+      if (hk.shift && !key.shift) continue;
+      hk.handler();
+      return;
     }
   });
 
   return (
     <Box flexDirection="column">
       {pickerOpen ? <CommandList commands={filteredCommands} selectedIndex={selectedIndex} /> : null}
-      {atFilePickerOpen ? <FilePicker files={atFiles} selectedIndex={atSelectedIndex} /> : null}
+      {atFilePickerOpen ? (
+        atFiles.length > 0
+          ? <FilePicker files={atFiles} selectedIndex={atSelectedIndex} />
+          : <Box paddingX={2}><Text dimColor>  searching files…</Text></Box>
+      ) : null}
 
       {pendingInputs.length > 0 ? (
         <Box flexDirection="column" borderStyle="single" borderColor="yellow" paddingX={1}>
@@ -91,6 +96,12 @@ export function InputBox({ commands, onSubmit, onAbort, callbacks }: InputBoxPro
           <Box>
             <Text dimColor>Ctrl+K to clear</Text>
           </Box>
+        </Box>
+      ) : null}
+
+      {pasteLineCount > 0 ? (
+        <Box paddingX={2}>
+          <Text dimColor>[paste folded · Backspace on marker to remove · Space on marker to expand · ←→ skip over]</Text>
         </Box>
       ) : null}
 
