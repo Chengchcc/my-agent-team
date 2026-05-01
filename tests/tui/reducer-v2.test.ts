@@ -187,4 +187,69 @@ describe('uiReducer (combined)', () => {
     expect(state.active.streamingAssistant).toBeNull();
     expect(state.stats.streaming).toBe(false);
   });
+
+  test('APPEND_SYSTEM_NOTICE adds a dimmed system notice', () => {
+    let state = uiReducer(initialUIState, { type: 'APPEND_SYSTEM_NOTICE', id: 'n1', content: 'Saved session abc (5 messages)' });
+    expect(state.finalizedItems).toEqual([{ kind: 'system-notice', id: 'n1', content: 'Saved session abc (5 messages)' }]);
+  });
+
+  test('RESET_FINALIZED_FROM_MESSAGES replaces finalizedItems from messages', () => {
+    const state = uiReducer(initialUIState, {
+      type: 'RESET_FINALIZED_FROM_MESSAGES',
+      messages: [
+        { role: 'user', id: 'u1', content: 'hello' },
+        { role: 'assistant', id: 'a1', content: '', blocks: [
+          { type: 'text', text: 'hi there' },
+          { type: 'tool_use', id: 't1', name: 'read', input: {} },
+        ] },
+        { role: 'tool', content: 'file ok', tool_call_id: 't1' },
+      ],
+    });
+    expect(state.finalizedItems).toHaveLength(2);
+    expect(state.finalizedItems[0]).toEqual({ kind: 'user-message', id: 'u1', content: 'hello' });
+    const am = state.finalizedItems[1]!;
+    expect(am.kind).toBe('assistant-message');
+    if (am.kind === 'assistant-message') {
+      expect(am.segments).toHaveLength(2);
+      expect(am.segments[0]).toEqual({ kind: 'text', content: 'hi there', flushedLength: 0 });
+      const tc = am.segments[1]!;
+      expect(tc.kind).toBe('tool_call');
+      if (tc.kind === 'tool_call') {
+        expect(tc.result).toEqual({ kind: 'ok', content: 'file ok', durationMs: 0 });
+      }
+    }
+    expect(state.active.streamingAssistant).toBeNull();
+  });
+
+  test('RESET_FINALIZED_FROM_MESSAGES skips system and tool messages', () => {
+    const state = uiReducer(initialUIState, {
+      type: 'RESET_FINALIZED_FROM_MESSAGES',
+      messages: [
+        { role: 'system', content: 'instructions' },
+        { role: 'user', id: 'u1', content: 'hi' },
+        { role: 'tool', content: 'result', tool_call_id: 'orphan' },
+      ],
+    });
+    expect(state.finalizedItems).toHaveLength(1);
+    expect(state.finalizedItems[0]!.kind).toBe('user-message');
+  });
+
+  test('RESET_FINALIZED_FROM_MESSAGES handles tool error results', () => {
+    const state = uiReducer(initialUIState, {
+      type: 'RESET_FINALIZED_FROM_MESSAGES',
+      messages: [
+        { role: 'assistant', id: 'a1', content: '', blocks: [
+          { type: 'tool_use', id: 't1', name: 'bash', input: {} },
+        ] },
+        { role: 'tool', content: 'permission denied', tool_call_id: 't1', name: 'error' },
+      ],
+    });
+    const am = state.finalizedItems[0]!;
+    if (am.kind === 'assistant-message') {
+      const tc = am.segments[0]!;
+      if (tc.kind === 'tool_call') {
+        expect(tc.result).toEqual({ kind: 'error', message: 'permission denied', durationMs: 0 });
+      }
+    }
+  });
 });

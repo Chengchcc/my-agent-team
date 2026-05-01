@@ -61,6 +61,13 @@ export function uiReducer(state: UIState, action: UIAction): UIState {
         stats: statsReducer(state.stats, { type: 'STREAMING_STOP' }),
       };
 
+    case 'RESET_FINALIZED_FROM_MESSAGES':
+      return {
+        ...state,
+        finalizedItems: finalizedReducer(state.finalizedItems, action),
+        active: { streamingAssistant: null },
+      };
+
     // ── Route to single-slice reducers ──
 
     default:
@@ -87,7 +94,14 @@ export { initialUIState };
 // ── Action type guards ──
 
 function isFinalizedAction(a: UIAction): a is FinalizedAction {
-  return a.type === 'USER_SUBMIT' || a.type === 'ASSISTANT_DONE' || a.type === 'APPEND_STREAMING_CHUNK' || a.type === 'APPEND_DIVIDER';
+  return (
+    a.type === 'USER_SUBMIT' ||
+    a.type === 'ASSISTANT_DONE' ||
+    a.type === 'APPEND_STREAMING_CHUNK' ||
+    a.type === 'APPEND_DIVIDER' ||
+    a.type === 'APPEND_SYSTEM_NOTICE' ||
+    a.type === 'RESET_FINALIZED_FROM_MESSAGES'
+  );
 }
 
 function isActiveAction(a: UIAction): a is ActiveAction {

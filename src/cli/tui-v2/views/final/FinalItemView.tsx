@@ -5,6 +5,7 @@ import { UserMessageView } from './UserMessageView';
 import { AssistantMessageView } from './AssistantMessageView';
 import { MarkdownText } from './MarkdownText';
 import { DividerView } from './DividerView';
+import { SystemNoticeView } from './SystemNoticeView';
 
 interface FinalItemViewProps {
   item: FinalItem;
@@ -22,5 +23,7 @@ export const FinalItemView = React.memo(function FinalItemView({ item }: FinalIt
       return <MarkdownText content={item.content} />;
     case 'divider':
       return <DividerView reason={item.reason} />;
+    case 'system-notice':
+      return <SystemNoticeView content={item.content} />;
   }
 });

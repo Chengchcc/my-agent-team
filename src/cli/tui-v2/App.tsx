@@ -20,6 +20,8 @@ import { usePermissionManager } from '../tui/hooks/use-permission-manager';
 import { AskUserQuestionPrompt } from '../tui/components/AskUserQuestionPrompt';
 import { PermissionPrompt } from '../tui/components/PermissionPrompt';
 import type { PromptSubmission, SlashCommand } from '../tui/command-registry';
+import type { CommandHandlerContext } from '../tui/types';
+import type { UIAction } from './state/types';
 import type { Agent } from '../../agent';
 import type { SessionStore } from '../../session/store';
 import type { ActiveState, FinalItem } from './state/types';
@@ -38,12 +40,38 @@ function finalItemKey(item: { kind: string; id?: string; reason?: string }): str
   return item.id ?? 'unknown';
 }
 
+function buildV2CommandContext(
+  dispatch: React.MutableRefObject<React.Dispatch<UIAction>>,
+  agent: Agent,
+  sessionStore: SessionStore,
+  noticIdx: React.MutableRefObject<number>,
+  args: string,
+): CommandHandlerContext {
+  return {
+    agent,
+    sessionStore,
+    args,
+    onOutput: (content) => dispatch.current({
+      type: 'APPEND_SYSTEM_NOTICE',
+      id: `notice-${noticIdx.current++}`,
+      content,
+    }),
+    refreshMessages: () => {
+      const cm = agent.getContextManager?.();
+      const msgs = cm?.getMessages?.() ?? [];
+      dispatch.current({ type: 'RESET_FINALIZED_FROM_MESSAGES', messages: msgs });
+      dispatch.current({ type: 'SET_CONTEXT_TOKENS', tokens: cm?.getCurrentTokens() ?? 0 });
+    },
+  };
+}
+
 export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
   const [state, dispatch] = useReducer(uiReducer, initialUIState);
   const dispatchRef = useRef(dispatch);
   dispatchRef.current = dispatch;
 
   const chunkIdx = useRef(0);
+  const noticIdx = useRef(0);
   const handleCommitStreamingChunk = useCallback(
     (chunk: string) => dispatchRef.current({ type: 'APPEND_STREAMING_CHUNK', id: `c-${chunkIdx.current++}`, content: chunk }),
     [],
@@ -101,13 +129,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
           const builtinCommands = getBuiltinCommands(sessionStore);
           const matched = builtinCommands.find(c => c.name.toLowerCase() === commandName && c.handler);
           if (matched) {
-            await matched.handler!({
-              agent,
-              sessionStore,
-              onOutput: (_content: string) => {},
-              refreshMessages: () => {},
-              args,
-            });
+            await matched.handler!(buildV2CommandContext(dispatchRef, agent, sessionStore, noticIdx, args));
             return;
           }
         }

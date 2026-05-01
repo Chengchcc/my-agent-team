@@ -1,5 +1,7 @@
 // ── Segments (ordered, interleaved text + tool_calls) ──
 
+import type { Message } from '../../../types';
+
 export interface TextSegment {
   kind: 'text';
   content: string;
@@ -32,7 +34,8 @@ export type FinalItem =
   | { kind: 'user-message'; id: string; content: string }
   | { kind: 'assistant-message'; id: string; segments: AssistantSegment[] }
   | { kind: 'streaming-chunk'; id: string; content: string }
-  | { kind: 'divider'; reason: 'clear' | 'compact' };
+  | { kind: 'divider'; reason: 'clear' | 'compact' }
+  | { kind: 'system-notice'; id: string; content: string };
 
 // ── Slice states ──
 
@@ -74,7 +77,9 @@ export type FinalizedAction =
   | { type: 'USER_SUBMIT'; id: string; content: string }
   | { type: 'ASSISTANT_DONE' }
   | { type: 'APPEND_STREAMING_CHUNK'; id: string; content: string }
-  | { type: 'APPEND_DIVIDER'; reason: 'clear' | 'compact' };
+  | { type: 'APPEND_DIVIDER'; reason: 'clear' | 'compact' }
+  | { type: 'APPEND_SYSTEM_NOTICE'; id: string; content: string }
+  | { type: 'RESET_FINALIZED_FROM_MESSAGES'; messages: Message[] };
 
 export type ActiveAction =
   | { type: 'ASSISTANT_START'; id: string }
