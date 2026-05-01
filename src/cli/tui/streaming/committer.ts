@@ -16,31 +16,32 @@ class Committer {
   private snapshot$ = new BehaviorSubject<Snapshot>(new Map());
   private pipelineSub: Subscription;
 
+  // Cache stable SegFrame references so useSyncExternalStore getSnapshot
+  // returns the same object identity when values haven't changed.
+  private prevSnapshot: Snapshot = new Map();
+
   constructor() {
     this.pipelineSub = this.delta$.pipe(
       throttleTime(33, undefined, { leading: true, trailing: true }),
     ).subscribe(() => this.processSegments());
   }
 
-  /** Feed a text delta. Updates the store immediately, queues throttled commit processing. */
   onDelta(delta: string): void {
     useTuiStore.getState().textDelta(delta);
     this.delta$.next();
   }
 
-  /** Flush remaining content and finalize the turn. */
   onTurnDone(): void {
-    // Force a final processing pass
     this.processSegments();
 
     const store = useTuiStore.getState();
     store.turnDone();
     store.streamingStop();
 
-    this.snapshot$.next(new Map());
+    this.prevSnapshot = new Map();
+    this.snapshot$.next(this.prevSnapshot);
   }
 
-  /** React hook: subscribe to the throttled frame for a single segment. */
   useSegmentFrame(segId: string): SegFrame | null {
     return useSyncExternalStore(
       (cb) => {
@@ -51,7 +52,6 @@ class Committer {
     );
   }
 
-  /** Clean up RxJS subscriptions. */
   destroy(): void {
     this.pipelineSub.unsubscribe();
     this.delta$.complete();
@@ -62,6 +62,7 @@ class Committer {
 
   private processSegments(): void {
     const snapshot = this.buildSnapshot();
+    this.prevSnapshot = snapshot;
     this.snapshot$.next(snapshot);
   }
 
@@ -84,7 +85,13 @@ class Committer {
         store.commitAdvance(seg.id, committedLength);
       }
 
-      next.set(seg.id, { content: seg.content, committedLength });
+      // Reuse previous SegFrame reference when values haven't changed
+      const prev = this.prevSnapshot.get(seg.id);
+      if (prev && prev.content === seg.content && prev.committedLength === committedLength) {
+        next.set(seg.id, prev);
+      } else {
+        next.set(seg.id, { content: seg.content, committedLength });
+      }
     }
     return next;
   }
