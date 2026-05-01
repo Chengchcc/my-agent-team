@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import { Box, Static } from 'ink';
-import { useTuiStore, useFinalized, useLiveItem, useStreaming } from './state/store';
+import { useTuiStore, useFinalized, useFrozenItems, useLiveItem, useStreaming } from './state/store';
 import { FinalItemView } from './views/final/FinalItemView';
 import { ActiveAssistantView } from './views/active/ActiveAssistantView';
 import { FocusedToolDetail } from './views/overlay/FocusedToolDetail';
@@ -195,15 +195,17 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
   );
 
   const finalized = useFinalized();
+  const frozenItems = useFrozenItems();
   const liveItem = useLiveItem();
 
-  const itemsWithBanner = useMemo(() => [banner, ...finalized], [banner, finalized]);
+  const staticItems = useMemo(() => [banner, ...frozenItems], [banner, frozenItems]);
+  const allItems = useMemo(() => [banner, ...finalized], [banner, finalized]);
 
   const showPrompt = askUserQuestionRequest != null || permissionRequest != null;
 
   return (
     <Box flexDirection="column">
-      <Static items={itemsWithBanner}>
+      <Static items={staticItems}>
         {(item) => <FinalItemView key={finalItemKey(item)} item={item} />}
       </Static>
       <Box flexDirection="column">
@@ -211,7 +213,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
           <ActiveAssistantView assistant={toActiveAssistant(liveItem)} />
         )}
         <StreamingIndicator />
-        <FocusedToolDetail finalizedItems={itemsWithBanner} />
+        <FocusedToolDetail finalizedItems={allItems} />
         {askUserQuestionRequest != null && (
           <AskUserQuestionPrompt
             questions={askUserQuestionRequest.params.questions}
