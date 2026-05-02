@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { useSegmentFrame } from '../../streaming/committer';
 import { getMarkdownRenderer } from '../../markdown/cache';
+import { useTerminalWidth } from '../../hooks/use-terminal-width';
 
 interface LiveTextSegmentProps {
   segId: string;
@@ -10,13 +11,12 @@ interface LiveTextSegmentProps {
 export const LiveTextSegment = React.memo(function LiveTextSegment({ segId }: LiveTextSegmentProps) {
   const frame = useSegmentFrame(segId);
   const renderer = getMarkdownRenderer();
+  const width = useTerminalWidth();
 
-  // useMemo guards against re-rendering when the committer returns the same
-  // SegFrame reference (content + committedLength unchanged).
   const result = useMemo(() => {
     if (!frame) return { stable: [] as React.ReactNode[], tail: [] as React.ReactNode[] };
-    return renderer.render(frame.content, frame.committedLength);
-  }, [frame, renderer]);
+    return renderer.render(frame.content, frame.committedLength, width);
+  }, [frame, renderer, width]);
 
   if (!frame || (result.stable.length === 0 && result.tail.length === 0)) {
     return (

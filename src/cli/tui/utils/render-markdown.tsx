@@ -1,28 +1,37 @@
 import React from 'react';
-import { Text } from 'ink';
-import { parseToBlocks } from '../markdown/parse-blocks';
-import { renderBlock } from '../markdown/render-block';
+import { Box, Text } from 'ink';
+import { parseDoc } from '../markdown/parse-ast';
+import { renderNode, FootnotesSection, type RenderContext } from '../markdown/render-ast';
 
 /**
- * Render markdown content to React elements using micromark block parsing.
+ * Render markdown content to React elements using mdast AST parsing.
  * For the final (Static) rendering path where all content is committed.
  */
 export function renderMarkdownTokens(content: string): React.ReactNode[] {
   if (!content) return [];
 
-  const blocks = parseToBlocks(content);
+  const { blocks, definitions, footnotes } = parseDoc(content);
   if (blocks.length === 0) {
     return [<Text key="raw">{content}</Text>];
   }
 
-  const elements: React.ReactNode[] = [];
-  for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i]!;
-    elements.push(<React.Fragment key={block.id}>{renderBlock(block)}</React.Fragment>);
-    if (i < blocks.length - 1) {
-      elements.push(<Text key={`sp-${i}`}>{'\n'}</Text>);
-    }
+  const ctx: RenderContext = {
+    terminalWidth: process.stdout.columns || 80,
+    definitions,
+    footnotes,
+  };
+  const elements = blocks.map(block => (
+    <Box key={block.id}>
+      {renderNode(block.node, ctx)}
+    </Box>
+  ));
+
+  // Append footnotes section at end of document
+  const footnoteSection = FootnotesSection({ footnotes, ctx });
+  if (footnoteSection) {
+    elements.push(<Box key="footnotes-section">{footnoteSection}</Box>);
   }
+
   return elements;
 }
 

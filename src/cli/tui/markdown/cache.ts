@@ -1,46 +1,57 @@
 import React from 'react';
 import { Text } from 'ink';
-import { parseToBlocks, type Block } from './parse-blocks';
-import { renderBlock, renderBlocks } from './render-block';
+import { parseDoc, type Block } from './parse-ast';
+import { renderBlocks, FootnotesSection, type RenderContext } from './render-ast';
 
 const MAX_CACHE_SIZE = 300;
 const EVICT_BATCH = 50;
 
 /**
- * Caches rendered React nodes for blocks and stable/tail splits.
- * Block identity is derived from (type, startOffset, endOffset, raw hash) —
- * once committed, a block's raw content never changes, so cache hit rate is ~100%.
+ * Caches rendered React nodes for committed blocks.
+ * Once committed, a block's raw content never changes, so cache hit rate is ~100%.
  */
 export class MarkdownRenderer {
-  private blockCache = new Map<string, React.ReactNode>();
+  private renderCache = new Map<string, React.ReactNode>();
   private splitCache = new Map<string, { stable: React.ReactNode[]; tail: React.ReactNode[] }>();
   private lastContent = '';
   private lastCommittedLength = 0;
+  private lastTerminalWidth = 80;
   private lastBlocks: Block[] = [];
+  private lastDefinitions = new Map();
+  private lastFootnotes = new Map();
 
-  /**
-   * Render content with committed/tail split.
-   * Returns stable (cached per block) and tail (raw text) React nodes.
-   */
-  render(content: string, committedLength: number): { stable: React.ReactNode[]; tail: React.ReactNode[] } {
-    // Fast path: same content and committedLength → return cached
-    if (content === this.lastContent && committedLength === this.lastCommittedLength) {
-      const splitHit = this.splitCache.get(this.cacheKey(content, committedLength));
+  render(content: string, committedLength: number, terminalWidth: number): { stable: React.ReactNode[]; tail: React.ReactNode[] } {
+    // Fast path: same content, committedLength, and terminalWidth → return cached
+    if (
+      content === this.lastContent &&
+      committedLength === this.lastCommittedLength &&
+      terminalWidth === this.lastTerminalWidth
+    ) {
+      const splitHit = this.splitCache.get(this.cacheKey(content, committedLength, terminalWidth));
       if (splitHit) return splitHit;
     }
 
     // Parse if content changed
     let blocks: Block[];
+    let definitions = this.lastDefinitions;
+    let footnotes = this.lastFootnotes;
     if (content === this.lastContent) {
       blocks = this.lastBlocks;
     } else {
-      blocks = parseToBlocks(content);
+      const doc = parseDoc(content);
+      blocks = doc.blocks;
+      definitions = doc.definitions;
+      footnotes = doc.footnotes;
       this.lastContent = content;
       this.lastBlocks = blocks;
+      this.lastDefinitions = definitions;
+      this.lastFootnotes = footnotes;
     }
 
-    const result = renderBlocks(blocks, committedLength);
+    const ctx: RenderContext = { terminalWidth, definitions, footnotes };
+    const result = renderBlocks(blocks, committedLength, ctx);
     this.lastCommittedLength = committedLength;
+    this.lastTerminalWidth = terminalWidth;
 
     // When no markdown blocks are detected (plain text), render trailing
     // content as raw text so it appears in the live TUI output.
@@ -48,39 +59,42 @@ export class MarkdownRenderer {
       result.tail.push(React.createElement(Text, { key: 'raw-tail' }, content.slice(committedLength)));
     }
 
+    // Append footnotes section to stable when fully committed
+    if (committedLength >= content.length && footnotes.size > 0) {
+      result.stable.push(
+        React.createElement(
+          'x-footnotes' as any,
+          { key: 'footnotes-section' },
+          FootnotesSection({ footnotes, ctx }),
+        ),
+      );
+    }
+
     // Evict old entries if cache is too large
-    if (this.blockCache.size > MAX_CACHE_SIZE) {
-      const keys = [...this.blockCache.keys()];
+    if (this.renderCache.size > MAX_CACHE_SIZE) {
+      const keys = [...this.renderCache.keys()];
       for (let i = 0; i < EVICT_BATCH && keys[i]; i++) {
-        this.blockCache.delete(keys[i]!);
+        this.renderCache.delete(keys[i]!);
       }
     }
 
-    this.splitCache.set(this.cacheKey(content, committedLength), result);
+    this.splitCache.set(this.cacheKey(content, committedLength, terminalWidth), result);
     return result;
   }
 
-  /** Render a single block with caching. */
-  renderCached(block: Block): React.ReactNode {
-    const key = `${block.id}-${block.raw.length}`;
-    const hit = this.blockCache.get(key);
-    if (hit !== undefined) return hit;
-
-    const rendered = renderBlock(block);
-    this.blockCache.set(key, rendered);
-    return rendered;
-  }
-
   reset(): void {
-    this.blockCache.clear();
+    this.renderCache.clear();
     this.splitCache.clear();
     this.lastContent = '';
     this.lastCommittedLength = 0;
+    this.lastTerminalWidth = 80;
     this.lastBlocks = [];
+    this.lastDefinitions = new Map();
+    this.lastFootnotes = new Map();
   }
 
-  private cacheKey(content: string, committedLength: number): string {
-    return `${committedLength}:${content.length}`;
+  private cacheKey(content: string, committedLength: number, terminalWidth: number): string {
+    return `${committedLength}:${content.length}:${terminalWidth}`;
   }
 }
 
