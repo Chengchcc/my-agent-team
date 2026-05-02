@@ -2,7 +2,9 @@
 
 import 'dotenv/config';
 import { parseArgs } from 'util';
+import { readFile } from 'fs/promises';
 import type { RuntimeConfig } from '../src/runtime';
+import type { McpServerConfig } from '../src/config/types';
 import { setDebugMode } from '../src/utils/debug';
 
 const { values, positionals } = parseArgs({
@@ -18,6 +20,10 @@ const { values, positionals } = parseArgs({
     'no-skills':  { type: 'boolean', default: false },
     'no-todo':    { type: 'boolean', default: false },
     debug:        { type: 'boolean', short: 'd', default: false },
+    'no-mcp':       { type: 'boolean', default: false },
+    'mcp-server':   { type: 'string', multiple: true },
+    'mcp-server-file': { type: 'string' },
+    'mcp-debug':    { type: 'boolean', default: false },
     help:         { type: 'boolean', short: 'h', default: false },
     version:      { type: 'boolean', short: 'v', default: false },
   },
@@ -40,8 +46,18 @@ Options:
       --no-skills             Disable skill injection
       --no-todo               Disable todo system
   -d, --debug                 Enable debug output
+      --no-mcp                   Disable MCP client
+      --mcp-server '<json>'      Add an MCP server (repeatable, inline JSON)
+      --mcp-server-file <path>   Add MCP servers from a JSON file
+      --mcp-debug                Show MCP connection details in stderr
   -h, --help                  Show this help
   -v, --version               Show version
+
+MCP Subcommands:
+  my-agent mcp list              List configured MCP servers
+  my-agent mcp status <name>     Show server details
+  my-agent mcp add <name> ...    Add an MCP server
+  my-agent mcp remove <name>     Remove an MCP server
 
 Examples:
   my-agent -p "fix all lint errors in src/"
@@ -56,6 +72,13 @@ Examples:
 if (values.version) {
   const pkg = require('../package.json');
   console.log(pkg.version ?? '0.0.0');
+  process.exit(0);
+}
+
+// MCP subcommand mode — manage server config, no agent loop
+if (positionals[0] === 'mcp') {
+  const { runMcpCli } = await import('./mcp-cli');
+  await runMcpCli(positionals.slice(1), values);
   process.exit(0);
 }
 
@@ -95,6 +118,18 @@ function writeTextEvent(event: AgentEvent) {
     case 'sub_agent_start':
     case 'sub_agent_event':
     case 'sub_agent_done':
+      break;
+    case 'mcp_status':
+      if (values['mcp-debug']) {
+        const icon = event.status === 'connected' ? '+'
+          : event.status === 'error' ? '!'
+          : '-';
+        const detail = event.status === 'connected' && event.toolCount
+          ? ` (${event.toolCount} tools)`
+          : event.error ? ` — ${event.error}` : '';
+        process.stderr.write(`[mcp:${event.serverName}] ${icon} ${event.status}${detail}\n`);
+      }
+      break;
     case 'budget_delegation':
     case 'budget_compact':
     case 'context_compacted':
@@ -138,6 +173,12 @@ function writeStreamJsonEvent(event: AgentEvent) {
       serializable.summary = event.summary;
       serializable.totalTurns = event.totalTurns;
       serializable.durationMs = event.durationMs;
+      break;
+    case 'mcp_status':
+      serializable.server = event.serverName;
+      serializable.serverStatus = event.status;
+      if (event.error) serializable.error = event.error;
+      if (event.toolCount !== undefined) serializable.toolCount = event.toolCount;
       break;
     case 'thinking_delta':
     case 'thinking_done':
@@ -184,10 +225,17 @@ async function main() {
     enableMemory: !values['no-memory'],
     enableSkills: !values['no-skills'],
     enableTodo: !values['no-todo'],
+    enableMcp: !values['no-mcp'],
   };
   if (values.provider) runtimeConfig.provider = values.provider as 'claude' | 'openai';
   if (typeof values.model === 'string') runtimeConfig.model = values.model;
   if (typeof values['system-prompt'] === 'string') runtimeConfig.systemPrompt = values['system-prompt'];
+
+  // Parse --mcp-server / --mcp-server-file
+  const mcpServers = await parseMcpServers(values);
+  if (mcpServers.length > 0) {
+    runtimeConfig.mcpServers = mcpServers;
+  }
 
   const runtime = await createAgentRuntime(runtimeConfig);
 
@@ -241,6 +289,21 @@ async function main() {
     await runtime.shutdown();
     process.exit(exitCode);
   }
+}
+
+async function parseMcpServers(values: Record<string, unknown>): Promise<McpServerConfig[]> {
+  const servers: McpServerConfig[] = [];
+  for (const s of (Array.isArray(values['mcp-server']) ? values['mcp-server'] as string[] : [])) {
+    servers.push(JSON.parse(s) as McpServerConfig);
+  }
+  if (values['mcp-server-file']) {
+    const fileContent = await readFile(String(values['mcp-server-file']), 'utf-8');
+    const parsed = JSON.parse(fileContent) as unknown;
+    for (const s of (Array.isArray(parsed) ? parsed : [parsed])) {
+      servers.push(s as McpServerConfig);
+    }
+  }
+  return servers;
 }
 
 void main();

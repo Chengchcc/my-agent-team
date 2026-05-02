@@ -1,5 +1,6 @@
 import type { Agent } from '../../agent';
 import type { SessionStore } from '../../session/store';
+import type { McpManager } from '../../mcp/manager';
 
 /**
  * Todo item for display in UI.
@@ -19,4 +20,5 @@ export interface CommandHandlerContext {
   refreshMessages: () => void;
   sessionStore: SessionStore;
   args: string;
+  mcpManager: McpManager | undefined;
 }

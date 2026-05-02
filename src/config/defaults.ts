@@ -6,6 +6,9 @@ import {
   DEFAULT_SUMMARY_MODEL,
   DEFAULT_MAX_SUMMARY_TOKENS,
   DEFAULT_TOKEN_LIMIT,
+  DEFAULT_MCP_TOOL_TIMEOUT_MS,
+  DEFAULT_MCP_RECONNECT_ATTEMPTS,
+  DEFAULT_MCP_RECONNECT_DELAY_MS,
 } from './constants';
 
 export const defaultSettings: Settings = {
@@ -85,5 +88,12 @@ export const defaultSettings: Settings = {
   },
   debug: {
     enabled: false,
+  },
+  mcp: {
+    enabled: false,
+    servers: [],
+    toolTimeoutMs: DEFAULT_MCP_TOOL_TIMEOUT_MS,
+    reconnectAttempts: DEFAULT_MCP_RECONNECT_ATTEMPTS,
+    reconnectDelayMs: DEFAULT_MCP_RECONNECT_DELAY_MS,
   },
 };

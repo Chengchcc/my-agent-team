@@ -105,6 +105,9 @@ function dispatchAgentEvent(
       store.setContextTokens(event.afterTokens);
       store.setCompacting(false);
       break;
+
+    case 'mcp_status':
+      break;
   }
 }
 

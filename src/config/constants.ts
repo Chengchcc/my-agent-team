@@ -11,3 +11,8 @@ export const DEFAULT_SUMMARY_MODEL = 'claude-3-5-haiku-20241022';
 
 // --- LLM defaults ---
 export const DEFAULT_TEMPERATURE = 0.7;
+
+// --- MCP defaults ---
+export const DEFAULT_MCP_TOOL_TIMEOUT_MS = 30_000;
+export const DEFAULT_MCP_RECONNECT_ATTEMPTS = 3;
+export const DEFAULT_MCP_RECONNECT_DELAY_MS = 1_000;

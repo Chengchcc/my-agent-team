@@ -1,10 +1,18 @@
 import type { AgentConfig, Provider, AgentHooks } from './types';
-import type { LLMSettings, ContextSettings } from './config/types';
+import type { LLMSettings, ContextSettings, McpSettings, McpServerConfig } from './config/types';
+import { settings as globalSettings } from './config';
 import { Agent } from './agent/Agent';
 import { ToolRegistry } from './agent/tool-registry';
 import { ContextManager } from './agent/context';
 import type { ContextManagerConfig } from './agent/context';
 import { SubAgentTool } from './agent/sub-agent-tool';
+import { McpManager } from './mcp/manager';
+import { McpToolAdapter } from './mcp/tool-adapter';
+import { createMcpResourceMiddleware } from './mcp/resource-middleware';
+import { McpPromptRegistry } from './mcp/prompt-registry';
+import { McpListServersTool, McpAddServerTool, McpRemoveServerTool } from './mcp/tools';
+import { setMcpManagerInstance } from './mcp/index';
+import { DEFAULT_MCP_TOOL_TIMEOUT_MS, DEFAULT_MCP_RECONNECT_ATTEMPTS, DEFAULT_MCP_RECONNECT_DELAY_MS } from './config/constants';
 import { createTodoMiddleware } from './todos';
 import {
   JsonlMemoryStore, KeywordRetriever, LlmExtractor,
@@ -46,6 +54,10 @@ export interface RuntimeConfig {
     context: ContextSettings;
     security?: { allowedRoots?: string[] };
   };
+  /** Disable MCP client (default: false, enabled if settings.mcp.enabled is true) */
+  enableMcp?: boolean;
+  /** Additional MCP servers from CLI (merged with settings, CLI overrides by name) */
+  mcpServers?: McpServerConfig[];
 }
 
 export interface AgentRuntime {
@@ -56,6 +68,7 @@ export interface AgentRuntime {
   sessionStore: SessionStore;
   memoryMiddleware?: MemoryMiddleware;
   skillLoader?: SkillLoader;
+  mcpManager?: McpManager;
   shutdown: () => Promise<void>;
 }
 
@@ -71,6 +84,7 @@ export async function createAgentRuntime(
     enableTodo = true,
     enableSession = true,
     enableCompaction = true,
+    enableMcp,
     systemPrompt = DEFAULT_SYSTEM_PROMPT,
     allowedRoots: allowedRootsOverride,
     askUserQuestionHandler,
@@ -96,27 +110,7 @@ export async function createAgentRuntime(
   const maxTokens = settings?.llm.maxTokens || DEFAULT_MAX_TOKENS;
 
   // Context manager with optional tiered compaction
-  let compressionStrategy: TieredCompactionManager | undefined;
-  if (enableCompaction && settings?.context.compaction) {
-    const tokenBudgetCalc = new TokenBudgetCalculator(
-      tokenLimit,
-      maxTokens,
-      DEFAULT_COMPACTION_BUFFER, // compaction buffer
-    );
-
-    const compactionConfig = {
-      ...DEFAULT_COMPACTION_CONFIG,
-      thresholds: {
-        ...DEFAULT_COMPACTION_CONFIG.thresholds,
-        ...settings.context.compaction,
-      },
-      summaryProvider: provider,
-      summaryModel: settings.context.compaction.summaryModel || DEFAULT_SUMMARY_MODEL,
-    };
-
-    compressionStrategy = new TieredCompactionManager(tokenBudgetCalc, compactionConfig);
-    debugLog('Tiered compaction enabled');
-  }
+  const compressionStrategy = setupCompaction(enableCompaction, settings, provider, tokenLimit, maxTokens);
 
   const contextManagerConfig: ContextManagerConfig = {
     tokenLimit,
@@ -163,6 +157,14 @@ export async function createAgentRuntime(
     mainAgentConfig: agentConfig,
     hooks: { beforeModel: hooks.beforeModel },
   }));
+
+  // MCP Client
+  const { mcpManager } = await assembleMcp(
+    enableMcp,
+    config.mcpServers,
+    toolRegistry,
+    hooks,
+  );
 
   // Memory
   let memoryMiddleware: MemoryMiddleware | undefined;
@@ -244,7 +246,107 @@ export async function createAgentRuntime(
   };
   if (memoryMiddleware) runtime.memoryMiddleware = memoryMiddleware;
   if (skillLoader) runtime.skillLoader = skillLoader;
+  if (mcpManager) runtime.mcpManager = mcpManager;
   return runtime;
+}
+
+function setupCompaction(
+  enableCompaction: boolean,
+  configSettings: RuntimeConfig['settings'],
+  provider: Provider,
+  tokenLimit: number,
+  maxTokens: number,
+): TieredCompactionManager | undefined {
+  if (!enableCompaction || !configSettings?.context.compaction) return undefined;
+  const tokenBudgetCalc = new TokenBudgetCalculator(tokenLimit, maxTokens, DEFAULT_COMPACTION_BUFFER);
+  const compactionConfig = {
+    ...DEFAULT_COMPACTION_CONFIG,
+    thresholds: { ...DEFAULT_COMPACTION_CONFIG.thresholds, ...configSettings.context.compaction },
+    summaryProvider: provider,
+    summaryModel: configSettings.context.compaction.summaryModel || DEFAULT_SUMMARY_MODEL,
+  };
+  debugLog('Tiered compaction enabled');
+  return new TieredCompactionManager(tokenBudgetCalc, compactionConfig);
+}
+
+async function assembleMcp(
+  enableMcp: boolean | undefined,
+  cliServers: McpServerConfig[] | undefined,
+  toolRegistry: ToolRegistry,
+  hooks: AgentHooks,
+): Promise<{ mcpManager?: McpManager; mcpPromptRegistry?: McpPromptRegistry }> {
+  if (enableMcp === false) return {};
+
+  let mcpSettings: McpSettings;
+  try {
+    mcpSettings = globalSettings.mcp;
+  } catch {
+    mcpSettings = {
+      enabled: false,
+      servers: [],
+      toolTimeoutMs: DEFAULT_MCP_TOOL_TIMEOUT_MS,
+      reconnectAttempts: DEFAULT_MCP_RECONNECT_ATTEMPTS,
+      reconnectDelayMs: DEFAULT_MCP_RECONNECT_DELAY_MS,
+    };
+  }
+
+  // Merge: CLI servers override settings servers by name
+  const mergedServers = [...mcpSettings.servers];
+  for (const cliServer of cliServers ?? []) {
+    const idx = mergedServers.findIndex(s => s.name === cliServer.name);
+    if (idx >= 0) {
+      mergedServers[idx] = cliServer;
+    } else {
+      mergedServers.push(cliServer);
+    }
+  }
+
+  if (!mcpSettings.enabled && mergedServers.length === 0) return {};
+
+  const mcpManager = new McpManager({
+    toolTimeoutMs: mcpSettings.toolTimeoutMs,
+    reconnectAttempts: mcpSettings.reconnectAttempts,
+    reconnectDelayMs: mcpSettings.reconnectDelayMs,
+  });
+
+  setMcpManagerInstance(mcpManager);
+
+  const mcpPromptRegistry = new McpPromptRegistry(mcpManager);
+
+  try {
+    await mcpManager.start(mergedServers);
+
+    for (const { serverName, tool: toolDef } of mcpManager.getAllTools()) {
+      toolRegistry.register(new McpToolAdapter(mcpManager, serverName, toolDef));
+    }
+
+    for (const { serverName, prompt: promptDef } of mcpManager.getAllPrompts()) {
+      mcpPromptRegistry.registerAsTool(serverName, promptDef, toolRegistry);
+    }
+
+    const resourceMiddleware = createMcpResourceMiddleware(mcpManager);
+    if (resourceMiddleware.beforeModel) {
+      hooks.beforeModel?.push(resourceMiddleware.beforeModel);
+    }
+
+    toolRegistry.register(new McpListServersTool(mcpManager));
+    toolRegistry.register(new McpAddServerTool(mcpManager, toolRegistry, mcpPromptRegistry));
+    toolRegistry.register(new McpRemoveServerTool(mcpManager, toolRegistry));
+
+    hooks.afterAgentRun?.push(async (_ctx, next) => {
+      const result = await next();
+      await mcpManager!.shutdown();
+      return result;
+    });
+
+    debugLog('MCP initialized');
+  } catch (err) {
+    setMcpManagerInstance(null);
+    debugLog(`MCP initialization failed: ${err}`);
+    return {};
+  }
+
+  return { mcpManager, mcpPromptRegistry };
 }
 
 /**

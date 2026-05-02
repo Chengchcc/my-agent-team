@@ -51,6 +51,11 @@ export function mergeConfigs(defaults: Partial<Settings>, user: Partial<Settings
   if (user.debug) {
     result.debug = defaults.debug ? { ...defaults.debug, ...user.debug } : { ...user.debug };
   }
+  if (user.mcp) {
+    result.mcp = defaults.mcp
+      ? { ...defaults.mcp, ...user.mcp, servers: user.mcp.servers ?? defaults.mcp.servers }
+      : { ...user.mcp };
+  }
 
   return result;
 }

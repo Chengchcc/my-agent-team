@@ -85,6 +85,25 @@ const securitySettingsSchema = z.object({
   allowedRoots: z.array(z.string()).default(['.']),
 });
 
+const mcpServerConfigSchema = z.object({
+  name: z.string(),
+  transport: z.enum(['stdio', 'sse', 'streamable-http']),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  url: z.string().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  autoStart: z.boolean().optional(),
+});
+
+const mcpSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  servers: z.array(mcpServerConfigSchema).default([]),
+  toolTimeoutMs: z.number().int().positive().default(30000),
+  reconnectAttempts: z.number().int().positive().default(3),
+  reconnectDelayMs: z.number().int().positive().default(1000),
+});
+
 const debugSettingsSchema = z.object({
   enabled: z.boolean().default(false),
 });
@@ -98,5 +117,6 @@ export const settingsSchema = z.object({
   subAgent: subAgentSettingsSchema,
   security: securitySettingsSchema,
   debug: debugSettingsSchema,
+  mcp: mcpSettingsSchema,
 });
 

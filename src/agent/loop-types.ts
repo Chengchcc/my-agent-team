@@ -156,6 +156,17 @@ export interface ContextCompactedEvent extends AgentEventBase {
 }
 
 /**
+ * MCP server connection status change.
+ */
+export interface McpStatusEvent extends AgentEventBase {
+  type: 'mcp_status';
+  serverName: string;
+  status: 'connected' | 'disconnected' | 'connecting' | 'error';
+  error?: string;
+  toolCount?: number;
+}
+
+/**
  * Union of all possible agent events
  */
 export type AgentEvent =
@@ -172,7 +183,8 @@ export type AgentEvent =
   | SubAgentDoneEvent
   | BudgetDelegationEvent
   | BudgetCompactEvent
-  | ContextCompactedEvent;
+  | ContextCompactedEvent
+  | McpStatusEvent;
 
 /**
  * Strategy for handling tool errors

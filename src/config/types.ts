@@ -98,6 +98,33 @@ export interface SecuritySettings {
   allowedRoots: string[];
 }
 
+export interface McpServerConfig {
+  /** Unique server name, used for tool prefix generation */
+  name: string;
+  transport: 'stdio' | 'sse' | 'streamable-http';
+  /** stdio transport */
+  command?: string;
+  args?: string[];
+  /** SSE / Streamable HTTP transport */
+  url?: string;
+  headers?: Record<string, string>;
+  /** Environment variables injected to child process */
+  env?: Record<string, string>;
+  /** Automatically connect at agent startup (default: true) */
+  autoStart?: boolean;
+}
+
+export interface McpSettings {
+  enabled: boolean;
+  servers: McpServerConfig[];
+  /** Per-tool call timeout in ms */
+  toolTimeoutMs: number;
+  /** Max reconnection attempts on failure */
+  reconnectAttempts: number;
+  /** Base delay between reconnection attempts in ms */
+  reconnectDelayMs: number;
+}
+
 export interface DebugSettings {
   enabled: boolean;
 }
@@ -111,4 +138,5 @@ export interface Settings {
   subAgent: SubAgentSettings;
   security: SecuritySettings;
   debug: DebugSettings;
+  mcp: McpSettings;
 }

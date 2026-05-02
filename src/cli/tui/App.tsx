@@ -18,6 +18,7 @@ import type { CommandHandlerContext } from './types';
 import type { Agent } from '../../agent';
 import type { SessionStore } from '../../session/store';
 import type { FinalItem } from './state/types';
+import { getMcpManagerInstance } from '../../mcp/index';
 
 interface AppProps {
   agent: Agent;
@@ -48,6 +49,7 @@ function buildV2CommandContext(
       useTuiStore.getState().resetFromMessages(msgs);
       useTuiStore.getState().setContextTokens(cm?.getCurrentTokens() ?? 0);
     },
+    mcpManager: getMcpManagerInstance() ?? undefined,
   };
 }
 
