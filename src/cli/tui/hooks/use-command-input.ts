@@ -103,11 +103,7 @@ export function useCommandInput({
       setAtFiles([]);
       return;
     }
-    // Trigger glob from length ≥ 1 (was ≥ 2 — too slow to appear)
-    if (atQuery.query.length < 1) {
-      setAtFiles([]);
-      return;
-    }
+    // Trigger glob immediately on '@' — show files right away
     let cancelled = false;
     const timer = setTimeout(() => {
       fastGlob(`**/*${atQuery.query}*`, {
@@ -239,22 +235,22 @@ export function useCommandInput({
         return;
       }
 
-      if (pickerOpen && filteredCommands.length > 0 && key.upArrow) {
+      if (pickerOpen && filteredCommands.length > 0 && key.upArrow && !key.ctrl) {
         setSelectedIndex((index) => (index > 0 ? index - 1 : filteredCommands.length - 1));
         return;
       }
 
-      if (pickerOpen && filteredCommands.length > 0 && key.downArrow) {
+      if (pickerOpen && filteredCommands.length > 0 && key.downArrow && !key.ctrl) {
         setSelectedIndex((index) => (index < filteredCommands.length - 1 ? index + 1 : 0));
         return;
       }
 
-      if (atFilePickerOpen && key.upArrow) {
+      if (atFilePickerOpen && key.upArrow && !key.ctrl) {
         setAtSelectedIndex((index) => (index > 0 ? index - 1 : atFiles.length - 1));
         return;
       }
 
-      if (atFilePickerOpen && key.downArrow) {
+      if (atFilePickerOpen && key.downArrow && !key.ctrl) {
         setAtSelectedIndex((index) => (index < atFiles.length - 1 ? index + 1 : 0));
         return;
       }
@@ -342,7 +338,7 @@ export function useCommandInput({
 
       // Paste fold guard: only intercept when cursor is inside a marker.
       // Input outside markers passes through to normal handling below.
-      if (hasPasteMarkers(editorStateRef.current.text)) {
+      if (hasMarkers) {
         const markerAtCursor = findMarkerAtCursor(editorStateRef.current.text, editorStateRef.current.cursorOffset);
 
         // Space inside a marker: expand all markers
@@ -444,7 +440,7 @@ export function useCommandInput({
         return;
       }
 
-      if (!pickerOpen && (editorStateRef.current.text === "" || isBrowsing) && key.upArrow) {
+      if (!pickerOpen && (editorStateRef.current.text === "" || isBrowsing) && key.upArrow && !key.ctrl) {
         if (!isBrowsing) beginBrowsing(editorStateRef.current.text);
         const entry = browseUp();
         if (entry !== null) {
@@ -453,7 +449,7 @@ export function useCommandInput({
         return;
       }
 
-      if (!pickerOpen && isBrowsing && key.downArrow) {
+      if (!pickerOpen && isBrowsing && key.downArrow && !key.ctrl) {
         const entry = browseDown();
         if (entry !== null) {
           setEditorState({ text: entry, cursorOffset: entry.length });
@@ -461,7 +457,7 @@ export function useCommandInput({
         return;
       }
 
-      if (key.upArrow || key.downArrow) {
+      if ((key.upArrow || key.downArrow) && !key.ctrl) {
         return;
       }
 

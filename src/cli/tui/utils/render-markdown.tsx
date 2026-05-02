@@ -1,80 +1,30 @@
-import { Text } from 'ink';
-import { marked, type Token } from 'marked';
 import React from 'react';
-import { CodeBlock } from '../components/CodeBlock';
+import { Text } from 'ink';
+import { parseToBlocks } from '../markdown/parse-blocks';
+import { renderBlock } from '../markdown/render-block';
 
- 
-const TerminalRenderer = require('marked-terminal').default;
-
-let markedConfigured = false;
-if (!markedConfigured) {
-  markedConfigured = true;
-  marked.setOptions({
-    // @ts-ignore: TerminalRenderer type conflict due to nested dependency versions
-    renderer: new TerminalRenderer(),
-    async: false,
-  });
-}
-
+/**
+ * Render markdown content to React elements using micromark block parsing.
+ * For the final (Static) rendering path where all content is committed.
+ */
 export function renderMarkdownTokens(content: string): React.ReactNode[] {
-  const elements: React.ReactNode[] = [];
-  let textBuffer = '';
+  if (!content) return [];
 
-  try {
-    const tokens = marked.lexer(content);
-
-    tokens.forEach((token, index) => {
-      if (token.type === 'code') {
-        if (textBuffer.trim()) {
-          try {
-            const result = marked(textBuffer) as string;
-            elements.push(
-              <Text key={`buffer-${index}`}>
-                {result.trimEnd()}
-              </Text>,
-            );
-          } catch {
-            elements.push(
-              <Text key={`buffer-${index}`}>
-                {textBuffer}
-              </Text>,
-            );
-          }
-          textBuffer = '';
-        }
-        const codeToken = token as Token & { text: string; lang?: string };
-        const codeBlockProps: { key: number; code: string; language?: string } = { key: index, code: codeToken.text };
-        if (codeToken.lang) codeBlockProps.language = codeToken.lang;
-        elements.push(<CodeBlock {...codeBlockProps} />);
-      } else {
-        const tokenAny = token as Token & { raw?: string; text?: string };
-        if (tokenAny.raw) {
-          textBuffer += tokenAny.raw;
-        } else if (tokenAny.text) {
-          textBuffer += tokenAny.text;
-        }
-      }
-    });
-
-    if (textBuffer.trim()) {
-      try {
-        const result = marked(textBuffer) as string;
-        elements.push(
-          <Text key="final">
-            {result.trimEnd()}
-          </Text>,
-        );
-      } catch {
-        elements.push(
-          <Text key="final">
-            {textBuffer}
-          </Text>,
-        );
-      }
-    }
-  } catch {
-    elements.push(<Text>{content}</Text>);
+  const blocks = parseToBlocks(content);
+  if (blocks.length === 0) {
+    return [<Text key="raw">{content}</Text>];
   }
 
+  const elements: React.ReactNode[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]!;
+    elements.push(<React.Fragment key={block.id}>{renderBlock(block)}</React.Fragment>);
+    if (i < blocks.length - 1) {
+      elements.push(<Text key={`sp-${i}`}>{'\n'}</Text>);
+    }
+  }
   return elements;
 }
+
+// Re-export for callers that depended on the old signature
+export { renderMarkdownTokens as renderMarkdownCached };

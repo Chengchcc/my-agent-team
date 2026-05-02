@@ -1,4 +1,5 @@
-import { Subject, BehaviorSubject, Subscription } from 'rxjs';
+import type { Subscription } from 'rxjs';
+import { Subject, BehaviorSubject } from 'rxjs';
 import { throttleTime } from 'rxjs/operators';
 import { useCallback, useSyncExternalStore } from 'react';
 import { useTuiStore } from '../state/store';
@@ -11,6 +12,8 @@ export interface SegFrame {
 
 type Snapshot = Map<string, SegFrame>;
 
+const THROTTLE_MS = 33;
+
 class Committer {
   private delta$ = new Subject<void>();
   private snapshot$ = new BehaviorSubject<Snapshot>(new Map());
@@ -22,7 +25,7 @@ class Committer {
 
   constructor() {
     this.pipelineSub = this.delta$.pipe(
-      throttleTime(33, undefined, { leading: true, trailing: true }),
+      throttleTime(THROTTLE_MS, undefined, { leading: true, trailing: true }),
     ).subscribe(() => this.processSegments());
   }
 
@@ -49,23 +52,15 @@ class Committer {
     });
   }
 
-  useSegmentFrame(segId: string): SegFrame | null {
-    const self = this;
+  /** Subscribe to snapshot changes. Returns unsubscribe function. */
+  subscribe(callback: () => void): () => void {
+    const sub = this.snapshot$.subscribe(() => callback());
+    return () => sub.unsubscribe();
+  }
 
-    const subscribe = useCallback(
-      (cb: () => void) => {
-        const sub = self.snapshot$.subscribe(() => cb());
-        return () => sub.unsubscribe();
-      },
-      [],
-    );
-
-    const getSnapshot = useCallback(
-      () => self.snapshot$.getValue().get(segId) ?? null,
-      [segId],
-    );
-
-    return useSyncExternalStore(subscribe, getSnapshot);
+  /** Get the current SegFrame for a segment, or null. */
+  getFrame(segId: string): SegFrame | null {
+    return this.snapshot$.getValue().get(segId) ?? null;
   }
 
   destroy(): void {
@@ -122,5 +117,17 @@ export function getCommitter(): Committer {
 
 /** React hook: subscribe to the throttled frame for a single text segment. */
 export function useSegmentFrame(segId: string): SegFrame | null {
-  return getCommitter().useSegmentFrame(segId);
+  const committer = getCommitter();
+
+  const subscribe = useCallback(
+    (cb: () => void) => committer.subscribe(cb),
+    [committer],
+  );
+
+  const getSnapshot = useCallback(
+    () => committer.getFrame(segId),
+    [committer, segId],
+  );
+
+  return useSyncExternalStore(subscribe, getSnapshot);
 }

@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import { Box, Static } from 'ink';
-import { useTuiStore, useFinalized, useFrozenItems, useLiveItem, useStreaming } from './state/store';
+import { useTuiStore, useFrozenItems, useLiveItem, useStreaming } from './state/store';
 import { FinalItemView } from './views/final/FinalItemView';
 import { ActiveAssistantView } from './views/active/ActiveAssistantView';
 import { FocusedToolDetail } from './views/overlay/FocusedToolDetail';
@@ -193,12 +193,14 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
     [agent, sessionStore],
   );
 
-  const finalized = useFinalized();
   const frozenItems = useFrozenItems();
   const liveItem = useLiveItem();
 
   const staticItems = useMemo(() => [banner, ...frozenItems], [banner, frozenItems]);
-  const allItems = useMemo(() => [banner, ...finalized], [banner, finalized]);
+  const allItems = useMemo(() => {
+    if (liveItem?.kind === 'assistant-message') return [banner, ...frozenItems, liveItem];
+    return staticItems;
+  }, [banner, frozenItems, liveItem, staticItems]);
 
   const showPrompt = askUserQuestionRequest != null || permissionRequest != null;
 

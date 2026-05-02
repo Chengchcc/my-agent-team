@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { useSegmentFrame } from '../../streaming/committer';
-import { renderMarkdownTokens } from '../../../tui/utils/render-markdown';
+import { getMarkdownRenderer } from '../../markdown/cache';
 
 interface LiveTextSegmentProps {
   segId: string;
@@ -9,23 +9,16 @@ interface LiveTextSegmentProps {
 
 export const LiveTextSegment = React.memo(function LiveTextSegment({ segId }: LiveTextSegmentProps) {
   const frame = useSegmentFrame(segId);
+  const renderer = getMarkdownRenderer();
 
-  const rendered = useMemo(() => {
-    if (!frame) return null;
-    const stable = frame.content.slice(0, frame.committedLength);
-    const tail = frame.content.slice(frame.committedLength);
+  // useMemo guards against re-rendering when the committer returns the same
+  // SegFrame reference (content + committedLength unchanged).
+  const result = useMemo(() => {
+    if (!frame) return { stable: [] as React.ReactNode[], tail: [] as React.ReactNode[] };
+    return renderer.render(frame.content, frame.committedLength);
+  }, [frame, renderer]);
 
-    if (!stable && !tail) return null;
-
-    return (
-      <Box flexDirection="column">
-        {stable ? renderMarkdownTokens(stable) : null}
-        {tail ? <Text>{tail}</Text> : null}
-      </Box>
-    );
-  }, [frame]);
-
-  if (!rendered) {
+  if (!frame || (result.stable.length === 0 && result.tail.length === 0)) {
     return (
       <Box height={1}>
         <Text>{' '}</Text>
@@ -33,5 +26,10 @@ export const LiveTextSegment = React.memo(function LiveTextSegment({ segId }: Li
     );
   }
 
-  return rendered;
+  return (
+    <Box flexDirection="column">
+      {result.stable.length > 0 ? result.stable : null}
+      {result.tail.length > 0 ? result.tail : null}
+    </Box>
+  );
 });

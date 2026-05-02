@@ -47,13 +47,35 @@ function dispatchAgentEvent(
       break;
 
     case 'thinking_done':
+      store.appendSystemNotice(`think-${nanoid()}`, 'Thinking complete');
+      break;
+
     case 'agent_done':
+      break;
+
     case 'sub_agent_start':
+      store.appendSystemNotice(`sub-${nanoid()}`, `Delegating to sub-agent: ${event.task.slice(0, 150)}`);
+      break;
+
     case 'sub_agent_event':
+      // Individual sub-agent events are too noisy to surface as notices.
+      // The parent turn's tool calls already show progress.
+      break;
+
     case 'sub_agent_done':
+      store.appendSystemNotice(
+        `sub-done-${nanoid()}`,
+        `Sub-agent finished (${event.totalTurns} turns, ${event.durationMs}ms): ${event.summary.slice(0, 200)}`,
+      );
+      break;
+
     case 'budget_delegation':
     case 'budget_compact':
+      break;
+
     case 'context_compacted':
+      store.appendDivider('compact');
+      store.setContextTokens(event.afterTokens);
       break;
   }
 }
