@@ -3,6 +3,7 @@ import { Text } from 'ink';
 import type { Definition, FootnoteDefinition } from 'mdast';
 import type { Block } from './parse-ast';
 import { renderBlocks, FootnotesSection, type RenderContext } from './render-ast';
+import { debugLog } from '../../../utils/debug';
 
 /**
  * Stateless rendering entry for streaming path.
@@ -19,6 +20,8 @@ export class MarkdownRenderer {
   ): { stable: React.ReactNode[]; tail: React.ReactNode[] } {
     const ctx: RenderContext = { terminalWidth, definitions, footnotes };
     const result = renderBlocks(blocks, committedLength, ctx);
+
+    debugLog('RENDER split', { total: blocks.length, stable: result.stable.length, tail: result.tail.length, committedLength, contentLen: content.length });
 
     // When no markdown blocks are detected (plain text), render trailing
     // content as raw text so it appears in the live TUI output.
