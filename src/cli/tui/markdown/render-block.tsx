@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'ink';
+import { Box, Text } from 'ink';
 import { CodeBlock } from '../components/CodeBlock';
 import type { Block } from './parse-blocks';
 
@@ -122,7 +122,7 @@ function renderInline(tokens: InlineToken[]): React.ReactNode[] {
 export function renderBlock(block: Block): React.ReactNode {
   switch (block.type) {
     case 'heading':
-      return <Text bold>{block.raw.replace(/^#+\s*/gm, '')}</Text>;
+      return <Text bold>{block.raw.replace(/^#+\s*/gm, '').replace(/\n+$/, '')}</Text>;
 
     case 'codeFenced':
     case 'codeIndented': {
@@ -146,7 +146,7 @@ export function renderBlock(block: Block): React.ReactNode {
     }
 
     case 'paragraph': {
-      const tokens = parseInline(block.raw);
+      const tokens = parseInline(block.raw.replace(/\n+$/, ''));
       return (
         <React.Fragment key={block.id}>
           {renderInline(tokens)}
@@ -155,7 +155,7 @@ export function renderBlock(block: Block): React.ReactNode {
     }
 
     case 'listItem': {
-      const tokens = parseInline(block.raw.replace(/^\s*[-*+]\s+|^\s*\d+\.\s+/, ''));
+      const tokens = parseInline(block.raw.replace(/^\s*[-*+]\s+|^\s*\d+\.\s+/, '').replace(/\n+$/, ''));
       return (
         <React.Fragment key={block.id}>
           <Text>{'  '}</Text>
@@ -168,7 +168,8 @@ export function renderBlock(block: Block): React.ReactNode {
       const inner = block.raw
         .split('\n')
         .map(line => line.replace(/^>\s?/, ''))
-        .join('\n');
+        .join('\n')
+        .replace(/\n+$/, '');
       return (
         <Text key={block.id} dimColor>
           {inner}
@@ -197,28 +198,20 @@ export function renderBlocks(
   const stable: React.ReactNode[] = [];
   const tail: React.ReactNode[] = [];
 
-  for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i]!;
+  for (const block of blocks) {
     if (block.endOffset <= committedLength) {
-      stable.push(<React.Fragment key={block.id}>{renderBlock(block)}</React.Fragment>);
-      // Add spacing between blocks
-      if (i < blocks.length - 1) {
-        stable.push(<Text key={`sp-${i}`}>{'\n'}</Text>);
-      }
+      stable.push(<Box key={block.id}>{renderBlock(block)}</Box>);
     } else if (block.startOffset < committedLength) {
-      // Block straddles commit boundary — partial commit
-      // Render committed portion as the block, tail as raw
-      if (block.raw) {
-        stable.push(<React.Fragment key={block.id}>{renderBlock(block)}</React.Fragment>);
-      }
-      // The remaining uncommitted text that follows
-      const remaining = block.raw.slice(committedLength - block.startOffset);
+      stable.push(<Box key={block.id}>{renderBlock(block)}</Box>);
+      const remaining = block.raw.slice(committedLength - block.startOffset).replace(/\n+$/, '');
       if (remaining) {
-        tail.push(<Text key={`tail-${i}`}>{remaining}</Text>);
+        tail.push(<Text key={`tail-${block.id}`}>{remaining}</Text>);
       }
     } else {
-      // Entirely uncommitted
-      tail.push(<Text key={`tail-${i}`}>{block.raw}</Text>);
+      const trimmed = block.raw.replace(/\n+$/, '');
+      if (trimmed) {
+        tail.push(<Text key={`tail-${block.id}`}>{trimmed}</Text>);
+      }
     }
   }
 

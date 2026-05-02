@@ -197,10 +197,6 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
   const liveItem = useLiveItem();
 
   const staticItems = useMemo(() => [banner, ...frozenItems], [banner, frozenItems]);
-  const allItems = useMemo(() => {
-    if (liveItem?.kind === 'assistant-message') return [banner, ...frozenItems, liveItem];
-    return staticItems;
-  }, [banner, frozenItems, liveItem, staticItems]);
 
   const showPrompt = askUserQuestionRequest != null || permissionRequest != null;
 
@@ -214,7 +210,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
           <ActiveAssistantView assistant={toActiveAssistant(liveItem)} />
         )}
         <StreamingIndicator />
-        <FocusedToolDetail finalizedItems={allItems} />
+        <FocusedToolDetail />
         {askUserQuestionRequest != null && (
           <AskUserQuestionPrompt
             questions={askUserQuestionRequest.params.questions}

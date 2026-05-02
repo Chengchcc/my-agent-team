@@ -29,6 +29,7 @@ function dispatchAgentEvent(
         ? { kind: 'error' as const, message: String(event.result ?? 'unknown error'), durationMs: event.durationMs }
         : { kind: 'ok' as const, content: String(event.result ?? ''), durationMs: event.durationMs },
       );
+      committer.flush();
       break;
 
     case 'turn_complete':
@@ -39,7 +40,11 @@ function dispatchAgentEvent(
         });
       }
       store.setContextTokens(agent.getContextManager().getCurrentTokens());
-      committer.onTurnDone();
+      if (event.hasToolCalls) {
+        committer.flush();
+      } else {
+        committer.onTurnDone();
+      }
       break;
 
     case 'agent_error':
@@ -111,6 +116,10 @@ export function useAgentSubscription(agent: Agent) {
         const msg = err instanceof Error ? err.message : String(err);
         committer.onDelta(`\n\nError: ${msg}`);
         committer.onTurnDone();
+      }
+    } finally {
+      if (useTuiStore.getState().live) {
+        getCommitter().onTurnDone();
       }
     }
 

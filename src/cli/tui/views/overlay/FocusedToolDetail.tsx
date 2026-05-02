@@ -3,20 +3,20 @@ import { Box, Text } from 'ink';
 import { useTuiStore } from '../../state/store';
 import type { FinalItem, ToolCallSegment } from '../../state/types';
 
-interface FocusedToolDetailProps {
-  finalizedItems: FinalItem[];
-}
-
 type CallInfo = { name: string; result: { kind: string; content?: string; message?: string } | null };
 
-export function FocusedToolDetail({ finalizedItems }: FocusedToolDetailProps) {
+export function FocusedToolDetail() {
   const focusedId = useTuiStore(s => s.interaction.focusedToolId);
+  const live = useTuiStore(s => s.live);
+  const finalized = useTuiStore(s => s.finalized);
+
   if (!focusedId) return null;
 
-  // Search all finalized items (including streaming) — newest first
+  const searchOrder: FinalItem[] = live ? [...finalized, live] : finalized;
+
   let call: CallInfo | null = null;
-  for (let i = finalizedItems.length - 1; i >= 0; i--) {
-    const item = finalizedItems[i]!;
+  for (let i = searchOrder.length - 1; i >= 0; i--) {
+    const item = searchOrder[i]!;
     if (item.kind === 'assistant-message') {
       const seg = item.segments.find(
         (s): s is ToolCallSegment => s.kind === 'tool_call' && s.id === focusedId,

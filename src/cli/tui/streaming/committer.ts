@@ -30,8 +30,14 @@ class Committer {
   }
 
   onDelta(delta: string): void {
+    if (!useTuiStore.getState().live) return;
     useTuiStore.getState().textDelta(delta);
     this.delta$.next();
+  }
+
+  /** Flush pending commits without closing the turn. */
+  flush(): void {
+    this.processSegments();
   }
 
   onTurnDone(): void {
