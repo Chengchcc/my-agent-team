@@ -12,6 +12,10 @@ export interface Block {
   info?: string;
   /** For list items, the ordered/unordered marker. */
   listKind?: 'ordered' | 'unordered';
+  /** 1-based index for ordered list items. */
+  itemIndex?: number;
+  /** Heading level 1-6 (atx and setext). */
+  level?: number;
 }
 
 export type BlockType =
@@ -19,7 +23,6 @@ export type BlockType =
   | 'codeFenced'
   | 'codeIndented'
   | 'paragraph'
-  | 'list'
   | 'listItem'
   | 'blockquote'
   | 'thematicBreak'
@@ -34,15 +37,11 @@ const TOP_BLOCK_TYPES = new Set([
   'codeFenced',
   'codeIndented',
   'paragraph',
-  'listOrdered',
-  'listUnordered',
   'blockQuote',
   'thematicBreak',
   'htmlFlow',
-  'definition',
   // GFM extensions
   'table',
-  'footnoteDefinition',
 ]);
 
 function mapType(tokenType: string): BlockType {
@@ -50,13 +49,11 @@ function mapType(tokenType: string): BlockType {
   if (tokenType === 'codeFenced') return 'codeFenced';
   if (tokenType === 'codeIndented') return 'codeIndented';
   if (tokenType === 'paragraph') return 'paragraph';
-  if (tokenType === 'listOrdered' || tokenType === 'listUnordered') return 'list';
-  if (tokenType === 'listItem') return 'listItem';
   if (tokenType === 'blockQuote') return 'blockquote';
   if (tokenType === 'thematicBreak') return 'thematicBreak';
   if (tokenType === 'table') return 'table';
   if (tokenType === 'htmlFlow') return 'htmlFlow';
-  if (tokenType === 'definition') return 'definition';
+  // definition and footnoteDefinition are skipped (no block created)
   return 'other';
 }
 
@@ -64,7 +61,6 @@ function isTopBlockType(type: string): boolean {
   return TOP_BLOCK_TYPES.has(type);
 }
 
-// Parsing is synchronous. micromark doesn't throw on invalid input.
 export function parseToBlocks(content: string): Block[] {
   if (!content) return [];
 
@@ -78,10 +74,46 @@ export function parseToBlocks(content: string): Block[] {
   let topDepth = 0;
   let currentBlockIdx = -1;
 
+  // Per-list state: kind of list we are inside, and next item index.
+  let listKind: 'ordered' | 'unordered' | null = null;
+  let itemIndex = 0;
+
   for (const [kind, token] of events) {
     const ttype: string = token.type;
 
-    // Track top-level block depth
+    // Container types that suppress inner blocks but produce no output themselves.
+    const isSilentContainer =
+      ttype === 'listOrdered' ||
+      ttype === 'listUnordered' ||
+      ttype === 'definition' ||
+      ttype === 'footnoteDefinition' ||
+      ttype === 'gfmFootnoteDefinition';
+
+    // ── List containers: track depth + context, never create blocks ──
+    if (isSilentContainer) {
+      if (kind === 'enter') {
+        if (ttype === 'listOrdered' || ttype === 'listUnordered') {
+          listKind = ttype === 'listOrdered' ? 'ordered' : 'unordered';
+          itemIndex = 0;
+        }
+        topDepth++;
+      } else {
+        if (ttype === 'listOrdered' || ttype === 'listUnordered') {
+          // Finalise the last listItem at the list boundary
+          const lastItem = blocks[blocks.length - 1];
+          if (lastItem && lastItem.type === 'listItem') {
+            lastItem.endOffset = token.end.offset;
+            lastItem.raw = content.slice(lastItem.startOffset, lastItem.endOffset);
+          }
+          listKind = null;
+          itemIndex = 0;
+        }
+        topDepth--;
+      }
+      continue;
+    }
+
+    // ── Top-level block tracking ──
     if (isTopBlockType(ttype)) {
       if (kind === 'enter') {
         topDepth++;
@@ -96,22 +128,43 @@ export function parseToBlocks(content: string): Block[] {
           if (b) {
             b.endOffset = token.end.offset;
             b.raw = content.slice(b.startOffset, b.endOffset);
+
+            // Extract heading level from raw text
+            if (b.type === 'heading') {
+              const lines = b.raw.split('\n');
+              const lastLine = lines[lines.length - 1]!;
+              if (/^=+$/.test(lastLine)) {
+                b.level = 1; // setext H1
+              } else if (/^-+$/.test(lastLine)) {
+                b.level = 2; // setext H2
+              } else {
+                const atxMatch = b.raw.match(/^(#{1,6})\s/);
+                b.level = atxMatch ? atxMatch[1]!.length : 1;
+              }
+            }
           }
           currentBlockIdx = -1;
         }
       }
     }
-    // listItemPrefix marks the start of each list item inside a list.
-    // micromark does not emit 'listItem' events — the list structure is:
-    // listOrdered/listUnordered > listItemPrefix (marker) > content > paragraph
+
+    // ── List-item markers ──
     else if (ttype === 'listItemPrefix' && kind === 'enter') {
-      // Close previous listItem if open
-      const last = blocks[blocks.length - 1];
-      if (last && last.type === 'listItem') {
-        last.endOffset = token.start.offset;
-        last.raw = content.slice(last.startOffset, last.endOffset);
+      // Close the previous listItem at the new item's boundary
+      const prevItem = blocks[blocks.length - 1];
+      if (prevItem && prevItem.type === 'listItem') {
+        prevItem.endOffset = token.start.offset;
+        prevItem.raw = content.slice(prevItem.startOffset, prevItem.endOffset);
       }
-      blocks.push(buildBlock(token, content, 'listItem'));
+      itemIndex++;
+      const item = buildBlock(token, content, 'listItem');
+      if (listKind) {
+        item.listKind = listKind;
+        if (listKind === 'ordered') {
+          item.itemIndex = itemIndex;
+        }
+      }
+      blocks.push(item);
     }
   }
 
@@ -139,10 +192,8 @@ function buildBlock(token: Token, content: string, type: BlockType): Block {
 
   // Extract info string for fenced code
   if (type === 'codeFenced') {
-    // The info string is between the first fence and the newline
     const firstNewline = block.raw.indexOf('\n');
     const fenceLine = firstNewline === -1 ? block.raw : block.raw.slice(0, firstNewline);
-    // Strip leading backticks/tildes and whitespace
     const info = fenceLine.replace(/^[`~]{3,}\s*/, '').trim();
     if (info) block.info = info;
   }

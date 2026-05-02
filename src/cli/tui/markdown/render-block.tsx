@@ -30,12 +30,6 @@ const enum RG {
   NEWLINE = 19,
 }
 
-const THEMATIC_BREAK_WIDTH = 40;
-
-/**
- * Parse inline markdown within a single block (paragraph, heading, listItem).
- * Handles: **bold**, *italic*, `code`, [text](url), ![alt](url), ~~strikethrough~~.
- */
 function parseInline(raw: string): InlineToken[] {
   const tokens: InlineToken[] = [];
   // Match order matters — longer patterns first
@@ -117,22 +111,71 @@ function renderInline(tokens: InlineToken[]): React.ReactNode[] {
   });
 }
 
+// ── Table parser ──
+
+interface ParsedTable {
+  headers: string[];
+  alignments: Array<'left' | 'center' | 'right'>;
+  rows: string[][];
+}
+
+function parseTable(raw: string): ParsedTable | null {
+  const lines = raw.trim().split('\n');
+  if (lines.length < 2) return null;
+
+  const parseRow = (line: string): string[] =>
+    line.replace(/^\|?\s*/, '').replace(/\s*\|?\s*$/, '').split('|').map(c => c.trim());
+
+  const headers = parseRow(lines[0]!);
+  const delims  = parseRow(lines[1]!);
+  const rows    = lines.slice(2).map(parseRow);
+
+  // Validate: delimiter row should contain only dashes and optional colons
+  if (delims.length === 0 || !delims.every(d => /^:?-+:?$/.test(d))) return null;
+
+  const alignments: Array<'left' | 'center' | 'right'> = delims.map(d => {
+    const l = d.startsWith(':');
+    const r = d.endsWith(':');
+    if (l && r) return 'center';
+    if (r) return 'right';
+    return 'left';
+  });
+
+  return { headers, alignments, rows };
+}
+
 // ── Block renderer ──
 
 export function renderBlock(block: Block): React.ReactNode {
   switch (block.type) {
-    case 'heading':
-      return <Text bold>{block.raw.replace(/^#+\s*/gm, '').replace(/\n+$/, '')}</Text>;
 
+    // ── Heading ──
+    case 'heading': {
+      const level = block.level ?? 1;
+      let content = block.raw.replace(/\n+$/, '');
+      // Strip atx markers
+      content = content.replace(/^#{1,6}\s+/, '');
+      // Strip setext underline
+      content = content.replace(/\n[=\-]+$/, '');
+      const tokens = parseInline(content);
+      // H1 cyan+bold, H2 cyan, H3+ default+bold
+      const color = level <= 2 ? 'cyan' : undefined;
+      const bold = level <= 3;
+      return (
+        <Text key={block.id} bold={bold} {...(color ? { color } : {})}>
+          {renderInline(tokens)}
+        </Text>
+      );
+    }
+
+    // ── Code blocks ──
     case 'codeFenced':
     case 'codeIndented': {
-      // Extract code content (strip opening/closing fences)
       let code: string;
       if (block.type === 'codeFenced') {
-        const lines = block.raw.split('\n');
-        // Remove fence lines
-        const inner = lines.slice(1, lines.length - 1);
-        code = inner.join('\n');
+        code = block.raw
+          .replace(/^[`~]{3,}[^\n]*\n/, '')
+          .replace(/\n[`~]{3,}\s*$/, '');
       } else {
         code = block.raw.replace(/^( {4}|\t)/gm, '');
       }
@@ -145,47 +188,107 @@ export function renderBlock(block: Block): React.ReactNode {
       );
     }
 
+    // ── Paragraph ──
     case 'paragraph': {
       const tokens = parseInline(block.raw.replace(/\n+$/, ''));
       return (
-        <React.Fragment key={block.id}>
+        <Text key={block.id}>
           {renderInline(tokens)}
-        </React.Fragment>
+        </Text>
       );
     }
 
+    // ── List item ──
     case 'listItem': {
-      const tokens = parseInline(block.raw.replace(/^\s*[-*+]\s+|^\s*\d+\.\s+/, '').replace(/\n+$/, ''));
+      const isOrdered = block.listKind === 'ordered';
+      const prefix = isOrdered
+        ? `  ${block.itemIndex ?? 1}. `
+        : '  \u2022 ';
+      const inner = block.raw
+        .replace(/^\s*(?:[-*+]|\d+\.)\s+/, '')
+        .replace(/\n+$/, '');
+      const tokens = parseInline(inner);
       return (
-        <React.Fragment key={block.id}>
-          <Text>{'  '}</Text>
+        <Text key={block.id}>
+          <Text color="cyan">{prefix}</Text>
           {renderInline(tokens)}
-        </React.Fragment>
+        </Text>
       );
     }
 
+    // ── Blockquote ──
     case 'blockquote': {
       const inner = block.raw
         .split('\n')
         .map(line => line.replace(/^>\s?/, ''))
         .join('\n')
         .replace(/\n+$/, '');
+      // Prefix every line with a vertical bar for visual border
+      const bordered = '\u2502 ' + inner.replace(/\n/g, '\n\u2502 ');
+      const tokens = parseInline(bordered);
       return (
         <Text key={block.id} dimColor>
-          {inner}
+          {renderInline(tokens)}
         </Text>
       );
     }
 
-    case 'thematicBreak':
-      return <Text key={block.id} dimColor>{'─'.repeat(THEMATIC_BREAK_WIDTH)}</Text>;
+    // ── Thematic break ──
+    case 'thematicBreak': {
+      const width = process.stdout.columns || 80;
+      return <Text key={block.id} dimColor>{'\u2500'.repeat(width)}</Text>;
+    }
 
-    case 'table':
-    case 'list':
-    case 'htmlFlow':
+    // ── Table ──
+    case 'table': {
+      const parsed = parseTable(block.raw);
+      if (!parsed) {
+        return <Text key={block.id}>{block.raw}</Text>;
+      }
+      const { headers, alignments, rows } = parsed;
+      const allRows = [headers, ...rows];
+      const colWidths: number[] = headers.map((_, ci) =>
+        Math.max(...allRows.map(r => (r[ci] ?? '').length)),
+      );
+
+      const padCell = (text: string, w: number, a: 'left' | 'center' | 'right'): string => {
+        if (a === 'right')  return text.padStart(w);
+        if (a === 'center') {
+          const pad = w - text.length;
+          const left = Math.floor(pad / 2);
+          return ' '.repeat(left) + text + ' '.repeat(pad - left);
+        }
+        return text.padEnd(w);
+      };
+
+      const renderRow = (cells: string[]): string =>
+        '\u2502 ' +
+        cells.map((c, ci) => padCell(c, colWidths[ci] ?? 0, alignments[ci] ?? 'left')).join(' \u2502 ') +
+        ' \u2502';
+
+      const headerLine = renderRow(headers);
+      const sepLine = '\u251c' + colWidths.map(w => '\u2500'.repeat(w + 2)).join('\u253c') + '\u2524';
+      const bodyLines = rows.map(renderRow);
+
+      return <Text key={block.id}>{[headerLine, sepLine, ...bodyLines].join('\n')}</Text>;
+    }
+
+    // ── HTML flow (strip tags) ──
+    case 'htmlFlow': {
+      const stripped = block.raw.replace(/<[^>]*>/g, '').trim();
+      if (!stripped) {
+        return <React.Fragment key={block.id} />;
+      }
+      return <Text key={block.id}>{stripped}</Text>;
+    }
+
+    // ── Definition / Other (skip rendering) ──
     case 'definition':
     case 'other':
-      return <Text key={block.id}>{block.raw}</Text>;
+      return <React.Fragment key={block.id} />;
+
+    default:
+      return <React.Fragment key={block.id} />;
   }
 }
 

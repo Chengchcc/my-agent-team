@@ -88,17 +88,62 @@ describe('parseToBlocks', () => {
 
   test('unordered list', () => {
     const blocks = parseToBlocks('- item 1\n- item 2');
-    // Top-level list container + listItems
+    // Only listItem blocks — list containers are not rendered
     const types = blocks.map(b => b.type);
-    expect(types).toContain('list');
+    expect(types).not.toContain('list' as any);
     expect(types).toContain('listItem');
   });
 
   test('ordered list', () => {
     const blocks = parseToBlocks('1. first\n2. second');
     const types = blocks.map(b => b.type);
-    expect(types).toContain('list');
+    expect(types).not.toContain('list' as any);
     expect(types).toContain('listItem');
+  });
+
+  test('listItem has listKind unordered for dashed list', () => {
+    const blocks = parseToBlocks('- item');
+    expect(blockAt(blocks, 0).listKind).toBe('unordered');
+  });
+
+  test('listItem has listKind ordered and itemIndex', () => {
+    const blocks = parseToBlocks('1. first\n2. second');
+    const items = blocks.filter(b => b.type === 'listItem');
+    expect(items[0]?.listKind).toBe('ordered');
+    expect(items[0]?.itemIndex).toBe(1);
+    expect(items[1]?.listKind).toBe('ordered');
+    expect(items[1]?.itemIndex).toBe(2);
+  });
+
+  test('atx heading has correct level', () => {
+    const h1 = parseToBlocks('# Hello');
+    expect(blockAt(h1, 0).level).toBe(1);
+
+    const h3 = parseToBlocks('### Deep');
+    expect(blockAt(h3, 0).level).toBe(3);
+
+    const h6 = parseToBlocks('###### Small');
+    expect(blockAt(h6, 0).level).toBe(6);
+  });
+
+  test('setext heading H1 has level 1', () => {
+    const blocks = parseToBlocks('Title\n=====');
+    expect(blockAt(blocks, 0).level).toBe(1);
+  });
+
+  test('setext heading H2 has level 2', () => {
+    const blocks = parseToBlocks('Sub\n---');
+    expect(blockAt(blocks, 0).level).toBe(2);
+  });
+
+  test('footnoteDefinition produces no block', () => {
+    const blocks = parseToBlocks('[^1]: footnote text');
+    expect(blocks.length).toBe(0);
+  });
+
+  test('link definition produces no block', () => {
+    const blocks = parseToBlocks('[label]: /url "title"');
+    expect(blocks.length).toBe(0);
   });
 
   test('GFM table', () => {
