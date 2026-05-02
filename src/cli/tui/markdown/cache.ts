@@ -48,8 +48,19 @@ export class MarkdownRenderer {
       this.lastFootnotes = footnotes;
     }
 
+    // Align committedLength to block boundaries so renderBlocks never straddles.
+    // findStableBoundary uses micromark token offsets while parseDoc uses mdast
+    // node positions — they can differ by 1–2 chars. Clamp to the nearest safe boundary.
+    let alignedLength = committedLength;
+    for (const block of blocks) {
+      if (block.startOffset < committedLength && committedLength < block.endOffset) {
+        alignedLength = block.startOffset;
+        break;
+      }
+    }
+
     const ctx: RenderContext = { terminalWidth, definitions, footnotes };
-    const result = renderBlocks(blocks, committedLength, ctx);
+    const result = renderBlocks(blocks, alignedLength, ctx);
     this.lastCommittedLength = committedLength;
     this.lastTerminalWidth = terminalWidth;
 
@@ -94,7 +105,9 @@ export class MarkdownRenderer {
   }
 
   private cacheKey(content: string, committedLength: number, terminalWidth: number): string {
-    return `${committedLength}:${content.length}:${terminalWidth}`;
+    // Include head + tail snippets to prevent collisions when two segments
+    // happen to have the same committedLength + content length + width.
+    return `${committedLength}:${content.length}:${terminalWidth}:${content.slice(0, 8)}:${content.slice(-4)}`;
   }
 }
 

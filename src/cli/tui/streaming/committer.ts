@@ -1,7 +1,7 @@
 import type { Subscription } from 'rxjs';
 import { Subject, BehaviorSubject } from 'rxjs';
 import { throttleTime } from 'rxjs/operators';
-import { useCallback, useSyncExternalStore } from 'react';
+import { useState, useEffect } from 'react';
 import { useTuiStore } from '../state/store';
 import { findStableBoundary } from './findStableBoundary';
 
@@ -19,7 +19,7 @@ class Committer {
   private snapshot$ = new BehaviorSubject<Snapshot>(new Map());
   private pipelineSub: Subscription;
 
-  // Cache stable SegFrame references so useSyncExternalStore getSnapshot
+  // Cache stable SegFrame references so React state bailout (Object.is)
   // returns the same object identity when values haven't changed.
   private prevSnapshot: Snapshot = new Map();
 
@@ -78,19 +78,31 @@ class Committer {
   // ── Private ──
 
   private processSegments(): void {
-    const snapshot = this.buildSnapshot();
+    const { snapshot, advances } = this.buildSnapshot();
     this.prevSnapshot = snapshot;
+    // Emit snapshot BEFORE modifying the store. Otherwise zustand's
+    // synchronous useSyncExternalStore would trigger a render with the
+    // stale snapshot, then immediately render again — doubling frame work.
     this.snapshot$.next(snapshot);
+
+    // Apply committedLength advances after snapshot is current
+    if (advances.length > 0) {
+      const store = useTuiStore.getState();
+      for (const adv of advances) {
+        store.commitAdvance(adv.segId, adv.committedLength);
+      }
+    }
   }
 
-  private buildSnapshot(): Snapshot {
+  private buildSnapshot(): { snapshot: Snapshot; advances: Array<{ segId: string; committedLength: number }> } {
     const store = useTuiStore.getState();
     const live = store.live;
     if (live?.kind !== 'assistant-message' || live.status !== 'streaming') {
-      return new Map();
+      return { snapshot: new Map(), advances: [] };
     }
 
     const next = new Map<string, SegFrame>();
+    const advances: Array<{ segId: string; committedLength: number }> = [];
     for (const seg of live.segments) {
       if (seg.kind !== 'text') continue;
       const result = findStableBoundary(seg.content);
@@ -99,7 +111,7 @@ class Committer {
         : seg.committedLength;
 
       if (committedLength > seg.committedLength) {
-        store.commitAdvance(seg.id, committedLength);
+        advances.push({ segId: seg.id, committedLength });
       }
 
       // Reuse previous SegFrame reference when values haven't changed
@@ -110,7 +122,7 @@ class Committer {
         next.set(seg.id, { content: seg.content, committedLength });
       }
     }
-    return next;
+    return { snapshot: next, advances };
   }
 }
 
@@ -121,19 +133,23 @@ export function getCommitter(): Committer {
   return instance;
 }
 
-/** React hook: subscribe to the throttled frame for a single text segment. */
+/** React hook: subscribe to the throttled frame for a single text segment.
+ *  Uses useState + useEffect subscription instead of useSyncExternalStore
+ *  for compatibility with Ink's synchronous React reconciler. */
 export function useSegmentFrame(segId: string): SegFrame | null {
   const committer = getCommitter();
 
-  const subscribe = useCallback(
-    (cb: () => void) => committer.subscribe(cb),
-    [committer],
-  );
-
-  const getSnapshot = useCallback(
+  const [frame, setFrame] = useState<SegFrame | null>(
     () => committer.getFrame(segId),
-    [committer, segId],
   );
 
-  return useSyncExternalStore(subscribe, getSnapshot);
+  useEffect(() => {
+    // Sync immediately on mount in case frame changed between init and effect
+    setFrame(committer.getFrame(segId));
+    return committer.subscribe(() => {
+      setFrame(committer.getFrame(segId));
+    });
+  }, [committer, segId]);
+
+  return frame;
 }

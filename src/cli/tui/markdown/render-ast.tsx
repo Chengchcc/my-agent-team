@@ -265,15 +265,12 @@ export function renderBlocks(
         </Box>,
       );
     } else if (block.startOffset < committedLength) {
-      // Straddling commit boundary — render anyway, tail the remainder
-      stable.push(
-        <Box key={block.id}>
-          {renderNode(block.node, ctx)}
-        </Box>,
-      );
-      const remaining = block.raw.slice(committedLength - block.startOffset);
-      if (remaining) {
-        tail.push(<Text key={`tail-${block.id}`}>{remaining}</Text>);
+      // Straddling commit boundary — only happens if micromark offset ≠ mdast offset.
+      // Render entirely as tail to prevent the uncommitted portion from appearing twice
+      // (once formatted in stable, once raw in tail).
+      const trimmed = block.raw.replace(/\n+$/, '');
+      if (trimmed) {
+        tail.push(<Text key={`tail-${block.id}`}>{trimmed}</Text>);
       }
     } else {
       // Entirely uncommitted

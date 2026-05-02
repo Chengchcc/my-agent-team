@@ -8,7 +8,7 @@ interface LiveTextSegmentProps {
   segId: string;
 }
 
-export const LiveTextSegment = React.memo(function LiveTextSegment({ segId }: LiveTextSegmentProps) {
+export function LiveTextSegment({ segId }: LiveTextSegmentProps) {
   const frame = useSegmentFrame(segId);
   const renderer = getMarkdownRenderer();
   const width = useTerminalWidth();
@@ -32,4 +32,4 @@ export const LiveTextSegment = React.memo(function LiveTextSegment({ segId }: Li
       {result.tail.length > 0 ? result.tail : null}
     </Box>
   );
-});
+}

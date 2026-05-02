@@ -56,6 +56,7 @@ function dispatchAgentEvent(
       break;
 
     case 'agent_done':
+      committer.onTurnDone();
       break;
 
     case 'sub_agent_start':
