@@ -204,19 +204,19 @@ describe('ToolRegistry filtering (recursion prevention)', () => {
 });
 
 describe('Resource constraints', () => {
-  test('sub-agent respects maxTurns limit of 15', async () => {
+  test('sub-agent respects maxTurns limit', async () => {
+    const MAX_TURNS = 3;
     const mainRegistry = new ToolRegistry();
     mainRegistry.register({
       getDefinition: () => ({ name: 'read', description: 'read', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } }),
       execute: async () => 'ok',
     });
 
-    // Create a provider that will generate 20 turns of tool calls
-    const script = Array(20).fill({
+    // Generate more turns than maxTurns to verify the limit is enforced
+    const script = Array(MAX_TURNS + 3).fill({
       content: '',
       tool_calls: [{ id: `call-${Math.random()}`, name: 'read', arguments: { path: 'test.txt' } }],
     });
-    // Add a final content response at the end to complete the agent
     script.push({ content: 'Done' });
     const scriptedProvider = new ScriptedProvider(script);
 
@@ -224,18 +224,17 @@ describe('Resource constraints', () => {
       mainProvider: scriptedProvider,
       mainToolRegistry: mainRegistry,
       mainAgentConfig: mockConfig,
-      // loopConfig with maxTurns defaults to 15 from SubAgentTool
+      loopConfig: { maxTurns: MAX_TURNS },
     });
 
     const result = await tool.execute({ goal: 'keep reading', deliverable: 'summary' }, createTestCtx());
 
-    // ScriptedProvider increments callCount each turn
-    // Should not exceed 15-16 turns due to maxTurns limit
+    // Should not exceed maxTurns significantly
     // @ts-ignore ScriptedProvider has callCount
-    expect(scriptedProvider.callCount).toBeLessThanOrEqual(16);
+    expect(scriptedProvider.callCount).toBeLessThanOrEqual(MAX_TURNS + 1);
     expect(result).toContain('<sub_agent_result');
     expect(result).toContain('turns');
-  }, 120000);
+  }, 15000);
 
   test('sub-agent times out after 5 minutes', async () => {
     // Create a provider that will hang indefinitely
