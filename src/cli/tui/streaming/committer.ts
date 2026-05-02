@@ -40,14 +40,63 @@ class Committer {
     ).subscribe(() => this.processSegments());
   }
 
+  /** Delay between progressive block-reveal chunks (ms). */
+  private static readonly CHUNK_DELAY_MS = 50;
+  private chunkQueue: string[] = [];
+  private chunkTimer: ReturnType<typeof setTimeout> | null = null;
+
   onDelta(delta: string): void {
     if (!useTuiStore.getState().live) {
       debugLog('COMMITTER onDelta skipped (no live)');
       return;
     }
     debugLog('COMMITTER onDelta', { len: delta.length });
-    useTuiStore.getState().textDelta(delta);
+
+    // Split at paragraph boundaries for progressive block reveal.
+    // Without this, a single large delta containing multiple \n\n breaks
+    // would commit all blocks at once — a jarring visual jump.
+    const parts = delta.split(/(?<=\n\n)/).filter(Boolean);
+    for (const part of parts) {
+      this.chunkQueue.push(part);
+    }
+    this.drainChunkQueue();
+  }
+
+  /** Drain the chunk queue one piece at a time, preserving order even
+   *  when new server deltas arrive between ticks. */
+  private drainChunkQueue(): void {
+    if (this.chunkTimer != null || this.chunkQueue.length === 0) return;
+
+    // Single chunk or first of many — feed immediately
+    if (this.chunkQueue.length === 1) {
+      const chunk = this.chunkQueue.shift()!;
+      useTuiStore.getState().textDelta(chunk);
+      this.delta$.next();
+      return;
+    }
+
+    // Multiple chunks: feed first, queue rest with inter-chunk delays
+    const first = this.chunkQueue.shift()!;
+    useTuiStore.getState().textDelta(first);
     this.delta$.next();
+    debugLog('COMMITTER onDelta chunked', { fed: 1, remaining: this.chunkQueue.length });
+    this.scheduleNextChunk();
+  }
+
+  private scheduleNextChunk(): void {
+    if (this.chunkQueue.length === 0) return;
+    this.chunkTimer = setTimeout(() => {
+      this.chunkTimer = null;
+      const chunk = this.chunkQueue.shift()!;
+      if (!useTuiStore.getState().live) {
+        this.chunkQueue.length = 0;
+        return;
+      }
+      useTuiStore.getState().textDelta(chunk);
+      this.delta$.next();
+      debugLog('COMMITTER onDelta chunk', { len: chunk.length, remaining: this.chunkQueue.length });
+      this.scheduleNextChunk();
+    }, Committer.CHUNK_DELAY_MS);
   }
 
   flush(): void {
