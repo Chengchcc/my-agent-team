@@ -6,7 +6,9 @@ import { setDebugMode, debugLog } from '../src/utils/debug';
 // Parse command line arguments
 const args = process.argv.slice(2);
 const debugEnabled = args.includes('--debug') || args.includes('-d');
-setDebugMode(debugEnabled);
+const fileIdx = args.indexOf('--debug-file');
+const debugFile = fileIdx >= 0 ? args[fileIdx + 1] : undefined;
+setDebugMode(debugEnabled, debugFile);
 
 // Load settings first before importing anything that might access settings
 await getSettings();

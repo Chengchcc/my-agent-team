@@ -15,7 +15,7 @@ export function LiveTextSegment({ segId }: LiveTextSegmentProps) {
 
   const result = useMemo(() => {
     if (!frame) return { stable: [] as React.ReactNode[], tail: [] as React.ReactNode[] };
-    return renderer.render(frame.content, frame.committedLength, width);
+    return renderer.render(frame.content, frame.committedLength, width, frame.blocks, frame.definitions, frame.footnotes);
   }, [frame, renderer, width]);
 
   if (!frame || (result.stable.length === 0 && result.tail.length === 0)) {

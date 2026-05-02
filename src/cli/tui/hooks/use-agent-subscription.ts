@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react';
 import { nanoid } from 'nanoid';
 import { useTuiStore } from '../state/store';
 import { getCommitter } from '../streaming/committer';
+import { debugLog } from '../../../utils/debug';
 import type { Agent } from '../../../agent';
 import type { AgentEvent } from '../../../agent/loop-types';
 
@@ -17,14 +18,17 @@ function dispatchAgentEvent(
       break;
 
     case 'text_delta':
+      debugLog('EVENT text_delta', { len: event.delta.length, turnIndex: event.turnIndex });
       committer.onDelta(event.delta);
       break;
 
     case 'tool_call_start':
+      debugLog('EVENT tool_call_start', { id: event.toolCall.id, name: event.toolCall.name, turnIndex: event.turnIndex });
       store.toolStart(event.toolCall.id, event.toolCall.name, event.toolCall.arguments);
       break;
 
     case 'tool_call_result':
+      debugLog('EVENT tool_call_result', { id: event.toolCall.id, isError: event.isError, durationMs: event.durationMs, turnIndex: event.turnIndex });
       store.toolDone(event.toolCall.id, event.isError
         ? { kind: 'error' as const, message: String(event.result ?? 'unknown error'), durationMs: event.durationMs }
         : { kind: 'ok' as const, content: String(event.result ?? ''), durationMs: event.durationMs },
@@ -32,7 +36,11 @@ function dispatchAgentEvent(
       committer.flush();
       break;
 
-    case 'turn_complete':
+    case 'turn_complete': {
+      const live = store.live;
+      const liveDigest = live?.kind === 'assistant-message'
+        ? `segs=${live.segments.length} status=${live.status}` : 'null';
+      debugLog('EVENT turn_complete', { hasToolCalls: event.hasToolCalls, turnIndex: event.turnIndex, live: liveDigest, finalizedLen: store.finalized.length });
       if (event.usage) {
         store.accumulateUsage({
           prompt_tokens: event.usage.prompt_tokens,
@@ -46,8 +54,10 @@ function dispatchAgentEvent(
         committer.onTurnDone();
       }
       break;
+    }
 
     case 'agent_error':
+      debugLog('EVENT agent_error', { message: event.error.message, turnIndex: event.turnIndex });
       committer.onDelta(`\n\nError: ${event.error.message}`);
       break;
 
@@ -55,17 +65,20 @@ function dispatchAgentEvent(
       store.appendSystemNotice(`think-${nanoid()}`, 'Thinking complete');
       break;
 
-    case 'agent_done':
+    case 'agent_done': {
+      const live = store.live;
+      const liveDigest = live?.kind === 'assistant-message'
+        ? `segs=${live.segments.length} status=${live.status}` : 'null';
+      debugLog('EVENT agent_done', { reason: event.reason, totalTurns: event.totalTurns, live: liveDigest, finalizedLen: store.finalized.length });
       committer.onTurnDone();
       break;
+    }
 
     case 'sub_agent_start':
       store.appendSystemNotice(`sub-${nanoid()}`, `Delegating to sub-agent: ${event.task.slice(0, 150)}`);
       break;
 
     case 'sub_agent_event':
-      // Individual sub-agent events are too noisy to surface as notices.
-      // The parent turn's tool calls already show progress.
       break;
 
     case 'sub_agent_done':
@@ -79,10 +92,12 @@ function dispatchAgentEvent(
       break;
 
     case 'budget_compact':
+      debugLog('EVENT budget_compact', { turnIndex: event.turnIndex });
       store.setCompacting(true);
       break;
 
     case 'context_compacted':
+      debugLog('EVENT context_compacted', { afterTokens: event.afterTokens, turnIndex: event.turnIndex });
       store.appendDivider('compact');
       store.setContextTokens(event.afterTokens);
       store.setCompacting(false);
@@ -97,6 +112,7 @@ export function useAgentSubscription(agent: Agent) {
     const userId = `user-${nanoid()}`;
     const assistantId = `assistant-${nanoid()}`;
 
+    debugLog('SUBMIT start', { userId, assistantId, textLen: text.length, finalizedLen: useTuiStore.getState().finalized.length });
     useTuiStore.getState().userSubmit(userId, text);
     useTuiStore.getState().turnStart(assistantId);
     useTuiStore.getState().streamingStart();
@@ -112,18 +128,24 @@ export function useAgentSubscription(agent: Agent) {
       ) as AsyncIterable<AgentEvent>) {
         dispatchAgentEvent(event, agent);
       }
+      debugLog('SUBMIT loop exited normally');
     } catch (err: unknown) {
       const committer = getCommitter();
       if (err instanceof DOMException && err.name === 'AbortError') {
+        debugLog('SUBMIT aborted');
         committer.onTurnDone();
         useTuiStore.getState().setInterrupted(true);
       } else {
         const msg = err instanceof Error ? err.message : String(err);
+        debugLog('SUBMIT error', { message: msg });
         committer.onDelta(`\n\nError: ${msg}`);
         committer.onTurnDone();
       }
     } finally {
-      if (useTuiStore.getState().live) {
+      const liveExists = useTuiStore.getState().live != null;
+      debugLog('SUBMIT finally', { liveExists });
+      if (liveExists) {
+        debugLog('SUBMIT finally calling onTurnDone (live was still set)');
         getCommitter().onTurnDone();
       }
     }

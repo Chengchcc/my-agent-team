@@ -2,17 +2,28 @@ import type { Subscription } from 'rxjs';
 import { Subject, BehaviorSubject } from 'rxjs';
 import { throttleTime } from 'rxjs/operators';
 import { useState, useEffect } from 'react';
+import type { Definition, FootnoteDefinition } from 'mdast';
 import { useTuiStore } from '../state/store';
-import { findStableBoundary } from './findStableBoundary';
+import { parseDoc, type Block } from '../markdown/parse-ast';
+import { debugLog } from '../../../utils/debug';
 
 export interface SegFrame {
   content: string;
   committedLength: number;
+  blocks: Block[];
+  definitions: Map<string, Definition>;
+  footnotes: Map<string, FootnoteDefinition>;
 }
 
 type Snapshot = Map<string, SegFrame>;
 
 const THROTTLE_MS = 33;
+
+/** Second-to-last block is safe to commit — the last block may still be growing. */
+function computeBoundary(blocks: Block[]): number {
+  if (blocks.length < 2) return 0;
+  return blocks[blocks.length - 2]!.endOffset;
+}
 
 class Committer {
   private delta$ = new Subject<void>();
@@ -30,27 +41,32 @@ class Committer {
   }
 
   onDelta(delta: string): void {
-    if (!useTuiStore.getState().live) return;
+    if (!useTuiStore.getState().live) {
+      debugLog('COMMITTER onDelta skipped (no live)');
+      return;
+    }
+    debugLog('COMMITTER onDelta', { len: delta.length });
     useTuiStore.getState().textDelta(delta);
     this.delta$.next();
   }
 
-  /** Flush pending commits without closing the turn. */
   flush(): void {
+    debugLog('COMMITTER flush');
     this.processSegments();
   }
 
   onTurnDone(): void {
+    debugLog('COMMITTER onTurnDone START');
     this.processSegments();
 
-    const store = useTuiStore.getState();
-    store.turnDone();
-    store.streamingStop();
+    const s1 = useTuiStore.getState();
+    debugLog('COMMITTER onTurnDone store.turnDone', { liveExists: s1.live != null, liveKind: s1.live?.kind, finalizedLen: s1.finalized.length });
+    s1.turnDone();
+    s1.streamingStop();
+    const s2 = useTuiStore.getState();
+    debugLog('COMMITTER onTurnDone DONE', { liveAfter: s2.live == null ? 'null' : 'exists', finalizedLen: s2.finalized.length });
 
     this.prevSnapshot = new Map();
-    // Defer clearing the snapshot so React can unmount subscribers first.
-    // Immediate snapshot$.next(new Map()) would trigger a getSnapshot call
-    // while LiveTextSegment is still mounted, re-entering the render loop.
     queueMicrotask(() => {
       if (!useTuiStore.getState().live) {
         this.snapshot$.next(new Map());
@@ -58,13 +74,11 @@ class Committer {
     });
   }
 
-  /** Subscribe to snapshot changes. Returns unsubscribe function. */
   subscribe(callback: () => void): () => void {
     const sub = this.snapshot$.subscribe(() => callback());
     return () => sub.unsubscribe();
   }
 
-  /** Get the current SegFrame for a segment, or null. */
   getFrame(segId: string): SegFrame | null {
     return this.snapshot$.getValue().get(segId) ?? null;
   }
@@ -80,12 +94,8 @@ class Committer {
   private processSegments(): void {
     const { snapshot, advances } = this.buildSnapshot();
     this.prevSnapshot = snapshot;
-    // Emit snapshot BEFORE modifying the store. Otherwise zustand's
-    // synchronous useSyncExternalStore would trigger a render with the
-    // stale snapshot, then immediately render again — doubling frame work.
     this.snapshot$.next(snapshot);
 
-    // Apply committedLength advances after snapshot is current
     if (advances.length > 0) {
       const store = useTuiStore.getState();
       for (const adv of advances) {
@@ -98,30 +108,63 @@ class Committer {
     const store = useTuiStore.getState();
     const live = store.live;
     if (live?.kind !== 'assistant-message' || live.status !== 'streaming') {
+      debugLog('COMMITTER buildSnapshot skip', { liveKind: live?.kind, liveStatus: live?.kind === 'assistant-message' ? live.status : 'n/a' });
       return { snapshot: new Map(), advances: [] };
     }
 
     const next = new Map<string, SegFrame>();
     const advances: Array<{ segId: string; committedLength: number }> = [];
+    const segDigests: string[] = [];
+
     for (const seg of live.segments) {
-      if (seg.kind !== 'text') continue;
-      const result = findStableBoundary(seg.content);
-      const committedLength = result.committable
-        ? Math.max(seg.committedLength, result.boundary)
-        : seg.committedLength;
+      if (seg.kind !== 'text') {
+        segDigests.push(`${seg.kind}:${seg.id.slice(0, 6)}`);
+        continue;
+      }
+
+      const prev = this.prevSnapshot.get(seg.id);
+
+      // Fast path: content unchanged → reuse prev frame entirely
+      if (prev && prev.content === seg.content) {
+        segDigests.push(`text(reuse):${seg.id.slice(0, 6)} len=${seg.content.length} committed=${seg.committedLength}`);
+        next.set(seg.id, prev);
+        continue;
+      }
+
+      // Parse once, use for both boundary calculation and rendering
+      const doc = parseDoc(seg.content);
+      const boundary = computeBoundary(doc.blocks);
+      const committedLength = Math.max(seg.committedLength, boundary);
+
+      segDigests.push(`text(parse):${seg.id.slice(0, 6)} len=${seg.content.length} committed=${committedLength} boundary=${boundary} blocks=${doc.blocks.length}`);
 
       if (committedLength > seg.committedLength) {
         advances.push({ segId: seg.id, committedLength });
       }
 
-      // Reuse previous SegFrame reference when values haven't changed
-      const prev = this.prevSnapshot.get(seg.id);
-      if (prev && prev.content === seg.content && prev.committedLength === committedLength) {
-        next.set(seg.id, prev);
-      } else {
-        next.set(seg.id, { content: seg.content, committedLength });
+      // Reuse block references for already-committed blocks whose raw
+      // content hasn't changed — this lets React.memo skip re-render.
+      if (prev) {
+        const prevById = new Map(prev.blocks.map(b => [b.id, b]));
+        for (let i = 0; i < doc.blocks.length; i++) {
+          const cur = doc.blocks[i]!;
+          const old = prevById.get(cur.id);
+          if (old && old.raw === cur.raw) {
+            doc.blocks[i] = old;
+          }
+        }
       }
+
+      next.set(seg.id, {
+        content: seg.content,
+        committedLength,
+        blocks: doc.blocks,
+        definitions: doc.definitions,
+        footnotes: doc.footnotes,
+      });
     }
+
+    debugLog('COMMITTER buildSnapshot', { segs: segDigests.join(' | '), advances: advances.length });
     return { snapshot: next, advances };
   }
 }
@@ -133,9 +176,6 @@ export function getCommitter(): Committer {
   return instance;
 }
 
-/** React hook: subscribe to the throttled frame for a single text segment.
- *  Uses useState + useEffect subscription instead of useSyncExternalStore
- *  for compatibility with Ink's synchronous React reconciler. */
 export function useSegmentFrame(segId: string): SegFrame | null {
   const committer = getCommitter();
 
@@ -144,7 +184,6 @@ export function useSegmentFrame(segId: string): SegFrame | null {
   );
 
   useEffect(() => {
-    // Sync immediately on mount in case frame changed between init and effect
     setFrame(committer.getFrame(segId));
     return committer.subscribe(() => {
       setFrame(committer.getFrame(segId));

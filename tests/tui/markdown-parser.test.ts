@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { parseDoc, type Block } from '../../src/cli/tui/markdown/parse-ast';
 import { getMarkdownRenderer } from '../../src/cli/tui/markdown/cache';
+import type { Definition, FootnoteDefinition } from 'mdast';
 import type { Heading, Code, List, ListItem, Table } from 'mdast';
 
 function typesOf(blocks: Block[]): string[] {
@@ -241,49 +242,58 @@ describe('parseDoc', () => {
   });
 });
 
-// ── MarkdownRenderer cache ──
+// ── MarkdownRenderer (stateless rendering) ──
 
-describe('MarkdownRenderer cache', () => {
+describe('MarkdownRenderer render', () => {
   const W = 80;
 
-  test('same content returns cached split', () => {
-    const renderer = getMarkdownRenderer();
-    const r1 = renderer.render('hello\n\nworld', 8, W);
-    const r2 = renderer.render('hello\n\nworld', 8, W);
-    expect(r1).toBe(r2);
-  });
-
-  test('different committedLength returns new split', () => {
-    const renderer = getMarkdownRenderer();
-    const r1 = renderer.render('hello\n\nworld', 4, W);
-    const r2 = renderer.render('hello\n\nworld', 8, W);
-    expect(r1).not.toBe(r2);
-  });
-
-  test('different content triggers reparse', () => {
-    const renderer = getMarkdownRenderer();
-    const r1 = renderer.render('hello\n\nworld', 8, W);
-    const r2 = renderer.render('bonjour\n\nmonde', 8, W);
-    expect(r1).not.toBe(r2);
-  });
+  function render(content: string, committedLength: number) {
+    const doc = parseDoc(content);
+    return getMarkdownRenderer().render(
+      content, committedLength, W,
+      doc.blocks, doc.definitions, doc.footnotes,
+    );
+  }
 
   test('no committed content returns empty stable', () => {
-    const renderer = getMarkdownRenderer();
-    const result = renderer.render('hello world', 0, W);
+    const result = render('hello world', 0);
     expect(result.stable.length).toBe(0);
   });
 
   test('fully committed content has no tail', () => {
-    const renderer = getMarkdownRenderer();
-    const result = renderer.render('# Title\n\n', 10, W);
+    const doc = parseDoc('# Title\n\n');
+    // Heading is at endOffset=7. With committedLength = content.length, all blocks in stable.
+    const result = render('# Title\n\n', '# Title\n\n'.length);
     expect(result.tail.length).toBe(0);
   });
 
-  test('reset clears all caches', () => {
-    const renderer = getMarkdownRenderer();
-    const r1 = renderer.render('hello\n\nworld', 8, W);
-    renderer.reset();
-    const r2 = renderer.render('hello\n\nworld', 8, W);
+  test('partially committed: committed blocks go to stable, uncommitted to tail', () => {
+    const result = render('hello\n\nworld', 5);
+    // First paragraph only → stable; second → tail
+    expect(result.stable.length).toBe(1);
+    expect(result.tail.length).toBeGreaterThan(0);
+  });
+
+  test('renderer is stateless — same inputs produce different object refs', () => {
+    const r1 = render('hello\n\nworld', 8);
+    const r2 = render('hello\n\nworld', 8);
+    // Stateless — no object identity caching
     expect(r1).not.toBe(r2);
+    // But result structure is equivalent
+    expect(r1.stable.length).toBe(r2.stable.length);
+    expect(r1.tail.length).toBe(r2.tail.length);
+  });
+
+  test('reset is a no-op (renderer is stateless)', () => {
+    getMarkdownRenderer().reset();
+    // Should not throw
+    expect(true).toBe(true);
+  });
+
+  test('plain text with no blocks renders in tail', () => {
+    // A single character that forms no blocks
+    const result = render('a', 0);
+    // 0 blocks, committedLength < content.length → raw tail
+    expect(result.tail.length).toBeGreaterThan(0);
   });
 });

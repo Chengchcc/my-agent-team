@@ -98,7 +98,7 @@ describe('StreamingCommitter', () => {
     if (live?.kind === 'assistant-message') {
       const seg = live.segments[0]!;
       if (seg.kind === 'text') {
-        expect(seg.committedLength).toBe('Hello world.\n\n'.length);
+        expect(seg.committedLength).toBe('Hello world.'.length);
         expect(seg.content).toBe('Hello world.\n\nstill writing...');
       }
     }
@@ -124,7 +124,7 @@ describe('StreamingCommitter', () => {
     await new Promise(r => setTimeout(r, 80));
 
     if (liveSeg(0).kind === 'text') {
-      expect(liveSeg(0).committedLength).toBe('```py\nprint(1)\n```\n\n'.length);
+      expect(liveSeg(0).committedLength).toBe('```py\nprint(1)\n```'.length);
       expect(liveSeg(0).content).toBe('```py\nprint(1)\n```\n\nafter fence');
     }
   });

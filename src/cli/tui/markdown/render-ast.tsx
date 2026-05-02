@@ -13,6 +13,7 @@ export interface RenderContext {
   terminalWidth: number;
   definitions: Map<string, Definition>;
   footnotes: Map<string, FootnoteDefinition>;
+  streaming?: boolean;
 }
 
 // ── Block-level dispatcher ──
@@ -21,12 +22,12 @@ export function renderNode(node: RootContent, ctx: RenderContext): React.ReactNo
   switch (node.type) {
     case 'heading':       return <HeadingView node={node} ctx={ctx} />;
     case 'paragraph':     return <ParagraphView node={node} ctx={ctx} />;
-    case 'code':          return <CodeView node={node} />;
+    case 'code':          return ctx.streaming ? <CodeStreamingView node={node} /> : <CodeView node={node} />;
     case 'list':          return <ListView node={node} ctx={ctx} />;
     case 'listItem':      return <ListItemView node={node} ctx={ctx} />;
     case 'blockquote':    return <BlockquoteView node={node} ctx={ctx} />;
-    case 'thematicBreak': return <ThematicBreakView ctx={ctx} />;
-    case 'table':         return <TableView node={node} ctx={ctx} />;
+    case 'thematicBreak': return ctx.streaming ? null : <ThematicBreakView ctx={ctx} />;
+    case 'table':         return ctx.streaming ? <TableStreamingView node={node} /> : <TableView node={node} ctx={ctx} />;
     case 'html':          return null;
     default:              return null;
   }
@@ -140,6 +141,32 @@ function CodeView({ node }: { node: import('mdast').Code }) {
   );
 }
 
+/** Streaming mode: code block may be incomplete (missing closing fence). Render as dim plain text. */
+function CodeStreamingView({ node }: { node: import('mdast').Code }) {
+  return <Text dimColor>{node.value}</Text>;
+}
+
+// ── Table (streaming fallback) ──
+
+function TableStreamingView({ node }: { node: import('mdast').Table }) {
+  // In streaming mode, flatten table to compact per-row text
+  const rows = node.children.map((row, ri) => {
+    if (row.type !== 'tableRow') return null;
+    const cells = row.children
+      .filter((c): c is import('mdast').TableCell => c.type === 'tableCell')
+      .map(c => {
+        // Extract plain text from cell's children
+        const text = c.children
+          .map(p => 'value' in p ? String((p as { value: unknown }).value) : '')
+          .join('');
+        return text;
+      })
+      .join(' | ');
+    return <Text key={ri} dimColor>{ri === 0 ? `${cells}\n` : cells}</Text>;
+  });
+  return <Box flexDirection="column">{rows}</Box>;
+}
+
 // ── Thematic break ──
 
 function ThematicBreakView({ ctx }: { ctx: RenderContext }) {
@@ -247,6 +274,23 @@ export function FootnotesSection({ footnotes, ctx }: { footnotes: Map<string, Fo
   );
 }
 
+// ── Memoized block view ──
+
+const BlockView = React.memo(
+  function BlockView({ node, ctx }: { node: RootContent; ctx: RenderContext }) {
+    return (
+      <Box>
+        {renderNode(node, ctx)}
+      </Box>
+    );
+  },
+  (prev, next) =>
+    prev.node === next.node &&
+    prev.ctx.terminalWidth === next.ctx.terminalWidth &&
+    prev.ctx.definitions === next.ctx.definitions &&
+    prev.ctx.footnotes === next.ctx.footnotes,
+);
+
 // ── Batch renderer ──
 
 export function renderBlocks(
@@ -259,25 +303,13 @@ export function renderBlocks(
 
   for (const block of blocks) {
     if (block.endOffset <= committedLength) {
-      stable.push(
-        <Box key={block.id}>
-          {renderNode(block.node, ctx)}
+      stable.push(<BlockView key={block.id} node={block.node} ctx={ctx} />);
+    } else {
+      tail.push(
+        <Box key={`tail-${block.id}`}>
+          {renderNode(block.node, { ...ctx, streaming: true })}
         </Box>,
       );
-    } else if (block.startOffset < committedLength) {
-      // Straddling commit boundary — only happens if micromark offset ≠ mdast offset.
-      // Render entirely as tail to prevent the uncommitted portion from appearing twice
-      // (once formatted in stable, once raw in tail).
-      const trimmed = block.raw.replace(/\n+$/, '');
-      if (trimmed) {
-        tail.push(<Text key={`tail-${block.id}`}>{trimmed}</Text>);
-      }
-    } else {
-      // Entirely uncommitted
-      const trimmed = block.raw.replace(/\n+$/, '');
-      if (trimmed) {
-        tail.push(<Text key={`tail-${block.id}`}>{trimmed}</Text>);
-      }
     }
   }
 
