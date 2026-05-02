@@ -76,12 +76,16 @@ function dispatchAgentEvent(
       break;
 
     case 'budget_delegation':
+      break;
+
     case 'budget_compact':
+      store.setCompacting(true);
       break;
 
     case 'context_compacted':
       store.appendDivider('compact');
       store.setContextTokens(event.afterTokens);
+      store.setCompacting(false);
       break;
   }
 }

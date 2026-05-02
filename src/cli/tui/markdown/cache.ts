@@ -48,19 +48,8 @@ export class MarkdownRenderer {
       this.lastFootnotes = footnotes;
     }
 
-    // Align committedLength to block boundaries so renderBlocks never straddles.
-    // findStableBoundary uses micromark token offsets while parseDoc uses mdast
-    // node positions — they can differ by 1–2 chars. Clamp to the nearest safe boundary.
-    let alignedLength = committedLength;
-    for (const block of blocks) {
-      if (block.startOffset < committedLength && committedLength < block.endOffset) {
-        alignedLength = block.startOffset;
-        break;
-      }
-    }
-
     const ctx: RenderContext = { terminalWidth, definitions, footnotes };
-    const result = renderBlocks(blocks, alignedLength, ctx);
+    const result = renderBlocks(blocks, committedLength, ctx);
     this.lastCommittedLength = committedLength;
     this.lastTerminalWidth = terminalWidth;
 

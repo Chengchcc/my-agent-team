@@ -100,10 +100,16 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
         return;
       }
       if (text === '/compact') {
-        useTuiStore.getState().appendDivider('compact');
         const contextManager = agent.getContextManager?.();
         if (contextManager) {
-          contextManager.forceCompact().catch(() => {});
+          useTuiStore.getState().setCompacting(true);
+          // Yield to event loop so React renders the indicator before heavy sync work
+          setTimeout(() => {
+            contextManager.forceCompact()
+              .finally(() => useTuiStore.getState().setCompacting(false))
+              .catch(() => {});
+          }, 0);
+          useTuiStore.getState().appendDivider('compact');
         }
         return;
       }

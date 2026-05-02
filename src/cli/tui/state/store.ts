@@ -63,6 +63,7 @@ export interface TuiStore {
   setContextTokens: (tokens: number) => void;
   setTokenLimit: (limit: number) => void;
   setInterrupted: (interrupted: boolean) => void;
+  setCompacting: (compacting: boolean) => void;
 }
 
 // ── Store ──
@@ -270,6 +271,11 @@ export const useTuiStore = create<TuiStore>()(
     setInterrupted: (interrupted) =>
       set((s) => {
         s.stats.interrupted = interrupted;
+      }),
+
+    setCompacting: (compacting) =>
+      set((s) => {
+        s.stats.compacting = compacting;
       }),
   })),
 );

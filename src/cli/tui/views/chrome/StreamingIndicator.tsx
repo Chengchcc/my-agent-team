@@ -12,13 +12,19 @@ export function StreamingIndicator() {
   const streaming = useTuiStore(s => s.stats.streaming);
   const streamingStartTime = useTuiStore(s => s.stats.streamingStartTime);
   const interrupted = useTuiStore(s => s.stats.interrupted);
+  const compacting = useTuiStore(s => s.stats.compacting);
 
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    if (!streaming) return;
+    if (!streaming && !compacting) return;
     const timer = setInterval(() => setTick(t => t + 1), TICK_MS);
     return () => clearInterval(timer);
-  }, [streaming]);
+  }, [streaming, compacting]);
+
+  if (compacting) {
+    const frame = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
+    return <Text color="cyan">{frame} Compacting context...</Text>;
+  }
 
   if (!streaming && !interrupted) return <Text>{' '}</Text>;
 

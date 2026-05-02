@@ -47,6 +47,7 @@ export interface StatsState {
   streaming: boolean;
   streamingStartTime: number | null;
   interrupted: boolean;
+  compacting: boolean;
 }
 
 // ── Initial states ──
@@ -66,4 +67,5 @@ export const initialStats: StatsState = {
   streaming: false,
   streamingStartTime: null,
   interrupted: false,
+  compacting: false,
 };
