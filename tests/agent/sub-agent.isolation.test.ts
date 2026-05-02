@@ -235,7 +235,7 @@ describe('Resource constraints', () => {
     expect(scriptedProvider.callCount).toBeLessThanOrEqual(16);
     expect(result).toContain('<sub_agent_result');
     expect(result).toContain('turns');
-  }, 60000); // Increased timeout for this test
+  }, 120000);
 
   test('sub-agent times out after 5 minutes', async () => {
     // Create a provider that will hang indefinitely

@@ -120,6 +120,8 @@ export function useCommandInput({
       });
     }, AT_FILE_DEBOUNCE_MS);
     return () => { cancelled = true; clearTimeout(timer); };
+  // only .query matters for debounced glob; full atQuery triggers unnecessary re-runs
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [atQuery?.query]);
   const atFilePickerOpen = atQuery !== null && dismissedAtQuery !== atQuery.query;
 
@@ -145,7 +147,7 @@ export function useCommandInput({
 
   useEffect(() => {
     setAtSelectedIndex(0);
-  }, [atQuery?.query]);
+  }, [atQuery]);
 
   useEffect(() => {
     setAtSelectedIndex((index) => Math.min(index, Math.max(0, atFiles.length - 1)));

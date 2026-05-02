@@ -161,7 +161,7 @@ export function AskUserQuestionPrompt({ questions, onSubmit }: AskUserQuestionPr
         </Text>
       </Box>
     );
-  }, [qCount, questions, tabIndex, reviewTabIndex, tabLabel]);
+  }, [qCount, questions, tabIndex, reviewTabIndex]);
 
   const hint =
     qCount >= 2

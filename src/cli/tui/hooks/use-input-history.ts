@@ -58,17 +58,17 @@ export function useInputHistory() {
   const loadedRef = useRef(false);
   const pendingSavesRef = useRef<string[]>([]);
 
-  // Load history on mount
+  // Load history on mount — doSave is stable (useCallback with [])
   useEffect(() => {
     void loadHistoryFromDisk().then(history => {
       historyRef.current = history;
       loadedRef.current = true;
-      // Flush any saves that queued during the loading window
       for (const text of pendingSavesRef.current) {
         doSave(text);
       }
       pendingSavesRef.current = [];
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const isBrowsing = historyIndex !== null;

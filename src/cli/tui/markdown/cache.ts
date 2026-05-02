@@ -33,7 +33,7 @@ export class MarkdownRenderer {
     if (committedLength >= content.length && footnotes.size > 0) {
       result.stable.push(
         React.createElement(
-          'x-footnotes' as any,
+          React.Fragment,
           { key: 'footnotes-section' },
           FootnotesSection({ footnotes, ctx }),
         ),

@@ -69,6 +69,7 @@ export interface TuiStore {
 // ── Store ──
 
 export const useTuiStore = create<TuiStore>()(
+  /* eslint-disable max-lines-per-function */
   immer((set) => ({
     finalized: [],
     live: null,
@@ -277,6 +278,7 @@ export const useTuiStore = create<TuiStore>()(
       set((s) => {
         s.stats.compacting = compacting;
       }),
+  /* eslint-enable max-lines-per-function */
   })),
 );
 

@@ -3,6 +3,9 @@ import { nanoid } from 'nanoid';
 import { useTuiStore } from '../state/store';
 import { getCommitter } from '../streaming/committer';
 import { debugLog } from '../../../utils/debug';
+
+const SUB_AGENT_TASK_PREVIEW_LEN = 150;
+const SUB_AGENT_STATUS_PREVIEW_LEN = 200;
 import type { Agent } from '../../../agent';
 import type { AgentEvent } from '../../../agent/loop-types';
 
@@ -75,7 +78,7 @@ function dispatchAgentEvent(
     }
 
     case 'sub_agent_start':
-      store.appendSystemNotice(`sub-${nanoid()}`, `Delegating to sub-agent: ${event.task.slice(0, 150)}`);
+      store.appendSystemNotice(`sub-${nanoid()}`, `Delegating to sub-agent: ${event.task.slice(0, SUB_AGENT_TASK_PREVIEW_LEN)}`);
       break;
 
     case 'sub_agent_event':
@@ -84,7 +87,7 @@ function dispatchAgentEvent(
     case 'sub_agent_done':
       store.appendSystemNotice(
         `sub-done-${nanoid()}`,
-        `Sub-agent finished (${event.totalTurns} turns, ${event.durationMs}ms): ${event.summary.slice(0, 200)}`,
+        `Sub-agent finished (${event.totalTurns} turns, ${event.durationMs}ms): ${event.summary.slice(0, SUB_AGENT_STATUS_PREVIEW_LEN)}`,
       );
       break;
 

@@ -3,6 +3,8 @@ import { Box, Text } from 'ink';
 import { parseDoc } from '../markdown/parse-ast';
 import { renderNode, FootnotesSection, type RenderContext } from '../markdown/render-ast';
 
+const DEFAULT_TERMINAL_WIDTH = 80;
+
 /**
  * Render markdown content to React elements using mdast AST parsing.
  * For the final (Static) rendering path where all content is committed.
@@ -16,7 +18,7 @@ export function renderMarkdownTokens(content: string): React.ReactNode[] {
   }
 
   const ctx: RenderContext = {
-    terminalWidth: process.stdout.columns || 80,
+    terminalWidth: process.stdout.columns || DEFAULT_TERMINAL_WIDTH,
     definitions,
     footnotes,
   };

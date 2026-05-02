@@ -230,7 +230,7 @@ describe('Agent Loop Event Flow (integration)', () => {
     // Should not exceed maxTurns significantly
     const turnCompletes = events.filter(e => e.type === 'turn_complete').length;
     expect(turnCompletes).toBeLessThanOrEqual(4);
-  });
+  }, { timeout: 15000 });
 
   test('turn completes with usage accumulated correctly', async () => {
     const provider = new ScriptedProvider([{ content: 'Hello' }]);

@@ -15,6 +15,8 @@ export interface SegFrame {
   footnotes: Map<string, FootnoteDefinition>;
 }
 
+const LOG_ID_LEN = 6;
+
 type Snapshot = Map<string, SegFrame>;
 
 const THROTTLE_MS = 33;
@@ -122,7 +124,7 @@ class Committer {
 
     for (const seg of live.segments) {
       if (seg.kind !== 'text') {
-        segDigests.push(`${seg.kind}:${seg.id.slice(0, 6)}`);
+        segDigests.push(`${seg.kind}:${seg.id.slice(0, LOG_ID_LEN)}`);
         continue;
       }
 
@@ -130,7 +132,7 @@ class Committer {
 
       // Fast path: content unchanged → reuse prev frame entirely
       if (prev && prev.content === seg.content) {
-        segDigests.push(`text(reuse):${seg.id.slice(0, 6)} len=${seg.content.length} committed=${seg.committedLength}`);
+        segDigests.push(`text(reuse):${seg.id.slice(0, LOG_ID_LEN)} len=${seg.content.length} committed=${seg.committedLength}`);
         next.set(seg.id, prev);
         continue;
       }
@@ -140,12 +142,12 @@ class Committer {
       const boundary = computeBoundary(doc.blocks, seg.committedLength);
       const committedLength = Math.max(seg.committedLength, boundary);
 
-      segDigests.push(`text(parse):${seg.id.slice(0, 6)} len=${seg.content.length} committed=${committedLength} boundary=${boundary} blocks=${doc.blocks.length}`);
+      segDigests.push(`text(parse):${seg.id.slice(0, LOG_ID_LEN)} len=${seg.content.length} committed=${committedLength} boundary=${boundary} blocks=${doc.blocks.length}`);
 
       if (committedLength > seg.committedLength) {
         advances.push({ segId: seg.id, committedLength });
         const newBlocks = doc.blocks.filter(b => b.endOffset > seg.committedLength && b.endOffset <= committedLength).length;
-        debugLog('COMMITTER advance', { segId: seg.id.slice(0, 6), from: seg.committedLength, to: committedLength, totalBlocks: doc.blocks.length, newBlocks });
+        debugLog('COMMITTER advance', { segId: seg.id.slice(0, LOG_ID_LEN), from: seg.committedLength, to: committedLength, totalBlocks: doc.blocks.length, newBlocks });
       }
 
       // Reuse block references for already-committed blocks whose raw

@@ -4,6 +4,9 @@ import stringWidth from 'string-width';
 import type { Table, TableRow, TableCell, PhrasingContent } from 'mdast';
 import type { RenderContext } from './render-ast';
 
+const TABLE_MARGIN = 4;
+const COMPACT_SEP_WIDTH = 40;
+
 function flattenText(nodes: PhrasingContent[]): string {
   return nodes.map(n => {
     if (n.type === 'text') return n.value;
@@ -65,7 +68,7 @@ export function TableView({ node, ctx }: TableViewProps) {
   const gutter = 3; // " │ " between columns
   const totalWidth = colWidths.reduce((a, b) => a + b, 0) + gutter * (colCount - 1);
 
-  if (totalWidth > ctx.terminalWidth - 4) {
+  if (totalWidth > ctx.terminalWidth - TABLE_MARGIN) {
     return renderCompactTable(headers, bodies, colWidths, aligns);
   }
 
@@ -114,7 +117,7 @@ function renderCompactTable(
       {bodies.map((row, ri) => (
         <Box key={ri} flexDirection="column">
           {ri > 0 && (
-            <Text dimColor>{'─'.repeat(40)}</Text>
+            <Text dimColor>{'─'.repeat(COMPACT_SEP_WIDTH)}</Text>
           )}
           {row.map((cell, ci) => {
             const header = headers[ci] ?? '';

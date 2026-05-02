@@ -1,9 +1,12 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import type { RootContent, PhrasingContent, Definition, FootnoteDefinition } from 'mdast';
+import type { RootContent, PhrasingContent, Definition, FootnoteDefinition, Heading, Paragraph, Code, Blockquote, Table, TableCell, List, ListItem } from 'mdast';
 import type { Block } from './parse-ast';
 import { CodeBlock } from '../components/CodeBlock';
 import { TableView } from './render-table';
+
+const MIN_RULE_WIDTH = 10;
+const RULE_MARGIN = 4;
 
 export interface RenderContext {
   depth?: number;
@@ -19,6 +22,7 @@ export interface RenderContext {
 // ── Block-level dispatcher ──
 
 export function renderNode(node: RootContent, ctx: RenderContext): React.ReactNode {
+  // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
   switch (node.type) {
     case 'heading':       return <HeadingView node={node} ctx={ctx} />;
     case 'paragraph':     return <ParagraphView node={node} ctx={ctx} />;
@@ -109,7 +113,7 @@ const HEADING_DECORATION: Record<number, { color: string; prefix: string }> = {
   6: { color: 'blue', prefix: '###### ' },
 };
 
-function HeadingView({ node, ctx }: { node: import('mdast').Heading; ctx: RenderContext }) {
+function HeadingView({ node, ctx }: { node: Heading; ctx: RenderContext }) {
   const deco = HEADING_DECORATION[node.depth] ?? { color: 'white', prefix: '' };
   const prefix = node.depth <= 2 ? deco.prefix : '';
   return (
@@ -122,7 +126,7 @@ function HeadingView({ node, ctx }: { node: import('mdast').Heading; ctx: Render
 
 // ── Paragraph ──
 
-function ParagraphView({ node, ctx }: { node: import('mdast').Paragraph; ctx: RenderContext }) {
+function ParagraphView({ node, ctx }: { node: Paragraph; ctx: RenderContext }) {
   return (
     <Text>
       {renderInline(node.children, ctx)}
@@ -132,7 +136,7 @@ function ParagraphView({ node, ctx }: { node: import('mdast').Paragraph; ctx: Re
 
 // ── Code block ──
 
-function CodeView({ node }: { node: import('mdast').Code }) {
+function CodeView({ node }: { node: Code }) {
   return (
     <CodeBlock
       code={node.value}
@@ -142,18 +146,18 @@ function CodeView({ node }: { node: import('mdast').Code }) {
 }
 
 /** Streaming mode: code block may be incomplete (missing closing fence). Render as dim plain text. */
-function CodeStreamingView({ node }: { node: import('mdast').Code }) {
+function CodeStreamingView({ node }: { node: Code }) {
   return <Text dimColor>{node.value}</Text>;
 }
 
 // ── Table (streaming fallback) ──
 
-function TableStreamingView({ node }: { node: import('mdast').Table }) {
+function TableStreamingView({ node }: { node: Table }) {
   // In streaming mode, flatten table to compact per-row text
   const rows = node.children.map((row, ri) => {
     if (row.type !== 'tableRow') return null;
     const cells = row.children
-      .filter((c): c is import('mdast').TableCell => c.type === 'tableCell')
+      .filter((c): c is TableCell => c.type === 'tableCell')
       .map(c => {
         // Extract plain text from cell's children
         const text = c.children
@@ -170,13 +174,13 @@ function TableStreamingView({ node }: { node: import('mdast').Table }) {
 // ── Thematic break ──
 
 function ThematicBreakView({ ctx }: { ctx: RenderContext }) {
-  const width = Math.max(10, ctx.terminalWidth - 4);
+  const width = Math.max(MIN_RULE_WIDTH, ctx.terminalWidth - RULE_MARGIN);
   return <Text dimColor>{'\u2500'.repeat(width)}</Text>;
 }
 
 // ── Blockquote ──
 
-function BlockquoteView({ node, ctx }: { node: import('mdast').Blockquote; ctx: RenderContext }) {
+function BlockquoteView({ node, ctx }: { node: Blockquote; ctx: RenderContext }) {
   return (
     <Box flexDirection="column">
       {node.children.map((child, i) => (
@@ -193,7 +197,7 @@ function BlockquoteView({ node, ctx }: { node: import('mdast').Blockquote; ctx: 
 
 // ── List ──
 
-function ListView({ node, ctx }: { node: import('mdast').List; ctx: RenderContext }) {
+function ListView({ node, ctx }: { node: List; ctx: RenderContext }) {
   return (
     <Box flexDirection="column">
       {node.children.map((item, i) => (
@@ -213,7 +217,7 @@ function ListView({ node, ctx }: { node: import('mdast').List; ctx: RenderContex
 
 // ── List item ──
 
-function ListItemView({ node, ctx }: { node: import('mdast').ListItem; ctx: RenderContext }) {
+function ListItemView({ node, ctx }: { node: ListItem; ctx: RenderContext }) {
   const indent = '  '.repeat(Math.max(0, (ctx.depth ?? 1) - 1));
   const marker = ctx.listOrdered
     ? `${(ctx.listStart ?? 1) + (ctx.listItemIndex ?? 0)}.`
@@ -230,7 +234,7 @@ function ListItemView({ node, ctx }: { node: import('mdast').ListItem; ctx: Rend
         {indent}
         <Text color="cyan">{marker}</Text>{' '}
         {checkbox}
-        {renderInline((node.children[0] as import('mdast').Paragraph).children, ctx)}
+        {renderInline((node.children[0] as Paragraph).children, ctx)}
       </Text>
     );
   }
@@ -257,7 +261,7 @@ export function FootnotesSection({ footnotes, ctx }: { footnotes: Map<string, Fo
   const entries = [...footnotes.entries()];
   return (
     <Box flexDirection="column">
-      <Text dimColor>{'\u2500'.repeat(Math.max(10, ctx.terminalWidth - 4))}</Text>
+      <Text dimColor>{'\u2500'.repeat(Math.max(MIN_RULE_WIDTH, ctx.terminalWidth - RULE_MARGIN))}</Text>
       {entries.map(([id, def], i) => (
         <Box key={id}>
           <Box width={4} flexShrink={0}>
