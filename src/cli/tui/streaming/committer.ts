@@ -19,10 +19,14 @@ type Snapshot = Map<string, SegFrame>;
 
 const THROTTLE_MS = 33;
 
-/** Second-to-last block is safe to commit — the last block may still be growing. */
-function computeBoundary(blocks: Block[]): number {
-  if (blocks.length < 2) return 0;
-  return blocks[blocks.length - 2]!.endOffset;
+/** Advance at most one block per tick so blocks appear progressively. */
+function computeBoundary(blocks: Block[], prevCommitted: number): number {
+  for (let i = 0; i < blocks.length - 1; i++) {
+    if (blocks[i]!.endOffset > prevCommitted) {
+      return blocks[i]!.endOffset;
+    }
+  }
+  return prevCommitted;
 }
 
 class Committer {
@@ -40,63 +44,14 @@ class Committer {
     ).subscribe(() => this.processSegments());
   }
 
-  /** Delay between progressive block-reveal chunks (ms). */
-  private static readonly CHUNK_DELAY_MS = 50;
-  private chunkQueue: string[] = [];
-  private chunkTimer: ReturnType<typeof setTimeout> | null = null;
-
   onDelta(delta: string): void {
     if (!useTuiStore.getState().live) {
       debugLog('COMMITTER onDelta skipped (no live)');
       return;
     }
     debugLog('COMMITTER onDelta', { len: delta.length });
-
-    // Split at paragraph boundaries for progressive block reveal.
-    // Without this, a single large delta containing multiple \n\n breaks
-    // would commit all blocks at once — a jarring visual jump.
-    const parts = delta.split(/(?<=\n\n)/).filter(Boolean);
-    for (const part of parts) {
-      this.chunkQueue.push(part);
-    }
-    this.drainChunkQueue();
-  }
-
-  /** Drain the chunk queue one piece at a time, preserving order even
-   *  when new server deltas arrive between ticks. */
-  private drainChunkQueue(): void {
-    if (this.chunkTimer != null || this.chunkQueue.length === 0) return;
-
-    // Single chunk or first of many — feed immediately
-    if (this.chunkQueue.length === 1) {
-      const chunk = this.chunkQueue.shift()!;
-      useTuiStore.getState().textDelta(chunk);
-      this.delta$.next();
-      return;
-    }
-
-    // Multiple chunks: feed first, queue rest with inter-chunk delays
-    const first = this.chunkQueue.shift()!;
-    useTuiStore.getState().textDelta(first);
+    useTuiStore.getState().textDelta(delta);
     this.delta$.next();
-    debugLog('COMMITTER onDelta chunked', { fed: 1, remaining: this.chunkQueue.length });
-    this.scheduleNextChunk();
-  }
-
-  private scheduleNextChunk(): void {
-    if (this.chunkQueue.length === 0) return;
-    this.chunkTimer = setTimeout(() => {
-      this.chunkTimer = null;
-      const chunk = this.chunkQueue.shift()!;
-      if (!useTuiStore.getState().live) {
-        this.chunkQueue.length = 0;
-        return;
-      }
-      useTuiStore.getState().textDelta(chunk);
-      this.delta$.next();
-      debugLog('COMMITTER onDelta chunk', { len: chunk.length, remaining: this.chunkQueue.length });
-      this.scheduleNextChunk();
-    }, Committer.CHUNK_DELAY_MS);
   }
 
   flush(): void {
@@ -182,13 +137,15 @@ class Committer {
 
       // Parse once, use for both boundary calculation and rendering
       const doc = parseDoc(seg.content);
-      const boundary = computeBoundary(doc.blocks);
+      const boundary = computeBoundary(doc.blocks, seg.committedLength);
       const committedLength = Math.max(seg.committedLength, boundary);
 
       segDigests.push(`text(parse):${seg.id.slice(0, 6)} len=${seg.content.length} committed=${committedLength} boundary=${boundary} blocks=${doc.blocks.length}`);
 
       if (committedLength > seg.committedLength) {
         advances.push({ segId: seg.id, committedLength });
+        const newBlocks = doc.blocks.filter(b => b.endOffset > seg.committedLength && b.endOffset <= committedLength).length;
+        debugLog('COMMITTER advance', { segId: seg.id.slice(0, 6), from: seg.committedLength, to: committedLength, totalBlocks: doc.blocks.length, newBlocks });
       }
 
       // Reuse block references for already-committed blocks whose raw
