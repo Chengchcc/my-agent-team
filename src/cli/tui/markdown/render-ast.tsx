@@ -309,10 +309,10 @@ export function renderBlocks(
     if (block.endOffset <= committedLength) {
       stable.push(<BlockView key={block.id} node={block.node} ctx={ctx} />);
     } else if (tail.length === 0) {
+      // Plain-text tail: avoids expensive AST traversal during streaming.
+      // Once committed, BlockView renders the full formatted AST.
       tail.push(
-        <Box key={`tail-${block.id}`}>
-          {renderNode(block.node, { ...ctx, streaming: true })}
-        </Box>,
+        <Text key={`tail-${block.id}`}>{block.raw.replace(/\n+$/, '')}</Text>,
       );
     }
   }

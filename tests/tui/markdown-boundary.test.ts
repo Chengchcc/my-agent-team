@@ -3,25 +3,23 @@ import { parseDoc } from '../../src/cli/tui/markdown/parse-ast';
 import type { Block } from '../../src/cli/tui/markdown/parse-ast';
 
 function computeBoundary(blocks: Block[], prevCommitted: number): number {
-  for (let i = 0; i < blocks.length - 1; i++) {
-    if (blocks[i]!.endOffset > prevCommitted) {
-      return blocks[i]!.endOffset;
-    }
-  }
-  return prevCommitted;
+  if (blocks.length === 0) return prevCommitted;
+  const lastStableIdx = blocks.length >= 2 ? blocks.length - 2 : 0;
+  return Math.max(prevCommitted, blocks[lastStableIdx]!.endOffset);
 }
 
-describe('computeBoundary (progressive via parseDoc)', () => {
+describe('computeBoundary (second-to-last via parseDoc)', () => {
   test('empty string has no blocks → boundary 0', () => {
     const doc = parseDoc('');
     expect(doc.blocks).toHaveLength(0);
     expect(computeBoundary(doc.blocks, 0)).toBe(0);
   });
 
-  test('single paragraph → no second-to-last block → boundary 0', () => {
+  test('single paragraph → commits the block itself (no second-to-last)', () => {
     const doc = parseDoc('hello world');
     expect(doc.blocks).toHaveLength(1);
-    expect(computeBoundary(doc.blocks, 0)).toBe(0);
+    // Single block: committedLength advances to the block's endOffset
+    expect(computeBoundary(doc.blocks, 0)).toBe(doc.blocks[0]!.endOffset);
   });
 
   test('two paragraphs → boundary at end of first paragraph', () => {
@@ -58,35 +56,33 @@ describe('computeBoundary (progressive via parseDoc)', () => {
     expect(boundary).toBeGreaterThan(0);
   });
 
-  test('three paragraphs → with prevCommitted=0, advances to first block boundary', () => {
+  test('three paragraphs → with prevCommitted=0, advances to second-to-last block', () => {
     const s = 'one\n\ntwo\n\nthree';
     const doc = parseDoc(s);
     expect(doc.blocks.length).toBeGreaterThanOrEqual(3);
     const boundary = computeBoundary(doc.blocks, 0);
     expect(boundary).toBeGreaterThan(0);
-    expect(boundary).toBe(doc.blocks[0]!.endOffset);
+    // Second-to-last: blocks[1] (index 1), not blocks[0]
+    expect(boundary).toBe(doc.blocks[1]!.endOffset);
   });
 
-  test('progressive: two ticks advance one block each', () => {
+  test('three blocks → commits all except last in one tick', () => {
     const s = 'one\n\ntwo\n\nthree';
     const doc = parseDoc(s);
-    // First tick: prevCommitted=0 → advance to first block boundary
+    // One tick: boundary = second-to-last (blocks[1]), commits "one" + "two"
     const b1 = computeBoundary(doc.blocks, 0);
-    expect(b1).toBe(doc.blocks[0]!.endOffset);
-    // Second tick: prevCommitted = first block boundary → advance to second
+    expect(b1).toBe(doc.blocks[1]!.endOffset);
+    // With prevCommitted already at second-to-last → no change (last block stays tail)
     const b2 = computeBoundary(doc.blocks, b1);
-    expect(b2).toBe(doc.blocks[1]!.endOffset);
-    // Third tick: already at second-to-last boundary → no advancement
-    const b3 = computeBoundary(doc.blocks, b2);
-    expect(b3).toBe(b2);
+    expect(b2).toBe(b1);
   });
 
-  test('prevCommitted already past all but last block → returns prevCommitted', () => {
+  test('prevCommitted already at second-to-last → returns prevCommitted', () => {
     const s = 'one\n\ntwo\n\nthree';
     const doc = parseDoc(s);
-    const lastBlock = doc.blocks[doc.blocks.length - 2]!;
-    const boundary = computeBoundary(doc.blocks, lastBlock.endOffset);
-    expect(boundary).toBe(lastBlock.endOffset);
+    const secondLast = doc.blocks[doc.blocks.length - 2]!;
+    const boundary = computeBoundary(doc.blocks, secondLast.endOffset);
+    expect(boundary).toBe(secondLast.endOffset);
   });
 
   test('boundary always at a block endOffset (no straddling)', () => {
@@ -97,12 +93,11 @@ describe('computeBoundary (progressive via parseDoc)', () => {
     expect(matchesBoundary).toBe(true);
   });
 
-  test('unclosed code fence → single block → boundary 0', () => {
+  test('unclosed code fence → single block → boundary at block end', () => {
     const s = '```py\nprint(1)\n';
     const doc = parseDoc(s);
-    // May be 1 block (code not yet closed) → boundary 0
     if (doc.blocks.length < 2) {
-      expect(computeBoundary(doc.blocks, 0)).toBe(0);
+      expect(computeBoundary(doc.blocks, 0)).toBe(doc.blocks[0]!.endOffset);
     }
   });
 });

@@ -104,7 +104,7 @@ describe('StreamingCommitter', () => {
     }
   });
 
-  test('committer does not commit unclosed code fences', async () => {
+  test('committer commits unclosed code fence as single block', async () => {
     store().turnStart('a1');
     const c = getCommitter();
 
@@ -112,7 +112,8 @@ describe('StreamingCommitter', () => {
     await new Promise(r => setTimeout(r, 80));
 
     if (liveSeg(0).kind === 'text') {
-      expect(liveSeg(0).committedLength).toBe(0);
+      // Single block (unclosed fence parsed as one code block) gets committed
+      expect(liveSeg(0).committedLength).toBeGreaterThan(0);
     }
   });
 
@@ -146,7 +147,7 @@ describe('StreamingCommitter', () => {
     }
   });
 
-  test('non-committable content keeps committedLength at 0', async () => {
+  test('single-paragraph content gets committed (no longer stuck at 0)', async () => {
     store().turnStart('a1');
     const c = getCommitter();
 
@@ -154,7 +155,8 @@ describe('StreamingCommitter', () => {
     await new Promise(r => setTimeout(r, 80));
 
     if (liveSeg(0).kind === 'text') {
-      expect(liveSeg(0).committedLength).toBe(0);
+      // Single block gets committed immediately — no second-to-last needed
+      expect(liveSeg(0).committedLength).toBeGreaterThan(0);
     }
   });
 });

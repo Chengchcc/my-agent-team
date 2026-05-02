@@ -119,21 +119,8 @@ export const useTuiStore = create<TuiStore>()(
 
     commitAdvance: (segId, newCommittedLength) =>
       set((s) => {
-        // Check live first
         if (s.live?.kind === 'assistant-message') {
           for (const seg of s.live.segments) {
-            if (seg.kind === 'text' && seg.id === segId) {
-              if (newCommittedLength > seg.committedLength) {
-                seg.committedLength = newCommittedLength;
-              }
-              return;
-            }
-          }
-        }
-        // Then check finalized (resume/compact path — committedLength may need advancing)
-        for (const item of s.finalized) {
-          if (item.kind !== 'assistant-message') continue;
-          for (const seg of item.segments) {
             if (seg.kind === 'text' && seg.id === segId) {
               if (newCommittedLength > seg.committedLength) {
                 seg.committedLength = newCommittedLength;

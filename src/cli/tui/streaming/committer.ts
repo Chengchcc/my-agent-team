@@ -1,6 +1,3 @@
-import type { Subscription } from 'rxjs';
-import { Subject, BehaviorSubject } from 'rxjs';
-import { throttleTime } from 'rxjs/operators';
 import { useState, useEffect } from 'react';
 import type { Definition, FootnoteDefinition } from 'mdast';
 import { useTuiStore } from '../state/store';
@@ -21,30 +18,25 @@ type Snapshot = Map<string, SegFrame>;
 
 const THROTTLE_MS = 33;
 
-/** Advance at most one block per tick so blocks appear progressively. */
+/** Commit all ready blocks. For single-block content, commit the block itself (its AST is cheap). For multi-block, commit all except the last (still growing). */
 function computeBoundary(blocks: Block[], prevCommitted: number): number {
-  for (let i = 0; i < blocks.length - 1; i++) {
-    if (blocks[i]!.endOffset > prevCommitted) {
-      return blocks[i]!.endOffset;
-    }
-  }
-  return prevCommitted;
+  if (blocks.length === 0) return prevCommitted;
+  const lastStableIdx = blocks.length >= 2 ? blocks.length - 2 : 0;
+  return Math.max(prevCommitted, blocks[lastStableIdx]!.endOffset);
 }
 
 class Committer {
-  private delta$ = new Subject<void>();
-  private snapshot$ = new BehaviorSubject<Snapshot>(new Map());
-  private pipelineSub: Subscription;
+  private listeners = new Set<() => void>();
+  private currentSnapshot: Snapshot = new Map();
 
   // Cache stable SegFrame references so React state bailout (Object.is)
   // returns the same object identity when values haven't changed.
   private prevSnapshot: Snapshot = new Map();
 
-  constructor() {
-    this.pipelineSub = this.delta$.pipe(
-      throttleTime(THROTTLE_MS, undefined, { leading: true, trailing: true }),
-    ).subscribe(() => this.processSegments());
-  }
+  // Manual time-gate: Date.now() for high-frequency burst (no scheduler dependency),
+  // setTimeout trailing only fires when delta stream pauses (event loop healthy).
+  private lastProcess = 0;
+  private trailing: ReturnType<typeof setTimeout> | null = null;
 
   onDelta(delta: string): void {
     if (!useTuiStore.getState().live) {
@@ -53,16 +45,38 @@ class Committer {
     }
     debugLog('COMMITTER onDelta', { len: delta.length });
     useTuiStore.getState().textDelta(delta);
-    this.delta$.next();
+
+    const now = Date.now();
+    if (now - this.lastProcess >= THROTTLE_MS) {
+      this.lastProcess = now;
+      if (this.trailing) { clearTimeout(this.trailing); this.trailing = null; }
+      this.processSegments();
+    } else if (!this.trailing) {
+      this.trailing = setTimeout(() => {
+        this.trailing = null;
+        this.lastProcess = Date.now();
+        this.processSegments();
+      }, THROTTLE_MS);
+    }
   }
 
   flush(): void {
     debugLog('COMMITTER flush');
+    this.lastProcess = 0;
+    if (this.trailing) { clearTimeout(this.trailing); this.trailing = null; }
     this.processSegments();
   }
 
   onTurnDone(): void {
+    const s0 = useTuiStore.getState();
+    if (!s0.live || s0.live.kind !== 'assistant-message' || s0.live.status !== 'streaming') {
+      debugLog('COMMITTER onTurnDone skip (no live streaming)', { liveKind: s0.live?.kind, liveStatus: s0.live?.kind === 'assistant-message' ? s0.live.status : 'n/a' });
+      return;
+    }
+
     debugLog('COMMITTER onTurnDone START');
+    this.lastProcess = 0;
+    if (this.trailing) { clearTimeout(this.trailing); this.trailing = null; }
     this.processSegments();
 
     const s1 = useTuiStore.getState();
@@ -73,26 +87,22 @@ class Committer {
     debugLog('COMMITTER onTurnDone DONE', { liveAfter: s2.live == null ? 'null' : 'exists', finalizedLen: s2.finalized.length });
 
     this.prevSnapshot = new Map();
-    queueMicrotask(() => {
-      if (!useTuiStore.getState().live) {
-        this.snapshot$.next(new Map());
-      }
-    });
+    this.currentSnapshot = new Map();
+    for (const cb of this.listeners) cb();
   }
 
   subscribe(callback: () => void): () => void {
-    const sub = this.snapshot$.subscribe(() => callback());
-    return () => sub.unsubscribe();
+    this.listeners.add(callback);
+    return () => { this.listeners.delete(callback); };
   }
 
   getFrame(segId: string): SegFrame | null {
-    return this.snapshot$.getValue().get(segId) ?? null;
+    return this.currentSnapshot.get(segId) ?? null;
   }
 
   destroy(): void {
-    this.pipelineSub.unsubscribe();
-    this.delta$.complete();
-    this.snapshot$.complete();
+    if (this.trailing) clearTimeout(this.trailing);
+    this.listeners.clear();
   }
 
   // ── Private ──
@@ -100,7 +110,8 @@ class Committer {
   private processSegments(): void {
     const { snapshot, advances } = this.buildSnapshot();
     this.prevSnapshot = snapshot;
-    this.snapshot$.next(snapshot);
+    this.currentSnapshot = snapshot;
+    for (const cb of this.listeners) cb();
 
     if (advances.length > 0) {
       const store = useTuiStore.getState();
