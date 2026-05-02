@@ -40,11 +40,12 @@ describe('renderer long document', () => {
     expect(result.tail.length).toBe(0);
   });
 
-  test('nothing committed: stable empty, tail has all blocks', () => {
+  test('nothing committed: stable empty, tail has only first block', () => {
     const md = generateMarkdown(10);
     const { result, blocks } = renderWithBlocks(md, 0);
     expect(result.stable.length).toBe(0);
-    expect(result.tail.length).toBe(blocks.length);
+    expect(result.tail.length).toBe(1);
+    expect(blocks.length).toBeGreaterThanOrEqual(8);
   });
 
   test('parseDoc on same content produces identical block structure', () => {

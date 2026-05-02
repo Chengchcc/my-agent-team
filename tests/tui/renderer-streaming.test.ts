@@ -43,7 +43,7 @@ describe('renderBlocks streaming tail', () => {
     expect(result.tail.length).toBe(1);
   });
 
-  test('multiple blocks: committed in stable, uncommitted in tail', () => {
+  test('multiple blocks: committed in stable, only first uncommitted in tail', () => {
     const content = '# Title\n\nBody text\n\n## Section 2\n\nMore text';
     const doc = parseDoc(content);
     // Commit up to second block
@@ -51,7 +51,7 @@ describe('renderBlocks streaming tail', () => {
     const result = render(content, committedLength);
 
     expect(result.stable.length).toBe(2);  // heading + first body paragraph
-    expect(result.tail.length).toBe(2);    // second heading + second body paragraph
+    expect(result.tail.length).toBe(1);    // only first uncommitted block
   });
 
   test('code block (fenced, incomplete) in streaming tail', () => {

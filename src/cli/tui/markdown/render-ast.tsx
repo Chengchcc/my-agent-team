@@ -304,7 +304,7 @@ export function renderBlocks(
   for (const block of blocks) {
     if (block.endOffset <= committedLength) {
       stable.push(<BlockView key={block.id} node={block.node} ctx={ctx} />);
-    } else {
+    } else if (tail.length === 0) {
       tail.push(
         <Box key={`tail-${block.id}`}>
           {renderNode(block.node, { ...ctx, streaming: true })}
