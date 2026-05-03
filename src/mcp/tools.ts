@@ -5,6 +5,7 @@ import type { McpManager } from './manager';
 import type { ToolRegistry } from '../agent/tool-registry';
 import type { McpPromptRegistry } from './prompt-registry';
 import { McpToolAdapter } from './tool-adapter';
+import { persistServerConfig, removeServerConfig } from './server-persistence';
 import type { McpServerConfig } from '../config/types';
 
 const mcpServerConfigSchema = z.object({
@@ -74,7 +75,7 @@ export class McpAddServerTool implements ToolImplementation {
     return {
       name: 'mcp_add_server',
       description:
-        'Connect to a new MCP server and register its tools and prompts. Session-only (not persisted to settings).',
+        'Connect to a new MCP server and register its tools and prompts. Persisted to user settings for future sessions.',
       parameters: {
         type: 'object',
         properties: {
@@ -104,6 +105,8 @@ export class McpAddServerTool implements ToolImplementation {
     }
 
     await this.manager.connectServer(config);
+
+    void persistServerConfig(config);
 
     const tools = this.manager.getServerTools(config.name);
     for (const toolDef of tools) {
@@ -154,6 +157,7 @@ export class McpRemoveServerTool implements ToolImplementation {
     }
 
     await this.manager.removeServer(name);
+    void removeServerConfig(name);
     return `Removed MCP server '${name}'.`;
   }
 }
