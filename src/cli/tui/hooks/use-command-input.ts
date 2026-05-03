@@ -258,8 +258,14 @@ export function useCommandInput({
       }
 
       if (pickerOpen && filteredCommands.length > 0 && (key.return || key.tab)) {
-        acceptSelectedCommand();
-        return;
+        // If text already has args, let Enter submit the full input instead of replacing with just the command name
+        if (key.return && editorStateRef.current.text.includes(' ')) {
+          setDismissedQuery(slashQuery);
+          // fall through to return handling below
+        } else {
+          acceptSelectedCommand();
+          return;
+        }
       }
 
       // Tab completion for slash commands
