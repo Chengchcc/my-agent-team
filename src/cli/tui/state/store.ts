@@ -167,6 +167,7 @@ export const useTuiStore = create<TuiStore>()(
 
     clearActive: () =>
       set((s) => {
+        s.finalized = [];
         s.live = null;
         s.stats.streaming = false;
         s.stats.streamingStartTime = null;
