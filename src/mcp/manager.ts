@@ -16,6 +16,8 @@ import type {
 import pLimit from 'p-limit';
 import { debugLog } from '../utils/debug';
 
+const MAX_STDIO_CONNECTIONS = 4;
+
 interface McpManagerOptions {
   toolTimeoutMs: number;
   reconnectAttempts: number;
@@ -37,7 +39,7 @@ export class McpManager {
     const stdioServers = targets.filter(s => s.transport === 'stdio');
     const httpServers = targets.filter(s => s.transport !== 'stdio');
 
-    const limit = pLimit(4);
+    const limit = pLimit(MAX_STDIO_CONNECTIONS);
     const results = await Promise.allSettled([
       ...httpServers.map(s => this.connectServer(s)),
       ...stdioServers.map(s => limit(() => this.connectServer(s))),
