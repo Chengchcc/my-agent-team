@@ -6,6 +6,7 @@ import type { McpPromptRegistry } from '../../../mcp/prompt-registry';
 import { McpToolAdapter } from '../../../mcp/tool-adapter';
 import { getMcpManagerInstance, getMcpToolRegistry, getMcpPromptRegistry } from '../../../mcp/index';
 import { persistServerConfig, removeServerConfig } from '../../../mcp/server-persistence';
+import { debugLog } from '../../../utils/debug';
 import type { McpServerConfig } from '../../../config/types';
 
 const MCP_COMMAND_DEFS = [
@@ -61,7 +62,10 @@ async function handleMcpAdd(
   await manager.connectServer(parsed);
 
   // Persist to user settings so it survives restarts
-  void persistServerConfig(parsed);
+  debugLog(`[mcp-commands] Persisting server '${parsed.name}' to settings`);
+  persistServerConfig(parsed)
+    .then(() => debugLog(`[mcp-commands] Persisted '${parsed.name}'`))
+    .catch(err => debugLog(`[mcp-commands] Persist failed for '${parsed.name}': ${err}`));
 
   const tools = manager.getServerTools(parsed.name);
   if (registry) {
@@ -82,6 +86,7 @@ async function handleMcpAdd(
 function assertMcpEnabled(ctx: CommandHandlerContext): McpManager | null {
   const manager = getMcpManagerInstance();
   if (!manager) {
+    debugLog('[mcp-commands] assertMcpEnabled: singleton is null — MCP not initialized');
     ctx.onOutput('MCP is not enabled. Set mcp.enabled: true in settings.yml.');
   }
   return manager;
