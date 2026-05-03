@@ -97,6 +97,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
 
       if (text === '/clear' || text === '/cls') {
         agent.clear?.();
+        sessionStore.createNewSession();
         useTuiStore.getState().appendDivider('clear');
         useTuiStore.getState().clearActive();
         return;
