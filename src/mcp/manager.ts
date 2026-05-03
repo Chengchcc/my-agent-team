@@ -13,6 +13,7 @@ import type {
   McpPromptResult,
   McpClientEntry,
 } from './types';
+import pLimit from 'p-limit';
 import { debugLog } from '../utils/debug';
 
 interface McpManagerOptions {
@@ -33,13 +34,19 @@ export class McpManager {
   /** Connect all servers with autoStart !== false. Does NOT register tools — caller must do that. */
   async start(servers: McpServerConfig[]): Promise<void> {
     const targets = servers.filter(s => s.autoStart !== false);
-    const results = await Promise.allSettled(
-      targets.map(s => this.connectServer(s)),
-    );
+    const stdioServers = targets.filter(s => s.transport === 'stdio');
+    const httpServers = targets.filter(s => s.transport !== 'stdio');
+
+    const limit = pLimit(4);
+    const results = await Promise.allSettled([
+      ...httpServers.map(s => this.connectServer(s)),
+      ...stdioServers.map(s => limit(() => this.connectServer(s))),
+    ]);
     for (let i = 0; i < results.length; i++) {
+      const name = [...httpServers, ...stdioServers][i]!.name;
       const result = results[i]!;
       if (result.status === 'rejected') {
-        debugLog(`[McpManager] Failed to connect '${targets[i]!.name}': ${result.reason}`);
+        debugLog(`[McpManager] Failed to connect '${name}': ${result.reason}`);
       }
     }
   }
@@ -56,12 +63,28 @@ export class McpManager {
       state: { status: 'connecting' },
     });
 
+    let client: Client | null = null;
+
     try {
       const transport = this._createTransport(config);
-      const client = new Client(
+      client = new Client(
         { name: 'my-agent', version: '0.0.0' },
         { capabilities: {} },
       );
+
+      transport.onclose = () => {
+        const entry = this._servers.get(config.name);
+        if (entry?.state.status === 'connected') {
+          debugLog(`[McpManager] '${config.name}' connection closed unexpectedly`);
+          this._servers.set(config.name, {
+            ...entry,
+            client: null,
+            transport: null,
+            state: { status: 'error', message: 'Connection closed', since: Date.now() },
+          });
+          void this._reconnect(config.name);
+        }
+      };
 
       await client.connect(transport as Transport);
 
@@ -82,6 +105,9 @@ export class McpManager {
 
       debugLog(`[McpManager] Connected to '${config.name}': ${tools.length} tools, ${resources.length} resources, ${prompts.length} prompts`);
     } catch (err) {
+      if (client) {
+        try { await client.close(); } catch { /* ignore close errors */ }
+      }
       const message = err instanceof Error ? err.message : String(err);
       this._servers.set(config.name, {
         config,
@@ -97,20 +123,23 @@ export class McpManager {
     const entry = this._servers.get(name);
     if (!entry) return;
 
-    try {
-      if (entry.client) {
-        await this._getClient(name).close();
-      }
-    } catch (err) {
-      debugLog(`[McpManager] Error closing '${name}': ${err instanceof Error ? err.message : String(err)}`);
-    }
+    const client = entry.client as Client | null;
 
+    // Mark disconnected BEFORE close so transport.onclose won't attempt reconnect
     this._servers.set(name, {
       ...entry,
       client: null,
       transport: null,
       state: { status: 'disconnected' },
     });
+
+    if (client) {
+      try {
+        await client.close();
+      } catch (err) {
+        debugLog(`[McpManager] Error closing '${name}': ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
   async removeServer(name: string): Promise<void> {
@@ -191,13 +220,18 @@ export class McpManager {
     serverName: string,
     toolName: string,
     params: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     const client = this._getClient(serverName);
-    const result = client.callTool({ name: toolName, arguments: params });
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`MCP tool '${toolName}' timed out after ${this._options.toolTimeoutMs}ms`)), this._options.toolTimeoutMs),
+    const options = {
+      timeout: this._options.toolTimeoutMs,
+      ...(signal ? { signal } : {}),
+    };
+    return client.callTool(
+      { name: toolName, arguments: params },
+      undefined,
+      options,
     );
-    return Promise.race([result, timeout]);
   }
 
   async readResource(serverName: string, uri: string): Promise<unknown> {
@@ -217,12 +251,15 @@ export class McpManager {
 
   private _createTransport(config: McpServerConfig) {
     switch (config.transport) {
-      case 'stdio':
+      case 'stdio': {
+        const env = { ...process.env } as Record<string, string>;
+        if (config.env) Object.assign(env, config.env);
         return new StdioClientTransport({
           command: config.command!,
           ...(config.args ? { args: config.args } : {}),
-          ...(config.env ? { env: config.env } : {}),
+          env,
         });
+      }
       case 'sse': {
         const sseOpts = config.headers ? { requestInit: { headers: config.headers } } : {};
         return new SSEClientTransport(new URL(config.url!), sseOpts);
@@ -304,6 +341,34 @@ export class McpManager {
       debugLog(`[McpManager] _listPrompts failed: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }
+  }
+
+  /** Auto-reconnect after unexpected disconnection. Uses exponential backoff. */
+  private async _reconnect(serverName: string): Promise<void> {
+    const entry = this._servers.get(serverName);
+    if (!entry) return;
+
+    // Remove error-state entry so connectServer can create a fresh one
+    this._servers.delete(serverName);
+
+    const maxAttempts = this._options.reconnectAttempts;
+    const baseDelay = this._options.reconnectDelayMs;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      debugLog(`[McpManager] Reconnecting '${serverName}' attempt ${attempt}/${maxAttempts}`);
+      try {
+        await this.connectServer(entry.config);
+        debugLog(`[McpManager] '${serverName}' reconnected`);
+        return;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        debugLog(`[McpManager] '${serverName}' reconnect attempt ${attempt} failed: ${msg}`);
+        if (attempt < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, baseDelay * attempt));
+        }
+      }
+    }
+    debugLog(`[McpManager] '${serverName}' reconnect failed after ${maxAttempts} attempts`);
   }
 
   /** Resolves a connected server entry and returns its SDK Client, or throws. */

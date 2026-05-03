@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { Tool, ToolImplementation } from '../types';
 import type { ToolContext } from '../agent/tool-dispatch/types';
 import type { McpManager } from './manager';
@@ -5,6 +6,29 @@ import type { ToolRegistry } from '../agent/tool-registry';
 import type { McpPromptRegistry } from './prompt-registry';
 import { McpToolAdapter } from './tool-adapter';
 import type { McpServerConfig } from '../config/types';
+
+const mcpServerConfigSchema = z.object({
+  name: z.string()
+    .min(1)
+    .regex(/^[a-zA-Z0-9_-]+$/, 'Name must contain only alphanumeric chars, dashes, and underscores')
+    .refine(s => !s.includes('__'), 'Name must not contain "__" (reserved separator)'),
+  transport: z.enum(['stdio', 'sse', 'streamable-http']),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  url: z.string().optional(),
+  headers: z.record(z.string()).optional(),
+  env: z.record(z.string()).optional(),
+  autoStart: z.boolean().optional(),
+}).refine(
+  data => data.transport !== 'stdio' || !!data.command,
+  { message: 'command is required for stdio transport', path: ['command'] },
+).refine(
+  data => data.transport === 'stdio' || !!data.url,
+  { message: 'url is required for sse/streamable-http transport', path: ['url'] },
+).refine(
+  data => data.transport === 'stdio' || (() => { try { new URL(data.url!); return true; } catch { return false; } })(),
+  { message: 'url must be a valid URL', path: ['url'] },
+);
 
 export class McpListServersTool implements ToolImplementation {
   constructor(private manager: McpManager) {}
@@ -68,7 +92,12 @@ export class McpAddServerTool implements ToolImplementation {
   }
 
   async execute(params: Record<string, unknown>, _ctx: ToolContext): Promise<string> {
-    const config = params as unknown as McpServerConfig;
+    const parsed = mcpServerConfigSchema.safeParse(params);
+    if (!parsed.success) {
+      const issues = parsed.error.issues.map(i => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
+      return `Error: invalid MCP server configuration:\n${issues}`;
+    }
+    const config = parsed.data as McpServerConfig;
 
     if (this.manager.hasServer(config.name)) {
       return `Error: MCP server '${config.name}' already connected. Use mcp_remove_server first to remove it.`;
@@ -126,5 +155,45 @@ export class McpRemoveServerTool implements ToolImplementation {
 
     await this.manager.removeServer(name);
     return `Removed MCP server '${name}'.`;
+  }
+}
+
+/** Gives the LLM the ability to read MCP resource contents by URI. */
+export class McpReadResourceTool implements ToolImplementation {
+  constructor(private manager: McpManager) {}
+
+  getDefinition(): Tool {
+    return {
+      name: 'mcp_read_resource',
+      description:
+        'Read the contents of an MCP resource by server name and URI. ' +
+        'Use this after mcp_list_servers or the resource catalog to view specific resource data.',
+      parameters: {
+        type: 'object',
+        properties: {
+          server: { type: 'string', description: 'MCP server name' },
+          uri: { type: 'string', description: 'Resource URI to read' },
+        },
+        required: ['server', 'uri'],
+      },
+    };
+  }
+
+  async execute(params: Record<string, unknown>, _ctx: ToolContext): Promise<string> {
+    const server = String(params.server);
+    const uri = String(params.uri);
+
+    const result = await this.manager.readResource(server, uri);
+    const callResult = result as {
+      contents?: Array<{ text?: string; blob?: string; uri?: string; mimeType?: string }>;
+    };
+
+    if (!callResult.contents || callResult.contents.length === 0) {
+      return `Resource '${uri}' returned empty contents.`;
+    }
+
+    return callResult.contents
+      .map(c => c.text ?? `[binary data: ${c.mimeType ?? 'unknown'}, uri: ${c.uri}]`)
+      .join('\n\n');
   }
 }

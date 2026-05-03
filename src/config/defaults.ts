@@ -90,7 +90,7 @@ export const defaultSettings: Settings = {
     enabled: false,
   },
   mcp: {
-    enabled: false,
+    enabled: true,
     servers: [],
     toolTimeoutMs: DEFAULT_MCP_TOOL_TIMEOUT_MS,
     reconnectAttempts: DEFAULT_MCP_RECONNECT_ATTEMPTS,

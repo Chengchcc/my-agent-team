@@ -27,6 +27,8 @@ export class McpToolAdapter implements ToolImplementation {
     if (isReadonly(toolDef)) {
       this.readonly = true;
       this.conflictKey = () => null;
+    } else {
+      this.conflictKey = () => `mcp:${this.serverName}`;
     }
   }
 
@@ -39,11 +41,12 @@ export class McpToolAdapter implements ToolImplementation {
     };
   }
 
-  async execute(params: Record<string, unknown>, _ctx: ToolContext): Promise<unknown> {
+  async execute(params: Record<string, unknown>, ctx: ToolContext): Promise<unknown> {
     const result = await this.manager.executeTool(
       this.serverName,
       this.toolDef.name,
       params,
+      ctx.signal,
     );
     return this._unwrapContent(result);
   }
@@ -55,10 +58,7 @@ export class McpToolAdapter implements ToolImplementation {
     };
 
     if (!callResult.content || callResult.content.length === 0) {
-      if (callResult.isError) {
-        throw new Error('MCP tool returned error with no content');
-      }
-      return '';
+      return callResult.isError ? '[MCP tool error]' : '';
     }
 
     const texts: string[] = [];
@@ -66,16 +66,15 @@ export class McpToolAdapter implements ToolImplementation {
       if (block.type === 'text' && block.text !== undefined) {
         texts.push(block.text);
       } else if (block.type === 'image') {
-        texts.push(`[image: ${block.mimeType || 'unknown'}]`);
+        const data = (block as { data?: string }).data;
+        const len = typeof data === 'string' ? data.length : 0;
+        texts.push(`[image: ${block.mimeType || 'unknown'}${len ? `, ${len} bytes base64` : ''}]`);
       } else if (block.type === 'resource') {
         texts.push(JSON.stringify(block.resource));
       }
     }
 
     const output = texts.join('\n');
-    if (callResult.isError) {
-      throw new Error(output || 'MCP tool returned error');
-    }
-    return output;
+    return callResult.isError ? `[MCP tool error]\n${output}` : output;
   }
 }

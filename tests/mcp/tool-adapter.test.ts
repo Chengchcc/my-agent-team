@@ -61,13 +61,15 @@ describe('McpToolAdapter', () => {
     expect(result).toBe('hello world');
   });
 
-  it('throws on error result', async () => {
+  it('prepends error prefix on isError result (does not throw)', async () => {
     const manager = mockManager({
       content: [{ type: 'text', text: 'something went wrong' }],
       isError: true,
     });
     const adapter = new McpToolAdapter(manager, 'srv', { name: 'test', parameters: {} });
-    await expect(adapter.execute({}, {} as never)).rejects.toThrow('something went wrong');
+    const result = await adapter.execute({}, {} as never);
+    expect(result).toContain('[MCP tool error]');
+    expect(result).toContain('something went wrong');
   });
 
   it('returns empty string for empty content', async () => {

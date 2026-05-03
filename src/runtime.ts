@@ -10,8 +10,8 @@ import { McpManager } from './mcp/manager';
 import { McpToolAdapter } from './mcp/tool-adapter';
 import { createMcpResourceMiddleware } from './mcp/resource-middleware';
 import { McpPromptRegistry } from './mcp/prompt-registry';
-import { McpListServersTool, McpAddServerTool, McpRemoveServerTool } from './mcp/tools';
-import { setMcpManagerInstance } from './mcp/index';
+import { McpListServersTool, McpAddServerTool, McpRemoveServerTool, McpReadResourceTool } from './mcp/tools';
+import { setMcpManagerInstance, setMcpToolRegistry, setMcpPromptRegistry } from './mcp/index';
 import { DEFAULT_MCP_TOOL_TIMEOUT_MS, DEFAULT_MCP_RECONNECT_ATTEMPTS, DEFAULT_MCP_RECONNECT_DELAY_MS } from './config/constants';
 import { createTodoMiddleware } from './todos';
 import {
@@ -242,6 +242,12 @@ export async function createAgentRuntime(
       if (memoryMiddleware) {
         await memoryMiddleware.awaitPendingExtractions();
       }
+      if (mcpManager) {
+        await mcpManager.shutdown();
+        setMcpManagerInstance(null);
+        setMcpToolRegistry(null as unknown as never);
+        setMcpPromptRegistry(null);
+      }
     },
   };
   if (memoryMiddleware) runtime.memoryMiddleware = memoryMiddleware;
@@ -310,8 +316,10 @@ async function assembleMcp(
   });
 
   setMcpManagerInstance(mcpManager);
+  setMcpToolRegistry(toolRegistry);
 
   const mcpPromptRegistry = new McpPromptRegistry(mcpManager);
+  setMcpPromptRegistry(mcpPromptRegistry);
 
   try {
     await mcpManager.start(mergedServers);
@@ -332,12 +340,7 @@ async function assembleMcp(
     toolRegistry.register(new McpListServersTool(mcpManager));
     toolRegistry.register(new McpAddServerTool(mcpManager, toolRegistry, mcpPromptRegistry));
     toolRegistry.register(new McpRemoveServerTool(mcpManager, toolRegistry));
-
-    hooks.afterAgentRun?.push(async (_ctx, next) => {
-      const result = await next();
-      await mcpManager!.shutdown();
-      return result;
-    });
+    toolRegistry.register(new McpReadResourceTool(mcpManager));
 
     debugLog('MCP initialized');
   } catch (err) {

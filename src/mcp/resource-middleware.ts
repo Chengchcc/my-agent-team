@@ -9,7 +9,10 @@ export function createMcpResourceMiddleware(manager: McpManager): AgentMiddlewar
   return {
     beforeModel: async (ctx: AgentContext, next: () => Promise<AgentContext>) => {
       const resources = manager.getAllResources();
-      if (resources.length === 0) return next();
+      if (resources.length === 0) {
+        lastResourceKeys = null;
+        return next();
+      }
 
       const currentKeys = resources
         .map(r => r.resource.uri)
