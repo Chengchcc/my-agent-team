@@ -12,6 +12,10 @@ export const DEFAULT_SUMMARY_MODEL = 'claude-3-5-haiku-20241022';
 // --- LLM defaults ---
 export const DEFAULT_TEMPERATURE = 0.7;
 
+// --- Config paths ---
+export const CONFIG_DIR_NAME = '.my-agent';
+export const CONFIG_FILE_NAME = 'settings.yml';
+
 // --- MCP defaults ---
 export const DEFAULT_MCP_TOOL_TIMEOUT_MS = 30_000;
 export const DEFAULT_MCP_RECONNECT_ATTEMPTS = 3;

@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import yaml from 'js-yaml';
+import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from './constants';
 import { settingsSchema } from './schema';
 import { defaultSettings } from './defaults';
 import type { Settings } from './types';
@@ -80,8 +81,8 @@ async function loadConfigFile(filePath: string): Promise<Partial<Settings> | nul
  * 2. ~/.my-agent/settings.yml (user-level)
  */
 function getConfigPaths(): string[] {
-  const projectConfig = path.join(process.cwd(), 'settings.yml');
-  const userConfig = path.join(os.homedir(), '.my-agent', 'settings.yml');
+  const projectConfig = path.join(process.cwd(), CONFIG_FILE_NAME);
+  const userConfig = path.join(os.homedir(), CONFIG_DIR_NAME, CONFIG_FILE_NAME);
   return [projectConfig, userConfig];
 }
 

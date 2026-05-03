@@ -5,6 +5,7 @@ import type { ToolRegistry } from '../../../agent/tool-registry';
 import type { McpPromptRegistry } from '../../../mcp/prompt-registry';
 import { McpToolAdapter } from '../../../mcp/tool-adapter';
 import { getMcpManagerInstance, getMcpToolRegistry, getMcpPromptRegistry } from '../../../mcp/index';
+import { persistServerConfig, removeServerConfig } from '../../../mcp/server-persistence';
 import type { McpServerConfig } from '../../../config/types';
 
 const MCP_COMMAND_DEFS = [
@@ -59,6 +60,9 @@ async function handleMcpAdd(
 
   await manager.connectServer(parsed);
 
+  // Persist to user settings so it survives restarts
+  void persistServerConfig(parsed);
+
   const tools = manager.getServerTools(parsed.name);
   if (registry) {
     for (const toolDef of tools) {
@@ -106,6 +110,7 @@ async function handleMcpRemove(
     }
   }
   await manager.removeServer(name);
+  void removeServerConfig(name);
   ctx.onOutput(`Removed MCP server '${name}'.`);
 }
 
