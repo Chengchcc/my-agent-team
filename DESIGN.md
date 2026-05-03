@@ -54,6 +54,7 @@ my-agent/
       hooks/                  # State management, agent loop integration
       utils/                  # Tool output formatting
     config/                   # YAML-based configuration system
+    mcp/                      # MCP client (server lifecycle, tool adapter, prompts, resources)
     memory/                   # Persistent memory (semantic, episodic, project)
     providers/                # LLM providers (Claude, OpenAI)
     session/                  # Conversation session persistence
@@ -86,14 +87,15 @@ The assembly process:
 4. **Build the ToolRegistry** and register all built-in tools (bash, read, grep, glob, ls, text_editor, ask_user_question)
 5. **Wire up Todo** — creates the `todo_write` tool and a middleware that injects reminders
 6. **Create and register the SubAgentTool** — isolates tool registry to prevent recursive spawning
-7. **Set up Memory** — three JSONL stores (semantic, episodic, project), keyword retriever, LLM extractor, and injection middleware
-8. **Set up Skills** — loads `SKILL.md` files, creates middleware that lists them for the model
-9. **Set up Session** — auto-save hook persists conversation after each run
-10. **Build the tool middleware chain** — Permission guard, then ReadCache
-11. **Create the Agent** with all components
-12. **Return** the assembled runtime
+7. **Assemble MCP Client** — load server configs from settings, connect to each (concurrency-controlled: max 4 stdio), wrap tools/prompts/resources, register as regular tools via the adapter pattern
+8. **Set up Memory** — three JSONL stores (semantic, episodic, project), keyword retriever, LLM extractor, and injection middleware
+9. **Set up Skills** — loads `SKILL.md` files, creates middleware that lists them for the model
+10. **Set up Session** — auto-save hook persists conversation after each run
+11. **Build the tool middleware chain** — Permission guard, then ReadCache
+12. **Create the Agent** with all components
+13. **Return** the assembled runtime
 
-The `AgentRuntime` interface exposes everything callers need — `agent`, `provider`, `toolRegistry`, `contextManager`, `sessionStore`, `memoryMiddleware`, `skillLoader`, and `shutdown`.
+The `AgentRuntime` interface exposes everything callers need — `agent`, `provider`, `toolRegistry`, `contextManager`, `sessionStore`, `memoryMiddleware`, `skillLoader`, `mcpManager` (if MCP enabled), and `shutdown`.
 
 ---
 
@@ -116,6 +118,7 @@ All settings are validated through Zod schemas (`src/config/schema.ts`). The `ge
 | `context` | Token limit, budget guard thresholds |
 | `memory` | Base directory, max entries per store, extraction model |
 | `skills` | Base directory, auto-injection, inject-on-mention |
+| `mcp` | Enabled, server list, tool timeout, reconnect attempts/delay |
 | `tui` | Input history (enabled, max lines), session directory |
 | `subAgent` | Auto-trigger threshold, worktree isolation |
 | `security` | Allowed filesystem roots |
@@ -242,6 +245,10 @@ All tools extend `ZodTool<T>` (`src/tools/zod-tool.ts`), which converts Zod sche
 | **memory** | Search, add, list, forget, and consolidate memories |
 | **todo_write** | Task list management with merge behavior |
 | **sub_agent** | Delegate self-contained tasks to an isolated sub-agent |
+| **mcp_list_servers** | List all configured MCP servers and their connection status |
+| **mcp_add_server** | Connect to a new MCP server and register its tools/prompts (persisted to settings) |
+| **mcp_remove_server** | Disconnect and unregister an MCP server (persisted to settings) |
+| **mcp_read_resource** | Read MCP resource contents by server name and URI |
 
 ### What Makes a Tool?
 
@@ -278,6 +285,66 @@ PermissionMiddleware → ReadCacheMiddleware → tool.execute()
 - **ReadCacheMiddleware** — caches file reads keyed by (path, line range, mtime) with LRU eviction at 100 entries
 
 Each middleware can short-circuit by not calling `next()`, or modify the result before returning.
+
+---
+
+## MCP Client
+
+The agent can connect to external tools, resources, and prompts via the [Model Context Protocol](https://modelcontextprotocol.io/). Each connected MCP server's capabilities are adapted into the agent's native tool system.
+
+### Design: `xxx-as-Tool`
+
+A core design pattern: MCP resources are not separate abstractions — everything is a tool. The LLM only knows `function_call`, so every MCP capability must be discoverable and invocable through the tool interface:
+
+| MCP Capability | How it becomes a tool |
+|----------------|----------------------|
+| **Tools** | Each MCP server tool becomes a `McpToolAdapter` registered as `mcp__<server>__<tool>`. Calls are forwarded through the SDK Client to the external server. |
+| **Prompts** | MCP prompts are registered as standalone tools via `McpPromptRegistry.registerAsTool()`. When invoked, the prompt template is filled with the model's arguments server-side and the result is returned like a tool output. |
+| **Resources** | A `createMcpResourceMiddleware()` injects a resource catalog into `ephemeralReminders` via the `beforeModel` hook, so the model knows what's available. A dedicated `mcp_read_resource` tool lets the model fetch resource contents by `<server, uri>`. |
+| **Server management** | Three management tools (`mcp_list_servers`, `mcp_add_server`, `mcp_remove_server`) give the LLM self-service access to add/remove/list MCP servers at runtime. |
+
+### Concurrency Control
+
+`stdio` transports are process-spawning operations. To avoid resource spikes at startup, `McpManager.start()` uses `p-limit` to cap concurrent stdio connections at `MAX_STDIO_CONNECTIONS` (4). SSE and streamable-http connections are not limited.
+
+### Failure Recovery
+
+When a connected server's transport closes unexpectedly (`transport.onclose`), `McpManager` marks it as `error`, then attempts automatic reconnection with **exponential backoff**: `baseDelay * attempt` for up to `reconnectAttempts` (default 3). Explicit disconnects (`/mcp-disconnect`) suppress this — they mark the state as `disconnected` before closing the transport.
+
+### Lifecycle
+
+1. **Startup**: `assembleMcp()` reads `mcp.servers` from settings, creates `McpManager`, connects all servers with `autoStart !== false`.
+2. **Runtime**: `McpManager` is stored as a singleton (`setMcpManagerInstance`) so TUI slash commands can access it. Tools and prompts are registered into the shared `ToolRegistry` and `McpPromptRegistry`.
+3. **Adding servers**: Both the `/mcp-add` TUI slash command and the `mcp_add_server` AI tool call `manager.connectServer()`, register resulting tools/prompts, and persist the server config to `~/.my-agent/settings.yml` so it survives restarts.
+4. **Shutdown**: `runtime.shutdown()` calls `manager.shutdown()` which disconnects all servers and clears the singleton references.
+
+### Signal Propagation
+
+`McpToolAdapter.execute()` forwards `ctx.signal` (the agent's abort signal) through to the SDK's `client.callTool()` as `RequestOptions.signal`. This means aborting the agent run also cancels in-flight MCP tool calls.
+
+### Transport Types
+
+| Transport | Use case | Connection |
+|-----------|---------|------------|
+| `stdio` | Local MCP servers (spawned as child processes) | `StdioClientTransport` with command + args, env inheritance from `process.env` merged with optional `config.env` |
+| `sse` | Remote MCP servers over Server-Sent Events | `SSEClientTransport` at a URL |
+| `streamable-http` | Remote MCP servers over the newer streamable HTTP protocol | `StreamableHTTPClientTransport` at a URL |
+
+### TUI Integration
+
+Five slash commands manage MCP at runtime:
+
+| Command | Function |
+|---------|----------|
+| `/mcp` | Show all server connection states with tool/resource/prompt counts |
+| `/mcp-add <json>` | Add and connect a server; persist to `~/.my-agent/settings.yml` |
+| `/mcp-remove <name>` | Disconnect, unregister tools, and remove from settings |
+| `/mcp-connect <name>` | Reconnect a previously added server |
+| `/mcp-disconnect <name>` | Disconnect but keep tools registered (soft disconnect) |
+
+### Tool Naming Convention
+
+MCP tools are prefix-namespaced: `mcp__<server_name>__<tool_name>`. Server names must not contain `__` (enforced by Zod validation). The `conflictKey` for write-tool serialization is `mcp:<serverName>`, ensuring tools from different servers can execute concurrently while tools within the same server are serialized.
 
 ---
 
