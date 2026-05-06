@@ -358,8 +358,8 @@ TUI use-agent-loop.tsx:
 现有 `SkillLoader` 只从单一 `basePath`（项目 `skills/` 目录）加载。需要支持多源：
 
 ```
-项目 skills/          ~/.my-agent/skills/auto/       ~/.my-agent/skills/manual/
-  (用户手动)              (auto-review 产出)            (用户全局安装)
+项目 skills/          ~/.my-agent/skills/auto/
+  (用户手动创建)          (auto-review 产出)
 ```
 
 ### 9.2 SkillLoader 改动
@@ -374,7 +374,6 @@ class SkillLoader {
     this.sourcePaths = [
       projectPath,                                          // 项目 skills/
       path.join(os.homedir(), '.my-agent', 'skills', 'auto'),    // auto-review
-      path.join(os.homedir(), '.my-agent', 'skills', 'manual'),  // 用户全局
     ];
   }
 
@@ -387,8 +386,8 @@ class SkillLoader {
   }
 
   async loadSkill(name: string): Promise<SkillInfo | null> {
-    // 按优先级查找：项目 > manual > auto
-    // 项目 skill 覆盖同名 auto skill
+    // 按优先级查找：项目 > auto
+    // 同名 skill 由项目版本生效
     for (const dir of this.sourcePaths) {
       const skill = await this.tryLoad(dir, name);
       if (skill) return skill;
@@ -403,7 +402,6 @@ class SkillLoader {
 | 场景 | 行为 |
 |------|------|
 | 同名 skill 在项目和 auto 都存在 | 项目版本生效，auto 版本被忽略 |
-| auto + manual 同名 | manual 生效 |
 | 只有 auto | auto 生效 |
 | SkillLoader 缓存刷新 | 重新扫描所有源目录 |
 
