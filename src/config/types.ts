@@ -129,6 +129,22 @@ export interface DebugSettings {
   enabled: boolean;
 }
 
+export interface TraceRedactionSettings {
+  mode: 'default' | 'none';
+}
+
+export interface TraceNudgeSettings {
+  enabled: boolean;
+  reviewInterval: number;
+}
+
+export interface TraceSettings {
+  enabled: boolean;
+  maxRunsPerSession: number;
+  redaction: TraceRedactionSettings;
+  nudge: TraceNudgeSettings;
+}
+
 export interface Settings {
   llm: LLMSettings;
   context: ContextSettings;
@@ -139,4 +155,5 @@ export interface Settings {
   security: SecuritySettings;
   debug: DebugSettings;
   mcp: McpSettings;
+  trace: TraceSettings;
 }

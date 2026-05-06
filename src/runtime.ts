@@ -1,5 +1,5 @@
-import type { AgentConfig, Provider, AgentHooks } from './types';
-import type { LLMSettings, ContextSettings, McpSettings, McpServerConfig } from './config/types';
+import type { AgentConfig, Provider, AgentHooks, Middleware } from './types';
+import type { LLMSettings, ContextSettings, McpSettings, McpServerConfig, TraceSettings } from './config/types';
 import { settings as globalSettings } from './config';
 import { Agent } from './agent/Agent';
 import { ToolRegistry } from './agent/tool-registry';
@@ -33,6 +33,7 @@ import { PermissionMiddleware } from './agent/tool-dispatch/middlewares/permissi
 import { ReadCacheMiddleware } from './agent/tool-dispatch/middlewares/read-cache';
 import type { ToolMiddleware } from './agent/tool-dispatch/middleware';
 import { DEFAULT_MAX_TOKENS, DEFAULT_COMPACTION_BUFFER, DEFAULT_MODEL, DEFAULT_SUMMARY_MODEL, DEFAULT_TEMPERATURE } from './config/constants';
+import { createTraceMiddleware } from './trace';
 
 export interface RuntimeConfig {
   provider?: 'claude' | 'openai';
@@ -53,6 +54,7 @@ export interface RuntimeConfig {
     llm: LLMSettings;
     context: ContextSettings;
     security?: { allowedRoots?: string[] };
+    trace?: TraceSettings;
   };
   /** Disable MCP client (default: false, enabled if settings.mcp.enabled is true) */
   enableMcp?: boolean;
@@ -137,9 +139,10 @@ export async function createAgentRuntime(
     askUserQuestionHandler ?? defaultHeadlessHandler,
   ));
 
-  const hooks: Required<Pick<AgentHooks, 'beforeAgentRun' | 'beforeModel' | 'afterAgentRun'>> = {
+  const hooks: Required<Pick<AgentHooks, 'beforeAgentRun' | 'beforeModel' | 'beforeAddResponse' | 'afterAgentRun'>> = {
     beforeAgentRun: [],
     beforeModel: [],
+    beforeAddResponse: [],
     afterAgentRun: [],
   };
 
@@ -167,31 +170,7 @@ export async function createAgentRuntime(
   );
 
   // Memory
-  let memoryMiddleware: MemoryMiddleware | undefined;
-  if (enableMemory) {
-    const semanticStore = new JsonlMemoryStore('semantic');
-    const episodicStore = new JsonlMemoryStore('episodic');
-    const projectStore = new JsonlMemoryStore('project', {}, cwd);
-    const retriever = new KeywordRetriever(semanticStore, episodicStore, projectStore);
-    const extractor = new LlmExtractor(provider);
-    memoryMiddleware = new MemoryMiddleware(
-      { semantic: semanticStore, episodic: episodicStore, project: projectStore },
-      retriever, extractor,
-    );
-    toolRegistry.register(new MemoryTool(
-      { semantic: semanticStore, episodic: episodicStore, project: projectStore },
-      retriever, extractor,
-    ));
-    if (memoryMiddleware.beforeModel) hooks.beforeModel.push(memoryMiddleware.beforeModel);
-    if (memoryMiddleware.afterAgentRun) hooks.afterAgentRun.push(memoryMiddleware.afterAgentRun);
-
-    // Enforce capacity limits at startup (catch any drift from manual edits or migration)
-    void semanticStore.enforceLimit?.();
-    void episodicStore.enforceLimit?.();
-
-    // Invalidate stale AGENT.md cache so first turn picks up any file changes
-    invalidateAgentMdCache();
-  }
+  const memoryMiddleware = setupMemory(enableMemory, provider, cwd, toolRegistry, hooks);
 
   // Skills
   let skillMiddleware: ReturnType<typeof createSkillMiddleware> | undefined;
@@ -221,6 +200,21 @@ export async function createAgentRuntime(
     }),
     new ReadCacheMiddleware(),
   ];
+
+  // Trace
+  const traceEnabled = settings?.trace?.enabled !== false;
+  if (traceEnabled) {
+    const traceMw = createTraceMiddleware({
+      maxRunsPerSession: settings?.trace?.maxRunsPerSession,
+      redactionMode: settings?.trace?.redaction?.mode,
+      nudgeEnabled: settings?.trace?.nudge?.enabled,
+      reviewInterval: settings?.trace?.nudge?.reviewInterval,
+    });
+    hooks.beforeAgentRun.unshift(traceMw.agentMiddleware.beforeAgentRun);
+    hooks.beforeAddResponse.push(traceMw.agentMiddleware.beforeAddResponse);
+    hooks.afterAgentRun.push(traceMw.agentMiddleware.afterAgentRun);
+    toolMiddlewares.push(traceMw.toolMiddleware);
+  }
 
   // Agent
   const agent = new Agent({
@@ -254,6 +248,35 @@ export async function createAgentRuntime(
   if (skillLoader) runtime.skillLoader = skillLoader;
   if (mcpManager) runtime.mcpManager = mcpManager;
   return runtime;
+}
+
+function setupMemory(
+  enabled: boolean,
+  provider: Provider,
+  cwd: string,
+  toolRegistry: ToolRegistry,
+  hooks: { beforeModel: Middleware[]; afterAgentRun: Middleware[] },
+): MemoryMiddleware | undefined {
+  if (!enabled) return undefined;
+  const semanticStore = new JsonlMemoryStore('semantic');
+  const episodicStore = new JsonlMemoryStore('episodic');
+  const projectStore = new JsonlMemoryStore('project', {}, cwd);
+  const retriever = new KeywordRetriever(semanticStore, episodicStore, projectStore);
+  const extractor = new LlmExtractor(provider);
+  const middleware = new MemoryMiddleware(
+    { semantic: semanticStore, episodic: episodicStore, project: projectStore },
+    retriever, extractor,
+  );
+  toolRegistry.register(new MemoryTool(
+    { semantic: semanticStore, episodic: episodicStore, project: projectStore },
+    retriever, extractor,
+  ));
+  if (middleware.beforeModel) hooks.beforeModel.push(middleware.beforeModel);
+  if (middleware.afterAgentRun) hooks.afterAgentRun.push(middleware.afterAgentRun);
+  void semanticStore.enforceLimit?.();
+  void episodicStore.enforceLimit?.();
+  invalidateAgentMdCache();
+  return middleware;
 }
 
 function setupCompaction(

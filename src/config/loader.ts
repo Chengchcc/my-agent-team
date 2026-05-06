@@ -20,42 +20,53 @@ export function expandTilde(filePath: string): string {
 /**
  * Deep merge two configuration objects: user config overrides defaults
  */
+
+function mergeSection<T>(defaults: T | undefined, user: T): T {
+  if (defaults && typeof defaults === 'object' && !Array.isArray(defaults)) {
+    return { ...defaults, ...user };
+  }
+  return user;
+}
+
 export function mergeConfigs(defaults: Partial<Settings>, user: Partial<Settings>): Partial<Settings> {
   const result: Partial<Settings> = { ...defaults };
 
-  if (user.llm) {
-    result.llm = defaults.llm ? { ...defaults.llm, ...user.llm } : { ...user.llm };
-  }
-  if (user.context) {
-    result.context = defaults.context ? { ...defaults.context, ...user.context } : { ...user.context };
-  }
-  if (user.memory) {
-    result.memory = defaults.memory ? { ...defaults.memory, ...user.memory } : { ...user.memory };
-  }
-  if (user.skills) {
-    result.skills = defaults.skills ? { ...defaults.skills, ...user.skills } : { ...user.skills };
-  }
+  if (user.llm) result.llm = mergeSection(defaults.llm, user.llm);
+  if (user.context) result.context = mergeSection(defaults.context, user.context);
+  if (user.memory) result.memory = mergeSection(defaults.memory, user.memory);
+  if (user.skills) result.skills = mergeSection(defaults.skills, user.skills);
+  if (user.subAgent) result.subAgent = mergeSection(defaults.subAgent, user.subAgent);
+  if (user.debug) result.debug = mergeSection(defaults.debug, user.debug);
+
   if (user.tui) {
     result.tui = {
-      history: defaults.tui?.history ? { ...defaults.tui.history, ...user.tui.history } : user.tui.history,
-      sessions: defaults.tui?.sessions ? { ...defaults.tui.sessions, ...user.tui.sessions } : user.tui.sessions,
-    };
+      history: mergeSection(defaults.tui?.history, user.tui.history),
+      sessions: mergeSection(defaults.tui?.sessions, user.tui.sessions),
+    } as Settings['tui'];
   }
-  if (user.subAgent) {
-    result.subAgent = defaults.subAgent ? { ...defaults.subAgent, ...user.subAgent } : { ...user.subAgent };
-  }
+
   if (user.security) {
-    result.security = defaults.security
-      ? { allowedRoots: user.security.allowedRoots ?? defaults.security.allowedRoots }
-      : { allowedRoots: user.security.allowedRoots };
+    result.security = {
+      allowedRoots: user.security.allowedRoots ?? defaults.security?.allowedRoots,
+    } as Settings['security'];
   }
-  if (user.debug) {
-    result.debug = defaults.debug ? { ...defaults.debug, ...user.debug } : { ...user.debug };
-  }
+
   if (user.mcp) {
+    const servers = user.mcp.servers ?? defaults.mcp?.servers;
     result.mcp = defaults.mcp
-      ? { ...defaults.mcp, ...user.mcp, servers: user.mcp.servers ?? defaults.mcp.servers }
+      ? { ...defaults.mcp, ...user.mcp, ...(servers ? { servers } : {}) }
       : { ...user.mcp };
+  }
+
+  if (user.trace) {
+    result.trace = defaults.trace
+      ? {
+          ...defaults.trace,
+          ...user.trace,
+          redaction: mergeSection(defaults.trace.redaction, user.trace.redaction),
+          nudge: mergeSection(defaults.trace.nudge, user.trace.nudge),
+        }
+      : { ...user.trace };
   }
 
   return result;

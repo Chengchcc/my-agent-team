@@ -20,6 +20,7 @@ export interface ContextManagerConfig {
   tokenLimit?: number;
   compressionStrategy?: CompressionStrategy;
   defaultSystemPrompt?: string;
+  initialMetadata?: Record<string, unknown>;
 }
 
 /**
@@ -129,8 +130,10 @@ export class ContextManager {
   private lastKnownPromptTokens: number = 0;
   private accumulatedOutputTokens: number = 0;
   private accumulator = new TokenAccumulator();
+  private initialMetadata: Record<string, unknown>;
 
   constructor(config: ContextManagerConfig = {}) {
+    this.initialMetadata = config.initialMetadata ?? {};
     let tokenLimit;
     try {
       const settings = getSettingsSync();
@@ -203,6 +206,7 @@ export class ContextManager {
       config,
       metadata: {
         // Embed current todo state into metadata for tools and middleware
+        ...this.initialMetadata,
         todo: {
           todoStore: [...this.todoStore],
           stepsSinceLastWrite: this.todoStepsSinceLastWrite,

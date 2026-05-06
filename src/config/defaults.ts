@@ -96,4 +96,15 @@ export const defaultSettings: Settings = {
     reconnectAttempts: DEFAULT_MCP_RECONNECT_ATTEMPTS,
     reconnectDelayMs: DEFAULT_MCP_RECONNECT_DELAY_MS,
   },
+  trace: {
+    enabled: true,
+    maxRunsPerSession: 50,
+    redaction: {
+      mode: 'default' as const,
+    },
+    nudge: {
+      enabled: true,
+      reviewInterval: 10,
+    },
+  },
 };

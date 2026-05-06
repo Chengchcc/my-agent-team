@@ -6,6 +6,7 @@ import type { ToolContext } from './tool-dispatch/types';
 import type { AgentEvent, AgentLoopConfig, SubAgentExitStatus } from './loop-types';
 import { Agent } from './Agent';
 import { ContextManager } from './context';
+import type { TraceBuffer } from '../trace/trace-buffer';
 import { ToolRegistry } from './tool-registry';
 import { DEFAULT_LOOP_CONFIG } from './loop-types';
 import { getSettingsSync } from '../config';
@@ -277,9 +278,13 @@ PROFILES:
     ];
     const systemPrompt = systemPromptSections.filter(Boolean).join('\n\n');
 
+    const parentTraceRunId =
+      (ctx.agentContext.metadata?._traceBuffer as TraceBuffer | undefined)?.runId;
+
     const subContextManager = new ContextManager({
       tokenLimit,
       defaultSystemPrompt: systemPrompt,
+      ...(parentTraceRunId ? { initialMetadata: { _parentTraceRunId: parentTraceRunId } } : {}),
     });
     subContextManager.setSystemPrompt(systemPrompt);
 

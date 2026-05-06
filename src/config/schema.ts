@@ -108,6 +108,22 @@ const debugSettingsSchema = z.object({
   enabled: z.boolean().default(false),
 });
 
+const traceRedactionSettingsSchema = z.object({
+  mode: z.enum(['default', 'none']).default('default'),
+});
+
+const traceNudgeSettingsSchema = z.object({
+  enabled: z.boolean().default(true),
+  reviewInterval: z.number().int().positive().default(10),
+});
+
+const traceSettingsSchema = z.object({
+  enabled: z.boolean().default(true),
+  maxRunsPerSession: z.number().int().positive().default(50),
+  redaction: traceRedactionSettingsSchema,
+  nudge: traceNudgeSettingsSchema,
+});
+
 export const settingsSchema = z.object({
   llm: llmSettingsSchema,
   context: contextSettingsSchema,
@@ -118,5 +134,6 @@ export const settingsSchema = z.object({
   security: securitySettingsSchema,
   debug: debugSettingsSchema,
   mcp: mcpSettingsSchema,
+  trace: traceSettingsSchema,
 });
 
