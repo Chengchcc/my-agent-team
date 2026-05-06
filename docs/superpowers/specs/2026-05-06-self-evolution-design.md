@@ -95,10 +95,15 @@ Existing skills (do NOT duplicate):
 {existingSkills}
 
 Your task:
-1. Identify the root cause of each tool error
-2. Determine if this failure pattern is avoidable with a skill
-3. If a skill already covers this, suggest adding a "Pitfalls" section
-4. If no reusable insight, respond "Nothing to save"
+1. Score this pattern 1–5:
+   - 1–2: one-off mistake or trivial — do NOT create a skill
+   - 3–4: useful trick or pattern worth capturing
+   - 5: high-value reusable workflow
+2. If score < 3, respond "Nothing to save" and explain why
+3. Identify the root cause of each tool error
+4. Determine if this failure pattern is avoidable with a skill
+5. If a skill already covers this, suggest adding a "Pitfalls" section
+6. Only call create_review_skill if score ≥ 3 AND the pattern is reusable
 
 Output: call create_review_skill ONLY if there is a concrete, reusable pattern.
 ```
@@ -119,11 +124,16 @@ Existing skills (do NOT duplicate):
 {existingSkills}
 
 Your task:
-1. Identify the workflow — what was the sequence of steps?
-2. Were there any non-obvious workarounds or tool-usage patterns?
-3. If the workflow is reusable, create a skill capturing it
-4. Include a "Pitfalls" section if any step could go wrong
-5. If no reusable pattern, respond "Nothing to save"
+1. Score this workflow 1–5 for reusability:
+   - 1–2: specific to this one task — do NOT create a skill
+   - 3–4: recurring pattern for this project
+   - 5: broadly reusable across contexts
+2. If score < 3, respond "Nothing to save" and explain why
+3. Identify the workflow — what was the sequence of steps?
+4. Were there any non-obvious workarounds or tool-usage patterns?
+5. If the workflow is reusable, create a skill capturing it
+6. Include a "Pitfalls" section if any step could go wrong
+7. Only call create_review_skill if score ≥ 3 AND the workflow is reusable
 
 Output: call create_review_skill ONLY if there is a concrete, reusable workflow.
 ```
@@ -294,7 +304,116 @@ const evolution = traceEnabled
 
 ---
 
-## 8. Configuration
+## 8. TUI Notification
+
+### 8.1 Passive Notification
+
+Review Agent 完成后，TUI 在聊天流末尾插入一条系统通知，不阻塞用户：
+
+```
+┌─────────────────────────────────────────────────┐
+│ 🔧 Auto-review 完成                              │
+│                                                  │
+│ 创建了 skill: fix-bash-permission-errors          │
+│ 描述: 处理 /tmp 下 bash 权限问题的标准流程         │
+│                                                  │
+│ [按 v 查看] [按 d 删除] [忽略]                    │
+└─────────────────────────────────────────────────┘
+```
+
+### 8.2 Behavior
+
+| 用户操作 | 效果 |
+|---------|------|
+| 按 `v` 查看 | 用 Read 工具打开 SKILL.md 内容展示 |
+| 按 `d` 删除 | 删除 `~/.my-agent/skills/auto/{skill-name}/` 目录 |
+| 忽略 / 继续输入 | 通知保留在消息流中，可后续再处理 |
+| 24h 后未处理 | 自动接受（保留 skill） |
+
+### 8.3 Implementation
+
+```
+AgentEvent 新增类型:
+  'evolution_review_done' → { skillName, description, outputDir }
+
+TUI use-agent-loop.tsx:
+  监听 evolution_review_done 事件 → dispatch 到 UI state
+  → 渲染 ReviewNotification 组件（夹在消息流末尾）
+```
+
+### 8.4 通知堆积
+
+同一 session 最多显示 3 条未处理通知。超过 3 条时，旧的自动折叠为：
+
+```
+🔧 Auto-review: 还有 2 条待处理 [展开]
+```
+
+---
+
+## 9. Skill System Adaptation
+
+### 9.1 Multi-Source Loading
+
+现有 `SkillLoader` 只从单一 `basePath`（项目 `skills/` 目录）加载。需要支持多源：
+
+```
+项目 skills/          ~/.my-agent/skills/auto/       ~/.my-agent/skills/manual/
+  (用户手动)              (auto-review 产出)            (用户全局安装)
+```
+
+### 9.2 SkillLoader 改动
+
+```typescript
+class SkillLoader {
+  // 新增：多个源目录
+  private sourcePaths: string[];
+
+  constructor(basePath?: string) {
+    const projectPath = basePath ?? path.resolve(cwd, settings.skills.baseDir);
+    this.sourcePaths = [
+      projectPath,                                          // 项目 skills/
+      path.join(os.homedir(), '.my-agent', 'skills', 'auto'),    // auto-review
+      path.join(os.homedir(), '.my-agent', 'skills', 'manual'),  // 用户全局
+    ];
+  }
+
+  async listSkillNames(): Promise<string[]> {
+    const allNames = new Set<string>();
+    for (const dir of this.sourcePaths) {
+      // 读取每个源目录的 skill 名
+    }
+    return [...allNames];
+  }
+
+  async loadSkill(name: string): Promise<SkillInfo | null> {
+    // 按优先级查找：项目 > manual > auto
+    // 项目 skill 覆盖同名 auto skill
+    for (const dir of this.sourcePaths) {
+      const skill = await this.tryLoad(dir, name);
+      if (skill) return skill;
+    }
+    return null;
+  }
+}
+```
+
+### 9.3 优先级规则
+
+| 场景 | 行为 |
+|------|------|
+| 同名 skill 在项目和 auto 都存在 | 项目版本生效，auto 版本被忽略 |
+| auto + manual 同名 | manual 生效 |
+| 只有 auto | auto 生效 |
+| SkillLoader 缓存刷新 | 重新扫描所有源目录 |
+
+### 9.4 SkillMiddleware 改动
+
+无需改动。`SkillMiddleware` 通过 `SkillLoader.loadAllSkills()` 获取 skill 列表，对来源透明。
+
+---
+
+## 10. Configuration
 
 ```json
 {
@@ -313,7 +432,7 @@ const evolution = traceEnabled
 
 ---
 
-## 9. File Structure
+## 12. File Structure
 
 ```
 src/evolution/
@@ -327,14 +446,16 @@ Modified:
   src/trace/agent-middleware.ts  # accept optional evolution callback
   src/trace/index.ts             # add evolution param to createTraceMiddleware
   src/runtime.ts                 # wire initEvolution
+  src/skills/loader.ts           # multi-source skill loading
   src/config/types.ts            # add TraceReviewSettings
   src/config/defaults.ts         # add review defaults
   src/config/schema.ts           # add review schema
+  src/cli/tui/                   # ReviewNotification component + event handling
 ```
 
 ---
 
-## 10. Testing Strategy
+## 13. Testing Strategy
 
 ```
 tests/evolution/
@@ -346,7 +467,7 @@ tests/evolution/
 
 ---
 
-## 11. Architecture Compliance (Constitution §A–I)
+## 14. Architecture Compliance (Constitution §A–I)
 
 - **§A**: Evolution wired via `createAgentRuntime()`, not in `bin/*`.
 - **§B**: No `any` types.
@@ -360,7 +481,7 @@ tests/evolution/
 
 ---
 
-## 12. Future (Phase 3+)
+## 15. Future (Phase 3+)
 
 - **User notification UI** — Surface review results in TUI
 - **Approval queue** — Let user review/reject auto-generated skills before activation
