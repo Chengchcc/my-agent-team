@@ -441,58 +441,113 @@ class TraceAgentMiddleware implements AgentMiddleware {
 
 ## 7. Nudge Engine
 
-### 7.1 Counter Model (persisted)
+### 7.1 Trigger Model — Three Independent Signals
+
+A single counter (`turnsSinceReview`) treats "one 15-turn task" and "fifteen 1-turn messages" identically, but their review value differs. The NudgeEngine uses three independent signals:
+
+| Signal | Condition | Rationale |
+|--------|-----------|-----------|
+| **Error burst** | `errors ≥ 2` AND `errors/turns ≥ 0.3` within a single run | Errors are the highest-value review signal — capture failure patterns while context is fresh |
+| **Complex task** | `turns ≥ 5` AND `errors = 0` within a single run | Successful complex tasks are candidates for skill extraction |
+| **Periodic** | Accumulated turns across runs ≥ `reviewInterval` | Catch-all for long-running sessions with no error bursts |
+
+A fingerprint dedup (per signal type) prevents reviewing the same error pattern repeatedly.
 
 ```typescript
 interface NudgeState {
   turnsSinceReview: number;
-  lastReviewFingerprints: string[];  // max 5, for dedup
-  lastReviewAt: number;              // Date.now()
+  fingerprints: Record<string, string[]>;  // per signal: last 5 fingerprints
+  lastReviewAt: number;
 }
+
+const MIN_REVIEW_INTERVAL_MS = 5 * 60 * 1000;  // 5 min between reviews
 
 class NudgeEngine {
   private state: NudgeState;
-  private reviewInterval: number;    // default 10, from settings
+  private reviewInterval: number;  // default 10, from settings
 
-  constructor(statePath: string) {
+  constructor(private statePath: string) {
     this.state = this.loadState(statePath);
   }
 
   tick(trace: TraceRun): NudgeResult | null {
+    // Guard: don't review more than once per MIN_REVIEW_INTERVAL_MS
+    if (Date.now() - this.state.lastReviewAt < MIN_REVIEW_INTERVAL_MS) {
+      return null;
+    }
+
+    // Signal 1: Error burst (immediate — don't wait for periodic counter)
+    const errorRatio = trace.summary.totalTurns > 0
+      ? trace.summary.totalErrors / trace.summary.totalTurns
+      : 0;
+    if (trace.summary.totalErrors >= 2 && errorRatio >= 0.3) {
+      const fp = this.buildFingerprint(trace);
+      if (!this.isDuplicate('error_burst', fp)) {
+        return this.emit('error_burst', trace, fp);
+      }
+    }
+
+    // Signal 2: Complex task completed successfully
+    if (trace.summary.totalTurns >= 5 && trace.summary.totalErrors === 0) {
+      const fp = 'complex:' + this.buildFingerprint(trace);
+      if (!this.isDuplicate('complex_task', fp)) {
+        return this.emit('complex_task', trace, fp);
+      }
+    }
+
+    // Signal 3: Periodic — accumulated turns across runs
     this.state.turnsSinceReview += trace.summary.totalTurns;
-
-    if (this.state.turnsSinceReview < this.reviewInterval) {
-      return null;
-    }
-
-    const fingerprint = this.buildFingerprint(trace);
-    // Dedup: skip if same fingerprint was recently reviewed
-    if (this.state.lastReviewFingerprints.includes(fingerprint)) {
+    if (this.state.turnsSinceReview >= this.reviewInterval) {
       this.state.turnsSinceReview = 0;
-      return null;
+      const fp = this.buildFingerprint(trace);
+      if (!this.isDuplicate('periodic', fp)) {
+        return this.emit('periodic', trace, fp);
+      }
     }
 
-    this.state.turnsSinceReview = 0;
-    this.state.lastReviewFingerprints.unshift(fingerprint);
-    if (this.state.lastReviewFingerprints.length > 5) {
-      this.state.lastReviewFingerprints.pop();
-    }
+    return null;
+  }
+
+  private emit(
+    signal: 'error_burst' | 'complex_task' | 'periodic',
+    trace: TraceRun,
+    fingerprint: string,
+  ): NudgeResult {
     this.state.lastReviewAt = Date.now();
-
+    this.recordFingerprint(signal, fingerprint);
     return {
-      trigger: this.selectTrigger(trace),
+      trigger: this.signalToTrigger(signal, trace),
       traceRunId: trace.id,
       sessionId: trace.sessionId,
-      fingerprint,
-      reason: this.buildReason(trace),
+      fingerprint: `${signal}:${fingerprint}`,
+      reason: this.buildReason(signal, trace),
     };
   }
 
-  /** Persist counter state to ~/.my-agent/trace-state.json (called after tick). */
-  async persist(): Promise<void> { /* write JSON */ }
+  private signalToTrigger(
+    signal: string, trace: TraceRun,
+  ): NudgeResult['trigger'] {
+    if (signal === 'error_burst' && trace.summary.totalTurns >= 5) {
+      return 'combined_review';
+    }
+    if (signal === 'error_burst') return 'memory_review';
+    return 'skill_review';
+  }
+
+  private buildReason(signal: string, trace: TraceRun): string {
+    const e = trace.summary.totalErrors;
+    const t = trace.summary.totalTurns;
+    switch (signal) {
+      case 'error_burst':
+        return `${e} errors in ${t} turns (error rate: ${(e/t*100).toFixed(0)}%) — review for failure patterns`;
+      case 'complex_task':
+        return `${t}-turn task completed successfully — candidate for skill extraction`;
+      case 'periodic':
+        return `Periodic review after ${this.reviewInterval} accumulated turns`;
+    }
+  }
 
   private buildFingerprint(trace: TraceRun): string {
-    // Aggregate error tool names → dedup key
     const errorTools = new Set<string>();
     for (const turn of trace.turns) {
       for (const exec of turn.toolExecutions) {
@@ -502,41 +557,43 @@ class NudgeEngine {
     return [...errorTools].sort().join(',') || 'no_errors';
   }
 
-  private buildReason(trace: TraceRun): string {
-    const errors = trace.summary.totalErrors;
-    const turns = trace.summary.totalTurns;
-    if (errors > 0 && turns >= 5) {
-      return `${errors} tool errors across ${turns} turns — candidate for combined review`;
-    }
-    if (errors > 0) {
-      return `${errors} tool errors — review for improvement opportunities`;
-    }
-    if (turns >= 5) {
-      return `${turns}-turn task completed — candidate for skill extraction`;
-    }
-    return `Periodic review after ${this.reviewInterval} accumulated turns`;
+  private isDuplicate(signal: string, fp: string): boolean {
+    return (this.state.fingerprints[signal] ?? []).includes(fp);
   }
 
-  private selectTrigger(trace: TraceRun): NudgeResult["trigger"] {
-    const hasErrors = trace.summary.totalErrors > 0;
-    const isComplex = trace.summary.totalTurns >= 5;
-    if (hasErrors && isComplex) return "combined_review";
-    if (hasErrors) return "memory_review";
-    return "skill_review";
+  private recordFingerprint(signal: string, fp: string): void {
+    const list = this.state.fingerprints[signal] ?? [];
+    list.unshift(fp);
+    this.state.fingerprints[signal] = list.slice(0, 5);
   }
+
+  async persist(): Promise<void> { /* write JSON to this.statePath */ }
 
   private loadState(path: string): NudgeState { /* read JSON or return default */ }
 }
 ```
 
-### 7.2 Review Prompt (Phase 2)
+### 7.2 Review Prompt Templates (Phase 2)
 
-When Phase 2 activates, `NudgeResult.trigger` selects which review prompt template to use:
-- `memory_review` → prompt focuses on extracting user preferences / project facts
-- `skill_review` → prompt focuses on extracting reusable workflows / pitfalls
-- `combined_review` → prompt covers both
+When Phase 2 activates, `NudgeResult.trigger` selects the review prompt template:
 
-The review agent writes only to `~/.my-agent/memory/` and `~/.my-agent/skills/` (never project directories). Auto-generated skills land under `~/.my-agent/skills/auto/` to avoid clashing with user-manually-edited skills under `~/.my-agent/skills/`.
+**`memory_review`** (error burst, low-complexity):
+> Review this trace. Focus on: (1) What went wrong — identify the root cause of each tool error, (2) Are there user preferences or project conventions that could prevent this? (3) Write findings to memory using the memory tool. If nothing actionable, say "Nothing to save."
+
+**`skill_review`** (complex task, no errors):
+> Review this trace of a successful multi-step task. Focus on: (1) What was the sequence of steps? (2) Were there any non-obvious workarounds or tool-usage patterns? (3) Create or update a skill capturing the workflow. Include pitfalls section if any step could go wrong. If no reusable pattern, say "Nothing to save."
+
+**`combined_review`** (error burst + complex):
+> Review this trace. It had both errors and multiple turns. Focus on: (1) Root causes of errors — capture as memory entries, (2) The overall workflow — capture as a skill with pitfalls derived from the errors, (3) User corrections or preferences observed. If nothing actionable, say "Nothing to save."
+
+All review output writes to `~/.my-agent/memory/` and `~/.my-agent/skills/auto/` only. Project directories are never modified.
+
+### 7.3 Storage Efficiency
+
+- **Retention**: Per-session, max 50 runs. After `finalize()`, count files in `{sessionId}/` directory. If > 50, unlink oldest.
+- **Scan cost**: `listBySession` reads a single directory (O(files-in-session)). `listRecent` caps at scanning 10 most-recently-modified session directories — not all sessions.
+- **NDJSON append**: Each `appendTurn` / `appendToolExec` does a single `fs.appendFile` write. No directory scan.
+- **state.json size**: NudgeEngine state is ~500 bytes. Written on `persist()` after each review trigger.
 
 ---
 
@@ -614,15 +671,45 @@ const agentHooks: AgentHooks = {
 
 ### 10.2 Sub-agent trace linking
 
-In `SubAgentTool.execute()`, before spawning the child `AgentLoop`, the parent's trace run ID is injected into the child's context:
+`ContextManager.getContext()` rebuilds `metadata` from scratch on every call, so `_parentTraceRunId` must be injected via `ContextManager`'s constructor. We add an optional `initialMetadata` parameter:
 
 ```typescript
-// Inside SubAgentTool:
-childContext.metadata._parentTraceRunId =
-  parentContext.metadata._traceBuffer?.runId;
+// src/agent/context.ts — ContextManager constructor
+constructor(options: {
+  tokenLimit: number;
+  defaultSystemPrompt?: string;
+  initialMetadata?: Record<string, unknown>;  // NEW
+}) {
+  this.initialMetadata = options.initialMetadata ?? {};
+}
+
+// getContext merges initialMetadata into the metadata object
+getContext(config: AgentConfig): AgentContext {
+  return {
+    ...,
+    metadata: {
+      ...this.initialMetadata,  // injected first, overridable by computed fields
+      todo: { ... },
+    },
+  };
+}
 ```
 
-This enables the parent-child relationship in `TraceRun.parentRunId`.
+Then in `SubAgentTool.execute()`, the parent's trace run ID is read from the parent context and injected:
+
+```typescript
+// Inside SubAgentTool.execute():
+const parentTraceRunId =
+  (ctx.agentContext.metadata._traceBuffer as TraceBuffer | undefined)?.runId;
+
+const subContextManager = new ContextManager({
+  tokenLimit,
+  defaultSystemPrompt: systemPrompt,
+  ...(parentTraceRunId ? { initialMetadata: { _parentTraceRunId: parentTraceRunId } } : {}),
+});
+```
+
+This is a minimal change to `ContextManager` (one optional field) and `SubAgentTool` (one read + pass-through). The `TraceAgentMiddleware.beforeAgentRun` already reads `context.metadata._parentTraceRunId` to set up the parent-child link.
 
 ---
 
