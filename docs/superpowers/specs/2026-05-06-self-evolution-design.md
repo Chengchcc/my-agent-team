@@ -228,7 +228,6 @@ function forkReviewAgent(
   ├── SKILL.md
   ├── scripts/       (if any)
   ├── references/    (if any)
-  └── _meta.json
 ```
 
 ### 6.3 SKILL.md Format
@@ -263,9 +262,8 @@ Before writing:
 
 1. Create `outputDir/{skill-name}/` directory
 2. Write `SKILL.md`
-3. Write `_meta.json` with `{ slug, version: "1.0.0", publishedAt, source: "auto_review" }`
-4. Write `scripts/` and `references/` files if provided
-5. If any step fails, clean up the partially-created directory
+3. Write `scripts/` and `references/` files if provided
+4. If any step fails, clean up the partially-created directory
 
 ---
 
@@ -430,7 +428,25 @@ class SkillLoader {
 
 ---
 
-## 12. File Structure
+## 12. Prerequisite: Upgrade skill-creator
+
+现有 `skills/skill-creator/` 结构不完整，需要升级为官方格式：
+
+```
+skills/skill-creator/
+  ├── SKILL.md           # 现有内容升级为官方版本
+  ├── scripts/           # package_skill.py 等
+  ├── references/        # schemas.md
+  └── assets/            # eval_review.html
+```
+
+Review Agent 的 `create_review_skill` 工具将 skill-creator 的 SKILL.md 内容注入到 review prompt 中，确保产出格式正确。
+
+这是 Phase 2 的独立前置任务。
+
+---
+
+## 13. File Structure
 
 ```
 src/evolution/
@@ -453,7 +469,7 @@ Modified:
 
 ---
 
-## 13. Testing Strategy
+## 14. Testing Strategy
 
 ```
 tests/evolution/
