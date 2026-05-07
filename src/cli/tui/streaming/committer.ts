@@ -153,6 +153,7 @@ class Committer {
 
   destroy(): void {
     if (this.trailing) clearTimeout(this.trailing);
+    this.notifyScheduled = false;
     this.listeners.clear();
   }
 
@@ -164,8 +165,11 @@ class Committer {
     const t1 = performance.now();
     this.prevSnapshot = snapshot;
     this.currentSnapshot = snapshot;
-    for (const cb of this.listeners) cb();
-    const t2 = performance.now();
+
+    // Defer listener notification (React setState) to a separate tick.
+    // This keeps the current tick short (<2ms) so stdin I/O callbacks
+    // fire between state update and terminal rendering.
+    this.scheduleNotify();
 
     if (advances.length > 0) {
       const store = useTuiStore.getState();
@@ -173,14 +177,28 @@ class Committer {
         store.commitAdvance(adv.segId, adv.committedLength);
       }
     }
-    const t3 = performance.now();
+    const t2 = performance.now();
 
     debugLog('COMMITTER timing', {
       build: (t1 - t0).toFixed(1),
-      notify: (t2 - t1).toFixed(1),
-      commit: (t3 - t2).toFixed(1),
-      total: (t3 - t0).toFixed(1),
+      commit: (t2 - t1).toFixed(1),
+      total: (t2 - t0).toFixed(1),
       advances: advances.length,
+    });
+  }
+
+  private notifyScheduled = false;
+
+  /** Schedule React listener notification separately so terminal I/O
+   *  doesn't block the current event-loop tick. */
+  private scheduleNotify(): void {
+    if (this.notifyScheduled) return;
+    this.notifyScheduled = true;
+    setImmediate(() => {
+      this.notifyScheduled = false;
+      const t0 = performance.now();
+      for (const cb of this.listeners) cb();
+      debugLog('COMMITTER notify', { ms: (performance.now() - t0).toFixed(1), listeners: this.listeners.size });
     });
   }
 
