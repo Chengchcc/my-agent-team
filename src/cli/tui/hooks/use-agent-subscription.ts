@@ -113,7 +113,13 @@ function dispatchAgentEvent(
 export function useAgentSubscription(agent: Agent) {
   const abortRef = useRef<AbortController | null>(null);
 
-  const submit = useCallback(async (text: string) => {
+  /**
+   * Pull-based event loop: each tick processes ONE agent event then yields
+   * via setImmediate. This lets the Node.js event loop process stdin I/O
+   * and React commit renders between every event, instead of the old
+   * for-await model that consumed the poll phase entirely and starved stdin.
+   */
+  const submit = useCallback((text: string): Promise<void> => {
     const userId = `user-${nanoid()}`;
     const assistantId = `assistant-${nanoid()}`;
 
@@ -125,37 +131,54 @@ export function useAgentSubscription(agent: Agent) {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    try {
-      for await (const event of agent.runAgentLoop(
-        { role: 'user', content: text, id: userId },
-        undefined,
-        { signal: controller.signal },
-      ) as AsyncIterable<AgentEvent>) {
-        dispatchAgentEvent(event, agent);
-      }
-      debugLog('SUBMIT loop exited normally');
-    } catch (err: unknown) {
-      const committer = getCommitter();
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        debugLog('SUBMIT aborted');
-        committer.onTurnDone();
-        useTuiStore.getState().setInterrupted(true);
-      } else {
-        const msg = err instanceof Error ? err.message : String(err);
-        debugLog('SUBMIT error', { message: msg });
-        committer.onDelta(`\n\nError: ${msg}`);
-        committer.onTurnDone();
-      }
-    } finally {
-      const liveExists = useTuiStore.getState().live != null;
-      debugLog('SUBMIT finally', { liveExists });
-      if (liveExists) {
-        debugLog('SUBMIT finally calling onTurnDone (live was still set)');
-        getCommitter().onTurnDone();
-      }
-    }
+    const iterator = agent.runAgentLoop(
+      { role: 'user', content: text, id: userId },
+      undefined,
+      { signal: controller.signal },
+    )[Symbol.asyncIterator]();
 
-    abortRef.current = null;
+    return new Promise<void>((resolve) => {
+      const finish = () => {
+        const committer = getCommitter();
+        const liveExists = useTuiStore.getState().live != null;
+        debugLog('SUBMIT finish', { liveExists });
+        if (liveExists) {
+          committer.onTurnDone();
+        }
+        abortRef.current = null;
+        resolve();
+      };
+
+      const pullNext = () => {
+        setImmediate(async () => {
+          try {
+            const result = await iterator.next();
+            if (result.done) {
+              debugLog('SUBMIT iterator done');
+              finish();
+              return;
+            }
+            dispatchAgentEvent(result.value, agent);
+            pullNext();
+          } catch (err: unknown) {
+            const committer = getCommitter();
+            if (err instanceof DOMException && err.name === 'AbortError') {
+              debugLog('SUBMIT aborted');
+              committer.onTurnDone();
+              useTuiStore.getState().setInterrupted(true);
+            } else {
+              const msg = err instanceof Error ? err.message : String(err);
+              debugLog('SUBMIT error', { message: msg });
+              committer.onDelta(`\n\nError: ${msg}`);
+              committer.onTurnDone();
+            }
+            finish();
+          }
+        });
+      };
+
+      pullNext();
+    });
   }, [agent]);
 
   const abort = useCallback(() => {
