@@ -27,6 +27,36 @@ const PRIORITY_RETRIEVED_MEMORY = 3;
 const PRIORITY_UNKNOWN = 4;
 const NANOID_LENGTH = 6;
 
+// --- Stream resilience: retry & partial-content recovery ---
+
+const MAX_STREAM_RETRIES = 3;
+const RETRY_BASE_DELAY_MS = 1000;
+
+type StreamErrorKind = 'network' | 'rate_limit' | 'fatal';
+
+function classifyStreamError(error: Error): StreamErrorKind {
+  const msg = error.message.toLowerCase();
+  if (msg.includes('timeout') || msg.includes('network') ||
+      msg.includes('econnrefused') || msg.includes('enotfound') ||
+      msg.includes('etimedout') || msg.includes('fetch failed') ||
+      msg.includes('econnreset')) {
+    return 'network';
+  }
+  if (msg.includes('rate_limit') || msg.includes('429') ||
+      msg.includes('too many requests')) {
+    return 'rate_limit';
+  }
+  return 'fatal';
+}
+
+function retryDelay(attempt: number): number {
+  return RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 const COMPACTION_TIER_FULL = 4;
 
 /**
@@ -272,7 +302,7 @@ export class AgentLoop {
       resultContext.ephemeralReminders = [];
     }
 
-    // Stream from LLM
+    // Stream from LLM with retry and partial-content recovery
     let fullContent = '';
     let thinkingBuffer = '';
     let thinkingSignature: string | undefined;
@@ -282,48 +312,90 @@ export class AgentLoop {
       completion_tokens: number;
       total_tokens: number;
     } | undefined;
+    let streamError: Error | null = null;
 
-    for await (const chunk of this.provider.stream(resultContext, { signal })) {
+    for (let attempt = 1; attempt <= MAX_STREAM_RETRIES; attempt++) {
       if (signal.aborted) break;
-      if (chunk.thinking) {
-        thinkingBuffer += chunk.thinking;
-        yield {
-          type: 'thinking_delta',
-          delta: chunk.thinking,
-          turnIndex,
-        } satisfies AgentEvent;
+
+      // Reset accumulators for each retry attempt (fresh stream = fresh content)
+      if (attempt > 1) {
+        fullContent = '';
+        thinkingBuffer = '';
+        thinkingSignature = undefined;
+        toolCalls.length = 0;
+        usage = undefined;
       }
-      if (chunk.thinkingSignature) {
-        thinkingSignature = chunk.thinkingSignature;
-        yield {
-          type: 'thinking_done',
-          signature: chunk.thinkingSignature,
-          turnIndex,
-        } satisfies AgentEvent;
-      }
-      if (chunk.content) {
-        fullContent += chunk.content;
-        yield {
-          type: 'text_delta',
-          delta: chunk.content,
-          turnIndex,
-        } satisfies AgentEvent;
-      }
-      if (chunk.tool_calls) {
-        for (const tc of chunk.tool_calls) {
-          if (!toolCalls.some(existing => existing.id === tc.id)) {
-            toolCalls.push(tc);
+
+      try {
+        for await (const chunk of this.provider.stream(resultContext, { signal })) {
+          if (signal.aborted) break;
+          if (chunk.thinking) {
+            thinkingBuffer += chunk.thinking;
+            yield {
+              type: 'thinking_delta',
+              delta: chunk.thinking,
+              turnIndex,
+            } satisfies AgentEvent;
+          }
+          if (chunk.thinkingSignature) {
+            thinkingSignature = chunk.thinkingSignature;
+            yield {
+              type: 'thinking_done',
+              signature: chunk.thinkingSignature,
+              turnIndex,
+            } satisfies AgentEvent;
+          }
+          if (chunk.content) {
+            fullContent += chunk.content;
+            yield {
+              type: 'text_delta',
+              delta: chunk.content,
+              turnIndex,
+            } satisfies AgentEvent;
+          }
+          if (chunk.tool_calls) {
+            for (const tc of chunk.tool_calls) {
+              if (!toolCalls.some(existing => existing.id === tc.id)) {
+                toolCalls.push(tc);
+              }
+            }
+          }
+          if (chunk.usage) {
+            usage = chunk.usage;
+            if (usage && this.contextManager) {
+              this.contextManager.updateTokenUsage(usage);
+            }
           }
         }
-      }
-      if (chunk.usage) {
-        usage = chunk.usage;
-        if (usage && this.contextManager) {
-          this.contextManager.updateTokenUsage(usage);
+
+        // Stream completed successfully — exit retry loop
+        streamError = null;
+        break;
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        const kind = classifyStreamError(error);
+
+        if (kind === 'fatal') {
+          streamError = error;
+          break;
+        }
+
+        debugLog(`[agent] stream error (${kind}), attempt ${attempt}/${MAX_STREAM_RETRIES}: ${error.message}`);
+
+        if (attempt < MAX_STREAM_RETRIES) {
+          yield {
+            type: 'text_delta',
+            delta: `\n\n[Stream interrupted: ${error.message}. Retrying...]`,
+            turnIndex,
+          } satisfies AgentEvent;
+          await sleep(retryDelay(attempt));
+        } else {
+          streamError = error;
         }
       }
     }
 
+    // Check for signal abort before processing results
     if (signal.aborted) {
       yield {
         type: 'agent_error',
@@ -331,6 +403,42 @@ export class AgentLoop {
         turnIndex,
       } satisfies AgentEvent;
       return { toolCalls: [], resultContext, done: true };
+    }
+
+    // If all retries exhausted with error, save partial content if we have anything
+    if (streamError) {
+      const hasPartial = fullContent.length > 0 || thinkingBuffer.length > 0 || toolCalls.length > 0;
+      if (hasPartial) {
+        // Save partial content as assistant message so work is not lost
+        const blocks: Array<{type: string; thinking?: string; signature?: string; text?: string}> = [];
+        if (thinkingBuffer.length > 0) {
+          blocks.push({ type: 'thinking', thinking: thinkingBuffer, signature: thinkingSignature ?? '' });
+        }
+        if (fullContent.length > 0) {
+          blocks.push({ type: 'text', text: fullContent });
+        }
+        const assistantMsg = {
+          role: 'assistant' as const,
+          content: fullContent || '(interrupted)',
+          ...(blocks.length > 0 ? { contentBlocks: blocks } : {}),
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls.map(tc => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) } : {}),
+          _streamInterrupted: true,
+        };
+        this.contextManager.addMessage(assistantMsg as any);
+        yield {
+          type: 'text_delta',
+          delta: `\n\n[Stream interrupted after ${MAX_STREAM_RETRIES} retries. Partial response saved.]`,
+          turnIndex,
+        } satisfies AgentEvent;
+        yield {
+          type: 'agent_error',
+          error: streamError,
+          turnIndex,
+        } satisfies AgentEvent;
+        return { toolCalls: [], resultContext, done: true };
+      }
+      // No partial content — propagate the error
+      throw streamError;
     }
 
     const composedAfterModel = composeMiddlewares(
