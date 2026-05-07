@@ -81,7 +81,6 @@ class Committer {
   // setTimeout trailing only fires when delta stream pauses (event loop healthy).
   private lastProcess = 0;
   private trailing: ReturnType<typeof setTimeout> | null = null;
-  private scheduledProcess: ReturnType<typeof setTimeout> | null = null;
 
   onDelta(delta: string): void {
     if (!useTuiStore.getState().live) {
@@ -95,7 +94,7 @@ class Committer {
     if (now - this.lastProcess >= THROTTLE_MS) {
       this.lastProcess = now;
       if (this.trailing) { clearTimeout(this.trailing); this.trailing = null; }
-      this.scheduleProcess();
+      this.processSegments();
     } else if (!this.trailing) {
       this.trailing = setTimeout(() => {
         this.trailing = null;
@@ -103,15 +102,6 @@ class Committer {
         this.processSegments();
       }, THROTTLE_MS);
     }
-  }
-
-  /** Schedule processSegments to yield to the event loop, keeping stdin responsive. */
-  private scheduleProcess(): void {
-    if (this.scheduledProcess) return;
-    this.scheduledProcess = setTimeout(() => {
-      this.scheduledProcess = null;
-      this.processSegments();
-    }, 0);
   }
 
   flush(): void {
@@ -157,7 +147,6 @@ class Committer {
 
   destroy(): void {
     if (this.trailing) clearTimeout(this.trailing);
-    if (this.scheduledProcess) clearTimeout(this.scheduledProcess);
     this.listeners.clear();
   }
 
