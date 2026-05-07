@@ -402,9 +402,6 @@ export class McpManager {
     const entry = this._servers.get(serverName);
     if (!entry) return;
 
-    // Remove error-state entry so connectServer can create a fresh one
-    this._servers.delete(serverName);
-
     const maxAttempts = this._options.maxReconnectAttempts;
     const baseDelay = this._options.reconnectDelayMs;
     const currentAttempt = this._reconnectAttempts.get(serverName) ?? 0;
@@ -414,6 +411,8 @@ export class McpManager {
       debugLog(`[McpManager] Reconnecting '${serverName}' attempt ${attempt}/${maxAttempts}`);
 
       try {
+        // Remove stale error-state entry so connectServer can create a fresh one on each attempt
+        this._servers.delete(serverName);
         await this.connectServer(entry.config);
         this._reconnectAttempts.delete(serverName);
         debugLog(`[McpManager] '${serverName}' reconnected successfully`);
