@@ -140,35 +140,43 @@ total_runs_with_skill = count of TraceRun where:
 
 ## 5. Feature 3: Skill Hot-Reload
 
-### 5.1 File Watcher
+### 5.1 Design
 
-`SkillLoader` 新增：
+Skills only change between agent runs (Review Agent completes in `setImmediate`).
+No file watcher needed — check once in `beforeAgentRun`.
+
+### 5.2 Implementation
+
+`SkillLoader` 新增 `checkAutoSkills()` 方法：
 
 ```typescript
+import { existsSync, statSync } from 'node:fs';
+
 class SkillLoader {
-  private watcher?: fs.FSWatcher;
+  private lastAutoSkillsMtime = 0;
 
-  watchAutoSkills(): void {
-    const autoDir = path.join(os.homedir(), '.my-agent', 'skills', 'auto');
-    this.watcher = fs.watch(autoDir, { recursive: true }, (eventType, filename) => {
-      if (filename?.endsWith('SKILL.md') || filename?.endsWith('.status.json')) {
+  /** Check if auto skills have changed since last check. Call in beforeAgentRun. */
+  checkAutoSkills(): void {
+    try {
+      const autoDir = path.join(os.homedir(), '.my-agent', 'skills', 'auto');
+      if (!existsSync(autoDir)) return;
+      const mtime = statSync(autoDir).mtimeMs;
+      if (mtime > this.lastAutoSkillsMtime) {
+        this.lastAutoSkillsMtime = mtime;
         this.clearCache();
-        debugLog(`[skills] Auto skill changed: ${filename}, cache cleared`);
       }
-    });
-  }
-
-  unwatch(): void {
-    this.watcher?.close();
+    } catch {
+      // directory doesn't exist — nothing to reload
+    }
   }
 }
 ```
 
-### 5.2 Integration
+### 5.3 Integration
 
-`runtime.ts` 中 `createAgentRuntime()` 在创建 `SkillLoader` 后调用 `skillLoader.watchAutoSkills()`。
+`TraceAgentMiddleware.beforeAgentRun` 调用 `skillLoader.checkAutoSkills()` 一次。
 
-只在 TUI 模式下启用（headless 不需要热加载）。
+无需 watcher、防抖、清理。零性能开销。
 
 ---
 
@@ -272,13 +280,13 @@ Modified:
   src/trace/agent-middleware.ts                      # detect activated auto skills
   src/evolution/types.ts                             # SkillStatus, SkillStats types
   src/evolution/index.ts                             # wire effectiveness tracking
-  src/runtime.ts                                     # hot-reload wiring
+  src/trace/agent-middleware.ts                      # call skillLoader.checkAutoSkills() in beforeAgentRun
   src/config/types.ts                                # new config fields
 
 New test files:
   tests/evolution/effectiveness-tracker.test.ts
   tests/evolution/review-commands.test.ts
-  tests/skills/hot-reload.test.ts
+  tests/skills/check-auto-skills.test.ts
   tests/evolution/review-prompt-evals.json
 ```
 
