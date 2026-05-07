@@ -1,9 +1,10 @@
 import type { MemoryEntry, MemoryRetriever, MemoryStore } from './types';
 
-const KEYWORD_WEIGHT = 0.4;
-const TAG_WEIGHT = 0.3;
-const RECENCY_WEIGHT = 0.2;
-const INTRINSIC_WEIGHT = 0.1;
+const KEYWORD_WEIGHT = 0.35;
+const TAG_WEIGHT = 0.25;
+const RECENCY_WEIGHT = 0.20;
+const INTRINSIC_WEIGHT = 0.10;
+const USAGE_WEIGHT = 0.10;
 
 const MS_PER_SECOND = 1000;
 const SECONDS_PER_MINUTE = 60;
@@ -107,20 +108,28 @@ export class KeywordRetriever implements MemoryRetriever {
       return 0;
     }
 
-    // Recency score: RECENCY_WEIGHT weight
-    const ageMs = Date.now() - new Date(entry.created).getTime();
+    // Recency score: use lastHitAt if available, otherwise fallback to created date
+    const latestTs = Math.max(
+      entry.lastHitAt ?? 0,
+      new Date(entry.created).getTime(),
+    );
+    const ageMs = Date.now() - latestTs;
     const ageDays = ageMs / MS_PER_DAY;
-    // Exponential decay: 1.0 for today, 0.5 after RECENCY_HALF_LIFE_DAYS days, ~0 after a year
     const recencyScore = Math.exp(-ageDays / RECENCY_HALF_LIFE_DAYS);
 
     // Intrinsic score: INTRINSIC_WEIGHT weight
     const weightScore = entry.weight;
 
+    // Usage score: capped at 10 uses for full score
+    const usageCount = entry.usageCount ?? 0;
+    const usageScore = Math.min(usageCount, 10) / 10;
+
     return (
       keywordScore * KEYWORD_WEIGHT +
       tagScore * TAG_WEIGHT +
       recencyScore * RECENCY_WEIGHT +
-      weightScore * INTRINSIC_WEIGHT
+      weightScore * INTRINSIC_WEIGHT +
+      usageScore * USAGE_WEIGHT
     );
   }
 }
