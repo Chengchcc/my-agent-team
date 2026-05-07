@@ -120,12 +120,19 @@ my-agent/
   src/
     agent/                    # Core agent loop and orchestration
       compaction/             # Multi-tier context compression
+        tiers/                # Compaction tier implementations
       tool-dispatch/          # Tool execution pipeline
-        middlewares/          # Permission, caching middleware
+        middlewares/          # Permission, read-cache middleware
     cli/tui/                  # Ink/React terminal UI
-      components/             # React components (ChatMessage, InputBox, Footer, etc.)
-      hooks/                  # State management, agent loop integration
-      utils/                  # Tool output formatting
+      views/                  # View components organized by purpose
+        chrome/               # InputBox, Footer, StreamingIndicator, Header
+        final/                # AssistantMessageView, UserMessageView, FinalToolCallView, etc.
+        active/               # ActiveAssistantView, LiveTextSegment
+        overlay/              # FocusedToolDetail, AskUserQuestionPrompt, PermissionPrompt
+      components/             # Shared components (CommandList, CodeBlock, HighlightedInput, FilePicker)
+      hooks/                  # Agent subscription, command input, permission, bracketed paste
+      commands/               # Slash command handlers (session, mcp, diagnostic, review, compact)
+      state/                  # Zustand store + types
     config/                   # YAML-based configuration system
     evolution/                # Self-evolution: review agent, effectiveness tracking, skill analysis
     mcp/                      # MCP client (server lifecycle, tool adapter, prompts, resources)
@@ -162,15 +169,14 @@ The assembly process:
 4. **Build the ToolRegistry** and register all built-in tools (bash, read, grep, glob, ls, text_editor, ask_user_question)
 5. **Wire up Todo** — creates the `todo_write` tool and a middleware that injects reminders
 6. **Create and register the SubAgentTool** — isolates tool registry to prevent recursive spawning
-7. **Assemble MCP Client** — load server configs from settings, connect to each (concurrency-controlled: max 4 stdio), wrap tools/prompts/resources, register as regular tools via the adapter pattern
+7. **Assemble MCP Client** — load server configs from settings, register management tools immediately, start connections in background (non-blocking, 10s timeout per operation), register server-specific tools/prompts/resources via `onReady` callback as they become available
 8. **Set up Memory** — three JSONL stores (semantic, episodic, project), keyword retriever, LLM extractor, and injection middleware
 9. **Set up Skills** — loads `SKILL.md` files, creates middleware that lists them for the model
 10. **Set up Session** — auto-save hook persists conversation after each run
-11. **Build the tool middleware chain** — Permission guard, ReadCache, then Trace tool middleware
-12. **Wire Trace** — createTraceMiddleware for trace recording + NudgeEngine
-13. **Wire Evolution** — initEvolution for background review + effectiveness tracking (if enabled)
-14. **Create the Agent** with all components
-15. **Return** the assembled runtime
+11. **Build the tool middleware chain** — Permission guard, ReadCache, Trace tool middleware
+12. **Wire Trace + Evolution** — createTraceMiddleware for trace recording + NudgeEngine; initEvolution for background review + effectiveness tracking (if enabled)
+13. **Create the Agent** with all components
+14. **Return** the assembled runtime
 
 The `AgentRuntime` interface exposes everything callers need — `agent`, `provider`, `toolRegistry`, `contextManager`, `sessionStore`, `memoryMiddleware`, `skillLoader`, `mcpManager` (if MCP enabled), and `shutdown`.
 
@@ -262,22 +268,26 @@ The central execution engine is `Agent.runAgentLoop()` in `src/agent/Agent.ts`. 
 
 ### Event Types
 
-The loop yields a discriminated union of 12 event types:
+The loop yields a discriminated union of 16 event types:
 
 | Event | When |
 |-------|------|
 | `text_delta` | Each chunk of streaming LLM output |
+| `thinking_delta` | Each chunk of streaming reasoning/thinking content |
+| `thinking_done` | End of reasoning block (includes optional signature) |
 | `tool_call_start` | Tool execution begins |
 | `tool_call_result` | Tool execution completes (includes duration, result, errors) |
 | `turn_complete` | LLM turn finishes (includes token usage) |
 | `agent_done` | Entire loop complete |
 | `agent_error` | Fatal error in the loop |
 | `sub_agent_start` | Sub-agent delegation begins |
-| `sub_agent_event` | Events from within a sub-agent |
+| `sub_agent_nested` | Events from within a sub-agent |
 | `sub_agent_done` | Sub-agent delegation completes |
 | `budget_delegation` | Budget guard redirected a tool to a sub-agent |
 | `budget_compact` | Budget guard triggered context compaction |
 | `context_compacted` | Context was compressed (includes token counts) |
+| `mcp_status` | MCP server connection status change |
+| `evolution_review_done` | Evolution review completed, produced a new skill |
 
 ---
 
@@ -356,11 +366,12 @@ The `ToolContext` provides the tool with an abort signal, a read-only snapshot o
 Tool middleware follows the same onion pattern as agent hooks:
 
 ```
-PermissionMiddleware → ReadCacheMiddleware → tool.execute()
+PermissionMiddleware → ReadCacheMiddleware → TraceToolMiddleware → tool.execute()
 ```
 
 - **PermissionMiddleware** — blocks `sub_agent` and `ask_user_question` tools in sub-agent contexts (prevents recursion and nested prompts)
 - **ReadCacheMiddleware** — caches file reads keyed by (path, line range, mtime) with LRU eviction at 100 entries
+- **TraceToolMiddleware** — records tool execution metadata (name, success/failure, duration) for telemetry and evolution
 
 Each middleware can short-circuit by not calling `next()`, or modify the result before returning.
 
@@ -417,7 +428,7 @@ Five slash commands manage MCP at runtime:
 | `/mcp` | Show all server connection states with tool/resource/prompt counts |
 | `/mcp-add <json>` | Add and connect a server; persist to `~/.my-agent/settings.yml` |
 | `/mcp-remove <name>` | Disconnect, unregister tools, and remove from settings |
-| `/mcp-connect <name>` | Reconnect a previously added server |
+| `/mcp-connect <name>` | Placeholder stub — prints an error directing users to re-add the server |
 | `/mcp-disconnect <name>` | Disconnect but keep tools registered (soft disconnect) |
 
 ### Tool Naming Convention
@@ -530,54 +541,85 @@ Conversations can be saved, loaded, and resumed:
 
 - **`SessionStore`** — persists messages as JSONL and metadata as JSON in `~/.my-agent/sessions/`
 - **Auto-save** — an `afterAgentRun` hook saves the session after each agent run
-- **Session commands** — `/sessions list`, `/sessions save <name>`, `/sessions load <name>`, `/sessions delete <name>` (TUI only)
+- **Session commands** — `/resume [id]` (list or load by prefix match), `/save` (force-save current), `/forget <id>` (delete by prefix match) (TUI only)
 
 ---
 
 ## Terminal UI (TUI)
 
-The TUI is built with [Ink](https://github.com/vadimdemedes/ink) (React for terminals) and uses `use-context-selector` for fine-grained state subscriptions.
+The TUI is built with [Ink](https://github.com/vadimdemedes/ink) (React for terminals) and uses [Zustand](https://github.com/pmndrs/zustand) for state management via `useTuiStore` (`src/cli/tui/state/store.ts`). View components live in `src/cli/tui/views/` organized by purpose: `chrome/`, `final/`, `active/`, `overlay/`. Shared components (CommandList, CodeBlock, HighlightedInput, FilePicker) live in `src/cli/tui/components/`.
 
-### Component Tree
+### Actual Component Tree (AppV2)
+
+The main render tree in `AppV2` (`src/cli/tui/App.tsx`):
 
 ```
-App
- ├─ Header          (agent name, model, status)
- ├─ ScrollView      (message list)
- │   ├─ ChatMessage[]    (user/assistant/tool messages, markdown rendering)
- │   ├─ StreamingMessage (current LLM output during streaming)
- │   └─ TodoPanel        (active task list)
- ├─ AskUserQuestionPrompt  (modal for multi-choice questions)
- ├─ StreamingIndicator     (animated dots during streaming)
- ├─ InputBox               (prompt input with autocomplete)
- │   ├─ CommandList        (slash-command dropdown)
- │   └─ HighlightedInput   (cursor-position-highlighted text)
- └─ Footer                 (token bar, usage stats)
+AppV2
+ ├─ Static items={staticItems}
+ │   └─ FinalItemView  (dispatches to)
+ │       ├─ AssistantMessageView  (markdown, code blocks, tool calls)
+ │       ├─ UserMessageView       (user input)
+ │       ├─ FinalToolCallView     (completed tool results)
+ │       ├─ SystemNoticeView      (command output captions)
+ │       └─ DividerView           (clear/compact separators)
+ ├─ ActiveAssistantView         (live LLM output during streaming)
+ │   └─ LiveTextSegment         (real-time text chunks)
+ ├─ StreamingIndicator          (animated dots during streaming)
+ ├─ FocusedToolDetail           (expanded tool call detail overlay)
+ ├─ ReviewNotifications         (evolution review result cards)
+ ├─ AskUserQuestionPrompt       (modal for multi-choice questions)
+ ├─ PermissionPrompt            (modal for tool permission requests)
+ ├─ InputBox                    (prompt input with autocomplete)
+ │   ├─ CommandList             (slash-command dropdown)
+ │   └─ HighlightedInput        (cursor-position-highlighted text)
+ └─ Footer                      (token bar, usage stats, context gauge)
 ```
+
+### Slash Commands
+
+Built-in commands registered via `getBuiltinCommands()` in `src/cli/tui/command-registry.ts`:
+
+| Command | Description |
+|---------|-------------|
+| `/clear` | Clear conversation history |
+| `/exit`, `/quit` | Exit the TUI session |
+| `/help` | List available slash commands |
+| `/compact` | Force context compaction immediately |
+| `/cost` | Show current session token usage and cost |
+| `/tools` | List all registered tools |
+| `/resume [id]` | List saved sessions or resume by ID prefix match |
+| `/save` | Force-save current session |
+| `/forget <id>` | Delete a saved session by ID prefix match |
+| `/review <sub>` | Manage auto-generated skills (list/view/keep/delete) |
+| `/mcp` | Show MCP server connection states |
+| `/mcp-add <json>` | Add and connect an MCP server |
+| `/mcp-remove <name>` | Disconnect and remove an MCP server |
+| `/mcp-connect <name>` | Placeholder stub |
+| `/mcp-disconnect <name>` | Soft-disconnect an MCP server |
+
+Skill commands (one per loaded skill) are also available as slash commands with autocomplete.
 
 ### Performance Design
 
-The TUI was tuned to prevent freezing during tool execution. Key techniques:
+- **Zustand with fine-grained selectors** — `useLiveItem()`, `useFrozenItems()`, `useStreaming()` isolate rendering to only the components that need the changed data
+- **`Static` component** — finalized message history uses Ink's `<Static>` for zero-re-render of past messages
+- **Batched text deltas** — `TEXT_DELTA_BATCH` via `queueMicrotask` aggregates rapid text chunks into single renders
+- **`useMemo`** — static items array and command lists are memoized to prevent unnecessary re-renders
 
-- **Scalar selectors** — `ToolCallMessage` subscribes to individual tool state fields (pending, focused, expanded, result) rather than the entire message list, so only the specific tool that changed re-renders
-- **`React.memo` with custom comparator** — `ChatMessage` skips re-render when its specific message content hasn't changed
-- **`useDeferredValue`** — the message list is deferred so the Footer and InputBox stay responsive even during large renders
-- **Memoized formatting** — `smartSummarize()`, `formatToolResult()`, and `formatToolCallTitle()` results are cached with `useMemo`
-- **Single-atomic dispatch** — tool results update all state fields in one reducer action instead of two, eliminating an intermediate render cycle
+### State Management
 
-### State Flow
+The Zustand store (`useTuiStore`) holds all TUI state: finalized message items, live streaming item, streaming flag, context tokens, focus/expand state for tool calls, pending input queue, and notification queues. Hooks in `src/cli/tui/hooks/` encapsulate side effects:
 
-The `AgentLoopProvider` consumes the agent's async generator stream and dispatches actions to the `agentUIReducer`. Each event type maps to one reducer action:
-
-```
-text_delta        → TEXT_DELTA_BATCH    (batched via queueMicrotask for smooth rendering)
-tool_call_start   → TOOL_START          (tool shows spinner)
-tool_call_result  → TOOL_RESULT         (result displayed, messages updated atomically)
-turn_complete     → TURN_COMPLETE       (usage accumulated)
-agent_done        → LOOP_COMPLETE       (streaming stops, final state)
-sub_agent_start   → SUB_AGENT_START     (sub-agent card appears)
-sub_agent_done    → SUB_AGENT_DONE      (summary shown)
-```
+| Hook | Purpose |
+|------|---------|
+| `useAgentSubscription` | Subscribes to agent event stream, dispatches to Zustand |
+| `useCommandInput` | Input handling, autocomplete, history navigation |
+| `useAskUserQuestionManager` | Buffers AskUserQuestion prompts during streaming |
+| `usePermissionManager` | Buffers tool permission prompts during streaming |
+| `useInputEditor` | Pure editor state transformations (cursor, selection) |
+| `useInputHistory` | Persistent input history with file storage |
+| `useBracketedPaste` | Terminal bracketed paste mode detection |
+| `useTerminalWidth` | Terminal resize tracking |
 
 ---
 
@@ -589,20 +631,17 @@ A complete turn through the system:
 User types "read src/agent/Agent.ts and explain the loop" → InputBox
   │
   ▼
-AgentLoopProvider.onSubmit()
-  │
-  ▼
-agent.runAgentLoop({ role: "user", content: "..." })
+useAgentSubscription → agent.runAgentLoop({ role: "user", content: "..." })
   │
   ├─ Phase 1: Setup
   │   ├─ contextManager.addMessage(userMessage)
-  │   └─ beforeAgentRun hooks (skills preload)
+  │   └─ beforeAgentRun hooks (skills preload, trace buffer creation)
   │
   ├─ Phase 2: LLM Turn 1
   │   ├─ beforeCompress → compressIfNeeded (skip, under threshold)
   │   ├─ beforeModel hooks (inject skill list, memory, todo reminders)
-  │   ├─ provider.stream() → yields text_delta events
-  │   │   └─ TUI dispatches TEXT_DELTA_BATCH → renders streaming text
+  │   ├─ provider.stream() → yields text_delta / thinking_delta events
+  │   │   └─ TUI Zustand store updates → ActiveAssistantView renders streaming text
   │   ├─ afterModel / beforeAddResponse hooks
   │   ├─ contextManager.addMessage(assistantMsg with tool_calls)
   │   └─ returns { done: false, toolCalls: [read(Agent.ts)] }
@@ -610,10 +649,10 @@ agent.runAgentLoop({ role: "user", content: "..." })
   ├─ Phase 3: Tool Execution
   │   ├─ Budget guard: checkBatchBudget → proceed
   │   ├─ ToolDispatcher.dispatch()
-  │   │   ├─ yield tool_call_start → TUI shows spinner
-  │   │   ├─ PermissionMiddleware → ReadCacheMiddleware → tool.execute()
+  │   │   ├─ yield tool_call_start → TUI shows running tool
+  │   │   ├─ PermissionMiddleware → ReadCacheMiddleware → TraceToolMiddleware → tool.execute()
   │   │   │   └─ ReadTool reads file, returns content
-  │   │   └─ yield tool_call_result → TUI shows tool result
+  │   │   └─ yield tool_call_result → FinalToolCallView renders result
   │   └─ contextManager.addMessage(toolResult)
   │
   ├─ Phase 2: LLM Turn 2
@@ -621,7 +660,7 @@ agent.runAgentLoop({ role: "user", content: "..." })
   │
   └─ Phase 4: Teardown
       ├─ afterAgentRun hooks (memory extracts key info, session auto-saves)
-      └─ yields agent_done → TUI dispatches LOOP_COMPLETE
+      └─ yields agent_done → TUI stops streaming indicator
 ```
 
 ---
