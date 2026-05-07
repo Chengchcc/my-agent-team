@@ -113,6 +113,8 @@ export const defaultSettings: Settings = {
       tokenLimit: 30_000,
       timeoutMs: 60_000,
       outputDir: '~/.my-agent/skills/auto',
+      autoAcceptHours: 48,
+      lowScoreWarningThreshold: 0.5,
     },
   },
 };

@@ -8,6 +8,8 @@ export interface ReviewConfig {
   tokenLimit: number;
   timeoutMs: number;
   outputDir: string;
+  autoAcceptHours?: number;
+  lowScoreWarningThreshold?: number;
 }
 
 /** A completed review notification for TUI display. */
@@ -18,8 +20,29 @@ export interface ReviewNotification {
   createdAt: number;
 }
 
-/** Callback type for wiring evolution into the trace middleware. */
-export type EvolutionReviewCallback = (
-  nudgeResult: { signal: string; trigger: string; traceRunId: string; sessionId: string; reason: string },
-  trace: TraceRun,
-) => void;
+/** Interface for the evolution module wired into trace middleware. */
+export interface EvolutionCallback {
+  review(
+    nudgeResult: { signal: string; trigger: string; traceRunId: string; sessionId: string; reason: string },
+    trace: TraceRun,
+  ): void;
+  trackStats(summary: TraceRun['summary'], runId: string): Promise<Array<{ skillName: string; triggerReview: boolean }>>;
+  autoAcceptStaleSkills?(): Promise<string[]>;
+}
+
+/** Mechanical scoring data for a skill (Tier 1). */
+export interface SkillStats {
+  totalRuns: number;
+  successfulRuns: number;
+  successRate: number;
+  lastRunId: string;
+}
+
+/** Persistent status of a skill in the evolution system. */
+export interface SkillStatus {
+  skillName: string;
+  status: 'pending' | 'kept' | 'deleted' | 'reviewed';
+  createdAt: number;
+  sourceRunId: string;
+  stats?: SkillStats;
+}

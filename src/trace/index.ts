@@ -6,7 +6,8 @@ import { DefaultRedactor } from './redactor';
 import type { TraceRedactor, NudgeResult, NudgeState, TraceRun, TraceTurn, TraceSummary, TraceEntry } from './types';
 import { TraceBuffer } from './trace-buffer';
 import type { ModelResponseRecord, ToolExecutionRecord } from './trace-buffer';
-import type { EvolutionReviewCallback } from '../evolution/types';
+import type { EvolutionCallback } from '../evolution/types';
+import type { SkillLoader } from '../skills/loader';
 import os from 'os';
 import path from 'path';
 
@@ -29,7 +30,8 @@ export function createTraceMiddleware(options: {
   maxRunsPerSession?: number | undefined;
   redactionMode?: 'default' | 'none' | undefined;
   nudgeEnabled?: boolean | undefined;
-  evolution?: { review: EvolutionReviewCallback } | null;
+  evolution?: EvolutionCallback | null;
+  skillLoader?: SkillLoader | null | undefined;
 } = {}): TraceMiddlewareSet {
   const baseDir = options.baseDir ?? DEFAULT_TRACE_DIR;
   const store = options.store ?? new TraceStore(baseDir, options.maxRunsPerSession);
@@ -44,6 +46,7 @@ export function createTraceMiddleware(options: {
     redactor,
     options.nudgeEnabled ?? true,
     options.evolution,
+    options.skillLoader,
   );
   const toolMiddleware = new TraceToolMiddleware();
 

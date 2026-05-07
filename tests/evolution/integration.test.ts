@@ -54,7 +54,7 @@ describe('Evolution integration', () => {
 
     const prompt = buildReviewPrompt('error_burst', trace, []);
     expect(prompt).toContain('EACCES');
-    expect(prompt).toContain('Score this pattern');
+    expect(prompt).toContain('Score reusability');
 
     const systemPrompt = buildReviewSystemPrompt('error_burst', trace, [], TEST_DIR);
     expect(systemPrompt).toContain('create_review_skill');
@@ -96,6 +96,6 @@ describe('Evolution integration', () => {
     });
     const prompt = buildReviewPrompt('complex_task', trace, []);
     expect(prompt).toContain('successful multi-step');
-    expect(prompt).toContain('Score this workflow');
+    expect(prompt).toContain('Score reusability');
   });
 });

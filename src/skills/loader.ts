@@ -1,7 +1,9 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { existsSync, statSync } from 'node:fs';
 import matter from 'gray-matter';
+import { debugLog } from '../utils/debug';
 import { getSettingsSync } from '../config';
 
 export type SkillFrontmatter = {
@@ -21,6 +23,8 @@ export class SkillLoader {
   private basePath: string;
   private sourcePaths: string[];
   private cachedSkills: Map<string, SkillInfo> = new Map();
+  private lastAutoSkillsMtime = 0;
+  private autoDir: string;
 
   constructor(basePath?: string) {
     const settings = getSettingsSync();
@@ -29,6 +33,7 @@ export class SkillLoader {
       projectPath,
       path.join(os.homedir(), '.my-agent', 'skills', 'auto'),
     ];
+    this.autoDir = path.join(os.homedir(), '.my-agent', 'skills', 'auto');
     this.basePath = this.sourcePaths[0]!;  // keep backward compat
   }
 
@@ -125,5 +130,33 @@ export class SkillLoader {
    */
   getBasePath(): string {
     return this.basePath;
+  }
+
+  checkAutoSkills(): void {
+    try {
+      if (!existsSync(this.autoDir)) return;
+      const mtime = statSync(this.autoDir).mtimeMs;
+      if (mtime > this.lastAutoSkillsMtime) {
+        this.lastAutoSkillsMtime = mtime;
+        this.clearCache();
+        debugLog('[skills] Auto skills changed, cache cleared');
+      }
+    } catch {
+      // directory doesn't exist — nothing to reload
+    }
+  }
+
+  /**
+   * Get the names of all currently loaded auto skills.
+   * Auto skills are those loaded from ~/.my-agent/skills/auto/.
+   */
+  getAutoSkillNames(): string[] {
+    const names: string[] = [];
+    for (const [name, info] of this.cachedSkills) {
+      if (info.filePath.startsWith(this.autoDir)) {
+        names.push(name);
+      }
+    }
+    return names;
   }
 }

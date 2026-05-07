@@ -25,6 +25,7 @@ export class TraceBuffer {
   private store: TraceStore;
   private writeQueue: Promise<void> = Promise.resolve();
   private pendingUserMessage: string | undefined;
+  private activatedSkills: string[] = [];
 
   constructor(sessionId: string, store: TraceStore, parentRunId?: string) {
     this.sessionId = sessionId;
@@ -32,6 +33,10 @@ export class TraceBuffer {
     this.parentRunId = parentRunId;
     this.runId = nanoid();
     this.startTime = Date.now();
+  }
+
+  setActivatedSkills(skills: string[]): void {
+    this.activatedSkills = skills;
   }
 
   recordUserMessage(message: string): void {
@@ -122,6 +127,7 @@ export class TraceBuffer {
       totalErrors,
       totalTokens,
       outcome,
+      ...(this.activatedSkills.length > 0 ? { activatedSkills: this.activatedSkills } : {}),
     };
   }
 }

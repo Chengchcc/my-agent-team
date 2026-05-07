@@ -38,6 +38,8 @@ export interface ReviewNotification {
   outputDir: string;
   dismissed: boolean;
   createdAt: number;
+  kept?: boolean;
+  deleted?: boolean;
 }
 
 // ── Slice states ──

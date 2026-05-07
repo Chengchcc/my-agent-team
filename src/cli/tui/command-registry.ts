@@ -83,9 +83,10 @@ export function toSkillCommand(skill: SkillFrontmatter): SlashCommand {
 }
 
 export function getBuiltinCommands(sessionStore: SessionStore): SlashCommand[] {
-  // Lazy import to avoid circular dependencies
+  // Lazy imports to avoid circular dependencies
   const { getSessionCommands } = require('./commands/session-commands');
-  return [...BASE_COMMANDS, compactCommand, costCommand, toolsCommand, ...getSessionCommands(sessionStore), ...getMcpCommands()];
+  const { createReviewCommands } = require('./commands/review-commands');
+  return [...BASE_COMMANDS, compactCommand, costCommand, toolsCommand, ...getSessionCommands(sessionStore), ...createReviewCommands(), ...getMcpCommands()];
 }
 
 export function filterCommands(commands: SlashCommand[], filter: string): SlashCommand[] {

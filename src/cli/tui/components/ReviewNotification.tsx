@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import type { FC } from 'react';
 import { useTuiStore } from '../state/store';
@@ -21,12 +21,19 @@ const ReviewNotification: FC<ReviewNotificationProps> = ({ skillName, descriptio
 
 /**
  * Renders all active (non-dismissed) review notifications from the TUI store.
- * Kept as a small wrapper so App.tsx stays within the function-length limit.
+ * Uses useMemo with JSON.stringify to stabilize the selector output and avoid
+ * infinite re-render loops from Immer draft identity changes.
  */
 function ReviewNotifications(): React.ReactElement | null {
-  const active = useTuiStore((s) =>
-    s.reviewNotifications.filter((n: ReviewNotificationType) => !n.dismissed),
+  const notifications = useTuiStore((s) => s.reviewNotifications);
+
+  const depKey = notifications.map((n: ReviewNotificationType) => n.skillName + n.dismissed).join(',');
+  const active = useMemo(
+    () => notifications.filter((n: ReviewNotificationType) => !n.dismissed),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [depKey],
   );
+
   if (active.length === 0) return null;
   return (
     <>

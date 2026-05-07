@@ -72,8 +72,107 @@ describe('forkReviewAgent', () => {
     const trace = makeTrace();
     const prompt = buildReviewSystemPrompt('error_burst', trace, [], TEST_DIR);
 
-    expect(prompt).toContain('output directory');
+    expect(prompt).toContain('Output directory');
     expect(prompt).toContain('create_review_skill');
+    expect(prompt).toContain(TEST_DIR);
+  });
+
+  // -----------------------------------------------------------------------
+  // New tests: skill creation instructions content
+  // -----------------------------------------------------------------------
+
+  test('buildReviewSystemPrompt includes Anatomy of a Skill', () => {
+    const trace = makeTrace();
+    const prompt = buildReviewSystemPrompt('error_burst', trace, [], TEST_DIR);
+
+    expect(prompt).toContain('Anatomy of a Skill');
+    expect(prompt).toContain('SKILL.md');
+    expect(prompt).toContain('scripts/');
+    expect(prompt).toContain('references/');
+    expect(prompt).toContain('assets/');
+  });
+
+  test('buildReviewSystemPrompt includes SKILL.md format spec', () => {
+    const trace = makeTrace();
+    const prompt = buildReviewSystemPrompt('error_burst', trace, [], TEST_DIR);
+
+    expect(prompt).toContain('SKILL.md Format');
+    expect(prompt).toContain('YAML frontmatter');
+    expect(prompt).toContain('name: my-skill-name');
+    expect(prompt).toContain('description:');
+  });
+
+  test('buildReviewSystemPrompt includes writing principles', () => {
+    const trace = makeTrace();
+    const prompt = buildReviewSystemPrompt('error_burst', trace, [], TEST_DIR);
+
+    expect(prompt).toContain('Writing Principles');
+    expect(prompt).toContain('Explain WHY');
+    expect(prompt).toContain('imperative form');
+    expect(prompt).toContain('Include concrete examples');
+    expect(prompt).toContain('edge cases');
+    expect(prompt).toContain('verification steps');
+    expect(prompt).toContain('Keep it focused');
+  });
+
+  test('buildReviewSystemPrompt includes anti-patterns for skill creation', () => {
+    const trace = makeTrace();
+    const prompt = buildReviewSystemPrompt('error_burst', trace, [], TEST_DIR);
+
+    expect(prompt).toContain('Anti-patterns');
+    expect(prompt).toContain('one-off configuration detail');
+    expect(prompt).toContain('purely mechanical');
+    expect(prompt).toContain('how-to" document masquerading');
+  });
+
+  test('buildReviewSystemPrompt includes dedup reminder with existing skills', () => {
+    const trace = makeTrace();
+    const skills = ['existing-pattern', 'already-covered'];
+    const prompt = buildReviewSystemPrompt('error_burst', trace, skills, TEST_DIR);
+
+    expect(prompt).toContain('Dedup reminder');
+    expect(prompt).toContain('existing-pattern');
+    expect(prompt).toContain('already-covered');
+  });
+
+  test('buildReviewSystemPrompt includes description writing guidance', () => {
+    const trace = makeTrace();
+    const prompt = buildReviewSystemPrompt('error_burst', trace, [], TEST_DIR);
+
+    expect(prompt).toContain('triggering mechanism');
+    expect(prompt).toContain('near-miss phrasings');
+    expect(prompt).toContain('under-trigger');
+  });
+
+  test('buildReviewSystemPrompt with no existing skills shows (none) in dedup', () => {
+    const trace = makeTrace();
+    const prompt = buildReviewSystemPrompt('error_burst', trace, [], TEST_DIR);
+
+    expect(prompt).toContain('(none)');
+  });
+
+  test('buildReviewSystemPrompt includes scoring summary', () => {
+    const trace = makeTrace();
+    const prompt = buildReviewSystemPrompt('error_burst', trace, [], TEST_DIR);
+
+    expect(prompt).toContain('Scoring summary');
+    expect(prompt).toContain('Nothing to save');
+    expect(prompt).toContain('kebab-case');
+  });
+
+  // -----------------------------------------------------------------------
+  // Verify cross-prompt integration
+  // -----------------------------------------------------------------------
+
+  test('complex_task trigger still wired to skill creation instructions', () => {
+    const trace = makeTrace({
+      summary: { totalTurns: 5, totalToolCalls: 5, totalErrors: 0,
+        totalTokens: { prompt_tokens: 50, completion_tokens: 25 }, outcome: 'completed' as const },
+    });
+    const prompt = buildReviewSystemPrompt('complex_task', trace, [], TEST_DIR);
+
+    expect(prompt).toContain('successful multi-step');
+    expect(prompt).toContain('Anatomy of a Skill');
     expect(prompt).toContain(TEST_DIR);
   });
 });

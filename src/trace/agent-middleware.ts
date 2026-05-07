@@ -2,8 +2,10 @@ import type { Middleware, AgentMiddleware, AgentContext } from '../types';
 import { TraceBuffer } from './trace-buffer';
 import type { TraceStore, TraceRedactor, TraceRun } from './types';
 import type { NudgeEngine } from './nudge-engine';
-import type { EvolutionReviewCallback } from '../evolution/types';
+import type { EvolutionCallback } from '../evolution/types';
+import type { SkillLoader } from '../skills/loader';
 import { debugLog } from '../utils/debug';
+import { useTuiStore } from '../cli/tui/state/store';
 
 export class TraceAgentMiddleware implements AgentMiddleware {
   constructor(
@@ -11,10 +13,13 @@ export class TraceAgentMiddleware implements AgentMiddleware {
     private nudgeEngine: NudgeEngine,
     private redactor: TraceRedactor,
     private nudgeEnabled: boolean = true,
-    private evolution?: { review: EvolutionReviewCallback } | null,
+    private evolution?: EvolutionCallback | null,
+    private skillLoader?: SkillLoader | null,
   ) {}
 
   beforeAgentRun: Middleware = async (context, next) => {
+    this.skillLoader?.checkAutoSkills();
+    void this.evolution?.autoAcceptStaleSkills?.();
     const parentRunId = context.metadata._parentTraceRunId as string | undefined;
     const buffer = new TraceBuffer(this.sessionId(context), this.store, parentRunId);
     context.metadata._traceBuffer = buffer;
@@ -22,6 +27,11 @@ export class TraceAgentMiddleware implements AgentMiddleware {
     const lastUserMsg = [...context.messages].reverse().find(m => m.role === 'user');
     if (lastUserMsg) {
       buffer.recordUserMessage(lastUserMsg.content);
+    }
+
+    const activatedSkills = this.skillLoader?.getAutoSkillNames() ?? [];
+    if (activatedSkills.length > 0) {
+      buffer.setActivatedSkills(activatedSkills);
     }
 
     return next();
@@ -76,6 +86,24 @@ export class TraceAgentMiddleware implements AgentMiddleware {
           if (this.evolution?.review) {
             this.evolution.review(nudgeResult, trace);
           }
+        }
+      }
+      // Tier 2 effectiveness tracking
+      if (this.evolution?.trackStats) {
+        try {
+          const results = await this.evolution.trackStats(trace.summary, trace.id);
+          for (const { skillName, triggerReview } of results) {
+            if (triggerReview) {
+              debugLog(`[trace] Low-score warning for ${skillName} — Tier 2 review recommended`);
+              useTuiStore.getState().addReviewNotification(
+                skillName,
+                `Low success rate — use /review to inspect`,
+                '',
+              );
+            }
+          }
+        } catch (err) {
+          debugLog(`[trace] Track stats failed: ${err}`);
         }
       }
     } catch (err) {

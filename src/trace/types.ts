@@ -32,6 +32,7 @@ export interface TraceSummary {
   totalTokens: Record<string, number>;
   outcome: 'completed' | 'error' | 'max_turns' | 'aborted';
   error?: string;
+  activatedSkills?: string[];
 }
 
 export interface TraceRun {

@@ -70,6 +70,8 @@ export interface TuiStore {
   reviewNotifications: ReviewNotification[];
   addReviewNotification: (skillName: string, description: string, outputDir: string) => void;
   dismissReviewNotification: (skillName: string) => void;
+  keepReviewSkill: (skillName: string) => void;
+  deleteReviewSkill: (skillName: string) => void;
 }
 
 // ── Store ──
@@ -294,6 +296,18 @@ export const useTuiStore = create<TuiStore>()(
             n.dismissed = true;
           }
         }
+      }),
+
+    keepReviewSkill: (skillName) =>
+      set((s) => {
+        const n = s.reviewNotifications.find(r => r.skillName === skillName);
+        if (n) { n.dismissed = true; n.kept = true; }
+      }),
+
+    deleteReviewSkill: (skillName) =>
+      set((s) => {
+        const n = s.reviewNotifications.find(r => r.skillName === skillName);
+        if (n) { n.dismissed = true; n.deleted = true; }
       }),
   /* eslint-enable max-lines-per-function */
   })),

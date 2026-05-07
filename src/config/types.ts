@@ -145,6 +145,8 @@ export interface TraceReviewSettings {
   tokenLimit: number;
   timeoutMs: number;
   outputDir: string;
+  autoAcceptHours: number;
+  lowScoreWarningThreshold: number;
 }
 
 export interface TraceSettings {
