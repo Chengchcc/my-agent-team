@@ -208,6 +208,11 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
 
   const staticItems = useMemo(() => [banner, ...frozenItems], [banner, frozenItems]);
 
+  const activeAssistant = useMemo(
+    () => liveItem?.kind === 'assistant-message' ? toActiveAssistant(liveItem) : null,
+    [liveItem],
+  );
+
   const showPrompt = askUserQuestionRequest != null || permissionRequest != null;
 
   return (
@@ -216,8 +221,8 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
         {(item) => <FinalItemView key={finalItemKey(item)} item={item} />}
       </Static>
       <Box flexDirection="column">
-        {liveItem != null && liveItem.kind === 'assistant-message' && (
-          <ActiveAssistantView assistant={toActiveAssistant(liveItem)} />
+        {activeAssistant != null && (
+          <ActiveAssistantView assistant={activeAssistant} />
         )}
         <StreamingIndicator />
         <FocusedToolDetail />

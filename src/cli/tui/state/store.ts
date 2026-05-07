@@ -1,4 +1,5 @@
-import { create } from 'zustand';
+import { create, useStore } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 import { immer } from 'zustand/middleware/immer';
 import { enableMapSet } from 'immer';
 import { nanoid } from 'nanoid';
@@ -315,9 +316,41 @@ export const useTuiStore = create<TuiStore>()(
 
 // ── Selectors ──
 
-/** The currently streaming assistant message, or null. Rendered by ActiveAssistantView. */
+/**
+ * The currently streaming assistant message, or null.
+ *
+ * Uses structural comparison: only re-renders when segment **structure**
+ * changes (new segment, tool result arrives, status change). Text content
+ * growth within an existing text segment does NOT trigger re-renders here
+ * — LiveTextSegment gets text via the committer's throttled path.
+ */
 export function useLiveItem(): FinalItem | null {
-  return useTuiStore((s) => s.live);
+  return useStore(useTuiStore, useShallow((s): FinalItem | null => {
+    if (!s.live) return null;
+    if (s.live.kind !== 'assistant-message') return s.live as FinalItem;
+    return {
+      kind: 'assistant-message' as const,
+      id: s.live.id,
+      status: s.live.status,
+      segments: s.live.segments.map(seg => {
+        if (seg.kind === 'text') {
+          return {
+            kind: 'text' as const,
+            id: seg.id,
+            content: '' as string,
+            committedLength: 0 as number,
+          };
+        }
+        return {
+          kind: 'tool_call' as const,
+          id: seg.id,
+          name: seg.name,
+          input: seg.input,
+          result: seg.result,
+        };
+      }),
+    } satisfies FinalItem;
+  }));
 }
 
 /**

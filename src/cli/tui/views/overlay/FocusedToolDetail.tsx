@@ -7,11 +7,12 @@ type CallInfo = { name: string; result: { kind: string; content?: string; messag
 
 export function FocusedToolDetail() {
   const focusedId = useTuiStore(s => s.interaction.focusedToolId);
-  const live = useTuiStore(s => s.live);
-  const finalized = useTuiStore(s => s.finalized);
 
   if (!focusedId) return null;
 
+  // Imperative read — does NOT subscribe to s.live. This component only
+  // re-renders when focusedId changes, not on every text delta.
+  const { live, finalized } = useTuiStore.getState();
   const searchOrder: FinalItem[] = live ? [...finalized, live] : finalized;
 
   let call: CallInfo | null = null;
