@@ -104,7 +104,7 @@ describe('StreamingCommitter', () => {
     }
   });
 
-  test('committer commits unclosed code fence as single block', async () => {
+  test('single block not committed while still growing', async () => {
     store().turnStart('a1');
     const c = getCommitter();
 
@@ -112,8 +112,8 @@ describe('StreamingCommitter', () => {
     await new Promise(r => setTimeout(r, 80));
 
     if (liveSeg(0).kind === 'text') {
-      // Single block (unclosed fence parsed as one code block) gets committed
-      expect(liveSeg(0).committedLength).toBeGreaterThan(0);
+      // Single block is still growing — not committed yet
+      expect(liveSeg(0).committedLength).toBe(0);
     }
   });
 
@@ -147,7 +147,7 @@ describe('StreamingCommitter', () => {
     }
   });
 
-  test('single-paragraph content gets committed (no longer stuck at 0)', async () => {
+  test('single-paragraph stays uncommitted until second block forms', async () => {
     store().turnStart('a1');
     const c = getCommitter();
 
@@ -155,7 +155,15 @@ describe('StreamingCommitter', () => {
     await new Promise(r => setTimeout(r, 80));
 
     if (liveSeg(0).kind === 'text') {
-      // Single block gets committed immediately — no second-to-last needed
+      // Single block is still growing — not committed
+      expect(liveSeg(0).committedLength).toBe(0);
+    }
+
+    // Second block triggers commit of first
+    c.onDelta('\n\nsecond block');
+    await new Promise(r => setTimeout(r, 80));
+
+    if (liveSeg(0).kind === 'text') {
       expect(liveSeg(0).committedLength).toBeGreaterThan(0);
     }
   });

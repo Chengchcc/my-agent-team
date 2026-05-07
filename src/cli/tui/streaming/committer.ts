@@ -23,10 +23,16 @@ type Snapshot = Map<string, SegFrame>;
 
 const THROTTLE_MS = 33;
 
-/** Commit all ready blocks. For single-block content, commit the block itself (its AST is cheap). For multi-block, commit all except the last (still growing). */
+/**
+ * Commit all ready blocks. A block is "ready" only when a subsequent block
+ * has started — i.e. there are ≥2 blocks. For single-block content the
+ * block is still growing, so nothing is committed. This avoids triggering
+ * expensive React terminal I/O every 33ms while the model streams within
+ * a single paragraph.
+ */
 function computeBoundary(blocks: Block[], prevCommitted: number): number {
-  if (blocks.length === 0) return prevCommitted;
-  const lastStableIdx = blocks.length >= 2 ? blocks.length - 2 : 0;
+  if (blocks.length < 2) return prevCommitted;
+  const lastStableIdx = blocks.length - 2;
   return Math.max(prevCommitted, blocks[lastStableIdx]!.endOffset);
 }
 
