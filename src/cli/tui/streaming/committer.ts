@@ -21,7 +21,7 @@ const LOG_ID_LEN = 6;
 
 type Snapshot = Map<string, SegFrame>;
 
-const THROTTLE_MS = 50;
+const THROTTLE_MS = 33;
 
 /** Commit all ready blocks. For single-block content, commit the block itself (its AST is cheap). For multi-block, commit all except the last (still growing). */
 function computeBoundary(blocks: Block[], prevCommitted: number): number {
@@ -153,10 +153,13 @@ class Committer {
   // ── Private ──
 
   private processSegments(): void {
+    const t0 = performance.now();
     const { snapshot, advances } = this.buildSnapshot();
+    const t1 = performance.now();
     this.prevSnapshot = snapshot;
     this.currentSnapshot = snapshot;
     for (const cb of this.listeners) cb();
+    const t2 = performance.now();
 
     if (advances.length > 0) {
       const store = useTuiStore.getState();
@@ -164,6 +167,15 @@ class Committer {
         store.commitAdvance(adv.segId, adv.committedLength);
       }
     }
+    const t3 = performance.now();
+
+    debugLog('COMMITTER timing', {
+      build: (t1 - t0).toFixed(1),
+      notify: (t2 - t1).toFixed(1),
+      commit: (t3 - t2).toFixed(1),
+      total: (t3 - t0).toFixed(1),
+      advances: advances.length,
+    });
   }
 
   private buildSnapshot(): { snapshot: Snapshot; advances: Array<{ segId: string; committedLength: number }> } {
@@ -196,20 +208,24 @@ class Committer {
       const parseCache = this.parseCache;
       const cachedParse = parseCache.get(seg.id);
       let doc: ParsedDoc;
+      let parseMode: 'cache-exact' | 'cache-extend' | 'fresh';
 
       if (cachedParse && cachedParse.content === seg.content) {
         doc = cachedParse.doc;
+        parseMode = 'cache-exact';
       } else if (cachedParse && !shouldReparse(seg.content, cachedParse.content)) {
         doc = extendLastBlock(cachedParse.doc, seg.content);
         parseCache.set(seg.id, { content: seg.content, doc });
+        parseMode = 'cache-extend';
       } else {
         doc = parseDoc(seg.content);
         parseCache.set(seg.id, { content: seg.content, doc });
+        parseMode = 'fresh';
       }
       const boundary = computeBoundary(doc.blocks, seg.committedLength);
       const committedLength = Math.max(seg.committedLength, boundary);
 
-      segDigests.push(`text(parse):${seg.id.slice(0, LOG_ID_LEN)} len=${seg.content.length} committed=${committedLength} boundary=${boundary} blocks=${doc.blocks.length}`);
+      segDigests.push(`text(${parseMode}):${seg.id.slice(0, LOG_ID_LEN)} len=${seg.content.length} committed=${committedLength} blocks=${doc.blocks.length}`);
 
       if (committedLength > seg.committedLength) {
         advances.push({ segId: seg.id, committedLength });

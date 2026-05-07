@@ -126,24 +126,12 @@ export function useAgentSubscription(agent: Agent) {
     abortRef.current = controller;
 
     try {
-      let textDeltaCount = 0;
       for await (const event of agent.runAgentLoop(
         { role: 'user', content: text, id: userId },
         undefined,
         { signal: controller.signal },
       ) as AsyncIterable<AgentEvent>) {
         dispatchAgentEvent(event, agent);
-
-        // Yield to event loop every N text deltas so stdin / I/O
-        // can be processed between streaming batches. setImmediate
-        // fires right after the I/O poll phase, which is when stdin
-        // data becomes available.
-        if (event.type === 'text_delta') {
-          textDeltaCount++;
-          if (textDeltaCount % 4 === 0) {
-            await new Promise<void>(resolve => setImmediate(resolve));
-          }
-        }
       }
       debugLog('SUBMIT loop exited normally');
     } catch (err: unknown) {
