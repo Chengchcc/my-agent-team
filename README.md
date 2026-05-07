@@ -40,6 +40,15 @@ You type instructions. The agent reasons, calls tools (reading files, running co
 - Teach the agent new workflows with markdown files (`skills/<name>/SKILL.md`)
 - Progressive loading — skills are listed for the model, full content loaded on demand
 - Auto-injection when user mentions a skill by name
+- Multi-source loading: project `skills/` + auto-generated `~/.my-agent/skills/auto/`
+
+**Self-Evolution**
+- Trace recording: every run captured as structured NDJSON (turns, tool calls, timing, errors)
+- Nudge engine: auto-detects error bursts, complex tasks, and periodic review opportunities
+- Background review agent: analyzes traces and creates reusable skills automatically
+- Effectiveness tracking: measures auto-skill impact, triggers LLM analysis for low performers
+- Quality feedback loop: analysis results feed into prompt optimization
+- Approval queue: `/review` command to approve, edit, or delete auto-generated skills
 
 **TUI**
 - Streaming text with syntax-highlighted code blocks
@@ -98,6 +107,11 @@ All settings are validated against Zod schemas. See `src/config/types.ts` for th
 | `/sessions delete <name>` | Delete a saved session |
 | `/tasks` | Show the task list |
 | `/memory search <query>` | Search persistent memory |
+| `/review list` | List auto-generated skills with status and effectiveness |
+| `/review view <name>` | View an auto-generated skill's content |
+| `/review keep <name>` | Approve an auto-generated skill |
+| `/review delete <name>` | Delete an auto-generated skill |
+| `/review edit <name>` | Open an auto-generated skill for editing |
 | `/exit` | Quit |
 
 Slash commands support fuzzy autocomplete — type `/` and a few characters to filter.
@@ -112,16 +126,20 @@ my-agent/
 │   │   ├── compaction/         # Multi-tier context compression
 │   │   └── tool-dispatch/      # Tool execution pipeline + middleware
 │   ├── cli/tui/                # Ink/React terminal UI
+│   │   ├── commands/           # Slash commands (/review, /sessions, /mcp, etc.)
 │   │   ├── components/         # ChatMessage, InputBox, Footer, ToolCallMessage, etc.
 │   │   ├── hooks/              # State management, agent loop integration
 │   │   └── utils/              # Tool output formatting
 │   ├── config/                 # YAML-based configuration + Zod validation
+│   ├── evolution/              # Self-evolution: review agent, effectiveness tracking, skill analysis
+│   ├── mcp/                    # MCP client (server lifecycle, tool adapter, prompts, resources)
 │   ├── memory/                 # Persistent memory (stores, retriever, extractor)
 │   ├── providers/              # Claude + OpenAI providers
 │   ├── session/                # Conversation session persistence
 │   ├── skills/                 # Skill loading + injection middleware
 │   ├── todos/                  # Task list middleware + types
 │   ├── tools/                  # Built-in tool implementations
+│   ├── trace/                  # Trace recording: buffer, store, redactor, nudge engine, middleware
 │   ├── utils/                  # Debug logging, file detection
 │   ├── runtime.ts              # Single assembly point for the full runtime
 │   └── types.ts                # Shared type definitions

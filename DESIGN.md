@@ -22,9 +22,31 @@ A terminal-native AI coding agent built with TypeScript and Bun. It combines an 
 - [Skills System](#skills-system)
 - [Todo System](#todo-system)
 - [Session System](#session-system)
+- [Trace System](#trace-system)
+- [Self-Evolution System](#self-evolution-system)
 - [Terminal UI (TUI)](#terminal-ui-tui)
 - [Data Flow](#data-flow)
 - [Architecture Rules](#architecture-rules)
+---
+
+## Terminology
+
+| Term | Definition |
+|------|-----------|
+| **Run** | A single `agent.runAgentLoop()` invocation — one complete agent session from user input to final response. Created in `beforeAgentRun`, finalized in `afterAgentRun`. |
+| **Turn** | One LLM invocation + its tool executions. A run contains multiple turns. |
+| **Tool Execution** | A single tool call within a turn. Has name, success/failure, duration, and optional error message. |
+| **Trace** | The structured record of a run (TraceRun): all turns, tool executions, token usage, timing, and outcome. Persisted as NDJSON in `~/.my-agent/traces/`. |
+| **Nudge** | A signal generated after a run completes, indicating the trace contains a pattern worth reviewing. Three types: error burst, complex task, periodic. |
+| **Review Agent** | A lightweight background agent (Phase 2) that analyzes a trace when a nudge fires, producing auto-generated skills. |
+| **Auto Skill** | A skill created by the Review Agent in `~/.my-agent/skills/auto/`. Tracked for effectiveness; user can approve or delete via `/review`. |
+| **Effectiveness Score** | `successful_runs / total_runs_with_skill` for an auto skill. Low scores trigger Tier 2 LLM analysis (Phase 3). |
+| **Evolution** | The full closed loop (trace → nudge → review → skill → measurement → feedback) that enables the agent to self-improve over time. |
+| **Agent Loop** | The async generator in `Agent.runAgentLoop()` that cycles through Phase 1 (setup) → Phase 2 (LLM turn) → Phase 3 (tool execution) → repeat/teardown. |
+| **Middleware (Agent)** | Onion-pattern hooks: `beforeAgentRun`, `beforeCompress`, `beforeModel`, `afterModel`, `beforeAddResponse`, `afterAgentRun`. |
+| **Middleware (Tool)** | Onion-pattern tool wrappers: `PermissionMiddleware` → `ReadCacheMiddleware` → `TraceToolMiddleware` → `tool.execute()`. |
+| **Compaction** | Multi-tier context compression: snip → summarize → emergency truncate → collapse. Triggered when token usage exceeds thresholds. |
+| **Ephemeral Reminder** | Injected context that does not persist in message history (e.g., retrieved memories, MCP resource catalogs). |
 
 ---
 
@@ -54,6 +76,7 @@ my-agent/
       hooks/                  # State management, agent loop integration
       utils/                  # Tool output formatting
     config/                   # YAML-based configuration system
+    evolution/                # Self-evolution: review agent, effectiveness tracking, skill analysis
     mcp/                      # MCP client (server lifecycle, tool adapter, prompts, resources)
     memory/                   # Persistent memory (semantic, episodic, project)
     providers/                # LLM providers (Claude, OpenAI)
@@ -61,6 +84,7 @@ my-agent/
     skills/                   # Skill file loading and injection
     todos/                    # Task list management
     tools/                    # Built-in tool implementations
+    trace/                    # Trace recording: buffer, store, redactor, nudge engine, middleware
     utils/                    # Shared utilities (debug logging, file detection)
     runtime.ts                # Single assembly point for the full agent runtime
     types.ts                  # Shared type definitions
@@ -91,9 +115,11 @@ The assembly process:
 8. **Set up Memory** — three JSONL stores (semantic, episodic, project), keyword retriever, LLM extractor, and injection middleware
 9. **Set up Skills** — loads `SKILL.md` files, creates middleware that lists them for the model
 10. **Set up Session** — auto-save hook persists conversation after each run
-11. **Build the tool middleware chain** — Permission guard, then ReadCache
-12. **Create the Agent** with all components
-13. **Return** the assembled runtime
+11. **Build the tool middleware chain** — Permission guard, ReadCache, then Trace tool middleware
+12. **Wire Trace** — createTraceMiddleware for trace recording + NudgeEngine
+13. **Wire Evolution** — initEvolution for background review + effectiveness tracking (if enabled)
+14. **Create the Agent** with all components
+15. **Return** the assembled runtime
 
 The `AgentRuntime` interface exposes everything callers need — `agent`, `provider`, `toolRegistry`, `contextManager`, `sessionStore`, `memoryMiddleware`, `skillLoader`, `mcpManager` (if MCP enabled), and `shutdown`.
 
@@ -123,6 +149,7 @@ All settings are validated through Zod schemas (`src/config/schema.ts`). The `ge
 | `subAgent` | Auto-trigger threshold, worktree isolation |
 | `security` | Allowed filesystem roots |
 | `compaction` | Thresholds, summary provider/model, enabled tiers |
+| `trace` | Trace recording (enabled, max runs, redaction mode, nudge, review settings) |
 
 ---
 
@@ -545,6 +572,106 @@ agent.runAgentLoop({ role: "user", content: "..." })
       ├─ afterAgentRun hooks (memory extracts key info, session auto-saves)
       └─ yields agent_done → TUI dispatches LOOP_COMPLETE
 ```
+
+---
+
+## Trace System
+
+The Trace System (Phase 1) records agent loop execution for self-evolution. It captures every turn, tool call, LLM response, token usage, and error — persisting each run as incremental NDJSON in `~/.my-agent/traces/`.
+
+### Architecture
+
+```
+src/trace/
+  types.ts              # TraceRun, TraceTurn, TraceSummary, NudgeResult, NudgeState
+  trace-buffer.ts       # Per-run accumulator, stored in AgentContext.metadata._traceBuffer
+  store.ts              # TraceStore — NDJSON append + finalize + retention (max 50/session)
+  redactor.ts           # DefaultRedactor — secret pattern masking + path truncation
+  tool-middleware.ts    # TraceToolMiddleware — records tool execution (name, success, timing)
+  agent-middleware.ts   # TraceAgentMiddleware — 3 hooks
+  nudge-engine.ts       # 3-signal trigger + fingerprint dedup
+  index.ts              # createTraceMiddleware() factory
+```
+
+### Hooks Used
+
+| Hook | Action |
+|------|--------|
+| `beforeAgentRun` | Create TraceBuffer per-run, store in `metadata._traceBuffer` |
+| `beforeAddResponse` | Record LLM response (tools called, usage, redacted text) |
+| `afterAgentRun` | `setImmediate` → finalize trace + nudge check |
+
+### Nudge Engine — Three Signals
+
+| Signal | Condition | Rationale |
+|--------|-----------|-----------|
+| Error burst | `errors >= 2` AND `errors/turns >= 0.3` | Capture failure patterns while context is fresh |
+| Complex task | `turns >= 5` AND `errors = 0` | Successful multi-step tasks are skill candidates |
+| Periodic | Accumulated turns >= `reviewInterval` (default 10) | Catch-all for long sessions |
+
+Fingerprint dedup prevents the same error pattern from triggering review twice. Minimum 5-minute interval between reviews.
+
+### Data Flow
+
+```
+beforeAgentRun → beforeAddResponse → TraceToolMiddleware → afterAgentRun
+     │                  │                    │                    │
+  new buffer       recordModelResp    recordToolExec    setImmediate:
+  → ctx.metadata   (redacted)         (timing + error)  finalize + nudge
+```
+
+---
+
+## Self-Evolution System
+
+The Evolution System (Phases 2+3) closes the loop: trace data → pattern detection → background review → auto-generated skills → quality measurement → feedback.
+
+### Architecture
+
+```
+src/evolution/
+  types.ts                  # ReviewConfig, SkillStats, SkillStatus, EvolutionCallback
+  prompt-templates.ts       # buildReviewPrompt() — 3 templates with skill-creator methodology
+  review-agent.ts           # forkReviewAgent() — Agent fork + system prompt builder
+  review-tools.ts           # CreateReviewSkillTool — writes SKILL.md with dedup
+  skill-analyzer.ts         # Tier 2 LLM analysis: forkSkillAnalysis, buildAnalysisPrompt
+  effectiveness-tracker.ts  # Mechanical scoring (Tier 1) + status.json I/O + auto-accept
+  index.ts                  # initEvolution() factory
+```
+
+### Phase 2: Background Review
+
+When a NudgeResult fires, a lightweight Review Agent analyzes the trace and produces skills:
+
+1. **Trigger mapping**: `error_burst`/`memory_review`/`combined_review` → review prompt template
+2. **Existing skill check**: lists `~/.my-agent/skills/auto/` for dedup guidance
+3. **Review Agent fork**: independent Agent, cheap model, max 6 turns, single tool (`create_review_skill`)
+4. **Value scoring**: 1-5 scale built into prompt; score < 3 → "Nothing to save"
+5. **Skill output**: writes `SKILL.md` with YAML frontmatter + body + pitfalls to `~/.my-agent/skills/auto/{name}/`
+
+### Phase 3: Quality Assurance
+
+**Tier 1 — Mechanical Scoring**: Every run with activated auto skills updates `{skill}.status.json` with success rate.
+
+**Tier 2 — LLM Deep Analysis**: When success rate < 0.5 after >= 3 runs, a Tier 2 agent analyzes the skill's effectiveness:
+- Verdicts: `keep`, `fix` (with suggestion), `delete`
+- `fix` verdicts auto-generate eval cases for prompt optimization
+- Results shown in TUI notifications
+
+**Approval Queue**: `/review` slash command (list/view/keep/delete/edit) + keyboard shortcuts (k/d) in notification cards.
+
+**Hot-Reload**: `SkillLoader.checkAutoSkills()` checks `~/.my-agent/skills/auto/` mtime in `beforeAgentRun` — zero overhead, no file watcher.
+
+**Feedback Loop**: Tier 2 `fix` verdicts → eval cases in `review-prompt-evals-feedback.json` → user runs prompt optimization via skill-creator `run_loop.py`.
+
+### Skill Source Priority
+
+```
+skills/                          # Project skills (user-created) — highest priority
+~/.my-agent/skills/auto/         # Auto-generated by Review Agent — overridden by project
+```
+
+`SkillLoader` scans both sources. Same-name project skill wins.
 
 ---
 
