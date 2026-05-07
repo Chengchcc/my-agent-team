@@ -292,6 +292,8 @@ export class ContextManager {
     this.todoStepsSinceLastWrite = Infinity;
     this.todoStepsSinceLastReminder = Infinity;
     this.lastKnownPromptTokens = 0;
+    // Reset compaction cascade state so stale history doesn't carry over
+    this.compressionStrategy?.resetCompactionState?.();
     if (this.defaultSystemPrompt) {
       this.currentSystemPrompt = this.defaultSystemPrompt;
       this.accumulator.setSystemPrompt(countTokens(this.defaultSystemPrompt));

@@ -90,6 +90,8 @@ export type LLMResponseChunk = {
 // Compression strategy interface
 export interface CompressionStrategy {
   compress(context: AgentContext, tokenLimit: number): Promise<Message[]>;
+  /** Reset internal compaction state (cascade tracking, history). Called on ContextManager.clear() and new agent loop start. */
+  resetCompactionState?(): void;
 }
 
 // LLM Configuration

@@ -150,9 +150,32 @@ describe('Compaction cascade protection', () => {
     expect(result3.tier).toBe(CompactionTier.Snip); // No cascade yet
   });
 
-  it('should expose resetCompactionState() method', () => {
+  it('resetCompactionState() should clear cascade state so no escalation occurs', async () => {
     const budgetCalc = new TokenBudgetCalculator(180000, 4096, 2048);
-    const manager = new TieredCompactionManager(budgetCalc, baseConfig);
-    expect(typeof manager.resetCompactionState).toBe('function');
+
+    const snipOnlyConfig: CompactionConfig = {
+      ...baseConfig,
+      thresholds: { ...thresholds, snipRatio: 0.60, autoCompactRatio: 0.75, collapseRatio: 0.90, preserveRecentTurns: 2 },
+      enabledTiers: { snip: true, autoCompact: false, reactiveRecovery: false, collapse: true },
+    };
+
+    // First compaction: ineffective (reduction < 5%)
+    spyOn(budgetCalc, 'calculate').mockReturnValue(mockBudget({ usageRatio: 0.65, currentUsage: 110000 }));
+    spyOn(budgetCalc, 'countMessages').mockReturnValue(108000);
+
+    const manager = new TieredCompactionManager(budgetCalc, snipOnlyConfig);
+    const ctx = makeContext([makeUserMessage('msg')]);
+    await manager.compressWithResult(ctx, 180000);
+
+    // Second compaction: also ineffective — but first call resetCompactionState()
+    // This clears the history, so the second ineffective compaction should NOT trigger cascade
+    manager.resetCompactionState();
+
+    spyOn(budgetCalc, 'calculate').mockReturnValue(mockBudget({ usageRatio: 0.65, currentUsage: 108000 }));
+    spyOn(budgetCalc, 'countMessages').mockReturnValue(106000);
+
+    const result = await manager.compressWithResult(ctx, 180000);
+    // Should still be snip, NOT collapse (because state was reset after first ineffective)
+    expect(result.tier).toBe(CompactionTier.Snip);
   });
 });
