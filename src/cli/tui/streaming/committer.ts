@@ -1,8 +1,13 @@
 import { useState, useEffect } from 'react';
 import type { Definition, FootnoteDefinition } from 'mdast';
 import { useTuiStore } from '../state/store';
-import { parseDoc, type Block } from '../markdown/parse-ast';
+import { parseDoc, type Block, type ParsedDoc } from '../markdown/parse-ast';
 import { debugLog } from '../../../utils/debug';
+
+interface ParseCacheEntry {
+  content: string;
+  doc: ParsedDoc;
+}
 
 export interface SegFrame {
   content: string;
@@ -16,13 +21,50 @@ const LOG_ID_LEN = 6;
 
 type Snapshot = Map<string, SegFrame>;
 
-const THROTTLE_MS = 33;
+const THROTTLE_MS = 50;
 
 /** Commit all ready blocks. For single-block content, commit the block itself (its AST is cheap). For multi-block, commit all except the last (still growing). */
 function computeBoundary(blocks: Block[], prevCommitted: number): number {
   if (blocks.length === 0) return prevCommitted;
   const lastStableIdx = blocks.length >= 2 ? blocks.length - 2 : 0;
   return Math.max(prevCommitted, blocks[lastStableIdx]!.endOffset);
+}
+
+const REPARSE_GROWTH_THRESHOLD = 80;
+
+/**
+ * Returns true if the content has changed enough since the last parse
+ * to warrant a fresh parseDoc() call.
+ *
+ * Heuristic:
+ * 1. If the new portion contains '\n\n' — likely a new markdown block boundary
+ * 2. If content grew by >= 80 chars since last parse
+ * 3. Otherwise — safe to reuse cached parse
+ */
+export function shouldReparse(newContent: string, cachedContent: string): boolean {
+  const growth = newContent.length - cachedContent.length;
+  if (growth >= REPARSE_GROWTH_THRESHOLD) return true;
+
+  const newPortion = newContent.slice(cachedContent.length);
+  return newPortion.includes('\n\n');
+}
+
+/**
+ * Returns a shallow copy of `doc` with the last block's `endOffset` and `raw`
+ * extended to cover `newContent`. Used when we skip full parsing but need
+ * accurate tail text for rendering.
+ */
+export function extendLastBlock(doc: ParsedDoc, newContent: string): ParsedDoc {
+  if (doc.blocks.length === 0) return doc;
+  const blocks = [...doc.blocks];
+  const lastIdx = blocks.length - 1;
+  const last = blocks[lastIdx]!;
+  blocks[lastIdx] = {
+    ...last,
+    endOffset: newContent.length,
+    raw: newContent.slice(last.startOffset),
+  };
+  return { blocks, definitions: doc.definitions, footnotes: doc.footnotes };
 }
 
 class Committer {
@@ -33,10 +75,13 @@ class Committer {
   // returns the same object identity when values haven't changed.
   private prevSnapshot: Snapshot = new Map();
 
+  private parseCache = new Map<string, ParseCacheEntry>();
+
   // Manual time-gate: Date.now() for high-frequency burst (no scheduler dependency),
   // setTimeout trailing only fires when delta stream pauses (event loop healthy).
   private lastProcess = 0;
   private trailing: ReturnType<typeof setTimeout> | null = null;
+  private scheduledProcess: ReturnType<typeof setTimeout> | null = null;
 
   onDelta(delta: string): void {
     if (!useTuiStore.getState().live) {
@@ -50,7 +95,7 @@ class Committer {
     if (now - this.lastProcess >= THROTTLE_MS) {
       this.lastProcess = now;
       if (this.trailing) { clearTimeout(this.trailing); this.trailing = null; }
-      this.processSegments();
+      this.scheduleProcess();
     } else if (!this.trailing) {
       this.trailing = setTimeout(() => {
         this.trailing = null;
@@ -58,6 +103,15 @@ class Committer {
         this.processSegments();
       }, THROTTLE_MS);
     }
+  }
+
+  /** Schedule processSegments to yield to the event loop, keeping stdin responsive. */
+  private scheduleProcess(): void {
+    if (this.scheduledProcess) return;
+    this.scheduledProcess = setTimeout(() => {
+      this.scheduledProcess = null;
+      this.processSegments();
+    }, 0);
   }
 
   flush(): void {
@@ -88,6 +142,7 @@ class Committer {
 
     this.prevSnapshot = new Map();
     this.currentSnapshot = new Map();
+    this.parseCache = new Map();
     for (const cb of this.listeners) cb();
   }
 
@@ -102,6 +157,7 @@ class Committer {
 
   destroy(): void {
     if (this.trailing) clearTimeout(this.trailing);
+    if (this.scheduledProcess) clearTimeout(this.scheduledProcess);
     this.listeners.clear();
   }
 
@@ -148,8 +204,19 @@ class Committer {
         continue;
       }
 
-      // Parse once, use for both boundary calculation and rendering
-      const doc = parseDoc(seg.content);
+      const parseCache = this.parseCache;
+      const cachedParse = parseCache.get(seg.id);
+      let doc: ParsedDoc;
+
+      if (cachedParse && cachedParse.content === seg.content) {
+        doc = cachedParse.doc;
+      } else if (cachedParse && !shouldReparse(seg.content, cachedParse.content)) {
+        doc = extendLastBlock(cachedParse.doc, seg.content);
+        parseCache.set(seg.id, { content: seg.content, doc });
+      } else {
+        doc = parseDoc(seg.content);
+        parseCache.set(seg.id, { content: seg.content, doc });
+      }
       const boundary = computeBoundary(doc.blocks, seg.committedLength);
       const committedLength = Math.max(seg.committedLength, boundary);
 
@@ -163,21 +230,19 @@ class Committer {
 
       // Reuse block references for already-committed blocks whose raw
       // content hasn't changed — this lets React.memo skip re-render.
+      let blocks = doc.blocks;
       if (prev) {
         const prevById = new Map(prev.blocks.map(b => [b.id, b]));
-        for (let i = 0; i < doc.blocks.length; i++) {
-          const cur = doc.blocks[i]!;
+        blocks = doc.blocks.map(cur => {
           const old = prevById.get(cur.id);
-          if (old && old.raw === cur.raw) {
-            doc.blocks[i] = old;
-          }
-        }
+          return (old && old.raw === cur.raw) ? old : cur;
+        });
       }
 
       next.set(seg.id, {
         content: seg.content,
         committedLength,
-        blocks: doc.blocks,
+        blocks,
         definitions: doc.definitions,
         footnotes: doc.footnotes,
       });
