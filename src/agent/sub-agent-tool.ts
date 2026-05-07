@@ -1,5 +1,6 @@
 // src/agent/sub-agent-tool.ts
 import { nanoid } from 'nanoid';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import type { Tool, ToolImplementation } from '../types';
 import type { Provider, AgentConfig, AgentHooks } from '../types';
 import type { ToolContext } from './tool-dispatch/types';
@@ -237,6 +238,19 @@ PROFILES:
     const agentId = `sub-${nanoid(NANOID_LENGTH)}`;
     const startTime = Date.now();
 
+    // --- Set up filesystem isolation directory (for code_editor / general profiles) ---
+    let isolatedCwd: string | undefined;
+    if (profile === 'code_editor' || profile === 'general') {
+      if (this.config.isolation && this.config.worktreeRootDir) {
+        const home = process.env.HOME || '/root';
+        const resolved = this.config.worktreeRootDir.replace(/^~/, () => home);
+        isolatedCwd = `${resolved}/sub-${agentId}`;
+        try { mkdirSync(isolatedCwd, { recursive: true }); } catch { /* may exist */ }
+      } else if (this.config.isolation) {
+        isolatedCwd = mkdtempSync('/tmp/sub-agent-');
+      }
+    }
+
     // ── All synchronous setup (no I/O) before semaphore ──
 
     // Build filtered tool registry using profile-based allowlist
@@ -261,10 +275,19 @@ PROFILES:
 
       const impl = this.config.mainToolRegistry.get(toolDef.name);
       if (impl) {
-        subToolRegistry.register({
-          getDefinition: () => toolDef,
-          execute: (p, c) => impl.execute(p, c),
-        });
+        // Force cwd isolation for bash tool
+        if (toolDef.name === 'bash' && isolatedCwd) {
+          subToolRegistry.register({
+            getDefinition: () => toolDef,
+            execute: (p: Record<string, unknown>, c: Parameters<typeof impl.execute>[1]) =>
+              impl.execute({ ...p, cwd: isolatedCwd }, c),
+          });
+        } else {
+          subToolRegistry.register({
+            getDefinition: () => toolDef,
+            execute: (p, c) => impl.execute(p, c),
+          });
+        }
       }
     }
 
@@ -459,6 +482,10 @@ ${finalSummary}
 Error: ${errorMessage}
 </sub_agent_result>`;
     } finally {
+      // Clean up temp isolation directory if we created one
+      if (isolatedCwd && isolatedCwd.startsWith('/tmp/sub-agent-')) {
+        try { rmSync(isolatedCwd, { recursive: true, force: true }); } catch { /* best effort */ }
+      }
       subAgentSemaphore.release();
     }
   }
