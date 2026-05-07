@@ -97,9 +97,10 @@ export class TraceAgentMiddleware implements AgentMiddleware {
               debugLog(`[trace] Low-score warning for ${skillName} — Tier 2 review recommended`);
               useTuiStore.getState().addReviewNotification(
                 skillName,
-                `Low success rate — use /review to inspect`,
+                'Low success rate — Tier 2 analysis triggered',
                 '',
               );
+              this.evolution.runTier2Analysis?.(skillName, `Auto skill: ${skillName}`);
             }
           }
         } catch (err) {

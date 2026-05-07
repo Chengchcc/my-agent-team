@@ -1,4 +1,8 @@
 import type { SkillStats } from './types';
+import type { Provider } from '../types';
+import { Agent } from '../agent/Agent';
+import { ContextManager } from '../agent/context';
+import { debugLog } from '../utils/debug';
 
 export interface TraceSnippet {
   outcome: string;
@@ -64,4 +68,64 @@ export function verdictToEvalCase(
     should_trigger: true,
     expected_behavior: verdict.suggestion,
   };
+}
+
+const TIER2_MAX_TURNS = 4;
+const TIER2_TOKEN_LIMIT = 20_000;
+const TIER2_TIMEOUT_MS = 30_000;
+const REASONING_PREVIEW_LENGTH = 100;
+
+/**
+ * Fork a lightweight analysis agent for Tier 2 skill review.
+ * Fire-and-forget — results are delivered via onComplete callback.
+ */
+export function forkSkillAnalysis(
+  prompt: string,
+  provider: Provider,
+  _model: string,
+  onComplete: (verdict: AnalysisVerdict | null) => void,
+): void {
+  void (async () => {
+    try {
+      const agent = new Agent({
+        provider,
+        contextManager: new ContextManager({
+          tokenLimit: TIER2_TOKEN_LIMIT,
+          defaultSystemPrompt: `${prompt}\n\nRespond ONLY with the JSON verdict. No other text.`,
+        }),
+        toolRegistry: new (await import('../agent/tool-registry').then(m => m.ToolRegistry))(),
+        config: { tokenLimit: TIER2_TOKEN_LIMIT },
+        hooks: {},
+        toolMiddlewares: [],
+      });
+
+      let responseText = '';
+      const timeoutPromise = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('Tier 2 analysis timeout')), TIER2_TIMEOUT_MS),
+      );
+
+      await Promise.race([
+        (async () => {
+          for await (const event of agent.runAgentLoop(
+            { role: 'user', content: 'Analyze the skill effectiveness and output your JSON verdict.' },
+            { maxTurns: TIER2_MAX_TURNS, timeoutMs: TIER2_TIMEOUT_MS },
+          )) {
+            if (event.type === 'text_delta') {
+              responseText += event.delta;
+            }
+          }
+        })(),
+        timeoutPromise,
+      ]);
+
+      const verdict = parseVerdict(responseText);
+      if (verdict) {
+        debugLog(`[evolution] Tier 2 analysis complete: ${verdict.verdict} — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}`);
+      }
+      onComplete(verdict);
+    } catch (err) {
+      debugLog(`[evolution] Tier 2 analysis failed: ${err}`);
+      onComplete(null);
+    }
+  })();
 }

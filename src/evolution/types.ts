@@ -28,6 +28,7 @@ export interface EvolutionCallback {
   ): void;
   trackStats(summary: TraceRun['summary'], runId: string): Promise<Array<{ skillName: string; triggerReview: boolean }>>;
   autoAcceptStaleSkills?(): Promise<string[]>;
+  runTier2Analysis?(skillName: string, description: string): void;
 }
 
 /** Mechanical scoring data for a skill (Tier 1). */

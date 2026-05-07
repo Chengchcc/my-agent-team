@@ -2,12 +2,14 @@ import type { ReviewConfig } from './types';
 import type { Provider } from '../types';
 import { forkReviewAgent } from './review-agent';
 import { EffectivenessTracker } from './effectiveness-tracker';
+import { forkSkillAnalysis, buildAnalysisPrompt, verdictToEvalCase } from './skill-analyzer';
 import type { TraceRun, TraceSummary } from '../trace/types';
 import { debugLog } from '../utils/debug';
 import os from 'os';
 import path from 'path';
 
 const DEFAULT_AUTO_ACCEPT_HOURS = 48;
+const FEEDBACK_CASES_NOTIFY_THRESHOLD = 5;
 
 export interface EvolutionModule {
   review: (
@@ -16,6 +18,7 @@ export interface EvolutionModule {
   ) => void;
   trackStats: (summary: TraceSummary, runId: string) => Promise<Array<{ skillName: string; triggerReview: boolean }>>;
   autoAcceptStaleSkills: () => Promise<string[]>;
+  runTier2Analysis: (skillName: string, description: string) => void;
   outputDir: string;
 }
 
@@ -37,6 +40,7 @@ export function initEvolution(
     : config.outputDir;
 
   let isReviewRunning = false;
+  let feedbackCasesPending = 0;
   const tracker = new EffectivenessTracker(outputDir);
 
   return {
@@ -89,6 +93,36 @@ export function initEvolution(
       return results;
     },
     autoAcceptStaleSkills: () => tracker.autoAcceptStaleSkills(config.autoAcceptHours ?? DEFAULT_AUTO_ACCEPT_HOURS),
+
+    runTier2Analysis(skillName, description) {
+      const stats = { totalRuns: 0, successfulRuns: 0, successRate: 0, lastRunId: '' };
+      const prompt = buildAnalysisPrompt(skillName, description, stats, []);
+
+      forkSkillAnalysis(prompt, provider, config.model, (verdict) => { void (async () => {
+        if (verdict) {
+          // Update status with analysis
+          const status = await tracker.loadStatus(skillName);
+          if (status) {
+            status.status = 'reviewed';
+            await tracker.saveStatus(status);
+          }
+
+          // Append feedback eval case
+          const evalCase = verdictToEvalCase(skillName, verdict);
+          if (evalCase) {
+            try {
+              await tracker.appendFeedbackEval(skillName, JSON.stringify(verdict));
+              feedbackCasesPending++;
+              if (feedbackCasesPending >= FEEDBACK_CASES_NOTIFY_THRESHOLD) {
+                debugLog(`[evolution] ${feedbackCasesPending} feedback cases pending for prompt optimization`);
+              }
+            } catch (err) {
+              debugLog(`[evolution] Failed to append feedback: ${err}`);
+            }
+          }
+        }
+      })(); });
+    },
   };
 }
 
