@@ -1,6 +1,6 @@
 # Trace System Design — Middleware-Based Agent Loop Recording for Self-Evolution
 
-**Date**: 2026-05-06  |  **Status**: Draft (revised after review)  |  **Review**: 2026-05-06
+**Date**: 2026-05-06  |  **Status**: Implemented (spec updated to match implementation)  |  **Review**: 2026-05-06
 **Reference**: Hermes Agent (NousResearch/hermes-agent) architecture audit
 
 ---
@@ -42,6 +42,8 @@ Phase 4: Teardown         afterAgentRun      setImmediate → buffer.finalize() 
 ```
 
 **Why `beforeAddResponse` (not `afterModel`)**: In `agent-loop.ts:347-353`, `context.response` is assembled AFTER the `afterModel` hook runs. `beforeAddResponse` is the first hook where `context.response` is guaranteed populated.
+
+**Limitation — thinking not available**: `response.blocks` (including thinking blocks) are assembled at `agent-loop.ts:384`, AFTER `beforeAddResponse` fires at line 360. Therefore thinking data is NOT capturable at this hook point. The `TraceTurn.modelResponse.thinking` field is reserved for future use if the hook timing changes.
 
 **Why `beforeAgentRun` (not constructor)**: The TraceBuffer must be created per-run (not per-middleware-instance) to isolate concurrent sub-agent runs. `beforeAgentRun` fires once at the start of every `AgentLoop.run()` call.
 
@@ -201,7 +203,9 @@ interface TraceStore {
   appendTurn(runId: string, sessionId: string, entry: TraceEntry): Promise<void>;
   /** Write the summary line + enforce session retention (called once in afterAgentRun). */
   finalize(trace: TraceRun): Promise<void>;
-  /** Reconstruct a full TraceRun from NDJSON lines. */
+  /** Reconstruct a full TraceRun from NDJSON lines.
+   *  Note: startTime, endTime, and model are not persisted in NDJSON —
+   *  they return as 0, 0, and '' respectively after reconstruction. */
   get(runId: string, sessionId: string): Promise<TraceRun | null>;
   /** List run IDs for a session, newest first. */
   listBySession(sessionId: string, limit?: number): Promise<string[]>;
@@ -223,7 +227,7 @@ interface TraceRedactor {
 }
 ```
 
-**Default redactor**: replaces values matching common secret patterns (`sk-...`, `ghp_...`, `-----BEGIN...`) with `[REDACTED]`. Users can override in settings. The default also truncates paths longer than 120 chars to a `.../basename` form.
+**Default redactor**: replaces values matching common secret patterns (`sk-...`, `ghp_...`, `-----BEGIN...`) with `[REDACTED]`. Recursively redacts nested objects and arrays. Truncates string values that look like paths (contain `/`) and exceed 120 characters to `.../basename` form. Users can override in settings via `redaction.mode: "none"`.
 
 Configuration:
 ```json
@@ -286,22 +290,25 @@ class TraceBuffer {
     this.appendToFile({ type: "tool", ...exec });
   }
 
-  /** Called in afterAgentRun (async, non-blocking). */
-  finalize(): TraceRun {
-    const trace: TraceRun = {
+  /** Called in afterAgentRun (sync, returns TraceRun without writing). */
+  finalize(model: string, outcome?: TraceSummary['outcome']): TraceRun {
+    const summary = this.computeSummary(outcome);
+    return {
       id: this.runId, sessionId: this.sessionId,
       parentRunId: this.parentRunId,
       startTime: this.startTime, endTime: Date.now(),
-      model: /* from last response */ "",
+      model,
       turns: this.turns,
-      summary: this.computeSummary(),
+      summary,
     };
-    this.appendToFile({ type: "summary", ...trace.summary });
-    return trace;
   }
 
-  private async appendToFile(entry: unknown): Promise<void> { /* NDJSON append */ }
-  private computeSummary(): TraceSummary { /* aggregate turns */ }
+  private enqueueWrite(entry: TraceEntry): void { /* sequential NDJSON append — no await */ }
+  private computeSummary(overrideOutcome?: TraceSummary['outcome']): TraceSummary {
+    // outcome: 'error' if totalErrors > 0, otherwise 'completed'
+    // overrideOutcome allows caller to signal 'max_turns' / 'aborted' (future)
+  }
+  flush(): Promise<void> { /* wait for pending writes */ }
 }
 ```
 
@@ -377,17 +384,14 @@ class TraceAgentMiddleware implements AgentMiddleware {
     return next();
   };
 
-  /** Record LLM response. */
+  /** Record LLM response. Note: thinking is NOT available here —
+   *  response.blocks are assembled after this hook fires (agent-loop.ts:384). */
   beforeAddResponse: Middleware = async (context, next) => {
     const ctx = await next();
     const buffer = ctx.metadata._traceBuffer as TraceBuffer | undefined;
     if (!buffer || !ctx.response) return ctx;
 
     buffer.recordModelResponse({
-      thinking: ctx.response.blocks
-        ?.filter(b => b.type === 'thinking')
-        .map(b => 'thinking' in b ? b.thinking : '')
-        .join('') || undefined,
       text: this.redactor.redactText(ctx.response.content),
       toolCalls: (ctx.response.tool_calls ?? []).map(tc => ({
         name: tc.name,
@@ -405,28 +409,13 @@ class TraceAgentMiddleware implements AgentMiddleware {
     const buffer = ctx.metadata._traceBuffer as TraceBuffer | undefined;
     if (!buffer) return ctx;
 
-    const trace = buffer.finalize();
+    const model = ctx.response?.model ?? 'unknown';
+    const trace = buffer.finalize(model);
 
     // Non-blocking: spawn microtask so TUI is never blocked by disk I/O
-    setImmediate(async () => {
-      try {
-        await this.store.finalize(trace);
-        const nudgeResult = this.nudgeEngine.tick(trace);
-        if (nudgeResult) {
-          debugLog(`[trace] Nudge triggered: ${nudgeResult.reason}`);
-          await this.nudgeEngine.persist();  // save counter state
-        }
-      } catch (err) {
-        debugLog(`[trace] Finalize failed: ${err}`);
-      }
+    setImmediate(() => {
+      void this.finalizeTrace(trace);
     });
-
-    // Propagate parentRunId for sub-agent nesting
-    if (context.metadata._parentTraceRunId === undefined) {
-      // This is a top-level run; sub-agents spawned from here
-      // will read this run's ID from the parent's context.
-      // (Set by SubAgentTool before spawning the child AgentLoop.)
-    }
 
     return ctx;
   };
@@ -466,8 +455,10 @@ class NudgeEngine {
   private state: NudgeState;
   private reviewInterval: number;  // default 10, from settings
 
-  constructor(private statePath: string) {
-    this.state = this.loadState(statePath);
+  constructor(private statePath: string, reviewInterval: number = 10) {
+    this.reviewInterval = reviewInterval;
+    this.state = this.defaultState();
+    this.loadState();
   }
 
   tick(trace: TraceRun): NudgeResult | null {
@@ -569,7 +560,8 @@ class NudgeEngine {
 
   async persist(): Promise<void> { /* write JSON to this.statePath */ }
 
-  private loadState(path: string): NudgeState { /* read JSON or return default */ }
+  private defaultState(): NudgeState { /* fresh state */ }
+  private loadState(): void { /* sync read JSON from this.statePath, merge with defaults */ }
 }
 ```
 
@@ -641,32 +633,29 @@ src/trace/
 // Inside createAgentRuntime():
 import { createTraceMiddleware } from './trace';
 
-const traceConfig = settings.trace;
-const traceMiddleware = traceConfig?.enabled !== false
-  ? createTraceMiddleware({ store: new TraceStore(baseDir), redactor: new DefaultRedactor() })
-  : null;
-
-const toolMiddlewares: ToolMiddleware[] = [];
-toolMiddlewares.push(new PermissionMiddleware({ denyInSubAgent: [...] }));
-toolMiddlewares.push(new ReadCacheMiddleware());
-if (traceMiddleware) {
-  toolMiddlewares.push(traceMiddleware.toolMiddleware);
-}
-
-const agentHooks: AgentHooks = {
-  beforeAgentRun: [
-    ...(traceMiddleware ? [traceMiddleware.beforeAgentRun] : []),
-    // ... existing hooks
-  ],
-  beforeAddResponse: [
-    ...(traceMiddleware ? [traceMiddleware.beforeAddResponse] : []),
-    // ... existing hooks
-  ],
-  afterAgentRun: [
-    // ... existing hooks (memory extraction, etc.)
-    ...(traceMiddleware ? [traceMiddleware.afterAgentRun] : []),
-  ],
+const hooks: Required<Pick<AgentHooks, 'beforeAgentRun' | 'beforeModel' | 'beforeAddResponse' | 'afterAgentRun'>> = {
+  beforeAgentRun: [], beforeModel: [], beforeAddResponse: [], afterAgentRun: [],
 };
+
+const toolMiddlewares: ToolMiddleware[] = [
+  new PermissionMiddleware({ denyInSubAgent: [...] }),
+  new ReadCacheMiddleware(),
+];
+
+// Trace wiring (enabled by default, respects settings.trace.enabled === false)
+const traceEnabled = settings?.trace?.enabled !== false;
+if (traceEnabled) {
+  const traceMw = createTraceMiddleware({
+    maxRunsPerSession: settings?.trace?.maxRunsPerSession,
+    redactionMode: settings?.trace?.redaction?.mode,
+    nudgeEnabled: settings?.trace?.nudge?.enabled,
+    reviewInterval: settings?.trace?.nudge?.reviewInterval,
+  });
+  hooks.beforeAgentRun.unshift(traceMw.agentMiddleware.beforeAgentRun);
+  hooks.beforeAddResponse.push(traceMw.agentMiddleware.beforeAddResponse);
+  hooks.afterAgentRun.push(traceMw.agentMiddleware.afterAgentRun);
+  toolMiddlewares.push(traceMw.toolMiddleware);  // innermost onion layer
+}
 ```
 
 ### 10.2 Sub-agent trace linking
