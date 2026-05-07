@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import type { FC } from 'react';
 import { useTuiStore } from '../state/store';
 import type { ReviewNotification as ReviewNotificationType } from '../state/types';
@@ -34,9 +34,23 @@ function ReviewNotifications(): React.ReactElement | null {
     [depKey],
   );
 
+  useInput((input, key) => {
+    if (!input) return;
+    const currentActive = useTuiStore.getState().reviewNotifications.filter(
+      (n: ReviewNotificationType) => !n.dismissed,
+    );
+    if (currentActive.length === 0) return;
+    const first = currentActive[0]!;
+    if (input === 'k' && !key.ctrl && !key.meta) {
+      useTuiStore.getState().keepReviewSkill(first.skillName);
+    } else if (input === 'd' && !key.ctrl && !key.meta) {
+      useTuiStore.getState().deleteReviewSkill(first.skillName);
+    }
+  });
+
   if (active.length === 0) return null;
   return (
-    <>
+    <Box flexDirection="column" marginBottom={1}>
       {active.map((n: ReviewNotificationType) => (
         <ReviewNotification
           key={n.skillName}
@@ -44,7 +58,7 @@ function ReviewNotifications(): React.ReactElement | null {
           description={n.description}
         />
       ))}
-    </>
+    </Box>
   );
 }
 

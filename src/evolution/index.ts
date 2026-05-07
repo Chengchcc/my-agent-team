@@ -5,11 +5,13 @@ import { EffectivenessTracker } from './effectiveness-tracker';
 import { forkSkillAnalysis, buildAnalysisPrompt, verdictToEvalCase } from './skill-analyzer';
 import type { TraceRun, TraceSummary } from '../trace/types';
 import { debugLog } from '../utils/debug';
+import { useTuiStore } from '../cli/tui/state/store';
 import os from 'os';
 import path from 'path';
 
 const DEFAULT_AUTO_ACCEPT_HOURS = 48;
 const FEEDBACK_CASES_NOTIFY_THRESHOLD = 5;
+const REASONING_PREVIEW_LENGTH = 80;
 
 export interface EvolutionModule {
   review: (
@@ -107,6 +109,21 @@ export function initEvolution(
             await tracker.saveStatus(status);
           }
 
+          // TUI notification based on verdict
+          if (verdict.verdict === 'fix') {
+            useTuiStore.getState().addReviewNotification(
+              skillName,
+              `Analysis: skill needs adjustment — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}... [/review view ${skillName}]`,
+              outputDir,
+            );
+          } else if (verdict.verdict === 'delete') {
+            useTuiStore.getState().addReviewNotification(
+              skillName,
+              `Marked as harmful — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}... [/review delete ${skillName}]`,
+              outputDir,
+            );
+          }
+
           // Append feedback eval case
           const evalCase = verdictToEvalCase(skillName, verdict);
           if (evalCase) {
@@ -115,6 +132,11 @@ export function initEvolution(
               feedbackCasesPending++;
               if (feedbackCasesPending >= FEEDBACK_CASES_NOTIFY_THRESHOLD) {
                 debugLog(`[evolution] ${feedbackCasesPending} feedback cases pending for prompt optimization`);
+                useTuiStore.getState().addReviewNotification(
+                  'prompt-optimization',
+                  `${feedbackCasesPending} feedback cases pending — run /review optimize to improve review prompts`,
+                  outputDir,
+                );
               }
             } catch (err) {
               debugLog(`[evolution] Failed to append feedback: ${err}`);
