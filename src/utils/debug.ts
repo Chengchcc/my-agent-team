@@ -2,6 +2,8 @@ import { appendFileSync } from 'node:fs';
 
 let debugMode = false;
 let debugFile: string | null = null;
+let debugLineCount = 0;
+const MAX_DEBUG_LINES = 1000;
 
 export function isDebugEnabled(): boolean {
   return debugMode;
@@ -13,6 +15,8 @@ export function setDebugMode(enabled: boolean, file?: string): void {
 }
 
 function writeLine(line: string): void {
+  debugLineCount++;
+  if (debugLineCount > MAX_DEBUG_LINES) return;
   if (debugFile) {
     try { appendFileSync(debugFile, line); } catch { /* ignore write errors */ }
   } else {

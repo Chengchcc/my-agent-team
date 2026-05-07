@@ -5,6 +5,7 @@ import type { TodoItem } from '../todos/types';
 import type { CompactionResult } from './compaction/types';
 import { TokenAccumulator } from './token-accumulator';
 import { getSettingsSync } from '../config';
+import { debugLog } from '../utils/debug';
 import { defaultSettings } from '../config/defaults';
 // Interface for compression strategies that support detailed compaction results
 interface CompressionStrategyWithResult extends CompressionStrategy {
@@ -166,6 +167,8 @@ export class ContextManager {
    * Automatically assigns a unique id if not provided.
    * Incrementally updates the token cache instead of invalidating.
    */
+  private static readonly MAX_MESSAGES = 2000;
+
   addMessage(message: Message): void {
     const msg = {
       ...message,
@@ -173,6 +176,15 @@ export class ContextManager {
     };
     this.messages.push(msg);
     this.accumulator.add(msg);
+
+    // Trim oldest non-system messages when over the cap
+    if (this.messages.length > ContextManager.MAX_MESSAGES) {
+      const systemMsgs = this.messages.filter(m => m.role === 'system');
+      const nonSystem = this.messages.filter(m => m.role !== 'system');
+      const keep = nonSystem.slice(-(ContextManager.MAX_MESSAGES - systemMsgs.length));
+      this.messages = [...systemMsgs, ...keep];
+      debugLog(`[ContextManager] trimmed to ${this.messages.length} messages (cap=${ContextManager.MAX_MESSAGES})`);
+    }
   }
 
   /**
