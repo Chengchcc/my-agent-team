@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add quality assurance and feedback loop to auto-generated skills: approval queue, effectiveness tracking (mechanical + LLM), hot-reload, and prompt optimization.
+**Goal:** Add quality assurance and feedback loop to auto-generated skills: enhanced review prompts, approval queue, effectiveness tracking (mechanical + LLM), hot-reload, and prompt optimization.
 
 **Architecture:** Four independent features layered on Phase 1 (trace) and Phase 2 (evolution). Approval uses existing slash-command framework. Effectiveness tracking extends `TraceSummary` with `activatedSkills` and stores stats in `status.json`. Hot-reload uses `statSync` in `beforeAgentRun`. Prompt optimization reuses skill-creator eval tools with auto-generated feedback cases from Tier 2 analysis.
 
@@ -34,6 +34,236 @@ Modified:
   src/evolution/index.ts                          # wire effectiveness tracker
   src/config/types.ts                             # autoAcceptHours, lowScoreWarningThreshold
   src/config/defaults.ts                          # new defaults
+```
+
+---
+
+### Task 0: Upgrade review prompt templates with skill-creator methodology
+
+**Files:**
+- Modify: `src/evolution/prompt-templates.ts`
+- Create: `tests/evolution/prompt-templates-v2.test.ts`
+
+The current review prompt templates are bare-bones ("Score this pattern 1-5, if < 3 say Nothing to save"). They lack the methodology that skill-creator proves is essential: explaining WHY, giving examples, showing anti-patterns.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/evolution/prompt-templates-v2.test.ts`:
+
+```typescript
+import { describe, test, expect } from 'bun:test';
+import { buildReviewPrompt } from '../../src/evolution/prompt-templates';
+import type { TraceRun } from '../../src/trace/types';
+
+function makeTrace(overrides: Partial<TraceRun> = {}): TraceRun {
+  return {
+    id: 'run-1', sessionId: 's1', startTime: 0, endTime: 0, model: 'test',
+    turns: [{
+      turnIndex: 0, userMessage: 'do task',
+      modelResponse: { text: 'ok', toolCalls: [{ name: 'bash', arguments: { command: 'ls' } }], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+      toolExecutions: [{ toolName: 'bash', success: false, durationMs: 100, error: 'permission denied' }],
+    }],
+    summary: { totalTurns: 1, totalToolCalls: 1, totalErrors: 1, totalTokens: { prompt_tokens: 10, completion_tokens: 5 }, outcome: 'error' as const },
+    ...overrides,
+  };
+}
+
+describe('Review prompt v2 — skill-creator methodology', () => {
+  test('includes WHY explanation for scoring', () => {
+    const prompt = buildReviewPrompt('error_burst', makeTrace(), []);
+    expect(prompt).toContain('Score this pattern');
+    // New: explains the reasoning behind scoring
+    expect(prompt).toContain('one-off');           // anti-pattern guidance
+  });
+
+  test('includes skill quality criteria', () => {
+    const prompt = buildReviewPrompt('complex_task', makeTrace({ summary: { ...makeTrace().summary, totalTurns: 5, totalErrors: 0, outcome: 'completed' as const } }), []);
+    // New: defines what makes a good skill
+    expect(prompt).toContain('name');
+    expect(prompt).toContain('description');
+    expect(prompt).toContain('body');
+    expect(prompt).toContain('Pitfalls');
+  });
+
+  test('includes example of good vs bad skill', () => {
+    const prompt = buildReviewPrompt('error_burst', makeTrace(), []);
+    // New: shows anti-pattern examples
+    expect(prompt).toContain('NOT create');
+  });
+
+  test('includes tool sequence analysis guidance', () => {
+    const prompt = buildReviewPrompt('complex_task', makeTrace({ summary: { ...makeTrace().summary, totalTurns: 5, totalErrors: 0, outcome: 'completed' as const } }), []);
+    // New: guides analysis of tool call order
+    expect(prompt).toContain('sequence');
+  });
+
+  test('includes pitfalls guidance for error_burst', () => {
+    const prompt = buildReviewPrompt('error_burst', makeTrace(), []);
+    // New: explicit pitfalls guidance
+    expect(prompt).toContain('pitfalls');
+  });
+});
+```
+
+Run to verify it fails:
+```bash
+bun test tests/evolution/prompt-templates-v2.test.ts
+```
+Expected: FAIL (new assertions don't match old templates)
+
+Also upgrade `buildReviewSystemPrompt` in `src/evolution/review-agent.ts` to include the skill quality criteria and format specification from skill-creator.
+
+- [ ] **Step 2: Rewrite prompt templates + skill creation instructions**
+
+a) Replace the three template constants in `src/evolution/prompt-templates.ts` with detailed versions following skill-creator methodology:
+
+```typescript
+const ERROR_BURST_PROMPT = `You are an expert skill reviewer analyzing an agent execution trace that had errors.
+
+## Trace Context
+- {totalTurns} turns, {totalErrors} errors
+- Failed tools: {failedToolNames}
+
+## Full Trace (turn-by-turn)
+{trace}
+
+## Existing Skills (do NOT duplicate)
+{existingSkills}
+
+## Methodology
+
+### Step 1: Understand the failure pattern
+Examine the order of tool calls and error messages. Ask yourself:
+- Is there a clear, repeatable sequence that led to the error?
+- Is the error caused by a missing prerequisite (e.g., wrong directory, missing package, no sudo)?
+- Is this a one-off mistake (typo, wrong file path) or a recurring pattern?
+
+### Step 2: Score reusability (1–5)
+- **1–2: NOT reusable** — one-off typo, wrong file path, external network error
+  Example: User typed "grpe" instead of "grep" → NOT a skill. Just fix the typo.
+  Example: All errors are network timeouts → NOT a skill. External factor.
+
+- **3–4: Useful pattern** — avoidable error with clear remediation
+  Example: "EACCES on /tmp → need to chmod first" → Worth capturing as a pitfall.
+
+- **5: High-value workflow** — multi-step error recovery that others would reuse
+  Example: "Database migration failure → rollback steps → fix schema → retry" → Skill candidate.
+
+If score < 3, respond ONLY with "Nothing to save" and a one-sentence explanation.
+Do NOT create a skill for one-off mistakes.
+
+### Step 3: Decide what to create
+If score ≥ 3:
+- **New skill needed**: call create_review_skill with a descriptive kebab-case name
+- **Pitfall for existing skill**: if a skill already covers this tool but misses this edge case,
+  suggest adding to its Pitfalls section instead of creating a new one
+
+## What makes a good skill
+
+A skill must have:
+- **name**: kebab-case, describes the pattern (e.g., "fix-bash-permissions")
+- **description**: one-line summary of when to use this skill
+- **body**: step-by-step instructions, imperative tone, explain WHY each step matters
+- **Pitfalls**: common failure modes and how to avoid them
+
+Bad skill example (DO NOT DO THIS):
+  name: "bash-errors"
+  description: "Handle bash errors"
+  body: "If bash fails, try again."
+  → Too vague, no actionable steps, no pitfalls.
+
+Good skill example:
+  name: "fix-tmp-permissions"
+  description: "Handle permission-denied errors when running bash in /tmp — use chmod or change working directory first"
+  body: "## When you see EACCES in /tmp\\n\\n1. Check the current directory with pwd\\n2. If in /tmp, cd to the project root first\\n3. Use chmod +x if the file needs execute permission"
+  pitfalls: "System directories like /tmp may require sudo. Check ownership before chmod."
+  → Concrete steps, explains WHY, includes pitfalls.`;
+
+const COMPLEX_TASK_PROMPT = `You are an expert skill reviewer analyzing a successful multi-step agent task.
+
+## Trace Context
+- {totalTurns} turns, 0 errors
+- Tools used: {toolNames}
+
+## Full Trace (turn-by-turn)
+{trace}
+
+## Existing Skills (do NOT duplicate)
+{existingSkills}
+
+## Methodology
+
+### Step 1: Extract the workflow
+Examine the sequence of tool calls. Identify the **logical phases**:
+- Investigation phase: read, grep, glob — understanding the problem
+- Action phase: text_editor, bash — making changes
+- Verification phase: test, build, lint — confirming the fix
+
+### Step 2: Score reusability (1–5)
+- **1–2: Task-specific** — only useful for this exact task
+  Example: User asked to fix a specific typo in one file → NOT reusable.
+
+- **3–4: Project-level pattern** — recurring within this codebase
+  Example: "Fix config values across multiple env files" → Worth capturing.
+
+- **5: Universally reusable** — applies across projects
+  Example: "Database migration with rollback safety" → High value.
+
+If score < 3, respond ONLY with "Nothing to save" and a one-sentence explanation.
+
+### Step 3: Design the skill
+If score ≥ 3, create a skill that captures:
+1. The trigger — when should someone use this skill?
+2. The workflow phases — step-by-step, grouped logically
+3. Non-obvious workarounds — things you only learn by doing
+4. Pitfalls — what could go wrong at each phase?
+
+## What makes a good workflow skill
+Same quality criteria as above: concrete steps, explains WHY, includes pitfalls.
+Focus on the **pattern**, not the specific file names from this trace.`;
+
+const PERIODIC_PROMPT = `Periodic review after {reviewInterval} accumulated turns across multiple runs.
+
+## Recent Traces
+{recentTraceSummaries}
+
+## Existing Skills
+{existingSkills}
+
+## Methodology
+
+Look across these traces for patterns that repeat across runs:
+- Are there recurring error patterns that no skill covers?
+- Are there successful workflows that could be extracted?
+- Are there skills that consistently appear in failed runs (potential quality issue)?
+
+Apply the same scoring and quality criteria as above.
+If nothing actionable, respond "Nothing to save."`;
+```
+
+- [ ] **Step 3: Run tests to verify**
+
+```bash
+Also upgrade `buildReviewSystemPrompt` in `src/evolution/review-agent.ts` — replace the thin skill creation instructions with detailed guidance following skill-creator's methodology: anatomy of a skill (YAML frontmatter, scripts/, references/), SKILL.md format with examples, writing principles (explain WHY, imperative form, be specific), anti-patterns (when NOT to create), and dedup reminder (check existing skills first).
+
+bun test tests/evolution/prompt-templates.test.ts tests/evolution/prompt-templates-v2.test.ts
+```
+
+Expected: all old tests pass (backward compatible), all new assertions pass.
+
+- [ ] **Step 4: Verify no regressions**
+
+```bash
+bun run tsc --noEmit
+bun run lint
+bun test
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/evolution/prompt-templates.ts src/evolution/review-agent.ts tests/evolution/prompt-templates-v2.test.ts
+git commit -m "feat: upgrade review prompts + skill creation instructions with skill-creator methodology"
 ```
 
 ---
