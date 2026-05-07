@@ -83,9 +83,26 @@ Auto skills:
 
 ## 4. Feature 2: Effectiveness Tracking
 
-### 4.1 Data Collection
+### 4.1 Two-Tier Evaluation
 
-Phase 1 `TraceRun` 已经记录了每轮使用的 tool。Phase 3 扩展：记录该 run 使用的 skill 列表。
+```
+Tier 1: Mechanical scoring (cheap, every run)
+  success_rate = completed_runs / total_runs_with_skill
+
+Tier 2: LLM deep review (triggered only when score looks bad)
+  if success_rate < 0.5 AND total_runs >= 3:
+    → fork a lightweight analysis agent
+    → read all traces where this skill was active
+    → judge: "skill is flawed" / "external factors" / "skill was irrelevant"
+    → produce actionable recommendation
+```
+
+Why not pure mechanical:
+- A good skill can be present during a failure caused by an unrelated API error
+- A bad skill can be harmless noise that doesn't affect outcomes either way
+- Correlation is not causation — LLM reads the actual trace to distinguish
+
+### 4.2 Data Collection
 
 `TraceSummary` 新增字段：
 
@@ -96,22 +113,11 @@ interface TraceSummary {
 }
 ```
 
-`TraceAgentMiddleware.beforeAgentRun` 检查当前 system prompt 中注入了哪些 auto skill（从 `SkillMiddleware` 的 metadata 或 system prompt 内容中提取），写入 trace。
+`TraceAgentMiddleware.beforeAgentRun` 从 system prompt 提取注入的 auto skill 名称，写入 trace。
 
-### 4.2 Skill Score
+### 4.3 Mechanical Scoring (Tier 1)
 
-```
-effectiveness(skill) = successful_runs / total_runs_with_skill
-
-successful_runs = count of TraceRun where:
-  - skill was in activatedSkills
-  - summary.outcome === 'completed'
-
-total_runs_with_skill = count of TraceRun where:
-  - skill was in activatedSkills
-```
-
-存储为 `status.json` 的一部分：
+每次 `afterAgentRun` 中 store 持久化完成后，更新 `status.json`：
 
 ```json
 {
@@ -121,20 +127,82 @@ total_runs_with_skill = count of TraceRun where:
   "stats": {
     "totalRuns": 5,
     "successfulRuns": 3,
-    "successRate": 0.6
+    "successRate": 0.6,
+    "lastRunId": "xyz789"
   }
 }
 ```
 
-### 4.3 Low-Score Warning
+### 4.4 LLM Deep Review (Tier 2)
 
-当 `successRate < 0.5` 且 `totalRuns >= 3` 时，TUI 在通知区显示警告：
+触发条件：`successRate < 0.5` 且 `totalRuns >= 3`
+
+分析 Agent prompt：
 
 ```
-⚠️ fix-permissions success rate: 40% (2/5). 建议 /review 检查。
+You are evaluating the effectiveness of an auto-generated skill.
+
+Skill: {skill_name}
+Description: {description}
+Success rate: {successRate} ({successfulRuns}/{totalRuns})
+
+Related traces (runs where this skill was active):
+
+Trace 1 (outcome: error):
+{shortTrace1}
+
+Trace 2 (outcome: completed):
+{shortTrace2}
+
+...
+
+For each run where the outcome was "error", determine:
+1. Was the skill's advice directly responsible for the error?
+2. Was the error caused by external factors (API error, network, user interruption)?
+3. Was the skill irrelevant to the task (present but unused)?
+
+Overall assessment:
+- "keep" — skill is useful, failures are unrelated
+- "fix" — skill has specific issues (specify what to change)
+- "delete" — skill is harmful or never useful
+
+Output format: JSON with your verdict and reasoning.
 ```
 
-不自动删除——只提醒用户手动评估。
+分析结果写入 `status.json`：
+
+```json
+{
+  "status": "reviewed",
+  "stats": { ... },
+  "lastReview": {
+    "verdict": "fix",
+    "reasoning": "The skill's chmod advice is correct but it doesn't mention that /tmp requires sudo on this system",
+    "suggestion": "Add a Pitfalls entry about sudo requirements in system directories",
+    "reviewedAt": 1715040000000
+  }
+}
+```
+
+### 4.5 TUI Notification
+
+Tier 2 完成后在 TUI 通知：
+
+```
+⚠️ fix-permissions: 40% success rate (2/5)
+   分析结果: skill 建议需调整 — "/tmp 下需要 sudo，skill 未说明"
+   [/review 查看详情]
+```
+
+如果 verdict 是 "delete"，通知更强烈：
+
+```
+🚫 fix-permissions 被判定为有害 (40% 成功率)
+   原因: {reasoning}
+   [/review 删除] [保留]
+```
+
+不自动删除——最终决策留给用户。
 
 ---
 
@@ -180,15 +248,15 @@ class SkillLoader {
 
 ---
 
-## 6. Feature 4: Review Prompt Optimization
+## 6. Feature 4: Review Prompt Optimization (Feedback Loop)
 
 ### 6.1 Approach
 
 复用 skill-creator 的 `description_optimizer` 能力。将 review prompt 模板当作一个 skill 的 `description`，优化其触发和产出质量。
 
-### 6.2 Eval Set
+### 6.2 Eval Set — Two Sources
 
-创建 `tests/evolution/review-prompt-evals.json`：
+**Source A: Hand-written seed cases** (`tests/evolution/review-prompt-evals.json`):
 
 ```json
 [
@@ -200,42 +268,61 @@ class SkillLoader {
   {
     "query": "Analyze this trace: 1 error in 10 turns, a one-off typo in a bash command. Should a skill be created?",
     "should_trigger": false
-  },
-  {
-    "query": "Analyze this trace: 8 turns, 0 errors, used grep → text_editor → bash to fix a config issue. Should a skill be created?",
-    "should_trigger": true,
-    "expected_skill_name": "config-fix-workflow"
   }
 ]
 ```
 
-至少 20 个用例（10 should-trigger, 10 should-not-trigger）。
+At least 20 hand-written cases (10 should-trigger, 10 should-not-trigger).
+
+**Source B: Auto-generated from Tier 2 analysis** (`tests/evolution/review-prompt-evals-feedback.json`):
+
+When Tier 2 analysis produces a `verdict: "fix"`, the reasoning is automatically converted into an eval case:
+
+```
+Tier 2 output: "The skill doesn't mention that /tmp requires sudo"
+→ New eval case: "Analyze this trace where bash in /tmp needed sudo but skill didn't mention it."
+→ should_trigger: true
+→ expected_behavior: "Skill includes permissions/sudo guidance"
+```
+
+This creates a feedback loop:
+
+```
+Review Prompt → Skill → Trace → Tier 2 Analysis → Feedback Eval → Prompt Optimization → Better Prompt → Better Skills
+```
 
 ### 6.3 Optimization Loop
 
-手动运行（不是自动触发）：
+Combines both eval sources. Runs manually:
 
 ```bash
 python skills/skill-creator/scripts/run_loop.py \
   --eval-set tests/evolution/review-prompt-evals.json \
+  --extra-eval-set tests/evolution/review-prompt-evals-feedback.json \
   --skill-path src/evolution/prompt-templates.ts \
   --model claude-sonnet-4-6 \
   --max-iterations 5
 ```
 
-优化 `buildReviewPrompt` 中的模板文本，目标是：
-- 提高 signal 的触发准确率（该创建时不漏，不该创建时不误创）
-- 降低虚警率（`Nothing to save` 的响应率）
+Goals:
+- Improve trigger accuracy (don't miss real patterns, don't create for one-offs)
+- Reduce false positives (`Nothing to save` response rate)
+- Incorporate real-world failure patterns from Tier 2 feedback
 
-### 6.4 Prompt Versioning
+### 6.4 Feedback-Driven Prompt Evolution
 
-优化后的模板带版本号：
-
-```typescript
-// src/evolution/prompt-templates.ts
-const PROMPT_VERSION = 'v2-optimized';
-// Templates optimized with skill-creator eval loop on 2026-05-07
 ```
+After each Tier 2 analysis that returns "fix":
+  1. Save the analysis result
+  2. Convert to an eval case in review-prompt-evals-feedback.json
+  3. Increment a counter "feedbackCasesPending"
+
+When feedbackCasesPending >= 5:
+  → TUI notification: "5 条新的 prompt 优化建议，建议运行 /review optimize"
+  → User can run the optimization loop
+```
+
+用户主动触发，不自动改 prompt。
 
 ---
 
@@ -269,7 +356,8 @@ const PROMPT_VERSION = 'v2-optimized';
 ```
 New:
   src/cli/tui/commands/review-commands.ts   # /review slash command
-  src/evolution/effectiveness-tracker.ts    # success rate computation + status.json
+  src/evolution/effectiveness-tracker.ts    # mechanical scoring + LLM deep review trigger
+  src/evolution/skill-analyzer.ts           # LLM analysis agent (Tier 2)
 
 Modified:
   src/cli/tui/components/ReviewNotification.tsx      # add keep/delete buttons
