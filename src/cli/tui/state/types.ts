@@ -30,6 +30,16 @@ export type FinalItem =
   | { kind: 'divider'; reason: 'clear' | 'compact' }
   | { kind: 'system-notice'; id: string; content: string };
 
+// ── Review notifications ──
+
+export interface ReviewNotification {
+  skillName: string;
+  description: string;
+  outputDir: string;
+  dismissed: boolean;
+  createdAt: number;
+}
+
 // ── Slice states ──
 
 export interface InteractionState {

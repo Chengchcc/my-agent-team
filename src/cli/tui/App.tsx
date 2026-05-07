@@ -13,6 +13,7 @@ import { useAskUserQuestionManager } from './hooks/use-ask-user-question-manager
 import { usePermissionManager } from './hooks/use-permission-manager';
 import { AskUserQuestionPrompt } from './views/overlay/AskUserQuestionPrompt';
 import { PermissionPrompt } from './views/overlay/PermissionPrompt';
+import { ReviewNotifications } from './components/ReviewNotification';
 import type { PromptSubmission, SlashCommand } from './command-registry';
 import type { CommandHandlerContext } from './types';
 import type { Agent } from '../../agent';
@@ -220,6 +221,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
         )}
         <StreamingIndicator />
         <FocusedToolDetail />
+        <ReviewNotifications />
         {askUserQuestionRequest != null && (
           <AskUserQuestionPrompt
             questions={askUserQuestionRequest.params.questions}

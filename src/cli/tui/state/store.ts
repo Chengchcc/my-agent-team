@@ -10,6 +10,7 @@ import type {
   StatsState,
   AssistantSegment,
   ToolCallResult,
+  ReviewNotification,
 } from './types';
 import { initialInteraction, initialStats } from './types';
 import type { Message, ContentBlock } from '../../../types';
@@ -64,6 +65,11 @@ export interface TuiStore {
   setTokenLimit: (limit: number) => void;
   setInterrupted: (interrupted: boolean) => void;
   setCompacting: (compacting: boolean) => void;
+
+  // Review notifications
+  reviewNotifications: ReviewNotification[];
+  addReviewNotification: (skillName: string, description: string, outputDir: string) => void;
+  dismissReviewNotification: (skillName: string) => void;
 }
 
 // ── Store ──
@@ -75,6 +81,7 @@ export const useTuiStore = create<TuiStore>()(
     live: null,
     interaction: { ...initialInteraction, expandedTools: new Set(), ignoredErrors: new Set() },
     stats: { ...initialStats },
+    reviewNotifications: [],
 
     // ── Core turn lifecycle ──
 
@@ -265,6 +272,28 @@ export const useTuiStore = create<TuiStore>()(
     setCompacting: (compacting) =>
       set((s) => {
         s.stats.compacting = compacting;
+      }),
+
+    // ── Review notifications ──
+
+    addReviewNotification: (skillName, description, outputDir) =>
+      set((s) => {
+        s.reviewNotifications.push({
+          skillName,
+          description,
+          outputDir,
+          dismissed: false,
+          createdAt: Date.now(),
+        });
+      }),
+
+    dismissReviewNotification: (skillName) =>
+      set((s) => {
+        for (const n of s.reviewNotifications) {
+          if (n.skillName === skillName) {
+            n.dismissed = true;
+          }
+        }
       }),
   /* eslint-enable max-lines-per-function */
   })),

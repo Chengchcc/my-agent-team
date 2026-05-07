@@ -81,6 +81,7 @@ export class NudgeEngine {
     this.state.lastReviewAt = Date.now();
     this.recordFingerprint(signal, fingerprint);
     return {
+      signal,
       trigger: this.signalToTrigger(signal, trace),
       traceRunId: trace.id,
       sessionId: trace.sessionId,

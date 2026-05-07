@@ -32,8 +32,11 @@ import { debugLog } from './utils/debug';
 import { PermissionMiddleware } from './agent/tool-dispatch/middlewares/permission';
 import { ReadCacheMiddleware } from './agent/tool-dispatch/middlewares/read-cache';
 import type { ToolMiddleware } from './agent/tool-dispatch/middleware';
-import { DEFAULT_MAX_TOKENS, DEFAULT_COMPACTION_BUFFER, DEFAULT_MODEL, DEFAULT_SUMMARY_MODEL, DEFAULT_TEMPERATURE } from './config/constants';
+import { DEFAULT_MAX_TOKENS, DEFAULT_COMPACTION_BUFFER, DEFAULT_MODEL, DEFAULT_SUMMARY_MODEL, DEFAULT_TEMPERATURE, DEFAULT_EVOLUTION_MAX_TURNS, DEFAULT_EVOLUTION_TOKEN_LIMIT, DEFAULT_EVOLUTION_TIMEOUT_MS } from './config/constants';
 import { createTraceMiddleware } from './trace';
+import { initEvolution } from './evolution';
+import type { EvolutionModule } from './evolution';
+import { useTuiStore } from './cli/tui/state/store';
 
 export interface RuntimeConfig {
   provider?: 'claude' | 'openai';
@@ -191,9 +194,7 @@ export async function createAgentRuntime(
     hooks.afterAgentRun.push(createAutoSaveHook(sessionStore));
   }
 
-  // Build default tool middleware chain
-  // Order in array = outer to inner (first registered runs first):
-  //   Permission (deny check) → ReadCache (cache check) → tool.execute
+  // Build default tool middleware chain: Permission → ReadCache → tool.execute
   const toolMiddlewares: ToolMiddleware[] = [
     new PermissionMiddleware({
       denyInSubAgent: ['sub_agent', 'ask_user_question'],
@@ -202,19 +203,7 @@ export async function createAgentRuntime(
   ];
 
   // Trace
-  const traceEnabled = settings?.trace?.enabled !== false;
-  if (traceEnabled) {
-    const traceMw = createTraceMiddleware({
-      maxRunsPerSession: settings?.trace?.maxRunsPerSession,
-      redactionMode: settings?.trace?.redaction?.mode,
-      nudgeEnabled: settings?.trace?.nudge?.enabled,
-      reviewInterval: settings?.trace?.nudge?.reviewInterval,
-    });
-    hooks.beforeAgentRun.unshift(traceMw.agentMiddleware.beforeAgentRun);
-    hooks.beforeAddResponse.push(traceMw.agentMiddleware.beforeAddResponse);
-    hooks.afterAgentRun.push(traceMw.agentMiddleware.afterAgentRun);
-    toolMiddlewares.push(traceMw.toolMiddleware);
-  }
+  setupTrace(settings, hooks, toolMiddlewares);
 
   // Agent
   const agent = new Agent({
@@ -422,4 +411,69 @@ function buildOpenaiFromEnv(model: string | undefined, maxTokens: number): OpenA
     temperature: DEFAULT_TEMPERATURE,
     ...(process.env.OPENAI_BASE_URL ? { baseURL: process.env.OPENAI_BASE_URL } : {}),
   });
+}
+
+function setupEvolution(settings: RuntimeConfig['settings']): EvolutionModule | null {
+  const review = settings?.trace?.review;
+  if (!review || review.enabled === false) return null;
+  const model = review.model ?? 'claude-3-haiku-20240307';
+  return initEvolution({
+    enabled: true,
+    model,
+    maxTurns: review.maxTurns ?? DEFAULT_EVOLUTION_MAX_TURNS,
+    tokenLimit: review.tokenLimit ?? DEFAULT_EVOLUTION_TOKEN_LIMIT,
+    timeoutMs: review.timeoutMs ?? DEFAULT_EVOLUTION_TIMEOUT_MS,
+    outputDir: review.outputDir ?? '~/.my-agent/skills/auto',
+  }, createEvolutionProvider(model), (skillName, description, outputDir) => {
+    useTuiStore.getState().addReviewNotification(skillName, description, outputDir);
+  });
+}
+
+function setupTrace(
+  settings: RuntimeConfig['settings'],
+  hooks: Required<Pick<AgentHooks, 'beforeAgentRun' | 'beforeModel' | 'beforeAddResponse' | 'afterAgentRun'>>,
+  toolMiddlewares: ToolMiddleware[],
+): void {
+  if (settings?.trace?.enabled === false) return;
+  const evolution = setupEvolution(settings);
+  const traceMw = createTraceMiddleware({
+    maxRunsPerSession: settings?.trace?.maxRunsPerSession,
+    redactionMode: settings?.trace?.redaction?.mode,
+    nudgeEnabled: settings?.trace?.nudge?.enabled,
+    reviewInterval: settings?.trace?.nudge?.reviewInterval,
+    evolution,
+  });
+  hooks.beforeAgentRun.unshift(traceMw.agentMiddleware.beforeAgentRun);
+  hooks.beforeAddResponse.push(traceMw.agentMiddleware.beforeAddResponse);
+  hooks.afterAgentRun.push(traceMw.agentMiddleware.afterAgentRun);
+  toolMiddlewares.push(traceMw.toolMiddleware);
+}
+
+/**
+ * Create a lightweight provider for the evolution review agent.
+ * Uses the same API credentials as the main agent but with the
+ * review-specific model (e.g. claude-3-haiku).
+ */
+function createEvolutionProvider(model: string): Provider {
+  const hasClaudeKey = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+  if (hasClaudeKey) {
+    return new ClaudeProvider({
+      apiKey: (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)!,
+      model,
+      maxTokens: DEFAULT_MAX_TOKENS,
+      temperature: DEFAULT_TEMPERATURE,
+      ...(process.env.ANTHROPIC_BASE_URL ? { baseURL: process.env.ANTHROPIC_BASE_URL } : {}),
+    });
+  }
+  const hasOpenaiKey = !!process.env.OPENAI_API_KEY;
+  if (hasOpenaiKey) {
+    return new OpenAIProvider({
+      apiKey: process.env.OPENAI_API_KEY!,
+      model,
+      maxTokens: DEFAULT_MAX_TOKENS,
+      temperature: DEFAULT_TEMPERATURE,
+      ...(process.env.OPENAI_BASE_URL ? { baseURL: process.env.OPENAI_BASE_URL } : {}),
+    });
+  }
+  throw new Error('No API key found for evolution provider. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.');
 }

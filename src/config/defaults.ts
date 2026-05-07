@@ -106,5 +106,13 @@ export const defaultSettings: Settings = {
       enabled: true,
       reviewInterval: 10,
     },
+    review: {
+      enabled: true,
+      model: 'claude-3-haiku-20240307',
+      maxTurns: 6,
+      tokenLimit: 30_000,
+      timeoutMs: 60_000,
+      outputDir: '~/.my-agent/skills/auto',
+    },
   },
 };

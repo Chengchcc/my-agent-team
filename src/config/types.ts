@@ -138,11 +138,21 @@ export interface TraceNudgeSettings {
   reviewInterval: number;
 }
 
+export interface TraceReviewSettings {
+  enabled: boolean;
+  model: string;
+  maxTurns: number;
+  tokenLimit: number;
+  timeoutMs: number;
+  outputDir: string;
+}
+
 export interface TraceSettings {
   enabled: boolean;
   maxRunsPerSession: number;
   redaction: TraceRedactionSettings;
   nudge: TraceNudgeSettings;
+  review: TraceReviewSettings;
 }
 
 export interface Settings {

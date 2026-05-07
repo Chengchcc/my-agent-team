@@ -2,6 +2,7 @@ import type { Middleware, AgentMiddleware, AgentContext } from '../types';
 import { TraceBuffer } from './trace-buffer';
 import type { TraceStore, TraceRedactor, TraceRun } from './types';
 import type { NudgeEngine } from './nudge-engine';
+import type { EvolutionReviewCallback } from '../evolution/types';
 import { debugLog } from '../utils/debug';
 
 export class TraceAgentMiddleware implements AgentMiddleware {
@@ -10,6 +11,7 @@ export class TraceAgentMiddleware implements AgentMiddleware {
     private nudgeEngine: NudgeEngine,
     private redactor: TraceRedactor,
     private nudgeEnabled: boolean = true,
+    private evolution?: { review: EvolutionReviewCallback } | null,
   ) {}
 
   beforeAgentRun: Middleware = async (context, next) => {
@@ -71,6 +73,9 @@ export class TraceAgentMiddleware implements AgentMiddleware {
         if (nudgeResult) {
           debugLog(`[trace] Nudge triggered: ${nudgeResult.reason}`);
           await this.nudgeEngine.persist();
+          if (this.evolution?.review) {
+            this.evolution.review(nudgeResult, trace);
+          }
         }
       }
     } catch (err) {

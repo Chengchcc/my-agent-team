@@ -13,8 +13,8 @@ describe('SkillLoader', () => {
     const skill = await loader.loadSkill('skill-creator');
     expect(skill).not.toBeNull();
     expect(skill?.name).toBe('skill-creator');
-    expect(skill?.description).toContain('Guide for creating new skills');
-    expect(skill?.content).toContain('## Skill Format');
+    expect(skill?.description).toContain('Create new skills');
+    expect(skill?.content).toContain('## Creating a skill');
   });
 
   test('returns null for non-existent skill', async () => {

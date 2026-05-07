@@ -20,3 +20,8 @@ export const CONFIG_FILE_NAME = 'settings.yml';
 export const DEFAULT_MCP_TOOL_TIMEOUT_MS = 30_000;
 export const DEFAULT_MCP_RECONNECT_ATTEMPTS = 3;
 export const DEFAULT_MCP_RECONNECT_DELAY_MS = 1_000;
+
+// --- Evolution defaults ---
+export const DEFAULT_EVOLUTION_MAX_TURNS = 6;
+export const DEFAULT_EVOLUTION_TOKEN_LIMIT = 30_000;
+export const DEFAULT_EVOLUTION_TIMEOUT_MS = 60_000;

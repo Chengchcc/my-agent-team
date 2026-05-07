@@ -167,6 +167,17 @@ export interface McpStatusEvent extends AgentEventBase {
 }
 
 /**
+ * Evolution review completed — yielded when the auto-review/create-review-skill
+ * tool finishes and produces a new skill artifact.
+ */
+export interface EvolutionReviewDoneEvent extends AgentEventBase {
+  type: 'evolution_review_done';
+  skillName: string;
+  description: string;
+  outputDir: string;
+}
+
+/**
  * Union of all possible agent events
  */
 export type AgentEvent =
@@ -184,7 +195,8 @@ export type AgentEvent =
   | BudgetDelegationEvent
   | BudgetCompactEvent
   | ContextCompactedEvent
-  | McpStatusEvent;
+  | McpStatusEvent
+  | EvolutionReviewDoneEvent;
 
 /**
  * Strategy for handling tool errors

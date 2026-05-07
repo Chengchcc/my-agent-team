@@ -40,10 +40,7 @@ function dispatchAgentEvent(
       break;
 
     case 'turn_complete': {
-      const live = store.live;
-      const liveDigest = live?.kind === 'assistant-message'
-        ? `segs=${live.segments.length} status=${live.status}` : 'null';
-      debugLog('EVENT turn_complete', { hasToolCalls: event.hasToolCalls, turnIndex: event.turnIndex, live: liveDigest, finalizedLen: store.finalized.length });
+      debugLog('EVENT turn_complete', { hasToolCalls: event.hasToolCalls, turnIndex: event.turnIndex, finalizedLen: store.finalized.length });
       if (event.usage) {
         store.accumulateUsage({
           prompt_tokens: event.usage.prompt_tokens,
@@ -92,6 +89,7 @@ function dispatchAgentEvent(
       break;
 
     case 'budget_delegation':
+    case 'mcp_status':
       break;
 
     case 'budget_compact':
@@ -106,7 +104,8 @@ function dispatchAgentEvent(
       store.setCompacting(false);
       break;
 
-    case 'mcp_status':
+    case 'evolution_review_done':
+      store.addReviewNotification(event.skillName, event.description, event.outputDir);
       break;
   }
 }

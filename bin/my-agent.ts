@@ -124,15 +124,19 @@ function writeTextEvent(event: AgentEvent) {
         const icon = event.status === 'connected' ? '+'
           : event.status === 'error' ? '!'
           : '-';
-        const detail = event.status === 'connected' && event.toolCount
-          ? ` (${event.toolCount} tools)`
-          : event.error ? ` — ${event.error}` : '';
+        let detail = '';
+        if (event.toolCount) {
+          detail = ` (${event.toolCount} tools)`;
+        } else if (event.error) {
+          detail = ` — ${event.error}`;
+        }
         process.stderr.write(`[mcp:${event.serverName}] ${icon} ${event.status}${detail}\n`);
       }
       break;
     case 'budget_delegation':
     case 'budget_compact':
     case 'context_compacted':
+    case 'evolution_review_done':
       break;
   }
 }
@@ -186,6 +190,7 @@ function writeStreamJsonEvent(event: AgentEvent) {
     case 'budget_delegation':
     case 'budget_compact':
     case 'context_compacted':
+    case 'evolution_review_done':
       break;
   }
 

@@ -12,6 +12,7 @@ function resetStore() {
     live: null,
     interaction: { focusedToolId: null, expandedTools: new Set(), ignoredErrors: new Set(), pendingInputs: [] },
     stats: { promptTokens: 0, completionTokens: 0, contextTokens: 0, tokenLimit: 0, streaming: false, streamingStartTime: null, interrupted: false },
+    reviewNotifications: [],
   });
 }
 

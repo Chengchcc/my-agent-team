@@ -117,11 +117,21 @@ const traceNudgeSettingsSchema = z.object({
   reviewInterval: z.number().int().positive().default(10),
 });
 
+const traceReviewSettingsSchema = z.object({
+  enabled: z.boolean(),
+  model: z.string(),
+  maxTurns: z.number().min(3).max(12),
+  tokenLimit: z.number().min(10_000).max(100_000),
+  timeoutMs: z.number().min(30_000).max(300_000),
+  outputDir: z.string(),
+});
+
 const traceSettingsSchema = z.object({
   enabled: z.boolean().default(true),
   maxRunsPerSession: z.number().int().positive().default(50),
   redaction: traceRedactionSettingsSchema,
   nudge: traceNudgeSettingsSchema,
+  review: traceReviewSettingsSchema,
 });
 
 export const settingsSchema = z.object({
