@@ -201,3 +201,31 @@ export function synthesizeBlocksFromLegacy(msg: Message): ContentBlock[] {
   }
   return blocks;
 }
+
+// ── Typed context metadata keys ──
+
+export interface TypedMetadataKey<T> {
+  /** Phantom type-brand for compile-time type safety. Never set at runtime. */
+  readonly _brand?: T;
+  readonly symbol: symbol;
+  readonly description: string;
+}
+
+export function defineMetadataKey<T>(description: string): TypedMetadataKey<T> {
+  return { symbol: Symbol.for(`agent.metadata.${description}`), description };
+}
+
+export function getMetadata<T>(ctx: AgentContext, key: TypedMetadataKey<T>): T | undefined {
+  return (ctx.metadata as Record<string, unknown>)[key.symbol.toString()] as T | undefined;
+}
+
+export function setMetadata<T>(ctx: AgentContext, key: TypedMetadataKey<T>, value: T): void {
+  (ctx.metadata as Record<string, unknown>)[key.symbol.toString()] = value;
+}
+
+/** Standard metadata keys used across the codebase. */
+export const MetadataKeys = {
+  TodoState: defineMetadataKey<Record<string, unknown>>('todo-state'),
+  JustCollapsed: defineMetadataKey<boolean>('just-collapsed'),
+  RetrievedMemory: defineMetadataKey<Array<{ id: string; text: string }>>('retrieved-memory'),
+} as const;
