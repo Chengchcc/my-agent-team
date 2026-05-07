@@ -6,6 +6,8 @@ import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from './constants';
 import { settingsSchema } from './schema';
 import { defaultSettings } from './defaults';
 import type { Settings } from './types';
+import { runMigrations } from './migrations';
+import { CURRENT_CONFIG_VERSION } from './types';
 
 /**
  * Expand ~ to user home directory in paths
@@ -166,6 +168,12 @@ export async function loadSettings(): Promise<Settings> {
     if (loaded) {
       current = mergeConfigs(current, loaded);
     }
+  }
+
+  // Run config migration if needed
+  const configVersion = (current as Record<string, unknown>).version as number ?? 0;
+  if (configVersion < CURRENT_CONFIG_VERSION) {
+    current = runMigrations(current as Record<string, unknown>, configVersion) as Partial<Settings>;
   }
 
   // Merge with defaults

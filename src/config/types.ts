@@ -1,3 +1,5 @@
+export const CURRENT_CONFIG_VERSION = 1;
+
 export interface ThinkingSettings {
   /** Enable extended thinking / reasoning. */
   enabled: boolean;

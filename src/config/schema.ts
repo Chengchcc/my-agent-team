@@ -124,6 +124,8 @@ const traceReviewSettingsSchema = z.object({
   tokenLimit: z.number().min(10_000).max(100_000),
   timeoutMs: z.number().min(30_000).max(300_000),
   outputDir: z.string(),
+  autoAcceptHours: z.number().positive().default(48),
+  lowScoreWarningThreshold: z.number().min(0).max(1).default(0.5),
 });
 
 const traceSettingsSchema = z.object({
@@ -135,6 +137,7 @@ const traceSettingsSchema = z.object({
 });
 
 export const settingsSchema = z.object({
+  version: z.number().optional().default(1),
   llm: llmSettingsSchema,
   context: contextSettingsSchema,
   memory: memorySettingsSchema,
