@@ -9,6 +9,9 @@ import { ContextCollapseStrategy } from './tiers/collapse';
 import { debugLog } from '../../utils/debug';
 
 const TO_FIXED_PRECISION = 3;
+const CASCADE_MIN_REDUCTION = 0.05;
+const PERCENT_MULTIPLIER = 100;
+const MAX_CASCADE_HISTORY = 3;
 
 /**
  * Tiered Compaction Manager - main orchestrator that implements the CompressionStrategy interface.
@@ -91,24 +94,7 @@ export class TieredCompactionManager implements CompressionStrategy {
     // Cascade protection: if 2+ consecutive compactions were ineffective (< 5% reduction),
     // skip intermediate tiers and go directly to collapse.
     if (this.cascadeActive && this.config.enabledTiers.collapse) {
-      const result = this.collapse.apply(context.messages);
-      result.tokensBefore = budget.currentUsage;
-      result.tokensAfter = this.budgetCalc.countMessages(result.messages, context.systemPrompt);
-      this.lastResult = result;
-      this.cascadeActive = false;
-      debugLog({
-        event: 'compaction.triggered',
-        tier: 'collapse',
-        tierNumber: CompactionTier.Collapse,
-        tokensBefore: result.tokensBefore,
-        tokensAfter: result.tokensAfter,
-        reduction: result.tokensBefore - result.tokensAfter,
-        messageCountBefore: context.messages.length,
-        messageCountAfter: result.messages.length,
-        budget: { effectiveLimit: budget.effectiveLimit, usageRatio: budget.usageRatio },
-        trigger: 'cascade-escalation',
-      });
-      return result;
+      return this.applyCollapse(context, budget, budget.currentUsage, 'cascade-escalation');
     }
 
     // Tier 1: Snip tool outputs
@@ -323,7 +309,7 @@ export class TieredCompactionManager implements CompressionStrategy {
     if (tier === CompactionTier.None || tier === CompactionTier.Collapse) return;
 
     this.compactionHistory.push({ beforeTokens, afterTokens, tier });
-    if (this.compactionHistory.length > 3) {
+    if (this.compactionHistory.length > MAX_CASCADE_HISTORY) {
       this.compactionHistory.shift();
     }
 
@@ -339,21 +325,21 @@ export class TieredCompactionManager implements CompressionStrategy {
         ? (prev.beforeTokens - prev.afterTokens) / prev.beforeTokens
         : 0;
 
-      if (lastReduction < 0.05 && prevReduction < 0.05) {
+      if (lastReduction < CASCADE_MIN_REDUCTION && prevReduction < CASCADE_MIN_REDUCTION) {
         this.cascadeActive = true;
         debugLog({
           event: 'compaction.cascade_detected',
           tier,
           tierNumber: tier,
           reason: 'Two consecutive ineffective compactions. Escalating to collapse.',
-          lastReduction: +(lastReduction * 100).toFixed(1),
-          prevReduction: +(prevReduction * 100).toFixed(1),
+          lastReduction: +(lastReduction * PERCENT_MULTIPLIER).toFixed(1),
+          prevReduction: +(prevReduction * PERCENT_MULTIPLIER).toFixed(1),
         });
         return;
       }
 
       // If a compaction was effective, reset the chain
-      if (lastReduction >= 0.05) {
+      if (lastReduction >= CASCADE_MIN_REDUCTION) {
         this.cascadeActive = false;
         this.compactionHistory = [];
       }
@@ -364,5 +350,32 @@ export class TieredCompactionManager implements CompressionStrategy {
   resetCompactionState(): void {
     this.compactionHistory = [];
     this.cascadeActive = false;
+  }
+
+  /** Apply Tier 4 collapse with consistent logging and cleanup. */
+  private applyCollapse(
+    context: AgentContext,
+    budget: TokenBudget,
+    tokensBefore: number,
+    trigger: string,
+  ): CompactionResult {
+    this.cascadeActive = false;
+    const result = this.collapse.apply(context.messages);
+    result.tokensBefore = tokensBefore;
+    result.tokensAfter = this.budgetCalc.countMessages(result.messages, context.systemPrompt);
+    this.lastResult = result;
+    debugLog({
+      event: 'compaction.triggered',
+      tier: 'collapse',
+      tierNumber: CompactionTier.Collapse,
+      tokensBefore: result.tokensBefore,
+      tokensAfter: result.tokensAfter,
+      reduction: result.tokensBefore - result.tokensAfter,
+      messageCountBefore: context.messages.length,
+      messageCountAfter: result.messages.length,
+      budget: { effectiveLimit: budget.effectiveLimit, usageRatio: budget.usageRatio },
+      trigger,
+    });
+    return result;
   }
 }

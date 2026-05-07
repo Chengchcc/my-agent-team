@@ -18,6 +18,8 @@ import { debugLog } from '../utils/debug';
 
 const MAX_STDIO_CONNECTIONS = 4;
 const CONNECT_TIMEOUT_MS = 10_000;
+const JITTER_MIN_FACTOR = 0.75;
+const JITTER_RANGE_FACTOR = 0.5;
 
 interface McpManagerOptions {
   toolTimeoutMs: number;
@@ -424,7 +426,7 @@ export class McpManager {
         if (attempt < maxAttempts) {
           // Exponential backoff with ±25% jitter
           const base = baseDelay * Math.pow(2, attempt - 1);
-          const jitter = base * (0.75 + Math.random() * 0.5);
+          const jitter = base * (JITTER_MIN_FACTOR + Math.random() * JITTER_RANGE_FACTOR);
           await new Promise(resolve => setTimeout(resolve, jitter));
         }
       }

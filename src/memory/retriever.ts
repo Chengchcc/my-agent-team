@@ -12,6 +12,7 @@ const MINUTES_PER_HOUR = 60;
 const HOURS_PER_DAY = 24;
 const MS_PER_DAY = MS_PER_SECOND * SECONDS_PER_MINUTE * MINUTES_PER_HOUR * HOURS_PER_DAY;
 const RECENCY_HALF_LIFE_DAYS = 30;
+const USAGE_CAP_FOR_SCORE = 10;
 
 const DEFAULT_SEARCH_LIMIT = 10;
 const DEFAULT_SEARCH_THRESHOLD = 0.1;
@@ -122,7 +123,7 @@ export class KeywordRetriever implements MemoryRetriever {
 
     // Usage score: capped at 10 uses for full score
     const usageCount = entry.usageCount ?? 0;
-    const usageScore = Math.min(usageCount, 10) / 10;
+    const usageScore = Math.min(usageCount, USAGE_CAP_FOR_SCORE) / USAGE_CAP_FOR_SCORE;
 
     return (
       keywordScore * KEYWORD_WEIGHT +

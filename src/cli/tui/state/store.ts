@@ -1,5 +1,4 @@
-import { create, useStore } from 'zustand';
-import { useShallow } from 'zustand/react/shallow';
+import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { enableMapSet } from 'immer';
 import { nanoid } from 'nanoid';
@@ -319,38 +318,25 @@ export const useTuiStore = create<TuiStore>()(
 /**
  * The currently streaming assistant message, or null.
  *
- * Uses structural comparison: only re-renders when segment **structure**
- * changes (new segment, tool result arrives, status change). Text content
- * growth within an existing text segment does NOT trigger re-renders here
- * — LiveTextSegment gets text via the committer's throttled path.
+ * Returns a structural-key-based subscription: only re-renders when segment
+ * **structure** changes (new segment, tool result arrives, status change).
+ * Text content growth within an existing text segment does NOT trigger
+ * re-renders — LiveTextSegment gets text via the committer's throttled path.
+ * The actual live item is read from getState() on each render.
  */
 export function useLiveItem(): FinalItem | null {
-  return useStore(useTuiStore, useShallow((s): FinalItem | null => {
-    if (!s.live) return null;
-    if (s.live.kind !== 'assistant-message') return s.live as FinalItem;
-    return {
-      kind: 'assistant-message' as const,
-      id: s.live.id,
-      status: s.live.status,
-      segments: s.live.segments.map(seg => {
-        if (seg.kind === 'text') {
-          return {
-            kind: 'text' as const,
-            id: seg.id,
-            content: '' as string,
-            committedLength: 0 as number,
-          };
-        }
-        return {
-          kind: 'tool_call' as const,
-          id: seg.id,
-          name: seg.name,
-          input: seg.input,
-          result: seg.result,
-        };
-      }),
-    } satisfies FinalItem;
-  }));
+  // Subscribe via a primitive structure key — only changes on structural events
+  useTuiStore((s) => {
+    if (!s.live) return '';
+    if (s.live.kind !== 'assistant-message') return s.live.id;
+    return `${s.live.id}:${s.live.status}:${s.live.segments.map(seg =>
+      seg.kind === 'text'
+        ? `t:${seg.id}`
+        : `c:${seg.id}:${seg.name}:${seg.result ? 'done' : 'running'}`
+    ).join('|')}`;
+  });
+
+  return useTuiStore.getState().live;
 }
 
 /**

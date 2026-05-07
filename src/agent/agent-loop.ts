@@ -417,13 +417,13 @@ export class AgentLoop {
         if (fullContent.length > 0) {
           blocks.push({ type: 'text', text: fullContent });
         }
-        const assistantMsg = {
-          role: 'assistant' as const,
+        const assistantMsg: Message = {
+          role: 'assistant',
           content: fullContent || '(interrupted)',
           ...(blocks.length > 0 ? { blocks } : {}),
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls.map(tc => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) } : {}),
         };
-        this.contextManager.addMessage(assistantMsg as any);
+        this.contextManager.addMessage(assistantMsg);
         yield {
           type: 'text_delta',
           delta: `\n\n[Stream interrupted after ${MAX_STREAM_RETRIES} retries. Partial response saved.]`,
