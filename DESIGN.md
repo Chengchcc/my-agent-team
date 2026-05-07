@@ -31,22 +31,73 @@ A terminal-native AI coding agent built with TypeScript and Bun. It combines an 
 
 ## Terminology
 
+### Agent Loop
+
 | Term | Definition |
 |------|-----------|
-| **Run** | A single `agent.runAgentLoop()` invocation — one complete agent session from user input to final response. Created in `beforeAgentRun`, finalized in `afterAgentRun`. |
+| **Agent Loop** | The async generator in `Agent.runAgentLoop()` that cycles through Phase 1 (setup) → Phase 2 (LLM turn) → Phase 3 (tool execution) → repeat/teardown. |
+| **Run** | A single `agent.runAgentLoop()` invocation — one complete agent session from user input to final response. |
 | **Turn** | One LLM invocation + its tool executions. A run contains multiple turns. |
 | **Tool Execution** | A single tool call within a turn. Has name, success/failure, duration, and optional error message. |
+| **Onion Middleware** | Composable middleware where each layer wraps the next: outer runs first → inner runs last → result flows back. |
+| **Agent Middleware** | Onion-pattern hooks: `beforeAgentRun`, `beforeCompress`, `beforeModel`, `afterModel`, `beforeAddResponse`, `afterAgentRun`. |
+| **Tool Middleware** | Onion-pattern tool wrappers: `PermissionMiddleware` → `ReadCacheMiddleware` → `TraceToolMiddleware` → `tool.execute()`. |
+
+### Context & Compaction
+
+| Term | Definition |
+|------|-----------|
+| **Token Budget** | Maximum tokens allowed for conversation context. Tracked incrementally for O(1) budget checks. |
+| **Compaction** | Multi-tier context compression: snip → summarize → truncate → collapse. Triggered when token usage exceeds thresholds. |
+| **Compaction Tier** | One of 5 levels: 0 (none, <60%), 1 (snip, 60-75%), 2 (auto-compact, 75-95%), 3 (reactive, API error), 4 (collapse, >95%). |
+| **Ephemeral Reminder** | Injected context that does not persist in message history (e.g., retrieved memories, MCP resource catalogs). |
+
+### Memory
+
+| Term | Definition |
+|------|-----------|
+| **Semantic Memory** | User preferences and reusable facts ("user prefers TypeScript", "project uses pnpm"). ~200 entry limit. |
+| **Episodic Memory** | Past conversation records and decisions. ~500 entry limit, LRU eviction. |
+| **Project Memory** | Project-specific facts, architecture notes, conventions. Stored in `.claude/memory-project.json`. |
+| **Memory Extraction** | LLM-based process that extracts key facts from conversation and writes them to memory stores. Triggered by explicit trigger words ("记住", "remember"). |
+
+### Skills
+
+| Term | Definition |
+|------|-----------|
+| **Skill** | A markdown file (`SKILL.md` with YAML frontmatter) that teaches the agent a reusable workflow or domain knowledge. |
+| **Skill Injection** | The process of listing/presenting available skills to the LLM in the system prompt. Uses progressive loading: metadata always visible, full content loaded on demand. |
+| **Skill Source** | Where a skill is loaded from: `skills/` (project, user-created) or `~/.my-agent/skills/auto/` (auto-generated). Project overrides auto for same-name skills. |
+
+### Trace & Evolution
+
+| Term | Definition |
+|------|-----------|
 | **Trace** | The structured record of a run (TraceRun): all turns, tool executions, token usage, timing, and outcome. Persisted as NDJSON in `~/.my-agent/traces/`. |
-| **Nudge** | A signal generated after a run completes, indicating the trace contains a pattern worth reviewing. Three types: error burst, complex task, periodic. |
+| **Nudge** | A signal generated after a run completes, indicating the trace contains a pattern worth reviewing. Three signals: error burst, complex task, periodic. |
 | **Review Agent** | A lightweight background agent (Phase 2) that analyzes a trace when a nudge fires, producing auto-generated skills. |
 | **Auto Skill** | A skill created by the Review Agent in `~/.my-agent/skills/auto/`. Tracked for effectiveness; user can approve or delete via `/review`. |
 | **Effectiveness Score** | `successful_runs / total_runs_with_skill` for an auto skill. Low scores trigger Tier 2 LLM analysis (Phase 3). |
-| **Evolution** | The full closed loop (trace → nudge → review → skill → measurement → feedback) that enables the agent to self-improve over time. |
-| **Agent Loop** | The async generator in `Agent.runAgentLoop()` that cycles through Phase 1 (setup) → Phase 2 (LLM turn) → Phase 3 (tool execution) → repeat/teardown. |
-| **Middleware (Agent)** | Onion-pattern hooks: `beforeAgentRun`, `beforeCompress`, `beforeModel`, `afterModel`, `beforeAddResponse`, `afterAgentRun`. |
-| **Middleware (Tool)** | Onion-pattern tool wrappers: `PermissionMiddleware` → `ReadCacheMiddleware` → `TraceToolMiddleware` → `tool.execute()`. |
-| **Compaction** | Multi-tier context compression: snip → summarize → emergency truncate → collapse. Triggered when token usage exceeds thresholds. |
-| **Ephemeral Reminder** | Injected context that does not persist in message history (e.g., retrieved memories, MCP resource catalogs). |
+| **Tier 1 / Tier 2** | Tier 1 = mechanical scoring (success rate). Tier 2 = LLM deep analysis triggered when Tier 1 score is low. |
+| **Evolution** | The full closed loop (trace → nudge → review → skill → measurement → feedback) that enables the agent to self-improve. |
+
+### MCP
+
+| Term | Definition |
+|------|-----------|
+| **MCP (Model Context Protocol)** | External tool/resource/prompt servers connected via stdio, SSE, or HTTP transport. Tools are namespace-prefixed (`mcp__<server>__<tool>`). |
+| **MCP Transport** | Connection method: stdio (local child process), SSE (remote Server-Sent Events), or streamable-http. |
+
+### Other
+
+| Term | Definition |
+|------|-----------|
+| **Sub-Agent** | An independent Agent instance spawned by `SubAgentTool` with isolated context, filtered tools, and reduced token limit. Parent and child linked by `parentRunId` in traces. |
+| **Session** | A named, persistable conversation. Saved as JSONL in `~/.my-agent/sessions/`. Auto-saved after each run. |
+| **Todo** | A task list item tracked throughout conversation turns. States: pending → in_progress → completed / cancelled. |
+| **Provider** | LLM backend implementation (Claude or OpenAI). Implements `stream()` and `getModelName()`. |
+| **Tool Registry** | The set of all registered tools available to the agent, keyed by tool name. |
+| **Tool Dispatcher** | Executes tool calls with three modes: sequential, parallel batch, parallel streaming. |
 
 ---
 
