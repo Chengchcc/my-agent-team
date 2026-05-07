@@ -325,6 +325,7 @@ async function assembleMcp(
     toolTimeoutMs: mcpSettings.toolTimeoutMs,
     reconnectAttempts: mcpSettings.reconnectAttempts,
     reconnectDelayMs: mcpSettings.reconnectDelayMs,
+    maxReconnectAttempts: mcpSettings.reconnectAttempts,
   });
 
   setMcpManagerInstance(mcpManager);

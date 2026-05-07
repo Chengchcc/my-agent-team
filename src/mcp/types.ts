@@ -1,6 +1,6 @@
 import type { McpServerConfig } from '../config/types';
 
-export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error' | 'exhausted';
 
 export interface McpToolDef {
   name: string;
@@ -42,7 +42,8 @@ export type McpConnectionState =
   | { status: 'disconnected' }
   | { status: 'connecting' }
   | { status: 'connected'; capabilities: McpCapabilities; startedAt: number }
-  | { status: 'error'; message: string; since: number };
+  | { status: 'error'; message: string; since: number }
+  | { status: 'exhausted'; message: string; since: number };
 
 /** Internal per-server entry held by McpManager */
 export interface McpClientEntry {

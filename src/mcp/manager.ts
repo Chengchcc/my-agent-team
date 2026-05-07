@@ -23,10 +23,13 @@ interface McpManagerOptions {
   toolTimeoutMs: number;
   reconnectAttempts: number;
   reconnectDelayMs: number;
+  maxReconnectAttempts: number;
 }
 
 export class McpManager {
   private _servers = new Map<string, McpClientEntry>();
+
+  private _reconnectAttempts = new Map<string, number>();
 
   private _options: McpManagerOptions;
 
@@ -168,6 +171,9 @@ export class McpManager {
       transport: null,
       state: { status: 'disconnected' },
     });
+
+    // Reset reconnect counter on manual disconnect
+    this._reconnectAttempts.delete(name);
 
     if (client) {
       try {
@@ -391,7 +397,7 @@ export class McpManager {
     }
   }
 
-  /** Auto-reconnect after unexpected disconnection. Uses exponential backoff. */
+  /** Auto-reconnect after unexpected disconnection with jitter and max retry limit. */
   private async _reconnect(serverName: string): Promise<void> {
     const entry = this._servers.get(serverName);
     if (!entry) return;
@@ -399,24 +405,45 @@ export class McpManager {
     // Remove error-state entry so connectServer can create a fresh one
     this._servers.delete(serverName);
 
-    const maxAttempts = this._options.reconnectAttempts;
+    const maxAttempts = this._options.maxReconnectAttempts;
     const baseDelay = this._options.reconnectDelayMs;
+    const currentAttempt = this._reconnectAttempts.get(serverName) ?? 0;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    for (let attempt = currentAttempt + 1; attempt <= maxAttempts; attempt++) {
+      this._reconnectAttempts.set(serverName, attempt);
       debugLog(`[McpManager] Reconnecting '${serverName}' attempt ${attempt}/${maxAttempts}`);
+
       try {
         await this.connectServer(entry.config);
-        debugLog(`[McpManager] '${serverName}' reconnected`);
+        this._reconnectAttempts.delete(serverName);
+        debugLog(`[McpManager] '${serverName}' reconnected successfully`);
         return;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         debugLog(`[McpManager] '${serverName}' reconnect attempt ${attempt} failed: ${msg}`);
+
         if (attempt < maxAttempts) {
-          await new Promise(resolve => setTimeout(resolve, baseDelay * attempt));
+          // Exponential backoff with ±25% jitter
+          const base = baseDelay * Math.pow(2, attempt - 1);
+          const jitter = base * (0.75 + Math.random() * 0.5);
+          await new Promise(resolve => setTimeout(resolve, jitter));
         }
       }
     }
-    debugLog(`[McpManager] '${serverName}' reconnect failed after ${maxAttempts} attempts`);
+
+    // All attempts exhausted
+    this._reconnectAttempts.delete(serverName);
+    this._servers.set(serverName, {
+      config: entry.config,
+      client: null,
+      transport: null,
+      state: {
+        status: 'exhausted',
+        message: `Reconnect failed after ${maxAttempts} attempts`,
+        since: Date.now(),
+      },
+    });
+    debugLog(`[McpManager] '${serverName}' reconnect exhausted after ${maxAttempts} attempts`);
   }
 
   /** Resolves a connected server entry and returns its SDK Client, or throws. */
