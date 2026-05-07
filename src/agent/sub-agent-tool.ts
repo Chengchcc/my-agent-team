@@ -1,6 +1,7 @@
 // src/agent/sub-agent-tool.ts
 import { nanoid } from 'nanoid';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { debugLog } from '../utils/debug';
 import type { Tool, ToolImplementation } from '../types';
 import type { Provider, AgentConfig, AgentHooks } from '../types';
 import type { ToolContext } from './tool-dispatch/types';
@@ -484,7 +485,7 @@ Error: ${errorMessage}
     } finally {
       // Clean up temp isolation directory if we created one
       if (isolatedCwd && isolatedCwd.startsWith('/tmp/sub-agent-')) {
-        try { rmSync(isolatedCwd, { recursive: true, force: true }); } catch { /* best effort */ }
+        try { rmSync(isolatedCwd, { recursive: true, force: true }); } catch { debugLog(`[sub-agent] failed to clean up temp dir: ${isolatedCwd}`); }
       }
       subAgentSemaphore.release();
     }
