@@ -1,6 +1,6 @@
 import type { CompressionStrategy, AgentContext, Message } from '../../types';
 import type { CompactionConfig, CompactionResult, TokenBudget } from './types';
-import { CompactionTier } from './types';
+import { CompactionTier, type CompactionTierNumber } from './types';
 import type { TokenBudgetCalculator } from './budget';
 import { ToolOutputSnipStrategy } from './tiers/snip';
 import { AutoCompactStrategy } from './tiers/auto-compact';
@@ -31,6 +31,12 @@ export class TieredCompactionManager implements CompressionStrategy {
 
   /** Last compaction result, for observability / TUI display */
   private lastResult: CompactionResult | null = null;
+
+  /** Track recent compactions for cascade detection. Reset on healthy budget or explicit reset. */
+  private compactionHistory: Array<{beforeTokens: number; afterTokens: number; tier: CompactionTierNumber}> = [];
+
+  /** Set when 2+ consecutive compactions have < 5% reduction. Reset on effective compaction or healthy budget. */
+  private cascadeActive = false;
 
   constructor(
     budgetCalc: TokenBudgetCalculator,
@@ -73,6 +79,35 @@ export class TieredCompactionManager implements CompressionStrategy {
         compacted: false,
       };
       this.lastResult = result;
+
+      // Reset cascade state when budget is healthy
+      if (this.compactionHistory.length > 0 || this.cascadeActive) {
+        this.resetCompactionState();
+      }
+
+      return result;
+    }
+
+    // Cascade protection: if 2+ consecutive compactions were ineffective (< 5% reduction),
+    // skip intermediate tiers and go directly to collapse.
+    if (this.cascadeActive && this.config.enabledTiers.collapse) {
+      const result = this.collapse.apply(context.messages);
+      result.tokensBefore = budget.currentUsage;
+      result.tokensAfter = this.budgetCalc.countMessages(result.messages, context.systemPrompt);
+      this.lastResult = result;
+      this.cascadeActive = false;
+      debugLog({
+        event: 'compaction.triggered',
+        tier: 'collapse',
+        tierNumber: CompactionTier.Collapse,
+        tokensBefore: result.tokensBefore,
+        tokensAfter: result.tokensAfter,
+        reduction: result.tokensBefore - result.tokensAfter,
+        messageCountBefore: context.messages.length,
+        messageCountAfter: result.messages.length,
+        budget: { effectiveLimit: budget.effectiveLimit, usageRatio: budget.usageRatio },
+        trigger: 'cascade-escalation',
+      });
       return result;
     }
 
@@ -82,6 +117,9 @@ export class TieredCompactionManager implements CompressionStrategy {
       result.tokensBefore = budget.currentUsage;
       result.tokensAfter = this.budgetCalc.countMessages(result.messages, context.systemPrompt);
       this.lastResult = result;
+
+      // Track for cascade detection (records outcome, sets cascadeActive if 2+ consecutive ineffective)
+      this.recordAndCheckCascade(result.tokensBefore, result.tokensAfter, CompactionTier.Snip);
 
       // Check if snip was sufficient
       const newRatio = result.tokensAfter / budget.effectiveLimit;
@@ -99,6 +137,7 @@ export class TieredCompactionManager implements CompressionStrategy {
         });
         return result;
       }
+
       // Snip wasn't enough - log and fall through
       debugLog({
         event: 'compaction.triggered',
@@ -130,6 +169,10 @@ export class TieredCompactionManager implements CompressionStrategy {
       result.tokensBefore = budget.currentUsage;
       result.tokensAfter = this.budgetCalc.countMessages(result.messages, context.systemPrompt);
       this.lastResult = result;
+
+      // Track for cascade detection
+      this.recordAndCheckCascade(result.tokensBefore, result.tokensAfter, CompactionTier.AutoCompact);
+
       debugLog({
         event: 'compaction.triggered',
         tier: 'auto-compact',
@@ -273,5 +316,53 @@ export class TieredCompactionManager implements CompressionStrategy {
   /** Get current budget snapshot (for TUI display or budget guard) */
   getBudget(context: AgentContext): TokenBudget {
     return this.budgetCalc.calculate(context);
+  }
+
+  /** Record a compaction outcome and set cascadeActive if 2+ consecutive compactions have < 5% reduction. */
+  private recordAndCheckCascade(beforeTokens: number, afterTokens: number, tier: CompactionTierNumber): void {
+    if (tier === CompactionTier.None || tier === CompactionTier.Collapse) return;
+
+    this.compactionHistory.push({ beforeTokens, afterTokens, tier });
+    if (this.compactionHistory.length > 3) {
+      this.compactionHistory.shift();
+    }
+
+    if (this.compactionHistory.length >= 2) {
+      const entries = this.compactionHistory;
+      const last = entries[entries.length - 1]!;
+      const prev = entries[entries.length - 2]!;
+
+      const lastReduction = last.beforeTokens > 0
+        ? (last.beforeTokens - last.afterTokens) / last.beforeTokens
+        : 0;
+      const prevReduction = prev.beforeTokens > 0
+        ? (prev.beforeTokens - prev.afterTokens) / prev.beforeTokens
+        : 0;
+
+      if (lastReduction < 0.05 && prevReduction < 0.05) {
+        this.cascadeActive = true;
+        debugLog({
+          event: 'compaction.cascade_detected',
+          tier,
+          tierNumber: tier,
+          reason: 'Two consecutive ineffective compactions. Escalating to collapse.',
+          lastReduction: +(lastReduction * 100).toFixed(1),
+          prevReduction: +(prevReduction * 100).toFixed(1),
+        });
+        return;
+      }
+
+      // If a compaction was effective, reset the chain
+      if (lastReduction >= 0.05) {
+        this.cascadeActive = false;
+        this.compactionHistory = [];
+      }
+    }
+  }
+
+  /** Reset compaction state for a new conversation. */
+  resetCompactionState(): void {
+    this.compactionHistory = [];
+    this.cascadeActive = false;
   }
 }
