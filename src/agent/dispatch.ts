@@ -52,10 +52,8 @@ export function planExecution(
 
     if (conflictsWithWave) {
       flush();
-      currentWave.push(call);
-    } else {
-      currentWave.push(call);
     }
+    currentWave.push(call);
   }
   flush();
 
@@ -100,7 +98,7 @@ function getSideEffects(name: string, args: Record<string, unknown>): ToolSideEf
     case 'bash':
       return [eff('execute')];
     default:
-      return [eff('execute')];
+      return [];
   }
 }
 
