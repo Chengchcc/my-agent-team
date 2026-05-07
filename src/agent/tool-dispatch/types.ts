@@ -87,6 +87,11 @@ export interface DispatchOptions {
 /**
  * 创建 ToolSink 实例的工厂函数
  */
+export interface ToolSideEffect {
+  type: 'read' | 'write' | 'execute';
+  path?: string;
+}
+
 export function createToolSink(): ToolSink {
   const state: {
     _todoUpdates: TodoItem[] | undefined;

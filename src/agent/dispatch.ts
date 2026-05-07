@@ -1,5 +1,5 @@
-import type { ToolCall } from '../types';
-import type { ToolImplementation } from '../types';
+import type { ToolCall, ToolImplementation } from '../types';
+import type { ToolSideEffect } from './tool-dispatch/types';
 
 export interface ExecutionPlan {
   /** Waves are executed sequentially; tools within a wave run in parallel. */
@@ -34,13 +34,27 @@ export function planExecution(
     const tool = lookup(call.name);
     const conflict = resolveConflict(call, tool);
 
-    if (conflict === null) {
-      // No conflict — safe to batch with current wave
-      currentWave.push(call);
-    } else {
-      // Has conflict — flush any accumulated wave, then this call alone
+    if (conflict !== null) {
       flush();
       waves.push([call]);
+      continue;
+    }
+
+    // Check side-effect conflicts against current wave members
+    const effects = getSideEffects(call.name, call.arguments as Record<string, unknown>);
+    const conflictsWithWave = currentWave.some(existing => {
+      const existingEffects = getSideEffects(
+        existing.name,
+        existing.arguments as Record<string, unknown>,
+      );
+      return hasSideEffectConflict(effects, existingEffects);
+    });
+
+    if (conflictsWithWave) {
+      flush();
+      currentWave.push(call);
+    } else {
+      currentWave.push(call);
     }
   }
   flush();
@@ -63,4 +77,42 @@ function resolveConflict(call: ToolCall, tool?: ToolImplementation): string | nu
   }
   // Default: readonly tools are conflict-free, others get own wave
   return tool?.readonly ? null : call.name;
+}
+
+function eff(type: 'read' | 'write' | 'execute', path?: string): ToolSideEffect {
+  const e: ToolSideEffect = { type };
+  if (path !== undefined) e.path = path;
+  return e;
+}
+
+function getSideEffects(name: string, args: Record<string, unknown>): ToolSideEffect[] {
+  switch (name) {
+    case 'read':
+      return [eff('read', args.file_path as string | undefined)];
+    case 'grep':
+      return [eff('read', args.path as string | undefined)];
+    case 'glob':
+      return [eff('read', args.path as string | undefined)];
+    case 'ls':
+      return [eff('read', args.path as string | undefined)];
+    case 'text_editor':
+      return [eff('write', args.file as string | undefined)];
+    case 'bash':
+      return [eff('execute')];
+    default:
+      return [eff('execute')];
+  }
+}
+
+function hasSideEffectConflict(a: ToolSideEffect[], b: ToolSideEffect[]): boolean {
+  for (const sa of a) {
+    for (const sb of b) {
+      if (sa.type === 'execute' || sb.type === 'execute') return true;
+      if (sa.type === 'write' && sb.type === 'write' && sa.path && sb.path && sa.path === sb.path) return true;
+      if ((sa.type === 'write' && sb.type === 'read') || (sa.type === 'read' && sb.type === 'write')) {
+        if (sa.path && sb.path && sa.path === sb.path) return true;
+      }
+    }
+  }
+  return false;
 }
