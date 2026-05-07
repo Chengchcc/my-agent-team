@@ -19,7 +19,7 @@ function makeHooks(): Required<AgentHooks> {
 }
 
 describe('Stream interruption recovery', () => {
-  it('should save partial content when stream breaks mid-response', async () => {
+  it('should save partial content when stream breaks mid-response', { timeout: 15000 }, async () => {
     const contextManager = new ContextManager({ tokenLimit: 100000 });
     let streamCallCount = 0;
 

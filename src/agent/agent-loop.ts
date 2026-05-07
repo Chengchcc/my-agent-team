@@ -29,7 +29,7 @@ const NANOID_LENGTH = 6;
 
 // --- Stream resilience: retry & partial-content recovery ---
 
-const MAX_STREAM_RETRIES = 3;
+const MAX_STREAM_RETRIES = 4;
 const RETRY_BASE_DELAY_MS = 1000;
 
 type StreamErrorKind = 'network' | 'rate_limit' | 'fatal';
@@ -410,7 +410,7 @@ export class AgentLoop {
       const hasPartial = fullContent.length > 0 || thinkingBuffer.length > 0 || toolCalls.length > 0;
       if (hasPartial) {
         // Save partial content as assistant message so work is not lost
-        const blocks: Array<{type: string; thinking?: string; signature?: string; text?: string}> = [];
+        const blocks: ContentBlock[] = [];
         if (thinkingBuffer.length > 0) {
           blocks.push({ type: 'thinking', thinking: thinkingBuffer, signature: thinkingSignature ?? '' });
         }
@@ -420,9 +420,8 @@ export class AgentLoop {
         const assistantMsg = {
           role: 'assistant' as const,
           content: fullContent || '(interrupted)',
-          ...(blocks.length > 0 ? { contentBlocks: blocks } : {}),
+          ...(blocks.length > 0 ? { blocks } : {}),
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls.map(tc => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) } : {}),
-          _streamInterrupted: true,
         };
         this.contextManager.addMessage(assistantMsg as any);
         yield {
