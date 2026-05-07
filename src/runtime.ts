@@ -333,9 +333,14 @@ async function assembleMcp(
   const mcpPromptRegistry = new McpPromptRegistry(mcpManager);
   setMcpPromptRegistry(mcpPromptRegistry);
 
-  try {
-    await mcpManager.start(mergedServers);
+  // Register management tools immediately (they work without connected servers)
+  toolRegistry.register(new McpListServersTool(mcpManager));
+  toolRegistry.register(new McpAddServerTool(mcpManager, toolRegistry, mcpPromptRegistry));
+  toolRegistry.register(new McpRemoveServerTool(mcpManager, toolRegistry));
+  toolRegistry.register(new McpReadResourceTool(mcpManager));
 
+  // Start connections in background — don't block TUI startup
+  mcpManager.onReady(() => {
     for (const { serverName, tool: toolDef } of mcpManager.getAllTools()) {
       toolRegistry.register(new McpToolAdapter(mcpManager, serverName, toolDef));
     }
@@ -349,17 +354,10 @@ async function assembleMcp(
       hooks.beforeModel?.push(resourceMiddleware.beforeModel);
     }
 
-    toolRegistry.register(new McpListServersTool(mcpManager));
-    toolRegistry.register(new McpAddServerTool(mcpManager, toolRegistry, mcpPromptRegistry));
-    toolRegistry.register(new McpRemoveServerTool(mcpManager, toolRegistry));
-    toolRegistry.register(new McpReadResourceTool(mcpManager));
-
     debugLog('MCP initialized');
-  } catch (err) {
-    setMcpManagerInstance(null);
-    debugLog(`MCP initialization failed: ${err}`);
-    return {};
-  }
+  });
+
+  mcpManager.start(mergedServers);
 
   return { mcpManager, mcpPromptRegistry };
 }

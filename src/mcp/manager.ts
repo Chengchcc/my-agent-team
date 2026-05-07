@@ -17,6 +17,7 @@ import pLimit from 'p-limit';
 import { debugLog } from '../utils/debug';
 
 const MAX_STDIO_CONNECTIONS = 4;
+const CONNECT_TIMEOUT_MS = 10_000;
 
 interface McpManagerOptions {
   toolTimeoutMs: number;
@@ -33,24 +34,41 @@ export class McpManager {
     this._options = options;
   }
 
-  /** Connect all servers with autoStart !== false. Does NOT register tools — caller must do that. */
-  async start(servers: McpServerConfig[]): Promise<void> {
+  /** Connect all servers with autoStart !== false. Returns immediately — caller must use onServerReady for per-server results. */
+  start(servers: McpServerConfig[]): void {
     const targets = servers.filter(s => s.autoStart !== false);
     const stdioServers = targets.filter(s => s.transport === 'stdio');
     const httpServers = targets.filter(s => s.transport !== 'stdio');
 
+    if (targets.length === 0) {
+      this._onReady?.();
+      return;
+    }
+
     const limit = pLimit(MAX_STDIO_CONNECTIONS);
-    const results = await Promise.allSettled([
+    const allServers = [...httpServers, ...stdioServers];
+    const promises = [
       ...httpServers.map(s => this.connectServer(s)),
       ...stdioServers.map(s => limit(() => this.connectServer(s))),
-    ]);
-    for (let i = 0; i < results.length; i++) {
-      const name = [...httpServers, ...stdioServers][i]!.name;
-      const result = results[i]!;
-      if (result.status === 'rejected') {
-        debugLog(`[McpManager] Failed to connect '${name}': ${result.reason}`);
+    ];
+
+    Promise.allSettled(promises).then(results => {
+      for (let i = 0; i < results.length; i++) {
+        const name = allServers[i]!.name;
+        const result = results[i]!;
+        if (result.status === 'rejected') {
+          debugLog(`[McpManager] Failed to connect '${name}': ${result.reason}`);
+        }
       }
-    }
+      this._onReady?.();
+    });
+  }
+
+  /** Callback invoked after all initial autoStart servers finish connecting (success or failure). */
+  private _onReady?: () => void;
+
+  onReady(cb: () => void): void {
+    this._onReady = cb;
   }
 
   async connectServer(config: McpServerConfig): Promise<void> {
@@ -88,11 +106,27 @@ export class McpManager {
         }
       };
 
-      await client.connect(transport as Transport);
+      await this._withTimeout(
+        client.connect(transport as Transport),
+        CONNECT_TIMEOUT_MS,
+        `connect to '${config.name}'`,
+      );
 
-      const tools = await this._listTools(client);
-      const resources = await this._listResources(client);
-      const prompts = await this._listPrompts(client);
+      const tools = await this._withTimeout(
+        this._listTools(client),
+        CONNECT_TIMEOUT_MS,
+        `list tools from '${config.name}'`,
+      );
+      const resources = await this._withTimeout(
+        this._listResources(client),
+        CONNECT_TIMEOUT_MS,
+        `list resources from '${config.name}'`,
+      );
+      const prompts = await this._withTimeout(
+        this._listPrompts(client),
+        CONNECT_TIMEOUT_MS,
+        `list prompts from '${config.name}'`,
+      );
 
       this._servers.set(config.name, {
         config,
@@ -249,6 +283,18 @@ export class McpManager {
     const client = this._getClient(serverName);
     const result = await client.getPrompt({ name: promptName, arguments: args });
     return result as unknown as McpPromptResult;
+  }
+
+  private async _withTimeout<T>(promise: Promise<T>, ms: number, operation: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`MCP ${operation} timed out after ${ms}ms`)), ms);
+    });
+    try {
+      return await Promise.race([promise, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private _createTransport(config: McpServerConfig) {
