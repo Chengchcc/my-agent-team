@@ -86,6 +86,11 @@ export const defaultSettings: Settings = {
   security: {
     allowedRoots: ['.'],
   },
+  tools: {
+    tavily: {
+      apiKey: null,
+    },
+  },
   debug: {
     enabled: false,
   },

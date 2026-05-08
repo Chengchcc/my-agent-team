@@ -136,6 +136,14 @@ const traceSettingsSchema = z.object({
   review: traceReviewSettingsSchema,
 });
 
+const tavilySettingsSchema = z.object({
+  apiKey: z.string().nullable().default(null),
+});
+
+const toolsSettingsSchema = z.object({
+  tavily: tavilySettingsSchema,
+});
+
 export const settingsSchema = z.object({
   version: z.number().optional().default(1),
   llm: llmSettingsSchema,
@@ -145,6 +153,7 @@ export const settingsSchema = z.object({
   tui: tuiSettingsSchema,
   subAgent: subAgentSettingsSchema,
   security: securitySettingsSchema,
+  tools: toolsSettingsSchema,
   debug: debugSettingsSchema,
   mcp: mcpSettingsSchema,
   trace: traceSettingsSchema,

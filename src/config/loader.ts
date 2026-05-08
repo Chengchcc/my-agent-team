@@ -40,6 +40,12 @@ export function mergeConfigs(defaults: Partial<Settings>, user: Partial<Settings
   if (user.subAgent) result.subAgent = mergeSection(defaults.subAgent, user.subAgent);
   if (user.debug) result.debug = mergeSection(defaults.debug, user.debug);
 
+  if (user.tools) {
+    result.tools = {
+      tavily: mergeSection(defaults.tools?.tavily, user.tools.tavily),
+    } as Settings['tools'];
+  }
+
   if (user.tui) {
     result.tui = {
       history: mergeSection(defaults.tui?.history, user.tui.history),
@@ -145,6 +151,11 @@ function applyEnvOverrides(settings: Settings): Settings {
   }
   if (settings.llm.provider === 'openai' && process.env.OPENAI_BASE_URL) {
     settings.llm.baseURL = process.env.OPENAI_BASE_URL;
+  }
+
+  // Tavily API key from environment
+  if (process.env.TAVILY_API_KEY) {
+    settings.tools.tavily.apiKey = process.env.TAVILY_API_KEY;
   }
 
   // Debug from command line (--debug) is handled earlier, but env can also set it

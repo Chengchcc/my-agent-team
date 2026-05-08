@@ -127,6 +127,14 @@ export interface McpSettings {
   reconnectDelayMs: number;
 }
 
+export interface TavilySettings {
+  apiKey: string | null;
+}
+
+export interface ToolsSettings {
+  tavily: TavilySettings;
+}
+
 export interface DebugSettings {
   enabled: boolean;
 }
@@ -167,6 +175,7 @@ export interface Settings {
   tui: TUISettings;
   subAgent: SubAgentSettings;
   security: SecuritySettings;
+  tools: ToolsSettings;
   debug: DebugSettings;
   mcp: McpSettings;
   trace: TraceSettings;

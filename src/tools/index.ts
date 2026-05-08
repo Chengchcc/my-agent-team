@@ -14,3 +14,6 @@ export * from './ls';
 
 // Permission management
 export * from './permission-manager';
+
+// Web search
+export * from './web-search';

@@ -24,7 +24,10 @@ import { SkillLoader } from './skills/loader';
 import { SessionStore } from './session/store';
 import { createAutoSaveHook } from './session/hook';
 import type { AskUserQuestionParameters, AskUserQuestionResult } from './tools/ask-user-question';
-import { BashTool, TextEditorTool, AskUserQuestionTool, ReadTool, GrepTool, GlobTool, LsTool } from './tools';
+import {
+  BashTool, TextEditorTool, AskUserQuestionTool,
+  ReadTool, GrepTool, GlobTool, LsTool, WebSearchTool,
+} from './tools';
 import { createProviderFromSettings } from './providers';
 import { createProviderFromEnv, setupEvolution } from './runtime-providers';
 import { DEFAULT_SYSTEM_PROMPT } from './config/default-prompts';
@@ -132,6 +135,9 @@ export async function createAgentRuntime(
   toolRegistry.register(new GrepTool());
   toolRegistry.register(new GlobTool());
   toolRegistry.register(new LsTool());
+
+  // WebSearch — always registered; API key resolved lazily at call time
+  toolRegistry.register(new WebSearchTool());
 
   const defaultHeadlessHandler = async () => {
     throw new Error('ask_user_question tool is not available in headless mode');
