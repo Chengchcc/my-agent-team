@@ -150,7 +150,7 @@ export function useAgentSubscription(agent: Agent) {
       };
 
       const pullNext = () => {
-        setImmediate(async () => {
+        setImmediate(() => { void (async () => {
           try {
             const result = await iterator.next();
             if (result.done) {
@@ -174,7 +174,7 @@ export function useAgentSubscription(agent: Agent) {
             }
             finish();
           }
-        });
+        })(); });
       };
 
       pullNext();

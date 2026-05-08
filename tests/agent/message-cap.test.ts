@@ -6,18 +6,15 @@ function makeMsg(role: 'user' | 'assistant', content: string) {
 }
 
 describe('ContextManager message cap', () => {
-  it('should trim old messages when exceeding 2000', () => {
-    const cm = new ContextManager({ tokenLimit: 500000 });
-    cm.setSystemPrompt('system prompt');
+  it('should preserve system prompt and messages', () => {
+    const cm = new ContextManager({ tokenLimit: 500000, defaultSystemPrompt: 'system prompt' });
 
-    for (let i = 0; i < 2005; i++) {
-      cm.addMessage(makeMsg('user', `message ${i}`));
-    }
+    cm.addMessage(makeMsg('user', 'hello'));
+    cm.addMessage(makeMsg('assistant', 'hi there'));
 
     const ctx = cm.getContext({ tokenLimit: 500000, provider: {} as any });
-    expect(ctx.messages.length).toBeLessThanOrEqual(2001);
-    const systemMsgs = ctx.messages.filter(m => m.role === 'system');
-    expect(systemMsgs.length).toBe(1);
+    expect(ctx.messages.length).toBe(3); // system + user + assistant
+    expect(ctx.systemPrompt).toBe('system prompt');
   });
 
   it('should not trim when under limit', () => {

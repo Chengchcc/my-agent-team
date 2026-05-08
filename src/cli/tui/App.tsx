@@ -173,19 +173,17 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
     useTuiStore.getState().toggleExpanded();
   }, []);
 
-  const handleClearPending = useCallback(() => {
-    pendingRef.current = [];
-    useTuiStore.getState().clearPendingInputs();
-  }, []);
-
   const callbacks: InputBoxCallbacks = useMemo(
     () => ({
       onFocusPrev: handleFocusPrev,
       onFocusNext: handleFocusNext,
       onToggleExpand: handleToggleExpand,
-      onClearPending: handleClearPending,
+      onClearPending: () => {
+        pendingRef.current = [];
+        useTuiStore.getState().clearPendingInputs();
+      },
     }),
-    [handleFocusPrev, handleFocusNext, handleToggleExpand, handleClearPending],
+    [handleFocusPrev, handleFocusNext, handleToggleExpand],
   );
 
   // Initialize context token tracking

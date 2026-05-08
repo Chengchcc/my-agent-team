@@ -125,7 +125,7 @@ describe('Abort signal propagation', () => {
     const result = await promise;
 
     expect(result).toContain('status="aborted"');
-    expect(result).toContain('Sub agent aborted by main agent');
+    expect(result).toContain('Sub-agent aborted by main agent.');
   });
 
   test('sub-agent completes → main abort signal remains active (not aborted)', async () => {

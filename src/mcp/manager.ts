@@ -9,13 +9,12 @@ import type {
   McpToolDef,
   McpResourceDef,
   McpPromptDef,
-  McpPromptArgument,
   McpPromptResult,
   McpClientEntry,
 } from './types';
 import pLimit from 'p-limit';
 import { debugLog } from '../utils/debug';
-
+import { listServerTools, listServerResources, listServerPrompts } from './server-listers';
 const MAX_STDIO_CONNECTIONS = 4;
 const CONNECT_TIMEOUT_MS = 10_000;
 const JITTER_MIN_FACTOR = 0.75;
@@ -57,7 +56,7 @@ export class McpManager {
       ...stdioServers.map(s => limit(() => this.connectServer(s))),
     ];
 
-    Promise.allSettled(promises).then(results => {
+    void Promise.allSettled(promises).then(results => {
       for (let i = 0; i < results.length; i++) {
         const name = allServers[i]!.name;
         const result = results[i]!;
@@ -330,73 +329,15 @@ export class McpManager {
   }
 
   private async _listTools(client: Client): Promise<McpToolDef[]> {
-    const result = await client.listTools();
-    const mapped: McpToolDef[] = [];
-    for (const t of result.tools || []) {
-      const def: McpToolDef = {
-        name: t.name,
-        parameters: t.inputSchema ?? { type: 'object', properties: {} },
-      };
-      if (t.description !== undefined) {
-        def.description = t.description;
-      }
-      mapped.push(def);
-    }
-    return mapped;
+    return listServerTools(client);
   }
 
   private async _listResources(client: Client): Promise<McpResourceDef[]> {
-    try {
-      const result = await client.listResources();
-      const mapped: McpResourceDef[] = [];
-      for (const r of result.resources || []) {
-        const def: McpResourceDef = {
-          uri: r.uri,
-          name: r.name,
-        };
-        if (r.description !== undefined) {
-          def.description = r.description;
-        }
-        if (r.mimeType !== undefined) {
-          def.mimeType = r.mimeType;
-        }
-        mapped.push(def);
-      }
-      return mapped;
-    } catch (err) {
-      debugLog(`[McpManager] _listResources failed: ${err instanceof Error ? err.message : String(err)}`);
-      return [];
-    }
+    return listServerResources(client);
   }
 
   private async _listPrompts(client: Client): Promise<McpPromptDef[]> {
-    try {
-      const result = await client.listPrompts();
-      const mapped: McpPromptDef[] = [];
-      for (const p of result.prompts || []) {
-        const def: McpPromptDef = {
-          name: p.name,
-        };
-        if (p.description !== undefined) {
-          def.description = p.description;
-        }
-        if (p.arguments !== undefined) {
-          const args: McpPromptArgument[] = [];
-          for (const a of p.arguments) {
-            const arg: McpPromptArgument = { name: a.name };
-            if (a.description !== undefined) arg.description = a.description;
-            if (a.required !== undefined) arg.required = a.required;
-            args.push(arg);
-          }
-          def.arguments = args;
-        }
-        mapped.push(def);
-      }
-      return mapped;
-    } catch (err) {
-      debugLog(`[McpManager] _listPrompts failed: ${err instanceof Error ? err.message : String(err)}`);
-      return [];
-    }
+    return listServerPrompts(client);
   }
 
   /** Auto-reconnect after unexpected disconnection with jitter and max retry limit. */
