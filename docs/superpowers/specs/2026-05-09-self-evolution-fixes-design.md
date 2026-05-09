@@ -9,7 +9,7 @@
 | **C** Lifecycle | Done | TaskRunner (configurable hard abort), TurnSettledDetector (loop_settled), expanded outcome union |
 | **D** Queue | Done | Tiered PersistentQueue (tier0/2/3/housekeeping), TierBreaker, Drainer (kind-based dispatchers), Supervisor, SettleBus |
 | **E** Triggers | Done | IdleTrigger, EventTrigger, CronTriggers, ThresholdTrigger, ManualTrigger, AutoAcceptRunner (dispatcher) |
-| **F** Prompt Self-Evolve | Pending | Tier3OptRunner, Tier3AbRunner, Tier2 verdict dispatcher, CronScheduler module |
+| **F** CronScheduler + Prompt Self-Evolve | Specified | F1 CronScheduler, F2 Tier2 dispatcher, F3 Tier3OptRunner, F4 Tier3AbRunner, F5 Guards |
 | **G-L** | Deferred | Trace sampling, skill graph, verdict calibration, user feedback, multi-agent voting, shadow deployment |
 
 ## Problem Statement
@@ -104,30 +104,39 @@ Each phase develops in an isolated git worktree. When all tasks in a phase pass 
 
 **Depends on**: Phase B (circuit breaker and backoff are prerequisites).
 
-### Phase E — Multi-Trigger Scheduling
+### Phase E — Multi-Trigger Scheduling (implemented)
 
-**Goal**: Five trigger types sharing one execution channel.
+**Goal**: Five trigger types sharing one execution channel, wired through Drainer's per-kind dispatchers.
 
-| Trigger | Timing | Force | Purpose |
+| Trigger | Timing | allowedKinds | Implementation |
 |---|---|---|---|
-| IdleTrigger | streaming=false for 30s | no | Default path |
-| EventTrigger | loop_settled + 1s | no | Immediate response |
-| CronTrigger | daily 03:00 / 15min / weekly Sun 04:00 | no | Fallback + weekly Tier 3 |
-| ThresholdTrigger | queue.size() >= 10 | no | Backlog protection |
-| ManualTrigger | /review run-now | yes | Debug, bypasses IdleGate |
+| IdleTrigger | idle ≥ 30s | tier0, tier2 | IdleGate polling + Drainer.tryDrain |
+| EventTrigger | loop_settled + 1s | tier0 | SettleBus subscription |
+| CronTrigger ×3 | */15min / daily 03:00 / weekly Sun 04:00 | tier0+tier2 / tier3ab+AA / tier3opt | setInterval (→ Phase F replaces with nextRunAt) |
+| ThresholdTrigger | 5min polling | tier0, tier2, tier3 | stub |
+| ManualTrigger | /review run-now | all (force) | Drainer.tryDrain({ force: true }) |
 
-**Depends on**: Phase C (TurnSettledDetector), Phase D (persistent queue).
+**Depends on**: Phase C (SettleBus), Phase D (PersistentQueue + Drainer).
 
-### Phase F — Tier 3 Prompt Self-Evolution
+### Phase F — CronScheduler + Tier 3 Prompt Self-Evolution (pending)
 
-**Goal**: Close the "AI improves AI" loop — auto-optimize review/analyzer prompts.
+**Goal**: Close the "AI improves AI" loop + replace setInterval cron with durable scheduling.
 
-- Weekly cron drives prompt optimizer agent
-- A/B shadow evaluation: old vs new prompt
-- Auto-promote on win; auto-dead-pool on loss
-- Weekly promote cap + 14-day cooldown + CircuitBreaker
+**F1. CronScheduler**: TUI is not long-lived. Long-cycle schedules use `nextRunAt` + PersistentQueue:
+- `parseCron(expr)` → `nextFire(from: Date): Date`
+- 短周期(15min): 进程内 setTimeout → next fire → Drainer.tryDrain
+- 长周期(daily/weekly): 启动时 enqueue 到 PersistentQueue，带 `nextRunAt`。Drainer.claim 自然过滤未到期任务
+- 幂等：同 schedule + fingerprint 不重复入队
 
-**Depends on**: Phase E (scheduling infrastructure).
+**F2. Tier 2 dispatcher**: 实现 `tier2_verdict` dispatcher（当前空桩）→ forkSkillAnalysis
+
+**F3. Tier3OptRunner**: read feedback → build prompt → fork optimizer → write candidate → enqueue Tier3Ab(+7d)
+
+**F4. Tier3AbRunner**: read metrics → compare → promote to prompt-templates.ts or reject
+
+**F5. Guards**: weekly promote cap, 14-day cooldown, TierBreaker pause month on 3 consecutive fails
+
+**Depends on**: Phase E (triggers + drainer dispatchers).
 
 ## Merge Strategy
 
