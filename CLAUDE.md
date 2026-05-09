@@ -25,7 +25,9 @@ For a comprehensive walkthrough of the project's architecture — the agent loop
 
 ## Current State
 
-This is a TypeScript-based AI agent framework built with Bun, featuring a modular architecture for extending functionality through skills, and an interactive terminal UI (TUI) powered by Ink/React. The project is actively under development with many core features complete.
+This is a TypeScript-based AI agent framework built with Bun, featuring a modular architecture for extending functionality through skills, and an interactive terminal UI (TUI) powered by Ink/React. The project includes a self-evolution system that analyzes agent traces, creates skills, and evaluates their effectiveness through a multi-tier review pipeline.
+
+**Self-Evolution Phases Complete:** Phase A (P0 fixes) → B (defense layers) → C (lifecycle) → D (tiered queue) → E (triggers). Phase F (prompt self-evolution) pending.
 
 ## Development Commands
 
@@ -103,6 +105,30 @@ This is a TypeScript-based AI agent framework built with Bun, featuring a modula
   - `middleware.ts`: SkillMiddleware for auto-injecting skills into system prompt
   - `index.ts`: Module exports
 - `/src/types.ts`: Global shared type definitions (Message, ToolCall, Provider, Middleware, etc.)
+
+### Self-Evolution System
+
+- `/src/evolution/`: Multi-tier self-improvement pipeline that analyzes agent traces, writes skills, and evaluates effectiveness
+  - **Tier 0**: `review-agent.ts` — forks LLM agent to analyze traces and create reusable skills via `review-tools.ts`
+  - **Tier 1**: `effectiveness-tracker.ts` — in-line mechanical scoring (success rate, outcome classification)
+  - **Tier 2**: `skill-analyzer.ts` — forks LLM to judge skill quality, producing keep/edit/delete verdicts
+  - **Tier 3**: Deferred to Phase F — prompt self-evolution with A/B shadow evaluation
+  - **Queue & Scheduling**:
+    - `persistent-queue.ts` — file-per-task JSON queue, O_EXCL atomic claim, mtime heartbeat, zombie recovery, per-tier backoff, kind-based subdirectories (tier0/tier2/tier3/housekeeping), deriveTask for parent-child chains
+    - `drainer.ts` — quota-based consumption (tier0:3, tier2:5, tier3:1), mutex guard, IdleGate integration, kind-based dispatchers
+    - `triggers.ts` — 5 trigger types: IdleTrigger (idle 30s), EventTrigger (main_loop_settled+1s), CronTriggers (*/15min, daily, weekly), ThresholdTrigger, ManualTrigger. Each with allowedKinds filtering.
+  - **Defense**:
+    - `idle-gate.ts` — blocks review while streaming/compacting
+    - `review-slot.ts` — single pending slot with priority override
+    - `review-backoff.ts` — exponential backoff 30s→15min with jitter
+    - `circuit-breaker.ts` — global circuit breaker (3 failures → 1h pause)
+    - `tier-breaker.ts` — per-tier circuit breaker with independent thresholds and cooldowns
+  - **Runner & Supervisor**:
+    - `review-runner.ts` — generic TaskRunner with RunnerOutcome + configurable hard abort timeout
+    - `supervisor.ts` — cancelPolicy dispatch (preempt/graceful/finish) per task kind
+    - `settle-bus.ts` — event bus (main_loop_settled, task_completed, idle_window_open, cron_fired)
+  - **Types**: `types.ts` — ReviewConfig, EvolutionCallback, SkillStats, SkillStatus
+  - **Integration**: `index.ts` — initEvolution() factory, module wiring, exports
 
 ### Built-in Tools
 
