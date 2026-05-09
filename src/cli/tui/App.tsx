@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { Box, Static } from 'ink';
 import { useTuiStore, useFrozenItems, useLiveItem, useStreaming } from './state/store';
 import { FinalItemView } from './views/final/FinalItemView';
@@ -19,6 +19,7 @@ import type { CommandHandlerContext } from './types';
 import type { Agent } from '../../agent';
 import type { SessionStore } from '../../session/store';
 import type { FinalItem } from './state/types';
+import type { LiveAssistant } from './state/store';
 import { getMcpManagerInstance } from '../../mcp/index';
 
 interface AppProps {
@@ -79,6 +80,7 @@ function getFocusableToolIds(): string[] {
 export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
   const noticIdx = useRef(0);
   const pendingRef = useRef<string[]>([]);
+  const [staticKey, setStaticKey] = useState(0);
 
   const { submit, abort } = useAgentSubscription(agent);
   const { askUserQuestionRequest, respondWithAnswers } = useAskUserQuestionManager();
@@ -99,7 +101,10 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
       if (text === '/clear' || text === '/cls') {
         agent.clear?.();
         sessionStore.createNewSession();
-        useTuiStore.getState().appendDivider('clear');
+        // Clear terminal visible buffer + scrollback + cursor home
+        process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+        // Force Static remount to reset Ink internal cursor
+        setStaticKey(k => k + 1);
         useTuiStore.getState().clearActive();
         return;
       }
@@ -215,7 +220,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
 
   return (
     <Box flexDirection="column">
-      <Static items={staticItems}>
+      <Static key={staticKey} items={staticItems}>
         {(item) => <FinalItemView key={finalItemKey(item)} item={item} />}
       </Static>
       <Box flexDirection="column">
@@ -262,7 +267,7 @@ interface CompatActiveAssistant {
   thinking: null;
 }
 
-function toActiveAssistant(item: Extract<FinalItem, { kind: 'assistant-message' }>): CompatActiveAssistant {
+function toActiveAssistant(item: LiveAssistant): CompatActiveAssistant {
   return {
     id: item.id,
     thinking: null,

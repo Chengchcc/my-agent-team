@@ -20,7 +20,7 @@ describe('Committer multi-turn', () => {
     resetStore();
   });
 
-  test('multi-turn: tool calls + final text, onTurnDone finalizes exactly once', async () => {
+  test('multi-turn: tool calls + final text, granular items in finalized', async () => {
     const c = getCommitter();
     store().turnStart('a1');
     store().streamingStart();
@@ -47,18 +47,12 @@ describe('Committer multi-turn', () => {
     expect(s.live).toBeNull();
     expect(s.finalized.length).toBeGreaterThanOrEqual(1);
 
-    // The finalized assistant message should have all segments
-    const asst = s.finalized[s.finalized.length - 1]!;
-    expect(asst.kind).toBe('assistant-message');
-    if (asst.kind === 'assistant-message') {
-      expect(asst.status).toBe('done');
-      // Should have text + 2 tool calls + text
-      expect(asst.segments.length).toBe(4);
-      expect(asst.segments[0]!.kind).toBe('text');
-      expect(asst.segments[1]!.kind).toBe('tool_call');
-      expect(asst.segments[2]!.kind).toBe('tool_call');
-      expect(asst.segments[3]!.kind).toBe('text');
-    }
+    // Should have granular items: header, committed-block(s), tool-call-final(s), tail
+    const kinds = s.finalized.map(i => i.kind);
+    expect(kinds).toContain('assistant-header');
+    // Tool calls should be tool-call-final items
+    const toolFinals = s.finalized.filter(i => i.kind === 'tool-call-final');
+    expect(toolFinals.length).toBe(2);
   });
 
   test('onTurnDone is idempotent (second call is no-op)', async () => {
@@ -98,17 +92,15 @@ describe('Committer multi-turn', () => {
 
     const s = store();
     expect(s.live).toBeNull();
-    const asst = s.finalized[s.finalized.length - 1]!;
-    if (asst.kind === 'assistant-message') {
-      const toolSeg = asst.segments.find(s => s.kind === 'tool_call');
-      expect(toolSeg).toBeDefined();
-      if (toolSeg?.kind === 'tool_call') {
-        expect(toolSeg.result?.kind).toBe('error');
-      }
+    // Error tool should be in tool-call-final
+    const errorTool = s.finalized.find(i => i.kind === 'tool-call-final');
+    expect(errorTool).toBeDefined();
+    if (errorTool!.kind === 'tool-call-final') {
+      expect(errorTool!.result.kind).toBe('error');
     }
   });
 
-  test('pure text session (no tools): finalized via agent_done-equivalent onTurnDone', async () => {
+  test('pure text session (no tools): granular items via onTurnDone', async () => {
     const c = getCommitter();
     store().turnStart('a1');
     store().streamingStart();
@@ -119,13 +111,14 @@ describe('Committer multi-turn', () => {
 
     const s = store();
     expect(s.live).toBeNull();
-    expect(s.finalized.length).toBe(1);
-    const asst = s.finalized[0]!;
-    if (asst.kind === 'assistant-message') {
-      expect(asst.segments.length).toBe(1);
-      if (asst.segments[0]!.kind === 'text') {
-        expect(asst.segments[0]!.committedLength).toBe(asst.segments[0]!.content.length);
-      }
-    }
+    // Should have header + committed-blocks + tail
+    const kinds = s.finalized.map(i => i.kind);
+    expect(kinds).toContain('assistant-header');
+    // All text content should be captured in committed-blocks and/or tail
+    const textContent = s.finalized
+      .filter(i => i.kind === 'committed-block' || i.kind === 'assistant-tail')
+      .map(i => i.kind === 'committed-block' ? i.raw : i.kind === 'assistant-tail' ? i.raw : '')
+      .join('');
+    expect(textContent).toContain('Just a simple answer.');
   });
 });

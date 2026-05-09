@@ -26,7 +26,11 @@ export type AssistantSegment = TextSegment | ToolCallSegment;
 export type FinalItem =
   | { kind: 'banner'; model: string; sessionId: string | null }
   | { kind: 'user-message'; id: string; content: string }
-  | { kind: 'assistant-message'; id: string; segments: AssistantSegment[]; status: 'streaming' | 'done' }
+  | { kind: 'assistant-message'; id: string; segments: AssistantSegment[]; status: 'done' }
+  | { kind: 'assistant-header'; id: string; assistantId: string }
+  | { kind: 'committed-block'; id: string; assistantId: string; segId: string; blockId: string; raw: string }
+  | { kind: 'tool-call-final'; id: string; assistantId: string; name: string; input: unknown; result: ToolCallResult }
+  | { kind: 'assistant-tail'; id: string; assistantId: string; raw: string }
   | { kind: 'divider'; reason: 'clear' | 'compact' }
   | { kind: 'system-notice'; id: string; content: string };
 

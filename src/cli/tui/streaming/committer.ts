@@ -174,7 +174,7 @@ class Committer {
     if (advances.length > 0) {
       const store = useTuiStore.getState();
       for (const adv of advances) {
-        store.commitAdvance(adv.segId, adv.committedLength);
+        store.commitAdvance(adv.segId, adv.committedLength, adv.newBlocks);
       }
     }
     const t2 = performance.now();
@@ -202,7 +202,7 @@ class Committer {
     });
   }
 
-  private buildSnapshot(): { snapshot: Snapshot; advances: Array<{ segId: string; committedLength: number }> } {
+  private buildSnapshot(): { snapshot: Snapshot; advances: Array<{ segId: string; committedLength: number; newBlocks: Array<{ id: string; raw: string }> }> } {
     const store = useTuiStore.getState();
     const live = store.live;
     if (live?.kind !== 'assistant-message' || live.status !== 'streaming') {
@@ -211,7 +211,7 @@ class Committer {
     }
 
     const next = new Map<string, SegFrame>();
-    const advances: Array<{ segId: string; committedLength: number }> = [];
+    const advances: Array<{ segId: string; committedLength: number; newBlocks: Array<{ id: string; raw: string }> }> = [];
     const segDigests: string[] = [];
 
     for (const seg of live.segments) {
@@ -252,9 +252,11 @@ class Committer {
       segDigests.push(`text(${parseMode}):${seg.id.slice(0, LOG_ID_LEN)} len=${seg.content.length} committed=${committedLength} blocks=${doc.blocks.length}`);
 
       if (committedLength > seg.committedLength) {
-        advances.push({ segId: seg.id, committedLength });
-        const newBlocks = doc.blocks.filter(b => b.endOffset > seg.committedLength && b.endOffset <= committedLength).length;
-        debugLog('COMMITTER advance', { segId: seg.id.slice(0, LOG_ID_LEN), from: seg.committedLength, to: committedLength, totalBlocks: doc.blocks.length, newBlocks });
+        const newBlocks = doc.blocks
+          .filter(b => b.endOffset > seg.committedLength && b.endOffset <= committedLength)
+          .map(b => ({ id: b.id, raw: b.raw }));
+        advances.push({ segId: seg.id, committedLength, newBlocks });
+        debugLog('COMMITTER advance', { segId: seg.id.slice(0, LOG_ID_LEN), from: seg.committedLength, to: committedLength, totalBlocks: doc.blocks.length, newBlocks: newBlocks.length });
       }
 
       // Reuse block references for already-committed blocks whose raw

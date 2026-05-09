@@ -1,9 +1,11 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { useTuiStore } from '../../state/store';
+import { useTuiStore, type LiveAssistant } from '../../state/store';
 import type { FinalItem, ToolCallSegment } from '../../state/types';
 
 type CallInfo = { name: string; result: { kind: string; content?: string; message?: string } | null };
+
+type Searchable = FinalItem | LiveAssistant;
 
 export function FocusedToolDetail() {
   const focusedId = useTuiStore(s => s.interaction.focusedToolId);
@@ -13,7 +15,7 @@ export function FocusedToolDetail() {
   // Imperative read — does NOT subscribe to s.live. This component only
   // re-renders when focusedId changes, not on every text delta.
   const { live, finalized } = useTuiStore.getState();
-  const searchOrder: FinalItem[] = live ? [...finalized, live] : finalized;
+  const searchOrder: Searchable[] = live ? [...finalized, live] : finalized;
 
   let call: CallInfo | null = null;
   for (let i = searchOrder.length - 1; i >= 0; i--) {

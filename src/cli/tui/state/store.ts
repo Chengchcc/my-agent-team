@@ -6,6 +6,7 @@ import { nanoid } from 'nanoid';
 enableMapSet();
 import type {
   FinalItem,
+  AssistantSegment,
   InteractionState,
   StatsState,
   ToolCallResult,
@@ -15,9 +16,14 @@ import { initialInteraction, initialStats } from './types';
 import type { Message } from '../../../types';
 import { messagesToFinalizedItems } from './message-converter';
 
-// ── Live assistant type ──
+// ── Live assistant type (NOT part of FinalItem — only exists during streaming) ──
 
-type LiveAssistant = Extract<FinalItem, { kind: 'assistant-message' }>;
+export interface LiveAssistant {
+  kind: 'assistant-message';
+  id: string;
+  segments: AssistantSegment[];
+  status: 'streaming';
+}
 
 // ── Store type ──
 
@@ -25,10 +31,9 @@ export interface TuiStore {
   /**
    * Append-only scrollback rendered by Ink <Static>.
    * **Invariant**: items in finalized MUST NOT be mutated after insertion.
-   * The streaming assistant lives in `live` and is only pushed here by turnDone.
    */
   finalized: FinalItem[];
-  /** The currently streaming assistant message. Only one at a time. Rendered by ActiveAssistantView. */
+  /** The currently streaming assistant message. Only one at a time. */
   live: LiveAssistant | null;
   interaction: InteractionState;
   stats: StatsState;
@@ -38,7 +43,7 @@ export interface TuiStore {
   textDelta: (delta: string) => void;
   toolStart: (id: string, name: string, input: unknown) => void;
   toolDone: (id: string, result: ToolCallResult) => void;
-  commitAdvance: (segId: string, newCommittedLength: number) => void;
+  commitAdvance: (segId: string, newCommittedLength: number, newBlocks?: Array<{ id: string; raw: string }>) => void;
   turnDone: () => void;
 
   // Auxiliary
@@ -95,6 +100,8 @@ export const useTuiStore = create<TuiStore>()(
           segments: [],
           status: 'streaming',
         };
+        // Push header immediately so "< assistant:" label appears at turn start
+        s.finalized.push({ kind: 'assistant-header', id: `ah-${assistantId}`, assistantId });
       }),
 
     textDelta: (delta) =>
@@ -121,21 +128,47 @@ export const useTuiStore = create<TuiStore>()(
         for (const seg of s.live.segments) {
           if (seg.kind === 'tool_call' && seg.id === id) {
             seg.result = result;
+            // Push tool-call-final to finalized immediately for correct scrollback order
+            s.finalized.push({
+              kind: 'tool-call-final',
+              id: `tcf-${id}`,
+              assistantId: s.live.id,
+              name: seg.name,
+              input: seg.input,
+              result,
+            });
             return;
           }
         }
       }),
 
-    commitAdvance: (segId, newCommittedLength) =>
+    commitAdvance: (segId, newCommittedLength, newBlocks) =>
       set((s) => {
-        if (s.live?.kind === 'assistant-message') {
-          for (const seg of s.live.segments) {
-            if (seg.kind === 'text' && seg.id === segId) {
-              if (newCommittedLength > seg.committedLength) {
-                seg.committedLength = newCommittedLength;
-              }
-              return;
+        if (s.live?.kind !== 'assistant-message') return;
+        const assistantId = s.live.id;
+
+        // All text segments can push committed-blocks. Since tool-call-final
+        // items are pushed immediately on toolDone, scrollback order is
+        // naturally maintained: text-before-tool blocks come before
+        // tool-call-final, and text-after-tool blocks come after.
+        for (const seg of s.live.segments) {
+          if (seg.kind === 'text' && seg.id === segId) {
+            if (newCommittedLength > seg.committedLength) {
+              seg.committedLength = newCommittedLength;
             }
+            if (newBlocks) {
+              for (const b of newBlocks) {
+                s.finalized.push({
+                  kind: 'committed-block',
+                  id: `${assistantId}:${segId}:${b.id}`,
+                  assistantId,
+                  segId,
+                  blockId: b.id,
+                  raw: b.raw,
+                });
+              }
+            }
+            return;
           }
         }
       }),
@@ -143,11 +176,35 @@ export const useTuiStore = create<TuiStore>()(
     turnDone: () =>
       set((s) => {
         if (s.live?.kind !== 'assistant-message' || s.live.status !== 'streaming') return;
-        s.live.status = 'done';
+        const assistantId = s.live.id;
+
+        // Push any uncommitted text tail
         for (const seg of s.live.segments) {
-          if (seg.kind === 'text') seg.committedLength = seg.content.length;
+          if (seg.kind === 'text' && seg.committedLength < seg.content.length) {
+            s.finalized.push({
+              kind: 'assistant-tail',
+              id: `at-${assistantId}:${seg.id}`,
+              assistantId,
+              raw: seg.content.slice(seg.committedLength),
+            });
+          }
         }
-        s.finalized.push(s.live as FinalItem);
+
+        // If no committed-blocks or tool-call-finals were pushed (short response,
+        // no tool calls), push the full assistant-message for resume compatibility
+        const hasGranular = s.finalized.some(
+          it => (it.kind === 'committed-block' || it.kind === 'tool-call-final' || it.kind === 'assistant-header')
+            && (it.kind === 'assistant-header' ? it.assistantId : it.kind === 'committed-block' ? it.assistantId : it.assistantId) === assistantId,
+        );
+        if (!hasGranular) {
+          s.finalized.push({
+            kind: 'assistant-message',
+            id: assistantId,
+            segments: s.live.segments,
+            status: 'done',
+          });
+        }
+
         s.live = null;
       }),
 
@@ -322,9 +379,8 @@ export const useTuiStore = create<TuiStore>()(
  * **structure** changes (new segment, tool result arrives, status change).
  * Text content growth within an existing text segment does NOT trigger
  * re-renders — LiveTextSegment gets text via the committer's throttled path.
- * The actual live item is read from getState() on each render.
  */
-export function useLiveItem(): FinalItem | null {
+export function useLiveItem(): LiveAssistant | null {
   // Subscribe via a primitive structure key — only changes on structural events
   useTuiStore((s) => {
     if (!s.live) return '';
@@ -348,7 +404,7 @@ export function useFrozenItems(): FinalItem[] {
 }
 
 /** All items including the live streaming one (for overlays that need to search everything). */
-export function useFinalized(): FinalItem[] {
+export function useFinalized(): Array<FinalItem | LiveAssistant> {
   return useTuiStore((s) => {
     if (s.live?.kind === 'assistant-message') return [...s.finalized, s.live];
     return s.finalized;

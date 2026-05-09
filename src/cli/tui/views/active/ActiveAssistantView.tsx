@@ -4,7 +4,6 @@ import { LiveTextSegment } from './LiveTextSegment';
 import { formatToolCallTitle } from '../../../tui/utils/tool-format';
 import type { ToolCall } from '../../../../types';
 
-// Local types matching the compatibility adapter in App.tsx
 interface CompatTextSeg { kind: 'text'; id: string; content: string }
 interface CompatToolSeg { kind: 'tool_call'; id: string; name: string; input: unknown; result: { kind: 'ok'; content: string; durationMs: number } | { kind: 'error'; message: string; durationMs: number } | null; status: 'running' | 'done' | 'error' }
 type CompatSeg = CompatTextSeg | CompatToolSeg;
@@ -19,26 +18,22 @@ interface ActiveAssistantViewProps {
 
 export function ActiveAssistantView({ assistant }: ActiveAssistantViewProps) {
   return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Box>
-        <Text dimColor>{'<'} </Text>
-        <Text>assistant:</Text>
-      </Box>
-      <Box paddingLeft={1} flexDirection="column">
-        {assistant.thinking ? (
-          <Box>
-            <Text dimColor>{'  '}{truncate(assistant.thinking, THINKING_TRUNCATION)}</Text>
-          </Box>
-        ) : null}
-        {assistant.segments.map((seg) => {
-          if (seg.kind === 'text') {
-            return <LiveTextSegment key={seg.id} segId={seg.id} />;
-          }
-          return (
-            <ActiveToolCallSegment key={seg.id} seg={seg} />
-          );
-        })}
-      </Box>
+    <Box flexDirection="column" paddingLeft={1}>
+      {assistant.thinking ? (
+        <Box>
+          <Text dimColor>{'  '}{truncate(assistant.thinking, THINKING_TRUNCATION)}</Text>
+        </Box>
+      ) : null}
+      {assistant.segments.map((seg) => {
+        if (seg.kind === 'text') {
+          return <LiveTextSegment key={seg.id} segId={seg.id} />;
+        }
+        // Only show running tools; done tools are already in <Static> as tool-call-final
+        if (seg.status === 'running') {
+          return <ActiveToolCallSegment key={seg.id} seg={seg} />;
+        }
+        return null;
+      })}
     </Box>
   );
 }
@@ -51,12 +46,9 @@ function getToolCallTitle(name: string, input: unknown): string {
 const ActiveToolCallSegment = React.memo(function ActiveToolCallSegment({ seg }: { seg: CompatToolSeg }) {
   const title = getToolCallTitle(seg.name, seg.input);
   return (
-    <Box paddingX={1}>
-      <Text color={seg.status === 'running' ? 'yellow' : seg.status === 'error' ? 'red' : 'gray'}>
-        {seg.status === 'running' ? '◌' : '●'} {title}
-      </Text>
-      {seg.status === 'running' ? <Text color="yellow"> running…</Text> : null}
-      {seg.result ? <Text color="gray"> {seg.result.durationMs}ms</Text> : null}
+    <Box>
+      <Text color="yellow">◌ {title}</Text>
+      <Text color="yellow"> running…</Text>
     </Box>
   );
 });

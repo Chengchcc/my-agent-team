@@ -19,13 +19,14 @@ function resetStore() {
 describe('turn lifecycle (core 6 actions)', () => {
   beforeEach(resetStore);
 
-  test('turnStart creates streaming assistant-message in live', () => {
+  test('turnStart creates streaming assistant-message in live and pushes header', () => {
     store().userSubmit('u1', 'hello');
     store().turnStart('a1');
     const s = store();
-    // finalized only has the user message
-    expect(s.finalized).toHaveLength(1);
+    // finalized has user message + assistant-header
+    expect(s.finalized).toHaveLength(2);
     expect(s.finalized[0]).toEqual({ kind: 'user-message', id: 'u1', content: 'hello' });
+    expect(s.finalized[1]!.kind).toBe('assistant-header');
     // live holds the streaming assistant
     expect(s.live).toEqual({ kind: 'assistant-message', id: 'a1', segments: [], status: 'streaming' });
   });
@@ -63,7 +64,7 @@ describe('turn lifecycle (core 6 actions)', () => {
     }
   });
 
-  test('turnDone moves live to finalized and clears live', () => {
+  test('turnDone pushes assistant-tail and clears live', () => {
     store().turnStart('a1');
     store().textDelta('response');
     store().turnDone();
@@ -71,13 +72,13 @@ describe('turn lifecycle (core 6 actions)', () => {
     const s = store();
     // live is cleared
     expect(s.live).toBeNull();
-    // finalized has the done assistant-message
-    expect(s.finalized).toHaveLength(1);
-    const asst = s.finalized[0]!;
-    expect(asst.kind).toBe('assistant-message');
-    if (asst.kind === 'assistant-message') {
-      expect(asst.status).toBe('done');
-      expect(asst.segments[0]).toMatchObject({ kind: 'text', content: 'response', committedLength: 'response'.length });
+    // finalized has header + tail
+    expect(s.finalized).toHaveLength(2);
+    expect(s.finalized[0]!.kind).toBe('assistant-header');
+    const tail = s.finalized[1]!;
+    expect(tail.kind).toBe('assistant-tail');
+    if (tail.kind === 'assistant-tail') {
+      expect(tail.raw).toBe('response');
     }
   });
 
@@ -301,8 +302,9 @@ describe('selectors', () => {
       expect(s.live.status).toBe('streaming');
       expect(s.live.segments).toHaveLength(1);
     }
-    // finalized should be empty (streaming item is not in finalized)
-    expect(s.finalized).toHaveLength(0);
+    // finalized has the assistant-header
+    expect(s.finalized).toHaveLength(1);
+    expect(s.finalized[0]!.kind).toBe('assistant-header');
   });
 
   test('turnDone moves item to finalized and clears live', () => {
@@ -317,14 +319,13 @@ describe('selectors', () => {
     store().textDelta('in progress...');
 
     const s = store();
-    // finalized has user1 + assistant1 + user2
-    expect(s.finalized).toHaveLength(3);
+    // finalized has: user1 + header1 + tail1 + user2 + header2
+    expect(s.finalized).toHaveLength(5);
     expect(s.finalized[0]!.kind).toBe('user-message');
-    expect(s.finalized[1]!.kind).toBe('assistant-message');
-    if (s.finalized[1]!.kind === 'assistant-message') {
-      expect(s.finalized[1]!.status).toBe('done');
-    }
-    expect(s.finalized[2]!.kind).toBe('user-message');
+    expect(s.finalized[1]!.kind).toBe('assistant-header');
+    expect(s.finalized[2]!.kind).toBe('assistant-tail');
+    expect(s.finalized[3]!.kind).toBe('user-message');
+    expect(s.finalized[4]!.kind).toBe('assistant-header');
     // live has the current streaming assistant
     expect(s.live?.kind).toBe('assistant-message');
     if (s.live?.kind === 'assistant-message') {

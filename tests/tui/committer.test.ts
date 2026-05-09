@@ -53,7 +53,7 @@ describe('StreamingCommitter', () => {
     }
   });
 
-  test('onTurnDone moves live to finalized and clears live', () => {
+  test('onTurnDone clears live and finalizes content', () => {
     store().turnStart('a1');
     const c = getCommitter();
     c.onDelta('done.');
@@ -61,12 +61,9 @@ describe('StreamingCommitter', () => {
 
     const s = store();
     expect(s.live).toBeNull();
-    expect(s.finalized).toHaveLength(1);
-    const asst = s.finalized[0]!;
-    expect(asst.kind).toBe('assistant-message');
-    if (asst.kind === 'assistant-message') {
-      expect(asst.status).toBe('done');
-    }
+    // Should have header + tail
+    expect(s.finalized.length).toBeGreaterThanOrEqual(2);
+    expect(s.finalized[0]!.kind).toBe('assistant-header');
     expect(s.stats.streaming).toBe(false);
   });
 
@@ -77,13 +74,13 @@ describe('StreamingCommitter', () => {
     c.onTurnDone();
 
     const s = store();
-    const asst = s.finalized[0]!;
-    if (asst.kind === 'assistant-message') {
-      const seg = asst.segments[0]!;
-      if (seg.kind === 'text') {
-        expect(seg.committedLength).toBe(seg.content.length);
-      }
-    }
+    expect(s.live).toBeNull();
+    // All content should be in finalized (header + tail or header + blocks)
+    const textContent = s.finalized
+      .filter(i => i.kind === 'committed-block' || i.kind === 'assistant-tail')
+      .map(i => i.kind === 'committed-block' ? i.raw : i.kind === 'assistant-tail' ? i.raw : '')
+      .join('');
+    expect(textContent).toContain('full response');
   });
 
   test('committer pipeline commits stable content at paragraph boundaries', async () => {

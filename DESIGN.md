@@ -126,8 +126,8 @@ my-agent/
     cli/tui/                  # Ink/React terminal UI
       views/                  # View components organized by purpose
         chrome/               # InputBox, Footer, StreamingIndicator, Header
-        final/                # AssistantMessageView, UserMessageView, FinalToolCallView, etc.
-        active/               # ActiveAssistantView, LiveTextSegment
+        final/                # FinalItemView dispatch + per-kind views (AssistantMessageView, AssistantHeaderView, CommittedBlockView, ToolCallFinalView, AssistantTailView, UserMessageView, FinalToolCallView, etc.)
+        active/               # ActiveAssistantView, LiveTextSegment (tail-only)
         overlay/              # FocusedToolDetail, AskUserQuestionPrompt, PermissionPrompt
       components/             # Shared components (CommandList, CodeBlock, HighlightedInput, FilePicker)
       hooks/                  # Agent subscription, command input, permission, bracketed paste
@@ -549,21 +549,309 @@ Conversations can be saved, loaded, and resumed:
 
 The TUI is built with [Ink](https://github.com/vadimdemedes/ink) (React for terminals) and uses [Zustand](https://github.com/pmndrs/zustand) for state management via `useTuiStore` (`src/cli/tui/state/store.ts`). View components live in `src/cli/tui/views/` organized by purpose: `chrome/`, `final/`, `active/`, `overlay/`. Shared components (CommandList, CodeBlock, HighlightedInput, FilePicker) live in `src/cli/tui/components/`.
 
-### Actual Component Tree (AppV2)
+### Core Rendering Architecture: Static vs Dynamic
 
-The main render tree in `AppV2` (`src/cli/tui/App.tsx`):
+The terminal is split into two rendering regions with fundamentally different performance characteristics:
+
+- **Static (scrollback)** — Ink's `<Static>` component renders each item **once**, then never touches it again. Once written to the terminal, items are immutable. This is the key performance mechanism: past content never triggers Yoga re-layouts.
+- **Dynamic (bottom area)** — Everything below `<Static>` is re-rendered by Ink's Yoga layout engine on every state change. During streaming, only the growing text tail and running tool spinners live here.
+
+The fundamental design challenge: **how to move content from dynamic to static as soon as it's "settled"**, without duplicating output or breaking visual order.
+
+### Granular FinalItem Architecture
+
+Instead of waiting for an entire assistant turn to complete before moving it to `<Static>`, settled content is pushed to the `finalized` array incrementally as **granular FinalItem variants**. Each variant carries its own styling (notably `paddingLeft=1` for indentation) so that stacked together they are visually equivalent to a single `AssistantMessageView`.
+
+#### FinalItem Variants
+
+| Kind | When pushed | What it renders | Styling |
+|------|------------|-----------------|---------|
+| `banner` | App init | Header with model name, session ID | — |
+| `user-message` | On user submit | User input text | — |
+| `assistant-header` | `turnStart` | `< assistant:` label | Dim prefix + bold label |
+| `committed-block` | `commitAdvance` | Settled markdown block (parsed once) | `paddingLeft=1` |
+| `tool-call-final` | `toolDone` | `● tool_name Xms` + result summary | `paddingLeft=1` |
+| `assistant-tail` | `turnDone` | Uncommitted text remainder | `paddingLeft=1`, raw text |
+| `assistant-message` | Resume path only | Full message with all segments | `paddingLeft=1`, fancy markdown |
+| `divider` | `/clear`, `/compact` | Visual separator | — |
+| `system-notice` | On command output | Caption text | — |
+
+**Key invariant**: `<Static>` is append-only. Items are never removed or mutated after insertion. This is why `committed-block`, `tool-call-final`, and `assistant-tail` exist as separate items — they represent the smallest units that can be pushed to scrollback without later modification.
+
+#### Diagram 1: State Machine — Finalized Evolution Within a Turn
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> TurnStarted: turnStart(A)<br/>push assistant-header(A)
+  TurnStarted --> Streaming: textDelta / toolStart
+
+  Streaming --> Streaming: textDelta<br/>(only updates live.segments,<br/>not finalized)
+  Streaming --> BlockCommitted: commitAdvance<br/>push committed-block(A)
+  BlockCommitted --> Streaming
+  Streaming --> ToolFinalized: toolDone<br/>push tool-call-final(A)
+  ToolFinalized --> Streaming
+
+  Streaming --> TurnEnded: turnDone<br/>push assistant-tail(A)?<br/>clear live
+  TurnEnded --> Idle
+  TurnEnded --> [*]
+```
+
+#### Diagram 2: Data Flow — From Stream Event to Screen
+
+```mermaid
+flowchart TB
+  subgraph Provider["Provider stream"]
+    EV[text_delta / tool_call_delta / tool_result]
+  end
+
+  subgraph Store["Zustand store"]
+    LIVE["live: LiveAssistant<br/>segments = mutable"]
+    FIN["finalized: FinalItem array<br/>append-only"]
+  end
+
+  subgraph Committer["streaming/committer"]
+    BUF["text accumulation + parseDoc<br/>+ computeBoundary"]
+    DIFF["diff newly closed blocks"]
+  end
+
+  subgraph Render["Ink"]
+    STAT["Static items=banner+finalized<br/>rendered once, never re-laid-out"]
+    DYN["Dynamic area: ActiveAssistantView<br/>Yoga re-layout every frame"]
+  end
+
+  EV -->|textDelta| LIVE
+  EV -->|toolStart| LIVE
+  EV -->|toolDone| LIVE
+  EV -->|toolDone| FIN
+
+  LIVE -.text content.-> BUF
+  BUF --> DIFF
+  DIFF -->|commitAdvance newBlocks| FIN
+  DIFF -->|commitAdvance segId,len| LIVE
+
+  FIN --> STAT
+  LIVE -->|only last text tail| DYN
+
+  STAT --> TTY["Terminal scrollback"]
+  DYN --> TTY2["Terminal bottom area"]
+```
+
+#### Diagram 3: Sequence — A Complete Turn
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as Provider
+  participant S as Store
+  participant C as Committer
+  participant F as finalized array
+  participant ST as Static
+  participant DA as Dynamic area
+
+  Note over S,F: Turn start
+  P->>S: turnStart(A)
+  S->>F: push assistant-header(A)
+  F->>ST: render "< assistant:"
+
+  Note over P,DA: Text streaming
+  loop text accumulation
+    P->>S: textDelta("Hello ")
+    S-->>DA: tail re-render (dynamic area only)
+  end
+
+  Note over C,F: First block closes (second block has started)
+  C->>C: parseDoc + diff
+  C->>S: commitAdvance(seg1, len, [block1])
+  S->>F: push committed-block(A, raw="Hello\n")
+  F->>ST: written to scrollback (never re-laid-out)
+  Note over DA: tail shrinks to block2's portion
+
+  Note over P,DA: Tool call
+  P->>S: toolStart(t1)
+  DA->>DA: show "◌ tool running…"
+  P->>S: toolDone(t1, ok)
+  S->>F: push tool-call-final(A, t1)
+  F->>ST: written to scrollback ("● tool 12ms")
+
+  Note over P,DA: Continue text
+  loop text accumulation
+    P->>S: textDelta("World")
+  end
+  C->>S: commitAdvance(seg2, len, [block2])
+  S->>F: push committed-block(A, raw="World\n")
+  F->>ST: written to scrollback
+
+  Note over S,F: Turn end
+  P->>S: turnDone()
+  alt uncommitted tail remains
+    S->>F: push assistant-tail(A, raw=remainder)
+    F->>ST: written to scrollback
+  end
+  S->>S: live = null
+  DA->>DA: cleared (awaits next turn)
+```
+
+#### Diagram 4: Scrollback Layout
+
+```mermaid
+flowchart TB
+  subgraph Scrollback["Static = scrollback (append-only)"]
+    direction TB
+    H1["banner"]
+    H2["user-message: 'Read the file and check weather'"]
+    H3["assistant-header → &lt; assistant:"]
+    H4["committed-block → ▎ Hello"]
+    H5["committed-block → ▎ paragraph 1 ..."]
+    H6["tool-call-final → ▎ ● get_weather 12ms"]
+    H7["committed-block → ▎ paragraph 2 ..."]
+    H8["assistant-tail → ▎ trailing words"]
+  end
+
+  subgraph Dynamic["Dynamic area (Yoga re-layout each frame)"]
+    direction TB
+    D1["ActiveAssistantView"]
+    D2["└─ LiveTextSegment (current tail only)"]
+    D3["└─ ToolSpinner (running tools only)"]
+    D4["StreamingIndicator / Footer / InputBox"]
+  end
+
+  Scrollback --> Dynamic
+  style H3 fill:#eef
+  style H4 fill:#efe
+  style H5 fill:#efe
+  style H7 fill:#efe
+  style H6 fill:#fee
+  style H8 fill:#efe
+```
+
+Visual consistency is achieved by every content item carrying `paddingLeft=1`. Stacked together, they are visually equivalent to a single `AssistantMessageView`, but each item is append-only friendly.
+
+#### Diagram 5: Visual Consistency Convention
+
+```mermaid
+flowchart LR
+  subgraph Header["assistant-header"]
+    HA["&lt; assistant:"]
+  end
+  subgraph Body["paddingLeft=1"]
+    direction TB
+    BA["committed-block: markdown rendered"]
+    BB["tool-call-final: ● name Xms"]
+    BC["assistant-tail: raw text"]
+  end
+  Header --> Body
+  style Header fill:#fff,stroke:#888
+  style Body fill:#f6fff6,stroke:#3a3
+```
+
+#### Diagram 6: /clear Three-Step Clearing
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant App as App.tsx
+  participant TTY as Terminal
+  participant Ink as Ink Static
+  participant S as Store
+
+  U->>App: /clear
+  App->>TTY: write("\x1b[2J\x1b[3J\x1b[H")
+  Note right of TTY: clear screen + scrollback + cursor home
+  App->>Ink: setStaticKey(k+1)
+  Note right of Ink: Static remounts, internal lastIndex=0
+  App->>S: clearActive()
+  Note right of S: finalized=[], live=null
+  App-->>U: clean prompt
+```
+
+All three steps are necessary: omitting ANSI codes leaves visible lines; omitting the remount causes Ink to skip new items (it believes they are already rendered); omitting the store reset causes duplicate items on the next turn.
+
+#### Diagram 7: Resume / Historical Message Rendering Paths (Coexistence)
+
+```mermaid
+flowchart LR
+  MSGS[Provider messages] -->|messagesToFinalizedItems| AM[assistant-message whole]
+  AM --> FIV[FinalItemView dispatch]
+  FIV -->|kind=assistant-message| AMV["AssistantMessageView<br/>full fancy render once"]
+
+  STREAM[Streaming new content] --> H[assistant-header]
+  STREAM --> CB[committed-block ×N]
+  STREAM --> TF[tool-call-final ×N]
+  STREAM --> TL[assistant-tail?]
+  H --> FIV
+  CB --> FIV
+  TF --> FIV
+  TL --> FIV
+
+  style AMV fill:#eef
+  style FIV fill:#ffe
+```
+
+The `assistant-message` variant is only produced by `messagesToFinalizedItems()` for the resume/session-load path. During live streaming, content is always broken into granular items. Both paths render through `FinalItemView` which dispatches to the appropriate component.
+
+#### Diagram 8: Key Invariants
+
+| # | Invariant | Enforcement |
+|---|-----------|-------------|
+| I1 | text/tool items in finalized are strictly ordered by occurrence time | `toolDone` pushes immediately; `commitAdvance` pushes newly closed blocks in order |
+| I2 | Exactly one `<assistant:` label per turn | `turnStart` pushes `assistant-header` once; subsequent final items never carry the label |
+| I3 | No duplicate output | `turnDone` only pushes the tail; never pushes a complete `assistant-message` when granular items exist |
+| I4 | Dynamic area never renders settled content | `LiveTextSegment` only draws the tail; tool spinners only show while running |
+| I5 | Resume/historical path is unaffected | `assistant-message` branch retained, only used by `messagesToFinalizedItems` |
+
+### The Committer
+
+The committer (`src/cli/tui/streaming/committer.ts`) bridges the gap between the high-frequency text delta stream and the store's incremental finalized updates. It:
+
+1. **Accumulates text** via `onDelta()` calls (throttled at 33ms)
+2. **Parses markdown** into blocks via `parseDoc()` (with reparse heuristics: new `\n\n` or ≥80 char growth)
+3. **Computes commit boundary** — a block is "committed" only when a subsequent block has started (≥2 blocks exist), ensuring we don't commit a block that's still growing
+4. **Diffs newly closed blocks** — when `committedLength` advances, finds blocks whose `endOffset` falls within the advance range
+5. **Calls `commitAdvance(segId, newCommittedLength, newBlocks)`** — advances the segment's committed length and pushes `committed-block` items to `finalized`
+6. **Notifies React listeners** via `setImmediate` (separate tick from store update) to avoid blocking stdin I/O
+
+### LiveAssistant vs FinalItem
+
+During streaming, the live assistant message is stored as `LiveAssistant` (type defined in `store.ts`, not part of `FinalItem`):
+
+```typescript
+interface LiveAssistant {
+  kind: 'assistant-message';
+  id: string;
+  segments: AssistantSegment[];
+  status: 'streaming';
+}
+```
+
+`LiveAssistant` is the mutable scratchpad for the current turn. It's never pushed to `<Static>` directly. Instead, granular items are extracted from it incrementally:
+
+- `committed-block` items are derived from `commitAdvance`'s `newBlocks` parameter
+- `tool-call-final` items are pushed when `toolDone` fires
+- `assistant-tail` captures any text not yet committed when `turnDone` fires
+
+The `live.segments` array serves as an in-progress index for:
+- Finding the currently streaming text tail (rendered by `LiveTextSegment`)
+- Showing running tool spinners in the dynamic area
+- Powering `FocusedToolDetail` overlay search
+
+### Actual Component Tree (AppV2)
 
 ```
 AppV2
- ├─ Static items={staticItems}
+ ├─ Static key={staticKey} items={staticItems}
  │   └─ FinalItemView  (dispatches to)
- │       ├─ AssistantMessageView  (markdown, code blocks, tool calls)
+ │       ├─ AssistantMessageView  (resume path: full message, fancy markdown)
+ │       ├─ AssistantHeaderView   (streaming path: "< assistant:" label)
+ │       ├─ CommittedBlockView    (streaming path: settled markdown, paddingLeft=1)
+ │       ├─ ToolCallFinalView     (streaming path: completed tool result, paddingLeft=1)
+ │       ├─ AssistantTailView     (streaming path: uncommitted text remainder, paddingLeft=1)
  │       ├─ UserMessageView       (user input)
- │       ├─ FinalToolCallView     (completed tool results)
- │       ├─ SystemNoticeView      (command output captions)
- │       └─ DividerView           (clear/compact separators)
- ├─ ActiveAssistantView         (live LLM output during streaming)
- │   └─ LiveTextSegment         (real-time text chunks)
+ │       ├─ DividerView           (clear/compact separators)
+ │       └─ SystemNoticeView      (command output captions)
+ ├─ ActiveAssistantView         (only renders during streaming)
+ │   ├─ LiveTextSegment         (growing text tail only)
+ │   └─ ActiveToolCallSegment   (running tool spinners only, done tools are in Static)
  ├─ StreamingIndicator          (animated dots during streaming)
  ├─ FocusedToolDetail           (expanded tool call detail overlay)
  ├─ ReviewNotifications         (evolution review result cards)
@@ -575,13 +863,17 @@ AppV2
  └─ Footer                      (token bar, usage stats, context gauge)
 ```
 
+### `/clear` Three-Step Clearing
+
+See [Diagram 6](#diagram-6-clear-three-step-clearing) above for the visual sequence. The three steps (ANSI clear, Static remount via `staticKey`, store reset) are all required — see the diagram notes for why omitting any step breaks the clear.
+
 ### Slash Commands
 
 Built-in commands registered via `getBuiltinCommands()` in `src/cli/tui/command-registry.ts`:
 
 | Command | Description |
 |---------|-------------|
-| `/clear` | Clear conversation history |
+| `/clear`, `/cls` | Clear screen + scrollback + store (three-step) |
 | `/exit`, `/quit` | Exit the TUI session |
 | `/help` | List available slash commands |
 | `/compact` | Force context compaction immediately |
@@ -601,14 +893,17 @@ Skill commands (one per loaded skill) are also available as slash commands with 
 
 ### Performance Design
 
+- **Granular finalized items** — content moves from dynamic to `<Static>` as early as possible, preventing Yoga re-layouts of settled content
 - **Zustand with fine-grained selectors** — `useLiveItem()`, `useFrozenItems()`, `useStreaming()` isolate rendering to only the components that need the changed data
-- **`Static` component** — finalized message history uses Ink's `<Static>` for zero-re-render of past messages
-- **Batched text deltas** — `TEXT_DELTA_BATCH` via `queueMicrotask` aggregates rapid text chunks into single renders
+- **`Static` component** — finalized items are rendered once and never re-rendered. `CommittedBlockView`, `ToolCallFinalView`, and `AssistantTailView` all use `React.memo`
+- **Committer throttling** — 33ms throttle with trailing edge ensures at most ~30 commits/second
+- **`setImmediate` notification** — React listener notifications are deferred to a separate tick so the store update tick stays short (<2ms), keeping stdin I/O responsive
 - **`useMemo`** — static items array and command lists are memoized to prevent unnecessary re-renders
+- **Structure-key subscriptions** — `useLiveItem()` only re-renders on structural changes (new segment, tool result), not on every text delta
 
 ### State Management
 
-The Zustand store (`useTuiStore`) holds all TUI state: finalized message items, live streaming item, streaming flag, context tokens, focus/expand state for tool calls, pending input queue, and notification queues. Hooks in `src/cli/tui/hooks/` encapsulate side effects:
+The Zustand store (`useTuiStore`) holds all TUI state: finalized message items (append-only), live streaming assistant (mutable), streaming flag, context tokens, focus/expand state for tool calls, pending input queue, and notification queues. Hooks in `src/cli/tui/hooks/` encapsulate side effects:
 
 | Hook | Purpose |
 |------|---------|
@@ -625,43 +920,60 @@ The Zustand store (`useTuiStore`) holds all TUI state: finalized message items, 
 
 ## Data Flow
 
-A complete turn through the system:
+A complete turn through the system, showing how content flows from the LLM stream into both the static scrollback and the dynamic bottom area. The detailed TUI rendering flow is covered in [Diagram 3](#diagram-3-sequence-a-complete-turn) within the TUI section.
 
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant Agent as Agent Loop
+  participant Store as TUI Store
+  participant Static as Static (scrollback)
+  participant Dynamic as Dynamic area
+
+  U->>Agent: "read Agent.ts and explain the loop"
+  Agent->>Store: userSubmit → push user-message
+  Store->>Static: user-message rendered
+
+  Note over Agent,Store: Phase 2 — LLM Turn 1
+  Agent->>Store: turnStart(A)
+  Store->>Static: assistant-header "< assistant:"
+
+  loop streaming text
+    Agent->>Store: textDelta
+    Store->>Dynamic: LiveTextSegment renders tail
+    Agent->>Store: commitAdvance (block closed)
+    Store->>Static: committed-block rendered
+  end
+
+  Note over Agent,Store: Phase 3 — Tool Execution
+  Agent->>Store: toolStart(read)
+  Store->>Dynamic: spinner "◌ read running…"
+  Agent->>Store: toolDone(read, ok)
+  Store->>Static: tool-call-final "● read 42ms"
+
+  Note over Agent,Store: Phase 2 — LLM Turn 2
+  loop streaming response
+    Agent->>Store: textDelta
+    Agent->>Store: commitAdvance (block closed)
+    Store->>Static: committed-block rendered
+  end
+
+  Note over Agent,Store: Phase 4 — Teardown
+  Agent->>Store: turnDone()
+  Store->>Static: assistant-tail (remaining text)
+  Store->>Dynamic: cleared (live = null)
 ```
-User types "read src/agent/Agent.ts and explain the loop" → InputBox
-  │
-  ▼
-useAgentSubscription → agent.runAgentLoop({ role: "user", content: "..." })
-  │
-  ├─ Phase 1: Setup
-  │   ├─ contextManager.addMessage(userMessage)
-  │   └─ beforeAgentRun hooks (skills preload, trace buffer creation)
-  │
-  ├─ Phase 2: LLM Turn 1
-  │   ├─ beforeCompress → compressIfNeeded (skip, under threshold)
-  │   ├─ beforeModel hooks (inject skill list, memory, todo reminders)
-  │   ├─ provider.stream() → yields text_delta / thinking_delta events
-  │   │   └─ TUI Zustand store updates → ActiveAssistantView renders streaming text
-  │   ├─ afterModel / beforeAddResponse hooks
-  │   ├─ contextManager.addMessage(assistantMsg with tool_calls)
-  │   └─ returns { done: false, toolCalls: [read(Agent.ts)] }
-  │
-  ├─ Phase 3: Tool Execution
-  │   ├─ Budget guard: checkBatchBudget → proceed
-  │   ├─ ToolDispatcher.dispatch()
-  │   │   ├─ yield tool_call_start → TUI shows running tool
-  │   │   ├─ PermissionMiddleware → ReadCacheMiddleware → TraceToolMiddleware → tool.execute()
-  │   │   │   └─ ReadTool reads file, returns content
-  │   │   └─ yield tool_call_result → FinalToolCallView renders result
-  │   └─ contextManager.addMessage(toolResult)
-  │
-  ├─ Phase 2: LLM Turn 2
-  │   └─ Model sees tool result, responds without tool calls → done: true
-  │
-  └─ Phase 4: Teardown
-      ├─ afterAgentRun hooks (memory extracts key info, session auto-saves)
-      └─ yields agent_done → TUI stops streaming indicator
-```
+
+**Final scrollback state** after the turn completes:
+
+| Static item | Rendered as |
+|-------------|-------------|
+| `user-message` | `> user Read Agent.ts and explain the loop` |
+| `assistant-header` | `< assistant:` |
+| `committed-block` | ` ▎ Let me read that file...` |
+| `tool-call-final` | ` ▎ ● read 42ms` |
+| `committed-block` | ` ▎ The agent loop works in four phases...` |
+| `assistant-tail` | ` ▎ ...and that's how it works.` |
 
 ---
 
