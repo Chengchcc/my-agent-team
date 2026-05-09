@@ -145,9 +145,37 @@ export function initEvolution(
       });
     });
   });
-  drainer.setDispatcher('tier2_verdict', async () => { /* deferred to Phase F */ });
-  drainer.setDispatcher('tier3_prompt_opt', async () => { /* deferred to Phase F */ });
-  drainer.setDispatcher('tier3_ab_promote', async () => { /* deferred to Phase F */ });
+  drainer.setDispatcher('tier2_verdict', async (task) => {
+    if (task.payload.kind !== 'tier2_verdict') return;
+    const { skillName, description, skillStats } = task.payload;
+    const prompt = buildAnalysisPrompt(skillName, description, skillStats, []);
+    await new Promise<void>((resolve) => {
+      forkSkillAnalysis(prompt, provider, config.model, (verdict) => {
+        if (verdict) {
+          debugLog(`[tier2] Verdict for ${skillName}: ${verdict.verdict} — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}`);
+          tracker.saveStatus({ skillName, status: 'reviewed', createdAt: Date.now(), sourceRunId: task.payload.traceRunId });
+          if (verdict.verdict === 'fix') {
+            notify?.(skillName, `Tier2: needs adjustment — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}`, outputDir);
+          } else if (verdict.verdict === 'delete') {
+            notify?.(skillName, `Tier2: marked as harmful — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}`, outputDir);
+          }
+        }
+        resolve();
+      });
+    });
+    // Derive Tier 0 if verdict is 'edit'
+    // queue.deriveTask(task, 'tier0_review', ...) — Phase F guard
+  });
+  drainer.setDispatcher('tier3_prompt_opt', async (task) => {
+    if (task.payload.kind !== 'tier3_prompt_opt') return;
+    debugLog(`[tier3opt] Prompt optimization for ${task.payload.promptKey} — pipeline stub (Phase F)`);
+    // Phase F full: read feedback → build optimizer prompt → fork agent → write candidate → derive tier3_ab
+  });
+  drainer.setDispatcher('tier3_ab_promote', async (task) => {
+    if (task.payload.kind !== 'tier3_ab_promote') return;
+    debugLog(`[tier3ab] AB promote check for ${task.payload.candidateId} — pipeline stub (Phase F)`);
+    // Phase F full: read shadow metrics → compare → promote to prompt-templates.ts or reject
+  });
   drainer.setDispatcher('auto_accept_sweep', async () => {
     const accepted = await tracker.autoAcceptStaleSkills(config.autoAcceptHours ?? DEFAULT_AUTO_ACCEPT_HOURS);
     if (accepted.length > 0) {
