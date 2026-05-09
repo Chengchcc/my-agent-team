@@ -5,7 +5,6 @@ import type { NudgeEngine } from './nudge-engine';
 import type { EvolutionCallback } from '../evolution/types';
 import type { SkillLoader } from '../skills/loader';
 import { debugLog } from '../utils/debug';
-import { useTuiStore } from '../cli/tui/state/store';
 
 export class TraceAgentMiddleware implements AgentMiddleware {
   constructor(
@@ -95,11 +94,7 @@ export class TraceAgentMiddleware implements AgentMiddleware {
           for (const { skillName, triggerReview } of results) {
             if (triggerReview) {
               debugLog(`[trace] Low-score warning for ${skillName} — Tier 2 review recommended`);
-              useTuiStore.getState().addReviewNotification(
-                skillName,
-                'Low success rate — Tier 2 analysis triggered',
-                '',
-              );
+              this.evolution.notify?.(skillName, 'Low success rate — Tier 2 analysis triggered', '');
               this.evolution.runTier2Analysis?.(skillName, `Auto skill: ${skillName}`);
             }
           }

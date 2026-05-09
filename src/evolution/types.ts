@@ -1,4 +1,4 @@
-import type { TraceRun } from '../trace/types';
+import type { TraceRun, TraceStore } from '../trace/types';
 
 /** Configuration for the background review system. */
 export interface ReviewConfig {
@@ -29,6 +29,9 @@ export interface EvolutionCallback {
   trackStats(summary: TraceRun['summary'], runId: string): Promise<Array<{ skillName: string; triggerReview: boolean }>>;
   autoAcceptStaleSkills?(): Promise<string[]>;
   runTier2Analysis?(skillName: string, description: string): void;
+  notify?(skillName: string, description: string, outputDir: string): void;
+  store?: TraceStore;
+  reviewInterval?: number | undefined;
 }
 
 /** Mechanical scoring data for a skill (Tier 1). */

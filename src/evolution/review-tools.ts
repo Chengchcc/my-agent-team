@@ -8,6 +8,7 @@ import os from 'os';
 
 const DEDUP_OVERLAP_THRESHOLD = 0.8;
 const PERCENT_MULTIPLIER = 100;
+const SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]{1,48}$/;
 
 function tokenOverlap(a: string, b: string): number {
   const tokensA = new Set(a.toLowerCase().split(/\s+/));
@@ -48,6 +49,10 @@ export class CreateReviewSkillTool extends ZodTool<typeof createReviewSkillSchem
   }
 
   protected async handle(params: CreateReviewSkillParams, _ctx: ToolContext): Promise<unknown> {
+    if (!SKILL_NAME_RE.test(params.skill_name) || params.skill_name.includes('..')) {
+      return { created: false, reason: 'Invalid skill_name: must be 2-49 chars, lowercase alphanumeric and hyphens only, no ".."', skill_name: params.skill_name };
+    }
+
     const dir = expandTilde(this.outputDir);
     const skillDir = path.join(dir, params.skill_name);
 
@@ -68,7 +73,7 @@ export class CreateReviewSkillTool extends ZodTool<typeof createReviewSkillSchem
         if (!entry.isDirectory()) continue;
         try {
           const md = await fs.readFile(path.join(dir, entry.name, 'SKILL.md'), 'utf-8');
-          const descMatch = /description:\s*"([^"]+)"/.exec(md);
+          const descMatch = /^description:\s*"?([^"\n]+?)"?\s*$/m.exec(md);
           if (descMatch?.[1]) existingDescriptions.push(descMatch[1]);
         } catch {
           // Skip unreadable skills
@@ -92,7 +97,7 @@ export class CreateReviewSkillTool extends ZodTool<typeof createReviewSkillSchem
       const lines: string[] = [
         '---',
         `name: ${params.skill_name}`,
-        `description: ${params.description}`,
+        `description: "${params.description.replace(/"/g, '\\"')}"`,
         '---',
         '',
         params.body,

@@ -77,6 +77,50 @@ function getFocusableToolIds(): string[] {
   return ids;
 }
 
+async function handleBuiltinCommand(
+  text: string, agent: Agent, sessionStore: SessionStore,
+  noticIdx: React.MutableRefObject<number>,
+  setStaticKey: React.Dispatch<React.SetStateAction<number>>,
+): Promise<boolean> {
+  if (text === '/clear' || text === '/cls') {
+    agent.clear?.();
+    sessionStore.createNewSession();
+    process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+    setStaticKey(k => k + 1);
+    useTuiStore.getState().clearActive();
+    return true;
+  }
+  if (text === '/compact') {
+    const contextManager = agent.getContextManager?.();
+    if (contextManager) {
+      useTuiStore.getState().setCompacting(true);
+      setTimeout(() => {
+        contextManager.forceCompact()
+          .finally(() => useTuiStore.getState().setCompacting(false))
+          .catch(() => {});
+      }, 0);
+      useTuiStore.getState().appendDivider('compact');
+    }
+    return true;
+  }
+  if (text === '/exit' || text === '/quit') {
+    process.exit(0);
+  }
+  if (text.startsWith('/')) {
+    const match = text.match(/^\/([^\s]+)(?:\s(.*))?$/);
+    if (match) {
+      const commandName = match[1]!.toLowerCase();
+      const args = match[2] || '';
+      const matched = getBuiltinCommands(sessionStore).find(c => c.name.toLowerCase() === commandName && c.handler);
+      if (matched) {
+        await matched.handler!(buildV2CommandContext(agent, sessionStore, noticIdx, args));
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
   const noticIdx = useRef(0);
   const pendingRef = useRef<string[]>([]);
@@ -97,49 +141,8 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
       }
 
       const text = submission.text.trim();
-
-      if (text === '/clear' || text === '/cls') {
-        agent.clear?.();
-        sessionStore.createNewSession();
-        // Clear terminal visible buffer + scrollback + cursor home
-        process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
-        // Force Static remount to reset Ink internal cursor
-        setStaticKey(k => k + 1);
-        useTuiStore.getState().clearActive();
-        return;
-      }
-      if (text === '/compact') {
-        const contextManager = agent.getContextManager?.();
-        if (contextManager) {
-          useTuiStore.getState().setCompacting(true);
-          // Yield to event loop so React renders the indicator before heavy sync work
-          setTimeout(() => {
-            contextManager.forceCompact()
-              .finally(() => useTuiStore.getState().setCompacting(false))
-              .catch(() => {});
-          }, 0);
-          useTuiStore.getState().appendDivider('compact');
-        }
-        return;
-      }
-      if (text === '/exit' || text === '/quit') {
-        process.exit(0);
-        return;
-      }
-
-      if (text.startsWith('/')) {
-        const match = text.match(/^\/([^\s]+)(?:\s(.*))?$/);
-        if (match) {
-          const commandName = match[1]!.toLowerCase();
-          const args = match[2] || '';
-          const builtinCommands = getBuiltinCommands(sessionStore);
-          const matched = builtinCommands.find(c => c.name.toLowerCase() === commandName && c.handler);
-          if (matched) {
-            await matched.handler!(buildV2CommandContext(agent, sessionStore, noticIdx, args));
-            return;
-          }
-        }
-      }
+      const handled = await handleBuiltinCommand(text, agent, sessionStore, noticIdx, setStaticKey);
+      if (handled) return;
 
       const messageText = submission.requestedSkillName
         ? `Please use the "${submission.requestedSkillName}" skill for this request. ${submission.text}`

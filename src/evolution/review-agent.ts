@@ -1,4 +1,4 @@
-import type { TraceRun } from '../trace/types';
+import type { TraceRun, TraceStore } from '../trace/types';
 import type { Provider } from '../types';
 import { Agent } from '../agent/Agent';
 import { ContextManager } from '../agent/context';
@@ -7,6 +7,9 @@ import { CreateReviewSkillTool } from './review-tools';
 import { buildReviewPrompt } from './prompt-templates';
 import { debugLog } from '../utils/debug';
 import fs from 'fs/promises';
+
+const RECENT_SESSION_LIMIT = 10;
+const RECENT_RUN_LIMIT = 3;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -22,8 +25,10 @@ export function buildReviewSystemPrompt(
   trace: TraceRun,
   existingSkills: string[],
   outputDir: string,
+  reviewInterval?: number,
+  recentTraceSummaries?: string[],
 ): string {
-  const reviewPrompt = buildReviewPrompt(trigger, trace, existingSkills);
+  const reviewPrompt = buildReviewPrompt(trigger, trace, existingSkills, reviewInterval, recentTraceSummaries);
   const skillsList = existingSkills.length > 0
     ? existingSkills.map((s) => `- ${s}`).join('\n')
     : '(none)';
@@ -198,12 +203,29 @@ export function forkReviewAgent(
     timeoutMs: number;
     onSkillCreated?: ((skillName: string, description: string, outputDir: string) => void) | undefined;
     onComplete?: (() => void) | undefined;
+    store?: TraceStore | undefined;
+    reviewInterval?: number | undefined;
   },
 ): void {
   void (async () => {
     try {
+      let recentTraceSummaries: string[] = [];
+      if (config.store) {
+        try {
+          const recentRuns = await config.store.listRecent(RECENT_SESSION_LIMIT, RECENT_RUN_LIMIT);
+          recentTraceSummaries = recentRuns.map(r =>
+            `Run ${r.id}: ${r.summary.totalTurns} turns, ${r.summary.totalErrors} errors, outcome: ${r.summary.outcome}`,
+          );
+        } catch {
+          /* best-effort */
+        }
+      }
+
       const existingSkills = await listExistingSkills(config.outputDir);
-      const systemPrompt = buildReviewSystemPrompt(trigger, trace, existingSkills, config.outputDir);
+      const systemPrompt = buildReviewSystemPrompt(
+        trigger, trace, existingSkills, config.outputDir,
+        config.reviewInterval, recentTraceSummaries,
+      );
 
       const toolRegistry = new ToolRegistry();
       const skillTool = new CreateReviewSkillTool(config.outputDir);

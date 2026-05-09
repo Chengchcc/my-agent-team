@@ -64,6 +64,28 @@ describe('CreateReviewSkillTool', () => {
     expect(skillMd).toContain('Already here');
   });
 
+  test('rejects path traversal in skill_name', async () => {
+    const tool = new CreateReviewSkillTool(TEST_DIR);
+    const ctx = createTestCtx();
+    const result = await tool.execute({ skill_name: '../etc/passwd', description: 'Evil', body: 'Bad' }, ctx);
+    expect(result).toHaveProperty('created', false);
+    expect((result as any).reason).toContain('Invalid skill_name');
+  });
+
+  test('rejects absolute path and unicode in skill_name', async () => {
+    const tool = new CreateReviewSkillTool(TEST_DIR);
+    const ctx = createTestCtx();
+
+    const r1 = await tool.execute({ skill_name: '/etc/hosts', description: 'Abs', body: 'X' }, ctx);
+    expect(r1).toHaveProperty('created', false);
+
+    const r2 = await tool.execute({ skill_name: '技能名', description: 'Uni', body: 'X' }, ctx);
+    expect(r2).toHaveProperty('created', false);
+
+    const r3 = await tool.execute({ skill_name: 'a'.repeat(50), description: 'L', body: 'X' }, ctx);
+    expect(r3).toHaveProperty('created', false);
+  });
+
   test('creates scripts directory when provided', async () => {
     const tool = new CreateReviewSkillTool(TEST_DIR);
     await tool.execute({

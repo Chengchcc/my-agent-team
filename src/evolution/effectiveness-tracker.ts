@@ -11,6 +11,9 @@ const MINUTES_PER_HOUR = 60;
 const SECONDS_PER_MINUTE = 60;
 const MS_PER_SECOND = 1000;
 
+const FEEDBACK_DIR = path.join(os.homedir(), '.my-agent', 'feedback');
+const FEEDBACK_PATH = path.join(FEEDBACK_DIR, 'feedback-evals.json');
+
 export class EffectivenessTracker {
   private baseDir: string;
 
@@ -49,15 +52,19 @@ export class EffectivenessTracker {
   ): Promise<SkillStats> {
     const status = await this.loadStatus(skillName);
     const prevStats = status?.stats ?? { totalRuns: 0, successfulRuns: 0, successRate: 1, lastRunId: '' };
+
+    const isNeutral = traceOutcome === 'aborted';
     const isSuccess = traceOutcome === 'completed';
 
     const newStats: SkillStats = {
-      totalRuns: prevStats.totalRuns + 1,
+      totalRuns: prevStats.totalRuns + (isNeutral ? 0 : 1),
       successfulRuns: prevStats.successfulRuns + (isSuccess ? 1 : 0),
       successRate: 0,
       lastRunId: runId,
     };
-    newStats.successRate = newStats.successfulRuns / newStats.totalRuns;
+    newStats.successRate = newStats.totalRuns > 0
+      ? newStats.successfulRuns / newStats.totalRuns
+      : 1;
 
     await this.saveStatus({
       skillName,
@@ -81,17 +88,15 @@ export class EffectivenessTracker {
     const evalCase = verdictToEvalCase(skillName, verdict);
     if (!evalCase) return;
 
-    const feedbackPath = path.join(
-      process.cwd(), 'tests', 'evolution', 'review-prompt-evals-feedback.json',
-    );
+    await fs.mkdir(FEEDBACK_DIR, { recursive: true });
 
     let existing: unknown[] = [];
     try {
-      existing = JSON.parse(await fs.readFile(feedbackPath, 'utf-8'));
+      existing = JSON.parse(await fs.readFile(FEEDBACK_PATH, 'utf-8'));
     } catch { /* file doesn't exist yet */ }
 
     existing.push(evalCase);
-    await fs.writeFile(feedbackPath, JSON.stringify(existing, null, 2), 'utf-8');
+    await fs.writeFile(FEEDBACK_PATH, JSON.stringify(existing, null, 2), 'utf-8');
     debugLog(`[evolution] Appended feedback eval case for ${skillName}`);
   }
 

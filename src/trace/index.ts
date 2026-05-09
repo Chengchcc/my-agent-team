@@ -40,6 +40,10 @@ export function createTraceMiddleware(options: {
     ? path.join(options.baseDir, '..', 'trace-state.json')
     : DEFAULT_STATE_PATH;
   const nudgeEngine = new NudgeEngine(statePath, options.reviewInterval);
+  if (options.evolution) {
+    options.evolution.store = store;
+    options.evolution.reviewInterval = options.reviewInterval;
+  }
   const agentMiddleware = new TraceAgentMiddleware(
     store,
     nudgeEngine,

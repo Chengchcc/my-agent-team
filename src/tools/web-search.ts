@@ -4,15 +4,18 @@ import { ZodTool } from './zod-tool';
 import type { ToolContext } from '../agent/tool-dispatch/types';
 import { settings } from '../config';
 
+const SEARCH_MAX_RESULTS = 20;
+const SEARCH_DEFAULT_RESULTS = 5;
+
 const WebSearchSchema = z.object({
   query: z.string().describe('The search query.'),
   max_results: z
     .number()
     .int()
     .min(1)
-    .max(20)
-    .default(5)
-    .describe('Maximum number of results to return (1-20, default 5).'),
+    .max(SEARCH_MAX_RESULTS)
+    .default(SEARCH_DEFAULT_RESULTS)
+    .describe(`Maximum number of results to return (1-${SEARCH_MAX_RESULTS}, default ${SEARCH_DEFAULT_RESULTS}).`),
   search_depth: z
     .enum(['basic', 'advanced'])
     .default('basic')
