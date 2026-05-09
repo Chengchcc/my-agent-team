@@ -1026,7 +1026,7 @@ beforeAgentRun → beforeAddResponse → TraceToolMiddleware → afterAgentRun
 
 ## Self-Evolution System
 
-The Evolution System closes the loop: agent traces → pattern detection → background review → auto-generated skills → quality measurement → iterative improvement. Implemented in five phases (A–E), Phase F pending.
+The Evolution System closes the loop: agent traces → pattern detection → background review → auto-generated skills → quality measurement → iterative improvement. Phases A–F implemented, with Tier3 full pipeline deferred.
 
 ### Architecture Overview
 
@@ -1066,12 +1066,15 @@ flowchart TB
         DD[(dead/)]
     end
 
-    subgraph Runner[review-runner.ts + supervisor.ts]
-        SV[Supervisor<br/>cancelPolicy]
-        R0[Tier0Runner<br/>forkReviewAgent]
-        R2[Tier2Runner<br/>forkSkillAnalysis]
-        R3[Tier3Runner]
-        RAA[AutoAcceptRunner]
+    subgraph Runner[wireDispatchers via initEvolution]
+        R0[Tier0 dispatcher<br/>forkReviewAgent]
+        R2[Tier2 dispatcher<br/>forkSkillAnalysis]
+        R3[Tier3 dispatcher<br/>stub]
+        RAA[AutoAccept dispatcher<br/>tracker.autoAccept]
+    end
+
+    subgraph Supervisor[supervisor.ts]
+        SV[Supervisor<br/>cancelPolicy via<br/>Drainer.currentSoftCancel]
     end
 
     NE --> L4
@@ -1083,11 +1086,12 @@ flowchart TB
     DR --> QH
     Q0 -.O_EXCL.-> IF
     IF -.fail≥cap.-> DD
-    DR --> SV
-    SV --> R0
-    SV --> R2
-    SV --> R3
-    SV --> RAA
+    DR --> R0
+    DR --> R2
+    DR --> R3
+    DR --> RAA
+    SV -.sets currentSoftCancel.-> DR
+    SB -.main_loop_settled.-> SV
     R0 -.派生 tier2.-> Q2
     R3 -.派生 tier3ab.-> Q3
 ```
@@ -1186,26 +1190,33 @@ src/evolution/
   supervisor.ts             # CancelPolicy dispatch (preempt/graceful/finish)
   settle-bus.ts             # Event bus (main_loop_settled, task_completed, etc.)
   ── Scheduling ──
-  triggers.ts               # IdleTrigger, EventTrigger, CronTriggers, ThresholdTrigger, ManualTrigger
+  cron-scheduler.ts          # parseCron() + nextFire(). Short: setTimeout, long: nextRunAt enqueue
+  triggers.ts                # IdleTrigger, EventTrigger, CronTriggers, ThresholdTrigger, ManualTrigger
 ```
 
 ### Data Flow
 
 ```
-NudgeSignal → Defense(L4→L3→L2→TB→L1→L5) → PersistentQueue.enqueue(tier0)
-                                                    │
-                                           Drainer.tryDrain(kinds)
-                                                    │
-                                    Supervisor.dispatch(task.kind)
-                                                    │
-                         ┌──────────────────────────┼──────────────────┐
-                    Tier0Runner              Tier2Runner          AutoAcceptRunner
-                    forkReviewAgent     forkSkillAnalysis       tracker.autoAccept
-                         │                      │                      │
-                    write skill.md        write verdict        accept stale skills
-                         │                      │
-                    derive Tier2            derive Tier0
+NudgeSignal → Defense(L4→L3→L2→TB→L1→L5)
+    │                              │
+    │ pass                         │ blocked
+    ▼                              ▼
+ 直接执行                    PersistentQueue.enqueue(tier0)
+ (fast path)                        │
+    │                         Drainer.tryDrain(kinds)
+    │                               │
+    │                     wireDispatchers lookup by task.kind
+    │                               │
+    └───────────────┬───────────────┼──────────────┬──────────┘
+                    ▼               ▼              ▼           ▼
+              tier0_review   tier2_verdict   tier3_*    auto_accept
+              forkReview     forkSkill       stub       tracker.autoAccept
+                    │               │
+              skill.md         verdict
+                    │
+              derive tier2 (deferred)
 ```
+Supervisor: SettleBus main_loop_settled → reads Drainer.currentSoftCancel → applies cancelPolicy
 
 ### Implementation Status
 
@@ -1216,7 +1227,7 @@ NudgeSignal → Defense(L4→L3→L2→TB→L1→L5) → PersistentQueue.enqueue
 | **C** Lifecycle | Done | TaskRunner, TurnSettledDetector, expanded outcomes |
 | **D** Queue | Done | PersistentQueue, TierBreaker, Drainer, Supervisor, SettleBus |
 | **E** Triggers | Done | 5 triggers, dispatcher routing, AutoAcceptRunner |
-| **F** Prompt Evolve | Specified | CronScheduler, Tier2 dispatcher, Tier3Opt/Ab Runners, guards |
+| **F** Prompt Evolve | In Progress | F1 CronScheduler done, F2 Tier2 dispatcher done, F3/F4 Tier3 stubs, guards deferred |
 
 ### Skill Source Priority
 
