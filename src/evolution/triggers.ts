@@ -1,7 +1,8 @@
 import { debugLog } from '../utils/debug';
-import type { EvolutionTaskKind } from './persistent-queue';
+import type { EvolutionTaskKind, PersistentQueue } from './persistent-queue';
 import type { SettleBus } from './settle-bus';
 import type { IdleGate } from './idle-gate';
+import { createCronTrigger } from './cron-scheduler';
 
 type DrainFn = (opts?: { force?: boolean; allowedKinds?: EvolutionTaskKind[] }) => Promise<number>;
 
@@ -67,37 +68,16 @@ export function createEventTrigger(
   };
 }
 
-// ── CronTrigger ──
+// ── CronTrigger (CronScheduler-based) ──
 
-type CronEntry = { schedule: string; kinds: EvolutionTaskKind[]; timer: ReturnType<typeof setInterval> | null };
-
-const MINUTES_PER_INTERVAL = 15;
-const SECONDS_PER_MINUTE = 60;
-const HOURS_PER_DAY = 24;
-const SECONDS_PER_HOUR = 3600;
-const DAYS_PER_WEEK = 7;
-const CRON_MINUTE_MS = MINUTES_PER_INTERVAL * SECONDS_PER_MINUTE * MS_PER_SECOND;
-const CRON_DAILY_MS = HOURS_PER_DAY * SECONDS_PER_HOUR * MS_PER_SECOND;
-const CRON_WEEKLY_MS = DAYS_PER_WEEK * HOURS_PER_DAY * SECONDS_PER_HOUR * MS_PER_SECOND;
-
-export function createCronTriggers(drain: DrainFn): Trigger[] {
-  const entries: CronEntry[] = [
-    { schedule: '*/15min', kinds: ['tier0_review', 'tier2_verdict'], timer: null },
-    { schedule: 'daily 03:00', kinds: ['tier3_ab_promote', 'auto_accept_sweep'], timer: null },
-    { schedule: 'weekly Sun 04:00', kinds: ['tier3_prompt_opt'], timer: null },
+export function createCronTriggers(drain: DrainFn, queue?: PersistentQueue): Trigger[] {
+  const entries: { expr: string; kinds: EvolutionTaskKind[] }[] = [
+    { expr: '*/15 * * * *', kinds: ['tier0_review', 'tier2_verdict'] },
+    { expr: '0 3 * * *', kinds: ['tier3_ab_promote', 'auto_accept_sweep'] },
+    { expr: '0 4 * * 0', kinds: ['tier3_prompt_opt'] },
   ];
 
-  return entries.map(entry => ({
-    start() {
-      const interval = entry.schedule.startsWith('*/15') ? CRON_MINUTE_MS
-        : entry.schedule.startsWith('daily') ? CRON_DAILY_MS : CRON_WEEKLY_MS;
-      entry.timer = setInterval(() => {
-        debugLog(`[cron] Firing ${entry.schedule} — kinds: ${entry.kinds.join(',')}`);
-        void drain({ allowedKinds: entry.kinds });
-      }, interval);
-    },
-    stop() { if (entry.timer) { clearInterval(entry.timer); entry.timer = null; } },
-  }));
+  return entries.map(({ expr, kinds }) => createCronTrigger(expr, kinds, drain, queue));
 }
 
 // ── ThresholdTrigger ──
@@ -137,11 +117,12 @@ export function startAllTriggers(
   idleGate: IdleGate,
   bus: SettleBus,
   drain: DrainFn,
+  queue?: PersistentQueue,
 ): { manual: ReturnType<typeof createManualTrigger>; stop: () => void } {
   const triggers: Trigger[] = [
     createIdleTrigger(idleGate, drain),
     createEventTrigger(bus, drain),
-    ...createCronTriggers(drain),
+    ...createCronTriggers(drain, queue),
     createThresholdTrigger(drain),
   ];
 

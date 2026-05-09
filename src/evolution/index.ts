@@ -157,7 +157,7 @@ export function initEvolution(
   });
 
   // Start triggers
-  const triggers = startAllTriggers(idleGate, settleBus, (opts) => drainer.tryDrain(opts));
+  const triggers = startAllTriggers(idleGate, settleBus, (opts) => drainer.tryDrain(opts), queue);
 
   const runTier0 = (signal: string, trace: TraceRun, onComplete: () => void, onError: () => void) => {
     runner.run(
