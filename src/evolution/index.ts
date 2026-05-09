@@ -9,6 +9,7 @@ import { IdleGate } from './idle-gate';
 import { ReviewSlot, signalPriority } from './review-slot';
 import { CircuitBreaker } from './circuit-breaker';
 import { ReviewBackoff } from './review-backoff';
+import { TaskRunner } from './review-runner';
 import os from 'os';
 import path from 'path';
 
@@ -37,6 +38,66 @@ function isValidTrigger(value: string): value is TriggerType {
   return value === 'error_burst' || value === 'complex_task' || value === 'periodic';
 }
 
+function createTier2Handler(
+  tracker: EffectivenessTracker,
+  store: TraceStore | undefined,
+  provider: Provider,
+  model: string,
+  notify: ((skillName: string, description: string, outputDir: string) => void) | undefined,
+  outputDir: string,
+  feedbackCases: { value: number },
+) {
+  return (skillName: string, description: string) => {
+    void (async () => {
+      const status = await tracker.loadStatus(skillName);
+      const stats = status?.stats ?? { totalRuns: 0, successfulRuns: 0, successRate: 0, lastRunId: '' };
+
+      let traces: TraceSnippet[] = [];
+      if (store) {
+        try {
+          const recentRuns = await store.listRecent(TIER2_RECENT_SESSION_LIMIT, TIER2_RECENT_RUN_LIMIT);
+          traces = recentRuns
+            .filter(r => r.summary.activatedSkills?.includes(skillName))
+            .map(r => ({
+              outcome: r.summary.outcome,
+              traces: `Turns: ${r.summary.totalTurns}, Errors: ${r.summary.totalErrors}, ` +
+                r.turns.map((t, i) => `Turn ${i}: ${t.toolExecutions.map(e => `${e.toolName}(${e.success ? 'ok' : 'fail'})`).join(', ')}`).join(' | '),
+            }));
+        } catch { /* best-effort */ }
+      }
+
+      const prompt = buildAnalysisPrompt(skillName, description, stats, traces);
+      forkSkillAnalysis(prompt, provider, model, (verdict) => { void (async () => {
+        if (verdict) {
+          const currentStatus = await tracker.loadStatus(skillName);
+          if (currentStatus) {
+            currentStatus.status = 'reviewed';
+            await tracker.saveStatus(currentStatus);
+          }
+          if (verdict.verdict === 'fix') {
+            notify?.(skillName, `Analysis: skill needs adjustment — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}... [/review view ${skillName}]`, outputDir);
+          } else if (verdict.verdict === 'delete') {
+            notify?.(skillName, `Marked as harmful — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}... [/review delete ${skillName}]`, outputDir);
+          }
+          const evalCase = verdictToEvalCase(skillName, verdict);
+          if (evalCase) {
+            try {
+              await tracker.appendFeedbackEval(skillName, JSON.stringify(verdict));
+              feedbackCases.value++;
+              if (feedbackCases.value >= FEEDBACK_CASES_NOTIFY_THRESHOLD) {
+                debugLog(`[evolution] ${feedbackCases.value} feedback cases pending for prompt optimization`);
+                notify?.('prompt-optimization', `${feedbackCases.value} feedback cases pending — run /review optimize to improve review prompts`, outputDir);
+              }
+            } catch (err) {
+              debugLog(`[evolution] Failed to append feedback: ${err}`);
+            }
+          }
+        }
+      })(); });
+    })();
+  };
+}
+
 export function initEvolution(
   config: ReviewConfig,
   provider: Provider,
@@ -50,13 +111,14 @@ export function initEvolution(
     ? path.join(os.homedir(), config.outputDir.slice(1))
     : config.outputDir;
 
-  let feedbackCasesPending = 0;
+  const feedbackCases = { value: 0 };
   const tracker = new EffectivenessTracker(outputDir);
   const effectiveReviewInterval = reviewInterval ?? DEFAULT_REVIEW_INTERVAL;
   const idleGate = new IdleGate();
   const slot = new ReviewSlot();
   const breaker = new CircuitBreaker();
   const backoff = new ReviewBackoff();
+  const runner = new TaskRunner();
 
   return {
     outputDir,
@@ -93,26 +155,34 @@ export function initEvolution(
       slot.tryEnqueue({ signal, priority: signalPriority(signal), nudgeResult, trace });
       slot.markRunning();
 
-      forkReviewAgent(signal, trace, {
-        outputDir,
-        provider,
-        model: config.model,
-        maxTurns: config.maxTurns,
-        tokenLimit: config.tokenLimit,
-        timeoutMs: config.timeoutMs,
-        onSkillCreated: notify,
-        onComplete: () => {
-          slot.markDone();
-          backoff.recordSuccess();
-          breaker.recordSuccess();
+      runner.run(
+        () => new Promise<void>((resolve, reject) => {
+          forkReviewAgent(signal, trace, {
+            outputDir,
+            provider,
+            model: config.model,
+            maxTurns: config.maxTurns,
+            tokenLimit: config.tokenLimit,
+            timeoutMs: config.timeoutMs,
+            onSkillCreated: notify,
+            onComplete: resolve,
+            onError: reject,
+            ...(store ? { store } : {}),
+            ...(effectiveReviewInterval ? { reviewInterval: effectiveReviewInterval } : {}),
+          });
+        }),
+        {
+          onComplete: () => {
+            slot.markDone();
+            backoff.recordSuccess();
+            breaker.recordSuccess();
+          },
+          onError: () => {
+            backoff.recordFailure();
+            breaker.recordFailure();
+          },
         },
-        onError: () => {
-          backoff.recordFailure();
-          breaker.recordFailure();
-        },
-        ...(store ? { store } : {}),
-        ...(effectiveReviewInterval ? { reviewInterval: effectiveReviewInterval } : {}),
-      });
+      );
     },
     idleGate,
     async trackStats(summary, runId) {
@@ -136,59 +206,10 @@ export function initEvolution(
     },
     autoAcceptStaleSkills: () => tracker.autoAcceptStaleSkills(config.autoAcceptHours ?? DEFAULT_AUTO_ACCEPT_HOURS),
 
-    runTier2Analysis(skillName, description) {
-      void (async () => {
-        const status = await tracker.loadStatus(skillName);
-        const stats = status?.stats ?? { totalRuns: 0, successfulRuns: 0, successRate: 0, lastRunId: '' };
-
-        let traces: TraceSnippet[] = [];
-        if (store) {
-          try {
-            const recentRuns = await store.listRecent(TIER2_RECENT_SESSION_LIMIT, TIER2_RECENT_RUN_LIMIT);
-            traces = recentRuns
-              .filter(r => r.summary.activatedSkills?.includes(skillName))
-              .map(r => ({
-                outcome: r.summary.outcome,
-                traces: `Turns: ${r.summary.totalTurns}, Errors: ${r.summary.totalErrors}, ` +
-                  r.turns.map((t, i) => `Turn ${i}: ${t.toolExecutions.map(e => `${e.toolName}(${e.success ? 'ok' : 'fail'})`).join(', ')}`).join(' | '),
-              }));
-          } catch {
-            /* best-effort */
-          }
-        }
-
-        const prompt = buildAnalysisPrompt(skillName, description, stats, traces);
-        forkSkillAnalysis(prompt, provider, config.model, (verdict) => { void (async () => {
-          if (verdict) {
-            const currentStatus = await tracker.loadStatus(skillName);
-            if (currentStatus) {
-              currentStatus.status = 'reviewed';
-              await tracker.saveStatus(currentStatus);
-            }
-
-            if (verdict.verdict === 'fix') {
-              notify?.(skillName, `Analysis: skill needs adjustment — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}... [/review view ${skillName}]`, outputDir);
-            } else if (verdict.verdict === 'delete') {
-              notify?.(skillName, `Marked as harmful — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}... [/review delete ${skillName}]`, outputDir);
-            }
-
-            const evalCase = verdictToEvalCase(skillName, verdict);
-            if (evalCase) {
-              try {
-                await tracker.appendFeedbackEval(skillName, JSON.stringify(verdict));
-                feedbackCasesPending++;
-                if (feedbackCasesPending >= FEEDBACK_CASES_NOTIFY_THRESHOLD) {
-                  debugLog(`[evolution] ${feedbackCasesPending} feedback cases pending for prompt optimization`);
-                  notify?.('prompt-optimization', `${feedbackCasesPending} feedback cases pending — run /review optimize to improve review prompts`, outputDir);
-                }
-              } catch (err) {
-                debugLog(`[evolution] Failed to append feedback: ${err}`);
-              }
-            }
-          }
-        })(); });
-      })();
-    },
+    runTier2Analysis: createTier2Handler(
+      tracker, store, provider, config.model, notify, outputDir,
+      feedbackCases,
+    ),
   };
 }
 
@@ -201,4 +222,6 @@ export { ReviewSlot, signalPriority } from './review-slot';
 export type { PendingReview } from './review-slot';
 export { CircuitBreaker } from './circuit-breaker';
 export { ReviewBackoff } from './review-backoff';
+export { TaskRunner } from './review-runner';
+export type { RunnerContext } from './review-runner';
 export type { ReviewConfig, ReviewNotification, EvolutionCallback, SkillStats, SkillStatus } from './types';

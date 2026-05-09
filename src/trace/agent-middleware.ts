@@ -5,6 +5,7 @@ import type { NudgeEngine } from './nudge-engine';
 import type { EvolutionCallback } from '../evolution/types';
 import type { SkillLoader } from '../skills/loader';
 import { debugLog } from '../utils/debug';
+import type { TurnSettledDetector } from './turn-settled-detector';
 
 export class TraceAgentMiddleware implements AgentMiddleware {
   constructor(
@@ -14,12 +15,15 @@ export class TraceAgentMiddleware implements AgentMiddleware {
     private nudgeEnabled: boolean = true,
     private evolution?: EvolutionCallback | null,
     private skillLoader?: SkillLoader | null,
+    private settledDetector?: TurnSettledDetector | null,
   ) {}
 
   beforeAgentRun: Middleware = async (context, next) => {
     this.skillLoader?.checkAutoSkills();
     void this.evolution?.autoAcceptStaleSkills?.();
     const parentRunId = context.metadata._parentTraceRunId as string | undefined;
+    const isRoot = !parentRunId;
+    this.settledDetector?.runStart(isRoot, context.metadata._traceRunId as string ?? 'unknown');
     const buffer = new TraceBuffer(this.sessionId(context), this.store, parentRunId);
     context.metadata._traceBuffer = buffer;
 
@@ -62,6 +66,9 @@ export class TraceAgentMiddleware implements AgentMiddleware {
 
     const model = ctx.response?.model ?? 'unknown';
     const trace = buffer.finalize(model);
+    const isRoot = !ctx.metadata._parentTraceRunId;
+
+    this.settledDetector?.runEnd(isRoot, trace.id, trace.summary);
 
     setImmediate(() => {
       void this.finalizeTrace(trace);

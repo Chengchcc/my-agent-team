@@ -3,6 +3,7 @@ import { TraceToolMiddleware } from './tool-middleware';
 import { TraceStore } from './store';
 import { NudgeEngine } from './nudge-engine';
 import { DefaultRedactor } from './redactor';
+import { TurnSettledDetector } from './turn-settled-detector';
 import type { TraceRedactor, NudgeResult, NudgeState, TraceRun, TraceTurn, TraceSummary, TraceEntry } from './types';
 import { TraceBuffer } from './trace-buffer';
 import type { ModelResponseRecord, ToolExecutionRecord } from './trace-buffer';
@@ -20,6 +21,7 @@ export interface TraceMiddlewareSet {
   store: TraceStore;
   nudgeEngine: NudgeEngine;
   redactor: TraceRedactor;
+  settledDetector: TurnSettledDetector;
 }
 
 export function createTraceMiddleware(options: {
@@ -40,10 +42,15 @@ export function createTraceMiddleware(options: {
     ? path.join(options.baseDir, '..', 'trace-state.json')
     : DEFAULT_STATE_PATH;
   const nudgeEngine = new NudgeEngine(statePath, options.reviewInterval);
+  const settledDetector = new TurnSettledDetector();
   if (options.evolution) {
     options.evolution.store = store;
     options.evolution.reviewInterval = options.reviewInterval;
   }
+  settledDetector.setCallback(() => {
+    // On loop settled, the nudge engine may fire on subsequent runs.
+    // The settled event is a signal for future trigger scheduling (Phase E).
+  });
   const agentMiddleware = new TraceAgentMiddleware(
     store,
     nudgeEngine,
@@ -51,10 +58,11 @@ export function createTraceMiddleware(options: {
     options.nudgeEnabled ?? true,
     options.evolution,
     options.skillLoader,
+    settledDetector,
   );
   const toolMiddleware = new TraceToolMiddleware();
 
-  return { agentMiddleware, toolMiddleware, store, nudgeEngine, redactor };
+  return { agentMiddleware, toolMiddleware, store, nudgeEngine, redactor, settledDetector };
 }
 
 // Re-export types for external consumers
@@ -64,4 +72,4 @@ export type {
   ModelResponseRecord, ToolExecutionRecord,
 };
 
-export { TraceBuffer, TraceStore, NudgeEngine, DefaultRedactor, TraceAgentMiddleware, TraceToolMiddleware };
+export { TraceBuffer, TraceStore, NudgeEngine, DefaultRedactor, TraceAgentMiddleware, TraceToolMiddleware, TurnSettledDetector };

@@ -30,7 +30,7 @@ export interface TraceSummary {
   totalToolCalls: number;
   totalErrors: number;
   totalTokens: Record<string, number>;
-  outcome: 'completed' | 'error' | 'max_turns' | 'aborted';
+  outcome: 'completed' | 'error' | 'max_turns' | 'aborted' | 'aborted_by_review' | 'compacted_mid' | 'cleared' | 'network_error';
   error?: string;
   activatedSkills?: string[];
 }

@@ -53,7 +53,7 @@ export class EffectivenessTracker {
     const status = await this.loadStatus(skillName);
     const prevStats = status?.stats ?? { totalRuns: 0, successfulRuns: 0, successRate: 1, lastRunId: '' };
 
-    const isNeutral = traceOutcome === 'aborted';
+    const isNeutral = traceOutcome === 'aborted' || traceOutcome === 'aborted_by_review' || traceOutcome === 'compacted_mid' || traceOutcome === 'cleared' || traceOutcome === 'network_error';
     const isSuccess = traceOutcome === 'completed';
 
     const newStats: SkillStats = {
