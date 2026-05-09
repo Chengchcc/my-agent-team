@@ -1026,45 +1026,197 @@ beforeAgentRun → beforeAddResponse → TraceToolMiddleware → afterAgentRun
 
 ## Self-Evolution System
 
-The Evolution System (Phases 2+3) closes the loop: trace data → pattern detection → background review → auto-generated skills → quality measurement → feedback.
+The Evolution System closes the loop: agent traces → pattern detection → background review → auto-generated skills → quality measurement → iterative improvement. Implemented in five phases (A–E), Phase F pending.
 
-### Architecture
+### Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph Producer[Producer src/trace/]
+        AM[AgentMiddleware] --> TS[(TraceStore)]
+        AM --> NE[NudgeEngine]
+    end
+
+    subgraph Defense[Defense L1-L5 + TierBreaker]
+        L4[L4 Fingerprint] --> L3[L3 Cooldown] --> L2[L2 Backoff]
+        L2 --> TB[TierBreaker per-tier]
+        TB --> L1[L1 IdleGate]
+        L1 --> L5[L5 ReviewSlot]
+    end
+
+    subgraph Settle[settle-bus.ts]
+        TSD[TurnSettledDetector] --> SB((SettleBus))
+        SB -.task_completed.-> SB
+    end
+
+    subgraph Triggers[triggers.ts]
+        IT[IdleTrigger] --> DR{{Drainer}}
+        ET[EventTrigger] --> DR
+        CT[CronTriggers ×3] --> DR
+        TT[ThresholdTrigger] --> DR
+        MT[ManualTrigger] --> DR
+    end
+
+    subgraph Queue[persistent-queue.ts]
+        Q0[(queue/tier0/)]
+        Q2[(queue/tier2/)]
+        Q3[(queue/tier3/)]
+        QH[(queue/housekeeping/)]
+        IF[(inflight/ +.lock)]
+        DD[(dead/)]
+    end
+
+    subgraph Runner[review-runner.ts + supervisor.ts]
+        SV[Supervisor<br/>cancelPolicy]
+        R0[Tier0Runner<br/>forkReviewAgent]
+        R2[Tier2Runner<br/>forkSkillAnalysis]
+        R3[Tier3Runner]
+        RAA[AutoAcceptRunner]
+    end
+
+    NE --> L4
+    L5 --> Q0
+    SB --> ET
+    DR --> Q0
+    DR --> Q2
+    DR --> Q3
+    DR --> QH
+    Q0 -.O_EXCL.-> IF
+    IF -.fail≥cap.-> DD
+    DR --> SV
+    SV --> R0
+    SV --> R2
+    SV --> R3
+    SV --> RAA
+    R0 -.派生 tier2.-> Q2
+    R3 -.派生 tier3ab.-> Q3
+```
+
+### Tiered Review Pipeline
+
+```mermaid
+flowchart LR
+    TR[TraceRun] --> T0[Tier 0<br/>review-agent.ts]
+    T0 --> SK[(skills/*.md)]
+    T0 -.派生.-> T2
+    TR --> T1[Tier 1<br/>effectiveness-tracker.ts<br/>in-line scoring]
+    T1 --> SS[(skill-stats.json)]
+    SS --> T2[Tier 2<br/>skill-analyzer.ts<br/>LLM verdict]
+    T2 --> VR[(verdict keep/delete/edit)]
+    VR -.edit 派生.-> T0
+    FB[(feedback-evals.json)] --> T3[Tier 3<br/>Phase F<br/>prompt optimizer]
+    T3 --> PC[(prompt-candidates/)]
+    PC -.+7d AB.-> T3A[Tier 3 AB<br/>promote/reject]
+    T3A --> PT[(prompt-templates.ts)]
+```
+
+### Defense Decision Tree
+
+```mermaid
+flowchart TD
+    Start([NudgeSignal]) --> F{L4 fingerprint hit?}
+    F -->|yes| Drop1[丢弃]
+    F -->|no| C{L3 signal cooldown?}
+    C -->|yes| Drop2[丢弃]
+    C -->|no| G{L2 backoff active?}
+    G -->|yes| Drop3[丢弃]
+    G -->|no| TB{TierBreaker open?}
+    TB -->|yes| Drop4[入队等恢复]
+    TB -->|no| I{L1 streaming?}
+    I -->|yes| Enq[enqueue + 等 trigger]
+    I -->|no| S{L5 slot free?}
+    S -->|yes| Run[执行]
+    S -->|higher prio| Replace[顶替 pending]
+    S -->|lower prio| Drop5[丢弃]
+    Enq --> Q[(PersistentQueue)]
+    Run --> Q
+```
+
+### Queue State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Queued: enqueue(kind)
+    Queued --> Inflight: claim(kind) +O_EXCL
+    Inflight --> Done: complete()
+    Inflight --> Queued: fail & attempt<max
+    Inflight --> Dead: fail & attempt≥max
+    Inflight --> Queued: heartbeat>10min recover
+    Done --> Queued: outcome 触发派生
+    Dead --> Queued: /review requeue
+```
+
+### Trigger × Tier Matrix
+
+| Trigger | Timing | tier0 | tier2 | tier3opt | tier3ab | auto_accept |
+|---|---|---|---|---|---|---|
+| **IdleTrigger** | idle ≥ 30s | x | x | - | - | - |
+| **EventTrigger** | loop_settled +1s | x | - | - | - | - |
+| **Cron */15min** | every 15min | x | x | - | - | - |
+| **Cron daily 03:00** | daily | - | - | - | x | x |
+| **Cron weekly Sun** | weekly | - | - | x | - | - |
+| **ThresholdTrigger** | queue per-kind ≥10 | x | x | x | - | - |
+| **ManualTrigger** | /review run-now | x | x | x | x | x |
+
+### File Layout
 
 ```
 src/evolution/
   types.ts                  # ReviewConfig, SkillStats, SkillStatus, EvolutionCallback
-  prompt-templates.ts       # buildReviewPrompt() — 3 templates with skill-creator methodology
-  review-agent.ts           # forkReviewAgent() — Agent fork + system prompt builder
-  review-tools.ts           # CreateReviewSkillTool — writes SKILL.md with dedup
-  skill-analyzer.ts         # Tier 2 LLM analysis: forkSkillAnalysis, buildAnalysisPrompt
-  effectiveness-tracker.ts  # Mechanical scoring (Tier 1) + status.json I/O + auto-accept
-  index.ts                  # initEvolution() factory
+  index.ts                  # initEvolution() factory — wires all modules
+  ── Tier 0 ──
+  prompt-templates.ts       # buildReviewPrompt() — 3 templates
+  review-agent.ts           # forkReviewAgent() — Agent fork + system prompt
+  review-tools.ts           # CreateReviewSkillTool — SKILL.md with dedup
+  ── Tier 1 ──
+  effectiveness-tracker.ts  # Mechanical scoring + auto-accept sweep
+  ── Tier 2 ──
+  skill-analyzer.ts         # forkSkillAnalysis + buildAnalysisPrompt + verdicts
+  ── Queue ──
+  persistent-queue.ts       # File-per-task JSON, O_EXCL claim, heartbeat, backoff
+  drainer.ts                # Per-kind dispatch, quota consumption, mutex
+  ── Defense ──
+  idle-gate.ts              # Blocks review while streaming/compacting
+  review-slot.ts            # Single pending slot with priority override
+  review-backoff.ts         # Exponential backoff 30s→15min
+  circuit-breaker.ts        # Global breaker (3 fails → 1h)
+  tier-breaker.ts           # Per-tier breaker (tier0=3/1h, tier2=3/30min, tier3=2/1week)
+  ── Runner ──
+  review-runner.ts          # Generic TaskRunner + RunnerOutcome + RunnerContext
+  supervisor.ts             # CancelPolicy dispatch (preempt/graceful/finish)
+  settle-bus.ts             # Event bus (main_loop_settled, task_completed, etc.)
+  ── Scheduling ──
+  triggers.ts               # IdleTrigger, EventTrigger, CronTriggers, ThresholdTrigger, ManualTrigger
 ```
 
-### Phase 2: Background Review
+### Data Flow
 
-When a NudgeResult fires, a lightweight Review Agent analyzes the trace and produces skills:
+```
+NudgeSignal → Defense(L4→L3→L2→TB→L1→L5) → PersistentQueue.enqueue(tier0)
+                                                    │
+                                           Drainer.tryDrain(kinds)
+                                                    │
+                                    Supervisor.dispatch(task.kind)
+                                                    │
+                         ┌──────────────────────────┼──────────────────┐
+                    Tier0Runner              Tier2Runner          AutoAcceptRunner
+                    forkReviewAgent     forkSkillAnalysis       tracker.autoAccept
+                         │                      │                      │
+                    write skill.md        write verdict        accept stale skills
+                         │                      │
+                    derive Tier2            derive Tier0
+```
 
-1. **Trigger mapping**: `error_burst`/`memory_review`/`combined_review` → review prompt template
-2. **Existing skill check**: lists `~/.my-agent/skills/auto/` for dedup guidance
-3. **Review Agent fork**: independent Agent, cheap model, max 6 turns, single tool (`create_review_skill`)
-4. **Value scoring**: 1-5 scale built into prompt; score < 3 → "Nothing to save"
-5. **Skill output**: writes `SKILL.md` with YAML frontmatter + body + pitfalls to `~/.my-agent/skills/auto/{name}/`
+### Implementation Status
 
-### Phase 3: Quality Assurance
-
-**Tier 1 — Mechanical Scoring**: Every run with activated auto skills updates `{skill}.status.json` with success rate.
-
-**Tier 2 — LLM Deep Analysis**: When success rate < 0.5 after >= 3 runs, a Tier 2 agent analyzes the skill's effectiveness:
-- Verdicts: `keep`, `fix` (with suggestion), `delete`
-- `fix` verdicts auto-generate eval cases for prompt optimization
-- Results shown in TUI notifications
-
-**Approval Queue**: `/review` slash command (list/view/keep/delete/edit) + keyboard shortcuts (k/d) in notification cards.
-
-**Hot-Reload**: `SkillLoader.checkAutoSkills()` checks `~/.my-agent/skills/auto/` mtime in `beforeAgentRun` — zero overhead, no file watcher.
-
-**Feedback Loop**: Tier 2 `fix` verdicts → eval cases in `review-prompt-evals-feedback.json` → user runs prompt optimization via skill-creator `run_loop.py`.
+| Phase | Status | Key Modules |
+|---|---|---|
+| **A** P0 Fixes | Done | TUI decoupling, path validation, neutral aborted, store injection |
+| **B** Defense | Done | IdleGate, ReviewSlot, Backoff, CircuitBreaker, per-signal cooldown |
+| **C** Lifecycle | Done | TaskRunner, TurnSettledDetector, expanded outcomes |
+| **D** Queue | Done | PersistentQueue, TierBreaker, Drainer, Supervisor, SettleBus |
+| **E** Triggers | Done | 5 triggers, dispatcher routing, AutoAcceptRunner |
+| **F** Prompt Evolve | Specified | CronScheduler, Tier2 dispatcher, Tier3Opt/Ab Runners, guards |
 
 ### Skill Source Priority
 
