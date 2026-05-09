@@ -186,9 +186,9 @@ function BlockquoteView({ node, ctx }: { node: Blockquote; ctx: RenderContext })
       {node.children.map((child, i) => (
         <Box key={i}>
           <Text dimColor>{'\u2502 '}</Text>
-          <Text dimColor>
+          <Box>
             {renderNode(child as RootContent, { ...ctx, depth: (ctx.depth ?? 0) + 1 })}
-          </Text>
+          </Box>
         </Box>
       ))}
     </Box>
