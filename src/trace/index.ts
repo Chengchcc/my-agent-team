@@ -46,10 +46,11 @@ export function createTraceMiddleware(options: {
   if (options.evolution) {
     options.evolution.store = store;
     options.evolution.reviewInterval = options.reviewInterval;
+    void options.evolution.recoverInflight?.();
   }
-  settledDetector.setCallback(() => {
-    // On loop settled, the nudge engine may fire on subsequent runs.
-    // The settled event is a signal for future trigger scheduling (Phase E).
+  settledDetector.setCallback((summary) => {
+    options.evolution?.settleBus?.emit({ kind: 'main_loop_settled', summary });
+    void options.evolution?.drainQueue?.();
   });
   const agentMiddleware = new TraceAgentMiddleware(
     store,

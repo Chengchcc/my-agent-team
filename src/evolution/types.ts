@@ -1,4 +1,5 @@
 import type { TraceRun, TraceStore } from '../trace/types';
+import type { SettleBus } from './settle-bus';
 
 /** Configuration for the background review system. */
 export interface ReviewConfig {
@@ -32,6 +33,9 @@ export interface EvolutionCallback {
   notify?(skillName: string, description: string, outputDir: string): void;
   store?: TraceStore;
   reviewInterval?: number | undefined;
+  drainQueue?: () => Promise<number>;
+  recoverInflight?: () => Promise<string[]>;
+  settleBus?: SettleBus;
 }
 
 /** Mechanical scoring data for a skill (Tier 1). */

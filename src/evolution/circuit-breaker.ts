@@ -3,10 +3,10 @@ import path from 'path';
 import os from 'os';
 import { debugLog } from '../utils/debug';
 
-const FAILURE_THRESHOLD = 3;
+const DEFAULT_THRESHOLD = 3;
 const SECONDS_PER_HOUR = 3600;
 const MS_PER_SECOND = 1000;
-const COOLDOWN_MS = SECONDS_PER_HOUR * MS_PER_SECOND;
+const DEFAULT_COOLDOWN_MS = SECONDS_PER_HOUR * MS_PER_SECOND;
 const STATE_DIR = path.join(os.homedir(), '.my-agent', 'state');
 
 type BreakerState = 'closed' | 'open' | 'half-open';
@@ -16,15 +16,19 @@ export class CircuitBreaker {
   private state: BreakerState = 'closed';
   private openedAt = 0;
   private readonly statePath: string;
+  private readonly cooldownMs: number;
+  private readonly threshold: number;
 
-  constructor(statePath?: string) {
+  constructor(statePath?: string, cooldownMs?: number, threshold?: number) {
     this.statePath = statePath ?? path.join(STATE_DIR, 'breaker.json');
+    this.cooldownMs = cooldownMs ?? DEFAULT_COOLDOWN_MS;
+    this.threshold = threshold ?? DEFAULT_THRESHOLD;
   }
 
   canRun(): boolean {
     if (this.state === 'closed') return true;
     if (this.state === 'open') {
-      if (Date.now() - this.openedAt >= COOLDOWN_MS) {
+      if (Date.now() - this.openedAt >= this.cooldownMs) {
         this.state = 'half-open';
         debugLog('[evolution] CircuitBreaker half-open — allowing probe attempt');
         return true;
@@ -42,10 +46,10 @@ export class CircuitBreaker {
 
   recordFailure(): void {
     this.failures++;
-    if (this.failures >= FAILURE_THRESHOLD) {
+    if (this.failures >= this.threshold) {
       this.state = 'open';
       this.openedAt = Date.now();
-      debugLog(`[evolution] CircuitBreaker OPEN after ${this.failures} consecutive failures — pausing for ${COOLDOWN_MS / MS_PER_SECOND}s`);
+      debugLog(`[evolution] CircuitBreaker OPEN after ${this.failures} consecutive failures — pausing for ${this.cooldownMs / MS_PER_SECOND}s`);
     }
     void this.persist();
   }

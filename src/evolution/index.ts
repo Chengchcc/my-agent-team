@@ -7,9 +7,12 @@ import type { TraceRun, TraceSummary, TraceStore } from '../trace/types';
 import { debugLog } from '../utils/debug';
 import { IdleGate } from './idle-gate';
 import { ReviewSlot, signalPriority } from './review-slot';
-import { CircuitBreaker } from './circuit-breaker';
 import { ReviewBackoff } from './review-backoff';
-import { TaskRunner } from './review-runner';
+import { TaskRunner, type RunnerOutcome } from './review-runner';
+import { PersistentQueue, type TriggerSource } from './persistent-queue';
+import { TierBreaker } from './tier-breaker';
+import { Drainer } from './drainer';
+import { SettleBus } from './settle-bus';
 import os from 'os';
 import path from 'path';
 
@@ -22,14 +25,17 @@ const TIER2_RECENT_RUN_LIMIT = 3;
 
 export interface EvolutionModule {
   review: (
-    nudgeResult: { signal: string; trigger: string; traceRunId: string; sessionId: string; reason: string },
+    nudgeResult: { signal: string; trigger: string; traceRunId: string; sessionId: string; fingerprint: string; reason: string },
     trace: TraceRun,
   ) => void;
   trackStats: (summary: TraceSummary, runId: string) => Promise<Array<{ skillName: string; triggerReview: boolean }>>;
   autoAcceptStaleSkills: () => Promise<string[]>;
   runTier2Analysis: (skillName: string, description: string) => void;
+  drainQueue: () => Promise<number>;
+  recoverInflight: () => Promise<string[]>;
   outputDir: string;
   idleGate: IdleGate;
+  settleBus: SettleBus;
 }
 
 type TriggerType = 'error_burst' | 'complex_task' | 'periodic';
@@ -116,75 +122,72 @@ export function initEvolution(
   const effectiveReviewInterval = reviewInterval ?? DEFAULT_REVIEW_INTERVAL;
   const idleGate = new IdleGate();
   const slot = new ReviewSlot();
-  const breaker = new CircuitBreaker();
+  const tierBreaker = new TierBreaker();
   const backoff = new ReviewBackoff();
   const runner = new TaskRunner();
+  const queue = new PersistentQueue();
+  const drainer = new Drainer(queue, tierBreaker, idleGate);
+  const settleBus = new SettleBus();
+
+  const runTier0 = (signal: string, trace: TraceRun, onComplete: () => void, onError: () => void) => {
+    runner.run(
+      () => new Promise<RunnerOutcome>((resolve, reject) => {
+        forkReviewAgent(signal as TriggerType, trace, {
+          outputDir, provider, model: config.model, maxTurns: config.maxTurns,
+          tokenLimit: config.tokenLimit, timeoutMs: config.timeoutMs,
+          onSkillCreated: notify,
+          onComplete: () => resolve({ result: 'success' }),
+          onError: () => reject(new Error('review failed')),
+          ...(store ? { store } : {}), ...(effectiveReviewInterval ? { reviewInterval: effectiveReviewInterval } : {}),
+        });
+      }),
+      { onComplete: (_outcome) => { onComplete(); }, onError: (_err) => { onError(); } },
+    );
+  };
+
+  const enqueueBlocked = (signal: string, nr: { trigger: string; sessionId: string; traceRunId: string; fingerprint: string; reason: string }, trace: TraceRun) => {
+    if (!isValidTrigger(signal)) return;
+    queue.enqueue({
+      kind: 'tier0_review', priority: 'high', fingerprint: nr.fingerprint,
+      scheduledBy: signal as TriggerSource,
+      payload: { kind: 'tier0_review', sessionId: nr.sessionId, runId: nr.traceRunId, signal, trace },
+    }).catch(() => {});
+  };
 
   return {
     outputDir,
-    review(nudgeResult, trace) {
+    review(nudgeResult: { signal: string; trigger: string; traceRunId: string; sessionId: string; fingerprint: string; reason: string }, trace: TraceRun) {
       const signal = nudgeResult.signal;
-      if (!isValidTrigger(signal)) {
-        debugLog(`[evolution] Unknown signal: ${signal}`);
-        return;
-      }
+      if (!isValidTrigger(signal)) { debugLog(`[evolution] Unknown signal: ${signal}`); return; }
 
-      if (!breaker.canRun()) {
-        debugLog('[evolution] Review skipped — CircuitBreaker is open');
-        return;
+      if (!tierBreaker.canRun('tier0_review')) {
+        debugLog('[evolution] Review blocked by TierBreaker(tier0) — enqueuing');
+        enqueueBlocked(signal, nudgeResult, trace); return;
       }
       if (!backoff.canRun()) {
-        debugLog('[evolution] Review skipped — backoff delay active');
-        return;
+        debugLog('[evolution] Review blocked by backoff — enqueuing');
+        enqueueBlocked(signal, nudgeResult, trace); return;
       }
       if (!idleGate.canRun()) {
-        slot.tryEnqueue({ signal, priority: signalPriority(signal), nudgeResult, trace });
-        debugLog(`[evolution] Queued ${signal} review for later (system busy)`);
-        return;
+        enqueueBlocked(signal, nudgeResult, trace);
+        debugLog(`[evolution] Enqueued ${signal} review (system busy)`); return;
       }
       if (slot.running) {
         const task = { signal, priority: signalPriority(signal), nudgeResult, trace };
-        if (slot.tryEnqueue(task)) {
-          debugLog('[evolution] Queued review (higher priority)');
-        } else {
-          debugLog('[evolution] Review skipped — lower priority than pending');
-        }
+        if (slot.tryEnqueue(task)) { debugLog('[evolution] Queued (higher priority)'); }
+        else { debugLog('[evolution] Skipped — lower priority'); }
         return;
       }
 
       slot.tryEnqueue({ signal, priority: signalPriority(signal), nudgeResult, trace });
       slot.markRunning();
-
-      runner.run(
-        () => new Promise<void>((resolve, reject) => {
-          forkReviewAgent(signal, trace, {
-            outputDir,
-            provider,
-            model: config.model,
-            maxTurns: config.maxTurns,
-            tokenLimit: config.tokenLimit,
-            timeoutMs: config.timeoutMs,
-            onSkillCreated: notify,
-            onComplete: resolve,
-            onError: reject,
-            ...(store ? { store } : {}),
-            ...(effectiveReviewInterval ? { reviewInterval: effectiveReviewInterval } : {}),
-          });
-        }),
-        {
-          onComplete: () => {
-            slot.markDone();
-            backoff.recordSuccess();
-            breaker.recordSuccess();
-          },
-          onError: () => {
-            backoff.recordFailure();
-            breaker.recordFailure();
-          },
-        },
+      runTier0(signal, trace,
+        () => { slot.markDone(); backoff.recordSuccess(); tierBreaker.recordSuccess('tier0_review'); },
+        () => { backoff.recordFailure(); tierBreaker.recordFailure('tier0_review'); },
       );
     },
     idleGate,
+    settleBus,
     async trackStats(summary, runId) {
       const results: Array<{ skillName: string; triggerReview: boolean }> = [];
       if (!summary.activatedSkills || summary.activatedSkills.length === 0) {
@@ -210,6 +213,9 @@ export function initEvolution(
       tracker, store, provider, config.model, notify, outputDir,
       feedbackCases,
     ),
+
+    async drainQueue() { return drainer.tryDrain(); },
+    recoverInflight: () => queue.recoverInflight(),
   };
 }
 
@@ -221,7 +227,14 @@ export { IdleGate } from './idle-gate';
 export { ReviewSlot, signalPriority } from './review-slot';
 export type { PendingReview } from './review-slot';
 export { CircuitBreaker } from './circuit-breaker';
+export { TierBreaker } from './tier-breaker';
 export { ReviewBackoff } from './review-backoff';
 export { TaskRunner } from './review-runner';
 export type { RunnerContext } from './review-runner';
+export { PersistentQueue } from './persistent-queue';
+export type { EvolutionTaskKind, EvolutionTask, TaskPayload, QueuePriority, TriggerSource } from './persistent-queue';
+export { Drainer } from './drainer';
+export { SettleBus } from './settle-bus';
+export type { SettleEvent } from './settle-bus';
+export { Supervisor } from './supervisor';
 export type { ReviewConfig, ReviewNotification, EvolutionCallback, SkillStats, SkillStatus } from './types';
