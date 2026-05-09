@@ -1,13 +1,15 @@
 import { debugLog } from '../utils/debug';
 import type { EvolutionTaskKind } from './persistent-queue';
-import type { Drainer } from './drainer';
 import type { SettleBus } from './settle-bus';
 import type { IdleGate } from './idle-gate';
 
 type DrainFn = (opts?: { force?: boolean; allowedKinds?: EvolutionTaskKind[] }) => Promise<number>;
 
-const IDLE_WINDOW_MS = 30 * 1000;
-const EVENT_DELAY_MS = 1000;
+const IDLE_WINDOW_SECONDS = 30;
+const EVENT_DELAY_SECONDS = 1;
+const MS_PER_SECOND = 1000;
+const IDLE_WINDOW_MS = IDLE_WINDOW_SECONDS * MS_PER_SECOND;
+const EVENT_DELAY_MS = EVENT_DELAY_SECONDS * MS_PER_SECOND;
 
 // ── Trigger type ──
 
@@ -69,9 +71,14 @@ export function createEventTrigger(
 
 type CronEntry = { schedule: string; kinds: EvolutionTaskKind[]; timer: ReturnType<typeof setInterval> | null };
 
-const CRON_MINUTE_MS = 15 * 60 * 1000;
-const CRON_DAILY_MS = 24 * 3600 * 1000;
-const CRON_WEEKLY_MS = 7 * 24 * 3600 * 1000;
+const MINUTES_PER_INTERVAL = 15;
+const SECONDS_PER_MINUTE = 60;
+const HOURS_PER_DAY = 24;
+const SECONDS_PER_HOUR = 3600;
+const DAYS_PER_WEEK = 7;
+const CRON_MINUTE_MS = MINUTES_PER_INTERVAL * SECONDS_PER_MINUTE * MS_PER_SECOND;
+const CRON_DAILY_MS = HOURS_PER_DAY * SECONDS_PER_HOUR * MS_PER_SECOND;
+const CRON_WEEKLY_MS = DAYS_PER_WEEK * HOURS_PER_DAY * SECONDS_PER_HOUR * MS_PER_SECOND;
 
 export function createCronTriggers(drain: DrainFn): Trigger[] {
   const entries: CronEntry[] = [
@@ -95,7 +102,8 @@ export function createCronTriggers(drain: DrainFn): Trigger[] {
 
 // ── ThresholdTrigger ──
 
-const THRESHOLD_PER_KIND = 10;
+const THRESHOLD_POLL_MINUTES = 5;
+const THRESHOLD_POLL_INTERVAL_MS = THRESHOLD_POLL_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND;
 
 export function createThresholdTrigger(drain: DrainFn): Trigger {
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -106,7 +114,7 @@ export function createThresholdTrigger(drain: DrainFn): Trigger {
       timer = setInterval(() => {
         debugLog('[threshold] Checking queue thresholds');
         void drain({ allowedKinds: ['tier0_review', 'tier2_verdict', 'tier3_prompt_opt'] });
-      }, 5 * 60 * 1000);
+      }, THRESHOLD_POLL_INTERVAL_MS);
     },
     stop() { if (timer) { clearInterval(timer); timer = null; } },
   };
@@ -118,7 +126,7 @@ export function createManualTrigger(drain: DrainFn): { fire: (kinds?: EvolutionT
   return {
     fire(kinds) {
       debugLog(`[manual] Firing drain — kinds: ${kinds?.join(',') ?? 'all'}`);
-      void drain({ force: true, allowedKinds: kinds });
+      void drain({ force: true, ...(kinds ? { allowedKinds: kinds } : {}) });
     },
   };
 }

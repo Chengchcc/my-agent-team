@@ -9,7 +9,7 @@ import { IdleGate } from './idle-gate';
 import { ReviewSlot, signalPriority } from './review-slot';
 import { ReviewBackoff } from './review-backoff';
 import { TaskRunner, type RunnerOutcome } from './review-runner';
-import { PersistentQueue, type TriggerSource } from './persistent-queue';
+import { PersistentQueue, type TriggerSource, type EvolutionTaskKind } from './persistent-queue';
 import { TierBreaker } from './tier-breaker';
 import { Drainer } from './drainer';
 import { SettleBus } from './settle-bus';
@@ -37,7 +37,7 @@ export interface EvolutionModule {
   outputDir: string;
   idleGate: IdleGate;
   settleBus: SettleBus;
-  manualTrigger: { fire: (kinds?: import('./persistent-queue').EvolutionTaskKind[]) => void };
+  manualTrigger: { fire: (kinds?: EvolutionTaskKind[]) => void };
 }
 
 type TriggerType = 'error_burst' | 'complex_task' | 'periodic';
