@@ -9,6 +9,7 @@ type DrainFn = (opts?: { force?: boolean; allowedKinds?: EvolutionTaskKind[] }) 
 const IDLE_WINDOW_SECONDS = 30;
 const EVENT_DELAY_SECONDS = 1;
 const MS_PER_SECOND = 1000;
+const SECONDS_PER_MINUTE = 60;
 const IDLE_WINDOW_MS = IDLE_WINDOW_SECONDS * MS_PER_SECOND;
 const EVENT_DELAY_MS = EVENT_DELAY_SECONDS * MS_PER_SECOND;
 

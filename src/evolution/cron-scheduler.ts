@@ -1,6 +1,7 @@
 import { debugLog } from '../utils/debug';
-import type { EvolutionTaskKind } from './persistent-queue';
+import type { EvolutionTaskKind, TaskPayload } from './persistent-queue';
 import type { PersistentQueue } from './persistent-queue';
+import type { TraceRun } from '../trace/types';
 
 type DrainFn = (opts?: { force?: boolean; allowedKinds?: EvolutionTaskKind[] }) => Promise<number>;
 
@@ -12,15 +13,18 @@ export interface CronSchedule {
 const MS_PER_SECOND = 1000;
 const SECONDS_PER_MINUTE = 60;
 const MS_PER_MINUTE = SECONDS_PER_MINUTE * MS_PER_SECOND;
-const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+const CRON_FIELD_COUNT = 5;
+const LONG_CYCLE_MINUTES = 40;
+const LONG_CYCLE_THRESHOLD_MS = LONG_CYCLE_MINUTES * MS_PER_MINUTE;
+const FP_HOUR_SLICE = 13;
 
 // ── Parser ──
 
 export function parseCron(expr: string): CronSchedule {
   const fields = expr.trim().split(/\s+/);
-  if (fields.length !== 5) throw new Error(`Invalid cron: ${expr}`);
+  if (fields.length !== CRON_FIELD_COUNT) throw new Error(`Invalid cron: ${expr}`);
 
-  const [minStr, hourStr, dom, month, dow] = fields as [string, string, string, string, string];
+  const [minStr, hourStr, , , dow] = fields as [string, string, string, string, string];
 
   // Minute
   let minutePattern: 'every-n' | 'exact';
@@ -98,8 +102,6 @@ export function parseCron(expr: string): CronSchedule {
 
 // ── Trigger factory ──
 
-const LONG_CYCLE_THRESHOLD_MS = 40 * MS_PER_MINUTE;
-
 export function createCronTrigger(
   expr: string,
   kinds: EvolutionTaskKind[],
@@ -117,7 +119,7 @@ export function createCronTrigger(
 
     if (delay > LONG_CYCLE_THRESHOLD_MS && queue) {
       // Long cycle: enqueue to PersistentQueue with nextRunAt
-      const fp = `cron:${expr}:${next.toISOString().slice(0, 13)}`;
+      const fp = `cron:${expr}:${next.toISOString().slice(0, FP_HOUR_SLICE)}`;
       queue.enqueue({
         kind: kinds[0]!,
         priority: 'normal',
@@ -129,7 +131,7 @@ export function createCronTrigger(
       }).catch(() => {});
     } else {
       // Short cycle: in-process setTimeout
-      debugLog(`[cron] Scheduling ${expr} in ${Math.round(delay / 1000)}s`);
+      debugLog(`[cron] Scheduling ${expr} in ${Math.round(delay / MS_PER_SECOND)}s`);
       timer = setTimeout(() => {
         void drain({ allowedKinds: kinds });
         scheduleNext();
@@ -149,9 +151,9 @@ export function createCronTrigger(
   };
 }
 
-function cronPayload(kind: EvolutionTaskKind): import('./persistent-queue').TaskPayload {
+function cronPayload(kind: EvolutionTaskKind): TaskPayload {
   switch (kind) {
-    case 'tier0_review': return { kind: 'tier0_review', sessionId: '', runId: '', signal: 'periodic', trace: {} as import('../trace/types').TraceRun };
+    case 'tier0_review': return { kind: 'tier0_review', sessionId: '', runId: '', signal: 'periodic', trace: {} as TraceRun };
     case 'tier2_verdict': return { kind: 'tier2_verdict', skillName: '', description: '', skillStats: { totalRuns: 0, successfulRuns: 0, successRate: 0, lastRunId: '' }, traceRunId: '' };
     case 'tier3_prompt_opt': return { kind: 'tier3_prompt_opt', promptKey: 'review', feedbackWindow: { from: 0, to: Date.now() } };
     case 'tier3_ab_promote': return { kind: 'tier3_ab_promote', candidateId: '', shadowStartedAt: 0 };
