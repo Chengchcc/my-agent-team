@@ -4,6 +4,7 @@ import type { PersistentQueue } from './persistent-queue';
 import type { TierBreaker } from './tier-breaker';
 import type { IdleGate } from './idle-gate';
 import type { RunnerContext } from './review-runner';
+import type { SettleBus } from './settle-bus';
 
 const DRAIN_ORDER: EvolutionTaskKind[] = ['tier0_review', 'tier2_verdict', 'tier3_prompt_opt', 'tier3_ab_promote', 'auto_accept_sweep'];
 
@@ -22,7 +23,8 @@ export class Drainer {
   private queue: PersistentQueue;
   private breaker: TierBreaker;
   private idleGate: IdleGate;
-  private executor: TaskExecutor | null = null;
+  private settleBus: SettleBus | null = null;
+  private dispatchers = new Map<EvolutionTaskKind, TaskExecutor>();
 
   constructor(queue: PersistentQueue, breaker: TierBreaker, idleGate: IdleGate) {
     this.queue = queue;
@@ -30,18 +32,21 @@ export class Drainer {
     this.idleGate = idleGate;
   }
 
-  setExecutor(fn: TaskExecutor): void {
-    this.executor = fn;
+  setSettleBus(bus: SettleBus): void { this.settleBus = bus; }
+
+  setDispatcher(kind: EvolutionTaskKind, fn: TaskExecutor): void {
+    this.dispatchers.set(kind, fn);
   }
 
-  async tryDrain(opts?: { force?: boolean }): Promise<number> {
+  async tryDrain(opts?: { force?: boolean; allowedKinds?: EvolutionTaskKind[] }): Promise<number> {
     if (!opts?.force && !this.idleGate.canRun()) return 0;
     if (this.mutex) return 0;
     this.mutex = true;
 
+    const kinds = opts?.allowedKinds ?? DRAIN_ORDER;
     let drained = 0;
     try {
-      for (const kind of DRAIN_ORDER) {
+      for (const kind of kinds) {
         if (this.breaker.isOpen(kind)) {
           debugLog(`[drainer] Skipping ${kind} — circuit open`);
           continue;
@@ -50,13 +55,14 @@ export class Drainer {
         while (quota > 0) {
           const task = await this.queue.claim(kind);
           if (!task) break;
+          const executor = this.dispatchers.get(task.kind);
+          if (!executor) { quota--; continue; }
           try {
-            if (this.executor) {
-              const ctx: RunnerContext = { softCancel: { value: false }, signal: new AbortController().signal };
-              await this.executor(task, ctx);
-            }
+            const ctx: RunnerContext = { softCancel: { value: false }, signal: new AbortController().signal };
+            await executor(task, ctx);
             await this.queue.complete(task.id, kind);
             this.breaker.recordSuccess(kind);
+            this.settleBus?.emit({ kind: 'task_completed', taskId: task.id, taskKind: kind });
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             await this.queue.fail(task.id, kind, msg);

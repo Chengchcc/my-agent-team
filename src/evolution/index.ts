@@ -13,6 +13,7 @@ import { PersistentQueue, type TriggerSource } from './persistent-queue';
 import { TierBreaker } from './tier-breaker';
 import { Drainer } from './drainer';
 import { SettleBus } from './settle-bus';
+import { startAllTriggers } from './triggers';
 import os from 'os';
 import path from 'path';
 
@@ -36,6 +37,7 @@ export interface EvolutionModule {
   outputDir: string;
   idleGate: IdleGate;
   settleBus: SettleBus;
+  manualTrigger: { fire: (kinds?: import('./persistent-queue').EvolutionTaskKind[]) => void };
 }
 
 type TriggerType = 'error_burst' | 'complex_task' | 'periodic';
@@ -128,6 +130,34 @@ export function initEvolution(
   const queue = new PersistentQueue();
   const drainer = new Drainer(queue, tierBreaker, idleGate);
   const settleBus = new SettleBus();
+  drainer.setSettleBus(settleBus);
+
+  // Wire dispatchers per task kind
+  drainer.setDispatcher('tier0_review', async (task) => {
+    await new Promise<void>((resolve, reject) => {
+      if (task.payload.kind !== 'tier0_review') { resolve(); return; }
+      const sig = task.payload.signal as TriggerType;
+      forkReviewAgent(sig, task.payload.trace, {
+        outputDir, provider, model: config.model, maxTurns: config.maxTurns,
+        tokenLimit: config.tokenLimit, timeoutMs: config.timeoutMs,
+        onSkillCreated: notify, onComplete: resolve, onError: () => reject(new Error('review failed')),
+        ...(store ? { store } : {}), ...(effectiveReviewInterval ? { reviewInterval: effectiveReviewInterval } : {}),
+      });
+    });
+  });
+  drainer.setDispatcher('tier2_verdict', async () => { /* deferred to Phase F */ });
+  drainer.setDispatcher('tier3_prompt_opt', async () => { /* deferred to Phase F */ });
+  drainer.setDispatcher('tier3_ab_promote', async () => { /* deferred to Phase F */ });
+  drainer.setDispatcher('auto_accept_sweep', async () => {
+    const accepted = await tracker.autoAcceptStaleSkills(config.autoAcceptHours ?? DEFAULT_AUTO_ACCEPT_HOURS);
+    if (accepted.length > 0) {
+      debugLog(`[evolution] Auto-accepted ${accepted.length} stale skills: ${accepted.join(', ')}`);
+      for (const skillName of accepted) notify?.(skillName, 'Auto-accepted after 48h', outputDir);
+    }
+  });
+
+  // Start triggers
+  const triggers = startAllTriggers(idleGate, settleBus, (opts) => drainer.tryDrain(opts));
 
   const runTier0 = (signal: string, trace: TraceRun, onComplete: () => void, onError: () => void) => {
     runner.run(
@@ -160,12 +190,12 @@ export function initEvolution(
       const signal = nudgeResult.signal;
       if (!isValidTrigger(signal)) { debugLog(`[evolution] Unknown signal: ${signal}`); return; }
 
-      if (!tierBreaker.canRun('tier0_review')) {
-        debugLog('[evolution] Review blocked by TierBreaker(tier0) — enqueuing');
-        enqueueBlocked(signal, nudgeResult, trace); return;
-      }
       if (!backoff.canRun()) {
         debugLog('[evolution] Review blocked by backoff — enqueuing');
+        enqueueBlocked(signal, nudgeResult, trace); return;
+      }
+      if (!tierBreaker.canRun('tier0_review')) {
+        debugLog('[evolution] Review blocked by TierBreaker(tier0) — enqueuing');
         enqueueBlocked(signal, nudgeResult, trace); return;
       }
       if (!idleGate.canRun()) {
@@ -188,6 +218,7 @@ export function initEvolution(
     },
     idleGate,
     settleBus,
+    manualTrigger: triggers.manual,
     async trackStats(summary, runId) {
       const results: Array<{ skillName: string; triggerReview: boolean }> = [];
       if (!summary.activatedSkills || summary.activatedSkills.length === 0) {
@@ -237,4 +268,6 @@ export { Drainer } from './drainer';
 export { SettleBus } from './settle-bus';
 export type { SettleEvent } from './settle-bus';
 export { Supervisor } from './supervisor';
+export { startAllTriggers, createManualTrigger, createIdleTrigger, createEventTrigger, createCronTriggers, createThresholdTrigger } from './triggers';
+export type { Trigger } from './triggers';
 export type { ReviewConfig, ReviewNotification, EvolutionCallback, SkillStats, SkillStatus } from './types';
