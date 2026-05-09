@@ -1,18 +1,29 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import fs from 'fs/promises';
 import type { NudgeState, NudgeResult, TraceRun } from './types';
 
-const MIN_REVIEW_INTERVAL_MINUTES = 5;
-const SECONDS_PER_MINUTE = 60;
+const MIN_REVIEW_INTERVAL_SECONDS = 30;
 const MS_PER_SECOND = 1000;
-const MIN_REVIEW_INTERVAL_MS =
-  MIN_REVIEW_INTERVAL_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND;
+const MIN_REVIEW_INTERVAL_MS = MIN_REVIEW_INTERVAL_SECONDS * MS_PER_SECOND;
 const DEFAULT_REVIEW_INTERVAL = 10;
 const ERROR_BURST_MIN_ERRORS = 2;
 const ERROR_BURST_MIN_ERROR_RATIO = 0.3;
 const COMPLEX_TASK_MIN_TURNS = 5;
 const PERCENT_MULTIPLIER = 100;
-const MAX_FINGERPRINTS_PER_SIGNAL = 5;
+const MAX_FINGERPRINTS_PER_SIGNAL = 50;
+const TURN_BUCKET_SIZE = 5;
+const FINGERPRINT_HASH_LENGTH = 16;
+
+const SECONDS_PER_MINUTE = 60;
+const COOLDOWN_ERROR_BURST_MINUTES = 2;
+const COOLDOWN_COMPLEX_TASK_MINUTES = 10;
+const COOLDOWN_PERIODIC_MINUTES = 30;
+const SIGNAL_COOLDOWNS: Record<string, number> = {
+  error_burst: COOLDOWN_ERROR_BURST_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND,
+  complex_task: COOLDOWN_COMPLEX_TASK_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND,
+  periodic: COOLDOWN_PERIODIC_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND,
+};
 
 export class NudgeEngine {
   private state: NudgeState;
@@ -27,7 +38,8 @@ export class NudgeEngine {
   }
 
   tick(trace: TraceRun): NudgeResult | null {
-    if (Date.now() - this.state.lastReviewAt < MIN_REVIEW_INTERVAL_MS) {
+    const now = Date.now();
+    if (now - this.state.lastReviewAt < MIN_REVIEW_INTERVAL_MS) {
       return null;
     }
 
@@ -37,17 +49,21 @@ export class NudgeEngine {
 
     // Signal 1: Error burst
     if (trace.summary.totalErrors >= ERROR_BURST_MIN_ERRORS && errorRatio >= ERROR_BURST_MIN_ERROR_RATIO) {
-      const fp = this.buildFingerprint(trace);
-      if (!this.isDuplicate('error_burst', fp)) {
-        return this.emit('error_burst', trace, fp);
+      if (!this.isOnCooldown('error_burst', now)) {
+        const fp = this.buildFingerprint(trace);
+        if (!this.isDuplicate('error_burst', fp)) {
+          return this.emit('error_burst', trace, fp);
+        }
       }
     }
 
     // Signal 2: Complex task
     if (trace.summary.totalTurns >= COMPLEX_TASK_MIN_TURNS && trace.summary.totalErrors === 0) {
-      const fp = 'complex:' + this.buildFingerprint(trace);
-      if (!this.isDuplicate('complex_task', fp)) {
-        return this.emit('complex_task', trace, fp);
+      if (!this.isOnCooldown('complex_task', now)) {
+        const fp = 'complex:' + this.buildFingerprint(trace);
+        if (!this.isDuplicate('complex_task', fp)) {
+          return this.emit('complex_task', trace, fp);
+        }
       }
     }
 
@@ -55,9 +71,11 @@ export class NudgeEngine {
     this.state.turnsSinceReview += trace.summary.totalTurns;
     if (this.state.turnsSinceReview >= this.reviewInterval) {
       this.state.turnsSinceReview = 0;
-      const fp = this.buildFingerprint(trace);
-      if (!this.isDuplicate('periodic', fp)) {
-        return this.emit('periodic', trace, fp);
+      if (!this.isOnCooldown('periodic', now)) {
+        const fp = this.buildFingerprint(trace);
+        if (!this.isDuplicate('periodic', fp)) {
+          return this.emit('periodic', trace, fp);
+        }
       }
     }
 
@@ -79,6 +97,8 @@ export class NudgeEngine {
     fingerprint: string,
   ): NudgeResult {
     this.state.lastReviewAt = Date.now();
+    if (!this.state.lastSignalAt) this.state.lastSignalAt = {};
+    this.state.lastSignalAt[signal] = Date.now();
     this.recordFingerprint(signal, fingerprint);
     return {
       signal,
@@ -121,11 +141,21 @@ export class NudgeEngine {
         if (!exec.success) errorTools.add(exec.toolName);
       }
     }
-    return [...errorTools].sort().join(',') || 'no_errors';
+    const sortedTools = [...errorTools].sort().join(',') || 'no_errors';
+    const turnBucket = Math.floor(trace.summary.totalTurns / TURN_BUCKET_SIZE);
+    const sortedSkills = [...(trace.summary.activatedSkills ?? [])].sort().join(',') || 'none';
+    const raw = `${sortedTools}:${turnBucket}:${sortedSkills}`;
+    return createHash('sha1').update(raw).digest('hex').slice(0, FINGERPRINT_HASH_LENGTH);
   }
 
   private isDuplicate(signal: string, fp: string): boolean {
     return (this.state.fingerprints[signal] ?? []).includes(fp);
+  }
+
+  private isOnCooldown(signal: string, now: number): boolean {
+    const lastAt = this.state.lastSignalAt?.[signal] ?? 0;
+    const cooldown = SIGNAL_COOLDOWNS[signal] ?? MIN_REVIEW_INTERVAL_MS;
+    return now - lastAt < cooldown;
   }
 
   private recordFingerprint(signal: string, fp: string): void {
@@ -139,6 +169,7 @@ export class NudgeEngine {
       turnsSinceReview: 0,
       fingerprints: { error_burst: [], complex_task: [], periodic: [] },
       lastReviewAt: 0,
+      lastSignalAt: {},
     };
   }
 
@@ -146,7 +177,9 @@ export class NudgeEngine {
     try {
       if (existsSync(this.statePath)) {
         const raw = readFileSync(this.statePath, 'utf-8');
-        this.state = { ...this.defaultState(), ...JSON.parse(raw) };
+        const parsed = JSON.parse(raw) as Partial<NudgeState>;
+        this.state = { ...this.defaultState(), ...parsed };
+        if (!this.state.lastSignalAt) this.state.lastSignalAt = {};
       }
     } catch {
       this.state = this.defaultState();

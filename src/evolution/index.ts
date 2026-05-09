@@ -5,6 +5,10 @@ import { EffectivenessTracker } from './effectiveness-tracker';
 import { forkSkillAnalysis, buildAnalysisPrompt, verdictToEvalCase, type TraceSnippet } from './skill-analyzer';
 import type { TraceRun, TraceSummary, TraceStore } from '../trace/types';
 import { debugLog } from '../utils/debug';
+import { IdleGate } from './idle-gate';
+import { ReviewSlot, signalPriority } from './review-slot';
+import { CircuitBreaker } from './circuit-breaker';
+import { ReviewBackoff } from './review-backoff';
 import os from 'os';
 import path from 'path';
 
@@ -24,6 +28,7 @@ export interface EvolutionModule {
   autoAcceptStaleSkills: () => Promise<string[]>;
   runTier2Analysis: (skillName: string, description: string) => void;
   outputDir: string;
+  idleGate: IdleGate;
 }
 
 type TriggerType = 'error_burst' | 'complex_task' | 'periodic';
@@ -45,27 +50,48 @@ export function initEvolution(
     ? path.join(os.homedir(), config.outputDir.slice(1))
     : config.outputDir;
 
-  let isReviewRunning = false;
   let feedbackCasesPending = 0;
   const tracker = new EffectivenessTracker(outputDir);
   const effectiveReviewInterval = reviewInterval ?? DEFAULT_REVIEW_INTERVAL;
+  const idleGate = new IdleGate();
+  const slot = new ReviewSlot();
+  const breaker = new CircuitBreaker();
+  const backoff = new ReviewBackoff();
 
   return {
     outputDir,
     review(nudgeResult, trace) {
-      // Concurrency guard: one review at a time
-      if (isReviewRunning) {
-        debugLog('[evolution] Review skipped — another review is already running');
-        return;
-      }
-
       const signal = nudgeResult.signal;
       if (!isValidTrigger(signal)) {
         debugLog(`[evolution] Unknown signal: ${signal}`);
         return;
       }
 
-      isReviewRunning = true;
+      if (!breaker.canRun()) {
+        debugLog('[evolution] Review skipped — CircuitBreaker is open');
+        return;
+      }
+      if (!backoff.canRun()) {
+        debugLog('[evolution] Review skipped — backoff delay active');
+        return;
+      }
+      if (!idleGate.canRun()) {
+        slot.tryEnqueue({ signal, priority: signalPriority(signal), nudgeResult, trace });
+        debugLog(`[evolution] Queued ${signal} review for later (system busy)`);
+        return;
+      }
+      if (slot.running) {
+        const task = { signal, priority: signalPriority(signal), nudgeResult, trace };
+        if (slot.tryEnqueue(task)) {
+          debugLog('[evolution] Queued review (higher priority)');
+        } else {
+          debugLog('[evolution] Review skipped — lower priority than pending');
+        }
+        return;
+      }
+
+      slot.tryEnqueue({ signal, priority: signalPriority(signal), nudgeResult, trace });
+      slot.markRunning();
 
       forkReviewAgent(signal, trace, {
         outputDir,
@@ -76,12 +102,19 @@ export function initEvolution(
         timeoutMs: config.timeoutMs,
         onSkillCreated: notify,
         onComplete: () => {
-          isReviewRunning = false;
+          slot.markDone();
+          backoff.recordSuccess();
+          breaker.recordSuccess();
+        },
+        onError: () => {
+          backoff.recordFailure();
+          breaker.recordFailure();
         },
         ...(store ? { store } : {}),
         ...(effectiveReviewInterval ? { reviewInterval: effectiveReviewInterval } : {}),
       });
     },
+    idleGate,
     async trackStats(summary, runId) {
       const results: Array<{ skillName: string; triggerReview: boolean }> = [];
       if (!summary.activatedSkills || summary.activatedSkills.length === 0) {
@@ -163,4 +196,9 @@ export function initEvolution(
 export { CreateReviewSkillTool } from './review-tools';
 export { forkReviewAgent, buildReviewSystemPrompt } from './review-agent';
 export { EffectivenessTracker } from './effectiveness-tracker';
+export { IdleGate } from './idle-gate';
+export { ReviewSlot, signalPriority } from './review-slot';
+export type { PendingReview } from './review-slot';
+export { CircuitBreaker } from './circuit-breaker';
+export { ReviewBackoff } from './review-backoff';
 export type { ReviewConfig, ReviewNotification, EvolutionCallback, SkillStats, SkillStatus } from './types';

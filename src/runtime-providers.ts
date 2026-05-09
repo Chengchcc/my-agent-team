@@ -59,7 +59,7 @@ export function setupEvolution(settings: RuntimeConfig['settings']): EvolutionMo
   const review = settings?.trace?.review;
   if (!review || review.enabled === false) return null;
   const model = review.model ?? 'claude-3-haiku-20240307';
-  return initEvolution({
+  const result = initEvolution({
     enabled: true,
     model,
     maxTurns: review.maxTurns ?? DEFAULT_EVOLUTION_MAX_TURNS,
@@ -71,6 +71,15 @@ export function setupEvolution(settings: RuntimeConfig['settings']): EvolutionMo
   }, createEvolutionProvider(model), (skillName, description, outputDir) => {
     useTuiStore.getState().addReviewNotification(skillName, description, outputDir);
   });
+
+  if (result) {
+    useTuiStore.subscribe((state) => {
+      result.idleGate.setStreaming(state.stats.streaming);
+      result.idleGate.setCompacting(state.stats.compacting);
+    });
+  }
+
+  return result;
 }
 
 /**

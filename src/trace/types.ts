@@ -61,6 +61,7 @@ export interface NudgeState {
   turnsSinceReview: number;
   fingerprints: Record<string, string[]>;
   lastReviewAt: number;
+  lastSignalAt: Record<string, number>;
 }
 
 export interface NudgeResult {

@@ -203,6 +203,7 @@ export function forkReviewAgent(
     timeoutMs: number;
     onSkillCreated?: ((skillName: string, description: string, outputDir: string) => void) | undefined;
     onComplete?: (() => void) | undefined;
+    onError?: (() => void) | undefined;
     store?: TraceStore | undefined;
     reviewInterval?: number | undefined;
   },
@@ -274,6 +275,7 @@ export function forkReviewAgent(
 
       debugLog('[evolution] Review completed');
     } catch (err) {
+      config.onError?.();
       debugLog(`[evolution] Review failed: ${err}`);
     } finally {
       config.onComplete?.();
