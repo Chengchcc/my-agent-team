@@ -118,7 +118,7 @@ export function createCronTrigger(
     const delay = Math.max(0, next.getTime() - Date.now());
 
     if (delay > LONG_CYCLE_THRESHOLD_MS && queue) {
-      // Long cycle: enqueue to PersistentQueue with nextRunAt
+      // Long cycle: enqueue to PersistentQueue with nextRunAt, then re-schedule
       const fp = `cron:${expr}:${next.toISOString().slice(0, FP_HOUR_SLICE)}`;
       queue.enqueue({
         kind: kinds[0]!,
@@ -129,6 +129,8 @@ export function createCronTrigger(
       }).then(() => {
         debugLog(`[cron] Enqueued ${expr} for ${next.toISOString()} (kinds: ${kinds.join(',')})`);
       }).catch(() => {});
+      // Re-schedule for next occurrence
+      timer = setTimeout(() => { scheduleNext(); }, delay);
     } else {
       // Short cycle: in-process setTimeout
       debugLog(`[cron] Scheduling ${expr} in ${Math.round(delay / MS_PER_SECOND)}s`);

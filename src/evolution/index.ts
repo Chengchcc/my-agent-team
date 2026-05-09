@@ -13,6 +13,7 @@ import { PersistentQueue, type TriggerSource, type EvolutionTaskKind } from './p
 import { TierBreaker } from './tier-breaker';
 import { Drainer } from './drainer';
 import { SettleBus } from './settle-bus';
+import { Supervisor } from './supervisor';
 import { startAllTriggers } from './triggers';
 import os from 'os';
 import path from 'path';
@@ -188,7 +189,9 @@ export function initEvolution(
   const queue = new PersistentQueue();
   const drainer = new Drainer(queue, tierBreaker, idleGate);
   const settleBus = new SettleBus();
+  const supervisor = new Supervisor(settleBus);
   drainer.setSettleBus(settleBus);
+  drainer.setSupervisor(supervisor);
 
   // Wire dispatchers per task kind
   wireDispatchers(drainer, provider, tracker, { model: config.model, maxTurns: config.maxTurns, tokenLimit: config.tokenLimit, timeoutMs: config.timeoutMs, autoAcceptHours: config.autoAcceptHours ?? DEFAULT_AUTO_ACCEPT_HOURS, outputDir }, notify, outputDir, store, effectiveReviewInterval);

@@ -5,6 +5,7 @@ import type { TierBreaker } from './tier-breaker';
 import type { IdleGate } from './idle-gate';
 import type { RunnerContext } from './review-runner';
 import type { SettleBus } from './settle-bus';
+import type { Supervisor } from './supervisor';
 
 const DRAIN_ORDER: EvolutionTaskKind[] = ['tier0_review', 'tier2_verdict', 'tier3_prompt_opt', 'tier3_ab_promote', 'auto_accept_sweep'];
 
@@ -24,7 +25,9 @@ export class Drainer {
   private breaker: TierBreaker;
   private idleGate: IdleGate;
   private settleBus: SettleBus | null = null;
+  private supervisor: Supervisor | null = null;
   private dispatchers = new Map<EvolutionTaskKind, TaskExecutor>();
+  currentSoftCancel: { value: boolean } = { value: false };
 
   constructor(queue: PersistentQueue, breaker: TierBreaker, idleGate: IdleGate) {
     this.queue = queue;
@@ -33,6 +36,7 @@ export class Drainer {
   }
 
   setSettleBus(bus: SettleBus): void { this.settleBus = bus; }
+  setSupervisor(sv: Supervisor): void { this.supervisor = sv; }
 
   setDispatcher(kind: EvolutionTaskKind, fn: TaskExecutor): void {
     this.dispatchers.set(kind, fn);
@@ -58,11 +62,16 @@ export class Drainer {
           const executor = this.dispatchers.get(task.kind);
           if (!executor) { quota--; continue; }
           try {
-            const ctx: RunnerContext = { softCancel: { value: false }, signal: new AbortController().signal };
+            const softCancel = { value: false };
+            this.currentSoftCancel = softCancel;
+            const cancelFn = () => { softCancel.value = true; };
+            this.supervisor?.setCurrent(task, cancelFn);
+            const ctx: RunnerContext = { softCancel, signal: new AbortController().signal };
             await executor(task, ctx);
             await this.queue.complete(task.id, kind);
             this.breaker.recordSuccess(kind);
             this.settleBus?.emit({ kind: 'task_completed', taskId: task.id, taskKind: kind });
+            this.supervisor?.setCurrent(null, () => {});
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             await this.queue.fail(task.id, kind, msg);
