@@ -106,6 +106,64 @@ function createTier2Handler(
   };
 }
 
+function wireDispatchers(
+  drainer: Drainer,
+  provider: Provider,
+  tracker: EffectivenessTracker,
+  config: { model: string; maxTurns: number; tokenLimit: number; timeoutMs: number; autoAcceptHours: number; outputDir: string },
+  notify: ((skillName: string, description: string, outputDir: string) => void) | undefined,
+  outputDir: string,
+  store: TraceStore | undefined,
+  effectiveReviewInterval: number,
+): void {
+  drainer.setDispatcher('tier0_review', async (task) => {
+    await new Promise<void>((resolve, reject) => {
+      if (task.payload.kind !== 'tier0_review') { resolve(); return; }
+      const sig = task.payload.signal as TriggerType;
+      forkReviewAgent(sig, task.payload.trace, {
+        outputDir, provider, model: config.model, maxTurns: config.maxTurns,
+        tokenLimit: config.tokenLimit, timeoutMs: config.timeoutMs,
+        onSkillCreated: notify, onComplete: resolve, onError: () => reject(new Error('review failed')),
+        ...(store ? { store } : {}), ...(effectiveReviewInterval ? { reviewInterval: effectiveReviewInterval } : {}),
+      });
+    });
+  });
+  drainer.setDispatcher('tier2_verdict', async (task) => {
+    if (task.payload.kind !== 'tier2_verdict') return;
+    const { skillName, description, skillStats, traceRunId } = task.payload;
+    const prompt = buildAnalysisPrompt(skillName, description, skillStats, []);
+    await new Promise<void>((resolve) => {
+      forkSkillAnalysis(prompt, provider, config.model, (verdict) => {
+        if (verdict) {
+          debugLog(`[tier2] Verdict for ${skillName}: ${verdict.verdict} — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}`);
+          void tracker.saveStatus({ skillName, status: 'reviewed', createdAt: Date.now(), sourceRunId: traceRunId });
+          if (verdict.verdict === 'fix') {
+            notify?.(skillName, `Tier2: needs adjustment — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}`, outputDir);
+          } else if (verdict.verdict === 'delete') {
+            notify?.(skillName, `Tier2: marked as harmful — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}`, outputDir);
+          }
+        }
+        resolve();
+      });
+    });
+  });
+  drainer.setDispatcher('tier3_prompt_opt', async (task) => {
+    if (task.payload.kind !== 'tier3_prompt_opt') return;
+    debugLog(`[tier3opt] Prompt optimization for ${task.payload.promptKey} — pipeline stub (Phase F)`);
+  });
+  drainer.setDispatcher('tier3_ab_promote', async (task) => {
+    if (task.payload.kind !== 'tier3_ab_promote') return;
+    debugLog(`[tier3ab] AB promote check for ${task.payload.candidateId} — pipeline stub (Phase F)`);
+  });
+  drainer.setDispatcher('auto_accept_sweep', async () => {
+    const accepted = await tracker.autoAcceptStaleSkills(config.autoAcceptHours);
+    if (accepted.length > 0) {
+      debugLog(`[evolution] Auto-accepted ${accepted.length} stale skills: ${accepted.join(', ')}`);
+      for (const skillName of accepted) notify?.(skillName, 'Auto-accepted after 48h', outputDir);
+    }
+  });
+}
+
 export function initEvolution(
   config: ReviewConfig,
   provider: Provider,
@@ -133,56 +191,7 @@ export function initEvolution(
   drainer.setSettleBus(settleBus);
 
   // Wire dispatchers per task kind
-  drainer.setDispatcher('tier0_review', async (task) => {
-    await new Promise<void>((resolve, reject) => {
-      if (task.payload.kind !== 'tier0_review') { resolve(); return; }
-      const sig = task.payload.signal as TriggerType;
-      forkReviewAgent(sig, task.payload.trace, {
-        outputDir, provider, model: config.model, maxTurns: config.maxTurns,
-        tokenLimit: config.tokenLimit, timeoutMs: config.timeoutMs,
-        onSkillCreated: notify, onComplete: resolve, onError: () => reject(new Error('review failed')),
-        ...(store ? { store } : {}), ...(effectiveReviewInterval ? { reviewInterval: effectiveReviewInterval } : {}),
-      });
-    });
-  });
-  drainer.setDispatcher('tier2_verdict', async (task) => {
-    if (task.payload.kind !== 'tier2_verdict') return;
-    const { skillName, description, skillStats } = task.payload;
-    const prompt = buildAnalysisPrompt(skillName, description, skillStats, []);
-    await new Promise<void>((resolve) => {
-      forkSkillAnalysis(prompt, provider, config.model, (verdict) => {
-        if (verdict) {
-          debugLog(`[tier2] Verdict for ${skillName}: ${verdict.verdict} — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}`);
-          tracker.saveStatus({ skillName, status: 'reviewed', createdAt: Date.now(), sourceRunId: task.payload.traceRunId });
-          if (verdict.verdict === 'fix') {
-            notify?.(skillName, `Tier2: needs adjustment — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}`, outputDir);
-          } else if (verdict.verdict === 'delete') {
-            notify?.(skillName, `Tier2: marked as harmful — ${verdict.reasoning.slice(0, REASONING_PREVIEW_LENGTH)}`, outputDir);
-          }
-        }
-        resolve();
-      });
-    });
-    // Derive Tier 0 if verdict is 'edit'
-    // queue.deriveTask(task, 'tier0_review', ...) — Phase F guard
-  });
-  drainer.setDispatcher('tier3_prompt_opt', async (task) => {
-    if (task.payload.kind !== 'tier3_prompt_opt') return;
-    debugLog(`[tier3opt] Prompt optimization for ${task.payload.promptKey} — pipeline stub (Phase F)`);
-    // Phase F full: read feedback → build optimizer prompt → fork agent → write candidate → derive tier3_ab
-  });
-  drainer.setDispatcher('tier3_ab_promote', async (task) => {
-    if (task.payload.kind !== 'tier3_ab_promote') return;
-    debugLog(`[tier3ab] AB promote check for ${task.payload.candidateId} — pipeline stub (Phase F)`);
-    // Phase F full: read shadow metrics → compare → promote to prompt-templates.ts or reject
-  });
-  drainer.setDispatcher('auto_accept_sweep', async () => {
-    const accepted = await tracker.autoAcceptStaleSkills(config.autoAcceptHours ?? DEFAULT_AUTO_ACCEPT_HOURS);
-    if (accepted.length > 0) {
-      debugLog(`[evolution] Auto-accepted ${accepted.length} stale skills: ${accepted.join(', ')}`);
-      for (const skillName of accepted) notify?.(skillName, 'Auto-accepted after 48h', outputDir);
-    }
-  });
+  wireDispatchers(drainer, provider, tracker, { model: config.model, maxTurns: config.maxTurns, tokenLimit: config.tokenLimit, timeoutMs: config.timeoutMs, autoAcceptHours: config.autoAcceptHours ?? DEFAULT_AUTO_ACCEPT_HOURS, outputDir }, notify, outputDir, store, effectiveReviewInterval);
 
   // Start triggers
   const triggers = startAllTriggers(idleGate, settleBus, (opts) => drainer.tryDrain(opts), queue);
