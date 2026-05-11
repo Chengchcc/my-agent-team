@@ -41,6 +41,7 @@ export interface EvolutionModule {
   manualTrigger: { fire: (kinds?: EvolutionTaskKind[]) => void };
   queue: PersistentQueue;
   drainer: Drainer;
+  traceStore?: TraceStore | undefined;
 }
 
 type TriggerType = 'error_burst' | 'complex_task' | 'periodic';
@@ -291,6 +292,7 @@ export function initEvolution(
     recoverInflight: () => queue.recoverInflight(),
     queue,
     drainer,
+    traceStore: store,
   };
 }
 

@@ -5,7 +5,7 @@ import { HybridRetriever } from '../../src/memory/hybrid-retriever';
 function makeEntry(overrides: Partial<MemoryEntry>): MemoryEntry {
   return {
     id: overrides.id ?? 'test-id',
-    type: 'semantic',
+    type: 'general',
     text: 'test',
     weight: 1,
     source: 'explicit',

@@ -18,7 +18,7 @@ function makeStore(entries: MemoryEntry[]): MemoryStore {
 function makeEntry(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
   return {
     id: 'test-1',
-    type: 'semantic',
+    type: 'general',
     text: 'User prefers React for frontend development',
     tags: ['react', 'frontend'],
     created: new Date().toISOString(),

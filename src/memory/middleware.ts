@@ -1,6 +1,10 @@
 import type { Middleware, AgentMiddleware } from '../types';
 import type { Message } from '../types';
 import type { MemoryStore, MemoryRetriever, MemoryConfig } from './types';
+
+interface ExtractQueue {
+  enqueue(task: { kind: string; traceId: string; projectPath: string }): Promise<unknown>;
+}
 import { getSettingsSync } from '../config';
 import { loadAgentMdCached } from './agent-md';
 import { djb2Hash } from '../utils/hash';
@@ -45,7 +49,7 @@ export class MemoryMiddleware implements AgentMiddleware {
   private generalStore: MemoryStore;
   private retriever: MemoryRetriever;
   private config: Required<MemoryConfig>;
-  private extractQueue: { enqueue: (task: any) => Promise<any> } | null = null;
+  private extractQueue: ExtractQueue | null = null;
 
   constructor(
     stores: {
@@ -53,7 +57,7 @@ export class MemoryMiddleware implements AgentMiddleware {
     },
     retriever: MemoryRetriever,
     config: MemoryConfig = {},
-    extractQueue?: { enqueue: (task: any) => Promise<any> } | null,
+    extractQueue?: ExtractQueue | null,
   ) {
     this.generalStore = stores.general;
     this.retriever = retriever;
@@ -155,8 +159,8 @@ export class MemoryMiddleware implements AgentMiddleware {
 
     if (this.extractQueue && traceId) {
       void this.extractQueue.enqueue({
-        kind: 'mem-extract' as any,
-        traceId,
+        kind: 'mem-extract',
+        traceId: traceId!,
         projectPath: process.cwd(),
       }).catch(err => {
         console.error('[memory] Failed to enqueue mem-extract:', err);

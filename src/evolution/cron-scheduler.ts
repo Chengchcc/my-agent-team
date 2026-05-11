@@ -160,5 +160,7 @@ function cronPayload(kind: EvolutionTaskKind): TaskPayload {
     case 'tier3_prompt_opt': return { kind: 'tier3_prompt_opt', promptKey: 'review', feedbackWindow: { from: 0, to: Date.now() } };
     case 'tier3_ab_promote': return { kind: 'tier3_ab_promote', candidateId: '', shadowStartedAt: 0 };
     case 'auto_accept_sweep': return { kind: 'auto_accept_sweep', cutoff: Date.now() };
+    case 'mem-extract': return { kind: 'mem-extract', traceId: '', projectPath: '' };
+    case 'mem-embed': return { kind: 'mem-embed', entryId: '', text: '' };
   }
 }

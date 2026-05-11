@@ -16,6 +16,8 @@ const USAGE_CAP_FOR_SCORE = 10;
 
 const DEFAULT_SEARCH_LIMIT = 10;
 const DEFAULT_SEARCH_THRESHOLD = 0.1;
+const SEARCH_CANDIDATE_MULTIPLIER = 3;
+const SEARCH_CANDIDATE_MIN = 30;
 
 export class KeywordRetriever implements MemoryRetriever {
   constructor(
@@ -32,7 +34,7 @@ export class KeywordRetriever implements MemoryRetriever {
     // Pre-filter at DB level to avoid loading all entries
     const store = this.generalStore as MemoryStore & { searchByText?: (q: string, limit: number) => Promise<MemoryEntry[]> };
     const candidates = store.searchByText
-      ? await store.searchByText(query, Math.max(limit * 3, 30))
+      ? await store.searchByText(query, Math.max(limit * SEARCH_CANDIDATE_MULTIPLIER, SEARCH_CANDIDATE_MIN))
       : await this.generalStore.getAll();
 
     const scored = candidates

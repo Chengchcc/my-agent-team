@@ -1,5 +1,8 @@
 import type { MemoryEntry, MemoryRetriever, MemoryStore } from './types';
 
+const DEFAULT_LIMIT = 10;
+const DEFAULT_THRESHOLD = 0.1;
+
 export interface VectorRetrieverConfig {
   ollamaModel: string;
   ollamaBaseUrl: string;
@@ -22,7 +25,7 @@ export class VectorRetriever implements MemoryRetriever {
     query: string,
     options: { limit?: number; threshold?: number } = {},
   ): Promise<MemoryEntry[]> {
-    const { limit = 10, threshold = 0.1 } = options;
+    const { limit = DEFAULT_LIMIT, threshold = DEFAULT_THRESHOLD } = options;
 
     let queryEmbedding: number[];
     try {

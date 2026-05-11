@@ -18,11 +18,10 @@ import {
   SqliteMemoryStore, KeywordRetriever,
   BM25Retriever, VectorRetriever, HybridRetriever,
   MemoryMiddleware, MemoryTool,
-  EmbeddingTaskRunner,
-  createMemExtractDispatcher, createMemEmbedDispatcher,
   invalidateAgentMdCache,
 } from './memory';
 import type { MemoryRetriever } from './memory';
+import { wireMemoryIntoEvolution } from './memory/wire-memory-evolution';
 import { createSkillMiddleware } from './skills/middleware';
 import { SkillLoader } from './skills/loader';
 import { SessionStore } from './session/store';
@@ -217,23 +216,7 @@ export async function createAgentRuntime(
 
   // Wire memory extraction/embedding dispatchers into evolution drainer
   if (evolution && memorySetup) {
-    const genStore = memorySetup.store;
-    const embeddingRunner = new EmbeddingTaskRunner(
-      (text: string) => new VectorRetriever(genStore).encode(text),
-      genStore,
-    );
-    evolution.drainer.setDispatcher('mem-extract', createMemExtractDispatcher({
-      provider,
-      generalStore: genStore,
-      traceStore: (evolution as any).traceStore ?? { get: async () => null },
-      enqueueEmbed: async (entryId, text) => {
-        await evolution.queue.enqueue({
-          kind: 'mem-embed' as any,
-          payload: { kind: 'mem-embed', entryId, text },
-        } as any);
-      },
-    }));
-    evolution.drainer.setDispatcher('mem-embed', createMemEmbedDispatcher(embeddingRunner));
+    wireMemoryIntoEvolution(evolution, memorySetup, provider);
   }
 
   // Agent
@@ -409,3 +392,4 @@ function setupTrace(
   toolMiddlewares.push(traceMw.toolMiddleware);
   return evolution;
 }
+

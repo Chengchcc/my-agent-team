@@ -6,7 +6,29 @@ import crypto from 'crypto';
 import type { MemoryEntry, MemoryStore, MemoryType, MemoryConfig } from './types';
 import { getSettingsSync } from '../config';
 
+type SqlRow = {
+  id: string;
+  type: string;
+  text: string;
+  created: string;
+  weight: number;
+  source: string;
+  tags?: string;
+  updated?: string;
+  projectPath?: string;
+  files?: string;
+  metadata?: string;
+  embedding?: Buffer;
+  lastHitAt?: number;
+  usageCount?: number;
+  bm25_score?: number;
+  c: number;
+};
+
 const FALLBACK_MAX_GENERAL = 500;
+const EMBEDDING_FLOAT_SIZE = 4;
+const MIN_TOKEN_LENGTH = 2;
+const CANDIDATE_MULTIPLIER = 3;
 
 const FALLBACK_CONFIG: Required<MemoryConfig> = {
   globalBaseDir: '~/.my-agent/memory',
@@ -96,14 +118,14 @@ export class SqliteMemoryStore implements MemoryStore {
     this.db.run('CREATE INDEX IF NOT EXISTS idx_memory_created ON memory(created)');
   }
 
-  private rowToEntry(row: any): MemoryEntry {
+  private rowToEntry(row: SqlRow): MemoryEntry {
     const e: MemoryEntry = {
       id: row.id,
-      type: row.type,
+      type: row.type as MemoryEntry['type'],
       text: row.text,
       created: row.created,
       weight: row.weight,
-      source: row.source,
+      source: row.source as MemoryEntry['source'],
     };
     if (row.tags) e.tags = JSON.parse(row.tags);
     if (row.updated) e.updated = row.updated;
@@ -112,7 +134,7 @@ export class SqliteMemoryStore implements MemoryStore {
     if (row.metadata) e.metadata = JSON.parse(row.metadata);
     if (row.embedding) {
       const buf = row.embedding as Buffer;
-      e.embedding = Array.from(new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4));
+      e.embedding = Array.from(new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / EMBEDDING_FLOAT_SIZE));
     }
     if (row.lastHitAt != null) e.lastHitAt = row.lastHitAt;
     if (row.usageCount != null) e.usageCount = row.usageCount;
@@ -163,7 +185,7 @@ export class SqliteMemoryStore implements MemoryStore {
       ? this.config.maxGeneralEntries
       : this.config.maxGeneralEntries; // project shares general limit for now
     const cnt = (
-      this.db.query('SELECT COUNT(*) as c FROM memory WHERE type=?').get(this.type) as any
+      this.db.query('SELECT COUNT(*) as c FROM memory WHERE type=?').get(this.type) as SqlRow
     ).c;
     if (cnt > max) this.trimFifo(max);
 
@@ -171,7 +193,7 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   async get(id: string): Promise<MemoryEntry | null> {
-    const row = this.db.query('SELECT * FROM memory WHERE id=?').get(id) as any;
+    const row = this.db.query('SELECT * FROM memory WHERE id=?').get(id) as SqlRow;
     return row ? this.rowToEntry(row) : null;
   }
 
@@ -220,7 +242,7 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   async getAll(): Promise<MemoryEntry[]> {
-    const rows = this.db.query('SELECT * FROM memory WHERE type=?').all(this.type) as any[];
+    const rows = this.db.query('SELECT * FROM memory WHERE type=?').all(this.type) as SqlRow[];
     return rows.map(r => this.rowToEntry(r));
   }
 
@@ -251,7 +273,7 @@ export class SqliteMemoryStore implements MemoryStore {
 
   async count(type?: MemoryType): Promise<number> {
     const t = type ?? this.type;
-    const result = this.db.query('SELECT COUNT(*) as c FROM memory WHERE type=?').get(t) as any;
+    const result = this.db.query('SELECT COUNT(*) as c FROM memory WHERE type=?').get(t) as SqlRow;
     return result.c;
   }
 
@@ -259,7 +281,7 @@ export class SqliteMemoryStore implements MemoryStore {
     const t = type ?? this.type;
     const rows = this.db.query(
       'SELECT * FROM memory WHERE type=? ORDER BY created DESC LIMIT ?',
-    ).all(t, limit) as any[];
+    ).all(t, limit) as SqlRow[];
     return rows.map(r => this.rowToEntry(r));
   }
 
@@ -269,7 +291,7 @@ export class SqliteMemoryStore implements MemoryStore {
       : this.config.maxGeneralEntries;
 
     const cnt = (
-      this.db.query('SELECT COUNT(*) as c FROM memory WHERE type=?').get(this.type) as any
+      this.db.query('SELECT COUNT(*) as c FROM memory WHERE type=?').get(this.type) as SqlRow
     ).c;
     if (cnt > max) this.trimFifo(max);
   }
@@ -288,25 +310,24 @@ export class SqliteMemoryStore implements MemoryStore {
   async getAllWithEmbeddings(): Promise<MemoryEntry[]> {
     const rows = this.db.query(
       'SELECT * FROM memory WHERE type=? AND embedding IS NOT NULL',
-    ).all(this.type) as any[];
+    ).all(this.type) as SqlRow[];
     return rows.map(r => this.rowToEntry(r));
   }
 
   /** Pre-filter by text match — used by KeywordRetriever to avoid full scan. */
   async searchByText(query: string, limit: number): Promise<MemoryEntry[]> {
-    const tokens = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
+    const tokens = query.toLowerCase().split(/\s+/).filter(t => t.length >= MIN_TOKEN_LENGTH);
     if (tokens.length === 0) {
       const rows = this.db.query(
         'SELECT * FROM memory WHERE type=? ORDER BY lastHitAt DESC, created DESC LIMIT ?',
-      ).all(this.type, limit * 3) as any[];
+      ).all(this.type, limit * CANDIDATE_MULTIPLIER) as SqlRow[];
       return rows.map(r => this.rowToEntry(r));
     }
-    // Build LIKE clauses for each token
     const conditions = tokens.map(() => 'text LIKE ?').join(' OR ');
     const params = tokens.map(t => `%${t}%`);
     const rows = this.db.query(
       `SELECT * FROM memory WHERE type=? AND (${conditions}) ORDER BY lastHitAt DESC, created DESC LIMIT ?`,
-    ).all(this.type, ...params, limit * 3) as any[];
+    ).all(this.type, ...params, limit * CANDIDATE_MULTIPLIER) as SqlRow[];
     return rows.map(r => this.rowToEntry(r));
   }
 
@@ -320,7 +341,7 @@ export class SqliteMemoryStore implements MemoryStore {
       WHERE f.type = ? AND memory_fts MATCH ?
       ORDER BY bm25_score
       LIMIT ?
-    `).all(type, ftsQuery, limit) as any[];
+    `).all(type, ftsQuery, limit) as SqlRow[];
     return rows.map(r => this.rowToEntry(r));
   }
 

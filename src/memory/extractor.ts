@@ -4,6 +4,11 @@ import type { MemoryEntry, MemoryExtractor, TraceExtractionContext } from './typ
 import { DEFAULT_SUMMARY_MODEL } from '../config/constants';
 
 const DEFAULT_WEIGHT = 0.8;
+const MS_PER_SECOND = 1000;
+const SECONDS_PER_MINUTE = 60;
+const MINUTES_PER_HOUR = 60;
+const HOURS_PER_DAY = 24;
+const MS_PER_DAY = MS_PER_SECOND * SECONDS_PER_MINUTE * MINUTES_PER_HOUR * HOURS_PER_DAY;
 
 export class LlmExtractor implements MemoryExtractor {
   constructor(
@@ -83,9 +88,9 @@ ${contextText}`;
   private buildConsolidationPrompt(entries: MemoryEntry[]): string {
     const now = Date.now();
     const entryLines = entries.map((e, i) => {
-      const ageDays = Math.round((now - new Date(e.created).getTime()) / (1000 * 60 * 60 * 24));
+      const ageDays = Math.round((now - new Date(e.created).getTime()) / MS_PER_DAY);
       const lastHitDays = e.lastHitAt
-        ? Math.round((now - e.lastHitAt) / (1000 * 60 * 60 * 24))
+        ? Math.round((now - e.lastHitAt) / MS_PER_DAY)
         : '(never)';
       return `[${i + 1}] id=${e.id} weight=${e.weight} used=${e.usageCount ?? 0} times lastHit=${lastHitDays}d ago age=${ageDays}d | ${e.text}`;
     });
