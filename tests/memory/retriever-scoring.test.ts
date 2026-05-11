@@ -5,7 +5,6 @@ import type { MemoryEntry, MemoryStore } from '../../src/memory/types';
 function makeStore(entries: MemoryEntry[]): MemoryStore {
   return {
     getAll: async () => entries,
-    getByType: async () => entries,
     add: async (e) => { entries.push({ ...e, id: 'x', created: new Date().toISOString() } as MemoryEntry); return entries[entries.length - 1]!; },
     get: async () => null,
     update: async () => null,

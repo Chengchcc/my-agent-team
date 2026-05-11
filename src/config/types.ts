@@ -52,8 +52,7 @@ export interface ContextSettings {
 export interface MemorySettings {
   enabled: boolean;
   globalBaseDir: string;
-  maxSemanticEntries: number;
-  maxEpisodicEntries: number;
+  maxGeneralEntries: number;
   consolidationThreshold: number;
   autoExtractMinToolCalls: number;
   maxInjectedEntries: number;
@@ -62,6 +61,7 @@ export interface MemorySettings {
   retrievalTopK: number;
   extractTriggerMode: 'explicit' | 'auto' | 'off';
   maxUserPreferences: number;
+  preferenceWeightThreshold: number;
   hybridRetrieval?: HybridRetrievalConfig;
 }
 

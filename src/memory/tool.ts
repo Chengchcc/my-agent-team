@@ -1,16 +1,15 @@
 import { ZodTool } from '../tools/zod-tool';
 import type { ToolContext } from '../agent/tool-dispatch/types';
 import { z } from 'zod';
-import type { MemoryEntry, MemoryStore, MemoryRetriever, MemoryExtractor } from './types';
+import type { MemoryStore, MemoryRetriever } from './types';
 
 const DEFAULT_LIST_LIMIT = 10;
 
 export class MemoryTool extends ZodTool<z.ZodObject<{
-  command: z.ZodEnum<['search', 'add', 'list', 'forget', 'consolidate']>;
+  command: z.ZodEnum<['search', 'add', 'list', 'forget']>;
   query: z.ZodOptional<z.ZodString>;
   text: z.ZodOptional<z.ZodString>;
   id: z.ZodOptional<z.ZodString>;
-  type: z.ZodOptional<z.ZodEnum<['semantic', 'episodic', 'project']>>;
   limit: z.ZodOptional<z.ZodNumber>;
 }>> {
   protected readonly name = 'memory';
@@ -19,129 +18,64 @@ export class MemoryTool extends ZodTool<z.ZodObject<{
 Commands:
 - search: Find relevant memories for a query
 - add: Store a new reusable memory
-- list: List recent memories (optionally filter by type)
+- list: List recent memories
 - forget: Remove a specific memory by ID
-- consolidate: Trigger deduplication/consolidation of semantic memory
 
-Only store genuinely reusable information that will be useful in future conversations. Do not store transient conversation details. Emit this tool alone in its own response; do not batch with other tools.`;
+Only store genuinely reusable information that will be useful in future conversations.`;
+
   readonly = false;
   conflictKey = () => 'memory:global';
 
   protected schema = z.object({
-    command: z.enum(['search', 'add', 'list', 'forget', 'consolidate']),
+    command: z.enum(['search', 'add', 'list', 'forget']),
     query: z.string().optional(),
     text: z.string().optional(),
     id: z.string().optional(),
-    type: z.enum(['semantic', 'episodic', 'project']).optional(),
     limit: z.number().optional(),
   });
 
   constructor(
-    private stores: {
-      semantic: MemoryStore;
-      episodic: MemoryStore;
-      project: MemoryStore;
-    },
+    private store: MemoryStore,
     private retriever: MemoryRetriever,
-    private extractor: MemoryExtractor,
   ) {
     super();
   }
 
   protected async handle(params: z.infer<typeof this.schema>, _ctx: ToolContext): Promise<unknown> {
-    const command = params.command;
-    const projectPath = process.cwd();
-
-    switch (command) {
+    switch (params.command) {
       case 'search': {
-        const query = params.query;
-        const limit = params.limit || DEFAULT_LIST_LIMIT;
-        if (!query) {
-          throw new Error('query parameter is required for search command');
-        }
-        const results = await this.retriever.search(query, { limit, projectPath });
+        if (!params.query) throw new Error('query parameter is required for search');
+        const results = await this.retriever.search(params.query, {
+          limit: params.limit || DEFAULT_LIST_LIMIT,
+        });
         return { results };
       }
 
       case 'add': {
-        const text = params.text;
-        const type = (params.type as MemoryEntry['type']) || 'semantic';
-        if (!text) {
-          throw new Error('text parameter is required for add command');
-        }
-        const store = this.getStoreForType(type);
-        const entry: Omit<MemoryEntry, 'id' | 'created'> = { type, text, weight: 1.0, source: 'explicit' };
-        if (type === 'project') entry.projectPath = projectPath;
-        const added = await store.add(entry);
-        return { added };
+        if (!params.text) throw new Error('text parameter is required for add');
+        const entry = await this.store.add({
+          type: 'general',
+          text: params.text,
+          weight: 0.8,
+          source: 'user',
+        });
+        return { entry };
       }
 
       case 'list': {
-        const type = params.type as MemoryEntry['type'] | undefined;
         const limit = params.limit || DEFAULT_LIST_LIMIT;
-        if (type) {
-          const store = this.getStoreForType(type);
-          const entries = await store.getRecent(limit, type);
-          return { entries };
-        }
-        // Get from all stores, merge and sort by recency
-        const STORE_COUNT = 3;
-        const semantic = await this.stores.semantic.getRecent(Math.ceil(limit / STORE_COUNT));
-        const episodic = await this.stores.episodic.getRecent(Math.ceil(limit / STORE_COUNT));
-        const project = await this.stores.project.getRecent(Math.ceil(limit / STORE_COUNT));
-        const all = [...semantic, ...episodic, ...project];
-        const entries = all
-          .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
-          .slice(0, limit);
-        return { entries };
+        const results = await this.store.getRecent(limit);
+        return { results };
       }
 
       case 'forget': {
-        const id = params.id;
-        if (!id) {
-          throw new Error('id parameter is required for forget command');
-        }
-        // Try all stores
-        for (const [type, store] of [
-          ['semantic', this.stores.semantic] as const,
-          ['episodic', this.stores.episodic] as const,
-          ['project', this.stores.project] as const,
-        ]) {
-          const deleted = await store.remove(id);
-          if (deleted) {
-            return { deleted: true, id, type };
-          }
-        }
-        return { deleted: false, id };
-      }
-
-      case 'consolidate': {
-        const type = (params.type as MemoryEntry['type']) || 'semantic';
-        const store = this.getStoreForType(type);
-        const entries = await store.getAll();
-        if (entries.length === 0) {
-          return { before: 0, after: 0, removed: 0 };
-        }
-        const consolidated = await this.extractor.consolidate(entries);
-        await store.replaceAll(consolidated, type);
-        return {
-          before: entries.length,
-          after: consolidated.length,
-          removed: entries.length - consolidated.length,
-        };
+        if (!params.id) throw new Error('id parameter is required for forget');
+        const removed = await this.store.remove(params.id);
+        return { removed };
       }
 
       default:
-        throw new Error(`Unknown memory command: ${command}`);
-    }
-  }
-
-  private getStoreForType(type: MemoryEntry['type']): MemoryStore {
-    switch (type) {
-      case 'semantic': return this.stores.semantic;
-      case 'episodic': return this.stores.episodic;
-      case 'project': return this.stores.project;
-      default: return this.stores.semantic;
+        throw new Error(`Unknown command: ${params.command}`);
     }
   }
 }

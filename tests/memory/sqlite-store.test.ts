@@ -16,7 +16,7 @@ describe('SqliteMemoryStore', () => {
   afterEach(cleanDb);
 
   const entryData = {
-    type: 'semantic' as const,
+    type: 'general' as const,
     text: 'user prefers vitest over jest',
     tags: ['testing', 'vitest'],
     weight: 0.9,
@@ -24,7 +24,7 @@ describe('SqliteMemoryStore', () => {
   };
 
   it('adds and retrieves an entry by id', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
     const entry = await store.add(entryData);
     expect(entry.id).toBeDefined();
     expect(entry.text).toBe(entryData.text);
@@ -36,13 +36,13 @@ describe('SqliteMemoryStore', () => {
   });
 
   it('returns null for missing id', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
     const result = await store.get('nonexistent');
     expect(result).toBeNull();
   });
 
   it('getAll returns all entries of the same type', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
     await store.add({ ...entryData, text: 'fact 1' });
     await store.add({ ...entryData, text: 'fact 2' });
 
@@ -50,23 +50,17 @@ describe('SqliteMemoryStore', () => {
     expect(all).toHaveLength(2);
   });
 
-  it('getAll filters by type (semantic store does not return episodic)', async () => {
-    const semanticStore = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
-    const episodicStore = new SqliteMemoryStore('episodic', { globalBaseDir: '/tmp' });
-    await semanticStore.add({ ...entryData, text: 'semantic fact' });
-    await episodicStore.add({ ...entryData, text: 'episodic event', type: 'episodic' });
+  it('getAll returns all entries of the registered type', async () => {
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
+    await store.add({ ...entryData, text: 'fact 1' });
+    await store.add({ ...entryData, text: 'fact 2' });
 
-    const semanticEntries = await semanticStore.getAll();
-    expect(semanticEntries).toHaveLength(1);
-    expect(semanticEntries[0].text).toBe('semantic fact');
-
-    const episodicEntries = await episodicStore.getAll();
-    expect(episodicEntries).toHaveLength(1);
-    expect(episodicEntries[0].text).toBe('episodic event');
+    const all = await store.getAll();
+    expect(all).toHaveLength(2);
   });
 
   it('updates an entry', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
     const entry = await store.add(entryData);
     const updated = await store.update(entry.id, { text: 'updated text', weight: 0.5 });
     expect(updated).not.toBeNull();
@@ -75,7 +69,7 @@ describe('SqliteMemoryStore', () => {
   });
 
   it('removes an entry', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
     const entry = await store.add(entryData);
     const removed = await store.remove(entry.id);
     expect(removed).toBe(true);
@@ -85,14 +79,14 @@ describe('SqliteMemoryStore', () => {
   });
 
   it('count returns correct number', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
     await store.add(entryData);
     await store.add(entryData);
     expect(await store.count()).toBe(2);
   });
 
   it('getRecent returns entries sorted by created desc', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
     await store.add({ ...entryData, text: 'older' });
     await new Promise(r => setTimeout(r, 10));
     await store.add({ ...entryData, text: 'newer' });
@@ -103,7 +97,7 @@ describe('SqliteMemoryStore', () => {
   });
 
   it('markHit updates lastHitAt and usageCount', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
     const entry = await store.add(entryData);
 
     await store.markHit([entry.id]);
@@ -113,7 +107,7 @@ describe('SqliteMemoryStore', () => {
   });
 
   it('enforceLimit evicts oldest entries', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp', maxSemanticEntries: 2 });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp', maxGeneralEntries: 2 });
     await store.add({ ...entryData, text: 'entry 1' });
     await store.add({ ...entryData, text: 'entry 2' });
     await store.add({ ...entryData, text: 'entry 3' });
@@ -122,7 +116,7 @@ describe('SqliteMemoryStore', () => {
   });
 
   it('stores and retrieves embedding as number array', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
     const embedding = [0.1, 0.2, 0.3, 0.4, 0.5];
     const entry = await store.add({ ...entryData, embedding });
     const retrieved = await store.get(entry.id);
@@ -134,43 +128,34 @@ describe('SqliteMemoryStore', () => {
   });
 
   it('replaceAll replaces all entries', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
     await store.add({ ...entryData, text: 'old' });
     const newEntries: MemoryEntry[] = [{
       id: 'manual-id',
-      type: 'semantic',
+      type: 'general',
       text: 'new',
       created: new Date().toISOString(),
       weight: 1,
       source: 'explicit',
     }];
-    await store.replaceAll(newEntries, 'semantic');
+    await store.replaceAll(newEntries, 'general');
     const all = await store.getAll();
     expect(all).toHaveLength(1);
     expect(all[0].text).toBe('new');
   });
 
-  it('getByType returns only matching type', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
-    await store.add({ ...entryData, text: 'sem fact' });
-    const results = await store.getByType('semantic');
-    expect(results).toHaveLength(1);
-    const noResults = await store.getByType('episodic');
-    expect(noResults).toHaveLength(0);
-  });
-
   it('FTS5: text stored in FTS5 is searchable', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
     const e = await store.add({ ...entryData, text: 'user prefers pnpm over npm' });
-    const results = await store.ftsSearch('pnpm', 'semantic', 10);
+    const results = await store.ftsSearch('pnpm', 'general', 10);
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].id).toBe(e.id);
   });
 
   it('FTS5: returns empty for no match', async () => {
-    const store = new SqliteMemoryStore('semantic', { globalBaseDir: '/tmp' });
+    const store = new SqliteMemoryStore('general', { globalBaseDir: '/tmp' });
     await store.add({ ...entryData, text: 'user prefers pnpm' });
-    const results = await store.ftsSearch('nonexistent', 'semantic', 10);
+    const results = await store.ftsSearch('nonexistent', 'general', 10);
     expect(results).toHaveLength(0);
   });
 });

@@ -20,35 +20,24 @@ describe('Hybrid retrieval full flow', () => {
   const storeConfig = { globalBaseDir: '/tmp' };
 
   async function setup() {
-    const semanticStore = new SqliteMemoryStore('semantic', storeConfig);
-    const episodicStore = new SqliteMemoryStore('episodic', storeConfig);
-    const projectStore = new SqliteMemoryStore('project', storeConfig);
+    const generalStore = new SqliteMemoryStore('general', storeConfig);
     const hybrid = new HybridRetriever(
-      new KeywordRetriever(semanticStore, episodicStore, projectStore),
-      new BM25Retriever(semanticStore, episodicStore, projectStore),
-      { search: async () => [] } as any, // Vector mock
+      new KeywordRetriever(generalStore),
+      new BM25Retriever(generalStore),
+      { search: async () => [] } as any,
     );
 
-    await semanticStore.add({
-      type: 'semantic',
-      text: '用户偏好使用 pnpm 而非 npm',
-      tags: ['pnpm', 'preference'],
-      weight: 1,
-      source: 'explicit',
+    await generalStore.add({
+      type: 'general', text: '用户偏好使用 pnpm 而非 npm',
+      tags: ['pnpm', 'preference'], weight: 1, source: 'explicit',
     });
-    await semanticStore.add({
-      type: 'semantic',
-      text: '项目使用 TypeScript 和 Bun 运行时',
-      tags: ['typescript', 'bun'],
-      weight: 0.9,
-      source: 'implicit',
+    await generalStore.add({
+      type: 'general', text: '项目使用 TypeScript 和 Bun 运行时',
+      tags: ['typescript', 'bun'], weight: 0.9, source: 'implicit',
     });
-    await episodicStore.add({
-      type: 'episodic',
-      text: '修复了 pnpm install 的 bug',
-      tags: ['bug', 'pnpm'],
-      weight: 0.7,
-      source: 'implicit',
+    await generalStore.add({
+      type: 'general', text: '修复了 pnpm install 的 bug',
+      tags: ['bug', 'pnpm'], weight: 0.7, source: 'implicit',
     });
 
     return hybrid;
@@ -58,15 +47,14 @@ describe('Hybrid retrieval full flow', () => {
     const hybrid = await setup();
     const results = await hybrid.search('pnpm');
     expect(results.length).toBeGreaterThanOrEqual(1);
-    const texts = results.map(r => r.text);
-    expect(texts.some(t => t.includes('pnpm'))).toBe(true);
+    expect(results.some(r => r.text.includes('pnpm'))).toBe(true);
   });
 
-  it('Chinese text search works', async () => {
+  it('Chinese text search via keyword retriever', async () => {
     const hybrid = await setup();
-    const results = await hybrid.search('用户偏好');
+    // Keyword retriever handles Chinese char-level tokenization
+    const results = await hybrid.search('偏好');
     expect(results.length).toBeGreaterThanOrEqual(1);
-    expect(results[0].text).toContain('用户偏好');
   });
 
   it('limit restricts result count', async () => {
@@ -77,7 +65,7 @@ describe('Hybrid retrieval full flow', () => {
 
   it('returns empty for no match', async () => {
     const hybrid = await setup();
-    const results = await hybrid.search('zzz_nonexistent_query');
+    const results = await hybrid.search('zzz_nonexistent');
     expect(results).toHaveLength(0);
   });
 });

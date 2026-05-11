@@ -7,13 +7,11 @@ import { LlmExtractor } from './extractor';
 
 export interface MemDispatchDeps {
   provider: Provider;
-  semanticStore: MemoryStore;
-  episodicStore: MemoryStore;
-  projectStore: MemoryStore;
+  generalStore: MemoryStore;
   traceStore: TraceStore;
-  enqueueEmbed: (entryId: string, text: string, storeType: 'semantic' | 'episodic' | 'project') => Promise<void>;
+  enqueueEmbed: (entryId: string, text: string) => Promise<void>;
   embeddingRunner?: {
-    run(task: { entryId: string; text: string; storeType: 'semantic' | 'episodic' | 'project' }): Promise<{ outcome: string }>;
+    run(task: { entryId: string; text: string }): Promise<{ outcome: string }>;
   };
 }
 
@@ -21,13 +19,11 @@ export function createMemExtractDispatcher(deps: MemDispatchDeps) {
   return async (task: EvolutionTask, _ctx: RunnerContext): Promise<void> => {
     const payload = task.payload as { kind: 'mem-extract'; traceId: string; projectPath: string };
 
-    // 1. Read trace from TraceStore
     const trace = await deps.traceStore.get(payload.traceId, '');
     if (!trace) {
       throw new Error(`Trace ${payload.traceId} not found`);
     }
 
-    // 2. Build extraction context from trace
     const context: TraceExtractionContext = {
       userTurns: trace.turns
         .filter(t => t.userMessage)
@@ -45,31 +41,23 @@ export function createMemExtractDispatcher(deps: MemDispatchDeps) {
       ...(trace.summary.activatedSkills ? { activatedSkills: trace.summary.activatedSkills } : {}),
     };
 
-    // 3. Run LlmExtractor
     const extractor = new LlmExtractor(deps.provider);
-    const entries = await extractor.extract(context, payload.projectPath);
+    const entries = await extractor.extract(context);
 
-    // 4. Store entries and enqueue embeddings
     for (const entry of entries) {
-      const store = entry.type === 'semantic' ? deps.semanticStore
-        : entry.type === 'project' ? deps.projectStore
-        : deps.episodicStore;
-
-      const stored = await store.add(entry);
-      await deps.enqueueEmbed(stored.id, stored.text, entry.type);
+      const stored = await deps.generalStore.add(entry);
+      await deps.enqueueEmbed(stored.id, stored.text);
     }
 
-    // 5. Enforce capacity limits
-    await deps.semanticStore.enforceLimit?.();
-    await deps.episodicStore.enforceLimit?.();
+    await deps.generalStore.enforceLimit?.();
   };
 }
 
 export function createMemEmbedDispatcher(
-  runner: { run(task: { entryId: string; text: string; storeType: string }): Promise<{ outcome: string }> },
+  runner: { run(task: { entryId: string; text: string }): Promise<{ outcome: string }> },
 ) {
   return async (task: EvolutionTask, _ctx: RunnerContext): Promise<void> => {
-    const payload = task.payload as { kind: 'mem-embed'; entryId: string; text: string; storeType: 'semantic' | 'episodic' | 'project' };
+    const payload = task.payload as { kind: 'mem-embed'; entryId: string; text: string };
     const result = await runner.run(payload);
     if (result.outcome === 'failed') {
       throw new Error('Embedding failed');
@@ -79,11 +67,7 @@ export function createMemEmbedDispatcher(
 
 function extractOutcomes(trace: { summary: { outcome: string; error?: string } }): string[] {
   const outcomes: string[] = [];
-  if (trace.summary.outcome) {
-    outcomes.push(`Session outcome: ${trace.summary.outcome}`);
-  }
-  if (trace.summary.error) {
-    outcomes.push(`Error: ${trace.summary.error}`);
-  }
+  if (trace.summary.outcome) outcomes.push(`Session outcome: ${trace.summary.outcome}`);
+  if (trace.summary.error) outcomes.push(`Error: ${trace.summary.error}`);
   return outcomes;
 }

@@ -9,9 +9,7 @@ export class VectorRetriever implements MemoryRetriever {
   private config: VectorRetrieverConfig;
 
   constructor(
-    private semanticStore: MemoryStore,
-    private episodicStore: MemoryStore,
-    _projectStore?: MemoryStore,
+    private generalStore: MemoryStore,
     config: Partial<VectorRetrieverConfig> = {},
   ) {
     this.config = {
@@ -22,14 +20,9 @@ export class VectorRetriever implements MemoryRetriever {
 
   async search(
     query: string,
-    options: {
-      limit?: number;
-      projectPath?: string;
-      type?: 'semantic' | 'episodic' | 'project';
-      threshold?: number;
-    } = {},
+    options: { limit?: number; threshold?: number } = {},
   ): Promise<MemoryEntry[]> {
-    const { limit = 10, threshold = 0.1, type } = options;
+    const { limit = 10, threshold = 0.1 } = options;
 
     let queryEmbedding: number[];
     try {
@@ -38,16 +31,13 @@ export class VectorRetriever implements MemoryRetriever {
       return [];
     }
 
-    const candidates: MemoryEntry[] = [];
-    if (!type || type === 'semantic') {
-      candidates.push(...(await this.semanticStore.getAll()));
-    }
-    if (!type || type === 'episodic') {
-      candidates.push(...(await this.episodicStore.getAll()));
-    }
+    // Only load entries that have embeddings — pre-filtered at DB level
+    const store = this.generalStore as MemoryStore & { getAllWithEmbeddings?: () => Promise<MemoryEntry[]> };
+    const candidates = store.getAllWithEmbeddings
+      ? await store.getAllWithEmbeddings()
+      : (await this.generalStore.getAll()).filter(e => e.embedding);
 
     const scored = candidates
-      .filter(e => e.embedding)
       .map(entry => ({
         entry,
         score: this.cosineSimilarity(queryEmbedding, entry.embedding!),
@@ -74,9 +64,7 @@ export class VectorRetriever implements MemoryRetriever {
   }
 
   cosineSimilarity(a: number[], b: number[]): number {
-    let dot = 0;
-    let normA = 0;
-    let normB = 0;
+    let dot = 0, normA = 0, normB = 0;
     const len = Math.min(a.length, b.length);
     for (let i = 0; i < len; i++) {
       const av = a[i]!;

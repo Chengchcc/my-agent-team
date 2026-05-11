@@ -13,12 +13,11 @@ export class LlmExtractor implements MemoryExtractor {
 
   async extract(
     traceContext: TraceExtractionContext,
-    projectPath?: string,
   ): Promise<MemoryEntry[]> {
     const contextText = this.formatTraceContext(traceContext);
-    const prompt = this.buildExtractionPrompt(contextText, projectPath);
+    const prompt = this.buildExtractionPrompt(contextText);
     const response = await this.invokeLlm(prompt);
-    return this.parseExtractedResponse(response, projectPath);
+    return this.parseExtractedResponse(response);
   }
 
   async consolidate(entries: MemoryEntry[]): Promise<MemoryEntry[]> {
@@ -59,47 +58,59 @@ export class LlmExtractor implements MemoryExtractor {
     return lines.join('\n');
   }
 
-  private buildExtractionPrompt(contextText: string, projectPath?: string): string {
+  private buildExtractionPrompt(contextText: string): string {
     return `Analyze this agent session trace and extract memory entries for a persistent agent memory system.
 
 Extract exactly these types of information:
-1. User preferences or habits (e.g. "prefers pnpm over npm", "uses vitest instead of jest")
-2. Facts about the current project (e.g. "uses TypeScript with Bun", "structure: src/agent/, src/cli/")
+1. User preferences or habits (e.g. "prefers pnpm over npm")
+2. Project facts (e.g. "uses TypeScript with Bun")
 3. Key decisions made (e.g. "decided to store memory in SQLite")
-4. Important outcomes (e.g. "refactored agent.ts into three files", "fixed markdown rendering bug")
+4. Important outcomes (e.g. "fixed markdown rendering bug")
 
 Rules:
-- ONLY extract genuinely useful, reusable information that will help in future conversations
+- ONLY extract genuinely useful, reusable information
 - Skip transient, one-time things like "user asked a question about X"
 - Each entry should be a single, clear statement
-- NEVER extract API keys, passwords, tokens, or other sensitive credentials
-- If an entry mentions credentials, omit the actual value and only note that the project uses it
-- Return a JSON array of objects with this shape:
-  [{"type": "semantic" | "episodic" | "project", "text": string, "tags": string[] | undefined, "weight": number (0-1)}]
+- NEVER extract API keys, passwords, tokens, or credentials
+- Assign weight 0-1: 0.9+ for strong preferences/important facts, 0.6-0.8 for general knowledge, <0.6 for tentative
+- Return a JSON array: [{"text": string, "tags": string[] | undefined, "weight": number (0-1)}]
 - If nothing worth remembering, return an empty array []
-
-${projectPath ? `This conversation is in project: ${projectPath}` : ''}
 
 Session trace:
 ${contextText}`;
   }
 
   private buildConsolidationPrompt(entries: MemoryEntry[]): string {
-    return `Consolidate these memory entries:
+    const now = Date.now();
+    const entryLines = entries.map((e, i) => {
+      const ageDays = Math.round((now - new Date(e.created).getTime()) / (1000 * 60 * 60 * 24));
+      const lastHitDays = e.lastHitAt
+        ? Math.round((now - e.lastHitAt) / (1000 * 60 * 60 * 24))
+        : '(never)';
+      return `[${i + 1}] id=${e.id} weight=${e.weight} used=${e.usageCount ?? 0} times lastHit=${lastHitDays}d ago age=${ageDays}d | ${e.text}`;
+    });
 
-1. Merge duplicate or very similar entries - keep the more specific, recent version
-2. If entries conflict, keep the newer one with higher weight
-3. Remove outdated, irrelevant, or transient entries that are no longer useful
-4. Combine related entries into clearer, more concise statements
-5. Preserve all important user preferences and project facts
-6. DO NOT remove information unless it's definitely a duplicate or outdated
-7. If an entry is not changed/merged, preserve its original \`id\`, \`created\`, \`source\`, \`projectPath\` fields
+    return `Consolidate these memory entries. Use the usage stats to decide:
 
-Return a JSON array of consolidated entries with this shape:
-[{"type": "semantic" | "episodic" | "project", "text": string, "tags": string[] | undefined, "weight": number (0-1), "id": string | undefined, "created": string | undefined, "source": string | undefined, "projectPath": string | undefined}]
+When to keep:
+- usageCount >= 3 or lastHitAt within 7 days → actively used, preserve
+- weight >= 0.9 → strong user preference, preserve
+- project facts → preserve unless explicitly contradicted
+
+When to remove:
+- usageCount = 0 and age > 30 days → likely stale
+- usageCount < 3 and lastHitAt > 30 days → low value, consider removing
+- exact duplicate of another entry → merge keeping the newer
+
+Rules:
+1. Merge duplicates — keep the more specific, recent version
+2. Conflicting entries — keep the newer one with higher usageCount
+3. Combine related entries into clearer, more concise statements
+4. Preserve original id, created, source, projectPath if unchanged
+5. Return: [{"text": string, "tags": string[], "weight": number (0-1), "id"?, "created"?, "source"?, "projectPath"?}]
 
 Entries:
-${entries.map((e, i) => `[${i + 1}] ${e.text} (created: ${e.created})`).join('\n')}`;
+${entryLines.join('\n')}`;
   }
 
   private async invokeLlm(prompt: string): Promise<string> {
@@ -117,10 +128,7 @@ ${entries.map((e, i) => `[${i + 1}] ${e.text} (created: ${e.created})`).join('\n
     return response.content;
   }
 
-  private parseExtractedResponse(
-    content: string,
-    projectPath?: string,
-  ): MemoryEntry[] {
+  private parseExtractedResponse(content: string): MemoryEntry[] {
     try {
       // Find JSON array in the response (handle extra text)
       const jsonMatch = content.match(/\[[\s\S]*\]/);
@@ -141,25 +149,23 @@ ${entries.map((e, i) => `[${i + 1}] ${e.text} (created: ${e.created})`).join('\n
 
       const now = new Date().toISOString();
       return parsed
-        .filter(p => p.text && p.type)
+        .filter(p => p.text)
         .map(p => {
           const entry: MemoryEntry = {
             id: p.id ?? crypto.randomUUID(),
-            type: p.type!,
+            type: 'general' as const,
             text: p.text!,
             created: p.created ?? now,
             weight: p.weight ?? DEFAULT_WEIGHT,
             source: p.source ?? ('implicit' as const),
           };
           if (p.tags?.length) entry.tags = p.tags;
-          if (p.type === 'project' && projectPath) entry.projectPath = projectPath;
           if (p.metadata) entry.metadata = p.metadata;
           if (p.files?.length) entry.files = p.files;
           return entry;
         })
         .filter(p => p.text.trim().length > 0);
     } catch {
-      // If parsing fails, return empty - no extraction
       return [];
     }
   }
@@ -184,18 +190,17 @@ ${entries.map((e, i) => `[${i + 1}] ${e.text} (created: ${e.created})`).join('\n
 
       const now = new Date().toISOString();
       return parsed
-        .filter(p => p.text && p.type)
+        .filter(p => p.text)
         .map(p => {
           const entry: MemoryEntry = {
             id: p.id ?? crypto.randomUUID(),
-            type: p.type!,
+            type: 'general' as const,
             text: p.text!,
             created: p.created ?? now,
             weight: p.weight ?? DEFAULT_WEIGHT,
             source: p.source ?? ('implicit' as const),
           };
           if (p.tags?.length) entry.tags = p.tags;
-          if (p.projectPath) entry.projectPath = p.projectPath;
           if (p.metadata) entry.metadata = p.metadata;
           if (p.files?.length) entry.files = p.files;
           return entry;

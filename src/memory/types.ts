@@ -1,5 +1,5 @@
 
-export const MEMORY_TYPES = ['semantic', 'episodic', 'project'] as const;
+export const MEMORY_TYPES = ['general'] as const;
 export type MemoryType = (typeof MEMORY_TYPES)[number];
 
 export interface MemoryEntry {
@@ -28,7 +28,6 @@ export interface MemoryStore {
   update(id: string, patch: Partial<MemoryEntry>): Promise<MemoryEntry | null>;
   remove(id: string): Promise<boolean>;
   getAll(): Promise<MemoryEntry[]>;
-  getByType(type: MemoryType): Promise<MemoryEntry[]>;
   replaceAll(entries: MemoryEntry[], type: MemoryType): Promise<void>;
   count(type?: MemoryType): Promise<number>;
   getRecent(limit: number, type?: MemoryType): Promise<MemoryEntry[]>;
@@ -39,7 +38,7 @@ export interface MemoryStore {
 }
 
 export interface MemoryRetriever {
-  search(query: string, options?: { limit?: number; projectPath?: string; type?: MemoryType; threshold?: number }): Promise<MemoryEntry[]>;
+  search(query: string, options?: { limit?: number; threshold?: number }): Promise<MemoryEntry[]>;
 }
 
 export interface SearchResult {
@@ -48,7 +47,7 @@ export interface SearchResult {
 }
 
 export interface MemoryExtractor {
-  extract(traceContext: TraceExtractionContext, projectPath?: string): Promise<MemoryEntry[]>;
+  extract(traceContext: TraceExtractionContext): Promise<MemoryEntry[]>;
   consolidate(entries: MemoryEntry[]): Promise<MemoryEntry[]>;
 }
 
@@ -63,19 +62,20 @@ export interface TraceExtractionContext {
 
 export interface MemoryConfig {
   globalBaseDir?: string;
-  maxSemanticEntries?: number;
-  maxEpisodicEntries?: number;
+  maxGeneralEntries?: number;
   consolidationThreshold?: number;
   autoExtractMinToolCalls?: number;
   maxInjectedEntries?: number;
   extractionModel?: string;
   /** Minimum similarity score for memory retrieval (0-1). Results below this are filtered out. */
   retrievalThreshold?: number;
-  /** Max episodic entries retrieved per query. */
+  /** Max general entries retrieved per query. */
   retrievalTopK?: number;
   /** Extraction trigger mode: 'explicit' = only on trigger words, 'auto' = on every task completion, 'off' = disabled. */
   extractTriggerMode?: 'explicit' | 'auto' | 'off';
   /** Max user preference entries (for system prompt). */
   maxUserPreferences?: number;
+  /** Weight threshold for entries to be injected as user_preferences. */
+  preferenceWeightThreshold?: number;
 }
 

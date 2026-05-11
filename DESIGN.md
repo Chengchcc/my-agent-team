@@ -56,10 +56,10 @@ A terminal-native AI coding agent built with TypeScript and Bun. It combines an 
 
 | Term | Definition |
 |------|-----------|
-| **Semantic Memory** | User preferences and reusable facts ("user prefers TypeScript", "project uses pnpm"). ~200 entry limit. |
-| **Episodic Memory** | Past conversation records and decisions. ~500 entry limit, LRU eviction. |
-| **Project Memory** | Project-specific facts, architecture notes, conventions. Stored in `.my-agent/memory-project.json`. |
-| **Memory Extraction** | LLM-based process that extracts key facts from conversation and writes them to memory stores. Triggered by explicit trigger words ("记住", "remember"). |
+| **General Memory** | Single store for all extracted memories (preferences, decisions, facts). ~500 entry limit, LRU eviction. Stored in SQLite `~/.my-agent/memory/memory.db` with FTS5 full-text index. |
+| **Memory Retrieval** | Three-way hybrid: keyword token scoring + FTS5 BM25 + Ollama vector embeddings, fused via Reciprocal Rank Fusion (weights 0.5/0.3/0.2). |
+| **Memory Extraction** | Queue-driven via evolution's PersistentQueue/Drainer. middleware enqueues `mem-extract` on `main_loop_settled`; drainer dispatcher runs LlmExtractor with trace context. Embedding generation is a separate `mem-embed` task. |
+| **Project Context** | Provided via `AGENTS.md` / `CLAUDE.md` markdown files, injected as `<project_rules>`. No separate project memory store. |
 
 ### Skills
 
@@ -136,7 +136,7 @@ my-agent/
     config/                   # YAML-based configuration system
     evolution/                # Self-evolution: review agent, effectiveness tracking, skill analysis
     mcp/                      # MCP client (server lifecycle, tool adapter, prompts, resources)
-    memory/                   # Persistent memory (semantic, episodic, project)
+    memory/                   # Persistent memory: SQLite store, hybrid retrieval, async embedding
     providers/                # LLM providers (Claude, OpenAI)
     session/                  # Conversation session persistence
     skills/                   # Skill file loading and injection
@@ -170,7 +170,7 @@ The assembly process:
 5. **Wire up Todo** — creates the `todo_write` tool and a middleware that injects reminders
 6. **Create and register the SubAgentTool** — isolates tool registry to prevent recursive spawning
 7. **Assemble MCP Client** — load server configs from settings, register management tools immediately, start connections in background (non-blocking, 10s timeout per operation), register server-specific tools/prompts/resources via `onReady` callback as they become available
-8. **Set up Memory** — three JSONL stores (semantic, episodic, project), keyword retriever, LLM extractor, and injection middleware
+8. **Set up Memory** — SQLite store with FTS5, three-way hybrid retriever (keyword + BM25 + vector), middleware (enqueues extraction to evolution queue)
 9. **Set up Skills** — loads `SKILL.md` files, creates middleware that lists them for the model
 10. **Set up Session** — auto-save hook persists conversation after each run
 11. **Build the tool middleware chain** — Permission guard, ReadCache, Trace tool middleware
@@ -536,47 +536,45 @@ Sub-agents can also be triggered automatically by the budget guard when a large 
 
 ### Conceptual Overview
 
-**The Metaphor**: Three notebooks — semantic (knowledge/preferences), episodic (events/conversation snippets), project (repo-level rules in `.my-agent/memory-project.json`). Plus AGENT.md injected directly into the system prompt.
+**The Metaphor**: One notebook for all extracted memories, plus AGENTS.md/CLAUDE.md for project rules. Memories enter via two paths: user explicitly asks to remember → `memory add` tool; or agent completes meaningful work → middleware enqueues extraction task → drainer runs LLM extraction → entries stored → embeddings generated async.
 
 **Key Files**:
 
 | File | Purpose |
 |---|---|
-| `types.ts` | MemoryEntry: id, type, title, content, tags, importance, usageCount |
-| `store.ts` | JsonlMemoryStore: append-only, global at `~/.my-agent/memory/`, project at `.my-agent/` |
-| `extractor.ts` | LlmExtractor using DEFAULT_SUMMARY_MODEL, triggered by keywords ("remember", "记住") |
-| `retriever.ts` | KeywordRetriever: keyword 0.35 + tag 0.25 + recency 0.20 + intrinsic 0.10 + usage 0.10 |
-| `middleware.ts` | Injects AGENT.md, user_preferences, retrieved memory into beforeModel |
-| `tool.ts` | Memory tool for LLM-initiated writes |
+| `types.ts` | MemoryEntry: id, type ('general'), text, tags, weight, embedding, usageCount |
+| `sqlite-store.ts` | SqliteMemoryStore: bun:sqlite with FTS5 virtual table for full-text search |
+| `extractor.ts` | LlmExtractor using trace context (userTurns, toolCalls, outcomes) instead of raw messages |
+| `retriever.ts` | KeywordRetriever: token scoring with keyword/tag/recency/weight/usage factors. Uses `getAll()` + in-memory scoring for Chinese support |
+| `bm25-retriever.ts` | BM25Retriever: delegates to `store.ftsSearch()` which uses SQLite FTS5 `bm25()` ranking |
+| `vector-retriever.ts` | VectorRetriever: encodes via Ollama `nomic-embed-text` HTTP API, cosine similarity scoring |
+| `hybrid-retriever.ts` | HybridRetriever: runs all three in `Promise.allSettled`, fuses via RRF (k=60, weights 0.5/0.3/0.2) |
+| `middleware.ts` | Injects AGENT.md, user_preferences (weight ≥ 0.9), retrieved memory. Enqueues `mem-extract` tasks |
+| `tool.ts` | Memory tool: search/add/list/forget — simplified, no type parameter |
+| `embedding-runner.ts` | EmbeddingTaskRunner: wraps encode() for queue-compatible async embedding |
+| `dispatchers.ts` | createMemExtractDispatcher + createMemEmbedDispatcher — drainer task handlers |
 
-**Trigger Mode**: Explicit only. afterAgentRun checks if the last user message contains trigger words — match triggers extractor → store.append. No "auto-learn" mode to prevent the model from filling memory on its own.
+**Trigger Mode**: Explicit only. afterAgentRun checks trigger words → enqueues `mem-extract` to PersistentQueue. Drainer consumes when idle (quota: 1/window). Separately, `mem-embed` tasks consumed at quota 3/window.
 
 **Module Boundaries**:
 
 | Dimension | Memory | Skill | Self-Evolution |
 |---|---|---|---|
-| What it stores | Facts (preferences, conventions) | Methods (how to do X) | Methods (produce skills) |
-| Who writes | User / LLM extract | Human + Self-Evolution | Tier 0 learns from traces |
+| What it stores | Facts (preferences, decisions) | Methods (how to do X) | Methods (produce skills) |
+| Who writes | User / LLM via queue | Human + Self-Evolution | Tier 0 learns from traces |
 | Injection point | system + ephemeral | system catalog + ephemeral hint | Output lands in skill/auto |
-| Trigger | Keywords / keyword retrieval | /tag / substring / keywordScore | idle / event / cron / threshold / manual |
-
-**Trade-offs**: embedding field is defined but retriever doesn't use it — semantic search needs an external vector store. JsonlMemoryStore is append-only with no dedup or TTL — scanning slows over time. Extractor fires async with `void` — failures are silently lost. Project memory writes to `.my-agent/` directory, isolated from Claude Code's `.claude/`.
-
-The agent can remember information across sessions using three memory stores:
-
-| Store | What it holds | Typical entries |
-|-------|--------------|-----------------|
-| **Semantic** | User preferences, coding style, reusable knowledge | ~200 entries |
-| **Episodic** | Past conversations, decisions, debugging sessions | ~500 entries |
-| **Project** | Project-specific facts, architecture notes | ~50 entries |
+| Trigger | Keywords → queue enqueue | /tag / substring / keywordScore | idle / event / cron / threshold / manual |
+| Queue | Shares evolution's PersistentQueue | — | Own queue infrastructure |
 
 ### Architecture
 
-1. **Storage** — `JsonlMemoryStore` uses JSONL files (semantic, episodic) and JSON files (project) in `~/.my-agent/memory/`
-2. **Retrieval** — `KeywordRetriever` tokenizes queries into English words and Chinese characters, scores by keyword match (40%), tag match (30%), recency (20%), weight (10%)
-3. **Extraction** — `LlmExtractor` uses a cheap model (e.g., Haiku) to extract memories from conversation and consolidate duplicates
-4. **Injection** — `MemoryMiddleware` retrieves relevant memories before each model call and injects them into the system prompt inside a `<memory>` block
-5. **Tool access** — The `memory` tool lets the model explicitly search, add, list, forget, and consolidate memories
+1. **Storage** — `SqliteMemoryStore` uses `bun:sqlite` with a single `memory` table and a `memory_fts` FTS5 virtual table. One DB at `~/.my-agent/memory/memory.db`. Embedding stored as BLOB (Float32Array → Buffer)
+2. **Retrieval** — Three-way hybrid: `KeywordRetriever` (token scoring), `BM25Retriever` (FTS5 BM25), `VectorRetriever` (Ollama cosine similarity). Fused via `HybridRetriever` with RRF: `0.5/(60+rank_v) + 0.3/(60+rank_b) + 0.2/(60+rank_k)`
+3. **Injection** — `MemoryMiddleware.beforeModel`: (a) `generalStore.getAll()` filtered by `weight >= preferenceWeightThreshold` → `<user_preferences>` in system prompt; (b) `retriever.search(query)` → `<retrieved_memory>` in ephemeral reminders
+4. **Extraction** — Queue-driven: `afterAgentRun` enqueues `mem-extract` to PersistentQueue. Drainer dispatcher reads TraceStore, builds `TraceExtractionContext`, runs `LlmExtractor.extract()`. LLM no longer classifies type — all entries default to `'general'`. Entry weight (0-1) determines whether it's injected as preference or retrieved by query
+5. **Embedding** — After extraction, each new entry enqueues `mem-embed` task. Drainer dispatcher calls `EmbeddingTaskRunner` → `VectorRetriever.encode()` → Ollama HTTP API → updates store with embedding
+6. **Consolidation** — `LlmExtractor.consolidate()` uses objective signals: `usageCount`, `lastHitAt`, `weight`. Prompt provides per-entry usage stats. Rules: keep if `usageCount >= 3` or `lastHitAt < 7d`; remove if `usageCount = 0 && age > 30d`
+7. **Tool access** — `MemoryTool`: search/add/list/forget. Simplified — no type parameter, no consolidate (handled by drainer)
 
 ---
 
@@ -1280,15 +1278,15 @@ stateDiagram-v2
 
 ### Trigger × Tier Matrix
 
-| Trigger | Timing | tier0 | tier2 | tier3opt | tier3ab | auto_accept |
-|---|---|---|---|---|---|---|
-| **IdleTrigger** | idle ≥ 30s | x | x | - | - | - |
-| **EventTrigger** | loop_settled +1s | x | - | - | - | - |
-| **Cron */15min** | every 15min | x | x | - | - | - |
-| **Cron daily 03:00** | daily | - | - | - | x | x |
-| **Cron weekly Sun** | weekly | - | - | x | - | - |
-| **ThresholdTrigger** | queue per-kind ≥10 | x | x | x | - | - |
-| **ManualTrigger** | /review run-now | x | x | x | x | x |
+| Trigger | Timing | tier0 | tier2 | tier3opt | tier3ab | auto_accept | mem-extract | mem-embed |
+|---|---|---|---|---|---|---|---|---|
+| **IdleTrigger** | idle ≥ 30s | x | x | - | - | - | - | x |
+| **EventTrigger** | loop_settled +1s | x | - | - | - | - | x | - |
+| **Cron */15min** | every 15min | x | x | - | - | - | - | - |
+| **Cron daily 03:00** | daily | - | - | - | x | x | - | - |
+| **Cron weekly Sun** | weekly | - | - | x | - | - | - | - |
+| **ThresholdTrigger** | queue per-kind ≥10 | x | x | x | - | - | - | - |
+| **ManualTrigger** | /review run-now | x | x | x | x | x | x | x |
 
 ### File Layout
 

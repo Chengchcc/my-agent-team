@@ -2,7 +2,6 @@
 export * from './types';
 
 // Implementations
-export { JsonlMemoryStore } from './store';
 export { SqliteMemoryStore } from './sqlite-store';
 export { KeywordRetriever } from './retriever';
 export { BM25Retriever } from './bm25-retriever';

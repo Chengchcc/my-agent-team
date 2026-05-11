@@ -49,8 +49,7 @@ export const defaultSettings: Settings = {
   memory: {
     enabled: true,
     globalBaseDir: '~/.my-agent/memory',
-    maxSemanticEntries: 200,
-    maxEpisodicEntries: 500,
+    maxGeneralEntries: 500,
     consolidationThreshold: 50,
     autoExtractMinToolCalls: 3,
     maxInjectedEntries: 10,
@@ -59,6 +58,7 @@ export const defaultSettings: Settings = {
     retrievalTopK: 5,
     extractTriggerMode: 'explicit',
     maxUserPreferences: 20,
+    preferenceWeightThreshold: 0.9,
   },
   skills: {
     baseDir: './skills',

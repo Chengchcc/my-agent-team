@@ -26,20 +26,15 @@ export class HybridRetriever implements MemoryRetriever {
 
   async search(
     query: string,
-    options: {
-      limit?: number;
-      projectPath?: string;
-      type?: 'semantic' | 'episodic' | 'project';
-      threshold?: number;
-    } = {},
+    options: { limit?: number; threshold?: number } = {},
   ): Promise<MemoryEntry[]> {
-    const { limit = DEFAULT_LIMIT, threshold = DEFAULT_THRESHOLD, ...rest } = options;
+    const { limit = DEFAULT_LIMIT, threshold = DEFAULT_THRESHOLD } = options;
     const inflatedLimit = limit * LIMIT_MULTIPLIER;
 
     const [keywordRes, bm25Res, vectorRes] = await Promise.allSettled([
-      this.keywordRetriever.search(query, { ...rest, limit: inflatedLimit }),
-      this.bm25Retriever.search(query, { ...rest, limit: inflatedLimit }),
-      this.vectorRetriever.search(query, { ...rest, limit: inflatedLimit }),
+      this.keywordRetriever.search(query, { limit: inflatedLimit }),
+      this.bm25Retriever.search(query, { limit: inflatedLimit }),
+      this.vectorRetriever.search(query, { limit: inflatedLimit }),
     ]);
 
     const keywordRanked = keywordRes.status === 'fulfilled' ? keywordRes.value : [];
@@ -54,9 +49,7 @@ export class HybridRetriever implements MemoryRetriever {
         const rank = i + 1;
         const score = weight / (RRF_K + rank);
         rrfScores.set(entry.id, (rrfScores.get(entry.id) ?? 0) + score);
-        if (!entryMap.has(entry.id)) {
-          entryMap.set(entry.id, entry);
-        }
+        if (!entryMap.has(entry.id)) entryMap.set(entry.id, entry);
       });
     };
 

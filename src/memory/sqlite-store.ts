@@ -6,13 +6,11 @@ import crypto from 'crypto';
 import type { MemoryEntry, MemoryStore, MemoryType, MemoryConfig } from './types';
 import { getSettingsSync } from '../config';
 
-const FALLBACK_MAX_SEMANTIC = 200;
-const FALLBACK_MAX_EPISODIC = 500;
+const FALLBACK_MAX_GENERAL = 500;
 
 const FALLBACK_CONFIG: Required<MemoryConfig> = {
   globalBaseDir: '~/.my-agent/memory',
-  maxSemanticEntries: FALLBACK_MAX_SEMANTIC,
-  maxEpisodicEntries: FALLBACK_MAX_EPISODIC,
+  maxGeneralEntries: FALLBACK_MAX_GENERAL,
   consolidationThreshold: 50,
   autoExtractMinToolCalls: 3,
   maxInjectedEntries: 10,
@@ -21,6 +19,7 @@ const FALLBACK_CONFIG: Required<MemoryConfig> = {
   retrievalTopK: 5,
   extractTriggerMode: 'explicit',
   maxUserPreferences: 20,
+  preferenceWeightThreshold: 0.9,
 };
 
 function getMemConfig(): Required<MemoryConfig> {
@@ -159,10 +158,10 @@ export class SqliteMemoryStore implements MemoryStore {
       full.text,
     ]);
 
-    // Enforce capacity
-    const max = this.type === 'semantic'
-      ? this.config.maxSemanticEntries
-      : this.config.maxEpisodicEntries;
+    // Enforce capacity (project stores have no individual limit, enforced by general limit)
+    const max = this.type === 'general'
+      ? this.config.maxGeneralEntries
+      : this.config.maxGeneralEntries; // project shares general limit for now
     const cnt = (
       this.db.query('SELECT COUNT(*) as c FROM memory WHERE type=?').get(this.type) as any
     ).c;
@@ -225,11 +224,6 @@ export class SqliteMemoryStore implements MemoryStore {
     return rows.map(r => this.rowToEntry(r));
   }
 
-  async getByType(type: MemoryType): Promise<MemoryEntry[]> {
-    const rows = this.db.query('SELECT * FROM memory WHERE type=?').all(type) as any[];
-    return rows.map(r => this.rowToEntry(r));
-  }
-
   async replaceAll(entries: MemoryEntry[], _type: MemoryType): Promise<void> {
     this.db.run('DELETE FROM memory WHERE type=?', [this.type]);
     this.db.run('DELETE FROM memory_fts WHERE type=?', [this.type]);
@@ -270,9 +264,9 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   async enforceLimit(): Promise<void> {
-    const max = this.type === 'semantic'
-      ? this.config.maxSemanticEntries
-      : this.config.maxEpisodicEntries;
+    const max = this.type === 'general'
+      ? this.config.maxGeneralEntries
+      : this.config.maxGeneralEntries;
 
     const cnt = (
       this.db.query('SELECT COUNT(*) as c FROM memory WHERE type=?').get(this.type) as any
@@ -288,6 +282,32 @@ export class SqliteMemoryStore implements MemoryStore {
       `UPDATE memory SET lastHitAt=?, usageCount=usageCount+1 WHERE id IN (${placeholders})`,
       [now, ...ids],
     );
+  }
+
+  /** Get entries that have embeddings — pre-filter at DB level for VectorRetriever. */
+  async getAllWithEmbeddings(): Promise<MemoryEntry[]> {
+    const rows = this.db.query(
+      'SELECT * FROM memory WHERE type=? AND embedding IS NOT NULL',
+    ).all(this.type) as any[];
+    return rows.map(r => this.rowToEntry(r));
+  }
+
+  /** Pre-filter by text match — used by KeywordRetriever to avoid full scan. */
+  async searchByText(query: string, limit: number): Promise<MemoryEntry[]> {
+    const tokens = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
+    if (tokens.length === 0) {
+      const rows = this.db.query(
+        'SELECT * FROM memory WHERE type=? ORDER BY lastHitAt DESC, created DESC LIMIT ?',
+      ).all(this.type, limit * 3) as any[];
+      return rows.map(r => this.rowToEntry(r));
+    }
+    // Build LIKE clauses for each token
+    const conditions = tokens.map(() => 'text LIKE ?').join(' OR ');
+    const params = tokens.map(t => `%${t}%`);
+    const rows = this.db.query(
+      `SELECT * FROM memory WHERE type=? AND (${conditions}) ORDER BY lastHitAt DESC, created DESC LIMIT ?`,
+    ).all(this.type, ...params, limit * 3) as any[];
+    return rows.map(r => this.rowToEntry(r));
   }
 
   async ftsSearch(query: string, type: string, limit: number): Promise<MemoryEntry[]> {

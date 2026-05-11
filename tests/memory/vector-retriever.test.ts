@@ -5,7 +5,7 @@ import { VectorRetriever } from '../../src/memory/vector-retriever';
 function makeEntry(overrides: Partial<MemoryEntry>): MemoryEntry {
   return {
     id: overrides.id ?? 'test-id',
-    type: 'semantic',
+    type: 'general',
     text: 'test',
     weight: 1,
     source: 'explicit',
@@ -30,7 +30,7 @@ describe('VectorRetriever', () => {
     sem = new MockStore();
     epi = new MockStore();
     proj = new MockStore();
-    retriever = new VectorRetriever(sem as any, epi as any, proj as any, {
+    retriever = new VectorRetriever(sem as any, {
       ollamaModel: 'test-model',
       ollamaBaseUrl: 'http://localhost:9999',
     });

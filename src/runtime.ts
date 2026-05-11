@@ -17,11 +17,12 @@ import { createTodoMiddleware } from './todos';
 import {
   SqliteMemoryStore, KeywordRetriever,
   BM25Retriever, VectorRetriever, HybridRetriever,
-  LlmExtractor, MemoryMiddleware, MemoryTool,
+  MemoryMiddleware, MemoryTool,
   EmbeddingTaskRunner,
   createMemExtractDispatcher, createMemEmbedDispatcher,
   invalidateAgentMdCache,
 } from './memory';
+import type { MemoryRetriever } from './memory';
 import { createSkillMiddleware } from './skills/middleware';
 import { SkillLoader } from './skills/loader';
 import { SessionStore } from './session/store';
@@ -181,7 +182,8 @@ export async function createAgentRuntime(
   );
 
   // Memory
-  const memoryMiddleware = setupMemory(enableMemory, provider, cwd, toolRegistry, hooks);
+  const memorySetup = setupMemory(enableMemory, provider, toolRegistry, hooks);
+  const memoryMiddleware = memorySetup?.middleware;
 
   // Skills
   let skillMiddleware: ReturnType<typeof createSkillMiddleware> | undefined;
@@ -214,31 +216,20 @@ export async function createAgentRuntime(
   const evolution = setupTrace(settings, hooks, toolMiddlewares, skillLoader);
 
   // Wire memory extraction/embedding dispatchers into evolution drainer
-  if (evolution && memoryMiddleware) {
+  if (evolution && memorySetup) {
+    const genStore = memorySetup.store;
     const embeddingRunner = new EmbeddingTaskRunner(
-      (text: string) => new VectorRetriever(
-        new SqliteMemoryStore('semantic'), new SqliteMemoryStore('episodic'), new SqliteMemoryStore('project'),
-      ).encode(text),
-      new SqliteMemoryStore('semantic'),
-      new SqliteMemoryStore('episodic'),
-      new SqliteMemoryStore('project'),
+      (text: string) => new VectorRetriever(genStore).encode(text),
+      genStore,
     );
-    // Since stores in setupMemory are internal, re-create representative stores for dispatchers
-    // In practice these share the same .db file so they operate on the same data
-    const semStore = new SqliteMemoryStore('semantic');
-    const epiStore = new SqliteMemoryStore('episodic');
-    const projStore = new SqliteMemoryStore('project', {}, cwd);
-    // Wire drainer dispatchers
     evolution.drainer.setDispatcher('mem-extract', createMemExtractDispatcher({
       provider,
-      semanticStore: semStore,
-      episodicStore: epiStore,
-      projectStore: projStore,
+      generalStore: genStore,
       traceStore: (evolution as any).traceStore ?? { get: async () => null },
-      enqueueEmbed: async (entryId, text, storeType) => {
+      enqueueEmbed: async (entryId, text) => {
         await evolution.queue.enqueue({
           kind: 'mem-embed' as any,
-          payload: { kind: 'mem-embed', entryId, text, storeType },
+          payload: { kind: 'mem-embed', entryId, text },
         } as any);
       },
     }));
@@ -262,9 +253,6 @@ export async function createAgentRuntime(
     contextManager,
     sessionStore,
     shutdown: async () => {
-      if (memoryMiddleware) {
-        await memoryMiddleware.awaitPendingExtractions();
-      }
       if (mcpManager) {
         await mcpManager.shutdown();
         setMcpManagerInstance(null);
@@ -281,34 +269,26 @@ export async function createAgentRuntime(
 
 function setupMemory(
   enabled: boolean,
-  provider: Provider,
-  cwd: string,
+  _provider: Provider,
   toolRegistry: ToolRegistry,
   hooks: { beforeModel: Middleware[]; afterAgentRun: Middleware[] },
-): MemoryMiddleware | undefined {
+): { middleware: MemoryMiddleware; store: SqliteMemoryStore; retriever: MemoryRetriever } | undefined {
   if (!enabled) return undefined;
-  const semanticStore = new SqliteMemoryStore('semantic');
-  const episodicStore = new SqliteMemoryStore('episodic');
-  const projectStore = new SqliteMemoryStore('project', {}, cwd);
-  const keywordRetriever = new KeywordRetriever(semanticStore, episodicStore, projectStore);
-  const bm25Retriever = new BM25Retriever(semanticStore, episodicStore, projectStore);
-  const vectorRetriever = new VectorRetriever(semanticStore, episodicStore, projectStore);
+  const generalStore = new SqliteMemoryStore('general');
+  const keywordRetriever = new KeywordRetriever(generalStore);
+  const bm25Retriever = new BM25Retriever(generalStore);
+  const vectorRetriever = new VectorRetriever(generalStore);
   const retriever = new HybridRetriever(keywordRetriever, bm25Retriever, vectorRetriever);
-  const extractor = new LlmExtractor(provider);
   const middleware = new MemoryMiddleware(
-    { semantic: semanticStore, episodic: episodicStore, project: projectStore },
-    retriever, extractor,
+    { general: generalStore },
+    retriever,
   );
-  toolRegistry.register(new MemoryTool(
-    { semantic: semanticStore, episodic: episodicStore, project: projectStore },
-    retriever, extractor,
-  ));
+  toolRegistry.register(new MemoryTool(generalStore, retriever));
   if (middleware.beforeModel) hooks.beforeModel.push(middleware.beforeModel);
   if (middleware.afterAgentRun) hooks.afterAgentRun.push(middleware.afterAgentRun);
-  void semanticStore.enforceLimit?.();
-  void episodicStore.enforceLimit?.();
+  void generalStore.enforceLimit?.();
   invalidateAgentMdCache();
-  return middleware;
+  return { middleware, store: generalStore, retriever };
 }
 
 function setupCompaction(

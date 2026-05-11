@@ -48,8 +48,7 @@ const hybridRetrievalConfigSchema = z.object({
 const memorySettingsSchema = z.object({
   enabled: z.boolean().default(true),
   globalBaseDir: z.string().default('~/.my-agent/memory'),
-  maxSemanticEntries: z.number().int().positive().default(200),
-  maxEpisodicEntries: z.number().int().positive().default(500),
+  maxGeneralEntries: z.number().int().positive().default(500),
   consolidationThreshold: z.number().int().positive().default(50),
   autoExtractMinToolCalls: z.number().int().positive().default(3),
   maxInjectedEntries: z.number().int().positive().default(10),
@@ -58,6 +57,7 @@ const memorySettingsSchema = z.object({
   retrievalTopK: z.number().int().positive().default(5),
   extractTriggerMode: z.enum(['explicit', 'auto', 'off']).default('explicit'),
   maxUserPreferences: z.number().int().positive().default(20),
+  preferenceWeightThreshold: z.number().min(0).max(1).default(0.9),
   hybridRetrieval: hybridRetrievalConfigSchema.optional().default({}),
 });
 

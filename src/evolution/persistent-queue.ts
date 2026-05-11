@@ -29,7 +29,7 @@ export type TaskPayload =
   | { kind: 'tier3_ab_promote'; candidateId: string; shadowStartedAt: number }
   | { kind: 'auto_accept_sweep'; cutoff: number }
   | { kind: 'mem-extract'; traceId: string; projectPath: string }
-  | { kind: 'mem-embed'; entryId: string; text: string; storeType: 'semantic' | 'episodic' | 'project' };
+  | { kind: 'mem-embed'; entryId: string; text: string };
 
 export type QueuePriority = 'critical' | 'high' | 'normal' | 'low';
 
