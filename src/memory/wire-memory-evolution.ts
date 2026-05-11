@@ -59,7 +59,7 @@ export function backfillEmbeddings(
         });
       }
       // Don't flood the queue; wait for drainer to consume before next batch
-      await new Promise(r => setTimeout(r, 5000));
+      await new Promise(r => setTimeout(r, BACKFILL_DELAY_MS));
     }
   })();
 }
