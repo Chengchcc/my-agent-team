@@ -36,6 +36,15 @@ const contextSettingsSchema = z.object({
   compaction: compactionSettingsSchema.optional(),
 });
 
+const hybridRetrievalConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  ollamaModel: z.string().default('nomic-embed-text'),
+  ollamaBaseUrl: z.string().default('http://localhost:11434'),
+  vectorWeight: z.number().min(0).max(1).default(0.5),
+  bm25Weight: z.number().min(0).max(1).default(0.3),
+  keywordWeight: z.number().min(0).max(1).default(0.2),
+});
+
 const memorySettingsSchema = z.object({
   enabled: z.boolean().default(true),
   globalBaseDir: z.string().default('~/.my-agent/memory'),
@@ -49,6 +58,7 @@ const memorySettingsSchema = z.object({
   retrievalTopK: z.number().int().positive().default(5),
   extractTriggerMode: z.enum(['explicit', 'auto', 'off']).default('explicit'),
   maxUserPreferences: z.number().int().positive().default(20),
+  hybridRetrieval: hybridRetrievalConfigSchema.optional().default({}),
 });
 
 const skillsSettingsSchema = z.object({

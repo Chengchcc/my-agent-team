@@ -62,6 +62,16 @@ export interface MemorySettings {
   retrievalTopK: number;
   extractTriggerMode: 'explicit' | 'auto' | 'off';
   maxUserPreferences: number;
+  hybridRetrieval?: HybridRetrievalConfig;
+}
+
+export interface HybridRetrievalConfig {
+  enabled: boolean;
+  ollamaModel: string;
+  ollamaBaseUrl: string;
+  vectorWeight: number;
+  bm25Weight: number;
+  keywordWeight: number;
 }
 
 export interface SkillsSettings {
