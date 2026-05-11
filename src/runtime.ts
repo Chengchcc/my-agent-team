@@ -21,7 +21,7 @@ import {
   invalidateAgentMdCache,
 } from './memory';
 import type { MemoryRetriever } from './memory';
-import { wireMemoryIntoEvolution } from './memory/wire-memory-evolution';
+import { wireMemoryIntoEvolution, backfillEmbeddings } from './memory/wire-memory-evolution';
 import { createSkillMiddleware } from './skills/middleware';
 import { SkillLoader } from './skills/loader';
 import { SessionStore } from './session/store';
@@ -217,6 +217,7 @@ export async function createAgentRuntime(
   // Wire memory extraction/embedding dispatchers into evolution drainer
   if (evolution && memorySetup) {
     wireMemoryIntoEvolution(evolution, memorySetup, provider);
+    void backfillEmbeddings(memorySetup.store, evolution.queue);
   }
 
   // Agent

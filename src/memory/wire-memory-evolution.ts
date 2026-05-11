@@ -37,3 +37,25 @@ export function wireMemoryIntoEvolution(
   }));
   evolution.drainer.setDispatcher('mem-embed', createMemEmbedDispatcher(embeddingRunner));
 }
+
+const BACKFILL_BATCH = 20;
+
+/** One-shot backfill: enqueue mem-embed tasks for entries without embeddings. */
+export async function backfillEmbeddings(
+  store: SqliteMemoryStore,
+  queue: EvolutionModule['queue'],
+): Promise<number> {
+  let enqueued = 0;
+  const missing = await store.entriesWithoutEmbeddings(BACKFILL_BATCH);
+  for (const e of missing) {
+    await queue.enqueue({
+      kind: 'mem-embed',
+      priority: 'low',
+      fingerprint: `backfill:${e.id}`,
+      scheduledBy: 'periodic',
+      payload: { kind: 'mem-embed', entryId: e.id, text: e.text },
+    });
+    enqueued++;
+  }
+  return enqueued;
+}
