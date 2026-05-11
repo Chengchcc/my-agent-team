@@ -1,18 +1,22 @@
 import type { MemoryEntry, MemoryRetriever, MemoryStore } from './types';
 
 const DEFAULT_LIMIT = 10;
-const DEFAULT_THRESHOLD = 0.1;
 
 export interface VectorRetrieverConfig {
   ollamaModel: string;
   ollamaBaseUrl: string;
 }
 
+type VectorStore = MemoryStore & {
+  vectorSearch?(queryEmbedding: number[], limit: number): Promise<Array<{ entryId: string; distance: number }>>;
+  get?(id: string): Promise<MemoryEntry | null>;
+};
+
 export class VectorRetriever implements MemoryRetriever {
   private config: VectorRetrieverConfig;
 
   constructor(
-    private generalStore: MemoryStore,
+    private store: VectorStore,
     config: Partial<VectorRetrieverConfig> = {},
   ) {
     this.config = {
@@ -25,7 +29,9 @@ export class VectorRetriever implements MemoryRetriever {
     query: string,
     options: { limit?: number; threshold?: number } = {},
   ): Promise<MemoryEntry[]> {
-    const { limit = DEFAULT_LIMIT, threshold = DEFAULT_THRESHOLD } = options;
+    const { limit = DEFAULT_LIMIT } = options;
+
+    if (!this.store.vectorSearch) return [];
 
     let queryEmbedding: number[];
     try {
@@ -34,22 +40,13 @@ export class VectorRetriever implements MemoryRetriever {
       return [];
     }
 
-    // Only load entries that have embeddings — pre-filtered at DB level
-    const store = this.generalStore as MemoryStore & { getAllWithEmbeddings?: () => Promise<MemoryEntry[]> };
-    const candidates = store.getAllWithEmbeddings
-      ? await store.getAllWithEmbeddings()
-      : (await this.generalStore.getAll()).filter(e => e.embedding);
-
-    const scored = candidates
-      .map(entry => ({
-        entry,
-        score: this.cosineSimilarity(queryEmbedding, entry.embedding!),
-      }))
-      .filter(s => s.score >= threshold)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
-
-    return scored.map(s => s.entry);
+    const rows = await this.store.vectorSearch(queryEmbedding, limit);
+    const results: MemoryEntry[] = [];
+    for (const row of rows) {
+      const entry = await this.store.get?.(row.entryId) ?? null;
+      if (entry) results.push(entry);
+    }
+    return results;
   }
 
   async encode(text: string): Promise<number[]> {
@@ -64,19 +61,5 @@ export class VectorRetriever implements MemoryRetriever {
     const emb = data.embeddings[0];
     if (!emb) throw new Error('Ollama returned empty embeddings');
     return emb;
-  }
-
-  cosineSimilarity(a: number[], b: number[]): number {
-    let dot = 0, normA = 0, normB = 0;
-    const len = Math.min(a.length, b.length);
-    for (let i = 0; i < len; i++) {
-      const av = a[i]!;
-      const bv = b[i]!;
-      dot += av * bv;
-      normA += av * av;
-      normB += bv * bv;
-    }
-    const denom = Math.sqrt(normA) * Math.sqrt(normB);
-    return denom === 0 ? 0 : dot / denom;
   }
 }

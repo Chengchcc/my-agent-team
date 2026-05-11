@@ -1,4 +1,5 @@
 import { Database } from 'bun:sqlite';
+import * as sqliteVec from 'sqlite-vec';
 import path from 'path';
 import os from 'os';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -26,6 +27,7 @@ type SqlRow = {
 };
 
 const FALLBACK_MAX_GENERAL = 500;
+const EMBEDDING_DIMS = 768;
 const EMBEDDING_FLOAT_SIZE = 4;
 const MIN_TOKEN_LENGTH = 2;
 const CANDIDATE_MULTIPLIER = 3;
@@ -77,6 +79,7 @@ export class SqliteMemoryStore implements MemoryStore {
     this.db = new Database(dbPath, { create: true });
     this.db.run('PRAGMA journal_mode=WAL');
     this.db.run('PRAGMA busy_timeout=3000');
+    sqliteVec.load(this.db as unknown as { loadExtension(file: string, entrypoint?: string): void });
     this.initTables();
   }
 
@@ -113,6 +116,10 @@ export class SqliteMemoryStore implements MemoryStore {
         text
       )
     `);
+    this.db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_memory USING vec0(
+      entry_id TEXT,
+      embedding float[${EMBEDDING_DIMS}]
+    )`);
     this.db.run('CREATE INDEX IF NOT EXISTS idx_memory_type ON memory(type)');
     this.db.run('CREATE INDEX IF NOT EXISTS idx_memory_project ON memory(projectPath)');
     this.db.run('CREATE INDEX IF NOT EXISTS idx_memory_created ON memory(created)');
@@ -306,14 +313,6 @@ export class SqliteMemoryStore implements MemoryStore {
     );
   }
 
-  /** Get entries that have embeddings — pre-filter at DB level for VectorRetriever. */
-  async getAllWithEmbeddings(): Promise<MemoryEntry[]> {
-    const rows = this.db.query(
-      'SELECT * FROM memory WHERE type=? AND embedding IS NOT NULL',
-    ).all(this.type) as SqlRow[];
-    return rows.map(r => this.rowToEntry(r));
-  }
-
   /** Pre-filter by text match — used by KeywordRetriever to avoid full scan. */
   async searchByText(query: string, limit: number): Promise<MemoryEntry[]> {
     const tokens = query.toLowerCase().split(/\s+/).filter(t => t.length >= MIN_TOKEN_LENGTH);
@@ -343,6 +342,38 @@ export class SqliteMemoryStore implements MemoryStore {
       LIMIT ?
     `).all(type, ftsQuery, limit) as SqlRow[];
     return rows.map(r => this.rowToEntry(r));
+  }
+
+  async storeEmbedding(entryId: string, embedding: number[]): Promise<void> {
+    const vec = JSON.stringify(embedding);
+    this.db.run(
+      'INSERT OR REPLACE INTO vec_memory(rowid, entry_id, embedding) VALUES ((SELECT rowid FROM memory WHERE id=?), ?, vec_f32(?))',
+      [entryId, entryId, vec],
+    );
+  }
+
+  async vectorSearch(queryEmbedding: number[], limit: number): Promise<Array<{ entryId: string; distance: number }>> {
+    const vec = JSON.stringify(queryEmbedding);
+    const rows = this.db.query(`
+      SELECT entry_id, distance
+      FROM vec_memory
+      WHERE embedding MATCH ?
+      ORDER BY distance
+      LIMIT ?
+    `).all(vec, limit) as Array<{ entryId: string; distance: number }>;
+    return rows;
+  }
+
+  /** Backfill: find entries without embeddings, return up to batchSize. */
+  async entriesWithoutEmbeddings(batchSize: number): Promise<Array<{ id: string; text: string }>> {
+    const rows = this.db.query(`
+      SELECT m.id, m.text
+      FROM memory m
+      LEFT JOIN vec_memory v ON m.id = v.entry_id
+      WHERE m.type = ? AND v.entry_id IS NULL
+      LIMIT ?
+    `).all(this.type, batchSize) as Array<{ id: string; text: string }>;
+    return rows;
   }
 
   private trimFifo(max: number): void {

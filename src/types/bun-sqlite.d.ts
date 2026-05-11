@@ -4,6 +4,7 @@ declare module 'bun:sqlite' {
     run(sql: string, ...params: unknown[]): { changes: number };
     query(sql: string): Statement;
     prepare(sql: string): Statement;
+    loadExtension(file: string, entrypoint?: string): void;
     close(): void;
   }
 

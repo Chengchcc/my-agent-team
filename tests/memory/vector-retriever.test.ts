@@ -1,78 +1,68 @@
 import { describe, it, expect, vi, beforeEach } from 'bun:test';
-import type { MemoryEntry, MemoryStore } from '../../src/memory/types';
+import type { MemoryEntry } from '../../src/memory/types';
 import { VectorRetriever } from '../../src/memory/vector-retriever';
 
 function makeEntry(overrides: Partial<MemoryEntry>): MemoryEntry {
-  return {
-    id: overrides.id ?? 'test-id',
-    type: 'general',
-    text: 'test',
-    weight: 1,
-    source: 'explicit',
-    created: new Date().toISOString(),
-    ...overrides,
-  };
-}
-
-class MockStore implements Partial<MemoryStore> {
-  entries: MemoryEntry[] = [];
-  getAll = vi.fn().mockImplementation(() => Promise.resolve(this.entries));
-  update = vi.fn().mockResolvedValue(null);
+  return { id: overrides.id ?? 'test-id', type: 'general', text: 'test',
+    weight: 1, source: 'explicit', created: new Date().toISOString(), ...overrides };
 }
 
 describe('VectorRetriever', () => {
-  let sem: MockStore;
-  let epi: MockStore;
-  let proj: MockStore;
   let retriever: VectorRetriever;
+  let mockVectorSearch: ReturnType<typeof vi.fn>;
+  let mockGet: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    sem = new MockStore();
-    epi = new MockStore();
-    proj = new MockStore();
-    retriever = new VectorRetriever(sem as any, {
+    mockVectorSearch = vi.fn().mockResolvedValue([]);
+    mockGet = vi.fn().mockResolvedValue(null);
+    retriever = new VectorRetriever({
+      vectorSearch: mockVectorSearch,
+      get: mockGet,
+    } as any, {
       ollamaModel: 'test-model',
       ollamaBaseUrl: 'http://localhost:9999',
     });
   });
 
-  it('cosine similarity: identical vectors = 1', () => {
-    const v = [0.5, 0.3, 0.1];
-    expect((retriever as any).cosineSimilarity(v, v)).toBeCloseTo(1, 5);
-  });
+  it('searches via store.vectorSearch with encoded query', async () => {
+    const mockEncode = vi.fn().mockResolvedValue([1, 0, 0]);
+    (retriever as any).encode = mockEncode;
 
-  it('cosine similarity: orthogonal vectors = 0', () => {
-    expect((retriever as any).cosineSimilarity([1, 0, 0], [0, 1, 0])).toBeCloseTo(0, 5);
-  });
-
-  it('cosine similarity: opposite vectors = -1', () => {
-    expect((retriever as any).cosineSimilarity([1, 2, 3], [-1, -2, -3])).toBeCloseTo(-1, 5);
-  });
-
-  it('ranks entries by embedding similarity', async () => {
-    sem.entries = [
-      makeEntry({ id: '1', text: 'relevant', embedding: [0.9, 0.1, 0] }),
-      makeEntry({ id: '2', text: 'irrelevant', embedding: [0, 1, 0] }),
-    ];
-    (retriever as any).encode = vi.fn().mockResolvedValue([1, 0, 0]);
+    mockVectorSearch.mockResolvedValue([{ entryId: 'e1', distance: 0.1 }]);
+    mockGet.mockResolvedValue(makeEntry({ id: 'e1', text: 'relevant result' }));
 
     const results = await retriever.search('test query');
-    expect(results[0].id).toBe('1');
+    expect(mockEncode).toHaveBeenCalledWith('test query');
+    expect(mockVectorSearch).toHaveBeenCalledWith([1, 0, 0], 10);
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe('e1');
   });
 
-  it('skips entries without embeddings', async () => {
-    sem.entries = [makeEntry({ id: '1', text: 'no embedding' })];
+  it('returns empty when encode fails', async () => {
+    (retriever as any).encode = vi.fn().mockRejectedValue(new Error('Ollama down'));
+    const results = await retriever.search('test');
+    expect(results).toHaveLength(0);
+  });
+
+  it('returns empty when store has no vectorSearch', async () => {
+    const plainRetriever = new VectorRetriever({} as any);
+    (plainRetriever as any).encode = vi.fn().mockResolvedValue([1, 0, 0]);
+    const results = await plainRetriever.search('test');
+    expect(results).toHaveLength(0);
+  });
+
+  it('respects limit and skips entries not found', async () => {
     (retriever as any).encode = vi.fn().mockResolvedValue([1, 0, 0]);
+    mockVectorSearch.mockResolvedValue([
+      { entryId: 'e1', distance: 0.1 },
+      { entryId: 'e2', distance: 0.2 },
+    ]);
+    mockGet.mockImplementation((id: string) =>
+      id === 'e1' ? makeEntry({ id: 'e1', text: 'found' }) : null,
+    );
 
-    const results = await retriever.search('test');
-    expect(results).toHaveLength(0);
-  });
-
-  it('returns empty when encode fails (Ollama unreachable)', async () => {
-    sem.entries = [makeEntry({ id: '1', text: 'fact', embedding: [0.1, 0.2] })];
-    (retriever as any).encode = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
-
-    const results = await retriever.search('test');
-    expect(results).toHaveLength(0);
+    const results = await retriever.search('test', { limit: 2 });
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe('e1');
   });
 });
