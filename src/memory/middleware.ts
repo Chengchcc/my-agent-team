@@ -51,6 +51,7 @@ export class MemoryMiddleware implements AgentMiddleware {
   private extractor: MemoryExtractor;
   private config: Required<MemoryConfig>;
   private pendingExtractions: Promise<void>[] = [];
+  private extractQueue: { enqueue: (task: any) => Promise<any> } | null = null;
 
   constructor(
     stores: {
@@ -61,6 +62,7 @@ export class MemoryMiddleware implements AgentMiddleware {
     retriever: MemoryRetriever,
     extractor: MemoryExtractor,
     config: MemoryConfig = {},
+    extractQueue?: { enqueue: (task: any) => Promise<any> } | null,
   ) {
     this.semanticStore = stores.semantic;
     this.episodicStore = stores.episodic;
@@ -68,6 +70,7 @@ export class MemoryMiddleware implements AgentMiddleware {
     this.retriever = retriever;
     this.extractor = extractor;
     this.config = { ...getMemoryConfig(), ...config };
+    this.extractQueue = extractQueue ?? null;
   }
 
   /**
@@ -180,10 +183,24 @@ export class MemoryMiddleware implements AgentMiddleware {
       return result;
     }
 
-    // Trigger async extraction, don't block agent but track for graceful shutdown
     const projectPath = process.cwd();
-    const extractionPromise = this.extractor.extract(context.messages, projectPath)
-      .then(async newEntries => {
+    const traceId = context.metadata.traceId as string | undefined;
+
+    if (this.extractQueue && traceId) {
+      // Enqueue memory extraction to PersistentQueue (evolution-backed)
+      void this.extractQueue.enqueue({
+        kind: 'mem-extract' as any,
+        traceId,
+        projectPath,
+      }).catch(err => {
+        console.error('[memory] Failed to enqueue mem-extract:', err);
+      });
+    } else {
+      // Fallback: inline extraction (backward compat, no queue configured)
+      const extractionPromise = this.extractor.extract(
+        { userTurns: [], toolCalls: [], outcomes: [], totalTurns: 0, totalErrors: 0 },
+        projectPath,
+      ).then(async newEntries => {
         for (const entry of newEntries) {
           switch (entry.type) {
             case 'semantic':
@@ -198,22 +215,20 @@ export class MemoryMiddleware implements AgentMiddleware {
               break;
           }
         }
-        // Enforce capacity limits after adding new entries
         await this.semanticStore.enforceLimit?.();
         await this.episodicStore.enforceLimit?.();
-      })
-      .catch(err => {
+      }).catch(err => {
         console.error('[memory] Auto-extraction failed:', err);
-      })
-      .finally(() => {
-        // Remove from pending list when done
+      }).finally(() => {
         const index = this.pendingExtractions.indexOf(extractionPromise);
         if (index >= 0) {
           void this.pendingExtractions.splice(index, 1);
         }
       });
 
-    this.pendingExtractions.push(extractionPromise);
+      this.pendingExtractions.push(extractionPromise);
+    }
+
     return result;
   };
 
