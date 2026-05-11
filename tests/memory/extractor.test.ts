@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'bun:test';
-import type { Message, Provider, AgentContext } from '../../src/types';
-import type { MemoryEntry } from '../../src/memory/types';
+import type { Provider, AgentContext } from '../../src/types';
+import type { MemoryEntry, TraceExtractionContext } from '../../src/memory/types';
 import { LlmExtractor } from '../../src/memory/extractor';
 
 class MockProvider implements Partial<Provider> {
@@ -22,6 +22,17 @@ function makeEntry(overrides: Partial<MemoryEntry>): MemoryEntry {
   };
 }
 
+function makeTraceContext(overrides: Partial<TraceExtractionContext> = {}): TraceExtractionContext {
+  return {
+    userTurns: [{ content: 'Can you set up vitest? I prefer it over jest.' }],
+    toolCalls: [{ tool: 'bash', success: true }],
+    outcomes: ['Configured vitest in the Bun monorepo.'],
+    totalTurns: 2,
+    totalErrors: 0,
+    ...overrides,
+  };
+}
+
 describe('LlmExtractor.extract', () => {
   let extractor: LlmExtractor;
   let mockProvider: MockProvider;
@@ -31,33 +42,29 @@ describe('LlmExtractor.extract', () => {
     extractor = new LlmExtractor(mockProvider as any);
   });
 
-  it('extracts semantic and project memory entries from conversation', async () => {
+  it('extracts semantic and project memory entries from trace context', async () => {
     mockProvider.invokeResponse = `[
       {"type": "semantic", "text": "User prefers vitest over jest", "tags": ["testing"], "weight": 0.9},
       {"type": "project", "text": "TypeScript monorepo using Bun", "weight": 0.8}
     ]`;
 
-    const messages: Message[] = [
-      { role: 'user', content: 'Can you set up vitest? I prefer it over jest.' },
-      { role: 'assistant', content: 'Done! I configured vitest in your Bun monorepo.' },
-    ];
-
-    const entries = await extractor.extract(messages, '/my/project');
+    const ctx = makeTraceContext();
+    const entries = await extractor.extract(ctx, '/my/project');
     expect(entries).toHaveLength(2);
     expect(entries[0].type).toBe('semantic');
-    expect(entries[0].source).toBe('implicit'); // auto-extracted = implicit
+    expect(entries[0].source).toBe('implicit');
     expect(entries[1].projectPath).toBe('/my/project');
   });
 
   it('empty array from LLM → empty result', async () => {
     mockProvider.invokeResponse = '[]';
-    const entries = await extractor.extract([{ role: 'user', content: 'hello' }]);
+    const entries = await extractor.extract(makeTraceContext());
     expect(entries).toHaveLength(0);
   });
 
   it('non-JSON response from LLM → empty result, no throw', async () => {
     mockProvider.invokeResponse = 'I cannot extract any meaningful memories from this.';
-    const entries = await extractor.extract([{ role: 'user', content: 'hi' }]);
+    const entries = await extractor.extract(makeTraceContext());
     expect(entries).toHaveLength(0);
   });
 
@@ -66,7 +73,7 @@ describe('LlmExtractor.extract', () => {
     [{"type": "semantic", "text": "prefers tabs", "weight": 0.7}]
     That's all I found.`;
 
-    const entries = await extractor.extract([{ role: 'user', content: 'I use tabs' }]);
+    const entries = await extractor.extract(makeTraceContext());
     expect(entries).toHaveLength(1);
     expect(entries[0].text).toBe('prefers tabs');
   });
@@ -77,7 +84,7 @@ describe('LlmExtractor.extract', () => {
       {"type": "semantic", "text": "  ", "weight": 0.5},
       {"type": "semantic", "text": "valid", "weight": 0.8}
     ]`;
-    const entries = await extractor.extract([{ role: 'user', content: 'test' }]);
+    const entries = await extractor.extract(makeTraceContext());
     expect(entries).toHaveLength(1);
     expect(entries[0].text).toBe('valid');
   });
@@ -87,7 +94,7 @@ describe('LlmExtractor.extract', () => {
       {"text": "no type field", "weight": 0.5},
       {"type": "semantic", "text": "has type", "weight": 0.8}
     ]`;
-    const entries = await extractor.extract([{ role: 'user', content: 'test' }]);
+    const entries = await extractor.extract(makeTraceContext());
     expect(entries).toHaveLength(1);
   });
 });
@@ -147,7 +154,7 @@ describe('Prompt construction', () => {
   it('extraction prompt includes project path', async () => {
     const promptSpy = vi.spyOn(extractor as any, 'buildExtractionPrompt');
     mockProvider.invokeResponse = '[]';
-    await extractor.extract([{ role: 'user', content: 'test' }], '/my/project');
+    await extractor.extract(makeTraceContext(), '/my/project');
     expect(promptSpy).toHaveBeenCalled();
     const prompt = promptSpy.mock.results[0].value as string;
     expect(prompt).toContain('/my/project');
@@ -156,9 +163,22 @@ describe('Prompt construction', () => {
   it('extraction prompt includes security guidance about credentials', async () => {
     const promptSpy = vi.spyOn(extractor as any, 'buildExtractionPrompt');
     mockProvider.invokeResponse = '[]';
-    await extractor.extract([{ role: 'user', content: 'test' }]);
+    await extractor.extract(makeTraceContext());
     const prompt = promptSpy.mock.results[0].value as string;
     expect(prompt).toMatch(/credential|password|token|key/i);
+  });
+
+  it('includes trace context fields in the prompt', async () => {
+    const promptSpy = vi.spyOn(extractor as any, 'buildExtractionPrompt');
+    mockProvider.invokeResponse = '[]';
+    await extractor.extract(makeTraceContext({
+      userTurns: [{ content: 'Please fix the pnpm install bug' }],
+      toolCalls: [{ tool: 'bash', success: true }],
+      outcomes: ['Fixed pnpm install hang on Node 22'],
+    }));
+    const prompt = promptSpy.mock.results[0].value as string;
+    expect(prompt).toContain('pnpm install');
+    expect(prompt).toContain('Node 22');
   });
 
   it('consolidation prompt includes text and created of all entries', async () => {
@@ -176,11 +196,10 @@ describe('Prompt construction', () => {
   });
 
   it('uses extractionModel from constructor when provided', async () => {
-    // This tests the bug fix: extractionModel should be configurable
     const customExtractor = new LlmExtractor(mockProvider as any, 'claude-3-5-sonnet-20240620');
     const invokeSpy = vi.spyOn(mockProvider, 'invoke');
     mockProvider.invokeResponse = '[]';
-    await customExtractor.extract([{ role: 'user', content: 'test' }]);
+    await customExtractor.extract(makeTraceContext());
     const calledContext = invokeSpy.mock.calls[0][0] as AgentContext;
     expect(calledContext.config.model).toBe('claude-3-5-sonnet-20240620');
   });

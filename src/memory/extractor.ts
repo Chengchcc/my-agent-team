@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import type { Message, Provider, AgentContext } from '../types';
-import type { MemoryEntry, MemoryExtractor } from './types';
+import type { Provider, AgentContext } from '../types';
+import type { MemoryEntry, MemoryExtractor, TraceExtractionContext } from './types';
 import { DEFAULT_SUMMARY_MODEL } from '../config/constants';
 
 const DEFAULT_WEIGHT = 0.8;
@@ -11,13 +11,13 @@ export class LlmExtractor implements MemoryExtractor {
     private extractionModel: string = DEFAULT_SUMMARY_MODEL,
   ) {}
 
-  async extract(messages: Message[], projectPath?: string): Promise<MemoryEntry[]> {
-    const conversationText = this.formatMessages(messages);
-
-    const prompt = this.buildExtractionPrompt(conversationText, projectPath);
-
+  async extract(
+    traceContext: TraceExtractionContext,
+    projectPath?: string,
+  ): Promise<MemoryEntry[]> {
+    const contextText = this.formatTraceContext(traceContext);
+    const prompt = this.buildExtractionPrompt(contextText, projectPath);
     const response = await this.invokeLlm(prompt);
-
     return this.parseExtractedResponse(response, projectPath);
   }
 
@@ -27,19 +27,45 @@ export class LlmExtractor implements MemoryExtractor {
     return this.parseConsolidatedResponse(response);
   }
 
-  private formatMessages(messages: Message[]): string {
-    return messages
-      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
-      .join('\n\n');
+  private formatTraceContext(ctx: TraceExtractionContext): string {
+    const lines: string[] = [];
+
+    lines.push(`Session overview: ${ctx.totalTurns} turns, ${ctx.toolCalls.length} tool calls, ${ctx.totalErrors} errors.`);
+
+    if (ctx.outcomes.length > 0) {
+      lines.push('Key outcomes:');
+      for (const o of ctx.outcomes) {
+        lines.push(`- ${o}`);
+      }
+    }
+
+    if (ctx.activatedSkills && ctx.activatedSkills.length > 0) {
+      lines.push(`Skills used: ${ctx.activatedSkills.join(', ')}`);
+    }
+
+    lines.push('\nUser messages:');
+    for (const ut of ctx.userTurns) {
+      lines.push(`- ${ut.content}`);
+    }
+
+    if (ctx.toolCalls.length > 0) {
+      lines.push('\nTool call summary:');
+      for (const tc of ctx.toolCalls) {
+        const status = tc.success ? 'OK' : `FAILED: ${tc.error ?? 'unknown'}`;
+        lines.push(`- ${tc.tool} → ${status}`);
+      }
+    }
+
+    return lines.join('\n');
   }
 
-  private buildExtractionPrompt(conversation: string, projectPath?: string): string {
-    return `Analyze this conversation and extract memory entries for a persistent agent memory system.
+  private buildExtractionPrompt(contextText: string, projectPath?: string): string {
+    return `Analyze this agent session trace and extract memory entries for a persistent agent memory system.
 
 Extract exactly these types of information:
 1. User preferences or habits (e.g. "prefers pnpm over npm", "uses vitest instead of jest")
 2. Facts about the current project (e.g. "uses TypeScript with Bun", "structure: src/agent/, src/cli/")
-3. Key decisions made (e.g. "decided to store memory in JSONL files")
+3. Key decisions made (e.g. "decided to store memory in SQLite")
 4. Important outcomes (e.g. "refactored agent.ts into three files", "fixed markdown rendering bug")
 
 Rules:
@@ -54,8 +80,8 @@ Rules:
 
 ${projectPath ? `This conversation is in project: ${projectPath}` : ''}
 
-Conversation:
-${conversation}`;
+Session trace:
+${contextText}`;
   }
 
   private buildConsolidationPrompt(entries: MemoryEntry[]): string {

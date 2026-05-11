@@ -49,8 +49,17 @@ export interface SearchResult {
 }
 
 export interface MemoryExtractor {
-  extract(messages: Message[], projectPath?: string): Promise<MemoryEntry[]>;
+  extract(traceContext: TraceExtractionContext, projectPath?: string): Promise<MemoryEntry[]>;
   consolidate(entries: MemoryEntry[]): Promise<MemoryEntry[]>;
+}
+
+export interface TraceExtractionContext {
+  userTurns: Array<{ content: string }>;
+  toolCalls: Array<{ tool: string; success: boolean; error?: string }>;
+  outcomes: string[];
+  totalTurns: number;
+  totalErrors: number;
+  activatedSkills?: string[];
 }
 
 export interface MemoryConfig {
