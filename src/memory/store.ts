@@ -55,8 +55,8 @@ export class JsonlMemoryStore implements MemoryStore {
     this.config = { ...getMemoryConfig(), ...config };
 
     if (type === 'project' && projectPath) {
-      // Project memory: local to project .claude/ directory
-      this.filePath = path.join(projectPath, '.claude', 'memory-project.json');
+      // Project memory: local to project .my-agent/ directory
+      this.filePath = path.join(projectPath, '.my-agent', 'memory-project.json');
     } else {
       // Global memory: semantic and episodic
       const baseDir = this.expandBaseDir(this.config.globalBaseDir);

@@ -58,7 +58,7 @@ A terminal-native AI coding agent built with TypeScript and Bun. It combines an 
 |------|-----------|
 | **Semantic Memory** | User preferences and reusable facts ("user prefers TypeScript", "project uses pnpm"). ~200 entry limit. |
 | **Episodic Memory** | Past conversation records and decisions. ~500 entry limit, LRU eviction. |
-| **Project Memory** | Project-specific facts, architecture notes, conventions. Stored in `.claude/memory-project.json`. |
+| **Project Memory** | Project-specific facts, architecture notes, conventions. Stored in `.my-agent/memory-project.json`. |
 | **Memory Extraction** | LLM-based process that extracts key facts from conversation and writes them to memory stores. Triggered by explicit trigger words ("记住", "remember"). |
 
 ### Skills
@@ -536,14 +536,14 @@ Sub-agents can also be triggered automatically by the budget guard when a large 
 
 ### Conceptual Overview
 
-**The Metaphor**: Three notebooks — semantic (knowledge/preferences), episodic (events/conversation snippets), project (repo-level rules in `.claude/memory-project.json`). Plus AGENT.md injected directly into the system prompt.
+**The Metaphor**: Three notebooks — semantic (knowledge/preferences), episodic (events/conversation snippets), project (repo-level rules in `.my-agent/memory-project.json`). Plus AGENT.md injected directly into the system prompt.
 
 **Key Files**:
 
 | File | Purpose |
 |---|---|
 | `types.ts` | MemoryEntry: id, type, title, content, tags, importance, usageCount |
-| `store.ts` | JsonlMemoryStore: append-only, global at `~/.my-agent/memory/`, project at `.claude/` |
+| `store.ts` | JsonlMemoryStore: append-only, global at `~/.my-agent/memory/`, project at `.my-agent/` |
 | `extractor.ts` | LlmExtractor using DEFAULT_SUMMARY_MODEL, triggered by keywords ("remember", "记住") |
 | `retriever.ts` | KeywordRetriever: keyword 0.35 + tag 0.25 + recency 0.20 + intrinsic 0.10 + usage 0.10 |
 | `middleware.ts` | Injects AGENT.md, user_preferences, retrieved memory into beforeModel |
@@ -560,7 +560,7 @@ Sub-agents can also be triggered automatically by the budget guard when a large 
 | Injection point | system + ephemeral | system catalog + ephemeral hint | Output lands in skill/auto |
 | Trigger | Keywords / keyword retrieval | /tag / substring / keywordScore | idle / event / cron / threshold / manual |
 
-**Trade-offs**: embedding field is defined but retriever doesn't use it — semantic search needs an external vector store. JsonlMemoryStore is append-only with no dedup or TTL — scanning slows over time. Extractor fires async with `void` — failures are silently lost. Project memory writes to `.claude/` directory, conflict risk with Claude Code.
+**Trade-offs**: embedding field is defined but retriever doesn't use it — semantic search needs an external vector store. JsonlMemoryStore is append-only with no dedup or TTL — scanning slows over time. Extractor fires async with `void` — failures are silently lost. Project memory writes to `.my-agent/` directory, isolated from Claude Code's `.claude/`.
 
 The agent can remember information across sessions using three memory stores:
 
