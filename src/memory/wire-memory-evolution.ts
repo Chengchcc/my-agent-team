@@ -38,24 +38,27 @@ export function wireMemoryIntoEvolution(
   evolution.drainer.setDispatcher('mem-embed', createMemEmbedDispatcher(embeddingRunner));
 }
 
-const BACKFILL_BATCH = 20;
+const BACKFILL_BATCH = 20;\nconst BACKFILL_DELAY_MS = 5000;
 
-/** One-shot backfill: enqueue mem-embed tasks for entries without embeddings. */
-export async function backfillEmbeddings(
+/** Fire-and-forget backfill: enqueue low-priority embedding tasks over time. */
+export function backfillEmbeddings(
   store: SqliteMemoryStore,
   queue: EvolutionModule['queue'],
-): Promise<number> {
-  let enqueued = 0;
-  const missing = await store.entriesWithoutEmbeddings(BACKFILL_BATCH);
-  for (const e of missing) {
-    await queue.enqueue({
-      kind: 'mem-embed',
-      priority: 'low',
-      fingerprint: `backfill:${e.id}`,
-      scheduledBy: 'periodic',
-      payload: { kind: 'mem-embed', entryId: e.id, text: e.text },
-    });
-    enqueued++;
-  }
-  return enqueued;
+): void {
+  void (async () => {
+    let remaining = true;
+    while (remaining) {
+      const missing = await store.entriesWithoutEmbeddings(BACKFILL_BATCH);
+      if (missing.length === 0) { remaining = false; break; }
+      for (const e of missing) {
+        await queue.enqueue({
+          kind: 'mem-embed', priority: 'low',
+          fingerprint: `backfill:${e.id}`, scheduledBy: 'periodic',
+          payload: { kind: 'mem-embed', entryId: e.id, text: e.text },
+        });
+      }
+      // Don't flood the queue; wait for drainer to consume before next batch
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  })();
 }
