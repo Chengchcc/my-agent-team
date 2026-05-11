@@ -74,7 +74,7 @@ A terminal-native AI coding agent built with TypeScript and Bun. It combines an 
 | Term | Definition |
 |------|-----------|
 | **Trace** | The structured record of a run (TraceRun): all turns, tool executions, token usage, timing, and outcome. Persisted as NDJSON in `~/.my-agent/traces/`. |
-| **Nudge** | A signal generated after a run completes, indicating the trace contains a pattern worth reviewing. Three signals: error burst, complex task, periodic. |
+| **Nudge** | A signal generated after a run completes, indicating the trace contains a pattern worth reviewing. Four signals: error burst, complex task, periodic, memory_worthy (memory extraction). |
 | **Review Agent** | A lightweight background agent (Phase 2) that analyzes a trace when a nudge fires, producing auto-generated skills. |
 | **Auto Skill** | A skill created by the Review Agent in `~/.my-agent/skills/auto/`. Tracked for effectiveness; user can approve or delete via `/review`. |
 | **Effectiveness Score** | `successful_runs / total_runs_with_skill` for an auto skill. Low scores trigger Tier 2 LLM analysis (Phase 3). |
@@ -170,7 +170,7 @@ The assembly process:
 5. **Wire up Todo** — creates the `todo_write` tool and a middleware that injects reminders
 6. **Create and register the SubAgentTool** — isolates tool registry to prevent recursive spawning
 7. **Assemble MCP Client** — load server configs from settings, register management tools immediately, start connections in background (non-blocking, 10s timeout per operation), register server-specific tools/prompts/resources via `onReady` callback as they become available
-8. **Set up Memory** — SQLite store with FTS5, three-way hybrid retriever (keyword + BM25 + vector), middleware (retrieval injection only — production is nudge-driven)
+8. **Set up Memory** — SQLite store (bun:sqlite + FTS5 + sqlite-vec), three-way hybrid retriever, middleware (retrieval-only), startup backfill for missing embeddings
 9. **Set up Skills** — loads `SKILL.md` files, creates middleware that lists them for the model
 10. **Set up Session** — auto-save hook persists conversation after each run
 11. **Build the tool middleware chain** — Permission guard, ReadCache, Trace tool middleware
@@ -315,7 +315,7 @@ The loop yields a discriminated union of 16 event types:
 | `agent_done` | Entire loop complete |
 | `agent_error` | Fatal error in the loop |
 | `sub_agent_start` | Sub-agent delegation begins |
-| `sub_agent_nested` | Events from within a sub-agent |
+| `sub_agent_event` | Events from within a sub-agent |
 | `sub_agent_done` | Sub-agent delegation completes |
 | `budget_delegation` | Budget guard redirected a tool to a sub-agent |
 | `budget_compact` | Budget guard triggered context compaction |
@@ -364,8 +364,9 @@ All tools extend `ZodTool<T>` (`src/tools/zod-tool.ts`), which converts Zod sche
 | **ls** | List directory contents with sorting and metadata |
 | **text_editor** | View, create, string-replace, and write file operations |
 | **ask_user_question** | Present multi-choice questions to the user (1-4 parallel questions) |
-| **memory** | Search, add, list, forget, and consolidate memories |
+| **memory** | Search, add, list, and forget memories |
 | **todo_write** | Task list management with merge behavior |
+| **web_search** | Web search via Tavily API (registered lazily) |
 | **sub_agent** | Delegate self-contained tasks to an isolated sub-agent |
 | **mcp_list_servers** | List all configured MCP servers and their connection status |
 | **mcp_add_server** | Connect to a new MCP server and register its tools/prompts (persisted to settings) |
@@ -499,9 +500,9 @@ When the conversation grows too large for the model's context window, the compac
 |------|------|----------|
 | 0 — None | < 60% usage | No action needed |
 | 1 — Snip | 60-75% | Truncate large tool outputs (keep head 40 + tail 10 lines) |
-| 2 — AutoCompact | 75-95% | LLM summarizes old messages with a cheap model |
+| 2 — AutoCompact | 75-90% | LLM summarizes old messages with a cheap model |
 | 3 — Reactive | API error | Emergency: aggressive truncation when API returns `context_length_exceeded` |
-| 4 — Collapse | > 95% | Nuclear: system prompt + summary + last 2 messages only |
+| 4 — Collapse | > 90% | Nuclear: system prompt + summary + last 2 messages only |
 
 The system also includes a fallback `TrimOldestStrategy` that removes old messages while preserving the current turn (an assistant message with tool calls is always removed together with its tool results).
 
@@ -543,13 +544,13 @@ Sub-agents can also be triggered automatically by the budget guard when a large 
 | File | Purpose |
 |---|---|
 | `types.ts` | MemoryEntry: id, type ('general'), text, tags, weight, embedding, usageCount |
-| `sqlite-store.ts` | SqliteMemoryStore: bun:sqlite with FTS5 virtual table for full-text search |
+| `sqlite-store.ts` | SqliteMemoryStore: bun:sqlite + FTS5 + sqlite-vec. memory table, memory_fts virtual table, vec_memory virtual table |
 | `extractor.ts` | LlmExtractor using trace context (userTurns, toolCalls, outcomes) instead of raw messages |
 | `retriever.ts` | KeywordRetriever: token scoring with keyword/tag/recency/weight/usage factors. Uses `getAll()` + in-memory scoring for Chinese support |
 | `bm25-retriever.ts` | BM25Retriever: delegates to `store.ftsSearch()` which uses SQLite FTS5 `bm25()` ranking |
-| `vector-retriever.ts` | VectorRetriever: encodes via Ollama `nomic-embed-text` HTTP API, cosine similarity scoring |
+| `vector-retriever.ts` | VectorRetriever: encodes via Ollama `nomic-embed-text`, delegates to sqlite-vec `vectorSearch()` for KNN with `vec_distance_cosine()` |
 | `hybrid-retriever.ts` | HybridRetriever: runs all three in `Promise.allSettled`, fuses via RRF (k=60, weights 0.5/0.3/0.2) |
-| `middleware.ts` | Injects AGENT.md, user_preferences (weight ≥ 0.9), retrieved memory. Enqueues `mem-extract` tasks |
+| `middleware.ts` | Retrieval-only: injects AGENT.md, user_preferences (weight ≥ 0.9), retrieved memory via beforeModel |
 | `tool.ts` | Memory tool: search/add/list/forget — simplified, no type parameter |
 | `embedding-runner.ts` | EmbeddingTaskRunner: wraps encode() for queue-compatible async embedding |
 | `dispatchers.ts` | createMemExtractDispatcher + createMemEmbedDispatcher — drainer task handlers |
@@ -568,10 +569,10 @@ Sub-agents can also be triggered automatically by the budget guard when a large 
 
 ### Architecture
 
-1. **Storage** — `SqliteMemoryStore` uses `bun:sqlite` with a single `memory` table and a `memory_fts` FTS5 virtual table. One DB at `~/.my-agent/memory/memory.db`. Embedding stored as BLOB (Float32Array → Buffer)
-2. **Retrieval** — Three-way hybrid: `KeywordRetriever` (token scoring), `BM25Retriever` (FTS5 BM25), `VectorRetriever` (Ollama cosine similarity). Fused via `HybridRetriever` with RRF: `0.5/(60+rank_v) + 0.3/(60+rank_b) + 0.2/(60+rank_k)`
-3. **Injection** — `MemoryMiddleware.beforeModel`: (a) `generalStore.getAll()` filtered by `weight >= preferenceWeightThreshold` → `<user_preferences>` in system prompt; (b) `retriever.search(query)` → `<retrieved_memory>` in ephemeral reminders
-4. **Extraction** — Nudge-driven: NudgeEngine emits `memory_worthy` signal → evolution callback enqueues `mem-extract` to PersistentQueue → drainer dispatcher reads TraceStore, builds `TraceExtractionContext`, runs `LlmExtractor.extract()`. LLM no longer classifies type — all entries default to `'general'`. Entry weight (0-1) determines whether it's injected as preference (>= 0.9) or retrieved by query
+1. **Storage** — `SqliteMemoryStore` uses `bun:sqlite` with three tables: `memory` (metadata), `memory_fts` (FTS5 full-text), `vec_memory` (sqlite-vec vector index). Single DB at `~/.my-agent/memory/memory.db`
+2. **Retrieval** — Three-way hybrid: `KeywordRetriever` (DB pre-filter + token scoring), `BM25Retriever` (FTS5 BM25 ranking), `VectorRetriever` (Ollama encode + sqlite-vec KNN). Fused via `HybridRetriever` with RRF: `0.5/(60+rank_v) + 0.3/(60+rank_b) + 0.2/(60+rank_k)`
+3. **Injection** — `MemoryMiddleware.beforeModel` injects three layers: (L1) `AGENT.md`/`CLAUDE.md` → `<project_rules>` in system prompt (stable, mtime-cached); (L2) entries with `weight >= 0.9` → `<user_preferences>` in system prompt (content-hashed); (L3) `retriever.search(query)` → `<retrieved_memory>` in ephemeral reminders (per-turn). Layers 1-2 are stripped then re-added each turn for cache stability
+4. **Extraction** — Nudge-driven: NudgeEngine emits `memory_worthy` signal (tool calls >= 3, task completed, 10min cooldown) → evolution callback enqueues `mem-extract` to PersistentQueue → drainer dispatcher reads TraceStore, builds `TraceExtractionContext`, runs `LlmExtractor.extract()`. LLM outputs `{text, tags, weight}` — no type classification (all entries default to `'general'`). Weight (0-1) gates injection: >= 0.9 → always in system prompt, < 0.9 → retrieved by query
 5. **Embedding** — After extraction, each new entry enqueues `mem-embed` task. Drainer dispatcher calls `EmbeddingTaskRunner` → `VectorRetriever.encode()` → Ollama HTTP API → updates store with embedding
 6. **Consolidation** — `LlmExtractor.consolidate()` uses objective signals: `usageCount`, `lastHitAt`, `weight`. Prompt provides per-entry usage stats. Rules: keep if `usageCount >= 3` or `lastHitAt < 7d`; remove if `usageCount = 0 && age > 30d`
 7. **Tool access** — `MemoryTool`: search/add/list/forget. Simplified — no type parameter, no consolidate (handled by drainer)
