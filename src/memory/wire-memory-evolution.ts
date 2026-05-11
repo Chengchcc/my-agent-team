@@ -38,7 +38,8 @@ export function wireMemoryIntoEvolution(
   evolution.drainer.setDispatcher('mem-embed', createMemEmbedDispatcher(embeddingRunner));
 }
 
-const BACKFILL_BATCH = 20;\nconst BACKFILL_DELAY_MS = 5000;
+const BACKFILL_BATCH = 20;
+const BACKFILL_DELAY_MS = 5000;
 
 /** Fire-and-forget backfill: enqueue low-priority embedding tasks over time. */
 export function backfillEmbeddings(
