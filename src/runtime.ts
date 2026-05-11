@@ -15,8 +15,11 @@ import { setMcpManagerInstance, setMcpToolRegistry, setMcpPromptRegistry } from 
 import { DEFAULT_MCP_TOOL_TIMEOUT_MS, DEFAULT_MCP_RECONNECT_ATTEMPTS, DEFAULT_MCP_RECONNECT_DELAY_MS } from './config/constants';
 import { createTodoMiddleware } from './todos';
 import {
-  JsonlMemoryStore, KeywordRetriever, LlmExtractor,
-  MemoryMiddleware, MemoryTool,
+  SqliteMemoryStore, KeywordRetriever,
+  BM25Retriever, VectorRetriever, HybridRetriever,
+  LlmExtractor, MemoryMiddleware, MemoryTool,
+  EmbeddingTaskRunner,
+  createMemExtractDispatcher, createMemEmbedDispatcher,
   invalidateAgentMdCache,
 } from './memory';
 import { createSkillMiddleware } from './skills/middleware';
@@ -30,6 +33,7 @@ import {
 } from './tools';
 import { createProviderFromSettings } from './providers';
 import { createProviderFromEnv, setupEvolution } from './runtime-providers';
+import type { EvolutionModule } from './evolution';
 import { DEFAULT_SYSTEM_PROMPT } from './config/default-prompts';
 import { TokenBudgetCalculator, TieredCompactionManager, DEFAULT_COMPACTION_CONFIG } from './agent/compaction';
 import { debugLog } from './utils/debug';
@@ -207,7 +211,39 @@ export async function createAgentRuntime(
   ];
 
   // Trace
-  setupTrace(settings, hooks, toolMiddlewares, skillLoader);
+  const evolution = setupTrace(settings, hooks, toolMiddlewares, skillLoader);
+
+  // Wire memory extraction/embedding dispatchers into evolution drainer
+  if (evolution && memoryMiddleware) {
+    const embeddingRunner = new EmbeddingTaskRunner(
+      (text: string) => new VectorRetriever(
+        new SqliteMemoryStore('semantic'), new SqliteMemoryStore('episodic'), new SqliteMemoryStore('project'),
+      ).encode(text),
+      new SqliteMemoryStore('semantic'),
+      new SqliteMemoryStore('episodic'),
+      new SqliteMemoryStore('project'),
+    );
+    // Since stores in setupMemory are internal, re-create representative stores for dispatchers
+    // In practice these share the same .db file so they operate on the same data
+    const semStore = new SqliteMemoryStore('semantic');
+    const epiStore = new SqliteMemoryStore('episodic');
+    const projStore = new SqliteMemoryStore('project', {}, cwd);
+    // Wire drainer dispatchers
+    evolution.drainer.setDispatcher('mem-extract', createMemExtractDispatcher({
+      provider,
+      semanticStore: semStore,
+      episodicStore: epiStore,
+      projectStore: projStore,
+      traceStore: (evolution as any).traceStore ?? { get: async () => null },
+      enqueueEmbed: async (entryId, text, storeType) => {
+        await evolution.queue.enqueue({
+          kind: 'mem-embed' as any,
+          payload: { kind: 'mem-embed', entryId, text, storeType },
+        } as any);
+      },
+    }));
+    evolution.drainer.setDispatcher('mem-embed', createMemEmbedDispatcher(embeddingRunner));
+  }
 
   // Agent
   const agent = new Agent({
@@ -251,10 +287,13 @@ function setupMemory(
   hooks: { beforeModel: Middleware[]; afterAgentRun: Middleware[] },
 ): MemoryMiddleware | undefined {
   if (!enabled) return undefined;
-  const semanticStore = new JsonlMemoryStore('semantic');
-  const episodicStore = new JsonlMemoryStore('episodic');
-  const projectStore = new JsonlMemoryStore('project', {}, cwd);
-  const retriever = new KeywordRetriever(semanticStore, episodicStore, projectStore);
+  const semanticStore = new SqliteMemoryStore('semantic');
+  const episodicStore = new SqliteMemoryStore('episodic');
+  const projectStore = new SqliteMemoryStore('project', {}, cwd);
+  const keywordRetriever = new KeywordRetriever(semanticStore, episodicStore, projectStore);
+  const bm25Retriever = new BM25Retriever(semanticStore, episodicStore, projectStore);
+  const vectorRetriever = new VectorRetriever(semanticStore, episodicStore, projectStore);
+  const retriever = new HybridRetriever(keywordRetriever, bm25Retriever, vectorRetriever);
   const extractor = new LlmExtractor(provider);
   const middleware = new MemoryMiddleware(
     { semantic: semanticStore, episodic: episodicStore, project: projectStore },
@@ -372,9 +411,10 @@ function setupTrace(
   hooks: Required<Pick<AgentHooks, 'beforeAgentRun' | 'beforeModel' | 'beforeAddResponse' | 'afterAgentRun'>>,
   toolMiddlewares: ToolMiddleware[],
   skillLoader?: SkillLoader | null,
-): void {
-  if (settings?.trace?.enabled === false) return;
+): EvolutionModule | null {
+  if (settings?.trace?.enabled === false) return null;
   const evolution = setupEvolution(settings);
+  if (!evolution) return null;
   const traceMw = createTraceMiddleware({
     maxRunsPerSession: settings?.trace?.maxRunsPerSession,
     redactionMode: settings?.trace?.redaction?.mode,
@@ -387,4 +427,5 @@ function setupTrace(
   hooks.beforeAddResponse.push(traceMw.agentMiddleware.beforeAddResponse);
   hooks.afterAgentRun.push(traceMw.agentMiddleware.afterAgentRun);
   toolMiddlewares.push(traceMw.toolMiddleware);
+  return evolution;
 }

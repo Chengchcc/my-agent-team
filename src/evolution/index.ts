@@ -39,6 +39,8 @@ export interface EvolutionModule {
   idleGate: IdleGate;
   settleBus: SettleBus;
   manualTrigger: { fire: (kinds?: EvolutionTaskKind[]) => void };
+  queue: PersistentQueue;
+  drainer: Drainer;
 }
 
 type TriggerType = 'error_burst' | 'complex_task' | 'periodic';
@@ -287,6 +289,8 @@ export function initEvolution(
 
     async drainQueue() { return drainer.tryDrain(); },
     recoverInflight: () => queue.recoverInflight(),
+    queue,
+    drainer,
   };
 }
 

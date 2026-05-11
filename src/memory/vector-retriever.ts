@@ -11,7 +11,7 @@ export class VectorRetriever implements MemoryRetriever {
   constructor(
     private semanticStore: MemoryStore,
     private episodicStore: MemoryStore,
-    private projectStore: MemoryStore,
+    _projectStore?: MemoryStore,
     config: Partial<VectorRetrieverConfig> = {},
   ) {
     this.config = {
@@ -68,7 +68,9 @@ export class VectorRetriever implements MemoryRetriever {
     });
     if (!resp.ok) throw new Error(`Ollama embed failed: ${resp.status}`);
     const data = (await resp.json()) as { embeddings: number[][] };
-    return data.embeddings[0];
+    const emb = data.embeddings[0];
+    if (!emb) throw new Error('Ollama returned empty embeddings');
+    return emb;
   }
 
   cosineSimilarity(a: number[], b: number[]): number {
@@ -77,9 +79,11 @@ export class VectorRetriever implements MemoryRetriever {
     let normB = 0;
     const len = Math.min(a.length, b.length);
     for (let i = 0; i < len; i++) {
-      dot += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
+      const av = a[i]!;
+      const bv = b[i]!;
+      dot += av * bv;
+      normA += av * av;
+      normB += bv * bv;
     }
     const denom = Math.sqrt(normA) * Math.sqrt(normB);
     return denom === 0 ? 0 : dot / denom;

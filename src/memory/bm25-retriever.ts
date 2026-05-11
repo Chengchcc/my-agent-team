@@ -4,7 +4,7 @@ export class BM25Retriever implements MemoryRetriever {
   constructor(
     private semanticStore: MemoryStore & { ftsSearch?: (q: string, type: string, limit: number) => Promise<MemoryEntry[]> },
     private episodicStore: MemoryStore & { ftsSearch?: (q: string, type: string, limit: number) => Promise<MemoryEntry[]> },
-    private projectStore: MemoryStore & { ftsSearch?: (q: string, type: string, limit: number) => Promise<MemoryEntry[]> },
+    _projectStore?: MemoryStore,
   ) {}
 
   async search(
