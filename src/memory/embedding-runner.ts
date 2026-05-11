@@ -10,16 +10,24 @@ export interface RunnerOutcome {
   error?: string;
 }
 
+type StoreWithEmbedding = MemoryStore & {
+  storeEmbedding?(entryId: string, embedding: number[]): Promise<void>;
+};
+
 export class EmbeddingTaskRunner {
   constructor(
     private encode: (text: string) => Promise<number[]>,
-    private generalStore: MemoryStore,
+    private store: StoreWithEmbedding,
   ) {}
 
   async run(task: EmbedTask): Promise<RunnerOutcome> {
     try {
       const embedding = await this.encode(task.text);
-      await this.generalStore.update(task.entryId, { embedding });
+      if (this.store.storeEmbedding) {
+        await this.store.storeEmbedding(task.entryId, embedding);
+      } else {
+        await this.store.update(task.entryId, { embedding });
+      }
       return { outcome: 'completed' };
     } catch (err) {
       return { outcome: 'failed', error: String(err) };
