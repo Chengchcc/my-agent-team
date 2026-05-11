@@ -14,7 +14,9 @@ export type EvolutionTaskKind =
   | 'tier2_verdict'
   | 'tier3_prompt_opt'
   | 'tier3_ab_promote'
-  | 'auto_accept_sweep';
+  | 'auto_accept_sweep'
+  | 'mem-extract'
+  | 'mem-embed';
 
 export type TriggerSource = 'error_burst' | 'complex_task' | 'periodic' | 'cron' | 'threshold' | 'manual';
 
@@ -25,7 +27,9 @@ export type TaskPayload =
   | { kind: 'tier2_verdict'; skillName: string; description: string; skillStats: SkillStats; traceRunId: string }
   | { kind: 'tier3_prompt_opt'; promptKey: 'review' | 'analyzer'; feedbackWindow: { from: number; to: number } }
   | { kind: 'tier3_ab_promote'; candidateId: string; shadowStartedAt: number }
-  | { kind: 'auto_accept_sweep'; cutoff: number };
+  | { kind: 'auto_accept_sweep'; cutoff: number }
+  | { kind: 'mem-extract'; traceId: string; projectPath: string }
+  | { kind: 'mem-embed'; entryId: string; text: string; storeType: 'semantic' | 'episodic' | 'project' };
 
 export type QueuePriority = 'critical' | 'high' | 'normal' | 'low';
 
@@ -77,12 +81,19 @@ const BACKOFF_TIER2_MINUTES = 1;
 const BACKOFF_TIER2_HOURS = 1;
 const BACKOFF_TIER3_MINUTES = 10;
 const BACKOFF_TIER3_HOURS = 24;
+const BACKOFF_MEM_EXTRACT_SECONDS = 60;
+const BACKOFF_MEM_EXTRACT_HOURS = 2;
+const BACKOFF_MEM_EMBED_SECONDS = 30;
+const BACKOFF_MEM_EMBED_HOURS = 1;
+
 const TIER_PARAMS: Record<EvolutionTaskKind, TierParams> = {
   tier0_review: { maxAttempts: 5, backoffBaseMs: BACKOFF_TIER0_SECONDS * MS_PER_SECOND, backoffMaxMs: BACKOFF_TIER0_HOURS * SECONDS_PER_HOUR * MS_PER_SECOND },
   tier2_verdict: { maxAttempts: 3, backoffBaseMs: BACKOFF_TIER2_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND, backoffMaxMs: BACKOFF_TIER2_HOURS * SECONDS_PER_HOUR * MS_PER_SECOND },
   tier3_prompt_opt: { maxAttempts: 2, backoffBaseMs: BACKOFF_TIER3_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND, backoffMaxMs: BACKOFF_TIER3_HOURS * SECONDS_PER_HOUR * MS_PER_SECOND },
   tier3_ab_promote: { maxAttempts: 1, backoffBaseMs: 0, backoffMaxMs: 0 },
   auto_accept_sweep: { maxAttempts: 1, backoffBaseMs: 0, backoffMaxMs: 0 },
+  'mem-extract': { maxAttempts: 3, backoffBaseMs: BACKOFF_MEM_EXTRACT_SECONDS * MS_PER_SECOND, backoffMaxMs: BACKOFF_MEM_EXTRACT_HOURS * SECONDS_PER_HOUR * MS_PER_SECOND },
+  'mem-embed': { maxAttempts: 5, backoffBaseMs: BACKOFF_MEM_EMBED_SECONDS * MS_PER_SECOND, backoffMaxMs: BACKOFF_MEM_EMBED_HOURS * SECONDS_PER_HOUR * MS_PER_SECOND },
 };
 
 const KIND_DIR: Record<EvolutionTaskKind, string> = {
@@ -91,6 +102,8 @@ const KIND_DIR: Record<EvolutionTaskKind, string> = {
   tier3_prompt_opt: 'tier3',
   tier3_ab_promote: 'tier3',
   auto_accept_sweep: 'housekeeping',
+  'mem-extract': 'mem-extract',
+  'mem-embed': 'mem-embed',
 };
 
 const EVO_DIR = 'evolution';
@@ -221,7 +234,7 @@ export class PersistentQueue {
 
   async recoverInflight(): Promise<string[]> {
     const recovered: string[] = [];
-    const kinds: EvolutionTaskKind[] = ['tier0_review', 'tier2_verdict', 'tier3_prompt_opt', 'tier3_ab_promote', 'auto_accept_sweep'];
+    const kinds: EvolutionTaskKind[] = ['tier0_review', 'tier2_verdict', 'tier3_prompt_opt', 'tier3_ab_promote', 'auto_accept_sweep', 'mem-extract', 'mem-embed'];
     for (const kind of kinds) {
       const iDir = path.join(this.base, INFLIGHT_DIR, kindSubdir(this.base, kind));
       await fs.mkdir(iDir, { recursive: true });
@@ -253,7 +266,7 @@ export class PersistentQueue {
 
   async size(): Promise<{ queue: number; inflight: number; dead: number }> {
     let q = 0, inf = 0, d = 0;
-    const ks: EvolutionTaskKind[] = ['tier0_review', 'tier2_verdict', 'tier3_prompt_opt', 'tier3_ab_promote', 'auto_accept_sweep'];
+    const ks: EvolutionTaskKind[] = ['tier0_review', 'tier2_verdict', 'tier3_prompt_opt', 'tier3_ab_promote', 'auto_accept_sweep', 'mem-extract', 'mem-embed'];
     for (const k of ks) {
       q += await this.count(path.join(this.base, QUEUE_DIR, kindSubdir(this.base, k)), false);
       inf += await this.count(path.join(this.base, INFLIGHT_DIR, kindSubdir(this.base, k)), true);

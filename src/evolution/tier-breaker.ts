@@ -12,12 +12,17 @@ const DAY_MS = HOURS_PER_DAY * HOUR_MS;
 const DAYS_PER_WEEK = 7;
 const WEEK_MS = DAYS_PER_WEEK * DAY_MS;
 
+const MEM_EXTRACT_COOLDOWN_MINUTES = 30;
+const MEM_EMBED_COOLDOWN_MINUTES = 15;
+
 const THRESHOLDS: Record<EvolutionTaskKind, number> = {
   tier0_review: 3,
   tier2_verdict: 3,
   tier3_prompt_opt: 2,
   tier3_ab_promote: 2,
   auto_accept_sweep: 2,
+  'mem-extract': 3,
+  'mem-embed': 5,
 };
 
 const TIER2_COOLDOWN_MINUTES = 30;
@@ -27,6 +32,8 @@ const COOLDOWNS: Record<EvolutionTaskKind, number> = {
   tier3_prompt_opt: WEEK_MS,
   tier3_ab_promote: DAY_MS,
   auto_accept_sweep: DAY_MS,
+  'mem-extract': MEM_EXTRACT_COOLDOWN_MINUTES * MINUTE_MS,
+  'mem-embed': MEM_EMBED_COOLDOWN_MINUTES * MINUTE_MS,
 };
 
 export class TierBreaker {

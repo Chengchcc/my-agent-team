@@ -22,7 +22,7 @@ export interface Trigger {
 
 // ── IdleTrigger ──
 
-const IDLE_TRIGGER_KINDS: EvolutionTaskKind[] = ['tier0_review', 'tier2_verdict'];
+const IDLE_TRIGGER_KINDS: EvolutionTaskKind[] = ['tier0_review', 'tier2_verdict', 'mem-embed'];
 
 export function createIdleTrigger(
   idleGate: IdleGate,
@@ -51,7 +51,7 @@ export function createIdleTrigger(
 
 // ── EventTrigger ──
 
-const EVENT_TRIGGER_KINDS: EvolutionTaskKind[] = ['tier0_review'];
+const EVENT_TRIGGER_KINDS: EvolutionTaskKind[] = ['tier0_review', 'mem-extract'];
 
 export function createEventTrigger(
   bus: SettleBus,

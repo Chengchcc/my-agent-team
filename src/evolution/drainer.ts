@@ -7,7 +7,7 @@ import type { RunnerContext } from './review-runner';
 import type { SettleBus } from './settle-bus';
 import type { Supervisor } from './supervisor';
 
-const DRAIN_ORDER: EvolutionTaskKind[] = ['tier0_review', 'tier2_verdict', 'tier3_prompt_opt', 'tier3_ab_promote', 'auto_accept_sweep'];
+const DRAIN_ORDER: EvolutionTaskKind[] = ['tier0_review', 'tier2_verdict', 'tier3_prompt_opt', 'tier3_ab_promote', 'auto_accept_sweep', 'mem-extract', 'mem-embed'];
 
 const QUOTA: Record<EvolutionTaskKind, number> = {
   tier0_review: 3,
@@ -15,6 +15,8 @@ const QUOTA: Record<EvolutionTaskKind, number> = {
   tier3_prompt_opt: 1,
   tier3_ab_promote: 1,
   auto_accept_sweep: 1,
+  'mem-extract': 1,
+  'mem-embed': 3,
 };
 
 export type TaskExecutor = (task: EvolutionTask, ctx: RunnerContext) => Promise<void>;

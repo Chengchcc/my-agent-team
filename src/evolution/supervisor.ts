@@ -15,6 +15,8 @@ const CANCEL_POLICY: Record<EvolutionTaskKind, CancelPolicy> = {
   tier3_prompt_opt: 'graceful',
   tier3_ab_promote: 'finish',
   auto_accept_sweep: 'finish',
+  'mem-extract': 'graceful',
+  'mem-embed': 'finish',
 };
 
 const MS_PER_SECOND = 1000;
@@ -22,12 +24,16 @@ const TIER0_GRACE_SECONDS = 10;
 const TIER2_GRACE_SECONDS = 30;
 const TIER3_GRACE_SECONDS = 60;
 const SWEEP_GRACE_SECONDS = 5;
+const MEM_EXTRACT_GRACE_SECONDS = 30;
+const MEM_EMBED_GRACE_SECONDS = 5;
 const SOFT_CANCEL_GRACE_MS: Record<EvolutionTaskKind, number> = {
   tier0_review: TIER0_GRACE_SECONDS * MS_PER_SECOND,
   tier2_verdict: TIER2_GRACE_SECONDS * MS_PER_SECOND,
   tier3_prompt_opt: TIER3_GRACE_SECONDS * MS_PER_SECOND,
   tier3_ab_promote: SWEEP_GRACE_SECONDS * MS_PER_SECOND,
   auto_accept_sweep: SWEEP_GRACE_SECONDS * MS_PER_SECOND,
+  'mem-extract': MEM_EXTRACT_GRACE_SECONDS * MS_PER_SECOND,
+  'mem-embed': MEM_EMBED_GRACE_SECONDS * MS_PER_SECOND,
 };
 
 export class Supervisor {
