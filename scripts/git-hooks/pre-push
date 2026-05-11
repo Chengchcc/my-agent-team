@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+run_check() {
+  local name="$1"
+  shift
+  printf "🔍 %s ... " "$name"
+  if "$@"; then
+    printf "${GREEN}OK${NC}\n"
+  else
+    printf "${RED}FAILED${NC}\n"
+    return 1
+  fi
+}
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+run_check "Type check"      bun run check:guard  || exit 1
+run_check "Lint"            bun run lint         || exit 1
+run_check "Architecture"    bun run check:arch   || exit 1
+run_check "Dead code"       bun run check:deadcode || exit 1
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "${GREEN}✅ All pre-push checks passed${NC}"
+echo ""

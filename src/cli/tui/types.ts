@@ -3,15 +3,6 @@ import type { SessionStore } from '../../session/store';
 import type { McpManager } from '../../mcp/manager';
 
 /**
- * Todo item for display in UI.
- */
-export interface UITodoItem {
-  id: string;
-  content: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
-}
-
-/**
  * Context passed to command handlers
  */
 export interface CommandHandlerContext {

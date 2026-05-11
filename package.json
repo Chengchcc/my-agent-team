@@ -1,6 +1,6 @@
 {
   "name": "my-agent",
-  "module": "index.ts",
+  "module": "src/index.ts",
   "type": "module",
   "private": true,
   "bin": {
@@ -18,7 +18,8 @@
     "check:arch": "bun run scripts/check-architecture.ts",
     "check:deadcode": "bun x knip --no-progress --reporter compact",
     "check:all": "tsc --noEmit && bun test && bun run check:arch",
-    "baseline:any": "bun run scripts/update-any-baseline.ts"
+    "baseline:any": "bun run scripts/update-any-baseline.ts",
+    "prepare": "cp scripts/git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -32,7 +33,6 @@
     "eslint": "^9.0.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "ink-testing-library": "^4.0.0",
     "knip": "^5.0.0",
     "minimatch": "^10.2.5",
     "ts-morph": "^23.0.0"
@@ -51,20 +51,17 @@
     "gray-matter": "^4.0.3",
     "immer": "^11.1.4",
     "ink": "^5.0.1",
-    "ink-scroll-view": "^0.3.6",
     "js-yaml": "^4.1.1",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm": "^3.1.0",
-    "micromark": "^4.0.2",
     "micromark-extension-gfm": "^3.0.0",
     "nanoid": "^5.1.9",
     "openai": "^6.34.0",
+    "p-limit": "^3.1.0",
     "prismjs": "^1.29.0",
     "react": "^18.3.1",
-    "rxjs": "^7.8.2",
     "sqlite-vec": "^0.1.9",
     "string-width": "^8.2.1",
-    "use-context-selector": "^2.0.0",
     "zod": "^3.22.4",
     "zustand": "^5.0.12"
   }

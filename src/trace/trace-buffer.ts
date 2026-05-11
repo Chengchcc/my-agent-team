@@ -1,14 +1,14 @@
 import { nanoid } from 'nanoid';
 import type { TraceRun, TraceTurn, TraceSummary, TraceStore, TraceEntry } from './types';
 
-export interface ModelResponseRecord {
+interface ModelResponseRecord {
   thinking?: string;
   text: string;
   toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>;
   usage: Record<string, number>;
 }
 
-export interface ToolExecutionRecord {
+interface ToolExecutionRecord {
   toolName: string;
   success: boolean;
   durationMs: number;

@@ -11,7 +11,7 @@ import { planExecution } from './dispatch';
 import { debugLog } from '../utils/debug';
 import { NANOID_LENGTH } from './loop-utils';
 
-export interface RunToolsEnv {
+interface RunToolsEnv {
   contextManager: ContextManager;
   config: AgentConfig;
   dispatcher: ToolDispatcher;

@@ -5,7 +5,7 @@ import type { TraceRun } from '../trace/types';
 
 type DrainFn = (opts?: { force?: boolean; allowedKinds?: EvolutionTaskKind[] }) => Promise<number>;
 
-export interface CronSchedule {
+interface CronSchedule {
   nextFire(from: Date): Date;
   expression: string;
 }
@@ -20,7 +20,7 @@ const FP_HOUR_SLICE = 13;
 
 // ── Parser ──
 
-export function parseCron(expr: string): CronSchedule {
+function parseCron(expr: string): CronSchedule {
   const fields = expr.trim().split(/\s+/);
   if (fields.length !== CRON_FIELD_COUNT) throw new Error(`Invalid cron: ${expr}`);
 

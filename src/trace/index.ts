@@ -4,9 +4,7 @@ import { TraceStore } from './store';
 import { NudgeEngine } from './nudge-engine';
 import { DefaultRedactor } from './redactor';
 import { TurnSettledDetector } from './turn-settled-detector';
-import type { TraceRedactor, NudgeResult, NudgeState, TraceRun, TraceTurn, TraceSummary, TraceEntry } from './types';
-import { TraceBuffer } from './trace-buffer';
-import type { ModelResponseRecord, ToolExecutionRecord } from './trace-buffer';
+import type { TraceRedactor } from './types';
 import type { EvolutionCallback } from '../evolution/types';
 import type { SkillLoader } from '../skills/loader';
 import os from 'os';
@@ -15,7 +13,7 @@ import path from 'path';
 const DEFAULT_TRACE_DIR = path.join(os.homedir(), '.my-agent', 'traces');
 const DEFAULT_STATE_PATH = path.join(os.homedir(), '.my-agent', 'trace-state.json');
 
-export interface TraceMiddlewareSet {
+interface TraceMiddlewareSet {
   agentMiddleware: TraceAgentMiddleware;
   toolMiddleware: TraceToolMiddleware;
   store: TraceStore;
@@ -65,12 +63,3 @@ export function createTraceMiddleware(options: {
 
   return { agentMiddleware, toolMiddleware, store, nudgeEngine, redactor, settledDetector };
 }
-
-// Re-export types for external consumers
-export type {
-  TraceRun, TraceTurn, TraceSummary, TraceEntry,
-  TraceRedactor, NudgeResult, NudgeState,
-  ModelResponseRecord, ToolExecutionRecord,
-};
-
-export { TraceBuffer, TraceStore, NudgeEngine, DefaultRedactor, TraceAgentMiddleware, TraceToolMiddleware, TurnSettledDetector };

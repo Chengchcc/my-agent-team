@@ -1,14 +1,14 @@
-export const MAX_EPHEMERAL_BYTES = 4096;
-export const PRIORITY_SKILL_HINT = 1;
-export const PRIORITY_TODO_STATUS = 2;
-export const PRIORITY_RETRIEVED_MEMORY = 3;
-export const PRIORITY_UNKNOWN = 4;
+const MAX_EPHEMERAL_BYTES = 4096;
+const PRIORITY_SKILL_HINT = 1;
+const PRIORITY_TODO_STATUS = 2;
+const PRIORITY_RETRIEVED_MEMORY = 3;
+const PRIORITY_UNKNOWN = 4;
 export const NANOID_LENGTH = 6;
 export const MAX_STREAM_RETRIES = 4;
-export const RETRY_BASE_DELAY_MS = 1000;
+const RETRY_BASE_DELAY_MS = 1000;
 export const COMPACTION_TIER_FULL = 4;
 
-export type StreamErrorKind = 'network' | 'rate_limit' | 'fatal';
+type StreamErrorKind = 'network' | 'rate_limit' | 'fatal';
 
 export function classifyStreamError(error: Error): StreamErrorKind {
   const msg = error.message.toLowerCase();

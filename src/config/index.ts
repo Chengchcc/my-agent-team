@@ -25,12 +25,6 @@ export function getSettingsSync(): Settings {
   return cachedSettings;
 }
 
-/**
- * Clear cache - mostly for testing
- */
-export function clearSettingsCache(): void {
-  cachedSettings = null;
-}
 
 // Lazy initialization - most code can import this directly
 // But need to ensure it's loaded before use
@@ -70,8 +64,3 @@ export const settings = new Proxy({} as Settings, {
     return Reflect.set(cachedSettings, prop, value);
   },
 });
-
-// Re-export types
-export type { Settings } from './types';
-export { defaultSettings } from './defaults';
-export * from './types';

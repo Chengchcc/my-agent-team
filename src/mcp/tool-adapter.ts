@@ -3,7 +3,7 @@ import type { ToolContext } from '../agent/tool-dispatch/types';
 import type { McpManager } from './manager';
 import type { McpToolDef } from './types';
 
-export const TOOL_PREFIX = 'mcp__';
+const TOOL_PREFIX = 'mcp__';
 
 const READONLY_PREFIXES = ['list_', 'read_', 'search_', 'get_', 'find_'];
 

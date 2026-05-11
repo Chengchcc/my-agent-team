@@ -9,7 +9,7 @@ interface ParseCacheEntry {
   doc: ParsedDoc;
 }
 
-export interface SegFrame {
+interface SegFrame {
   content: string;
   committedLength: number;
   blocks: Block[];

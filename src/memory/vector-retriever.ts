@@ -2,7 +2,7 @@ import type { MemoryEntry, MemoryRetriever, MemoryStore } from './types';
 
 const DEFAULT_LIMIT = 10;
 
-export interface VectorRetrieverConfig {
+interface VectorRetrieverConfig {
   ollamaModel: string;
   ollamaBaseUrl: string;
 }

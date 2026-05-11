@@ -5,7 +5,7 @@ import type { RunnerContext } from '../evolution/review-runner';
 import type { TraceStore } from '../trace/types';
 import { LlmExtractor } from './extractor';
 
-export interface MemDispatchDeps {
+interface MemDispatchDeps {
   provider: Provider;
   generalStore: MemoryStore;
   traceStore: TraceStore;

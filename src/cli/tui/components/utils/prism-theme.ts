@@ -38,11 +38,4 @@ export const prismTheme: Record<string, string> = {
   important: 'bold',
   bold: 'bold',
   heading: 'blue',
-  function: 'blue',
-  'class-name': 'yellow',
-  'tag': 'blue',
-};
-
-export function getPrismTokenColor(type: string | null): string {
-  return type ? (prismTheme[type] ?? 'white') : 'white';
 }

@@ -27,7 +27,7 @@ export interface LiveAssistant {
 
 // ── Store type ──
 
-export interface TuiStore {
+interface TuiStore {
   /**
    * Append-only scrollback rendered by Ink <Static>.
    * **Invariant**: items in finalized MUST NOT be mutated after insertion.
@@ -375,10 +375,6 @@ export const useTuiStore = create<TuiStore>()(
 export {
   useLiveItem,
   useFrozenItems,
-  useFinalized,
-  useInteraction,
-  useStats,
   useStreaming,
-  messagesToFinalizedItems,
   resetNextId,
 } from './selectors';

@@ -1,11 +1,11 @@
 import type { MemoryStore } from './types';
 
-export interface EmbedTask {
+interface EmbedTask {
   entryId: string;
   text: string;
 }
 
-export interface RunnerOutcome {
+interface RunnerOutcome {
   outcome: 'completed' | 'failed' | 'aborted';
   error?: string;
 }

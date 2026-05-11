@@ -27,7 +27,7 @@ const ALWAYS_EXCLUDE = new Set(['sub_agent', 'ask_user_question']);
 const GLOBAL_STATE_TOOLS_PREFIX = 'Task';
 
 /** Maximum concurrent sub-agents (sempahore-based). */
-export const MAX_CONCURRENT_SUB_AGENTS = 3;
+const MAX_CONCURRENT_SUB_AGENTS = 3;
 export const NANOID_LENGTH = 6;
 export const MS_PER_MINUTE = 60_000;
 export const SUB_AGENT_TIMEOUT_MS = 300_000; // 5 min in ms
@@ -37,7 +37,7 @@ export const DEFAULT_AUTO_TRIGGER_THRESHOLD = 5;
 /**
  * Simple promise-based semaphore for limiting concurrent sub-agent execution.
  */
-export class Semaphore {
+class Semaphore {
   private count: number;
   private queue: Array<() => void> = [];
 

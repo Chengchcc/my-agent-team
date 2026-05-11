@@ -35,7 +35,7 @@ function formatSessionList(sessions: Awaited<ReturnType<SessionStore['listSessio
 /**
  * Handle /resume command - list sessions or load specific session
  */
-export async function handleResume(
+async function handleResume(
   ctx: CommandHandlerContext
 ): Promise<void> {
   const { sessionStore, agent, refreshMessages, onOutput, args } = ctx;
@@ -81,7 +81,7 @@ export async function handleResume(
 /**
  * Handle /save command - force save current session
  */
-export async function handleSave(
+async function handleSave(
   ctx: CommandHandlerContext
 ): Promise<void> {
   const { sessionStore, agent, onOutput } = ctx;
@@ -103,7 +103,7 @@ export async function handleSave(
 /**
  * Handle /forget command - delete a session
  */
-export async function handleForget(
+async function handleForget(
   ctx: CommandHandlerContext
 ): Promise<void> {
   const { sessionStore, onOutput, args } = ctx;

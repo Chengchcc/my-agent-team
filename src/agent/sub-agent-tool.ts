@@ -14,10 +14,6 @@ import { DEFAULT_LOOP_CONFIG } from './loop-types';
 import { getSettingsSync } from '../config';
 import { RateLimitedProvider } from './rate-limiter';
 import {
-  SUB_AGENT_PROFILES,
-  type SubAgentProfile,
-  SUB_AGENT_DELIVERABLES,
-  type SubAgentDeliverable,
   PROFILE_TOOLS,
   ALWAYS_EXCLUDE,
   GLOBAL_STATE_TOOLS_PREFIX,
@@ -30,8 +26,9 @@ import {
   type SubAgentToolConfig,
   SUB_AGENT_TOOL_DEFINITION,
 } from './sub-agent-config';
+import type { SubAgentProfile, SubAgentDeliverable } from './sub-agent-config';
 
-export { SUB_AGENT_PROFILES, type SubAgentProfile, SUB_AGENT_DELIVERABLES, type SubAgentDeliverable, type SubAgentToolConfig };
+export type { SubAgentToolConfig };
 
 /**
  * SubAgentTool - delegate a self-contained subtask to an independent agent

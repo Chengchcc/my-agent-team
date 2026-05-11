@@ -9,7 +9,7 @@ export interface TraceSnippet {
   traces: string;
 }
 
-export interface AnalysisVerdict {
+interface AnalysisVerdict {
   verdict: 'keep' | 'fix' | 'delete';
   reasoning: string;
   suggestion?: string;

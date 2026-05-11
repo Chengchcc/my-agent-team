@@ -1,6 +1,4 @@
-// ── Hotkey context available at dispatch time ──
-
-export interface KeymapContext {
+interface KeymapContext {
   streaming: boolean;
   pendingCount: number;
   focusedToolId: string | null;
@@ -21,7 +19,7 @@ export interface InputBoxCallbacks {
 
 // ── A single hotkey binding ──
 
-export interface Hotkey {
+interface Hotkey {
   /** Human-readable label shown in footer hints */
   label: string;
   /** The key name (ink's `input` param) */
@@ -104,6 +102,3 @@ export function buildHotkeys(cbs: {
   ];
 }
 
-// ── Footer hints (single source of truth) ──
-
-export const FOOTER_HINTS = '↑↓ hist · esc clr · ctrl+↑↓ focus · tab complete · /exit';

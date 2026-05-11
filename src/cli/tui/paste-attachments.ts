@@ -14,9 +14,6 @@ export function hasPasteMarkers(text: string): boolean {
   return text.indexOf(MARKER_PREFIX) !== -1;
 }
 
-export function clearAttachments(): void {
-  attachmentMap.clear();
-}
 
 export function createPasteMarker(id: string): string {
   return `${MARKER_PREFIX}Paste:${id}${MARKER_SUFFIX}`;

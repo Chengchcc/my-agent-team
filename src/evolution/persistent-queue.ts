@@ -48,13 +48,6 @@ export interface EvolutionTask {
   lastError?: { msg: string; at: number };
 }
 
-// ── Outcome (Phase C will expand) ──
-
-export type TaskOutcome = {
-  result: 'success' | 'soft_abort' | 'hard_abort' | 'error';
-  detail?: string;
-};
-
 // ── Per-Tier Parameters ──
 
 const HEARTBEAT_SECONDS = 30;
@@ -129,7 +122,7 @@ function kindSubdir(base: string, kind: EvolutionTaskKind): string {
   return path.join(base, KIND_DIR[kind]);
 }
 
-export interface QueueStats {
+interface QueueStats {
   totalEnqueued: number; totalCompleted: number; totalFailed: number; totalDead: number;
 }
 

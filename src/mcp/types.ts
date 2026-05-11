@@ -1,6 +1,5 @@
 import type { McpServerConfig } from '../config/types';
 
-export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error' | 'exhausted';
 
 export interface McpToolDef {
   name: string;

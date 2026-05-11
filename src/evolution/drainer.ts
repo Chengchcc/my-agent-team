@@ -19,7 +19,7 @@ const QUOTA: Record<EvolutionTaskKind, number> = {
   'mem-embed': 3,
 };
 
-export type TaskExecutor = (task: EvolutionTask, ctx: RunnerContext) => Promise<void>;
+type TaskExecutor = (task: EvolutionTask, ctx: RunnerContext) => Promise<void>;
 
 export class Drainer {
   private mutex = false;

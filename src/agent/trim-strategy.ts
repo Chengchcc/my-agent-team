@@ -9,7 +9,7 @@ export function countTotalTokens(messages: Message[], systemPrompt?: string): nu
   return total;
 }
 
-export function countSingleMessageTokens(msg: Message): number {
+function countSingleMessageTokens(msg: Message): number {
   let tokens = 4; // overhead per message for role/metadata
   if (msg.content) {
     tokens += countTokens(msg.content);

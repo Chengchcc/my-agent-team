@@ -2,10 +2,10 @@
 import { attachmentMap, createPasteMarker, createPasteMarkerRe, resolvePastePlaceholders } from '../paste-attachments';
 import { insertTextAtCursor, removeCharacterBeforeCursor, moveCursorLeft, moveCursorRight, type InputEditorState } from './use-input-editor';
 
-export const PASTE_FOLD_LINE_THRESHOLD = 3;
-export const PASTE_FOLD_CHAR_THRESHOLD = 200;
+const PASTE_FOLD_LINE_THRESHOLD = 3;
+const PASTE_FOLD_CHAR_THRESHOLD = 200;
 
-export function findMarkerAtCursor(text: string, cursor: number): { id: string; start: number; end: number } | null {
+function findMarkerAtCursor(text: string, cursor: number): { id: string; start: number; end: number } | null {
   const re = createPasteMarkerRe();
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
@@ -18,7 +18,7 @@ export function findMarkerAtCursor(text: string, cursor: number): { id: string; 
   return null;
 }
 
-export interface PasteHandlerOptions {
+interface PasteHandlerOptions {
   input: string;
   key: { backspace?: boolean; delete?: boolean; leftArrow?: boolean; rightArrow?: boolean; ctrl?: boolean; meta?: boolean };
   editorRef: { current: InputEditorState };

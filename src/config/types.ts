@@ -65,7 +65,7 @@ export interface MemorySettings {
   hybridRetrieval?: HybridRetrievalConfig;
 }
 
-export interface HybridRetrievalConfig {
+interface HybridRetrievalConfig {
   enabled: boolean;
   ollamaModel: string;
   ollamaBaseUrl: string;
@@ -84,13 +84,13 @@ export interface SkillsSettings {
   maxDescriptionLength: number;
 }
 
-export interface HistorySettings {
+interface HistorySettings {
   enabled: boolean;
   maxLines: number;
   filePath: string;
 }
 
-export interface SessionSettings {
+interface SessionSettings {
   dir: string;
 }
 
@@ -137,7 +137,7 @@ export interface McpSettings {
   reconnectDelayMs: number;
 }
 
-export interface TavilySettings {
+interface TavilySettings {
   apiKey: string | null;
 }
 

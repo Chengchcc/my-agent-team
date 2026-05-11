@@ -40,12 +40,6 @@ export interface MemoryStore {
 export interface MemoryRetriever {
   search(query: string, options?: { limit?: number; threshold?: number }): Promise<MemoryEntry[]>;
 }
-
-export interface SearchResult {
-  entry: MemoryEntry;
-  score: number;
-}
-
 export interface MemoryExtractor {
   extract(traceContext: TraceExtractionContext): Promise<MemoryEntry[]>;
   consolidate(entries: MemoryEntry[]): Promise<MemoryEntry[]>;

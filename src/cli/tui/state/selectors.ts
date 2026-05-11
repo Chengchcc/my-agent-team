@@ -1,5 +1,4 @@
 import type { FinalItem } from './types';
-import type { InteractionState, StatsState } from './types';
 import { useTuiStore, type LiveAssistant } from './store';
 
 /**
@@ -32,26 +31,10 @@ export function useFrozenItems(): FinalItem[] {
   return useTuiStore((s) => s.finalized);
 }
 
-/** All items including the live streaming one (for overlays that need to search everything). */
-export function useFinalized(): Array<FinalItem | LiveAssistant> {
-  return useTuiStore((s) => {
-    if (s.live?.kind === 'assistant-message') return [...s.finalized, s.live];
-    return s.finalized;
-  });
-}
-
-export function useInteraction(): InteractionState {
-  return useTuiStore((s) => s.interaction);
-}
-
-export function useStats(): StatsState {
-  return useTuiStore((s) => s.stats);
-}
-
 export function useStreaming(): boolean {
   return useTuiStore((s) => s.stats.streaming);
 }
 
 // ── Messages → FinalizedItems (resume path) ──
 
-export { resetNextId, messagesToFinalizedItems } from './message-converter';
+export { resetNextId } from './message-converter';

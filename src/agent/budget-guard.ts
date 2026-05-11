@@ -1,6 +1,6 @@
 import type { ToolCall } from '../types';
 
-export interface BudgetGuardConfig {
+interface BudgetGuardConfig {
   /** Threshold (ratio of remaining to total) below which delegation can trigger */
   delegateThreshold: number;
   /** Threshold (ratio of remaining to total) below which we compact first */
@@ -12,10 +12,9 @@ export interface BudgetGuardConfig {
   enabled: boolean;
 }
 
-export const BUDGET_ACTIONS = ['proceed', 'delegate-to-sub-agent', 'compact-first'] as const;
-export type BudgetAction = (typeof BUDGET_ACTIONS)[number];
+type BudgetAction = 'proceed' | 'delegate-to-sub-agent' | 'compact-first';
 
-export interface BudgetCheckResult {
+interface BudgetCheckResult {
   action: BudgetAction;
   reason?: string;
   delegatedTask?: string;
@@ -255,7 +254,7 @@ Provide a concise summary of the result. Only the key, actionable information is
 /**
  * Build a delegated task description for sub-agent for multiple tool calls.
  */
-export function buildBatchDelegatedTask(toolCalls: ToolCall[]): string {
+function buildBatchDelegatedTask(toolCalls: ToolCall[]): string {
   const steps = toolCalls.map((tc, i) => {
     return `${i + 1}. **${tc.name}**: ${JSON.stringify(tc.arguments)}`;
   }).join('\n');

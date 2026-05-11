@@ -35,7 +35,7 @@ export function createProviderFromEnv(config: RuntimeConfig): Provider {
   throw new Error('No API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.');
 }
 
-export function buildClaudeFromEnv(model: string | undefined, maxTokens: number): ClaudeProvider {
+function buildClaudeFromEnv(model: string | undefined, maxTokens: number): ClaudeProvider {
   return new ClaudeProvider({
     apiKey: (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)!,
     model: model || process.env.MODEL || DEFAULT_MODEL,
@@ -45,7 +45,7 @@ export function buildClaudeFromEnv(model: string | undefined, maxTokens: number)
   });
 }
 
-export function buildOpenaiFromEnv(model: string | undefined, maxTokens: number): OpenAIProvider {
+function buildOpenaiFromEnv(model: string | undefined, maxTokens: number): OpenAIProvider {
   return new OpenAIProvider({
     apiKey: process.env.OPENAI_API_KEY!,
     model: model || process.env.MODEL || 'gpt-4o',
@@ -87,7 +87,7 @@ export function setupEvolution(settings: RuntimeConfig['settings']): EvolutionMo
  * Uses the same API credentials as the main agent but with the
  * review-specific model (e.g. claude-3-haiku).
  */
-export function createEvolutionProvider(model: string): Provider {
+function createEvolutionProvider(model: string): Provider {
   const hasClaudeKey = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
   if (hasClaudeKey) {
     return new ClaudeProvider({

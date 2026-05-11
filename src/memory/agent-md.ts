@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { resolve, dirname, join } from 'node:path';
 import { execSync } from 'node:child_process';
 
-export interface AgentMdSource {
+interface AgentMdSource {
   path: string;
   scope: 'global' | 'project' | 'cwd';
   content: string;
@@ -66,7 +66,7 @@ async function resolveImports(
   return result;
 }
 
-export interface LoadedAgentMd {
+interface LoadedAgentMd {
   merged: string;
   sources: AgentMdSource[];
   version: string;   // mtime fingerprint for cache-busting
@@ -74,7 +74,7 @@ export interface LoadedAgentMd {
 
 let cached: { version: string; value: LoadedAgentMd } | null = null;
 
-export async function loadAgentMd(cwd = process.cwd()): Promise<LoadedAgentMd> {
+async function loadAgentMd(cwd = process.cwd()): Promise<LoadedAgentMd> {
   const sources: AgentMdSource[] = [];
   sources.push(...(await tryRead(join(homedir(), '.my-agent'), 'global')));
   const root = await findProjectRoot(cwd);

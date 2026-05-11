@@ -37,7 +37,7 @@ const createReviewSkillSchema = z.object({
   references: z.record(z.string()).optional(),
 });
 
-export type CreateReviewSkillParams = z.infer<typeof createReviewSkillSchema>;
+type CreateReviewSkillParams = z.infer<typeof createReviewSkillSchema>;
 
 export class CreateReviewSkillTool extends ZodTool<typeof createReviewSkillSchema> {
   protected readonly name = 'create_review_skill';

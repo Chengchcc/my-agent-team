@@ -62,5 +62,4 @@ function ReviewNotifications(): React.ReactElement | null {
   );
 }
 
-export { ReviewNotification, ReviewNotifications };
-export type { ReviewNotificationProps };
+export { ReviewNotifications };

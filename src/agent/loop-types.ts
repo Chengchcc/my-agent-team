@@ -4,7 +4,7 @@ import type { ToolCall } from '../types';
 /**
  * Base interface for all agent events
  */
-export interface AgentEventBase {
+interface AgentEventBase {
   type: string;
   turnIndex: number;
 }
@@ -203,8 +203,7 @@ export type AgentEvent =
  * - 'continue': Add the error as a tool message to context and continue the loop
  * - 'halt': Stop execution immediately with an error
  */
-export const TOOL_ERROR_STRATEGIES = ['continue', 'halt'] as const;
-export type ToolErrorStrategy = (typeof TOOL_ERROR_STRATEGIES)[number];
+export type ToolErrorStrategy = 'continue' | 'halt';
 
 /**
  * Agent loop configuration - limits and behavior options

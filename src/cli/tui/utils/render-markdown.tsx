@@ -37,5 +37,3 @@ export function renderMarkdownTokens(content: string): React.ReactNode[] {
   return elements;
 }
 
-// Re-export for callers that depended on the old signature
-export { renderMarkdownTokens as renderMarkdownCached };

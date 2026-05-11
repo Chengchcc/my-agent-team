@@ -9,7 +9,7 @@ import { debugLog } from '../../../utils/debug';
  * Stateless rendering entry for streaming path.
  * Parsing happens in committer.buildSnapshot; blocks are passed via SegFrame.
  */
-export class MarkdownRenderer {
+class MarkdownRenderer {
   render(
     content: string,
     committedLength: number,

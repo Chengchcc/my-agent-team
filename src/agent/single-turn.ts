@@ -16,7 +16,7 @@ import {
   classifyStreamError, retryDelay, sleep, truncateEphemeralReminders, COMPACTION_TIER_FULL,
 } from './loop-utils';
 
-export interface SingleTurnEnv {
+interface SingleTurnEnv {
   provider: Provider;
   contextManager: ContextManager;
   hooks: Required<AgentHooks>;

@@ -7,7 +7,7 @@ import type { Message } from '../types';
 
 const SESSION_PREVIEW_MAX_LENGTH = 100;
 
-export interface SessionMetadata {
+interface SessionMetadata {
   id: string;
   createdAt: string;
   updatedAt: string;

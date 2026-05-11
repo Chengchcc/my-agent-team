@@ -1,6 +1,6 @@
 import { CURRENT_CONFIG_VERSION } from './types';
 
-export interface ConfigMigration {
+interface ConfigMigration {
   from: number;
   to: number;
   migrate(config: Record<string, unknown>): Record<string, unknown>;
