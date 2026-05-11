@@ -58,7 +58,7 @@ A terminal-native AI coding agent built with TypeScript and Bun. It combines an 
 |------|-----------|
 | **General Memory** | Single store for all extracted memories (preferences, decisions, facts). ~500 entry limit, LRU eviction. Stored in SQLite `~/.my-agent/memory/memory.db` with FTS5 full-text index. |
 | **Memory Retrieval** | Three-way hybrid: keyword token scoring + FTS5 BM25 + Ollama vector embeddings, fused via Reciprocal Rank Fusion (weights 0.5/0.3/0.2). |
-| **Memory Extraction** | Queue-driven via evolution's PersistentQueue/Drainer. middleware enqueues `mem-extract` on `main_loop_settled`; drainer dispatcher runs LlmExtractor with trace context. Embedding generation is a separate `mem-embed` task. |
+| **Memory Extraction** | Nudge-driven: NudgeEngine emits `memory_worthy` signal (tool calls >= 3, task completed) → evolution callback enqueues `mem-extract` to PersistentQueue → drainer dispatcher runs LlmExtractor with trace context. Embedding is a separate `mem-embed` task. Middleware is retrieval-only. |
 | **Project Context** | Provided via `AGENTS.md` / `CLAUDE.md` markdown files, injected as `<project_rules>`. No separate project memory store. |
 
 ### Skills
@@ -170,7 +170,7 @@ The assembly process:
 5. **Wire up Todo** — creates the `todo_write` tool and a middleware that injects reminders
 6. **Create and register the SubAgentTool** — isolates tool registry to prevent recursive spawning
 7. **Assemble MCP Client** — load server configs from settings, register management tools immediately, start connections in background (non-blocking, 10s timeout per operation), register server-specific tools/prompts/resources via `onReady` callback as they become available
-8. **Set up Memory** — SQLite store with FTS5, three-way hybrid retriever (keyword + BM25 + vector), middleware (enqueues extraction to evolution queue)
+8. **Set up Memory** — SQLite store with FTS5, three-way hybrid retriever (keyword + BM25 + vector), middleware (retrieval injection only — production is nudge-driven)
 9. **Set up Skills** — loads `SKILL.md` files, creates middleware that lists them for the model
 10. **Set up Session** — auto-save hook persists conversation after each run
 11. **Build the tool middleware chain** — Permission guard, ReadCache, Trace tool middleware
@@ -554,7 +554,7 @@ Sub-agents can also be triggered automatically by the budget guard when a large 
 | `embedding-runner.ts` | EmbeddingTaskRunner: wraps encode() for queue-compatible async embedding |
 | `dispatchers.ts` | createMemExtractDispatcher + createMemEmbedDispatcher — drainer task handlers |
 
-**Trigger Mode**: Explicit only. afterAgentRun checks trigger words → enqueues `mem-extract` to PersistentQueue. Drainer consumes when idle (quota: 1/window). Separately, `mem-embed` tasks consumed at quota 3/window.
+**Trigger Mode**: Nudge-driven. NudgeEngine.tick() checks `outcome === 'completed' && totalToolCalls >= 3` → emits `memory_worthy` signal → evolution callback enqueues `mem-extract` directly. 10-minute cooldown + fingerprint dedup prevent over-extraction. Middleware no longer participates in production.
 
 **Module Boundaries**:
 
@@ -571,7 +571,7 @@ Sub-agents can also be triggered automatically by the budget guard when a large 
 1. **Storage** — `SqliteMemoryStore` uses `bun:sqlite` with a single `memory` table and a `memory_fts` FTS5 virtual table. One DB at `~/.my-agent/memory/memory.db`. Embedding stored as BLOB (Float32Array → Buffer)
 2. **Retrieval** — Three-way hybrid: `KeywordRetriever` (token scoring), `BM25Retriever` (FTS5 BM25), `VectorRetriever` (Ollama cosine similarity). Fused via `HybridRetriever` with RRF: `0.5/(60+rank_v) + 0.3/(60+rank_b) + 0.2/(60+rank_k)`
 3. **Injection** — `MemoryMiddleware.beforeModel`: (a) `generalStore.getAll()` filtered by `weight >= preferenceWeightThreshold` → `<user_preferences>` in system prompt; (b) `retriever.search(query)` → `<retrieved_memory>` in ephemeral reminders
-4. **Extraction** — Queue-driven: `afterAgentRun` enqueues `mem-extract` to PersistentQueue. Drainer dispatcher reads TraceStore, builds `TraceExtractionContext`, runs `LlmExtractor.extract()`. LLM no longer classifies type — all entries default to `'general'`. Entry weight (0-1) determines whether it's injected as preference or retrieved by query
+4. **Extraction** — Nudge-driven: NudgeEngine emits `memory_worthy` signal → evolution callback enqueues `mem-extract` to PersistentQueue → drainer dispatcher reads TraceStore, builds `TraceExtractionContext`, runs `LlmExtractor.extract()`. LLM no longer classifies type — all entries default to `'general'`. Entry weight (0-1) determines whether it's injected as preference (>= 0.9) or retrieved by query
 5. **Embedding** — After extraction, each new entry enqueues `mem-embed` task. Drainer dispatcher calls `EmbeddingTaskRunner` → `VectorRetriever.encode()` → Ollama HTTP API → updates store with embedding
 6. **Consolidation** — `LlmExtractor.consolidate()` uses objective signals: `usageCount`, `lastHitAt`, `weight`. Prompt provides per-entry usage stats. Rules: keep if `usageCount >= 3` or `lastHitAt < 7d`; remove if `usageCount = 0 && age > 30d`
 7. **Tool access** — `MemoryTool`: search/add/list/forget. Simplified — no type parameter, no consolidate (handled by drainer)
@@ -1107,15 +1107,16 @@ src/trace/
 | `beforeAddResponse` | Record LLM response (tools called, usage, redacted text) |
 | `afterAgentRun` | `setImmediate` → finalize trace + nudge check |
 
-### Nudge Engine — Three Signals
+### Nudge Engine — Four Signals
 
-| Signal | Condition | Rationale |
-|--------|-----------|-----------|
-| Error burst | `errors >= 2` AND `errors/turns >= 0.3` | Capture failure patterns while context is fresh |
-| Complex task | `turns >= 5` AND `errors = 0` | Successful multi-step tasks are skill candidates |
-| Periodic | Accumulated turns >= `reviewInterval` (default 10) | Catch-all for long sessions |
+| Signal | Condition | Cooldown | Action |
+|--------|-----------|----------|--------|
+| Error burst | `errors >= 2` AND `errors/turns >= 0.3` | 2 min | Enqueue tier0 review (skill extraction) |
+| Complex task | `turns >= 5` AND `errors = 0` | 10 min | Enqueue tier0 review (skill candidate) |
+| Periodic | Accumulated turns >= `reviewInterval` (default 10) | 30 min | Catch-all review |
+| Memory worthy | `outcome = completed` AND `toolCalls >= 3` | 10 min | Enqueue `mem-extract` directly |
 
-Fingerprint dedup prevents the same error pattern from triggering review twice. Minimum 5-minute interval between reviews.
+Fingerprint dedup prevents re-triggering. Minimum 30-second interval between any reviews.
 
 ### Data Flow
 
@@ -1383,6 +1384,20 @@ The [Architecture Constitution](./ARCHITECTURE-CONSTITUTION.md) defines non-nego
 6. **Public API testing** — new public methods require unit tests.
 
 7. **Frozen hook surface** — the six agent hooks and dispatcher methods are the only extension points. New hooks require an RFC.
+
+---
+
+## CI & Git Hooks
+
+A pre-push hook at `.git/hooks/pre-push` runs three checks before every push:
+
+| Check | Command | What it verifies |
+|-------|---------|-----------------|
+| TypeScript | `bun run tsc --noEmit` | Zero type errors |
+| Lint | `bun run lint` | ESLint (no explicit `any`, no magic numbers, etc.) |
+| Architecture | `bun run check:arch` | Constitution compliance (file size ≤ 400 lines, etc.) |
+
+All three must pass or the push is rejected. No CI server required — the hook runs locally.
 
 ---
 
