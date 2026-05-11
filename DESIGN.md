@@ -229,6 +229,40 @@ The shared type system lives in `src/types.ts`. The most important types:
 
 The central execution engine is `Agent.runAgentLoop()` in `src/agent/Agent.ts`. It's an **async generator** that yields `AgentEvent` objects, consumed by the TUI or headless runner.
 
+### Conceptual Overview
+
+**The Metaphor**: An autopilot with brakes, gearbox, and circuit breakers. User input in → feed to LLM → LLM returns tool_calls → execute tools → feed results back → loop until LLM has no more tools to call. Every turn is wrapped in middleware, timeouts, abort signals, compaction checks, and budget guards.
+
+**Key Files**:
+
+| File | LOC | Purpose |
+|---|---|---|
+| `Agent.ts` | 91 | Facade. Holds provider, contextManager, hooks, dispatcher |
+| `agent-loop.ts` | 244 | Main loop. Setup → while(turn<max && !done && !aborted) → cleanup |
+| `single-turn.ts` | 310 | One turn: beforeCompress → compact → beforeModel → stream → afterModel |
+| `run-tools.ts` | 200 | Execute tool_calls via budget check + wave scheduling |
+| `dispatch.ts` | 116 | planExecution: split tool_calls into waves, readonly tools parallel |
+| `budget-guard.ts` | 273 | Token budget fuse: proceed / delegate-to-sub-agent / compact-first |
+| `loop-utils.ts` | 65 | Retry classification, exponential backoff, ephemeralReminders truncation |
+| `sub-agent-tool.ts` | 363 | Spawns fresh Agent + ContextManager for isolated subtasks |
+| `rate-limiter.ts` | 93 | Token-bucket rate limiter wrapping the Provider |
+
+**Data Flow (one turn)**:
+
+```
+userMessage → runAgentLoop()
+  setup
+  while(...) {
+    runSingleTurn: compress → beforeModel(skill/memory inject) → stream → afterModel
+    if (toolCalls) {
+      runTools: checkBudget → planExecution(waves) → dispatch → append results
+    } else done
+  }
+  afterAgentRun → trace commit → Self-Evolution
+```
+
+**Trade-offs**: AgentLoop holds a singleton `activeLoop` — same instance can't process two inputs concurrently (fine for CLI, sub-agents use fresh instances). Budget-guard estimates tool output sizes via lookup table (read=3000 tokens, bash=2000) — real large files can overflow the window. planExecution's side-effect model only covers known tools; custom tools default to serial execution.
+
 ### Four-Phase Architecture
 
 **Phase 1 — Setup (`runSetup`)**
@@ -355,7 +389,27 @@ The `ToolContext` provides the tool with an abort signal, a read-only snapshot o
 
 ## Tool Dispatch Pipeline
 
-`ToolDispatcher` (`src/agent/tool-dispatch/dispatcher.ts`) manages tool execution with three modes:
+`ToolDispatcher` (`src/agent/tool-dispatch/dispatcher.ts`) manages tool execution with three modes.
+
+### Conceptual Overview
+
+**The Metaphor**: A restaurant pass with multi-burner kitchen. The LLM can fire multiple tool calls at once. planExecution splits them into waves — cold dishes (read) can share a station, stir-fry (write/execute) needs its own burner. Each tool gets middleware wrappers, a timer, and an isolated metadata workspace.
+
+**Key Files**:
+
+| File | LOC | Purpose |
+|---|---|---|
+| `tool-registry.ts` | 82 | name → ToolImplementation map with definitions cache |
+| `dispatcher.ts` | 338 | Three modes: sequential, parallel-batch, parallel-streaming |
+| `types.ts` | 110 | ToolContext, ToolSink, ToolEvent, side-effect classification |
+| `middleware.ts` | 20 | ToolMiddleware interface: (toolCall, ctx, next) |
+| `dispatch.ts` | 116 | planExecution: wave scheduling + side-effect conflict detection |
+
+**Tool Adjectives**: each tool declares `readonly?: boolean` (parallel-safe) and `conflictKey?(args): string|null` (return null = wave-compatible, string = exclusive). For example, sub_agent returns `null` for read_only profile, `'fs:global'` for code_editor, `'agent:global'` for general.
+
+**Full Dispatch Flow**: runTools → planExecution (resolve conflicts → waves) → for each wave: dispatcher.dispatch → executeSingle (registry lookup → copy metadata → build middleware chain → timeout wrapper → serializeAndTruncate → collect sink._todoUpdates → ToolExecutionResult).
+
+**Trade-offs**: `getSideEffects` is a hardcoded switch — custom tools default to either readonly-parallel or own-wave-serial, no path-aware parallelism. Timeout is per-tool, not per-wave; one slow tool blocks subsequent waves. serializeAndTruncate silently drops fields from large objects — the LLM sees an incomplete result. ToolNotFound returns a plain error string (not an exception), so typos are silently swallowed.
 
 1. **Sequential** — one at a time, yields `start` then `result` for each
 2. **Parallel Batch** — all start at once via `Promise.allSettled`, yield results after all complete
@@ -480,6 +534,34 @@ Sub-agents can also be triggered automatically by the budget guard when a large 
 
 ## Memory System
 
+### Conceptual Overview
+
+**The Metaphor**: Three notebooks — semantic (knowledge/preferences), episodic (events/conversation snippets), project (repo-level rules in `.claude/memory-project.json`). Plus AGENT.md injected directly into the system prompt.
+
+**Key Files**:
+
+| File | Purpose |
+|---|---|
+| `types.ts` | MemoryEntry: id, type, title, content, tags, importance, usageCount |
+| `store.ts` | JsonlMemoryStore: append-only, global at `~/.my-agent/memory/`, project at `.claude/` |
+| `extractor.ts` | LlmExtractor using DEFAULT_SUMMARY_MODEL, triggered by keywords ("remember", "记住") |
+| `retriever.ts` | KeywordRetriever: keyword 0.35 + tag 0.25 + recency 0.20 + intrinsic 0.10 + usage 0.10 |
+| `middleware.ts` | Injects AGENT.md, user_preferences, retrieved memory into beforeModel |
+| `tool.ts` | Memory tool for LLM-initiated writes |
+
+**Trigger Mode**: Explicit only. afterAgentRun checks if the last user message contains trigger words — match triggers extractor → store.append. No "auto-learn" mode to prevent the model from filling memory on its own.
+
+**Module Boundaries**:
+
+| Dimension | Memory | Skill | Self-Evolution |
+|---|---|---|---|
+| What it stores | Facts (preferences, conventions) | Methods (how to do X) | Methods (produce skills) |
+| Who writes | User / LLM extract | Human + Self-Evolution | Tier 0 learns from traces |
+| Injection point | system + ephemeral | system catalog + ephemeral hint | Output lands in skill/auto |
+| Trigger | Keywords / keyword retrieval | /tag / substring / keywordScore | idle / event / cron / threshold / manual |
+
+**Trade-offs**: embedding field is defined but retriever doesn't use it — semantic search needs an external vector store. JsonlMemoryStore is append-only with no dedup or TTL — scanning slows over time. Extractor fires async with `void` — failures are silently lost. Project memory writes to `.claude/` directory, conflict risk with Claude Code.
+
 The agent can remember information across sessions using three memory stores:
 
 | Store | What it holds | Typical entries |
@@ -499,6 +581,30 @@ The agent can remember information across sessions using three memory stores:
 ---
 
 ## Skills System
+
+### Conceptual Overview
+
+**The Metaphor**: A wall covered in sticky notes. Each note (SKILL.md) has a front (name + description — the catalog card) and a back (full instructions). The agent normally only scans the fronts. When a user mentions a skill by name or `/tag`, the full note gets pulled into the prompt.
+
+**Key Files**:
+
+| File | LOC | Purpose |
+|---|---|---|
+| `loader.ts` | 162 | SkillLoader: two sources (`<project>/skills/` + `~/.my-agent/skills/auto/`), `gray-matter` frontmatter parsing |
+| `middleware.ts` | 322 | Two-layer progressive injection |
+
+**Two-Layer Progressive Loading**:
+
+| Layer | Location | Content | Trigger | Cache |
+|---|---|---|---|---|
+| Layer 1: catalog | system prompt | name + description for ALL skills (truncated to 500 chars, XML tags sanitized) | `preloadAll()` at startup | version hash, long-lived |
+| Layer 2: hint | ephemeralReminders | Full body of matched skills ONLY | Per-turn scan of user message | Per-turn, auto-cleared |
+
+**Matching Rules** (`findMentionedSkills`): Layer A — `/skill-name` explicit syntax, no upper limit. Layer B — substring match → keywordScore (query/description word overlap) → sorted → top `maxInjectedSkills=3`.
+
+**Auto-Skills** (Self-Evolution output): `SkillLoader.checkAutoSkills()` watches `~/.my-agent/skills/auto/` mtime. Changed → `clearCache()`. `getAutoSkillNames()` used by Self-Evolution for "what was just learned" stats.
+
+**Trade-offs**: Path traversal fixed via `validateSkillPath`, but frontmatter `name` has no length limit. Keyword matching degrades for non-English languages (no tokenization). maxInjectedSkills=3 is a hard cap — 4th tag silently dropped. Cache invalidation by directory mtime: one skill change triggers full reload. No versioning or conflict detection — project skill silently overrides auto skill with same name.
 
 Skills are markdown files that teach the agent domain-specific workflows. Each skill lives in `skills/<name>/SKILL.md` with optional YAML frontmatter.
 
@@ -1027,6 +1133,28 @@ beforeAgentRun → beforeAddResponse → TraceToolMiddleware → afterAgentRun
 ## Self-Evolution System
 
 The Evolution System closes the loop: agent traces → pattern detection → background review → auto-generated skills → quality measurement → iterative improvement. Phases A–F implemented, with Tier3 full pipeline deferred.
+
+### Conceptual Overview
+
+**What it does**: After every agent run, the system analyzes the trace. If it spots a reusable pattern (e.g. "the agent took 4 turns to figure out macOS grep flags"), it spawns a review agent to write a skill. That skill then gets mechanically scored (Tier 1) and, if underperforming, judged by an LLM referee (Tier 2). If the referee says "edit", the skill gets rewritten. The entire pipeline is backed by a persistent queue so crashes don't lose tasks, and defended by 5 layers plus per-tier circuit breakers.
+
+**From demo to production — what each phase fixed**:
+
+| Phase | Status | Before | After |
+|---|---|---|---|
+| A | Done | Tier 2 ran on empty data, files polluted cwd, path traversal bug | Real trace data, `~/.my-agent/feedback/`, name validation |
+| B | Done | No concurrency control, review could fire during streaming | IdleGate, ReviewSlot, backoff, CircuitBreaker |
+| C | Done | Review couldn't be cancelled mid-run | TaskRunner with softCancel + hard abort, SettledDetector |
+| D | Done | Tasks lost on crash, single breaker for all tiers | PersistentQueue with O_EXCL, TierBreaker per-tier, Drainer with quotas |
+| E | Done | Only nudge signals triggered review | 5 trigger types with allowedKinds filtering |
+| F | WIP | No prompt self-improvement | F1 CronScheduler done, F2 Tier2 dispatcher done, F3/F4 Tier3 stubs |
+
+**Core trade-offs that shaped the design**:
+- **Fast path skips disk I/O**: nudge-triggered reviews that pass all defenses execute immediately without queuing. Crash loses one task — acceptable because the nudge re-fires next loop_settled.
+- **Files as a queue**: No Redis, no SQLite. O_EXCL is POSIX-guaranteed atomic. Directory scan is O(n) but the queue is never large (tens of tasks, not thousands).
+- **Dual Tier 2 paths**: trackStats fires Tier 2 directly (fast path for immediate feedback); the queue also supports cron-driven Tier 2 (slow path for scheduled review). Slightly inconsistent, but each serves its purpose.
+- **Long-cycle cron via nextRunAt**: No background daemon. Daily/weekly tasks are enqueued with a future `nextRunAt`. The Drainer naturally picks them up when the user next opens a session. Late is OK — these aren't real-time deadlines.
+- **Tier3 stubs are honest**: Rather than half-build a prompt optimizer without the LLM agent infrastructure it needs, the Tier3 dispatchers are clean stubs with documented pipeline steps. They'll work when the infrastructure exists.
 
 ### Architecture Overview
 
