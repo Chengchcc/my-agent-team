@@ -28,13 +28,15 @@ You type instructions. The agent reasons, calls tools (reading files, running co
 - `read` / `grep` / `glob` / `ls` — filesystem exploration
 - `text_editor` — view, create, string-replace, and write files
 - `ask_user_question` — multi-choice prompts to the user
-- `memory` — search, add, list, forget, consolidate persistent memories
+- `web_search` — web search via Tavily (registered lazily)
+- `memory` — search, add, list, forget persistent memories
 - `todo_write` — task list with merge semantics
 
 **Memory**
-- Three persistent stores: semantic (preferences), episodic (past conversations), project (architecture notes)
-- Keyword retrieval + LLM extraction and consolidation
-- Automatically extracts key information after conversations
+- Single SQLite-backed store with FTS5 full-text + sqlite-vec vector index
+- Three-way hybrid retrieval: keyword scoring + BM25 + Ollama embeddings, fused via RRF
+- Nudge-driven extraction: `memory_worthy` signal → queue → LLM extraction → async embedding
+- Two-layer injection: high-weight entries as `<user_preferences>` in system prompt, query-matched as `<retrieved_memory>` in ephemeral reminders
 
 **Skills**
 - Teach the agent new workflows with markdown files (`skills/<name>/SKILL.md`)
@@ -72,6 +74,9 @@ bun install
 # Configure your API key
 cp .env.example .env
 # Edit .env: set ANTHROPIC_API_KEY or OPENAI_API_KEY
+
+# Pull the local embedding model for memory vector search
+ollama pull nomic-embed-text
 
 # Launch the terminal UI
 bun run tui
@@ -133,7 +138,7 @@ my-agent/
 │   ├── config/                 # YAML-based configuration + Zod validation
 │   ├── evolution/              # Self-evolution: review agent, effectiveness tracking, skill analysis
 │   ├── mcp/                    # MCP client (server lifecycle, tool adapter, prompts, resources)
-│   ├── memory/                 # Persistent memory (stores, retriever, extractor)
+│   ├── memory/                 # Persistent memory (SQLite, FTS5, sqlite-vec, hybrid retrieval, nudge-driven extraction)
 │   ├── providers/              # Claude + OpenAI providers
 │   ├── session/                # Conversation session persistence
 │   ├── skills/                 # Skill loading + injection middleware
