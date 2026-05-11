@@ -18,7 +18,7 @@ export type EvolutionTaskKind =
   | 'mem-extract'
   | 'mem-embed';
 
-export type TriggerSource = 'error_burst' | 'complex_task' | 'periodic' | 'cron' | 'threshold' | 'manual';
+export type TriggerSource = 'error_burst' | 'complex_task' | 'periodic' | 'memory_worthy' | 'cron' | 'threshold' | 'manual';
 
 // ── Union Payload ──
 

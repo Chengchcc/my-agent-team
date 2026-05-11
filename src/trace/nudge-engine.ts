@@ -15,14 +15,17 @@ const MAX_FINGERPRINTS_PER_SIGNAL = 50;
 const TURN_BUCKET_SIZE = 5;
 const FINGERPRINT_HASH_LENGTH = 16;
 
+const MEMORY_WORTHY_MIN_TOOLS = 3;
 const SECONDS_PER_MINUTE = 60;
 const COOLDOWN_ERROR_BURST_MINUTES = 2;
 const COOLDOWN_COMPLEX_TASK_MINUTES = 10;
 const COOLDOWN_PERIODIC_MINUTES = 30;
+const COOLDOWN_MEMORY_WORTHY_MINUTES = 10;
 const SIGNAL_COOLDOWNS: Record<string, number> = {
   error_burst: COOLDOWN_ERROR_BURST_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND,
   complex_task: COOLDOWN_COMPLEX_TASK_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND,
   periodic: COOLDOWN_PERIODIC_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND,
+  memory_worthy: COOLDOWN_MEMORY_WORTHY_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND,
 };
 
 export class NudgeEngine {
@@ -79,6 +82,17 @@ export class NudgeEngine {
       }
     }
 
+    // Signal 4: Memory extraction — task completed, meaningful work done
+    if (trace.summary.outcome === 'completed'
+        && trace.summary.totalToolCalls >= MEMORY_WORTHY_MIN_TOOLS) {
+      if (!this.isOnCooldown('memory_worthy', now)) {
+        const fp = 'mem:' + this.buildFingerprint(trace);
+        if (!this.isDuplicate('memory_worthy', fp)) {
+          return this.emit('memory_worthy', trace, fp);
+        }
+      }
+    }
+
     return null;
   }
 
@@ -92,7 +106,7 @@ export class NudgeEngine {
   }
 
   private emit(
-    signal: 'error_burst' | 'complex_task' | 'periodic',
+    signal: NudgeResult['signal'],
     trace: TraceRun,
     fingerprint: string,
   ): NudgeResult {
@@ -118,10 +132,11 @@ export class NudgeEngine {
       return 'combined_review';
     }
     if (signal === 'error_burst') return 'memory_review';
+    if (signal === 'memory_worthy') return 'memory_extract';
     return 'skill_review';
   }
 
-  private buildReason(signal: 'error_burst' | 'complex_task' | 'periodic', trace: TraceRun): string {
+  private buildReason(signal: NudgeResult['signal'], trace: TraceRun): string {
     const e = trace.summary.totalErrors;
     const t = trace.summary.totalTurns;
     switch (signal) {
@@ -131,6 +146,8 @@ export class NudgeEngine {
         return `${t}-turn task completed successfully — candidate for skill extraction`;
       case 'periodic':
         return `Periodic review after ${this.reviewInterval} accumulated turns`;
+      case 'memory_worthy':
+        return `${trace.summary.totalToolCalls} tool calls in ${t} turns completed — extract memories`;
     }
   }
 
@@ -167,7 +184,7 @@ export class NudgeEngine {
   private defaultState(): NudgeState {
     return {
       turnsSinceReview: 0,
-      fingerprints: { error_burst: [], complex_task: [], periodic: [] },
+      fingerprints: { error_burst: [], complex_task: [], periodic: [], memory_worthy: [] },
       lastReviewAt: 0,
       lastSignalAt: {},
     };

@@ -268,7 +268,6 @@ function setupMemory(
   );
   toolRegistry.register(new MemoryTool(generalStore, retriever));
   if (middleware.beforeModel) hooks.beforeModel.push(middleware.beforeModel);
-  if (middleware.afterAgentRun) hooks.afterAgentRun.push(middleware.afterAgentRun);
   void generalStore.enforceLimit?.();
   invalidateAgentMdCache();
   return { middleware, store: generalStore, retriever };

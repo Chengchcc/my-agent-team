@@ -44,10 +44,10 @@ export interface EvolutionModule {
   traceStore?: TraceStore | undefined;
 }
 
-type TriggerType = 'error_burst' | 'complex_task' | 'periodic';
+type TriggerType = 'error_burst' | 'complex_task' | 'periodic' | 'memory_worthy';
 
 function isValidTrigger(value: string): value is TriggerType {
-  return value === 'error_burst' || value === 'complex_task' || value === 'periodic';
+  return value === 'error_burst' || value === 'complex_task' || value === 'periodic' || value === 'memory_worthy';
 }
 
 function createTier2Handler(
@@ -123,8 +123,8 @@ function wireDispatchers(
   drainer.setDispatcher('tier0_review', async (task) => {
     await new Promise<void>((resolve, reject) => {
       if (task.payload.kind !== 'tier0_review') { resolve(); return; }
-      const sig = task.payload.signal as TriggerType;
-      forkReviewAgent(sig, task.payload.trace, {
+      const sig = task.payload.signal;
+      forkReviewAgent(sig as 'error_burst' | 'complex_task' | 'periodic', task.payload.trace, {
         outputDir, provider, model: config.model, maxTurns: config.maxTurns,
         tokenLimit: config.tokenLimit, timeoutMs: config.timeoutMs,
         onSkillCreated: notify, onComplete: resolve, onError: () => reject(new Error('review failed')),
@@ -205,7 +205,7 @@ export function initEvolution(
   const runTier0 = (signal: string, trace: TraceRun, onComplete: () => void, onError: () => void) => {
     runner.run(
       () => new Promise<RunnerOutcome>((resolve, reject) => {
-        forkReviewAgent(signal as TriggerType, trace, {
+        forkReviewAgent(signal as 'error_burst' | 'complex_task' | 'periodic', trace, {
           outputDir, provider, model: config.model, maxTurns: config.maxTurns,
           tokenLimit: config.tokenLimit, timeoutMs: config.timeoutMs,
           onSkillCreated: notify,
@@ -232,6 +232,18 @@ export function initEvolution(
     review(nudgeResult: { signal: string; trigger: string; traceRunId: string; sessionId: string; fingerprint: string; reason: string }, trace: TraceRun) {
       const signal = nudgeResult.signal;
       if (!isValidTrigger(signal)) { debugLog(`[evolution] Unknown signal: ${signal}`); return; }
+
+      // memory_worthy → directly enqueue mem-extract, bypass review defenses
+      if (signal === 'memory_worthy') {
+        void queue.enqueue({
+          kind: 'mem-extract',
+          priority: 'normal',
+          fingerprint: nudgeResult.fingerprint,
+          scheduledBy: signal,
+          payload: { kind: 'mem-extract', traceId: trace.id, projectPath: process.cwd() },
+        }).catch(() => {});
+        return;
+      }
 
       if (!backoff.canRun()) {
         debugLog('[evolution] Review blocked by backoff — enqueuing');

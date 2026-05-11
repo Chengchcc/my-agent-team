@@ -65,8 +65,8 @@ export interface NudgeState {
 }
 
 export interface NudgeResult {
-  trigger: 'memory_review' | 'skill_review' | 'combined_review';
-  signal: 'error_burst' | 'complex_task' | 'periodic';
+  trigger: 'memory_review' | 'skill_review' | 'combined_review' | 'memory_extract';
+  signal: 'error_burst' | 'complex_task' | 'periodic' | 'memory_worthy';
   traceRunId: string;
   sessionId: string;
   fingerprint: string;
