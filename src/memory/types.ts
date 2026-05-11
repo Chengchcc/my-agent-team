@@ -1,4 +1,3 @@
-import type { Message } from '../types';
 
 export const MEMORY_TYPES = ['semantic', 'episodic', 'project'] as const;
 export type MemoryType = (typeof MEMORY_TYPES)[number];
