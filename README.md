@@ -29,6 +29,7 @@ You type instructions. The agent reasons, calls tools (reading files, running co
 - `text_editor` — view, create, string-replace, and write files
 - `ask_user_question` — multi-choice prompts to the user
 - `web_search` — web search via Tavily (registered lazily)
+- `web_fetch` — fetch URL content via Tavily Extract or headless Chrome, returns cleaned markdown/text
 - `memory` — search, add, list, forget persistent memories
 - `todo_write` — task list with merge semantics
 

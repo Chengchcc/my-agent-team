@@ -367,6 +367,7 @@ All tools extend `ZodTool<T>` (`src/tools/zod-tool.ts`), which converts Zod sche
 | **memory** | Search, add, list, and forget memories |
 | **todo_write** | Task list management with merge behavior |
 | **web_search** | Web search via Tavily API (registered lazily) |
+| **web_fetch** | Fetch URL content — Tavily Extract with headless Chrome fallback, 5-min ReadCache |
 | **sub_agent** | Delegate self-contained tasks to an isolated sub-agent |
 | **mcp_list_servers** | List all configured MCP servers and their connection status |
 | **mcp_add_server** | Connect to a new MCP server and register its tools/prompts (persisted to settings) |

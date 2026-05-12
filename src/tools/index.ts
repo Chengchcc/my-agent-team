@@ -17,3 +17,6 @@ export * from './permission-manager';
 
 // Web search
 export * from './web-search';
+
+// Web fetch
+export * from './web-fetch';

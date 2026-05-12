@@ -29,7 +29,7 @@ import { createAutoSaveHook } from './session/hook';
 import type { AskUserQuestionParameters, AskUserQuestionResult } from './tools/ask-user-question';
 import {
   BashTool, TextEditorTool, AskUserQuestionTool,
-  ReadTool, GrepTool, GlobTool, LsTool, WebSearchTool,
+  ReadTool, GrepTool, GlobTool, LsTool, WebSearchTool, WebFetchTool,
 } from './tools';
 import { createProviderFromSettings } from './providers';
 import { createProviderFromEnv, setupEvolution } from './runtime-providers';
@@ -142,6 +142,9 @@ export async function createAgentRuntime(
 
   // WebSearch — always registered; API key resolved lazily at call time
   toolRegistry.register(new WebSearchTool());
+
+  // WebFetch — always registered; API key resolved lazily at call time
+  toolRegistry.register(new WebFetchTool());
 
   const defaultHeadlessHandler = async () => {
     throw new Error('ask_user_question tool is not available in headless mode');
