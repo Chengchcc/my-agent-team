@@ -15,7 +15,10 @@ export function classifyStreamError(error: Error): StreamErrorKind {
   if (msg.includes('timeout') || msg.includes('network') ||
       msg.includes('econnrefused') || msg.includes('enotfound') ||
       msg.includes('etimedout') || msg.includes('fetch failed') ||
-      msg.includes('econnreset')) {
+      msg.includes('econnreset') || msg.includes('abort') ||
+      msg.includes('request ended without sending any chunks') ||
+      msg.includes('socket hang up') || msg.includes('ECONNABORTED') ||
+      msg.includes('stream encountered error')) {
     return 'network';
   }
   if (msg.includes('rate_limit') || msg.includes('429') ||
