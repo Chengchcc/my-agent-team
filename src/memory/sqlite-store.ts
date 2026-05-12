@@ -6,6 +6,9 @@ import { mkdirSync, existsSync } from 'node:fs';
 import crypto from 'crypto';
 import type { MemoryEntry, MemoryStore, MemoryType, MemoryConfig } from './types';
 import { getSettingsSync } from '../config';
+import { configureSqlite } from '../utils/sqlite-platform';
+
+configureSqlite();
 
 type SqlRow = {
   id: string;

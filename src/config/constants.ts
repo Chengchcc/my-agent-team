@@ -6,7 +6,7 @@ export const DEFAULT_COMPACTION_BUFFER = 2048;
 export const DEFAULT_MAX_SUMMARY_TOKENS = 1024;
 
 // --- Model defaults ---
-export const DEFAULT_MODEL = 'claude-3-5-sonnet-20241022';
+export const DEFAULT_MODEL = 'ark-code-latest';
 export const DEFAULT_SUMMARY_MODEL = 'claude-3-5-haiku-20241022';
 
 // --- LLM defaults ---
