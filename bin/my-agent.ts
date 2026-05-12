@@ -226,6 +226,10 @@ async function main() {
   const outputFormat = (String(values['output-format'] ?? 'text')) as OutputFormat;
   const maxTurns = parseInt(String(values['max-turns'] ?? String(DEFAULT_MAX_TURNS)), 10);
 
+  // Load settings before creating runtime — SkillLoader uses getSettingsSync()
+  const { getSettings } = await import('../src/config');
+  await getSettings();
+
   const runtimeConfig: RuntimeConfig = {
     enableMemory: !values['no-memory'],
     enableSkills: !values['no-skills'],

@@ -139,10 +139,10 @@ describe('convertToClaudeMessages', () => {
     expect((content[1] as Record<string, unknown>).text).toBe('The answer is 42.');
   });
 
-  test('assistant with thinking + text + tool_use blocks preserves order', () => {
+  test('assistant with thinking + text + tool_use blocks preserves order (with signature)', () => {
     const blocks: ContentBlock[] = [
       { type: 'text', text: 'Using bash.' },
-      { type: 'thinking', thinking: 'reasoning...' },
+      { type: 'thinking', thinking: 'reasoning...', signature: 'sig123' },
       { type: 'tool_use', id: 'tc1', name: 'bash', input: { command: 'ls' } },
     ];
     const messages: Message[] = [{
@@ -159,6 +159,23 @@ describe('convertToClaudeMessages', () => {
     expect(content[0].type).toBe('thinking');
     expect(content[1].type).toBe('text');
     expect(content[2].type).toBe('tool_use');
+  });
+
+  test('thinking blocks without signature are filtered (cannot be replayed)', () => {
+    const blocks: ContentBlock[] = [
+      { type: 'thinking', thinking: 'unverifiable reasoning' },
+      { type: 'text', text: 'Hello' },
+    ];
+    const messages: Message[] = [{
+      role: 'assistant',
+      content: 'Hello',
+      blocks,
+    }];
+
+    const result = convertToClaudeMessages(messages);
+    const content = result[0].content as Record<string, unknown>[];
+    expect(content).toHaveLength(1);
+    expect(content[0].type).toBe('text');
   });
 
   test('assistant with redacted_thinking block preserves it', () => {
