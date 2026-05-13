@@ -34,6 +34,14 @@ export type FinalItem =
   | { kind: 'divider'; reason: 'clear' | 'compact' }
   | { kind: 'system-notice'; id: string; content: string };
 
+// ── Todos ──
+
+export interface UITodoItem {
+  id: string;
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+}
+
 // ── Review notifications ──
 
 export interface ReviewNotification {

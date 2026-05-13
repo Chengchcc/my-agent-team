@@ -11,6 +11,7 @@ import type {
   StatsState,
   ToolCallResult,
   ReviewNotification,
+  UITodoItem,
 } from './types';
 import { initialInteraction, initialStats } from './types';
 import type { Message } from '../../../types';
@@ -37,6 +38,7 @@ interface TuiStore {
   live: LiveAssistant | null;
   interaction: InteractionState;
   stats: StatsState;
+  todos: UITodoItem[];
 
   // Core turn lifecycle
   turnStart: (assistantId: string) => void;
@@ -71,6 +73,9 @@ interface TuiStore {
   setInterrupted: (interrupted: boolean) => void;
   setCompacting: (compacting: boolean) => void;
 
+  // Todos
+  updateTodos: (todos: UITodoItem[]) => void;
+
   // Review notifications
   reviewNotifications: ReviewNotification[];
   addReviewNotification: (skillName: string, description: string, outputDir: string) => void;
@@ -88,6 +93,7 @@ export const useTuiStore = create<TuiStore>()(
     live: null,
     interaction: { ...initialInteraction, expandedTools: new Set(), ignoredErrors: new Set() },
     stats: { ...initialStats },
+    todos: [],
     reviewNotifications: [],
 
     // ── Core turn lifecycle ──
@@ -237,6 +243,7 @@ export const useTuiStore = create<TuiStore>()(
         s.live = null;
         s.stats.streaming = false;
         s.stats.streamingStartTime = null;
+        s.todos = [];
       }),
 
     // ── Interaction ──
@@ -365,6 +372,13 @@ export const useTuiStore = create<TuiStore>()(
       set((s) => {
         const n = s.reviewNotifications.find(r => r.skillName === skillName);
         if (n) { n.dismissed = true; n.deleted = true; }
+      }),
+
+    // ── Todos ──
+
+    updateTodos: (todos) =>
+      set((s) => {
+        s.todos = todos;
       }),
   /* eslint-enable max-lines-per-function */
   })),

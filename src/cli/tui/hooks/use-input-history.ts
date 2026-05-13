@@ -116,7 +116,7 @@ export function useInputHistory() {
 
   const doSave = useCallback((text: string) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || trimmed.startsWith('/') || trimmed.startsWith('@')) return;
 
     const history = historyRef.current;
     if (history.length > 0 && history[history.length - 1] === trimmed) return;

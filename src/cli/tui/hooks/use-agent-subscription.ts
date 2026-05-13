@@ -9,6 +9,13 @@ const SUB_AGENT_STATUS_PREVIEW_LEN = 200;
 import type { Agent } from '../../../agent';
 import type { AgentEvent } from '../../../agent/loop-types';
 
+function syncTodosFromAgent(agent: Agent): void {
+  const cm = agent.getContextManager();
+  if (!cm) return;
+  const todoState = cm.getTodoState();
+  useTuiStore.getState().updateTodos(todoState.todos);
+}
+
 function dispatchAgentEvent(
   event: AgentEvent,
   agent: Agent,
@@ -36,6 +43,7 @@ function dispatchAgentEvent(
         ? { kind: 'error' as const, message: String(event.result ?? 'unknown error'), durationMs: event.durationMs }
         : { kind: 'ok' as const, content: String(event.result ?? ''), durationMs: event.durationMs },
       );
+      syncTodosFromAgent(agent);
       committer.flush();
       break;
 
@@ -47,6 +55,7 @@ function dispatchAgentEvent(
           completion_tokens: event.usage.completion_tokens,
         });
       }
+      syncTodosFromAgent(agent);
       store.setContextTokens(agent.getContextManager().getCurrentTokens());
       if (event.hasToolCalls) {
         committer.flush();

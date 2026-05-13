@@ -14,6 +14,7 @@ import { usePermissionManager } from './hooks/use-permission-manager';
 import { AskUserQuestionPrompt } from './views/overlay/AskUserQuestionPrompt';
 import { PermissionPrompt } from './views/overlay/PermissionPrompt';
 import { ReviewNotifications } from './components/ReviewNotification';
+import { TodoPanel } from './components/TodoPanel';
 import type { PromptSubmission, SlashCommand } from './command-registry';
 import type { CommandHandlerContext } from './types';
 import type { Agent } from '../../agent';
@@ -194,12 +195,14 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
     [handleFocusPrev, handleFocusNext, handleToggleExpand],
   );
 
-  // Initialize context token tracking
+  // Initialize context tracking + todo state (covers resume path)
   useEffect(() => {
     const cm = agent.getContextManager?.();
     if (!cm) return;
     useTuiStore.getState().setTokenLimit(cm.getTokenLimit());
     useTuiStore.getState().setContextTokens(cm.getCurrentTokens());
+    const todoState = cm.getTodoState();
+    useTuiStore.getState().updateTodos(todoState.todos);
   }, [agent]);
 
   const allCommands = useMemo(() => [...getBuiltinCommands(sessionStore), ...skillCommands], [sessionStore, skillCommands]);
@@ -233,6 +236,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
         <StreamingIndicator />
         <FocusedToolDetail />
         <ReviewNotifications />
+        <TodoPanel />
         {askUserQuestionRequest != null && (
           <AskUserQuestionPrompt
             questions={askUserQuestionRequest.params.questions}
