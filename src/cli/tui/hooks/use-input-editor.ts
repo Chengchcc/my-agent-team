@@ -9,10 +9,13 @@ function prevCodePointOffset(text: string, offset: number): number {
   return offset - 1;
 }
 
+const HIGH_SURROGATE_MIN = 0xd800;
+const HIGH_SURROGATE_MAX = 0xdbff;
+
 function nextCodePointOffset(text: string, offset: number): number {
   if (offset >= text.length) return text.length;
   const code = text.charCodeAt(offset);
-  if (code >= 0xd800 && code <= 0xdbff) return offset + 2;
+  if (code >= HIGH_SURROGATE_MIN && code <= HIGH_SURROGATE_MAX) return offset + 2;
   return offset + 1;
 }
 
