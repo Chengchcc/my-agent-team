@@ -1,36 +1,7 @@
 import type { SlashCommand } from '../command-registry';
 import type { SessionStore } from '../../../session/store';
 import type { CommandHandlerContext } from '../types';
-import chalk from 'chalk';
-
-const SESSION_ID_PREFIX_LENGTH = 8;
-const SESSION_PREVIEW_MAX_LENGTH = 60;
-
-/**
- * Format session list for display
- */
-function formatSessionList(sessions: Awaited<ReturnType<SessionStore['listSessions']>>): string {
-  if (sessions.length === 0) {
-    return 'No saved sessions found.';
-  }
-
-  const lines = ['Saved sessions (newest first):', ''];
-
-  sessions.forEach((session, index) => {
-    const shortId = session.id.slice(0, SESSION_ID_PREFIX_LENGTH);
-    const date = new Date(session.updatedAt).toLocaleString();
-    const preview = session.lastUserMessage
-      ? session.lastUserMessage.slice(0, SESSION_PREVIEW_MAX_LENGTH) + (session.lastUserMessage.length > SESSION_PREVIEW_MAX_LENGTH ? '...' : '')
-      : '(empty)';
-
-    lines.push(`${chalk.bold(String(index + 1))}. ${chalk.cyan(shortId)} - ${date}`);
-    lines.push(`   ${preview}`);
-    lines.push('');
-  });
-
-  lines.push(`Use ${chalk.bold('/resume <id>')} to resume a session (prefix matching works, e.g. ${chalk.bold('/resume ' + sessions[0]?.id.slice(0, SESSION_ID_PREFIX_LENGTH))})`);
-  return lines.join('\n');
-}
+import { useTuiStore } from '../state/store';
 
 /**
  * Handle /resume command - list sessions or load specific session
@@ -40,10 +11,10 @@ async function handleResume(
 ): Promise<void> {
   const { sessionStore, agent, refreshMessages, onOutput, args } = ctx;
 
-  // No arguments - list sessions
+  // No arguments - open interactive session picker
   if (!args.trim()) {
     const sessions = await sessionStore.listSessions();
-    onOutput(formatSessionList(sessions));
+    useTuiStore.getState().openSessionPicker(sessions);
     return;
   }
 

@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
-import { Box, Static } from 'ink';
+import { Box, Static, useInput } from 'ink';
 import { useTuiStore, useFrozenItems, useLiveItem, useStreaming } from './state/store';
 import { FinalItemView } from './views/final/FinalItemView';
 import { ActiveAssistantView } from './views/active/ActiveAssistantView';
@@ -15,6 +15,7 @@ import { AskUserQuestionPrompt } from './views/overlay/AskUserQuestionPrompt';
 import { PermissionPrompt } from './views/overlay/PermissionPrompt';
 import { ReviewNotifications } from './components/ReviewNotification';
 import { TodoPanel } from './components/TodoPanel';
+import { SessionPicker } from './components/SessionPicker';
 import type { PromptSubmission, SlashCommand } from './command-registry';
 import type { CommandHandlerContext } from './types';
 import type { Agent } from '../../agent';
@@ -132,6 +133,56 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
   const { permissionRequest, respondToPermission } = usePermissionManager();
 
   const streaming = useStreaming();
+  const sessionPicker = useTuiStore(s => s.sessionPicker);
+
+  const handleSelectSession = useCallback(
+    async (index: number) => {
+      const session = sessionPicker.sessions[index];
+      if (!session) return;
+      useTuiStore.getState().closeSessionPicker();
+
+      try {
+        const messages = await sessionStore.loadSession(session.id);
+        agent.clear();
+        const contextManager = agent.getContextManager();
+        for (const msg of messages) {
+          contextManager.addMessage(msg);
+        }
+        sessionStore.setCurrentSessionId(session.id);
+        const msgs = contextManager.getMessages();
+        useTuiStore.getState().resetFromMessages(msgs);
+        useTuiStore.getState().appendSystemNotice(
+          `notice-${noticIdx.current++}`,
+          `Resumed session ${session.id} (${session.messageCount} messages)`,
+        );
+      } catch (error) {
+        useTuiStore.getState().appendSystemNotice(
+          `notice-${noticIdx.current++}`,
+          `Failed to load session: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    },
+    [sessionPicker.sessions, sessionStore, agent],
+  );
+
+  useInput((_input, key) => {
+    if (!sessionPicker.active || sessionPicker.sessions.length === 0) return;
+    if (key.upArrow) {
+      useTuiStore.getState().sessionPickerMove(-1);
+      return;
+    }
+    if (key.downArrow) {
+      useTuiStore.getState().sessionPickerMove(1);
+      return;
+    }
+    if (key.return) {
+      void handleSelectSession(sessionPicker.selectedIndex);
+      return;
+    }
+    if (key.escape) {
+      useTuiStore.getState().closeSessionPicker();
+    }
+  });
 
   const handleSubmit = useCallback(
     async (submission: PromptSubmission) => {
@@ -249,14 +300,19 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
             onSubmit={respondToPermission}
           />
         )}
-        {!showPrompt && (
+        {sessionPicker.active ? (
+          <SessionPicker
+            sessions={sessionPicker.sessions}
+            selectedIndex={sessionPicker.selectedIndex}
+          />
+        ) : !showPrompt ? (
           <InputBox
             commands={allCommands}
             onSubmit={(s) => { void handleSubmit(s); }}
             onAbort={handleAbort}
             callbacks={callbacks}
           />
-        )}
+        ) : null}
         <Footer />
       </Box>
     </Box>

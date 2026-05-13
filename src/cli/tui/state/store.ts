@@ -12,8 +12,10 @@ import type {
   ToolCallResult,
   ReviewNotification,
   UITodoItem,
+  SessionPickerState,
+  SessionPickerSession,
 } from './types';
-import { initialInteraction, initialStats } from './types';
+import { initialInteraction, initialStats, initialSessionPicker } from './types';
 import type { Message } from '../../../types';
 import { messagesToFinalizedItems } from './message-converter';
 
@@ -39,6 +41,7 @@ interface TuiStore {
   interaction: InteractionState;
   stats: StatsState;
   todos: UITodoItem[];
+  sessionPicker: SessionPickerState;
 
   // Core turn lifecycle
   turnStart: (assistantId: string) => void;
@@ -82,6 +85,11 @@ interface TuiStore {
   dismissReviewNotification: (skillName: string) => void;
   keepReviewSkill: (skillName: string) => void;
   deleteReviewSkill: (skillName: string) => void;
+
+  // Session picker
+  openSessionPicker: (sessions: SessionPickerSession[]) => void;
+  closeSessionPicker: () => void;
+  sessionPickerMove: (direction: -1 | 1) => void;
 }
 
 // ── Store ──
@@ -95,6 +103,7 @@ export const useTuiStore = create<TuiStore>()(
     stats: { ...initialStats },
     todos: [],
     reviewNotifications: [],
+    sessionPicker: { ...initialSessionPicker },
 
     // ── Core turn lifecycle ──
 
@@ -152,11 +161,6 @@ export const useTuiStore = create<TuiStore>()(
       set((s) => {
         if (s.live?.kind !== 'assistant-message') return;
         const assistantId = s.live.id;
-
-        // All text segments can push committed-blocks. Since tool-call-final
-        // items are pushed immediately on toolDone, scrollback order is
-        // naturally maintained: text-before-tool blocks come before
-        // tool-call-final, and text-after-tool blocks come after.
         for (const seg of s.live.segments) {
           if (seg.kind === 'text' && seg.id === segId) {
             if (newCommittedLength > seg.committedLength) {
@@ -196,8 +200,7 @@ export const useTuiStore = create<TuiStore>()(
           }
         }
 
-        // If no committed-blocks or tool-call-finals were pushed (short response,
-        // no tool calls), push the full assistant-message for resume compatibility
+        // Short response with no granular items: push full assistant-message for resume compat
         const hasGranular = s.finalized.some(
           it => (it.kind === 'committed-block' || it.kind === 'tool-call-final' || it.kind === 'assistant-header')
             && (it.kind === 'assistant-header' ? it.assistantId : it.kind === 'committed-block' ? it.assistantId : it.assistantId) === assistantId,
@@ -239,11 +242,7 @@ export const useTuiStore = create<TuiStore>()(
 
     clearActive: () =>
       set((s) => {
-        s.finalized = [];
-        s.live = null;
-        s.stats.streaming = false;
-        s.stats.streamingStartTime = null;
-        s.todos = [];
+        s.finalized = []; s.live = null; s.stats.streaming = false; s.stats.streamingStartTime = null; s.todos = [];
       }),
 
     // ── Interaction ──
@@ -280,39 +279,24 @@ export const useTuiStore = create<TuiStore>()(
       }),
 
     ignoreError: (toolId) =>
-      set((s) => {
-        s.interaction.ignoredErrors.add(toolId);
-      }),
+      set((s) => { s.interaction.ignoredErrors.add(toolId); }),
 
     enqueuePendingInput: (text) =>
-      set((s) => {
-        s.interaction.pendingInputs.push(text);
-      }),
+      set((s) => { s.interaction.pendingInputs.push(text); }),
 
     dequeuePendingInput: () =>
-      set((s) => {
-        s.interaction.pendingInputs.shift();
-      }),
+      set((s) => { s.interaction.pendingInputs.shift(); }),
 
     clearPendingInputs: () =>
-      set((s) => {
-        s.interaction.pendingInputs.length = 0;
-      }),
+      set((s) => { s.interaction.pendingInputs.length = 0; }),
 
     // ── Stats ──
 
     streamingStart: () =>
-      set((s) => {
-        s.stats.streaming = true;
-        s.stats.streamingStartTime = Date.now();
-        s.stats.interrupted = false;
-      }),
+      set((s) => { s.stats.streaming = true; s.stats.streamingStartTime = Date.now(); s.stats.interrupted = false; }),
 
     streamingStop: () =>
-      set((s) => {
-        s.stats.streaming = false;
-        s.stats.streamingStartTime = null;
-      }),
+      set((s) => { s.stats.streaming = false; s.stats.streamingStartTime = null; }),
 
     accumulateUsage: (usage) =>
       set((s) => {
@@ -321,24 +305,16 @@ export const useTuiStore = create<TuiStore>()(
       }),
 
     setContextTokens: (tokens) =>
-      set((s) => {
-        s.stats.contextTokens = tokens;
-      }),
+      set((s) => { s.stats.contextTokens = tokens; }),
 
     setTokenLimit: (limit) =>
-      set((s) => {
-        s.stats.tokenLimit = limit;
-      }),
+      set((s) => { s.stats.tokenLimit = limit; }),
 
     setInterrupted: (interrupted) =>
-      set((s) => {
-        s.stats.interrupted = interrupted;
-      }),
+      set((s) => { s.stats.interrupted = interrupted; }),
 
     setCompacting: (compacting) =>
-      set((s) => {
-        s.stats.compacting = compacting;
-      }),
+      set((s) => { s.stats.compacting = compacting; }),
 
     // ── Review notifications ──
 
@@ -355,11 +331,8 @@ export const useTuiStore = create<TuiStore>()(
 
     dismissReviewNotification: (skillName) =>
       set((s) => {
-        for (const n of s.reviewNotifications) {
-          if (n.skillName === skillName) {
-            n.dismissed = true;
-          }
-        }
+        const n = s.reviewNotifications.find(r => r.skillName === skillName);
+        if (n) n.dismissed = true;
       }),
 
     keepReviewSkill: (skillName) =>
@@ -379,6 +352,21 @@ export const useTuiStore = create<TuiStore>()(
     updateTodos: (todos) =>
       set((s) => {
         s.todos = todos;
+      }),
+
+    // ── Session picker ──
+
+    openSessionPicker: (sessions) =>
+      set((s) => { s.sessionPicker = { active: true, sessions, selectedIndex: 0 }; }),
+
+    closeSessionPicker: () =>
+      set((s) => { s.sessionPicker = { ...initialSessionPicker }; }),
+
+    sessionPickerMove: (direction) =>
+      set((s) => {
+        const len = s.sessionPicker.sessions.length;
+        if (len === 0) return;
+        s.sessionPicker.selectedIndex = (s.sessionPicker.selectedIndex + direction + len) % len;
       }),
   /* eslint-enable max-lines-per-function */
   })),

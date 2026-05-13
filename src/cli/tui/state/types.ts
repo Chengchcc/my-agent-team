@@ -74,6 +74,22 @@ export interface StatsState {
   compacting: boolean;
 }
 
+// ── Session picker ──
+
+export interface SessionPickerSession {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+  lastUserMessage: string;
+}
+
+export interface SessionPickerState {
+  active: boolean;
+  sessions: SessionPickerSession[];
+  selectedIndex: number;
+}
+
 // ── Initial states ──
 
 export const initialInteraction: InteractionState = {
@@ -92,4 +108,10 @@ export const initialStats: StatsState = {
   streamingStartTime: null,
   interrupted: false,
   compacting: false,
+};
+
+export const initialSessionPicker: SessionPickerState = {
+  active: false,
+  sessions: [],
+  selectedIndex: 0,
 };
