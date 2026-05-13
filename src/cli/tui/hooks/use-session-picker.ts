@@ -38,7 +38,8 @@ export function useSessionPicker(
         );
       }
     },
-    [sessionPicker.sessions, sessionStore, agent], // eslint-disable-line react-hooks/exhaustive-deps — noticIdx is a ref, stable across renders
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- noticIdx is a ref, stable across renders
+    [sessionPicker.sessions, sessionStore, agent],
   );
 
   useInput((_input, key) => {
