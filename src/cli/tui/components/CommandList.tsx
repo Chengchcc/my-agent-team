@@ -29,9 +29,21 @@ export function CommandList({ commands, selectedIndex }: CommandListProps) {
       paddingX={1}
       marginTop={0}
     >
-      <Text bold color="cyan">
-        Commands
-      </Text>
+      <Box>
+        <Text bold color="cyan">
+          Commands
+        </Text>
+        {commands.length > MAX_VISIBLE_COMMANDS ? (
+          <Text dimColor> ({startIndex + 1}-{Math.min(endIndex, commands.length)} of {commands.length})</Text>
+        ) : null}
+      </Box>
+
+      {startIndex > 0 ? (
+        <Box paddingX={2}>
+          <Text dimColor>↑ {startIndex} more</Text>
+        </Box>
+      ) : null}
+
       {visibleCommands.map((cmd, visibleIndex) => {
         const index = startIndex + visibleIndex;
         return (
@@ -55,6 +67,12 @@ export function CommandList({ commands, selectedIndex }: CommandListProps) {
         </Box>
         );
       })}
+
+      {endIndex < commands.length ? (
+        <Box paddingX={2}>
+          <Text dimColor>↓ {commands.length - endIndex} more</Text>
+        </Box>
+      ) : null}
     </Box>
   );
 }

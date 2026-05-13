@@ -3,7 +3,6 @@ import { Box, Static } from 'ink';
 import { useTuiStore, useFrozenItems, useLiveItem, useStreaming } from './state/store';
 import { FinalItemView } from './views/final/FinalItemView';
 import { ActiveAssistantView } from './views/active/ActiveAssistantView';
-import { FocusedToolDetail } from './views/overlay/FocusedToolDetail';
 import { InputBox, type InputBoxCallbacks } from './views/chrome/InputBox';
 import { Footer } from './views/chrome/Footer';
 import { StreamingIndicator } from './views/chrome/StreamingIndicator';
@@ -58,28 +57,6 @@ function buildV2CommandContext(
   };
 }
 
-function getFocusableToolIds(): string[] {
-  const s = useTuiStore.getState();
-  const ids: string[] = [];
-  // Check the live item first
-  if (s.live?.kind === 'assistant-message') {
-    for (const seg of s.live.segments) {
-      if (seg.kind === 'tool_call') ids.push(seg.id);
-    }
-  }
-  // Then check the last done assistant-message in finalized
-  for (let i = s.finalized.length - 1; i >= 0; i--) {
-    const item = s.finalized[i]!;
-    if (item.kind === 'assistant-message') {
-      for (const seg of item.segments) {
-        if (seg.kind === 'tool_call') ids.push(seg.id);
-      }
-      break;
-    }
-  }
-  return ids;
-}
-
 async function handleBuiltinCommand(
   text: string, agent: Agent, sessionStore: SessionStore,
   noticIdx: React.MutableRefObject<number>,
@@ -100,7 +77,12 @@ async function handleBuiltinCommand(
       setTimeout(() => {
         contextManager.forceCompact()
           .finally(() => useTuiStore.getState().setCompacting(false))
-          .catch(() => {});
+          .catch((err) => {
+            useTuiStore.getState().appendSystemNotice(
+              `compact-err-${noticIdx.current++}`,
+              `Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
       }, 0);
       useTuiStore.getState().appendDivider('compact');
     }
@@ -135,6 +117,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
 
   const streaming = useStreaming();
   const { sessionPicker } = useSessionPicker(agent, sessionStore, noticIdx);
+  const toolsExpanded = useTuiStore(s => s.interaction.toolsExpanded);
 
   const handleSubmit = useCallback(
     async (submission: PromptSubmission) => {
@@ -144,6 +127,7 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
         return;
       }
 
+      useTuiStore.getState().setInterrupted(false);
       const text = submission.text.trim();
       const handled = await handleBuiltinCommand(text, agent, sessionStore, noticIdx, setStaticKey);
       if (handled) return;
@@ -171,31 +155,20 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
     useTuiStore.getState().setInterrupted(true);
   }, [abort]);
 
-  const handleFocusPrev = useCallback(() => {
-    const toolIds = getFocusableToolIds();
-    useTuiStore.getState().moveFocus(-1, toolIds);
-  }, []);
-
-  const handleFocusNext = useCallback(() => {
-    const toolIds = getFocusableToolIds();
-    useTuiStore.getState().moveFocus(1, toolIds);
-  }, []);
-
-  const handleToggleExpand = useCallback(() => {
-    useTuiStore.getState().toggleExpanded();
-  }, []);
+  const handleToggleToolsExpanded = useCallback(() => {
+    if (streaming) return;
+    useTuiStore.getState().toggleToolsExpanded();
+  }, [streaming]);
 
   const callbacks: InputBoxCallbacks = useMemo(
     () => ({
-      onFocusPrev: handleFocusPrev,
-      onFocusNext: handleFocusNext,
-      onToggleExpand: handleToggleExpand,
+      onToggleExpand: handleToggleToolsExpanded,
       onClearPending: () => {
         pendingRef.current = [];
         useTuiStore.getState().clearPendingInputs();
       },
     }),
-    [handleFocusPrev, handleFocusNext, handleToggleExpand],
+    [handleToggleToolsExpanded],
   );
 
   // Initialize context tracking + todo state (covers resume path)
@@ -230,14 +203,13 @@ export function AppV2({ agent, sessionStore, skillCommands }: AppProps) {
   return (
     <Box flexDirection="column">
       <Static key={staticKey} items={staticItems}>
-        {(item) => <FinalItemView key={finalItemKey(item)} item={item} />}
+        {(item) => <FinalItemView key={finalItemKey(item)} item={item} toolsExpanded={toolsExpanded} />}
       </Static>
       <Box flexDirection="column">
         {activeAssistant != null && (
           <ActiveAssistantView assistant={activeAssistant} />
         )}
         <StreamingIndicator />
-        <FocusedToolDetail />
         <ReviewNotifications />
         <TodoPanel />
         {askUserQuestionRequest != null && (

@@ -23,7 +23,8 @@ export function PermissionPrompt({ request, onSubmit }: PermissionPromptProps) {
     submitRef.current(response);
   }, []);
 
-  useInput((input, _key) => {
+  useInput((input, key) => {
+    if (key.escape) { handleSubmit('deny'); return; }
     const lower = input.toLowerCase();
     if (lower === 'y') { handleSubmit('allow'); return; }
     if (lower === 'a') { handleSubmit('always'); return; }
@@ -53,7 +54,8 @@ export function PermissionPrompt({ request, onSubmit }: PermissionPromptProps) {
         <Text>
           <Text color="green">[y]</Text> allow once{'  '}
           <Text color="green">[a]</Text> always{'  '}
-          <Text color="red">[N]</Text> deny
+          <Text color="red">[N]</Text> deny{'  '}
+          <Text dimColor>Esc</Text> deny
         </Text>
       </Box>
     </Box>

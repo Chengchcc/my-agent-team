@@ -26,7 +26,6 @@ export function InputBox({ commands, onSubmit, onAbort, callbacks }: InputBoxPro
   useBracketedPaste();
   const streaming = useTuiStore(s => s.stats.streaming);
   const pendingInputs = useTuiStore(s => s.interaction.pendingInputs);
-  const focusedToolId = useTuiStore(s => s.interaction.focusedToolId);
 
   const commandInputOpts = { commands, streaming, onSubmit };
   const {
@@ -49,7 +48,7 @@ export function InputBox({ commands, onSubmit, onAbort, callbacks }: InputBoxPro
 
   useInput((input, key) => {
     for (const hk of hotkeys) {
-      if (hk.guard && !hk.guard({ streaming, pendingCount: pendingInputs.length, focusedToolId, atFilePickerOpen, pickerOpen })) continue;
+      if (hk.guard && !hk.guard({ streaming, pendingCount: pendingInputs.length, atFilePickerOpen, pickerOpen })) continue;
 
       // Special keys (upArrow, downArrow, escape, etc.) are exposed as key.*
       // booleans by Ink, not as input characters. Check the named property first,
@@ -99,12 +98,6 @@ export function InputBox({ commands, onSubmit, onAbort, callbacks }: InputBoxPro
       {pasteLineCount > 0 ? (
         <Box paddingX={2}>
           <Text dimColor>[paste folded · Backspace on marker to remove · Space on marker to expand · ←→ skip over]</Text>
-        </Box>
-      ) : null}
-
-      {focusedToolId ? (
-        <Box>
-          <Text dimColor>focus: {focusedToolId}</Text>
         </Box>
       ) : null}
 

@@ -61,6 +61,8 @@ export function AskUserQuestionPrompt({ questions, onSubmit }: AskUserQuestionPr
     const onQuestionTab = tab < n;
     const isReview = review >= 0 && tab === review;
 
+    if (key.escape) { trySubmit(); return; }
+
     if (key.leftArrow && n >= 2) {
       setTabIndex((t) => (t === 0 ? review! : t - 1));
       return;
@@ -165,8 +167,8 @@ export function AskUserQuestionPrompt({ questions, onSubmit }: AskUserQuestionPr
 
   const hint =
     qCount >= 2
-      ? "←/→ tab · ↑/↓ option · Space multi-toggle · Enter next or confirm"
-      : "↑/↓ option · Space multi-toggle · Enter confirm";
+      ? "←/→ tab · ↑/↓ option · Space multi-toggle · Enter next · Esc submit"
+      : "↑/↓ option · Space multi-toggle · Enter confirm · Esc submit";
 
   const showReview = qCount >= 2 && tabIndex === reviewTabIndex;
 

@@ -16,7 +16,7 @@ export function Footer() {
   const completionTokens = useTuiStore(s => s.stats.completionTokens);
   const interrupted = useTuiStore(s => s.stats.interrupted);
   const streaming = useTuiStore(s => s.stats.streaming);
-  const focusedToolId = useTuiStore(s => s.interaction.focusedToolId);
+  const toolsExpanded = useTuiStore(s => s.interaction.toolsExpanded);
 
   const contextPct = tokenLimit > 0 ? contextTokens / tokenLimit : 0;
   const ctxColor = contextPct > CTX_DANGER_PCT ? 'red' as const : contextPct > CTX_WARN_PCT ? 'yellow' as const : null;
@@ -29,10 +29,9 @@ export function Footer() {
   const status = interrupted ? '⚠ interrupted' : streaming ? '● streaming' : '○ idle      ';
 
   const hints = useMemo(() => {
-    const parts = ['↑↓ hist · esc clr · ctrl+↑↓ focus · tab'];
-    if (focusedToolId) parts.push('space: expand');
-    return parts.join(' · ');
-  }, [focusedToolId]);
+    const expandLabel = toolsExpanded ? 'spc collapse' : 'spc expand';
+    return `↑↓ hist · esc clr · tab · ⇧↵ newline · ${expandLabel} · ctrl+k clr`;
+  }, [toolsExpanded]);
 
   const ctxField = ctxColor
     ? <Text color={ctxColor}>{ctxStr}</Text>

@@ -1,7 +1,6 @@
 interface KeymapContext {
   streaming: boolean;
   pendingCount: number;
-  focusedToolId: string | null;
   atFilePickerOpen: boolean;
   pickerOpen: boolean;
 }
@@ -9,8 +8,6 @@ interface KeymapContext {
 // ── Callbacks passed from App ──
 
 export interface InputBoxCallbacks {
-  onFocusPrev?: () => void;
-  onFocusNext?: () => void;
   onToggleExpand?: () => void;
   onToggleDebug?: () => void;
   onToggleThinking?: () => void;
@@ -42,8 +39,6 @@ export function buildHotkeys(cbs: {
   onToggleThinking?: () => void;
   onToggleDebug?: () => void;
   onAbort?: () => void;
-  onFocusPrev?: () => void;
-  onFocusNext?: () => void;
   onToggleExpand?: () => void;
   onClearPending?: () => void;
 }): Hotkey[] {
@@ -67,18 +62,6 @@ export function buildHotkeys(cbs: {
       handler: () => cbs.onAbort?.(),
     },
     {
-      label: 'Ctrl+↑',
-      key: 'upArrow',
-      ctrl: true,
-      handler: () => cbs.onFocusPrev?.(),
-    },
-    {
-      label: 'Ctrl+↓',
-      key: 'downArrow',
-      ctrl: true,
-      handler: () => cbs.onFocusNext?.(),
-    },
-    {
       label: 'Ctrl+O',
       key: 'o',
       ctrl: true,
@@ -87,9 +70,7 @@ export function buildHotkeys(cbs: {
     {
       label: 'Space',
       key: ' ',
-      guard: (ctx) => ctx.focusedToolId !== null
-                   && !ctx.atFilePickerOpen
-                   && !ctx.pickerOpen,
+      guard: (ctx) => !ctx.atFilePickerOpen && !ctx.pickerOpen,
       handler: () => cbs.onToggleExpand?.(),
     },
     {

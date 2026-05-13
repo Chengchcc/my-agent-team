@@ -1,9 +1,6 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import { enableMapSet } from 'immer';
 import { nanoid } from 'nanoid';
-
-enableMapSet();
 import type {
   FinalItem,
   AssistantSegment,
@@ -59,10 +56,7 @@ interface TuiStore {
   clearActive: () => void;
 
   // Interaction
-  focusTool: (id: string | null) => void;
-  toggleExpanded: () => void;
-  moveFocus: (direction: -1 | 1, collapsibleToolIds: string[]) => void;
-  ignoreError: (toolId: string) => void;
+  toggleToolsExpanded: () => void;
   enqueuePendingInput: (text: string) => void;
   dequeuePendingInput: () => void;
   clearPendingInputs: () => void;
@@ -99,7 +93,7 @@ export const useTuiStore = create<TuiStore>()(
   immer((set) => ({
     finalized: [],
     live: null,
-    interaction: { ...initialInteraction, expandedTools: new Set(), ignoredErrors: new Set() },
+    interaction: { ...initialInteraction },
     stats: { ...initialStats },
     todos: [],
     reviewNotifications: [],
@@ -247,39 +241,8 @@ export const useTuiStore = create<TuiStore>()(
 
     // ── Interaction ──
 
-    focusTool: (id) =>
-      set((s) => {
-        s.interaction.focusedToolId = id;
-      }),
-
-    toggleExpanded: () =>
-      set((s) => {
-        const id = s.interaction.focusedToolId;
-        if (!id) return;
-        if (s.interaction.expandedTools.has(id)) {
-          s.interaction.expandedTools.delete(id);
-        } else {
-          s.interaction.expandedTools.add(id);
-        }
-      }),
-
-    moveFocus: (direction, collapsibleToolIds) =>
-      set((s) => {
-        if (collapsibleToolIds.length === 0) {
-          s.interaction.focusedToolId = null;
-          return;
-        }
-        let idx = s.interaction.focusedToolId
-          ? collapsibleToolIds.indexOf(s.interaction.focusedToolId)
-          : -1;
-        idx += direction;
-        if (idx < 0) idx = collapsibleToolIds.length - 1;
-        if (idx >= collapsibleToolIds.length) idx = 0;
-        s.interaction.focusedToolId = collapsibleToolIds[idx] ?? null;
-      }),
-
-    ignoreError: (toolId) =>
-      set((s) => { s.interaction.ignoredErrors.add(toolId); }),
+    toggleToolsExpanded: () =>
+      set((s) => { s.interaction.toolsExpanded = !s.interaction.toolsExpanded; }),
 
     enqueuePendingInput: (text) =>
       set((s) => { s.interaction.pendingInputs.push(text); }),

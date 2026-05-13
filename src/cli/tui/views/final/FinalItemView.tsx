@@ -12,9 +12,10 @@ import { SystemNoticeView } from './SystemNoticeView';
 
 interface FinalItemViewProps {
   item: FinalItem;
+  toolsExpanded: boolean;
 }
 
-export const FinalItemView = React.memo(function FinalItemView({ item }: FinalItemViewProps) {
+export const FinalItemView = React.memo(function FinalItemView({ item, toolsExpanded }: FinalItemViewProps) {
   switch (item.kind) {
     case 'banner':
       return <Header model={item.model} sessionId={item.sessionId} />;
@@ -27,7 +28,7 @@ export const FinalItemView = React.memo(function FinalItemView({ item }: FinalIt
     case 'committed-block':
       return <CommittedBlockView raw={item.raw} />;
     case 'tool-call-final':
-      return <ToolCallFinalView name={item.name} input={item.input} result={item.result} />;
+      return <ToolCallFinalView name={item.name} input={item.input} result={item.result} expanded={toolsExpanded} />;
     case 'assistant-tail':
       return <AssistantTailView raw={item.raw} />;
     case 'divider':

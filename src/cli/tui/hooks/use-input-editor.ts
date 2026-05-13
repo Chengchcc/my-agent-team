@@ -3,6 +3,19 @@ export interface InputEditorState {
   cursorOffset: number;
 }
 
+function prevCodePointOffset(text: string, offset: number): number {
+  if (offset <= 0) return 0;
+  if (offset >= 2 && text.codePointAt(offset - 2) !== text.charCodeAt(offset - 2)) return offset - 2;
+  return offset - 1;
+}
+
+function nextCodePointOffset(text: string, offset: number): number {
+  if (offset >= text.length) return text.length;
+  const code = text.charCodeAt(offset);
+  if (code >= 0xd800 && code <= 0xdbff) return offset + 2;
+  return offset + 1;
+}
+
 export function insertTextAtCursor(state: InputEditorState, input: string): InputEditorState {
   if (input.length === 0) return state;
 
@@ -14,24 +27,25 @@ export function insertTextAtCursor(state: InputEditorState, input: string): Inpu
 
 export function removeCharacterBeforeCursor(state: InputEditorState): InputEditorState {
   if (state.cursorOffset === 0) return state;
+  const cutAt = prevCodePointOffset(state.text, state.cursorOffset);
 
   return {
-    text: state.text.slice(0, state.cursorOffset - 1) + state.text.slice(state.cursorOffset),
-    cursorOffset: state.cursorOffset - 1,
+    text: state.text.slice(0, cutAt) + state.text.slice(state.cursorOffset),
+    cursorOffset: cutAt,
   };
 }
 
 export function moveCursorLeft(state: InputEditorState): InputEditorState {
   return {
     ...state,
-    cursorOffset: Math.max(0, state.cursorOffset - 1),
+    cursorOffset: prevCodePointOffset(state.text, state.cursorOffset),
   };
 }
 
 export function moveCursorRight(state: InputEditorState): InputEditorState {
   return {
     ...state,
-    cursorOffset: Math.min(state.text.length, state.cursorOffset + 1),
+    cursorOffset: nextCodePointOffset(state.text, state.cursorOffset),
   };
 }
 

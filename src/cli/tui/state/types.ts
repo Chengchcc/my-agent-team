@@ -57,9 +57,7 @@ export interface ReviewNotification {
 // ── Slice states ──
 
 export interface InteractionState {
-  focusedToolId: string | null;
-  expandedTools: Set<string>;
-  ignoredErrors: Set<string>;
+  toolsExpanded: boolean;
   pendingInputs: string[];
 }
 
@@ -93,9 +91,7 @@ export interface SessionPickerState {
 // ── Initial states ──
 
 export const initialInteraction: InteractionState = {
-  focusedToolId: null,
-  expandedTools: new Set(),
-  ignoredErrors: new Set(),
+  toolsExpanded: false,
   pendingInputs: [],
 };
 

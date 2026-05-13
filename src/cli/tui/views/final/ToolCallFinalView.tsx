@@ -10,6 +10,7 @@ interface ToolCallFinalViewProps {
   name: string;
   input: unknown;
   result: ToolCallResult;
+  expanded: boolean;
 }
 
 function getToolCallTitle(name: string, input: unknown): string {
@@ -17,7 +18,7 @@ function getToolCallTitle(name: string, input: unknown): string {
   return formatToolCallTitle({ id: '', name, arguments: args } satisfies ToolCall);
 }
 
-export const ToolCallFinalView = React.memo(function ToolCallFinalView({ name, input, result }: ToolCallFinalViewProps) {
+export const ToolCallFinalView = React.memo(function ToolCallFinalView({ name, input, result, expanded }: ToolCallFinalViewProps) {
   const title = useMemo(
     () => getToolCallTitle(name, input),
     [name, input],
@@ -41,12 +42,12 @@ export const ToolCallFinalView = React.memo(function ToolCallFinalView({ name, i
         <Text color="cyan"> {title}</Text>
         <Text color="gray"> {result.durationMs}ms</Text>
       </Box>
-      {renderResult(result, summary)}
+      {expanded ? renderExpanded(result) : renderCollapsed(result, summary)}
     </Box>
   );
 });
 
-function renderResult(result: ToolCallResult, summary: string | null) {
+function renderCollapsed(result: ToolCallResult, summary: string | null) {
   if (summary) {
     return (
       <Box paddingLeft={2}>
@@ -65,6 +66,24 @@ function renderResult(result: ToolCallResult, summary: string | null) {
     return (
       <Box paddingLeft={2}>
         <Text color="red">{truncate(result.message, RESULT_TRUNCATION)}</Text>
+      </Box>
+    );
+  }
+  return null;
+}
+
+function renderExpanded(result: ToolCallResult) {
+  if (result.kind === 'ok' && result.content) {
+    return (
+      <Box paddingLeft={2} flexDirection="column">
+        <Text dimColor>{result.content}</Text>
+      </Box>
+    );
+  }
+  if (result.kind === 'error') {
+    return (
+      <Box paddingLeft={2}>
+        <Text color="red">{result.message}</Text>
       </Box>
     );
   }

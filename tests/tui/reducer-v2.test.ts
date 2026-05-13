@@ -10,9 +10,11 @@ function resetStore() {
   useTuiStore.setState({
     finalized: [],
     live: null,
-    interaction: { focusedToolId: null, expandedTools: new Set(), ignoredErrors: new Set(), pendingInputs: [] },
-    stats: { promptTokens: 0, completionTokens: 0, contextTokens: 0, tokenLimit: 0, streaming: false, streamingStartTime: null, interrupted: false },
+    interaction: { toolsExpanded: false, pendingInputs: [] },
+    stats: { promptTokens: 0, completionTokens: 0, contextTokens: 0, tokenLimit: 0, streaming: false, streamingStartTime: null, interrupted: false, compacting: false },
     reviewNotifications: [],
+    todos: [],
+    sessionPicker: { active: false, sessions: [], selectedIndex: 0 },
   });
 }
 
@@ -156,39 +158,12 @@ describe('interaction actions', () => {
     expect(store().interaction.pendingInputs).toEqual([]);
   });
 
-  test('moveFocus cycles through tool ids', () => {
-    store().moveFocus(1, ['t1', 't2']);
-    expect(store().interaction.focusedToolId).toBe('t1');
-    store().moveFocus(1, ['t1', 't2']);
-    expect(store().interaction.focusedToolId).toBe('t2');
-    store().moveFocus(1, ['t1', 't2']);
-    expect(store().interaction.focusedToolId).toBe('t1');
-  });
-
-  test('moveFocus with empty list clears focus', () => {
-    store().focusTool('t1');
-    store().moveFocus(1, []);
-    expect(store().interaction.focusedToolId).toBeNull();
-  });
-
-  test('focusTool sets and clears focus', () => {
-    store().focusTool('t1');
-    expect(store().interaction.focusedToolId).toBe('t1');
-    store().focusTool(null);
-    expect(store().interaction.focusedToolId).toBeNull();
-  });
-
-  test('toggleExpanded toggles expanded set', () => {
-    store().focusTool('t1');
-    store().toggleExpanded();
-    expect(store().interaction.expandedTools.has('t1')).toBe(true);
-    store().toggleExpanded();
-    expect(store().interaction.expandedTools.has('t1')).toBe(false);
-  });
-
-  test('ignoreError adds to ignoredErrors set', () => {
-    store().ignoreError('t1');
-    expect(store().interaction.ignoredErrors.has('t1')).toBe(true);
+  test('toggleToolsExpanded toggles global expand state', () => {
+    expect(store().interaction.toolsExpanded).toBe(false);
+    store().toggleToolsExpanded();
+    expect(store().interaction.toolsExpanded).toBe(true);
+    store().toggleToolsExpanded();
+    expect(store().interaction.toolsExpanded).toBe(false);
   });
 });
 
