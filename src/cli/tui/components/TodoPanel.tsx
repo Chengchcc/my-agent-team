@@ -27,7 +27,7 @@ function TodoPanel(): React.ReactElement | null {
   const todos = useTuiStore((s) => s.todos);
 
   const depKey = todos.map((t: UITodoItem) => t.id + t.status).join(',');
-  const items = useMemo(() => todos, [depKey]);
+  const items = useMemo(() => todos, [depKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (items.length === 0) return null;
 
