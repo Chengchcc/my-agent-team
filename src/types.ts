@@ -223,6 +223,14 @@ export function setMetadata<T>(ctx: AgentContext, key: TypedMetadataKey<T>, valu
   (ctx.metadata as Record<string, unknown>)[key.symbol.toString()] = value;
 }
 
+// Agent session
+export interface Session {
+  id: string;
+  rootMessageId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** Standard metadata keys used across the codebase. */
 export const MetadataKeys = {
   TodoState: defineMetadataKey<Record<string, unknown>>('todo-state'),
