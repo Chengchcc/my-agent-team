@@ -110,6 +110,8 @@ export type AgentConfig = {
   defaultSystemPrompt?: string;
   /** Override the default model for this invocation (used by memory extraction) */
   model?: string;
+  /** Working directory for tool execution — sets the default cwd */
+  cwd?: string;
 };
 
 // Agent context - flows through middleware and agent loop

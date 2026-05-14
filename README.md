@@ -1,187 +1,295 @@
 # my-agent
 
-A terminal-native AI coding agent built with TypeScript and Bun. It runs in your terminal with a rich Ink/React TUI, or headless for scripting and automation.
+<p align="center">
+  <strong>AI 编程 Agent — 终端 TUI + 飞书桥接，一条消息启动编程会话</strong>
+</p>
 
-![TUI Demo](docs/screenshots/tui-demo.jpg)
+<p align="center">
+  中文 | <a href="README.en.md">English</a>
+</p>
 
 ---
 
-## What it does
+**两种使用方式，同一套 Agent 内核：**
 
-You type instructions. The agent reasons, calls tools (reading files, running commands, searching code, editing text), and responds. It remembers things across sessions, learns domain-specific skills, manages task lists, and delegates complex work to sub-agents — all while keeping the conversation within token limits through automatic context compaction.
+| 模式 | 入口 | 场景 |
+|------|------|------|
+| 🖥️ **终端 TUI** | `bun tui` | 本地开发，流式输出，语法高亮 |
+| 📱 **飞书 Bot** | `bun daemon <profile>` | 话题群发消息 → Agent 自动响应，流式卡片 |
 
-## Features
+---
 
-**Agent**
-- Full autonomous loop: reasoning → tool calls → more reasoning → response
-- Multi-provider support (Claude, OpenAI, and compatible APIs)
-- Sub-agent delegation for isolating large, self-contained tasks
-- Token budget guard that delegates reads/searches to sub-agents when context is tight
+## 为什么选择 my-agent
 
-**Context**
-- Incremental token counting for O(1) budget checks — no UI freeze on large conversations
-- 5-tier context compaction: snip large outputs → LLM summarization → emergency truncation → collapse
-- Automatic compression when approaching model limits
+- **结构化 Agent 事件**：16 种 AgentEvent stream，飞书卡片直接用 Markdown 渲染，不需要截图管道
+- **内置记忆系统**：SQLite + FTS5 + 向量混合检索，每个 Bot 独立记忆隔离
+- **Profile 系统**：每个 Bot 独立的 system prompt、工具白名单、工作区
+- **交互式适配**：危险命令弹卡片确认，ask_user_question 弹选项卡片，无缝连接飞书和 Agent
 
-**Tools**
-- `bash` — shell execution with timeout, output truncation, working-dir restrictions
-- `read` / `grep` / `glob` / `ls` — filesystem exploration
-- `text_editor` — view, create, string-replace, and write files
-- `ask_user_question` — multi-choice prompts to the user
-- `web_search` — web search via Tavily (registered lazily)
-- `web_fetch` — fetch URL content via Tavily Extract or headless Chrome, returns cleaned markdown/text
-- `memory` — search, add, list, forget persistent memories
-- `todo_write` — task list with merge semantics
+---
 
-**Memory**
-- Single SQLite-backed store with FTS5 full-text + sqlite-vec vector index
-- Three-way hybrid retrieval: keyword scoring + BM25 + Ollama embeddings, fused via RRF
-- Nudge-driven extraction: `memory_worthy` signal → queue → LLM extraction → async embedding
-- Two-layer injection: high-weight entries as `<user_preferences>` in system prompt, query-matched as `<retrieved_memory>` in ephemeral reminders
+## 功能特性
 
-**Skills**
-- Teach the agent new workflows with markdown files (`skills/<name>/SKILL.md`)
-- Progressive loading — skills are listed for the model, full content loaded on demand
-- Auto-injection when user mentions a skill by name
-- Multi-source loading: project `skills/` + auto-generated `~/.my-agent/skills/auto/`
+### 🖥️ 终端 TUI
 
-**Self-Evolution**
-- Trace recording: every run captured as structured NDJSON (turns, tool calls, timing, errors)
-- Nudge engine: auto-detects error bursts, complex tasks, and periodic review opportunities
-- Background review agent: analyzes traces and creates reusable skills automatically
-- Effectiveness tracking: measures auto-skill impact, triggers LLM analysis for low performers
-- Quality feedback loop: analysis results feed into prompt optimization
-- Approval queue: `/review` command to approve, edit, or delete auto-generated skills
+在终端里直接对话 AI Agent。流式输出、语法高亮、Slash 命令。
 
-**TUI**
-- Streaming text with syntax-highlighted code blocks
-- Tool call status cards with expandable output (expand with `Enter`, navigate with arrows)
-- `/` slash command autocomplete with fuzzy matching
-- Token budget bar in the footer with color-coded pressure levels
-- Persistent input history
+- **全自主循环**: reasoning → tool calls → response
+- **多 Provider 支持**: Claude, OpenAI
+- **Sub-Agent 委派**: 大任务分拆到独立子 Agent
+- **5 级上下文压缩**: snip → summarize → emergency truncation → collapse
+- **Slash 命令**: `/clear` `/compact` `/sessions` `/tasks` `/memory` `/review` `/daemon`
+- **Token 预算条**: 颜色编码的上下文压力指示
 
-**Sessions**
-- Save, load, list, and delete named conversation sessions
-- Auto-save after each agent run
+### 📱 飞书 Bot
 
-## Quick Start
+飞书话题群里发消息，Agent 自动启动独立编程会话，流式卡片实时展示输出。
+
+- **话题群 + 普通群**: 自动识别群类型，话题群每话题独立上下文
+- **流式卡片**: 实时 Markdown 渲染，不需要截图
+- **多 Bot**: 多个 daemon 进程，独立 Profile + 独立 Memory
+- **交互式确认**: 危险命令弹卡片确认，ask_user_question 弹选项卡片
+- **会话持久化**: daemon 重启自动恢复会话上下文
+- **TUI ↔ IM 互通**: TUI 中 `/daemon` 浏览和接管飞书会话
+
+### 🧠 Profile 系统
+
+每个 Bot 有独立的身份、记忆和工作空间。
+
+```
+~/.my-agent/profiles/<id>/
+  AGENTS.md      → 行为规则
+  SOUL.md        → 人格定义
+  IDENTITY.md    → 身份标识
+  memory.db       → 隔离记忆数据库
+  sessions/       → 会话持久化
+```
+
+### 🧩 更多功能
+
+- **Memory**: SQLite + FTS5 + 向量混合检索
+- **Skills**: Markdown 文件教 Agent 新工作流
+- **Self-Evolution**: 自动分析 trace 并生成 Skill
+- **Session**: 命名会话、保存加载
+
+---
+
+## 5 分钟快速接入（飞书 Bot）
+
+### Step 1: 创建飞书应用
+
+打开 [飞书开放平台](https://open.larkoffice.com/app)，点击「创建企业自建应用」。
+
+### Step 2: 获取凭证
+
+进入应用详情 →「凭证与基础信息」，复制 **App ID** 和 **App Secret**。
+
+### Step 3: 添加权限
+
+进入「权限管理」，至少添加以下权限：
+- `im:message` — 接收和发送消息
+- `im:message:send_as_bot` — 以机器人身份发送消息
+- `im:message:readonly` — 读取消息
+- `im:chat:read` — 读取群信息
+
+### Step 4: 安装 & 配置 Bot
 
 ```bash
-# Clone and install
+# 安装
+bun install
+
+# 配置 API Key
+cp .env.example .env
+# 编辑 .env: ANTHROPIC_API_KEY=sk-ant-xxx
+
+# 交互式配置 Bot
+bun bot
+```
+
+按提示输入 Lark App ID、App Secret，选择或创建 Profile。
+
+### Step 5: 配置事件订阅
+
+回到飞书开放平台，进入「事件与回调」：
+
+1. **订阅方式**: 选择「使用长连接接收事件」
+2. **添加事件**: 搜索添加 `im.message.receive_v1`（接收消息 v2.0）
+3. **启用回调**: 切换到「回调配置」tab，开启「卡片回传交互」（`card.action.trigger`）
+
+### Step 6: 启动 Daemon
+
+```bash
+bun daemon <profile-name>
+```
+
+### Step 7: 发版 & 建群验证
+
+1. 飞书后台「版本管理与发布」→「创建版本」→ 仅自己可见 → 发布
+2. 飞书创建一个话题群 → 群设置 → 群机器人 → 添加机器人
+3. 在群里发一条消息，确认机器人响应
+
+---
+
+## 本地开发（终端 TUI）
+
+```bash
+# 克隆 & 安装
 git clone https://github.com/Chengchcc/my-agent-dev.git
 cd my-agent-dev
 bun install
+cp .env.example .env  # 配置 ANTHROPIC_API_KEY
 
-# Configure your API key
-cp .env.example .env
-# Edit .env: set ANTHROPIC_API_KEY or OPENAI_API_KEY
+# 启动 TUI
+bun tui
 
-# Pull the local embedding model for memory vector search
-ollama pull nomic-embed-text
-
-# Launch the terminal UI
-bun run tui
+# 或 headless 单次运行
+bun agent "Explain the authentication flow"
 ```
 
-Or run headless:
+---
 
-```bash
-bun run agent "Explain the authentication flow in this codebase"
+## CLI 命令
+
+| 命令 | 说明 |
+|------|------|
+| `bun tui` | 启动终端 UI |
+| `bun agent "<prompt>"` | Headless 单次运行 |
+| `bun bot` | 交互式配置 Bot + Profile |
+| `bun daemon <profile>` | 启动飞书 Bot daemon |
+| `bun daemon list` | 列出运行中 daemon |
+| `bun daemon stop <profile>` | 停止 daemon |
+
+### TUI Slash 命令
+
+| 命令 | 说明 |
+|------|------|
+| `/help` | 显示可用命令 |
+| `/clear` | 清除对话 |
+| `/compact` | 手动触发上下文压缩 |
+| `/sessions save <name>` | 保存当前会话 |
+| `/sessions load <name>` | 加载已保存会话 |
+| `/sessions list` | 列出所有会话 |
+| `/tasks` | 显示任务列表 |
+| `/memory search <query>` | 搜索记忆 |
+| `/review list` | 查看自动生成的 Skills |
+| `/daemon` | 浏览运行中 daemon 的会话 |
+| `/exit` | 退出 |
+
+---
+
+## 配置
+
+### bots.yml（飞书 Bot）
+
+```yaml
+# ~/.my-agent/bots.yml
+profiles:
+  backend-expert:
+    workspace: ~/.my-agent/profiles/backend-expert
+    toolProfile: code_editor
+    workingDir: ~/projects/api
+    permissionTimeoutMs: 60000
+
+bots:
+  - larkAppId: cli_xxxxxxxxxxxx
+    larkAppSecret: xxxxxxxxxxxxxxxxxxxx
+    profileId: backend-expert
+    allowedUsers:
+      - alice@example.com
 ```
 
-## Configuration
+### settings.yml（全局配置）
 
-Settings are loaded from three layers (lowest to highest priority):
+```yaml
+# ~/.my-agent/settings.yml
+llm:
+  provider: claude
+  model: claude-opus-4-7
+context:
+  tokenLimit: 200000
+security:
+  allowedRoots:
+    - ~/projects
+```
 
-1. Built-in defaults (`src/config/defaults.ts`)
-2. Project config (`./settings.yml`)
-3. User config (`~/.my-agent/settings.yml`)
-4. Environment variables (`MODEL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEBUG`)
+---
 
-All settings are validated against Zod schemas. See `src/config/types.ts` for the full settings interface.
+## 配置文件位置
 
-## Commands (TUI)
+| 路径 | 说明 |
+|------|------|
+| `~/.my-agent/bots.yml` | Bot + Profile 配置 |
+| `~/.my-agent/settings.yml` | 全局 Agent 配置 |
+| `~/.my-agent/profiles/<id>/` | Profile 工作区（AGENTS.md, SOUL.md, memory.db） |
+| `~/.my-agent/data/` | Daemon PID 文件 |
+| `~/.my-agent/sessions/` | TUI 会话持久化 |
+| `~/.my-agent/traces/` | Agent 运行 trace |
+| `~/.my-agent/memory/` | 全局记忆数据库 |
 
-| Command | Action |
-|---------|--------|
-| `/help` | Show available commands |
-| `/clear` | Clear the conversation |
-| `/compact` | Manually trigger context compaction |
-| `/sessions save <name>` | Save current conversation |
-| `/sessions load <name>` | Load a saved conversation |
-| `/sessions list` | List all saved sessions |
-| `/sessions delete <name>` | Delete a saved session |
-| `/tasks` | Show the task list |
-| `/memory search <query>` | Search persistent memory |
-| `/review list` | List auto-generated skills with status and effectiveness |
-| `/review view <name>` | View an auto-generated skill's content |
-| `/review keep <name>` | Approve an auto-generated skill |
-| `/review delete <name>` | Delete an auto-generated skill |
-| `/review edit <name>` | Open an auto-generated skill for editing |
-| `/exit` | Quit |
+---
 
-Slash commands support fuzzy autocomplete — type `/` and a few characters to filter.
-
-## Project Structure
+## 项目结构
 
 ```
 my-agent/
-├── bin/                        # CLI entry points (thin wrappers)
+├── bin/                        # CLI 入口
+│   ├── my-agent-tui-dev.ts     # TUI 开发入口
+│   ├── my-agent.ts             # Headless agent
+│   ├── my-agent-cli.ts         # Bot/Daemon 管理 CLI
+│   └── my-agent-daemon.ts      # Daemon 进程入口
 ├── src/
-│   ├── agent/                  # Agent loop, context, budget guard, sub-agents
-│   │   ├── compaction/         # Multi-tier context compression
+│   ├── agent/                  # Agent loop, context, tool dispatch
+│   │   ├── compaction/         # 5-tier context compression
 │   │   └── tool-dispatch/      # Tool execution pipeline + middleware
-│   ├── cli/tui/                # Ink/React terminal UI
-│   │   ├── commands/           # Slash commands (/review, /sessions, /mcp, etc.)
-│   │   ├── components/         # ChatMessage, InputBox, Footer, ToolCallMessage, etc.
-│   │   ├── hooks/              # State management, agent loop integration
-│   │   └── utils/              # Tool output formatting
-│   ├── config/                 # YAML-based configuration + Zod validation
-│   ├── evolution/              # Self-evolution: review agent, effectiveness tracking, skill analysis
-│   ├── mcp/                    # MCP client (server lifecycle, tool adapter, prompts, resources)
-│   ├── memory/                 # Persistent memory (SQLite, FTS5, sqlite-vec, hybrid retrieval, nudge-driven extraction)
+│   ├── cli/tui/                # Ink/React 终端 UI
+│   │   ├── commands/           # Slash commands
+│   │   ├── components/         # UI components
+│   │   ├── hooks/              # State management
+│   │   └── views/              # View components
+│   ├── config/                 # YAML + Zod 配置系统
+│   ├── daemon/                 # IM 桥接层
+│   │   ├── daemon.ts           # 中央编排器
+│   │   ├── session-manager.ts  # Agent 实例池
+│   │   ├── session-handlers.ts # 消息处理器
+│   │   ├── interactive-bridge.ts # Permission/Ask 适配
+│   │   ├── card-pipeline.ts    # AgentEvent → 飞书卡片
+│   │   ├── command-handler.ts  # Slash 命令
+│   │   └── cli-commands.ts     # CLI 管理命令
+│   ├── evolution/              # 自进化系统
+│   ├── im/lark/                # 飞书集成
+│   │   ├── client.ts           # Lark API 封装
+│   │   ├── event-dispatcher.ts # WS 长连接 + 消息路由
+│   │   ├── card-builder.ts     # 卡片构建
+│   │   ├── card-handler.ts     # 卡片交互
+│   │   └── message-parser.ts   # 消息解析
+│   ├── memory/                 # 持久记忆 (SQLite + FTS5 + 向量)
+│   ├── mcp/                    # MCP 客户端
+│   ├── profile/                # Profile 系统
 │   ├── providers/              # Claude + OpenAI providers
-│   ├── session/                # Conversation session persistence
-│   ├── skills/                 # Skill loading + injection middleware
-│   ├── todos/                  # Task list middleware + types
-│   ├── tools/                  # Built-in tool implementations
-│   ├── trace/                  # Trace recording: buffer, store, redactor, nudge engine, middleware
-│   ├── utils/                  # Debug logging, file detection
-│   ├── runtime.ts              # Single assembly point for the full runtime
-│   └── types.ts                # Shared type definitions
-├── skills/                     # Skill definition files (SKILL.md per skill)
-└── tests/                      # Test suite (mirrors src/ structure)
+│   ├── session/                # 会话持久化
+│   ├── skills/                 # Skill 加载 + 注入
+│   ├── tools/                  # 内置工具
+│   ├── trace/                  # Trace 记录
+│   ├── utils/                  # 工具函数
+│   ├── runtime.ts              # 单一装配点
+│   └── types.ts                # 全局类型
+├── skills/                     # Skill 定义
+├── docs/superpowers/           # Spec + Plan 文档
+└── tests/                      # 测试（658+ tests）
 ```
 
-## Architecture
+---
 
-For a detailed walkthrough — the agent loop, tool dispatch pipeline, memory system, skills, compaction, TUI state management, and how everything fits together — read the **[Design Document](./DESIGN.md)**.
-
-Key architectural principles:
-
-- **Single assembly**: `createAgentRuntime()` in `src/runtime.ts` is the only wiring point. CLI scripts call it; they never construct core objects directly.
-- **Async generator loop**: The agent yields discriminated `AgentEvent` objects. The TUI and headless runner consume the same stream.
-- **Onion middleware**: Both agent hooks and tool dispatch use composable middleware layers (like Koa/Express).
-- **Immutable context**: `AgentContext` carries read-only snapshots. Side effects go through a typed `ToolSink`.
-- **Least-destructive compaction**: Snip large outputs before summarizing, summarize before collapsing. LLM calls are the last resort.
-- **TypeScript-first**: Full type coverage, exact optional properties, no `any` without justification.
-
-See **[ARCHITECTURE-CONSTITUTION.md](./ARCHITECTURE-CONSTITUTION.md)** for the binding rules enforced in CI.
-
-## Development
+## 开发
 
 ```bash
-bun install          # Install dependencies
-bun run tui          # Launch TUI in development mode
-bun run tsc          # Type-check
-bun test             # Run tests
-bun run check:all    # Full CI check (tsc + tests + architecture guard)
+bun install              # 安装依赖
+bun tui                  # 启动 TUI
+bun tsc                  # 类型检查
+bun test                 # 运行测试
+bun run check:all        # 完整 CI (tsc + tests + arch guard)
+bun run lint             # ESLint
 ```
-
-- **Runtime**: Bun (latest recommended)
-- **Language**: TypeScript ^6.0.3
-- **UI**: React ^18.3.1 + Ink ^5.0.1
-- **AI SDKs**: `@anthropic-ai/sdk`, `openai`
 
 ## License
 

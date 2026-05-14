@@ -25,8 +25,10 @@ export async function sendMessage(
 ): Promise<string> {
   const c = client();
   const body = msgType === 'text' ? JSON.stringify({ text: content }) : content;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await (c.im.v1.message as any).create({
     params: { receive_id_type: 'chat_id' },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     data: { receive_id: chatId, msg_type: msgType as any, content: body },
   });
   if (res.code !== 0) throw new Error(`sendMessage failed: ${res.msg} (code: ${res.code})`);
@@ -39,9 +41,11 @@ export async function replyMessage(
 ): Promise<string> {
   const c = client();
   const body = msgType === 'text' ? JSON.stringify({ text: content }) : content;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await (c.im.v1.message as any).reply({
     path: { message_id: messageId },
     data: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       msg_type: msgType as any,
       content: body,
       ...(replyInThread ? { reply_in_thread: true } : {}),
@@ -55,6 +59,7 @@ export async function updateMessage(
   messageId: string, cardJson: string,
 ): Promise<void> {
   const c = client();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await (c.im.v1.message as any).patch({
     path: { message_id: messageId },
     data: { content: cardJson },
@@ -66,6 +71,7 @@ export async function getChatInfo(
   chatId: string,
 ): Promise<{ userCount: number; botCount: number }> {
   const c = client();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await (c.im.v1.chat as any).get({ path: { chat_id: chatId } });
   if (res.code !== 0) throw new Error(`getChatInfo failed: ${res.msg} (code: ${res.code})`);
   return {
@@ -74,20 +80,25 @@ export async function getChatInfo(
   };
 }
 
+const SECONDS_PER_MINUTE = 60;
+const MS_PER_SECOND = 1000;
+const CHAT_MODE_TTL_MINUTES = 5;
+const CHAT_MODE_TTL_MS = CHAT_MODE_TTL_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND;
+
 const chatModeCache = new Map<string, { mode: 'group' | 'topic' | 'p2p'; cachedAt: number }>();
-const CHAT_MODE_TTL = 5 * 60_000;
 
 export async function getChatMode(
   chatId: string, opts: { forceRefresh?: boolean } = {},
 ): Promise<'group' | 'topic' | 'p2p'> {
   const key = `${_appId}::${chatId}`;
   const cached = chatModeCache.get(key);
-  if (!opts.forceRefresh && cached && Date.now() - cached.cachedAt < CHAT_MODE_TTL) {
+  if (!opts.forceRefresh && cached && Date.now() - cached.cachedAt < CHAT_MODE_TTL_MS) {
     return cached.mode;
   }
   let mode: 'group' | 'topic' | 'p2p' = 'group';
   try {
     const c = client();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res = await (c.im.v1.chat as any).get({ path: { chat_id: chatId } });
     if (res.code === 0) {
       const rawMode = String(res.data?.chat_mode ?? '').toLowerCase();
@@ -111,19 +122,23 @@ export async function getBotOpenId(): Promise<{ openId: string; name: string }> 
       body: JSON.stringify({ app_id: _appId, app_secret: _appSecret }),
     },
   );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tokenData = await tokenRes.json() as any;
   if (tokenData.code !== 0) throw new Error(`Failed to get token: ${tokenData.msg}`);
 
   const botRes = await fetch('https://open.feishu.cn/open-apis/bot/v3/info/', {
     headers: { Authorization: `Bearer ${tokenData.tenant_access_token}` },
   });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const botData = await botRes.json() as any;
   if (botData.code !== 0) throw new Error(`Failed to get bot info: ${botData.msg}`);
   return { openId: botData.bot?.open_id, name: botData.bot?.app_name ?? '' };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function getMessageDetail(messageId: string): Promise<any> {
   const c = client();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await (c.im.v1.message as any).get({
     path: { message_id: messageId },
     params: { card_msg_content_type: 'user_card_content' },
@@ -138,6 +153,7 @@ export async function downloadResource(
   const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
   const { dirname } = await import('node:path');
   const c = client();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await (c.im.v1.messageResource as any).get({
     path: { message_id: messageId, file_key: fileKey },
     params: { type },

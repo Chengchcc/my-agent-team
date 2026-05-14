@@ -3,6 +3,7 @@ import type { SessionStore } from '../../session/store';
 import type { CommandHandlerContext } from './types';
 import { resolvePastePlaceholders } from './paste-attachments';
 import { compactCommand } from './commands/compact-command';
+import { daemonCommand } from './commands/daemon-commands';
 import { costCommand, toolsCommand } from './commands/diagnostic-commands';
 import { getMcpCommands } from './commands/mcp-commands';
 
@@ -86,7 +87,7 @@ export function getBuiltinCommands(sessionStore: SessionStore): SlashCommand[] {
   // Lazy imports to avoid circular dependencies
   const { getSessionCommands } = require('./commands/session-commands');
   const { createReviewCommands } = require('./commands/review-commands');
-  return [...BASE_COMMANDS, compactCommand, costCommand, toolsCommand, ...getSessionCommands(sessionStore), ...createReviewCommands(), ...getMcpCommands()];
+  return [...BASE_COMMANDS, compactCommand, daemonCommand, costCommand, toolsCommand, ...getSessionCommands(sessionStore), ...createReviewCommands(), ...getMcpCommands()];
 }
 
 export function filterCommands(commands: SlashCommand[], filter: string): SlashCommand[] {

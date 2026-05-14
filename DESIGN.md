@@ -1389,6 +1389,79 @@ The [Architecture Constitution](./ARCHITECTURE-CONSTITUTION.md) defines non-nego
 
 ---
 
+## IM Bridge Architecture
+
+The IM bridge layer connects my-agent to Feishu (Lark), enabling users to interact with AI agents through chat messages. One daemon process per bot, each bot bound to a Profile that defines its personality, tool permissions, and memory space.
+
+### Process Model
+
+```
+bots.yml → N daemon processes (one per bot)
+  each daemon:
+    ├── Shared: Provider, ToolRegistry, Skills loader
+    ├── Agent Pool: Map<sessionKey, Agent>
+    │   ├── Topic A → Agent A (isolated ContextManager + Memory)
+    │   ├── Topic B → Agent B
+    │   └── Chat C   → Agent C (chat-scope, whole group)
+    └── Lark WSClient → event dispatch → session handlers
+```
+
+### Routing
+
+| Group Type | Scope | Anchor | Agent Lifecycle |
+|------------|-------|--------|-----------------|
+| 话题群 (Topic) | thread | rootMessageId | One Agent per topic |
+| 普通群 (Group) | chat | chatId | One Agent for the whole group |
+| P2P | thread | messageId | Fresh topic per top-level message |
+
+Routing decision uses `thread_id` as the authoritative signal for real thread replies. Lark clients can produce `root_id` without `thread_id` for quote bubbles — only the combination of both indicates a real thread.
+
+### Event → Card Pipeline
+
+Agent events flow through a structured pipeline without PTY scraping:
+
+```
+AgentEvent.text_delta → accumulate Markdown → debounce 200ms → PATCH card lark_md element
+AgentEvent.tool_call_start → insert "🔧 calling ..." marker
+AgentEvent.tool_call_result → append result summary (truncated at 3000 chars)
+AgentEvent.turn_complete → freeze card (green "等待输入")
+Next user message → new streaming card
+```
+
+Traditional IM bridge approaches render PTY output through xterm.js headless → canvas → PNG → upload. my-agent uses structured `AgentEvent` discriminants to build Feishu `lark_md` cards directly. No screenshot, no canvas, no PNG upload.
+
+### Interactive Adaptation
+
+TUI blocking-interaction patterns (PermissionManager, AskUserQuestionManager) are adapted to Feishu cards:
+
+```
+TUI mode: Agent → globalManager → Promise pending
+          → React hook renders modal
+          → user clicks → Promise resolve
+
+IM mode:  Agent → globalManager → Promise pending
+          → daemon builds Feishu card (buttons)
+          → sends to chat → user clicks → card callback → Promise resolve
+```
+
+Same subscribe+resolve Promise pattern, different rendering layer. The global managers are unchanged.
+
+### Key Modules
+
+| Module | File(s) | Responsibility |
+|--------|---------|---------------|
+| Profile | `profile/types.ts`, `loader.ts` | Bot identity, tool permissions, workspace |
+| Lark Client | `im/lark/client.ts` | Feishu REST API (send/reply/patch/chat-mode) |
+| Event Dispatcher | `im/lark/event-dispatcher.ts` | WS long connection + message routing |
+| Card Builder | `im/lark/card-builder.ts` | 5 card types (streaming, permission, ask, repo, resolved) |
+| Card Handler | `im/lark/card-handler.ts` | Card button action dispatch |
+| Session Manager | `daemon/session-manager.ts` | Agent pool, lifecycle, tool filtering, message queue |
+| Interactive Bridge | `daemon/interactive-bridge.ts` | Permission/AskUserQuestion → IM card adapters |
+| Card Pipeline | `daemon/card-pipeline.ts` | AgentEvent → card PATCH (exhaustive switch on 16 variants) |
+| Daemon | `daemon/daemon.ts` | Central orchestrator (single assembly point for IM bridge) |
+
+---
+
 ## CI & Git Hooks
 
 A pre-push hook at `.git/hooks/pre-push` runs three checks before every push:

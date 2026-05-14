@@ -10,6 +10,8 @@
   "scripts": {
     "tui": "bun run bin/my-agent-tui-dev.ts",
     "agent": "bun run bin/my-agent.ts",
+    "bot": "bun run bin/my-agent-cli.ts",
+    "daemon": "bun run bin/my-agent-daemon.ts",
     "tsc": "tsc",
     "build": "tsc",
     "dev": "bun run bin/my-agent-tui-dev.ts",
@@ -43,6 +45,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
     "@anthropic-ai/tokenizer": "^0.0.4",
+    "@clack/prompts": "^1.4.0",
     "@larksuiteoapi/node-sdk": "^1.63.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@tavily/core": "^0.7.3",

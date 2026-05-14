@@ -11,9 +11,9 @@ import {
 
 describe('resolvePath', () => {
   it('expands tilde to home directory', () => {
-    const result = resolvePath('~/workspace');
+    const result = resolvePath('~/dataDir');
     expect(result).not.toContain('~');
-    expect(result).toEndWith('/workspace');
+    expect(result).toEndWith('/dataDir');
   });
 
   it('returns absolute paths unchanged', () => {
@@ -46,7 +46,7 @@ describe('profile loader', () => {
       setupConfig(`
 profiles:
   test:
-    workspace: ~/test-workspace
+    dataDir: ~/test-dataDir
     toolProfile: read_only
     workingDir: /tmp/work
 bots:
@@ -58,17 +58,17 @@ bots:
       const config = loadBotsConfig(configPath);
       expect(config.profiles.test).toBeDefined();
       expect(config.profiles.test.toolProfile).toBe('read_only');
-      expect(config.profiles.test.workspace).not.toContain('~');
+      expect(config.profiles.test.dataDir).not.toContain('~');
       expect(config.profiles.test.workingDir).toBe('/tmp/work');
       expect(config.bots).toHaveLength(1);
       expect(config.bots[0].larkAppId).toBe('app-1');
     });
 
-    it('resolves paths in workspace, workingDir, and allowedRoots', () => {
+    it('resolves paths in dataDir, workingDir, and allowedRoots', () => {
       setupConfig(`
 profiles:
   test:
-    workspace: ~/projects/my-app
+    dataDir: ~/projects/my-app
     toolProfile: general
     workingDir: ~/scratch
     allowedRoots:
@@ -78,8 +78,8 @@ bots: []
 `);
 
       const config = loadBotsConfig(configPath);
-      expect(config.profiles.test.workspace).not.toContain('~');
-      expect(config.profiles.test.workspace).toEndWith('/projects/my-app');
+      expect(config.profiles.test.dataDir).not.toContain('~');
+      expect(config.profiles.test.dataDir).toEndWith('/projects/my-app');
       expect(config.profiles.test.workingDir).not.toContain('~');
       expect(config.profiles.test.workingDir).toEndWith('/scratch');
       const roots = config.profiles.test.allowedRoots!;
@@ -97,7 +97,7 @@ bots: []
       setupConfig(`
 profiles:
   bad:
-    workspace: /ws
+    dataDir: /ws
     workingDir: /tmp
 bots: []
 `);
@@ -108,7 +108,7 @@ bots: []
       setupConfig(`
 profiles:
   bad:
-    workspace: /ws
+    dataDir: /ws
     toolProfile: admin
     workingDir: /tmp
 bots: []
@@ -122,7 +122,7 @@ bots: []
       setupConfig(`
 profiles:
   prod:
-    workspace: /opt/prod
+    dataDir: /opt/prod
     toolProfile: code_editor
     workingDir: /opt/app
 bots: []
@@ -131,7 +131,7 @@ bots: []
       const profile = getProfile('prod', configPath);
       expect(profile.id).toBe('prod');
       expect(profile.toolProfile).toBe('code_editor');
-      expect(profile.workspace).toBe('/opt/prod');
+      expect(profile.dataDir).toBe('/opt/prod');
       expect(profile.workingDir).toBe('/opt/app');
     });
 
@@ -139,7 +139,7 @@ bots: []
       setupConfig(`
 profiles:
   existing:
-    workspace: /tmp
+    dataDir: /tmp
     toolProfile: general
     workingDir: /tmp
 bots: []
@@ -156,7 +156,7 @@ bots: []
       setupConfig(`
 profiles:
   default:
-    workspace: /ws
+    dataDir: /ws
     toolProfile: read_only
     workingDir: /tmp
 bots:
@@ -177,7 +177,7 @@ bots:
       setupConfig(`
 profiles:
   any:
-    workspace: /ws
+    dataDir: /ws
     toolProfile: general
     workingDir: /tmp
 bots: []

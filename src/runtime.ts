@@ -1,6 +1,7 @@
 import type { AgentConfig, Provider, AgentHooks, Middleware } from './types';
 import type { LLMSettings, ContextSettings, McpSettings, McpServerConfig, TraceSettings } from './config/types';
 import { settings as globalSettings } from './config';
+import { loadProfileIdentity } from './profile/loader';
 import { Agent } from './agent/Agent';
 import { ToolRegistry } from './agent/tool-registry';
 import { ContextManager } from './agent/context';
@@ -49,6 +50,8 @@ export interface RuntimeConfig {
   maxTokens?: number;
   tokenLimit?: number;
   cwd?: string;
+  /** Load identity files (SOUL.md, IDENTITY.md, AGENTS.md) from this profile */
+  profileId?: string;
   enableMemory?: boolean;
   enableSkills?: boolean;
   enableTodo?: boolean;
@@ -81,14 +84,13 @@ export interface AgentRuntime {
   mcpManager?: McpManager;
   shutdown: () => Promise<void>;
 }
-
- 
 // eslint-disable-next-line complexity
 export async function createAgentRuntime(
   config: RuntimeConfig = {},
 ): Promise<AgentRuntime> {
   const {
     cwd = process.cwd(),
+    profileId,
     enableMemory = true,
     enableSkills = true,
     enableTodo = true,
@@ -101,10 +103,8 @@ export async function createAgentRuntime(
     settings,
   } = config;
 
-  // Resolve allowedRoots: settings.security.allowedRoots → explicit override → cwd
-  const allowedRoots = allowedRootsOverride
-    ?? settings?.security?.allowedRoots
-    ?? [cwd];
+  const allowedRoots = allowedRootsOverride ?? settings?.security?.allowedRoots ?? [cwd];
+  const effectiveSystemPrompt = profileId ? systemPrompt + '\n\n' + loadProfileIdentity(profileId) : systemPrompt;
 
   // Create provider - from settings or auto-detect from env
   let provider: Provider;
@@ -124,7 +124,7 @@ export async function createAgentRuntime(
 
   const contextManagerConfig: ContextManagerConfig = {
     tokenLimit,
-    defaultSystemPrompt: systemPrompt,
+    defaultSystemPrompt: effectiveSystemPrompt,
   };
   if (compressionStrategy) contextManagerConfig.compressionStrategy = compressionStrategy;
   const contextManager = new ContextManager(contextManagerConfig);

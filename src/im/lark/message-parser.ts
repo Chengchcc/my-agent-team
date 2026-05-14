@@ -20,46 +20,56 @@ export interface LarkMention {
   openId?: string;
 }
 
+function resolveMentionPlaceholders(content: string, mentions: LarkMention[]): string {
+  let result = content;
+  for (const m of mentions) {
+    if (m.key && m.name) {
+      result = result.split(m.key).join(`@${m.name}`);
+    }
+  }
+  return result;
+}
+
+function extractMessageContent(message: Record<string, unknown>): string {
+  const msgType: string = String(message.msg_type ?? 'text');
+  try {
+    const obj = JSON.parse(String(message.content ?? '{}'));
+    if (msgType === 'text' && typeof obj.text === 'string') {
+      return obj.text;
+    }
+    // post type — extract text from nested paragraphs
+    const inner = obj.zh_cn ?? obj.en_us ?? obj;
+    if (Array.isArray(inner?.content)) {
+      const parts: string[] = [];
+      for (const para of inner.content) {
+        if (!Array.isArray(para)) continue;
+        for (const node of para) {
+          if (typeof node === 'object' && node !== null && 'tag' in node && node.tag === 'text' && typeof node.text === 'string') {
+            parts.push(node.text);
+          }
+        }
+      }
+      return parts.join('');
+    }
+  } catch { /* empty content — message may be image/file/sticker */ }
+  return '';
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function parseEventMessage(data: any): ParsedMessage {
   const message = data.message ?? data;
   const sender = data.sender;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mentions: LarkMention[] = (message.mentions ?? []).map((m: any) => ({
     key: m.key ?? '',
     name: m.name ?? '',
     openId: m.id?.open_id,
   }));
 
-  let content = '';
   const msgType: string = message.msg_type ?? 'text';
-  try {
-    const obj = JSON.parse(message.content ?? '{}');
-    if (msgType === 'text' && typeof obj.text === 'string') {
-      content = obj.text;
-    } else {
-      // post type — extract text from nested paragraphs
-      const inner = obj.zh_cn ?? obj.en_us ?? obj;
-      if (Array.isArray(inner?.content)) {
-        const parts: string[] = [];
-        for (const para of inner.content) {
-          if (!Array.isArray(para)) continue;
-          for (const node of para) {
-            if (node?.tag === 'text' && typeof node.text === 'string') {
-              parts.push(node.text);
-            }
-          }
-        }
-        content = parts.join('');
-      }
-    }
-  } catch { /* empty content — message may be image/file/sticker */ }
-
-  // Resolve @mention placeholders (@_user_1 → @Name)
-  for (const m of mentions) {
-    if (m.key && m.name) {
-      content = content.split(m.key).join(`@${m.name}`);
-    }
-  }
+  const rawContent = extractMessageContent(message);
+  const content = resolveMentionPlaceholders(rawContent, mentions);
 
   return {
     messageId: message.message_id ?? '',

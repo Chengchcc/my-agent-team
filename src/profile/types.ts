@@ -7,9 +7,11 @@ import { SUB_AGENT_PROFILES } from '../agent/sub-agent-config';
  * by loadBotsConfig().
  */
 export const agentProfileSchema = z.object({
-  workspace: z.string(),
+  /** Directory for profile data: AGENTS.md, SOUL.md, memory.db, sessions/ */
+  dataDir: z.string(),
   model: z.string().optional(),
   toolProfile: z.enum(SUB_AGENT_PROFILES),
+  /** Working directory — where the agent runs bash and edits files */
   workingDir: z.string(),
   allowedRoots: z.array(z.string()).optional(),
   permissionTimeoutMs: z.number().optional(),

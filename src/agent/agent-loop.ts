@@ -235,7 +235,7 @@ export class AgentLoop {
       },
       environment: {
         agentType: 'main' as const,
-        cwd: process.cwd(),
+        cwd: this.config.cwd ?? process.cwd(),
       },
       metadata: new Map(),
       sink: createToolSink(),
