@@ -61,10 +61,6 @@ export function getBot(
   return { config: bot, profile: getProfile(bot.profileId, configPath) };
 }
 
-function listProfiles(configPath?: string): AgentProfile[] {
-  return Object.values(loadBotsConfig(configPath).profiles);
-}
-
 const IDENTITY_FILES = ['SOUL.md', 'IDENTITY.md', 'AGENTS.md'] as const;
 
 const PLACEHOLDER_MARKERS = [
