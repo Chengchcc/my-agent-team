@@ -4,6 +4,7 @@
 
 import { loadBotsConfig } from '../profile/loader';
 import type { AgentProfile, BotConfig } from '../profile/types';
+import { getSettings } from '../config';
 import { initLarkClient, getBotOpenId, sendMessage, replyMessage } from '../im/lark/client';
 import { startLarkEventDispatcher } from '../im/lark/event-dispatcher';
 import type { EventHandlers } from '../im/lark/event-dispatcher';
@@ -54,6 +55,9 @@ export async function startDaemon(profileId: string): Promise<void> {
 
   const bridgeRef: { current: InteractiveBridge | null } = { current: null };
   const currentSessionRef: { current: DaemonSession | null } = { current: null };
+
+  // Load settings before creating runtime (SkillLoader requires cached settings)
+  await getSettings();
 
   // Create provider + tool registry via createAgentRuntime
   const askUserQuestionHandler = async (
