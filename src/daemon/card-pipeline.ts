@@ -126,7 +126,7 @@ export function handleAgentEvent(
       return;
 
     case 'thinking_delta':
-      ds.lastScreenContent = (ds.lastScreenContent ?? '') + `\n\n> 💭 ${event.delta}`;
+      // Internal reasoning — not shown on the streaming card
       return;
 
     case 'tool_call_start': {
