@@ -7,6 +7,8 @@ import type { ToolRegistry } from './tool-registry';
 /** Sub-agent execution profile controlling tool access and parallelism. */
 export const SUB_AGENT_PROFILES = ['read_only', 'code_editor', 'general'] as const;
 export type SubAgentProfile = (typeof SUB_AGENT_PROFILES)[number];
+/** Agent-level alias for tool profiles, usable outside sub-agent context. */
+export type AgentToolProfile = SubAgentProfile;
 
 /** Deliverable format for sub-agent output. */
 export const SUB_AGENT_DELIVERABLES = ['summary', 'file_list', 'code_patch', 'structured_json'] as const;
