@@ -11,7 +11,7 @@ import { getProfile } from './loader';
 
 const IDENTITY_FILE_NAMES = ['SOUL.md', 'IDENTITY.md', 'AGENTS.md'] as const;
 
-export interface UpdateIdentityConfig {
+interface UpdateIdentityConfig {
   profileId: string;
   /** Callback to reload identity files into system prompt */
   onReload: () => void;

@@ -7,7 +7,7 @@ import { buildPermissionCard, buildAskUserQuestionCard, buildResolvedCard } from
 import { updateMessage } from '../im/lark/client';
 import { debugLog, debugWarn } from '../utils/debug';
 
-export interface InteractiveBridgeDeps {
+interface InteractiveBridgeDeps {
   larkAppId: string;
   permissionTimeoutMs: number;
   sessionReply: (anchor: string, content: string, msgType?: string) => Promise<string>;
