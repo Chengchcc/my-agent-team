@@ -9,7 +9,7 @@ export function resolvePath(p: string): string {
   return p.replace(/^~/, () => homedir() ?? '/root');
 }
 
-export function getBotsConfigPath(): string {
+function getBotsConfigPath(): string {
   return join(homedir() ?? '/root', '.my-agent', 'bots.yml');
 }
 
@@ -61,7 +61,7 @@ export function getBot(
   return { config: bot, profile: getProfile(bot.profileId, configPath) };
 }
 
-export function listProfiles(configPath?: string): AgentProfile[] {
+function listProfiles(configPath?: string): AgentProfile[] {
   return Object.values(loadBotsConfig(configPath).profiles);
 }
 

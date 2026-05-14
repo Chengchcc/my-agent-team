@@ -18,18 +18,18 @@ import { debugLog } from '../utils/debug';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
-export const DEFAULT_TITLE_MAX_LENGTH = 60;
+const DEFAULT_TITLE_MAX_LENGTH = 60;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-export function findSessionById(
+function findSessionById(
   sessionManager: SessionManager,
   sessionId: string,
 ): DaemonSession | undefined {
   return sessionManager.listSessions().find((ds) => ds.session.id === sessionId);
 }
 
-export function truncateTitle(content: string, maxLen: number = DEFAULT_TITLE_MAX_LENGTH): string {
+function truncateTitle(content: string, maxLen: number = DEFAULT_TITLE_MAX_LENGTH): string {
   const firstLine = content.split('\n')[0] ?? content;
   return firstLine.length > maxLen ? firstLine.slice(0, maxLen).trimEnd() + '...' : firstLine;
 }
@@ -43,7 +43,7 @@ export interface HandlerContext {
   sessionReply: (anchor: string, content: string, msgType?: string) => Promise<string>;
 }
 
-export async function sendInitialStreamingCard(
+async function sendInitialStreamingCard(
   ds: DaemonSession,
   messageId: string,
 ): Promise<void> {
@@ -144,7 +144,7 @@ export async function handleThreadReply(
 
 // ── Card callback factory ────────────────────────────────────────────────
 
-export interface CardCallbackDeps {
+interface CardCallbackDeps {
   sessionManager: SessionManager;
   bridge: InteractiveBridge;
 }
