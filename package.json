@@ -43,6 +43,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
     "@anthropic-ai/tokenizer": "^0.0.4",
+    "@larksuiteoapi/node-sdk": "^1.63.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@tavily/core": "^0.7.3",
     "dotenv": "^16.4.7",
