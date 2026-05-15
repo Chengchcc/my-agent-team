@@ -66,16 +66,14 @@ const IDENTITY_FILES = ['SOUL.md', 'IDENTITY.md', 'AGENTS.md'] as const;
 const PLACEHOLDER_MARKERS = [
   '_(customize me)_',
   '_(generation failed',
-  /^# Personality\n\nI am a helpful \w+ agent\./m,
+  'I am a helpful',  // minimal template always includes this phrase
 ];
 
 function isIdentityFileReady(filePath: string): boolean {
   if (!existsSync(filePath)) return false;
   const content = readFileSync(filePath, 'utf-8').trim();
   if (!content) return false;
-  return !PLACEHOLDER_MARKERS.some(marker =>
-    typeof marker === 'string' ? content.includes(marker) : marker.test(content),
-  );
+  return !PLACEHOLDER_MARKERS.some(marker => content.includes(marker));
 }
 
 export function loadProfileIdentity(profileId: string): string {

@@ -42,11 +42,11 @@ export class TextEditorTool extends ZodTool<z.ZodObject<{
   /**
    * Validate path against allowed roots.
    */
-  private validatePath(filePath: string): boolean {
+  private validatePath(resolvedPath: string): boolean {
     if (!this.allowedRoots || this.allowedRoots.length === 0) {
       return true;
     }
-    const resolved = path.resolve(filePath);
+    const resolved = path.resolve(resolvedPath);
     return this.allowedRoots.some(root => {
       const resolvedAllowed = path.resolve(root);
       return resolved === resolvedAllowed || resolved.startsWith(resolvedAllowed + path.sep);
@@ -56,23 +56,24 @@ export class TextEditorTool extends ZodTool<z.ZodObject<{
   /**
    * Execute the text editor command.
    */
-  protected async handle(params: z.infer<typeof this.schema>, _ctx: ToolContext): Promise<{ result: string } | { error: string }> {
-    const { command, path: filePath } = params;
+  protected async handle(params: z.infer<typeof this.schema>, ctx: ToolContext): Promise<{ result: string } | { error: string }> {
+    const { command, path: inputPath } = params;
+    const resolvedPath = path.resolve(ctx.environment.cwd, inputPath);
 
-    if (!this.validatePath(filePath)) {
-      return { error: `Error: Path "${filePath}" is not allowed.` };
+    if (!this.validatePath(resolvedPath)) {
+      return { error: `Error: Path "${resolvedPath}" is not allowed.` };
     }
 
     try {
       switch (command) {
         case 'view': {
-          return await this.view(filePath, params.start_line, params.end_line);
+          return await this.view(resolvedPath, params.start_line, params.end_line);
         }
         case 'create': {
           if (!params.content) {
             return { error: 'Error: content is required for create command.' };
           }
-          return await this.create(filePath, params.content);
+          return await this.create(resolvedPath, params.content);
         }
         case 'str_replace': {
           if (!params.old_string) {
@@ -81,13 +82,13 @@ export class TextEditorTool extends ZodTool<z.ZodObject<{
           if (params.new_string === undefined) {
             return { error: 'Error: new_string is required for str_replace command.' };
           }
-          return await this.strReplace(filePath, params.old_string, params.new_string);
+          return await this.strReplace(resolvedPath, params.old_string, params.new_string);
         }
         case 'write': {
           if (!params.content) {
             return { error: 'Error: content is required for write command.' };
           }
-          return await this.write(filePath, params.content);
+          return await this.write(resolvedPath, params.content);
         }
         default:
           return { error: `Error: unknown command "${command}".` };
@@ -100,8 +101,8 @@ export class TextEditorTool extends ZodTool<z.ZodObject<{
   /**
    * View file content with optional line range.
    */
-  private async view(filePath: string, startLine?: number, endLine?: number): Promise<{ result: string } | { error: string }> {
-    let content = await fs.readFile(filePath, 'utf-8');
+  private async view(resolvedPath: string, startLine?: number, endLine?: number): Promise<{ result: string } | { error: string }> {
+    let content = await fs.readFile(resolvedPath, 'utf-8');
     const lines = content.split('\n');
 
     if (startLine !== undefined) {
@@ -122,28 +123,28 @@ export class TextEditorTool extends ZodTool<z.ZodObject<{
   /**
    * Create a new file with content. Errors if file already exists.
    */
-  private async create(filePath: string, content: string): Promise<{ result: string } | { error: string }> {
+  private async create(resolvedPath: string, content: string): Promise<{ result: string } | { error: string }> {
     try {
-      await fs.access(filePath);
-      return { error: `Error: File already exists at ${filePath}. Use str_replace or write to modify it.` };
+      await fs.access(resolvedPath);
+      return { error: `Error: File already exists at ${resolvedPath}. Use str_replace or write to modify it.` };
     } catch {
       // File doesn't exist, good - create parent directories if needed
-      const dirPath = path.dirname(filePath);
+      const dirPath = path.dirname(resolvedPath);
       await fs.mkdir(dirPath, { recursive: true });
-      await fs.writeFile(filePath, content, 'utf-8');
-      return { result: `Created file ${filePath} successfully.` };
+      await fs.writeFile(resolvedPath, content, 'utf-8');
+      return { result: `Created file ${resolvedPath} successfully.` };
     }
   }
 
   /**
    * Replace exact string in a file. Fails if old_string doesn't match exactly.
    */
-  private async strReplace(filePath: string, oldString: string, newString: string): Promise<{ result: string } | { error: string }> {
+  private async strReplace(resolvedPath: string, oldString: string, newString: string): Promise<{ result: string } | { error: string }> {
     let content: string;
     try {
-      content = await fs.readFile(filePath, 'utf-8');
+      content = await fs.readFile(resolvedPath, 'utf-8');
     } catch (_e) {
-      return { error: `Error: File ${filePath} does not exist.` };
+      return { error: `Error: File ${resolvedPath} does not exist.` };
     }
 
     if (!content.includes(oldString)) {
@@ -163,18 +164,18 @@ export class TextEditorTool extends ZodTool<z.ZodObject<{
     }
 
     const newContent = content.replace(oldString, newString);
-    await fs.writeFile(filePath, newContent, 'utf-8');
-    return { result: `Replaced ${count} occurrence in ${filePath} successfully.` };
+    await fs.writeFile(resolvedPath, newContent, 'utf-8');
+    return { result: `Replaced ${count} occurrence in ${resolvedPath} successfully.` };
   }
 
   /**
    * Write entire file, overwrites if exists, creates if doesn't exist.
    */
-  private async write(filePath: string, content: string): Promise<{ result: string } | { error: string }> {
+  private async write(resolvedPath: string, content: string): Promise<{ result: string } | { error: string }> {
     // Create parent directories if needed
-    const dirPath = path.dirname(filePath);
+    const dirPath = path.dirname(resolvedPath);
     await fs.mkdir(dirPath, { recursive: true });
-    await fs.writeFile(filePath, content, 'utf-8');
-    return { result: `Wrote ${filePath} successfully.` };
+    await fs.writeFile(resolvedPath, content, 'utf-8');
+    return { result: `Wrote ${resolvedPath} successfully.` };
   }
 }

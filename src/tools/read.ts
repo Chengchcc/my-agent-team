@@ -23,8 +23,8 @@ export class ReadTool extends ZodTool {
   name = 'read';
   description = 'Read file content with optional line range support. SAFE TO CALL IN PARALLEL with other read-only tools in the same response.';
 
-  protected handle(args: z.infer<typeof this.schema>, _ctx: ToolContext) {
-    const resolvedPath = resolve(args.path);
+  protected handle(args: z.infer<typeof this.schema>, ctx: ToolContext) {
+    const resolvedPath = resolve(ctx.environment.cwd, args.path);
 
     // Validate path is within allowed roots
     if (!allowedRoots.some(root => resolvedPath.startsWith(root))) {

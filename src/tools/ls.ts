@@ -21,8 +21,8 @@ export class LsTool extends ZodTool {
   name = 'ls';
   description = 'List directory contents with file metadata. SAFE TO CALL IN PARALLEL with other read-only tools in the same response.';
 
-  protected handle(args: z.infer<typeof this.schema>, _ctx: ToolContext) {
-    const dirPath = resolve(args.path);
+  protected handle(args: z.infer<typeof this.schema>, ctx: ToolContext) {
+    const dirPath = resolve(ctx.environment.cwd, args.path);
 
     // Validate path is within allowed roots
     if (!allowedRoots.some(root => dirPath.startsWith(root))) {

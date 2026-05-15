@@ -35,8 +35,8 @@ export class GrepTool extends ZodTool {
   name = 'grep';
   description = 'Search file content for text/regex patterns. SAFE TO CALL IN PARALLEL with other read-only tools in the same response.';
 
-  protected handle(args: z.infer<typeof this.schema>, _ctx: ToolContext) {
-    const searchPath = resolve(args.path);
+  protected handle(args: z.infer<typeof this.schema>, ctx: ToolContext) {
+    const searchPath = resolve(ctx.environment.cwd, args.path);
 
     // Validate path is within allowed roots
     if (!allowedRoots.some(root => searchPath.startsWith(root))) {

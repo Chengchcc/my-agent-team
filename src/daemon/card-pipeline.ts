@@ -9,7 +9,6 @@ import type { AgentEvent } from '../agent/loop-types';
 import { debugLog } from '../utils/debug';
 
 const CARD_PATCH_MIN_INTERVAL_MS = 800;
-const TOOL_RESULT_TRUNCATION_LIMIT = 500;
 
 async function flushCardPatch(ds: DaemonSession): Promise<void> {
   if (ds.cardPatchInFlight || !ds.streamCardId) return;
@@ -50,15 +49,6 @@ function handleTextDeltaCard(ds: DaemonSession, delta: string): void {
   enqueueCardPatch(ds, cardJson(ds));
 }
 
-function handleToolCallResultCard(ds: DaemonSession, result: unknown, isError: boolean, durationMs: number): void {
-  const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
-  const truncated = resultStr.length > TOOL_RESULT_TRUNCATION_LIMIT
-    ? resultStr.slice(0, TOOL_RESULT_TRUNCATION_LIMIT) + '...(truncated)'
-    : resultStr;
-  const statusIcon = isError ? 'X' : 'OK';
-  ds.lastScreenContent = (ds.lastScreenContent ?? '') + `\n${statusIcon} done (${durationMs}ms):\n\`\`\`\n${truncated}\n\`\`\`\n`;
-}
-
 export function handleAgentEvent(
   _key: string,
   event: AgentEvent,
@@ -75,14 +65,9 @@ export function handleAgentEvent(
     case 'thinking_delta':
       return;
 
-    case 'tool_call_start': {
-      ds.lastScreenContent = (ds.lastScreenContent ?? '') + `\n\n🔧 Calling tool: \`${event.toolCall.name}\`\n`;
-      enqueueCardPatch(ds, cardJson(ds));
-      return;
-    }
-
+    case 'tool_call_start':
     case 'tool_call_result':
-      handleToolCallResultCard(ds, event.result, event.isError, event.durationMs);
+      // Tool calls are internal — not shown on the streaming card
       return;
 
     case 'turn_complete':
