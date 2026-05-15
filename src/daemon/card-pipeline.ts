@@ -43,6 +43,7 @@ let wasThinking = false;
 
 function handleTextDeltaCard(ds: DaemonSession, delta: string): void {
   wasThinking = false;
+  thinkingFrame = 0;
   ds.lastScreenContent = (ds.lastScreenContent ?? '') + delta;
   const now = Date.now();
   if (now - lastTextPatchTime < CARD_PATCH_MIN_INTERVAL_MS) {
@@ -53,12 +54,16 @@ function handleTextDeltaCard(ds: DaemonSession, delta: string): void {
   enqueueCardPatch(ds, cardJson(ds));
 }
 
+let thinkingFrame = 0;
+
 function handleThinkingCard(ds: DaemonSession): void {
   wasThinking = true;
   const now = Date.now();
   if (now - lastThinkingPatchTime < THINKING_PATCH_INTERVAL_MS) return;
   lastThinkingPatchTime = now;
-  enqueueCardPatch(ds, cardJson(ds, '🤔 Thinking...'));
+  thinkingFrame = (thinkingFrame + 1) % 3;
+  const dots = '.'.repeat(thinkingFrame + 1);
+  enqueueCardPatch(ds, cardJson(ds, `⏳ Thinking${dots}`));
 }
 
 export function handleAgentEvent(
