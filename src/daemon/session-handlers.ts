@@ -2,9 +2,8 @@
 // Extracted session handler functions for daemon event dispatch.
 // Kept separate from daemon.ts to stay under the 400-line constitution limit.
 
-import crypto from 'node:crypto';
 import type { BotConfig } from '../profile/types';
-import { replyMessage, sendMessage } from '../im/lark/client';
+import { replyMessage, sendMessage, addReaction, removeReaction } from '../im/lark/client';
 import { buildStreamingCard, buildResolvedCard } from '../im/lark/card-builder';
 import { parseEventMessage, stripLeadingMentions } from '../im/lark/message-parser';
 import type { ParsedMessage } from '../im/lark/message-parser';
@@ -41,42 +40,29 @@ export interface HandlerContext {
   sessionReply: (anchor: string, content: string, msgType?: string) => Promise<string>;
 }
 
-async function sendInitialStreamingCard(
-  ds: DaemonSession,
-  threadRootId: string,
-): Promise<void> {
-  const cardNonce = crypto.randomUUID();
-  ds.streamCardNonce = cardNonce;
-  const initialCard = buildStreamingCard({
-    title: ds.currentTurnTitle ?? '',
-    markdownContent: '',
-    status: 'starting',
-  });
+/** Send a card to the session — chat-scope uses sendMessage, topic uses
+ *  reply without reply_in_thread so the card isn't nested under user msg. */
+async function sendCard(ds: DaemonSession, cardJson: string): Promise<string> {
+  if (ds.scope === 'chat') {
+    return sendMessage(ds.chatId, cardJson, 'interactive');
+  }
+  return replyMessage(ds.session.rootMessageId, cardJson, 'interactive', false);
+}
+
+async function sendInitialStreamingCard(ds: DaemonSession): Promise<void> {
+  const initialCard = buildStreamingCard({ markdownContent: '' });
   try {
-    if (ds.scope === 'chat') {
-      ds.streamCardId = await sendMessage(ds.chatId, initialCard, 'interactive');
-    } else {
-      ds.streamCardId = await replyMessage(threadRootId, initialCard, 'interactive', true);
-    }
+    ds.streamCardId = await sendCard(ds, initialCard);
   } catch (err) {
     debugLog(`[daemon] failed to send initial card: ${String(err)}`);
   }
 }
 
-/** Reply with a quick emoji acknowledgement, then send the streaming card. */
-async function ackAndStartCard(
-  ds: DaemonSession,
-  messageId: string,
-  threadRootId: string,
-): Promise<void> {
-  try {
-    if (ds.scope === 'chat') {
-      await sendMessage(ds.chatId, '👍', 'text');
-    } else {
-      await replyMessage(messageId, '👍', 'text', true);
-    }
-  } catch { /* best effort */ }
-  await sendInitialStreamingCard(ds, threadRootId);
+/** Add Typing reaction to the user's message, then send streaming card. */
+async function ackAndStartCard(ds: DaemonSession, ackMessageId: string): Promise<string | null> {
+  const reactionId = await addReaction(ackMessageId, 'Typing');
+  await sendInitialStreamingCard(ds);
+  return reactionId;
 }
 
 export async function handleNewTopic(
@@ -96,12 +82,13 @@ export async function handleNewTopic(
   ctx.currentSessionRef.current = ds;
   ds.currentTurnTitle = truncateTitle(prompt);
 
-  await ackAndStartCard(ds, routeCtx.messageId, routeCtx.anchor);
+  const reactionId = await ackAndStartCard(ds, routeCtx.messageId);
 
   const parsed = parseSlashCommandInvocation(prompt);
   if (parsed && DAEMON_COMMANDS.has(parsed.cmd)) {
     const handled = await handleCommand(parsed.cmd, parsed.content, ds, ctx.sessionManager, ctx.sessionReply);
     if (handled) {
+      await removeReaction(routeCtx.messageId, reactionId ?? '');
       ctx.currentSessionRef.current = null;
       return;
     }
@@ -112,6 +99,7 @@ export async function handleNewTopic(
   } catch (err) {
     debugLog(`[daemon] agent turn failed: ${String(err)}`);
   } finally {
+    await removeReaction(routeCtx.messageId, reactionId ?? '');
     ctx.currentSessionRef.current = null;
   }
 }
@@ -128,36 +116,34 @@ export async function handleThreadReply(
 
   const key = sessionKey(routeCtx.anchor, ctx.bot.larkAppId);
   let ds = ctx.sessionManager.getSession(key);
+  let reactionId: string | null = null;
 
   if (!ds) {
     ds = await ctx.sessionManager.createSession(routeCtx, prompt, msg.senderId);
     ds.currentTurnTitle = truncateTitle(prompt);
-    await ackAndStartCard(ds, routeCtx.messageId, routeCtx.anchor);
+    reactionId = await ackAndStartCard(ds, routeCtx.messageId);
   } else {
-    // Ack with emoji regardless
-    try {
-      if (ds.scope === 'chat') {
-        await sendMessage(ds.chatId, '👍', 'text');
-      } else {
-        await replyMessage(routeCtx.messageId, '👍', 'text', true);
-      }
-    } catch { /* best effort */ }
+    reactionId = await addReaction(routeCtx.messageId, 'Typing');
   }
 
   const parsed = parseSlashCommandInvocation(prompt);
   if (parsed && DAEMON_COMMANDS.has(parsed.cmd)) {
     const handled = await handleCommand(parsed.cmd, parsed.content, ds, ctx.sessionManager, ctx.sessionReply);
-    if (handled) return;
+    if (handled) {
+      await removeReaction(routeCtx.messageId, reactionId ?? '');
+      return;
+    }
   }
 
   if (ds.busy) {
     ctx.sessionManager.queueMessage(ds, prompt);
+    await removeReaction(routeCtx.messageId, reactionId ?? '');
     return;
   }
 
   // Each turn gets a fresh streaming card
   ds.currentTurnTitle = truncateTitle(prompt);
-  await sendInitialStreamingCard(ds, routeCtx.anchor);
+  await sendInitialStreamingCard(ds);
 
   ctx.currentSessionRef.current = ds;
   try {
@@ -165,6 +151,7 @@ export async function handleThreadReply(
   } catch (err) {
     debugLog(`[daemon] agent turn failed in thread reply: ${String(err)}`);
   } finally {
+    await removeReaction(routeCtx.messageId, reactionId ?? '');
     ctx.currentSessionRef.current = null;
   }
 }

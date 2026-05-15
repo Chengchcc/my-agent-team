@@ -3,9 +3,7 @@ import { globalPermissionManager } from '../tools/permission-manager';
 import type { PermissionResponse } from '../tools/permission-manager';
 import { globalAskUserQuestionManager } from '../tools/ask-user-question-manager';
 import type { AskUserQuestionParameters, AskUserQuestionResult } from '../tools/ask-user-question';
-import { buildPermissionCard, buildAskUserQuestionCard, buildResolvedCard } from '../im/lark/card-builder';
-import { updateMessage } from '../im/lark/client';
-import { debugLog, debugWarn } from '../utils/debug';
+import { debugLog } from '../utils/debug';
 
 interface InteractiveBridgeDeps {
   larkAppId: string;
@@ -36,64 +34,44 @@ export class InteractiveBridge {
   }
 
   async sendPermissionCard(
-    anchor: string,
+    _anchor: string,
     toolName: string,
     reason: string,
-    command: string,
-    sessionId: string,
+    _command: string,
+    _sessionId: string,
   ): Promise<PermissionResponse> {
-    return new Promise((resolve) => {
-      const card = buildPermissionCard({ sessionId, rootId: anchor, toolName, reason, command });
-      const timeoutMs = this.deps.permissionTimeoutMs;
-
-      this.deps.sessionReply(anchor, card, 'interactive').then((msgId) => {
-        const timer = setTimeout(() => {
-          debugLog(`[InteractiveBridge] permission timeout for session ${sessionId}`);
-          this.resolvePermission(sessionId, 'deny');
-          updateMessage(msgId, buildResolvedCard('已超时自动拒绝')).catch(() => {});
-        }, timeoutMs);
-
-        this.pendingPermissions.set(sessionId, { resolve, timer, msgId });
-        debugLog(`[InteractiveBridge] permission card sent msgId=${msgId} session=${sessionId}`);
-      }).catch((err) => {
-        debugWarn(`[InteractiveBridge] failed to send permission card: ${err}`);
-        resolve('deny');
-      });
-    });
+    // Send a text warning and auto-deny. Interactive cards are not used for
+    // permission prompts — users grant permission by replying in chat.
+    const msg = `⚠️ 检测到危险操作: **${toolName}** — ${reason}\n已自动阻止。如需执行请发送 \`允许\`。`;
+    this.deps.sessionReply(_anchor, msg).catch(() => {});
+    return 'deny';
   }
 
   async sendAskUserQuestionCard(
     anchor: string,
     params: AskUserQuestionParameters,
-    sessionId: string,
+    _sessionId: string,
   ): Promise<AskUserQuestionResult> {
-    return new Promise((resolve, reject) => {
-      const card = buildAskUserQuestionCard({
-        sessionId,
-        rootId: anchor,
-        header: params.questions[0]?.header ?? 'Question',
-        questions: params.questions.map((q) => ({
-          question: q.question,
-          header: q.header,
-          options: q.options.map((o) => ({ label: o.label, description: o.description })),
-          multiSelect: q.multi_select,
-        })),
-      });
-
-      this.deps.sessionReply(anchor, card, 'interactive').then((msgId) => {
-        this.pendingAsks.set(sessionId, { resolve, reject, msgId });
-        debugLog(`[InteractiveBridge] ask card sent msgId=${msgId} session=${sessionId}`);
-      }).catch((err) => {
-        debugWarn(`[InteractiveBridge] failed to send ask card: ${err}`);
-        reject(new Error('Failed to send ask card'));
-      });
+    // Render questions as a text message with numbered options
+    const lines = params.questions.map((q) => {
+      const opts = q.options.map((o, idx) => `  ${idx + 1}. ${o.label} — ${o.description}`).join('\n');
+      return `**${q.header}**\n${q.question}\n${opts}`;
     });
+    const msg = lines.join('\n\n');
+    this.deps.sessionReply(anchor, msg).catch(() => {});
+    // Return first option as default
+    return {
+      answers: params.questions.map((q, idx) => ({
+        question_index: idx,
+        selected_labels: [q.options[0]?.label ?? ''],
+      })),
+    };
   }
 
   resolvePermission(sessionId: string, response: PermissionResponse): void {
     const entry = this.pendingPermissions.get(sessionId);
     if (!entry) {
-      debugWarn(`[InteractiveBridge] no pending permission for session ${sessionId}`);
+      debugLog(`[InteractiveBridge] no pending permission for session ${sessionId}`);
       return;
     }
     clearTimeout(entry.timer);
@@ -108,7 +86,7 @@ export class InteractiveBridge {
   resolveAskUserQuestion(sessionId: string, result: AskUserQuestionResult): void {
     const entry = this.pendingAsks.get(sessionId);
     if (!entry) {
-      debugWarn(`[InteractiveBridge] no pending ask for session ${sessionId}`);
+      debugLog(`[InteractiveBridge] no pending ask for session ${sessionId}`);
       return;
     }
     this.pendingAsks.delete(sessionId);

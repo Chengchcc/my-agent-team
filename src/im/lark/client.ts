@@ -135,3 +135,25 @@ export async function getBotOpenId(): Promise<{ openId: string; name: string }> 
   return { openId: botData.bot?.open_id, name: botData.bot?.app_name ?? '' };
 }
 
+export async function addReaction(messageId: string, emojiType: string): Promise<string | null> {
+  const c = client();
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await (c.im.messageReaction as any).create({
+      path: { message_id: messageId },
+      data: { reaction_type: { emoji_type: emojiType } },
+    });
+    return res?.data?.reaction_id ?? null;
+  } catch { return null; }
+}
+
+export async function removeReaction(messageId: string, reactionId: string): Promise<void> {
+  const c = client();
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (c.im.messageReaction as any).delete({
+      path: { message_id: messageId, reaction_id: reactionId },
+    });
+  } catch { /* best effort */ }
+}
+
