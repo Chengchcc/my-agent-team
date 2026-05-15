@@ -70,9 +70,7 @@ export class TraceAgentMiddleware implements AgentMiddleware {
 
     this.settledDetector?.runEnd(isRoot, trace.id, trace.summary);
 
-    setImmediate(() => {
-      void this.finalizeTrace(trace);
-    });
+    await this.finalizeTrace(trace);
 
     return ctx;
   };
