@@ -11,7 +11,7 @@
     "tui": "bun run bin/my-agent-tui-dev.ts",
     "agent": "bun run bin/my-agent.ts",
     "cli": "bun run bin/my-agent-cli.ts",
-    "daemon": "bun run bin/my-agent-daemon.ts",
+    "daemon": "bun run bin/my-agent-cli.ts daemon",
     "tsc": "tsc",
     "build": "tsc",
     "dev": "bun run bin/my-agent-tui-dev.ts",
