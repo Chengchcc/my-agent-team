@@ -3,6 +3,11 @@
   "entry": [
     "src/agent/index.ts",
     "bin/my-agent-tui",
+    "bin/my-agent-tui-dev.ts",
+    "bin/my-agent-daemon.ts",
+    "bin/my-agent-cli.ts",
+    "bin/my-agent.ts",
+    "bin/mcp-cli.ts",
     "examples/**/*.ts",
     "scripts/**/*.ts",
     "tests/**/*.test.{ts,tsx}"
