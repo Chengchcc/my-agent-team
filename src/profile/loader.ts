@@ -100,15 +100,19 @@ export function loadProfileIdentity(profileId: string): string {
     if (sections.length === 0) {
       const profile = getProfile(profileId);
       const dir = profile.dataDir;
+      const wd = profile.workingDir;
       return `<agent_initialization>
-You are a newly created agent with no defined identity yet. Your profile is at ${dir}/ and contains these empty files:
+You are a newly created agent with no defined identity yet.
+  Profile dir: ${dir}/       (identity files, memory, sessions)
+  Working dir: ${wd}/        (where you run bash, read, and edit files)
+
+Empty identity files to fill:
   ${dir}/SOUL.md     — your personality, values, tone
   ${dir}/IDENTITY.md — your name, role, expertise
   ${dir}/AGENTS.md   — your operating rules
 
-In your first interactions with the user, learn what role they expect you to play. Do NOT read the profile files — they contain only placeholder content. Once you understand your role, use the update_identity tool to write your real identity files.
+Learn what role the user expects, then use update_identity to write your identity files.
 </agent_initialization>`;
-    }
     }
 
     const blocks = sections.map(s => `<${s.tag}>\n${s.content}\n</${s.tag}>`).join('\n');
