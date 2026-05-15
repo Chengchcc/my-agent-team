@@ -14,7 +14,7 @@ export interface ParsedMessage {
   createTime: string;
 }
 
-export interface LarkMention {
+interface LarkMention {
   key: string;
   name: string;
   openId?: string;

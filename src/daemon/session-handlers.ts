@@ -43,7 +43,7 @@ export interface HandlerContext {
 
 async function sendInitialStreamingCard(
   ds: DaemonSession,
-  messageId: string,
+  threadRootId: string,
 ): Promise<void> {
   const cardNonce = crypto.randomUUID();
   ds.streamCardNonce = cardNonce;
@@ -56,11 +56,27 @@ async function sendInitialStreamingCard(
     if (ds.scope === 'chat') {
       ds.streamCardId = await sendMessage(ds.chatId, initialCard, 'interactive');
     } else {
-      ds.streamCardId = await replyMessage(messageId, initialCard, 'interactive', true);
+      ds.streamCardId = await replyMessage(threadRootId, initialCard, 'interactive', true);
     }
   } catch (err) {
     debugLog(`[daemon] failed to send initial card: ${String(err)}`);
   }
+}
+
+/** Reply with a quick emoji acknowledgement, then send the streaming card. */
+async function ackAndStartCard(
+  ds: DaemonSession,
+  messageId: string,
+  threadRootId: string,
+): Promise<void> {
+  try {
+    if (ds.scope === 'chat') {
+      await sendMessage(ds.chatId, '👍', 'text');
+    } else {
+      await replyMessage(messageId, '👍', 'text', true);
+    }
+  } catch { /* best effort */ }
+  await sendInitialStreamingCard(ds, threadRootId);
 }
 
 export async function handleNewTopic(
@@ -80,7 +96,7 @@ export async function handleNewTopic(
   ctx.currentSessionRef.current = ds;
   ds.currentTurnTitle = truncateTitle(prompt);
 
-  await sendInitialStreamingCard(ds, routeCtx.messageId);
+  await ackAndStartCard(ds, routeCtx.messageId, routeCtx.anchor);
 
   const parsed = parseSlashCommandInvocation(prompt);
   if (parsed && DAEMON_COMMANDS.has(parsed.cmd)) {
@@ -116,7 +132,16 @@ export async function handleThreadReply(
   if (!ds) {
     ds = await ctx.sessionManager.createSession(routeCtx, prompt, msg.senderId);
     ds.currentTurnTitle = truncateTitle(prompt);
-    await sendInitialStreamingCard(ds, routeCtx.messageId);
+    await ackAndStartCard(ds, routeCtx.messageId, routeCtx.anchor);
+  } else {
+    // Ack with emoji regardless
+    try {
+      if (ds.scope === 'chat') {
+        await sendMessage(ds.chatId, '👍', 'text');
+      } else {
+        await replyMessage(routeCtx.messageId, '👍', 'text', true);
+      }
+    } catch { /* best effort */ }
   }
 
   const parsed = parseSlashCommandInvocation(prompt);
@@ -129,6 +154,10 @@ export async function handleThreadReply(
     ctx.sessionManager.queueMessage(ds, prompt);
     return;
   }
+
+  // Each turn gets a fresh streaming card
+  ds.currentTurnTitle = truncateTitle(prompt);
+  await sendInitialStreamingCard(ds, routeCtx.anchor);
 
   ctx.currentSessionRef.current = ds;
   try {
