@@ -378,9 +378,9 @@ function setupTrace(
   toolMiddlewares: ToolMiddleware[],
   skillLoader?: SkillLoader | null,
 ): EvolutionModule | null {
-  if (settings?.trace?.enabled === false) return null;
+  const hasExplicitDisable = settings?.trace?.enabled === false;
+  if (hasExplicitDisable) return null;
   const evolution = setupEvolution(settings);
-  if (!evolution) return null;
   const traceMw = createTraceMiddleware({
     maxRunsPerSession: settings?.trace?.maxRunsPerSession,
     redactionMode: settings?.trace?.redaction?.mode,
