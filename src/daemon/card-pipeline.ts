@@ -4,7 +4,6 @@
 
 import { updateMessage } from '../im/lark/client';
 import { buildStreamingCard } from '../im/lark/card-builder';
-import { sessionAnchorId } from '../im/types';
 import type { DaemonSession } from '../im/types';
 import type { SessionManager } from './session-manager';
 import type { AgentEvent } from '../agent/loop-types';
@@ -46,23 +45,15 @@ export function buildCardParams(
   ds: DaemonSession,
   overrides: {
     status: 'starting' | 'working' | 'idle' | 'analyzing' | 'error';
-    displayMode: 'hidden' | 'markdown';
     markdownContent?: string;
     title?: string;
-    rootId?: string;
-    cardNonce?: string;
   },
 ): Parameters<typeof buildStreamingCard>[0] {
-  const base = {
-    sessionId: ds.session.id,
-    rootId: overrides.rootId ?? sessionAnchorId(ds),
+  return {
     title: overrides.title ?? ds.currentTurnTitle ?? 'Session',
     markdownContent: overrides.markdownContent ?? ds.lastScreenContent ?? '',
     status: overrides.status,
-    displayMode: overrides.displayMode,
   };
-  const nonce = overrides.cardNonce ?? ds.streamCardNonce;
-  return nonce ? { ...base, cardNonce: nonce } : base;
 }
 
 // ── Per-event-type card update helpers ──────────────────────────────────
@@ -77,14 +68,12 @@ function handleTextDeltaCard(ds: DaemonSession, delta: string): void {
     // Defer the patch — enqueueCardPatch will overwrite pendingCardJson
     ds.pendingCardJson = buildStreamingCard(buildCardParams(ds, {
       status: 'working',
-      displayMode: 'markdown',
     }));
     return;
   }
   lastPatchTime = now;
   const card = buildStreamingCard(buildCardParams(ds, {
     status: 'working',
-    displayMode: 'markdown',
   }));
   enqueueCardPatch(ds, card);
 }
@@ -104,7 +93,6 @@ function handleAgentDoneCard(ds: DaemonSession, reason: string): void {
   const status = reason === 'error' ? 'error' as const : 'idle' as const;
   const card = buildStreamingCard(buildCardParams(ds, {
     status,
-    displayMode: 'markdown',
     title: ds.currentTurnTitle ?? (status === 'error' ? 'Error' : 'Complete'),
   }));
   enqueueCardPatch(ds, card);
@@ -134,7 +122,6 @@ export function handleAgentEvent(
       ds.lastScreenContent = (ds.lastScreenContent ?? '') + toolNote;
       const card = buildStreamingCard(buildCardParams(ds, {
         status: 'analyzing',
-        displayMode: 'markdown',
       }));
       enqueueCardPatch(ds, card);
       return;
@@ -147,7 +134,6 @@ export function handleAgentEvent(
     case 'turn_complete': {
       const card = buildStreamingCard(buildCardParams(ds, {
         status: 'idle',
-        displayMode: 'markdown',
       }));
       enqueueCardPatch(ds, card);
       return;
@@ -161,7 +147,6 @@ export function handleAgentEvent(
       ds.lastScreenContent = (ds.lastScreenContent ?? '') + `\n\nError: ${event.error.message}`;
       const card = buildStreamingCard(buildCardParams(ds, {
         status: 'error',
-        displayMode: 'markdown',
         title: ds.currentTurnTitle ?? 'Error',
       }));
       enqueueCardPatch(ds, card);

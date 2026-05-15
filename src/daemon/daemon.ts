@@ -139,11 +139,9 @@ export async function startDaemon(profileId: string): Promise<void> {
   bridgeRef.current = bridge;
 
   // Card handler callbacks + deps
-  const { onToggleDisplay, onRestart, onClose } = setupCardCallbacks({ sessionManager, bridge });
+  const { onClose } = setupCardCallbacks({ sessionManager });
   const cardDeps: CardHandlerDeps = {
     interactiveBridge: bridge,
-    onToggleDisplay,
-    onRestart,
     onClose,
   };
 

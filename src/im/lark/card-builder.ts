@@ -18,50 +18,20 @@ const MAX_BUTTONS_PER_GROUP = 4;
 const HEADER_TITLE_MAX_LENGTH = 30;
 
 export function buildStreamingCard(params: {
-  sessionId: string;
-  rootId: string;
   title: string;
   markdownContent: string;
   status: 'starting' | 'working' | 'idle' | 'analyzing' | 'error';
-  displayMode: 'hidden' | 'markdown';
-  cardNonce?: string;
 }): string {
-  const { sessionId, rootId, title, markdownContent, status, displayMode, cardNonce } = params;
+  const { title, markdownContent, status } = params;
   const st = statusMap[status] ?? statusMap.working;
   const elements: Record<string, unknown>[] = [];
 
-  if (displayMode === 'markdown' && markdownContent) {
+  if (markdownContent) {
     const truncated = markdownContent.length > CONTENT_TRUNCATION_LIMIT
       ? markdownContent.slice(0, CONTENT_TRUNCATION_LIMIT) + '\n\n_(输出已截断)_'
       : markdownContent;
-    elements.push({
-      tag: 'markdown',
-      content: truncated,
-    });
-    elements.push({ tag: 'hr' });
+    elements.push({ tag: 'markdown', content: truncated });
   }
-
-  const headerActions: Record<string, unknown>[] = [
-    {
-      tag: 'button',
-      text: { tag: 'plain_text', content: displayMode === 'hidden' ? '📖 显示输出' : '📕 隐藏输出' },
-      type: 'default',
-      value: { action: 'toggle_display', root_id: rootId, session_id: sessionId, ...(cardNonce ? { card_nonce: cardNonce } : {}) },
-    },
-    {
-      tag: 'button',
-      text: { tag: 'plain_text', content: '🔄 重启' },
-      type: 'default',
-      value: { action: 'restart', root_id: rootId, session_id: sessionId },
-    },
-    {
-      tag: 'button',
-      text: { tag: 'plain_text', content: '❌ 关闭会话' },
-      type: 'danger',
-      value: { action: 'close', root_id: rootId, session_id: sessionId },
-    },
-  ];
-  elements.push({ tag: 'action', actions: headerActions });
 
   const card = {
     config: { wide_screen_mode: true },

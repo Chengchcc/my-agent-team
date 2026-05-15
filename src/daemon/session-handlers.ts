@@ -4,16 +4,14 @@
 
 import crypto from 'node:crypto';
 import type { BotConfig } from '../profile/types';
-import { replyMessage } from '../im/lark/client';
+import { replyMessage, sendMessage } from '../im/lark/client';
 import { buildStreamingCard, buildResolvedCard } from '../im/lark/card-builder';
 import { parseEventMessage, stripLeadingMentions } from '../im/lark/message-parser';
 import type { ParsedMessage } from '../im/lark/message-parser';
 import { sessionKey, sessionAnchorId } from '../im/types';
 import type { DaemonSession, RoutingContext } from '../im/types';
 import type { SessionManager } from './session-manager';
-import type { InteractiveBridge } from './interactive-bridge';
 import { handleCommand, parseSlashCommandInvocation, DAEMON_COMMANDS } from './command-handler';
-import { buildCardParams } from './card-pipeline';
 import { debugLog } from '../utils/debug';
 
 // ── Constants ────────────────────────────────────────────────────────────
@@ -50,16 +48,16 @@ async function sendInitialStreamingCard(
   const cardNonce = crypto.randomUUID();
   ds.streamCardNonce = cardNonce;
   const initialCard = buildStreamingCard({
-    sessionId: ds.session.id,
-    rootId: sessionAnchorId(ds),
     title: ds.currentTurnTitle ?? '',
     markdownContent: '',
     status: 'starting',
-    displayMode: 'hidden',
-    cardNonce,
   });
   try {
-    ds.streamCardId = await replyMessage(messageId, initialCard, 'interactive', true);
+    if (ds.scope === 'chat') {
+      ds.streamCardId = await sendMessage(ds.chatId, initialCard, 'interactive');
+    } else {
+      ds.streamCardId = await replyMessage(messageId, initialCard, 'interactive', true);
+    }
   } catch (err) {
     debugLog(`[daemon] failed to send initial card: ${String(err)}`);
   }
@@ -146,69 +144,17 @@ export async function handleThreadReply(
 
 interface CardCallbackDeps {
   sessionManager: SessionManager;
-  bridge: InteractiveBridge;
 }
 
 export function setupCardCallbacks(deps: CardCallbackDeps): {
-  onToggleDisplay: (sessionId: string, cardNonce?: string) => string;
-  onRestart: (sessionId: string) => Promise<string>;
   onClose: (sessionId: string) => Promise<string>;
 } {
-  const { sessionManager, bridge } = deps;
-
-  const onToggleDisplay = (sessionId: string, _cardNonce?: string): string => {
-    const ds = findSessionById(sessionManager, sessionId);
-    if (!ds) return buildResolvedCard('Session not found');
-    const currentMode = ds.frozenCards?.get(sessionId);
-    const newMode: 'hidden' | 'markdown' = currentMode?.displayMode === 'markdown' ? 'hidden' : 'markdown';
-
-    const frozen = {
-      messageId: ds.streamCardId ?? '',
-      content: ds.lastScreenContent ?? '',
-      title: ds.currentTurnTitle ?? 'Session',
-      displayMode: newMode,
-    };
-
-    if (!ds.frozenCards) ds.frozenCards = new Map();
-    ds.frozenCards.set(sessionId, frozen);
-
-    const params = buildCardParams(ds, {
-      status: 'idle',
-      displayMode: newMode,
-      markdownContent: newMode === 'markdown' ? (ds.lastScreenContent ?? '') : '',
-      title: ds.currentTurnTitle ?? 'Session',
-    });
-    return buildStreamingCard(params);
-  };
-
-  const onRestart = async (sessionId: string): Promise<string> => {
-    debugLog(`[daemon] restart requested for session ${sessionId}`);
-    const ds = findSessionById(sessionManager, sessionId);
-    if (!ds) return buildResolvedCard('Session not found');
-
-    ds.pendingPrompt = 'Please continue from where you left off.';
-    if (!ds.busy) {
-      const prompt = ds.pendingPrompt;
-      delete ds.pendingPrompt;
-      void sessionManager.runAgentTurn(ds, prompt);
-    }
-
-    const params = buildCardParams(ds, {
-      status: 'working',
-      displayMode: 'hidden',
-      title: ds.currentTurnTitle ?? 'Session restarted',
-      cardNonce: crypto.randomUUID(),
-    });
-    return buildStreamingCard(params);
-  };
+  const { sessionManager } = deps;
 
   const onClose = async (sessionId: string): Promise<string> => {
     debugLog(`[daemon] close requested for session ${sessionId}`);
     const ds = findSessionById(sessionManager, sessionId);
-    if (!ds) return buildResolvedCard('Session not found or already closed');
-
-    bridge.cancelPermission(sessionId);
-    bridge.cancelAsk(sessionId);
+    if (!ds) return buildResolvedCard('Session not found');
 
     const key = sessionKey(sessionAnchorId(ds), ds.larkAppId);
     sessionManager.removeSession(key);
@@ -216,5 +162,5 @@ export function setupCardCallbacks(deps: CardCallbackDeps): {
     return buildResolvedCard('Session closed');
   };
 
-  return { onToggleDisplay, onRestart, onClose };
+  return { onClose };
 }
