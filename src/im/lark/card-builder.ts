@@ -157,39 +157,3 @@ export function buildResolvedCard(text: string): string {
   return JSON.stringify(card);
 }
 
-export function buildRepoSelectCard(
-  projects: Array<{ name: string; branch: string; path: string }>,
-  rootMessageId?: string,
-): string {
-  const options = projects.map((p, i) => ({
-    text: { tag: 'plain_text' as const, content: `${i + 1}. ${p.name} (${p.branch})` },
-    value: p.path,
-  }));
-  const card = {
-    config: { wide_screen_mode: true },
-    header: {
-      template: 'blue',
-      title: { tag: 'plain_text', content: '📁 选择工作目录' },
-    },
-    elements: [
-      {
-        tag: 'action',
-        actions: [
-          {
-            tag: 'select_static',
-            placeholder: { tag: 'plain_text', content: '选择项目' },
-            options,
-            value: { key: 'repo_switch', root_id: rootMessageId ?? '' },
-          },
-          {
-            tag: 'button',
-            text: { tag: 'plain_text', content: '▶️ 直接开启会话' },
-            type: 'primary',
-            value: { action: 'skip_repo', root_id: rootMessageId ?? '' },
-          },
-        ],
-      },
-    ],
-  };
-  return JSON.stringify(card);
-}

@@ -41,7 +41,7 @@ function enqueueCardPatch(ds: DaemonSession, cardJson: string): void {
   void flushCardPatch(ds);
 }
 
-export function buildCardParams(
+function buildCardParams(
   ds: DaemonSession,
   overrides: {
     status: 'starting' | 'working' | 'idle' | 'analyzing' | 'error';
