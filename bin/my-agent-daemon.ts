@@ -2,9 +2,10 @@
 // bin/my-agent-daemon.ts
 import { startDaemon } from '../src/daemon/daemon';
 
-let profileId = process.argv[2] || process.env.MY_AGENT_PROFILE;
-// Allow `my-agent-daemon start <profile>` as well as `my-agent-daemon <profile>`
-if (profileId === 'start') profileId = process.argv[3];
+const ARGV_PROFILE_ID = 2;
+const ARGV_PROFILE_AFTER_START = 3;
+let profileId = process.argv[ARGV_PROFILE_ID] || process.env.MY_AGENT_PROFILE;
+if (profileId === 'start') profileId = process.argv[ARGV_PROFILE_AFTER_START];
 if (!profileId) {
   console.error('Usage: my-agent-daemon <profile-id>');
   console.error('   or: MY_AGENT_PROFILE=<profile-id> my-agent-daemon');

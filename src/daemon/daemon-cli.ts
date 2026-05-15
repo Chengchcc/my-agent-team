@@ -10,6 +10,7 @@ import { load as parseYaml } from 'js-yaml';
 
 const log = (msg: string): void => { process.stdout.write(msg + '\n'); };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function loadConfig(): any {
   const configPath = join(homedir() ?? '/root', '.my-agent', 'bots.yml');
   if (existsSync(configPath)) {
