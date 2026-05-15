@@ -2,6 +2,9 @@
 // Central orchestrator that wires all IM bridge subsystems together.
 // Entry point: startDaemon(profileId)
 
+import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { loadBotsConfig } from '../profile/loader';
 import type { AgentProfile, BotConfig } from '../profile/types';
 import { getSettings } from '../config';
@@ -202,9 +205,16 @@ export async function startDaemon(profileId: string): Promise<void> {
   );
   debugLog('[daemon] WebSocket client started');
 
+  // Write PID file for daemon lifecycle management (start/stop/restart)
+  const dataDir = join(homedir() ?? '/root', '.my-agent', 'data');
+  mkdirSync(dataDir, { recursive: true });
+  const pidFile = join(dataDir, `${profileId}.pid`);
+  writeFileSync(pidFile, String(process.pid), 'utf-8');
+
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     debugLog(`[daemon] Received ${signal}, shutting down...`);
+    try { unlinkSync(pidFile); } catch { /* already removed */ }
     try { wsClient.close(); } catch (err) { debugLog(`[daemon] WS close error: ${String(err)}`); }
     try { await runtime.shutdown(); } catch (err) { debugLog(`[daemon] Runtime shutdown error: ${String(err)}`); }
     process.exit(0);
@@ -213,5 +223,5 @@ export async function startDaemon(profileId: string): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
 
-  debugLog(`[daemon] Daemon started for profile "${profileId}"`);
+  debugLog(`[daemon] Daemon started for profile "${profileId}" (PID ${process.pid})`);
 }

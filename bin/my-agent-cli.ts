@@ -1,9 +1,13 @@
 #!/usr/bin/env bun
 // bin/my-agent-cli.ts
-// CLI management commands: bot setup, daemon start/stop/list
+// CLI management commands: bot setup, daemon start/stop/restart/list, profile list
 // Usage: bun run bin/my-agent-cli.ts <command> [args]
 
-import { botSetup, daemonStart, daemonStop, daemonList } from '../src/daemon/cli-commands';
+import { botSetup as profileSetup } from '../src/daemon/cli-commands';
+import {
+  daemonStart, daemonStop, daemonRestart,
+  daemonList, profileList,
+} from '../src/daemon/daemon-cli';
 
 const ARGV_CMD = 2;
 const ARGV_SUB = 3;
@@ -15,9 +19,14 @@ async function main(): Promise<void> {
   const profile = process.argv[ARGV_PROFILE];
 
   switch (cmd) {
-    case 'bot':
-    case 'setup': {
-      await botSetup();
+    case 'profile': {
+      if (sub === 'setup') {
+        await profileSetup();
+      } else if (sub === 'list' || sub === 'ls') {
+        await profileList();
+      } else {
+        console.error('Usage: my-agent profile <setup|list>');
+      }
       return;
     }
     case 'daemon': {
@@ -52,6 +61,14 @@ async function handleDaemonCommand(sub: string, profile?: string): Promise<void>
       await daemonStop(profile);
       return;
     }
+    case 'restart': {
+      if (!profile) {
+        console.error('Usage: my-agent daemon restart <profile>');
+        process.exit(1);
+      }
+      await daemonRestart(profile);
+      return;
+    }
     case 'list':
     case 'ls': {
       await daemonList();
@@ -59,7 +76,7 @@ async function handleDaemonCommand(sub: string, profile?: string): Promise<void>
     }
     case '':
     default: {
-      console.error('Usage: my-agent daemon <start|stop|list> [profile]');
+      console.error('Usage: my-agent daemon <start|stop|restart|list> [profile]');
       process.exit(1);
     }
   }
@@ -68,14 +85,16 @@ async function handleDaemonCommand(sub: string, profile?: string): Promise<void>
 function printUsage(): void {
   console.log([
     'Usage:',
-    '  my-agent setup              Interactive bot + profile setup',
-    '  my-agent daemon start <p>    Start daemon for profile',
-    '  my-agent daemon stop <p>     Stop daemon for profile',
-    '  my-agent daemon list         List running daemons',
+    '  my-agent profile setup         Interactive bot + profile setup',
+    '  my-agent profile list          List configured profiles',
+    '  my-agent daemon start <p>      Start daemon for profile',
+    '  my-agent daemon stop <p>       Stop daemon for profile',
+    '  my-agent daemon restart <p>    Restart daemon for profile',
+    '  my-agent daemon list           List running daemons',
     '',
     'For AI agent sessions:',
-    '  my-agent                     Launch TUI',
-    '  my-agent agent               Headless single-turn',
+    '  my-agent                       Launch TUI',
+    '  my-agent agent                 Headless single-turn',
   ].join('\n'));
 }
 
