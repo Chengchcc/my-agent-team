@@ -11,7 +11,7 @@ import type { AgentEvent } from '../agent/loop-types';
 import { PROFILE_TOOLS, ALWAYS_EXCLUDE } from '../agent/sub-agent-config';
 import { createAgentRuntime } from '../runtime';
 
-export interface SessionManagerDeps {
+interface SessionManagerDeps {
   provider: Provider;
   toolRegistry: ToolRegistry;
   profile: AgentProfile;
