@@ -71,8 +71,11 @@ export interface RuntimeConfig {
   enableMcp?: boolean;
   /** Additional MCP servers from CLI (merged with settings, CLI overrides by name) */
   mcpServers?: McpServerConfig[];
+  /** Provide a pre-built ContextManager (for session isolation in daemon mode) */
+  contextManager?: ContextManager;
+  /** Provide a pre-built ToolRegistry (for per-session tool filtering) */
+  toolRegistry?: ToolRegistry;
 }
-
 export interface AgentRuntime {
   agent: Agent;
   provider: Provider;
@@ -101,6 +104,8 @@ export async function createAgentRuntime(
     allowedRoots: allowedRootsOverride,
     askUserQuestionHandler,
     settings,
+    contextManager: providedContextManager,
+    toolRegistry: providedToolRegistry,
   } = config;
 
   const allowedRoots = allowedRootsOverride ?? settings?.security?.allowedRoots ?? [cwd];
@@ -119,32 +124,29 @@ export async function createAgentRuntime(
   const tokenLimit = settings?.context.tokenLimit || DEFAULT_TOKEN_LIMIT;
   const maxTokens = settings?.llm.maxTokens || DEFAULT_MAX_TOKENS;
 
-  // Context manager with optional tiered compaction
   const compressionStrategy = setupCompaction(enableCompaction, settings, provider, tokenLimit, maxTokens);
-
   const contextManagerConfig: ContextManagerConfig = {
     tokenLimit,
     defaultSystemPrompt: effectiveSystemPrompt,
   };
   if (compressionStrategy) contextManagerConfig.compressionStrategy = compressionStrategy;
-  const contextManager = new ContextManager(contextManagerConfig);
-
+  const contextManager = providedContextManager ?? new ContextManager(contextManagerConfig);
   const agentConfig: AgentConfig = { tokenLimit };
 
-  // Tool registry with security boundaries
-  const toolRegistry = new ToolRegistry();
-  toolRegistry.register(new BashTool({ allowedWorkingDirs: allowedRoots }));
-  toolRegistry.register(new TextEditorTool(allowedRoots));
-  toolRegistry.register(new ReadTool());
-  toolRegistry.register(new GrepTool());
-  toolRegistry.register(new GlobTool());
-  toolRegistry.register(new LsTool());
+  // Tool registry with security boundaries (use provided or create new)
+  const toolRegistry = providedToolRegistry ?? new ToolRegistry();
 
-  // WebSearch — always registered; API key resolved lazily at call time
-  toolRegistry.register(new WebSearchTool());
-
-  // WebFetch — always registered; API key resolved lazily at call time
-  toolRegistry.register(new WebFetchTool());
+  // Register built-in tools only for newly-created registries
+  if (!providedToolRegistry) {
+    toolRegistry.register(new BashTool({ allowedWorkingDirs: allowedRoots }));
+    toolRegistry.register(new TextEditorTool(allowedRoots));
+    toolRegistry.register(new ReadTool());
+    toolRegistry.register(new GrepTool());
+    toolRegistry.register(new GlobTool());
+    toolRegistry.register(new LsTool());
+    toolRegistry.register(new WebSearchTool());
+    toolRegistry.register(new WebFetchTool());
+  }
 
   const defaultHeadlessHandler = async () => {
     throw new Error('ask_user_question tool is not available in headless mode');
@@ -395,4 +397,3 @@ function setupTrace(
   toolMiddlewares.push(traceMw.toolMiddleware);
   return evolution;
 }
-

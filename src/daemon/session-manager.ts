@@ -9,8 +9,9 @@ import type { DaemonSession, RoutingContext } from '../im/types';
 import { sessionKey, sessionAnchorId } from '../im/types';
 import type { AgentEvent } from '../agent/loop-types';
 import { PROFILE_TOOLS, ALWAYS_EXCLUDE } from '../agent/sub-agent-config';
+import { createAgentRuntime } from '../runtime';
 
-interface SessionManagerDeps {
+export interface SessionManagerDeps {
   provider: Provider;
   toolRegistry: ToolRegistry;
   profile: AgentProfile;
@@ -49,7 +50,7 @@ export class SessionManager {
     const { profile, larkAppId, toolRegistry, sessionStore } = this.deps;
     const key = sessionKey(ctx.anchor, larkAppId);
 
-    // Create isolated ContextManager
+    // Build isolated ContextManager
     const contextManager = new ContextManager({
       tokenLimit: 200_000,
       defaultSystemPrompt: '',
@@ -73,17 +74,15 @@ export class SessionManager {
       }
     }
 
-    // Create Agent instance
-    const agent = new Agent({
-      provider: this.deps.provider,
+    // Use createAgentRuntime as the factory — all hooks are wired automatically
+    const sessionRuntime = await createAgentRuntime({
+      cwd: profile.workingDir,
+      profileId: profile.id,
       contextManager,
-      config: {
-        tokenLimit: 200_000,
-        cwd: profile.workingDir,
-        ...(profile.model ? { model: profile.model } : {}),
-      },
       toolRegistry: subToolRegistry,
     });
+
+    const agent = sessionRuntime.agent;
 
     // Create session record
     const meta = sessionStore.createNewSession();
@@ -129,7 +128,7 @@ export class SessionManager {
     try {
       const loopConfig = {
         maxTurns: 25,
-        timeoutMs: 600_000, // 10 minutes
+        timeoutMs: 600_000,
       };
 
       for await (const event of agent.runAgentLoop(

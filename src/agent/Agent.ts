@@ -51,6 +51,10 @@ export class Agent {
     }
   }
 
+  getHooks(): Required<AgentHooks> {
+    return this.hooks;
+  }
+
   getContext(): AgentContext {
     return this.contextManager.getContext(this.config);
   }
