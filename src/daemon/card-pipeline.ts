@@ -9,7 +9,8 @@ import type { AgentEvent } from '../agent/loop-types';
 import { debugLog } from '../utils/debug';
 
 const CARD_PATCH_MIN_INTERVAL_MS = 800;
-const THINKING_PATCH_INTERVAL_MS = 2000; // thinking deltas are frequent — throttle harder
+const THINKING_PATCH_INTERVAL_MS = 2000;
+const THINKING_DOTS_FRAMES = 3; // number of "." frames in thinking animation
 
 async function flushCardPatch(ds: DaemonSession): Promise<void> {
   if (ds.cardPatchInFlight || !ds.streamCardId) return;
@@ -61,7 +62,7 @@ function handleThinkingCard(ds: DaemonSession): void {
   const now = Date.now();
   if (now - lastThinkingPatchTime < THINKING_PATCH_INTERVAL_MS) return;
   lastThinkingPatchTime = now;
-  thinkingFrame = (thinkingFrame + 1) % 3;
+  thinkingFrame = (thinkingFrame + 1) % THINKING_DOTS_FRAMES;
   const dots = '.'.repeat(thinkingFrame + 1);
   enqueueCardPatch(ds, cardJson(ds, `⏳ Thinking${dots}`));
 }
