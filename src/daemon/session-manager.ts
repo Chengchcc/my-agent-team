@@ -1,5 +1,5 @@
 // src/daemon/session-manager.ts
-import { Agent } from '../agent/Agent';
+import type { Agent } from '../agent/Agent';
 import { ContextManager } from '../agent/context';
 import { ToolRegistry } from '../agent/tool-registry';
 import type { SessionStore } from '../session/store';
