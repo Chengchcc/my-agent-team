@@ -49,7 +49,7 @@ describe('TraceAgentMiddleware', () => {
 
     const result = await middleware.beforeAgentRun!(ctx, next);
     expect(next).toHaveBeenCalled();
-    const buffer = result.metadata._traceBuffer as TraceBuffer;
+    const buffer = middleware.currentBuffer as TraceBuffer;
     expect(buffer).toBeDefined();
     expect(buffer.runId).toBeString();
   });
@@ -70,7 +70,7 @@ describe('TraceAgentMiddleware', () => {
 
     const result = await middleware.beforeAddResponse!(ctxWithResponse, next);
     expect(next).toHaveBeenCalled();
-    const buffer = result.metadata._traceBuffer as TraceBuffer;
+    const buffer = middleware.currentBuffer as TraceBuffer;
     const trace = buffer.finalize('test-model');
     expect(trace.turns.length).toBe(1);
     expect(trace.turns[0]!.modelResponse!.text).not.toContain('sk-abc123def456ghi789jkl012345');
@@ -80,18 +80,15 @@ describe('TraceAgentMiddleware', () => {
 
   test('afterAgentRun finalizes trace and calls nudgeEngine.tick', async () => {
     const ctx = makeContext();
-    const ctxWithBuffer = await middleware.beforeAgentRun!(ctx, vi.fn(async () => ctx));
-    const buffer = ctxWithBuffer.metadata._traceBuffer as TraceBuffer;
+    await middleware.beforeAgentRun!(ctx, vi.fn(async () => ctx));
+    const buffer = middleware.currentBuffer!;
     buffer.recordModelResponse({ text: 'done', toolCalls: [], usage: { prompt_tokens: 10, completion_tokens: 5 } });
 
-    const next = vi.fn(async () => ctxWithBuffer);
+    const next = vi.fn(async () => ctx);
     const tickSpy = vi.spyOn(nudgeEngine, 'tick');
 
-    const result = await middleware.afterAgentRun!(ctxWithBuffer, next);
+    await middleware.afterAgentRun!(ctx, next);
     expect(next).toHaveBeenCalled();
-
-    // Wait for setImmediate
-    await new Promise(resolve => setTimeout(resolve, 50));
 
     expect(tickSpy).toHaveBeenCalled();
     tickSpy.mockRestore();
