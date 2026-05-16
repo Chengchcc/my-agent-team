@@ -40,6 +40,7 @@ export class TurnSettledDetector {
     // Start ticker if not already running
     if (!this.tickTimer) {
       this.tickTimer = setInterval(() => this.evaluate(), TICK_INTERVAL_MS);
+      this.tickTimer.unref();
     }
   }
 

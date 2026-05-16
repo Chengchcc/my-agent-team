@@ -15,5 +15,17 @@
   "project": ["src/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}", "scripts/**/*.ts"],
   "ignoreDependencies": [],
   "ignoreBinaries": ["tsc"],
-    "bun": true
+  "ignore": [
+    "tests/fixtures/*.ts",
+    "src/index.ts",
+    "src/tools/memory.ts",
+    "src/tools/ask-user-question-manager.ts",
+    "src/agent/sub-agent-config.ts",
+    "src/tools/ask-user-question.ts"
+  ],
+  "ignoreExportsUsedInFile": {
+    "interface": true,
+    "type": true
+  },
+  "bun": true
 }

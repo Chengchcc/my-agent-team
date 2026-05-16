@@ -107,13 +107,16 @@ export class AskUserQuestionTool extends ZodTool<typeof askUserQuestionParameter
   conflictKey = () => 'ask_user_question:global';
 
   constructor(
-    private readonly askCallback: (params: AskUserQuestionParameters) => Promise<AskUserQuestionResult>,
+    private readonly askCallback: (
+      params: AskUserQuestionParameters,
+      context: ToolContext,
+    ) => Promise<AskUserQuestionResult>,
   ) {
     super();
   }
 
-  protected async handle(params: z.infer<typeof askUserQuestionParametersSchema>, _ctx: ToolContext): Promise<unknown> {
-    const result = await this.askCallback(params);
+  protected async handle(params: z.infer<typeof askUserQuestionParametersSchema>, ctx: ToolContext): Promise<unknown> {
+    const result = await this.askCallback(params, ctx);
     validateResultAgainstParams(params, result);
     return result;
   }

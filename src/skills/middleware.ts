@@ -114,12 +114,12 @@ export function createSkillMiddleware(
   const maxDescriptionLength = options.maxDescriptionLength ?? DEFAULT_MAX_DESCRIPTION_LENGTH;
   const loadedSkills: Map<string, SkillInfo> = new Map(); // skillName (lowercase) -> SkillInfo
   const skillAliases: Map<string, string> = new Map(); // alias (dirname, etc) -> canonical skillName (lowercase)
-  const baseDir = path.resolve(skillLoader.getBasePath());
-
-  /** Validate that a skill file path is within the base directory (prevent traversal attacks). */
+  /** Validate that a skill file path is within any resolved root (prevent traversal attacks). */
   function validateSkillPath(filePath: string): boolean {
     const resolved = path.resolve(filePath);
-    return resolved.startsWith(baseDir + path.sep) || resolved === baseDir;
+    return skillLoader.getResolvedRoots().some(
+      dir => resolved.startsWith(dir + path.sep) || resolved === dir,
+    );
   }
 
   /**

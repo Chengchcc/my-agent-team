@@ -1,13 +1,9 @@
 #!/usr/bin/env bun
 // bin/my-agent-cli.ts
-// CLI management commands: bot setup, daemon start/stop/restart/list, profile list
+// CLI management commands: bot setup, daemon start/stop/list
 // Usage: bun run bin/my-agent-cli.ts <command> [args]
 
-import { botSetup as profileSetup } from '../src/daemon/cli-commands';
-import {
-  daemonStart, daemonStop, daemonRestart,
-  daemonList, profileList,
-} from '../src/daemon/daemon-cli';
+import { botSetup, daemonStart, daemonStop, daemonList } from '../src/daemon/cli-commands';
 
 const ARGV_CMD = 2;
 const ARGV_SUB = 3;
@@ -19,18 +15,17 @@ async function main(): Promise<void> {
   const profile = process.argv[ARGV_PROFILE];
 
   switch (cmd) {
-    case 'profile': {
-      if (sub === 'setup') {
-        await profileSetup();
-      } else if (sub === 'list' || sub === 'ls') {
-        await profileList();
-      } else {
-        console.error('Usage: my-agent profile <setup|list>');
-      }
+    case 'bot':
+    case 'setup': {
+      await botSetup();
       return;
     }
     case 'daemon': {
       await handleDaemonCommand(sub, profile);
+      return;
+    }
+    case 'logs': {
+      await handleLogsCommand(process.argv.slice(ARGV_SUB));
       return;
     }
     case '': {
@@ -61,14 +56,6 @@ async function handleDaemonCommand(sub: string, profile?: string): Promise<void>
       await daemonStop(profile);
       return;
     }
-    case 'restart': {
-      if (!profile) {
-        console.error('Usage: my-agent daemon restart <profile>');
-        process.exit(1);
-      }
-      await daemonRestart(profile);
-      return;
-    }
     case 'list':
     case 'ls': {
       await daemonList();
@@ -76,25 +63,40 @@ async function handleDaemonCommand(sub: string, profile?: string): Promise<void>
     }
     case '':
     default: {
-      console.error('Usage: my-agent daemon <start|stop|restart|list> [profile]');
+      console.error('Usage: my-agent daemon <start|stop|list> [profile]');
       process.exit(1);
     }
   }
 }
 
+async function handleLogsCommand(args: string[]): Promise<void> {
+  const { spawn } = await import('node:child_process');
+  const proc = spawn('bun', ['run', 'bin/my-agent-daemon.ts', 'logs', ...args], {
+    stdio: 'inherit',
+    env: { ...process.env },
+  });
+  proc.on('exit', (code) => process.exit(code ?? 0));
+}
+
 function printUsage(): void {
   console.log([
     'Usage:',
-    '  my-agent profile setup         Interactive bot + profile setup',
-    '  my-agent profile list          List configured profiles',
-    '  my-agent daemon start <p>      Start daemon for profile',
-    '  my-agent daemon stop <p>       Stop daemon for profile',
-    '  my-agent daemon restart <p>    Restart daemon for profile',
-    '  my-agent daemon list           List running daemons',
+    '  my-agent setup              Interactive bot + profile setup',
+    '  my-agent daemon start <p>    Start daemon for profile',
+    '  my-agent daemon stop <p>     Stop daemon for profile',
+    '  my-agent daemon list         List running daemons',
+    '  my-agent logs [args]         View daemon logs (args passed through)',
     '',
     'For AI agent sessions:',
-    '  my-agent                       Launch TUI',
-    '  my-agent agent                 Headless single-turn',
+    '  my-agent                     Launch TUI',
+    '  my-agent agent               Headless single-turn',
+    '',
+    'Examples:',
+    '  my-agent setup',
+    '  my-agent daemon start backend-expert',
+    '  my-agent daemon list',
+    '  my-agent daemon stop backend-expert',
+    '  my-agent logs --tail 50',
   ].join('\n'));
 }
 

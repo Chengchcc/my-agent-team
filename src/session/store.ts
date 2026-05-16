@@ -1,6 +1,6 @@
-import fs from 'fs/promises';
-import path from 'path';
-import crypto from 'crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import { getSettingsSync } from '../config';
 import { defaultSettings } from '../config/defaults';
 import type { Message } from '../types';
@@ -80,12 +80,14 @@ export class SessionStore {
     await this.ensureSessionDir();
     const { jsonlPath, metaPath } = this.getPaths(sessionId);
 
-    // Write JSONL - one message per line, filter out ephemeral injections
+    // Write JSONL atomically — one message per line, filter out ephemeral injections
     const jsonlContent = messages
       .filter(msg => !msg._ephemeral)
       .map(msg => JSON.stringify(msg))
       .join('\n');
-    await fs.writeFile(jsonlPath, jsonlContent, 'utf8');
+    const jsonlTmp = jsonlPath + '.tmp';
+    await fs.writeFile(jsonlTmp, jsonlContent, 'utf8');
+    await fs.rename(jsonlTmp, jsonlPath);
 
     // Extract last user message for metadata preview
     const lastUserMsg = messages
@@ -110,7 +112,10 @@ export class SessionStore {
       lastUserMessage: lastUserMsg?.content.slice(0, SESSION_PREVIEW_MAX_LENGTH) || '',
     };
 
-    await fs.writeFile(metaPath, JSON.stringify(metadata, null, 2), 'utf8');
+    // Write metadata atomically
+    const metaTmp = metaPath + '.tmp';
+    await fs.writeFile(metaTmp, JSON.stringify(metadata, null, 2), 'utf8');
+    await fs.rename(metaTmp, metaPath);
   }
 
   private async readExistingMetadata(sessionId: string): Promise<SessionMetadata> {

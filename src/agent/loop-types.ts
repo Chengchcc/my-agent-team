@@ -55,6 +55,8 @@ export interface ToolCallResultEvent extends AgentEventBase {
   error?: Error;
   durationMs: number;
   isError: boolean;
+  /** G-7: true if the tool was started but aborted before completion, implying possible side-effects */
+  possiblePartialSideEffect?: boolean;
 }
 
 /**

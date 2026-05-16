@@ -16,7 +16,6 @@ export class ScriptedProvider implements Provider {
     this.turns = turns;
   }
 
-  registerTools(): void {}
   async invoke(): Promise<never> { throw new Error('invoke not implemented, use stream()'); }
   getModelName(): string { return 'mock'; }
 

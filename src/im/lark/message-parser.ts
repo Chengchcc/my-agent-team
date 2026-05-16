@@ -14,7 +14,7 @@ export interface ParsedMessage {
   createTime: string;
 }
 
-interface LarkMention {
+export interface LarkMention {
   key: string;
   name: string;
   openId?: string;
@@ -32,6 +32,19 @@ function resolveMentionPlaceholders(content: string, mentions: LarkMention[]): s
 
 function extractMessageContent(message: Record<string, unknown>): string {
   const msgType: string = String(message.msg_type ?? 'text');
+
+  // Non-text message types — return placeholder
+  if (msgType === 'image') return '[图片]';
+  if (msgType === 'audio') return '[语音]';
+  if (msgType === 'sticker') return '[表情]';
+  if (msgType === 'file') {
+    try {
+      const obj = JSON.parse(String(message.content ?? '{}'));
+      const fileName = typeof obj.file_name === 'string' ? obj.file_name : 'file';
+      return `[文件:${fileName}]`;
+    } catch { return '[文件:file]'; }
+  }
+
   try {
     const obj = JSON.parse(String(message.content ?? '{}'));
     if (msgType === 'text' && typeof obj.text === 'string') {
@@ -51,7 +64,7 @@ function extractMessageContent(message: Record<string, unknown>): string {
       }
       return parts.join('');
     }
-  } catch { /* empty content — message may be image/file/sticker */ }
+  } catch { /* empty content */ }
   return '';
 }
 

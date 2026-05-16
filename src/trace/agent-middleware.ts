@@ -8,8 +8,7 @@ import { debugLog } from '../utils/debug';
 import type { TurnSettledDetector } from './turn-settled-detector';
 
 export class TraceAgentMiddleware implements AgentMiddleware {
-  /** Exposed for tests — the buffer for the current run. */
-  currentBuffer: TraceBuffer | null = null;
+  private currentBuffer?: TraceBuffer;
 
   constructor(
     private store: TraceStore,
@@ -21,14 +20,20 @@ export class TraceAgentMiddleware implements AgentMiddleware {
     private settledDetector?: TurnSettledDetector | null,
   ) {}
 
+  async flush(): Promise<void> {
+    if (this.currentBuffer) {
+      await this.currentBuffer.flush();
+    }
+  }
+
   beforeAgentRun: Middleware = async (context, next) => {
     this.skillLoader?.checkAutoSkills();
     void this.evolution?.autoAcceptStaleSkills?.();
     const parentRunId = context.metadata._parentTraceRunId as string | undefined;
     const isRoot = !parentRunId;
     this.settledDetector?.runStart(isRoot, context.metadata._traceRunId as string ?? 'unknown');
-    this.currentBuffer = new TraceBuffer(this.sessionId(context), this.store, parentRunId);
-    const buffer = this.currentBuffer;
+    const buffer = new TraceBuffer(this.sessionId(context), this.store, parentRunId);
+    context.metadata._traceBuffer = buffer;
 
     const lastUserMsg = [...context.messages].reverse().find(m => m.role === 'user');
     if (lastUserMsg) {
@@ -45,7 +50,7 @@ export class TraceAgentMiddleware implements AgentMiddleware {
 
   beforeAddResponse: Middleware = async (_context, next) => {
     const ctx = await next();
-    const buffer = this.currentBuffer;
+    const buffer = ctx.metadata._traceBuffer as TraceBuffer | undefined;
     if (!buffer || !ctx.response) return ctx;
 
     // Note: thinking is unavailable here -- response.blocks (including thinking)
@@ -64,8 +69,7 @@ export class TraceAgentMiddleware implements AgentMiddleware {
 
   afterAgentRun: Middleware = async (_context, next) => {
     const ctx = await next();
-    const buffer = this.currentBuffer;
-    this.currentBuffer = null;
+    const buffer = ctx.metadata._traceBuffer as TraceBuffer | undefined;
     if (!buffer) return ctx;
 
     const model = ctx.response?.model ?? 'unknown';
@@ -74,13 +78,20 @@ export class TraceAgentMiddleware implements AgentMiddleware {
 
     this.settledDetector?.runEnd(isRoot, trace.id, trace.summary);
 
-    await this.finalizeTrace(trace);
+    setImmediate(() => {
+      void this.finalizeTrace(trace);
+    });
 
     return ctx;
   };
 
   private sessionId(context: AgentContext): string {
-    return (context.metadata.sessionId as string) || 'unknown';
+    const sid = context.metadata.sessionId as string | undefined;
+    if (!sid) {
+      debugLog('[trace] sessionId not set in context metadata, using "unknown"');
+      return 'unknown';
+    }
+    return sid;
   }
 
   private async finalizeTrace(trace: TraceRun): Promise<void> {

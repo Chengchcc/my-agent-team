@@ -38,7 +38,6 @@ describe('TokenBucket', () => {
 describe('RateLimitedProvider', () => {
   class MockProvider implements Provider {
     callCount = 0;
-    registerTools() {}
     getModelName() { return 'mock'; }
     async invoke(_ctx: AgentContext): Promise<LLMResponse> {
       this.callCount++;

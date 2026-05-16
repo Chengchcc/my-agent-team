@@ -10,6 +10,7 @@ import type {
 } from '../types';
 import type { AgentEvent, ContextCompactedEvent } from './loop-types';
 import type { ContextManager } from './context';
+import type { ToolRegistry } from './tool-registry';
 import { composeMiddlewares } from './middleware';
 import {
   MAX_STREAM_RETRIES,
@@ -21,6 +22,7 @@ interface SingleTurnEnv {
   contextManager: ContextManager;
   hooks: Required<AgentHooks>;
   config: AgentConfig;
+  toolRegistry?: ToolRegistry;
 }
 
 export async function* runSingleTurn(
@@ -125,10 +127,12 @@ export async function* runSingleTurn(
       thinkingSignature = undefined;
       toolCalls.length = 0;
       usage = undefined;
+      // G-2: boundary marker so TUI can dedup previous partial text on retry
+      resultContext.metadata.__streamRetryBoundary = true;
     }
 
     try {
-      for await (const chunk of env.provider.stream(resultContext, { signal })) {
+      for await (const chunk of env.provider.stream(resultContext, { signal, tools: env.toolRegistry?.getAllDefinitions() ?? [] })) {
         if (signal.aborted) break;
         if (chunk.thinking) {
           thinkingBuffer += chunk.thinking;
@@ -156,7 +160,12 @@ export async function* runSingleTurn(
         }
         if (chunk.tool_calls) {
           for (const tc of chunk.tool_calls) {
-            if (!toolCalls.some(existing => existing.id === tc.id)) {
+            const existing = toolCalls.find(ex => ex.id === tc.id);
+            if (existing) {
+              // G-1: accumulate tool_call argument deltas (OpenAI sends incremental chunks)
+              existing.arguments = tc.arguments;
+              if (!existing.name) existing.name = tc.name;
+            } else {
               toolCalls.push(tc);
             }
           }

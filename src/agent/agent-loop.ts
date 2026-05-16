@@ -50,8 +50,11 @@ export class AgentLoop {
     const signal = controller.signal;
 
     // Chain from external signal if provided - propagate abort
+    let abortListener: (() => void) | undefined;
     if (options?.signal) {
-      options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+      const listener = () => controller.abort();
+      options.signal.addEventListener('abort', listener, { once: true });
+      abortListener = listener;
     }
 
     // Create timeout timer
@@ -111,6 +114,10 @@ export class AgentLoop {
       } satisfies AgentEvent;
     } finally {
       clearTimeout(timeoutId);
+      // G-4: clean up abort listener to prevent memory leaks
+      if (abortListener && options?.signal) {
+        try { options.signal.removeEventListener('abort', abortListener); } catch { /* ignore */ }
+      }
       this.controller = null;
     }
   }
@@ -151,7 +158,7 @@ export class AgentLoop {
     done: boolean;
   }> {
     return yield* runSingleTurnImpl(
-      { provider: this.provider, contextManager: this.contextManager, hooks: this.hooks, config: this.config },
+      { provider: this.provider, contextManager: this.contextManager, hooks: this.hooks, config: this.config, toolRegistry: this.dispatcher.toolRegistry },
       turnIndex,
       signal,
     );

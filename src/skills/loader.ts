@@ -22,6 +22,7 @@ export type SkillInfo = {
 export class SkillLoader {
   private basePath: string;
   private sourcePaths: string[];
+  private readonly resolvedRoots: readonly string[];
   private cachedSkills: Map<string, SkillInfo> = new Map();
   private lastAutoSkillsMtime = 0;
   private autoDir: string;
@@ -35,6 +36,7 @@ export class SkillLoader {
     ];
     this.autoDir = path.join(os.homedir(), '.my-agent', 'skills', 'auto');
     this.basePath = this.sourcePaths[0]!;  // keep backward compat
+    this.resolvedRoots = Object.freeze(this.sourcePaths.map(p => path.resolve(p)));
   }
 
   /**
@@ -130,6 +132,13 @@ export class SkillLoader {
    */
   getBasePath(): string {
     return this.basePath;
+  }
+
+  /**
+   * Get all resolved source paths used for path validation.
+   */
+  getResolvedRoots(): readonly string[] {
+    return this.resolvedRoots;
   }
 
   checkAutoSkills(): void {

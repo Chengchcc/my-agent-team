@@ -24,7 +24,6 @@ describe('Stream interruption recovery', () => {
     let streamCallCount = 0;
 
     const flakyProvider: Provider = {
-      registerTools: () => {},
       invoke: async () => { throw new Error('not used'); },
       getModelName: () => 'test',
       stream: async function*() {
@@ -71,7 +70,6 @@ describe('Stream interruption recovery', () => {
     let streamCallCount = 0;
 
     const recoveringProvider: Provider = {
-      registerTools: () => {},
       invoke: async () => { throw new Error('not used'); },
       getModelName: () => 'test',
       stream: async function*() {
@@ -112,7 +110,6 @@ describe('Stream interruption recovery', () => {
     let streamCallCount = 0;
 
     const fatalProvider: Provider = {
-      registerTools: () => {},
       invoke: async () => { throw new Error('not used'); },
       getModelName: () => 'test',
       stream: async function*() {

@@ -5,7 +5,7 @@ import type { AgentEvent, AgentLoopConfig } from './loop-types';
 import type { ToolRegistry } from './tool-registry';
 
 /** Sub-agent execution profile controlling tool access and parallelism. */
-export const SUB_AGENT_PROFILES = ['read_only', 'code_editor', 'general'] as const;
+export const SUB_AGENT_PROFILES = ['read_only', 'code_editor', 'general', 'minimal'] as const;
 export type SubAgentProfile = (typeof SUB_AGENT_PROFILES)[number];
 
 /** Deliverable format for sub-agent output. */
@@ -18,6 +18,7 @@ const PROFILE_TOOLS: Record<SubAgentProfile, string[]> = {
   read_only: ['read', 'grep', 'glob', 'ls'],
   code_editor: ['read', 'grep', 'glob', 'ls', 'text_editor', 'bash'],
   general: [], // empty = all non-excluded (no profile filter applied)
+  minimal: ['read', 'grep'],
 };
 
 /** Tools always excluded from sub-agents regardless of profile. */

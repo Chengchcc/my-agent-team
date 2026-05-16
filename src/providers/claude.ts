@@ -4,12 +4,19 @@ import type { Provider, Tool, LLMResponse, LLMResponseChunk, AgentContext, Conte
 import type { ThinkingDecoder } from './thinking/types';
 import { DEFAULT_TEMPERATURE, DEFAULT_THINKING_BUDGET } from '../config/constants';
 
+function toAnthropicTools(tools: Tool[]): Anthropic.Tool[] {
+  return tools.map(tool => ({
+    name: tool.name,
+    description: tool.description,
+    input_schema: tool.parameters as Anthropic.Tool.InputSchema,
+  }));
+}
+
 export class ClaudeProvider implements Provider {
   private client: Anthropic;
   private model: string;
   private maxTokens: number;
   private temperature: number;
-  private tools: Anthropic.Tool[] = [];
   private thinkingDecoder: ThinkingDecoder | null;
   private thinkingBudgetTokens: number;
 
@@ -34,20 +41,9 @@ export class ClaudeProvider implements Provider {
   }
 
   /**
-   * Register tools for function calling.
-   */
-  registerTools(tools: Tool[]): void {
-    this.tools = tools.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.parameters as Anthropic.Tool.InputSchema,
-    }));
-  }
-
-  /**
    * Blocking completion.
    */
-  async invoke(context: AgentContext): Promise<LLMResponse> {
+  async invoke(context: AgentContext, options?: { tools?: Tool[] }): Promise<LLMResponse> {
     const { messages, systemPrompt } = context;
 
     // Claude expects system prompt as a separate parameter, not in messages array
@@ -68,8 +64,8 @@ export class ClaudeProvider implements Provider {
         budget_tokens: this.thinkingBudgetTokens,
       };
     }
-    if (this.tools.length > 0) {
-      requestOptions.tools = this.tools;
+    if (options?.tools?.length) {
+      requestOptions.tools = toAnthropicTools(options.tools);
       requestOptions.tool_choice = { type: 'auto', disable_parallel_tool_use: false };
     }
     const response = await this.client.messages.create(
@@ -125,7 +121,7 @@ export class ClaudeProvider implements Provider {
    */
    
   // eslint-disable-next-line complexity
-  async *stream(context: AgentContext, options?: { signal?: AbortSignal }): AsyncIterable<LLMResponseChunk> {
+  async *stream(context: AgentContext, options?: { signal?: AbortSignal; tools?: Tool[] }): AsyncIterable<LLMResponseChunk> {
     const { messages, systemPrompt } = context;
     const claudeMessages = convertToClaudeMessages(messages);
     const system = systemPrompt ?? extractSystemPrompt(messages);
@@ -144,8 +140,8 @@ export class ClaudeProvider implements Provider {
         budget_tokens: this.thinkingBudgetTokens,
       };
     }
-    if (this.tools.length > 0) {
-      streamOptions.tools = this.tools;
+    if (options?.tools?.length) {
+      streamOptions.tools = toAnthropicTools(options.tools);
       streamOptions.tool_choice = { type: 'auto', disable_parallel_tool_use: false };
     }
     const stream = this.client.messages.stream(

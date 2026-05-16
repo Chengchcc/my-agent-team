@@ -5,7 +5,6 @@ import type { TodoItem } from '../todos/types';
 import type { CompactionResult } from './compaction/types';
 import { TokenAccumulator } from './token-accumulator';
 import { getSettingsSync } from '../config';
-import { debugLog } from '../utils/debug';
 import { defaultSettings } from '../config/defaults';
 import { TrimOldestStrategy, countTotalTokens } from './trim-strategy';
 export { TrimOldestStrategy } from './trim-strategy';
@@ -80,20 +79,37 @@ export class ContextManager {
   private static readonly MAX_MESSAGES = 2000;
 
   addMessage(message: Message): void {
-    const msg = {
-      ...message,
-      id: message.id ?? nanoid(),
-    };
+    const msg = { ...message, id: message.id ?? nanoid() };
+
+    // G-10: guard against duplicate tool_use_ids across messages
+    if (msg.role === 'assistant' && msg.tool_calls?.length) {
+      const seenIds = new Set(this.messages
+        .filter(m => m.role === 'assistant' && m.tool_calls)
+        .flatMap(m => m.tool_calls!.map(tc => tc.id)));
+      msg.tool_calls = msg.tool_calls.filter(tc => !seenIds.has(tc.id));
+      if (msg.tool_calls.length === 0) return;
+    }
+
     this.messages.push(msg);
     this.accumulator.add(msg);
 
-    // Trim oldest non-system messages when over the cap
+    // G-12: token-based trimming before message-count cap
+    const TRIM_SOFT_CAP_RATIO = 0.95;
+    const softCap = this.tokenLimit * TRIM_SOFT_CAP_RATIO;
+    if (this.accumulator.total > softCap && this.messages.length > 2) {
+      const nonSys = this.messages.filter(m => m.role !== 'system');
+      while (this.accumulator.total > softCap && nonSys.length) {
+        const r = nonSys.shift();
+        if (r?.id) this.accumulator.remove(r.id);
+      }
+      this.messages = [...this.messages.filter(m => m.role === 'system'), ...nonSys];
+    }
+
+    // Trim oldest non-system messages when over the count cap
     if (this.messages.length > ContextManager.MAX_MESSAGES) {
-      const systemMsgs = this.messages.filter(m => m.role === 'system');
-      const nonSystem = this.messages.filter(m => m.role !== 'system');
-      const keep = nonSystem.slice(-(ContextManager.MAX_MESSAGES - systemMsgs.length));
-      this.messages = [...systemMsgs, ...keep];
-      debugLog(`[ContextManager] trimmed to ${this.messages.length} messages (cap=${ContextManager.MAX_MESSAGES})`);
+      const sys = this.messages.filter(m => m.role === 'system');
+      const rest = this.messages.filter(m => m.role !== 'system');
+      this.messages = [...sys, ...rest.slice(sys.length - ContextManager.MAX_MESSAGES)];
     }
   }
 
@@ -110,6 +126,7 @@ export class ContextManager {
   setSystemPrompt(systemPrompt: string): void {
     this.currentSystemPrompt = systemPrompt;
     this.accumulator.setSystemPrompt(countTokens(systemPrompt));
+    this.lastKnownPromptTokens = 0; // G-9: invalidate cached token count
   }
 
   /**
@@ -117,6 +134,13 @@ export class ContextManager {
    */
   getSystemPrompt(): string | undefined {
     return this.currentSystemPrompt;
+  }
+
+  /**
+   * Set a metadata key-value pair that will be included in getContext().
+   */
+  setMetadata(key: string, value: unknown): void {
+    this.initialMetadata[key] = value;
   }
 
   /**

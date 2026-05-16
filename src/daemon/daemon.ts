@@ -2,22 +2,19 @@
 // Central orchestrator that wires all IM bridge subsystems together.
 // Entry point: startDaemon(profileId)
 
-import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { loadBotsConfig } from '../profile/loader';
-import type { AgentProfile, BotConfig } from '../profile/types';
 import { getSettings } from '../config';
-import { initLarkClient, getBotOpenId, sendMessage, replyMessage } from '../im/lark/client';
+import type { AgentProfile, BotConfig } from '../profile/types';
+import { getLarkClient, closeAllLarkClients } from '../im/lark/client';
 import { startLarkEventDispatcher } from '../im/lark/event-dispatcher';
 import type { EventHandlers } from '../im/lark/event-dispatcher';
 import { handleCardAction } from '../im/lark/card-handler';
 import type { CardHandlerDeps } from '../im/lark/card-handler';
 import { sessionKey, sessionAnchorId } from '../im/types';
-import type { DaemonSession, RoutingContext } from '../im/types';
+import type { RoutingContext } from '../im/types';
 import { SessionManager } from './session-manager';
 import { InteractiveBridge } from './interactive-bridge';
-import { handleAgentEvent } from './card-pipeline';
+import { handleAgentEvent, forceFlushAllPending } from './card-pipeline';
 import {
   handleNewTopic,
   handleThreadReply,
@@ -28,14 +25,26 @@ import { createAgentRuntime } from '../runtime';
 import type { AgentRuntime } from '../runtime';
 import type { AgentEvent } from '../agent/loop-types';
 import type { AskUserQuestionParameters, AskUserQuestionResult } from '../tools/ask-user-question';
+import type { ToolContext } from '../agent/tool-dispatch/types';
 import { globalPermissionManager } from '../tools/permission-manager';
 import { debugLog } from '../utils/debug';
+import { unlinkSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+import type { SkillLoader } from '../skills/loader';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
 const DEFAULT_PERMISSION_TIMEOUT_MS = 60_000;
+const MIN_SECRET_LENGTH_FOR_MASK = 4;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+// M-3: Mask secrets in logs — show only last N characters
+function maskSecret(secret: string): string {
+  if (secret.length <= MIN_SECRET_LENGTH_FOR_MASK) return '****';
+  return '****' + secret.slice(-MIN_SECRET_LENGTH_FOR_MASK);
+}
 
 function findBotByProfile(profileId: string): { config: BotConfig; profile: AgentProfile } {
   const botsConfig = loadBotsConfig();
@@ -46,31 +55,61 @@ function findBotByProfile(profileId: string): { config: BotConfig; profile: Agen
   return { config: bot, profile };
 }
 
+function setupGracefulShutdown(
+  larkChannel: { disconnect: () => Promise<void> },
+  runtime: AgentRuntime,
+  pidFile: string,
+): void {
+  const shutdown = async (signal: string) => {
+    debugLog(`[daemon] Received ${signal}, shutting down...`);
+    try { await larkChannel.disconnect(); } catch (err) { debugLog(`[daemon] WS close error: ${String(err)}`); }
+    try { await runtime.traceMiddleware?.flush(); } catch (err) { debugLog(`[daemon] Trace flush error: ${String(err)}`); }
+    try { await runtime.shutdown(); } catch (err) { debugLog(`[daemon] Runtime shutdown error: ${String(err)}`); }
+    try { await closeAllLarkClients(); } catch (err) { debugLog(`[daemon] Lark close error: ${String(err)}`); }
+    try { unlinkSync(pidFile); } catch { /* already removed */ }
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('unhandledRejection', (reason) => {
+    debugLog(`[daemon] unhandledRejection: ${String(reason)}`);
+  });
+}
+
 // ── Main entry ───────────────────────────────────────────────────────────
 
 export async function startDaemon(profileId: string): Promise<void> {
   const { config: bot, profile } = findBotByProfile(profileId);
 
-  initLarkClient(bot.larkAppId, bot.larkAppSecret);
+  // Ensure working directory exists
+  mkdirSync(profile.workingDir, { recursive: true });
 
-  const identity = await getBotOpenId();
+  const larkClient = getLarkClient(bot.larkAppId, bot.larkAppSecret);
+
+  const identity = await larkClient.getBotOpenId();
   debugLog(`[daemon] Bot identity resolved: ${identity.name} (${identity.openId})`);
 
-  const bridgeRef: { current: InteractiveBridge | null } = { current: null };
-  const currentSessionRef: { current: DaemonSession | null } = { current: null };
-
-  // Load settings before creating runtime (SkillLoader requires cached settings)
-  await getSettings();
+  // Mutable references for objects created after the runtime
+  let sessionManager: SessionManager;
+  let bridge: InteractiveBridge;
 
   // Create provider + tool registry via createAgentRuntime
   const askUserQuestionHandler = async (
     params: AskUserQuestionParameters,
+    context: ToolContext,
   ): Promise<AskUserQuestionResult> => {
-    const ds = currentSessionRef.current;
-    const bridge = bridgeRef.current;
-    if (!ds || !bridge) throw new Error('ask_user_question is not available (no active session)');
+    if (!sessionManager || !bridge) {
+      throw new Error('ask_user_question is not available (not initialized)');
+    }
+    const sid = context?.agentContext?.metadata?.sessionId as string;
+    if (!sid) throw new Error('no active session');
+    const ds = sessionManager.getSessionById(sid);
+    if (!ds) throw new Error('no active session');
     return bridge.sendAskUserQuestionCard(sessionAnchorId(ds), params, ds.session.id);
   };
+
+  const globalSettings = await getSettings();
 
   const runtime: AgentRuntime = await createAgentRuntime({
     cwd: profile.workingDir,
@@ -83,6 +122,7 @@ export async function startDaemon(profileId: string): Promise<void> {
     enableCompaction: false,
     enableMcp: false,
     askUserQuestionHandler,
+    settings: globalSettings,
   });
 
   // Register update_identity tool with hot reload callback
@@ -96,23 +136,17 @@ export async function startDaemon(profileId: string): Promise<void> {
       const newPrompt = identityText
         ? DEFAULT_SYSTEM_PROMPT + '\n\n' + identityText
         : DEFAULT_SYSTEM_PROMPT;
-      // Update all active session agents
-      for (const ds of sessionManager.listSessions()) {
-        const agent = sessionManager.getAgent(sessionKey(sessionAnchorId(ds), bot.larkAppId));
-        agent?.getContextManager().setSystemPrompt(newPrompt);
-      }
+      runtime.events.emit('identity:reloaded', { newPrompt });
     },
   }));
 
   // Create session manager
-  const sessionManager = new SessionManager({
-    provider: runtime.provider,
-    toolRegistry: runtime.toolRegistry,
+  sessionManager = new SessionManager({
+    runtime,
     profile,
     larkAppId: bot.larkAppId,
-    sessionStore: runtime.sessionStore,
     onAgentEvent: (_key: string, event: AgentEvent) => {
-      handleAgentEvent(_key, event, sessionManager);
+      handleAgentEvent(_key, event, sessionManager, larkClient);
     },
   });
 
@@ -125,51 +159,44 @@ export async function startDaemon(profileId: string): Promise<void> {
     const key = sessionKey(anchor, bot.larkAppId);
     const ds = sessionManager.getSession(key);
     if (ds && ds.scope === 'thread') {
-      return replyMessage(anchor, content, msgType, true);
+      return larkClient.replyMessage(anchor, content, msgType, true);
     }
-    return sendMessage(anchor, content, msgType);
+    return larkClient.sendMessage(anchor, content, msgType);
   };
 
   // Create interactive bridge
-  const bridge = new InteractiveBridge({
+  bridge = new InteractiveBridge({
     larkAppId: bot.larkAppId,
     permissionTimeoutMs: profile.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS,
     sessionReply,
+    larkClient,
   });
-  bridgeRef.current = bridge;
-
   // Card handler callbacks + deps
-  const { onClose } = setupCardCallbacks({ sessionManager });
+  const { onToggleDisplay, onRestart, onClose } = setupCardCallbacks({ sessionManager, bridge });
   const cardDeps: CardHandlerDeps = {
     interactiveBridge: bridge,
+    onToggleDisplay,
+    onRestart,
     onClose,
   };
 
-  // Wire global permission manager → bridge
-  globalPermissionManager.subscribe((req) => {
-    if (!req) return;
-    const ds = currentSessionRef.current;
-    if (!ds) {
-      globalPermissionManager.respond('deny');
-      return;
+  // Wire session lifecycle to permission manager
+  runtime.events.on('session:created', ({ sessionId }: { sessionId: string }) => {
+    const ds = sessionManager.getSessionById(sessionId);
+    if (ds) {
+      globalPermissionManager.registerSession(sessionId, bridge, sessionAnchorId(ds));
     }
-    bridge.sendPermissionCard(
-      sessionAnchorId(ds),
-      req.toolName,
-      req.reason,
-      req.reason,
-      ds.session.id,
-    ).catch(() => {
-      globalPermissionManager.respond('deny');
-    });
+  });
+  runtime.events.on('session:removed', ({ sessionId }: { sessionId: string }) => {
+    globalPermissionManager.unregisterSession(sessionId);
   });
 
   // Handler context (shared by all extracted handlers)
   const handlerCtx: HandlerContext = {
     bot,
     sessionManager,
-    currentSessionRef,
     sessionReply,
+    larkClient,
   };
 
   // Event handlers
@@ -195,31 +222,71 @@ export async function startDaemon(profileId: string): Promise<void> {
   };
 
   // Start Lark WebSocket client
-  const wsClient = startLarkEventDispatcher(
+  const larkChannel = startLarkEventDispatcher(
     bot.larkAppId,
     bot.larkAppSecret,
     handlers,
     identity.openId,
+    larkClient,
   );
-  debugLog('[daemon] WebSocket client started');
+  debugLog(`[daemon] WebSocket client started (appId=${bot.larkAppId}, secret=${maskSecret(bot.larkAppSecret)})`);
 
-  // Write PID file for daemon lifecycle management (start/stop/restart)
-  const dataDir = join(homedir() ?? '/root', '.my-agent', 'data');
-  mkdirSync(dataDir, { recursive: true });
-  const pidFile = join(dataDir, `${profileId}.pid`);
-  writeFileSync(pidFile, String(process.pid), 'utf-8');
+  // #10: Force flush pending card patches on WS reconnect
+  larkChannel.on('reconnected', () => { forceFlushAllPending(sessionManager, larkClient); });
 
-  // Graceful shutdown
-  const shutdown = async (signal: string) => {
-    debugLog(`[daemon] Received ${signal}, shutting down...`);
-    try { unlinkSync(pidFile); } catch { /* already removed */ }
-    try { wsClient.close(); } catch (err) { debugLog(`[daemon] WS close error: ${String(err)}`); }
-    try { await runtime.shutdown(); } catch (err) { debugLog(`[daemon] Runtime shutdown error: ${String(err)}`); }
-    process.exit(0);
-  };
+  const pidFile = join(homedir() ?? '/root', '.my-agent', 'data', `${profileId}.pid`);
+  setupGracefulShutdown(larkChannel, runtime, pidFile);
 
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  process.on('SIGINT', () => void shutdown('SIGINT'));
+  runtimeHealthCheck(runtime, globalSettings, runtime.skillLoader);
 
-  debugLog(`[daemon] Daemon started for profile "${profileId}" (PID ${process.pid})`);
+  // M-11: Profile hot-swap — watch profile files for changes and suggest restart
+  const { watch } = await import('node:fs');
+  try {
+    const watcher = watch(profile.dataDir, { recursive: true }, (_eventType, filename) => {
+      debugLog(`[daemon] Profile file changed: ${filename} — restart daemon to pick up changes`);
+    });
+    process.on('SIGTERM', () => watcher.close());
+    process.on('SIGINT', () => watcher.close());
+  } catch { /* fs.watch not available on all platforms */ }
+
+  debugLog(`[daemon] Daemon started for profile "${profileId}"`);
+}
+
+function runtimeHealthCheck(runtime: AgentRuntime, settings: unknown, skillLoader?: SkillLoader): void {
+  const checks: string[] = [];
+
+  // 1. settings configured
+  checks.push(`settings: ${settings ? 'configured' : 'MISSING'}`);
+
+  // 2. contextManager ready for sessionId injection
+  checks.push(`sessionId: ${runtime.contextManager ? 'ready' : 'MISSING'}`);
+
+  // 3. trace dir
+  const traceDir = join(homedir() ?? '/root', '.my-agent', 'traces');
+  try {
+    mkdirSync(traceDir, { recursive: true });
+    const testFile = join(traceDir, '.health');
+    writeFileSync(testFile, '', 'utf-8');
+    unlinkSync(testFile);
+    checks.push('trace_dir: writable');
+  } catch {
+    checks.push('trace_dir: UNWRITABLE');
+  }
+
+  // 4. auto skill path in whitelist
+  if (skillLoader) {
+    const autoDir = join(homedir(), '.my-agent', 'skills', 'auto');
+    const whitelisted = skillLoader.getResolvedRoots().some(
+      r => autoDir.startsWith(r) || r.startsWith(autoDir),
+    );
+    checks.push(`auto_skill_wl: ${whitelisted ? 'included' : 'MISSING'}`);
+  } else {
+    checks.push('auto_skill_wl: N/A');
+  }
+
+  // 5. memory namespace check
+  const storeNs = (runtime.memoryStore as unknown as { namespace?: string } | undefined)?.namespace ?? 'general';
+  checks.push(`memory_ns: ${storeNs === 'general' ? 'WARN:general' : storeNs}`);
+
+  debugLog(`[health] ${checks.join(' | ')}`);
 }

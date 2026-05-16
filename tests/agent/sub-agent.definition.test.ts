@@ -7,7 +7,6 @@ import { createTestCtx } from '../agent/tool-dispatch/test-helpers';
 
 // Create minimal dependencies for testing
 const mockProvider: Provider = {
-  registerTools: () => {},
   invoke: async () => { throw new Error('not implemented'); },
   stream: async function*() { yield { done: true }; },
   getModelName: () => 'test',

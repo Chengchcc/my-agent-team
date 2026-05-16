@@ -10,7 +10,6 @@ import path from 'path';
 import os from 'os';
 
 const mockProvider: Provider = {
-  registerTools: () => {},
   invoke: async () => { throw new Error('not implemented'); },
   stream: async function*() { yield { done: true }; },
   getModelName: () => 'test',

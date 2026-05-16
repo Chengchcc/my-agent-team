@@ -58,10 +58,12 @@ export class PermissionMiddleware implements ToolMiddleware {
       if (danger) {
         const reason = `Command: "${command.slice(0, DANGEROUS_CMD_TRUNCATION_LENGTH)}${command.length > DANGEROUS_CMD_TRUNCATION_LENGTH ? '...' : ''}" — ${danger}`;
 
+        const sessionId = (ctx.agentContext.metadata as Record<string, unknown>).sessionId as string | undefined;
+
         let response: 'allow' | 'deny' | 'always';
         try {
           response = await Promise.race([
-            globalPermissionManager.requestPermission('bash', reason),
+            globalPermissionManager.requestPermission('bash', reason, sessionId ?? 'unknown'),
             new Promise<'deny'>((resolve) =>
               setTimeout(() => resolve('deny'), PERMISSION_TIMEOUT_MS),
             ),

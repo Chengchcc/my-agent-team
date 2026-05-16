@@ -34,7 +34,6 @@ describe('Sub-agent cwd isolation', () => {
     });
 
     const provider = {
-      registerTools: () => {},
       invoke: async () => ({ content: 'done' }),
       getModelName: () => 'test',
       stream: async function*() {
@@ -104,7 +103,6 @@ describe('Sub-agent cwd isolation', () => {
     });
 
     const provider = {
-      registerTools: () => {},
       invoke: async () => ({ content: 'done' }),
       getModelName: () => 'test',
       stream: async function*() {

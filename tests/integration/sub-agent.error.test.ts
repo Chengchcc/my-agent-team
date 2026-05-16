@@ -9,7 +9,6 @@ const mockConfig: AgentConfig = { tokenLimit: 50000, timeoutMs: 1000 };
 describe('Error handling - sub-agent failures', () => {
   test('provider throws exception → error returned as tool_result, main does not crash', async () => {
     class ErrorProvider implements Provider {
-      registerTools() {}
       invoke = async () => { throw new Error('not implemented'); };
       getModelName() { return 'error'; }
       async *stream() {
@@ -32,7 +31,6 @@ describe('Error handling - sub-agent failures', () => {
   test('sub-agent tool call fails but sub-agent handles it gracefully', async () => {
     class ErrorHandlingScriptedProvider implements Provider {
       callCount = 0;
-      registerTools() {}
       invoke = async () => { throw new Error('not implemented'); };
       getModelName() { return 'scripted'; }
       async *stream() {
@@ -91,7 +89,6 @@ describe('Abort signal propagation', () => {
   test('main agent abort → sub-agent also gets aborted', async () => {
     let started = false;
     class SlowProvider implements Provider {
-      registerTools() {}
       invoke = async () => { throw new Error('not implemented'); };
       getModelName() { return 'slow'; }
       async *stream(_: any, options?: { signal?: AbortSignal }) {
@@ -130,7 +127,6 @@ describe('Abort signal propagation', () => {
 
   test('sub-agent completes → main abort signal remains active (not aborted)', async () => {
     class LimitedTurnProvider implements Provider {
-      registerTools() {}
       invoke = async () => { throw new Error('not implemented'); };
       getModelName() { return 'limited'; }
       async *stream() {

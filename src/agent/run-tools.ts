@@ -60,6 +60,18 @@ export async function* runTools(
     const currentContext = env.contextManager.getContext(env.config);
     const compressed = await env.contextManager.compressIfNeeded(currentContext);
     env.contextManager.setMessages(compressed.messages);
+
+    // G-6: after compaction, ensure tool_calls assistant message is still in context.
+    // If compaction removed it, re-add so the next model turn has the tool_call context.
+    const lastMsg = compressed.messages[compressed.messages.length - 1];
+    if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.tool_calls) {
+      const toolCallMsg: { role: 'assistant'; content: string; tool_calls: ToolCall[] } = {
+        role: 'assistant',
+        content: '',
+        tool_calls: toolCalls,
+      };
+      env.contextManager.addMessage(toolCallMsg);
+    }
   } else {
     for (const [index, toolCall] of toolCalls.entries()) {
       debugLog(`[agent] runTools single-check START: ${toolCall.name} t=${performance.now().toFixed(0)}`);
@@ -108,6 +120,7 @@ export async function* runTools(
     (name) => env.dispatcher.toolRegistry.get(name),
   );
   const executed = new Set<string>();
+  const started = new Set<string>();  // G-7: track tools that started but may have been aborted
   let eventCount = 0;
 
   debugLog(`[agent] runTools: plan has ${plan.waves.length} waves, turn=${turnIndex}`);
@@ -126,6 +139,7 @@ export async function* runTools(
       eventCount++;
       switch (event.type) {
         case 'tool:start':
+          started.add(event.toolCall.id);
           yield {
             type: 'tool_call_start',
             toolCall: event.toolCall,
@@ -176,7 +190,10 @@ export async function* runTools(
   if (signal.aborted) {
     for (const tc of toolCalls) {
       if (!executed.has(tc.id)) {
-        const content = 'Tool execution aborted';
+        const wasStarted = started.has(tc.id);
+        const content = wasStarted
+          ? 'Tool execution aborted (possible partial side effects)'
+          : 'Tool execution aborted (never started)';
         env.contextManager.addMessage({
           role: 'tool',
           content,
@@ -190,6 +207,8 @@ export async function* runTools(
           durationMs: 0,
           isError: true,
           error: new Error(content),
+          // G-7: classify whether aborted tool had partial side effects
+          possiblePartialSideEffect: wasStarted,
           turnIndex,
         } satisfies AgentEvent;
       }

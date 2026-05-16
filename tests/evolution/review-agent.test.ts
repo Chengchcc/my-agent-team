@@ -10,7 +10,6 @@ const TEST_DIR = path.join(os.tmpdir(), `evolution-agent-${Date.now()}`);
 
 function makeMockProvider(): Provider {
   return {
-    registerTools(_tools: Tool[]): void { /* noop */ },
     async invoke(_context: AgentContext): Promise<LLMResponse> {
       return { text: '', usage: { prompt_tokens: 0, completion_tokens: 0 } };
     },

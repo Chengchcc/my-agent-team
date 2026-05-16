@@ -3,6 +3,7 @@ import * as sqliteVec from 'sqlite-vec';
 import path from 'path';
 import os from 'os';
 import { mkdirSync, existsSync } from 'node:fs';
+import { initMemoryTables } from './sqlite-schema';
 import crypto from 'crypto';
 import type { MemoryEntry, MemoryStore, MemoryType, MemoryConfig } from './types';
 import { getSettingsSync } from '../config';
@@ -83,7 +84,7 @@ export class SqliteMemoryStore implements MemoryStore {
     this.db.run('PRAGMA journal_mode=WAL');
     this.db.run('PRAGMA busy_timeout=3000');
     sqliteVec.load(this.db as unknown as { loadExtension(file: string, entrypoint?: string): void });
-    this.initTables();
+    initMemoryTables(this.db, EMBEDDING_DIMS);
   }
 
   private expandDir(d: string): string {
@@ -91,41 +92,6 @@ export class SqliteMemoryStore implements MemoryStore {
       return path.join(os.homedir(), d.slice(1));
     }
     return d;
-  }
-
-  private initTables(): void {
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS memory (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        text TEXT NOT NULL,
-        tags TEXT,
-        created TEXT NOT NULL,
-        updated TEXT,
-        weight REAL NOT NULL DEFAULT 0.8,
-        source TEXT NOT NULL DEFAULT 'implicit',
-        projectPath TEXT,
-        files TEXT,
-        metadata TEXT,
-        embedding BLOB,
-        lastHitAt INTEGER,
-        usageCount INTEGER DEFAULT 0
-      )
-    `);
-    this.db.run(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-        id UNINDEXED,
-        type UNINDEXED,
-        text
-      )
-    `);
-    this.db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_memory USING vec0(
-      entry_id TEXT,
-      embedding float[${EMBEDDING_DIMS}]
-    )`);
-    this.db.run('CREATE INDEX IF NOT EXISTS idx_memory_type ON memory(type)');
-    this.db.run('CREATE INDEX IF NOT EXISTS idx_memory_project ON memory(projectPath)');
-    this.db.run('CREATE INDEX IF NOT EXISTS idx_memory_created ON memory(created)');
   }
 
   private rowToEntry(row: SqlRow): MemoryEntry {
@@ -349,10 +315,10 @@ export class SqliteMemoryStore implements MemoryStore {
 
   async storeEmbedding(entryId: string, embedding: number[]): Promise<void> {
     const vec = JSON.stringify(embedding);
-    this.db.run(
-      'INSERT OR REPLACE INTO vec_memory(rowid, entry_id, embedding) VALUES ((SELECT rowid FROM memory WHERE id=?), ?, vec_f32(?))',
-      [entryId, entryId, vec],
-    );
+    const sql = 'INSERT OR REPLACE INTO vec_memory(rowid, entry_id, embedding) VALUES ((SELECT rowid FROM memory WHERE id=?), ?, vec_f32(?))';
+    this.db.run('BEGIN');
+    try { this.db.run(sql, [entryId, entryId, vec]); this.db.run('COMMIT'); }
+    catch (e) { this.db.run('ROLLBACK'); throw e; }
   }
 
   async vectorSearch(queryEmbedding: number[], limit: number): Promise<Array<{ entryId: string; distance: number }>> {
@@ -392,5 +358,10 @@ export class SqliteMemoryStore implements MemoryStore {
       )`,
       [this.type, this.type],
     );
+  }
+
+  async close(): Promise<void> {
+    this.db.run('PRAGMA wal_checkpoint(TRUNCATE)');
+    this.db.close();
   }
 }

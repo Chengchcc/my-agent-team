@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, copyFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import fs from 'fs/promises';
 import type { NudgeState, NudgeResult, TraceRun } from './types';
@@ -98,7 +99,7 @@ export class NudgeEngine {
 
   async persist(): Promise<void> {
     try {
-      await fs.mkdir(this.statePath.substring(0, this.statePath.lastIndexOf('/')), { recursive: true });
+      await fs.mkdir(dirname(this.statePath), { recursive: true });
       await fs.writeFile(this.statePath, JSON.stringify(this.state), 'utf-8');
     } catch {
       // Best-effort persist
@@ -199,6 +200,12 @@ export class NudgeEngine {
         if (!this.state.lastSignalAt) this.state.lastSignalAt = {};
       }
     } catch {
+      try {
+        if (existsSync(this.statePath)) {
+          const ts = Date.now();
+          copyFileSync(this.statePath, `${this.statePath}.bak.${ts}`);
+        }
+      } catch { /* best-effort backup */ }
       this.state = this.defaultState();
     }
   }

@@ -1,4 +1,5 @@
 import type { DaemonSession } from '../im/types';
+import { sessionKey } from '../im/types';
 import type { SessionManager } from './session-manager';
 
 const MS_PER_SECOND = 1000;
@@ -22,7 +23,7 @@ export async function handleCommand(
       return true;
     }
     case '/close': {
-      sessionManager.removeSession(anchor);
+      sessionManager.removeSession(sessionKey(anchor, ds.larkAppId));
       await sessionReply(anchor, '会话已关闭。');
       return true;
     }

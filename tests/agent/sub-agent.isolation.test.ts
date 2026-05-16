@@ -9,7 +9,6 @@ import { createTestCtx } from '../agent/tool-dispatch/test-helpers';
 
 // Mock provider that doesn't actually execute
 const mockProvider: Provider = {
-  registerTools: () => {},
   invoke: async () => { throw new Error('not implemented'); },
   stream: async function*() { yield { done: true }; },
   getModelName: () => 'test',
@@ -240,7 +239,6 @@ describe('Resource constraints', () => {
     // Create a provider that will hang indefinitely
     class HangingProvider implements Provider {
       callCount = 0;
-      registerTools() {}
       invoke = async () => { throw new Error('not implemented'); };
       getModelName() { return 'slow'; }
       async *stream() {

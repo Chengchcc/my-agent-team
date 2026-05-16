@@ -45,10 +45,6 @@ export class Agent {
       this.toolRegistry ?? new ToolRegistry(),
       options.toolMiddlewares ?? [],
     );
-
-    if (this.toolRegistry) {
-      this.provider.registerTools(this.toolRegistry.getAllDefinitions());
-    }
   }
 
   getHooks(): Required<AgentHooks> {
@@ -65,6 +61,8 @@ export class Agent {
 
   abort(): void {
     this.activeLoop?.abort();
+    // G-3: reset active loop reference so is-running checks reflect aborted state
+    this.activeLoop = null;
   }
 
   async *runAgentLoop(

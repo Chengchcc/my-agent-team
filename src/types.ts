@@ -93,17 +93,6 @@ export interface CompressionStrategy {
   /** Reset internal compaction state (cascade tracking, history). Called on ContextManager.clear() and new agent loop start. */
   resetCompactionState?(): void;
 }
-
-// LLM Configuration
-export type LLMConfig = {
-  model: string;
-  apiKey: string;
-  baseURL?: string;
-  temperature?: number;
-  maxTokens?: number;
-  topP?: number;
-};
-
 // Agent configuration
 export type AgentConfig = {
   tokenLimit: number;
@@ -127,9 +116,8 @@ export type AgentContext = {
 
 // Provider interface - all LLM providers must implement this
 export interface Provider {
-  registerTools(tools: Tool[]): void;
-  invoke(context: AgentContext): Promise<LLMResponse>;
-  stream(context: AgentContext, options?: { signal?: AbortSignal }): AsyncIterable<LLMResponseChunk>;
+  invoke(context: AgentContext, options?: { tools?: Tool[] }): Promise<LLMResponse>;
+  stream(context: AgentContext, options?: { signal?: AbortSignal; tools?: Tool[] }): AsyncIterable<LLMResponseChunk>;
   /** Get the name of the model this provider uses */
   getModelName(): string;
 }
@@ -233,9 +221,3 @@ export interface Session {
   updatedAt: string;
 }
 
-/** Standard metadata keys used across the codebase. */
-export const MetadataKeys = {
-  TodoState: defineMetadataKey<Record<string, unknown>>('todo-state'),
-  JustCollapsed: defineMetadataKey<boolean>('just-collapsed'),
-  RetrievedMemory: defineMetadataKey<Array<{ id: string; text: string }>>('retrieved-memory'),
-} as const;

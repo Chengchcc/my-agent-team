@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import type { TraceRun, TraceTurn, TraceSummary, TraceStore, TraceEntry } from './types';
+import { debugLog } from '../utils/debug';
 
 interface ModelResponseRecord {
   thinking?: string;
@@ -79,7 +80,7 @@ export class TraceBuffer {
   private enqueueWrite(entry: TraceEntry): void {
     this.writeQueue = this.writeQueue.then(() =>
       this.store.appendTurn(this.runId, this.sessionId, entry),
-    ).catch(() => {});
+    ).catch((err) => { debugLog(`[trace] write failed: ${String(err)}`); });
   }
 
   /** Returns a promise that resolves when all pending writes are done. */

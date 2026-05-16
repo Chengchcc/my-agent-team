@@ -80,24 +80,28 @@ export interface TodoMetadata {
  * Creates the todo middleware system with todo_write tool and reminder injection.
  * Stores todo state in the agent context, so it gets cleared with agent.clear().
  * Returns the tool implementation and the beforeModel middleware.
+ *
+ * @param namespace Optional namespace for isolating todo state (e.g. sessionId).
+ *   When persisted, the namespace is used in the storage key.
  */
-export function createTodoMiddleware(): {
+export function createTodoMiddleware(namespace?: string): {
   tool: ToolImplementation;
   hooks: AgentMiddleware;
 } {
+  const todoMetadataKey = namespace ? `todo:${namespace}` : 'todo';
   // Helper to get or initialize todo metadata in context
   const getOrInitTodoMetadata = (context: AgentContext): TodoMetadata => {
     if (!context.metadata) {
       context.metadata = {};
     }
-    if (!context.metadata.todo) {
-      context.metadata.todo = {
+    if (!context.metadata[todoMetadataKey]) {
+      context.metadata[todoMetadataKey] = {
         todoStore: [],
         stepsSinceLastWrite: Infinity,
         stepsSinceLastReminder: Infinity,
       } satisfies TodoMetadata;
     }
-    return context.metadata.todo as TodoMetadata;
+    return context.metadata[todoMetadataKey] as TodoMetadata;
   };
 
   const tool: ToolImplementation = {

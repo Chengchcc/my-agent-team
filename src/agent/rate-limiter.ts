@@ -1,4 +1,4 @@
-import type { Provider, AgentContext, LLMResponse, LLMResponseChunk } from '../types';
+import type { Provider, AgentContext, LLMResponse, LLMResponseChunk, Tool } from '../types';
 import { debugLog } from '../utils/debug';
 
 const MS_PER_SECOND = 1000;
@@ -62,19 +62,15 @@ export class RateLimitedProvider implements Provider {
     this.prefix = options.prefix ? `[sub-${options.prefix}] ` : '';
   }
 
-  registerTools(tools: Parameters<Provider['registerTools']>[0]): void {
-    this.inner.registerTools(tools);
-  }
-
-  async invoke(context: AgentContext): Promise<LLMResponse> {
+  async invoke(context: AgentContext, options?: { tools?: Tool[] }): Promise<LLMResponse> {
     await this.bucket.acquire();
     debugLog(`${this.prefix}Provider.invoke called`);
-    return this.inner.invoke(context);
+    return this.inner.invoke(context, options);
   }
 
   async *stream(
     context: AgentContext,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; tools?: Tool[] },
   ): AsyncIterable<LLMResponseChunk> {
     await this.bucket.acquire();
     debugLog(`${this.prefix}Provider.stream started`);

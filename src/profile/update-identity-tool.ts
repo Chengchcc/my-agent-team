@@ -3,7 +3,7 @@
 // and reload them into the system prompt.
 
 import { z } from 'zod';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { ZodTool } from '../tools/zod-tool';
 import type { ToolContext } from '../agent/tool-dispatch/types';
@@ -11,7 +11,7 @@ import { getProfile } from './loader';
 
 const IDENTITY_FILE_NAMES = ['SOUL.md', 'IDENTITY.md', 'AGENTS.md'] as const;
 
-interface UpdateIdentityConfig {
+export interface UpdateIdentityConfig {
   profileId: string;
   /** Callback to reload identity files into system prompt */
   onReload: () => void;
@@ -46,7 +46,10 @@ export class UpdateIdentityTool extends ZodTool {
     const profile = getProfile(this.config.profileId);
     const filePath = join(profile.dataDir, args.file);
 
-    writeFileSync(filePath, args.content, 'utf-8');
+    // J-2: Atomic write — write to .tmp file first, then rename
+    const tmpPath = filePath + '.tmp';
+    writeFileSync(tmpPath, args.content, 'utf-8');
+    renameSync(tmpPath, filePath);
 
     // Reload identity into current system prompt
     this.config.onReload();

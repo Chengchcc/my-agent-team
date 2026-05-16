@@ -1,48 +1,37 @@
-import type { AgentConfig, Provider, AgentHooks, Middleware } from './types';
-import type { LLMSettings, ContextSettings, McpSettings, McpServerConfig, TraceSettings } from './config/types';
-import { settings as globalSettings } from './config';
+import { EventEmitter } from 'node:events';
+import type { AgentConfig, Provider, AgentHooks } from './types';
+import type { LLMSettings, ContextSettings, McpServerConfig, TraceSettings } from './config/types';
 import { loadProfileIdentity } from './profile/loader';
 import { Agent } from './agent/Agent';
 import { ToolRegistry } from './agent/tool-registry';
 import { ContextManager } from './agent/context';
 import type { ContextManagerConfig } from './agent/context';
 import { SubAgentTool } from './agent/sub-agent-tool';
-import { McpManager } from './mcp/manager';
-import { McpToolAdapter } from './mcp/tool-adapter';
-import { createMcpResourceMiddleware } from './mcp/resource-middleware';
-import { McpPromptRegistry } from './mcp/prompt-registry';
-import { McpListServersTool, McpAddServerTool, McpRemoveServerTool, McpReadResourceTool } from './mcp/tools';
+import type { McpManager } from './mcp/manager';
 import { setMcpManagerInstance, setMcpToolRegistry, setMcpPromptRegistry } from './mcp/index';
-import { DEFAULT_MCP_TOOL_TIMEOUT_MS, DEFAULT_MCP_RECONNECT_ATTEMPTS, DEFAULT_MCP_RECONNECT_DELAY_MS } from './config/constants';
 import { createTodoMiddleware } from './todos';
-import {
-  SqliteMemoryStore, KeywordRetriever,
-  BM25Retriever, VectorRetriever, HybridRetriever,
-  MemoryMiddleware, MemoryTool,
-  invalidateAgentMdCache,
-} from './memory';
-import type { MemoryRetriever } from './memory';
+import type { SqliteMemoryStore, MemoryMiddleware } from './memory';
 import { wireMemoryIntoEvolution, backfillEmbeddings } from './memory/wire-memory-evolution';
 import { createSkillMiddleware } from './skills/middleware';
 import { SkillLoader } from './skills/loader';
 import { SessionStore } from './session/store';
 import { createAutoSaveHook } from './session/hook';
 import type { AskUserQuestionParameters, AskUserQuestionResult } from './tools/ask-user-question';
+import type { ToolContext } from './agent/tool-dispatch/types';
 import {
   BashTool, TextEditorTool, AskUserQuestionTool,
   ReadTool, GrepTool, GlobTool, LsTool, WebSearchTool, WebFetchTool,
 } from './tools';
 import { createProviderFromSettings } from './providers';
-import { createProviderFromEnv, setupEvolution } from './runtime-providers';
-import type { EvolutionModule } from './evolution';
+import { createProviderFromEnv } from './runtime-providers';
 import { DEFAULT_SYSTEM_PROMPT } from './config/default-prompts';
-import { TokenBudgetCalculator, TieredCompactionManager, DEFAULT_COMPACTION_CONFIG } from './agent/compaction';
 import { debugLog } from './utils/debug';
 import { PermissionMiddleware } from './agent/tool-dispatch/middlewares/permission';
 import { ReadCacheMiddleware } from './agent/tool-dispatch/middlewares/read-cache';
 import type { ToolMiddleware } from './agent/tool-dispatch/middleware';
-import { DEFAULT_MAX_TOKENS, DEFAULT_COMPACTION_BUFFER, DEFAULT_SUMMARY_MODEL } from './config/constants';
-import { createTraceMiddleware } from './trace';
+import { DEFAULT_MAX_TOKENS } from './config/constants';
+import type { TraceAgentMiddleware } from './trace/agent-middleware';
+import { setupMemory, setupCompaction, assembleMcp, setupTrace } from './runtime-setup';
 
 export interface RuntimeConfig {
   provider?: 'claude' | 'openai';
@@ -59,7 +48,7 @@ export interface RuntimeConfig {
   enableCompaction?: boolean;
   systemPrompt?: string;
   allowedRoots?: string[];
-  askUserQuestionHandler?: (params: AskUserQuestionParameters) => Promise<AskUserQuestionResult>;
+  askUserQuestionHandler?: (params: AskUserQuestionParameters, context: ToolContext) => Promise<AskUserQuestionResult>;
   /** For TUI mode: full settings object overrides individual options */
   settings?: {
     llm: LLMSettings;
@@ -71,11 +60,8 @@ export interface RuntimeConfig {
   enableMcp?: boolean;
   /** Additional MCP servers from CLI (merged with settings, CLI overrides by name) */
   mcpServers?: McpServerConfig[];
-  /** Provide a pre-built ContextManager (for session isolation in daemon mode) */
-  contextManager?: ContextManager;
-  /** Provide a pre-built ToolRegistry (for per-session tool filtering) */
-  toolRegistry?: ToolRegistry;
 }
+
 export interface AgentRuntime {
   agent: Agent;
   provider: Provider;
@@ -83,9 +69,24 @@ export interface AgentRuntime {
   contextManager: ContextManager;
   sessionStore: SessionStore;
   memoryMiddleware?: MemoryMiddleware;
+  memoryStore?: SqliteMemoryStore;
   skillLoader?: SkillLoader;
   mcpManager?: McpManager;
+  traceMiddleware?: TraceAgentMiddleware;
+  events: EventEmitter;
+  _hooks?: AgentHooks;
+  _toolMiddlewares?: ToolMiddleware[];
   shutdown: () => Promise<void>;
+}
+
+export interface SessionConfig {
+  enableTodo?: boolean;
+  enableSession?: boolean;
+  enableCompaction?: boolean;
+  systemPrompt?: string;
+  tokenLimit?: number;
+  cwd?: string;
+  model?: string;
 }
 // eslint-disable-next-line complexity
 export async function createAgentRuntime(
@@ -104,8 +105,6 @@ export async function createAgentRuntime(
     allowedRoots: allowedRootsOverride,
     askUserQuestionHandler,
     settings,
-    contextManager: providedContextManager,
-    toolRegistry: providedToolRegistry,
   } = config;
 
   const allowedRoots = allowedRootsOverride ?? settings?.security?.allowedRoots ?? [cwd];
@@ -113,42 +112,51 @@ export async function createAgentRuntime(
 
   // Create provider - from settings or auto-detect from env
   let provider: Provider;
-  if (settings) {
-    provider = createProviderFromSettings(settings.llm);
-  } else {
-    provider = createProviderFromEnv(config);
+  try {
+    if (settings) {
+      provider = createProviderFromSettings(settings.llm);
+    } else {
+      provider = createProviderFromEnv(config);
+    }
+  } catch (err) {
+    // J-9: Explicit throw on provider creation failure instead of silent fallback
+    throw new Error(`Failed to create provider: ${String(err)}`, { cause: err });
   }
 
-  // Token limit - from settings or default
-  const DEFAULT_TOKEN_LIMIT = 100_000;
+  // M-4: Model-adaptive token limit based on known model families
+  const modelName = (config.model ?? settings?.llm.model ?? '').toLowerCase();
+  const DEFAULT_TOKEN_LIMIT = modelAdaptiveTokenLimit(modelName);
   const tokenLimit = settings?.context.tokenLimit || DEFAULT_TOKEN_LIMIT;
   const maxTokens = settings?.llm.maxTokens || DEFAULT_MAX_TOKENS;
 
+  // Context manager with optional tiered compaction
   const compressionStrategy = setupCompaction(enableCompaction, settings, provider, tokenLimit, maxTokens);
+
   const contextManagerConfig: ContextManagerConfig = {
     tokenLimit,
     defaultSystemPrompt: effectiveSystemPrompt,
   };
   if (compressionStrategy) contextManagerConfig.compressionStrategy = compressionStrategy;
-  const contextManager = providedContextManager ?? new ContextManager(contextManagerConfig);
+  const contextManager = new ContextManager(contextManagerConfig);
+
   const agentConfig: AgentConfig = { tokenLimit };
 
-  // Tool registry with security boundaries (use provided or create new)
-  const toolRegistry = providedToolRegistry ?? new ToolRegistry();
+  // Tool registry with security boundaries
+  const toolRegistry = new ToolRegistry();
+  toolRegistry.register(new BashTool({ allowedWorkingDirs: allowedRoots }));
+  toolRegistry.register(new TextEditorTool(allowedRoots));
+  toolRegistry.register(new ReadTool());
+  toolRegistry.register(new GrepTool());
+  toolRegistry.register(new GlobTool());
+  toolRegistry.register(new LsTool());
 
-  // Register built-in tools only for newly-created registries
-  if (!providedToolRegistry) {
-    toolRegistry.register(new BashTool({ allowedWorkingDirs: allowedRoots }));
-    toolRegistry.register(new TextEditorTool(allowedRoots));
-    toolRegistry.register(new ReadTool());
-    toolRegistry.register(new GrepTool());
-    toolRegistry.register(new GlobTool());
-    toolRegistry.register(new LsTool());
-    toolRegistry.register(new WebSearchTool());
-    toolRegistry.register(new WebFetchTool());
-  }
+  // WebSearch — always registered; API key resolved lazily at call time
+  toolRegistry.register(new WebSearchTool());
 
-  const defaultHeadlessHandler = async () => {
+  // WebFetch — always registered; API key resolved lazily at call time
+  toolRegistry.register(new WebFetchTool());
+
+  const defaultHeadlessHandler = async (_params: AskUserQuestionParameters, _context: ToolContext) => {
     throw new Error('ask_user_question tool is not available in headless mode');
   };
   toolRegistry.register(new AskUserQuestionTool(
@@ -186,7 +194,7 @@ export async function createAgentRuntime(
   );
 
   // Memory
-  const memorySetup = setupMemory(enableMemory, provider, toolRegistry, hooks);
+  const memorySetup = setupMemory(enableMemory, provider, toolRegistry, hooks, profileId);
   const memoryMiddleware = memorySetup?.middleware;
 
   // Skills
@@ -206,6 +214,10 @@ export async function createAgentRuntime(
     await sessionStore.ensureSessionDir();
     sessionStore.createNewSession();
     hooks.afterAgentRun.push(createAutoSaveHook(sessionStore));
+    // J-10: Warn when runtime creates a default session but daemon manages per-chat sessions
+    if (profileId) {
+      debugLog('[runtime] enableSession=true with profileId — runtime creates default session, daemon manages per-chat sessions separately');
+    }
   }
 
   // Build default tool middleware chain: Permission → ReadCache → tool.execute
@@ -217,7 +229,7 @@ export async function createAgentRuntime(
   ];
 
   // Trace
-  const evolution = setupTrace(settings, hooks, toolMiddlewares, skillLoader);
+  const { evolution, agentMiddleware } = setupTrace(settings, hooks, toolMiddlewares, skillLoader);
 
   // Wire memory extraction/embedding dispatchers into evolution drainer
   if (evolution && memorySetup) {
@@ -241,159 +253,83 @@ export async function createAgentRuntime(
     toolRegistry,
     contextManager,
     sessionStore,
+    events: new EventEmitter(),
+    _hooks: hooks,
+    _toolMiddlewares: toolMiddlewares,
     shutdown: async () => {
+      // M-7: Dispose event listeners before shutting down subsystems
+      runtime.events.removeAllListeners();
       if (mcpManager) {
         await mcpManager.shutdown();
         setMcpManagerInstance(null);
         setMcpToolRegistry(null as unknown as never);
         setMcpPromptRegistry(null);
       }
+      if (memorySetup?.store) {
+        await memorySetup.store.close();
+      }
     },
   };
   if (memoryMiddleware) runtime.memoryMiddleware = memoryMiddleware;
+  if (memorySetup?.store) runtime.memoryStore = memorySetup.store;
   if (skillLoader) runtime.skillLoader = skillLoader;
   if (mcpManager) runtime.mcpManager = mcpManager;
+  if (agentMiddleware) runtime.traceMiddleware = agentMiddleware;
   return runtime;
 }
 
-function setupMemory(
-  enabled: boolean,
-  _provider: Provider,
+const DEFAULT_SESSION_TOKEN_LIMIT = 100_000;
+
+export function createSessionAgent(
+  runtime: AgentRuntime,
+  contextManager: ContextManager,
   toolRegistry: ToolRegistry,
-  hooks: { beforeModel: Middleware[]; afterAgentRun: Middleware[] },
-): { middleware: MemoryMiddleware; store: SqliteMemoryStore; retriever: MemoryRetriever } | undefined {
-  if (!enabled) return undefined;
-  const generalStore = new SqliteMemoryStore('general');
-  const keywordRetriever = new KeywordRetriever(generalStore);
-  const bm25Retriever = new BM25Retriever(generalStore);
-  const vectorRetriever = new VectorRetriever(generalStore);
-  const retriever = new HybridRetriever(keywordRetriever, bm25Retriever, vectorRetriever);
-  const middleware = new MemoryMiddleware(
-    { general: generalStore },
-    retriever,
-  );
-  toolRegistry.register(new MemoryTool(generalStore, retriever));
-  if (middleware.beforeModel) hooks.beforeModel.push(middleware.beforeModel);
-  void generalStore.enforceLimit?.();
-  invalidateAgentMdCache();
-  return { middleware, store: generalStore, retriever };
-}
-
-function setupCompaction(
-  enableCompaction: boolean,
-  configSettings: RuntimeConfig['settings'],
-  provider: Provider,
-  tokenLimit: number,
-  maxTokens: number,
-): TieredCompactionManager | undefined {
-  if (!enableCompaction || !configSettings?.context.compaction) return undefined;
-  const tokenBudgetCalc = new TokenBudgetCalculator(tokenLimit, maxTokens, DEFAULT_COMPACTION_BUFFER);
-  const compactionConfig = {
-    ...DEFAULT_COMPACTION_CONFIG,
-    thresholds: { ...DEFAULT_COMPACTION_CONFIG.thresholds, ...configSettings.context.compaction },
-    summaryProvider: provider,
-    summaryModel: configSettings.context.compaction.summaryModel || DEFAULT_SUMMARY_MODEL,
-  };
-  debugLog('Tiered compaction enabled');
-  return new TieredCompactionManager(tokenBudgetCalc, compactionConfig);
-}
-
-async function assembleMcp(
-  enableMcp: boolean | undefined,
-  cliServers: McpServerConfig[] | undefined,
-  toolRegistry: ToolRegistry,
-  hooks: AgentHooks,
-): Promise<{ mcpManager?: McpManager; mcpPromptRegistry?: McpPromptRegistry }> {
-  if (enableMcp === false) return {};
-
-  let mcpSettings: McpSettings;
-  try {
-    mcpSettings = globalSettings.mcp;
-  } catch {
-    mcpSettings = {
-      enabled: false,
-      servers: [],
-      toolTimeoutMs: DEFAULT_MCP_TOOL_TIMEOUT_MS,
-      reconnectAttempts: DEFAULT_MCP_RECONNECT_ATTEMPTS,
-      reconnectDelayMs: DEFAULT_MCP_RECONNECT_DELAY_MS,
-    };
+  config: SessionConfig = {},
+): Agent {
+  // Register per-session todo tool if enabled
+  if (config.enableTodo) {
+    const { tool: todoTool, hooks: todoHooks } = createTodoMiddleware();
+    toolRegistry.register(todoTool);
+    // Push todo hooks to runtime's shared beforeModel hooks
+    if (runtime._hooks) runtime._hooks.beforeModel?.push(todoHooks.beforeModel!);
   }
 
-  // Merge: CLI servers override settings servers by name
-  const mergedServers = [...mcpSettings.servers];
-  for (const cliServer of cliServers ?? []) {
-    const idx = mergedServers.findIndex(s => s.name === cliServer.name);
-    if (idx >= 0) {
-      mergedServers[idx] = cliServer;
-    } else {
-      mergedServers.push(cliServer);
-    }
-  }
-
-  if (!mcpSettings.enabled && mergedServers.length === 0) return {};
-
-  const mcpManager = new McpManager({
-    toolTimeoutMs: mcpSettings.toolTimeoutMs,
-    reconnectAttempts: mcpSettings.reconnectAttempts,
-    reconnectDelayMs: mcpSettings.reconnectDelayMs,
-    maxReconnectAttempts: mcpSettings.reconnectAttempts,
+  // Create agent reusing provider, hooks, middlewares from runtime
+  const agent = new Agent({
+    provider: runtime.provider,
+    contextManager,
+    config: {
+      tokenLimit: config.tokenLimit ?? DEFAULT_SESSION_TOKEN_LIMIT,
+      ...(config.cwd ? { cwd: config.cwd } : {}),
+      ...(config.model ? { model: config.model } : {}),
+    },
+    toolRegistry,
+    hooks: runtime._hooks ?? {},
+    toolMiddlewares: runtime._toolMiddlewares ?? [],
   });
 
-  setMcpManagerInstance(mcpManager);
-  setMcpToolRegistry(toolRegistry);
-
-  const mcpPromptRegistry = new McpPromptRegistry(mcpManager);
-  setMcpPromptRegistry(mcpPromptRegistry);
-
-  // Register management tools immediately (they work without connected servers)
-  toolRegistry.register(new McpListServersTool(mcpManager));
-  toolRegistry.register(new McpAddServerTool(mcpManager, toolRegistry, mcpPromptRegistry));
-  toolRegistry.register(new McpRemoveServerTool(mcpManager, toolRegistry));
-  toolRegistry.register(new McpReadResourceTool(mcpManager));
-
-  // Start connections in background — don't block TUI startup
-  mcpManager.onReady(() => {
-    for (const { serverName, tool: toolDef } of mcpManager.getAllTools()) {
-      toolRegistry.register(new McpToolAdapter(mcpManager, serverName, toolDef));
-    }
-
-    for (const { serverName, prompt: promptDef } of mcpManager.getAllPrompts()) {
-      mcpPromptRegistry.registerAsTool(serverName, promptDef, toolRegistry);
-    }
-
-    const resourceMiddleware = createMcpResourceMiddleware(mcpManager);
-    if (resourceMiddleware.beforeModel) {
-      hooks.beforeModel?.push(resourceMiddleware.beforeModel);
-    }
-
-    debugLog('MCP initialized');
-  });
-
-  mcpManager.start(mergedServers);
-
-  return { mcpManager, mcpPromptRegistry };
+  return agent;
 }
 
-function setupTrace(
-  settings: RuntimeConfig['settings'],
-  hooks: Required<Pick<AgentHooks, 'beforeAgentRun' | 'beforeModel' | 'beforeAddResponse' | 'afterAgentRun'>>,
-  toolMiddlewares: ToolMiddleware[],
-  skillLoader?: SkillLoader | null,
-): EvolutionModule | null {
-  const hasExplicitDisable = settings?.trace?.enabled === false;
-  if (hasExplicitDisable) return null;
-  const evolution = setupEvolution(settings);
-  const traceMw = createTraceMiddleware({
-    maxRunsPerSession: settings?.trace?.maxRunsPerSession,
-    redactionMode: settings?.trace?.redaction?.mode,
-    nudgeEnabled: settings?.trace?.nudge?.enabled,
-    reviewInterval: settings?.trace?.nudge?.reviewInterval,
-    evolution,
-    skillLoader,
-  });
-  hooks.beforeAgentRun.unshift(traceMw.agentMiddleware.beforeAgentRun);
-  hooks.beforeAddResponse.push(traceMw.agentMiddleware.beforeAddResponse);
-  hooks.afterAgentRun.push(traceMw.agentMiddleware.afterAgentRun);
-  toolMiddlewares.push(traceMw.toolMiddleware);
-  return evolution;
+// M-4: Model-adaptive token limits
+const MODEL_DEFAULT_TOKEN_LIMIT = 100_000;
+const CLAUDE_TOKEN_LIMIT = 200_000;
+const GPT4_TOKEN_LIMIT = 128_000;
+const GPT3_5_TOKEN_LIMIT = 16_384;
+const DEEPSEEK_TOKEN_LIMIT = 128_000;
+const GEMINI_TOKEN_LIMIT = 1_048_576;
+
+// M-4: Return a reasonable default token limit based on known model families
+function modelAdaptiveTokenLimit(modelName: string): number {
+  if (!modelName) return MODEL_DEFAULT_TOKEN_LIMIT;
+  if (modelName.includes('claude')) return CLAUDE_TOKEN_LIMIT;
+  if (modelName.includes('gpt-4')) return GPT4_TOKEN_LIMIT;
+  if (modelName.includes('gpt-3.5')) return GPT3_5_TOKEN_LIMIT;
+  if (modelName.includes('deepseek')) return DEEPSEEK_TOKEN_LIMIT;
+  if (modelName.includes('gemini')) return GEMINI_TOKEN_LIMIT;
+  return MODEL_DEFAULT_TOKEN_LIMIT;
 }
+
+
+
+

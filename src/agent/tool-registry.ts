@@ -16,9 +16,10 @@ export class ToolRegistry {
   register(tool: ToolImplementation): void {
     const definition = tool.getDefinition();
 
-    // Detect and warn on duplicate registration
+    // G-8: skip duplicate registration instead of overwriting
     if (this._tools.has(definition.name)) {
-      debugWarn(`[ToolRegistry] Duplicate tool registration: '${definition.name}' — overwriting`);
+      debugWarn(`[ToolRegistry] Duplicate tool registration: '${definition.name}' — skipping`);
+      return;
     }
 
     this._tools.set(definition.name, tool);

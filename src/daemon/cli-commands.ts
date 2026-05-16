@@ -1,10 +1,11 @@
 // src/daemon/cli-commands.ts
-// Interactive profile setup wizard with AI identity generation.
+// CLI management commands: interactive bot setup wizard + daemon lifecycle.
 // Uses @clack/prompts for fancy TUI + Zod for input validation.
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { spawn } from 'node:child_process';
 import { load as parseYaml, dump as stringifyYaml } from 'js-yaml';
 import { z } from 'zod';
 import * as p from '@clack/prompts';
@@ -47,9 +48,13 @@ function loadConfig(): any {
   return { profiles: {}, bots: [] };
 }
 
+const CONFIG_FILE_MODE = 0o600;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function saveConfig(config: any): void {
-  writeFileSync(getConfigPath(), stringifyYaml(config), 'utf-8');
+  const path = getConfigPath();
+  writeFileSync(path, stringifyYaml(config), 'utf-8');
+  chmodSync(path, CONFIG_FILE_MODE);
 }
 
 function loadExistingProfiles(): Record<string, { dataDir: string; toolProfile: string; workingDir: string; model?: string }> {
@@ -334,3 +339,58 @@ export async function botSetup(): Promise<void> {
 Next: my-agent daemon start ${profileId}`);
 }
 
+// ── Daemon lifecycle ─────────────────────────────────────────────────────
+
+export async function daemonStart(profileName: string): Promise<void> {
+  const s = p.spinner();
+  s.start(`Starting daemon for profile "${profileName}"...`);
+  const proc = spawn('bun', ['run', 'bin/my-agent-daemon.ts', profileName], {
+    stdio: ['ignore', 'inherit', 'inherit'],
+    env: { ...process.env },
+    detached: true,
+  });
+  proc.unref();
+  s.stop(`Daemon PID: ${proc.pid}`);
+}
+
+export async function daemonStop(profileName: string): Promise<void> {
+  const s = p.spinner();
+  s.start(`Stopping daemon "${profileName}"...`);
+  const daemonDir = join(homedir() ?? '/root', '.my-agent', 'data');
+  const pidFile = join(daemonDir, `${profileName}.pid`);
+  if (!existsSync(pidFile)) {
+    s.stop(`No PID file for "${profileName}" — daemon may not be running.`);
+    return;
+  }
+  const pid = parseInt(readFileSync(pidFile, 'utf-8').trim(), 10);
+  try {
+    process.kill(pid, 'SIGTERM');
+    s.stop(`Sent SIGTERM to "${profileName}" (PID ${pid})`);
+  } catch {
+    s.stop(`Failed to signal PID ${pid}. It may already be stopped.`);
+  }
+}
+
+export async function daemonList(): Promise<void> {
+  const daemonDir = join(homedir() ?? '/root', '.my-agent', 'data');
+  if (!existsSync(daemonDir)) {
+    log('No daemon data directory. No daemons running.');
+    return;
+  }
+  const pidFiles = readdirSync(daemonDir).filter(f => f.endsWith('.pid'));
+  if (pidFiles.length === 0) {
+    log('No running daemons found.');
+    return;
+  }
+
+  log('\nRunning daemons:\n');
+  for (const pf of pidFiles) {
+    try {
+      const pid = readFileSync(join(daemonDir, pf), 'utf-8').trim();
+      log(`  ${pf.replace('.pid', '')}  PID: ${pid}`);
+    } catch {
+      log(`  ${pf.replace('.pid', '')}`);
+    }
+  }
+  log('');
+}

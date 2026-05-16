@@ -7,6 +7,8 @@ export interface RoutingContext {
   chatType: 'group' | 'p2p';
   scope: 'thread' | 'chat';
   anchor: string;
+  /** The thread's root message_id. Falls back to messageId when not in a thread. */
+  threadRootId: string;
   larkAppId: string;
 }
 
@@ -41,7 +43,8 @@ export interface DaemonSession {
 }
 
 export function sessionKey(anchor: string, larkAppId: string): string {
-  return `${anchor}::${larkAppId}`;
+  // M-9: Use unit separator to avoid ambiguity with anchors containing '::'
+  return `${anchor}\x1f${larkAppId}`;
 }
 
 export function sessionAnchorId(ds: DaemonSession): string {

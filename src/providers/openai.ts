@@ -2,12 +2,22 @@ import OpenAI from 'openai';
 import type { Message, Provider, Tool, LLMResponse, LLMResponseChunk, AgentContext } from '../types';
 import { DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE } from '../config/constants';
 
+function toOpenAITools(tools: Tool[]): OpenAI.ChatCompletionTool[] {
+  return tools.map(tool => ({
+    type: 'function' as const,
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters as OpenAI.FunctionParameters,
+    },
+  }));
+}
+
 export class OpenAIProvider implements Provider {
   private client: OpenAI;
   private model: string;
   private maxTokens: number;
   private temperature: number;
-  private tools: OpenAI.ChatCompletionTool[] = [];
 
   constructor(config: {
     apiKey: string;
@@ -26,23 +36,9 @@ export class OpenAIProvider implements Provider {
   }
 
   /**
-   * Register tools for function calling.
-   */
-  registerTools(tools: Tool[]): void {
-    this.tools = tools.map(tool => ({
-      type: 'function',
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters as OpenAI.FunctionParameters,
-      },
-    }));
-  }
-
-  /**
    * Blocking completion.
    */
-  async invoke(context: AgentContext): Promise<LLMResponse> {
+  async invoke(context: AgentContext, options?: { tools?: Tool[] }): Promise<LLMResponse> {
     const messages = this.convertToOpenAIMessages(context.messages);
     if (context.systemPrompt) {
       messages.unshift({ role: 'system', content: context.systemPrompt });
@@ -55,8 +51,8 @@ export class OpenAIProvider implements Provider {
       max_tokens: this.maxTokens,
       temperature: this.temperature,
     };
-    if (this.tools.length > 0) {
-      requestOptions.tools = this.tools;
+    if (options?.tools?.length) {
+      requestOptions.tools = toOpenAITools(options.tools);
       requestOptions.parallel_tool_calls = true;
     }
     const response = await this.client.chat.completions.create(
@@ -96,7 +92,7 @@ export class OpenAIProvider implements Provider {
    */
    
   // eslint-disable-next-line complexity
-  async *stream(context: AgentContext, options?: { signal?: AbortSignal }): AsyncIterable<LLMResponseChunk> {
+  async *stream(context: AgentContext, options?: { signal?: AbortSignal; tools?: Tool[] }): AsyncIterable<LLMResponseChunk> {
     const messages = this.convertToOpenAIMessages(context.messages);
     if (context.systemPrompt) {
       messages.unshift({ role: 'system', content: context.systemPrompt });
@@ -110,8 +106,8 @@ export class OpenAIProvider implements Provider {
       temperature: this.temperature,
       stream: true,
     };
-    if (this.tools.length > 0) {
-      streamOptions.tools = this.tools;
+    if (options?.tools?.length) {
+      streamOptions.tools = toOpenAITools(options.tools);
       streamOptions.parallel_tool_calls = true;
     }
     const stream = await this.client.chat.completions.create(

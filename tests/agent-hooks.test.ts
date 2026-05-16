@@ -10,7 +10,6 @@ class MockProvider {
       model: 'mock',
     };
   }
-  registerTools() {}
   async* stream() {
     yield { content: 'mock', done: false };
     yield { content: '', done: true, usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } };

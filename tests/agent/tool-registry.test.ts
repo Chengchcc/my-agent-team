@@ -19,13 +19,13 @@ describe('ToolRegistry', () => {
     expect(reg.get('test')).toBeDefined();
   });
 
-  it('should overwrite on duplicate registration', () => {
+  it('should skip on duplicate registration (G-8)', () => {
     const reg = new ToolRegistry();
     const tool1 = new MockTool('test');
     const tool2 = new MockTool('test');
     reg.register(tool1);
     reg.register(tool2);
-    expect(reg.get('test')).toBe(tool2); // second one wins
+    expect(reg.get('test')).toBe(tool1); // first one wins, duplicate skipped
   });
 
   it('should cache getAllDefinitions', () => {
