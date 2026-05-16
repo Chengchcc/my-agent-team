@@ -90,6 +90,8 @@ describe('TraceAgentMiddleware', () => {
     await middleware.afterAgentRun!(ctx, next);
     expect(next).toHaveBeenCalled();
 
+    // finalizeTrace is called via setImmediate — wait for it
+    await new Promise(resolve => setTimeout(resolve, 20));
     expect(tickSpy).toHaveBeenCalled();
     tickSpy.mockRestore();
   });

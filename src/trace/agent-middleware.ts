@@ -8,7 +8,8 @@ import { debugLog } from '../utils/debug';
 import type { TurnSettledDetector } from './turn-settled-detector';
 
 export class TraceAgentMiddleware implements AgentMiddleware {
-  private currentBuffer?: TraceBuffer;
+  /** Exposed for tests — the buffer for the current run. */
+  currentBuffer: TraceBuffer | null = null;
 
   constructor(
     private store: TraceStore,
@@ -21,9 +22,7 @@ export class TraceAgentMiddleware implements AgentMiddleware {
   ) {}
 
   async flush(): Promise<void> {
-    if (this.currentBuffer) {
-      await this.currentBuffer.flush();
-    }
+    await this.currentBuffer?.flush();
   }
 
   beforeAgentRun: Middleware = async (context, next) => {
@@ -33,6 +32,7 @@ export class TraceAgentMiddleware implements AgentMiddleware {
     const isRoot = !parentRunId;
     this.settledDetector?.runStart(isRoot, context.metadata._traceRunId as string ?? 'unknown');
     const buffer = new TraceBuffer(this.sessionId(context), this.store, parentRunId);
+    this.currentBuffer = buffer;
     context.metadata._traceBuffer = buffer;
 
     const lastUserMsg = [...context.messages].reverse().find(m => m.role === 'user');
@@ -69,7 +69,7 @@ export class TraceAgentMiddleware implements AgentMiddleware {
 
   afterAgentRun: Middleware = async (_context, next) => {
     const ctx = await next();
-    const buffer = ctx.metadata._traceBuffer as TraceBuffer | undefined;
+    const buffer = this.currentBuffer ?? (ctx.metadata._traceBuffer as TraceBuffer | undefined);
     if (!buffer) return ctx;
 
     const model = ctx.response?.model ?? 'unknown';
