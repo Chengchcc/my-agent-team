@@ -10,22 +10,22 @@ export interface TempProfileFixture {
 }
 
 export function createTempProfile(overrides?: {
-  profileId?: string;
+  agentId?: string;
   identity?: string;
   botsYml?: string;
 }): TempProfileFixture {
   const root = mkdtempSync(join(tmpdir(), 'im-bridge-test-'));
-  const profileDir = join(root, 'profiles');
-  mkdirSync(profileDir, { recursive: true });
+  const agentDir = join(root, 'profiles');
+  mkdirSync(agentDir, { recursive: true });
 
-  const pid = overrides?.profileId ?? 'test-profile';
-  const identityPath = join(profileDir, pid + '.md');
+  const pid = overrides?.agentId ?? 'test-profile';
+  const identityPath = join(agentDir, pid + '.md');
   writeFileSync(identityPath, overrides?.identity ?? '# Test Identity\nTest bot.', 'utf-8');
 
   const botsYml = join(root, 'bots.yml');
   writeFileSync(botsYml, overrides?.botsYml ?? `
 bots:
-  - profileId: ${pid}
+  - agentId: ${pid}
     larkAppId: cli_test123
     larkAppSecret: test-secret-456
 profiles:

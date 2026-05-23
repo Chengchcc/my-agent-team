@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { shouldReparse, extendLastBlock } from '../../src/cli/tui/streaming/committer';
-import { parseDoc } from '../../src/cli/tui/markdown/parse-ast';
+import { shouldReparse, extendLastBlock } from '../../src/extensions/frontend.tui/streaming/committer';
+import { parseDoc } from '../../src/extensions/frontend.tui/markdown/parse-ast';
 
 describe('shouldReparse', () => {
   it('returns false when content is identical', () => {

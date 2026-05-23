@@ -1,4 +1,5 @@
-import type { Provider, LLMResponse, LLMResponseChunk, AgentContext, ToolCall } from '../../src/types';
+import type { AgentContext } from '../../src/domain/agent'
+import type { ToolCall } from '../../src/application/ports/provider-adapter';
 
 export interface FakeProviderOptions {
   model?: string;
@@ -22,7 +23,7 @@ export type PresetTurn = {
   errorAfter?: number; // throw after N deltas to simulate stream failure
 };
 
-export class FakeProvider implements Provider {
+export class FakeProvider {
   model: string;
   maxTokens: number;
   private turns: PresetTurn[] = [];
@@ -37,7 +38,9 @@ export class FakeProvider implements Provider {
   }
 
   // eslint-disable-next-line require-await
-  async invoke(_context: AgentContext, _options?: { tools?: import('../../src/types').Tool[] }): Promise<LLMResponse> {
+  async invoke(_context: AgentContext, _options?: { tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }> }): Promise<{
+    content: string; usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }; model: string; tool_calls?: ToolCall[]; blocks?: Array<{ type: string; thinking?: string; text?: string }>
+  }> {
     // For non-streaming, aggregate all preset turns into a single response
     let fullContent = '';
     let fullThinking = '';
@@ -79,8 +82,10 @@ export class FakeProvider implements Provider {
   // eslint-disable-next-line require-await
   async *stream(
     _context: AgentContext,
-    _options?: { signal?: AbortSignal; tools?: import('../../src/types').Tool[] },
-  ): AsyncIterable<LLMResponseChunk> {
+    _options?: { signal?: AbortSignal; tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }> },
+  ): AsyncIterable<{
+    content: string; thinking?: string; thinkingSignature?: string; done: boolean; tool_calls?: ToolCall[]; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+  }> {
     for (const turn of this.turns) {
       let deltaCount = 0;
 

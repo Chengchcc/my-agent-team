@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { McpManager } from '../../src/mcp/manager';
+import { McpManager } from '../../src/extensions/mcp/manager';
 
 describe('McpManager', () => {
   const defaultOptions = {

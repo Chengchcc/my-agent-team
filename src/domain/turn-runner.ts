@@ -1,0 +1,120 @@
+import type {
+  TurnEvent, RunTurnDeps, RoundResult,
+  ToolCall, LlmMessage, ChatResponseChunk,
+} from './turn-runner.types'
+
+// ── Parse tool call arguments from provider chunk ──
+
+function parseToolArgs(args: unknown): unknown {
+  if (typeof args === 'string') {
+    try { return JSON.parse(args) } catch { return {} }
+  }
+  return args ?? {}
+}
+
+// ── Consume one LLM stream round, yielding deltas + collecting tool calls ──
+
+async function* consumeRound(
+  stream: AsyncIterable<ChatResponseChunk>,
+  ids: { sessionId: string; turnId: string },
+): AsyncGenerator<TurnEvent, RoundResult, void> {
+  let assistantText = ''
+  const toolCalls: ToolCall[] = []
+  let usage = { input: 0, output: 0 }
+
+  for await (const chunk of stream) {
+    if (chunk.type === 'text') {
+      assistantText += chunk.delta
+      yield { type: 'llm.delta', ...ids, delta: chunk.delta }
+    } else if (chunk.type === 'tool_call_start') {
+      const tc = chunk.toolCall
+      toolCalls.push({ id: tc.id, name: tc.name, arguments: parseToolArgs(tc.arguments) })
+    } else if (chunk.type === 'usage') {
+      usage = chunk.usage
+      yield { type: 'llm.usage', ...ids, usage }
+    } else if (chunk.type === 'done') {
+      break
+    }
+  }
+
+  return { assistantText, toolCalls, usage }
+}
+
+// ── Turn runner: agent loop as async generator ──
+
+export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, void, void> {
+  const { sessionId, turnId, messages, tools, provider, hooks } = deps
+  const max = deps.maxIterations ?? 10
+
+  let currentMessages: LlmMessage[] = [...messages]
+  let finalText = ''
+  let totalUsage = { input: 0, output: 0 }
+
+  try {
+    for (let iter = 0; iter < max; iter++) {
+      if (deps.abortSignal?.aborted) break
+      const round = yield* consumeRound(
+        provider.stream({ messages: currentMessages, tools, signal: deps.abortSignal }),
+        { sessionId, turnId },
+      )
+
+      totalUsage.input += round.usage.input
+      totalUsage.output += round.usage.output
+
+      if (round.assistantText) {
+        finalText += round.assistantText
+        currentMessages.push({ role: 'assistant', content: round.assistantText })
+      }
+
+      if (round.toolCalls.length === 0) break
+
+      if (deps.abortSignal?.aborted) break
+
+      for (const call of round.toolCalls) {
+        yield {
+          type: 'tool.start',
+          sessionId, turnId,
+          callId: call.id, name: call.name, args: call.arguments,
+        }
+
+        try {
+          const result = await hooks.onToolCall(call)
+          yield {
+            type: 'tool.end',
+            sessionId, turnId,
+            callId: call.id, name: call.name, result,
+          }
+          currentMessages.push({
+            role: 'user',
+            content: `Tool ${call.name} result: ${JSON.stringify(result)}`,
+          })
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          yield {
+            type: 'tool.error',
+            sessionId, turnId,
+            callId: call.id, name: call.name, err: { message },
+          }
+          currentMessages.push({
+            role: 'user',
+            content: `Tool ${call.name} error: ${message}`,
+          })
+        }
+      }
+    }
+
+    yield {
+      type: 'turn.completed',
+      sessionId, turnId,
+      usage: totalUsage, finalMessage: finalText,
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    yield {
+      type: 'turn.failed',
+      sessionId, turnId,
+      stage: 'llm_stream',
+      err: { message },
+    }
+  }
+}

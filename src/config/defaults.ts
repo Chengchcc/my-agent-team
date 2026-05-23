@@ -48,7 +48,7 @@ export const defaultSettings: Settings = {
   },
   memory: {
     enabled: true,
-    globalBaseDir: '~/.my-agent/memory',
+    globalBaseDir: '~/.my-agent/memory', // Deprecated — now derived from AgentPaths
     maxGeneralEntries: 500,
     consolidationThreshold: 50,
     autoExtractMinToolCalls: 3,
@@ -74,14 +74,14 @@ export const defaultSettings: Settings = {
       filePath: '~/.my-agent/history.txt',
     },
     sessions: {
-      dir: '~/.my-agent/sessions',
+      dir: '~/.my-agent/sessions', // Deprecated — now derived from AgentPaths
     },
   },
   subAgent: {
     enabled: true,
     autoTriggerThreshold: 5,
     isolation: true,
-    worktreeRootDir: '~/.my-agent/worktrees',
+    worktreeRootDir: '~/.my-agent/worktrees', // Deprecated — now derived from AgentPaths
   },
   security: {
     allowedRoots: ['.'],
@@ -93,6 +93,9 @@ export const defaultSettings: Settings = {
   },
   debug: {
     enabled: false,
+  },
+  log: {
+    level: 'info' as const,
   },
   mcp: {
     enabled: true,
@@ -117,7 +120,7 @@ export const defaultSettings: Settings = {
       maxTurns: 6,
       tokenLimit: 30_000,
       timeoutMs: 60_000,
-      outputDir: '~/.my-agent/skills/auto',
+      outputDir: '~/.my-agent/skills/auto', // Deprecated — now derived from AgentPaths
       autoAcceptHours: 48,
       lowScoreWarningThreshold: 0.5,
     },

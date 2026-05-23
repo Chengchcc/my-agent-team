@@ -1,0 +1,121 @@
+import React, { useMemo } from 'react';
+import { Box, Text, useInput } from 'ink';
+import { useCommandInput } from '../../slash/use-slash-input';
+import { useBracketedPaste } from '../../hooks/use-bracketed-paste';
+import { HighlightedInput } from '../../components/HighlightedInput';
+import { SlashCommandList } from '../../slash/components/slash-command-list';
+import { FilePicker } from '../../components/file-picker-popover';
+import type { PromptSubmission, SlashCommand } from '../../../../application/slash';
+import { useTuiStore } from '../../state/store';
+import { buildHotkeys } from './keymap';
+import type { InputBoxCallbacks } from './keymap';
+import type { KeyDispatcher as KeyDispatcherType } from '../../input/key-dispatcher';
+import { inkKeyToKeyEvent } from '../../input/key-dispatcher';
+
+export type { InputBoxCallbacks } from './keymap';
+
+interface InputBoxProps {
+  commands: SlashCommand[];
+  onSubmit: (submission: PromptSubmission) => void;
+  onAbort?: () => void;
+  callbacks: InputBoxCallbacks;
+  keyDispatcher: KeyDispatcherType;
+}
+
+const PENDING_PREVIEW_MAX = 120;
+const PENDING_TRUNC = 117;
+
+export function InputBox({ commands, onSubmit, onAbort, callbacks, keyDispatcher }: InputBoxProps) {
+  useBracketedPaste();
+  const streaming = useTuiStore(s => s.stats.streaming);
+  const pendingInputs = useTuiStore(s => s.interaction.pendingInputs);
+
+  const commandInputOpts = { commands, streaming, onSubmit, keyDispatcher };
+  const {
+    filteredCommands,
+    highlightedCommandName,
+    pickerOpen,
+    placeholder,
+    selectedIndex,
+    displayText,
+    displayCursorOffset,
+    pasteLineCount,
+    atFiles,
+    atSelectedIndex,
+    atFilePickerOpen,
+  } = useCommandInput(
+    onAbort ? { ...commandInputOpts, onAbort } : commandInputOpts,
+  );
+
+  const hotkeys = useMemo(() => buildHotkeys(callbacks), [callbacks]);
+
+  useInput((input, key) => {
+    // Route through KeyDispatcher first — overlays get priority
+    if (keyDispatcher.dispatch(inkKeyToKeyEvent(input, key))) return;
+
+    for (const hk of hotkeys) {
+      if (hk.guard && !hk.guard({ streaming, pendingCount: pendingInputs.length, atFilePickerOpen, pickerOpen })) continue;
+
+      // Special keys (upArrow, downArrow, escape, etc.) are exposed as key.*
+      // booleans by Ink, not as input characters. Check the named property first,
+      // fall back to input string comparison for regular character keys.
+      const matched = hk.key in key
+        ? key[hk.key as keyof typeof key] === true
+        : input === hk.key;
+
+      if (!matched) continue;
+      if (hk.ctrl && !key.ctrl) continue;
+      if (hk.meta && !key.meta) continue;
+      if (hk.shift && !key.shift) continue;
+      hk.handler();
+      return;
+    }
+  });
+
+  return (
+    <Box flexDirection="column">
+      {pickerOpen ? <SlashCommandList commands={filteredCommands} selectedIndex={selectedIndex} /> : null}
+      {atFilePickerOpen ? (
+        atFiles.length > 0
+          ? <FilePicker files={atFiles} selectedIndex={atSelectedIndex} />
+          : <Box paddingX={2}><Text dimColor>  searching files…</Text></Box>
+      ) : null}
+
+      {pendingInputs.length > 0 ? (
+        <Box flexDirection="column" borderStyle="single" borderColor="yellow" paddingX={1}>
+          <Box>
+            <Text color="yellow" bold>Pending ({pendingInputs.length})</Text>
+            {streaming ? <Text dimColor> — waiting for current turn</Text> : null}
+          </Box>
+          {pendingInputs.map((text, i) => (
+            <Box key={i}>
+              <Text dimColor>{i + 1}. </Text>
+              <Text>
+                {text.length > PENDING_PREVIEW_MAX ? text.slice(0, PENDING_TRUNC) + '…' : text}
+              </Text>
+            </Box>
+          ))}
+          <Box>
+            <Text dimColor>Ctrl+K to clear</Text>
+          </Box>
+        </Box>
+      ) : null}
+
+      {pasteLineCount > 0 ? (
+        <Box paddingX={2}>
+          <Text dimColor>[paste folded · Backspace on marker to remove · Space on marker to expand · ←→ skip over]</Text>
+        </Box>
+      ) : null}
+
+      <Box borderStyle="round" borderColor="cyan" paddingX={1}>
+        <Text color="cyan">{'>'} </Text>
+        <HighlightedInput
+          value={displayText}
+          cursorOffset={displayCursorOffset}
+          placeholder={placeholder}
+          highlightedCommandName={highlightedCommandName}
+        />
+      </Box>
+    </Box>
+  );
+}

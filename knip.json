@@ -1,31 +1,33 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": [
-    "src/agent/index.ts",
-    "bin/my-agent-tui",
-    "bin/my-agent-tui-dev.ts",
     "bin/my-agent-daemon.ts",
     "bin/my-agent-cli.ts",
-    "bin/my-agent.ts",
-    "bin/mcp-cli.ts",
     "examples/**/*.ts",
     "scripts/**/*.ts",
     "tests/**/*.test.{ts,tsx}"
   ],
-  "project": ["src/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}", "scripts/**/*.ts"],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "tests/**/*.{ts,tsx}",
+    "scripts/**/*.ts"
+  ],
   "ignoreDependencies": [],
   "ignoreBinaries": ["tsc"],
   "ignore": [
-    "tests/fixtures/*.ts",
+    "tests/fixtures/**",
     "src/index.ts",
-    "src/tools/memory.ts",
-    "src/tools/ask-user-question-manager.ts",
-    "src/agent/sub-agent-config.ts",
-    "src/tools/ask-user-question.ts"
+    "src/domain/agent.ts"
   ],
-  "ignoreExportsUsedInFile": {
-    "interface": true,
-    "type": true
+  "ignoreExportsUsedInFile": true,
+  "tags": ["-public", "-internal"],
+  "rules": {
+    "exports": "error",
+    "types": "error",
+    "duplicates": "error",
+    "files": "error",
+    "dependencies": "error",
+    "unlisted": "error"
   },
   "bun": true
 }

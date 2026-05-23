@@ -1,21 +1,26 @@
 # CLAUDE.md
 
+> Project guide for AI coding assistants (Claude / Cursor / Copilot agents) and human contributors. Read this whole file before opening a PR.
+
 ---
 
 ## ⚠️ ARCHITECTURE CONSTITUTION — MANDATORY READ FIRST
 
-**All code generated in this repository must comply with the [Architecture Constitution](./ARCHITECTURE-CONSTITUTION.md).**
+**All code in this repository must comply with the [Architecture Constitution](./ARCHITECTURE-CONSTITUTION.md).**
 
 These are non-negotiable, CI-enforced rules. Violations will block your PR. Read the full constitution **before writing any code**.
 
 **Summary of violations that will block your code:**
-- Instantiating `Agent`, `ToolRegistry`, `ContextManager`, or providers directly in `bin/*`
-- Adding new `any` types or unsafe casts
-- Adding new `syncTodoFromContext` calls
-- Using `console.log` instead of `debugLog`
-- Unannotated `@ts-ignore` / `@ts-expect-error`
-- Files > 400 lines or functions > 80 lines without justification
-- New public APIs without unit tests
+
+- Instantiating core objects directly in `bin/*` (use `createKernel()` + extension presets).
+- Adding new `any` types or unsafe casts.
+- Using `console.log` instead of `ctx.logger` / `debugLog`.
+- Unannotated `@ts-ignore` / `@ts-expect-error`.
+- Files > 400 lines or functions > 80 lines without justification.
+- New public APIs without unit tests.
+- Defining public data contracts outside `src/application/contracts/**`.
+- Importing `extensions/**` from `application/ports/**`, `application/slash/**`, or `infrastructure/transport/**`.
+- Using `zod` outside `src/application/contracts/**` (`src/infrastructure/config/schema.ts` is the only exemption).
 
 ---
 
@@ -23,325 +28,198 @@ These are non-negotiable, CI-enforced rules. Violations will block your PR. Read
 
 **Before writing any code for a new feature, read the [Design Philosophy](./DESIGN-PHILOSOPHY.md).**
 
-This document captures the design taste and recurring patterns that make this codebase coherent. It exists to ensure every new feature feels like it belongs — same patterns, same rhythm, same judgment. The 15 patterns in that document are your first draft for any design decision.
-
 Core patterns at a glance:
-- **Single assembly point** — wire in `createAgentRuntime()`, never in `bin/*`
-- **Onion middleware** — cross-cutting concerns are middleware, not new classes
-- **Everything is a tool** — the LLM only knows `function_call`, so every capability is a tool
-- **Discriminated unions** — `switch(event.type)` with exhaustive `never`, never cast
-- **Progressive disclosure** — metadata eagerly, full content on demand
-- **Least-destructive-first** — graduated response, never "fine" → "nuclear"
-- **Zod at boundaries** — parse, don't validate; schema derives the type
+
+- **Kernel + Extensions assembly** — wire in `createKernel()` + extension presets, never in `bin/*`.
+- **Hook-based extensibility** — cross-cutting concerns use the **12-hook** system, not new classes.
+- **Slash commands are application-level** — built-ins live in `application/slash/`, extensions contribute via the `slash` channel.
+- **Everything is a tool** — the LLM only knows `function_call`, so every capability is a tool.
+- **Discriminated unions** — `switch(event.type)` with exhaustive `never`, never cast.
+- **Progressive disclosure** — metadata eagerly, full content on demand.
+- **Least-destructive-first** — graduated response, never "fine" → "nuclear".
+- **Zod at boundaries** — parse, don't validate; schema derives the type. Zod is restricted to `application/contracts/`.
+- **Ports / Adapters** — `application/ports/` define interfaces, `infrastructure/` implements them.
+- **Contracts own cross-boundary data** — `application/contracts/` has type sovereignty for events, records, envelopes.
+
+---
 
 ## Design Overview
 
-For a comprehensive walkthrough of the project's architecture — the agent loop, tool dispatch pipeline, memory system, skills, compaction, TUI, and how everything fits together — read the **[Design Document](./DESIGN.md)**.
+For a comprehensive walkthrough — kernel boot sequence, extension system, event bus, tool dispatch, memory, skills, compaction, TUI, and how everything fits together — read the **[Design Document](./DESIGN.md)**.
+
+> Note: `DESIGN.md` is currently mid-rewrite to align with Lobster v2.0. Where `DESIGN.md` and `ARCHITECTURE-CONSTITUTION.md` disagree, the constitution wins.
+
+---
 
 ## Current State
 
-This is a TypeScript-based AI agent framework built with Bun, featuring a modular architecture for extending functionality through skills, and an interactive terminal UI (TUI) powered by Ink/React. The project includes a self-evolution system that analyzes agent traces, creates skills, and evaluates their effectiveness through a multi-tier review pipeline.
+This is a TypeScript-based AI agent framework built with Bun. The system has completed its major refactor from a monolithic `Agent` class to a **kernel + extension** architecture (Lobster v2.0). The kernel manages an event bus, hook dispatch, RPC registry, and extension lifecycle. All subsystems (provider, memory, session, tools, trace, evolution, MCP, skills, permission, identity, controlplane, dataplane, transport, frontends) are extensions that plug into the kernel.
 
-**Self-Evolution Phases Complete:** Phase A (P0 fixes) → B (defense layers) → C (lifecycle) → D (tiered queue) → E (triggers). Phase F (prompt self-evolution) pending.
+**Refactor status (M1, branch `feature/lobster-m1-kernel`):**
+
+- P-1 … P-5 complete.
+- Slash-promotion epic complete (built-ins in `application/slash/`, `slash` channel on extensions). **Frontend wiring of `collectSlashCommands()` is the open P0 — extension-contributed slashes are silently absent at M1 cut.**
+- `src/types.ts` and `src/core/` no longer exist; their contents moved to `application/contracts/` and per-extension contract folders.
+
+---
 
 ## Development Commands
 
 - **Compile TypeScript**: `bun run tsc` (alias: `bun run build`)
-- **Run TUI in development**: `bun run tui` (alias: `bun run dev`)
+- **Run TUI**: `bun run tui` (alias: `bun run dev`)
 - **Run headless agent**: `bun run agent` (alias: `bun run headless`)
 - **Run tests**: `bun test`
 - **Lint**: `bun run lint`
 - **Type check only**: `bun run check:guard`
 - **Architecture check**: `bun run check:arch`
 - **Dead code check**: `bun run check:deadcode`
-- **Full CI check**: `bun run check:all` (typecheck + tests + architecture)
-- **Update any baseline**: `bun run baseline:any`
+- **Full CI check**: `bun run check:all` (typecheck + tests + arch + deadcode)
+- **Update `any` baseline**: `bun run baseline:any`
 - **Install git hooks**: `bun run prepare`
-- **TypeScript version**: ^6.0.3
+
+> `bun run check:deadcode` runs `knip`. Note that knip v5 silently ignores invalid schema keys with exit 0 — when changing `knip.json`, always inspect the issue table, not just the exit code.
+
+---
 
 ## Architecture
 
-### Core Files
+### Kernel (`/src/kernel/`)
 
-- `/src/index.ts`: Main entry point with public exports (types, agent, providers, skills, tools, todos, session)
-- `/src/types.ts`: Global shared type definitions (ContentBlock, Message, Tool, ToolCall, Provider, Middleware, AgentHooks, AgentContext, AgentConfig, CompressionStrategy, etc.)
-- `/src/runtime.ts`: Unified runtime — `createAgentRuntime()` is the single assembly point wiring all subsystems (provider, tools, MCP, memory, skills, todos, session, compaction, trace/evolution)
-- `/src/runtime-providers.ts`: `createProviderFromEnv()` for headless auto-detect and `setupEvolution()` for wiring evolution into TUI store
+The kernel is the extension system core — a minimal DI container.
 
-### Agent Module (`/src/agent/`)
+- `define-extension.ts`: `defineExtension({ name, enforce?, dependsOn?, apply })` — extension registration factory. The `apply(ctx)` return shape is `{ provide, hooks, subscribe, rpc, slash, dispose }`.
+- `kernel-context.ts`: `KernelContext` — context passed to `apply()`. Frozen surface:
+  `{ agentId, paths, extensions, bus, hooks, rpc, clock, logger, config }`. `agentDir` is `@deprecated` — read `paths.agentDir`. There is no `profileId` / `profileDir`.
+- `kernel.ts`: `createKernel(opts)` topo-sorts extensions, calls `apply()` in dependency order, dispatches `configureKernel` then `kernelReady`.
+- `event-bus.ts`: `EventBus` — pub/sub with failure isolation.
+- `extension-registry.ts`: `ExtensionRegistry` — capability lookup `ctx.extensions.get('name.cap')`. Also exposes `collectSlashCommands()` for frontends.
+- `hook-container.ts`: `HookContainer` — **12 hooks**, **3 dispatch modes** (`sequential`, `parallel`, `first-match`).
+- `topo-sort.ts`: Kahn's algorithm topological sort by `dependsOn` + `enforce` phase.
+- `rpc-registry.ts`: O(1) JSON-RPC method dispatch.
 
-- `Agent.ts`: Agent class with `getContext()`, `clear()`, `abort()`, `getContextManager()`, `getModelName()`
-- `agent-loop.ts`: AgentLoop class — async generator yielding AgentEvents per turn
-- `loop-types.ts`: AgentEvent discriminated union (~16 variants: text_delta, thinking_delta, thinking_done, tool_call_start, tool_call_result, turn_complete, agent_done, agent_error, sub_agent_start, sub_agent_event, sub_agent_done, budget_delegation, budget_compact, context_compacted, mcp_status, evolution_review_done), plus AgentLoopConfig and DEFAULT_LOOP_CONFIG
-- `loop-utils.ts`: Loop utility helpers
-- `context.ts`: ContextManager + TrimOldestStrategy for message store and trimming
-- `middleware.ts`: `composeMiddlewares()` onion composer
-- `dispatch.ts`: Tool dispatch orchestration
-- `tool-registry.ts`: ToolRegistry — manages tool registration, lookup, and conflict resolution
-- `sub-agent-tool.ts`: SubAgentTool — delegates subtasks to independent child agents
-- `sub-agent-config.ts`: Sub-agent configuration
-- `single-turn.ts`: Single LLM turn execution
-- `run-tools.ts`: Tool execution within a turn
-- `rate-limiter.ts`: Rate limiting
-- `token-accumulator.ts`: O(1) incremental token tracking
-- `trim-strategy.ts`: Message trimming logic
-- `budget-guard.ts`: Token budget enforcement (delegate/compact triggers)
-- `compaction/`: Advanced context compression system (5-tier: 0=none, 1=snip, 2=auto-compact, 3=reactive, 4=collapse)
-  - `compaction-manager.ts`: TieredCompactionManager — orchestrates compression strategies
-  - `types.ts`: Compaction type definitions (CompactionLevel, CompactionLevelType)
-  - `budget.ts`: TokenBudgetCalculator for budget tracking
-  - `tiers/snip.ts`: Snip compaction (tier 1, 60-75%)
-  - `tiers/auto-compact.ts`: Automatic compaction (tier 2, 75-95%)
-  - `tiers/reactive.ts`: Reactive compaction (tier 3, API error response)
-  - `tiers/collapse.ts`: Collapse compaction (tier 4, >95%)
-- `tool-dispatch/`: Tool execution middleware pipeline
-  - `dispatcher.ts`: ToolDispatcher — dispatches tool calls, builds middleware chain, handles timeout and serialization
-  - `types.ts`: Tool dispatch type definitions
-  - `middleware.ts`: ToolMiddleware interface and composition
-  - `middlewares/permission.ts`: PermissionMiddleware — deny-list for sub-agents
-  - `middlewares/read-cache.ts`: ReadCacheMiddleware — caches read operations
-- `index.ts`: Module exports
+### Application Layer (`/src/application/`)
 
-### Runtime Module
+- **Contracts (`contracts/`)** — single source of truth for all cross-boundary data. Owns event types, envelopes, codecs, history record schema. Uses zod (restricted to this directory). Key exports: `EventEnvelope`, `createEvent()`, `DataPlaneEvent` + `DataPlaneEventType` union (closed list in `dataplane-event.ts`), `ContentBlock`, `HistoryRecordV1` + `parseHistoryLine()`, `JsonRpcMessage` + helpers, plus typed event contracts for provider, memory, evolution, session, tool, permission, identity, widget events — each with Zod codecs.
+- **Ports (`ports/`)** — abstract interfaces (anti-corruption layer). `Transport`, `ProviderChat` / `ProviderInvoke`, `Logger`, `ToolContext`, `MemoryStore`, `SessionStore`, `TraceWriter` / `TraceReader`, `JobSpawner`, `ProposalStore`, `SkillStatsStore`, etc. Ports depend on contracts, never on extensions.
+- **Slash (`slash/`)** — slash command primitive (post-promotion epic). `SlashRegistry`, `SlashCommand`, `SlashContext`, built-ins under `slash/builtin/`, helpers (`filterCommands`, `getBestCompletion`, …), and `registerBuiltinSlashCommands(registry, opts?)`.
+- **Usecases (`usecases/`)** — pure orchestration, no I/O. `runTurnUsecase`, `buildRunTurnDeps`, `appendHistory`, `submitTurn` / `buildTurnMessages`, `resolveTools`, `transformPrompt`.
 
-- `/src/runtime.ts`: `createAgentRuntime()` — single assembly point for all subsystems
-  - `RuntimeConfig`: Configuration interface (provider, model, maxTokens, tokenLimit, cwd, enableMemory/Skills/Todo/Session/Compaction/Mcp, systemPrompt, allowedRoots, askUserQuestionHandler, settings, mcpServers)
-  - `AgentRuntime`: Returned interface (agent, provider, toolRegistry, contextManager, sessionStore, memoryMiddleware, skillLoader, mcpManager, shutdown)
-  - Internal helpers: `setupMemory()`, `setupCompaction()`, `assembleMcp()`, `setupTrace()`
-- `/src/runtime-providers.ts`: Provider auto-detection and evolution setup for TUI
+### Domain (`/src/domain/`)
 
-### Configuration (`/src/config/`)
+Pure domain entities: `Session`, `Turn`, `TurnEvent` (discriminated union), `TraceEvent`, `MemoryEntry`, `Identity` / `IdentityDiff`, `SkillDescriptor`, `Agent`. `turn-runner.ts` is an async generator yielding `TurnEvent` variants.
 
-- `types.ts`: Full Settings interface (llm, context, memory, skills, tui, subAgent, security, tools, debug, mcp, trace)
-- `schema.ts`: Zod validation schemas for all settings
-- `defaults.ts`: Complete defaults object
-- `loader.ts`: YAML/JSON file loading, deep merge, tilde expansion (settings.yml / settings.json in ~/.my-agent/)
-- `index.ts`: Lazy proxy for settings singleton; `getSettings()` / `getSettingsSync()`
-- `constants.ts`: Named constants (DEFAULT_MODEL, DEFAULT_MAX_TOKENS, DEFAULT_TOKEN_LIMIT, DEFAULT_THINKING_BUDGET, DEFAULT_SUMMARY_MODEL, MCP defaults, evolution defaults)
-- `default-prompts.ts`: `DEFAULT_SYSTEM_PROMPT`
-- `migrations.ts`: Config version migrations (v0→v1)
-- `allowed-roots.ts`: Security boundary — runtime accessor for allowed root directories
+### Extensions (`/src/extensions/`)
 
-### Providers (`/src/providers/`)
+**18 extensions**, each a `defineExtension()` call. Key ones:
 
-- `index.ts`: `createProviderFromSettings()`, re-exports ClaudeProvider, OpenAIProvider
-- `claude.ts`: Anthropic Claude provider with extended thinking support
-- `openai.ts`: OpenAI provider
-- `claude-utils.ts`: Claude-specific utility functions
-- `thinking/types.ts`: ThinkingDecoder interface
-- `thinking/anthropic-native.ts`: Anthropic native thinking decoder
-- `thinking/reasoning-content.ts`: Reasoning content decoder
+| Extension | enforce | Capabilities | Notable hooks / channels |
+|---|---|---|---|
+| `trace` | pre | `trace.writer/reader` | `onTraceEmit`, `onShutdown` |
+| `provider` | pre | `provider.llm` | `kernelReady`, `onLLMDelta` |
+| `session` | normal | `session.store/history` | `kernelReady`, `onTurnStart/End` |
+| `tools` | normal | `tools.registry` | `resolveTools`, `onToolCall` |
+| `tool-catalog` | normal | tool catalog | `resolveTools` |
+| `permission` | pre | `permission.checker` | `onToolCall` |
+| `controlplane` | post | `controlplane.server` | `kernelReady`, `onShutdown` |
+| `dataplane` | post | `dataplane.stream` | bus subscriptions |
+| `memory` | normal | `memory.store` | `transformPrompt`, `onTurnEnd`, `slash` |
+| `identity` | normal | `identity.store` | `transformPrompt`, `onIdentityChanged` |
+| `skills` | normal | `skills.registry` | `kernelReady`, `resolveTools` |
+| `evolution` | normal | review pipeline | `kernelReady`, `onShutdown`, `slash` |
+| `mcp` | normal | `mcp.manager` | `kernelReady`, `resolveTools`, `onShutdown` |
+| `infra-services` | pre | spawner / proposal store / skill stats | — |
+| `transport.inmem` | post | transport | — |
+| `transport.unix` | post | transport | `kernelReady`, `onShutdown` |
+| `frontend.tui` | post | TUI adapter | — |
+| `frontend.lark` | post | Lark bot adapter | `kernelReady`, `onShutdown` |
 
-### MCP Client (`/src/mcp/`)
+Extensions communicate via `ctx.bus` (events), `ctx.extensions.get()` (capabilities through ports), `ctx.hooks.dispatch()` (hooks), and `ctx.rpc` (JSON-RPC methods).
 
-- `index.ts`: Global singleton getters/setters for McpManager, ToolRegistry, PromptRegistry
-- `manager.ts`: MCP client connection manager (start, shutdown, reconnect, tool/prompt discovery)
-- `tools.ts`: MCP management tools (McpListServersTool, McpAddServerTool, McpRemoveServerTool, McpReadResourceTool)
-- `tool-adapter.ts`: Adapts external MCP tools to internal Tool interface
-- `prompt-registry.ts`: MCP prompt discovery and tool registration
-- `resource-middleware.ts`: Injects MCP resource catalogs into agent context
-- `server-listers.ts`: Server listing utilities
-- `server-persistence.ts`: Server config persistence
-- `types.ts`: MCP-specific types
+- `presets.ts`: Named preset bundles for different scenarios (TUI, headless, daemon).
 
-### Memory System (`/src/memory/`)
+### Event Flow
 
-- `index.ts`: Exports SqliteMemoryStore, all retrievers, MemoryMiddleware, MemoryTool, invalidateAgentMdCache
-- `sqlite-store.ts`: SQLite-based memory store (~/.my-agent/memory/memory.db with FTS5)
-- `retriever.ts`: Keyword token-scoring retriever
-- `bm25-retriever.ts`: FTS5 BM25 retriever
-- `vector-retriever.ts`: Ollama vector embedding retriever
-- `hybrid-retriever.ts`: Fused RRF retriever (weights 0.5/0.3/0.2)
-- `middleware.ts`: MemoryMiddleware — retrieves and injects memories before model
-- `tool.ts`: MemoryTool for manual memory operations
-- `extractor.ts`: LLM-based memory extraction from conversation
-- `embedding-runner.ts`: Embedding computation
-- `agent-md.ts`: AGENTS.md / CLAUDE.md caching and invalidation
-- `dispatchers.ts`: Evolution drainer memory dispatchers
-- `wire-memory-evolution.ts`: Bridges memory and evolution modules; backfillEmbeddings
-- `types.ts`: Memory type definitions (MemoryRetriever, etc.)
+```
+Extension emit on bus → DataPlane bridges to DataPlaneEvent (cursor + evId)
+  → emits 'dataplane.event' → Transport forwards to FrontendHandle.onAgentEvent()
+```
 
-### Skills (`/src/skills/`)
+All cross-boundary events are wrapped in `EventEnvelope` via `createEvent(type, payload, opts?)`. The full set of `DataPlaneEventType` values lives in `application/contracts/dataplane-event.ts`.
 
-- `loader.ts`: SkillLoader — discovers SKILL.md files with YAML frontmatter from `skills/` and `~/.my-agent/skills/auto/`
-- `middleware.ts`: createSkillMiddleware — injects skill metadata and full content into agent context
-- `index.ts`: Module exports
+### Infrastructure (`/src/infrastructure/`)
 
-### Trace System (`/src/trace/`)
+Adapter implementations organized by domain: `llm/` (ClaudeProvider, OpenAiProvider, EchoProvider, adapters), `transport/` (InMemoryTransport, UnixSocketTransport), `trace/`, `session/`, `memory/` (SqliteMemoryAdapter), `identity/`, `logging/`, `paths/` (`AgentPaths`), `config/`.
 
-- `index.ts`: `createTraceMiddleware()` factory
-- `agent-middleware.ts`: TraceAgentMiddleware — records runs and sessions
-- `tool-middleware.ts`: TraceToolMiddleware — records tool calls
-- `store.ts`: TraceStore — NDJSON persistence in ~/.my-agent/traces/
-- `nudge-engine.ts`: Signal generation (error_burst, complex_task, periodic, memory_worthy)
-- `redactor.ts`: Sensitive data redaction
-- `turn-settled-detector.ts`: Detects when LLM output has stabilized
-- `trace-buffer.ts`: Buffered trace writing
-- `types.ts`: Trace type definitions (TraceRun, TraceSummary, TraceStore)
+### Configuration (`/src/infrastructure/config/`)
 
-### Self-Evolution System (`/src/evolution/`)
+`types.ts`, `schema.ts` (Zod, exempt from the application/contracts zod restriction), `defaults.ts`, `loader.ts` (YAML/JSON), `constants.ts`, `migrations.ts`, `index.ts`.
 
-- `index.ts`: `initEvolution()` — EvolutionModule with review, trackStats, drainQueue; re-exports all components
-- **Tier 0**: `review-agent.ts` — forks LLM agent to analyze traces and create reusable skills via `review-tools.ts`
-- **Tier 1**: `effectiveness-tracker.ts` — in-line mechanical scoring (success rate, outcome classification)
-- **Tier 2**: `skill-analyzer.ts` — forks LLM to judge skill quality, producing keep/edit/delete verdicts
-- **Tier 3**: Deferred to Phase F — prompt self-evolution with A/B shadow evaluation
-- **Queue & Scheduling**:
-  - `persistent-queue.ts` — file-per-task JSON queue, O_EXCL atomic claim, mtime heartbeat, zombie recovery, per-tier backoff, kind-based subdirectories (tier0/tier2/tier3/housekeeping), deriveTask for parent-child chains
-  - `drainer.ts` — quota-based consumption (tier0:3, tier2:5, tier3:1), mutex guard, IdleGate integration, kind-based dispatchers
-  - `triggers.ts` — 5 trigger types: IdleTrigger (idle 30s), EventTrigger (main_loop_settled+1s), CronTriggers (*/15min, daily, weekly), ThresholdTrigger, ManualTrigger. Each with allowedKinds filtering.
-  - `cron-scheduler.ts` — Cron-based scheduled tasks
-- **Defense**:
-  - `idle-gate.ts` — blocks review while streaming/compacting
-  - `review-slot.ts` — single pending slot with priority override
-  - `review-backoff.ts` — exponential backoff 30s→15min with jitter
-  - `circuit-breaker.ts` — global circuit breaker (3 failures → 1h pause)
-  - `tier-breaker.ts` — per-tier circuit breaker with independent thresholds and cooldowns
-- **Runner & Supervisor**:
-  - `review-runner.ts` — TaskRunner with RunnerOutcome + configurable hard abort timeout
-  - `supervisor.ts` — cancelPolicy dispatch (preempt/graceful/finish) per task kind
-  - `settle-bus.ts` — event bus (main_loop_settled, task_completed, idle_window_open, cron_fired)
-- **Other**:
-  - `prompt-templates.ts` — Review prompt templates
-  - `types.ts` — ReviewConfig, EvolutionCallback, SkillStats, SkillStatus
+### Terminal UI (`/src/extensions/frontend.tui/`)
 
-### Built-in Tools (`/src/tools/`)
-
-- `bash.ts`: BashTool — execute shell commands with working directory bounds
-- `text-editor.ts`: TextEditorTool — file editing with string replacements
-- `read.ts`: ReadTool — read files from filesystem
-- `grep.ts`: GrepTool — content search across files
-- `glob.ts`: GlobTool — file pattern matching
-- `ls.ts`: LsTool — list directory contents
-- `web-search.ts`: WebSearchTool — web search via Tavily API
-- `ask-user-question.ts`: AskUserQuestionTool — interactive multiple-choice prompts
-- `ask-user-question-manager.ts`: Manager for active user questions
-- `memory.ts`: MemoryTool re-export for manual memory operations
-- `permission-manager.ts`: Permission state management
-- `zod-tool.ts`: Base class for Zod-validated tools
-- `index.ts`: Tool exports
-
-### Task Management (`/src/todos/`)
-
-- `todo-middleware.ts`: createTodoMiddleware — TodoWriteTool + hooks
-- `types.ts`: Todo type definitions
-- `index.ts`: Module exports
-
-### Session Management (`/src/session/`)
-
-- `store.ts`: SessionStore — persistent session files in ~/.my-agent/sessions/
-- `hook.ts`: createAutoSaveHook — afterAgentRun persistence
-
-### Utilities (`/src/utils/`)
-
-- `debug.ts`: Debug logging utilities (debugLog)
-- `hash.ts`: Hashing utilities
-- `is-text-file.ts`: Binary/text file detection
-
-### Terminal UI (`/src/cli/tui/`)
-
-- `index.tsx`: TUI main export
-- `App.tsx`: Root Ink/React application container
-- `command-registry.ts`: Slash command types, filtering, and matching utilities
-- `types.ts`: TUI type definitions
-- **State** (`state/`):
-  - `store.ts`: Zustand store for TUI state
-  - `types.ts`: TUI state type definitions
-  - `selectors.ts`: State selectors
-  - `message-converter.ts`: Converts agent events to UI messages
-- **Streaming** (`streaming/`):
-  - `committer.ts`: Streaming output commit logic
-- **Markdown** (`markdown/`):
-  - `parse-ast.ts`: Markdown AST parsing
-  - `render-ast.tsx`: AST to React rendering
-  - `render-table.tsx`: Table rendering
-  - `cache.ts`: Render cache
-- **Views — Chrome** (`views/chrome/`):
-  - `Header.tsx`: Application header with logo
-  - `Footer.tsx`: Status footer
-  - `InputBox.tsx`: User input with autocomplete
-  - `StreamingIndicator.tsx`: Streaming animation indicator
-  - `keymap.ts`: Keyboard shortcut definitions
-- **Views — Active** (`views/active/`):
-  - `ActiveAssistantView.tsx`: Live streaming assistant output
-  - `LiveTextSegment.tsx`: Live text rendering segment
-- **Views — Final** (`views/final/`):
-  - `AssistantMessageView.tsx`: Finalized assistant message
-  - `AssistantHeaderView.tsx`: Assistant message header
-  - `AssistantTailView.tsx`: Assistant message footer
-  - `ToolCallFinalView.tsx`: Completed tool call display
-  - `FinalToolCallView.tsx`: Final tool call rendering
-  - `UserMessageView.tsx`: User message display
-  - `SystemNoticeView.tsx`: System notification display
-  - `CommittedBlockView.tsx`: Committed text block view
-  - `FinalItemView.tsx`: Generic final item wrapper
-  - `DividerView.tsx`: Visual divider
-  - `MarkdownText.tsx`: Rendered markdown text
-- **Views — Overlay** (`views/overlay/`):
-  - `AskUserQuestionPrompt.tsx`: Modal for user questions
-  - `PermissionPrompt.tsx`: Permission request modal
-  - `FocusedToolDetail.tsx`: Detailed tool call view
-- **Components** (`components/`):
-  - `HighlightedInput.tsx`: Input display with cursor position highlighting
-  - `CommandList.tsx`: Autocomplete dropdown for slash commands
-  - `FilePicker.tsx`: File path picker
-  - `CodeBlock.tsx`: Syntax-highlighted code blocks
-  - `ReviewNotification.tsx`: Evolution review notification
-  - `utils/language-map.ts`: Prism language mapping
-  - `utils/tokenize-by-line.ts`: Line-based tokenization
-  - `utils/prism-theme.ts`: Prism syntax highlighting theme
-- **Commands** (`commands/`):
-  - `session-commands.ts`: Session-related commands (tasks, memory, etc.)
-  - `compact-command.ts`: Manual context compression trigger
-  - `mcp-commands.ts`: MCP server management commands
-  - `review-commands.ts`: Evolution review commands
-  - `diagnostic-commands.ts`: Diagnostic and debug commands
-- **Hooks** (`hooks/`):
-  - `use-agent-subscription.ts`: Agent event stream subscription
-  - `use-command-input.ts`: Main input hook with autocomplete and history
-  - `use-input-editor.ts`: Pure editor state transformation functions
-  - `use-input-history.ts`: Persistent input history browsing
-  - `use-ask-user-question-manager.ts`: Hook for managing active questions
-  - `use-permission-manager.ts`: Hook for permission state
-  - `paste-handler.ts`: Paste event handling
-  - `use-bracketed-paste.ts`: Bracketed paste mode support
-- **Other TUI files**:
-  - `paste-buffering-stdin.ts`: Stdin paste buffering
-  - `paste-attachments.ts`: Paste attachment support
-  - `utils/tool-format.ts`: Tool output formatting
-  - `utils/render-markdown.tsx`: Markdown rendering utilities
-  - `utils/syntax-cache.ts`: Syntax highlighting cache
+Ink/React TUI implementing `FrontendHandle`. TUIAdapter wraps Transport, bridges `DataPlaneEvent` → view-model events. Zustand store with live / committed streaming state. Views organized by rendering lifecycle: `views/chrome/`, `views/active/`, `views/final/`, `overlays/`, `panels/`. Hooks: `use-agent-subscription`, `use-command-input`, `use-permission-manager`, `use-session-picker`.
 
 ### Binaries (`/bin/`)
 
-- `my-agent.ts`: Headless CLI entry point (parses args → createAgentRuntime → agent loop)
-- `my-agent-tui-dev.ts`: Development entry point for TUI (runs TypeScript directly with Bun)
-- `my-agent-tui`: Production entry point (Bun-compiled binary)
-- `mcp-cli.ts`: MCP server management sub-CLI (list/add/remove MCP servers in settings.json)
+Thin CLI entry points — parse args → assemble kernel → run:
+
+- `my-agent-cli.ts`: CLI dispatch (subcommand router).
+- `my-agent-daemon.ts`: Daemon process entry.
 
 ### Scripts (`/scripts/`)
 
-- `check-architecture.ts`: Architecture constitution enforcement (CI check)
-- `pre-edit-guard.ts`: Pre-edit safety checks
-- `update-any-baseline.ts`: any baseline updater
-- `git-hooks/pre-push`: Git pre-push hook
+- `check-architecture.ts`: Architecture constitution enforcement (CI check, ts-morph based).
+- `check-apply-pure.ts`: Extension `apply()` purity check.
+- `assert-cli-bearing.ts`: Compile-time check that CLI-bearing extensions export `cliManifest`.
+- `update-any-baseline.ts`: `any` baseline updater.
+- `git-hooks/pre-push`: Git pre-push hook.
+
+---
 
 ## Important Files
 
-- `tsconfig.json`: TypeScript configuration
-- `package.json`: Project dependencies and scripts
-- `CLAUDE.md`: This file — project guidance for Claude Code
-- `ARCHITECTURE-CONSTITUTION.md`: Mandatory non-negotiable architecture rules
-- `DESIGN.md`: Comprehensive architecture design document (73KB)
-- `README.md`: Project documentation
-- `skills/`: Directory containing available skills (each in separate folder with SKILL.md)
-- `tests/`: Test suite (unit and integration tests for all modules)
-- `bin/`: Executable scripts
-- `scripts/`: Build/CI utility scripts
+- `tsconfig.json`: TypeScript configuration.
+- `package.json`: Project dependencies and scripts.
+- `knip.json`: Dead-code config (note: knip v5 silently ignores invalid keys).
+- `eslint.config.js`: Layering and slash-domain guards.
+- `CLAUDE.md`: This file.
+- `ARCHITECTURE-CONSTITUTION.md`: Mandatory non-negotiable architecture rules.
+- `DESIGN-PHILOSOPHY.md`: Design principles and recurring patterns.
+- `DESIGN.md`: Comprehensive architecture design document.
+- `README.md` / `README.en.md`: User-facing documentation.
+- `skills/`: Available skills (each with `SKILL.md`).
+- `tests/`: Test suite.
+
+---
+
+## CLI-bearing Extensions
+
+When you modify any of these extensions, you MUST also:
+
+1. Verify `export const cliManifest: CliManifest` is present in `index.ts`.
+2. Verify the `_CheckCliManifest` compile-time assertion exists (it can carry an `@internal` JSDoc tag for knip).
+3. If adding a new RPC method, expose it via `cliManifest.handler`.
+4. If renaming the extension, update `CLI_BEARING_EXTS_TARGET` in `scripts/check-architecture.ts` AND the import in `src/cli/cli-registry.ts`.
+
+| Ext | Subcommand | `cliManifest` location |
+|---|---|---|
+| trace | `my-agent trace ...` | `src/extensions/trace/index.ts` |
+| memory | `my-agent memory ...` | `src/extensions/memory/index.ts` |
+| skills | `my-agent skills ...` | `src/extensions/skills/index.ts` |
+| evolution | `my-agent evolution ...` | `src/extensions/evolution/index.ts` |
+| mcp | `my-agent mcp ...` | `src/extensions/mcp/index.ts` |
+
+---
 
 ## Getting Started
 
 When adding code to this repository:
-1. Understand the project requirements and architecture
-2. Read and comply with the [Architecture Constitution](./ARCHITECTURE-CONSTITUTION.md)
-3. Update this file with relevant commands and architecture documentation as the project takes shape
+
+1. Read and comply with the [Architecture Constitution](./ARCHITECTURE-CONSTITUTION.md).
+2. Read the [Design Philosophy](./DESIGN-PHILOSOPHY.md) for patterns to follow.
+3. New cross-boundary data types go in `src/application/contracts/`.
+4. New abstractions go in `src/application/ports/`.
+5. New side-effect-free orchestration goes in `src/application/usecases/`.
+6. New extension capabilities use `defineExtension()` with proper `enforce` ordering.
+7. New adapter implementations go in `src/infrastructure/`.
+8. New slash commands: built-ins in `src/application/slash/builtin/`; extension-owned via the extension's `slash` channel.
+9. Update this file as the project evolves.

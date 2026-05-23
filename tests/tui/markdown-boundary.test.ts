@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
-import { parseDoc } from '../../src/cli/tui/markdown/parse-ast';
-import type { Block } from '../../src/cli/tui/markdown/parse-ast';
+import { parseDoc } from '../../src/extensions/frontend.tui/markdown/parse-ast';
+import type { Block } from '../../src/extensions/frontend.tui/markdown/parse-ast';
 
 function computeBoundary(blocks: Block[], prevCommitted: number): number {
   if (blocks.length === 0) return prevCommitted;

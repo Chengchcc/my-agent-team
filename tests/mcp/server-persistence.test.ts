@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import yaml from 'js-yaml';
-import { persistServerConfig, removeServerConfig } from '../../src/mcp/server-persistence';
+import { persistServerConfig, removeServerConfig } from '../../src/extensions/mcp/server-persistence';
 import type { McpServerConfig } from '../../src/config/types';
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from '../../src/config/constants';
 

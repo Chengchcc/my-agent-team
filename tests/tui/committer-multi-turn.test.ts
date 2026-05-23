@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach } from 'bun:test';
-import { getCommitter } from '../../src/cli/tui/streaming/committer';
-import { useTuiStore } from '../../src/cli/tui/state/store';
+import { getCommitter } from '../../src/extensions/frontend.tui/streaming/committer';
+import { useTuiStore } from '../../src/extensions/frontend.tui/state/store';
 
 function store() {
   return useTuiStore.getState();

@@ -1,0 +1,512 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lobster.dev/schemas/dataplane-events",
+  "title": "DataPlane Events — NDJSON Stream Contract",
+  "description": "oneOf schema for all 16 DataPlane event types. Each event is a line in an NDJSON stream with a monotonic cursor for replay. Lobster v2.0 protocol contract.",
+  "type": "object",
+  "required": ["evId", "cursor", "ts", "type", "payload"],
+  "properties": {
+    "evId": {
+      "type": "string",
+      "description": "Unique event identifier, e.g. 'ev-42'"
+    },
+    "cursor": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Monotonic cursor for replay. Frontends track their last cursor to resume."
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of event emission"
+    },
+    "sessionId": {
+      "type": "string",
+      "description": "Session this event belongs to. May be absent for system-level events."
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "snapshot",
+        "assistant.delta",
+        "tool.update",
+        "permission.required",
+        "user.question",
+        "turn.started",
+        "turn.completed",
+        "turn.failed",
+        "state.changed",
+        "attach.changed",
+        "identity.changed",
+        "skills.reloaded",
+        "mcp.reloaded",
+        "evolution.progress",
+        "evolution.skillProposed",
+        "system.warn"
+      ],
+      "description": "Discriminated event type"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Type-specific payload. Shape is enforced by the allOf/oneOf constraints below."
+    },
+    "target": {
+      "type": "string",
+      "description": "frontendId for targeted events (e.g. permission requests routed to lastInputFrontendId)"
+    }
+  },
+  "allOf": [
+    { "$ref": "#/$defs/PayloadConstraint" }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "PayloadConstraint": {
+      "title": "Per-type payload constraint",
+      "description": "Discriminates on type to enforce the correct payload shape for each event.",
+      "anyOf": [
+        {
+          "if": { "properties": { "type": { "const": "snapshot" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/snapshot" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "assistant.delta" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/assistant.delta" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "tool.update" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/tool.update" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "permission.required" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/permission.required" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "user.question" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/user.question" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "turn.started" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/turn.started" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "turn.completed" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/turn.completed" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "turn.failed" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/turn.failed" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "state.changed" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/state.changed" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "attach.changed" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/attach.changed" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "identity.changed" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/identity.changed" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "skills.reloaded" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/skills.reloaded" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "mcp.reloaded" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/mcp.reloaded" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "evolution.progress" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/evolution.progress" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "evolution.skillProposed" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/evolution.skillProposed" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "system.warn" } }, "required": ["type"] },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payloads/system.warn" } } }
+        }
+      ]
+    },
+    "payloads": {
+      "snapshot": {
+        "title": "snapshot payload",
+        "description": "Full session snapshot sent on attach/resume/replay.",
+        "type": "object",
+        "required": ["turns", "cursor"],
+        "properties": {
+          "turns": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/TurnSnapshot" }
+          },
+          "cursor": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Cursor position of this snapshot"
+          }
+        },
+        "additionalProperties": false
+      },
+      "assistant.delta": {
+        "title": "assistant.delta payload",
+        "description": "Streaming text/thinking delta from the LLM.",
+        "type": "object",
+        "required": ["turnId", "content"],
+        "properties": {
+          "turnId": { "type": "string" },
+          "content": { "type": "string" },
+          "contentBlockIndex": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Index of the content block being streamed"
+          },
+          "thinking": {
+            "type": "boolean",
+            "description": "True when this delta is thinking/reasoning content"
+          }
+        },
+        "additionalProperties": false
+      },
+      "tool.update": {
+        "title": "tool.update payload",
+        "description": "Tool call started, in-progress, or completed.",
+        "type": "object",
+        "required": ["turnId", "toolCallId", "state"],
+        "properties": {
+          "turnId": { "type": "string" },
+          "toolCallId": { "type": "string" },
+          "toolName": { "type": "string" },
+          "state": {
+            "type": "string",
+            "enum": ["started", "running", "completed", "error"],
+            "description": "Tool execution state"
+          },
+          "args": {
+            "type": "object",
+            "description": "Tool arguments (present on 'started')"
+          },
+          "result": {
+            "type": "object",
+            "description": "Tool result (present on 'completed'/'error')"
+          },
+          "duration": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Execution duration in ms (present on 'completed'/'error')"
+          }
+        },
+        "additionalProperties": false
+      },
+      "permission.required": {
+        "title": "permission.required payload",
+        "description": "Permission request routed to lastInputFrontendId.",
+        "type": "object",
+        "required": ["sessionId", "requestId", "toolName", "reason"],
+        "properties": {
+          "sessionId": { "type": "string" },
+          "requestId": { "type": "string" },
+          "toolName": { "type": "string" },
+          "args": { "type": "object" },
+          "reason": { "type": "string" },
+          "frontendId": {
+            "type": "string",
+            "description": "Target frontend for this permission request"
+          }
+        },
+        "additionalProperties": false
+      },
+      "user.question": {
+        "title": "user.question payload",
+        "description": "Ask-user-question prompt displayed to the user.",
+        "type": "object",
+        "required": ["sessionId", "questionId", "question"],
+        "properties": {
+          "sessionId": { "type": "string" },
+          "questionId": { "type": "string" },
+          "question": { "type": "string" },
+          "options": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/QuestionOption" }
+          },
+          "multiSelect": {
+            "type": "boolean",
+            "description": "Allow multiple selections. Defaults to false."
+          },
+          "frontendId": {
+            "type": "string",
+            "description": "Target frontend for this question"
+          }
+        },
+        "additionalProperties": false
+      },
+      "turn.started": {
+        "title": "turn.started payload",
+        "description": "A new turn has begun in this session.",
+        "type": "object",
+        "required": ["turnId", "sessionId", "timestamp"],
+        "properties": {
+          "turnId": { "type": "string" },
+          "sessionId": { "type": "string" },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "userMessage": { "type": "string" },
+          "parentTurnId": {
+            "type": "string",
+            "description": "Set for sub-turns"
+          }
+        },
+        "additionalProperties": false
+      },
+      "turn.completed": {
+        "title": "turn.completed payload",
+        "description": "A turn has completed successfully.",
+        "type": "object",
+        "required": ["turnId", "duration"],
+        "properties": {
+          "turnId": { "type": "string" },
+          "duration": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Turn duration in ms"
+          },
+          "tokensUsed": { "$ref": "#/$defs/TokenUsage" },
+          "toolCallCount": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "turn.failed": {
+        "title": "turn.failed payload",
+        "description": "A turn has terminated with an error.",
+        "type": "object",
+        "required": ["turnId", "error"],
+        "properties": {
+          "turnId": { "type": "string" },
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "details": {}
+            },
+            "additionalProperties": false
+          },
+          "duration": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "state.changed": {
+        "title": "state.changed payload",
+        "description": "Session state machine transition.",
+        "type": "object",
+        "required": ["sessionId", "previousState", "currentState"],
+        "properties": {
+          "sessionId": { "type": "string" },
+          "previousState": {
+            "type": "string",
+            "enum": ["init", "idle", "running", "waiting", "closed"]
+          },
+          "currentState": {
+            "type": "string",
+            "enum": ["init", "idle", "running", "waiting", "closed"]
+          },
+          "reason": {
+            "type": "string",
+            "description": "Human-readable reason for the state change"
+          }
+        },
+        "additionalProperties": false
+      },
+      "attach.changed": {
+        "title": "attach.changed payload",
+        "description": "Frontend attach/detach roster changed.",
+        "type": "object",
+        "required": ["sessionId", "frontends"],
+        "properties": {
+          "sessionId": { "type": "string" },
+          "frontends": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/FrontendBinding" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "identity.changed": {
+        "title": "identity.changed payload",
+        "description": "Agent identity profile was updated.",
+        "type": "object",
+        "required": ["version", "timestamp"],
+        "properties": {
+          "version": { "type": "number", "minimum": 1 },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "previousVersion": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "skills.reloaded": {
+        "title": "skills.reloaded payload",
+        "description": "Skills were reloaded from disk.",
+        "type": "object",
+        "required": ["count"],
+        "properties": {
+          "count": { "type": "number", "minimum": 0 },
+          "added": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "removed": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "mcp.reloaded": {
+        "title": "mcp.reloaded payload",
+        "description": "MCP servers were reloaded.",
+        "type": "object",
+        "required": ["count"],
+        "properties": {
+          "count": { "type": "number", "minimum": 0 },
+          "serverName": {
+            "type": "string",
+            "description": "Name of reloaded server, or absent for full reload"
+          },
+          "newToolCount": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "evolution.progress": {
+        "title": "evolution.progress payload",
+        "description": "Evolution review activity progress update.",
+        "type": "object",
+        "required": ["proposalId", "phase", "message"],
+        "properties": {
+          "proposalId": { "type": "string" },
+          "phase": {
+            "type": "string",
+            "enum": ["scanning", "analyzing", "drafting", "reviewing", "applying", "complete", "failed"],
+            "description": "Current phase of the review pipeline"
+          },
+          "message": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "evolution.skillProposed": {
+        "title": "evolution.skillProposed payload",
+        "description": "A new skill has been proposed by the evolution system.",
+        "type": "object",
+        "required": ["proposalId", "skillName", "summary"],
+        "properties": {
+          "proposalId": { "type": "string" },
+          "skillName": { "type": "string" },
+          "summary": { "type": "string" },
+          "category": { "type": "string" },
+          "diff": {
+            "type": "string",
+            "description": "Skill content diff or full text"
+          }
+        },
+        "additionalProperties": false
+      },
+      "system.warn": {
+        "title": "system.warn payload",
+        "description": "System-level warning/notification.",
+        "type": "object",
+        "required": ["code", "message", "severity"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "severity": {
+            "type": "string",
+            "enum": ["info", "warn", "error"]
+          },
+          "details": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "TurnSnapshot": {
+      "type": "object",
+      "required": ["turnId", "status", "startedAt"],
+      "properties": {
+        "turnId": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["running", "completed", "failed", "cancelled"]
+        },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "userMessage": { "type": "string" },
+        "assistantMessage": { "type": "string" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "duration": { "type": "number", "minimum": 0 },
+        "tokensUsed": { "$ref": "#/$defs/TokenUsage" },
+        "toolCalls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["toolCallId", "toolName", "state"],
+            "properties": {
+              "toolCallId": { "type": "string" },
+              "toolName": { "type": "string" },
+              "state": { "type": "string" },
+              "duration": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "TokenUsage": {
+      "type": "object",
+      "required": ["input", "output"],
+      "properties": {
+        "input": { "type": "number", "minimum": 0 },
+        "output": { "type": "number", "minimum": 0 },
+        "cacheRead": { "type": "number", "minimum": 0 },
+        "cacheWrite": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "QuestionOption": {
+      "type": "object",
+      "required": ["label"],
+      "properties": {
+        "label": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "FrontendBinding": {
+      "type": "object",
+      "required": ["id", "type", "status"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["tui", "lark", "web", "cli"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "idle", "disconnected"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

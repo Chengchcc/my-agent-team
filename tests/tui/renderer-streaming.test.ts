@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
-import { parseDoc } from '../../src/cli/tui/markdown/parse-ast';
-import { getMarkdownRenderer } from '../../src/cli/tui/markdown/cache';
+import { parseDoc } from '../../src/extensions/frontend.tui/markdown/parse-ast';
+import { getMarkdownRenderer } from '../../src/extensions/frontend.tui/markdown/cache';
 
 const W = 80;
 
