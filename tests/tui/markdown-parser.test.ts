@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
-import { parseDoc, type Block } from '../../src/cli/tui/markdown/parse-ast';
-import { getMarkdownRenderer } from '../../src/cli/tui/markdown/cache';
+import { parseDoc, type Block } from '../../src/extensions/frontend.tui/markdown/parse-ast';
+import { getMarkdownRenderer } from '../../src/extensions/frontend.tui/markdown/cache';
 import type { Definition, FootnoteDefinition } from 'mdast';
 import type { Heading, Code, List, ListItem, Table } from 'mdast';
 

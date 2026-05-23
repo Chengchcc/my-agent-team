@@ -76,6 +76,8 @@ interface HybridRetrievalConfig {
 
 export interface SkillsSettings {
   baseDir: string;
+  /** Additional skill directories to search (beyond builtin + agent). */
+  extraPaths?: string[];
   autoInject: boolean;
   injectOnMention: boolean;
   /** Maximum number of mentioned skills to inject per turn (tag matches always included). */
@@ -149,6 +151,13 @@ export interface DebugSettings {
   enabled: boolean;
 }
 
+export interface LogSettings {
+  /** Directory for log output. Default: ~/.my-agent/profiles/<profile>/logs */
+  dir?: string;
+  /** Minimum log level. Default: 'info' */
+  level?: 'debug' | 'info' | 'warn' | 'error';
+}
+
 export interface TraceRedactionSettings {
   mode: 'default' | 'none';
 }
@@ -187,6 +196,7 @@ export interface Settings {
   security: SecuritySettings;
   tools: ToolsSettings;
   debug: DebugSettings;
+  log: LogSettings;
   mcp: McpSettings;
   trace: TraceSettings;
 }

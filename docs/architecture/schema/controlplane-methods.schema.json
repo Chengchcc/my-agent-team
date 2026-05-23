@@ -1,0 +1,838 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lobster.dev/schemas/controlplane-methods",
+  "title": "ControlPlane Methods — JSON-RPC 2.0 Contract",
+  "description": "Request params and response result schemas for all 28 ControlPlane JSON-RPC methods. Lobster v2.0 protocol contract.",
+  "type": "object",
+  "properties": {
+    "jsonrpc": {
+      "const": "2.0"
+    }
+  },
+  "required": ["jsonrpc"],
+  "oneOf": [
+    { "$ref": "#/$defs/JsonRpcRequest" },
+    { "$ref": "#/$defs/JsonRpcSuccessResponse" },
+    { "$ref": "#/$defs/JsonRpcErrorResponse" }
+  ],
+  "$defs": {
+    "JsonRpcRequest": {
+      "title": "JSON-RPC 2.0 Request",
+      "type": "object",
+      "required": ["jsonrpc", "method"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" }
+          ]
+        },
+        "method": { "type": "string" },
+        "params": { "type": "object" }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/MethodParamConstraint" }
+      ]
+    },
+    "JsonRpcSuccessResponse": {
+      "title": "JSON-RPC 2.0 Success Response",
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "null" }
+          ]
+        },
+        "result": {}
+      }
+    },
+    "JsonRpcErrorResponse": {
+      "title": "JSON-RPC 2.0 Error Response",
+      "type": "object",
+      "required": ["jsonrpc", "id", "error"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "null" }
+          ]
+        },
+        "error": {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "number" },
+            "message": { "type": "string" },
+            "data": {}
+          }
+        }
+      }
+    },
+    "MethodParamConstraint": {
+      "title": "Per-method params constraint",
+      "description": "Discriminates on method to enforce correct params shape.",
+      "anyOf": [
+        {
+          "if": { "properties": { "method": { "const": "hello" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/hello" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "session.list" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/session.list" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "session.attach" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/session.attach" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "session.detach" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/session.detach" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "session.resume" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/session.resume" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "session.create" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/session.create" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "session.close" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/session.close" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "session.rename" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/session.rename" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "input.send" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/input.send" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "input.cancel" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/input.cancel" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "permission.resolve" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/permission.resolve" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "user.answer" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/user.answer" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "system.health" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/system.health" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "system.shutdown" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/system.shutdown" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "system.version" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/system.version" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "skills.list" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/skills.list" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "skills.reload" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/skills.reload" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "mcp.list" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/mcp.list" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "mcp.add" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/mcp.add" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "mcp.remove" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/mcp.remove" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "mcp.reload" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/mcp.reload" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "identity.get" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/identity.get" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "identity.set" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/identity.set" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "evolution.status" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/evolution.status" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "evolution.list" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/evolution.list" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "evolution.approve" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/evolution.approve" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "evolution.reject" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/evolution.reject" } } }
+        },
+        {
+          "if": { "properties": { "method": { "const": "evolution.forceReview" } }, "required": ["method"] },
+          "then": { "properties": { "params": { "$ref": "#/$defs/params/evolution.forceReview" } } }
+        }
+      ]
+    },
+    "params": {
+      "hello": {
+        "type": "object",
+        "properties": {
+          "protocolVersion": {
+            "type": "string",
+            "description": "Client protocol version, e.g. 'lobster-cp/1.0'"
+          }
+        },
+        "required": ["protocolVersion"],
+        "additionalProperties": false
+      },
+      "session.list": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["idle", "running", "waiting", "closed"]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "session.attach": {
+        "type": "object",
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 },
+          "frontendId": { "type": "string", "minLength": 1 }
+        },
+        "required": ["sessionId", "frontendId"],
+        "additionalProperties": false
+      },
+      "session.detach": {
+        "type": "object",
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 },
+          "frontendId": { "type": "string", "minLength": 1 }
+        },
+        "required": ["sessionId", "frontendId"],
+        "additionalProperties": false
+      },
+      "session.resume": {
+        "type": "object",
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 },
+          "cursor": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Replay from this cursor. Omit for latest."
+          }
+        },
+        "required": ["sessionId"],
+        "additionalProperties": false
+      },
+      "session.create": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Human-readable session name"
+          },
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Profile to create session under. Defaults to active profile."
+          }
+        },
+        "additionalProperties": false
+      },
+      "session.close": {
+        "type": "object",
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 }
+        },
+        "required": ["sessionId"],
+        "additionalProperties": false
+      },
+      "session.rename": {
+        "type": "object",
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1, "maxLength": 256 }
+        },
+        "required": ["sessionId", "label"],
+        "additionalProperties": false
+      },
+      "input.send": {
+        "type": "object",
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 },
+          "turnId": {
+            "type": "string",
+            "description": "Omit to start a new turn. Provide to continue waiting turn."
+          },
+          "message": { "type": "string", "minLength": 1 },
+          "attachments": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/Attachment" }
+          },
+          "thinkingBudget": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Token budget for extended thinking"
+          }
+        },
+        "required": ["sessionId", "message"],
+        "additionalProperties": false
+      },
+      "input.cancel": {
+        "type": "object",
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 },
+          "turnId": { "type": "string", "minLength": 1 }
+        },
+        "required": ["sessionId", "turnId"],
+        "additionalProperties": false
+      },
+      "permission.resolve": {
+        "type": "object",
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 },
+          "requestId": { "type": "string", "minLength": 1 },
+          "decision": {
+            "type": "string",
+            "enum": ["allow", "deny"]
+          },
+          "reason": { "type": "string" }
+        },
+        "required": ["sessionId", "requestId", "decision"],
+        "additionalProperties": false
+      },
+      "user.answer": {
+        "type": "object",
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 },
+          "questionId": { "type": "string", "minLength": 1 },
+          "answer": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          }
+        },
+        "required": ["sessionId", "questionId", "answer"],
+        "additionalProperties": false
+      },
+      "system.health": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "system.shutdown": {
+        "type": "object",
+        "properties": {
+          "force": {
+            "type": "boolean",
+            "description": "Force shutdown without graceful drain"
+          }
+        },
+        "additionalProperties": false
+      },
+      "system.version": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "skills.list": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "object",
+            "properties": {
+              "category": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "skills.reload": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "mcp.list": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "mcp.add": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "command": { "type": "string", "minLength": 1 },
+          "args": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        },
+        "required": ["name", "command"],
+        "additionalProperties": false
+      },
+      "mcp.remove": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "mcp.reload": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Reload a single server by name. Omit to reload all."
+          }
+        },
+        "additionalProperties": false
+      },
+      "identity.get": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "identity.set": {
+        "type": "object",
+        "properties": {
+          "diff": { "$ref": "#/$defs/IdentityDiff" }
+        },
+        "required": ["diff"],
+        "additionalProperties": false
+      },
+      "evolution.status": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "evolution.list": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["pending", "approved", "rejected", "all"],
+            "description": "Filter by proposal status. Defaults to 'pending'."
+          }
+        },
+        "additionalProperties": false
+      },
+      "evolution.approve": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1 }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "evolution.reject": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string" }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "evolution.forceReview": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    "results": {
+      "hello": {
+        "type": "object",
+        "required": ["protocol", "version", "uptime", "sessionCount"],
+        "properties": {
+          "protocol": { "const": "lobster-cp/1.0" },
+          "version": { "type": "string" },
+          "uptime": { "type": "number", "minimum": 0 },
+          "sessionCount": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "session.list": {
+        "type": "object",
+        "required": ["sessions"],
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/SessionSummary" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "session.attach": {
+        "type": "object",
+        "required": ["ok"],
+        "properties": {
+          "ok": { "const": true },
+          "session": { "$ref": "#/$defs/SessionSummary" }
+        },
+        "additionalProperties": false
+      },
+      "session.detach": {
+        "$ref": "#/$defs/OkResult"
+      },
+      "session.resume": {
+        "type": "object",
+        "required": ["events", "cursor"],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/DataPlaneEvent" }
+          },
+          "cursor": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "session.create": {
+        "type": "object",
+        "required": ["sessionId", "createdAt"],
+        "properties": {
+          "sessionId": { "type": "string" },
+          "label": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
+      "session.close": {
+        "$ref": "#/$defs/OkResult"
+      },
+      "session.rename": {
+        "$ref": "#/$defs/OkResult"
+      },
+      "input.send": {
+        "type": "object",
+        "required": ["turnId", "ok"],
+        "properties": {
+          "turnId": { "type": "string" },
+          "ok": { "const": true }
+        },
+        "additionalProperties": false
+      },
+      "input.cancel": {
+        "$ref": "#/$defs/OkResult"
+      },
+      "permission.resolve": {
+        "$ref": "#/$defs/OkResult"
+      },
+      "user.answer": {
+        "$ref": "#/$defs/OkResult"
+      },
+      "system.health": {
+        "type": "object",
+        "required": ["status", "uptime", "memory", "sessionCount", "activeTurns"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["healthy", "degraded", "unhealthy"]
+          },
+          "uptime": { "type": "number", "minimum": 0 },
+          "memory": {
+            "type": "object",
+            "required": ["heapUsed", "heapTotal"],
+            "properties": {
+              "heapUsed": { "type": "number", "minimum": 0 },
+              "heapTotal": { "type": "number", "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "sessionCount": { "type": "number", "minimum": 0 },
+          "activeTurns": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "system.shutdown": {
+        "$ref": "#/$defs/OkResult"
+      },
+      "system.version": {
+        "type": "object",
+        "required": ["version"],
+        "properties": {
+          "version": { "type": "string" },
+          "buildDate": { "type": "string" },
+          "gitSha": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "skills.list": {
+        "type": "object",
+        "required": ["skills"],
+        "properties": {
+          "skills": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/SkillDescriptor" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "skills.reload": {
+        "type": "object",
+        "required": ["ok", "count"],
+        "properties": {
+          "ok": { "const": true },
+          "count": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "mcp.list": {
+        "type": "object",
+        "required": ["servers"],
+        "properties": {
+          "servers": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/McpServerEntry" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "mcp.add": {
+        "$ref": "#/$defs/OkResult"
+      },
+      "mcp.remove": {
+        "$ref": "#/$defs/OkResult"
+      },
+      "mcp.reload": {
+        "type": "object",
+        "required": ["ok"],
+        "properties": {
+          "ok": { "const": true },
+          "count": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Number of servers reloaded"
+          }
+        },
+        "additionalProperties": false
+      },
+      "identity.get": {
+        "type": "object",
+        "required": ["identity", "version", "updatedAt"],
+        "properties": {
+          "identity": { "$ref": "#/$defs/Identity" },
+          "version": { "type": "number", "minimum": 1 },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
+      "identity.set": {
+        "type": "object",
+        "required": ["ok", "version"],
+        "properties": {
+          "ok": { "const": true },
+          "version": { "type": "number", "minimum": 1 }
+        },
+        "additionalProperties": false
+      },
+      "evolution.status": {
+        "type": "object",
+        "required": ["active", "circuitBreaker", "queueSize"],
+        "properties": {
+          "active": { "type": "boolean" },
+          "circuitBreaker": {
+            "type": "object",
+            "required": ["tripped"],
+            "properties": {
+              "tripped": { "type": "boolean" },
+              "cooldownRemaining": { "type": "number", "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "queueSize": { "type": "number", "minimum": 0 },
+          "lastReviewAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
+      "evolution.list": {
+        "type": "object",
+        "required": ["proposals"],
+        "properties": {
+          "proposals": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/EvolutionProposal" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "evolution.approve": {
+        "$ref": "#/$defs/OkResult"
+      },
+      "evolution.reject": {
+        "$ref": "#/$defs/OkResult"
+      },
+      "evolution.forceReview": {
+        "$ref": "#/$defs/OkResult"
+      }
+    },
+    "OkResult": {
+      "type": "object",
+      "required": ["ok"],
+      "properties": {
+        "ok": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "Attachment": {
+      "type": "object",
+      "required": ["name", "mimeType"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "mimeType": { "type": "string" },
+        "data": { "type": "string" },
+        "path": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "SessionSummary": {
+      "type": "object",
+      "required": ["id", "status", "createdAt", "frontends"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["init", "idle", "running", "waiting", "closed"]
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "frontends": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Connected frontend IDs"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SkillDescriptor": {
+      "type": "object",
+      "required": ["name", "version", "description"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "McpServerEntry": {
+      "type": "object",
+      "required": ["name", "command", "status"],
+      "properties": {
+        "name": { "type": "string" },
+        "command": { "type": "string" },
+        "args": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["connected", "disconnected", "connecting", "error"]
+        },
+        "toolCount": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "Identity": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "tone": { "type": "string" },
+        "constraints": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "preferences": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "IdentityDiff": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "tone": { "type": "string" },
+        "constraints": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "preferences": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "EvolutionProposal": {
+      "type": "object",
+      "required": ["id", "skillName", "summary", "status", "createdAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "skillName": { "type": "string" },
+        "summary": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected"]
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "reviewedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "DataPlaneEvent": {
+      "type": "object",
+      "required": ["evId", "cursor", "ts", "type", "payload"],
+      "properties": {
+        "evId": { "type": "string" },
+        "cursor": { "type": "number", "minimum": 0 },
+        "ts": { "type": "string", "format": "date-time" },
+        "sessionId": { "type": "string" },
+        "type": { "type": "string" },
+        "payload": { "type": "object" },
+        "target": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { useTuiStore } from '../../src/cli/tui/state/store';
+import { useTuiStore } from '../../src/extensions/frontend.tui/state/store';
 
 function firstTextSegId(): string {
   const live = useTuiStore.getState().live!;

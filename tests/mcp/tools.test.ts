@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'bun:test';
-import { McpListServersTool } from '../../src/mcp/tools';
-import type { McpManager } from '../../src/mcp/manager';
+import { createMcpListServersTool } from '../../src/extensions/mcp/tools';
+import type { McpManager } from '../../src/extensions/mcp/manager';
+import type { ToolContext } from '../../src/application/ports/tool-context';
+
+const dummyCtx: ToolContext = { signal: new AbortController().signal, environment: { cwd: '/' } };
 
 function mockManagerWithStates(states: Map<string, unknown>): McpManager {
   return {
@@ -8,11 +11,11 @@ function mockManagerWithStates(states: Map<string, unknown>): McpManager {
   } as unknown as McpManager;
 }
 
-describe('McpListServersTool', () => {
+describe('createMcpListServersTool', () => {
   it('returns message when no servers', async () => {
     const manager = mockManagerWithStates(new Map());
-    const tool = new McpListServersTool(manager);
-    const result = await tool.execute({}, {} as never);
+    const tool = createMcpListServersTool(manager);
+    const result = await tool.execute(dummyCtx, {});
     expect(result).toBe('No MCP servers configured.');
   });
 
@@ -24,8 +27,8 @@ describe('McpListServersTool', () => {
       startedAt: Date.now(),
     });
     const manager = mockManagerWithStates(states);
-    const tool = new McpListServersTool(manager);
-    const result = await tool.execute({}, {} as never);
+    const tool = createMcpListServersTool(manager);
+    const result = await tool.execute(dummyCtx, {});
     expect(result).toContain('test');
     expect(result).toContain('connected');
     expect(result).toContain('1 tools');
@@ -39,8 +42,8 @@ describe('McpListServersTool', () => {
       since: Date.now(),
     });
     const manager = mockManagerWithStates(states);
-    const tool = new McpListServersTool(manager);
-    const result = await tool.execute({}, {} as never);
+    const tool = createMcpListServersTool(manager);
+    const result = await tool.execute(dummyCtx, {});
     expect(result).toContain('bad');
     expect(result).toContain('error');
     expect(result).toContain('Connection refused');

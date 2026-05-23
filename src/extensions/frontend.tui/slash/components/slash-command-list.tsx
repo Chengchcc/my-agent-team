@@ -1,0 +1,99 @@
+import { Box, Text } from "ink";
+import React from 'react';
+import type { SlashCommand } from "../../../../application/slash";
+
+const MAX_VISIBLE_COMMANDS = 8;
+const DESCRIPTION_MAX_LENGTH = 72;
+const ELLIPSIS_LENGTH = 3;
+
+interface SlashCommandListProps {
+  commands: SlashCommand[];
+  selectedIndex: number;
+}
+
+export function SlashCommandList({ commands, selectedIndex }: SlashCommandListProps) {
+  if (commands.length === 0) {
+    return (
+      <Box paddingX={2}>
+        <Text dimColor>No commands found</Text>
+      </Box>
+    );
+  }
+
+  const { endIndex, startIndex } = getVisibleWindow(commands.length, selectedIndex, MAX_VISIBLE_COMMANDS);
+  const visibleCommands = commands.slice(startIndex, endIndex);
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="single"
+      paddingX={1}
+      marginTop={0}
+    >
+      <Box>
+        <Text bold color="cyan">
+          Commands
+        </Text>
+        {commands.length > MAX_VISIBLE_COMMANDS ? (
+          <Text dimColor> ({startIndex + 1}-{Math.min(endIndex, commands.length)} of {commands.length})</Text>
+        ) : null}
+      </Box>
+
+      {startIndex > 0 ? (
+        <Box paddingX={2}>
+          <Text dimColor>↑ {startIndex} more</Text>
+        </Box>
+      ) : null}
+
+      {visibleCommands.map((cmd, visibleIndex) => {
+        const index = startIndex + visibleIndex;
+        return (
+        <Box key={cmd.name} flexDirection="row">
+          <Text
+            {...(index === selectedIndex ? { color: 'cyan' } : {})}
+            bold={index === selectedIndex}
+          >
+            {index === selectedIndex ? "❯ " : "  "}
+          </Text>
+          <Text
+            {...(index === selectedIndex ? { color: 'cyan' } : {})}
+            bold={index === selectedIndex}
+          >
+            /{cmd.name}
+          </Text>
+          <Text dimColor>
+            {" "}
+            [{cmd.source}] {summarizeDescription(cmd.description)}
+          </Text>
+        </Box>
+        );
+      })}
+
+      {endIndex < commands.length ? (
+        <Box paddingX={2}>
+          <Text dimColor>↓ {commands.length - endIndex} more</Text>
+        </Box>
+      ) : null}
+    </Box>
+  );
+}
+
+function summarizeDescription(description: string, maxLength = DESCRIPTION_MAX_LENGTH): string {
+  const normalized = description.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - ELLIPSIS_LENGTH)}...`;
+}
+
+function getVisibleWindow(total: number, selectedIndex: number, maxVisible: number) {
+  if (total <= maxVisible) {
+    return { startIndex: 0, endIndex: total };
+  }
+
+  const halfWindow = Math.floor(maxVisible / 2);
+  const maxStartIndex = total - maxVisible;
+  const startIndex = Math.max(0, Math.min(selectedIndex - halfWindow, maxStartIndex));
+
+  return {
+    startIndex,
+    endIndex: startIndex + maxVisible,
+  };
+}

@@ -1,16 +1,29 @@
 #!/usr/bin/env bun
-// bin/my-agent-daemon.ts
-import { startDaemon } from '../src/daemon/daemon';
+import 'dotenv/config'
+import { bootstrap, AgentNotFoundError } from '../src/interface/daemon/main'
+import { parseArgs } from '../src/interface/daemon/parse-daemon-args'
 
-const profileId = process.argv[2] || process.env.MY_AGENT_PROFILE;
-if (!profileId) {
-  console.error('Usage: my-agent-daemon <profile-id>');
-  console.error('   or: MY_AGENT_PROFILE=<profile-id> my-agent-daemon');
-  process.exit(1);
+const EXIT_AGENT_NOT_FOUND = 3
+
+const opts = parseArgs(process.argv.slice(2))
+let handle: Awaited<ReturnType<typeof bootstrap>>
+try {
+  handle = await bootstrap(opts)
+  console.error(`[daemon] agent=${opts.agentId} socket=${handle.socketPath}`)
+} catch (err) {
+  if (err instanceof AgentNotFoundError) {
+    console.error(`Agent '${opts.agentId}' not found.`)
+    console.error('Create it first: my-agent agent create')
+    console.error('Or let it seed as default: my-agent daemon start')
+    process.exit(EXIT_AGENT_NOT_FOUND)
+  }
+  throw err
 }
 
-console.log(`Starting daemon for profile "${profileId}"...`);
-startDaemon(profileId).catch((err) => {
-  console.error('Daemon failed:', err);
-  process.exit(1);
-});
+const shutdown = async (sig: string) => {
+  console.error(`[daemon] received ${sig}, stopping...`)
+  await handle?.stop()
+  process.exit(0)
+}
+process.on('SIGTERM', () => { void shutdown('SIGTERM').catch(() => {}) })
+process.on('SIGINT', () => { void shutdown('SIGINT').catch(() => {}) })

@@ -1,12 +1,11 @@
 import { describe, test, expect, beforeEach } from 'bun:test';
-import { useTuiStore, resetNextId } from '../../src/cli/tui/state/store';
+import { useTuiStore } from '../../src/extensions/frontend.tui/state/store';
 
 function store() {
   return useTuiStore.getState();
 }
 
 function resetStore() {
-  resetNextId();
   useTuiStore.setState({
     finalized: [],
     live: null,

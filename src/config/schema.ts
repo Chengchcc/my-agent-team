@@ -47,7 +47,7 @@ const hybridRetrievalConfigSchema = z.object({
 
 const memorySettingsSchema = z.object({
   enabled: z.boolean().default(true),
-  globalBaseDir: z.string().default('~/.my-agent/memory'),
+  globalBaseDir: z.string().default('~/.my-agent/memory'), // Deprecated — now derived from AgentPaths
   maxGeneralEntries: z.number().int().positive().default(500),
   consolidationThreshold: z.number().int().positive().default(50),
   autoExtractMinToolCalls: z.number().int().positive().default(3),
@@ -76,7 +76,7 @@ const historySettingsSchema = z.object({
 });
 
 const sessionSettingsSchema = z.object({
-  dir: z.string().default('~/.my-agent/sessions'),
+  dir: z.string().default('~/.my-agent/sessions'), // Deprecated — now derived from AgentPaths
 });
 
 const tuiSettingsSchema = z.object({
@@ -88,7 +88,7 @@ const subAgentSettingsSchema = z.object({
   enabled: z.boolean().default(true),
   autoTriggerThreshold: z.number().int().positive().default(5),
   isolation: z.boolean().default(true),
-  worktreeRootDir: z.string().default('~/.my-agent/worktrees'),
+  worktreeRootDir: z.string().default('~/.my-agent/worktrees'), // Deprecated — now derived from AgentPaths
 });
 
 const securitySettingsSchema = z.object({
@@ -118,6 +118,11 @@ const debugSettingsSchema = z.object({
   enabled: z.boolean().default(false),
 });
 
+const logSettingsSchema = z.object({
+  dir: z.string().optional(),
+  level: z.enum(['debug', 'info', 'warn', 'error']).optional().default('info'),
+});
+
 const traceRedactionSettingsSchema = z.object({
   mode: z.enum(['default', 'none']).default('default'),
 });
@@ -133,7 +138,7 @@ const traceReviewSettingsSchema = z.object({
   maxTurns: z.number().min(3).max(12),
   tokenLimit: z.number().min(10_000).max(100_000),
   timeoutMs: z.number().min(30_000).max(300_000),
-  outputDir: z.string(),
+  outputDir: z.string(), // Deprecated — now derived from AgentPaths
   autoAcceptHours: z.number().positive().default(48),
   lowScoreWarningThreshold: z.number().min(0).max(1).default(0.5),
 });
@@ -165,6 +170,7 @@ export const settingsSchema = z.object({
   security: securitySettingsSchema,
   tools: toolsSettingsSchema,
   debug: debugSettingsSchema,
+  log: logSettingsSchema,
   mcp: mcpSettingsSchema,
   trace: traceSettingsSchema,
 });
