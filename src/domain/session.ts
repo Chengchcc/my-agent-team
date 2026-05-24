@@ -23,6 +23,7 @@ interface Session {
   readonly agentId: string
   state: SessionState
   readonly isMain: boolean
+  mode: string
   title?: string
   lastInputFrontendId?: string
   pendingInputs: string[]
@@ -58,6 +59,7 @@ function createSession(
     agentId,
     state: 'INIT',
     isMain: isMain ?? false,
+    mode: 'normal',
     title,
     lastInputFrontendId: undefined,
     pendingInputs: [],

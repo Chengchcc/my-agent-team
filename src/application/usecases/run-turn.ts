@@ -155,6 +155,7 @@ export async function runTurnUsecase(
     hooks, 'transformPrompt', {
       system: basePrompt,
       messages: [...historyMsgs, { role: 'user', content: userInput }],
+      sessionId
     },
   )
   if (!promptR.ok) {
@@ -170,7 +171,7 @@ export async function runTurnUsecase(
   ])
 
   // Phase 3: resolveTools hook
-  const toolsR = await safeDispatch<ToolDescriptor[]>(hooks, 'resolveTools', [])
+  const toolsR = await safeDispatch<ToolDescriptor[]>(hooks, 'resolveTools', [], sessionId)
   if (!toolsR.ok) {
     emitFailed(bus, sessionId, turnId, 'resolveTools', toolsR.err)
     logger.warn('turn', `resolveTools failed: ${toolsR.err.message}`)
