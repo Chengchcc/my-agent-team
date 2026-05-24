@@ -84,7 +84,7 @@ export default (opts: SkillsExtOptions = {}) =>
 
       // All paths passed via opts — no getSettingsSync() in apply (settings load is async)
       const builtinDir = opts.builtinDir ?? ctx.paths.skills.builtin
-      const agentDir = ctx.paths.skills.agent
+      const agentDir = opts.agentDir ?? ctx.paths.skills.agent
       const extraPaths = opts.extraPaths ?? []
 
       function fromSkillInfo(info: SkillInfo): SkillDescriptor {

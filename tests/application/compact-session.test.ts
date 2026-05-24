@@ -212,4 +212,45 @@ describe('compactSessionUsecase', () => {
     const payload = envelope.payload as Record<string, unknown>
     expect(payload.removedCount).toBe(3)
   })
+
+  // ── DESIGN.md gap: empty summary, idempotency ──
+
+  test('empty summary string still produces a summary record', async () => {
+    const { events, bus } = makeRecorder()
+    const msgs = Array.from({ length: 6 }, (_, i) => makeMsg(i + 1))
+    const { history, state: hState } = makeStubHistory({ msgs })
+    const { compactor } = makeStubCompactor({ summary: '' })
+
+    const result = await compactSessionUsecase(
+      { sessionId: 's1' },
+      { history, compactor, bus },
+    )
+
+    expect(result.ok).toBe(true)
+    // Even with empty summary, replace should be called with a synthetic record
+    expect(hState.replaceCalled).toBe(1)
+    expect(hState.lastReplaceArgs![1]).toHaveLength(5) // 1 summary + 4 recent
+    // The summary record should still be a system message
+    expect(hState.lastReplaceArgs![1][0]!.role).toBe('system')
+    expect(hState.lastReplaceArgs![1][0]!.content).toContain('msgs compacted')
+  })
+
+  test('idempotent: second compact on unchanged history below threshold returns below_threshold', async () => {
+    // After first compact, history is [summaryRecord, ...recent] (5 msgs, keepRecent=4 → 5 > 4, should compact)
+    // But if new history is short enough (e.g. 3 msgs, keepRecent=4), it returns below_threshold
+    const { bus } = makeRecorder()
+    const msgs = Array.from({ length: 3 }, (_, i) => makeMsg(i + 1))
+    const { history, state: hState } = makeStubHistory({ msgs })
+    const { compactor, state: cState } = makeStubCompactor()
+
+    const result = await compactSessionUsecase(
+      { sessionId: 's1' },
+      { history, compactor, bus },
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.reason).toBe('below_threshold')
+    expect(cState.summarizeCalled).toBe(0)
+    expect(hState.replaceCalled).toBe(0)
+  })
 })

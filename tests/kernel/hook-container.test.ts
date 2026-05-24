@@ -197,4 +197,46 @@ describe('HookContainer', () => {
     expect(calls).toContain('b')
     expect(calls.length).toBe(2)
   })
+
+  // ── DESIGN.md gap #4: parallel sync throw, first-match null continuation ──
+
+  it('parallel hook: synchronous throw is isolated, other handlers still run', async () => {
+    const hc = new HookContainer()
+    const warns: string[] = []
+    hc.setLogger(captureLogger(warns))
+    const calls: string[] = []
+
+    hc.register('ext-a', 'normal', 'kernelReady', {
+      // synchronous throw — not an async function
+      fn: () => { calls.push('a'); throw new Error('sync fail') },
+    })
+    hc.register('ext-b', 'normal', 'kernelReady', {
+      fn: async () => { calls.push('b') },
+    })
+
+    const result = await hc.dispatch('kernelReady')
+    expect(result).toBeUndefined()
+    // ext-b should still run even though ext-a threw synchronously
+    expect(calls).toContain('b')
+  })
+
+  it('first-match: null result continues to next handler', async () => {
+    const hc = new HookContainer()
+
+    hc.register('ext-a', 'normal', 'serveControlMethod', {
+      fn: async () => null,
+    })
+    hc.register('ext-b', 'normal', 'serveControlMethod', {
+      fn: async () => 'found',
+    })
+
+    const result = await hc.dispatch('serveControlMethod', 'req')
+    expect(result).toBe('found')
+  })
+
+  it('sequential hook with no handlers returns first arg unchanged', async () => {
+    const hc = new HookContainer()
+    const result = await hc.dispatch('transformPrompt', 'unchanged')
+    expect(result).toBe('unchanged')
+  })
 })

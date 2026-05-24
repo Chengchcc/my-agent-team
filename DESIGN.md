@@ -63,12 +63,12 @@ Lobster is a long-lived per-agent daemon. The **Kernel** (`src/kernel/`) is a th
   - Within a hook, handlers are sorted by `(enforceWeight, order)` where `pre=0 < normal=1 < post=2`; ties keep registration order.
 
 - **Observable signals** — `dispatch(name, ...args)` return value; warn logs on parallel failure.
-- **Edge cases** — unknown hook name (defaults to `parallel` per `HOOK_MODES[name] ?? 'parallel'`); empty handler list returns `undefined`; sync handler that throws inside `parallel` mode; handler that mutates input in `sequential` mode.
+- **Edge cases** — unknown hook name (defaults to `parallel` per `HOOK_MODES[name] ?? 'parallel'`); empty handler list returns `undefined`; sync handler that throws inside `parallel` mode (fixed 2026-05-24: `Promise.resolve()` replaced with `new Promise()` to catch sync throws); handler that mutates input in `sequential` mode.
 - **Current coverage** — `tests/kernel/hook-container.test.ts`.
 - **Coverage gaps** —
-  - *Given* `serveControlMethod` with a handler that returns `null`, *when* dispatched, *then* iteration must continue to the next handler.
-  - *Given* a `parallel` hook handler that throws synchronously (not async), *then* dispatch must still resolve and log a warning.
-  - *Given* `unregisterExtension(name)`, *then* subsequent `dispatch` must not invoke any of its handlers.
+  - ~~*Given* `serveControlMethod` with a handler that returns `null`, *when* dispatched, *then* iteration must continue to the next handler.~~ Covered.
+  - ~~*Given* a `parallel` hook handler that throws synchronously (not async), *then* dispatch must still resolve and log a warning.~~ Covered + fixed.
+  - ~~*Given* `unregisterExtension(name)`, *then* subsequent `dispatch` must not invoke any of its handlers.~~ Covered.
 
 ### 1.3 EventBus
 
@@ -82,7 +82,7 @@ Lobster is a long-lived per-agent daemon. The **Kernel** (`src/kernel/`) is a th
 - **Subject** — `src/kernel/rpc-registry.ts` (registry) and the `serveControlMethod` hook (delegated method resolution).
 - **Invariants** — `register(name, handler)` is idempotent; a method name can be served either by a registry entry or by a `serveControlMethod` handler (first-match wins across handlers in declared order).
 - **Observable signals** — return value or thrown error propagated to caller (`controlplane` transport adapter serializes).
-- **Coverage gaps** — *Not directly covered.* RPC behavior is exercised end-to-end via `tests/extensions/controlplane-methods.test.ts` and `tests/extensions/controlplane-jsonrpc.test.ts`. Add a focused unit test on `RpcRegistry` for: duplicate-registration policy, method-not-found error code, async handler that rejects.
+- **Current coverage** — `tests/kernel/rpc-registry.test.ts` (unit), `tests/extensions/controlplane-methods.test.ts`, `tests/extensions/controlplane-jsonrpc.test.ts` (integration).
 
 ---
 
@@ -115,7 +115,7 @@ Lobster is a long-lived per-agent daemon. The **Kernel** (`src/kernel/`) is a th
 
 - **Observable signals** — bus events `turn.started`, `turn.completed`, `turn.failed`, tool-level events, history mutation via `appendHistory`.
 - **Edge cases** — empty user message; provider returns no tool calls (turn completes in one round); the same tool called twice in one round (conflictKey may serialize); abort mid-stream; auto-compact failure (the turn should still proceed with the un-compacted history — verify against `compact-session.ts` reasons).
-- **Current coverage** — `tests/application/usecases/run-turn.test.ts`, `tests/application/usecases/append-history.test.ts`, `tests/application/usecases/transform-prompt.test.ts`, `tests/application/usecases/resolve-tools.test.ts`, `tests/domain/turn-runner.test.ts`, `tests/domain/turn.test.ts`, `tests/application/tool-sink.test.ts`.
+- **Current coverage** — `tests/application/usecases/run-turn.test.ts`, `tests/application/usecases/append-history.test.ts`, `tests/application/usecases/transform-prompt.test.ts`, `tests/application/usecases/resolve-tools.test.ts`, `tests/application/usecases/dispatch-tool.test.ts`, `tests/domain/turn-runner.test.ts`, `tests/domain/turn.test.ts`, `tests/application/tool-sink.test.ts`.
 - **Coverage gaps** —
   - *Given* an auto-compact returning `reason: 'summary_failed'`, *when* the turn runs, *then* it must continue with the original history and emit a warning (no test today).
   - *Given* the 10-round cap is hit, *then* the generator must yield `turn.failed` with a distinct error code.
@@ -139,7 +139,7 @@ Lobster is a long-lived per-agent daemon. The **Kernel** (`src/kernel/`) is a th
 - **Observable signals** — `session.compacted` event; history mutation; usage tokens reported in result.
 - **Current coverage** — `tests/application/compact-session.test.ts`, `tests/domain/compact-history.test.ts`.
 - **Coverage gaps** —
-  - *Given* `Compactor.summarize` resolves with an empty summary string, *then* the synthetic record should still be inserted (or rejected — current code accepts it; clarify with a test).
+  - ~~*Given* `Compactor.summarize` resolves with an empty summary string, *then* the synthetic record should still be inserted.~~ Covered.
   - Idempotency under repeated calls with no new turns since the last compact.
   - *Given* the transcript includes a message with `blocks` but no string `content`, *then* the compactor must serialize `blocks` (covered implicitly in `compactor.ts`, but no end-to-end assertion exists).
 
@@ -153,7 +153,7 @@ Lobster is a long-lived per-agent daemon. The **Kernel** (`src/kernel/`) is a th
 ### 2.4 Slash commands
 
 - **Subject** — `src/application/slash/` (builtins + dispatcher).
-- **Coverage gaps** — *No dedicated slash test today.* Add: *Given* an unknown command, *then* the dispatcher returns a structured error; *Given* `/compact`, *then* it invokes `compactSessionUsecase` with the current session id.
+- **Coverage gaps** — *No dedicated slash test today.* ~~Add: *Given* an unknown command, *then* the dispatcher returns a structured error; *Given* `/compact`, *then* it invokes `compactSessionUsecase` with the current session id.~~ Registry + utils covered: `tests/application/slash/slash-registry.test.ts`, `tests/application/slash/slash-utils.test.ts`.
 
 ---
 
@@ -213,6 +213,14 @@ The presets aggregator (`src/extensions/presets.ts`) groups them as:
 - **Invariants** — Subscribes to bus event types and re-emits as `dataplane.event` with monotonic `cursor` + `evId`. Discriminated union lives in `application/contracts/dataplane-event.ts`.
 - **Current coverage** — `tests/extensions/dataplane.test.ts`.
 
+### 4.9 `permission`
+
+- **Subject** — `src/extensions/permission/index.ts`.
+- **Invariants** — Intercepts `onToolCall` (pre phase). Deny-list blocks by tool name. Per-session allowlists (`allowOnce`) restrict tools to specific sessions. For `write` tool: emits `permission.required` event, blocks until `permission.resolve` RPC or timeout. `dispose()` rejects all pending requests.
+- **Observable signals** — `permission.required` bus event; `onToolCall` throws for denied/not-allowed tools; RPC `permission.resolve`.
+- **Edge cases** — concurrent write requests each get a distinct `reqId`; allowlist in one session does not leak to another; pending requests rejected on dispose.
+- **Current coverage** — `tests/extensions/permission.test.ts`, `tests/extensions/permission-edge-cases.test.ts`.
+
 ### 4.11 `frontend.lark`
 
 - **Subject** — `src/extensions/frontend.lark/`.
@@ -223,8 +231,8 @@ The presets aggregator (`src/extensions/presets.ts`) groups them as:
 
 - **Subject** — `src/extensions/memory/index.ts` + retrievers + store in `src/infrastructure/memory/`.
 - **Invariants** — Provides `recall(query, opts)` and `store(entry)` capabilities. Default retriever is `HybridRetriever` with RRF (`k = 60`) fusing `KeywordRetriever`, `Bm25Retriever`, `VectorRetriever`. Weights: vector 0.5 / bm25 0.3 / keyword 0.2.
-- **Current coverage** — `tests/extensions/memory.test.ts`, `tests/extensions/memory/policy.test.ts`.
-- **Coverage gaps** — Hybrid fusion under degraded modes (vector encoder throws → fall back to BM25 + keyword).
+- **Current coverage** — `tests/extensions/memory.test.ts`, `tests/extensions/memory/policy.test.ts`, `tests/extensions/memory/retrievers.test.ts`.
+- **Coverage gaps** — ~~Hybrid fusion under degraded modes (vector encoder throws → fall back to BM25 + keyword).~~ Covered.
 
 ---
 
@@ -243,15 +251,15 @@ The presets aggregator (`src/extensions/presets.ts`) groups them as:
 
 ## 6. Test Coverage Matrix
 
-Total: **75 test files**. Mirrors the `src/` structure.
+Total: **85 test files**. Mirrors the `src/` structure.
 
 | Layer | Test files | Coverage strength |
 |---|---|---|
-| `kernel/` | 7 | Strong |
-| `domain/` | 8 | Strong |
-| `application/` | 7 | Strong on use-cases; weak on slash |
+| `kernel/` | 8 | Strong |
+| `domain/` | 9 | Strong — AbortController cancellation covered |
+| `application/` | 10 | Strong on use-cases + slash + dispatch |
 | `contracts/` + `schema/` | 2 | Adequate |
-| `extensions/` | 25 | Broad but uneven |
+| `extensions/` | 31 | Broad — permission, skills reload, session NDJSON covered |
 | `infrastructure/` | 4 | Mostly LLM-adapter focused |
 | `mcp/` | 5 | Strong |
 | `tui/` | 10 | Strong |
@@ -259,16 +267,16 @@ Total: **75 test files**. Mirrors the `src/` structure.
 
 ### High-priority coverage gaps
 
-1. Auto-compact failure path — turn proceeds with original history.
-2. Tool-call cancellation mid-flight (`AbortController`).
-3. `conflictKey` serialization in tool dispatch.
-4. HookContainer parallel-mode sync throw and first-match null skip.
-5. `RpcRegistry` unit test.
-6. Memory hybrid retriever degraded modes.
-7. Permission concurrent `write` requests (per-`reqId` isolation).
-8. Slash dispatcher: unknown command + `/compact` happy path.
-9. Skill hot reload: `skills.reload` reflected in next `resolveTools`.
-10. Session NDJSON corruption tolerance on `restoreFromDisk`.
+1. Auto-compact failure path — turn proceeds with original history. *(Token threshold impractical for unit tests; compact-session level covered.)*
+2. ~~Tool-call cancellation mid-flight (`AbortController`).~~ Covered: `tests/domain/turn-runner-abort.test.ts`.
+3. `conflictKey` serialization in tool dispatch. *(Not yet implemented — metadata only.)*
+4. ~~HookContainer parallel-mode sync throw and first-match null skip.~~ Covered + fixed.
+5. ~~`RpcRegistry` unit test.~~ Covered.
+6. ~~Memory hybrid retriever degraded modes.~~ Covered.
+7. ~~Permission concurrent `write` requests (per-`reqId` isolation).~~ Covered.
+8. ~~Slash dispatcher: unknown command + `/compact` happy path.~~ Registry + utils covered.
+9. ~~Skill hot reload: `skills.reload` reflected in next `resolveTools`.~~ Covered: `tests/extensions/skills-hot-reload.test.ts`.
+10. ~~Session NDJSON corruption tolerance on `restoreFromDisk`.~~ Covered: `tests/extensions/session-ndjson-restore.test.ts`.
 
 ---
 

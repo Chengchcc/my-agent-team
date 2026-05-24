@@ -98,7 +98,7 @@ class HookContainer {
       case 'parallel': {
         const log = this.logger
         await Promise.all(handlers.map(h =>
-          Promise.resolve(h.fn(...args)).catch(err => {
+          new Promise(resolve => { resolve(h.fn(...args)) }).catch(err => {
             const msg = `[HookContainer] ${hookName} handler from "${h.extensionName}" failed: ${err}`
             if (log) {
               log.warn('hook-container', msg)
