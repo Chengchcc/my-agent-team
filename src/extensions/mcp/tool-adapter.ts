@@ -2,9 +2,12 @@ import type { Tool } from '../../application/ports/tool';
 import type { ToolContext } from '../../application/ports/tool-context';
 import type { McpManager } from './manager';
 import type { McpToolDef } from './types';
+import { truncateOutput } from '../tools/truncation';
 
 const TOOL_PREFIX = 'mcp__';
 const READONLY_PREFIXES = ['list_', 'read_', 'search_', 'get_', 'find_'];
+// eslint-disable-next-line @typescript-eslint/no-magic-numbers
+const MCP_DEFAULT_OUTPUT_CAP = 50 * 1024
 
 function isReadonly(toolDef: McpToolDef): boolean {
   return READONLY_PREFIXES.some((prefix) => toolDef.name.startsWith(prefix));
@@ -28,10 +31,12 @@ export class McpToolAdapter {
       parameters: this.toolDef.parameters,
       execute: async (ctx: ToolContext, params: Record<string, unknown>) => {
         const result = await this.manager.executeTool(this.serverName, this.toolDef.name, params, ctx.signal);
-        return this.unwrapContent(result);
+        const output = this.unwrapContent(result);
+        return truncateOutput(output, MCP_DEFAULT_OUTPUT_CAP)
       },
       readonly: isReadonly(this.toolDef),
       conflictKey: isReadonly(this.toolDef) ? () => null : () => `mcp:${this.serverName}:${this.toolDef.name}`,
+      outputCap: MCP_DEFAULT_OUTPUT_CAP,
     };
   }
 
