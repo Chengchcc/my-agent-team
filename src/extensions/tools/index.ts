@@ -3,6 +3,7 @@ import type { HookHandler } from '../../kernel/define-extension';
 import { defineTool } from '../../application/tool-factory/define-tool';
 import type { ToolCatalog } from '../../application/ports/tool-catalog';
 import { createBashExecute } from './bash';
+import { truncateOutput } from './truncation';
 import { bashToolSchema } from '../../application/contracts/tool-schemas/bash';
 import { readToolSchema } from '../../application/contracts/tool-schemas/read';
 import { readExecute } from './read';
@@ -23,6 +24,103 @@ import { askUserQuestionExecute } from './ask-user-question';
 import { todoWriteToolSchema } from '../../application/contracts/tool-schemas/todo-write';
 import { todoWriteExecute } from './todo-write';
 
+const KB = 1024
+const CAP_100KB = 100 * KB
+// eslint-disable-next-line @typescript-eslint/no-magic-numbers
+const CAP_50KB = 50 * KB
+// eslint-disable-next-line @typescript-eslint/no-magic-numbers
+const CAP_200KB = 200 * KB
+
+/** Register all builtin tools into the given catalog. */
+function registerBuiltinTools(catalog: ToolCatalog): void {
+  // helper: wrap execute with outputCap truncation for string results
+  const cap = (fn: (...args: unknown[]) => unknown, capBytes: number) =>
+    async (...args: unknown[]): Promise<unknown> => {
+      const result = await fn(...args)
+      return typeof result === 'string' ? truncateOutput(result, capBytes) : result
+    }
+
+  catalog.register(defineTool({
+    name: 'bash',
+    description: 'Execute a shell command on the local system.',
+    parameters: bashToolSchema.jsonSchema,
+    parse: bashToolSchema.parse,
+    execute: cap((tCtx: unknown, params: unknown) => createBashExecute()(params as never, tCtx as never), CAP_100KB),
+    conflictKey: () => 'bash:global',
+    outputCap: CAP_100KB,
+  }))
+
+  catalog.register(defineTool({
+    name: 'read',
+    description: 'Read file content with optional line range support.',
+    parameters: readToolSchema.jsonSchema,
+    parse: readToolSchema.parse,
+    execute: cap((tCtx: unknown, params: unknown) => readExecute(params as never, tCtx as never), CAP_100KB),
+    readonly: true,
+    outputCap: CAP_100KB,
+  }))
+
+  catalog.register(defineTool({
+    name: 'text_editor',
+    description: 'Read, create, edit, and write text files.',
+    parameters: textEditorToolSchema.jsonSchema,
+    parse: textEditorToolSchema.parse,
+    execute: cap((tCtx: unknown, params: unknown) => createTextEditorExecute()(params as never, tCtx as never), CAP_100KB),
+    conflictKey: (input: unknown) => `file:${(input as Record<string, unknown>).path ?? 'unknown'}`,
+    outputCap: CAP_100KB,
+  }))
+
+  catalog.register(defineTool({
+    name: 'grep',
+    description: 'Search for text patterns in files using regex.',
+    parameters: grepToolSchema.jsonSchema,
+    parse: grepToolSchema.parse,
+    execute: cap((tCtx: unknown, params: unknown) => grepExecute(params as never, tCtx as never), CAP_50KB),
+    readonly: true,
+    outputCap: CAP_50KB,
+  }))
+
+  catalog.register(defineTool({
+    name: 'glob',
+    description: 'Find files matching a glob pattern.',
+    parameters: globToolSchema.jsonSchema,
+    parse: globToolSchema.parse,
+    execute: cap((tCtx: unknown, params: unknown) => globExecute(params as never, tCtx as never), CAP_50KB),
+    readonly: true,
+    outputCap: CAP_50KB,
+  }))
+
+  catalog.register(defineTool({
+    name: 'ls',
+    description: 'List the contents of a directory.',
+    parameters: lsToolSchema.jsonSchema,
+    parse: lsToolSchema.parse,
+    execute: cap((tCtx: unknown, params: unknown) => lsExecute(params as never, tCtx as never), CAP_50KB),
+    readonly: true,
+    outputCap: CAP_50KB,
+  }))
+
+  catalog.register(defineTool({
+    name: 'web_search',
+    description: 'Search the web for current information.',
+    parameters: webSearchToolSchema.jsonSchema,
+    parse: webSearchToolSchema.parse,
+    execute: cap((tCtx: unknown, params: unknown) => webSearchExecute(params as never, tCtx as never), CAP_50KB),
+    readonly: true,
+    outputCap: CAP_50KB,
+  }))
+
+  catalog.register(defineTool({
+    name: 'web_fetch',
+    description: 'Fetch and process content from a URL.',
+    parameters: webFetchToolSchema.jsonSchema,
+    parse: webFetchToolSchema.parse,
+    execute: cap((tCtx: unknown, params: unknown) => webFetchExecute(params as never, tCtx as never), CAP_200KB),
+    readonly: true,
+    outputCap: CAP_200KB,
+  }))
+}
+
 export default () =>
   defineExtension({
     name: 'tools',
@@ -30,79 +128,8 @@ export default () =>
     dependsOn: ['tool-catalog'],
 
     apply: (ctx) => {
-      const catalog = ctx.extensions.get<ToolCatalog>('tool-catalog.catalog');
-
-      catalog.register(defineTool({
-        name: 'bash',
-        description: 'Execute a shell command on the local system. Use for file ops, scripts, deps, git, etc.',
-        parameters: bashToolSchema.jsonSchema,
-        parse: bashToolSchema.parse,
-        execute: async (toolCtx, params) => createBashExecute()(params as never, toolCtx),
-        conflictKey: () => 'bash:global',
-      }));
-
-      catalog.register(defineTool({
-        name: 'read',
-        description: 'Read file content with optional line range support. SAFE TO CALL IN PARALLEL with other read-only tools.',
-        parameters: readToolSchema.jsonSchema,
-        parse: readToolSchema.parse,
-        execute: async (toolCtx, params) => readExecute(params as never, toolCtx),
-        readonly: true,
-      }));
-
-      catalog.register(defineTool({
-        name: 'text_editor',
-        description: 'Read, create, edit, and write text files. Supports view, create, str_replace, write. DO NOT batch on the same file.',
-        parameters: textEditorToolSchema.jsonSchema,
-        parse: textEditorToolSchema.parse,
-        execute: async (toolCtx, params) => createTextEditorExecute()(params as never, toolCtx),
-        conflictKey: (input: unknown) => `file:${(input as Record<string, unknown>).path ?? 'unknown'}`,
-      }));
-
-      catalog.register(defineTool({
-        name: 'grep',
-        description: 'Search for text patterns in files using regex. Use to find definitions, usages, patterns.',
-        parameters: grepToolSchema.jsonSchema,
-        parse: grepToolSchema.parse,
-        execute: async (toolCtx, params) => grepExecute(params as never, toolCtx),
-        readonly: true,
-      }));
-
-      catalog.register(defineTool({
-        name: 'glob',
-        description: 'Find files matching a glob pattern (e.g. "**/*.ts").',
-        parameters: globToolSchema.jsonSchema,
-        parse: globToolSchema.parse,
-        execute: async (toolCtx, params) => globExecute(params as never, toolCtx),
-        readonly: true,
-      }));
-
-      catalog.register(defineTool({
-        name: 'ls',
-        description: 'List the contents of a directory.',
-        parameters: lsToolSchema.jsonSchema,
-        parse: lsToolSchema.parse,
-        execute: async (toolCtx, params) => lsExecute(params as never, toolCtx),
-        readonly: true,
-      }));
-
-      catalog.register(defineTool({
-        name: 'web_search',
-        description: 'Search the web for current information.',
-        parameters: webSearchToolSchema.jsonSchema,
-        parse: webSearchToolSchema.parse,
-        execute: async (toolCtx, params) => webSearchExecute(params as never, toolCtx),
-        readonly: true,
-      }));
-
-      catalog.register(defineTool({
-        name: 'web_fetch',
-        description: 'Fetch and process content from a URL.',
-        parameters: webFetchToolSchema.jsonSchema,
-        parse: webFetchToolSchema.parse,
-        execute: async (toolCtx, params) => webFetchExecute(params as never, toolCtx),
-        readonly: true,
-      }));
+      const catalog = ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+      registerBuiltinTools(catalog)
 
       catalog.register(defineTool({
         name: 'ask_user_question',

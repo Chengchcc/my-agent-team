@@ -9,6 +9,7 @@ export function defineTool(config: {
   execute: (ctx: ToolContext, params: Record<string, unknown>) => Promise<unknown>;
   readonly?: boolean;
   conflictKey?: (input: unknown) => string | null;
+  outputCap?: number;
 }): Tool {
   return {
     name: config.name,
@@ -18,5 +19,6 @@ export function defineTool(config: {
     execute: config.execute,
     readonly: config.readonly,
     conflictKey: config.conflictKey,
+    outputCap: config.outputCap,
   };
 }

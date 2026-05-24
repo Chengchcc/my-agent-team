@@ -8,4 +8,6 @@ export interface Tool {
   execute: (ctx: ToolContext, params: Record<string, unknown>) => Promise<unknown>;
   readonly?: boolean;
   conflictKey?: (input: unknown) => string | null;
+  /** Max output bytes — tool must self-truncate and append <truncated bytes=N/> marker. */
+  outputCap?: number;
 }
