@@ -6,6 +6,7 @@ import type { ToolCatalog } from '../../application/ports/tool-catalog'
 import type { SlashCommand, SlashContext, SlashResolution } from '../../application/slash'
 import { defineTool } from '../../application/tool-factory/define-tool'
 import { ModeRegistry, registerBuiltinModes } from './registry'
+import { writeSessionMeta } from '../session'
 
 /**
  * Session-mode extension.
@@ -86,6 +87,7 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
         const from = s.mode
         s.mode = mode
         await store.save(s)
+        writeSessionMeta(ctx.paths.sessions, sessionId, { mode })
         ctx.logger.info('session-mode', `Mode changed: ${from} → ${mode} (session ${sessionId})`)
         return { ok: true }
       }

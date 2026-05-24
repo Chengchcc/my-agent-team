@@ -7,6 +7,7 @@ import { InMemorySessionStore } from '../../infrastructure/session/inmem-session
 import { createSession } from '../../domain/session'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { appendFile, mkdir, writeFile } from 'node:fs/promises'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createTurn } from '../../domain/turn'
 import { createTraceEventFactory } from '../../domain/trace-event'
@@ -26,6 +27,28 @@ interface RestoreDeps {
   logger: Logger;
 }
 
+const META_PREFIX = '#SESSION_META '
+
+function parseSessionMeta(line: string): { mode?: string } | null {
+  if (!line.startsWith(META_PREFIX)) return null
+  try { return JSON.parse(line.slice(META_PREFIX.length)) as { mode?: string } }
+  catch { return null }
+}
+
+export function writeSessionMeta(sessionDir: string, sid: string, meta: { mode: string }): void {
+  try {
+    const ndjsonPath = join(sessionDir, `${sid}.ndjson`)
+    const raw = existsSync(ndjsonPath) ? readFileSync(ndjsonPath, 'utf-8') : ''
+    const lines = raw.split('\n')
+    const metaLine = `${META_PREFIX}${JSON.stringify(meta)}`
+    // Replace existing meta line or prepend
+    const metaIdx = lines.findIndex(l => l.startsWith(META_PREFIX))
+    if (metaIdx >= 0) lines[metaIdx] = metaLine
+    else lines.unshift(metaLine)
+    writeFileSync(ndjsonPath, lines.filter(l => l.length > 0).join('\n') + '\n', 'utf-8')
+  } catch { /* best-effort meta persistence */ }
+}
+
 async function restoreFromDisk(d: RestoreDeps): Promise<void> {
   const dir = d.sessionDir;
   if (!existsSync(dir)) return;
@@ -35,12 +58,16 @@ async function restoreFromDisk(d: RestoreDeps): Promise<void> {
     try {
       const sid = file.replace('.ndjson', '');
       const raw = readFileSync(join(dir, file), 'utf-8');
-      const messages: HistoryRecordV1[] = raw.trim().split('\n')
-        .filter(l => l.length > 0)
+      const allLines = raw.trim().split('\n').filter(l => l.length > 0)
+      const metaLine = allLines.find(l => l.startsWith(META_PREFIX))
+      const meta = metaLine ? parseSessionMeta(metaLine) : null
+      const messages: HistoryRecordV1[] = allLines
+        .filter(l => !l.startsWith(META_PREFIX))
         .map(line => parseHistoryLine(line))
         .filter((r): r is HistoryRecordV1 => r !== null);
       d.messageHistory.set(sid, messages);
       const s = createSession(sid, d.agentId, sid === 'main', `Session ${sid}`);
+      if (meta?.mode) s.mode = meta.mode
       saves.push(d.sessionStore.save(s));
     } catch { /* skip corrupted files */ }
   }
