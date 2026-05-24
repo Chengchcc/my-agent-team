@@ -4,6 +4,7 @@ import { appendHistory } from './append-history'
 import type { SessionStore } from '../ports/session-store'
 import type { ProviderChat } from '../ports/provider'
 import { createEvent } from '../contracts';
+import type { HistoryRecordV1 } from '../contracts';
 import { asContractBus } from '../event-bus/contract-bus';
 import type { ToolContext } from '../ports/tool-context';
 import { createToolSink, flushSink } from '../dispatch'
@@ -52,6 +53,16 @@ export interface RunTurnInput {
   frontendId: string
   parallelTools?: boolean
   eventOrder?: 'completion' | 'submission'
+  /** Turn kind — 'normal' (default) or 'sub-agent'. */
+  kind?: 'normal' | 'sub-agent'
+  /** If set, resolveTools output is filtered to these tool names. */
+  allowedToolNames?: ReadonlyArray<string>
+  /** Compaction mode — 'auto' (default) or 'disabled'. */
+  compaction?: 'auto' | 'disabled'
+  /** Pre-populated history for ephemeral sessions (sub-agents). */
+  initialMessages?: HistoryRecordV1[]
+  /** Max output tokens for the provider call (default: unlimited). */
+  maxOutputTokens?: number
 }
 
 // ── safeDispatch — wraps hook dispatch, returns Result ─────────────────────
@@ -97,33 +108,47 @@ function stringifyResult(result: unknown): string {
   return JSON.stringify(result)
 }
 
+// ── Auto-compact helper (extracted to keep usecase under 150 lines) ────────
+
+async function autoCompactIfNeeded(
+  input: RunTurnInput,
+  deps: RunTurnUsecaseDeps,
+  historyMsgs: HistoryRecordV1[],
+): Promise<void> {
+  const { sessionId } = input
+  const { history, bus, compactor, logger } = deps
+  if (input.compaction === 'disabled') return
+  if (approxTokens(JSON.stringify(historyMsgs)) <= COMPACT_AUTO_THRESHOLD_TOKENS) return
+  logger.info('turn', `auto-compact triggered (history ≈ ${approxTokens(JSON.stringify(historyMsgs))} tokens)`)
+  const r = await compactSessionUsecase(
+    { sessionId, keepRecent: COMPACT_KEEP_RECENT },
+    { history, compactor, bus },
+  )
+  if (r.ok) {
+    historyMsgs.length = 0
+    historyMsgs.push(...history.get(sessionId))
+  } else {
+    logger.warn('turn', `auto-compact failed: ${r.reason ?? 'unknown'}, proceeding with full history`)
+  }
+}
+
 // ── Run turn usecase ──────────────────────────────────────────────────────
 
 export async function runTurnUsecase(
   input: RunTurnInput,
   deps: RunTurnUsecaseDeps,
-): Promise<{ usage: { input: number; output: number }; success: boolean }> {
+): Promise<{ usage: { input: number; output: number }; success: boolean; finalText?: string }> {
   const { sessionId, turnId, userInput } = input
   const { provider, hooks, history, bus, logger } = deps
   const basePrompt = deps.basePrompt ?? 'You are a helpful AI assistant.'
 
-  // Phase 1: load history
-  const historyMsgs = history.get(sessionId)
+  // Phase 1: load history (or use initialMessages for ephemeral sessions)
+  const historyMsgs = input.initialMessages
+    ? [...input.initialMessages]
+    : history.get(sessionId)
 
-  // Auto-compact safety net: if history exceeds threshold, compact pre-flight
-  if (approxTokens(JSON.stringify(historyMsgs)) > COMPACT_AUTO_THRESHOLD_TOKENS) {
-    logger.info('turn', `auto-compact triggered (history ≈ ${approxTokens(JSON.stringify(historyMsgs))} tokens)`)
-    const r = await compactSessionUsecase(
-      { sessionId, keepRecent: COMPACT_KEEP_RECENT },
-      { history, compactor: deps.compactor, bus },
-    )
-    if (r.ok) {
-      historyMsgs.length = 0
-      historyMsgs.push(...history.get(sessionId))
-    } else {
-      logger.warn('turn', `auto-compact failed: ${r.reason ?? 'unknown'}, proceeding with full history`)
-    }
-  }
+  // Phase 1b: auto-compact safety net
+  await autoCompactIfNeeded(input, deps, historyMsgs)
 
   // Phase 2: transformPrompt hook (includes history for memory recall)
   const promptR = await safeDispatch<{ system: string; messages: Array<{ role: string; content: string }> }>(
@@ -152,6 +177,11 @@ export async function runTurnUsecase(
     return { usage: { input: 0, output: 0 }, success: false }
   }
 
+  // If allowedToolNames is set (sub-agent), filter the resolved tools
+  const filteredTools = input.allowedToolNames
+    ? toolsR.value.filter(t => input.allowedToolNames!.includes(t.name))
+    : toolsR.value
+
   // Phase 4: prepare per-turn abort controller
   const controller = new AbortController()
   deps.sessionAbort.register(sessionId, controller)
@@ -168,7 +198,7 @@ export async function runTurnUsecase(
     for await (const event of runTurn({
       sessionId, turnId,
       messages: finalMessages,
-      tools: toolsR.value,
+      tools: filteredTools,
       provider,
       hooks: {
         onToolCall: async (call) => {
@@ -178,6 +208,7 @@ export async function runTurnUsecase(
             environment: baseEnv,
             sink,
             sessionId,
+            turnId,
           }
           try {
             const result = await hooks.dispatch('onToolCall', call, perCallCtx)
@@ -193,6 +224,7 @@ export async function runTurnUsecase(
       abortSignal: controller.signal,
       parallelTools: input.parallelTools ?? false,
       eventOrder: input.eventOrder ?? 'submission',
+      maxOutputTokens: input.maxOutputTokens,
     })) {
       bus.emit(event.type, event)
 
@@ -271,7 +303,7 @@ export async function runTurnUsecase(
     activatedSkills: [],
   }, { sessionId, turnId }))
 
-  return { usage: totalUsage, success: true }
+  return { usage: totalUsage, success: true, finalText }
 }
 
 // ── Shared glue: build usecase deps from kernel-like context ──────────────

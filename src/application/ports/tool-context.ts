@@ -5,4 +5,5 @@ export interface ToolContext {
   environment: { cwd: string }
   sink: ToolSink
   sessionId: string
+  turnId: string
 }

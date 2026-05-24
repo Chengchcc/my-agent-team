@@ -84,6 +84,8 @@ export interface RunTurnDeps {
   parallelTools?: boolean
   /** Event yield order for parallel waves (default 'submission'). */
   eventOrder?: 'completion' | 'submission'
+  /** Max output tokens passed through to provider (sub-agent). */
+  maxOutputTokens?: number
 }
 
 // ── Round result (returned by consumeRound sub-generator via yield*) ──
