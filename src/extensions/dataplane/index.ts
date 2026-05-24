@@ -65,6 +65,8 @@ export default () =>
         ['identity.changed', 'identity.changed'],
         ['turn.failed', 'turn.failed'],
         ['tui.inline-block', 'tui.inline-block'],
+        ['subagent.started', 'sub-agent.started'],
+        ['subagent.completed', 'sub-agent.completed'],
       ]
 
       // Subscribe to mapped events

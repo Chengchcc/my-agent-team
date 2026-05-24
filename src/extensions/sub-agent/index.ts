@@ -36,6 +36,7 @@ export default () =>
         const subSessionId = `sub:${input.parentTurnId}:${generateULID()}`
 
         ctx.logger.info('sub-agent', `Starting sub-agent "${input.type}" (${subSessionId})`)
+        void ctx.bus.emit('subagent.started', { parentTurnId: input.parentTurnId, parentSessionId: input.parentSessionId, type: input.type, subSessionId, callId: input.parentTurnId, ts: Date.now() })
 
         try {
           const res = await runTurnUsecase(
@@ -58,6 +59,7 @@ export default () =>
           )
 
           ctx.logger.info('sub-agent', `Sub-agent "${input.type}" completed, usage: ${res.usage.input}+${res.usage.output}`)
+          void ctx.bus.emit('subagent.completed', { parentTurnId: input.parentTurnId, parentSessionId: input.parentSessionId, type: input.type, subSessionId, callId: input.parentTurnId, ok: true, usage: res.usage, finalText: res.finalText ?? '', ts: Date.now() })
           return res.finalText ?? ''
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
