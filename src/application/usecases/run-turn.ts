@@ -26,9 +26,9 @@ export interface BusPort {
 }
 
 export interface LoggerPort {
-  info(domain: string, message: string): void
-  warn(domain: string, message: string): void
-  error(domain: string, message: string): void
+  info(domain: string, message: string, fields?: Record<string, unknown>): void
+  warn(domain: string, message: string, fields?: Record<string, unknown>): void
+  error(domain: string, message: string, fields?: Record<string, unknown>): void
 }
 
 export interface RunTurnUsecaseDeps {
@@ -230,6 +230,7 @@ export async function runTurnUsecase(
       parallelTools: input.parallelTools ?? true,
       eventOrder: input.eventOrder ?? 'submission',
       maxOutputTokens: input.maxOutputTokens,
+      logger: { info: (t, m, f) => logger.info(t, m, f), warn: (t, m, f) => logger.warn(t, m, f) },
     })) {
       bus.emit(event.type, event)
 

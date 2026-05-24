@@ -5,6 +5,10 @@ import type {
 import { partitionWaves } from './wave-scheduler'
 import type { ToolConflictMeta } from './wave-scheduler'
 
+const LOOP_DETECT_WINDOW = 5
+const LOOP_DETECT_THRESHOLD = 3
+const LOG_TRUNCATE_CHARS = 200
+
 // ── Parse tool call arguments from provider chunk ──
 
 function parseToolArgs(args: unknown): unknown {
@@ -44,6 +48,9 @@ async function* consumeRound(
 
 // ── Turn runner: agent loop as async generator ──
 
+// ── Turn runner: agent loop as async generator ──
+
+// eslint-disable-next-line complexity
 export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, void, void> {
   const { sessionId, turnId, messages, tools, provider, hooks } = deps
   const max = deps.maxIterations ?? 10
@@ -51,10 +58,16 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
   let currentMessages: LlmMessage[] = [...messages]
   let finalText = ''
   let totalUsage = { input: 0, output: 0 }
+  const log = deps.logger
+  const startTime = Date.now()
+  const sigs: string[] = []
+
+  if (log) log.info('turn-runner', 'turn.start', { sessionId, turnId, historyLen: currentMessages.length })
 
   try {
     for (let iter = 0; iter < max; iter++) {
       if (deps.abortSignal?.aborted) break
+      if (log) log.info('turn-runner', 'round.start', { sessionId, turnId, roundIdx: iter, msgCount: currentMessages.length })
       const round = yield* consumeRound(
         provider.stream({ messages: currentMessages, tools, signal: deps.abortSignal }),
         { sessionId, turnId },
@@ -63,21 +76,19 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
       totalUsage.input += round.usage.input
       totalUsage.output += round.usage.output
 
+      if (log) log.info('turn-runner', 'round.llm.returned', { sessionId, turnId, roundIdx: iter, textLen: round.assistantText.length, toolCallCount: round.toolCalls.length })
+
       if (round.assistantText) {
         finalText += round.assistantText
         currentMessages.push({ role: 'assistant', content: round.assistantText })
       }
 
       if (round.toolCalls.length === 0) break
-
       if (deps.abortSignal?.aborted) break
 
-      // Build descriptor map for wave scheduling
       const descMap = new Map<string, ToolConflictMeta>()
       for (const t of deps.tools) {
-        if (t.readonly !== undefined || t.conflictKey) {
-          descMap.set(t.name, { readonly: t.readonly, conflictKey: t.conflictKey })
-        }
+        if (t.readonly !== undefined || t.conflictKey) descMap.set(t.name, { readonly: t.readonly, conflictKey: t.conflictKey })
       }
 
       const waves = deps.parallelTools
@@ -88,50 +99,52 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
         const wave = waves[wi]!
         if (deps.abortSignal?.aborted) break
 
-        // Yield all tool.start in submission order at wave entry
         for (const call of wave) {
           yield { type: 'tool.start', sessionId, turnId, callId: call.id, name: call.name, args: call.arguments }
         }
 
-        // Execute wave calls concurrently
+        // Execute wave and collect results
         const settled = await Promise.allSettled(wave.map(async call => {
+          const toolStart = Date.now()
+          if (log) log.info('turn-runner', 'tool.invoke', { callId: call.id, name: call.name, argsSample: JSON.stringify(call.arguments).slice(0, LOG_TRUNCATE_CHARS) })
           try {
             const result = await hooks.onToolCall(call)
-            return { call, ok: true as const, result }
+            const payload = typeof result === 'string' ? result : JSON.stringify(result)
+            if (log) log.info('turn-runner', 'tool.done', { callId: call.id, name: call.name, ok: true, durationMs: Date.now() - toolStart, resultLen: payload.length, resultSample: payload.slice(0, LOG_TRUNCATE_CHARS) })
+            return { call, ok: true as const, result, payload }
           } catch (err) {
-            return { call, ok: false as const, err: err instanceof Error ? err.message : String(err) }
+            const msg = err instanceof Error ? err.message : String(err)
+            if (log) log.info('turn-runner', 'tool.done', { callId: call.id, name: call.name, ok: false, durationMs: Date.now() - toolStart, err: msg })
+            return { call, ok: false as const, err: msg, payload: '' }
           }
         }))
 
-        // Yield results in submission order
         for (const s of settled) {
-          if (s.status === 'rejected') {
-            // Unexpected promise rejection — emit tool.error and continue
-            const msg = s.reason instanceof Error ? s.reason.message : String(s.reason)
-            yield { type: 'tool.error', sessionId, turnId, callId: 'unknown', name: 'unknown', err: { message: msg } }
-            continue
-          }
+          if (s.status === 'rejected') { yield { type: 'tool.error', sessionId, turnId, callId: 'unknown', name: 'unknown', err: { message: String(s.reason) } }; continue }
           const r = s.value
           if (r.ok) {
             yield { type: 'tool.end', sessionId, turnId, callId: r.call.id, name: r.call.name, result: r.result }
-            const payload = typeof r.result === 'string' ? r.result : JSON.stringify(r.result)
-            currentMessages.push({ role: 'user', content: `Tool ${r.call.name} result: ${payload}` })
+            currentMessages.push({ role: 'user', content: `Tool ${r.call.name} result: ${r.payload}` })
           } else {
             yield { type: 'tool.error', sessionId, turnId, callId: r.call.id, name: r.call.name, err: { message: r.err } }
             currentMessages.push({ role: 'user', content: `Tool ${r.call.name} error: ${r.err}` })
           }
+          // Dead loop detection
+          const sig = `${r.call.name}:${JSON.stringify(r.call.arguments)}`
+          sigs.push(sig)
+          if (sigs.length > LOOP_DETECT_WINDOW) sigs.shift()
+          const sameCount = sigs.filter(s => s === sig).length
+          if (sameCount >= LOOP_DETECT_THRESHOLD && log) {
+            log.warn('turn-runner', 'possible.tool.loop', { callId: r.call.id, name: r.call.name, sig, sameCount, roundIdx: iter })
+          }
         }
 
-        // Yield internal wave.completed after each wave for budget guard
         yield { type: 'wave.completed', sessionId, turnId, waveIndex: wi, callsInWave: wave.length, ts: Date.now() }
       }
     }
 
-    yield {
-      type: 'turn.completed',
-      sessionId, turnId,
-      usage: totalUsage, finalMessage: finalText,
-    }
+    if (log) log.info('turn-runner', 'turn.end', { sessionId, turnId, totalToolCalls: sigs.length, totalUsage, finalTextLen: finalText.length, durationMs: Date.now() - startTime })
+    yield { type: 'turn.completed', sessionId, turnId, usage: totalUsage, finalMessage: finalText }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     yield {

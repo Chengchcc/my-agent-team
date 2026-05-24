@@ -81,12 +81,11 @@ export interface RunTurnDeps {
   maxIterations?: number
   abortSignal?: AbortSignal
   parentTurnId?: string
-  /** Enable wave-based parallel tool dispatch (default false). */
   parallelTools?: boolean
-  /** Event yield order for parallel waves (default 'submission'). */
   eventOrder?: 'completion' | 'submission'
-  /** Max output tokens passed through to provider (sub-agent). */
   maxOutputTokens?: number
+  /** Optional logger for structured diagnostic tracing. */
+  logger?: { info: (tag: string, msg: string, fields?: Record<string, unknown>) => void; warn: (tag: string, msg: string, fields?: Record<string, unknown>) => void }
 }
 
 // ── Round result (returned by consumeRound sub-generator via yield*) ──
