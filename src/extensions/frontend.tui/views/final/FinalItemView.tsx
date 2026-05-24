@@ -42,5 +42,18 @@ export const FinalItemView = React.memo(function FinalItemView({ item, toolsExpa
       if (!w) return <Text color="red">[unknown widget: {item.widget}]</Text>;
       return <w.Component payload={item.payload as never} />;
     }
+    case 'subagent-block': {
+      const icon = item.status === 'running' ? '▸' : item.status === 'completed' ? '✓' : item.status === 'failed' ? '✗' : '⊘'
+      const elapsed = item.completedAt ? ` ${((item.completedAt - item.startedAt) / 1000).toFixed(1)}s` : ' running…'
+      return (
+        <Text dimColor={item.status === 'cancelled'}>
+          <Text color={item.status === 'running' ? 'yellow' : item.status === 'completed' ? 'green' : 'red'}>
+            {icon} sub-agent[{item.type}]
+          </Text>
+          <Text dimColor>{elapsed}</Text>
+          {item.finalText ? <Text dimColor> — {item.finalText.slice(0, 100)}</Text> : null}
+        </Text>
+      )
+    }
   }
 });

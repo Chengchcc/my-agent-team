@@ -71,6 +71,8 @@ interface TuiStore {
   setInterrupted: (interrupted: boolean) => void;
   setCompacting: (compacting: boolean) => void;
   setMode: (mode: string) => void;
+  subagentStarted: (callId: string, type: string, startedAt: number) => void;
+  subagentCompleted: (callId: string, finalText: string, usage: { input: number; output: number }, ok: boolean) => void;
 
   // Todos
   updateTodos: (todos: UITodoItem[]) => void;
@@ -246,7 +248,7 @@ function buildInteractionActions(set: ImmerSet): Pick<TuiStore, 'toggleToolsExpa
   };
 }
 
-function buildStatsActions(set: ImmerSet): Pick<TuiStore, 'streamingStart' | 'streamingStop' | 'accumulateUsage' | 'setContextTokens' | 'setTokenLimit' | 'setInterrupted' | 'setCompacting' | 'setMode'> {
+function buildStatsActions(set: ImmerSet): Pick<TuiStore, 'streamingStart' | 'streamingStop' | 'accumulateUsage' | 'setContextTokens' | 'setTokenLimit' | 'setInterrupted' | 'setCompacting' | 'setMode' | 'subagentStarted' | 'subagentCompleted'> {
   return {
     streamingStart: () => set((s) => { s.stats.streaming = true; s.stats.streamingStartTime = Date.now(); s.stats.interrupted = false; }),
     streamingStop: () => set((s) => { s.stats.streaming = false; s.stats.streamingStartTime = null; }),
@@ -256,6 +258,18 @@ function buildStatsActions(set: ImmerSet): Pick<TuiStore, 'streamingStart' | 'st
     setInterrupted: (interrupted) => set((s) => { s.stats.interrupted = interrupted; }),
     setCompacting: (compacting) => set((s) => { s.stats.compacting = compacting; }),
     setMode: (mode) => set((s) => { s.stats.mode = mode; }),
+    subagentStarted: (callId, type, startedAt) =>
+      set((s) => { s.finalized.push({ kind: 'subagent-block', id: `sa-${callId}`, callId, type, status: 'running', startedAt }) }),
+    subagentCompleted: (callId, finalText, usage, ok) =>
+      set((s) => {
+        for (let i = s.finalized.length - 1; i >= 0; i--) {
+          const it = s.finalized[i]
+          if (it?.kind === 'subagent-block' && it.callId === callId) {
+            s.finalized[i] = { ...it, status: ok ? 'completed' : 'failed', completedAt: Date.now(), finalText, usage }
+            return
+          }
+        }
+      }),
   };
 }
 

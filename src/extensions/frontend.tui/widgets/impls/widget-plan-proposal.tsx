@@ -3,6 +3,8 @@ import { Box, Text } from 'ink'
 import type { WidgetDescriptor } from '../widget-types'
 import type { PlanProposalPayload } from '../../../session-mode/widget-payloads'
 
+const PLAN_PREVIEW_CHARS = 200
+
 const STATUS_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
   proposed: { icon: '●', color: 'yellow', label: 'Plan Proposal' },
   approved: { icon: '✓', color: 'green', label: 'Plan Approved' },
@@ -21,7 +23,7 @@ const WidgetPlanProposal: React.FC<{ payload: PlanProposalPayload }> = ({ payloa
         <Text bold color={cfg.color}>{cfg.icon} {cfg.label}</Text>
       </Box>
       <Box marginTop={0}>
-        <Text dimColor={dim}>{payload.planMd.slice(0, 200)}{payload.planMd.length > 200 ? '...' : ''}</Text>
+        <Text dimColor={dim}>{payload.planMd.slice(0, PLAN_PREVIEW_CHARS)}{payload.planMd.length > PLAN_PREVIEW_CHARS ? '...' : ''}</Text>
       </Box>
     </Box>
   )
