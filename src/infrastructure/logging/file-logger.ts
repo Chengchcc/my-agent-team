@@ -54,10 +54,10 @@ export class FileLogger implements Logger {
     }
   }
 
-  debug(tag: string, msg: string): void { this.enqueue('DEBUG', tag, msg) }
-  info(tag: string, msg: string): void { this.enqueue('INFO', tag, msg) }
-  warn(tag: string, msg: string): void { this.enqueue('WARN', tag, msg) }
-  error(tag: string, msg: string): void { this.enqueue('ERROR', tag, msg) }
+  debug(tag: string, msg: string, fields?: Record<string, unknown>): void { this.enqueue('DEBUG', tag, fields ? `${msg} ${JSON.stringify(fields)}` : msg) }
+  info(tag: string, msg: string, fields?: Record<string, unknown>): void { this.enqueue('INFO', tag, fields ? `${msg} ${JSON.stringify(fields)}` : msg) }
+  warn(tag: string, msg: string, fields?: Record<string, unknown>): void { this.enqueue('WARN', tag, fields ? `${msg} ${JSON.stringify(fields)}` : msg) }
+  error(tag: string, msg: string, fields?: Record<string, unknown>): void { this.enqueue('ERROR', tag, fields ? `${msg} ${JSON.stringify(fields)}` : msg) }
 
   /** Shutdown: flush remaining and stop timer */
   async close(): Promise<void> {

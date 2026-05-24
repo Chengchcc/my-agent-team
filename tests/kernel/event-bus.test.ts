@@ -4,7 +4,7 @@ import type { Logger } from '../../src/application/ports/logger'
 
 function captureLogger(warns: string[]): Logger {
   const noop = () => {}
-  return { debug: noop, info: noop, warn: (_t, m) => warns.push(m), error: noop, withTag: () => captureLogger(warns) }
+  return { debug: noop, info: noop, warn: (_t, m, _f) => warns.push(m), error: noop, withTag: () => captureLogger(warns) }
 }
 
 describe('EventBus', () => {

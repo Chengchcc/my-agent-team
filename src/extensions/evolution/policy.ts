@@ -24,7 +24,7 @@ export function evaluateReviewPolicy(
 ): Decision {
   s.turnsSinceReview++
 
-  if ('outcome' in event && event.outcome !== ('completed' as never)) {
+  if (event && typeof event === 'object' && 'outcome' in event && (event as unknown as Record<string, unknown>).outcome !== 'completed') {
     s.errorBurst.push(Date.now())
     s.errorBurst = s.errorBurst.filter(t => Date.now() - t < ERROR_BURST_WINDOW_MS)
     if (s.errorBurst.length >= ERROR_BURST_THRESHOLD) {

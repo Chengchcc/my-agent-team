@@ -5,10 +5,10 @@ import { createAgentPaths } from '../../src/infrastructure/paths/agent-paths'
 import path from 'node:path'
 
 const silentLogger: Logger = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
+  debug: (_t: string, _m: string, _f?: Record<string, unknown>) => {},
+  info: (_t: string, _m: string, _f?: Record<string, unknown>) => {},
+  warn: (_t: string, _m: string, _f?: Record<string, unknown>) => {},
+  error: (_t: string, _m: string, _f?: Record<string, unknown>) => {},
   withTag: () => silentLogger,
 }
 

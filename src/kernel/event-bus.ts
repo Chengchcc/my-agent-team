@@ -30,29 +30,35 @@ class EventBus {
   /**
    * Emit an event to all subscribers. Failures are isolated — one
    * subscriber rejecting does not affect others. Errors are collected
-   * and logged but do not propagate.
+   * and logged with diagnostic context (payload type, keys) but do not propagate.
    */
   async emit(event: string, payload: unknown): Promise<void> {
     const handlers = this.subscribers.get(event)
     if (!handlers || handlers.size === 0) return
 
-    const errors: Error[] = []
+    const errors: Array<{ error: Error; payloadSample: unknown }> = []
     await Promise.all(
       [...handlers].map(async (handler) => {
         try {
           await handler(payload)
         } catch (err) {
-          errors.push(err instanceof Error ? err : new Error(String(err)))
+          errors.push({ error: err instanceof Error ? err : new Error(String(err)), payloadSample: payload })
         }
       })
     )
 
     if (errors.length > 0) {
-      const msg = `[EventBus] ${event} had ${errors.length} subscriber error(s): ${errors.map(e => e.message).join('; ')}`
-      if (this.logger) {
-        this.logger.warn('event-bus', msg)
-      } else {
-        console.warn(msg)
+      for (const { error, payloadSample } of errors) {
+        const payloadType = typeof payloadSample
+        const payloadKeys = payloadSample && typeof payloadSample === 'object' && !Array.isArray(payloadSample)
+          ? Object.keys(payloadSample as Record<string, unknown>).slice(0, 10)
+          : undefined
+        const msg = `[EventBus] subscriber error on "${event}": ${error.message} | payloadType=${payloadType}${payloadKeys ? ` keys=${payloadKeys.join(',')}` : ''}`
+        if (this.logger) {
+          this.logger.warn('event-bus', msg)
+        } else {
+          console.warn(msg)
+        }
       }
     }
   }
