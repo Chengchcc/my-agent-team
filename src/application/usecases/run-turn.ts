@@ -227,7 +227,7 @@ export async function runTurnUsecase(
       },
       maxIterations: DEFAULT_MAX_TURN_ITERATIONS,
       abortSignal: controller.signal,
-      parallelTools: input.parallelTools ?? false,
+      parallelTools: input.parallelTools ?? true,
       eventOrder: input.eventOrder ?? 'submission',
       maxOutputTokens: input.maxOutputTokens,
     })) {

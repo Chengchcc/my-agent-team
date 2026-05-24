@@ -96,31 +96,28 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
           }
         }
 
-        // Execute wave calls serially (parallelTools=false → wave size=1;
-        // when parallelTools=true, Promise.all + mailbox handles concurrency)
-        for (const call of wave) {
-          try {
-            const result = await hooks.onToolCall(call)
-            yield {
-              type: 'tool.end',
-              sessionId, turnId,
-              callId: call.id, name: call.name, result,
-            }
-            currentMessages.push({
-              role: 'user',
-              content: `Tool ${call.name} result: ${JSON.stringify(result)}`,
-            })
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
-            yield {
-              type: 'tool.error',
-              sessionId, turnId,
-              callId: call.id, name: call.name, err: { message },
-            }
-            currentMessages.push({
-              role: 'user',
-              content: `Tool ${call.name} error: ${message}`,
-            })
+        // Execute wave calls concurrently via Promise.allSettled
+        const settled = await Promise.allSettled(wave.map(call =>
+          hooks.onToolCall(call).then(
+            result => ({ call, ok: true as const, result }),
+            (err: unknown) => ({ call, ok: false as const, err: err instanceof Error ? err.message : String(err) }),
+          ),
+        ))
+
+        // Yield results in submission order (LLM call order)
+        for (const s of settled) {
+          if (s.status === 'rejected') {
+            const msg = s.reason instanceof Error ? s.reason.message : String(s.reason)
+            yield { type: 'turn.failed', sessionId, turnId, stage: 'llm_stream' as const, err: { message: msg } }
+            return
+          }
+          const r = s.value
+          if (r.ok) {
+            yield { type: 'tool.end', sessionId, turnId, callId: r.call.id, name: r.call.name, result: r.result }
+            currentMessages.push({ role: 'user', content: `Tool ${r.call.name} result: ${JSON.stringify(r.result)}` })
+          } else {
+            yield { type: 'tool.error', sessionId, turnId, callId: r.call.id, name: r.call.name, err: { message: r.err } }
+            currentMessages.push({ role: 'user', content: `Tool ${r.call.name} error: ${r.err}` })
           }
         }
       }
