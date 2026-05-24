@@ -153,12 +153,12 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
             return { plan }
           },
           async execute(toolCtx, params) {
+            const planMd = (params as Record<string, unknown>).plan as string ?? ''
+            const blockId = `plan:${toolCtx.turnId}:${toolCtx.sessionId}`
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            ctx.bus.emit('session.planProposed', {
-              sessionId: toolCtx.sessionId,
-              planMd: (params as Record<string, unknown>).plan as string ?? '',
-              ts: Date.now(),
-            })
+            ctx.bus.emit('session.planProposed', { sessionId: toolCtx.sessionId, planMd, ts: Date.now() })
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
+            ctx.bus.emit('tui.inline-block', { blockId, widget: 'session.plan-proposal', payload: { callId: blockId, planMd, status: 'proposed', proposedAt: Date.now() }, mode: 'append' })
             return 'Plan submitted. Awaiting user decision.'
           },
           readonly: true,
