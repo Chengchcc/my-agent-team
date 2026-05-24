@@ -45,7 +45,7 @@ export default () =>
               userInput: input.prompt,
               frontendId: 'sub-agent',
               kind: 'sub-agent',
-              allowedToolNames: desc.allowedToolNames,
+              allowedToolNames: desc.allowedToolNames.filter(n => n !== 'task'),
               maxOutputTokens: desc.maxOutputTokens,
               compaction: 'disabled',
               initialMessages: [
