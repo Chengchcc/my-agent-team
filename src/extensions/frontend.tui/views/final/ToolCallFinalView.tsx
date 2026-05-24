@@ -38,7 +38,7 @@ export const ToolCallFinalView = React.memo(function ToolCallFinalView({ name, i
   return (
     <Box flexDirection="column" paddingLeft={1}>
       <Box>
-        <Text color={prefixColor}>●</Text>
+        <Text color={prefixColor}>┊</Text>
         <Text color="cyan"> {title}</Text>
         <Text color="gray"> {result.durationMs}ms</Text>
       </Box>
