@@ -31,7 +31,7 @@ export class McpToolAdapter {
         return this.unwrapContent(result);
       },
       readonly: isReadonly(this.toolDef),
-      conflictKey: isReadonly(this.toolDef) ? () => null : () => `mcp:${this.serverName}`,
+      conflictKey: isReadonly(this.toolDef) ? () => null : () => `mcp:${this.serverName}:${this.toolDef.name}`,
     };
   }
 

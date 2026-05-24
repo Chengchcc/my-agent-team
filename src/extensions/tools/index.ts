@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { defineExtension } from '../../kernel/define-extension';
 import type { HookHandler } from '../../kernel/define-extension';
 import { defineTool } from '../../application/tool-factory/define-tool';
@@ -66,7 +67,11 @@ function registerBuiltinTools(catalog: ToolCatalog): void {
     parameters: textEditorToolSchema.jsonSchema,
     parse: textEditorToolSchema.parse,
     execute: cap((tCtx: unknown, params: unknown) => createTextEditorExecute()(params as never, tCtx as never), CAP_100KB),
-    conflictKey: (input: unknown) => `file:${(input as Record<string, unknown>).path ?? 'unknown'}`,
+    conflictKey: (input: unknown) => {
+      const raw = (input as Record<string, unknown>).path
+      const resolved = typeof raw === 'string' ? path.resolve(raw) : 'unknown'
+      return `file:${resolved}`
+    },
     outputCap: CAP_100KB,
   }))
 
@@ -137,6 +142,7 @@ export default () =>
         parameters: askUserQuestionToolSchema.jsonSchema,
         parse: askUserQuestionToolSchema.parse,
         execute: async (toolCtx, params) => askUserQuestionExecute(params as never, toolCtx),
+        conflictKey: () => 'ask:global',
       }));
 
       catalog.register(defineTool({
