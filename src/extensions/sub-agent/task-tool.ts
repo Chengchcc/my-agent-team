@@ -31,6 +31,8 @@ export function createTaskTool(deps: TaskToolDeps): Tool {
     name: 'task',
     description: 'Delegate a self-contained sub-task to a sub-agent. Use when context-isolated investigation or planning helps.',
     parameters: TASK_TOOL_SCHEMA,
+    readonly: false,
+    renderHint: 'widget' as const,
 
     parse(raw: Record<string, unknown>): Record<string, unknown> {
       const type = typeof raw.subagent_type === 'string' ? raw.subagent_type : ''
@@ -46,6 +48,7 @@ export function createTaskTool(deps: TaskToolDeps): Tool {
         prompt: params.prompt as string,
         parentSessionId: ctx.sessionId,
         parentTurnId: ctx.turnId,
+        parentCallId: ctx.callId,
         parentSignal: ctx.signal,
       })
       return result

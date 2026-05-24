@@ -14,6 +14,7 @@ export interface SubAgentRunInput {
   prompt: string
   parentSessionId: string
   parentTurnId: string
+  parentCallId: string
   parentSignal: AbortSignal
 }
 

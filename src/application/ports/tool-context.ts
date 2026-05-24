@@ -6,4 +6,5 @@ export interface ToolContext {
   sink: ToolSink
   sessionId: string
   turnId: string
+  callId: string
 }

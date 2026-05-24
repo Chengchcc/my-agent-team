@@ -71,6 +71,9 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
       const registry = new ModeRegistry()
       registerBuiltinModes(registry)
 
+      // Track active proposals per session for widget lifecycle (in-memory)
+      const activeProposals = new Map<string, { blockId: string; payload: Record<string, unknown> }>()
+
       async function getMode(sessionId: string): Promise<string> {
         const store = ctx.extensions.get<SessionStore>('session.store')
         const s = await store.load(sessionId)
@@ -88,6 +91,7 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
         s.mode = mode
         await store.save(s)
         writeSessionMeta(ctx.paths.sessions, sessionId, { mode })
+        void ctx.bus.emit('session.modeChanged', { sessionId, from, to: mode, ts: ctx.clock.now() })
         ctx.logger.info('session-mode', `Mode changed: ${from} → ${mode} (session ${sessionId})`)
         return { ok: true }
       }
@@ -154,11 +158,19 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
           },
           async execute(toolCtx, params) {
             const planMd = (params as Record<string, unknown>).plan as string ?? ''
-            const blockId = `plan:${toolCtx.turnId}:${toolCtx.sessionId}`
+            const blockId = `plan:${toolCtx.turnId}:${toolCtx.callId}`
+            const sid = toolCtx.sessionId
+            // Supersede old active proposal if exists
+            const prev = activeProposals.get(sid)
+            if (prev) {
+              void ctx.bus.emit('tui.inline-block', { op: 'replace', blockId: prev.blockId, payload: { ...prev.payload, status: 'superseded' }, ts: Date.now() })
+            }
+            const payload = { callId: toolCtx.callId, planMd, status: 'proposed', proposedAt: Date.now() }
+            activeProposals.set(sid, { blockId, payload })
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            ctx.bus.emit('session.planProposed', { sessionId: toolCtx.sessionId, planMd, ts: Date.now() })
+            ctx.bus.emit('session.planProposed', { sessionId: sid, planMd, callId: toolCtx.callId, ts: Date.now() })
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            ctx.bus.emit('tui.inline-block', { blockId, widget: 'session.plan-proposal', payload: { callId: blockId, planMd, status: 'proposed', proposedAt: Date.now() }, mode: 'append' })
+            ctx.bus.emit('tui.inline-block', { blockId, widget: 'session.plan-proposal', payload, mode: 'append' })
             return 'Plan submitted. Awaiting user decision.'
           },
           readonly: true,
@@ -182,6 +194,13 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
             const p = params as { sessionId: string; decision: 'approve' | 'reject' | 'keep' }
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
             ctx.bus.emit('session.planResolved', { sessionId: p.sessionId, decision: p.decision, ts: Date.now() })
+            // Update widget status
+            const active = activeProposals.get(p.sessionId)
+            if (active) {
+              const status = p.decision === 'approve' ? 'approved' : p.decision === 'reject' ? 'rejected' : 'proposed'
+              void ctx.bus.emit('tui.inline-block', { op: 'replace', blockId: active.blockId, payload: { ...active.payload, status }, ts: Date.now() })
+              if (p.decision !== 'keep') activeProposals.delete(p.sessionId)
+            }
             if (p.decision === 'approve') await setMode(p.sessionId, 'normal')
             return { ok: true, decision: p.decision }
           },

@@ -10,4 +10,6 @@ export interface Tool {
   conflictKey?: (input: unknown) => string | null;
   /** Max output bytes — tool must self-truncate and append <truncated bytes=N/> marker. */
   outputCap?: number;
+  /** Hint for TUI rendering: 'widget' means skip default tool view and use a custom widget. */
+  renderHint?: 'widget' | 'default';
 }

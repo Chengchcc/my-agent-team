@@ -214,7 +214,7 @@ export async function runTurnUsecase(
       hooks: {
         onToolCall: async (call) => {
           const sink = createToolSink()
-          const perCallCtx: ToolContext = { signal: controller.signal, environment: baseEnv, sink, sessionId, turnId }
+          const perCallCtx: ToolContext = { signal: controller.signal, environment: baseEnv, sink, sessionId, turnId, callId: call.id }
           try {
             const result = await hooks.dispatch('onToolCall', call, perCallCtx)
             flushSink(sink as ToolSinkInternal, bus, sessionId)
