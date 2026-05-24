@@ -253,16 +253,18 @@ export async function runTurnUsecase(
           break
         case 'turn.failed':
           asContractBus(bus).emit(createEvent('turn.failed', {
-            sessionId,
-            turnId,
-            runId: turnId,
-            outcome: 'error',
-            stage: event.stage,
-            reason: event.err.message,
-            toolErrorCount,
+            sessionId, turnId, runId: turnId, outcome: 'error',
+            stage: event.stage, reason: event.err.message, toolErrorCount,
           }, { sessionId, turnId }))
           logger.warn('turn', `Turn ${turnId} failed at ${event.stage}: ${event.err.message}`)
           return { usage: totalUsage, success: false }
+        case 'wave.completed': {
+          const budgetResult = await reactiveCompactCheck(
+            input, deps, historyMsgs, tokenLimit, sessionId, turnId, bus, logger, toolErrorCount, totalUsage, emitFailed,
+          )
+          if (budgetResult) return budgetResult
+          break
+        }
         default:
           break
       }

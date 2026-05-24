@@ -84,16 +84,13 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
         ? partitionWaves(round.toolCalls, descMap)
         : round.toolCalls.map(c => [c])
 
-      for (const wave of waves) {
+      for (let wi = 0; wi < waves.length; wi++) {
+        const wave = waves[wi]!
         if (deps.abortSignal?.aborted) break
 
         // Yield all tool.start in submission order at wave entry
         for (const call of wave) {
-          yield {
-            type: 'tool.start',
-            sessionId, turnId,
-            callId: call.id, name: call.name, args: call.arguments,
-          }
+          yield { type: 'tool.start', sessionId, turnId, callId: call.id, name: call.name, args: call.arguments }
         }
 
         // Execute wave calls concurrently via Promise.allSettled
@@ -104,7 +101,7 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
           ),
         ))
 
-        // Yield results in submission order (LLM call order)
+        // Yield results in submission order
         for (const s of settled) {
           if (s.status === 'rejected') {
             const msg = s.reason instanceof Error ? s.reason.message : String(s.reason)
@@ -120,6 +117,9 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
             currentMessages.push({ role: 'user', content: `Tool ${r.call.name} error: ${r.err}` })
           }
         }
+
+        // Yield internal wave.completed after each wave for budget guard
+        yield { type: 'wave.completed', sessionId, turnId, waveIndex: wi, callsInWave: wave.length, ts: Date.now() }
       }
     }
 

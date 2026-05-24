@@ -53,6 +53,7 @@ export type TurnEvent =
   | { type: 'tool.error'; sessionId: string; turnId: string; callId: string; name: string; err: { message: string } }
   | { type: 'turn.completed'; sessionId: string; turnId: string; usage: { input: number; output: number }; finalMessage: string }
   | { type: 'turn.failed'; sessionId: string; turnId: string; stage: TurnFailureStage; err: { message: string } }
+  | { type: 'wave.completed'; sessionId: string; turnId: string; waveIndex: number; callsInWave: number; ts: number }
 
 // ── Turn runner hooks (narrow — only what the agent loop needs) ──
 
