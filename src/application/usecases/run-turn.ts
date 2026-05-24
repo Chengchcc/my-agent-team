@@ -10,10 +10,11 @@ import type { ToolContext } from '../ports/tool-context';
 import { createToolSink, flushSink } from '../dispatch'
 import type { ToolSinkInternal } from '../ports/tool-sink'
 import type { SessionHistoryPort } from '../ports/session-history'
-import { approxTokens, COMPACT_AUTO_THRESHOLD_TOKENS, COMPACT_KEEP_RECENT } from '../constants/compact'
+import { approxTokens, COMPACT_AUTO_THRESHOLD_TOKENS, COMPACT_KEEP_RECENT, BUDGET_DEFAULT_TOKEN_LIMIT } from '../constants/compact'
+import { reactiveCompactCheck } from './budget-guard'
 import { compactSessionUsecase, type Compactor } from './compact-session'
 import type {
-  ToolCallRecord, ToolDescriptor, TurnFailureStage,
+  ToolCallRecord, ToolDescriptor,
 } from '../../domain/turn-runner.types'
 
 const DEFAULT_MAX_TURN_ITERATIONS = 10
@@ -65,6 +66,8 @@ export interface RunTurnInput {
   maxOutputTokens?: number
   /** Abort signal for early termination (sub-agents cascade parent signal). */
   abortSignal?: AbortSignal
+  /** Model context window size for budget ratio calculation (default: 180k). */
+  tokenLimit?: number
 }
 
 // ── safeDispatch — wraps hook dispatch, returns Result ─────────────────────
@@ -88,7 +91,7 @@ function emitFailed(
   bus: BusPort,
   sessionId: string,
   turnId: string,
-  stage: TurnFailureStage,
+  stage: string,
   err: Error,
   toolErrorCount = 0,
 ): void {
@@ -143,6 +146,7 @@ export async function runTurnUsecase(
   const { sessionId, turnId, userInput } = input
   const { provider, hooks, history, bus, logger } = deps
   const basePrompt = deps.basePrompt ?? 'You are a helpful AI assistant.'
+  const tokenLimit = input.tokenLimit ?? BUDGET_DEFAULT_TOKEN_LIMIT
 
   // Phase 1: load history (or use initialMessages for ephemeral sessions)
   const historyMsgs = input.initialMessages
@@ -180,8 +184,8 @@ export async function runTurnUsecase(
     return { usage: { input: 0, output: 0 }, success: false }
   }
 
-  // If allowedToolNames is set (sub-agent), filter the resolved tools
-  const filteredTools = input.allowedToolNames
+  // Phase 3b: filter tools for sub-agents
+  const finalTools = input.allowedToolNames
     ? toolsR.value.filter(t => input.allowedToolNames!.includes(t.name))
     : toolsR.value
 
@@ -205,18 +209,12 @@ export async function runTurnUsecase(
     for await (const event of runTurn({
       sessionId, turnId,
       messages: finalMessages,
-      tools: filteredTools,
+      tools: finalTools,
       provider,
       hooks: {
         onToolCall: async (call) => {
           const sink = createToolSink()
-          const perCallCtx: ToolContext = {
-            signal: controller.signal,
-            environment: baseEnv,
-            sink,
-            sessionId,
-            turnId,
-          }
+          const perCallCtx: ToolContext = { signal: controller.signal, environment: baseEnv, sink, sessionId, turnId }
           try {
             const result = await hooks.dispatch('onToolCall', call, perCallCtx)
             flushSink(sink as ToolSinkInternal, bus, sessionId)
@@ -276,6 +274,10 @@ export async function runTurnUsecase(
   } finally {
     deps.sessionAbort.unregister(sessionId)
   }
+
+  // Phase 5b: reactive budget check after turn completes
+  const budgetResult = await reactiveCompactCheck(input, deps, historyMsgs, tokenLimit, sessionId, turnId, bus, logger, toolErrorCount, totalUsage, emitFailed)
+  if (budgetResult) return budgetResult
 
   // Phase 6: persist history
   const newEntries = appendHistory({

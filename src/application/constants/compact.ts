@@ -21,6 +21,18 @@ export function approxTokens(text: string): number {
  */
 export const COMPACT_AUTO_THRESHOLD_TOKENS = 80_000
 
+/** Budget guard: compact when history/tokenLimit exceeds this ratio. */
+export const BUDGET_COMPACT_RATIO = 0.75
+
+/** TUI footer: yellow warning when ratio exceeds this. */
+export const BUDGET_WARN_RATIO = 0.70
+
+/** TUI footer: red danger when ratio exceeds this (no emergency action). */
+export const BUDGET_DANGER_RATIO = 0.90
+
+/** Default token limit when model doesn't report context window. */
+export const BUDGET_DEFAULT_TOKEN_LIMIT = 180_000
+
 export const COMPACT_SUMMARY_PROMPT = `You are summarizing the earlier portion of a conversation between a user and an AI assistant so it can be safely truncated.
 
 Preserve:
