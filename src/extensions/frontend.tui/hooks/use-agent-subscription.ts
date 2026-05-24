@@ -101,6 +101,24 @@ export function useAgentSubscription(
           store.appendWidget(event.blockId, event.widget, event.payload, event.mode);
           break;
 
+        case 'compaction_started':
+          store.setCompacting(true);
+          break;
+        case 'compaction_completed':
+          store.setCompacting(false);
+          break;
+        case 'compaction_failed':
+          store.setCompacting(false);
+          store.appendSystemNotice('compaction-failed', `⚠ Token budget exceeded — turn aborted. Try /clear or /compact manually.`);
+          break;
+
+        case 'subagent_started':
+          store.subagentStarted(event.callId, event.subagentType, Date.now());
+          break;
+        case 'subagent_completed':
+          store.subagentCompleted(event.callId, event.finalText, event.usage, event.ok);
+          break;
+
         case 'permission_requested':
         case 'user_question_requested':
           // Handled by other hooks

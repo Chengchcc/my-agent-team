@@ -24,7 +24,10 @@ export type DataPlaneEventType =
   | 'system.warn'
   | 'tui.inline-block'
   | 'sub-agent.started'
-  | 'sub-agent.completed';
+  | 'sub-agent.completed'
+  | 'compaction.started'
+  | 'compaction.completed'
+  | 'compaction.failed';
 
 /**
  * DataPlaneEvent — the unified event type consumed by frontends via the

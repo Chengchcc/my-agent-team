@@ -67,6 +67,13 @@ export function dataplaneToTranscriptEvent(event: DataPlaneEvent): TranscriptEve
         mode: (inner.mode as 'append' | 'replace') ?? 'append',
       };
 
+    case 'compaction.started':
+      return { type: 'compaction_started', sessionId: sid, turnId: tid }
+    case 'compaction.completed':
+      return { type: 'compaction_completed', sessionId: sid, turnId: tid }
+    case 'compaction.failed':
+      return { type: 'compaction_failed', sessionId: sid, turnId: tid, reason: String(inner.reason ?? '') }
+
     default:
       return null;
   }

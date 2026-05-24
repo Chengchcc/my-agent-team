@@ -67,6 +67,9 @@ export default () =>
         ['tui.inline-block', 'tui.inline-block'],
         ['subagent.started', 'sub-agent.started'],
         ['subagent.completed', 'sub-agent.completed'],
+        ['compaction.started', 'compaction.started'],
+        ['compaction.completed', 'compaction.completed'],
+        ['compaction.failed', 'compaction.failed'],
       ]
 
       // Subscribe to mapped events

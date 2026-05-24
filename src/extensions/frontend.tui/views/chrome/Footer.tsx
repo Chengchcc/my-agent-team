@@ -34,6 +34,7 @@ export function Footer() {
   const completionTokens = useTuiStore(s => s.stats.completionTokens);
   const interrupted = useTuiStore(s => s.stats.interrupted);
   const streaming = useTuiStore(s => s.stats.streaming);
+  const compacting = useTuiStore(s => s.stats.compacting);
   const toolsExpanded = useTuiStore(s => s.interaction.toolsExpanded);
 
   const contextPct = tokenLimit > 0 ? contextTokens / tokenLimit : 0;
@@ -44,7 +45,7 @@ export function Footer() {
   const pctStr = tokenLimit > 0 ? `${(contextPct * PCT_BASE).toFixed(0).padStart(PCT_W)}%` : ' ---';
   const outStr = `${(completionTokens / TOKENS_PER_K).toFixed(1).padStart(OUT_W)}k`;
 
-  const status = interrupted ? '⚠ interrupted' : streaming ? '● streaming' : '○ idle      ';
+  const status = compacting ? '⟳ compacting' : interrupted ? '⚠ interrupted' : streaming ? '● streaming' : '○ idle      ';
 
   const hints = useMemo(() => {
     const expandLabel = toolsExpanded ? 'spc collapse' : 'spc expand';

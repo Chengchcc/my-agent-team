@@ -37,6 +37,7 @@ export function mapDataPlaneToAgentEvent(evt: DataPlaneEvent): AgentEvent | null
     case 'skills.reloaded': case 'mcp.reloaded': case 'evolution.progress':
     case 'evolution.skillProposed': case 'system.warn': case 'tui.inline-block':
     case 'sub-agent.started': case 'sub-agent.completed':
+    case 'compaction.started': case 'compaction.completed': case 'compaction.failed':
       return null;
   }
 }

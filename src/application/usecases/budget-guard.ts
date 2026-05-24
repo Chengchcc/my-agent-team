@@ -63,10 +63,13 @@ export async function reactiveCompactCheck(
   const currentTokens = approxTokens(JSON.stringify(historyMsgs))
   if (currentTokens / tokenLimit <= BUDGET_COMPACT_RATIO) return null
   logger.info('turn', `reactive compact triggered (ratio ${(currentTokens / tokenLimit).toFixed(2)})`)
+  void bus.emit('compaction.started', { sessionId, turnId, ratio: currentTokens / tokenLimit, ts: Date.now() })
   try {
     await compactOrFail(sessionId, deps, currentTokens / tokenLimit)
+    void bus.emit('compaction.completed', { sessionId, turnId, ts: Date.now() })
     return null
   } catch (err) {
+    void bus.emit('compaction.failed', { sessionId, turnId, reason: err instanceof Error ? err.message : String(err), ts: Date.now() })
     if (err instanceof BudgetCompactError) {
       emitFailed(bus, sessionId, turnId, 'usecase_internal', err, toolErrorCount)
       return { usage: totalUsage, success: false }
