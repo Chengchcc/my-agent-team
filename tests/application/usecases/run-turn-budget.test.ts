@@ -19,6 +19,7 @@ function stubHistory(msgs: Array<{ role: string; content: string }> = []): Sessi
     get: () => store,
     appendBatch: async () => {},
     replace: async (_sid: string, newMsgs: Array<{ role: string; content: string }>) => { store = [...newMsgs] },
+    drop: async () => false,
   } as unknown as SessionHistoryPort
 }
 

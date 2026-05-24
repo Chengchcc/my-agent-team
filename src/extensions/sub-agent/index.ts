@@ -68,6 +68,9 @@ export default () =>
           }
           ctx.logger.warn('sub-agent', `Sub-agent "${input.type}" failed: ${msg}`)
           return errorResult('failed', msg)
+        } finally {
+          const history = ctx.extensions.get<{ drop: (id: string) => Promise<boolean> }>('session.history')
+          void history?.drop(subSessionId)
         }
       }
 

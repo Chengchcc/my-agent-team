@@ -6,7 +6,7 @@ import type { HistoryRecordV1 } from '../../application/contracts';
 import { InMemorySessionStore } from '../../infrastructure/session/inmem-session-store'
 import { createSession } from '../../domain/session'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { appendFile, mkdir, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, writeFile, unlink } from 'node:fs/promises'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createTurn } from '../../domain/turn'
@@ -239,6 +239,13 @@ export default () =>
               } catch (err) {
                 ctx.logger.warn('session', `NDJSON rewrite failed for ${sid}: ${String(err)}`)
               }
+            },
+            drop: async (sid: string): Promise<boolean> => {
+              let removed = false
+              if (messageHistory.has(sid)) { messageHistory.delete(sid); removed = true }
+              try { await unlink(join(sessionDir, `${sid}.ndjson`)); removed = true }
+              catch (err) { if ((err as NodeJS.ErrnoException).code !== 'ENOENT') ctx.logger.warn('session', `NDJSON unlink failed for ${sid}: ${String(err)}`) }
+              return removed
             },
           }),
 
