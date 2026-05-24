@@ -50,6 +50,8 @@ export interface RunTurnInput {
   turnId: string
   userInput: string
   frontendId: string
+  parallelTools?: boolean
+  eventOrder?: 'completion' | 'submission'
 }
 
 // ── safeDispatch — wraps hook dispatch, returns Result ─────────────────────
@@ -189,6 +191,8 @@ export async function runTurnUsecase(
       },
       maxIterations: DEFAULT_MAX_TURN_ITERATIONS,
       abortSignal: controller.signal,
+      parallelTools: input.parallelTools ?? false,
+      eventOrder: input.eventOrder ?? 'submission',
     })) {
       bus.emit(event.type, event)
 

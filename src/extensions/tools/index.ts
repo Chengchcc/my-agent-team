@@ -126,7 +126,10 @@ export default () =>
         const existingNames = new Set(existing.map((t) => t.name));
         const catalogTools = catalog.list()
           .filter((t) => !existingNames.has(t.name))
-          .map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
+          .map((t) => ({
+            name: t.name, description: t.description, parameters: t.parameters,
+            readonly: t.readonly, conflictKey: t.conflictKey,
+          }));
         return [...existing, ...catalogTools];
       };
 

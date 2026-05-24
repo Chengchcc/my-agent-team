@@ -2,6 +2,8 @@ import type {
   TurnEvent, RunTurnDeps, RoundResult,
   ToolCall, LlmMessage, ChatResponseChunk,
 } from './turn-runner.types'
+import { partitionWaves } from './wave-scheduler'
+import type { ToolConflictMeta } from './wave-scheduler'
 
 // ── Parse tool call arguments from provider chunk ──
 
@@ -70,35 +72,56 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
 
       if (deps.abortSignal?.aborted) break
 
-      for (const call of round.toolCalls) {
-        yield {
-          type: 'tool.start',
-          sessionId, turnId,
-          callId: call.id, name: call.name, args: call.arguments,
+      // Build descriptor map for wave scheduling
+      const descMap = new Map<string, ToolConflictMeta>()
+      for (const t of deps.tools) {
+        if (t.readonly !== undefined || t.conflictKey) {
+          descMap.set(t.name, { readonly: t.readonly, conflictKey: t.conflictKey })
+        }
+      }
+
+      const waves = deps.parallelTools
+        ? partitionWaves(round.toolCalls, descMap)
+        : round.toolCalls.map(c => [c])
+
+      for (const wave of waves) {
+        if (deps.abortSignal?.aborted) break
+
+        // Yield all tool.start in submission order at wave entry
+        for (const call of wave) {
+          yield {
+            type: 'tool.start',
+            sessionId, turnId,
+            callId: call.id, name: call.name, args: call.arguments,
+          }
         }
 
-        try {
-          const result = await hooks.onToolCall(call)
-          yield {
-            type: 'tool.end',
-            sessionId, turnId,
-            callId: call.id, name: call.name, result,
+        // Execute wave calls serially (parallelTools=false → wave size=1;
+        // when parallelTools=true, Promise.all + mailbox handles concurrency)
+        for (const call of wave) {
+          try {
+            const result = await hooks.onToolCall(call)
+            yield {
+              type: 'tool.end',
+              sessionId, turnId,
+              callId: call.id, name: call.name, result,
+            }
+            currentMessages.push({
+              role: 'user',
+              content: `Tool ${call.name} result: ${JSON.stringify(result)}`,
+            })
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            yield {
+              type: 'tool.error',
+              sessionId, turnId,
+              callId: call.id, name: call.name, err: { message },
+            }
+            currentMessages.push({
+              role: 'user',
+              content: `Tool ${call.name} error: ${message}`,
+            })
           }
-          currentMessages.push({
-            role: 'user',
-            content: `Tool ${call.name} result: ${JSON.stringify(result)}`,
-          })
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
-          yield {
-            type: 'tool.error',
-            sessionId, turnId,
-            callId: call.id, name: call.name, err: { message },
-          }
-          currentMessages.push({
-            role: 'user',
-            content: `Tool ${call.name} error: ${message}`,
-          })
         }
       }
     }

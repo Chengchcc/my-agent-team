@@ -13,6 +13,8 @@ export interface ToolDescriptor {
   name: string
   description: string
   parameters: Record<string, unknown>
+  readonly?: boolean
+  conflictKey?: (input: unknown) => string | null
 }
 
 // ── Parsed tool call (from provider stream) ──
@@ -78,6 +80,10 @@ export interface RunTurnDeps {
   maxIterations?: number
   abortSignal?: AbortSignal
   parentTurnId?: string
+  /** Enable wave-based parallel tool dispatch (default false). */
+  parallelTools?: boolean
+  /** Event yield order for parallel waves (default 'submission'). */
+  eventOrder?: 'completion' | 'submission'
 }
 
 // ── Round result (returned by consumeRound sub-generator via yield*) ──
