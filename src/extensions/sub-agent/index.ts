@@ -48,6 +48,7 @@ export default () =>
               allowedToolNames: desc.allowedToolNames.filter(n => n !== 'task'),
               maxOutputTokens: desc.maxOutputTokens,
               compaction: 'disabled',
+              abortSignal: input.parentSignal,
               initialMessages: [
                 { kind: 'history.record' as const, version: 1 as const, sessionId: subSessionId, role: 'system' as const, content: desc.systemPrompt, ts: Date.now() },
                 { kind: 'history.record' as const, version: 1 as const, sessionId: subSessionId, role: 'user' as const, content: input.prompt, ts: Date.now() },
@@ -65,6 +66,10 @@ export default () =>
           }
           ctx.logger.warn('sub-agent', `Sub-agent "${input.type}" failed: ${msg}`)
           return errorResult('failed', msg)
+        } finally {
+          // Clean up ephemeral sub session
+          const store = ctx.extensions.get<{ delete: (id: string) => Promise<boolean> }>('session.store')
+          void store?.delete(subSessionId)
         }
       }
 

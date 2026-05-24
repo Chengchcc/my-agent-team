@@ -63,6 +63,8 @@ export interface RunTurnInput {
   initialMessages?: HistoryRecordV1[]
   /** Max output tokens for the provider call (default: unlimited). */
   maxOutputTokens?: number
+  /** Abort signal for early termination (sub-agents cascade parent signal). */
+  abortSignal?: AbortSignal
 }
 
 // ── safeDispatch — wraps hook dispatch, returns Result ─────────────────────
@@ -183,9 +185,13 @@ export async function runTurnUsecase(
     ? toolsR.value.filter(t => input.allowedToolNames!.includes(t.name))
     : toolsR.value
 
-  // Phase 4: prepare per-turn abort controller
-  const controller = new AbortController()
-  deps.sessionAbort.register(sessionId, controller)
+  // Phase 4: prepare per-turn abort controller (use provided signal for sub-agents)
+  const controller = input.abortSignal
+    ? { signal: input.abortSignal, abort: () => {} } // wrapper, no-op abort
+    : new AbortController()
+  if (!input.abortSignal) {
+    deps.sessionAbort.register(sessionId, controller as AbortController)
+  }
   const baseEnv = { cwd: deps.agentDir }
 
   // Phase 5: drive turn-runner generator
