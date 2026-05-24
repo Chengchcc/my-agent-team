@@ -93,25 +93,29 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
           yield { type: 'tool.start', sessionId, turnId, callId: call.id, name: call.name, args: call.arguments }
         }
 
-        // Execute wave calls concurrently via Promise.allSettled
-        const settled = await Promise.allSettled(wave.map(call =>
-          hooks.onToolCall(call).then(
-            result => ({ call, ok: true as const, result }),
-            (err: unknown) => ({ call, ok: false as const, err: err instanceof Error ? err.message : String(err) }),
-          ),
-        ))
+        // Execute wave calls concurrently
+        const settled = await Promise.allSettled(wave.map(async call => {
+          try {
+            const result = await hooks.onToolCall(call)
+            return { call, ok: true as const, result }
+          } catch (err) {
+            return { call, ok: false as const, err: err instanceof Error ? err.message : String(err) }
+          }
+        }))
 
         // Yield results in submission order
         for (const s of settled) {
           if (s.status === 'rejected') {
+            // Unexpected promise rejection — emit tool.error and continue
             const msg = s.reason instanceof Error ? s.reason.message : String(s.reason)
-            yield { type: 'turn.failed', sessionId, turnId, stage: 'llm_stream' as const, err: { message: msg } }
-            return
+            yield { type: 'tool.error', sessionId, turnId, callId: 'unknown', name: 'unknown', err: { message: msg } }
+            continue
           }
           const r = s.value
           if (r.ok) {
             yield { type: 'tool.end', sessionId, turnId, callId: r.call.id, name: r.call.name, result: r.result }
-            currentMessages.push({ role: 'user', content: `Tool ${r.call.name} result: ${JSON.stringify(r.result)}` })
+            const payload = typeof r.result === 'string' ? r.result : JSON.stringify(r.result)
+            currentMessages.push({ role: 'user', content: `Tool ${r.call.name} result: ${payload}` })
           } else {
             yield { type: 'tool.error', sessionId, turnId, callId: r.call.id, name: r.call.name, err: { message: r.err } }
             currentMessages.push({ role: 'user', content: `Tool ${r.call.name} error: ${r.err}` })
