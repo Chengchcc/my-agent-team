@@ -23,6 +23,7 @@ interface HeaderProps {
 
 export function Header({ model, sessionId }: HeaderProps) {
   const interrupted = useTuiStore(s => s.stats.interrupted);
+  const mode = useTuiStore(s => s.stats.mode);
   const status = interrupted ? 'interrupted' as const : 'connected' as const;
   const st = STATUS_DOTS[status]!;
 
@@ -33,6 +34,7 @@ export function Header({ model, sessionId }: HeaderProps) {
         <Text>
           <Text bold color="cyan">my-agent</Text>
           {model ? <Text dimColor> - {model}</Text> : null}
+          {mode !== 'normal' ? <Text bold color="magenta"> [{mode}]</Text> : null}
           <Text dimColor> - </Text>
           <Text color={st.color}>{st.char}</Text>
           <Text dimColor> {st.label}</Text>

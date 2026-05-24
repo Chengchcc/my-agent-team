@@ -70,6 +70,7 @@ interface TuiStore {
   setTokenLimit: (limit: number) => void;
   setInterrupted: (interrupted: boolean) => void;
   setCompacting: (compacting: boolean) => void;
+  setMode: (mode: string) => void;
 
   // Todos
   updateTodos: (todos: UITodoItem[]) => void;
@@ -245,7 +246,7 @@ function buildInteractionActions(set: ImmerSet): Pick<TuiStore, 'toggleToolsExpa
   };
 }
 
-function buildStatsActions(set: ImmerSet): Pick<TuiStore, 'streamingStart' | 'streamingStop' | 'accumulateUsage' | 'setContextTokens' | 'setTokenLimit' | 'setInterrupted' | 'setCompacting'> {
+function buildStatsActions(set: ImmerSet): Pick<TuiStore, 'streamingStart' | 'streamingStop' | 'accumulateUsage' | 'setContextTokens' | 'setTokenLimit' | 'setInterrupted' | 'setCompacting' | 'setMode'> {
   return {
     streamingStart: () => set((s) => { s.stats.streaming = true; s.stats.streamingStartTime = Date.now(); s.stats.interrupted = false; }),
     streamingStop: () => set((s) => { s.stats.streaming = false; s.stats.streamingStartTime = null; }),
@@ -254,6 +255,7 @@ function buildStatsActions(set: ImmerSet): Pick<TuiStore, 'streamingStart' | 'st
     setTokenLimit: (limit) => set((s) => { s.stats.tokenLimit = limit; }),
     setInterrupted: (interrupted) => set((s) => { s.stats.interrupted = interrupted; }),
     setCompacting: (compacting) => set((s) => { s.stats.compacting = compacting; }),
+    setMode: (mode) => set((s) => { s.stats.mode = mode; }),
   };
 }
 

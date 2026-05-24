@@ -71,6 +71,7 @@ export interface StatsState {
   streamingStartTime: number | null;
   interrupted: boolean;
   compacting: boolean;
+  mode: string;
 }
 
 // ── Session picker ──
@@ -105,6 +106,7 @@ export const initialStats: StatsState = {
   streamingStartTime: null,
   interrupted: false,
   compacting: false,
+  mode: 'normal',
 };
 
 export const initialSessionPicker: SessionPickerState = {

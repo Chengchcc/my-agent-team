@@ -163,14 +163,14 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
             // Supersede old active proposal if exists
             const prev = activeProposals.get(sid)
             if (prev) {
-              void ctx.bus.emit('tui.inline-block', { op: 'replace', blockId: prev.blockId, payload: { ...prev.payload, status: 'superseded' }, ts: Date.now() })
+              void ctx.bus.emit('tui.inline-block', { blockId: prev.blockId, widget: 'plan.proposal', payload: { ...prev.payload, status: 'superseded' }, mode: 'replace' })
             }
             const payload = { callId: toolCtx.callId, planMd, status: 'proposed', proposedAt: Date.now() }
             activeProposals.set(sid, { blockId, payload })
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
             ctx.bus.emit('session.planProposed', { sessionId: sid, planMd, callId: toolCtx.callId, ts: Date.now() })
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            ctx.bus.emit('tui.inline-block', { blockId, widget: 'session.plan-proposal', payload, mode: 'append' })
+            ctx.bus.emit('tui.inline-block', { blockId, widget: 'plan.proposal', payload, mode: 'append' })
             return 'Plan submitted. Awaiting user decision.'
           },
           readonly: true,
@@ -198,7 +198,7 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
             const active = activeProposals.get(p.sessionId)
             if (active) {
               const status = p.decision === 'approve' ? 'approved' : p.decision === 'reject' ? 'rejected' : 'proposed'
-              void ctx.bus.emit('tui.inline-block', { op: 'replace', blockId: active.blockId, payload: { ...active.payload, status }, ts: Date.now() })
+              void ctx.bus.emit('tui.inline-block', { blockId: active.blockId, widget: 'plan.proposal', payload: { ...active.payload, status }, mode: 'replace' })
               if (p.decision !== 'keep') activeProposals.delete(p.sessionId)
             }
             if (p.decision === 'approve') await setMode(p.sessionId, 'normal')
