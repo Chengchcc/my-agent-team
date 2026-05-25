@@ -11,6 +11,11 @@ import { createRecall } from './recall'
 import { createEmbeddingBackfill } from './embedding-backfill'
 import { evaluateExtractPolicy, type PolicyState } from './policy'
 import { DedupPipeline } from './dedup-pipeline'
+import { RememberUseCase } from './explicit-write/remember-use-case'
+import type { RememberInput } from './explicit-write/remember-use-case'
+import { ForgetUseCase } from './explicit-write/forget-use-case'
+import type { ForgetInput } from './explicit-write/forget-use-case'
+import { rememberToolDef, forgetToolDef } from './explicit-write/tool-defs'
 import type { JobSpawner } from '../../application/ports/job-spawner'
 import type { JobContextFactory } from '../infra-services/job-context-factory'
 import type { TraceReader } from '../../application/ports/trace-checkpointer'
@@ -86,7 +91,7 @@ export const cliManifest: CliManifest = {
       }
       case 'forget': {
         if (!argv[1]) { ctx.err('missing <id>\n'); process.exit(2) }
-        await ctx.rpc('memory.forget', { id: argv[1] })
+        await ctx.rpc('memory.forget-by-id', { id: argv[1] })
         ctx.out(`Forgot ${argv[1]}\n`)
         return
       }
@@ -149,6 +154,17 @@ export default (opts: MemoryOpts = {}) =>
       const state: PolicyState = { turnsSinceExtract: 0 }
       let inflight = 0
 
+      // Explicit-write use cases
+      const explicitCfg = (ctx.config as Record<string, unknown>).memory as Record<string, unknown> | undefined;
+      const explicit = (explicitCfg?.explicit ?? {}) as {
+        enabled?: boolean; perTurnLimit?: number; defaultWeight?: number; explicitSourceWeightBoost?: number;
+      };
+      const rememberUseCase = new RememberUseCase(store, encoder, dedup, bus, {
+        perTurnLimit: explicit.perTurnLimit,
+        defaultWeight: explicit.defaultWeight,
+      })
+      const forgetUseCase = new ForgetUseCase(store, encoder, bus)
+
       // Lifecycle config with defaults
       const lifecycleCfg = (ctx.config as Record<string, unknown>).memory as Record<string, unknown> | undefined;
       const lifecycle = (lifecycleCfg?.lifecycle ?? {}) as {
@@ -175,11 +191,17 @@ export default (opts: MemoryOpts = {}) =>
             const entries = await store.ftsSearch(p.query, p?.limit ?? MEM_DEFAULT_SEARCH_LIMIT)
             return { entries: entries.slice(0, p?.limit ?? MEM_DEFAULT_SEARCH_LIMIT).map(e => ({ id: e.id, type: e.type, text: e.text, weight: e.weight })) }
           },
-          'memory.forget': async (params: unknown) => {
+          'memory.forget-by-id': async (params: unknown) => {
             const p = params as { id?: string } | undefined
             if (!p?.id) throw new Error('id is required')
             const ok = await store.remove(p.id)
             return { removed: ok }
+          },
+          'memory.remember': async (params: unknown) => {
+            return rememberUseCase.execute(params as RememberInput)
+          },
+          'memory.forget': async (params: unknown) => {
+            return forgetUseCase.execute(params as ForgetInput)
           },
           'memory.prune': async (params: unknown) => {
             const p = params as { dryRun?: boolean } | undefined;
@@ -199,6 +221,17 @@ export default (opts: MemoryOpts = {}) =>
             return { deleted: candidates.length };
           },
         },
+
+        tools: [
+          {
+            ...rememberToolDef,
+            handler: (args: unknown) => rememberUseCase.execute(args as RememberInput),
+          },
+          {
+            ...forgetToolDef,
+            handler: (args: unknown) => forgetUseCase.execute(args as ForgetInput),
+          },
+        ],
 
         hooks: {
           kernelReady: { enforce: 'normal', fn: async () => { backfill.start() } },
@@ -224,6 +257,7 @@ export default (opts: MemoryOpts = {}) =>
         subscribe: {
           'turn.completed': async (raw) => {
             const e = (raw as EventEnvelope<'turn.completed', TurnCompletedV1>).payload
+            rememberUseCase.clearTurnCounters()
             const decision = evaluateExtractPolicy(e, state)
             if (decision.kind === 'skip' || inflight >= MAX_INFLIGHT) return
             if (!spawner || !ctxFactory) return
@@ -288,6 +322,7 @@ export default (opts: MemoryOpts = {}) =>
 
           'turn.failed': async (raw) => {
             const e = (raw as EventEnvelope<'turn.failed', TurnFailedV1>).payload
+            rememberUseCase.clearTurnCounters()
             void evaluateExtractPolicy(e, state) // update counter even on failure
           },
         },

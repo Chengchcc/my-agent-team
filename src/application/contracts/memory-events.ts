@@ -51,6 +51,44 @@ export interface MemorySupersededV1 {
   reason: string;
 }
 
+// ── memory.remember.created ─────────────────────────────────────────────────
+
+export interface RememberCreatedV1 {
+  id: string;
+  text: string;
+  type: string;
+  source: 'explicit';
+}
+
+// ── memory.remember.merged ──────────────────────────────────────────────────
+
+export interface RememberMergedV1 {
+  existingId: string;
+  candidateText: string;
+}
+
+// ── memory.remember.rejected ────────────────────────────────────────────────
+
+export interface RememberRejectedV1 {
+  reason: string;
+  redactedText: string;
+}
+
+// ── memory.forget.soft ─────────────────────────────────────────────────────
+
+export interface ForgetSoftV1 {
+  ids: string[];
+  tombstoneId: string;
+  query: string;
+}
+
+// ── memory.forget.hard ─────────────────────────────────────────────────────
+
+export interface ForgetHardV1 {
+  ids: string[];
+  query: string;
+}
+
 // ── memory.prune.applied ───────────────────────────────────────────────────
 
 export interface MemoryPruneAppliedV1 {
