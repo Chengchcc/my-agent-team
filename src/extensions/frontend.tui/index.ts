@@ -3,8 +3,12 @@ import type { Transport } from '../../application/ports/transport'
 import type { Logger } from '../../application/ports/logger'
 import type { FrontendHandle } from '../../application/ports/frontend-handle'
 import type { DataPlaneEvent } from '../../application/contracts'
+import type { SlashCommand } from '../../application/slash'
 import { nanoid } from 'nanoid'
 import { SessionClient } from './session-client'
+
+/** Extension-contributed slash commands — populated in apply(), consumed by App.tsx */
+export const extSlashCommands: SlashCommand[] = []
 
 // ── TUIAdapter —防腐层 from Kernel to TUI ──
 
@@ -156,6 +160,10 @@ export default () =>
     enforce: 'post',
     dependsOn: ['transport-inmem', 'controlplane', 'dataplane'],
     apply: (ctx) => {
+      // Collect extension slash commands for TUI picker
+      extSlashCommands.length = 0
+      extSlashCommands.push(...ctx.extensions.collectSlashCommands())
+
       return {
         provide: {
           tui: () => {

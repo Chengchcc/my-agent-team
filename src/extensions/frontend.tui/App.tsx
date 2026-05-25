@@ -16,6 +16,7 @@ import { OverlaySessionPicker } from './overlays/impls/overlay-session-picker';
 import { useSessionPicker } from './hooks/use-session-picker';
 import type { PromptSubmission, SlashContext } from '../../application/slash';
 import { SlashRegistry, registerBuiltinSlashCommands } from '../../application/slash';
+import { extSlashCommands } from './index';
 import type { FinalItem } from './state/types';
 import type { LiveAssistant } from './state/store';
 import type { SessionClient } from './session-client';
@@ -139,6 +140,7 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
   const slashRegistry = useMemo(() => {
     const r = new SlashRegistry();
     registerBuiltinSlashCommands(r);
+    for (const cmd of extSlashCommands) r.register(cmd);
     return r;
   }, []);
 
@@ -200,7 +202,7 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
     }
   }, []);
 
-  const allCommands = useMemo(() => slashRegistry.list({ source: 'builtin' }), [slashRegistry]);
+  const allCommands = useMemo(() => slashRegistry.list(), [slashRegistry]);
 
   const banner: FinalItem = useMemo(
     () => ({ kind: 'banner' as const, model: 'claude-sonnet-4-20250514', sessionId }),
