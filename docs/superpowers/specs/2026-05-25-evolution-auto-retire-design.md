@@ -248,7 +248,7 @@ subscribe: {
 // src/config/defaults.ts
 evolution: {
   autoRetire: {
-    enabled: false,           // MVP 默认关闭,生产观察一周后再开
+    enabled: true,            // 默认开启
     minSampleSize: 5,
     windowSize: 20,
     healthThreshold: 0.5,
@@ -262,30 +262,11 @@ evolution: {
 
 ---
 
-## 10. 回滚与恢复
-
-人工把 `_archived/foo-1234567890/` 改名回 `active/foo/`,然后:
-
-```
-$ lobster rpc skills.reload
-```
-
-`skill_meta.archived_at` 不会自动清空,但 `skills.reload` 后该条目对统计计数无影响(下次 review 时如果统计又差,会再次被归档)。需要彻底"原谅"一个 skill,提供:
-
-```ts
-rpc: {
-  'evolution.reset-skill-meta': async ({ skillName }) =>
-    skillMetaRepo.reset(skillName)
-}
-```
-
----
-
-## 11. 验收清单
+## 10. 验收清单
 
 - [ ] 一个 skill 连续 20 次 fail,且 LLM Tier1 一直判 inconclusive,在第 20 次之后自动 `flag` → 触发 `skill.flagged` 事件
 - [ ] flag 后 7 天内成功率仍 < 0.15,触发 `skill.archived` + 文件从 `active/` 移到 `_archived/`
 - [ ] 归档后自动发 `skills.reload-requested`,skills extension 重新加载注册表,被归档 skill 不再出现在 active 列表
 - [ ] 同一 skill 已 archived 后再来 review,subscriber 内幂等短路,不会重复 rename
 - [ ] 人工恢复 + `skills.reload` 后,skill 重新可用;若再次跌破阈值,会再次走 flag → retire
-- [ ] `autoRetire.enabled=false` 时,整个 §6 subscriber 分支短路,行为与现状完全一致
+- [ ] `autoRetire.enabled=true` 时(默认),§6 subscriber 分支正常运行,归档逻辑生效

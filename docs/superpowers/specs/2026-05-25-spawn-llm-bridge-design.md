@@ -396,7 +396,7 @@ return handler(job, inprocCtx)
 // src/config/defaults.ts
 jobs: {
   spawner: {
-    mode: 'inproc',                        // 切到 'spawn' 启用本 spec
+    mode: 'spawn',                         // 默认 spawn 模式,进程隔离
     workerEntryPath: './dist/worker-entry.js',
     invokeTimeoutMs: 60_000,
     lifetimeMs: 300_000,
@@ -447,15 +447,7 @@ trace 系统已能持久化这些事件,后续可在 dashboard 看 worker 健康
 
 ---
 
-## 11. 灰度切换
-
-1. 先在 staging 把 `mode='spawn'` 跑一周,观察 `spawn.worker.killed` 频率与 `invoke` p99 延迟。
-2. 若 killed 频率 < 1%、p99 延迟与 inproc 相比上浮 < 200ms,在 prod 灰度 10% agent 实例。
-3. 全量切换后,inproc spawner **保留**,作为 `mode='inproc'` 可选项(单机调试 / e2e 测试更方便)。
-
----
-
-## 12. 验收清单
+## 11. 验收清单
 
 - [ ] worker 启动后能成功完成一次 `ctx.invoke(...)`,返回内容能被主进程 ProviderInvoke 看到 (trace 里有对应 LLM 调用)
 - [ ] worker handler 抛错时,主进程能拿到 `'INTERNAL'` 错误帧并 fail 当前 job
