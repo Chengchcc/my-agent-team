@@ -1,17 +1,19 @@
 import { defineExtension } from '../../kernel/define-extension'
 import { createJobSpawner } from '../../infrastructure/jobs'
-import { FsProposalStore } from '../../infrastructure/evolution/fs-proposal-store'
-import { FsSkillStatsStore } from '../../infrastructure/evolution/fs-skill-stats-store'
+import { SqliteProposalStore } from '../../infrastructure/evolution/sqlite-proposal-store'
+import { SqliteSkillStatsStore } from '../../infrastructure/evolution/sqlite-skill-stats-store'
+import { openDb, runMigrations } from '../../infrastructure/_sqlite/connection'
+import { evolutionMigrations } from '../../infrastructure/evolution/sqlite-evolution-schema'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 
 /**
- * Infra-services extension — registers infrastructure port implementations
- * as kernel capabilities so evolution/memory can access them via
- * ctx.extensions.get().
+ * Infra-services extension — registers infrastructure port implementations.
  *
  * Provides:
- *   - job-spawner: JobSpawner (Bun.spawn or inproc, controlled by JOB_SPAWNER env)
- *   - proposal-store: ProposalStore (NDJSON fs-backed)
- *   - skill-stats-store: SkillStatsStore (JSON fs-backed)
+ *   - job-spawner: JobSpawner
+ *   - proposal-store: ProposalStore (SQLite)
+ *   - skill-stats-store: SkillStatsStore (SQLite)
  */
 export default () =>
   defineExtension({
@@ -20,8 +22,12 @@ export default () =>
 
     apply: (ctx) => {
       const spawner = createJobSpawner()
-      const proposals = new FsProposalStore(ctx.paths.evolution.proposals)
-      const stats = new FsSkillStatsStore(ctx.paths.evolution.stats)
+      const evoDir = join(ctx.paths.evolution.proposals, '..')
+      mkdirSync(evoDir, { recursive: true })
+      const db = openDb(join(evoDir, 'evolution.db'))
+      runMigrations(db, evolutionMigrations)
+      const proposals = new SqliteProposalStore(db)
+      const stats = new SqliteSkillStatsStore(db)
 
       return {
         provide: {
@@ -29,6 +35,7 @@ export default () =>
           'proposal-store': () => proposals,
           'skill-stats-store': () => stats,
         },
+        dispose: () => { db.close() },
       }
     },
   })
