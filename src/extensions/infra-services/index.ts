@@ -25,10 +25,14 @@ export default () =>
     enforce: 'post',
 
     apply: (ctx) => {
-      const spawner = createJobSpawner()
       const providerInvoke = ctx.extensions.has('provider.llm')
         ? ctx.extensions.get<ProviderInvoke>('provider.llm')
         : undefined
+
+      const spawner = createJobSpawner({
+        invoke: providerInvoke,
+        logger: ctx.logger,
+      })
 
       const evoDir = join(ctx.paths.evolution.proposals, '..')
       mkdirSync(evoDir, { recursive: true })

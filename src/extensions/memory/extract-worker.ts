@@ -40,18 +40,10 @@ export function parseCandidates(raw: string): MemoryCandidate[] {
 }
 
 if (process.env.JOB_MODE === 'spawn') {
-  const chunks: Buffer[] = []
-  process.stdin.on('data', (chunk: Buffer) => chunks.push(chunk))
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises -- worker entry fire-and-forget
-  process.stdin.on('end', async () => {
-    const job = JSON.parse(Buffer.concat(chunks).toString().trim().split('\n')[0]!) as ExtractJob
-    try {
-      const result = await handle(job, { invoke: async () => { throw new Error('spawn mode does not support LLM invoke') } })
-      process.stdout.write(JSON.stringify(result) + '\n')
-      process.exit(0)
-    } catch (e) {
-      process.stderr.write(String(e) + '\n')
+  import('../../infrastructure/jobs/spawn-worker-runtime')
+    .then(({ runWorker }) => runWorker((job, ctx) => handle(job as ExtractJob, ctx)))
+    .catch((err: unknown) => {
+      process.stderr.write(`runWorker failed: ${String(err)}\n`)
       process.exit(1)
-    }
-  })
+    })
 }

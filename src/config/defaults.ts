@@ -151,4 +151,12 @@ export const defaultSettings: Settings = {
       cancelCountsAsFailure: true,
     },
   },
+  jobs: {
+    spawner: {
+      mode: 'spawn',
+      invokeTimeoutMs: 60_000,
+      lifetimeMs: 300_000,
+      maxConcurrent: 2,
+    },
+  },
 };

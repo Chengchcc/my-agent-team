@@ -25,6 +25,7 @@ import type { InlineBlockV1 } from '../widget-events'
 import type { SubAgentStartedV1, SubAgentCompletedV1 } from '../subagent-events'
 import type { CompactionStartedV1, CompactionCompletedV1, CompactionFailedV1 } from '../compaction-events'
 import type { WaveCompletedV1 } from '../wave-events'
+import type { SpawnWorkerStartedV1, SpawnWorkerInvokeV1, SpawnWorkerExitedV1, SpawnWorkerKilledV1 } from '../spawn-events'
 import type { SessionPlanProposedV1, SessionPlanResolvedV1, SessionModeChangedV1 } from '../session-mode-events'
 
 export interface ContractedEventMap {
@@ -88,6 +89,10 @@ export interface ContractedEventMap {
   'skill.flagged': SkillFlaggedV1
   'skill.archived': SkillArchivedV1
   'skill.unflagged': SkillUnflaggedV1
+  'spawn.worker.started': SpawnWorkerStartedV1
+  'spawn.worker.invoke': SpawnWorkerInvokeV1
+  'spawn.worker.exited': SpawnWorkerExitedV1
+  'spawn.worker.killed': SpawnWorkerKilledV1
 }
 
 export type ContractedEventName = keyof ContractedEventMap

@@ -237,6 +237,21 @@ export interface EvolutionSettings {
   autoRetire: AutoRetireConfig;
 }
 
+export interface JobSpawnerConfig {
+  /** Spawn mode: 'spawn' (process-isolated) or 'inproc' (same-thread). */
+  mode: 'spawn' | 'inproc';
+  /** Per-invoke timeout in ms (default: 60_000). */
+  invokeTimeoutMs: number;
+  /** Maximum worker lifetime in ms before forced shutdown (default: 300_000). */
+  lifetimeMs: number;
+  /** Max concurrent workers (default: 2). */
+  maxConcurrent: number;
+}
+
+export interface JobsSettings {
+  spawner: JobSpawnerConfig;
+}
+
 export interface Settings {
   llm: LLMSettings;
   context: ContextSettings;
@@ -251,4 +266,5 @@ export interface Settings {
   mcp: McpSettings;
   trace: TraceSettings;
   evolution: EvolutionSettings;
+  jobs: JobsSettings;
 }

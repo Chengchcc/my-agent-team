@@ -192,6 +192,17 @@ const evolutionSettingsSchema = z.object({
   autoRetire: autoRetireConfigSchema.optional().default({}),
 });
 
+const jobSpawnerConfigSchema = z.object({
+  mode: z.enum(['spawn', 'inproc']).default('spawn'),
+  invokeTimeoutMs: z.number().int().positive().default(60_000),
+  lifetimeMs: z.number().int().positive().default(300_000),
+  maxConcurrent: z.number().int().positive().default(2),
+});
+
+const jobsSettingsSchema = z.object({
+  spawner: jobSpawnerConfigSchema.optional().default({}),
+});
+
 export const settingsSchema = z.object({
   version: z.number().optional().default(1),
   llm: llmSettingsSchema,
@@ -207,5 +218,6 @@ export const settingsSchema = z.object({
   mcp: mcpSettingsSchema,
   trace: traceSettingsSchema,
   evolution: evolutionSettingsSchema.optional().default({}),
+  jobs: jobsSettingsSchema.optional().default({}),
 });
 

@@ -6,6 +6,13 @@
 import { FrameDecoder, encodeFrame, type Frame } from './spawn-rpc/frame'
 import type { JobContext } from '../../application/ports/job-spawner'
 
+/** Local invoke timeout in the worker — slightly longer than the parent's
+ *  invokeTimeoutMs to avoid races where both sides time out independently. */
+const WORKER_INVOKE_TIMEOUT_MS = 70_000
+
+/** Grace period after stdin EOF before the worker force-exits. */
+const STDIN_EOF_EXIT_DELAY_MS = 5_000
+
 interface PendingEntry {
   resolve: (v: unknown) => void
   reject: (e: unknown) => void
@@ -48,7 +55,7 @@ export async function runWorker(
           const timer = setTimeout(() => {
             pending.delete(id)
             reject(new Error('worker invoke timeout'))
-          }, 70_000) // slightly longer than parent's invokeTimeoutMs to avoid races
+          }, WORKER_INVOKE_TIMEOUT_MS)
           pending.set(id, {
             resolve: resolve as (v: unknown) => void,
             reject: reject as (e: unknown) => void,
@@ -171,6 +178,6 @@ export async function runWorker(
   process.stdin.on('end', () => {
     cancelAllPending('parent stdin closed')
     exited = true
-    setTimeout(() => process.exit(1), 5_000)
+    setTimeout(() => process.exit(1), STDIN_EOF_EXIT_DELAY_MS)
   })
 }
