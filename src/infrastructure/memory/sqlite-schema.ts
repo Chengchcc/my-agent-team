@@ -33,4 +33,5 @@ export function initMemoryTables(db: Database, embeddingDims: number): void {
   db.run('CREATE INDEX IF NOT EXISTS idx_memory_type ON memory(type)');
   db.run('CREATE INDEX IF NOT EXISTS idx_memory_project ON memory(projectPath)');
   db.run('CREATE INDEX IF NOT EXISTS idx_memory_created ON memory(created)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_memory_type_text ON memory(type, text)');
 }

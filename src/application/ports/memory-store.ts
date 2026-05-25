@@ -26,6 +26,9 @@ interface MemoryStore {
   /** Mark entries as hit (updates lastHitAt + usageCount). */
   markHit(ids: string[]): Promise<void>
 
+  /** Exact-match dedupe check: same text AND same type. NOT semantic similarity. */
+  hasExactDuplicate(args: { text: string; type: MemoryEntry['type'] }): Promise<boolean>
+
   /** Delete all entries (for test fixtures). */
   clear(): Promise<void>
 

@@ -29,6 +29,13 @@ const MEM_DEFAULT_SEARCH_LIMIT = 20
 const MEM_TEXT_PREVIEW_CHARS = 60
 const MEM_SEARCH_TEXT_PREVIEW_CHARS = 100
 
+function inferType(tags: string[]): MemoryType {
+  if (tags.includes('preference') || tags.includes('pref')) return 'user_preference'
+  if (tags.includes('decision')) return 'project_rule'
+  if (tags.includes('fact')) return 'agent_md'
+  return 'general'
+}
+
 export const cliManifest: CliManifest = {
   name: 'memory',
   description: 'List, search, and manage agent memories',
@@ -196,8 +203,10 @@ export default (opts: MemoryOpts = {}) =>
                 timeoutMs: EXTRACT_TIMEOUT_MS,
               })
               for (const c of result.candidates) {
+                const type = inferType(c.tags)
+                if (await store.hasExactDuplicate({ text: c.text, type })) continue
                 await store.add({
-                  type: 'general',
+                  type,
                   text: c.text,
                   weight: c.weight,
                   source: 'implicit',

@@ -30,10 +30,21 @@ export class SqliteMemoryStore implements MemoryStore {
   private db: Database;
   private closed = false;
 
+  private hasExactDuplicateStmt: ReturnType<Database['prepare']> | null = null
+
   constructor(db: Database) {
     this.db = db
     sqliteVec.load(this.db as unknown as { loadExtension(file: string, entrypoint?: string): void })
     initMemoryTables(this.db, EMBEDDING_DIMS)
+  }
+
+  private getHasExactDuplicateStmt() {
+    if (!this.hasExactDuplicateStmt) {
+      this.hasExactDuplicateStmt = this.db.prepare(
+        'SELECT 1 FROM memory WHERE type = ? AND text = ? LIMIT 1'
+      )
+    }
+    return this.hasExactDuplicateStmt
   }
 
   private rowToEntry(row: SqlRow): MemoryEntry {
@@ -238,6 +249,10 @@ export class SqliteMemoryStore implements MemoryStore {
     this.db.run('DELETE FROM memory');
     this.db.run('DELETE FROM memory_fts');
     this.db.run('DELETE FROM vec_memory');
+  }
+
+  async hasExactDuplicate({ text, type }: { text: string; type: MemoryEntry['type'] }): Promise<boolean> {
+    return !!this.getHasExactDuplicateStmt().get(type, text)
   }
 
   async close(): Promise<void> {
