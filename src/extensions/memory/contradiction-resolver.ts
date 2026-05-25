@@ -5,6 +5,8 @@ import type { EmbeddingEncoder } from './retrievers';
 
 // ── Opposite keyword pairs for deterministic conflict detection ──────────────
 
+const CONTRADICTION_DISTANCE_THRESHOLD = 0.2
+
 const OPPOSITE_PAIRS: ReadonlyArray<[string, string]> = [
   ['prefer', 'avoid'],
   ['use', "don't use"],
@@ -48,7 +50,7 @@ export class ContradictionResolver {
    * Deterministic conflict check:
    * 1. Embed candidate
    * 2. Vector search topK neighbours
-   * 3. Flag as conflict if distance < 0.2 AND opposite keyword pair detected
+   * 3. Flag as conflict if distance < CONTRADICTION_DISTANCE_THRESHOLD AND opposite keyword pair detected
    */
   async checkConflicts(
     candidate: { text: string; type: MemoryEntry['type'] },
@@ -68,7 +70,7 @@ export class ContradictionResolver {
 
     const results = await this.store.vectorSearch(embedding, topK);
     const conflicts = results
-      .filter(r => r.distance < 0.2 && r.entry.type === candidate.type)
+      .filter(r => r.distance < CONTRADICTION_DISTANCE_THRESHOLD && r.entry.type === candidate.type)
       .filter(r => textHasOppositeKeywords(candidate.text, r.entry.text))
       .map(r => r.entry);
 

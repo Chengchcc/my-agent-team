@@ -4,6 +4,7 @@ import { initMemoryTables } from './sqlite-schema';
 import crypto from 'crypto';
 import type { MemoryEntry, MemoryType } from '../../domain/memory-entry';
 import type { MemoryStore } from '../../application/ports/memory-store';
+import { MS_PER_DAY } from '../../application/constants/units';
 
 type SqlRow = {
   id: string;
@@ -283,7 +284,7 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   async findPruneCandidates(opts: { olderThanDays: number; maxUsageCount: number }): Promise<string[]> {
-    const cutoff = Date.now() - opts.olderThanDays * 86_400_000;
+    const cutoff = Date.now() - opts.olderThanDays * MS_PER_DAY;
     const rows = this.db.query(
       `SELECT id FROM memory
        WHERE superseded_by IS NULL

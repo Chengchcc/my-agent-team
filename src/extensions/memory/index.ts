@@ -34,6 +34,8 @@ const MEM_DEFAULT_LIST_LIMIT = 50
 const MEM_DEFAULT_SEARCH_LIMIT = 20
 const MEM_TEXT_PREVIEW_CHARS = 60
 const MEM_SEARCH_TEXT_PREVIEW_CHARS = 100
+const SEMANTIC_DEDUP_DEFAULT_THRESHOLD = 0.12
+const PRUNE_DEFAULT_AFTER_DAYS = 180
 
 function inferType(tags: string[]): MemoryType {
   if (tags.includes('preference') || tags.includes('pref')) return 'user_preference'
@@ -128,11 +130,13 @@ interface MemoryOpts {
   weights?: { vector?: number; bm25?: number; keyword?: number }
 }
 
+// eslint-disable-next-line max-lines-per-function -- extension wiring function, see apply() justify comment
 export default (opts: MemoryOpts = {}) =>
   defineExtension({
     name: 'memory',
     enforce: 'normal',
     dependsOn: ['trace'],
+    // eslint-disable-next-line max-lines-per-function -- extension apply() naturally wires many capabilities (provide, rpc, tools, hooks, subscribe); extracted where feasible
     apply: (ctx) => {
       const bus = asContractBus(ctx.bus)
       const baseDir = opts.baseDir ?? ctx.paths.memory
@@ -170,7 +174,7 @@ export default (opts: MemoryOpts = {}) =>
       const lifecycle = (lifecycleCfg?.lifecycle ?? {}) as {
         semanticDedupThreshold?: number; pruneAfterDays?: number; pruneMinUsageCount?: number;
       };
-      const semanticThreshold = lifecycle.semanticDedupThreshold ?? 0.12
+      const semanticThreshold = lifecycle.semanticDedupThreshold ?? SEMANTIC_DEDUP_DEFAULT_THRESHOLD
 
       return {
         provide: {
@@ -207,7 +211,7 @@ export default (opts: MemoryOpts = {}) =>
             const p = params as { dryRun?: boolean } | undefined;
             const cfg = lifecycle;
             const candidates = await store.findPruneCandidates({
-              olderThanDays: cfg.pruneAfterDays ?? 180,
+              olderThanDays: cfg.pruneAfterDays ?? PRUNE_DEFAULT_AFTER_DAYS,
               maxUsageCount: cfg.pruneMinUsageCount ?? 0,
             });
             if (p?.dryRun) {

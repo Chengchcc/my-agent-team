@@ -21,16 +21,251 @@ import type { JobContextFactory } from '../infra-services/job-context-factory'
 import type { CliManifest } from '../../cli/cli-types'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
 import type { EvolutionReviewCompletedV1 } from '../../application/contracts/evolution-events'
+import { MS_PER_DAY } from '../../application/constants/units'
 
 const REVIEW_TIMEOUT_MS = 120_000
 const MAX_INFLIGHT = 1
 const EVO_COLUMNS = { id: 12, idPad: 14, tier: 8, outcome: 14, skill: 16, runs: 6, rate: 6, name: 24 } as const
 const EVO_DEFAULT_LIMIT = 20
 
+// Auto-retire config defaults
+const DEFAULT_EVO_MIN_SAMPLE_SIZE = 5
+const DEFAULT_EVO_WINDOW_SIZE = 20
+const DEFAULT_EVO_HEALTH_THRESHOLD = 0.5
+const DEFAULT_EVO_FLAG_THRESHOLD = 0.3
+const DEFAULT_EVO_RETIRE_THRESHOLD = 0.15
+const DEFAULT_EVO_FLAG_GRACE_PERIOD_DAYS = 7
+const DEFAULT_EVO_FLAG_GRACE_PERIOD_MS = DEFAULT_EVO_FLAG_GRACE_PERIOD_DAYS * MS_PER_DAY
+
 const OUTCOME_MAP: Record<ReviewResult['outcome'], 'success' | 'cancel' | 'fail'> = {
   accepted: 'success',
   rejected: 'fail',
   inconclusive: 'cancel',
+}
+
+// ── Shared deps for extracted event handlers ──────────────────────────────
+
+interface EvolutionEventDeps {
+  bus: ReturnType<typeof asContractBus>
+  reader: TraceReader
+  spawner: JobSpawner | undefined
+  proposals: ProposalStore | undefined
+  statsStore: SkillStatsStore | undefined
+  metaRepo: SkillMetaRepo | undefined
+  ctxFactory: JobContextFactory | undefined
+  state: PolicyState
+  inflight: { current: number }
+  autoRetireCfg: AutoRetireConfig
+  collector: StatsCollector
+  autoRetirer: AutoRetirer
+  logger: { warn: (domain: string, msg: string) => void; info: (domain: string, msg: string) => void }
+}
+
+// ── Extracted event handlers ──────────────────────────────────────────────
+
+async function handleTurnEvent(
+  raw: unknown,
+  deps: EvolutionEventDeps,
+): Promise<void> {
+  const env = raw as EventEnvelope<'turn.completed' | 'turn.failed', Record<string, unknown>>
+  // Handle both envelope-wrapped and plain payload shapes
+  const e = (env.payload && typeof env.payload === 'object'
+    ? env.payload
+    : raw) as Record<string, unknown>
+  if (!e || typeof e !== 'object') return
+  const runId = typeof e.runId === 'string' ? e.runId : undefined
+  if (!runId) return
+  const decision = evaluateReviewPolicy(e as unknown as Parameters<typeof evaluateReviewPolicy>[0], deps.state)
+  if (decision.kind === 'skip') return
+  if (deps.inflight.current >= MAX_INFLIGHT) return
+  if (!deps.spawner || !deps.proposals || !deps.statsStore || !deps.ctxFactory) return
+
+  const run = await deps.reader.getRun(runId)
+  if (!run) return
+
+  const skillName = decision.kind === 'tier2' ? decision.skillName : undefined
+  const stats = skillName ? await deps.statsStore.get(skillName) : null
+  const tier = decision.kind === 'tier2' ? 'tier2' as const : 'tier0' as const
+
+  const job: ReviewJob = { tier, runId, skillName, run, stats }
+
+  deps.inflight.current++
+  deps.bus.emit(createEvent('evolution.review.started', { runId, tier, skillName }))
+
+  try {
+    const result = await deps.spawner.run<ReviewJob, ReviewResult>({
+      entry: require.resolve('./worker-entry'),
+      job,
+      ctx: deps.ctxFactory({
+        purpose: tier === 'tier0' ? 'evolution.review.tier0' : 'evolution.review.tier2',
+        runId,
+      }),
+      timeoutMs: REVIEW_TIMEOUT_MS,
+    })
+    await writeProposal(deps.proposals, result, runId)
+    if (skillName) {
+      await bumpStat(deps.statsStore, skillName, result.outcome)
+      // Record outcome in sliding-window for auto-retire
+      deps.collector.record(skillName, OUTCOME_MAP[result.outcome])
+    }
+    deps.bus.emit(createEvent('evolution.review.completed', {
+      runId, tier, outcome: result.outcome, skillName,
+    }))
+  } catch (err) {
+    deps.logger.warn('evolution', `review failed: ${String(err)}`)
+    deps.bus.emit(createEvent('evolution.review.failed', {
+      runId, tier, message: String(err),
+    }))
+  } finally {
+    deps.inflight.current--
+  }
+}
+
+async function handleReviewCompleted(
+  raw: unknown,
+  deps: EvolutionEventDeps,
+): Promise<void> {
+  const env = raw as EventEnvelope<'evolution.review.completed', EvolutionReviewCompletedV1>
+  const e = (env.payload && typeof env.payload === 'object'
+    ? env.payload
+    : raw) as Record<string, unknown>
+  const skillName = typeof e.skillName === 'string' ? e.skillName : undefined
+  if (!skillName) return // tier0 review has no skill
+
+  const meta = deps.metaRepo ? await deps.metaRepo.get(skillName) : null
+  const stats = deps.statsStore ? await deps.statsStore.get(skillName) : null
+  const snapshot = deps.collector.snapshot(skillName, stats, meta?.flagged ?? false, meta?.flaggedAt)
+  const decision = evaluateRetireRules(snapshot, deps.autoRetireCfg)
+
+  if (decision.action === 'flag') {
+    if (deps.metaRepo) await deps.metaRepo.markFlagged(skillName, decision.reason)
+    deps.bus.emit(createEvent('skill.flagged', {
+      skillName,
+      reason: decision.reason,
+      snapshot: {
+        totalRuns: snapshot.totalRuns,
+        recentRuns: snapshot.recentRuns,
+        recentSuccess: snapshot.recentSuccess,
+        recentCancel: snapshot.recentCancel,
+        recentFail: snapshot.recentFail,
+      },
+    }))
+    deps.logger.warn('evolution', `skill flagged for retirement: ${skillName} — ${decision.reason}`)
+    return
+  }
+
+  if (decision.action === 'retire') {
+    await deps.autoRetirer.retire(skillName, decision.reason)
+    return
+  }
+
+  if (decision.action === 'unflag') {
+    if (deps.metaRepo) await deps.metaRepo.reset(skillName)
+    deps.bus.emit(createEvent('skill.unflagged', { skillName }))
+    deps.logger.info('evolution', `skill unflagged: ${skillName}`)
+    return
+  }
+
+  // decision.action === 'healthy' → no-op
+}
+
+// ── Apply factory (extracted from defineExtension to satisfy max-lines-per-function) ──
+
+function buildEvolutionApply(ctx: Parameters<typeof defineExtension>[0]['apply'] extends (arg: infer T) => unknown ? T : never) {
+  const bus = asContractBus(ctx.bus)
+  const reader = ctx.extensions.get<TraceReader>('trace.reader')
+  const reg = ctx.extensions
+  const spawner = reg.has('infra-services.job-spawner') ? reg.get<JobSpawner>('infra-services.job-spawner') : undefined
+  const proposals = reg.has('infra-services.proposal-store') ? reg.get<ProposalStore>('infra-services.proposal-store') : undefined
+  const statsStore = reg.has('infra-services.skill-stats-store') ? reg.get<SkillStatsStore>('infra-services.skill-stats-store') : undefined
+  const metaRepo = reg.has('infra-services.skill-meta-repo') ? reg.get<SkillMetaRepo>('infra-services.skill-meta-repo') : undefined
+  const ctxFactory = reg.has('infra-services.job-context-factory')
+    ? reg.get<JobContextFactory>('infra-services.job-context-factory')
+    : undefined
+  const state: PolicyState = { turnsSinceReview: 0, errorBurst: [], skillRunsSeen: {} }
+
+  // Read auto-retire config with defaults
+  const ar = ((ctx.config as Record<string, unknown>).evolution as Record<string, unknown> | undefined)?.autoRetire as Record<string, unknown> | undefined
+  const autoRetireCfg: AutoRetireConfig = {
+    enabled: (ar?.enabled as boolean) ?? true,
+    minSampleSize: (ar?.minSampleSize as number) ?? DEFAULT_EVO_MIN_SAMPLE_SIZE,
+    windowSize: (ar?.windowSize as number) ?? DEFAULT_EVO_WINDOW_SIZE,
+    healthThreshold: (ar?.healthThreshold as number) ?? DEFAULT_EVO_HEALTH_THRESHOLD,
+    flagThreshold: (ar?.flagThreshold as number) ?? DEFAULT_EVO_FLAG_THRESHOLD,
+    retireThreshold: (ar?.retireThreshold as number) ?? DEFAULT_EVO_RETIRE_THRESHOLD,
+    flagGracePeriodMs: (ar?.flagGracePeriodMs as number) ?? DEFAULT_EVO_FLAG_GRACE_PERIOD_MS,
+    cancelCountsAsFailure: (ar?.cancelCountsAsFailure as boolean) ?? true,
+  }
+
+  // Instantiate stats-driven auto-retire components
+  const collector = new StatsCollector(autoRetireCfg.windowSize)
+  const autoRetirer = new AutoRetirer(ctx.paths, bus, metaRepo!, ctx.logger)
+
+  const deps: EvolutionEventDeps = {
+    bus, reader, spawner, proposals, statsStore, metaRepo, ctxFactory,
+    state,
+    inflight: { current: 0 },
+    autoRetireCfg,
+    collector,
+    autoRetirer,
+    logger: ctx.logger,
+  }
+
+  return {
+    slash: [slashEvolution],
+    subscribe: {
+      'turn.completed': (raw: unknown) => { void handleTurnEvent(raw, deps) },
+      'turn.failed': (raw: unknown) => { void handleTurnEvent(raw, deps) },
+      'evolution.review.completed': (raw: unknown) => { void handleReviewCompleted(raw, deps) },
+    },
+
+    rpc: {
+      'evolution.listProposals': async (params: unknown) => {
+        if (!proposals) throw new Error('proposal-store not available')
+        const p = params as { limit?: number } | undefined
+        const list = await proposals.list({ limit: p?.limit ?? EVO_DEFAULT_LIMIT })
+        return { proposals: list.map(e => ({ id: e.id, tier: e.tier, outcome: e.outcome, skillName: e.skillName, reasoning: e.reasoning, createdAt: e.createdAt })) }
+      },
+      'evolution.promote': async (params: unknown) => {
+        if (!proposals) throw new Error('proposal-store not available')
+        const p = params as { id?: string } | undefined
+        if (!p?.id) throw new Error('id is required')
+
+        // Look up the proposal to get skillProposed
+        const list = await proposals.list({ limit: 100 })
+        const proposal = list.find(e => e.id === p.id)
+        if (!proposal) throw new Error(`proposal ${p.id} not found`)
+
+        let filePath: string | undefined
+        if (proposal.skillProposed) {
+          const result = promoteToSkill({ proposal, skillsDir: ctx.paths.skills.agent })
+          filePath = result.filePath
+        }
+
+        await proposals.markAccepted(p.id, filePath ? { filePath } : undefined)
+
+        // Emit reload event
+        bus.emit(createEvent('skills.reload-requested', {
+          reason: 'evolution.promote',
+          source: p.id,
+        }))
+
+        return { status: 'promoted', filePath }
+      },
+      'evolution.discard': async (params: unknown) => {
+        if (!proposals) throw new Error('proposal-store not available')
+        const p = params as { id?: string } | undefined
+        if (!p?.id) throw new Error('id is required')
+        await proposals.markRejected(p.id)
+        return { status: 'discarded' }
+      },
+      'evolution.stats': async (_params: unknown) => {
+        if (!statsStore) throw new Error('skill-stats-store not available')
+        const list = await statsStore.list()
+        return { skills: list }
+      },
+    },
+  }
 }
 
 export const cliManifest: CliManifest = {
@@ -108,191 +343,5 @@ export default () =>
     enforce: 'normal',
     dependsOn: ['trace'],
 
-    apply: (ctx) => {
-      const bus = asContractBus(ctx.bus)
-      const reader = ctx.extensions.get<TraceReader>('trace.reader')
-      const reg = ctx.extensions
-      const spawner = reg.has('infra-services.job-spawner') ? reg.get<JobSpawner>('infra-services.job-spawner') : undefined
-      const proposals = reg.has('infra-services.proposal-store') ? reg.get<ProposalStore>('infra-services.proposal-store') : undefined
-      const statsStore = reg.has('infra-services.skill-stats-store') ? reg.get<SkillStatsStore>('infra-services.skill-stats-store') : undefined
-      const metaRepo = reg.has('infra-services.skill-meta-repo') ? reg.get<SkillMetaRepo>('infra-services.skill-meta-repo') : undefined
-      const ctxFactory = reg.has('infra-services.job-context-factory')
-        ? reg.get<JobContextFactory>('infra-services.job-context-factory')
-        : undefined
-      const state: PolicyState = { turnsSinceReview: 0, errorBurst: [], skillRunsSeen: {} }
-      let inflight = 0
-
-      // Read auto-retire config with defaults
-      const ar = ((ctx.config as Record<string, unknown>).evolution as Record<string, unknown> | undefined)?.autoRetire as Record<string, unknown> | undefined
-      const autoRetireCfg: AutoRetireConfig = {
-        enabled: (ar?.enabled as boolean) ?? true,
-        minSampleSize: (ar?.minSampleSize as number) ?? 5,
-        windowSize: (ar?.windowSize as number) ?? 20,
-        healthThreshold: (ar?.healthThreshold as number) ?? 0.5,
-        flagThreshold: (ar?.flagThreshold as number) ?? 0.3,
-        retireThreshold: (ar?.retireThreshold as number) ?? 0.15,
-        flagGracePeriodMs: (ar?.flagGracePeriodMs as number) ?? (7 * 86_400_000),
-        cancelCountsAsFailure: (ar?.cancelCountsAsFailure as boolean) ?? true,
-      }
-
-      // Instantiate stats-driven auto-retire components
-      const collector = new StatsCollector(autoRetireCfg.windowSize)
-      const autoRetirer = new AutoRetirer(ctx.paths, bus, metaRepo!, ctx.logger)
-
-      async function onTurnEvent(raw: unknown) {
-        const env = raw as EventEnvelope<'turn.completed' | 'turn.failed', Record<string, unknown>>
-        // Handle both envelope-wrapped and plain payload shapes
-        const e = (env.payload && typeof env.payload === 'object'
-          ? env.payload
-          : raw) as Record<string, unknown>
-        if (!e || typeof e !== 'object') return
-        const runId = typeof e.runId === 'string' ? e.runId : undefined
-        if (!runId) return
-        const decision = evaluateReviewPolicy(e as unknown as Parameters<typeof evaluateReviewPolicy>[0], state)
-        if (decision.kind === 'skip') return
-        if (inflight >= MAX_INFLIGHT) return
-        if (!spawner || !proposals || !statsStore || !ctxFactory) return
-
-        const run = await reader.getRun(runId)
-        if (!run) return
-
-        const skillName = decision.kind === 'tier2' ? decision.skillName : undefined
-        const stats = skillName ? await statsStore.get(skillName) : null
-        const tier = decision.kind === 'tier2' ? 'tier2' as const : 'tier0' as const
-
-        const job: ReviewJob = { tier, runId, skillName, run, stats }
-
-        inflight++
-        bus.emit(createEvent('evolution.review.started', { runId, tier, skillName }))
-
-        try {
-          const result = await spawner.run<ReviewJob, ReviewResult>({
-            entry: require.resolve('./worker-entry'),
-            job,
-            ctx: ctxFactory({
-              purpose: tier === 'tier0' ? 'evolution.review.tier0' : 'evolution.review.tier2',
-              runId,
-            }),
-            timeoutMs: REVIEW_TIMEOUT_MS,
-          })
-          await writeProposal(proposals, result, runId)
-          if (skillName) {
-            await bumpStat(statsStore, skillName, result.outcome)
-            // Record outcome in sliding-window for auto-retire
-            collector.record(skillName, OUTCOME_MAP[result.outcome])
-          }
-          bus.emit(createEvent('evolution.review.completed', {
-            runId, tier, outcome: result.outcome, skillName,
-          }))
-        } catch (err) {
-          ctx.logger.warn('evolution', `review failed: ${String(err)}`)
-          bus.emit(createEvent('evolution.review.failed', {
-            runId, tier, message: String(err),
-          }))
-        } finally {
-          inflight--
-        }
-      }
-
-      async function onReviewCompleted(raw: unknown) {
-        const env = raw as EventEnvelope<'evolution.review.completed', EvolutionReviewCompletedV1>
-        const e = (env.payload && typeof env.payload === 'object'
-          ? env.payload
-          : raw) as Record<string, unknown>
-        const skillName = typeof e.skillName === 'string' ? e.skillName : undefined
-        if (!skillName) return // tier0 review has no skill
-
-        const meta = metaRepo ? await metaRepo.get(skillName) : null
-        const stats = statsStore ? await statsStore.get(skillName) : null
-        const snapshot = collector.snapshot(skillName, stats, meta?.flagged ?? false, meta?.flaggedAt)
-        const decision = evaluateRetireRules(snapshot, autoRetireCfg)
-
-        if (decision.action === 'flag') {
-          if (metaRepo) await metaRepo.markFlagged(skillName, decision.reason)
-          bus.emit(createEvent('skill.flagged', {
-            skillName,
-            reason: decision.reason,
-            snapshot: {
-              totalRuns: snapshot.totalRuns,
-              recentRuns: snapshot.recentRuns,
-              recentSuccess: snapshot.recentSuccess,
-              recentCancel: snapshot.recentCancel,
-              recentFail: snapshot.recentFail,
-            },
-          }))
-          ctx.logger.warn('evolution', `skill flagged for retirement: ${skillName} — ${decision.reason}`)
-          return
-        }
-
-        if (decision.action === 'retire') {
-          await autoRetirer.retire(skillName, decision.reason)
-          return
-        }
-
-        if (decision.action === 'unflag') {
-          if (metaRepo) await metaRepo.reset(skillName)
-          bus.emit(createEvent('skill.unflagged', { skillName }))
-          ctx.logger.info('evolution', `skill unflagged: ${skillName}`)
-          return
-        }
-
-        // decision.action === 'healthy' → no-op
-      }
-
-      return {
-        slash: [slashEvolution],
-        subscribe: {
-          'turn.completed': onTurnEvent,
-          'turn.failed': onTurnEvent,
-          'evolution.review.completed': onReviewCompleted,
-        },
-
-        rpc: {
-          'evolution.listProposals': async (params: unknown) => {
-            if (!proposals) throw new Error('proposal-store not available')
-            const p = params as { limit?: number } | undefined
-            const list = await proposals.list({ limit: p?.limit ?? EVO_DEFAULT_LIMIT })
-            return { proposals: list.map(e => ({ id: e.id, tier: e.tier, outcome: e.outcome, skillName: e.skillName, reasoning: e.reasoning, createdAt: e.createdAt })) }
-          },
-          'evolution.promote': async (params: unknown) => {
-            if (!proposals) throw new Error('proposal-store not available')
-            const p = params as { id?: string } | undefined
-            if (!p?.id) throw new Error('id is required')
-
-            // Look up the proposal to get skillProposed
-            const list = await proposals.list({ limit: 100 })
-            const proposal = list.find(e => e.id === p.id)
-            if (!proposal) throw new Error(`proposal ${p.id} not found`)
-
-            let filePath: string | undefined
-            if (proposal.skillProposed) {
-              const result = promoteToSkill({ proposal, skillsDir: ctx.paths.skills.agent })
-              filePath = result.filePath
-            }
-
-            await proposals.markAccepted(p.id, filePath ? { filePath } : undefined)
-
-            // Emit reload event
-            bus.emit(createEvent('skills.reload-requested', {
-              reason: 'evolution.promote',
-              source: p.id,
-            }))
-
-            return { status: 'promoted', filePath }
-          },
-          'evolution.discard': async (params: unknown) => {
-            if (!proposals) throw new Error('proposal-store not available')
-            const p = params as { id?: string } | undefined
-            if (!p?.id) throw new Error('id is required')
-            await proposals.markRejected(p.id)
-            return { status: 'discarded' }
-          },
-          'evolution.stats': async (_params: unknown) => {
-            if (!statsStore) throw new Error('skill-stats-store not available')
-            const list = await statsStore.list()
-            return { skills: list }
-          },
-        },
-      }
-    },
+    apply: (ctx) => buildEvolutionApply(ctx),
   })

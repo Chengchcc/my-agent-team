@@ -1,5 +1,7 @@
 import type { SkillStatsSnapshot } from './stats-collector'
 
+const MS_PER_DAY = 86_400_000
+
 export interface AutoRetireConfig {
   enabled: boolean
   minSampleSize: number
@@ -83,7 +85,7 @@ export function evaluateRetireRules(
     if (elapsed >= cfg.flagGracePeriodMs) {
       return {
         action: 'retire',
-        reason: `Flagged for ${Math.round(elapsed / 86_400_000)} days; grace period (${Math.round(cfg.flagGracePeriodMs / 86_400_000)} days) expired with success rate ${(successRate * 100).toFixed(0)}%`,
+        reason: `Flagged for ${Math.round(elapsed / MS_PER_DAY)} days; grace period (${Math.round(cfg.flagGracePeriodMs / MS_PER_DAY)} days) expired with success rate ${(successRate * 100).toFixed(0)}%`,
       }
     }
   }

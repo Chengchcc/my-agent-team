@@ -8,6 +8,8 @@ const LIFECYCLE_DECAY_HALF_LIFE_DAYS = 30
 const LIFECYCLE_DECAY_HALF_LIFE_MS = LIFECYCLE_DECAY_HALF_LIFE_DAYS * MS_PER_DAY
 const LIFECYCLE_USAGE_MAX_BONUS = 0.5
 const LIFECYCLE_MERGED_BONUS = 1.1
+const RECENCY_HALF_LIFE_BASE = 0.5
+const LOG_USAGE_SCALE = 0.1
 
 export interface Retriever {
   search(query: string, opts?: { limit?: number }): Promise<MemoryEntry[]>
@@ -112,10 +114,10 @@ export class HybridRetriever implements Retriever {
 
 function lifecycleWeight(entry: MemoryEntry): number {
   const idleMs = Date.now() - (entry.lastHitAt?.getTime() ?? entry.createdAt.getTime())
-  const recencyWeight = Math.pow(0.5, idleMs / LIFECYCLE_DECAY_HALF_LIFE_MS)
+  const recencyWeight = Math.pow(RECENCY_HALF_LIFE_BASE, idleMs / LIFECYCLE_DECAY_HALF_LIFE_MS)
   const usageWeight = 1 + Math.min(
     LIFECYCLE_USAGE_MAX_BONUS,
-    Math.log2(1 + (entry.usageCount ?? 0)) * 0.1,
+    Math.log2(1 + (entry.usageCount ?? 0)) * LOG_USAGE_SCALE,
   )
   const mergedBonus = (entry.mergeCount ?? 0) > 0 ? LIFECYCLE_MERGED_BONUS : 1.0
   return recencyWeight * usageWeight * mergedBonus
