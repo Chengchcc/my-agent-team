@@ -6,6 +6,7 @@ import type { TraceReader } from '../../src/application/ports/trace-checkpointer
 import type { JobSpawner } from '../../src/application/ports/job-spawner'
 import type { ProposalStore } from '../../src/application/ports/proposal-store'
 import type { SkillStatsStore } from '../../src/application/ports/skill-stats-store'
+import type { JobContextFactory } from '../../src/extensions/infra-services/job-context-factory'
 import type { TraceRun } from '../../src/domain/trace/types'
 import type { TurnCompletedV1, TurnFailedV1 } from '../../src/application/contracts/session-events'
 import type { EventEnvelope, EvolutionReviewStartedV1, EvolutionReviewCompletedV1 } from '../../src/application/contracts'
@@ -98,6 +99,10 @@ function mockInfraServicesExt() {
           async get() { return null },
           async put() {},
           async list() { return [] },
+        }),
+        'job-context-factory': (): JobContextFactory => (_opts) => ({
+          invoke: async () => ({ content: '{}', usage: { input: 0, output: 0 } }),
+          log: () => {},
         }),
       },
     }),

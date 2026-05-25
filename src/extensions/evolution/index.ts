@@ -11,6 +11,7 @@ import type { TraceReader } from '../../application/ports/trace-checkpointer'
 import type { ProposalStore } from '../../application/ports/proposal-store'
 import type { SkillStatsStore } from '../../application/ports/skill-stats-store'
 import type { ReviewJob, ReviewResult } from './types'
+import type { JobContextFactory } from '../infra-services/job-context-factory'
 import type { CliManifest } from '../../cli/cli-types'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
 
@@ -101,6 +102,9 @@ export default () =>
       const spawner = reg.has('infra-services.job-spawner') ? reg.get<JobSpawner>('infra-services.job-spawner') : undefined
       const proposals = reg.has('infra-services.proposal-store') ? reg.get<ProposalStore>('infra-services.proposal-store') : undefined
       const statsStore = reg.has('infra-services.skill-stats-store') ? reg.get<SkillStatsStore>('infra-services.skill-stats-store') : undefined
+      const ctxFactory = reg.has('infra-services.job-context-factory')
+        ? reg.get<JobContextFactory>('infra-services.job-context-factory')
+        : undefined
       const state: PolicyState = { turnsSinceReview: 0, errorBurst: [], skillRunsSeen: {} }
       let inflight = 0
 
@@ -116,7 +120,7 @@ export default () =>
         const decision = evaluateReviewPolicy(e as unknown as Parameters<typeof evaluateReviewPolicy>[0], state)
         if (decision.kind === 'skip') return
         if (inflight >= MAX_INFLIGHT) return
-        if (!spawner || !proposals || !statsStore) return
+        if (!spawner || !proposals || !statsStore || !ctxFactory) return
 
         const run = await reader.getRun(runId)
         if (!run) return
@@ -134,6 +138,10 @@ export default () =>
           const result = await spawner.run<ReviewJob, ReviewResult>({
             entry: require.resolve('./worker-entry'),
             job,
+            ctx: ctxFactory({
+              purpose: tier === 'tier0' ? 'evolution.review.tier0' : 'evolution.review.tier2',
+              runId,
+            }),
             timeoutMs: REVIEW_TIMEOUT_MS,
           })
           await writeProposal(proposals, result, runId)
