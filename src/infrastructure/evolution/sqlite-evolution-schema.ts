@@ -29,4 +29,13 @@ export const evolutionMigrations: MigrationStep[] = [
   { version: 2, up(db: Database) {
     db.run(`ALTER TABLE proposals ADD COLUMN file_path TEXT`)
   }},
+  { version: 3, up(db: Database) {
+    db.run(`CREATE TABLE IF NOT EXISTS skill_meta (
+      skill_name TEXT PRIMARY KEY,
+      flagged INTEGER NOT NULL DEFAULT 0,
+      flagged_at INTEGER,
+      flagged_reason TEXT,
+      archived_at INTEGER
+    )`)
+  }},
 ]
