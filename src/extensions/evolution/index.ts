@@ -7,19 +7,31 @@ import { evaluateReviewPolicy, type PolicyState } from './policy'
 import { bumpStat } from './skill-stats'
 import { writeProposal } from './proposal-writer'
 import { promoteToSkill } from './promote-writer'
+import { StatsCollector } from './stats-collector'
+import { evaluateRetireRules } from './auto-retire-rules'
+import type { AutoRetireConfig } from './auto-retire-rules'
+import { AutoRetirer } from './auto-retirer'
 import type { JobSpawner } from '../../application/ports/job-spawner'
 import type { TraceReader } from '../../application/ports/trace-checkpointer'
 import type { ProposalStore } from '../../application/ports/proposal-store'
 import type { SkillStatsStore } from '../../application/ports/skill-stats-store'
+import type { SkillMetaRepo } from '../../application/ports/skill-meta-repo'
 import type { ReviewJob, ReviewResult } from './types'
 import type { JobContextFactory } from '../infra-services/job-context-factory'
 import type { CliManifest } from '../../cli/cli-types'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
+import type { EvolutionReviewCompletedV1 } from '../../application/contracts/evolution-events'
 
 const REVIEW_TIMEOUT_MS = 120_000
 const MAX_INFLIGHT = 1
 const EVO_COLUMNS = { id: 12, idPad: 14, tier: 8, outcome: 14, skill: 16, runs: 6, rate: 6, name: 24 } as const
 const EVO_DEFAULT_LIMIT = 20
+
+const OUTCOME_MAP: Record<ReviewResult['outcome'], 'success' | 'cancel' | 'fail'> = {
+  accepted: 'success',
+  rejected: 'fail',
+  inconclusive: 'cancel',
+}
 
 export const cliManifest: CliManifest = {
   name: 'evolution',
@@ -103,11 +115,29 @@ export default () =>
       const spawner = reg.has('infra-services.job-spawner') ? reg.get<JobSpawner>('infra-services.job-spawner') : undefined
       const proposals = reg.has('infra-services.proposal-store') ? reg.get<ProposalStore>('infra-services.proposal-store') : undefined
       const statsStore = reg.has('infra-services.skill-stats-store') ? reg.get<SkillStatsStore>('infra-services.skill-stats-store') : undefined
+      const metaRepo = reg.has('infra-services.skill-meta-repo') ? reg.get<SkillMetaRepo>('infra-services.skill-meta-repo') : undefined
       const ctxFactory = reg.has('infra-services.job-context-factory')
         ? reg.get<JobContextFactory>('infra-services.job-context-factory')
         : undefined
       const state: PolicyState = { turnsSinceReview: 0, errorBurst: [], skillRunsSeen: {} }
       let inflight = 0
+
+      // Read auto-retire config with defaults
+      const ar = ((ctx.config as Record<string, unknown>).evolution as Record<string, unknown> | undefined)?.autoRetire as Record<string, unknown> | undefined
+      const autoRetireCfg: AutoRetireConfig = {
+        enabled: (ar?.enabled as boolean) ?? true,
+        minSampleSize: (ar?.minSampleSize as number) ?? 5,
+        windowSize: (ar?.windowSize as number) ?? 20,
+        healthThreshold: (ar?.healthThreshold as number) ?? 0.5,
+        flagThreshold: (ar?.flagThreshold as number) ?? 0.3,
+        retireThreshold: (ar?.retireThreshold as number) ?? 0.15,
+        flagGracePeriodMs: (ar?.flagGracePeriodMs as number) ?? (7 * 86_400_000),
+        cancelCountsAsFailure: (ar?.cancelCountsAsFailure as boolean) ?? true,
+      }
+
+      // Instantiate stats-driven auto-retire components
+      const collector = new StatsCollector(autoRetireCfg.windowSize)
+      const autoRetirer = new AutoRetirer(ctx.paths, bus, metaRepo!, ctx.logger)
 
       async function onTurnEvent(raw: unknown) {
         const env = raw as EventEnvelope<'turn.completed' | 'turn.failed', Record<string, unknown>>
@@ -146,7 +176,11 @@ export default () =>
             timeoutMs: REVIEW_TIMEOUT_MS,
           })
           await writeProposal(proposals, result, runId)
-          if (skillName) await bumpStat(statsStore, skillName, result.outcome)
+          if (skillName) {
+            await bumpStat(statsStore, skillName, result.outcome)
+            // Record outcome in sliding-window for auto-retire
+            collector.record(skillName, OUTCOME_MAP[result.outcome])
+          }
           bus.emit(createEvent('evolution.review.completed', {
             runId, tier, outcome: result.outcome, skillName,
           }))
@@ -160,11 +194,57 @@ export default () =>
         }
       }
 
+      async function onReviewCompleted(raw: unknown) {
+        const env = raw as EventEnvelope<'evolution.review.completed', EvolutionReviewCompletedV1>
+        const e = (env.payload && typeof env.payload === 'object'
+          ? env.payload
+          : raw) as Record<string, unknown>
+        const skillName = typeof e.skillName === 'string' ? e.skillName : undefined
+        if (!skillName) return // tier0 review has no skill
+
+        const meta = metaRepo ? await metaRepo.get(skillName) : null
+        const stats = statsStore ? await statsStore.get(skillName) : null
+        const snapshot = collector.snapshot(skillName, stats, meta?.flagged ?? false, meta?.flaggedAt)
+        const decision = evaluateRetireRules(snapshot, autoRetireCfg)
+
+        if (decision.action === 'flag') {
+          if (metaRepo) await metaRepo.markFlagged(skillName, decision.reason)
+          bus.emit(createEvent('skill.flagged', {
+            skillName,
+            reason: decision.reason,
+            snapshot: {
+              totalRuns: snapshot.totalRuns,
+              recentRuns: snapshot.recentRuns,
+              recentSuccess: snapshot.recentSuccess,
+              recentCancel: snapshot.recentCancel,
+              recentFail: snapshot.recentFail,
+            },
+          }))
+          ctx.logger.warn('evolution', `skill flagged for retirement: ${skillName} — ${decision.reason}`)
+          return
+        }
+
+        if (decision.action === 'retire') {
+          await autoRetirer.retire(skillName, decision.reason)
+          return
+        }
+
+        if (decision.action === 'unflag') {
+          if (metaRepo) await metaRepo.reset(skillName)
+          bus.emit(createEvent('skill.unflagged', { skillName }))
+          ctx.logger.info('evolution', `skill unflagged: ${skillName}`)
+          return
+        }
+
+        // decision.action === 'healthy' → no-op
+      }
+
       return {
         slash: [slashEvolution],
         subscribe: {
           'turn.completed': onTurnEvent,
           'turn.failed': onTurnEvent,
+          'evolution.review.completed': onReviewCompleted,
         },
 
         rpc: {
