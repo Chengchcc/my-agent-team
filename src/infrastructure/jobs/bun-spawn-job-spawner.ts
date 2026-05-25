@@ -3,7 +3,7 @@
 import type { JobContext, JobSpawner } from '../../application/ports/job-spawner'
 
 export class BunSpawnJobSpawner implements JobSpawner {
-  async run<TJob, TResult>(opts: {
+  async run<TJob, TResult>(_opts: {
     entry: string
     job: TJob
     ctx: JobContext
