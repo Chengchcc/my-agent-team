@@ -148,15 +148,10 @@ export async function runTurnUsecase(
   const basePrompt = deps.basePrompt ?? 'You are a helpful AI assistant.'
   const tokenLimit = input.tokenLimit ?? BUDGET_DEFAULT_TOKEN_LIMIT
 
-  // Phase 1: load history (or use initialMessages for ephemeral sessions)
-  const historyMsgs = input.initialMessages
-    ? [...input.initialMessages]
-    : history.get(sessionId)
-
-  // Phase 1b: auto-compact safety net
+  // Phase 1: load history
+  const historyMsgs = input.initialMessages ? [...input.initialMessages] : history.get(sessionId)
   await autoCompactIfNeeded(input, deps, historyMsgs)
-
-  // Phase 2: transformPrompt hook (includes history for memory recall)
+  // Phase 2: transformPrompt hook
   const promptR = await safeDispatch<{ system: string; messages: Array<{ role: string; content: string }> }>(
     hooks, 'transformPrompt', {
       system: basePrompt,
@@ -260,6 +255,7 @@ export async function runTurnUsecase(
           logger.warn('turn', `Turn ${turnId} failed at ${event.stage}: ${event.err.message}`)
           return { usage: totalUsage, success: false }
         case 'wave.completed': {
+          void bus.emit('wave.completed', { sessionId, turnId, waveIndex: event.waveIndex, callsInWave: event.callsInWave, ts: event.ts })
           const budgetResult = await reactiveCompactCheck(
             input, deps, historyMsgs, tokenLimit, sessionId, turnId, bus, logger, toolErrorCount, totalUsage, emitFailed,
           )
