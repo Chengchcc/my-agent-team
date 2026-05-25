@@ -27,7 +27,6 @@ export { default as mcpExt } from './extensions/mcp'
 
 // Infrastructure adapters
 export { EchoProvider } from './infrastructure/llm/echo-provider'
-export { InMemorySessionStore } from './infrastructure/session/inmem-session-store'
 
 // Frontend handle
 export type { FrontendHandle } from './application/ports/frontend-handle'
