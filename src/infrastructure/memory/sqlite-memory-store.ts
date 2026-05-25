@@ -1,4 +1,4 @@
-import { Database } from 'bun:sqlite';
+import type { Database } from 'bun:sqlite';
 import * as sqliteVec from 'sqlite-vec';
 import path from 'path';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -6,9 +6,7 @@ import { initMemoryTables } from './sqlite-schema';
 import crypto from 'crypto';
 import type { MemoryEntry, MemoryType } from '../../domain/memory-entry';
 import type { MemoryStore } from '../../application/ports/memory-store';
-import { configureSqlite } from '../../utils/sqlite-platform';
-
-configureSqlite();
+import { openDb } from '../_sqlite/connection';
 
 type SqlRow = {
   id: string;
@@ -36,18 +34,12 @@ export class SqliteMemoryStore implements MemoryStore {
   private closed = false;
 
   constructor(baseDir: string) {
-    const dir = baseDir;
-    const dbPath = path.join(dir, 'memory.db');
+    const dbPath = path.join(baseDir, 'memory.db')
+    if (!existsSync(baseDir)) mkdirSync(baseDir, { recursive: true })
 
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-
-    this.db = new Database(dbPath, { create: true });
-    this.db.run('PRAGMA journal_mode=WAL');
-    this.db.run('PRAGMA busy_timeout=3000');
-    sqliteVec.load(this.db as unknown as { loadExtension(file: string, entrypoint?: string): void });
-    initMemoryTables(this.db, EMBEDDING_DIMS);
+    this.db = openDb(dbPath) as Database
+    sqliteVec.load(this.db as unknown as { loadExtension(file: string, entrypoint?: string): void })
+    initMemoryTables(this.db, EMBEDDING_DIMS)
   }
 
   private rowToEntry(row: SqlRow): MemoryEntry {
