@@ -1,9 +1,13 @@
 import { defineExtension } from '../../kernel/define-extension'
 import { slashTrace } from './slash/slash-trace'
 import type { HookHandler } from '../../kernel/define-extension'
-import { createNdjsonCheckpointer } from '../../infrastructure/trace'
+import { SqliteTraceCheckpointer } from '../../infrastructure/trace/sqlite-trace-checkpointer'
+import { openDb, runMigrations } from '../../infrastructure/_sqlite/connection'
+import { traceMigrations } from '../../infrastructure/trace/sqlite-trace-schema'
 import type { TraceEvent } from '../../domain/trace-event'
 import type { TraceReader } from '../../application/ports/trace-checkpointer'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import type { CliManifest } from '../../cli/cli-types'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
 
@@ -76,13 +80,14 @@ export default (opts?: { baseDir?: string }) =>
 
     apply: (ctx) => {
       const baseDir = opts?.baseDir ?? ctx.paths.traces
-      const checkpointer = createNdjsonCheckpointer(baseDir, ctx.agentId)
+      mkdirSync(baseDir, { recursive: true })
+      const db = openDb(join(baseDir, 'traces.db'))
+      runMigrations(db, traceMigrations)
+      const checkpointer = new SqliteTraceCheckpointer(db, `agent-${ctx.agentId}-${Date.now()}`)
 
       const onTraceEmit: HookHandler = async (...args: unknown[]) => {
         const event = args[0] as TraceEvent
         await checkpointer.append(event)
-        // No longer emits 'trace.flushed' — downstream consumers subscribe
-        // to contract events (turn.completed / turn.failed) directly.
       }
 
       const onShutdown: HookHandler = async () => {
@@ -91,13 +96,13 @@ export default (opts?: { baseDir?: string }) =>
 
       return {
         provide: {
-          reader: () => checkpointer as TraceReader,
+          reader: () => checkpointer as unknown as TraceReader,
         },
 
         rpc: {
           'trace.listRecent': async (params: unknown) => {
             const p = params as { limit?: number; sessionId?: string } | undefined
-            const reader = checkpointer as TraceReader
+            const reader = checkpointer as unknown as TraceReader
             const summaries = await reader.listRecentSummaries({
               limit: p?.limit ?? TRACE_DEFAULT_LIMIT,
               sessionId: p?.sessionId,
@@ -107,7 +112,7 @@ export default (opts?: { baseDir?: string }) =>
           'trace.getRun': async (params: unknown) => {
             const p = params as { runId?: string } | undefined
             if (!p?.runId) throw new Error('runId is required')
-            const reader = checkpointer as TraceReader
+            const reader = checkpointer as unknown as TraceReader
             const run = await reader.getRun(p.runId)
             if (!run) throw new Error(`run not found: ${p.runId}`)
             return {
@@ -136,7 +141,7 @@ export default (opts?: { baseDir?: string }) =>
         },
 
         slash: [slashTrace],
-        dispose: () => checkpointer.flush(),
+        dispose: () => { void checkpointer.flush(); db.close() },
       }
     },
   })

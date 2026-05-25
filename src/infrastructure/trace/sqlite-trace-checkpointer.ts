@@ -7,7 +7,7 @@ export class SqliteTraceCheckpointer implements TraceCheckpointer {
   private seq = 0
 
   constructor(private db: Database, private runId: string) {
-    db.run(`INSERT INTO trace_runs (run_id, session_id, started_at, outcome) VALUES (?, ?, ?, 'running')`, [runId, '', Date.now()])
+    db.run(`INSERT OR IGNORE INTO trace_runs (run_id, session_id, started_at, outcome) VALUES (?, ?, ?, 'running')`, [runId, '', Date.now()])
   }
 
   async append(event: TraceEvent): Promise<void> {
