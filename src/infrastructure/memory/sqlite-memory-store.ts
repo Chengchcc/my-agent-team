@@ -1,12 +1,9 @@
 import type { Database } from 'bun:sqlite';
 import * as sqliteVec from 'sqlite-vec';
-import path from 'path';
-import { mkdirSync, existsSync } from 'node:fs';
 import { initMemoryTables } from './sqlite-schema';
 import crypto from 'crypto';
 import type { MemoryEntry, MemoryType } from '../../domain/memory-entry';
 import type { MemoryStore } from '../../application/ports/memory-store';
-import { openDb } from '../_sqlite/connection';
 
 type SqlRow = {
   id: string;
@@ -33,11 +30,8 @@ export class SqliteMemoryStore implements MemoryStore {
   private db: Database;
   private closed = false;
 
-  constructor(baseDir: string) {
-    const dbPath = path.join(baseDir, 'memory.db')
-    if (!existsSync(baseDir)) mkdirSync(baseDir, { recursive: true })
-
-    this.db = openDb(dbPath) as Database
+  constructor(db: Database) {
+    this.db = db
     sqliteVec.load(this.db as unknown as { loadExtension(file: string, entrypoint?: string): void })
     initMemoryTables(this.db, EMBEDDING_DIMS)
   }

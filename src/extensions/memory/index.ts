@@ -3,6 +3,9 @@ import { slashMemory } from './slash/slash-memory'
 import { createEvent } from '../../application/contracts'
 import { asContractBus } from '../../application/event-bus/contract-bus'
 import { createSqliteMemoryStore } from '../../infrastructure/memory'
+import { openDb } from '../../infrastructure/_sqlite/connection'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { createOllamaEncoder } from './embedding-encoder'
 import { createRecall } from './recall'
 import { createEmbeddingBackfill } from './embedding-backfill'
@@ -106,7 +109,10 @@ export default (opts: MemoryOpts = {}) =>
     dependsOn: ['trace'],
     apply: (ctx) => {
       const bus = asContractBus(ctx.bus)
-      const store = createSqliteMemoryStore({ agentId: ctx.agentId, baseDir: opts.baseDir ?? ctx.paths.memory })
+      const baseDir = opts.baseDir ?? ctx.paths.memory
+      mkdirSync(baseDir, { recursive: true })
+      const db = openDb(join(baseDir, 'memory.db'))
+      const store = createSqliteMemoryStore(db)
       const encoder = createOllamaEncoder(opts.embedding ?? {})
       const reader = ctx.extensions.get<TraceReader>('trace.reader')
       const spawner = ctx.extensions.has('infra-services.job-spawner')
@@ -210,7 +216,7 @@ export default (opts: MemoryOpts = {}) =>
         },
 
         slash: [slashMemory],
-        dispose: async () => { backfill.stop(); await store.close() },
+        dispose: async () => { backfill.stop(); db.close() },
       }
     },
   })
