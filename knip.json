@@ -18,10 +18,10 @@
     "tests/fixtures/**",
     "src/index.ts",
     "src/domain/agent.ts",
-    "src/infrastructure/_sqlite/connection.ts",
-    "src/infrastructure/session/sqlite-session-schema.ts",
-    "src/infrastructure/session/sqlite-session-store.ts",
-    "src/infrastructure/session/sqlite-history-store.ts"
+    "src/infrastructure/_sqlite/**",
+    "src/infrastructure/session/sqlite-*",
+    "src/infrastructure/trace/sqlite-*",
+    "src/infrastructure/evolution/sqlite-*"
   ],
   "ignoreExportsUsedInFile": true,
   "tags": ["-public", "-internal"],

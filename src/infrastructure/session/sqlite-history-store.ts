@@ -33,7 +33,6 @@ export class SqliteHistoryStore implements SessionHistoryPort {
     this.db.transaction(() => {
       this.db.run('DELETE FROM history WHERE session_id = ?', [sessionId])
       if (msgs.length === 0) return
-      // eslint-disable-next-line @typescript-eslint/no-magic-numbers
       const insert = this.db.prepare(
         `INSERT INTO history (session_id, seq, role, content_json, usage_in, usage_out, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
