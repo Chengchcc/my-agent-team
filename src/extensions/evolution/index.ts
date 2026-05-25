@@ -21,7 +21,6 @@ import type { JobContextFactory } from '../infra-services/job-context-factory'
 import type { CliManifest } from '../../cli/cli-types'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
 import type { EvolutionReviewCompletedV1 } from '../../application/contracts/evolution-events'
-import { MS_PER_DAY } from '../../application/constants/units'
 
 const REVIEW_TIMEOUT_MS = 120_000
 const MAX_INFLIGHT = 1
@@ -29,13 +28,9 @@ const EVO_COLUMNS = { id: 12, idPad: 14, tier: 8, outcome: 14, skill: 16, runs: 
 const EVO_DEFAULT_LIMIT = 20
 
 // Auto-retire config defaults
-const DEFAULT_EVO_MIN_SAMPLE_SIZE = 5
-const DEFAULT_EVO_WINDOW_SIZE = 20
-const DEFAULT_EVO_HEALTH_THRESHOLD = 0.5
-const DEFAULT_EVO_FLAG_THRESHOLD = 0.3
-const DEFAULT_EVO_RETIRE_THRESHOLD = 0.15
-const DEFAULT_EVO_FLAG_GRACE_PERIOD_DAYS = 7
-const DEFAULT_EVO_FLAG_GRACE_PERIOD_MS = DEFAULT_EVO_FLAG_GRACE_PERIOD_DAYS * MS_PER_DAY
+const DEFAULT_EVO_MIN_SAMPLE_SIZE = 10
+const DEFAULT_EVO_WINDOW_SIZE = 50
+const DEFAULT_EVO_RETIRE_THRESHOLD = 0.2
 
 const OUTCOME_MAP: Record<ReviewResult['outcome'], 'success' | 'cancel' | 'fail'> = {
   accepted: 'success',
@@ -132,37 +127,12 @@ async function handleReviewCompleted(
   const skillName = typeof e.skillName === 'string' ? e.skillName : undefined
   if (!skillName) return // tier0 review has no skill
 
-  const meta = deps.metaRepo ? await deps.metaRepo.get(skillName) : null
   const stats = deps.statsStore ? await deps.statsStore.get(skillName) : null
-  const snapshot = deps.collector.snapshot(skillName, stats, meta?.flagged ?? false, meta?.flaggedAt)
+  const snapshot = deps.collector.snapshot(skillName, stats)
   const decision = evaluateRetireRules(snapshot, deps.autoRetireCfg)
-
-  if (decision.action === 'flag') {
-    if (deps.metaRepo) await deps.metaRepo.markFlagged(skillName, decision.reason)
-    deps.bus.emit(createEvent('skill.flagged', {
-      skillName,
-      reason: decision.reason,
-      snapshot: {
-        totalRuns: snapshot.totalRuns,
-        recentRuns: snapshot.recentRuns,
-        recentSuccess: snapshot.recentSuccess,
-        recentCancel: snapshot.recentCancel,
-        recentFail: snapshot.recentFail,
-      },
-    }))
-    deps.logger.warn('evolution', `skill flagged for retirement: ${skillName} — ${decision.reason}`)
-    return
-  }
 
   if (decision.action === 'retire') {
     await deps.autoRetirer.retire(skillName, decision.reason)
-    return
-  }
-
-  if (decision.action === 'unflag') {
-    if (deps.metaRepo) await deps.metaRepo.reset(skillName)
-    deps.bus.emit(createEvent('skill.unflagged', { skillName }))
-    deps.logger.info('evolution', `skill unflagged: ${skillName}`)
     return
   }
 
@@ -190,11 +160,7 @@ function buildEvolutionApply(ctx: Parameters<typeof defineExtension>[0]['apply']
     enabled: (ar?.enabled as boolean) ?? true,
     minSampleSize: (ar?.minSampleSize as number) ?? DEFAULT_EVO_MIN_SAMPLE_SIZE,
     windowSize: (ar?.windowSize as number) ?? DEFAULT_EVO_WINDOW_SIZE,
-    healthThreshold: (ar?.healthThreshold as number) ?? DEFAULT_EVO_HEALTH_THRESHOLD,
-    flagThreshold: (ar?.flagThreshold as number) ?? DEFAULT_EVO_FLAG_THRESHOLD,
     retireThreshold: (ar?.retireThreshold as number) ?? DEFAULT_EVO_RETIRE_THRESHOLD,
-    flagGracePeriodMs: (ar?.flagGracePeriodMs as number) ?? DEFAULT_EVO_FLAG_GRACE_PERIOD_MS,
-    cancelCountsAsFailure: (ar?.cancelCountsAsFailure as boolean) ?? true,
   }
 
   // Instantiate stats-driven auto-retire components

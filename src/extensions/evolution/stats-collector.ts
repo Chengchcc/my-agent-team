@@ -7,8 +7,6 @@ export interface SkillStatsSnapshot {
   recentSuccess: number
   recentCancel: number
   recentFail: number
-  flagged: boolean
-  flaggedAt?: number
 }
 
 type Outcome = 'success' | 'cancel' | 'fail'
@@ -39,8 +37,6 @@ export class StatsCollector {
   snapshot(
     skillName: string,
     stats: SkillStats | null,
-    flagged: boolean = false,
-    flaggedAt?: number,
   ): SkillStatsSnapshot {
     const recent = this.recent.get(skillName) ?? []
     return {
@@ -50,8 +46,6 @@ export class StatsCollector {
       recentSuccess: recent.filter(e => e.outcome === 'success').length,
       recentCancel: recent.filter(e => e.outcome === 'cancel').length,
       recentFail: recent.filter(e => e.outcome === 'fail').length,
-      flagged,
-      flaggedAt,
     }
   }
 }

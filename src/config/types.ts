@@ -217,20 +217,12 @@ export interface TraceSettings {
 export interface AutoRetireConfig {
   /** Enable stats-driven auto-retire (default: true). */
   enabled: boolean;
-  /** Minimum sample size before rules activate (default: 5). */
+  /** Minimum sample size before rules activate (default: 10). */
   minSampleSize: number;
-  /** Sliding window size for recent outcomes (default: 20). */
+  /** Sliding window size for recent outcomes (default: 50). */
   windowSize: number;
-  /** Success rate above which a skill is healthy (default: 0.5). */
-  healthThreshold: number;
-  /** Success rate below which to flag the skill (default: 0.3). */
-  flagThreshold: number;
-  /** Success rate below which to retire immediately (default: 0.15). */
+  /** Success rate below which to retire immediately (default: 0.2). */
   retireThreshold: number;
-  /** Grace period in ms from flag to forced retire (default: 7 days). */
-  flagGracePeriodMs: number;
-  /** Whether user cancellations count as failures (default: true). */
-  cancelCountsAsFailure: boolean;
 }
 
 export interface EvolutionSettings {

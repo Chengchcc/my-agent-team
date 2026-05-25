@@ -1,14 +1,14 @@
 // MemoryEntry entity — typed memory record with weight, decay, and hit tracking.
 // Zero IO dependencies. Zero framework imports.
 
-type MemoryType = 'general' | 'user_preference' | 'project_rule' | 'agent_md'
+type MemoryType = 'preference' | 'fact' | 'decision' | 'instruction'
 
 interface MemoryEntry {
   readonly id: string
   readonly type: MemoryType
   text: string
   weight: number
-  source: 'explicit' | 'implicit' | 'user'
+  source: 'explicit' | 'implicit'
   tags: string[]
   createdAt: Date
   updatedAt: Date
@@ -34,7 +34,7 @@ function createMemoryEntry(opts: {
   type: MemoryType
   text: string
   weight?: number
-  source?: 'explicit' | 'implicit' | 'user'
+  source?: 'explicit' | 'implicit'
   tags?: string[]
 }): MemoryEntry {
   const weight = clampWeight(opts.weight ?? 1.0)

@@ -15,7 +15,6 @@ type SqlRow = {
   source: string;
   tags?: string;
   updated?: string;
-  embedding?: Buffer;
   lastHitAt?: number;
   usageCount?: number;
   bm25_score?: number;
@@ -25,7 +24,6 @@ type SqlRow = {
 };
 
 const EMBEDDING_DIMS = 768;
-const EMBEDDING_FLOAT_SIZE = 4;
 const MIN_TOKEN_LENGTH = 2;
 const CANDIDATE_MULTIPLIER = 3;
 const DEFAULT_SQLITE_MEMORY_LIMIT = 50;
@@ -41,7 +39,7 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   private rowToEntry(row: SqlRow): MemoryEntry {
-    const e: MemoryEntry = {
+    return {
       id: row.id,
       type: row.type as MemoryType,
       text: row.text,
@@ -56,11 +54,6 @@ export class SqliteMemoryStore implements MemoryStore {
       supersededBy: row.superseded_by ?? undefined,
       mergeCount: row.merge_count ?? 0,
     };
-    if (row.embedding) {
-      const buf = row.embedding as Buffer;
-      e.embedding = Array.from(new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / EMBEDDING_FLOAT_SIZE));
-    }
-    return e;
   }
 
   async add(entry: Omit<MemoryEntry, 'id' | 'createdAt' | 'updatedAt'>): Promise<MemoryEntry> {
@@ -77,13 +70,9 @@ export class SqliteMemoryStore implements MemoryStore {
       mergeCount: entry.mergeCount ?? 0,
     } as MemoryEntry;
 
-    const embBuf = full.embedding
-      ? Buffer.from(new Float32Array(full.embedding).buffer)
-      : null;
-
     this.db.run(
-      `INSERT INTO memory (id,type,text,tags,created,updated,weight,source,projectPath,files,metadata,embedding,lastHitAt,usageCount,text_hash,superseded_by,merge_count)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO memory (id,type,text,tags,created,updated,weight,source,lastHitAt,usageCount,text_hash,superseded_by,merge_count)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         full.id,
         full.type,
@@ -93,10 +82,6 @@ export class SqliteMemoryStore implements MemoryStore {
         full.updatedAt.toISOString(),
         full.weight,
         full.source,
-        null,  // projectPath — not in domain type
-        null,  // files — not in domain type
-        null,  // metadata — not in domain type
-        embBuf,
         full.lastHitAt ? full.lastHitAt.getTime() : null,
         full.usageCount ?? 0,
         full.textHash ?? null,

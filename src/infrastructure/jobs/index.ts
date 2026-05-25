@@ -8,7 +8,7 @@ export function createJobSpawner(opts?: {
   invoke?: ProviderInvoke
   logger?: Logger
 }): JobSpawner {
-  const mode = process.env.JOB_SPAWNER ?? 'inproc'
+  const mode = process.env.JOB_SPAWNER ?? 'spawn'
   if (mode === 'spawn') {
     if (!opts?.invoke || !opts?.logger) {
       throw new Error(

@@ -43,17 +43,6 @@ const SECRET_PATTERNS = [
   /[1-9]\d{5}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]/, // Chinese ID
 ];
 
-// ── Type mapping ───────────────────────────────────────────────────────────
-
-function mapToolType(toolType: RememberInput['type']): MemoryType {
-  switch (toolType) {
-    case 'preference': return 'user_preference';
-    case 'fact': return 'general';
-    case 'decision': return 'project_rule';
-    case 'instruction': return 'agent_md';
-  }
-}
-
 function redactText(text: string): string {
   // Truncate to avoid leaking content in logs
   return text.length > REDACT_MAX_LENGTH ? text.slice(0, REDACT_MAX_LENGTH) + '...' : text;
@@ -112,8 +101,8 @@ export class RememberUseCase {
     }
     this.perTurnCounter.set(sentinel, count);
 
-    // ── Map tool type → domain type ───────────────────────────────────
-    const mType = mapToolType(input.type);
+    // ── Tool type matches domain type directly ────────────────────────
+    const mType = input.type as MemoryType;
 
     // ── Run dedup pipeline ────────────────────────────────────────────
     const decision = await this.dedup.process(

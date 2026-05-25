@@ -14,8 +14,8 @@ export async function handle(job: ExtractJob, ctx: JobContext): Promise<ExtractR
     })
     return { candidates: parseCandidates(content) }
   } catch (err) {
-    ctx.log?.('warn', `LLM invoke failed: ${String(err)}`)
-    return { candidates: [] }
+    ctx.log?.('error', `LLM invoke failed: ${String(err)}`)
+    throw err
   }
 }
 

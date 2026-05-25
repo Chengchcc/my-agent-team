@@ -11,6 +11,10 @@ import { createRecall } from './recall'
 import { createEmbeddingBackfill } from './embedding-backfill'
 import { evaluateExtractPolicy, type PolicyState } from './policy'
 import { DedupPipeline } from './dedup-pipeline'
+import { ContradictionResolver } from './contradiction-resolver'
+import type { InvokeFn } from '../../application/ports/job-spawner'
+import type { ProviderInvoke } from '../../application/ports/provider'
+import type { MemoryEntry } from '../../domain/memory-entry'
 import { RememberUseCase } from './explicit-write/remember-use-case'
 import type { RememberInput } from './explicit-write/remember-use-case'
 import { ForgetUseCase } from './explicit-write/forget-use-case'
@@ -35,13 +39,15 @@ const MEM_DEFAULT_SEARCH_LIMIT = 20
 const MEM_TEXT_PREVIEW_CHARS = 60
 const MEM_SEARCH_TEXT_PREVIEW_CHARS = 100
 const SEMANTIC_DEDUP_DEFAULT_THRESHOLD = 0.12
+const CONTRADICTION_TOP_K = 3
 const PRUNE_DEFAULT_AFTER_DAYS = 180
 
 function inferType(tags: string[]): MemoryType {
-  if (tags.includes('preference') || tags.includes('pref')) return 'user_preference'
-  if (tags.includes('decision')) return 'project_rule'
-  if (tags.includes('fact')) return 'agent_md'
-  return 'general'
+  if (tags.includes('preference') || tags.includes('pref')) return 'preference'
+  if (tags.includes('decision')) return 'decision'
+  if (tags.includes('fact')) return 'fact'
+  if (tags.includes('instruction')) return 'instruction'
+  return 'fact'
 }
 
 export const cliManifest: CliManifest = {
@@ -155,6 +161,10 @@ export default (opts: MemoryOpts = {}) =>
       const debugLog = (d: string, m: string) => ctx.logger.debug(d, m)
       const backfill = createEmbeddingBackfill(store, encoder, debugLog)
       const dedup = new DedupPipeline(store, encoder)
+      const invokeFn: InvokeFn | undefined = ctx.extensions.has('provider.llm')
+        ? ctx.extensions.get<ProviderInvoke>('provider.llm') as unknown as InvokeFn | undefined
+        : undefined
+      const resolver = new ContradictionResolver(store, encoder, invokeFn)
       const state: PolicyState = { turnsSinceExtract: 0 }
       let inflight = 0
 
@@ -287,6 +297,7 @@ export default (opts: MemoryOpts = {}) =>
                 switch (result_.kind) {
                   case 'duplicate-exact':
                     void store.markHit([result_.existingId])
+                    void store.incrementMergeCount(result_.existingId)
                     bus.emit(createEvent('memory.dedup', { kind: 'exact', existingId: result_.existingId }))
                     continue
                   case 'duplicate-semantic':
@@ -295,12 +306,31 @@ export default (opts: MemoryOpts = {}) =>
                     bus.emit(createEvent('memory.dedup', { kind: 'semantic', existingId: result_.existingId }))
                     continue
                   case 'contradiction':
-                    // Full contradiction resolution requires InvokeFn — deferred to Spec 3 (explicit write).
-                    // For now, treat as new.
-                    break
                   case 'new':
                     break
                 }
+                // Check for contradictions with existing entries
+                try {
+                  const conflicts = await resolver.checkConflicts(
+                    { text: c.text, type },
+                    CONTRADICTION_TOP_K,
+                  )
+                  if (conflicts.hasConflict && invokeFn) {
+                    try {
+                      const decision = await resolver.arbitrate(
+                        { id: '', type, text: c.text, tags: c.tags, weight: c.weight, source: 'implicit', createdAt: new Date(), updatedAt: new Date(), usageCount: 0, supersededBy: undefined, mergeCount: 0 } as MemoryEntry,
+                        conflicts.conflicts,
+                      )
+                      if (decision.decision === 'keep_old') continue
+                      if (decision.decision === 'merge' && decision.mergedText) {
+                        c.text = decision.mergedText
+                      }
+                      for (const conflict of conflicts.conflicts) {
+                        try { void store.supersede(conflict.id, '') } catch { /* best-effort */ }
+                      }
+                    } catch { /* arbitration failed, continue with add */ }
+                  }
+                } catch { /* non-critical — skip conflict check on embed failure */ }
                 const newEntry = await store.add({
                   type,
                   text: c.text,

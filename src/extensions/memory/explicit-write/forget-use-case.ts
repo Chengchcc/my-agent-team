@@ -43,18 +43,6 @@ export interface ForgetResult {
 const FORGET_MATCH_LIMIT = 5;
 const TOMBSTONE_TAG = '_tombstone';
 
-// ── Type mapping ───────────────────────────────────────────────────────────
-
-function mapToolType(toolType: ForgetInput['type']): MemoryType | undefined {
-  if (!toolType) return undefined;
-  switch (toolType) {
-    case 'preference': return 'user_preference';
-    case 'fact': return 'general';
-    case 'decision': return 'project_rule';
-    case 'instruction': return 'agent_md';
-  }
-}
-
 // ── Use case ───────────────────────────────────────────────────────────────
 
 export class ForgetUseCase {
@@ -72,7 +60,7 @@ export class ForgetUseCase {
     } catch {
       // Fall back to FTS if embedding fails
       const ftsMatches = await this.store.ftsSearch(input.query, FORGET_MATCH_LIMIT);
-      const domainType = mapToolType(input.type);
+      const domainType = (input.type as MemoryType | undefined);
       const filtered = domainType
         ? ftsMatches.filter(e => e.type === domainType)
         : ftsMatches;
@@ -102,7 +90,7 @@ export class ForgetUseCase {
 
     // ── Vector search ─────────────────────────────────────────────────
     const vectorMatches = await this.store.vectorSearch(embedding, FORGET_MATCH_LIMIT);
-    const domainType = mapToolType(input.type);
+    const domainType = (input.type as MemoryType | undefined);
     let matches = vectorMatches.map(m => m.entry);
     if (domainType) {
       matches = matches.filter(e => e.type === domainType);
@@ -148,7 +136,7 @@ export class ForgetUseCase {
 
     // Soft delete: create tombstone, supersede targets
     const existingForType = ids.length > 0 ? await this.store.get(ids[0]!) : null;
-    const fallbackType: MemoryType = mapToolType(input.type) ?? 'agent_md';
+    const fallbackType: MemoryType = (input.type as MemoryType | undefined) ?? 'fact';
     const tombstone = await this.store.add({
       text: `[FORGOTTEN] ${input.query}`,
       type: existingForType?.type ?? fallbackType,

@@ -38,4 +38,10 @@ export const evolutionMigrations: MigrationStep[] = [
       archived_at INTEGER
     )`)
   }},
+  { version: 4, up(db: Database) {
+    // Drop flag columns — collapsed from 3-stage to 2-stage auto-retire
+    for (const col of ['flagged', 'flagged_at', 'flagged_reason']) {
+      try { db.run(`ALTER TABLE skill_meta DROP COLUMN ${col}`) } catch { /* already dropped */ }
+    }
+  }},
 ]

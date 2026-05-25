@@ -5,19 +5,19 @@ import type { MemoryListPayload } from '../../../memory/widget-payloads'
 
 const TYPE_BADGE_MAX_CHARS = 4
 const TYPE_LABEL: Record<string, string> = {
-  general: 'GEN',
-  user_preference: 'PREF',
-  project_rule: 'RULE',
-  agent_md: 'AGMD',
+  preference: 'PREF',
+  fact: 'FACT',
+  decision: 'DEC',
+  instruction: 'INST',
 }
 
 function typeBadge(t: string): { label: string; color: string } {
   const label = TYPE_LABEL[t] ?? t.slice(0, TYPE_BADGE_MAX_CHARS).toUpperCase()
   switch (t) {
-    case 'general': return { label, color: 'blue' }
-    case 'user_preference': return { label, color: 'yellow' }
-    case 'project_rule': return { label, color: 'magenta' }
-    case 'agent_md': return { label, color: 'cyan' }
+    case 'preference': return { label, color: 'yellow' }
+    case 'fact': return { label, color: 'blue' }
+    case 'decision': return { label, color: 'magenta' }
+    case 'instruction': return { label, color: 'cyan' }
     default: return { label, color: 'gray' }
   }
 }

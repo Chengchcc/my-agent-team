@@ -14,8 +14,8 @@ export async function handle(job: ReviewJob, ctx: JobContext): Promise<ReviewRes
     })
     return parseVerdict(content, job)
   } catch (err) {
-    ctx.log?.('warn', `LLM invoke failed: ${String(err)}`)
-    return parseVerdict('{}', job)
+    ctx.log?.('error', `LLM invoke failed: ${String(err)}`)
+    throw err
   }
 }
 

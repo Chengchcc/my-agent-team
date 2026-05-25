@@ -179,13 +179,9 @@ const toolsSettingsSchema = z.object({
 
 const autoRetireConfigSchema = z.object({
   enabled: z.boolean().default(true),
-  minSampleSize: z.number().int().positive().default(5),
-  windowSize: z.number().int().positive().default(20),
-  healthThreshold: z.number().min(0).max(1).default(0.5),
-  flagThreshold: z.number().min(0).max(1).default(0.3),
-  retireThreshold: z.number().min(0).max(1).default(0.15),
-  flagGracePeriodMs: z.number().int().positive().default(7 * 86_400_000),
-  cancelCountsAsFailure: z.boolean().default(true),
+  minSampleSize: z.number().int().positive().default(10),
+  windowSize: z.number().int().positive().default(50),
+  retireThreshold: z.number().min(0).max(1).default(0.2),
 });
 
 const evolutionSettingsSchema = z.object({

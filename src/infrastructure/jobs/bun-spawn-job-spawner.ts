@@ -11,6 +11,7 @@ const PURPOSE_WHITELIST = new Set([
   'evolution.review.tier0',
   'evolution.review.tier2',
   'memory.extract',
+  'memory.contradiction',
 ])
 
 /** Hard cap on serialised message size for invoke-req payloads. */
@@ -54,6 +55,7 @@ export class BunSpawnJobSpawner implements JobSpawner {
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'inherit',
+      env: { ...process.env, JOB_MODE: 'spawn' },
     })
 
     this.logger.info('spawn', `worker started [${jobType}] pid=${child.pid}`, {

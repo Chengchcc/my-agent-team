@@ -56,7 +56,7 @@ export class ContradictionResolver {
     candidate: { text: string; type: MemoryEntry['type'] },
     topK: number,
   ): Promise<ConflictCheckResult> {
-    const prefetchTypes: MemoryEntry['type'][] = ['user_preference', 'project_rule'];
+    const prefetchTypes: MemoryEntry['type'][] = ['preference', 'decision'];
     if (!prefetchTypes.includes(candidate.type)) {
       return { hasConflict: false };
     }

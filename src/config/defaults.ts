@@ -142,13 +142,9 @@ export const defaultSettings: Settings = {
   evolution: {
     autoRetire: {
       enabled: true,
-      minSampleSize: 5,
-      windowSize: 20,
-      healthThreshold: 0.5,
-      flagThreshold: 0.3,
-      retireThreshold: 0.15,
-      flagGracePeriodMs: 7 * 86_400_000,
-      cancelCountsAsFailure: true,
+      minSampleSize: 10,
+      windowSize: 50,
+      retireThreshold: 0.2,
     },
   },
   jobs: {
