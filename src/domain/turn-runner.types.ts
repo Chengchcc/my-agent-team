@@ -5,6 +5,9 @@ import type { ProviderChat, ChatResponseChunk } from '../application/ports/provi
 export interface LlmMessage {
   role: string
   content: string
+  tool_call_id?: string
+  tool_calls?: ToolCall[]
+  isError?: boolean
 }
 
 // ── Tool descriptor (pre-resolved by usecase) ──

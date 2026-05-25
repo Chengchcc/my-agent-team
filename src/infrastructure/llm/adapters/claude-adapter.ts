@@ -15,24 +15,58 @@ import { DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE } from '../../../application/co
 interface LlmMessage {
   role: string
   content: string
-}
-
-function toClaudeRole(role: string): 'user' | 'assistant' {
-  if (role === 'user') return 'user'
-  return 'assistant'
-}
-
-function convertToClaudeMessages(
-  messages: readonly LlmMessage[],
-): Array<{ role: 'user' | 'assistant'; content: string }> {
-  return messages.map((m) => ({
-    role: toClaudeRole(m.role),
-    content: m.content,
-  }))
+  tool_call_id?: string
+  tool_calls?: Array<{ id: string; name: string; arguments: unknown }>
+  isError?: boolean
 }
 
 function extractSystemPrompt(messages: readonly LlmMessage[]): string | undefined {
   return messages.find((m) => m.role === 'system')?.content
+}
+
+function convertToClaudeMessages(
+  messages: readonly LlmMessage[],
+): Array<{ role: 'user' | 'assistant'; content: string | Array<Record<string, unknown>> }> {
+  const out: Array<{ role: 'user' | 'assistant'; content: string | Array<Record<string, unknown>> }> = []
+  let pendingToolResults: Array<Record<string, unknown>> = []
+
+  function flushToolResults(): void {
+    if (pendingToolResults.length > 0) {
+      out.push({ role: 'user', content: pendingToolResults })
+      pendingToolResults = []
+    }
+  }
+
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      pendingToolResults.push({
+        type: 'tool_result',
+        tool_use_id: m.tool_call_id ?? '',
+        content: m.content ?? '',
+        ...(m.isError ? { is_error: true } : {}),
+      })
+      continue
+    }
+    flushToolResults()
+
+    if (m.role === 'assistant' && m.tool_calls?.length) {
+      const blocks: Array<Record<string, unknown>> = []
+      if (m.content) blocks.push({ type: 'text', text: m.content })
+      for (const tc of m.tool_calls) {
+        blocks.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.arguments })
+      }
+      out.push({ role: 'assistant', content: blocks })
+    } else if (m.role === 'system') {
+      // Already extracted as top-level system prompt
+      continue
+    } else if (m.role === 'user') {
+      out.push({ role: 'user', content: m.content })
+    } else {
+      out.push({ role: 'assistant', content: m.content })
+    }
+  }
+  flushToolResults()
+  return out
 }
 
 // ── Tool conversion ──

@@ -78,9 +78,13 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
 
       if (log) log.info('turn-runner', 'round.llm.returned', { sessionId, turnId, roundIdx: iter, textLen: round.assistantText.length, toolCallCount: round.toolCalls.length })
 
-      if (round.assistantText) {
-        finalText += round.assistantText
-        currentMessages.push({ role: 'assistant', content: round.assistantText })
+      if (round.assistantText || round.toolCalls.length > 0) {
+        if (round.assistantText) finalText += round.assistantText
+        currentMessages.push({
+          role: 'assistant',
+          content: round.assistantText,
+          tool_calls: round.toolCalls.length > 0 ? round.toolCalls : undefined,
+        })
       }
 
       if (round.toolCalls.length === 0) break
@@ -124,10 +128,10 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
           const r = s.value
           if (r.ok) {
             yield { type: 'tool.end', sessionId, turnId, callId: r.call.id, name: r.call.name, result: r.result }
-            currentMessages.push({ role: 'user', content: `Tool ${r.call.name} result: ${r.payload}` })
+            currentMessages.push({ role: 'tool', tool_call_id: r.call.id, content: r.payload })
           } else {
             yield { type: 'tool.error', sessionId, turnId, callId: r.call.id, name: r.call.name, err: { message: r.err } }
-            currentMessages.push({ role: 'user', content: `Tool ${r.call.name} error: ${r.err}` })
+            currentMessages.push({ role: 'tool', tool_call_id: r.call.id, content: r.err, isError: true })
           }
           // Dead loop detection
           const sig = `${r.call.name}:${JSON.stringify(r.call.arguments)}`

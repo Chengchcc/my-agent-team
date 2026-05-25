@@ -102,7 +102,8 @@ export function formatToolCallTitle(toolCall: ToolCallShape): string {
     }
 
     case 'ls': {
-      return `ls(${JSON.stringify(String(args.path ?? ''))})`;
+      const p = args.path ?? '.'
+      return `ls(${JSON.stringify(String(p))})`
     }
 
     default: {
@@ -208,14 +209,11 @@ export function smartSummarize(
     }
   }
 
-  // ls tool special cases
+  // ls tool special cases — plain text output, count entries by newlines
   if (toolName === 'ls') {
-    try {
-      const parsedResult = JSON.parse(result);
-      return `${parsedResult.entries.length} entries`;
-    } catch (_e) {
-      return `List directory completed`;
-    }
+    if (!result || result === '(empty directory)') return '(empty)'
+    const lines = result.trim().split('\n').filter(Boolean)
+    return `${lines.length} ${lines.length === 1 ? 'entry' : 'entries'}`
   }
 
   return null;

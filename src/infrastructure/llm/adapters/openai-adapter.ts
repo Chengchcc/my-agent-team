@@ -11,22 +11,27 @@ import { DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE } from '../../../application/co
 interface LlmMessage {
   role: string
   content: string
+  tool_call_id?: string
+  tool_calls?: Array<{ id: string; name: string; arguments: unknown }>
+  isError?: boolean
 }
 
 function toOpenAiMessages(
   messages: readonly LlmMessage[],
   systemPrompt?: string,
-): Array<{ role: string; content: string }> {
-  const result: Array<{ role: string; content: string }> = []
-  if (systemPrompt) {
-    result.push({ role: 'system', content: systemPrompt })
-  }
+): Array<Record<string, unknown>> {
+  const result: Array<Record<string, unknown>> = []
+  if (systemPrompt) result.push({ role: 'system', content: systemPrompt })
   for (const m of messages) {
-    const role =
-      m.role === 'system' ? 'system'
-      : m.role === 'assistant' ? 'assistant'
-      : 'user'
-    result.push({ role, content: m.content })
+    const role = m.role === 'system' ? 'system' : m.role === 'tool' ? 'tool' : m.role === 'assistant' ? 'assistant' : 'user'
+    const msg: Record<string, unknown> = { role, content: m.content }
+    if (m.tool_call_id) msg.tool_call_id = m.tool_call_id
+    if (m.role === 'assistant' && m.tool_calls?.length) {
+      msg.tool_calls = m.tool_calls.map(tc => ({
+        id: tc.id, type: 'function', function: { name: tc.name, arguments: typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments) },
+      }))
+    }
+    result.push(msg)
   }
   return result
 }
