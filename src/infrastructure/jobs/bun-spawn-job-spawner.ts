@@ -6,8 +6,17 @@ export class BunSpawnJobSpawner implements JobSpawner {
   async run<TJob, TResult>(opts: {
     entry: string
     job: TJob
+    ctx: { invoke?: unknown; log?: unknown }
     timeoutMs?: number
   }): Promise<TResult> {
+    if (opts.ctx?.invoke) {
+      throw new Error(
+        'BunSpawnJobSpawner does not support JobContext.invoke. ' +
+        'Workers that need LLM access must use JOB_SPAWNER=inproc (default). ' +
+        'See spec: lobster-spawn-llm-bridge (planned).'
+      )
+    }
+
     const proc = Bun.spawn(['bun', 'run', opts.entry], {
       stdin: 'pipe',
       stdout: 'pipe',

@@ -3,6 +3,6 @@ import { BunSpawnJobSpawner } from './bun-spawn-job-spawner'
 import { InprocJobSpawner } from './inproc-job-spawner'
 
 export function createJobSpawner(): JobSpawner {
-  const mode = process.env.JOB_SPAWNER ?? 'spawn'
+  const mode = process.env.JOB_SPAWNER ?? 'inproc'
   return mode === 'spawn' ? new BunSpawnJobSpawner() : new InprocJobSpawner()
 }
