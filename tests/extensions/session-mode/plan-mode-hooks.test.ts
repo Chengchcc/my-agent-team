@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { createTestKernel } from '../../helpers/kernel-helper'
 import traceExt from '../../../src/extensions/trace'
 import sessionExt from '../../../src/extensions/session'
@@ -9,6 +12,7 @@ import sessionModeExt from '../../../src/extensions/session-mode'
 import type { SessionStore } from '../../../src/application/ports/session-store'
 
 describe('plan mode hooks (M1)', () => {
+  const testDir = mkdtempSync(join(tmpdir(), 'plan-hooks-'))
   // ── transformPrompt: injects PLAN_MODE_PROMPT when session mode is plan ──
 
   it('transformPrompt injects PLAN_MODE_PROMPT when session mode is plan', async () => {

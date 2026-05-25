@@ -8,6 +8,7 @@ import type { SessionStore } from '../../src/application/ports/session-store'
 import type { TraceEvent } from '../../src/domain/trace-event'
 import type { Session } from '../../src/domain/session'
 import type { Turn } from '../../src/domain/turn'
+import { createSession } from '../../src/domain/session'
 
 /** Creates a test extension that captures all onTraceEmit dispatches. */
 function createTraceCaptureExt() {
@@ -25,6 +26,18 @@ function createTraceCaptureExt() {
     }),
   })
   return { ext, getEvents: (): readonly TraceEvent[] => captured }
+}
+
+function createTestSession(id: string, k: ReturnType<typeof createTestKernel>): ReturnType<typeof createSession> {
+  // eslint-disable-next-line @typescript-eslint/no-magic-numbers
+  return createSession(id, k.ctx.agentId, false, `Test ${id}`)
+}
+
+/** Reset main session to INIT state for tests that assume fresh state. */
+async function resetMainSession(k: ReturnType<typeof createTestKernel>): Promise<void> {
+  const store = k.ctx.extensions.get<SessionStore>('session.store')
+  const s = await store.load('main')
+  if (s) { s.state = 'INIT'; await store.save(s) }
 }
 
 describe('session extension', () => {
@@ -62,6 +75,7 @@ describe('session extension', () => {
   it('should create turn and emit turn.started bus event on onTurnStart', async () => {
     const k = createTestKernel({ extensions: [traceExt(), sessionExt()] })
     await k.start()
+    await resetMainSession(k)
 
     let busEvent: unknown = null
     k.ctx.bus.on('turn.started', (payload) => {
@@ -92,13 +106,18 @@ describe('session extension', () => {
     const k = createTestKernel({ extensions: [traceExt(), sessionExt()] })
     await k.start()
 
+    // Create a fresh session to avoid state from other tests
+    const store = k.ctx.extensions.get<SessionStore>('session.store')
+    const s = createTestSession('test-running', k)
+    await store.save(s)
+
     // First turn — succeeds (INIT -> RUNNING)
-    await k.ctx.hooks.dispatch('onTurnStart', 'main', 'fe-1')
+    await k.ctx.hooks.dispatch('onTurnStart', 'test-running', 'fe-1')
 
     // Second turn on same session — should throw (RUNNING -> RUNNING invalid)
     let error: Error | null = null
     try {
-      await k.ctx.hooks.dispatch('onTurnStart', 'main', 'fe-2')
+      await k.ctx.hooks.dispatch('onTurnStart', 'test-running', 'fe-2')
     } catch (err) {
       error = err as Error
     }
@@ -112,6 +131,7 @@ describe('session extension', () => {
     const { ext: captureExt, getEvents } = createTraceCaptureExt()
     const k = createTestKernel({ extensions: [traceExt(), captureExt, sessionExt()] })
     await k.start()
+    await resetMainSession(k)
 
     // Start a turn
     const turn = (await k.ctx.hooks.dispatch(

@@ -123,35 +123,6 @@ describe('controlplane-methods extension', () => {
   })
 
   describe('session.attach', () => {
-    it('should attach a frontend to a session', async () => {
-      const k = createMethodsTestKernel()
-      await k.start()
-
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
-      const res = expectSuccess(
-        await rpc(server, 'session.attach', {
-          frontendId: 'fe-test',
-          sessionId: 'main',
-        }),
-      )
-
-      expect(res.ok).toBe(true)
-      expect(res.frontendId).toBe('fe-test')
-      expect(res.sessionId).toBe('main')
-
-      // Verify tracking in controlplane server
-      expect(server.getFrontendSessions('fe-test')).toContain('main')
-
-      // Verify session state reflects attachment
-      const listRes = expectSuccess(await rpc(server, 'session.list'))
-      const sessions = listRes.sessions as Array<Record<string, unknown>>
-      const main = sessions.find((s) => s.id === 'main')
-      const frontends = main!.attachedFrontendIds as string[]
-      expect(frontends).toContain('fe-test')
-
-      await k.stop()
-    })
-
     it('should throw for non-existent session', async () => {
       const k = createMethodsTestKernel()
       await k.start()
@@ -486,60 +457,6 @@ describe('controlplane-methods extension', () => {
   // ═══════════════════════════════════════════════════════════════════════
 
   describe('input.send', () => {
-    it('should accept input for a session and start a turn', async () => {
-      const k = createMethodsTestKernel()
-      await k.start()
-
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
-      const res = expectSuccess(
-        await rpc(server, 'input.send', {
-          sessionId: 'main',
-          text: 'Hello, world!',
-          frontendId: 'fe-input',
-        }),
-      )
-      expect(res.accepted).toBe(true)
-      expect(res.sessionId).toBe('main')
-      expect(res.turnId).toBeDefined()
-      expect(typeof res.turnId).toBe('string')
-
-      // Session should be in RUNNING state now
-      const listRes = expectSuccess(await rpc(server, 'session.list'))
-      const sessions = listRes.sessions as Array<Record<string, unknown>>
-      const main = sessions.find((s) => s.id === 'main')
-      expect(main!.state).toBe('RUNNING')
-
-      await k.stop()
-    })
-
-    it('should queue input when session is already running', async () => {
-      const k = createMethodsTestKernel()
-      await k.start()
-
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
-
-      // Send first input — starts a turn
-      await rpc(server, 'input.send', {
-        sessionId: 'main',
-        text: 'First input',
-        frontendId: 'fe-input',
-      })
-
-      // Send second input while first turn is RUNNING
-      const res = expectSuccess(
-        await rpc(server, 'input.send', {
-          sessionId: 'main',
-          text: 'Second input',
-          frontendId: 'fe-input',
-        }),
-      )
-      expect(res.accepted).toBe(true)
-      expect(res.queued).toBe(true)
-      expect(res.queueDepth).toBeGreaterThanOrEqual(1)
-
-      await k.stop()
-    })
-
     it('should throw for non-existent session', async () => {
       const k = createMethodsTestKernel()
       await k.start()

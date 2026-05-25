@@ -25,7 +25,7 @@ function createTestKernel(opts?: {
   config?: Record<string, unknown>
 }): Kernel {
   const pid = opts?.agentId ?? 'test'
-  const root = opts?.agentDir ?? `/tmp/test-kernel-${pid}`
+  const root = opts?.agentDir ?? `${path.join('/tmp', `test-kernel-${pid}-${Math.random().toString(36).slice(2, 8)}`)}`
   // Compute paths so root matches exactly — tests assert files at agentDir/sessions/ etc.
   const paths = createAgentPaths(path.dirname(root), path.basename(root))
   const config: KernelConfig = {
