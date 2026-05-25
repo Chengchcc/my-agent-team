@@ -1,21 +1,22 @@
 /// <reference types="bun" />
 
-import type { JobSpawner } from '../../application/ports/job-spawner'
+import type { JobContext, JobSpawner } from '../../application/ports/job-spawner'
 
 export class BunSpawnJobSpawner implements JobSpawner {
   async run<TJob, TResult>(opts: {
     entry: string
     job: TJob
-    ctx: { invoke?: unknown; log?: unknown }
+    ctx: JobContext
     timeoutMs?: number
   }): Promise<TResult> {
-    if (opts.ctx?.invoke) {
-      throw new Error(
-        'BunSpawnJobSpawner does not support JobContext.invoke. ' +
-        'Workers that need LLM access must use JOB_SPAWNER=inproc (default). ' +
-        'See spec: lobster-spawn-llm-bridge (planned).'
-      )
-    }
+    // Bun.spawn cannot serialize functions across processes; workers that need
+    // LLM access must use the inproc spawner. spawn mode is reserved for
+    // future workers that do pure computation (hash, compress, etc.).
+    throw new Error(
+      'BunSpawnJobSpawner does not support JobContext.invoke. ' +
+      'Workers that need LLM access must use JOB_SPAWNER=inproc (default). ' +
+      'See spec: lobster-spawn-llm-bridge (planned).'
+    )
 
     const proc = Bun.spawn(['bun', 'run', opts.entry], {
       stdin: 'pipe',

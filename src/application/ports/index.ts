@@ -1,7 +1,7 @@
 export type { Transport } from './transport'
 
 export type { TraceCheckpointer, TraceReader } from './trace-checkpointer'
-export type { JobSpawner } from './job-spawner'
+export type { InvokeFn, JobContext, JobSpawner } from './job-spawner'
 export type { ProposalStore } from './proposal-store'
 export type { SkillStatsStore } from './skill-stats-store'
 export type { MemoryStore } from './memory-store'
