@@ -6,6 +6,8 @@ import { openDb, runMigrations } from '../../infrastructure/_sqlite/connection'
 import { evolutionMigrations } from '../../infrastructure/evolution/sqlite-evolution-schema'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import type { ProviderInvoke } from '../../application/ports/provider'
+import { createJobContextFactory } from './job-context-factory'
 
 /**
  * Infra-services extension — registers infrastructure port implementations.
@@ -22,6 +24,10 @@ export default () =>
 
     apply: (ctx) => {
       const spawner = createJobSpawner()
+      const providerInvoke = ctx.extensions.has('provider.llm')
+        ? ctx.extensions.get<ProviderInvoke>('provider.llm')
+        : undefined
+
       const evoDir = join(ctx.paths.evolution.proposals, '..')
       mkdirSync(evoDir, { recursive: true })
       const db = openDb(join(evoDir, 'evolution.db'))
@@ -34,6 +40,10 @@ export default () =>
           'job-spawner': () => spawner,
           'proposal-store': () => proposals,
           'skill-stats-store': () => stats,
+          'job-context-factory': () =>
+            providerInvoke
+              ? createJobContextFactory(providerInvoke, ctx.logger)
+              : undefined,
         },
         dispose: () => { db.close() },
       }
