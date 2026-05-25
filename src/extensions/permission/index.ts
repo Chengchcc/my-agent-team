@@ -42,7 +42,7 @@ export default () =>
       const deniedTools = new Set<string>()
       const sessionAllowlists = new Map<string, Set<string>>()
       const pendingRequests = new Map<string, PendingRequest>()
-      const timeoutMs: number = (ctx.config.permissionTimeoutMs as number) ?? DEFAULT_TIMEOUT_MS
+      const timeoutMs: number = (ctx.config.raw.permissionTimeoutMs as number) ?? DEFAULT_TIMEOUT_MS
 
       // onToolCall handler: pre-intercept tool calls
       const onToolCall: HookHandler = async (...args: unknown[]) => {
@@ -131,7 +131,7 @@ export default () =>
 
         hooks: {
           onToolCall: {
-            enforce: 'pre',
+            enforce: 'guard',
             fn: onToolCall,
           },
         },

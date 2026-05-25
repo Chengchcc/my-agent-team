@@ -16,9 +16,9 @@ describe('RpcRegistry', () => {
 
   it('register throws on duplicate method name', () => {
     const reg = new RpcRegistry()
-    reg.register('test.method', async () => 'a')
-    expect(() => reg.register('test.method', async () => 'b'))
-      .toThrow('RPC method "test.method" is already registered')
+    reg.register('test.method', async () => 'a', 'ext-a')
+    expect(() => reg.register('test.method', async () => 'b', 'ext-b'))
+      .toThrow('RPC method "test.method" already registered by "ext-a" (conflict with "ext-b")')
   })
 
   it('has returns true for registered method', () => {

@@ -2,7 +2,7 @@ import type { KernelContext } from './kernel-context'
 import type { SlashCommand } from '../application/slash'
 
 /** Extension ordering phase within its dependency tier. */
-export type Enforce = 'pre' | 'normal' | 'post'
+export type Enforce = 'guard' | 'pre' | 'normal' | 'post'
 
 /** Hook handler signature (simple function form). */
 export type HookHandler = (...args: unknown[]) => unknown | Promise<unknown>

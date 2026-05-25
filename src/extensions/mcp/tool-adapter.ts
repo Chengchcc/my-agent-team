@@ -35,7 +35,7 @@ export class McpToolAdapter {
         return truncateOutput(output, MCP_DEFAULT_OUTPUT_CAP)
       },
       readonly: isReadonly(this.toolDef),
-      conflictKey: isReadonly(this.toolDef) ? () => null : () => `mcp:${this.serverName}:${this.toolDef.name}`,
+      conflictKey: isReadonly(this.toolDef) ? () => null : (_toolCtx) => `mcp:${this.serverName}:${this.toolDef.name}`,
       outputCap: MCP_DEFAULT_OUTPUT_CAP,
     };
   }

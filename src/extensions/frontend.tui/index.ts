@@ -176,6 +176,19 @@ export default () =>
             return new TUIAdapter('tui-main', transport, ctx.logger)
           },
         },
+
+        // Translate session.planWidget → tui.inline-block for TUI rendering
+        subscribe: {
+          'session.planWidget': (payload: unknown) => {
+            const p = payload as { blockId: string; sessionId: string; status: string; payload: Record<string, unknown>; mode: string }
+            void ctx.bus.emit('tui.inline-block', {
+              blockId: p.blockId,
+              widget: 'plan.proposal',
+              payload: { ...p.payload, status: p.status },
+              mode: p.mode,
+            })
+          },
+        },
       }
     },
   })

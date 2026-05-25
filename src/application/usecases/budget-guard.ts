@@ -55,9 +55,8 @@ export async function reactiveCompactCheck(
   turnId: string,
   bus: { emit(type: string, payload: unknown): void },
   logger: { info(d: string, m: string): void },
-  toolErrorCount: number,
   totalUsage: { input: number; output: number },
-  emitFailed: (bus: { emit(type: string, payload: unknown): void }, sid: string, tid: string, stage: string, err: Error, count?: number) => void,
+  emitFailed: (stage: string, reason: string) => Promise<void>,
 ): Promise<{ usage: { input: number; output: number }; success: boolean } | null> {
   if (input.compaction === 'disabled') return null
   const currentTokens = approxTokens(JSON.stringify(historyMsgs))
@@ -71,7 +70,7 @@ export async function reactiveCompactCheck(
   } catch (err) {
     void bus.emit('compaction.failed', { sessionId, turnId, reason: err instanceof Error ? err.message : String(err), ts: Date.now() })
     if (err instanceof BudgetCompactError) {
-      emitFailed(bus, sessionId, turnId, 'usecase_internal', err, toolErrorCount)
+      await emitFailed('usecase_internal', err.message)
       return { usage: totalUsage, success: false }
     }
     throw err

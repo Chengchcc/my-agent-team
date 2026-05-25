@@ -11,9 +11,10 @@ interface SortKey {
 }
 
 const ENFORCE_WEIGHT: Record<Enforce, number> = {
-  pre: 0,
-  normal: 1,
-  post: 2,
+  guard: 0,
+  pre: 1,
+  normal: 2,
+  post: 3,
 }
 
 /**

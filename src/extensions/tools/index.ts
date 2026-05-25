@@ -47,7 +47,7 @@ function registerBuiltinTools(catalog: ToolCatalog): void {
     parameters: bashToolSchema.jsonSchema,
     parse: bashToolSchema.parse,
     execute: cap((tCtx: unknown, params: unknown) => createBashExecute()(params as never, tCtx as never), CAP_100KB),
-    conflictKey: () => 'bash:global',
+    conflictKey: (_toolCtx) => 'bash:global',
     outputCap: CAP_100KB,
   }))
 
@@ -67,7 +67,7 @@ function registerBuiltinTools(catalog: ToolCatalog): void {
     parameters: textEditorToolSchema.jsonSchema,
     parse: textEditorToolSchema.parse,
     execute: cap((tCtx: unknown, params: unknown) => createTextEditorExecute()(params as never, tCtx as never), CAP_100KB),
-    conflictKey: (input: unknown) => {
+    conflictKey: (_toolCtx, input: unknown) => {
       const raw = (input as Record<string, unknown>).path
       const resolved = typeof raw === 'string' ? path.resolve(raw) : 'unknown'
       return `file:${resolved}`
@@ -142,7 +142,7 @@ export default () =>
         parameters: askUserQuestionToolSchema.jsonSchema,
         parse: askUserQuestionToolSchema.parse,
         execute: async (toolCtx, params) => askUserQuestionExecute(params as never, toolCtx),
-        conflictKey: () => 'ask:global',
+        conflictKey: (_toolCtx) => 'ask:global',
       }));
 
       catalog.register(defineTool({
@@ -151,7 +151,7 @@ export default () =>
         parameters: todoWriteToolSchema.jsonSchema,
         parse: todoWriteToolSchema.parse,
         execute: async (toolCtx, params) => todoWriteExecute(params as never, toolCtx),
-        conflictKey: () => 'todo:global',
+        conflictKey: (_toolCtx) => 'todo:global',
       }));
 
       const resolveTools: HookHandler = async (...args: unknown[]) => {

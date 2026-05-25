@@ -4,7 +4,7 @@ import { EventBus } from './event-bus'
 import { RpcRegistry } from './rpc-registry'
 import { topoSort } from './topo-sort'
 import type { ExtensionBuilder } from './define-extension'
-import type { KernelContext, Clock, Logger } from './kernel-context'
+import type { KernelContext, Clock, Logger, TypedConfig } from './kernel-context'
 import { createAgentPaths, defaultAgentsRoot } from '../infrastructure/paths/agent-paths'
 import type { AgentPaths } from '../infrastructure/paths/agent-paths'
 import path from 'node:path'
@@ -51,6 +51,14 @@ function createKernel(config: KernelConfig): Kernel {
     ? path.dirname(config.agentDir)
     : defaultAgentsRoot()
 
+  const rawConfig = config.config ?? {}
+  const typedConfig: TypedConfig = {
+    raw: rawConfig,
+    get<T>(key: string, parse: (raw: unknown) => T): T {
+      return parse(rawConfig[key])
+    },
+  }
+
   const ctx: KernelContext = {
     agentId: config.agentId,
     agentDir: config.agentDir ?? path.join(agentsRoot, config.agentId),
@@ -61,7 +69,7 @@ function createKernel(config: KernelConfig): Kernel {
     rpc,
     clock,
     logger,
-    config: config.config ?? {},
+    config: typedConfig,
   }
 
   let started = false
@@ -110,7 +118,7 @@ function createKernel(config: KernelConfig): Kernel {
         if (result.rpc) {
           const methods = Object.keys(result.rpc)
           for (const [method, handler] of Object.entries(result.rpc)) {
-            rpc.register(method, handler as (params: unknown) => unknown | Promise<unknown>)
+            rpc.register(method, handler as (params: unknown) => unknown | Promise<unknown>, builder.name)
           }
           logger.debug('kernel', `RPC methods from "${builder.name}": ${methods.join(', ')}`)
         }

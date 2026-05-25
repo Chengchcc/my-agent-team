@@ -188,10 +188,12 @@ export function makeSessionClearHandler(d: RpcHandlerDeps) {
     if (!session) throw new Error(`Session not found: ${sessionId}`);
 
     // 1. Cancel in-flight turn to prevent residual events
-    try {
+    if (d.ctx.extensions.has('session.abort')) {
       const abort = d.ctx.extensions.get<{ abort(sid: string): void }>('session.abort')
       abort?.abort(sessionId)
-    } catch { /* no in-flight turn */ }
+    } else {
+      d.ctx.logger.warn('session', 'session.abort not available, cannot abort turn')
+    }
 
     // 2. Clear message history
     const hist = d.ctx.extensions.get<{ clear(sid: string): Promise<void> }>('session.history')
@@ -298,10 +300,12 @@ export function makeInputCancelHandler(d: RpcHandlerDeps) {
     const sessionId = p?.sessionId ?? 'main';
     const reason = p?.reason ?? 'user requested';
 
-    try {
+    if (d.ctx.extensions.has('session.abort')) {
       const sessionAbort = d.ctx.extensions.get<{ abort(sessionId: string): void }>('session.abort');
       sessionAbort.abort(sessionId);
-    } catch { /* session.abort may not be registered yet */ }
+    } else {
+      d.ctx.logger.warn('session', 'session.abort not available, cannot abort turn');
+    }
 
     const store = d.getStore();
     const session = await store.load(sessionId);

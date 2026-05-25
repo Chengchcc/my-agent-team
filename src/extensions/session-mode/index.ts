@@ -125,7 +125,9 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
           if (!desc) return call
           const catalog = ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
           const toolMeta = catalog?.get(call.name)
-          const toolDesc: ToolDescriptor = { name: call.name, description: '', parameters: {}, readonly: toolMeta?.readonly }
+          const toolDesc: ToolDescriptor = toolMeta
+            ? { name: toolMeta.name, description: toolMeta.description, parameters: toolMeta.parameters, readonly: toolMeta.readonly }
+            : { name: call.name, description: '', parameters: {} }
           if (!desc.toolFilter(toolDesc)) {
             throw new Error(`Tool "${call.name}" is not allowed in "${mode}" mode.`)
           }
@@ -161,18 +163,18 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
             // Supersede old active proposal if exists
             const prev = activeProposals.get(sid)
             if (prev) {
-              void ctx.bus.emit('tui.inline-block', { blockId: prev.blockId, widget: 'plan.proposal', payload: { ...prev.payload, status: 'superseded' }, mode: 'replace' })
+              void ctx.bus.emit('session.planWidget', { blockId: prev.blockId, sessionId: sid, status: 'superseded', payload: prev.payload, mode: 'replace' })
             }
             const payload = { callId: toolCtx.callId, planMd, status: 'proposed', proposedAt: Date.now() }
             activeProposals.set(sid, { blockId, payload })
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
             ctx.bus.emit('session.planProposed', { sessionId: sid, planMd, callId: toolCtx.callId, ts: Date.now() })
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            ctx.bus.emit('tui.inline-block', { blockId, widget: 'plan.proposal', payload, mode: 'append' })
+            ctx.bus.emit('session.planWidget', { blockId, sessionId: sid, status: 'proposed', payload, mode: 'append' })
             return 'Plan submitted. Awaiting user decision.'
           },
           readonly: true,
-          conflictKey: () => 'mode:global',
+          conflictKey: (toolCtx) => 'mode:session:' + toolCtx.sessionId,
         }))
       }
       registerExitPlanTool()
@@ -196,7 +198,7 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
             const active = activeProposals.get(p.sessionId)
             if (active) {
               const status = p.decision === 'approve' ? 'approved' : p.decision === 'reject' ? 'rejected' : 'proposed'
-              void ctx.bus.emit('tui.inline-block', { blockId: active.blockId, widget: 'plan.proposal', payload: { ...active.payload, status }, mode: 'replace' })
+              void ctx.bus.emit('session.planWidget', { blockId: active.blockId, sessionId: p.sessionId, status, payload: active.payload, mode: 'replace' })
               if (p.decision !== 'keep') activeProposals.delete(p.sessionId)
             }
             if (p.decision === 'approve') await setMode(p.sessionId, 'normal')

@@ -17,13 +17,13 @@ describe('task tool', () => {
   it('has name "task" and conflictKey "subagent:<type>"', () => {
     const tool = createTaskTool({ runSubAgent: async () => '' })
     expect(tool.name).toBe('task')
-    const key = tool.conflictKey?.({ subagent_type: 'explore' })
+    const key = tool.conflictKey?.(makeCtx(), { subagent_type: 'explore' })
     expect(key).toBe('subagent:explore')
   })
 
   it('conflictKey defaults to "subagent:unknown" when type missing', () => {
     const tool = createTaskTool({ runSubAgent: async () => '' })
-    const key = tool.conflictKey?.({})
+    const key = tool.conflictKey?.(makeCtx(), {})
     expect(key).toBe('subagent:unknown')
   })
 

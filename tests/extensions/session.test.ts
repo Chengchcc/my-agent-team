@@ -144,6 +144,7 @@ describe('session extension', () => {
     await k.ctx.hooks.dispatch('onTurnEnd', {
       sessionId: 'main',
       turnId: turn.id,
+      status: 'completed',
       usage: { input: 42, output: 7 },
     })
 
@@ -178,6 +179,7 @@ describe('session extension', () => {
     await k.ctx.hooks.dispatch('onTurnEnd', {
       sessionId: 'main',
       turnId: turn.id,
+      status: 'completed',
       usage: { input: 10, output: 5 },
     })
 
@@ -252,6 +254,7 @@ describe('session extension', () => {
     await k.ctx.hooks.dispatch('onTurnEnd', {
       sessionId: 'main',
       turnId: turn.id,
+      status: 'completed',
       usage: { input: 13, output: 19 },
     })
 

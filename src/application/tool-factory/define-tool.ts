@@ -8,7 +8,7 @@ export function defineTool(config: {
   parse?: (raw: Record<string, unknown>) => Record<string, unknown>;
   execute: (ctx: ToolContext, params: Record<string, unknown>) => Promise<unknown>;
   readonly?: boolean;
-  conflictKey?: (input: unknown) => string | null;
+  conflictKey?: (toolCtx: ToolContext, input: unknown) => string | null;
   outputCap?: number;
 }): Tool {
   return {

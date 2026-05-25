@@ -17,7 +17,7 @@ export interface ToolDescriptor {
   description: string
   parameters: Record<string, unknown>
   readonly?: boolean
-  conflictKey?: (input: unknown) => string | null
+  conflictKey?: (toolCtx: { sessionId: string }, input: unknown) => string | null
 }
 
 // ── Parsed tool call (from provider stream) ──

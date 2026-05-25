@@ -3,9 +3,7 @@ import { toLlmMessages } from '../../kernel/message-utils'
 import { appendHistory } from './append-history'
 import type { SessionStore } from '../ports/session-store'
 import type { ProviderChat } from '../ports/provider'
-import { createEvent } from '../contracts';
 import type { HistoryRecordV1 } from '../contracts';
-import { asContractBus } from '../event-bus/contract-bus';
 import type { ToolContext } from '../ports/tool-context';
 import { createToolSink, flushSink } from '../dispatch'
 import type { ToolSinkInternal } from '../ports/tool-sink'
@@ -85,25 +83,28 @@ async function safeDispatch<T>(
   catch (e) { return { ok: false, err: e instanceof Error ? e : new Error(String(e)) } }
 }
 
-// ── Helper: emit turn.failed via bus ───────────────────────────────────────
+// ── Helper: emit turn end via onTurnEnd hook ─────────────────────────────────
 
-function emitFailed(
-  bus: BusPort,
+async function emitTurnEnd(
+  hooks: { dispatch(name: string, ...args: unknown[]): Promise<unknown> },
   sessionId: string,
   turnId: string,
-  stage: string,
-  err: Error,
-  toolErrorCount = 0,
-): void {
-  asContractBus(bus).emit(createEvent('turn.failed', {
-    sessionId,
-    turnId,
-    runId: turnId,
-    outcome: 'error',
-    stage,
-    reason: err.message,
-    toolErrorCount,
-  }, { sessionId, turnId }))
+  status: 'completed' | 'failed',
+  details: {
+    usage?: { input: number; output: number }
+    toolCallCount?: number
+    toolErrorCount?: number
+    finalMessage?: string
+    error?: { stage: string; reason: string }
+  },
+  logger: { warn(d: string, m: string): void },
+): Promise<void> {
+  try {
+    await hooks.dispatch('onTurnEnd', { sessionId, turnId, status, ...details })
+  } catch (err) {
+    const e = err instanceof Error ? err : new Error(String(err))
+    logger.warn('turn', `onTurnEnd hook failed: ${e.message}`)
+  }
 }
 
 // ── Helper: serialize tool result to string ────────────────────────────────
@@ -160,8 +161,8 @@ export async function runTurnUsecase(
     },
   )
   if (!promptR.ok) {
-    emitFailed(bus, sessionId, turnId, 'transformPrompt', promptR.err)
     logger.warn('turn', `transformPrompt failed: ${promptR.err.message}`)
+    await emitTurnEnd(hooks, sessionId, turnId, 'failed', { error: { stage: 'transformPrompt', reason: promptR.err.message } }, logger)
     return { usage: { input: 0, output: 0 }, success: false }
   }
 
@@ -174,8 +175,8 @@ export async function runTurnUsecase(
   // Phase 3: resolveTools hook
   const toolsR = await safeDispatch<ToolDescriptor[]>(hooks, 'resolveTools', [], sessionId)
   if (!toolsR.ok) {
-    emitFailed(bus, sessionId, turnId, 'resolveTools', toolsR.err)
     logger.warn('turn', `resolveTools failed: ${toolsR.err.message}`)
+    await emitTurnEnd(hooks, sessionId, turnId, 'failed', { error: { stage: 'resolveTools', reason: toolsR.err.message } }, logger)
     return { usage: { input: 0, output: 0 }, success: false }
   }
 
@@ -248,16 +249,19 @@ export async function runTurnUsecase(
           totalUsage = event.usage
           break
         case 'turn.failed':
-          asContractBus(bus).emit(createEvent('turn.failed', {
-            sessionId, turnId, runId: turnId, outcome: 'error',
-            stage: event.stage, reason: event.err.message, toolErrorCount,
-          }, { sessionId, turnId }))
           logger.warn('turn', `Turn ${turnId} failed at ${event.stage}: ${event.err.message}`)
+          await emitTurnEnd(hooks, sessionId, turnId, 'failed', {
+            usage: totalUsage, toolCallCount, toolErrorCount,
+            error: { stage: event.stage, reason: event.err.message },
+          }, logger)
           return { usage: totalUsage, success: false }
         case 'wave.completed': {
           void bus.emit('wave.completed', { sessionId, turnId, waveIndex: event.waveIndex, callsInWave: event.callsInWave, ts: event.ts })
           const budgetResult = await reactiveCompactCheck(
-            input, deps, historyMsgs, tokenLimit, sessionId, turnId, bus, logger, toolErrorCount, totalUsage, emitFailed,
+            input, deps, historyMsgs, tokenLimit, sessionId, turnId, bus, logger, totalUsage,
+            async (stage, reason) => {
+              await emitTurnEnd(hooks, sessionId, turnId, 'failed', { error: { stage, reason } }, logger)
+            },
           )
           if (budgetResult) return budgetResult
           break
@@ -268,14 +272,21 @@ export async function runTurnUsecase(
     }
   } catch (err) {
     const e = err instanceof Error ? err : new Error(String(err))
-    emitFailed(bus, sessionId, turnId, 'usecase_internal', e, toolErrorCount)
+    await emitTurnEnd(hooks, sessionId, turnId, 'failed', {
+      usage: totalUsage, toolCallCount, toolErrorCount,
+      error: { stage: 'usecase_internal', reason: e.message },
+    }, logger)
     return { usage: totalUsage, success: false }
   } finally {
     deps.sessionAbort.unregister(sessionId)
   }
 
   // Phase 5b: reactive budget check after turn completes
-  const budgetResult = await reactiveCompactCheck(input, deps, historyMsgs, tokenLimit, sessionId, turnId, bus, logger, toolErrorCount, totalUsage, emitFailed)
+  const budgetResult = await reactiveCompactCheck(input, deps, historyMsgs, tokenLimit, sessionId, turnId, bus, logger, totalUsage,
+    async (stage, reason) => {
+      await emitTurnEnd(hooks, sessionId, turnId, 'failed', { error: { stage, reason } }, logger)
+    },
+  )
   if (budgetResult) return budgetResult
 
   // Phase 6: persist history
@@ -292,24 +303,13 @@ export async function runTurnUsecase(
     logger.warn('turn', `history appendBatch failed: ${String(err)}`)
   }
 
-  // Phase 7: onTurnEnd hook
-  const endR = await safeDispatch<void>(hooks, 'onTurnEnd', {
-    sessionId, turnId, usage: totalUsage, finalMessage: finalText,
-  })
-  if (!endR.ok) {
-    emitFailed(bus, sessionId, turnId, 'onTurnEnd', endR.err)
-    logger.warn('turn', `onTurnEnd hook failed: ${endR.err.message}`)
-  }
-
-  asContractBus(bus).emit(createEvent('turn.completed', {
-    sessionId,
-    turnId,
-    runId: turnId,
-    usage: { input: totalUsage.input, output: totalUsage.output },
+  // Phase 7: onTurnEnd hook — single source of truth for turn termination
+  await emitTurnEnd(hooks, sessionId, turnId, 'completed', {
+    usage: totalUsage,
     toolCallCount,
     toolErrorCount,
-    activatedSkills: [],
-  }, { sessionId, turnId }))
+    finalMessage: finalText,
+  }, logger)
 
   return { usage: totalUsage, success: true, finalText }
 }

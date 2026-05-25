@@ -54,7 +54,7 @@ export function createTaskTool(deps: TaskToolDeps): Tool {
       return result
     },
 
-    conflictKey: (input: unknown) => {
+    conflictKey: (_toolCtx, input: unknown) => {
       const type = (input as { subagent_type?: string }).subagent_type ?? 'unknown'
       return `subagent:${type}`
     },

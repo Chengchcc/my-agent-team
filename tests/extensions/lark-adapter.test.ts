@@ -72,7 +72,7 @@ describe('Lark bot adapter', () => {
     const bot = lark.createBot(createLarkBotConfig('cli_test123', 'LARK_SECRET'))
     expect(bot).toBeDefined()
     expect(bot.kind).toBe('lark-bot')
-    expect(bot.id).toBe('lark-bot-1')
+    expect(bot.id).toMatch(/^lark-bot-/)
   })
 
   it('bot adapter implements FrontendHandle (start/stop)', async () => {

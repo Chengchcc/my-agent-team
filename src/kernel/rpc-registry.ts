@@ -1,19 +1,42 @@
 type RpcHandler = (params: unknown) => unknown | Promise<unknown>
 
 /**
+ * Error thrown when two extensions register the same RPC method.
+ */
+class RpcMethodConflictError extends Error {
+  readonly method: string
+  readonly firstExt: string
+  readonly secondExt: string
+
+  constructor(method: string, firstExt: string, secondExt: string) {
+    super(`RPC method "${method}" already registered by "${firstExt}" (conflict with "${secondExt}")`)
+    this.name = 'RpcMethodConflictError'
+    this.method = method
+    this.firstExt = firstExt
+    this.secondExt = secondExt
+  }
+}
+
+/**
  * RpcRegistry — O(1) method dispatch table.
  * Separate from HookContainer because RPC routing is fundamentally
  * different from hook chaining (method dispatch vs payload transformation).
  */
 class RpcRegistry {
   private handlers = new Map<string, RpcHandler>()
+  private handlerExtensions = new Map<string, string>() // method -> extension name
 
   /** Register an RPC method handler */
-  register(method: string, handler: RpcHandler): void {
+  register(method: string, handler: RpcHandler, extensionName?: string): void {
     if (this.handlers.has(method)) {
-      throw new Error(`RPC method "${method}" is already registered`)
+      const first = this.handlerExtensions.get(method) ?? 'unknown'
+      const second = extensionName ?? 'unknown'
+      throw new RpcMethodConflictError(method, first, second)
     }
     this.handlers.set(method, handler)
+    if (extensionName) {
+      this.handlerExtensions.set(method, extensionName)
+    }
   }
 
   /** Resolve a handler by method name. Returns undefined if not found. */
@@ -45,8 +68,9 @@ class RpcRegistry {
   /** Clear all method registrations */
   clear(): void {
     this.handlers.clear()
+    this.handlerExtensions.clear()
   }
 }
 
-export { RpcRegistry }
+export { RpcRegistry, RpcMethodConflictError }
 export type { RpcHandler }

@@ -10,6 +10,10 @@ class EventBus {
   private subscribers = new Map<string, Set<EventHandler>>()
   private logger: Logger | null = null
 
+  constructor(logger?: Logger) {
+    this.logger = logger ?? null
+  }
+
   setLogger(logger: Logger): void {
     this.logger = logger
   }

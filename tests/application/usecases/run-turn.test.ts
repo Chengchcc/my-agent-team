@@ -22,7 +22,9 @@ function stubHooks(overrides?: {
   onToolCall?: unknown
   onTurnEnd?: unknown
 }) {
+  const turnEndCalls: Array<{ status: string; error?: { stage: string; reason: string } }> = []
   return {
+    turnEndCalls,
     dispatch: async (name: string, ..._args: unknown[]) => {
       if (name === 'transformPrompt') {
         if (overrides?.transformPrompt === 'throw') throw new Error('transformPrompt down')
@@ -38,6 +40,8 @@ function stubHooks(overrides?: {
       }
       if (name === 'onTurnEnd') {
         if (overrides?.onTurnEnd === 'throw') throw new Error('onTurnEnd down')
+        const arg = _args[0] as { status: string; error?: { stage: string; reason: string } }
+        turnEndCalls.push({ status: arg.status, error: arg.error })
         return undefined
       }
       return undefined
@@ -100,36 +104,38 @@ const input: RunTurnInput = { sessionId: 's1', turnId: 't1', userInput: 'hi', fr
 
 describe('runTurnUsecase', () => {
   it('completes a simple text turn', async () => {
-    const { events, bus } = stubBus()
-    const result = await runTurnUsecase(input, deps({ bus }))
+    const hooks = stubHooks()
+    const { bus } = stubBus()
+    const result = await runTurnUsecase(input, deps({ bus, hooks }))
 
     expect(result.success).toBe(true)
-    expect(events.some((e: unknown) => (e as { type: string }).type === 'turn.completed')).toBe(true)
+    expect(hooks.turnEndCalls.length).toBeGreaterThanOrEqual(1)
+    expect(hooks.turnEndCalls[hooks.turnEndCalls.length - 1].status).toBe('completed')
   })
 
   it('emits turn.failed when transformPrompt throws', async () => {
-    const { events, bus } = stubBus()
-    const d = deps({ bus, hooks: stubHooks({ transformPrompt: 'throw' }) })
+    const hooks = stubHooks({ transformPrompt: 'throw' })
+    const { bus } = stubBus()
+    const d = deps({ bus, hooks })
     const result = await runTurnUsecase(input, d)
 
     expect(result.success).toBe(false)
-    const failed = events.find((e: unknown) => (e as { type: string }).type === 'turn.failed')
+    const failed = hooks.turnEndCalls.find((c) => c.status === 'failed')
     expect(failed).toBeDefined()
-    const env = failed as { payload: { stage: string; reason: string } }
-    expect(env.payload.stage).toBe('transformPrompt')
-    expect(env.payload.reason).toBe('transformPrompt down')
+    expect(failed!.error?.stage).toBe('transformPrompt')
+    expect(failed!.error?.reason).toBe('transformPrompt down')
   })
 
   it('emits turn.failed when resolveTools throws', async () => {
-    const { events, bus } = stubBus()
-    const d = deps({ bus, hooks: stubHooks({ resolveTools: 'throw' }) })
+    const hooks = stubHooks({ resolveTools: 'throw' })
+    const { bus } = stubBus()
+    const d = deps({ bus, hooks })
     const result = await runTurnUsecase(input, d)
 
     expect(result.success).toBe(false)
-    const failed = events.find((e: unknown) => (e as { type: string }).type === 'turn.failed')
+    const failed = hooks.turnEndCalls.find((c) => c.status === 'failed')
     expect(failed).toBeDefined()
-    const env = failed as { payload: { stage: string } }
-    expect(env.payload.stage).toBe('resolveTools')
+    expect(failed!.error?.stage).toBe('resolveTools')
   })
 
   it('handles tool call round-trip', async () => {

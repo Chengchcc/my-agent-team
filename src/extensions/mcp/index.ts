@@ -118,9 +118,10 @@ export default () =>
           kernelReady: {
             enforce: 'normal',
             fn: async () => {
-              const mcpConfig = ctx.config.mcp as
-                | { servers?: Array<{ name: string; transport: string; autoStart?: boolean }> }
-                | undefined;
+              const mcpConfig = ctx.config.get<{ servers?: Array<{ name: string; transport: string; autoStart?: boolean }> } | undefined>(
+                'mcp',
+                (raw) => raw as { servers?: Array<{ name: string; transport: string; autoStart?: boolean }> } | undefined,
+              );
               const servers = mcpConfig?.servers ?? [];
               const autoServers = servers.filter((s) => s.autoStart !== false);
 

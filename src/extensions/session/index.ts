@@ -44,15 +44,53 @@ interface TurnEndDeps {
   sessionStore: SessionStore;
   eventFactory: ReturnType<typeof createTraceEventFactory>;
   hooks: HookContainer;
+  contractBus: ReturnType<typeof asContractBus>;
 }
 
 function makeOnTurnEnd(d: TurnEndDeps): HookHandler {
   return async (...args: unknown[]) => {
-    const result = args[0] as { sessionId: string; turnId: string; usage?: { input: number; output: number } };
-    const session = await d.sessionStore.load(result.sessionId);
+    const result = args[0] as {
+      sessionId: string;
+      turnId: string;
+      status: 'completed' | 'failed';
+      usage?: { input: number; output: number };
+      toolCallCount?: number;
+      toolErrorCount?: number;
+      finalMessage?: string;
+      error?: { stage: string; reason: string };
+    };
+    const { sessionId, turnId, status } = result;
+    const session = await d.sessionStore.load(sessionId);
     if (session) { session.completeTurn(); await d.sessionStore.save(session); }
-    const traceEvt: TraceEvent = d.eventFactory.next(result.turnId, 'turn.completed', { tokens: result.usage });
+
+    // Emit trace event
+    const traceEvt: TraceEvent = status === 'completed'
+      ? d.eventFactory.next(turnId, 'turn.completed', { tokens: result.usage })
+      : d.eventFactory.next(turnId, 'turn.failed', { error: result.error });
     await d.hooks.dispatch('onTraceEmit', traceEvt);
+
+    // Emit contract bus event — single source of truth for turn termination
+    if (status === 'completed') {
+      d.contractBus.emit(createEvent('turn.completed', {
+        sessionId,
+        turnId,
+        runId: turnId,
+        usage: { input: result.usage?.input ?? 0, output: result.usage?.output ?? 0 },
+        toolCallCount: result.toolCallCount ?? 0,
+        toolErrorCount: result.toolErrorCount ?? 0,
+        activatedSkills: [],
+      }, { sessionId, turnId }));
+    } else {
+      d.contractBus.emit(createEvent('turn.failed', {
+        sessionId,
+        turnId,
+        runId: turnId,
+        outcome: 'error',
+        stage: result.error?.stage ?? 'unknown',
+        reason: result.error?.reason ?? 'Unknown error',
+        toolErrorCount: result.toolErrorCount ?? 0,
+      }, { sessionId, turnId }));
+    }
   };
 }
 
@@ -81,7 +119,7 @@ export default () =>
       }
 
       const onTurnStart = makeOnTurnStart({ sessionStore, eventFactory, hooks: ctx.hooks, contractBus })
-      const onTurnEnd = makeOnTurnEnd({ sessionStore, eventFactory, hooks: ctx.hooks })
+      const onTurnEnd = makeOnTurnEnd({ sessionStore, eventFactory, hooks: ctx.hooks, contractBus })
 
       return {
         provide: {

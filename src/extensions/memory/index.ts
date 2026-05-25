@@ -172,7 +172,7 @@ export default (opts: MemoryOpts = {}) =>
       let inflight = 0
 
       // Explicit-write use cases
-      const explicitCfg = (ctx.config as Record<string, unknown>).memory as Record<string, unknown> | undefined;
+      const explicitCfg = ctx.config.raw.memory as Record<string, unknown> | undefined;
       const explicit = (explicitCfg?.explicit ?? {}) as {
         enabled?: boolean; perTurnLimit?: number; defaultWeight?: number; explicitSourceWeightBoost?: number;
       };
@@ -183,7 +183,7 @@ export default (opts: MemoryOpts = {}) =>
       const forgetUseCase = new ForgetUseCase(store, encoder, bus)
 
       // Lifecycle config with defaults
-      const lifecycleCfg = (ctx.config as Record<string, unknown>).memory as Record<string, unknown> | undefined;
+      const lifecycleCfg = ctx.config.raw.memory as Record<string, unknown> | undefined;
       const lifecycle = (lifecycleCfg?.lifecycle ?? {}) as {
         semanticDedupThreshold?: number; pruneAfterDays?: number; pruneMinUsageCount?: number;
       };

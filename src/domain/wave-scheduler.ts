@@ -2,7 +2,7 @@ import type { ToolCall } from './turn-runner.types'
 
 export interface ToolConflictMeta {
   readonly?: boolean
-  conflictKey?: (input: unknown) => string | null
+  conflictKey?: (toolCtx: { sessionId: string }, input: unknown) => string | null
 }
 
 /**
@@ -14,6 +14,7 @@ export interface ToolConflictMeta {
 export function partitionWaves(
   calls: ReadonlyArray<ToolCall>,
   descriptors: ReadonlyMap<string, ToolConflictMeta>,
+  sessionId: string,
 ): ToolCall[][] {
   if (calls.length === 0) return []
 
@@ -32,7 +33,7 @@ export function partitionWaves(
         continue
       }
 
-      const key = resolveConflictKey(c, meta)
+      const key = resolveConflictKey(c, meta, sessionId)
 
       if (!takenKeys.has(key)) {
         wave.push(c)
@@ -49,10 +50,10 @@ export function partitionWaves(
   return waves
 }
 
-function resolveConflictKey(call: ToolCall, meta?: ToolConflictMeta): string {
+function resolveConflictKey(call: ToolCall, meta?: ToolConflictMeta, sessionId?: string): string {
   if (!meta?.conflictKey) return `tool:${call.name}`
   try {
-    const key = meta.conflictKey(call.arguments)
+    const key = meta.conflictKey({ sessionId: sessionId ?? '' }, call.arguments)
     return key != null ? key : `tool:${call.name}`
   } catch {
     return `tool:${call.name}`

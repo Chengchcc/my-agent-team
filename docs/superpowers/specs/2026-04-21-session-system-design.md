@@ -109,6 +109,12 @@ This is injected when creating the Agent in the TUI entry point.
 - No issues with special characters in timestamps
 - UUID v4 is easy to generate with the `crypto` module
 
+## Lifecycle Invariant
+
+**Frontends must not accept inbound traffic before `kernelReady`.**
+
+The kernel dispatches the `kernelReady` hook after all extensions have been applied, hooks registered, capabilities published, and RPC methods wired. Frontends (TUI, Lark bots, etc.) that begin accepting user requests before `kernelReady` may observe partially-initialized state (missing RPC handlers, unregistered tools, incomplete capability tables). All frontend startup logic that accepts external input MUST execute within or after the `kernelReady` hook, never during `apply()`.
+
 ## Integration Points
 
 1. **TUI Entry Point** (`bin/my-agent-tui-dev.ts`): Create SessionStore, add auto-save hook to Agent

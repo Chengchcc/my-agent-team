@@ -49,16 +49,6 @@ export default () =>
                 const method = message.method ?? 'unknown'
                 const pStr = JSON.stringify(message.params ?? {}).slice(0, PARAMS_PREVIEW_CHARS)
 
-                if (method === 'hello') {
-                  const resp = buildSuccess(message.id ?? null, {
-                    daemonVersion: '2.0.0',
-                    agentId: ctx.agentId,
-                    capabilities: { events: 16, methods: 24 },
-                  })
-                  ctx.logger.info('rpc', `→ hello (${Date.now() - t0}ms)`)
-                  return isNotif ? null : resp
-                }
-
                 ctx.logger.info('rpc', `← ${method} ${pStr}`)
                 const handler = ctx.rpc.resolve(method)
                 const result = handler
@@ -122,6 +112,16 @@ export default () =>
               frontendSessions.clear()
             },
           },
+        },
+
+        rpc: {
+          hello: () => ({
+            server: 'my-agent',
+            daemonVersion: '2.0.0',
+            agentId: ctx.agentId,
+            capabilities: { events: 16, methods: 24 },
+            ts: Date.now(),
+          }),
         },
 
         dispose: () => frontendSessions.clear(),

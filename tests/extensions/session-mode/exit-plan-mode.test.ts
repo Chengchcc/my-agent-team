@@ -20,7 +20,8 @@ describe('exit_plan_mode tool (M2)', () => {
     expect(tool).toBeDefined()
     expect(tool!.name).toBe('exit_plan_mode')
     expect(tool!.readonly).toBe(true)
-    expect(tool!.conflictKey?.({})).toBe('mode:global')
+    const mockCtx = { sessionId: 'test-session' } as unknown as import('../../../src/application/ports/tool-context').ToolContext
+    expect(tool!.conflictKey?.(mockCtx, {} as unknown)).toBe('mode:session:test-session')
 
     await k.stop()
   })

@@ -96,7 +96,7 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
       }
 
       const waves = deps.parallelTools
-        ? partitionWaves(round.toolCalls, descMap)
+        ? partitionWaves(round.toolCalls, descMap, sessionId)
         : round.toolCalls.map(c => [c])
 
       for (let wi = 0; wi < waves.length; wi++) {

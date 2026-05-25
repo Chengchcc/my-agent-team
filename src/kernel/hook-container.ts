@@ -21,7 +21,7 @@ const HOOK_MODES: Record<string, HookMode> = {
   serveControlMethod: 'first-match',
 }
 
-const ENFORCE_WEIGHT: Record<Enforce, number> = { pre: 0, normal: 1, post: 2 }
+const ENFORCE_WEIGHT: Record<Enforce, number> = { guard: 0, pre: 1, normal: 2, post: 3 }
 
 /**
  * Ordered handler entry after sorting.
@@ -97,7 +97,26 @@ class HookContainer {
       }
       case 'parallel': {
         const log = this.logger
-        await Promise.all(handlers.map(h =>
+        // Guard handlers run first; if any throw, remaining (non-guard) handlers are skipped.
+        const guardHandlers = handlers.filter(h => h.enforce === 'guard')
+        const nonGuardHandlers = handlers.filter(h => h.enforce !== 'guard')
+
+        if (guardHandlers.length > 0) {
+          const guardResults = await Promise.allSettled(guardHandlers.map(h => h.fn(...args)))
+          const failures = guardResults.filter(r => r.status === 'rejected')
+          if (failures.length > 0) {
+            for (const f of failures) {
+              const err = f.reason
+              const msg = `[HookContainer] ${hookName} guard handler failed, short-circuiting: ${err}`
+              if (log) log.warn('hook-container', msg)
+              else console.warn(msg)
+            }
+            return
+          }
+        }
+
+        // Run non-guard handlers in parallel (failures isolated)
+        await Promise.all(nonGuardHandlers.map(h =>
           new Promise(resolve => { resolve(h.fn(...args)) }).catch(err => {
             const msg = `[HookContainer] ${hookName} handler from "${h.extensionName}" failed: ${err}`
             if (log) {

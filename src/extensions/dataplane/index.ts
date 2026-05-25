@@ -72,7 +72,24 @@ export default () =>
         ['compaction.failed', 'compaction.failed'],
       ]
 
-      // Subscribe to mapped events
+      /**
+       * Register a raw bus event → DataPlane event mapping at runtime.
+       * Other extensions call this to subscribe their own events.
+       */
+      function registerMapping(
+        rawType: string,
+        mapper: (raw: unknown) => { dpType: DataPlaneEventType; payload: Record<string, unknown>; sessionId?: string; turnId?: string },
+      ): void {
+        ctx.bus.on(rawType, async (raw: unknown) => {
+          const mapped = mapper(raw)
+          const evt = factory.next(mapped.dpType, mapped.payload, { sessionId: mapped.sessionId, turnId: mapped.turnId })
+          eventLog.push(evt)
+          ctx.logger.info('dataplane', `emit dataplane.event type=${evt.type}`)
+          await ctx.bus.emit('dataplane.event', evt)
+        })
+      }
+
+      // Subscribe to built-in event mappings
       for (const [busEvent, dpType] of eventMappings) {
         ctx.bus.on(busEvent, async (raw: unknown) => {
           const r = (raw as Record<string, unknown> | undefined) ?? {}
@@ -97,6 +114,7 @@ export default () =>
 
       return {
         provide: {
+          register: () => registerMapping,
           stream: () => ({
             /** Replay events since a cursor, or all if no cursor */
             replay(since?: number): DataPlaneEvent[] {

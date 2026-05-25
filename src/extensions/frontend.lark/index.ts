@@ -2,6 +2,9 @@ import { defineExtension } from '../../kernel/define-extension'
 import { RoutingTable } from './routing-table'
 import type { Transport } from '../../application/ports/transport'
 import { LarkBotAdapter, setLarkBotAdapterLogger } from './lark-bot-adapter'
+import { randomUUID } from 'node:crypto'
+
+const UUID_SLICE_LEN = 8
 
 // ── Config ─────────────────────────────────────────────────────────────
 
@@ -9,20 +12,6 @@ interface LarkBotConfig {
   id: string
   appId: string
   appSecretEnv: string
-}
-
-// Factory for multiple bot instances — N bots share one Agent
-let botInstanceCounter = 0
-
-function createLarkBotConfig(
-  appId: string,
-  appSecretEnv: string,
-): LarkBotConfig {
-  return {
-    id: `lark-bot-${++botInstanceCounter}`,
-    appId,
-    appSecretEnv,
-  }
 }
 
 // ── Extension definition ───────────────────────────────────────────────
@@ -78,6 +67,30 @@ export default () =>
             enforce: 'normal',
             fn: async () => {
               ctx.logger.info('lark', 'Lark bot adapter ready')
+
+              // Auto-start bots from config
+              const larkCfg = ctx.config.raw.lark as { bots?: Array<{ appId: string; appSecretEnv: string; autoStart?: boolean }> } | undefined
+              const bots = larkCfg?.bots ?? []
+              const autoBots = bots.filter((b) => b.autoStart !== false)
+
+              for (const botCfg of autoBots) {
+                const botId = `lark-bot-${randomUUID().slice(0, UUID_SLICE_LEN)}`
+                try {
+                  const transport = ctx.extensions.get<Transport>('transport-inmem.transport')
+                  const adapter = new LarkBotAdapter(
+                    botId,
+                    transport,
+                    routingTable,
+                    botCfg.appId,
+                    botCfg.appSecretEnv,
+                  )
+                  botAdapters.set(botId, adapter)
+                  await adapter.start()
+                  ctx.logger.info('lark', `Bot '${botId}' auto-started`)
+                } catch (err) {
+                  ctx.logger.warn('lark', `Failed to auto-start bot '${botId}': ${String(err)}`)
+                }
+              }
             },
           },
           onShutdown: {
@@ -99,5 +112,16 @@ export default () =>
     },
   })
 
-export { createLarkBotConfig }
+/** Create a LarkBotConfig with a UUID-based bot ID (for external callers). */
+export function createLarkBotConfig(
+  appId: string,
+  appSecretEnv: string,
+): LarkBotConfig {
+  return {
+    id: `lark-bot-${randomUUID().slice(0, UUID_SLICE_LEN)}`,
+    appId,
+    appSecretEnv,
+  }
+}
+
 export type { LarkBotConfig }

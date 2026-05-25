@@ -151,7 +151,7 @@ function buildEvolutionApply(ctx: Parameters<typeof defineExtension>[0]['apply']
   const state: PolicyState = { turnsSinceReview: 0, errorBurst: [], skillRunsSeen: {} }
 
   // Read auto-retire config with defaults
-  const ar = ((ctx.config as Record<string, unknown>).evolution as Record<string, unknown> | undefined)?.autoRetire as Record<string, unknown> | undefined
+  const ar = (ctx.config.raw.evolution as Record<string, unknown> | undefined)?.autoRetire as Record<string, unknown> | undefined
   const autoRetireCfg: AutoRetireConfig = {
     enabled: (ar?.enabled as boolean) ?? true,
     minSampleSize: (ar?.minSampleSize as number) ?? DEFAULT_EVO_MIN_SAMPLE_SIZE,
