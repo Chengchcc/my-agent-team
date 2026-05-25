@@ -2,7 +2,6 @@ import type { JobContext } from '../../application/ports/job-spawner'
 import type { ProviderInvoke } from '../../application/ports/provider'
 
 export type JobContextFactory = (opts: {
-  purpose: string
   runId: string
 }) => JobContext
 
@@ -14,12 +13,12 @@ export function createJobContextFactory(
     error: (d: string, m: string) => void
   },
 ): JobContextFactory {
-  return ({ purpose, runId }) => ({
+  return ({ runId }) => ({
     invoke: async (req) => {
       const resp = await invoke.call({
         kind: 'internal',
-        purpose,
-        parentTurnId: `${purpose}:${runId}`,
+        purpose: req.purpose,
+        parentTurnId: `${req.purpose}:${runId}`,
         messages: req.messages,
         maxTokens: req.maxTokens,
       })

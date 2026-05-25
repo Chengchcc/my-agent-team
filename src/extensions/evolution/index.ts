@@ -52,7 +52,7 @@ interface EvolutionEventDeps {
   inflight: { current: number }
   autoRetireCfg: AutoRetireConfig
   collector: StatsCollector
-  autoRetirer: AutoRetirer
+  autoRetirer: AutoRetirer | null
   logger: { warn: (domain: string, msg: string) => void; info: (domain: string, msg: string) => void }
 }
 
@@ -63,10 +63,7 @@ async function handleTurnEvent(
   deps: EvolutionEventDeps,
 ): Promise<void> {
   const env = raw as EventEnvelope<'turn.completed' | 'turn.failed', Record<string, unknown>>
-  // Handle both envelope-wrapped and plain payload shapes
-  const e = (env.payload && typeof env.payload === 'object'
-    ? env.payload
-    : raw) as Record<string, unknown>
+  const e = env.payload
   if (!e || typeof e !== 'object') return
   const runId = typeof e.runId === 'string' ? e.runId : undefined
   if (!runId) return
@@ -91,10 +88,7 @@ async function handleTurnEvent(
     const result = await deps.spawner.run<ReviewJob, ReviewResult>({
       entry: require.resolve('./worker-entry'),
       job,
-      ctx: deps.ctxFactory({
-        purpose: tier === 'tier0' ? 'evolution.review.tier0' : 'evolution.review.tier2',
-        runId,
-      }),
+      ctx: deps.ctxFactory({ runId }),
       timeoutMs: REVIEW_TIMEOUT_MS,
     })
     await writeProposal(deps.proposals, result, runId)
@@ -121,9 +115,7 @@ async function handleReviewCompleted(
   deps: EvolutionEventDeps,
 ): Promise<void> {
   const env = raw as EventEnvelope<'evolution.review.completed', EvolutionReviewCompletedV1>
-  const e = (env.payload && typeof env.payload === 'object'
-    ? env.payload
-    : raw) as Record<string, unknown>
+  const e = env.payload
   const skillName = typeof e.skillName === 'string' ? e.skillName : undefined
   if (!skillName) return // tier0 review has no skill
 
@@ -132,6 +124,10 @@ async function handleReviewCompleted(
   const decision = evaluateRetireRules(snapshot, deps.autoRetireCfg)
 
   if (decision.action === 'retire') {
+    if (!deps.autoRetirer) {
+      deps.logger.warn('evolution', `retire decision for ${skillName} but metaRepo unavailable — skipping`)
+      return
+    }
     await deps.autoRetirer.retire(skillName, decision.reason)
     return
   }
@@ -165,7 +161,9 @@ function buildEvolutionApply(ctx: Parameters<typeof defineExtension>[0]['apply']
 
   // Instantiate stats-driven auto-retire components
   const collector = new StatsCollector(autoRetireCfg.windowSize)
-  const autoRetirer = new AutoRetirer(ctx.paths, bus, metaRepo!, ctx.logger)
+  const autoRetirer = metaRepo
+    ? new AutoRetirer(ctx.paths, bus, metaRepo, ctx.logger)
+    : null
 
   const deps: EvolutionEventDeps = {
     bus, reader, spawner, proposals, statsStore, metaRepo, ctxFactory,

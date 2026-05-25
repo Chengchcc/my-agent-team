@@ -28,6 +28,8 @@ import type { EventEnvelope } from '../../application/contracts/event-envelope'
 import type { TurnCompletedV1, TurnFailedV1 } from '../../application/contracts/session-events'
 import type { CliManifest } from '../../cli/cli-types'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
+import { defineTool } from '../../application/tool-factory/define-tool'
+import type { ToolCatalog } from '../../application/ports/tool-catalog'
 import type { MemoryType } from '../../domain/memory-entry'
 import type { AgentRegistryRead } from '../../application/ports/agent-registry'
 
@@ -141,7 +143,7 @@ export default (opts: MemoryOpts = {}) =>
   defineExtension({
     name: 'memory',
     enforce: 'normal',
-    dependsOn: ['trace'],
+    dependsOn: ['trace', 'tool-catalog'],
     // eslint-disable-next-line max-lines-per-function -- extension apply() naturally wires many capabilities (provide, rpc, tools, hooks, subscribe); extracted where feasible
     apply: (ctx) => {
       const bus = asContractBus(ctx.bus)
@@ -165,6 +167,7 @@ export default (opts: MemoryOpts = {}) =>
         ? ctx.extensions.get<ProviderInvoke>('provider.llm') as unknown as InvokeFn | undefined
         : undefined
       const resolver = new ContradictionResolver(store, encoder, invokeFn)
+      const catalog = ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
       const state: PolicyState = { turnsSinceExtract: 0 }
       let inflight = 0
 
@@ -185,6 +188,22 @@ export default (opts: MemoryOpts = {}) =>
         semanticDedupThreshold?: number; pruneAfterDays?: number; pruneMinUsageCount?: number;
       };
       const semanticThreshold = lifecycle.semanticDedupThreshold ?? SEMANTIC_DEDUP_DEFAULT_THRESHOLD
+
+      catalog.register(defineTool({
+        name: rememberToolDef.name,
+        description: rememberToolDef.description,
+        parameters: rememberToolDef.parameters,
+        parse: (raw) => raw as unknown as RememberInput as unknown as Record<string, unknown>,
+        execute: async (_toolCtx, params) =>
+          rememberUseCase.execute(params as unknown as RememberInput, _toolCtx.turnId),
+      }))
+      catalog.register(defineTool({
+        name: forgetToolDef.name,
+        description: forgetToolDef.description,
+        parameters: forgetToolDef.parameters,
+        parse: (raw) => raw as unknown as ForgetInput as unknown as Record<string, unknown>,
+        execute: async (_toolCtx, params) => forgetUseCase.execute(params as unknown as ForgetInput),
+      }))
 
       return {
         provide: {
@@ -236,17 +255,6 @@ export default (opts: MemoryOpts = {}) =>
           },
         },
 
-        tools: [
-          {
-            ...rememberToolDef,
-            handler: (args: unknown) => rememberUseCase.execute(args as RememberInput),
-          },
-          {
-            ...forgetToolDef,
-            handler: (args: unknown) => forgetUseCase.execute(args as ForgetInput),
-          },
-        ],
-
         hooks: {
           kernelReady: { enforce: 'normal', fn: async () => { backfill.start() } },
           onShutdown: { enforce: 'pre', fn: async () => { backfill.stop() } },
@@ -271,7 +279,7 @@ export default (opts: MemoryOpts = {}) =>
         subscribe: {
           'turn.completed': async (raw) => {
             const e = (raw as EventEnvelope<'turn.completed', TurnCompletedV1>).payload
-            rememberUseCase.clearTurnCounters()
+            rememberUseCase.clearTurn(e.turnId)
             const decision = evaluateExtractPolicy(e, state)
             if (decision.kind === 'skip' || inflight >= MAX_INFLIGHT) return
             if (!spawner || !ctxFactory) return
@@ -285,7 +293,7 @@ export default (opts: MemoryOpts = {}) =>
               const result = await spawner.run<ExtractJob, ExtractResult>({
                 entry: require.resolve('./extract-worker'),
                 job: { runId: e.runId, run },
-                ctx: ctxFactory({ purpose: 'memory.extract', runId: e.runId }),
+                ctx: ctxFactory({ runId: e.runId }),
                 timeoutMs: EXTRACT_TIMEOUT_MS,
               })
               for (const c of result.candidates) {
@@ -356,7 +364,7 @@ export default (opts: MemoryOpts = {}) =>
 
           'turn.failed': async (raw) => {
             const e = (raw as EventEnvelope<'turn.failed', TurnFailedV1>).payload
-            rememberUseCase.clearTurnCounters()
+            rememberUseCase.clearTurn(e.turnId)
             void evaluateExtractPolicy(e, state) // update counter even on failure
           },
         },

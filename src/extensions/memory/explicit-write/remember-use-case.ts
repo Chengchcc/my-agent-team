@@ -66,12 +66,17 @@ export class RememberUseCase {
     this.defaultWeight = explicitCfg?.defaultWeight ?? DEFAULT_EXPLICIT_WEIGHT;
   }
 
-  /** Clear the per-turn counter — call on turn.completed. */
-  clearTurnCounters(): void {
-    this.perTurnCounter.clear();
+  /** Clear the per-turn counter for a specific turn — call on turn.completed / turn.failed. */
+  clearTurn(turnId: string): void {
+    this.perTurnCounter.delete(turnId);
+    // Soft cap: if map exceeds 1000 entries, evict the oldest
+    if (this.perTurnCounter.size > 1000) {
+      const oldest = this.perTurnCounter.keys().next().value;
+      if (oldest !== undefined) this.perTurnCounter.delete(oldest);
+    }
   }
 
-  async execute(input: RememberInput): Promise<RememberResult> {
+  async execute(input: RememberInput, turnId?: string): Promise<RememberResult> {
     // ── Content filtering ─────────────────────────────────────────────
     if (!input.text || input.text.length < REMEMBER_MIN_TEXT_LENGTH) {
       this.bus.emit(createEvent('memory.remember.rejected', {
@@ -92,14 +97,13 @@ export class RememberUseCase {
     }
 
     // ── Rate limiting ─────────────────────────────────────────────────
-    // Use a sentinel key since turnId is not available in this context;
-    // the extension layer manages per-turn clearing.
-    const sentinel = '_current';
-    const count = (this.perTurnCounter.get(sentinel) ?? 0) + 1;
-    if (count > this.perTurnLimit) {
-      return { ok: false, error: `Rate limit exceeded: max ${this.perTurnLimit} remembers per turn` };
+    if (turnId) {
+      const count = (this.perTurnCounter.get(turnId) ?? 0) + 1;
+      if (count > this.perTurnLimit) {
+        return { ok: false, error: `Rate limit exceeded: max ${this.perTurnLimit} remembers per turn` };
+      }
+      this.perTurnCounter.set(turnId, count);
     }
-    this.perTurnCounter.set(sentinel, count);
 
     // ── Tool type matches domain type directly ────────────────────────
     const mType = input.type as MemoryType;

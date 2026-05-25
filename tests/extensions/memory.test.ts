@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createTestKernel } from '../helpers/kernel-helper'
 import traceExt from '../../src/extensions/trace'
+import toolCatalogExt from '../../src/extensions/tool-catalog'
 import memoryExt from '../../src/extensions/memory'
 import type { MemoryStore } from '../../src/application/ports/memory-store'
 import type { RecallAPI } from '../../src/extensions/memory/recall'
@@ -23,7 +24,7 @@ describe('memory extension', () => {
     const tmp = makeTempDir()
     try {
       const k = createTestKernel({
-        extensions: [traceExt(), memoryExt({ baseDir: tmp })],
+        extensions: [traceExt(), toolCatalogExt(), memoryExt({ baseDir: tmp })],
       })
       await k.start()
 
@@ -49,7 +50,7 @@ describe('memory extension', () => {
     const tmp = makeTempDir()
     try {
       const k = createTestKernel({
-        extensions: [traceExt(), memoryExt({ baseDir: tmp })],
+        extensions: [traceExt(), toolCatalogExt(), memoryExt({ baseDir: tmp })],
       })
       await k.start()
 
@@ -78,7 +79,7 @@ describe('memory extension', () => {
     const tmp = makeTempDir()
     try {
       const k = createTestKernel({
-        extensions: [traceExt(), memoryExt({ baseDir: tmp })],
+        extensions: [traceExt(), toolCatalogExt(), memoryExt({ baseDir: tmp })],
       })
       await k.start()
 
@@ -115,7 +116,7 @@ describe('memory extension', () => {
     const tmp = makeTempDir()
     try {
       const k = createTestKernel({
-        extensions: [traceExt(), memoryExt({ baseDir: tmp })],
+        extensions: [traceExt(), toolCatalogExt(), memoryExt({ baseDir: tmp })],
       })
       await k.start()
 
@@ -143,7 +144,7 @@ describe('memory extension', () => {
     const tmp = makeTempDir()
     try {
       const k = createTestKernel({
-        extensions: [traceExt(), memoryExt({ baseDir: tmp })],
+        extensions: [traceExt(), toolCatalogExt(), memoryExt({ baseDir: tmp })],
       })
       await k.start()
 
@@ -195,7 +196,7 @@ describe('memory extension', () => {
     try {
       // Session 1 — add an entry and stop
       const k1 = createTestKernel({
-        extensions: [traceExt(), memoryExt({ baseDir: tmp })],
+        extensions: [traceExt(), toolCatalogExt(), memoryExt({ baseDir: tmp })],
       })
       await k1.start()
       const store1 = k1.ctx.extensions.get<MemoryStore>('memory.store')
@@ -215,7 +216,7 @@ describe('memory extension', () => {
       // Session 2 — same temp dir, entry should survive
       const k2 = createTestKernel({
         agentId: 'test',
-        extensions: [traceExt(), memoryExt({ baseDir: tmp })],
+        extensions: [traceExt(), toolCatalogExt(), memoryExt({ baseDir: tmp })],
       })
       await k2.start()
       const store2 = k2.ctx.extensions.get<MemoryStore>('memory.store')
