@@ -11,6 +11,7 @@ import { createRecall } from './recall'
 import { createEmbeddingBackfill } from './embedding-backfill'
 import { evaluateExtractPolicy, type PolicyState } from './policy'
 import type { JobSpawner } from '../../application/ports/job-spawner'
+import type { JobContextFactory } from '../infra-services/job-context-factory'
 import type { TraceReader } from '../../application/ports/trace-checkpointer'
 import type { ExtractJob, ExtractResult } from './types'
 import type { EventEnvelope } from '../../application/contracts/event-envelope'
@@ -118,6 +119,9 @@ export default (opts: MemoryOpts = {}) =>
       const spawner = ctx.extensions.has('infra-services.job-spawner')
         ? ctx.extensions.get<JobSpawner>('infra-services.job-spawner')
         : undefined
+      const ctxFactory = ctx.extensions.has('infra-services.job-context-factory')
+        ? ctx.extensions.get<JobContextFactory>('infra-services.job-context-factory')
+        : undefined
       const recall = createRecall(store, encoder, opts.weights)
       const debugLog = (d: string, m: string) => ctx.logger.debug(d, m)
       const backfill = createEmbeddingBackfill(store, encoder, debugLog)
@@ -177,7 +181,7 @@ export default (opts: MemoryOpts = {}) =>
             const e = (raw as EventEnvelope<'turn.completed', TurnCompletedV1>).payload
             const decision = evaluateExtractPolicy(e, state)
             if (decision.kind === 'skip' || inflight >= MAX_INFLIGHT) return
-            if (!spawner) return
+            if (!spawner || !ctxFactory) return
 
             const run = await reader.getRun(e.runId)
             if (!run) return
@@ -188,6 +192,7 @@ export default (opts: MemoryOpts = {}) =>
               const result = await spawner.run<ExtractJob, ExtractResult>({
                 entry: require.resolve('./extract-worker'),
                 job: { runId: e.runId, run },
+                ctx: ctxFactory({ purpose: 'memory.extract', runId: e.runId }),
                 timeoutMs: EXTRACT_TIMEOUT_MS,
               })
               for (const c of result.candidates) {
