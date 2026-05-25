@@ -49,6 +49,21 @@ export interface ContextSettings {
   compaction?: CompactionSettings;
 }
 
+export interface MemoryLifecycleConfig {
+  /** Cosine distance threshold for semantic dedup (lower = stricter). */
+  semanticDedupThreshold: number;
+  /** Top-K neighbours to check for contradiction. */
+  contradictionTopK: number;
+  /** Enable LLM-based contradiction arbitration. */
+  enableContradictionMerge: boolean;
+  /** Half-life in days for recency decay in retrieval scoring. */
+  decayHalfLifeDays: number;
+  /** Entries older than this many days are prune candidates. */
+  pruneAfterDays: number;
+  /** Entries with usageCount <= this are prune candidates. */
+  pruneMinUsageCount: number;
+}
+
 export interface MemorySettings {
   enabled: boolean;
   globalBaseDir: string;
@@ -63,6 +78,7 @@ export interface MemorySettings {
   maxUserPreferences: number;
   preferenceWeightThreshold: number;
   hybridRetrieval?: HybridRetrievalConfig;
+  lifecycle?: MemoryLifecycleConfig;
 }
 
 interface HybridRetrievalConfig {

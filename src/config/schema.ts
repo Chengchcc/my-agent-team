@@ -45,6 +45,15 @@ const hybridRetrievalConfigSchema = z.object({
   keywordWeight: z.number().min(0).max(1).default(0.2),
 });
 
+const memoryLifecycleConfigSchema = z.object({
+  semanticDedupThreshold: z.number().min(0).max(1).default(0.12),
+  contradictionTopK: z.number().int().positive().default(3),
+  enableContradictionMerge: z.boolean().default(true),
+  decayHalfLifeDays: z.number().positive().default(30),
+  pruneAfterDays: z.number().positive().default(180),
+  pruneMinUsageCount: z.number().int().min(0).default(0),
+});
+
 const memorySettingsSchema = z.object({
   enabled: z.boolean().default(true),
   globalBaseDir: z.string().default('~/.my-agent/memory'), // Deprecated — now derived from AgentPaths
@@ -59,6 +68,7 @@ const memorySettingsSchema = z.object({
   maxUserPreferences: z.number().int().positive().default(20),
   preferenceWeightThreshold: z.number().min(0).max(1).default(0.9),
   hybridRetrieval: hybridRetrievalConfigSchema.optional().default({}),
+  lifecycle: memoryLifecycleConfigSchema.optional().default({}),
 });
 
 const skillsSettingsSchema = z.object({

@@ -10,6 +10,7 @@ import { createOllamaEncoder } from './embedding-encoder'
 import { createRecall } from './recall'
 import { createEmbeddingBackfill } from './embedding-backfill'
 import { evaluateExtractPolicy, type PolicyState } from './policy'
+import { DedupPipeline } from './dedup-pipeline'
 import type { JobSpawner } from '../../application/ports/job-spawner'
 import type { JobContextFactory } from '../infra-services/job-context-factory'
 import type { TraceReader } from '../../application/ports/trace-checkpointer'
@@ -43,6 +44,7 @@ export const cliManifest: CliManifest = {
     '  my-agent memory list [--limit N] [--type general|preference]',
     '  my-agent memory search <query> [--limit N]',
     '  my-agent memory forget <id>',
+    '  my-agent memory prune [--dry-run]',
   ].join('\n'),
   handler: async (argv, ctx) => {
     const sub = argv[0]
@@ -86,6 +88,17 @@ export const cliManifest: CliManifest = {
         if (!argv[1]) { ctx.err('missing <id>\n'); process.exit(2) }
         await ctx.rpc('memory.forget', { id: argv[1] })
         ctx.out(`Forgot ${argv[1]}\n`)
+        return
+      }
+      case 'prune': {
+        const dryRun = argv.includes('--dry-run')
+        const result = await ctx.rpc('memory.prune', { dryRun })
+        const data = result as { deleted?: number; wouldDelete?: number; ids?: string[] }
+        if (dryRun) {
+          ctx.out(`Would delete ${data.wouldDelete} entries\n`)
+        } else {
+          ctx.out(`Deleted ${data.deleted} entries\n`)
+        }
         return
       }
       default:
@@ -132,8 +145,16 @@ export default (opts: MemoryOpts = {}) =>
       const recall = createRecall(store, encoder, opts.weights)
       const debugLog = (d: string, m: string) => ctx.logger.debug(d, m)
       const backfill = createEmbeddingBackfill(store, encoder, debugLog)
+      const dedup = new DedupPipeline(store, encoder)
       const state: PolicyState = { turnsSinceExtract: 0 }
       let inflight = 0
+
+      // Lifecycle config with defaults
+      const lifecycleCfg = (ctx.config as Record<string, unknown>).memory as Record<string, unknown> | undefined;
+      const lifecycle = (lifecycleCfg?.lifecycle ?? {}) as {
+        semanticDedupThreshold?: number; pruneAfterDays?: number; pruneMinUsageCount?: number;
+      };
+      const semanticThreshold = lifecycle.semanticDedupThreshold ?? 0.12
 
       return {
         provide: {
@@ -159,6 +180,23 @@ export default (opts: MemoryOpts = {}) =>
             if (!p?.id) throw new Error('id is required')
             const ok = await store.remove(p.id)
             return { removed: ok }
+          },
+          'memory.prune': async (params: unknown) => {
+            const p = params as { dryRun?: boolean } | undefined;
+            const cfg = lifecycle;
+            const candidates = await store.findPruneCandidates({
+              olderThanDays: cfg.pruneAfterDays ?? 180,
+              maxUsageCount: cfg.pruneMinUsageCount ?? 0,
+            });
+            if (p?.dryRun) {
+              return { wouldDelete: candidates.length, ids: candidates };
+            }
+            await store.removeMany(candidates);
+            bus.emit(createEvent('memory.prune.applied', {
+              deletedCount: candidates.length,
+              dryRun: false,
+            }));
+            return { deleted: candidates.length };
           },
         },
 
@@ -204,8 +242,28 @@ export default (opts: MemoryOpts = {}) =>
               })
               for (const c of result.candidates) {
                 const type = inferType(c.tags)
-                if (await store.hasExactDuplicate({ text: c.text, type })) continue
-                await store.add({
+                const result_ = await dedup.process(
+                  { text: c.text, type, tags: c.tags, weight: c.weight },
+                  { semanticThreshold },
+                )
+                switch (result_.kind) {
+                  case 'duplicate-exact':
+                    void store.markHit([result_.existingId])
+                    bus.emit(createEvent('memory.dedup', { kind: 'exact', existingId: result_.existingId }))
+                    continue
+                  case 'duplicate-semantic':
+                    void store.markHit([result_.existingId])
+                    void store.incrementMergeCount(result_.existingId)
+                    bus.emit(createEvent('memory.dedup', { kind: 'semantic', existingId: result_.existingId }))
+                    continue
+                  case 'contradiction':
+                    // Full contradiction resolution requires InvokeFn — deferred to Spec 3 (explicit write).
+                    // For now, treat as new.
+                    break
+                  case 'new':
+                    break
+                }
+                const newEntry = await store.add({
                   type,
                   text: c.text,
                   weight: c.weight,
@@ -213,6 +271,11 @@ export default (opts: MemoryOpts = {}) =>
                   tags: c.tags,
                   usageCount: 0,
                 })
+                // Store embedding for future semantic dedup
+                try {
+                  const emb = await encoder.encode(c.text)
+                  void store.storeEmbedding(newEntry.id, emb)
+                } catch { /* non-critical */ }
               }
               bus.emit(createEvent('memory.extract.completed', { runId: e.runId, count: result.candidates.length }))
             } catch (err) {

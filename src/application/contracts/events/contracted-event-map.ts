@@ -2,7 +2,7 @@
 // Pure type, no runtime cost. Used by ContractBus for emit() type safety.
 
 import type { ProviderSelectedV1, LlmDeltaV1 } from '../provider-events'
-import type { MemorySummaryReadyV1, MemorySummarizedV1, MemoryExtractStartedV1, MemoryExtractCompletedV1, MemoryExtractFailedV1 } from '../memory-events'
+import type { MemorySummaryReadyV1, MemorySummarizedV1, MemoryExtractStartedV1, MemoryExtractCompletedV1, MemoryExtractFailedV1, MemoryDedupV1, MemorySupersededV1, MemoryPruneAppliedV1 } from '../memory-events'
 import type { EvolutionProposalAcceptedV1, EvolutionProposalRejectedV1, SkillsReloadedV1, EvolutionReviewStartedV1, EvolutionReviewCompletedV1, EvolutionReviewFailedV1 } from '../evolution-events'
 import type { SkillsReloadRequestedV1 } from '../skills-events'
 import type { SessionCreatedV1, TurnStartedV1, TurnCompletedV1, TurnFailedV1, SessionCompactedV1 } from '../session-events'
@@ -62,6 +62,9 @@ export interface ContractedEventMap {
   'memory.extract.started': MemoryExtractStartedV1
   'memory.extract.completed': MemoryExtractCompletedV1
   'memory.extract.failed': MemoryExtractFailedV1
+  'memory.dedup': MemoryDedupV1
+  'memory.superseded': MemorySupersededV1
+  'memory.prune.applied': MemoryPruneAppliedV1
   'mcp.server.connected': McpServerConnectedV1
   'mcp.server.disconnected': McpServerDisconnectedV1
   'mcp.server.failed': McpServerFailedV1

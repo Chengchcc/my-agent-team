@@ -18,6 +18,9 @@ type SqlRow = {
   lastHitAt?: number;
   usageCount?: number;
   bm25_score?: number;
+  text_hash?: string;
+  superseded_by?: string | null;
+  merge_count?: number;
 };
 
 const EMBEDDING_DIMS = 768;
@@ -30,21 +33,10 @@ export class SqliteMemoryStore implements MemoryStore {
   private db: Database;
   private closed = false;
 
-  private hasExactDuplicateStmt: ReturnType<Database['prepare']> | null = null
-
   constructor(db: Database) {
     this.db = db
     sqliteVec.load(this.db as unknown as { loadExtension(file: string, entrypoint?: string): void })
     initMemoryTables(this.db, EMBEDDING_DIMS)
-  }
-
-  private getHasExactDuplicateStmt() {
-    if (!this.hasExactDuplicateStmt) {
-      this.hasExactDuplicateStmt = this.db.prepare(
-        'SELECT 1 FROM memory WHERE type = ? AND text = ? LIMIT 1'
-      )
-    }
-    return this.hasExactDuplicateStmt
   }
 
   private rowToEntry(row: SqlRow): MemoryEntry {
@@ -59,6 +51,9 @@ export class SqliteMemoryStore implements MemoryStore {
       updatedAt: row.updated ? new Date(row.updated) : new Date(row.created),
       lastHitAt: row.lastHitAt != null ? new Date(row.lastHitAt) : undefined,
       usageCount: row.usageCount ?? 0,
+      textHash: row.text_hash,
+      supersededBy: row.superseded_by ?? undefined,
+      mergeCount: row.merge_count ?? 0,
     };
     if (row.embedding) {
       const buf = row.embedding as Buffer;
@@ -68,6 +63,7 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   async add(entry: Omit<MemoryEntry, 'id' | 'createdAt' | 'updatedAt'>): Promise<MemoryEntry> {
+    const textHash = crypto.createHash('sha1').update(entry.text).digest('hex');
     const full: MemoryEntry = {
       ...entry,
       id: crypto.randomUUID(),
@@ -76,6 +72,8 @@ export class SqliteMemoryStore implements MemoryStore {
       tags: entry.tags ?? [],
       usageCount: entry.usageCount ?? 0,
       source: entry.source ?? 'explicit',
+      textHash,
+      mergeCount: entry.mergeCount ?? 0,
     } as MemoryEntry;
 
     const embBuf = full.embedding
@@ -83,8 +81,8 @@ export class SqliteMemoryStore implements MemoryStore {
       : null;
 
     this.db.run(
-      `INSERT INTO memory (id,type,text,tags,created,updated,weight,source,projectPath,files,metadata,embedding,lastHitAt,usageCount)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO memory (id,type,text,tags,created,updated,weight,source,projectPath,files,metadata,embedding,lastHitAt,usageCount,text_hash,superseded_by,merge_count)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         full.id,
         full.type,
@@ -100,6 +98,9 @@ export class SqliteMemoryStore implements MemoryStore {
         embBuf,
         full.lastHitAt ? full.lastHitAt.getTime() : null,
         full.usageCount ?? 0,
+        full.textHash ?? null,
+        null,   // superseded_by — always starts null
+        full.mergeCount ?? 0,
       ],
     );
 
@@ -119,7 +120,7 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   async getAll(): Promise<MemoryEntry[]> {
-    const rows = this.db.query('SELECT * FROM memory').all() as SqlRow[];
+    const rows = this.db.query('SELECT * FROM memory WHERE superseded_by IS NULL').all() as SqlRow[];
     return rows.map(r => this.rowToEntry(r));
   }
 
@@ -131,13 +132,13 @@ export class SqliteMemoryStore implements MemoryStore {
     let rows: SqlRow[];
     if (tokens.length === 0) {
       rows = this.db.query(
-        'SELECT * FROM memory ORDER BY lastHitAt DESC, created DESC LIMIT ?',
+        'SELECT * FROM memory WHERE superseded_by IS NULL ORDER BY lastHitAt DESC, created DESC LIMIT ?',
       ).all(limit * CANDIDATE_MULTIPLIER) as SqlRow[];
     } else {
       const conditions = tokens.map(() => 'text LIKE ?').join(' OR ');
       const params = tokens.map(t => `%${t}%`);
       rows = this.db.query(
-        `SELECT * FROM memory WHERE (${conditions}) ORDER BY lastHitAt DESC, created DESC LIMIT ?`,
+        `SELECT * FROM memory WHERE superseded_by IS NULL AND (${conditions}) ORDER BY lastHitAt DESC, created DESC LIMIT ?`,
       ).all(...params, limit * CANDIDATE_MULTIPLIER) as SqlRow[];
     }
 
@@ -184,7 +185,7 @@ export class SqliteMemoryStore implements MemoryStore {
 
   async getByType(type: MemoryEntry['type'], limit?: number): Promise<MemoryEntry[]> {
     const rows = this.db.query(
-      'SELECT * FROM memory WHERE type=? ORDER BY created DESC LIMIT ?',
+      'SELECT * FROM memory WHERE type=? AND superseded_by IS NULL ORDER BY created DESC LIMIT ?',
     ).all(type, limit ?? DEFAULT_SQLITE_MEMORY_LIMIT) as SqlRow[];
     return rows.map(r => this.rowToEntry(r));
   }
@@ -196,7 +197,7 @@ export class SqliteMemoryStore implements MemoryStore {
       SELECT m.*, bm25(memory_fts) as bm25_score
       FROM memory m
       JOIN memory_fts f ON m.id = f.id
-      WHERE memory_fts MATCH ?
+      WHERE m.superseded_by IS NULL AND memory_fts MATCH ?
       ORDER BY bm25_score
       LIMIT ?
     `).all(ftsQuery, limit) as SqlRow[];
@@ -209,7 +210,7 @@ export class SqliteMemoryStore implements MemoryStore {
       SELECT m.*, v.distance
       FROM vec_memory v
       JOIN memory m ON m.id = v.entry_id
-      WHERE v.embedding MATCH ?
+      WHERE m.superseded_by IS NULL AND v.embedding MATCH ?
       ORDER BY v.distance
       LIMIT ?
     `).all(vec, limit) as Array<SqlRow & { distance: number }>;
@@ -240,7 +241,7 @@ export class SqliteMemoryStore implements MemoryStore {
     const placeholders = ids.map(() => '?').join(',');
     const now = Date.now();
     this.db.run(
-      `UPDATE memory SET lastHitAt=?, usageCount=usageCount+1 WHERE id IN (${placeholders})`,
+      `UPDATE memory SET lastHitAt=?, usageCount=usageCount+1, weight=MIN(weight + 0.05, 1.0) WHERE id IN (${placeholders})`,
       [now, ...ids],
     );
   }
@@ -251,8 +252,53 @@ export class SqliteMemoryStore implements MemoryStore {
     this.db.run('DELETE FROM vec_memory');
   }
 
-  async hasExactDuplicate({ text, type }: { text: string; type: MemoryEntry['type'] }): Promise<boolean> {
-    return !!this.getHasExactDuplicateStmt().get(type, text)
+  async hasExactDuplicate({ text, type }: { text: string; type: MemoryEntry['type'] }): Promise<MemoryEntry | null> {
+    const row = this.db.query(
+      'SELECT * FROM memory WHERE type = ? AND text = ? AND superseded_by IS NULL LIMIT 1'
+    ).get(type, text) as SqlRow | undefined;
+    return row ? this.rowToEntry(row) : null;
+  }
+
+  async findSemanticDuplicate(args: { embedding: number[]; threshold: number }): Promise<MemoryEntry | null> {
+    const results = await this.vectorSearch(args.embedding, 1);
+    if (results.length === 0) return null;
+    const top = results[0]!;
+    return top.distance < args.threshold ? top.entry : null;
+  }
+
+  async supersede(oldId: string, newId: string): Promise<void> {
+    this.db.run('BEGIN');
+    try {
+      this.db.run('UPDATE memory SET superseded_by = ? WHERE id = ?', [newId, oldId]);
+      this.db.run('UPDATE memory SET merge_count = merge_count + 1 WHERE id = ?', [newId]);
+      this.db.run('COMMIT');
+    } catch (e) {
+      this.db.run('ROLLBACK');
+      throw e;
+    }
+  }
+
+  async incrementMergeCount(id: string): Promise<void> {
+    this.db.run('UPDATE memory SET merge_count = merge_count + 1 WHERE id = ?', [id]);
+  }
+
+  async findPruneCandidates(opts: { olderThanDays: number; maxUsageCount: number }): Promise<string[]> {
+    const cutoff = Date.now() - opts.olderThanDays * 86_400_000;
+    const rows = this.db.query(
+      `SELECT id FROM memory
+       WHERE superseded_by IS NULL
+         AND usageCount <= ?
+         AND (lastHitAt IS NULL OR lastHitAt < ?)
+       LIMIT 500`
+    ).all(opts.maxUsageCount, cutoff) as Array<{ id: string }>;
+    return rows.map(r => r.id);
+  }
+
+  async removeMany(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => '?').join(',');
+    this.db.run(`DELETE FROM memory WHERE id IN (${placeholders})`, ids);
+    this.db.run(`DELETE FROM memory_fts WHERE id IN (${placeholders})`, ids);
   }
 
   async close(): Promise<void> {

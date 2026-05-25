@@ -29,7 +29,7 @@ export type { ContentBlock } from './content-block';
 export type { ProviderSelectedV1, LlmDeltaV1 } from './provider-events';
 
 // Memory events
-export type { MemorySummaryReadyV1, MemorySummarizedV1 } from './memory-events';
+export type { MemorySummaryReadyV1, MemorySummarizedV1, MemoryDedupV1, MemorySupersededV1, MemoryPruneAppliedV1 } from './memory-events';
 
 // Evolution events
 export type {

@@ -23,11 +23,26 @@ interface MemoryStore {
   /** Find entries that don't have embeddings yet (for backfill). */
   entriesWithoutEmbeddings(batchSize: number): Promise<Array<{ id: string; text: string }>>
 
-  /** Mark entries as hit (updates lastHitAt + usageCount). */
+  /** Mark entries as hit (updates lastHitAt + usageCount + weight bump). */
   markHit(ids: string[]): Promise<void>
 
-  /** Exact-match dedupe check: same text AND same type. NOT semantic similarity. */
-  hasExactDuplicate(args: { text: string; type: MemoryEntry['type'] }): Promise<boolean>
+  /** Exact-match dedupe check: same text AND same type. Returns the matched entry or null. */
+  hasExactDuplicate(args: { text: string; type: MemoryEntry['type'] }): Promise<MemoryEntry | null>
+
+  /** Semantic similarity search — vectorSearch top-1, returns entry if distance < threshold. */
+  findSemanticDuplicate(args: { embedding: number[]; threshold: number }): Promise<MemoryEntry | null>
+
+  /** Mark old entry as superseded by newId; atomically bump new entry's mergeCount. */
+  supersede(oldId: string, newId: string): Promise<void>
+
+  /** Increment mergeCount for an entry (semantic dedup without creating a replacement). */
+  incrementMergeCount(id: string): Promise<void>
+
+  /** Find prune candidates: entries older than N days with usageCount <= M. */
+  findPruneCandidates(opts: { olderThanDays: number; maxUsageCount: number }): Promise<string[]>
+
+  /** Bulk delete entries by IDs. */
+  removeMany(ids: string[]): Promise<void>
 
   /** Delete all entries (for test fixtures). */
   clear(): Promise<void>

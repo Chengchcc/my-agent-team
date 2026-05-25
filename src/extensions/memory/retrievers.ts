@@ -2,6 +2,13 @@ import type { MemoryEntry } from '../../domain/memory-entry'
 import type { MemoryStore } from '../../application/ports/memory-store'
 import { MS_PER_DAY } from '../../application/constants/units'
 
+// ── Lifecycle weighting constants ───────────────────────────────────────────
+
+const LIFECYCLE_DECAY_HALF_LIFE_DAYS = 30
+const LIFECYCLE_DECAY_HALF_LIFE_MS = LIFECYCLE_DECAY_HALF_LIFE_DAYS * MS_PER_DAY
+const LIFECYCLE_USAGE_MAX_BONUS = 0.5
+const LIFECYCLE_MERGED_BONUS = 1.1
+
 export interface Retriever {
   search(query: string, opts?: { limit?: number }): Promise<MemoryEntry[]>
 }
@@ -93,12 +100,25 @@ export class HybridRetriever implements Retriever {
       })
     })
     const ranked = [...scores.entries()]
-      .map(([id, s]) => ({ entry: seen.get(id)!, score: s }))
+      .map(([id, s]) => ({ entry: seen.get(id)!, score: s * lifecycleWeight(seen.get(id)!) }))
       .sort((x, y) => y.score - x.score)
       .slice(0, limit)
     if (this.store && ranked.length > 0) void this.store.markHit(ranked.map(r => r.entry.id))
     return ranked.map(r => r.entry)
   }
+}
+
+// ─── Lifecycle weighting ─────────────────────────────────────────────────
+
+function lifecycleWeight(entry: MemoryEntry): number {
+  const idleMs = Date.now() - (entry.lastHitAt?.getTime() ?? entry.createdAt.getTime())
+  const recencyWeight = Math.pow(0.5, idleMs / LIFECYCLE_DECAY_HALF_LIFE_MS)
+  const usageWeight = 1 + Math.min(
+    LIFECYCLE_USAGE_MAX_BONUS,
+    Math.log2(1 + (entry.usageCount ?? 0)) * 0.1,
+  )
+  const mergedBonus = (entry.mergeCount ?? 0) > 0 ? LIFECYCLE_MERGED_BONUS : 1.0
+  return recencyWeight * usageWeight * mergedBonus
 }
 
 // ─── Helpers ───

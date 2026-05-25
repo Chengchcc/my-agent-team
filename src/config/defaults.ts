@@ -59,6 +59,14 @@ export const defaultSettings: Settings = {
     extractTriggerMode: 'explicit',
     maxUserPreferences: 20,
     preferenceWeightThreshold: 0.9,
+    lifecycle: {
+      semanticDedupThreshold: 0.12,
+      contradictionTopK: 3,
+      enableContradictionMerge: true,
+      decayHalfLifeDays: 30,
+      pruneAfterDays: 180,
+      pruneMinUsageCount: 0,
+    },
   },
   skills: {
     baseDir: './skills',

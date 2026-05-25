@@ -15,6 +15,12 @@ interface MemoryEntry {
   lastHitAt?: Date
   usageCount: number
   embedding?: number[]
+  /** sha1(text) for exact dedup — set by the store on write. */
+  textHash?: string
+  /** null = active, non-null = superseded by this entry ID. */
+  supersededBy?: string
+  /** How many times this entry has absorbed a semantic duplicate or merge. */
+  mergeCount?: number
 }
 
 const MEMORY_DEFAULT_DECAY = 0.95
@@ -46,6 +52,9 @@ function createMemoryEntry(opts: {
     lastHitAt: undefined,
     usageCount: 0,
     embedding: undefined,
+    textHash: undefined,
+    supersededBy: undefined,
+    mergeCount: 0,
   }
 }
 

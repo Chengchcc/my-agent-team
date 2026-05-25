@@ -21,7 +21,8 @@
     "src/infrastructure/_sqlite/**",
     "src/infrastructure/session/sqlite-*",
     "src/infrastructure/trace/sqlite-*",
-    "src/infrastructure/evolution/sqlite-*"
+    "src/infrastructure/evolution/sqlite-*",
+    "src/extensions/memory/contradiction-resolver.ts"
   ],
   "ignoreExportsUsedInFile": true,
   "tags": ["-public", "-internal"],
