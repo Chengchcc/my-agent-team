@@ -58,7 +58,7 @@ export default () =>
             buildRunTurnDeps(ctx),
           )
 
-          ctx.logger.info('sub-agent', `Sub-agent "${input.type}" completed, usage: ${res.usage.input}+${res.usage.output}`)
+          ctx.logger.info('sub-agent', `Sub-agent "${input.type}" completed, via:subagent:${input.type} usage: ${res.usage.input}+${res.usage.output}`)
           void ctx.bus.emit('subagent.completed', { parentTurnId: input.parentTurnId, parentSessionId: input.parentSessionId, type: input.type, subSessionId, callId: input.parentCallId, ok: true, usage: res.usage, finalText: res.finalText ?? '', ts: Date.now() })
           return res.finalText ?? ''
         } catch (err) {
