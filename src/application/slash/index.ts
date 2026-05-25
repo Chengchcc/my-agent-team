@@ -6,6 +6,9 @@ import { slashDaemonCommand } from './builtin/slash-daemon'
 import { slashExitCommand } from './builtin/slash-exit'
 import { createSlashHelpCommand } from './builtin/slash-help'
 import { slashToolsCommand } from './builtin/slash-tools'
+import { slashNewCommand } from './builtin/slash-new'
+import { slashSessionsCommand } from './builtin/slash-sessions'
+import { slashResumeCommand } from './builtin/slash-resume'
 import type { SlashCommand } from './slash-types'
 import type { SlashRegistry } from './slash-registry'
 
@@ -26,6 +29,7 @@ export function registerBuiltinSlashCommands(
   const all: SlashCommand[] = [
     slashClearCommand, slashCompactCommand, slashCostCommand, slashToolsCommand,
     slashExitCommand, slashDaemonCommand, slashCancelCommand,
+    slashNewCommand, slashSessionsCommand, slashResumeCommand,
     createSlashHelpCommand(() => r),
   ]
   const include = opts?.include ? new Set(opts.include) : null
