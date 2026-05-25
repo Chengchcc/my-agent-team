@@ -4,6 +4,7 @@
 import type { ProviderSelectedV1, LlmDeltaV1 } from '../provider-events'
 import type { MemorySummaryReadyV1, MemorySummarizedV1, MemoryExtractStartedV1, MemoryExtractCompletedV1, MemoryExtractFailedV1 } from '../memory-events'
 import type { EvolutionProposalAcceptedV1, EvolutionProposalRejectedV1, SkillsReloadedV1, EvolutionReviewStartedV1, EvolutionReviewCompletedV1, EvolutionReviewFailedV1 } from '../evolution-events'
+import type { SkillsReloadRequestedV1 } from '../skills-events'
 import type { SessionCreatedV1, TurnStartedV1, TurnCompletedV1, TurnFailedV1, SessionCompactedV1 } from '../session-events'
 import type { ToolExecutedV1 } from '../tool-events'
 import type { PermissionRequiredV1, PermissionResolvedV1, AskUserQuestionRequiredV1, AskUserQuestionResolvedV1 } from '../permission-events'
@@ -34,6 +35,7 @@ export interface ContractedEventMap {
   'evolution.proposal.accepted': EvolutionProposalAcceptedV1
   'evolution.proposal.rejected': EvolutionProposalRejectedV1
   'skills.reloaded': SkillsReloadedV1
+  'skills.reload-requested': SkillsReloadRequestedV1
   'session.created': SessionCreatedV1
   'turn.started': TurnStartedV1
   'turn.completed': TurnCompletedV1

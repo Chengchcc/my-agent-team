@@ -106,6 +106,22 @@ export default (opts: SkillsExtOptions = {}) =>
       })
 
       // resolveTools: convert skill descriptors to tool descriptors
+      const doReload = async () => {
+        try {
+          const before = skills.size
+          loader.clearCache()
+          const loaded = await loader.loadAllSkills()
+          for (const info of loaded) {
+            skills.set(info.name, fromSkillInfo(info))
+          }
+          const added = skills.size - before
+          contractBus.emit(createEvent('skills.reloaded', { added, removed: 0, updated: 0 }))
+          return { added, removed: 0, updated: 0 }
+        } catch {
+          return { added: 0, removed: 0, updated: 0 }
+        }
+      }
+
       const resolveTools: HookHandler = async (...args: unknown[]) => {
         const toolDescriptors = args[0] as Array<{
           name: string; description: string; parameters: Record<string, unknown>
@@ -153,20 +169,12 @@ export default (opts: SkillsExtOptions = {}) =>
 
         rpc: {
           'skills.list': () => ({ skills: [...skills.values()] }),
-          'skills.reload': async () => {
-            try {
-              const before = skills.size
-              loader.clearCache()
-              const loaded = await loader.loadAllSkills()
-              for (const info of loaded) {
-                skills.set(info.name, fromSkillInfo(info))
-              }
-              const added = skills.size - before
-              contractBus.emit(createEvent('skills.reloaded', { added, removed: 0, updated: 0 }))
-              return { added, removed: 0, updated: 0 }
-            } catch {
-              return { added: 0, removed: 0, updated: 0 }
-            }
+          'skills.reload': async () => doReload(),
+        },
+
+        subscribe: {
+          'skills.reload-requested': async () => {
+            try { await doReload() } catch (e) { ctx.logger.warn('skills', `reload-requested failed: ${String(e)}`) }
           },
         },
 

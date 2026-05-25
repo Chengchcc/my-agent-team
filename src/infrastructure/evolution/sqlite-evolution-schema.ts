@@ -26,4 +26,7 @@ export const evolutionMigrations: MigrationStep[] = [
     db.run(`CREATE INDEX IF NOT EXISTS idx_stats_lastused ON skill_stats(last_used_at DESC)`)
     db.run(`CREATE INDEX IF NOT EXISTS idx_stats_calls    ON skill_stats(call_count DESC)`)
   }},
+  { version: 2, up(db: Database) {
+    db.run(`ALTER TABLE proposals ADD COLUMN file_path TEXT`)
+  }},
 ]

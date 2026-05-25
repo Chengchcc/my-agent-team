@@ -16,8 +16,9 @@ export class SqliteProposalStore implements ProposalStore {
     return rows.map(r => JSON.parse(r.payload_json) as ProposalRecord)
   }
 
-  async markAccepted(id: string): Promise<void> {
-    this.db.run(`UPDATE proposals SET status = 'accepted', decided_at = ? WHERE id = ?`, [Date.now(), id])
+  async markAccepted(id: string, meta?: { filePath?: string }): Promise<void> {
+    const filePath = meta?.filePath ?? null
+    this.db.run(`UPDATE proposals SET status = 'accepted', decided_at = ?, file_path = ? WHERE id = ?`, [Date.now(), filePath, id])
   }
 
   async markRejected(id: string): Promise<void> {

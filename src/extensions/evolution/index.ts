@@ -6,6 +6,7 @@ import type { EventEnvelope } from '../../application/contracts'
 import { evaluateReviewPolicy, type PolicyState } from './policy'
 import { bumpStat } from './skill-stats'
 import { writeProposal } from './proposal-writer'
+import { promoteToSkill } from './promote-writer'
 import type { JobSpawner } from '../../application/ports/job-spawner'
 import type { TraceReader } from '../../application/ports/trace-checkpointer'
 import type { ProposalStore } from '../../application/ports/proposal-store'
@@ -177,8 +178,27 @@ export default () =>
             if (!proposals) throw new Error('proposal-store not available')
             const p = params as { id?: string } | undefined
             if (!p?.id) throw new Error('id is required')
-            await proposals.markAccepted(p.id)
-            return { status: 'promoted' }
+
+            // Look up the proposal to get skillProposed
+            const list = await proposals.list({ limit: 100 })
+            const proposal = list.find(e => e.id === p.id)
+            if (!proposal) throw new Error(`proposal ${p.id} not found`)
+
+            let filePath: string | undefined
+            if (proposal.skillProposed) {
+              const result = promoteToSkill({ proposal, skillsDir: ctx.paths.skills.agent })
+              filePath = result.filePath
+            }
+
+            await proposals.markAccepted(p.id, filePath ? { filePath } : undefined)
+
+            // Emit reload event
+            bus.emit(createEvent('skills.reload-requested', {
+              reason: 'evolution.promote',
+              source: p.id,
+            }))
+
+            return { status: 'promoted', filePath }
           },
           'evolution.discard': async (params: unknown) => {
             if (!proposals) throw new Error('proposal-store not available')
