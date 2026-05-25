@@ -17,6 +17,11 @@ export interface SessionClosedV1 {
   force: boolean;
 }
 
+export interface SessionClearedV1 {
+  sessionId: string;
+  ts: number;
+}
+
 export interface SessionRenamedV1 {
   sessionId: string;
   title: string;

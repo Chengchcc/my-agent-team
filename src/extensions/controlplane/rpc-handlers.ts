@@ -186,15 +186,20 @@ export function makeSessionClearHandler(d: RpcHandlerDeps) {
     const store = d.getStore();
     const session = await store.load(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
-    // Clear message history via session.history capability
+
+    // 1. Cancel in-flight turn to prevent residual events
     try {
-      const hist = d.ctx.extensions.get<{ clear(sessionId: string): void }>('session.history');
-      if (typeof (hist as Record<string, unknown>).clear === 'function') {
-        (hist as { clear(sessionId: string): void }).clear(sessionId);
-      }
-    } catch { /* history clear not available */ }
-    d.contractBus.emit(createEvent('session.closed', { sessionId, force: true }));
-    return { ok: true, sessionId };
+      const abort = d.ctx.extensions.get<{ abort(sid: string): void }>('session.abort')
+      abort?.abort(sessionId)
+    } catch { /* no in-flight turn */ }
+
+    // 2. Clear message history
+    const hist = d.ctx.extensions.get<{ clear(sid: string): Promise<void> }>('session.history')
+    if (hist) await hist.clear(sessionId)
+
+    // 3. Emit correct event
+    d.contractBus.emit(createEvent('session.cleared', { sessionId, ts: Date.now() }, { sessionId }))
+    return { ok: true, sessionId }
   };
 }
 

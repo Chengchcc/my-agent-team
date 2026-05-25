@@ -6,4 +6,6 @@ export interface SessionHistoryPort {
   replace(sessionId: string, msgs: HistoryRecordV1[]): Promise<void>
   /** Drop session history — removes from memory AND deletes NDJSON file. Idempotent. */
   drop(sessionId: string): Promise<boolean>
+  /** Clear session history (convenience alias for replace(sid, [])). */
+  clear(sessionId: string): Promise<void>
 }

@@ -12,6 +12,7 @@ import type {
   AttachChangedV1,
   SessionResumedV1,
   SessionClosedV1,
+  SessionClearedV1,
   SessionRenamedV1,
   UserQuestionAnsweredV1,
   SystemShutdownRequestedV1,
@@ -43,6 +44,7 @@ export interface ContractedEventMap {
   'attach.changed': AttachChangedV1
   'session.resumed': SessionResumedV1
   'session.closed': SessionClosedV1
+  'session.cleared': SessionClearedV1
   'session.renamed': SessionRenamedV1
   'user.question.answered': UserQuestionAnsweredV1
   'system.shutdown.requested': SystemShutdownRequestedV1

@@ -247,6 +247,15 @@ export default () =>
               catch (err) { if ((err as NodeJS.ErrnoException).code !== 'ENOENT') ctx.logger.warn('session', `NDJSON unlink failed for ${sid}: ${String(err)}`) }
               return removed
             },
+            clear: async (sid: string): Promise<void> => {
+              messageHistory.set(sid, [])
+              try {
+                await mkdir(sessionDir, { recursive: true })
+                await writeFile(join(sessionDir, `${sid}.ndjson`), '', 'utf-8')
+              } catch (err) {
+                ctx.logger.warn('session', `NDJSON clear failed for ${sid}: ${String(err)}`)
+              }
+            },
           }),
 
           compactor: () => createCompactor({
