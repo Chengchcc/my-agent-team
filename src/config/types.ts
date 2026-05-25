@@ -64,6 +64,17 @@ export interface MemoryLifecycleConfig {
   pruneMinUsageCount: number;
 }
 
+export interface MemoryExplicitConfig {
+  /** Enable the memory.remember / memory.forget tools. */
+  enabled: boolean;
+  /** Maximum remember calls per turn before rate-limiting. */
+  perTurnLimit: number;
+  /** Default weight for explicitly remembered entries. */
+  defaultWeight: number;
+  /** Retrieval boost multiplier for explicit-source entries. */
+  explicitSourceWeightBoost: number;
+}
+
 export interface MemorySettings {
   enabled: boolean;
   globalBaseDir: string;
@@ -79,6 +90,7 @@ export interface MemorySettings {
   preferenceWeightThreshold: number;
   hybridRetrieval?: HybridRetrievalConfig;
   lifecycle?: MemoryLifecycleConfig;
+  explicit?: MemoryExplicitConfig;
 }
 
 interface HybridRetrievalConfig {
@@ -202,6 +214,29 @@ export interface TraceSettings {
   review: TraceReviewSettings;
 }
 
+export interface AutoRetireConfig {
+  /** Enable stats-driven auto-retire (default: true). */
+  enabled: boolean;
+  /** Minimum sample size before rules activate (default: 5). */
+  minSampleSize: number;
+  /** Sliding window size for recent outcomes (default: 20). */
+  windowSize: number;
+  /** Success rate above which a skill is healthy (default: 0.5). */
+  healthThreshold: number;
+  /** Success rate below which to flag the skill (default: 0.3). */
+  flagThreshold: number;
+  /** Success rate below which to retire immediately (default: 0.15). */
+  retireThreshold: number;
+  /** Grace period in ms from flag to forced retire (default: 7 days). */
+  flagGracePeriodMs: number;
+  /** Whether user cancellations count as failures (default: true). */
+  cancelCountsAsFailure: boolean;
+}
+
+export interface EvolutionSettings {
+  autoRetire: AutoRetireConfig;
+}
+
 export interface Settings {
   llm: LLMSettings;
   context: ContextSettings;
@@ -215,4 +250,5 @@ export interface Settings {
   log: LogSettings;
   mcp: McpSettings;
   trace: TraceSettings;
+  evolution: EvolutionSettings;
 }

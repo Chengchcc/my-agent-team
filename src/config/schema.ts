@@ -54,6 +54,13 @@ const memoryLifecycleConfigSchema = z.object({
   pruneMinUsageCount: z.number().int().min(0).default(0),
 });
 
+const memoryExplicitConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  perTurnLimit: z.number().int().positive().default(5),
+  defaultWeight: z.number().min(0.1).max(1.0).default(0.6),
+  explicitSourceWeightBoost: z.number().min(1.0).max(3.0).default(1.2),
+});
+
 const memorySettingsSchema = z.object({
   enabled: z.boolean().default(true),
   globalBaseDir: z.string().default('~/.my-agent/memory'), // Deprecated — now derived from AgentPaths
@@ -69,6 +76,7 @@ const memorySettingsSchema = z.object({
   preferenceWeightThreshold: z.number().min(0).max(1).default(0.9),
   hybridRetrieval: hybridRetrievalConfigSchema.optional().default({}),
   lifecycle: memoryLifecycleConfigSchema.optional().default({}),
+  explicit: memoryExplicitConfigSchema.optional().default({}),
 });
 
 const skillsSettingsSchema = z.object({
@@ -169,6 +177,21 @@ const toolsSettingsSchema = z.object({
   tavily: tavilySettingsSchema,
 });
 
+const autoRetireConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  minSampleSize: z.number().int().positive().default(5),
+  windowSize: z.number().int().positive().default(20),
+  healthThreshold: z.number().min(0).max(1).default(0.5),
+  flagThreshold: z.number().min(0).max(1).default(0.3),
+  retireThreshold: z.number().min(0).max(1).default(0.15),
+  flagGracePeriodMs: z.number().int().positive().default(7 * 86_400_000),
+  cancelCountsAsFailure: z.boolean().default(true),
+});
+
+const evolutionSettingsSchema = z.object({
+  autoRetire: autoRetireConfigSchema.optional().default({}),
+});
+
 export const settingsSchema = z.object({
   version: z.number().optional().default(1),
   llm: llmSettingsSchema,
@@ -183,5 +206,6 @@ export const settingsSchema = z.object({
   log: logSettingsSchema,
   mcp: mcpSettingsSchema,
   trace: traceSettingsSchema,
+  evolution: evolutionSettingsSchema.optional().default({}),
 });
 

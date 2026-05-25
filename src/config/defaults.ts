@@ -67,6 +67,12 @@ export const defaultSettings: Settings = {
       pruneAfterDays: 180,
       pruneMinUsageCount: 0,
     },
+    explicit: {
+      enabled: true,
+      perTurnLimit: 5,
+      defaultWeight: 0.6,
+      explicitSourceWeightBoost: 1.2,
+    },
   },
   skills: {
     baseDir: './skills',
@@ -131,6 +137,18 @@ export const defaultSettings: Settings = {
       outputDir: '~/.my-agent/skills/auto', // Deprecated — now derived from AgentPaths
       autoAcceptHours: 48,
       lowScoreWarningThreshold: 0.5,
+    },
+  },
+  evolution: {
+    autoRetire: {
+      enabled: true,
+      minSampleSize: 5,
+      windowSize: 20,
+      healthThreshold: 0.5,
+      flagThreshold: 0.3,
+      retireThreshold: 0.15,
+      flagGracePeriodMs: 7 * 86_400_000,
+      cancelCountsAsFailure: true,
     },
   },
 };

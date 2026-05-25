@@ -45,3 +45,31 @@ export interface EvolutionReviewFailedV1 {
   tier: 'tier0' | 'tier2';
   message: string;
 }
+
+// ── skill.flagged ────────────────────────────────────────────────────────────
+
+export interface SkillFlaggedV1 {
+  skillName: string;
+  reason: string;
+  snapshot?: {
+    totalRuns: number;
+    recentRuns: number;
+    recentSuccess: number;
+    recentCancel: number;
+    recentFail: number;
+  };
+}
+
+// ── skill.archived ───────────────────────────────────────────────────────────
+
+export interface SkillArchivedV1 {
+  skillName: string;
+  archivedTo: string;
+  reason: string;
+}
+
+// ── skill.unflagged ──────────────────────────────────────────────────────────
+
+export interface SkillUnflaggedV1 {
+  skillName: string;
+}

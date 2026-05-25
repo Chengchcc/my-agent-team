@@ -2,8 +2,8 @@
 // Pure type, no runtime cost. Used by ContractBus for emit() type safety.
 
 import type { ProviderSelectedV1, LlmDeltaV1 } from '../provider-events'
-import type { MemorySummaryReadyV1, MemorySummarizedV1, MemoryExtractStartedV1, MemoryExtractCompletedV1, MemoryExtractFailedV1, MemoryDedupV1, MemorySupersededV1, MemoryPruneAppliedV1 } from '../memory-events'
-import type { EvolutionProposalAcceptedV1, EvolutionProposalRejectedV1, SkillsReloadedV1, EvolutionReviewStartedV1, EvolutionReviewCompletedV1, EvolutionReviewFailedV1 } from '../evolution-events'
+import type { MemorySummaryReadyV1, MemorySummarizedV1, MemoryExtractStartedV1, MemoryExtractCompletedV1, MemoryExtractFailedV1, MemoryDedupV1, MemorySupersededV1, MemoryPruneAppliedV1, RememberCreatedV1, RememberMergedV1, RememberRejectedV1, ForgetSoftV1, ForgetHardV1 } from '../memory-events'
+import type { EvolutionProposalAcceptedV1, EvolutionProposalRejectedV1, SkillsReloadedV1, EvolutionReviewStartedV1, EvolutionReviewCompletedV1, EvolutionReviewFailedV1, SkillFlaggedV1, SkillArchivedV1, SkillUnflaggedV1 } from '../evolution-events'
 import type { SkillsReloadRequestedV1 } from '../skills-events'
 import type { SessionCreatedV1, TurnStartedV1, TurnCompletedV1, TurnFailedV1, SessionCompactedV1 } from '../session-events'
 import type { ToolExecutedV1 } from '../tool-events'
@@ -64,6 +64,11 @@ export interface ContractedEventMap {
   'memory.extract.failed': MemoryExtractFailedV1
   'memory.dedup': MemoryDedupV1
   'memory.superseded': MemorySupersededV1
+  'memory.remember.created': RememberCreatedV1
+  'memory.remember.merged': RememberMergedV1
+  'memory.remember.rejected': RememberRejectedV1
+  'memory.forget.soft': ForgetSoftV1
+  'memory.forget.hard': ForgetHardV1
   'memory.prune.applied': MemoryPruneAppliedV1
   'mcp.server.connected': McpServerConnectedV1
   'mcp.server.disconnected': McpServerDisconnectedV1
@@ -80,6 +85,9 @@ export interface ContractedEventMap {
   'session.planProposed': SessionPlanProposedV1
   'session.planResolved': SessionPlanResolvedV1
   'session.modeChanged': SessionModeChangedV1
+  'skill.flagged': SkillFlaggedV1
+  'skill.archived': SkillArchivedV1
+  'skill.unflagged': SkillUnflaggedV1
 }
 
 export type ContractedEventName = keyof ContractedEventMap
