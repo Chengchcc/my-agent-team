@@ -19,8 +19,7 @@ export interface TurnStartedV1 {
 export interface TurnCompletedV1 {
   sessionId: string;
   turnId: string;
-  runId: string;
-  usage: { input: number; output: number };
+  usage: { input: number | null; output: number | null };
   toolCallCount: number;
   toolErrorCount: number;
   activatedSkills: string[];
@@ -31,7 +30,6 @@ export interface TurnCompletedV1 {
 export interface TurnFailedV1 {
   sessionId: string;
   turnId: string;
-  runId: string;
   outcome: 'error' | 'aborted' | 'max_turns' | 'network_error';
   stage: string;
   reason: string;

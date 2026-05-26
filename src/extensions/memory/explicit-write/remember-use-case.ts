@@ -79,7 +79,7 @@ export class RememberUseCase {
   async execute(input: RememberInput, turnId?: string): Promise<RememberResult> {
     // ── Content filtering ─────────────────────────────────────────────
     if (!input.text || input.text.length < REMEMBER_MIN_TEXT_LENGTH) {
-      this.bus.emit(createEvent('memory.remember.rejected', {
+      void this.bus.emit(createEvent('memory.remember.rejected', {
         reason: 'too-short',
         redactedText: redactText(input.text),
       }));
@@ -88,7 +88,7 @@ export class RememberUseCase {
 
     for (const pattern of SECRET_PATTERNS) {
       if (pattern.test(input.text)) {
-        this.bus.emit(createEvent('memory.remember.rejected', {
+        void this.bus.emit(createEvent('memory.remember.rejected', {
           reason: 'secret-detected',
           redactedText: redactText(input.text),
         }));
@@ -119,7 +119,7 @@ export class RememberUseCase {
       case 'duplicate-semantic': {
         void this.store.markHit([decision.existingId]);
         const existing = await this.store.get(decision.existingId);
-        this.bus.emit(createEvent('memory.remember.merged', {
+        void this.bus.emit(createEvent('memory.remember.merged', {
           existingId: decision.existingId,
           candidateText: input.text,
         }));
@@ -146,7 +146,7 @@ export class RememberUseCase {
           const emb = await this.embedder.encode(input.text);
           void this.store.storeEmbedding(entry.id, emb);
         } catch { /* non-critical */ }
-        this.bus.emit(createEvent('memory.remember.created', {
+        void this.bus.emit(createEvent('memory.remember.created', {
           id: entry.id,
           text: entry.text,
           type: entry.type,

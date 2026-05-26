@@ -207,7 +207,9 @@ export class BunSpawnJobSpawner implements JobSpawner {
     }
 
     const startTime = Date.now()
+    const abortController = new AbortController()
     const timer = setTimeout(() => {
+      abortController.abort()
       void stdin.write(
         encodeFrame({
           v: 1,
@@ -229,6 +231,7 @@ export class BunSpawnJobSpawner implements JobSpawner {
         parentTurnId: `${payload.purpose}:${spawnId}`,
         messages: payload.messages ?? [],
         maxTokens: payload.maxTokens,
+        signal: abortController.signal,
       })
       clearTimeout(timer)
       void stdin.write(

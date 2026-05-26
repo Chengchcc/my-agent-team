@@ -72,7 +72,7 @@ export default (env?: Record<string, string | undefined>) =>
             enforce: 'normal',
             fn: async () => {
               const info = provider as unknown as { providerId: string; model: string };
-              contractBus.emit(createEvent('provider.selected', {
+              void contractBus.emit(createEvent('provider.selected', {
                 providerId: info.providerId,
                 model: info.model,
               }));

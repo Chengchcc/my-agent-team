@@ -127,7 +127,7 @@ export class ForgetUseCase {
       for (const id of ids) {
         await this.store.remove(id);
       }
-      this.bus.emit(createEvent('memory.forget.hard', {
+      void this.bus.emit(createEvent('memory.forget.hard', {
         ids,
         query: input.query,
       }));
@@ -148,7 +148,7 @@ export class ForgetUseCase {
     for (const id of ids) {
       await this.store.supersede(id, tombstone.id);
     }
-    this.bus.emit(createEvent('memory.forget.soft', {
+    void this.bus.emit(createEvent('memory.forget.soft', {
       ids,
       tombstoneId: tombstone.id,
       query: input.query,

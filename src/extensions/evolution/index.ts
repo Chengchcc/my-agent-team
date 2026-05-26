@@ -65,45 +65,45 @@ async function handleTurnEvent(
   const env = raw as EventEnvelope<'turn.completed' | 'turn.failed', Record<string, unknown>>
   const e = env.payload
   if (!e || typeof e !== 'object') return
-  const runId = typeof e.runId === 'string' ? e.runId : undefined
-  if (!runId) return
+  const turnId = typeof e.turnId === 'string' ? e.turnId : undefined
+  if (!turnId) return
   const decision = evaluateReviewPolicy(e as unknown as Parameters<typeof evaluateReviewPolicy>[0], deps.state)
   if (decision.kind === 'skip') return
   if (deps.inflight.current >= MAX_INFLIGHT) return
   if (!deps.spawner || !deps.proposals || !deps.statsStore || !deps.ctxFactory) return
 
-  const run = await deps.reader.getRun(runId)
+  const run = await deps.reader.getRun(turnId)
   if (!run) return
 
   const skillName = decision.kind === 'tier2' ? decision.skillName : undefined
   const stats = skillName ? await deps.statsStore.get(skillName) : null
   const tier = decision.kind === 'tier2' ? 'tier2' as const : 'tier0' as const
 
-  const job: ReviewJob = { tier, runId, skillName, run, stats }
+  const job: ReviewJob = { tier, runId: turnId, skillName, run, stats }
 
   deps.inflight.current++
-  deps.bus.emit(createEvent('evolution.review.started', { runId, tier, skillName }))
+  void deps.bus.emit(createEvent('evolution.review.started', { runId: turnId, tier, skillName }))
 
   try {
     const result = await deps.spawner.run<ReviewJob, ReviewResult>({
       entry: require.resolve('./worker-entry'),
       job,
-      ctx: deps.ctxFactory({ runId }),
+      ctx: deps.ctxFactory({ runId: turnId }),
       timeoutMs: REVIEW_TIMEOUT_MS,
     })
-    await writeProposal(deps.proposals, result, runId)
+    await writeProposal(deps.proposals, result, turnId)
     if (skillName) {
       await bumpStat(deps.statsStore, skillName, result.outcome)
       // Record outcome in sliding-window for auto-retire
       deps.collector.record(skillName, OUTCOME_MAP[result.outcome])
     }
-    deps.bus.emit(createEvent('evolution.review.completed', {
-      runId, tier, outcome: result.outcome, skillName,
+    void deps.bus.emit(createEvent('evolution.review.completed', {
+      runId: turnId, tier, outcome: result.outcome, skillName,
     }))
   } catch (err) {
     deps.logger.warn('evolution', `review failed: ${String(err)}`)
-    deps.bus.emit(createEvent('evolution.review.failed', {
-      runId, tier, message: String(err),
+    void deps.bus.emit(createEvent('evolution.review.failed', {
+      runId: turnId, tier, message: String(err),
     }))
   } finally {
     deps.inflight.current--
@@ -209,7 +209,7 @@ function buildEvolutionApply(ctx: Parameters<typeof defineExtension>[0]['apply']
         await proposals.markAccepted(p.id, filePath ? { filePath } : undefined)
 
         // Emit reload event
-        bus.emit(createEvent('skills.reload-requested', {
+        void bus.emit(createEvent('skills.reload-requested', {
           reason: 'evolution.promote',
           source: p.id,
         }))

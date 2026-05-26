@@ -14,7 +14,7 @@ export interface Compactor {
 export interface CompactSessionDeps {
   history: SessionHistoryPort
   compactor: Compactor
-  bus: { emit(type: string, payload: unknown): void }
+  bus: { emit(type: string, payload: unknown): Promise<void> }
 }
 
 export interface CompactSessionInput {
@@ -71,7 +71,7 @@ export async function compactSessionUsecase(
     }
   }
 
-  asContractBus(deps.bus).emit(createEvent('session.compacted', {
+  void asContractBus(deps.bus).emit(createEvent('session.compacted', {
     sessionId,
     removedCount: out.removedCount,
     summaryRecordId: out.summaryRecord?.id ?? '',

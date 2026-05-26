@@ -36,6 +36,7 @@ interface InvokeRequest {
   messages: Array<{ role: string; content: string }>
   maxTokens?: number
   model?: string
+  signal?: AbortSignal
 }
 
 interface InvokeResponse {

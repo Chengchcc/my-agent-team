@@ -247,7 +247,7 @@ export default (opts: MemoryOpts = {}) =>
               return { wouldDelete: candidates.length, ids: candidates };
             }
             await store.removeMany(candidates);
-            bus.emit(createEvent('memory.prune.applied', {
+            void bus.emit(createEvent('memory.prune.applied', {
               deletedCount: candidates.length,
               dryRun: false,
             }));
@@ -284,16 +284,16 @@ export default (opts: MemoryOpts = {}) =>
             if (decision.kind === 'skip' || inflight >= MAX_INFLIGHT) return
             if (!spawner || !ctxFactory) return
 
-            const run = await reader.getRun(e.runId)
+            const run = await reader.getRun(e.turnId)
             if (!run) return
 
             inflight++
-            bus.emit(createEvent('memory.extract.started', { runId: e.runId }))
+            void bus.emit(createEvent('memory.extract.started', { runId: e.turnId }))
             try {
               const result = await spawner.run<ExtractJob, ExtractResult>({
                 entry: require.resolve('./extract-worker'),
-                job: { runId: e.runId, run },
-                ctx: ctxFactory({ runId: e.runId }),
+                job: { runId: e.turnId, run },
+                ctx: ctxFactory({ runId: e.turnId }),
                 timeoutMs: EXTRACT_TIMEOUT_MS,
               })
               for (const c of result.candidates) {
@@ -306,12 +306,12 @@ export default (opts: MemoryOpts = {}) =>
                   case 'duplicate-exact':
                     void store.markHit([result_.existingId])
                     void store.incrementMergeCount(result_.existingId)
-                    bus.emit(createEvent('memory.dedup', { kind: 'exact', existingId: result_.existingId }))
+                    void bus.emit(createEvent('memory.dedup', { kind: 'exact', existingId: result_.existingId }))
                     continue
                   case 'duplicate-semantic':
                     void store.markHit([result_.existingId])
                     void store.incrementMergeCount(result_.existingId)
-                    bus.emit(createEvent('memory.dedup', { kind: 'semantic', existingId: result_.existingId }))
+                    void bus.emit(createEvent('memory.dedup', { kind: 'semantic', existingId: result_.existingId }))
                     continue
                   case 'contradiction':
                   case 'new':
@@ -336,7 +336,10 @@ export default (opts: MemoryOpts = {}) =>
                       for (const conflict of conflicts.conflicts) {
                         try { void store.remove(conflict.id) } catch { /* best-effort */ }
                       }
-                    } catch { /* arbitration failed, continue with add */ }
+                    } catch (arbErr) {
+                      ctx.logger.warn('memory', `arbitration failed: ${String(arbErr)}`)
+                      throw arbErr
+                    }
                   }
                 } catch { /* non-critical — skip conflict check on embed failure */ }
                 const newEntry = await store.add({
@@ -350,13 +353,13 @@ export default (opts: MemoryOpts = {}) =>
                 // Store embedding for future semantic dedup
                 try {
                   const emb = await encoder.encode(c.text)
-                  void store.storeEmbedding(newEntry.id, emb)
+                  await store.storeEmbedding(newEntry.id, emb)
                 } catch { /* non-critical */ }
               }
-              bus.emit(createEvent('memory.extract.completed', { runId: e.runId, count: result.candidates.length }))
+              void bus.emit(createEvent('memory.extract.completed', { runId: e.turnId, count: result.candidates.length }))
             } catch (err) {
               ctx.logger.warn('memory', `extract failed: ${String(err)}`)
-              bus.emit(createEvent('memory.extract.failed', { runId: e.runId, message: String(err) }))
+              void bus.emit(createEvent('memory.extract.failed', { runId: e.turnId, message: String(err) }))
             } finally {
               inflight--
             }

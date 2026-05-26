@@ -5,6 +5,15 @@ type HookMode = 'sequential' | 'parallel' | 'first-match'
 
 /**
  * Per-hook configuration — which mode each of the 13 hooks uses.
+ *
+ * Hook dispatch modes:
+ *   - sequential: handlers execute in order, each receiving the previous result.
+ *   - parallel: guard handlers run first (short-circuit on failure); non-guard
+ *     handlers run in parallel with isolated failures.
+ *   - first-match: handlers execute in order until one returns non-null/undefined.
+ *
+ * onTurnEnd handlers must be side-effect-order-independent; session-state
+ * mutation is owned exclusively by the session extension.
  */
 const HOOK_MODES: Record<string, HookMode> = {
   configureKernel: 'sequential',

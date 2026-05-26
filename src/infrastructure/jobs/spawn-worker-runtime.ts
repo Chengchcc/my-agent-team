@@ -85,31 +85,36 @@ export async function runWorker(
   const handleInit = async (frame: Frame): Promise<void> => {
     initialised = true
     try {
-      const payload = frame.payload as Record<string, unknown>
-      const job = payload.job
-      const result = await handler(job, ctx)
-      if (exited) return
-      writeFrame({
-        v: 1,
-        id: crypto.randomUUID(),
-        kind: 'result',
-        ts: Date.now(),
-        payload: result,
-      })
-      process.exit(0)
-    } catch (err) {
-      if (exited) return
-      writeFrame({
-        v: 1,
-        id: crypto.randomUUID(),
-        kind: 'error',
-        ts: Date.now(),
-        payload: {
-          code: 'INTERNAL',
-          message: err instanceof Error ? err.message : String(err),
-        },
-      })
-      process.exit(1)
+      try {
+        const payload = frame.payload as Record<string, unknown>
+        const job = payload.job
+        const result = await handler(job, ctx)
+        if (exited) { process.exit(0); return }
+        writeFrame({
+          v: 1,
+          id: crypto.randomUUID(),
+          kind: 'result',
+          ts: Date.now(),
+          payload: result,
+        })
+        process.exit(0)
+      } catch (err) {
+        if (exited) { process.exit(1); return }
+        writeFrame({
+          v: 1,
+          id: crypto.randomUUID(),
+          kind: 'error',
+          ts: Date.now(),
+          payload: {
+            code: 'INTERNAL',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        })
+        process.exit(1)
+      }
+    } finally {
+      // Safety net: if any path misses process.exit, force exit after grace period
+      setTimeout(() => process.exit(1), 1000).unref()
     }
   }
 

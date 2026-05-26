@@ -45,8 +45,8 @@ export class AutoRetirer {
 
     await this.meta.markArchived(skillName, Date.now())
 
-    this.bus.emit(createEvent('skill.archived', { skillName, archivedTo: dst, reason }))
-    this.bus.emit(createEvent('skills.reload-requested', {
+    void this.bus.emit(createEvent('skill.archived', { skillName, archivedTo: dst, reason }))
+    void this.bus.emit(createEvent('skills.reload-requested', {
       reason: 'auto-retire',
       source: skillName,
     }))

@@ -20,7 +20,7 @@ const DEFAULT_MAX_TURN_ITERATIONS = 10
 // ── Ports consumed by the usecase ──────────────────────────────────────────
 
 export interface BusPort {
-  emit(type: string, payload: unknown): void
+  emit(type: string, payload: unknown): Promise<void>
 }
 
 export interface LoggerPort {
@@ -228,7 +228,7 @@ export async function runTurnUsecase(
       maxOutputTokens: input.maxOutputTokens,
       logger: { info: (t, m, f) => logger.info(t, m, f), warn: (t, m, f) => logger.warn(t, m, f) },
     })) {
-      bus.emit(event.type, event)
+      void bus.emit(event.type, event)
 
       // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- only relevant TurnEvent variants handled
       switch (event.type) {

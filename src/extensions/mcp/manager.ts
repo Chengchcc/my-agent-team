@@ -165,8 +165,14 @@ export class McpManager {
     if (!entry) return;
 
     const client = entry.client as Client | null;
+    const transport = entry.transport;
 
-    // Mark disconnected BEFORE close so transport.onclose won't attempt reconnect
+    // Clear transport.onclose BEFORE close to prevent closure leak
+    if (transport) {
+      (transport as { onclose?: (() => void) | undefined }).onclose = undefined;
+    }
+
+    // Mark disconnected so transport.onclose won't attempt reconnect
     this._servers.set(name, {
       ...entry,
       client: null,

@@ -7,14 +7,14 @@ import type { EventEnvelope } from '../contracts/event-envelope'
 export interface ContractBus {
   emit<K extends ContractedEventName>(
     event: EventEnvelope<K, ContractedEventMap[K]>
-  ): void
+  ): Promise<void>
 }
 
 /** Wrap a raw event bus to enforce contracted event typing. */
-export function asContractBus(bus: { emit(name: string, payload: unknown): void }): ContractBus {
+export function asContractBus(bus: { emit(name: string, payload: unknown): Promise<void> }): ContractBus {
   return {
     emit(event) {
-      bus.emit(event.type, event)
+      return bus.emit(event.type, event)
     },
   }
 }

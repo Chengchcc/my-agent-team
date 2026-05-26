@@ -139,7 +139,7 @@ export default () =>
 
       // onIdentityChanged handler: notify when identity updates
       const onIdentityChanged: HookHandler = async (...args: unknown[]) => {
-        contractBus.emit(createEvent('identity.changed', (args[0] ?? {}) as Record<string, unknown>))
+        void contractBus.emit(createEvent('identity.changed', (args[0] ?? {}) as Record<string, unknown>))
       }
 
       // onTurnEnd handler: bootstrap-loop progress collection (M3 deferred identity)
@@ -187,7 +187,7 @@ export default () =>
               }
             }
             const diff = await store.update({ fields }, { source: 'rpc' })
-            contractBus.emit(createEvent('identity.changed', diff as unknown as Record<string, unknown>))
+            void contractBus.emit(createEvent('identity.changed', diff as unknown as Record<string, unknown>))
             return { effectiveFrom: 'next-turn' }
           },
 
@@ -200,7 +200,7 @@ export default () =>
             }
             try {
               const diff = await store.rollback(p.targetVersion, { source: 'rpc' })
-              contractBus.emit(createEvent('identity.changed', diff as unknown as Record<string, unknown>))
+              void contractBus.emit(createEvent('identity.changed', diff as unknown as Record<string, unknown>))
               return {
                 effectiveFrom: 'next-turn',
                 version: store.getVersion(),

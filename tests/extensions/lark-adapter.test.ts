@@ -39,6 +39,7 @@ import traceExt from '../../src/extensions/trace'
 import sessionExt from '../../src/extensions/session'
 import providerExt from '../../src/extensions/provider'
 import controlplaneExt from '../../src/extensions/controlplane'
+import controlplaneMethodsExt from '../../src/extensions/controlplane/methods'
 import dataplaneExt from '../../src/extensions/dataplane'
 import transportExt from '../../src/extensions/transport.inmem'
 import larkExt, { createLarkBotConfig } from '../../src/extensions/frontend.lark'
@@ -52,6 +53,7 @@ describe('Lark bot adapter', () => {
     kernel.use(sessionExt())
     kernel.use(providerExt())
     kernel.use(controlplaneExt())
+    kernel.use(controlplaneMethodsExt())
     kernel.use(dataplaneExt())
     kernel.use(transportExt())
     kernel.use(larkExt())

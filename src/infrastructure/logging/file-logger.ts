@@ -11,6 +11,7 @@ const LEVEL_ORDER: Record<string, number> = { debug: 0, info: 1, warn: 2, error:
 const als = new AsyncLocalStorage<{ traceId?: string }>()
 const FLUSH_MS = 1000
 const DEFAULT_MAX_FILES = 5
+const WRITE_FAILURE_FALLBACK_THRESHOLD = 3
 const TRACE_ID_PREVIEW_CHARS = 8
 const LOG_LEVEL_PAD_LENGTH = 5
 
@@ -23,6 +24,8 @@ export class FileLogger implements Logger {
   private buffer: string[] = []
   private timer: ReturnType<typeof setInterval> | null = null
   private draining = false
+  private consecutiveFailures = 0
+  private fallbackToStderr = false
 
   constructor(opts?: { level?: LogLevel; path?: string; maxSize?: number; maxFiles?: number; console?: boolean }) {
     this.level = opts?.level ?? 'info'
@@ -81,14 +84,24 @@ export class FileLogger implements Logger {
     this.draining = true
     const batch = this.buffer.splice(0, this.buffer.length)
     // Console output (stderr, non-blocking)
-    if (this.console || !this.logPath) {
+    if (this.console || !this.logPath || this.fallbackToStderr) {
       for (const line of batch) process.stderr.write(line + '\n')
     }
     // File output
-    if (this.logPath) {
+    if (this.logPath && !this.fallbackToStderr) {
       this.rotate()
       const chunk = batch.join('\n') + '\n'
-      try { await appendFile(this.logPath, chunk) } catch {}
+      try {
+        await appendFile(this.logPath, chunk)
+        this.consecutiveFailures = 0
+      } catch (e) {
+        process.stderr.write('[FileLogger] write failed: ' + String(e) + '\n')
+        this.consecutiveFailures++
+        if (this.consecutiveFailures > WRITE_FAILURE_FALLBACK_THRESHOLD) {
+          this.fallbackToStderr = true
+          for (const line of batch) process.stderr.write(line + '\n')
+        }
+      }
     }
     this.draining = false
   }

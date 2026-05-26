@@ -203,21 +203,15 @@ export class LarkBotAdapter implements FrontendHandle {
     let sessionId = this.routingTable.resolve(this.appId, anchor)
 
     if (!sessionId) {
-      if (anchor.scope === 'p2p') {
-        // P2P sessions keyed by user for isolation
-        sessionId = `lark-p2p-${anchor.key}`
-        this.routingTable.bind(this.appId, anchor, sessionId)
-      } else {
-        // Create a new session for this anchor
-        const createResult = await this.sessionClient.createSession(`Lark: ${anchor.scope}`)
-        sessionId = createResult.sessionId
-        this.routingTable.bind(
-          this.appId,
-          anchor,
-          sessionId,
-          `Lark: ${anchor.scope}:${anchor.key.slice(0, ROUTING_KEY_PREVIEW_CHARS)}`,
-        )
-      }
+      // Create a new session for this anchor
+      const createResult = await this.sessionClient.createSession(`Lark: ${anchor.scope}`)
+      sessionId = createResult.sessionId
+      this.routingTable.bind(
+        this.appId,
+        anchor,
+        sessionId,
+        `Lark: ${anchor.scope}:${anchor.key.slice(0, ROUTING_KEY_PREVIEW_CHARS)}`,
+      )
     }
 
     if (chatId) this.sessionChatMap.set(sessionId, chatId)

@@ -35,7 +35,7 @@ function makeOnTurnStart(d: TurnStartDeps): HookHandler {
     const turn = createTurn(`turn-${d.eventFactory.lastCursor + 1}`, sessionId);
     const traceEvt = d.eventFactory.next(turn.id, 'turn.started', { sessionId, frontendId });
     await d.hooks.dispatch('onTraceEmit', traceEvt);
-    d.contractBus.emit(createEvent('turn.started', { sessionId, turnId: turn.id }, { sessionId, turnId: turn.id }));
+    void d.contractBus.emit(createEvent('turn.started', { sessionId, turnId: turn.id }, { sessionId, turnId: turn.id }));
     return turn;
   };
 }
@@ -58,6 +58,7 @@ function makeOnTurnEnd(d: TurnEndDeps): HookHandler {
       toolErrorCount?: number;
       finalMessage?: string;
       error?: { stage: string; reason: string };
+      activatedSkills?: string[];
     };
     const { sessionId, turnId, status } = result;
     const session = await d.sessionStore.load(sessionId);
@@ -71,20 +72,18 @@ function makeOnTurnEnd(d: TurnEndDeps): HookHandler {
 
     // Emit contract bus event — single source of truth for turn termination
     if (status === 'completed') {
-      d.contractBus.emit(createEvent('turn.completed', {
+      void d.contractBus.emit(createEvent('turn.completed', {
         sessionId,
         turnId,
-        runId: turnId,
-        usage: { input: result.usage?.input ?? 0, output: result.usage?.output ?? 0 },
+        usage: { input: result.usage?.input ?? null, output: result.usage?.output ?? null },
         toolCallCount: result.toolCallCount ?? 0,
         toolErrorCount: result.toolErrorCount ?? 0,
-        activatedSkills: [],
+        activatedSkills: result.activatedSkills ?? [],
       }, { sessionId, turnId }));
     } else {
-      d.contractBus.emit(createEvent('turn.failed', {
+      void d.contractBus.emit(createEvent('turn.failed', {
         sessionId,
         turnId,
-        runId: turnId,
         outcome: 'error',
         stage: result.error?.stage ?? 'unknown',
         reason: result.error?.reason ?? 'Unknown error',

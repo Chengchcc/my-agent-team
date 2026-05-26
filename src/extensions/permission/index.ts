@@ -48,7 +48,10 @@ export default () =>
       const onToolCall: HookHandler = async (...args: unknown[]) => {
         const call = args[0] as { name: string; id: string }
         const runCtx = args[1] as { sessionId?: string } | undefined
-        const sessionId = runCtx?.sessionId ?? 'main'
+        const sessionId = runCtx?.sessionId
+        if (!sessionId) {
+          throw new Error('permission: missing sessionId in ToolContext')
+        }
 
         // Deny-list check
         if (deniedTools.has(call.name)) {

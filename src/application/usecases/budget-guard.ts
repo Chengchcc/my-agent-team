@@ -6,7 +6,7 @@ import type { SessionHistoryPort } from '../ports/session-history'
 export interface BudgetDeps {
   history: SessionHistoryPort
   compactor: Compactor
-  bus: { emit(type: string, payload: unknown): void }
+  bus: { emit(type: string, payload: unknown): Promise<void> }
 }
 
 export interface BudgetCheckInput {
@@ -53,7 +53,7 @@ export async function reactiveCompactCheck(
   tokenLimit: number,
   sessionId: string,
   turnId: string,
-  bus: { emit(type: string, payload: unknown): void },
+  bus: { emit(type: string, payload: unknown): Promise<void> },
   logger: { info(d: string, m: string): void },
   totalUsage: { input: number; output: number },
   emitFailed: (stage: string, reason: string) => Promise<void>,
