@@ -140,7 +140,7 @@ describe('plan mode hooks (M1)', () => {
     const k = createTestKernel({
       extensions: [
         traceExt(), sessionExt(), toolCatalogExt(),
-        toolsExt(), permissionExt(), sessionModeExt(),
+        toolsExt(), sessionModeExt(),
       ],
     })
     await k.start()
