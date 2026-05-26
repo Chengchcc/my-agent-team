@@ -256,6 +256,11 @@ export class SqliteMemoryStore implements MemoryStore {
     if (!newId) throw new Error('supersede: newId must be non-empty');
     if (oldId === newId) throw new Error('supersede: oldId and newId must differ');
 
+    // Verify the old row exists and is not already superseded
+    const oldRow = this.db.query('SELECT superseded_by FROM memory WHERE id = ?').get(oldId) as { superseded_by: string | null } | undefined;
+    if (!oldRow) throw new Error(`supersede: oldId row "${oldId}" does not exist`);
+    if (oldRow.superseded_by !== null) throw new Error(`supersede: oldId "${oldId}" is already superseded by "${oldRow.superseded_by}"`);
+
     // Verify that the successor row exists
     const successor = this.db.query('SELECT 1 FROM memory WHERE id = ?').get(newId);
     if (!successor) throw new Error(`supersede: newId row "${newId}" does not exist`);

@@ -326,7 +326,7 @@ export default (opts: MemoryOpts = {}) =>
                   if (conflicts.hasConflict && invokeFn) {
                     try {
                       const decision = await resolver.arbitrate(
-                        { id: '', type, text: c.text, tags: c.tags, weight: c.weight, source: 'implicit', createdAt: new Date(), updatedAt: new Date(), usageCount: 0, supersededBy: undefined, mergeCount: 0 } as MemoryEntry,
+                        { id: crypto.randomUUID(), type, text: c.text, tags: c.tags, weight: c.weight, source: 'implicit', createdAt: new Date(), updatedAt: new Date(), usageCount: 0, supersededBy: undefined, mergeCount: 0 } as MemoryEntry,
                         conflicts.conflicts,
                       )
                       if (decision.decision === 'keep_old') continue

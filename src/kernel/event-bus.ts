@@ -40,24 +40,33 @@ class EventBus {
     const handlers = this.subscribers.get(event)
     if (!handlers || handlers.size === 0) return
 
-    const errors: Array<{ error: Error; payloadSample: unknown }> = []
+    const isTurnEvent = event.startsWith('turn.')
+    const errors: Array<{ error: Error; subscriberName: string; payloadKeys?: string[] }> = []
     await Promise.all(
-      [...handlers].map(async (handler) => {
+      [...handlers].map(async (handler, idx) => {
         try {
           await handler(payload)
         } catch (err) {
-          errors.push({ error: err instanceof Error ? err : new Error(String(err)), payloadSample: payload })
+          const subscriberName = handler.name ? `handler#${idx}(${handler.name})` : `handler#${idx}`
+          if (isTurnEvent) {
+            // Redact sensitive payload values for turn.* events — log only keys
+            const payloadKeys = payload && typeof payload === 'object' && !Array.isArray(payload)
+              ? Object.keys(payload as Record<string, unknown>).slice(0, 10)
+              : undefined
+            errors.push({ error: err instanceof Error ? err : new Error(String(err)), subscriberName, payloadKeys })
+          } else {
+            const payloadKeys = payload && typeof payload === 'object' && !Array.isArray(payload)
+              ? Object.keys(payload as Record<string, unknown>).slice(0, 10)
+              : undefined
+            errors.push({ error: err instanceof Error ? err : new Error(String(err)), subscriberName, payloadKeys })
+          }
         }
       })
     )
 
     if (errors.length > 0) {
-      for (const { error, payloadSample } of errors) {
-        const payloadType = typeof payloadSample
-        const payloadKeys = payloadSample && typeof payloadSample === 'object' && !Array.isArray(payloadSample)
-          ? Object.keys(payloadSample as Record<string, unknown>).slice(0, 10)
-          : undefined
-        const msg = `[EventBus] subscriber error on "${event}": ${error.message} | payloadType=${payloadType}${payloadKeys ? ` keys=${payloadKeys.join(',')}` : ''}`
+      for (const { error, subscriberName, payloadKeys } of errors) {
+        const msg = `[EventBus] subscriber error on "${event}" (${subscriberName}): ${error.message}${payloadKeys ? ` | keys=${payloadKeys.join(',')}` : ''}`
         if (this.logger) {
           this.logger.warn('event-bus', msg)
         } else {

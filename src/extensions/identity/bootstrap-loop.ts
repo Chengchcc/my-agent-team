@@ -2,6 +2,7 @@ import type { FileBackedIdentityStore } from '../../infrastructure/identity/file
 import type { AgentRegistryRead } from '../../application/ports/agent-registry'
 import type { ProviderInvoke } from '../../application/ports/provider'
 import type { Logger } from '../../application/ports/logger'
+import crypto from 'crypto'
 import {
   parseBootstrapFrontMatter,
   computeMissingFields,
@@ -42,7 +43,7 @@ export function createBootstrapLoop(deps: BootstrapLoopDeps) {
         const extractRes = await deps.provider.call({
           kind: 'internal',
           purpose: 'identity.bootstrap.extract',
-          parentTurnId: `bootstrap-${Date.now()}`,
+          parentTurnId: `bootstrap-${crypto.randomUUID()}`,
           messages: [
             { role: 'system', content: `Extract identity fields from user response as JSON. Fields: ${state.requiredFields.filter(f => !state.collected[f]).join(', ')}. Return only valid JSON like {"field":"value"}.` },
             { role: 'user', content: lastUserMsg.content },
@@ -70,7 +71,7 @@ export function createBootstrapLoop(deps: BootstrapLoopDeps) {
           const synthRes = await deps.provider.call({
             kind: 'internal',
             purpose: 'identity.synthesize',
-            parentTurnId: `bootstrap-final-${Date.now()}`,
+            parentTurnId: `bootstrap-final-${crypto.randomUUID()}`,
             messages: [
               { role: 'system', content: `Generate an identity markdown document from these collected fields. Include YAML front-matter with: role, audience, tone, expertise. The user provided: ${JSON.stringify(state.collected)}` },
               { role: 'user', content: 'Generate the identity document.' },
