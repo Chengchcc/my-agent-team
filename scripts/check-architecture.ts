@@ -218,6 +218,10 @@ for (const f of project.getSourceFiles('src/**/*.{ts,tsx}')) {
     if (prop.getKind() === SyntaxKind.PropertyAccessExpression) {
       const pa = prop.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
       if (pa.getName() === 'emit') {
+        // contractBus.emit() wraps payloads in createEvent() internally — allowed
+        const objectText = pa.getExpression().getText();
+        if (objectText === 'contractBus' || objectText.endsWith('.contractBus')) continue;
+
         const args = ce.getArguments();
         if (args.length > 0 && args[0].getKind() === SyntaxKind.StringLiteral) {
           const eventName = args[0].asKindOrThrow(SyntaxKind.StringLiteral).getLiteralValue();
