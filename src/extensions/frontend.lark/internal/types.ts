@@ -1,12 +1,13 @@
 // src/extensions/frontend.lark/lark/types.ts
 import type { Session } from '../../../domain/session/types';
+import type { Anchor } from '../../../domain/anchor';
 
 export interface RoutingContext {
   chatId: string;
   messageId: string;
   chatType: 'group' | 'p2p';
-  scope: 'thread' | 'chat' | 'p2p';
-  anchor: string;
+  /** The canonical Anchor for this incoming message (PR G3). */
+  anchor: Anchor;
   /** The thread's root message_id. Falls back to messageId when not in a thread. */
   threadRootId: string;
   larkAppId: string;

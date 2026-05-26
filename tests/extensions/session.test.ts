@@ -36,7 +36,7 @@ function createTestSession(id: string, k: ReturnType<typeof createTestKernel>): 
 /** Reset main session to INIT state for tests that assume fresh state. */
 async function resetMainSession(k: ReturnType<typeof createTestKernel>): Promise<void> {
   const store = k.ctx.extensions.get('session.store')
-  const s = await store.load('main')
+  const s = await store.load('tui-default')
   if (s) { s.state = 'INIT'; await store.save(s) }
 }
 
@@ -62,9 +62,9 @@ describe('session extension', () => {
     await k.start()
 
     const store = k.ctx.extensions.get('session.store')
-    const mainSession = await store.load('main')
+    const mainSession = await store.load('tui-default')
     expect(mainSession).not.toBeNull()
-    expect(mainSession!.id).toBe('main')
+    expect(mainSession!.id).toBe('tui-default')
     expect(mainSession!.agentId).toBe('test-profile')
     expect(mainSession!.isMain).toBe(true)
     expect(mainSession!.title).toBe('Main')
@@ -85,18 +85,18 @@ describe('session extension', () => {
     // Dispatch onTurnStart — sequential hook returns the created Turn
     const turn = (await k.ctx.hooks.dispatch(
       'onTurnStart',
-      'main',
+      'tui-default',
       'fe-test',
     )) as Turn
 
     expect(turn).toBeDefined()
     expect(turn.id).toMatch(/^turn-/)
-    expect(turn.sessionId).toBe('main')
+    expect(turn.sessionId).toBe('tui-default')
     expect(turn.state).toBe('RUNNING')
 
     // Bus event emitted
     expect(busEvent).not.toBeNull()
-    expect((busEvent as Record<string, unknown>).sessionId).toBe('main')
+    expect((busEvent as Record<string, unknown>).sessionId).toBe('tui-default')
     expect((busEvent as Record<string, unknown>).turnId).toBe(turn.id)
 
     await k.stop()
@@ -136,13 +136,13 @@ describe('session extension', () => {
     // Start a turn
     const turn = (await k.ctx.hooks.dispatch(
       'onTurnStart',
-      'main',
+      'tui-default',
       'fe-test',
     )) as Turn
 
     // End the turn
     await k.ctx.hooks.dispatch('onTurnEnd', {
-      sessionId: 'main',
+      sessionId: 'tui-default',
       turnId: turn.id,
       status: 'completed',
       usage: { input: 42, output: 7 },
@@ -150,7 +150,7 @@ describe('session extension', () => {
 
     // Session should be back to IDLE
     const store = k.ctx.extensions.get('session.store')
-    const session = await store.load('main')
+    const session = await store.load('tui-default')
     expect(session!.state).toBe('IDLE')
 
     // onTraceEmit was dispatched with turn.completed trace event
@@ -171,13 +171,13 @@ describe('session extension', () => {
     // Start a turn
     const turn = (await k.ctx.hooks.dispatch(
       'onTurnStart',
-      'main',
+      'tui-default',
       'fe-test',
     )) as Turn
 
     // End the turn
     await k.ctx.hooks.dispatch('onTurnEnd', {
-      sessionId: 'main',
+      sessionId: 'tui-default',
       turnId: turn.id,
       status: 'completed',
       usage: { input: 10, output: 5 },
@@ -195,7 +195,7 @@ describe('session extension', () => {
     expect(startedEvent).toBeDefined()
     expect(startedEvent!.turnId).toBe(turn.id)
     expect(startedEvent!.payload).toMatchObject({
-      sessionId: 'main',
+      sessionId: 'tui-default',
       frontendId: 'fe-test',
     })
 
@@ -219,7 +219,7 @@ describe('session extension', () => {
     // 1. Start a turn
     const turn = (await k.ctx.hooks.dispatch(
       'onTurnStart',
-      'main',
+      'tui-default',
       'fe-pipeline',
     )) as Turn
     expect(turn.state).toBe('RUNNING')
@@ -248,7 +248,7 @@ describe('session extension', () => {
 
     // 3. End the turn
     await k.ctx.hooks.dispatch('onTurnEnd', {
-      sessionId: 'main',
+      sessionId: 'tui-default',
       turnId: turn.id,
       status: 'completed',
       usage: { input: 13, output: 19 },
@@ -256,7 +256,7 @@ describe('session extension', () => {
 
     // 4. Verify session is back to IDLE
     const store = k.ctx.extensions.get('session.store')
-    const session = await store.load('main')
+    const session = await store.load('tui-default')
     expect(session!.state).toBe('IDLE')
 
     // 5. Verify trace events recorded via onTraceEmit hook

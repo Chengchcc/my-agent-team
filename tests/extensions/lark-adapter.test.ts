@@ -93,7 +93,7 @@ describe('Lark bot adapter', () => {
     await bot.start()
 
     const result = await bot.handleMessage(
-      { scope: 'p2p' as const, key: 'user-abc' },
+      { kind: 'lark-p2p', appId: 'cli_test123', openId: 'user-abc' },
       'Hello from Lark',
     )
     expect(result.accepted).toBe(true)
@@ -117,9 +117,9 @@ describe('Lark bot adapter', () => {
     const lark = kernel.ctx.extensions.get('frontend-lark.lark')
     const routingTable = lark.getRoutingTable()
 
-    routingTable.bind('bot-1', { scope: 'thread', key: 'thread-xyz' }, 'session-1', 'Label')
+    routingTable.bind('bot-1', { kind: 'lark-group', appId: 'bot-1', chatId: 'thread-xyz' }, 'session-1', 'Label')
 
-    const resolved = routingTable.resolve('bot-1', { scope: 'thread', key: 'thread-xyz' })
+    const resolved = routingTable.lookup('bot-1', { kind: 'lark-group', appId: 'bot-1', chatId: 'thread-xyz' })
     expect(resolved).toBe('session-1')
   })
 

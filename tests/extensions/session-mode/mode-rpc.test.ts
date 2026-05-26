@@ -17,18 +17,18 @@ describe('session-mode RPC (M2)', () => {
     })
     await k.start()
 
-    const before = await k.ctx.rpc.resolve('session.getMode')!({ sessionId: 'main' }) as { mode: string }
+    const before = await k.ctx.rpc.resolve('session.getMode')!({ sessionId: 'tui-default' }) as { mode: string }
     expect(before.mode).toBe('normal')
 
-    const result = await k.ctx.rpc.resolve('session.setMode')!({ sessionId: 'main', mode: 'plan' }) as { ok: boolean }
+    const result = await k.ctx.rpc.resolve('session.setMode')!({ sessionId: 'tui-default', mode: 'plan' }) as { ok: boolean }
     expect(result.ok).toBe(true)
 
-    const after = await k.ctx.rpc.resolve('session.getMode')!({ sessionId: 'main' }) as { mode: string }
+    const after = await k.ctx.rpc.resolve('session.getMode')!({ sessionId: 'tui-default' }) as { mode: string }
     expect(after.mode).toBe('plan')
 
     // Verify persisted in store
     const store = k.ctx.extensions.get('session.store')
-    const s = await store.load('main')
+    const s = await store.load('tui-default')
     expect(s?.mode).toBe('plan')
 
     await k.stop()
@@ -40,12 +40,12 @@ describe('session-mode RPC (M2)', () => {
     })
     await k.start()
 
-    const result = await k.ctx.rpc.resolve('session.setMode')!({ sessionId: 'main', mode: 'nonexistent' }) as { ok: boolean; error: string }
+    const result = await k.ctx.rpc.resolve('session.setMode')!({ sessionId: 'tui-default', mode: 'nonexistent' }) as { ok: boolean; error: string }
     expect(result.ok).toBe(false)
     expect(result.error).toContain('Unknown mode')
 
     // Mode unchanged
-    const mode = await k.ctx.rpc.resolve('session.getMode')!({ sessionId: 'main' }) as { mode: string }
+    const mode = await k.ctx.rpc.resolve('session.getMode')!({ sessionId: 'tui-default' }) as { mode: string }
     expect(mode.mode).toBe('normal')
 
     await k.stop()
@@ -60,12 +60,12 @@ describe('session-mode RPC (M2)', () => {
     await k.start()
 
     // Enter plan mode first
-    await k.ctx.rpc.resolve('session.setMode')!({ sessionId: 'main', mode: 'plan' })
+    await k.ctx.rpc.resolve('session.setMode')!({ sessionId: 'tui-default', mode: 'plan' })
 
-    const result = await k.ctx.rpc.resolve('session.resolvePlan')!({ sessionId: 'main', decision: 'approve' }) as { ok: boolean }
+    const result = await k.ctx.rpc.resolve('session.resolvePlan')!({ sessionId: 'tui-default', decision: 'approve' }) as { ok: boolean }
     expect(result.ok).toBe(true)
 
-    const mode = await k.ctx.rpc.resolve('session.getMode')!({ sessionId: 'main' }) as { mode: string }
+    const mode = await k.ctx.rpc.resolve('session.getMode')!({ sessionId: 'tui-default' }) as { mode: string }
     expect(mode.mode).toBe('normal')
 
     await k.stop()
@@ -77,12 +77,12 @@ describe('session-mode RPC (M2)', () => {
     })
     await k.start()
 
-    await k.ctx.rpc.resolve('session.setMode')!({ sessionId: 'main', mode: 'plan' })
+    await k.ctx.rpc.resolve('session.setMode')!({ sessionId: 'tui-default', mode: 'plan' })
 
-    const result = await k.ctx.rpc.resolve('session.resolvePlan')!({ sessionId: 'main', decision: 'keep' }) as { ok: boolean }
+    const result = await k.ctx.rpc.resolve('session.resolvePlan')!({ sessionId: 'tui-default', decision: 'keep' }) as { ok: boolean }
     expect(result.ok).toBe(true)
 
-    const mode = await k.ctx.rpc.resolve('session.getMode')!({ sessionId: 'main' }) as { mode: string }
+    const mode = await k.ctx.rpc.resolve('session.getMode')!({ sessionId: 'tui-default' }) as { mode: string }
     expect(mode.mode).toBe('plan')
 
     await k.stop()

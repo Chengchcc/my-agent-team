@@ -26,7 +26,7 @@ describe('plan mode hooks (M1)', () => {
 
     // Set main session to plan mode
     const store = k.ctx.extensions.get('session.store')
-    const main = await store.load('main')
+    const main = await store.load('tui-default')
     main!.mode = 'plan'
     await store.save(main!)
 
@@ -34,7 +34,7 @@ describe('plan mode hooks (M1)', () => {
     const result = await k.ctx.hooks.dispatch('transformPrompt', {
       system: 'You are helpful.',
       messages: [{ role: 'user', content: 'hello' }],
-      sessionId: 'main',
+      sessionId: 'tui-default',
     }) as { system: string }
 
     expect(result.system).toContain('Plan Mode')
@@ -55,7 +55,7 @@ describe('plan mode hooks (M1)', () => {
     const result = await k.ctx.hooks.dispatch('transformPrompt', {
       system: 'You are helpful.',
       messages: [{ role: 'user', content: 'hello' }],
-      sessionId: 'main',
+      sessionId: 'tui-default',
     }) as { system: string }
 
     // tools extension always appends TODO_WRITE_GUIDANCE — accept that
@@ -77,7 +77,7 @@ describe('plan mode hooks (M1)', () => {
     await k.start()
 
     const store = k.ctx.extensions.get('session.store')
-    const main = await store.load('main')
+    const main = await store.load('tui-default')
     main!.mode = 'plan'
     await store.save(main!)
 
@@ -94,7 +94,7 @@ describe('plan mode hooks (M1)', () => {
     ]
 
     // Pass sessionId as second arg (new resolveTools dispatch)
-    const filtered = await k.ctx.hooks.dispatch('resolveTools', allTools, 'main') as Array<{ name: string }>
+    const filtered = await k.ctx.hooks.dispatch('resolveTools', allTools, 'tui-default') as Array<{ name: string }>
     const names = filtered.map(t => t.name)
 
     // Allowed
@@ -128,7 +128,7 @@ describe('plan mode hooks (M1)', () => {
     ]
 
     // tools extension adds more tools (glob, ls, etc.) — accept that
-    const result = await k.ctx.hooks.dispatch('resolveTools', allTools, 'main') as Array<{ name: string }>
+    const result = await k.ctx.hooks.dispatch('resolveTools', allTools, 'tui-default') as Array<{ name: string }>
     expect(result.length).toBeGreaterThanOrEqual(2)
 
     await k.stop()
@@ -146,7 +146,7 @@ describe('plan mode hooks (M1)', () => {
     await k.start()
 
     const store = k.ctx.extensions.get('session.store')
-    const main = await store.load('main')
+    const main = await store.load('tui-default')
     main!.mode = 'plan'
     await store.save(main!)
 
@@ -154,7 +154,7 @@ describe('plan mode hooks (M1)', () => {
     try {
       await k.ctx.hooks.dispatch('onToolCall',
         { name: 'bash', id: 'b1' },
-        { sessionId: 'main' },
+        { sessionId: 'tui-default' },
       )
     } catch (e) {
       err = e as Error
@@ -176,7 +176,7 @@ describe('plan mode hooks (M1)', () => {
     await k.start()
 
     const store = k.ctx.extensions.get('session.store')
-    const main = await store.load('main')
+    const main = await store.load('tui-default')
     main!.mode = 'plan'
     await store.save(main!)
 
@@ -186,7 +186,7 @@ describe('plan mode hooks (M1)', () => {
     try {
       await k.ctx.hooks.dispatch('onToolCall',
         { name: 'read', id: 'r1', arguments: { path: '/tmp/nonexistent-test-file' } },
-        { sessionId: 'main' },
+        { sessionId: 'tui-default' },
       )
     } catch (e) {
       guardError = e as Error

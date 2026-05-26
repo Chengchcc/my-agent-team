@@ -14,6 +14,7 @@ import type { TraceEvent } from '../../domain/trace-event'
 import { createCompactor } from './compactor'
 import type { HookContainer } from '../../kernel/hook-container'
 import type { SessionStore } from '../../application/ports/session-store'
+import { anchorToSessionId } from '../../domain/anchor'
 
 interface TurnStartDeps {
   sessionStore: SessionStore;
@@ -107,10 +108,11 @@ export default () =>
       const eventFactory = createTraceEventFactory()
       const abortControllers = new Map<string, AbortController>()
 
+      const defaultSessionId = anchorToSessionId({ kind: 'tui', frontendId: 'default' })
       const kernelReady: HookHandler = async () => {
-        const existing = await sessionStore.load('main')
+        const existing = await sessionStore.load(defaultSessionId)
         if (!existing) {
-          const mainSession = createSession('main', ctx.agentId, true, 'Main')
+          const mainSession = createSession(defaultSessionId, ctx.agentId, true, 'Main')
           await sessionStore.save(mainSession)
         }
       }

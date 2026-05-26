@@ -1,4 +1,4 @@
-import type { Anchor } from '../anchor';
+import type { Anchor } from '../../../domain/anchor';
 import type { RoutingTable } from '../routing-table';
 import type { SlashRegistry, SlashContext } from '../../../application/slash';
 import type { SessionClient } from '../../frontend.tui/session-client';
@@ -23,14 +23,15 @@ export async function tryHandleSlashCommand(
 ): Promise<{ sessionId: string; accepted: boolean } | null> {
   const resolved = deps.slashRegistry.resolve(text)
   if (!resolved) return null
-  let sessionId = deps.routingTable.resolve(deps.appId, anchor)
+  const sessionId = deps.routingTable.lookup(deps.appId, anchor)
+  if (!sessionId) return null
   const slashCtx: SlashContext = {
     frontend: 'lark-bot',
-    sessionId: sessionId ?? '',
+    sessionId,
     userInputRaw: text,
     kernel: {
       rpc: async (method, params) => {
-        return deps.sessionClient.sendRpc(method, { ...params, sessionId: sessionId ?? 'main' })
+        return deps.sessionClient.sendRpc(method, { ...params, sessionId })
       },
     },
     reply: { text: async (msg) => { await sendToLark(chatId, msg) } },
@@ -41,7 +42,7 @@ export async function tryHandleSlashCommand(
       if (result.message) await sendToLark(chatId, result.message)
       break
     case 'submit-prompt':
-      try { await deps.sessionClient.sendInput(sessionId ?? 'main', result.text) } catch { /* fallback */ }
+      try { await deps.sessionClient.sendInput(sessionId, result.text) } catch { /* fallback */ }
       break
     case 'replace-input': break
     case 'render-widget':
@@ -49,5 +50,5 @@ export async function tryHandleSlashCommand(
       break
     default: break
   }
-  return { sessionId: sessionId ?? 'main', accepted: true }
+  return { sessionId, accepted: true }
 }

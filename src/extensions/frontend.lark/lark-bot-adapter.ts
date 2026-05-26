@@ -1,8 +1,9 @@
 import type { FrontendHandle } from '../../application/ports/frontend-handle'
 import type { Transport } from '../../application/ports/transport'
 import type { DataPlaneEvent } from '../../application/contracts'
+import type { Anchor } from '../../domain/anchor'
+import { anchorToSessionId } from '../../domain/anchor'
 import type { RoutingTable } from './routing-table'
-import type { Anchor } from './anchor'
 import { SessionClient } from '../frontend.tui/session-client'
 import { SlashRegistry, registerBuiltinSlashCommands } from '../../application/slash'
 import { TranscriptProjector } from '../frontend.tui/transcript/projector'
@@ -189,7 +190,8 @@ export class LarkBotAdapter implements FrontendHandle {
     chatId?: string,
     messageId?: string,
   ): Promise<{ sessionId: string; accepted: boolean }> {
-    ctxLogger.warn('lark', `handleMessage: scope=${anchor.scope} key=${anchor.key.slice(0, ROUTING_KEY_PREVIEW_CHARS)} text=${text.slice(0, LOG_TEXT_PREVIEW_LEN)}`)
+    const label = anchorToSessionId(anchor).slice(0, ROUTING_KEY_PREVIEW_CHARS)
+    ctxLogger.warn('lark', `handleMessage: kind=${anchor.kind} label=${label} text=${text.slice(0, LOG_TEXT_PREVIEW_LEN)}`)
     // Check if it's a slash command before creating a session
     if (chatId) {
       const handled = await tryHandleSlashCommand(
@@ -200,17 +202,17 @@ export class LarkBotAdapter implements FrontendHandle {
       if (handled) return handled
     }
 
-    let sessionId = this.routingTable.resolve(this.appId, anchor)
+    let sessionId = this.routingTable.lookup(this.appId, anchor)
 
     if (!sessionId) {
       // Create a new session for this anchor
-      const createResult = await this.sessionClient.createSession(`Lark: ${anchor.scope}`)
+      const createResult = await this.sessionClient.createSession(`Lark: ${anchor.kind}`)
       sessionId = createResult.sessionId
       this.routingTable.bind(
         this.appId,
         anchor,
         sessionId,
-        `Lark: ${anchor.scope}:${anchor.key.slice(0, ROUTING_KEY_PREVIEW_CHARS)}`,
+        `Lark: ${anchor.kind}:${label}`,
       )
     }
 
@@ -308,27 +310,15 @@ export class LarkBotAdapter implements FrontendHandle {
         )
         return cardBody ?? undefined
       },
-      isSessionOwner: (anchor: string) => {
-        return (
-          this.routingTable.resolve(adapter.appId, {
-            scope: 'thread',
-            key: anchor,
-          }) !== null ||
-          this.routingTable.resolve(adapter.appId, {
-            scope: 'chat',
-            key: anchor,
-          }) !== null
-        )
+      isSessionOwner: (anchor: Anchor) => {
+        return this.routingTable.lookup(adapter.appId, anchor) !== null
       },
     }
   }
 
-  /** Convert RoutingContext (im/types) to Anchor (frontend.lark) */
+  /** Convert RoutingContext to Anchor — the context already carries a canonical Anchor (PR G3). */
   private routingContextToAnchor(ctx: RoutingContext): Anchor {
-    return {
-      scope: ctx.scope as Anchor['scope'],
-      key: ctx.anchor,
-    }
+    return ctx.anchor
   }
 
   /** Build card-handler dependencies backed by Transport */

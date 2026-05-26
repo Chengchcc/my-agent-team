@@ -9,3 +9,5 @@ export type {
   ToolCall, ToolCallRecord, LlmMessage, ToolDescriptor,
   TurnFailureStage,
 } from './turn-runner.types'
+export type { Anchor } from './anchor'
+export { anchorToSessionId, anchorKey } from './anchor'

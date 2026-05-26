@@ -2,6 +2,8 @@
 import * as Lark from '@larksuiteoapi/node-sdk';
 import type { LarkClient } from './client';
 import type { RoutingContext } from './types';
+import type { Anchor } from '../../../domain/anchor'
+import { anchorKey } from '../../../domain/anchor';
 
 const LOG_ID_PREVIEW_LEN = 8
 
@@ -27,7 +29,7 @@ export interface EventHandlers {
   handleNewTopic: (data: unknown, ctx: RoutingContext) => Promise<void>;
   handleThreadReply: (data: unknown, ctx: RoutingContext) => Promise<void>;
   handleCardAction: (data: unknown) => Promise<string | undefined>;
-  isSessionOwner?: (anchor: string) => boolean;
+  isSessionOwner?: (anchor: Anchor) => boolean;
 }
 
 export function startLarkEventDispatcher(
@@ -68,15 +70,15 @@ export function startLarkEventDispatcher(
 
         // Decide routing
         const routing = await decideRouting(
-          chatId, chatType, messageId, larkClient, rootId, threadId,
+          chatId, chatType, messageId, larkClient, larkAppId, rootId, threadId,
         );
         const ctx: RoutingContext = {
           chatId, messageId, chatType, larkAppId,
           threadRootId: rootId ?? messageId,
-          ...routing,
+          anchor: routing,
         };
 
-        const ownsSession = handlers.isSessionOwner?.(routing.anchor) ?? false;
+        const ownsSession = handlers.isSessionOwner?.(routing) ?? false;
 
         // Simple permission gate
         if (chatType === 'group' && !ownsSession) {
@@ -90,7 +92,7 @@ export function startLarkEventDispatcher(
           }
         }
 
-        logger?.debug('lark', `dispatching message: ownsSession=${ownsSession} scope=${routing.scope} anchor=${routing.anchor.slice(0, LOG_ID_PREVIEW_LEN)}...`)
+        logger?.debug('lark', `dispatching message: ownsSession=${ownsSession} anchor=${anchorKey(routing).slice(0, LOG_ID_PREVIEW_LEN)}...`)
         const promise = ownsSession
           ? handlers.handleThreadReply(msg, ctx)
           : handlers.handleNewTopic(msg, ctx);
@@ -127,16 +129,17 @@ async function decideRouting(
   chatType: 'group' | 'p2p',
   messageId: string,
   larkClient: LarkClient,
+  larkAppId: string,
   rootId?: string,
   threadId?: string,
-): Promise<{ scope: 'thread' | 'chat' | 'p2p'; anchor: string }> {
+): Promise<Anchor> {
   // Real thread reply — both root_id and thread_id present
-  if (rootId && threadId) return { scope: 'thread', anchor: rootId };
+  if (rootId && threadId) return { kind: 'lark-group', appId: larkAppId, chatId: rootId };
   // P2P — always main session, anchor on chatId for stable routing
-  if (chatType === 'p2p') return { scope: 'p2p', anchor: chatId };
+  if (chatType === 'p2p') return { kind: 'lark-p2p', appId: larkAppId, openId: chatId };
   // Group — check chat_mode
   const mode = await larkClient.getChatMode(chatId);
-  if (mode === 'topic') return { scope: 'thread', anchor: messageId };
-  // Normal group — chat-scope
-  return { scope: 'chat', anchor: chatId };
+  if (mode === 'topic') return { kind: 'lark-group', appId: larkAppId, chatId: messageId };
+  // Normal group — chatId-based
+  return { kind: 'lark-group', appId: larkAppId, chatId };
 }

@@ -77,7 +77,7 @@ describe('controlplane-methods extension', () => {
       const res = expectSuccess(await rpc(server, 'session.list'))
       const sessions = res.sessions as Array<Record<string, unknown>>
       expect(sessions.length).toBeGreaterThanOrEqual(1)
-      expect(sessions.some((s) => s.id === 'main')).toBe(true)
+      expect(sessions.some((s) => s.id === 'tui-default')).toBe(true)
 
       await k.stop()
     })
@@ -109,7 +109,7 @@ describe('controlplane-methods extension', () => {
       const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(await rpc(server, 'session.list'))
       const sessions = res.sessions as Array<Record<string, unknown>>
-      const main = sessions.find((s) => s.id === 'main')
+      const main = sessions.find((s) => s.id === 'tui-default')
       expect(main).toBeDefined()
       expect(main!.state).toBeDefined()
       expect(main!.isMain).toBe(true)
@@ -143,7 +143,7 @@ describe('controlplane-methods extension', () => {
       await k.start()
 
       const server = k.ctx.extensions.get('controlplane.server')
-      expectError(await rpc(server, 'session.attach', { sessionId: 'main' }))
+      expectError(await rpc(server, 'session.attach', { sessionId: 'tui-default' }))
 
       await k.stop()
     })
@@ -157,20 +157,20 @@ describe('controlplane-methods extension', () => {
       const server = k.ctx.extensions.get('controlplane.server')
 
       // Attach first
-      await rpc(server, 'session.attach', { frontendId: 'fe-test', sessionId: 'main' })
-      expect(server.getFrontendSessions('fe-test')).toContain('main')
+      await rpc(server, 'session.attach', { frontendId: 'fe-test', sessionId: 'tui-default' })
+      expect(server.getFrontendSessions('fe-test')).toContain('tui-default')
 
       // Detach
       const res = expectSuccess(
         await rpc(server, 'session.detach', {
           frontendId: 'fe-test',
-          sessionId: 'main',
+          sessionId: 'tui-default',
         }),
       )
       expect(res.ok).toBe(true)
 
       // Verify tracking removed
-      expect(server.getFrontendSessions('fe-test')).not.toContain('main')
+      expect(server.getFrontendSessions('fe-test')).not.toContain('tui-default')
 
       await k.stop()
     })
@@ -183,7 +183,7 @@ describe('controlplane-methods extension', () => {
       const res = expectSuccess(
         await rpc(server, 'session.detach', {
           frontendId: 'fe-unknown',
-          sessionId: 'main',
+          sessionId: 'tui-default',
         }),
       )
       expect(res.ok).toBe(true)
@@ -230,7 +230,7 @@ describe('controlplane-methods extension', () => {
       // Attach to current session (main)
       await rpc(server, 'session.attach', {
         frontendId: 'fe-switch',
-        sessionId: 'main',
+        sessionId: 'tui-default',
       })
 
       // Create a new target session
@@ -244,13 +244,13 @@ describe('controlplane-methods extension', () => {
         await rpc(server, 'session.resume', {
           sessionId: targetId,
           frontendId: 'fe-switch',
-          currentSessionId: 'main',
+          currentSessionId: 'tui-default',
         }),
       )
       expect(res.ok).toBe(true)
 
       // Verify detached from main
-      expect(server.getFrontendSessions('fe-switch')).not.toContain('main')
+      expect(server.getFrontendSessions('fe-switch')).not.toContain('tui-default')
       expect(server.getFrontendSessions('fe-switch')).toContain(targetId)
 
       await k.stop()
@@ -363,7 +363,7 @@ describe('controlplane-methods extension', () => {
       await k.start()
 
       const server = k.ctx.extensions.get('controlplane.server')
-      expectError(await rpc(server, 'session.close', { sessionId: 'main' }))
+      expectError(await rpc(server, 'session.close', { sessionId: 'tui-default' }))
 
       await k.stop()
     })
@@ -374,7 +374,7 @@ describe('controlplane-methods extension', () => {
 
       const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
-        await rpc(server, 'session.close', { sessionId: 'main', force: true }),
+        await rpc(server, 'session.close', { sessionId: 'tui-default', force: true }),
       )
       expect(res.ok).toBe(true)
       expect(res.state).toBe('CLOSED')
@@ -410,7 +410,7 @@ describe('controlplane-methods extension', () => {
       const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
         await rpc(server, 'session.rename', {
-          sessionId: 'main',
+          sessionId: 'tui-default',
           title: 'Renamed Main',
         }),
       )
@@ -420,7 +420,7 @@ describe('controlplane-methods extension', () => {
       // Verify in list
       const listRes = expectSuccess(await rpc(server, 'session.list'))
       const sessions = listRes.sessions as Array<Record<string, unknown>>
-      const main = sessions.find((s) => s.id === 'main')
+      const main = sessions.find((s) => s.id === 'tui-default')
       expect(main!.title).toBe('Renamed Main')
 
       await k.stop()
@@ -431,7 +431,7 @@ describe('controlplane-methods extension', () => {
       await k.start()
 
       const server = k.ctx.extensions.get('controlplane.server')
-      expectError(await rpc(server, 'session.rename', { sessionId: 'main' }))
+      expectError(await rpc(server, 'session.rename', { sessionId: 'tui-default' }))
 
       await k.stop()
     })
@@ -477,7 +477,7 @@ describe('controlplane-methods extension', () => {
       await k.start()
 
       const server = k.ctx.extensions.get('controlplane.server')
-      expectError(await rpc(server, 'input.send', { sessionId: 'main' }))
+      expectError(await rpc(server, 'input.send', { sessionId: 'tui-default' }))
 
       await k.stop()
     })
@@ -489,7 +489,7 @@ describe('controlplane-methods extension', () => {
       const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
         await rpc(server, 'input.send', {
-          sessionId: 'main',
+          sessionId: 'tui-default',
           text: '',
           frontendId: 'fe-input',
         }),
@@ -509,14 +509,14 @@ describe('controlplane-methods extension', () => {
 
       // Start a turn first
       await rpc(server, 'input.send', {
-        sessionId: 'main',
+        sessionId: 'tui-default',
         text: 'Something to cancel',
       })
 
       // Cancel it
       const res = expectSuccess(
         await rpc(server, 'input.cancel', {
-          sessionId: 'main',
+          sessionId: 'tui-default',
           reason: 'user changed mind',
         }),
       )
@@ -526,7 +526,7 @@ describe('controlplane-methods extension', () => {
       // Session should be back to IDLE
       const listRes = expectSuccess(await rpc(server, 'session.list'))
       const sessions = listRes.sessions as Array<Record<string, unknown>>
-      const main = sessions.find((s) => s.id === 'main')
+      const main = sessions.find((s) => s.id === 'tui-default')
       expect(main!.state === 'IDLE' || main!.state === 'INIT').toBe(true)
 
       await k.stop()
@@ -538,7 +538,7 @@ describe('controlplane-methods extension', () => {
 
       const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
-        await rpc(server, 'input.cancel', { sessionId: 'main' }),
+        await rpc(server, 'input.cancel', { sessionId: 'tui-default' }),
       )
       expect(res.cancelled).toBe(true)
 
@@ -570,13 +570,13 @@ describe('controlplane-methods extension', () => {
       const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
         await rpc(server, 'user.answer', {
-          sessionId: 'main',
+          sessionId: 'tui-default',
           questionId: 'q-001',
           answers: [{ question_index: 0, selected_labels: ['option-a'] }],
         }),
       )
       expect(res.ok).toBe(true)
-      expect(res.sessionId).toBe('main')
+      expect(res.sessionId).toBe('tui-default')
       expect(res.questionId).toBe('q-001')
 
       await k.stop()
@@ -588,7 +588,7 @@ describe('controlplane-methods extension', () => {
 
       const server = k.ctx.extensions.get('controlplane.server')
       expectError(
-        await rpc(server, 'user.answer', { sessionId: 'main', answers: [] }),
+        await rpc(server, 'user.answer', { sessionId: 'tui-default', answers: [] }),
       )
 
       await k.stop()
@@ -724,20 +724,20 @@ describe('controlplane-methods extension', () => {
       // Attach to main
       await rpc(server, 'session.attach', {
         frontendId: 'fe-lifecycle',
-        sessionId: 'main',
+        sessionId: 'tui-default',
       })
-      expect(server.getFrontendSessions('fe-lifecycle')).toContain('main')
+      expect(server.getFrontendSessions('fe-lifecycle')).toContain('tui-default')
 
       // Resume to target (detaches from main, attaches to target)
       const resumeRes = expectSuccess(
         await rpc(server, 'session.resume', {
           sessionId: targetId,
           frontendId: 'fe-lifecycle',
-          currentSessionId: 'main',
+          currentSessionId: 'tui-default',
         }),
       )
       expect(resumeRes.ok).toBe(true)
-      expect(server.getFrontendSessions('fe-lifecycle')).not.toContain('main')
+      expect(server.getFrontendSessions('fe-lifecycle')).not.toContain('tui-default')
       expect(server.getFrontendSessions('fe-lifecycle')).toContain(targetId)
 
       await k.stop()
@@ -752,7 +752,7 @@ describe('controlplane-methods extension', () => {
       // Send input
       const sendRes = expectSuccess(
         await rpc(server, 'input.send', {
-          sessionId: 'main',
+          sessionId: 'tui-default',
           text: 'Start a task',
         }),
       )
@@ -761,7 +761,7 @@ describe('controlplane-methods extension', () => {
 
       // Cancel the turn
       const cancelRes = expectSuccess(
-        await rpc(server, 'input.cancel', { sessionId: 'main' }),
+        await rpc(server, 'input.cancel', { sessionId: 'tui-default' }),
       )
       expect(cancelRes.cancelled).toBe(true)
 

@@ -47,7 +47,8 @@ export function makeSessionAttachHandler(d: RpcHandlerDeps) {
     const p = params as { frontendId?: string; sessionId?: string } | undefined;
     if (!p?.frontendId) throw new Error('frontendId is required');
     const frontendId = p.frontendId;
-    const sessionId = p?.sessionId ?? 'main';
+    if (!p?.sessionId) throw new Error('sessionId is required');
+    const sessionId = p.sessionId;
 
     const store = d.getStore();
     const session = await store.load(sessionId);
@@ -77,8 +78,10 @@ export function makeSessionAttachHandler(d: RpcHandlerDeps) {
 export function makeSessionDetachHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { frontendId?: string; sessionId?: string } | undefined;
-    const frontendId = p?.frontendId ?? 'unknown';
-    const sessionId = p?.sessionId ?? 'main';
+    if (!p?.frontendId) throw new Error('frontendId is required');
+    const frontendId = p.frontendId;
+    if (!p?.sessionId) throw new Error('sessionId is required');
+    const sessionId = p.sessionId;
 
     const store = d.getStore();
     const session = await store.load(sessionId);
@@ -332,7 +335,7 @@ export function makeUserAnswerHandler(d: RpcHandlerDeps) {
 export function makeSystemHealthHandler(d: RpcHandlerDeps) {
   return async () => {
     let sessionOk = false;
-    try { sessionOk = (await d.getStore().load('main')) !== null; } catch { /* unavailable */ }
+    try { sessionOk = (await d.getStore().load('tui-default')) !== null; } catch { /* unavailable */ }
     return {
       status: 'ok', uptimeMs: d.ctx.clock.now(), agentId: d.ctx.agentId,
       extensions: d.ctx.extensions.list().length, rpcMethods: d.ctx.rpc.listMethods().length,
