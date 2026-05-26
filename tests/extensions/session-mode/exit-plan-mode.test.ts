@@ -33,7 +33,7 @@ describe('exit_plan_mode tool (M2)', () => {
     await k.start()
 
     const events: unknown[] = []
-    k.ctx.bus.on('session.planProposed', (payload) => events.push(payload))
+    k.ctx.bus.on('session.planProposed', (raw) => events.push((raw as { payload: unknown }).payload ?? raw))
 
     const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const tool = catalog.get('exit_plan_mode')!

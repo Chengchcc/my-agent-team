@@ -1,4 +1,5 @@
 import { defineExtension } from '../../kernel/define-extension'
+import { asContractBus } from '../../application/event-bus/contract-bus'
 import { generateULID } from '../../shared/ulid'
 import { runTurnUsecase, buildRunTurnDeps } from '../../application/usecases/run-turn'
 import type { SubAgentRunner, SubAgentRunInput } from './types'
@@ -25,6 +26,7 @@ export default () =>
     dependsOn: ['tool-catalog', 'session'],
 
     apply(ctx) {
+      const bus = asContractBus(ctx.bus)
       const registry = new SubAgentRegistry()
       registerBuiltins(registry)
 
@@ -35,7 +37,7 @@ export default () =>
         const subSessionId = `sub:${input.parentTurnId}:${generateULID()}`
 
         ctx.logger.info('sub-agent', `Starting sub-agent "${input.type}" (${subSessionId})`)
-        void ctx.bus.emit('subagent.started', { parentTurnId: input.parentTurnId, parentSessionId: input.parentSessionId, type: input.type, subSessionId, callId: input.parentCallId, ts: Date.now() })
+        void bus.emit('subagent.started', { parentTurnId: input.parentTurnId, parentSessionId: input.parentSessionId, type: input.type, subSessionId, callId: input.parentCallId, ts: Date.now() })
 
         try {
           const res = await runTurnUsecase(
@@ -58,7 +60,7 @@ export default () =>
           )
 
           ctx.logger.info('sub-agent', `Sub-agent "${input.type}" completed, via:subagent:${input.type} usage: ${res.usage.input}+${res.usage.output}`)
-          void ctx.bus.emit('subagent.completed', { parentTurnId: input.parentTurnId, parentSessionId: input.parentSessionId, type: input.type, subSessionId, callId: input.parentCallId, ok: true, usage: res.usage, finalText: res.finalText ?? '', ts: Date.now() })
+          void bus.emit('subagent.completed', { parentTurnId: input.parentTurnId, parentSessionId: input.parentSessionId, type: input.type, subSessionId, callId: input.parentCallId, ok: true, usage: res.usage, finalText: res.finalText ?? '', ts: Date.now() })
           return res.finalText ?? ''
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)

@@ -1,4 +1,5 @@
 import { defineExtension } from '../../kernel/define-extension'
+import { asContractBus } from '../../application/event-bus/contract-bus'
 import type { Transport } from '../../application/ports/transport'
 import type { Logger } from '../../application/ports/logger'
 import type { FrontendHandle } from '../../application/ports/frontend-handle'
@@ -160,6 +161,7 @@ export default () =>
     enforce: 'post',
     dependsOn: ['transport-inmem', 'controlplane', 'dataplane'],
     apply: (ctx) => {
+      const bus = asContractBus(ctx.bus)
       // Collect extension slash commands for TUI picker
       extSlashCommands.length = 0
       extSlashCommands.push(...ctx.extensions.collectSlashCommands())
@@ -181,7 +183,7 @@ export default () =>
         subscribe: {
           'session.planWidget': (payload: unknown) => {
             const p = payload as { blockId: string; sessionId: string; status: string; payload: Record<string, unknown>; mode: string }
-            void ctx.bus.emit('tui.inline-block', {
+            void bus.emit('tui.inline-block', {
               blockId: p.blockId,
               widget: 'plan.proposal',
               payload: { ...p.payload, status: p.status },

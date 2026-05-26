@@ -1,5 +1,6 @@
 import { defineExtension } from '../../kernel/define-extension'
 import type { HookHandler } from '../../kernel/define-extension'
+import { asContractBus } from '../../application/event-bus/contract-bus'
 import type { ToolDescriptor } from '../../domain/turn-runner.types'
 import type { SlashCommand, SlashContext, SlashResolution } from '../../application/slash'
 import { defineTool } from '../../application/tool-factory/define-tool'
@@ -65,6 +66,7 @@ function buildSlashCommands(
 }
 
 function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['apply']>[0]) {
+      const bus = asContractBus(ctx.bus)
       const registry = new ModeRegistry()
       registerBuiltinModes(registry)
 
@@ -87,7 +89,7 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
         const from = s.mode
         s.mode = mode
         await store.save(s)
-        void ctx.bus.emit('session.modeChanged', { sessionId, from, to: mode, ts: ctx.clock.now() })
+        void bus.emit('session.modeChanged', { sessionId, from, to: mode, ts: ctx.clock.now() })
         ctx.logger.info('session-mode', `Mode changed: ${from} → ${mode} (session ${sessionId})`)
         return { ok: true }
       }
@@ -166,7 +168,7 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
             const payload = { callId: toolCtx.callId, planMd, status: 'proposed', proposedAt: Date.now() }
             activeProposals.set(sid, { blockId, payload })
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            ctx.bus.emit('session.planProposed', { sessionId: sid, planMd, callId: toolCtx.callId, ts: Date.now() })
+            bus.emit('session.planProposed', { sessionId: sid, planMd, callId: toolCtx.callId, ts: Date.now() })
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
             ctx.bus.emit('session.planWidget', { blockId, sessionId: sid, status: 'proposed', payload, mode: 'append' })
             return 'Plan submitted. Awaiting user decision.'
@@ -191,7 +193,7 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
           'session.resolvePlan': async (params: unknown) => {
             const p = params as { sessionId: string; decision: 'approve' | 'reject' | 'keep' }
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            ctx.bus.emit('session.planResolved', { sessionId: p.sessionId, decision: p.decision, ts: Date.now() })
+            bus.emit('session.planResolved', { sessionId: p.sessionId, decision: p.decision, ts: Date.now() })
             // Update widget status
             const active = activeProposals.get(p.sessionId)
             if (active) {
