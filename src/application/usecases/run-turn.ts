@@ -11,6 +11,8 @@ import type { SessionHistoryPort } from '../ports/session-history'
 import { approxTokens, COMPACT_AUTO_THRESHOLD_TOKENS, COMPACT_KEEP_RECENT, BUDGET_DEFAULT_TOKEN_LIMIT } from '../constants/compact'
 import { reactiveCompactCheck } from './budget-guard'
 import { compactSessionUsecase, type Compactor } from './compact-session'
+import type { ContractBus } from '../event-bus/contract-bus'
+import { asContractBus } from '../event-bus/contract-bus'
 import type {
   ToolCallRecord, ToolDescriptor,
 } from '../../domain/turn-runner.types'
@@ -18,10 +20,6 @@ import type {
 const DEFAULT_MAX_TURN_ITERATIONS = 10
 
 // ── Ports consumed by the usecase ──────────────────────────────────────────
-
-export interface BusPort {
-  emit(type: string, payload: unknown): Promise<void>
-}
 
 export interface LoggerPort {
   info(domain: string, message: string, fields?: Record<string, unknown>): void
@@ -34,7 +32,7 @@ export interface RunTurnUsecaseDeps {
   hooks: { dispatch<T = unknown>(name: string, ...args: unknown[]): Promise<T> }
   sessionStore: SessionStore
   history: SessionHistoryPort
-  bus: BusPort
+  bus: ContractBus
   logger: LoggerPort
   basePrompt?: string
   agentDir: string
@@ -319,7 +317,7 @@ export async function runTurnUsecase(
 export function buildRunTurnDeps(ctx: {
   extensions: { get(key: string): unknown }
   hooks: { dispatch(name: string, ...args: unknown[]): Promise<unknown> }
-  bus: { emit(event: string, payload: unknown): void }
+  bus: { emit(event: string, payload: unknown): Promise<void> }
   logger: { info(d: string, m: string): void; warn(d: string, m: string): void; error(d: string, m: string): void }
   agentDir: string
 }): RunTurnUsecaseDeps {
@@ -328,7 +326,7 @@ export function buildRunTurnDeps(ctx: {
     hooks: { dispatch: ctx.hooks.dispatch.bind(ctx.hooks) as <T>(n: string, ...a: unknown[]) => Promise<T> },
     sessionStore: ctx.extensions.get('session.store') as RunTurnUsecaseDeps['sessionStore'],
     history: ctx.extensions.get('session.history') as RunTurnUsecaseDeps['history'],
-    bus: ctx.bus as unknown as BusPort,
+    bus: asContractBus(ctx.bus),
     logger: ctx.logger as LoggerPort,
     agentDir: ctx.agentDir,
     sessionAbort: ctx.extensions.get('session.abort') as RunTurnUsecaseDeps['sessionAbort'],

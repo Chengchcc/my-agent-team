@@ -1,7 +1,6 @@
 import { defineExtension } from '../../kernel/define-extension'
 import type { HookHandler } from '../../kernel/define-extension'
-import { createEvent } from '../../application/contracts';
-import { asContractBus } from '../../application/event-bus/contract-bus';
+import { asContractBus, type ContractBus } from '../../application/event-bus/contract-bus';
 import { SqliteSessionStore } from '../../infrastructure/session/sqlite-session-store'
 import { SqliteHistoryStore } from '../../infrastructure/session/sqlite-history-store'
 import { openDb, runMigrations } from '../../infrastructure/_sqlite/connection'
@@ -20,7 +19,7 @@ interface TurnStartDeps {
   sessionStore: SessionStore;
   eventFactory: ReturnType<typeof createTraceEventFactory>;
   hooks: HookContainer;
-  contractBus: ReturnType<typeof asContractBus>;
+  contractBus: ContractBus;
 }
 
 function makeOnTurnStart(d: TurnStartDeps): HookHandler {
@@ -34,7 +33,7 @@ function makeOnTurnStart(d: TurnStartDeps): HookHandler {
     const turn = createTurn(`turn-${d.eventFactory.lastCursor + 1}`, sessionId);
     const traceEvt = d.eventFactory.next(turn.id, 'turn.started', { sessionId, frontendId });
     await d.hooks.dispatch('onTraceEmit', traceEvt);
-    void d.contractBus.emit(createEvent('turn.started', { sessionId, turnId: turn.id }, { sessionId, turnId: turn.id }));
+    void d.contractBus.emit('turn.started', { sessionId, turnId: turn.id }, { sessionId, turnId: turn.id });
     return turn;
   };
 }
@@ -43,7 +42,7 @@ interface TurnEndDeps {
   sessionStore: SessionStore;
   eventFactory: ReturnType<typeof createTraceEventFactory>;
   hooks: HookContainer;
-  contractBus: ReturnType<typeof asContractBus>;
+  contractBus: ContractBus;
 }
 
 function makeOnTurnEnd(d: TurnEndDeps): HookHandler {
@@ -71,23 +70,23 @@ function makeOnTurnEnd(d: TurnEndDeps): HookHandler {
 
     // Emit contract bus event — single source of truth for turn termination
     if (status === 'completed') {
-      void d.contractBus.emit(createEvent('turn.completed', {
+      void d.contractBus.emit('turn.completed', {
         sessionId,
         turnId,
         usage: { input: result.usage?.input ?? null, output: result.usage?.output ?? null },
         toolCallCount: result.toolCallCount ?? 0,
         toolErrorCount: result.toolErrorCount ?? 0,
         activatedSkills: result.activatedSkills ?? [],
-      }, { sessionId, turnId }));
+      }, { sessionId, turnId });
     } else {
-      void d.contractBus.emit(createEvent('turn.failed', {
+      void d.contractBus.emit('turn.failed', {
         sessionId,
         turnId,
         outcome: 'error',
         stage: result.error?.stage ?? 'unknown',
         reason: result.error?.reason ?? 'Unknown error',
         toolErrorCount: result.toolErrorCount ?? 0,
-      }, { sessionId, turnId }));
+      }, { sessionId, turnId });
     }
   };
 }

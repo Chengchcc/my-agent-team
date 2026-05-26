@@ -1,6 +1,5 @@
 import { defineExtension } from '../../kernel/define-extension'
 import type { HookHandler } from '../../kernel/define-extension'
-import { createEvent } from '../../application/contracts'
 import { asContractBus } from '../../application/event-bus/contract-bus'
 import { createSkillDescriptor } from '../../domain/skill-descriptor'
 import type { SkillDescriptor } from '../../domain/skill-descriptor'
@@ -115,7 +114,7 @@ export default (opts: SkillsExtOptions = {}) =>
             skills.set(info.name, fromSkillInfo(info))
           }
           const added = skills.size - before
-          void contractBus.emit(createEvent('skills.reloaded', { added, removed: 0, updated: 0 }))
+          void contractBus.emit('skills.reloaded', { added, removed: 0, updated: 0 })
           return { added, removed: 0, updated: 0 }
         } catch {
           return { added: 0, removed: 0, updated: 0 }

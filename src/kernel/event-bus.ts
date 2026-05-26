@@ -77,6 +77,36 @@ class EventBus {
   }
 
   /**
+   * Emit an event and collect per-subscriber results.
+   * Resolves after all handlers settle. Returns { ok, failures }
+   * where `ok` is true when all subscribers succeeded.
+   */
+  async emitWithResults(event: string, payload: unknown): Promise<{ ok: boolean; failures: string[] }> {
+    const handlers = this.subscribers.get(event)
+    if (!handlers || handlers.size === 0) return { ok: true, failures: [] }
+
+    const failures: string[] = []
+    await Promise.all(
+      [...handlers].map(async (handler, idx) => {
+        try {
+          await handler(payload)
+        } catch (err) {
+          const subscriberName = handler.name ? `handler#${idx}(${handler.name})` : `handler#${idx}`
+          const msg = err instanceof Error ? err.message : String(err)
+          failures.push(`${subscriberName}: ${msg}`)
+          if (this.logger) {
+            this.logger.warn('event-bus', `[emitWithResults] subscriber error on "${event}" (${subscriberName}): ${msg}`)
+          } else {
+            console.warn(`[EventBus] subscriber error on "${event}" (${subscriberName}): ${msg}`)
+          }
+        }
+      })
+    )
+
+    return { ok: failures.length === 0, failures }
+  }
+
+  /**
    * Remove all subscribers for an event, or all events if no event specified.
    */
   clear(event?: string): void {

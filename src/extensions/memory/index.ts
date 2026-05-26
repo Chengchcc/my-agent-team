@@ -1,6 +1,5 @@
 import { defineExtension } from '../../kernel/define-extension'
 import { slashMemory } from './slash/slash-memory'
-import { createEvent } from '../../application/contracts'
 import { asContractBus } from '../../application/event-bus/contract-bus'
 import { createSqliteMemoryStore } from '../../infrastructure/memory'
 import { openDb } from '../../infrastructure/_sqlite/connection'
@@ -241,10 +240,10 @@ export default (opts: MemoryOpts = {}) =>
               return { wouldDelete: candidates.length, ids: candidates };
             }
             await store.removeMany(candidates);
-            void bus.emit(createEvent('memory.prune.applied', {
+            void bus.emit('memory.prune.applied', {
               deletedCount: candidates.length,
               dryRun: false,
-            }));
+            });
             return { deleted: candidates.length };
           },
         },
@@ -282,7 +281,7 @@ export default (opts: MemoryOpts = {}) =>
             if (!run) return
 
             inflight++
-            void bus.emit(createEvent('memory.extract.started', { runId: e.turnId }))
+            void bus.emit('memory.extract.started', { runId: e.turnId })
             try {
               const result = await spawner.run<ExtractJob, ExtractResult>({
                 entry: require.resolve('./extract-worker'),
@@ -300,12 +299,12 @@ export default (opts: MemoryOpts = {}) =>
                   case 'duplicate-exact':
                     void store.markHit([result_.existingId])
                     void store.incrementMergeCount(result_.existingId)
-                    void bus.emit(createEvent('memory.dedup', { kind: 'exact', existingId: result_.existingId }))
+                    void bus.emit('memory.dedup', { kind: 'exact', existingId: result_.existingId })
                     continue
                   case 'duplicate-semantic':
                     void store.markHit([result_.existingId])
                     void store.incrementMergeCount(result_.existingId)
-                    void bus.emit(createEvent('memory.dedup', { kind: 'semantic', existingId: result_.existingId }))
+                    void bus.emit('memory.dedup', { kind: 'semantic', existingId: result_.existingId })
                     continue
                   case 'contradiction':
                   case 'new':
@@ -350,10 +349,10 @@ export default (opts: MemoryOpts = {}) =>
                   await store.storeEmbedding(newEntry.id, emb)
                 } catch { /* non-critical */ }
               }
-              void bus.emit(createEvent('memory.extract.completed', { runId: e.turnId, count: result.candidates.length }))
+              void bus.emit('memory.extract.completed', { runId: e.turnId, count: result.candidates.length })
             } catch (err) {
               ctx.logger.warn('memory', `extract failed: ${String(err)}`)
-              void bus.emit(createEvent('memory.extract.failed', { runId: e.turnId, message: String(err) }))
+              void bus.emit('memory.extract.failed', { runId: e.turnId, message: String(err) })
             } finally {
               inflight--
             }

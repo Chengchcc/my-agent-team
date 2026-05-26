@@ -7,7 +7,6 @@ import type { MemoryStore } from '../../../application/ports/memory-store';
 import type { MemoryType } from '../../../domain/memory-entry';
 import type { EmbeddingEncoder } from '../retrievers';
 import type { ContractBus } from '../../../application/event-bus/contract-bus';
-import { createEvent } from '../../../application/contracts';
 
 // ── I/O types ──────────────────────────────────────────────────────────────
 
@@ -127,10 +126,10 @@ export class ForgetUseCase {
       for (const id of ids) {
         await this.store.remove(id);
       }
-      void this.bus.emit(createEvent('memory.forget.hard', {
+      void this.bus.emit('memory.forget.hard', {
         ids,
         query: input.query,
-      }));
+      });
       return { ok: true, status: 'forgotten', affected: ids.length, ids, mode: 'hard' };
     }
 
@@ -148,11 +147,11 @@ export class ForgetUseCase {
     for (const id of ids) {
       await this.store.supersede(id, tombstone.id);
     }
-    void this.bus.emit(createEvent('memory.forget.soft', {
+    void this.bus.emit('memory.forget.soft', {
       ids,
       tombstoneId: tombstone.id,
       query: input.query,
-    }));
+    });
     return { ok: true, status: 'forgotten', affected: ids.length, ids, mode: 'soft' };
   }
 }

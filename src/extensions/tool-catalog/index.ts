@@ -6,7 +6,6 @@ import { dispatchTool } from '../../application/usecases/dispatch-tool';
 import type { ToolCatalog } from '../../application/ports/tool-catalog';
 import type { ToolExecutor } from '../../application/ports/tool-executor';
 import type { ToolContext } from '../../application/ports/tool-context';
-import { createEvent } from '../../application/contracts';
 import { asContractBus } from '../../application/event-bus/contract-bus';
 
 export default () =>
@@ -31,11 +30,11 @@ export default () =>
           ? (result as { isError?: boolean }).isError === true
           : false;
 
-        await contractBus.emit(createEvent('tool.executed', {
+        await contractBus.emit('tool.executed', {
           name: call.name,
           duration,
           isError,
-        }));
+        });
 
         return result;
       };

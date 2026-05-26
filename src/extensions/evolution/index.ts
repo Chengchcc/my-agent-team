@@ -1,7 +1,6 @@
 import { defineExtension } from "../../kernel/define-extension"
 import { slashEvolution } from "./slash/slash-evolution"
-import { createEvent } from '../../application/contracts'
-import { asContractBus } from '../../application/event-bus/contract-bus'
+import { asContractBus, type ContractBus } from '../../application/event-bus/contract-bus'
 import type { EventEnvelope } from '../../application/contracts'
 import { evaluateReviewPolicy, type PolicyState } from './policy'
 import { bumpStat } from './skill-stats'
@@ -41,7 +40,7 @@ const OUTCOME_MAP: Record<ReviewResult['outcome'], 'success' | 'cancel' | 'fail'
 // ── Shared deps for extracted event handlers ──────────────────────────────
 
 interface EvolutionEventDeps {
-  bus: ReturnType<typeof asContractBus>
+  bus: ContractBus
   reader: TraceReader
   spawner: JobSpawner | undefined
   proposals: ProposalStore | undefined
@@ -82,7 +81,7 @@ async function handleTurnEvent(
   const job: ReviewJob = { tier, runId: turnId, skillName, run, stats }
 
   deps.inflight.current++
-  void deps.bus.emit(createEvent('evolution.review.started', { runId: turnId, tier, skillName }))
+  void deps.bus.emit('evolution.review.started', { runId: turnId, tier, skillName })
 
   try {
     const result = await deps.spawner.run<ReviewJob, ReviewResult>({
@@ -97,14 +96,14 @@ async function handleTurnEvent(
       // Record outcome in sliding-window for auto-retire
       deps.collector.record(skillName, OUTCOME_MAP[result.outcome])
     }
-    void deps.bus.emit(createEvent('evolution.review.completed', {
+    void deps.bus.emit('evolution.review.completed', {
       runId: turnId, tier, outcome: result.outcome, skillName,
-    }))
+    })
   } catch (err) {
     deps.logger.warn('evolution', `review failed: ${String(err)}`)
-    void deps.bus.emit(createEvent('evolution.review.failed', {
+    void deps.bus.emit('evolution.review.failed', {
       runId: turnId, tier, message: String(err),
-    }))
+    })
   } finally {
     deps.inflight.current--
   }
@@ -209,10 +208,10 @@ function buildEvolutionApply(ctx: Parameters<typeof defineExtension>[0]['apply']
         await proposals.markAccepted(p.id, filePath ? { filePath } : undefined)
 
         // Emit reload event
-        void bus.emit(createEvent('skills.reload-requested', {
+        void bus.emit('skills.reload-requested', {
           reason: 'evolution.promote',
           source: p.id,
-        }))
+        })
 
         return { status: 'promoted', filePath }
       },

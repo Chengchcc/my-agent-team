@@ -2,11 +2,12 @@ import { approxTokens, COMPACT_KEEP_RECENT, BUDGET_COMPACT_RATIO } from '../cons
 import { compactSessionUsecase, type Compactor } from './compact-session'
 import type { HistoryRecordV1 } from '../contracts'
 import type { SessionHistoryPort } from '../ports/session-history'
+import type { ContractBus } from '../event-bus/contract-bus'
 
 export interface BudgetDeps {
   history: SessionHistoryPort
   compactor: Compactor
-  bus: { emit(type: string, payload: unknown): Promise<void> }
+  bus: ContractBus
 }
 
 export interface BudgetCheckInput {
@@ -53,7 +54,7 @@ export async function reactiveCompactCheck(
   tokenLimit: number,
   sessionId: string,
   turnId: string,
-  bus: { emit(type: string, payload: unknown): Promise<void> },
+  bus: ContractBus,
   logger: { info(d: string, m: string): void },
   totalUsage: { input: number; output: number },
   emitFailed: (stage: string, reason: string) => Promise<void>,

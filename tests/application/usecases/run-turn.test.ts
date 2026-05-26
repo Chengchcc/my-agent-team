@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'bun:test'
 import { runTurnUsecase } from '../../../src/application/usecases/run-turn'
 import type {
-  RunTurnUsecaseDeps, RunTurnInput, BusPort, LoggerPort,
+  RunTurnUsecaseDeps, RunTurnInput, LoggerPort,
 } from '../../../src/application/usecases/run-turn'
+import type { ContractBus } from '../../../src/application/event-bus/contract-bus'
 import type { SessionHistoryPort } from '../../../src/application/ports/session-history'
 import type { ProviderChat, ChatResponseChunk } from '../../../src/application/ports/provider'
 import type { SessionStore } from '../../../src/application/ports/session-store'
@@ -59,11 +60,15 @@ function stubHistory(msgs: Array<{ role: string; content: string }> = []): Sessi
   } as unknown as SessionHistoryPort
 }
 
-function stubBus(): { bus: BusPort; events: unknown[] } {
+function stubBus(): { bus: ContractBus; events: unknown[] } {
   const events: unknown[] = []
   return {
     events,
-    bus: { emit: (_type, payload) => { events.push(payload) } },
+    bus: {
+      emit: (_type, payload) => { events.push(payload); return Promise.resolve() },
+      on: () => () => {},
+      emitWithResults: (_type, payload) => { events.push(payload); return Promise.resolve({ ok: true, failures: [] }) },
+    },
   }
 }
 

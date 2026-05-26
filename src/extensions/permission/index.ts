@@ -1,6 +1,5 @@
 import { defineExtension } from '../../kernel/define-extension'
 import type { HookHandler } from '../../kernel/define-extension'
-import { createEvent } from '../../application/contracts'
 import { asContractBus } from '../../application/event-bus/contract-bus'
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -101,11 +100,11 @@ export default () =>
             })
           })
 
-          await contractBus.emit(createEvent('permission.required', {
+          await contractBus.emit('permission.required', {
             reqId,
             toolName: call.name,
             sessionId,
-          }))
+          })
 
           await permissionPromise
         }

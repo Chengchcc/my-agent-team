@@ -1,7 +1,6 @@
 import { rename, mkdir } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import type { ContractBus } from '../../application/event-bus/contract-bus'
-import { createEvent } from '../../application/contracts'
 import type { SkillMetaRepo } from '../../application/ports/skill-meta-repo'
 import type { Logger } from '../../application/ports/logger'
 import type { AgentPaths } from '../../infrastructure/paths/agent-paths'
@@ -45,11 +44,11 @@ export class AutoRetirer {
 
     await this.meta.markArchived(skillName, Date.now())
 
-    void this.bus.emit(createEvent('skill.archived', { skillName, archivedTo: dst, reason }))
-    void this.bus.emit(createEvent('skills.reload-requested', {
+    void this.bus.emit('skill.archived', { skillName, archivedTo: dst, reason })
+    void this.bus.emit('skills.reload-requested', {
       reason: 'auto-retire',
       source: skillName,
-    }))
+    })
     this.logger.info('auto-retirer', `skill auto-retired: ${skillName} → ${dst} (${reason})`)
   }
 }

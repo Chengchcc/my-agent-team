@@ -3,7 +3,6 @@ import { EchoProvider } from '../../infrastructure/llm/echo-provider'
 import { ClaudeProvider } from '../../infrastructure/llm/claude-provider'
 import { OpenAiProvider } from '../../infrastructure/llm/openai-provider'
 import type { ProviderChat, ProviderInvoke } from '../../application/ports/provider'
-import { createEvent } from '../../application/contracts'
 import { asContractBus } from '../../application/event-bus/contract-bus'
 
 /**
@@ -72,10 +71,10 @@ export default (env?: Record<string, string | undefined>) =>
             enforce: 'normal',
             fn: async () => {
               const info = provider as unknown as { providerId: string; model: string };
-              void contractBus.emit(createEvent('provider.selected', {
+              void contractBus.emit('provider.selected', {
                 providerId: info.providerId,
                 model: info.model,
-              }));
+              });
             },
           },
           onLLMDelta: {

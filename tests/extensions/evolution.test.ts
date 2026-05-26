@@ -9,7 +9,7 @@ import type { SkillStatsStore } from '../../src/application/ports/skill-stats-st
 import type { JobContextFactory } from '../../src/extensions/infra-services/job-context-factory'
 import type { TraceRun } from '../../src/domain/trace/types'
 import type { TurnCompletedV1, TurnFailedV1 } from '../../src/application/contracts/session-events'
-import { createEvent } from '../../src/application/contracts'
+import { asContractBus } from '../../src/application/event-bus/contract-bus'
 import type { EventEnvelope, EvolutionReviewStartedV1, EvolutionReviewCompletedV1 } from '../../src/application/contracts'
 
 // ── Mock helpers ────────────────────────────────────────────────────────────────
@@ -181,7 +181,7 @@ describe('evolution extension', () => {
 
       // Emit enough turn.completed to surpass MIN_TURNS_BETWEEN_REVIEWS (10)
       for (let i = 0; i < 15; i++) {
-        await kernel.ctx.bus.emit('turn.completed', createEvent('turn.completed', makeTurnCompleted({ runId: `run-${i}` })))
+        await asContractBus(kernel.ctx.bus).emit('turn.completed', makeTurnCompleted({ runId: `run-${i}` }));
       }
 
       // Policy evaluation still runs but pipeline halts at the
@@ -197,7 +197,7 @@ describe('evolution extension', () => {
 
       // Emit turn.failed events — even with error bursts, no infra means no review
       for (let i = 0; i < 5; i++) {
-        await kernel.ctx.bus.emit('turn.failed', createEvent('turn.failed', makeTurnFailed({ runId: `run-fail-${i}` })))
+        await asContractBus(kernel.ctx.bus).emit('turn.failed', makeTurnFailed({ runId: `run-fail-${i}` }));
       }
 
       expect(reviewEvents.length).toBe(0)
@@ -228,7 +228,7 @@ describe('evolution extension', () => {
 
       // Emit 10 turn.completed — the 10th surpasses MIN_TURNS_BETWEEN_REVIEWS
       for (let i = 0; i < 10; i++) {
-        await kernel.ctx.bus.emit('turn.completed', createEvent('turn.completed', makeTurnCompleted({ runId: `run-${i}`, turnId: `turn-${i}` })))
+        await asContractBus(kernel.ctx.bus).emit('turn.completed', makeTurnCompleted({ runId: `run-${i}`, turnId: `turn-${i}` }));
       }
 
       expect(started.length).toBe(1)
@@ -251,7 +251,7 @@ describe('evolution extension', () => {
 
       // Emit 3 turn.failed events to reach ERROR_BURST_THRESHOLD
       for (let i = 0; i < 3; i++) {
-        await kernel.ctx.bus.emit('turn.failed', createEvent('turn.failed', makeTurnFailed({ runId: `run-fail-${i}`, turnId: `turn-fail-${i}` })))
+        await asContractBus(kernel.ctx.bus).emit('turn.failed', makeTurnFailed({ runId: `run-fail-${i}`, turnId: `turn-fail-${i}` }));
       }
 
       expect(started.length).toBe(1)
@@ -272,7 +272,7 @@ describe('evolution extension', () => {
       // Since bus.emit awaits all handlers synchronously, the review completes
       // before the next emit, so we get exactly 1 review started per 10-turn cycle.
       for (let i = 0; i < 20; i++) {
-        await kernel.ctx.bus.emit('turn.completed', createEvent('turn.completed', makeTurnCompleted({ runId: `run-${i}`, turnId: `turn-${i}` })))
+        await asContractBus(kernel.ctx.bus).emit('turn.completed', makeTurnCompleted({ runId: `run-${i}`, turnId: `turn-${i}` }));
       }
 
       // With 20 turn.completed events and MIN_TURNS_BETWEEN_REVIEWS=10,

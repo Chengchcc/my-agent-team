@@ -1,7 +1,6 @@
 import type { SessionHistoryPort } from '../ports/session-history'
 import type { HistoryRecordV1 } from '../contracts'
 import { compactHistory } from '../../domain/compact-history'
-import { createEvent } from '../contracts'
 import { asContractBus } from '../event-bus/contract-bus'
 
 export interface Compactor {
@@ -71,13 +70,13 @@ export async function compactSessionUsecase(
     }
   }
 
-  void asContractBus(deps.bus).emit(createEvent('session.compacted', {
+  void asContractBus(deps.bus).emit('session.compacted', {
     sessionId,
     removedCount: out.removedCount,
     summaryRecordId: out.summaryRecord?.id ?? '',
     usage,
     ts: Date.now(),
-  }, { sessionId }))
+  }, { sessionId })
 
   return {
     ok: true,

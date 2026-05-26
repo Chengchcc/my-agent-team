@@ -6,7 +6,6 @@ import type { MemoryType } from '../../../domain/memory-entry';
 import type { EmbeddingEncoder } from '../retrievers';
 import type { DedupPipeline } from '../dedup-pipeline';
 import type { ContractBus } from '../../../application/event-bus/contract-bus';
-import { createEvent } from '../../../application/contracts';
 
 // ── I/O types ──────────────────────────────────────────────────────────────
 
@@ -79,19 +78,19 @@ export class RememberUseCase {
   async execute(input: RememberInput, turnId?: string): Promise<RememberResult> {
     // ── Content filtering ─────────────────────────────────────────────
     if (!input.text || input.text.length < REMEMBER_MIN_TEXT_LENGTH) {
-      void this.bus.emit(createEvent('memory.remember.rejected', {
+      void this.bus.emit('memory.remember.rejected', {
         reason: 'too-short',
         redactedText: redactText(input.text),
-      }));
+      });
       return { ok: false, error: `Text must be at least ${REMEMBER_MIN_TEXT_LENGTH} characters` };
     }
 
     for (const pattern of SECRET_PATTERNS) {
       if (pattern.test(input.text)) {
-        void this.bus.emit(createEvent('memory.remember.rejected', {
+        void this.bus.emit('memory.remember.rejected', {
           reason: 'secret-detected',
           redactedText: redactText(input.text),
-        }));
+        });
         return { ok: false, error: 'Text may contain credentials or secrets — rejected' };
       }
     }
@@ -119,10 +118,10 @@ export class RememberUseCase {
       case 'duplicate-semantic': {
         void this.store.markHit([decision.existingId]);
         const existing = await this.store.get(decision.existingId);
-        void this.bus.emit(createEvent('memory.remember.merged', {
+        void this.bus.emit('memory.remember.merged', {
           existingId: decision.existingId,
           candidateText: input.text,
-        }));
+        });
         return {
           ok: true,
           id: decision.existingId,
@@ -146,12 +145,12 @@ export class RememberUseCase {
           const emb = await this.embedder.encode(input.text);
           void this.store.storeEmbedding(entry.id, emb);
         } catch { /* non-critical */ }
-        void this.bus.emit(createEvent('memory.remember.created', {
+        void this.bus.emit('memory.remember.created', {
           id: entry.id,
           text: entry.text,
           type: entry.type,
           source: 'explicit',
-        }));
+        });
         return { ok: true, id: entry.id, status: 'created' };
       }
     }

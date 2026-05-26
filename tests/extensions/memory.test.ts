@@ -8,7 +8,6 @@ import toolCatalogExt from '../../src/extensions/tool-catalog'
 import memoryExt from '../../src/extensions/memory'
 import type { MemoryStore } from '../../src/application/ports/memory-store'
 import type { RecallAPI } from '../../src/extensions/memory/recall'
-import { createEvent } from '../../src/application/contracts'
 import { asContractBus } from '../../src/application/event-bus/contract-bus'
 
 /**
@@ -88,7 +87,7 @@ describe('memory extension', () => {
       // Emit a high-token turn.completed event — policy should trigger "extract",
       // but without job-spawner capability the actual extraction is skipped.
       // The handler must not throw.
-      bus.emit(createEvent('turn.completed', {
+      bus.emit('turn.completed', {
         sessionId: 'main',
         turnId: 'turn-1',
         runId: 'turn-1',
@@ -96,7 +95,7 @@ describe('memory extension', () => {
         toolCallCount: 0,
         toolErrorCount: 0,
         activatedSkills: [],
-      }))
+      });
 
       // Give async handlers time
       await new Promise(resolve => setTimeout(resolve, 10))
@@ -123,7 +122,7 @@ describe('memory extension', () => {
       const bus = asContractBus(k.ctx.bus)
 
       // Emit turn.failed — should not crash and should update counter
-      bus.emit(createEvent('turn.failed', {
+      bus.emit('turn.failed', {
         sessionId: 'main',
         turnId: 'turn-fail',
         runId: 'turn-fail',
@@ -131,7 +130,7 @@ describe('memory extension', () => {
         stage: 'llm_stream',
         reason: 'test',
         toolErrorCount: 1,
-      }))
+      });
 
       await new Promise(resolve => setTimeout(resolve, 10))
       await k.stop()

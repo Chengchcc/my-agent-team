@@ -30,6 +30,25 @@ function createEventFactory() {
   };
 }
 
+// ── Envelope detection helper ────────────────────────────────────────────────
+
+function extractPayload(raw: unknown): {
+  payload: Record<string, unknown>;
+  sessionId?: string;
+  turnId?: string;
+} {
+  const r = (raw as Record<string, unknown> | undefined) ?? {}
+  // Detect EventEnvelope: { type, version, ts, sessionId, turnId, payload }
+  const isEnvelope =
+    typeof r.payload === 'object' && r.payload !== null &&
+    typeof r.type === 'string' && typeof r.version === 'number'
+  return {
+    payload: (isEnvelope ? r.payload : r) as Record<string, unknown>,
+    sessionId: (isEnvelope ? r.sessionId : r.sessionId) as string | undefined,
+    turnId: (isEnvelope ? r.turnId : r.turnId) as string | undefined,
+  }
+}
+
 /**
  * DataPlane extension — event cursor stream for frontends.
  *
@@ -37,7 +56,8 @@ function createEventFactory() {
  * registered before DataPlane begins subscribing.
  *
  * Capabilities exposed:
- *   - dataplane.stream: Event stream (replay, getCursor, getEventCount, clear)
+ *   - dataplane.register: Allow producer extensions to register bus→DataPlane mappings.
+ *   - dataplane.stream: Event stream (replay, getCursor, getEventCount, clear).
  *
  * Subscribes to upstream bus events and converts them to DataPlane format
  * with monotonically increasing cursors.
@@ -50,33 +70,11 @@ export default () =>
       const eventLog: DataPlaneEvent[] = []
       const factory = createEventFactory()
 
-      // Subscribe to ALL business events and convert to DataPlane format.
-      // Map: [busEvent, dataPlaneEventType]
-      const eventMappings: Array<[string, DataPlaneEventType]> = [
-        ['turn.started', 'turn.started'],
-        ['turn.completed', 'turn.completed'],
-        ['llm.delta', 'assistant.delta'],
-        ['tool.start', 'tool.update'],
-        ['tool.end', 'tool.update'],
-        ['permission.required', 'permission.required'],
-        ['permission.resolved', 'permission.resolved'],
-        ['ask-user-question.required', 'ask-user-question.required'],
-        ['ask-user-question.resolved', 'ask-user-question.resolved'],
-        ['identity.changed', 'identity.changed'],
-        ['turn.failed', 'turn.failed'],
-        ['tui.inline-block', 'tui.inline-block'],
-        ['subagent.started', 'sub-agent.started'],
-        ['subagent.completed', 'sub-agent.completed'],
-        ['compaction.started', 'compaction.started'],
-        ['compaction.completed', 'compaction.completed'],
-        ['compaction.failed', 'compaction.failed'],
-      ]
-
       /**
        * Register a raw bus event → DataPlane event mapping at runtime.
        * Other extensions call this to subscribe their own events.
        */
-      function registerMapping(
+      function register(
         rawType: string,
         mapper: (raw: unknown) => { dpType: DataPlaneEventType; payload: Record<string, unknown>; sessionId?: string; turnId?: string },
       ): void {
@@ -89,32 +87,49 @@ export default () =>
         })
       }
 
-      // Subscribe to built-in event mappings
-      for (const [busEvent, dpType] of eventMappings) {
-        ctx.bus.on(busEvent, async (raw: unknown) => {
-          const r = (raw as Record<string, unknown> | undefined) ?? {}
-          // Detect envelope (EventEnvelope<T>) vs plain payload
-          const isEnvelope = typeof r.payload === 'object' && r.payload !== null
-                          && typeof r.type === 'string' && typeof r.version === 'number'
-          const sessionId = (isEnvelope ? r.sessionId : r.sessionId) as string | undefined
-          const turnId    = (isEnvelope ? r.turnId    : r.turnId)    as string | undefined
-          const p         = isEnvelope ? r.payload as Record<string, unknown> : r
+      // ── Built-in event mappings (core system events) ──────────────────────────
+      // Each entry registers the raw bus event → DataPlane event translation.
+      // Producer extensions register their own mappings via dataplane.register.
+
+      const builtInMappings: Array<{ busEvent: string; dpType: DataPlaneEventType }> = [
+        { busEvent: 'turn.started', dpType: 'turn.started' },
+        { busEvent: 'turn.completed', dpType: 'turn.completed' },
+        { busEvent: 'llm.delta', dpType: 'assistant.delta' },
+        { busEvent: 'tool.start', dpType: 'tool.update' },
+        { busEvent: 'tool.end', dpType: 'tool.update' },
+        { busEvent: 'permission.required', dpType: 'permission.required' },
+        { busEvent: 'permission.resolved', dpType: 'permission.resolved' },
+        { busEvent: 'ask-user-question.required', dpType: 'ask-user-question.required' },
+        { busEvent: 'ask-user-question.resolved', dpType: 'ask-user-question.resolved' },
+        { busEvent: 'identity.changed', dpType: 'identity.changed' },
+        { busEvent: 'turn.failed', dpType: 'turn.failed' },
+        { busEvent: 'tui.inline-block', dpType: 'tui.inline-block' },
+        { busEvent: 'subagent.started', dpType: 'sub-agent.started' },
+        { busEvent: 'subagent.completed', dpType: 'sub-agent.completed' },
+        { busEvent: 'compaction.started', dpType: 'compaction.started' },
+        { busEvent: 'compaction.completed', dpType: 'compaction.completed' },
+        { busEvent: 'compaction.failed', dpType: 'compaction.failed' },
+      ]
+
+      for (const { busEvent, dpType } of builtInMappings) {
+        register(busEvent, (raw) => {
+          const { payload, sessionId, turnId } = extractPayload(raw)
           // Tag tool lifecycle events with phase for TUI
-          const withPhase = (busEvent === 'tool.start' || busEvent === 'tool.end')
-            ? { ...p, phase: busEvent === 'tool.start' ? 'start' : 'end' }
-            : p
-          const evt = factory.next(dpType, withPhase, { sessionId, turnId })
-          eventLog.push(evt)
-          // Forward to bus so transport adapters (InMemoryTransport, etc.)
-          // can relay events to frontends.
-          ctx.logger.info('dataplane', `emit dataplane.event type=${evt.type}`)
-          await ctx.bus.emit('dataplane.event', evt)
+          if (busEvent === 'tool.start' || busEvent === 'tool.end') {
+            return {
+              dpType,
+              payload: { ...payload, phase: busEvent === 'tool.start' ? 'start' : 'end' },
+              sessionId,
+              turnId,
+            }
+          }
+          return { dpType, payload, sessionId, turnId }
         })
       }
 
       return {
         provide: {
-          'dataplane.register': () => registerMapping,
+          'dataplane.register': () => register,
           'dataplane.stream': () => ({
             /** Replay events since a cursor, or all if no cursor */
             replay(since?: number): DataPlaneEvent[] {

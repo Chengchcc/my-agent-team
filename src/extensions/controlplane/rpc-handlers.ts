@@ -11,8 +11,7 @@ import type { Session } from '../../domain/session';
 import { createSession } from '../../domain/session';
 import { runTurnUsecase, buildRunTurnDeps } from '../../application/usecases/run-turn';
 import { compactSessionUsecase } from '../../application/usecases/compact-session';
-import { createEvent } from '../../application/contracts';
-import type { asContractBus } from '../../application/event-bus/contract-bus';
+import type { ContractBus } from '../../application/event-bus/contract-bus';
 
 const SESSION_ID_SUFFIX_LEN = 8;
 
@@ -28,7 +27,7 @@ export interface RpcHandlerDeps {
   ctx: KernelContext;
   getStore: () => SessionStore;
   getServer: () => ControlPlaneServer;
-  contractBus: ReturnType<typeof asContractBus>;
+  contractBus: ContractBus;
   sessionToJson: (s: Session) => Record<string, unknown>;
   nextSessionId: () => string;
 }
@@ -57,7 +56,7 @@ export function makeSessionAttachHandler(d: RpcHandlerDeps) {
     session.attachFrontend(frontendId);
     await store.save(session);
     d.getServer().attachFrontend(frontendId, sessionId);
-    void d.contractBus.emit(createEvent('attach.changed', { frontendId, sessionId, action: 'attached' }));
+    void d.contractBus.emit('attach.changed', { frontendId, sessionId, action: 'attached' });
 
     let messages: Array<{ role: string; content: string; blocks?: Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>; id?: string }> = [];
     try {
@@ -86,7 +85,7 @@ export function makeSessionDetachHandler(d: RpcHandlerDeps) {
     if (session) { session.detachFrontend(frontendId); await store.save(session); }
 
     d.getServer().detachFrontend(frontendId, sessionId);
-    void d.contractBus.emit(createEvent('attach.changed', { frontendId, sessionId, action: 'detached' }));
+    void d.contractBus.emit('attach.changed', { frontendId, sessionId, action: 'detached' });
     return { ok: true, sessionId, frontendId };
   };
 }
@@ -108,7 +107,7 @@ export function makeSessionResumeHandler(d: RpcHandlerDeps) {
         currentSession.detachFrontend(frontendId);
         await store.save(currentSession);
         d.getServer().detachFrontend(frontendId, currentId);
-        void d.contractBus.emit(createEvent('attach.changed', { frontendId, sessionId: currentId, action: 'detached' }));
+        void d.contractBus.emit('attach.changed', { frontendId, sessionId: currentId, action: 'detached' });
       }
     }
 
@@ -116,10 +115,10 @@ export function makeSessionResumeHandler(d: RpcHandlerDeps) {
       targetSession.attachFrontend(frontendId);
       await store.save(targetSession);
       d.getServer().attachFrontend(frontendId, targetId);
-      void d.contractBus.emit(createEvent('attach.changed', { frontendId, sessionId: targetId, action: 'attached' }));
+      void d.contractBus.emit('attach.changed', { frontendId, sessionId: targetId, action: 'attached' });
     }
 
-    void d.contractBus.emit(createEvent('session.resumed', { sessionId: targetId, frontendId, previousSessionId: currentId ?? null }));
+    void d.contractBus.emit('session.resumed', { sessionId: targetId, frontendId, previousSessionId: currentId ?? null });
 
     let snapshot: Array<{ role: string; content: string }> = [];
     try {
@@ -139,12 +138,12 @@ export function makeSessionCreateHandler(d: RpcHandlerDeps) {
     const store = d.getStore();
     await store.save(session);
     if (p?.frontendId) { session.attachFrontend(p.frontendId); await store.save(session); }
-    void d.contractBus.emit(createEvent('session.created', {
+    void d.contractBus.emit('session.created', {
       id: session.id,
       title: session.title ?? session.id,
       agentId: session.agentId,
       isMain: session.isMain,
-    }));
+    });
     return { ok: true, sessionId: id, session: d.sessionToJson(session) };
   };
 }
@@ -158,7 +157,7 @@ export function makeSessionCloseHandler(d: RpcHandlerDeps) {
     if (!session) throw new Error(`Session not found: ${sessionId}`);
     session.close(p?.force ?? false);
     await store.save(session);
-    void d.contractBus.emit(createEvent('session.closed', { sessionId, force: p?.force ?? false }));
+    void d.contractBus.emit('session.closed', { sessionId, force: p?.force ?? false });
     return { ok: true, sessionId, state: session.state };
   };
 }
@@ -173,7 +172,7 @@ export function makeSessionRenameHandler(d: RpcHandlerDeps) {
     if (!session) throw new Error(`Session not found: ${sessionId}`);
     session.title = p.title;
     await store.save(session);
-    void d.contractBus.emit(createEvent('session.renamed', { sessionId, title: p.title }));
+    void d.contractBus.emit('session.renamed', { sessionId, title: p.title });
     return { ok: true, sessionId, title: session.title };
   };
 }
@@ -199,7 +198,7 @@ export function makeSessionClearHandler(d: RpcHandlerDeps) {
     if (hist) await hist.clear(sessionId)
 
     // 3. Emit correct event
-    void d.contractBus.emit(createEvent('session.cleared', { sessionId, ts: Date.now() }, { sessionId }))
+    void d.contractBus.emit('session.cleared', { sessionId, ts: Date.now() }, { sessionId })
     return { ok: true, sessionId }
   };
 }
@@ -306,12 +305,12 @@ export function makeInputCancelHandler(d: RpcHandlerDeps) {
     const session = await store.load(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
 
-    void d.contractBus.emit(createEvent('input.cancelled', { sessionId, reason }));
+    void d.contractBus.emit('input.cancelled', { sessionId, reason });
     if (session.state === 'RUNNING') {
       session.pendingInputs.length = 0;
       try { session.completeTurn(); } catch { /* may already be IDLE */ }
       await store.save(session);
-      void d.contractBus.emit(createEvent('turn.cancelled', { sessionId, reason }));
+      void d.contractBus.emit('turn.cancelled', { sessionId, reason });
     }
     return { cancelled: true, sessionId, reason };
   };
@@ -323,7 +322,7 @@ export function makeUserAnswerHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { sessionId?: string; questionId?: string; answers?: Array<{ question_index: number; selected_labels: string[] }> } | undefined;
     if (!p?.questionId) throw new Error('questionId is required');
-    void d.contractBus.emit(createEvent('user.question.answered', { sessionId: p?.sessionId ?? 'main', questionId: p.questionId, answers: p?.answers ?? [] }));
+    void d.contractBus.emit('user.question.answered', { sessionId: p?.sessionId ?? 'main', questionId: p.questionId, answers: p?.answers ?? [] });
     return { ok: true, sessionId: p?.sessionId ?? 'main', questionId: p.questionId };
   };
 }
@@ -344,7 +343,7 @@ export function makeSystemHealthHandler(d: RpcHandlerDeps) {
 
 export function makeSystemShutdownHandler(d: RpcHandlerDeps) {
   return async () => {
-    await d.contractBus.emit(createEvent('system.shutdown.requested', { agentId: d.ctx.agentId, timestamp: new Date().toISOString() }));
+    await d.contractBus.emit('system.shutdown.requested', { agentId: d.ctx.agentId, timestamp: new Date().toISOString() });
     d.ctx.logger.info('system', 'Shutdown requested via RPC');
     return { shuttingDown: true, message: 'Shutdown initiated. The kernel will stop after active turns complete.' };
   };
