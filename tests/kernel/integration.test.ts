@@ -49,7 +49,7 @@ function createTraceExt(calls: CallRecord[]): ExtensionBuilder {
     enforce: 'pre',
     apply: () => ({
       provide: {
-        writer: (): TraceWriter => ({
+        'trace.writer': (): TraceWriter => ({
           write: (entry: string) => {
             record(calls, 'trace', 'writer.write', entry)
           },
@@ -78,7 +78,7 @@ function createMemoryExt(calls: CallRecord[]): ExtensionBuilder {
     apply: (ctx) => {
       // Cross-extension capability resolution
       try {
-        const writer = ctx.extensions.get<TraceWriter>('trace.writer')
+        const writer = ctx.extensions.get('trace.writer')
         void writer // consumed
         record(calls, 'memory', 'capability-resolved.trace-writer')
       } catch {
@@ -87,7 +87,7 @@ function createMemoryExt(calls: CallRecord[]): ExtensionBuilder {
 
       return {
         provide: {
-          store: (): MemoryStore => ({
+          'memory.store': (): MemoryStore => ({
             recall: () => 'memory context inserted',
           }),
         },
@@ -123,7 +123,7 @@ function createSessionExt(calls: CallRecord[]): ExtensionBuilder {
     apply: (ctx) => {
       // Capability resolution during apply
       try {
-        const writer = ctx.extensions.get<TraceWriter>('trace.writer')
+        const writer = ctx.extensions.get('trace.writer')
         void writer // consumed
         record(calls, 'session', 'capability-resolved.trace-writer')
       } catch {
@@ -132,7 +132,7 @@ function createSessionExt(calls: CallRecord[]): ExtensionBuilder {
 
       return {
         provide: {
-          store: (): SessionStore => ({
+          'session.store': (): SessionStore => ({
             sessions: new Map(),
           }),
         },
@@ -274,7 +274,7 @@ describe('Kernel Integration (3 extensions)', () => {
     expect(missed).toHaveLength(0)
 
     // Also verify runtime capability access works post-start
-    const writer = k.ctx.extensions.get<TraceWriter>('trace.writer')
+    const writer = k.ctx.extensions.get('trace.writer')
     expect(writer).toBeDefined()
     expect(typeof writer.write).toBe('function')
 

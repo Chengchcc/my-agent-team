@@ -35,7 +35,7 @@ describe('sub-agent safety guards (M2)', () => {
     })
     await k.start()
 
-    const registry = k.ctx.extensions.get<SubAgentRegistry>('sub-agent.registry')
+    const registry = k.ctx.extensions.get('sub-agent.registry')
     // Register a test sub-agent that includes 'task' in its whitelist
     registry.register({
       type: 'recursive-test',
@@ -46,7 +46,7 @@ describe('sub-agent safety guards (M2)', () => {
     })
 
     // The runSubAgent closure should strip 'task' from allowedToolNames
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const taskTool = catalog.get('task')!
 
     // Execute with the recursive-test type — it will try to run a sub-agent
@@ -73,7 +73,7 @@ describe('sub-agent safety guards (M2)', () => {
     })
     await k.start()
 
-    const registry = k.ctx.extensions.get<SubAgentRegistry>('sub-agent.registry')
+    const registry = k.ctx.extensions.get('sub-agent.registry')
 
     for (const type of ['explore', 'plan', 'general-purpose']) {
       const desc = registry.get(type)!
@@ -95,7 +95,7 @@ describe('sub-agent safety guards (M2)', () => {
     })
     await k.start()
 
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const taskTool = catalog.get('task')!
 
     // plan sub-agent with a simple prompt — should fail with provider error
@@ -125,11 +125,11 @@ describe('sub-agent safety guards (M2)', () => {
     await k.start()
 
     // Deny 'bash' in parent session
-    const checker = k.ctx.extensions.get<{ deny: (tool: string) => void }>('permission.checker')
+    const checker = k.ctx.extensions.get('permission.checker')
     checker.deny('bash')
 
     // Sub session should still be able to list 'bash' in tools (different session id)
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const taskTool = catalog.get('task')!
 
     const result = await taskTool.execute(makeCtx('parent-s3', 'parent-t3'), {

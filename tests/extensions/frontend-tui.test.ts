@@ -28,13 +28,13 @@ describe('Frontend TUI adapter', () => {
   })
 
   it('frontend.tui capability available', () => {
-    const tui = kernel.ctx.extensions.get<any>('frontend-tui.tui')
+    const tui = kernel.ctx.extensions.get('frontend-tui.tui')
     expect(tui).toBeDefined()
     expect(tui.kind).toBe('tui')
   })
 
   it('hello negotiation returns daemon version', async () => {
-    const tui = kernel.ctx.extensions.get<any>('frontend-tui.tui')
+    const tui = kernel.ctx.extensions.get('frontend-tui.tui')
     await tui.start()
     // Hello is sent during start()
     // Check that we got a valid response (no crash = success)
@@ -43,7 +43,7 @@ describe('Frontend TUI adapter', () => {
   })
 
   it('can list sessions after hello', async () => {
-    const tui = kernel.ctx.extensions.get<any>('frontend-tui.tui')
+    const tui = kernel.ctx.extensions.get('frontend-tui.tui')
     await tui.start()
     const result = await tui.listSessions()
     expect(result).toBeDefined()
@@ -51,7 +51,7 @@ describe('Frontend TUI adapter', () => {
   })
 
   it('sendInput sends to session', async () => {
-    const tui = kernel.ctx.extensions.get<any>('frontend-tui.tui')
+    const tui = kernel.ctx.extensions.get('frontend-tui.tui')
     await tui.start()
     const result = await tui.sendInput('main', 'Hello, world!')
     expect(result).toBeDefined()
@@ -59,7 +59,7 @@ describe('Frontend TUI adapter', () => {
   })
 
   it('receives DataPlane events through transport', async () => {
-    const tui = kernel.ctx.extensions.get<any>('frontend-tui.tui')
+    const tui = kernel.ctx.extensions.get('frontend-tui.tui')
     await tui.start()
     // Trigger a turn.start event via bus
     kernel.ctx.bus.emit('turn.started', {
@@ -75,7 +75,7 @@ describe('Frontend TUI adapter', () => {
   })
 
   it('UJ-1: attach/detach/resume cycle', async () => {
-    const tui = kernel.ctx.extensions.get<any>('frontend-tui.tui')
+    const tui = kernel.ctx.extensions.get('frontend-tui.tui')
     await tui.start()
 
     // Attach to a session (UJ-1: re-attach after disconnect)
@@ -94,7 +94,7 @@ describe('Frontend TUI adapter', () => {
     // It does NOT import from memory/, mcp/, evolution/, etc.
     // This is verified by ESLint no-restricted-paths (future)
     // For now, verify the module exists and doesn't crash
-    const tui = kernel.ctx.extensions.get<any>('frontend-tui.tui')
+    const tui = kernel.ctx.extensions.get('frontend-tui.tui')
     expect(tui).toBeDefined()
   })
 })

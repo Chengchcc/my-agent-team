@@ -36,7 +36,7 @@ function mockTraceExt() {
     enforce: 'pre',
     apply: () => ({
       provide: {
-        reader: (): TraceReader => ({
+        'trace.reader': (): TraceReader => ({
           getRun: async (id) => mockTraceRun(id),
           listRecentSummaries: async () => [],
         }),
@@ -78,7 +78,7 @@ function mockInfraServicesExt() {
     enforce: 'post',
     apply: () => ({
       provide: {
-        'job-spawner': (): JobSpawner => ({
+        'infra-services.job-spawner': (): JobSpawner => ({
           async run(opts) {
             const job = opts.job as { tier?: string; skillName?: string }
             return {
@@ -90,18 +90,18 @@ function mockInfraServicesExt() {
             }
           },
         }),
-        'proposal-store': (): ProposalStore => ({
+        'infra-services.proposal-store': (): ProposalStore => ({
           async append() {},
           async list() { return [] },
           async markAccepted() {},
           async markRejected() {},
         }),
-        'skill-stats-store': (): SkillStatsStore => ({
+        'infra-services.skill-stats-store': (): SkillStatsStore => ({
           async get() { return null },
           async put() {},
           async list() { return [] },
         }),
-        'job-context-factory': (): JobContextFactory => (_opts) => ({
+        'infra-services.job-context-factory': (): JobContextFactory => (_opts) => ({
           invoke: async () => ({ content: '{}', usage: { input: 0, output: 0 } }),
           log: () => {},
         }),

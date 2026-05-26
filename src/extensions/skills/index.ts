@@ -136,7 +136,7 @@ export default (opts: SkillsExtOptions = {}) =>
 
       return {
         provide: {
-          registry: () => ({
+          'skills.registry': () => ({
             list: (scope?: string) =>
               [...skills.values()].filter((s) => !scope || s.scope === scope),
             get: (name: string) => skills.get(name),

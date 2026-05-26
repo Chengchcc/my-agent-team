@@ -1,5 +1,6 @@
 import type { KernelContext } from './kernel-context'
 import type { SlashCommand } from '../application/slash'
+import type { CapabilityKey, CapabilityMap } from './capability-map'
 
 /** Extension ordering phase within its dependency tier. */
 export type Enforce = 'guard' | 'pre' | 'normal' | 'post'
@@ -19,8 +20,8 @@ export interface HookHandlerEntry {
  * All keys on each channel are extension-local and must not collide between extensions.
  */
 export interface ExtensionApplyResult {
-  /** Capabilities consumed by other extensions via ctx.extensions.get(name) */
-  provide?: Record<string, () => unknown>
+  /** Capabilities consumed by other extensions via ctx.extensions.get(key) */
+  provide?: { [K in CapabilityKey]?: () => CapabilityMap[K] } & { [extra: string]: () => unknown }
   /** Hook handlers that Kernel wires into HookContainer (13 hooks) */
   hooks?: Record<string, HookHandler | HookHandlerEntry>
   /** Bus subscriptions — keyed by event name */

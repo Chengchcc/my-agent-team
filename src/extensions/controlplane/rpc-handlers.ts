@@ -10,9 +10,8 @@ import type { SessionStore } from '../../application/ports/session-store';
 import type { Session } from '../../domain/session';
 import { createSession } from '../../domain/session';
 import { runTurnUsecase, buildRunTurnDeps } from '../../application/usecases/run-turn';
+import { compactSessionUsecase } from '../../application/usecases/compact-session';
 import { createEvent } from '../../application/contracts';
-import { compactSessionUsecase, type Compactor } from '../../application/usecases/compact-session';
-import type { SessionHistoryPort } from '../../application/ports/session-history';
 import type { asContractBus } from '../../application/event-bus/contract-bus';
 
 const SESSION_ID_SUFFIX_LEN = 8;
@@ -62,13 +61,13 @@ export function makeSessionAttachHandler(d: RpcHandlerDeps) {
 
     let messages: Array<{ role: string; content: string; blocks?: Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>; id?: string }> = [];
     try {
-      const msgStore = d.ctx.extensions.get<{ get(sid: string): Array<{ role: string; content: string }> }>('session.messages');
+      const msgStore = d.ctx.extensions.get('session.messages');
       messages = msgStore.get(sessionId);
     } catch (e) { d.ctx.logger.warn('session', `failed to get messages: ${String(e)}`); }
 
     let snapshot: Array<{ role: string; content: string | Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }> }> = [];
     try {
-      const hist = d.ctx.extensions.get<{ get(sessionId: string): unknown[] }>('session.history');
+      const hist = d.ctx.extensions.get('session.history');
       snapshot = hist.get(sessionId) as typeof snapshot;
     } catch { /* history may not be available */ }
 
@@ -124,7 +123,7 @@ export function makeSessionResumeHandler(d: RpcHandlerDeps) {
 
     let snapshot: Array<{ role: string; content: string }> = [];
     try {
-      const hist = d.ctx.extensions.get<{ get(sessionId: string): unknown[] }>('session.history');
+      const hist = d.ctx.extensions.get('session.history');
       snapshot = hist.get(targetId) as typeof snapshot;
     } catch { /* history may not be available */ }
 
@@ -189,14 +188,14 @@ export function makeSessionClearHandler(d: RpcHandlerDeps) {
 
     // 1. Cancel in-flight turn to prevent residual events
     if (d.ctx.extensions.has('session.abort')) {
-      const abort = d.ctx.extensions.get<{ abort(sid: string): void }>('session.abort')
+      const abort = d.ctx.extensions.get('session.abort')
       abort?.abort(sessionId)
     } else {
       d.ctx.logger.warn('session', 'session.abort not available, cannot abort turn')
     }
 
     // 2. Clear message history
-    const hist = d.ctx.extensions.get<{ clear(sid: string): Promise<void> }>('session.history')
+    const hist = d.ctx.extensions.get('session.history')
     if (hist) await hist.clear(sessionId)
 
     // 3. Emit correct event
@@ -209,8 +208,8 @@ export function makeSessionCompactHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { sessionId?: string; keepRecent?: number } | undefined;
     const sessionId = p?.sessionId ?? 'main';
-    const compactor = d.ctx.extensions.get<Compactor>('session.compactor');
-    const history = d.ctx.extensions.get<SessionHistoryPort>('session.history');
+    const compactor = d.ctx.extensions.get('session.compactor');
+    const history = d.ctx.extensions.get('session.history');
     const r = await compactSessionUsecase(
       { sessionId, keepRecent: p?.keepRecent },
       { history, compactor, bus: d.ctx.bus },
@@ -225,10 +224,8 @@ export function makeSessionStatsHandler(d: RpcHandlerDeps) {
     const sessionId = p?.sessionId ?? 'main';
     let totalInput = 0, totalOutput = 0, turnCount = 0;
     try {
-      const hist = d.ctx.extensions.get<{
-        get(sessionId: string): Array<{ role: string; usage?: { input: number; output: number } }>
-      }>('session.history');
-      const msgs = hist.get(sessionId);
+      const hist = d.ctx.extensions.get('session.history');
+      const msgs = hist.get(sessionId) as unknown as Array<{ role: string; usage?: { input: number; output: number } }>;
       for (const m of msgs) {
         if (m.usage) {
           totalInput += m.usage.input;
@@ -246,9 +243,7 @@ export function makeSessionStatsHandler(d: RpcHandlerDeps) {
 export function makeToolListHandler(d: RpcHandlerDeps) {
   return async () => {
     try {
-      const catalog = d.ctx.extensions.get<{
-        list(): Array<{ name: string; description: string; parameters: Record<string, unknown> }>
-      }>('tool-catalog.catalog');
+      const catalog = d.ctx.extensions.get('tool-catalog.catalog');
       const tools = catalog.list().map(t => ({
         name: t.name, description: t.description, parameters: t.parameters,
       }));
@@ -301,7 +296,7 @@ export function makeInputCancelHandler(d: RpcHandlerDeps) {
     const reason = p?.reason ?? 'user requested';
 
     if (d.ctx.extensions.has('session.abort')) {
-      const sessionAbort = d.ctx.extensions.get<{ abort(sessionId: string): void }>('session.abort');
+      const sessionAbort = d.ctx.extensions.get('session.abort');
       sessionAbort.abort(sessionId);
     } else {
       d.ctx.logger.warn('session', 'session.abort not available, cannot abort turn');

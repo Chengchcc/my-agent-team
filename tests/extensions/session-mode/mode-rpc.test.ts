@@ -27,7 +27,7 @@ describe('session-mode RPC (M2)', () => {
     expect(after.mode).toBe('plan')
 
     // Verify persisted in store
-    const store = k.ctx.extensions.get<SessionStore>('session.store')
+    const store = k.ctx.extensions.get('session.store')
     const s = await store.load('main')
     expect(s?.mode).toBe('plan')
 

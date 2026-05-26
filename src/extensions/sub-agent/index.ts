@@ -4,7 +4,6 @@ import { runTurnUsecase, buildRunTurnDeps } from '../../application/usecases/run
 import type { SubAgentRunner, SubAgentRunInput } from './types'
 import { SubAgentRegistry, registerBuiltins } from './registry'
 import { createTaskTool } from './task-tool'
-import type { ToolCatalog } from '../../application/ports/tool-catalog'
 
 /** Structured error marker for sub-agent failures — XML-style for LLM recognition. */
 function errorResult(tag: string, reason: string): string {
@@ -69,17 +68,17 @@ export default () =>
           ctx.logger.warn('sub-agent', `Sub-agent "${input.type}" failed: ${msg}`)
           return errorResult('failed', msg)
         } finally {
-          const history = ctx.extensions.get<{ drop: (id: string) => Promise<boolean> }>('session.history')
+          const history = ctx.extensions.get('session.history')
           void history?.drop(subSessionId)
         }
       }
 
-      const catalog = ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+      const catalog = ctx.extensions.get('tool-catalog.catalog')
       catalog.register(createTaskTool({ runSubAgent }))
 
       return {
         provide: {
-          registry: () => registry,
+          'sub-agent.registry': () => registry,
         },
         dispose: () => {
           registry.clear()

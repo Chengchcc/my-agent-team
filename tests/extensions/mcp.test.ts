@@ -33,7 +33,7 @@ describe('MCP extension with real McpManager', () => {
   })
 
   it('provides a real McpManager instance', () => {
-    const manager = kernel.ctx.extensions.get<McpManager>('mcp.manager')
+    const manager = kernel.ctx.extensions.get('mcp.manager')
     expect(manager).toBeDefined()
     expect(manager).toBeInstanceOf(McpManager)
   })
@@ -65,7 +65,7 @@ describe('MCP extension with real McpManager', () => {
   })
 
   it('McpManager has real methods (hasServer returns false for unknown server)', () => {
-    const manager = kernel.ctx.extensions.get<McpManager>('mcp.manager')
+    const manager = kernel.ctx.extensions.get('mcp.manager')
     expect(manager.hasServer('nonexistent')).toBe(false)
     expect(typeof manager.getServerTools).toBe('function')
     expect(typeof manager.getServerPrompts).toBe('function')

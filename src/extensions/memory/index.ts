@@ -13,25 +13,19 @@ import { evaluateExtractPolicy, type PolicyState } from './policy'
 import { DedupPipeline } from './dedup-pipeline'
 import { ContradictionResolver } from './contradiction-resolver'
 import type { InvokeFn } from '../../application/ports/job-spawner'
-import type { ProviderInvoke } from '../../application/ports/provider'
 import type { MemoryEntry } from '../../domain/memory-entry'
 import { RememberUseCase } from './explicit-write/remember-use-case'
 import type { RememberInput } from './explicit-write/remember-use-case'
 import { ForgetUseCase } from './explicit-write/forget-use-case'
 import type { ForgetInput } from './explicit-write/forget-use-case'
 import { rememberToolDef, forgetToolDef } from './explicit-write/tool-defs'
-import type { JobSpawner } from '../../application/ports/job-spawner'
-import type { JobContextFactory } from '../infra-services/job-context-factory'
-import type { TraceReader } from '../../application/ports/trace-checkpointer'
 import type { ExtractJob, ExtractResult } from './types'
 import type { EventEnvelope } from '../../application/contracts/event-envelope'
 import type { TurnCompletedV1, TurnFailedV1 } from '../../application/contracts/session-events'
 import type { CliManifest } from '../../cli/cli-types'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
 import { defineTool } from '../../application/tool-factory/define-tool'
-import type { ToolCatalog } from '../../application/ports/tool-catalog'
 import type { MemoryType } from '../../domain/memory-entry'
-import type { AgentRegistryRead } from '../../application/ports/agent-registry'
 
 const EXTRACT_TIMEOUT_MS = 60_000
 const MAX_INFLIGHT = 1
@@ -152,22 +146,22 @@ export default (opts: MemoryOpts = {}) =>
       const db = openDb(join(baseDir, 'memory.db'))
       const store = createSqliteMemoryStore(db)
       const encoder = createOllamaEncoder(opts.embedding ?? {})
-      const reader = ctx.extensions.get<TraceReader>('trace.reader')
+      const reader = ctx.extensions.get('trace.reader')
       const spawner = ctx.extensions.has('infra-services.job-spawner')
-        ? ctx.extensions.get<JobSpawner>('infra-services.job-spawner')
+        ? ctx.extensions.get('infra-services.job-spawner')
         : undefined
       const ctxFactory = ctx.extensions.has('infra-services.job-context-factory')
-        ? ctx.extensions.get<JobContextFactory>('infra-services.job-context-factory')
+        ? ctx.extensions.get('infra-services.job-context-factory')
         : undefined
       const recall = createRecall(store, encoder, opts.weights)
       const debugLog = (d: string, m: string) => ctx.logger.debug(d, m)
       const backfill = createEmbeddingBackfill(store, encoder, debugLog)
       const dedup = new DedupPipeline(store, encoder)
       const invokeFn: InvokeFn | undefined = ctx.extensions.has('provider.llm')
-        ? ctx.extensions.get<ProviderInvoke>('provider.llm') as unknown as InvokeFn | undefined
+        ? ctx.extensions.get('provider.llm') as unknown as InvokeFn | undefined
         : undefined
       const resolver = new ContradictionResolver(store, encoder, invokeFn)
-      const catalog = ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+      const catalog = ctx.extensions.get('tool-catalog.catalog')
       const state: PolicyState = { turnsSinceExtract: 0 }
       let inflight = 0
 
@@ -207,8 +201,8 @@ export default (opts: MemoryOpts = {}) =>
 
       return {
         provide: {
-          recall: () => recall,
-          store: () => store,
+          'memory.recall': () => recall,
+          'memory.store': () => store,
         },
 
         rpc: {
@@ -263,7 +257,7 @@ export default (opts: MemoryOpts = {}) =>
             fn: async (...args: unknown[]) => {
               const prompt = args[0] as { system: string }
               try {
-                const registry = ctx.extensions.get<AgentRegistryRead>('agent.registry')
+                const registry = ctx.extensions.get('agent.registry')
                 if (registry) {
                   try {
                     const rec = await registry.current()

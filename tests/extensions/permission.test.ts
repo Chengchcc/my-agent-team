@@ -17,7 +17,7 @@ describe('permission extension', () => {
     })
     await k.start()
 
-    const checker = k.ctx.extensions.get<PermissionChecker>('permission.checker')
+    const checker = k.ctx.extensions.get('permission.checker')
     expect(checker).toBeDefined()
     expect(typeof checker.check).toBe('function')
     expect(typeof checker.deny).toBe('function')
@@ -99,7 +99,7 @@ describe('permission extension', () => {
     })
     await k.start()
 
-    const checker = k.ctx.extensions.get<PermissionChecker>('permission.checker')
+    const checker = k.ctx.extensions.get('permission.checker')
 
     // Before resolution, tool is not in allowlist
     checker.allowOnce('main', 'bash')
@@ -127,7 +127,7 @@ describe('permission extension', () => {
     })
     await k.start()
 
-    const checker = k.ctx.extensions.get<PermissionChecker>('permission.checker')
+    const checker = k.ctx.extensions.get('permission.checker')
     checker.deny('bash')
 
     // Dispatch onToolCall for a denied tool — should throw

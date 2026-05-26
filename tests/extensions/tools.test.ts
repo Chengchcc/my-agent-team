@@ -9,7 +9,7 @@ describe('tools extension', () => {
     const k = createTestKernel({ extensions: [toolCatalogExt(), toolsExt()] })
     await k.start()
 
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     expect(catalog).toBeDefined()
 
     const tools = catalog.list()

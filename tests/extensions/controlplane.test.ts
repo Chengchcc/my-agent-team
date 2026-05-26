@@ -15,7 +15,7 @@ describe('controlplane extension', () => {
     const k = createTestKernel({ extensions: [controlplaneExt()] })
     await k.start()
 
-    const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+    const server = k.ctx.extensions.get('controlplane.server')
     expect(server).toBeDefined()
     expect(typeof server.handle).toBe('function')
     expect(typeof server.attachFrontend).toBe('function')
@@ -32,7 +32,7 @@ describe('controlplane extension', () => {
     })
     await k.start()
 
-    const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+    const server = k.ctx.extensions.get('controlplane.server')
 
     const result = await server.handle({
       jsonrpc: '2.0',
@@ -54,7 +54,7 @@ describe('controlplane extension', () => {
     const k = createTestKernel({ extensions: [controlplaneExt()] })
     await k.start()
 
-    const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+    const server = k.ctx.extensions.get('controlplane.server')
 
     const result = await server.handle({
       jsonrpc: '2.0',
@@ -92,7 +92,7 @@ describe('controlplane extension', () => {
     })
     await k.start()
 
-    const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+    const server = k.ctx.extensions.get('controlplane.server')
 
     const result = await server.handle({
       jsonrpc: '2.0',
@@ -113,7 +113,7 @@ describe('controlplane extension', () => {
     const k = createTestKernel({ extensions: [controlplaneExt()] })
     await k.start()
 
-    const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+    const server = k.ctx.extensions.get('controlplane.server')
 
     const result = await server.handle({
       jsonrpc: '2.0',
@@ -130,7 +130,7 @@ describe('controlplane extension', () => {
     const k = createTestKernel({ extensions: [controlplaneExt()] })
     await k.start()
 
-    const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+    const server = k.ctx.extensions.get('controlplane.server')
 
     const attachedEvents: unknown[] = []
     const detachedEvents: unknown[] = []

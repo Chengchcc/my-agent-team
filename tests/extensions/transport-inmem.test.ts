@@ -13,7 +13,7 @@ describe('transport.inmem extension', () => {
     })
     await k.start()
 
-    const transport = k.ctx.extensions.get<Transport>('transport-inmem.transport')
+    const transport = k.ctx.extensions.get('transport-inmem.transport')
     expect(transport).toBeDefined()
     expect(typeof transport.sendRpc).toBe('function')
     expect(typeof transport.onEvent).toBe('function')
@@ -30,7 +30,7 @@ describe('transport.inmem extension', () => {
     })
     await k.start()
 
-    const transport = k.ctx.extensions.get<Transport>('transport-inmem.transport')
+    const transport = k.ctx.extensions.get('transport-inmem.transport')
 
     const result = await transport.sendRpc({
       jsonrpc: '2.0',
@@ -56,7 +56,7 @@ describe('transport.inmem extension', () => {
     })
     await k.start()
 
-    const transport = k.ctx.extensions.get<Transport>('transport-inmem.transport')
+    const transport = k.ctx.extensions.get('transport-inmem.transport')
 
     const result = await transport.sendRpc({
       jsonrpc: '2.0',
@@ -80,7 +80,7 @@ describe('transport.inmem extension', () => {
     })
     await k.start()
 
-    const transport = k.ctx.extensions.get<Transport>('transport-inmem.transport')
+    const transport = k.ctx.extensions.get('transport-inmem.transport')
 
     const received: DataPlaneEvent[] = []
     transport.onEvent((event) => {
@@ -135,7 +135,7 @@ describe('transport.inmem extension', () => {
     })
     await k.start()
 
-    const transport = k.ctx.extensions.get<Transport>('transport-inmem.transport')
+    const transport = k.ctx.extensions.get('transport-inmem.transport')
 
     const received: DataPlaneEvent[] = []
     const unsub = transport.onEvent((event) => {

@@ -5,11 +5,10 @@ import { startUnixServer } from '../../infrastructure/transport/unix-socket-tran
 import type { UnixSocketServerHandle } from '../../infrastructure/transport/unix-socket-transport'
 import type { Transport } from '../../application/ports/transport'
 import type { KernelContext } from '../../kernel/kernel-context'
-import type { JsonRpcMessage, JsonRpcResponse } from '../../application/contracts';
 import type { DataPlaneEvent } from '../../application/contracts';
 
 function buildKernelTransport(ctx: KernelContext): Transport {
-  const cpServer = ctx.extensions.get<{ handle: (m: JsonRpcMessage) => Promise<JsonRpcResponse | null> }>('controlplane.server')
+  const cpServer = ctx.extensions.get('controlplane.server')
   const handlers = new Set<(event: DataPlaneEvent) => void>()
 
   const unsub = ctx.bus.on('dataplane.event', (evt: unknown) => {

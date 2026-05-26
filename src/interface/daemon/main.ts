@@ -69,9 +69,7 @@ async function startLarkBot(
   agentId: string,
   logger: FileLogger,
 ): Promise<void> {
-  const larkCap = kernel.ctx.extensions.get<{
-    createBot(config: { id: string; appId: string; appSecretEnv: string }): { start(): Promise<void> }
-  }>('frontend-lark.lark')
+  const larkCap = kernel.ctx.extensions.get('frontend-lark.lark')
   if (!larkCap) return
 
   const appSecret = process.env[record.larkConfig!.appSecretEnv]

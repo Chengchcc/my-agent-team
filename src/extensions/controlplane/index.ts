@@ -96,7 +96,7 @@ export default () =>
 
       return {
         provide: {
-          server: () => server,
+          'controlplane.server': () => server,
         },
 
         hooks: {

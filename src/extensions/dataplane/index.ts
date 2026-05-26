@@ -114,8 +114,8 @@ export default () =>
 
       return {
         provide: {
-          register: () => registerMapping,
-          stream: () => ({
+          'dataplane.register': () => registerMapping,
+          'dataplane.stream': () => ({
             /** Replay events since a cursor, or all if no cursor */
             replay(since?: number): DataPlaneEvent[] {
               if (since === undefined) return [...eventLog]

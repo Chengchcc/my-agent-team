@@ -65,12 +65,12 @@ describe('Lark bot adapter', () => {
   })
 
   it('frontend.lark capability available', () => {
-    const lark = kernel.ctx.extensions.get<any>('frontend-lark.lark')
+    const lark = kernel.ctx.extensions.get('frontend-lark.lark')
     expect(lark).toBeDefined()
   })
 
   it('createBot returns adapter with correct kind', () => {
-    const lark = kernel.ctx.extensions.get<any>('frontend-lark.lark')
+    const lark = kernel.ctx.extensions.get('frontend-lark.lark')
     const bot = lark.createBot(createLarkBotConfig('cli_test123', 'LARK_SECRET'))
     expect(bot).toBeDefined()
     expect(bot.kind).toBe('lark-bot')
@@ -78,7 +78,7 @@ describe('Lark bot adapter', () => {
   })
 
   it('bot adapter implements FrontendHandle (start/stop)', async () => {
-    const lark = kernel.ctx.extensions.get<any>('frontend-lark.lark')
+    const lark = kernel.ctx.extensions.get('frontend-lark.lark')
     const bot = lark.createBot(createLarkBotConfig('cli_test123', 'LARK_SECRET'))
     expect(bot.isRunning).toBe(false)
     await bot.start()
@@ -88,7 +88,7 @@ describe('Lark bot adapter', () => {
   })
 
   it('handleMessage routes to session via anchor', async () => {
-    const lark = kernel.ctx.extensions.get<any>('frontend-lark.lark')
+    const lark = kernel.ctx.extensions.get('frontend-lark.lark')
     const bot = lark.createBot(createLarkBotConfig('cli_test123', 'LARK_SECRET'))
     await bot.start()
 
@@ -103,7 +103,7 @@ describe('Lark bot adapter', () => {
   })
 
   it('N bots share one Agent (N:1 model)', () => {
-    const lark = kernel.ctx.extensions.get<any>('frontend-lark.lark')
+    const lark = kernel.ctx.extensions.get('frontend-lark.lark')
     const botA = lark.createBot(createLarkBotConfig('cli_aaa', 'AAA_SECRET'))
     const botB = lark.createBot(createLarkBotConfig('cli_bbb', 'BBB_SECRET'))
 
@@ -114,7 +114,7 @@ describe('Lark bot adapter', () => {
   })
 
   it('routing table resolves anchor to session', async () => {
-    const lark = kernel.ctx.extensions.get<any>('frontend-lark.lark')
+    const lark = kernel.ctx.extensions.get('frontend-lark.lark')
     const routingTable = lark.getRoutingTable()
 
     routingTable.bind('bot-1', { scope: 'thread', key: 'thread-xyz' }, 'session-1', 'Label')
@@ -126,7 +126,7 @@ describe('Lark bot adapter', () => {
   // ── New: LarkClient integration tests ────────────────────────────────
 
   it('creates LarkClient with appId from config', () => {
-    const lark = kernel.ctx.extensions.get<any>('frontend-lark.lark')
+    const lark = kernel.ctx.extensions.get('frontend-lark.lark')
     const bot = lark.createBot(createLarkBotConfig('cli_test123', 'LARK_SECRET'))
 
     // Verify the adapter exposes the real LarkClient
@@ -135,7 +135,7 @@ describe('Lark bot adapter', () => {
   })
 
   it('bot adapter exposes appId and client', () => {
-    const lark = kernel.ctx.extensions.get<any>('frontend-lark.lark')
+    const lark = kernel.ctx.extensions.get('frontend-lark.lark')
     const bot = lark.createBot(createLarkBotConfig('cli_app_abc', 'ABC_SECRET'))
 
     // appId is exposed directly on adapter
@@ -145,7 +145,7 @@ describe('Lark bot adapter', () => {
   })
 
   it('bot adapter can send text via LarkClient (smoke test)', async () => {
-    const lark = kernel.ctx.extensions.get<any>('frontend-lark.lark')
+    const lark = kernel.ctx.extensions.get('frontend-lark.lark')
     const bot = lark.createBot(createLarkBotConfig('cli_test123', 'LARK_SECRET'))
 
     // sendToLark / replyToLark delegate to LarkClient methods.

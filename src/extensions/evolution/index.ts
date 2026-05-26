@@ -139,14 +139,14 @@ async function handleReviewCompleted(
 
 function buildEvolutionApply(ctx: Parameters<typeof defineExtension>[0]['apply'] extends (arg: infer T) => unknown ? T : never) {
   const bus = asContractBus(ctx.bus)
-  const reader = ctx.extensions.get<TraceReader>('trace.reader')
+  const reader = ctx.extensions.get('trace.reader')
   const reg = ctx.extensions
-  const spawner = reg.has('infra-services.job-spawner') ? reg.get<JobSpawner>('infra-services.job-spawner') : undefined
-  const proposals = reg.has('infra-services.proposal-store') ? reg.get<ProposalStore>('infra-services.proposal-store') : undefined
-  const statsStore = reg.has('infra-services.skill-stats-store') ? reg.get<SkillStatsStore>('infra-services.skill-stats-store') : undefined
-  const metaRepo = reg.has('infra-services.skill-meta-repo') ? reg.get<SkillMetaRepo>('infra-services.skill-meta-repo') : undefined
+  const spawner = reg.has('infra-services.job-spawner') ? reg.get('infra-services.job-spawner') : undefined
+  const proposals = reg.has('infra-services.proposal-store') ? reg.get('infra-services.proposal-store') : undefined
+  const statsStore = reg.has('infra-services.skill-stats-store') ? reg.get('infra-services.skill-stats-store') : undefined
+  const metaRepo = reg.has('infra-services.skill-meta-repo') ? reg.get('infra-services.skill-meta-repo') : undefined
   const ctxFactory = reg.has('infra-services.job-context-factory')
-    ? reg.get<JobContextFactory>('infra-services.job-context-factory')
+    ? reg.get('infra-services.job-context-factory')
     : undefined
   const state: PolicyState = { turnsSinceReview: 0, errorBurst: [], skillRunsSeen: {} }
 

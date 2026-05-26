@@ -21,7 +21,7 @@ describe('identity extension', () => {
     const k = createTestKernel({ agentDir, extensions: [identityExt()] })
     await k.start()
 
-    const store = k.ctx.extensions.get<FileBackedIdentityStore>('identity.store')
+    const store = k.ctx.extensions.get('identity.store')
     expect(store).toBeDefined()
     expect(typeof store.current).toBe('function')
     expect(typeof store.update).toBe('function')
@@ -87,7 +87,7 @@ describe('identity extension', () => {
     })
 
     // Verify store was updated
-    const store = k.ctx.extensions.get<FileBackedIdentityStore>('identity.store')
+    const store = k.ctx.extensions.get('identity.store')
     const identity = store.current()
     expect(identity.fields.role).toBe('code reviewer')
     expect(identity.fields.style).toBe('strict, detailed')
@@ -135,7 +135,7 @@ describe('identity extension', () => {
       await k.ctx.rpc.resolve('identity.set')!({ changes: { iteration: String(i) } })
     }
 
-    const store = k.ctx.extensions.get<FileBackedIdentityStore>('identity.store')
+    const store = k.ctx.extensions.get('identity.store')
     expect(store.getVersion()).toBe(4) // started at 1, +3 updates
     expect(store.current().version).toBe(4)
     expect(store.current().fields.iteration).toBe('2') // last value
@@ -158,7 +158,7 @@ describe('identity extension', () => {
     await k.ctx.rpc.resolve('identity.set')!({ changes: { style: 'terse' } })
     await k.ctx.rpc.resolve('identity.set')!({ changes: { tone: 'professional' } })
 
-    const store = k.ctx.extensions.get<FileBackedIdentityStore>('identity.store')
+    const store = k.ctx.extensions.get('identity.store')
     const history = store.getHistory()
 
     expect(history).toHaveLength(3)
@@ -210,7 +210,7 @@ describe('identity extension', () => {
     await k.ctx.rpc.resolve('identity.set')!({ changes: { style: 'terse' } })
     await k.ctx.rpc.resolve('identity.set')!({ changes: { tone: 'professional' } })
 
-    const store = k.ctx.extensions.get<FileBackedIdentityStore>('identity.store')
+    const store = k.ctx.extensions.get('identity.store')
     expect(store.getVersion()).toBe(4)
 
     // Rollback to version 2
@@ -251,7 +251,7 @@ describe('identity extension', () => {
 
     await k.ctx.rpc.resolve('identity.set')!({ changes: { role: 'reviewer' } })
 
-    const store = k.ctx.extensions.get<FileBackedIdentityStore>('identity.store')
+    const store = k.ctx.extensions.get('identity.store')
     expect(store.getVersion()).toBe(2)
 
     // Try to rollback to current version (should fail)
@@ -285,7 +285,7 @@ describe('identity extension', () => {
     // Rollback to version 2
     await k.ctx.rpc.resolve('identity.rollback')!({ targetVersion: 2 })
 
-    const store = k.ctx.extensions.get<FileBackedIdentityStore>('identity.store')
+    const store = k.ctx.extensions.get('identity.store')
     expect(store.getVersion()).toBe(2)
 
     // New update should produce version 3 (not 5)

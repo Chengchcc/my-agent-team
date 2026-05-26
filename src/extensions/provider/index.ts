@@ -64,7 +64,7 @@ export default (env?: Record<string, string | undefined>) =>
 
       return {
         provide: {
-          llm: () => provider,
+          'provider.llm': () => provider,
         },
 
         hooks: {

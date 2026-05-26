@@ -91,7 +91,7 @@ describe('Kernel', () => {
       name: 'provider',
       apply: () => ({
         provide: {
-          llm: () => ({ stream: () => 'hello' }),
+          'provider.llm': () => ({ stream: () => 'hello' }),
         },
       }),
     })

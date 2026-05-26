@@ -1,8 +1,6 @@
 import { defineExtension } from '../../kernel/define-extension'
 import type { HookHandler } from '../../kernel/define-extension'
 import type { ToolDescriptor } from '../../domain/turn-runner.types'
-import type { SessionStore } from '../../application/ports/session-store'
-import type { ToolCatalog } from '../../application/ports/tool-catalog'
 import type { SlashCommand, SlashContext, SlashResolution } from '../../application/slash'
 import { defineTool } from '../../application/tool-factory/define-tool'
 import { ModeRegistry, registerBuiltinModes } from './registry'
@@ -74,7 +72,7 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
       const activeProposals = new Map<string, { blockId: string; payload: Record<string, unknown> }>()
 
       async function getMode(sessionId: string): Promise<string> {
-        const store = ctx.extensions.get<SessionStore>('session.store')
+        const store = ctx.extensions.get('session.store')
         const s = await store.load(sessionId)
         return s?.mode ?? 'normal'
       }
@@ -83,7 +81,7 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
         if (mode !== 'normal' && !registry.get(mode)) {
           return { ok: false, error: `Unknown mode: "${mode}"` }
         }
-        const store = ctx.extensions.get<SessionStore>('session.store')
+        const store = ctx.extensions.get('session.store')
         const s = await store.load(sessionId)
         if (!s) return { ok: false, error: `Session "${sessionId}" not found` }
         const from = s.mode
@@ -123,7 +121,7 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
           const mode = await getMode(sid)
           const desc = registry.get(mode)
           if (!desc) return call
-          const catalog = ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+          const catalog = ctx.extensions.get('tool-catalog.catalog')
           const toolMeta = catalog?.get(call.name)
           const toolDesc: ToolDescriptor = toolMeta
             ? { name: toolMeta.name, description: toolMeta.description, parameters: toolMeta.parameters, readonly: toolMeta.readonly }
@@ -144,7 +142,7 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
       // ── M2: exit_plan_mode tool ──
 
       function registerExitPlanTool(): void {
-        const catalog = ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+        const catalog = ctx.extensions.get('tool-catalog.catalog')
         if (!catalog || catalog.get('exit_plan_mode')) return
 
         catalog.register(defineTool({
@@ -208,7 +206,7 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
       }
 
       return {
-        provide: { registry: () => registry },
+        provide: { 'session-mode.registry': () => registry },
         hooks: buildHooks(),
         rpc: buildRpc(),
         slash: buildSlashCommands(registry, setMode),

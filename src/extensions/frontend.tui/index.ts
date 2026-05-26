@@ -166,11 +166,11 @@ export default () =>
 
       return {
         provide: {
-          tui: () => {
+          'frontend-tui.tui': () => {
             // Transport is created by transport.inmem extension.
             // Use the full path 'transport-inmem.transport' per the
             // ExtensionRegistry capability lookup convention.
-            const transport = ctx.extensions.get<Transport>(
+            const transport = ctx.extensions.get(
               'transport-inmem.transport',
             )
             return new TUIAdapter('tui-main', transport, ctx.logger)

@@ -7,7 +7,6 @@ import { openDb, runMigrations } from '../../infrastructure/_sqlite/connection'
 import { evolutionMigrations } from '../../infrastructure/evolution/sqlite-evolution-schema'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ProviderInvoke } from '../../application/ports/provider'
 import { createJobContextFactory } from './job-context-factory'
 
 /**
@@ -26,7 +25,7 @@ export default () =>
 
     apply: (ctx) => {
       const providerInvoke = ctx.extensions.has('provider.llm')
-        ? ctx.extensions.get<ProviderInvoke>('provider.llm')
+        ? ctx.extensions.get('provider.llm')
         : undefined
 
       const spawner = createJobSpawner({
@@ -44,11 +43,11 @@ export default () =>
 
       return {
         provide: {
-          'job-spawner': () => spawner,
-          'proposal-store': () => proposals,
-          'skill-stats-store': () => stats,
-          'skill-meta-repo': () => meta,
-          'job-context-factory': () =>
+          'infra-services.job-spawner': () => spawner,
+          'infra-services.proposal-store': () => proposals,
+          'infra-services.skill-stats-store': () => stats,
+          'infra-services.skill-meta-repo': () => meta,
+          'infra-services.job-context-factory': () =>
             providerInvoke
               ? createJobContextFactory(providerInvoke, ctx.logger)
               : undefined,

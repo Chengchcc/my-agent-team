@@ -1,5 +1,6 @@
 import type { ExtensionBuilder, ExtensionApplyResult } from './define-extension'
 import type { SlashCommand } from '../application/slash'
+import type { CapabilityKey, CapabilityMap } from './capability-map'
 
 interface ExtInstance {
   readonly name: string
@@ -7,87 +8,80 @@ interface ExtInstance {
   readonly result: ExtensionApplyResult
 }
 
+interface CapEntry {
+  instance: ExtInstance
+  key: string
+  factory: () => unknown
+}
+
 /**
  * ExtensionRegistry stores runtime extension instances and provides capability
- * lookups by path (e.g. 'provider.chat'). Capabilities are lazy — the factory
- * returned by get() is called by the consumer.
+ * lookups by typed path (e.g. 'provider.llm', 'session.store').
+ * Capabilities are lazy — the factory returned by get() is called by the consumer.
  */
 class ExtensionRegistry {
   private instances = new Map<string, ExtInstance>()
+  /** O(1) capability index: full capability key → { instance, factory } */
+  private caps = new Map<string, CapEntry>()
 
   register(builder: ExtensionBuilder, result: ExtensionApplyResult): void {
     if (this.instances.has(builder.name)) {
       throw new Error(`Extension "${builder.name}" is already registered`)
     }
-    this.instances.set(builder.name, {
+    const instance: ExtInstance = {
       name: builder.name,
       builder,
       result,
-    })
+    }
+    this.instances.set(builder.name, instance)
+
+    // Index capabilities by their full key for O(1) lookup.
+    // The provide block keys are now full CapabilityKey strings (e.g. 'session.store').
+    for (const [key, factory] of Object.entries(result.provide ?? {})) {
+      if (this.caps.has(key)) {
+        const existing = this.caps.get(key)!
+        throw new CapabilityConflictError(key, existing.instance.name, builder.name)
+      }
+      this.caps.set(key, { instance, key, factory })
+    }
   }
 
   /**
-   * Get a capability by path (e.g. 'provider.chat').
-   * Tries kernel provides first, then full extension name (for extensions
-   * with dots like 'frontend.lark'), then splits on first '.' for capability lookup.
+   * Get a capability by typed path (e.g. 'session.store').
+   * Checks kernel provides first, then the capability index.
    */
-  get<T = unknown>(path: string): T {
+  get<K extends CapabilityKey>(key: K): CapabilityMap[K]
+  get(key: string): unknown
+  get(key: string): unknown {
     // Option A: kernel-provided capability
-    const kernelValue = this.kernelProvides.get(path)
+    const kernelValue = this.kernelProvides.get(key)
     if (kernelValue !== undefined) {
-      return kernelValue as T
+      return kernelValue
     }
 
-    // Option B: try full path as extension name first
-    const directInstance = this.instances.get(path)
+    // Option B: full extension name as direct fallback
+    const directInstance = this.instances.get(key)
     if (directInstance) {
-      return directInstance as unknown as T
+      return directInstance as unknown
     }
 
-    // Fallback: split on first '.' for capability path
-    const dotIndex = path.indexOf('.')
-    if (dotIndex === -1) {
-      throw new CapabilityNotFoundError(path)
+    // Option C: capability index lookup
+    const cap = this.caps.get(key)
+    if (!cap) {
+      throw new CapabilityNotFoundError(key)
     }
-    const extName = path.slice(0, dotIndex)
-    const capabilityName = path.slice(dotIndex + 1)
-    if (!extName || !capabilityName) {
-      throw new CapabilityNotFoundError(path)
-    }
-    // Check kernel provides by full path
-    const kernelFullValue = this.kernelProvides.get(`${extName}.${capabilityName}`)
-    if (kernelFullValue !== undefined) {
-      return kernelFullValue as T
-    }
-    const instance = this.instances.get(extName)
-    if (!instance) {
-      throw new CapabilityNotFoundError(path)
-    }
-    const factory = instance.result.provide?.[capabilityName]
-    if (!factory) {
-      throw new CapabilityNotFoundError(path)
-    }
-    return factory() as T
+    return cap.factory()
   }
 
   /**
-   * Check if a capability exists.
+   * Check if a typed capability exists.
    */
-  has(path: string): boolean {
-    // Try full extension name first
-    if (this.instances.has(path)) return true
-    // Check kernel-provided capabilities
-    if (this.kernelProvides.has(path)) return true
-    // Fallback: split on first '.'
-    const dotIndex = path.indexOf('.')
-    if (dotIndex === -1) return false
-    const extName = path.slice(0, dotIndex)
-    const capabilityName = path.slice(dotIndex + 1)
-    if (!extName || !capabilityName) return false
-    // Check kernel provides by full path
-    if (this.kernelProvides.has(`${extName}.${capabilityName}`)) return true
-    const instance = this.instances.get(extName)
-    return !!instance?.result.provide?.[capabilityName]
+  has<K extends CapabilityKey>(key: K): boolean
+  has(key: string): boolean
+  has(key: string): boolean {
+    if (this.kernelProvides.has(key)) return true
+    if (this.instances.has(key)) return true
+    return this.caps.has(key)
   }
 
   private kernelProvides = new Map<string, unknown>()
@@ -96,14 +90,24 @@ class ExtensionRegistry {
    * Register a kernel-level capability before any extension runs.
    * Kernel provides are available to all extensions via get() and has().
    */
-  provideKernel<T = unknown>(path: string, value: T): void {
-    this.kernelProvides.set(path, value)
+  provideKernel<K extends CapabilityKey>(key: K, value: CapabilityMap[K]): void
+  provideKernel(key: string, value: unknown): void
+  provideKernel(key: string, value: unknown): void {
+    this.kernelProvides.set(key, value)
   }
 
   /**
    * Remove an extension and its capabilities.
    */
   unregister(name: string): boolean {
+    const instance = this.instances.get(name)
+    if (!instance) return false
+    // Remove capability entries owned by this extension
+    for (const [key, entry] of this.caps) {
+      if (entry.instance.name === name) {
+        this.caps.delete(key)
+      }
+    }
     return this.instances.delete(name)
   }
 
@@ -135,6 +139,19 @@ class ExtensionRegistry {
   }
 }
 
+class CapabilityConflictError extends Error {
+  readonly key: string
+  readonly extensionA: string
+  readonly extensionB: string
+  constructor(key: string, extA: string, extB: string) {
+    super(`Capability "${key}" already registered by "${extA}" — conflict with "${extB}"`)
+    this.name = 'CapabilityConflictError'
+    this.key = key
+    this.extensionA = extA
+    this.extensionB = extB
+  }
+}
+
 class CapabilityNotFoundError extends Error {
   readonly path: string
   constructor(path: string) {
@@ -144,5 +161,5 @@ class CapabilityNotFoundError extends Error {
   }
 }
 
-export { ExtensionRegistry }
+export { ExtensionRegistry, CapabilityConflictError }
 export type { ExtInstance }

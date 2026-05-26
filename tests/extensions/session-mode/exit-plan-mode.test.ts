@@ -15,7 +15,7 @@ describe('exit_plan_mode tool (M2)', () => {
     })
     await k.start()
 
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const tool = catalog.get('exit_plan_mode')
     expect(tool).toBeDefined()
     expect(tool!.name).toBe('exit_plan_mode')
@@ -35,7 +35,7 @@ describe('exit_plan_mode tool (M2)', () => {
     const events: unknown[] = []
     k.ctx.bus.on('session.planProposed', (payload) => events.push(payload))
 
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const tool = catalog.get('exit_plan_mode')!
 
     const result = await tool.execute(
@@ -58,7 +58,7 @@ describe('exit_plan_mode tool (M2)', () => {
     })
     await k.start()
 
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const tool = catalog.get('exit_plan_mode')!
 
     expect(() => tool.parse?.({ plan: '' })).toThrow('Plan must not be empty')

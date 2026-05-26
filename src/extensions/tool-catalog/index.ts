@@ -51,7 +51,7 @@ export default () =>
 
       return {
         provide: {
-          catalog: () => catalog,
+          'tool-catalog.catalog': () => catalog,
         },
         hooks: {
           resolveTools: {

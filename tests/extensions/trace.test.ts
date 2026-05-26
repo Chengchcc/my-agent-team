@@ -45,7 +45,7 @@ describe('trace extension', () => {
     await k.ctx.hooks.dispatch('onTraceEmit', evt)
 
     // SQLite: verify via reader API
-    const reader = k.ctx.extensions.get<TraceCheckpointer>('trace.reader')
+    const reader = k.ctx.extensions.get('trace.reader')
     const summaries = await reader.listRecentSummaries({ limit: 10 })
     expect(summaries.length).toBeGreaterThanOrEqual(1)
     await k.stop()
@@ -74,7 +74,7 @@ describe('trace extension', () => {
     // Verify data persisted via a new kernel instance
     const k2 = createTestKernel({ extensions: [traceExt({ baseDir: tmpDir })] })
     await k2.start()
-    const reader = k2.ctx.extensions.get<TraceCheckpointer>('trace.reader')
+    const reader = k2.ctx.extensions.get('trace.reader')
     const summaries = await reader.listRecentSummaries({ limit: 10 })
     expect(summaries.length).toBeGreaterThanOrEqual(1)
     await k2.stop()
@@ -87,7 +87,7 @@ describe('trace extension', () => {
     await k.ctx.hooks.dispatch('onTraceEmit', factory.next('t1', 'turn.started', {}))
     await k.ctx.hooks.dispatch('onTraceEmit', factory.next('t2', 'turn.started', {}))
 
-    const reader = k.ctx.extensions.get<TraceCheckpointer>('trace.reader')
+    const reader = k.ctx.extensions.get('trace.reader')
     const summaries = await reader.listRecentSummaries({ limit: 1 })
     expect(summaries.length).toBeGreaterThanOrEqual(1)
     expect(summaries[0]!).toHaveProperty('totalTurns')
@@ -107,7 +107,7 @@ describe('trace extension', () => {
     await k.ctx.hooks.dispatch('onTraceEmit', factory.next('turn-1', 'tool.call', {}))
     await k.ctx.hooks.dispatch('onTraceEmit', factory.next('turn-1', 'turn.completed', {}))
 
-    const reader = k.ctx.extensions.get<TraceCheckpointer>('trace.reader')
+    const reader = k.ctx.extensions.get('trace.reader')
     const summaries = await reader.listRecentSummaries({ limit: 10 })
     expect(summaries.length).toBeGreaterThanOrEqual(1)
     expect(summaries[0]!).toHaveProperty('totalTurns')
@@ -126,7 +126,7 @@ describe('trace extension', () => {
     // After stop, data persists in SQLite
     const k2 = createTestKernel({ extensions: [traceExt({ baseDir: tmpDir })] })
     await k2.start()
-    const reader2 = k2.ctx.extensions.get<TraceCheckpointer>('trace.reader')
+    const reader2 = k2.ctx.extensions.get('trace.reader')
     const summaries = await reader2.listRecentSummaries({ limit: 10 })
     expect(summaries.length).toBeGreaterThanOrEqual(1)
     await k2.stop()

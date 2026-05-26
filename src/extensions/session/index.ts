@@ -13,7 +13,6 @@ import { createTurn } from '../../domain/turn'
 import { createTraceEventFactory } from '../../domain/trace-event'
 import type { TraceEvent } from '../../domain/trace-event'
 import { createCompactor } from './compactor'
-import type { ProviderInvoke } from '../../application/ports/provider'
 import type { HookContainer } from '../../kernel/hook-container'
 import type { SessionStore } from '../../application/ports/session-store'
 
@@ -122,10 +121,10 @@ export default () =>
 
       return {
         provide: {
-          store: () => sessionStore,
-          history: () => historyStore,
-          compactor: () => createCompactor({ invoke: ctx.extensions.get<ProviderInvoke>('provider.llm') }),
-          abort: () => ({
+          'session.store': () => sessionStore,
+          'session.history': () => historyStore,
+          'session.compactor': () => createCompactor({ invoke: ctx.extensions.get('provider.llm') }),
+          'session.abort': () => ({
             register: (sessionId: string, controller: AbortController) => abortControllers.set(sessionId, controller),
             unregister: (sessionId: string) => { abortControllers.delete(sessionId) },
             abort: (sessionId: string) => { abortControllers.get(sessionId)?.abort() },

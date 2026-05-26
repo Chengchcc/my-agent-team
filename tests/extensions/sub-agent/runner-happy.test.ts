@@ -24,7 +24,7 @@ describe('sub-agent runner (M1)', () => {
     })
     await k.start()
 
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const taskTool = catalog.get('task')
     expect(taskTool).toBeDefined()
     expect(taskTool!.name).toBe('task')
@@ -42,7 +42,7 @@ describe('sub-agent runner (M1)', () => {
     })
     await k.start()
 
-    const registry = k.ctx.extensions.get<SubAgentRegistry>('sub-agent.registry')
+    const registry = k.ctx.extensions.get('sub-agent.registry')
     expect(registry).toBeDefined()
     expect(registry.get('explore')).toBeDefined()
     expect(registry.get('plan')).toBeDefined()
@@ -60,7 +60,7 @@ describe('sub-agent runner (M1)', () => {
     })
     await k.start()
 
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const taskTool = catalog.get('task')!
 
     const result = await taskTool.execute(

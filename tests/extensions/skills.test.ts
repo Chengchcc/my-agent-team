@@ -55,7 +55,7 @@ describe('skills extension', () => {
     const k = createTestKernel({ extensions: [skillsExt({ builtinDir: emptyBuiltinDir })] })
     await k.start()
 
-    const registry = k.ctx.extensions.get<SkillRegistry>('skills.registry')
+    const registry = k.ctx.extensions.get('skills.registry')
     expect(registry).toBeDefined()
     expect(typeof registry.list).toBe('function')
     expect(typeof registry.get).toBe('function')
@@ -104,7 +104,7 @@ describe('skills extension', () => {
     const k = createTestKernel({ extensions: [skillsExt({ builtinDir: emptyBuiltinDir })] })
     await k.start()
 
-    const registry = k.ctx.extensions.get<SkillRegistry>('skills.registry')
+    const registry = k.ctx.extensions.get('skills.registry')
 
     // Register a new profile-scoped skill
     const customSkill: SkillDescriptor = {
@@ -170,7 +170,7 @@ describe('skills extension', () => {
       result,
     )
 
-    const registry = ctx.extensions.get<SkillRegistry>('skills.registry')
+    const registry = ctx.extensions.get('skills.registry')
     expect(registry).toBeDefined()
 
     // No demo skills — skills map starts empty; file-loaded on kernelReady

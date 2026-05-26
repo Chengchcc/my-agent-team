@@ -3,12 +3,9 @@ import type { HookHandler } from '../../kernel/define-extension'
 import { createEvent } from '../../application/contracts'
 import { asContractBus } from '../../application/event-bus/contract-bus'
 import { FileBackedIdentityStore } from '../../infrastructure/identity/file-backed-identity-store'
-import type { AgentRegistryRead } from '../../application/ports/agent-registry'
 import { atomicRead } from '../../shared/atomic-write'
 import { parseIdentityMarkdown } from '../../domain/identity-doc'
-import type { RecallAPI } from '../memory/recall'
 import { createBootstrapLoop } from './bootstrap-loop'
-import type { ProviderInvoke } from '../../application/ports/provider'
 
 /**
  * Identity extension — provides identity versioning, prompt injection,
@@ -33,8 +30,8 @@ import type { ProviderInvoke } from '../../application/ports/provider'
  */
 /** Shared bootstrap-loop factory to keep apply() under 150 lines. */
 function getBootstrapLoop(ctx: Parameters<Parameters<typeof defineExtension>[0]['apply']>[0], store: FileBackedIdentityStore) {
-  const provider = ctx.extensions.get<ProviderInvoke>('provider.llm')
-  const registry = ctx.extensions.get<AgentRegistryRead>('agent.registry')
+  const provider = ctx.extensions.get('provider.llm')
+  const registry = ctx.extensions.get('agent.registry')
   if (!provider || !registry) return null
   return createBootstrapLoop({
     store,
@@ -90,7 +87,7 @@ export default () =>
         // Check identity status from registry
         let status = 'ready'
         try {
-          const registry = ctx.extensions.get<AgentRegistryRead>('agent.registry')
+          const registry = ctx.extensions.get('agent.registry')
           if (registry) {
             try {
               const rec = await registry.current()
@@ -117,7 +114,7 @@ export default () =>
 
         // Inject retrieved memories via memory.recall
         try {
-          const recall = ctx.extensions.get<RecallAPI>('memory.recall')
+          const recall = ctx.extensions.get('memory.recall')
           if (recall) {
             const lastUserMsg = [...prompt.messages].reverse().find(m => m.role === 'user')
             if (lastUserMsg?.content) {
@@ -152,7 +149,7 @@ export default () =>
 
       return {
         provide: {
-          store: () => store, // accessed as 'identity.store'
+          'identity.store': () => store, // accessed as 'identity.store'
         },
 
         hooks: {

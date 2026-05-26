@@ -34,7 +34,7 @@ describe('sub-agent M3', () => {
     const parentCtrl = new AbortController()
     parentCtrl.abort()
 
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const taskTool = catalog.get('task')!
 
     // Without a real provider, the sub-agent fails during LLM invocation
@@ -58,8 +58,8 @@ describe('sub-agent M3', () => {
     })
     await k.start()
 
-    const store = k.ctx.extensions.get<SessionStore>('session.store')
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const store = k.ctx.extensions.get('session.store')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const taskTool = catalog.get('task')!
 
     // Count sessions before
@@ -86,7 +86,7 @@ describe('sub-agent M3', () => {
     })
     await k.start()
 
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const taskTool = catalog.get('task')!
 
     // Run with a plan sub-agent — compaction is disabled
@@ -110,7 +110,7 @@ describe('sub-agent M3', () => {
     })
     await k.start()
 
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     const taskTool = catalog.get('task')!
 
     const result = await taskTool.execute(

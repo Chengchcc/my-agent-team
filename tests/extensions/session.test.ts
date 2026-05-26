@@ -35,7 +35,7 @@ function createTestSession(id: string, k: ReturnType<typeof createTestKernel>): 
 
 /** Reset main session to INIT state for tests that assume fresh state. */
 async function resetMainSession(k: ReturnType<typeof createTestKernel>): Promise<void> {
-  const store = k.ctx.extensions.get<SessionStore>('session.store')
+  const store = k.ctx.extensions.get('session.store')
   const s = await store.load('main')
   if (s) { s.state = 'INIT'; await store.save(s) }
 }
@@ -45,7 +45,7 @@ describe('session extension', () => {
     const k = createTestKernel({ extensions: [traceExt(), sessionExt()] })
     await k.start()
 
-    const store = k.ctx.extensions.get<SessionStore>('session.store')
+    const store = k.ctx.extensions.get('session.store')
     expect(store).toBeDefined()
     expect(typeof store.save).toBe('function')
     expect(typeof store.load).toBe('function')
@@ -61,7 +61,7 @@ describe('session extension', () => {
     })
     await k.start()
 
-    const store = k.ctx.extensions.get<SessionStore>('session.store')
+    const store = k.ctx.extensions.get('session.store')
     const mainSession = await store.load('main')
     expect(mainSession).not.toBeNull()
     expect(mainSession!.id).toBe('main')
@@ -107,7 +107,7 @@ describe('session extension', () => {
     await k.start()
 
     // Create a fresh session to avoid state from other tests
-    const store = k.ctx.extensions.get<SessionStore>('session.store')
+    const store = k.ctx.extensions.get('session.store')
     const s = createTestSession('test-running', k)
     await store.save(s)
 
@@ -149,7 +149,7 @@ describe('session extension', () => {
     })
 
     // Session should be back to IDLE
-    const store = k.ctx.extensions.get<SessionStore>('session.store')
+    const store = k.ctx.extensions.get('session.store')
     const session = await store.load('main')
     expect(session!.state).toBe('IDLE')
 
@@ -225,11 +225,7 @@ describe('session extension', () => {
     expect(turn.state).toBe('RUNNING')
 
     // 2. Use provider.chat to stream a response
-    const chat = k.ctx.extensions.get<{
-      stream: (req: {
-        messages: Array<{ role: string; content: string }>
-      }) => AsyncGenerator<{ type: string; delta?: string }>
-    }>('provider.llm')
+    const chat = k.ctx.extensions.get('provider.llm')
 
     const chunks: unknown[] = []
     const deltas: unknown[] = []
@@ -259,7 +255,7 @@ describe('session extension', () => {
     })
 
     // 4. Verify session is back to IDLE
-    const store = k.ctx.extensions.get<SessionStore>('session.store')
+    const store = k.ctx.extensions.get('session.store')
     const session = await store.load('main')
     expect(session!.state).toBe('IDLE')
 

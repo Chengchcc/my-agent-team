@@ -10,7 +10,7 @@ describe('tools extension transformPrompt', () => {
     await k.start()
 
     // verify todo_write is registered
-    const catalog = k.ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+    const catalog = k.ctx.extensions.get('tool-catalog.catalog')
     expect(catalog.get('todo_write')).toBeDefined()
 
     // dispatch transformPrompt

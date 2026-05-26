@@ -73,7 +73,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(await rpc(server, 'session.list'))
       const sessions = res.sessions as Array<Record<string, unknown>>
       expect(sessions.length).toBeGreaterThanOrEqual(1)
@@ -86,7 +86,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       // Create a new session
       const createRes = expectSuccess(
@@ -106,7 +106,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(await rpc(server, 'session.list'))
       const sessions = res.sessions as Array<Record<string, unknown>>
       const main = sessions.find((s) => s.id === 'main')
@@ -127,7 +127,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       expectError(
         await rpc(server, 'session.attach', {
           frontendId: 'fe-test',
@@ -142,7 +142,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       expectError(await rpc(server, 'session.attach', { sessionId: 'main' }))
 
       await k.stop()
@@ -154,7 +154,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       // Attach first
       await rpc(server, 'session.attach', { frontendId: 'fe-test', sessionId: 'main' })
@@ -179,7 +179,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
         await rpc(server, 'session.detach', {
           frontendId: 'fe-unknown',
@@ -197,7 +197,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       // Create a second session to resume to
       const createRes = expectSuccess(
@@ -225,7 +225,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       // Attach to current session (main)
       await rpc(server, 'session.attach', {
@@ -260,7 +260,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       expectError(
         await rpc(server, 'session.resume', { sessionId: 'nonexistent' }),
       )
@@ -274,7 +274,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
         await rpc(server, 'session.create', { title: 'My New Session' }),
       )
@@ -295,7 +295,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
         await rpc(server, 'session.create', {
           title: 'Frontend Session',
@@ -314,7 +314,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       const ids = new Set<string>()
       for (let i = 0; i < 5; i++) {
@@ -334,7 +334,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       // Create a session to close
       const createRes = expectSuccess(
@@ -362,7 +362,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       expectError(await rpc(server, 'session.close', { sessionId: 'main' }))
 
       await k.stop()
@@ -372,7 +372,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
         await rpc(server, 'session.close', { sessionId: 'main', force: true }),
       )
@@ -386,7 +386,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       const createRes = expectSuccess(
         await rpc(server, 'session.create', { title: 'Close Twice' }),
@@ -407,7 +407,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
         await rpc(server, 'session.rename', {
           sessionId: 'main',
@@ -430,7 +430,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       expectError(await rpc(server, 'session.rename', { sessionId: 'main' }))
 
       await k.stop()
@@ -440,7 +440,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       expectError(
         await rpc(server, 'session.rename', {
           sessionId: 'nonexistent',
@@ -461,7 +461,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       expectError(
         await rpc(server, 'input.send', {
           sessionId: 'nonexistent',
@@ -476,7 +476,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       expectError(await rpc(server, 'input.send', { sessionId: 'main' }))
 
       await k.stop()
@@ -486,7 +486,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
         await rpc(server, 'input.send', {
           sessionId: 'main',
@@ -505,7 +505,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       // Start a turn first
       await rpc(server, 'input.send', {
@@ -536,7 +536,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
         await rpc(server, 'input.cancel', { sessionId: 'main' }),
       )
@@ -549,7 +549,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       expectError(
         await rpc(server, 'input.cancel', { sessionId: 'nonexistent' }),
       )
@@ -567,7 +567,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(
         await rpc(server, 'user.answer', {
           sessionId: 'main',
@@ -586,7 +586,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       expectError(
         await rpc(server, 'user.answer', { sessionId: 'main', answers: [] }),
       )
@@ -604,7 +604,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(await rpc(server, 'system.health'))
 
       expect(res.status).toBe('ok')
@@ -628,7 +628,7 @@ describe('controlplane-methods extension', () => {
       })
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(await rpc(server, 'system.health'))
       expect((res.subsystems as Record<string, unknown>).session).toBe('unavailable')
 
@@ -646,7 +646,7 @@ describe('controlplane-methods extension', () => {
         shutdownReceived = true
       })
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(await rpc(server, 'system.shutdown'))
 
       expect(res.shuttingDown).toBe(true)
@@ -664,7 +664,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
       const res = expectSuccess(await rpc(server, 'system.version'))
 
       expect(res.daemonVersion).toBe('2.0.0')
@@ -685,7 +685,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       // Create
       const createRes = expectSuccess(
@@ -713,7 +713,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       // Create a second session
       const createRes = expectSuccess(
@@ -747,7 +747,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       // Send input
       const sendRes = expectSuccess(
@@ -772,7 +772,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       // health
       const health = expectSuccess(await rpc(server, 'system.health'))
@@ -793,7 +793,7 @@ describe('controlplane-methods extension', () => {
       const k = createMethodsTestKernel()
       await k.start()
 
-      const server = k.ctx.extensions.get<ControlPlaneServer>('controlplane.server')
+      const server = k.ctx.extensions.get('controlplane.server')
 
       // Verify all 13 methods are registered in RpcRegistry
       const expectedMethods = [

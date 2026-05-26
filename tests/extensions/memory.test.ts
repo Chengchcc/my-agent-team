@@ -28,7 +28,7 @@ describe('memory extension', () => {
       })
       await k.start()
 
-      const store = k.ctx.extensions.get<MemoryStore>('memory.store')
+      const store = k.ctx.extensions.get('memory.store')
       expect(store).toBeDefined()
       expect(typeof store.add).toBe('function')
       expect(typeof store.search).toBe('function')
@@ -36,7 +36,7 @@ describe('memory extension', () => {
       expect(typeof store.update).toBe('function')
       expect(typeof store.remove).toBe('function')
 
-      const recall = k.ctx.extensions.get<RecallAPI>('memory.recall')
+      const recall = k.ctx.extensions.get('memory.recall')
       expect(recall).toBeDefined()
       expect(typeof recall.search).toBe('function')
 
@@ -55,7 +55,7 @@ describe('memory extension', () => {
       await k.start()
 
       // Add a memory entry, then verify backfill is not crashing
-      const store = k.ctx.extensions.get<MemoryStore>('memory.store')
+      const store = k.ctx.extensions.get('memory.store')
       const entry = await store.add({
         type: 'general',
         text: 'test backfill entry',
@@ -102,7 +102,7 @@ describe('memory extension', () => {
       await new Promise(resolve => setTimeout(resolve, 10))
 
       // Verify: no crash, extension is still operational
-      const store = k.ctx.extensions.get<MemoryStore>('memory.store')
+      const store = k.ctx.extensions.get('memory.store')
       const results = await store.search('anything', { limit: 1 })
       expect(Array.isArray(results)).toBe(true)
 
@@ -148,7 +148,7 @@ describe('memory extension', () => {
       })
       await k.start()
 
-      const store = k.ctx.extensions.get<MemoryStore>('memory.store')
+      const store = k.ctx.extensions.get('memory.store')
 
       await store.add({
         type: 'general',
@@ -199,7 +199,7 @@ describe('memory extension', () => {
         extensions: [traceExt(), toolCatalogExt(), memoryExt({ baseDir: tmp })],
       })
       await k1.start()
-      const store1 = k1.ctx.extensions.get<MemoryStore>('memory.store')
+      const store1 = k1.ctx.extensions.get('memory.store')
       await store1.add({
         type: 'general',
         text: 'persistent data for cross-session recall',
@@ -219,7 +219,7 @@ describe('memory extension', () => {
         extensions: [traceExt(), toolCatalogExt(), memoryExt({ baseDir: tmp })],
       })
       await k2.start()
-      const store2 = k2.ctx.extensions.get<MemoryStore>('memory.store')
+      const store2 = k2.ctx.extensions.get('memory.store')
       const after = await store2.search('persistent', { limit: 5 })
       expect(after).toHaveLength(1)
       expect(after[0].text).toContain('persistent data')

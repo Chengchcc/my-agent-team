@@ -10,7 +10,7 @@ export default () =>
       let transport: InMemoryTransport | null = null
       return {
         provide: {
-          transport: () => transport ??= new InMemoryTransport(ctx),
+          'transport-inmem.transport': () => transport ??= new InMemoryTransport(ctx),
         },
       }
     },

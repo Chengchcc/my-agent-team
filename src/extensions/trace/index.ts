@@ -96,7 +96,7 @@ export default (opts?: { baseDir?: string }) =>
 
       return {
         provide: {
-          reader: () => checkpointer as unknown as TraceReader,
+          'trace.reader': () => checkpointer as unknown as TraceReader,
         },
 
         rpc: {

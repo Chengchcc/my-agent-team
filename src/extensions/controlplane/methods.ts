@@ -36,11 +36,11 @@ export default () =>
 
     apply: (ctx) => {
       const getStore = (): SessionStore => {
-        try { return ctx.extensions.get<SessionStore>('session.store'); }
+        try { return ctx.extensions.get('session.store'); }
         catch { throw new Error('Session store is not available. The "session" extension must be registered.'); }
       };
 
-      const getServer = () => ctx.extensions.get<ControlPlaneServer>('controlplane.server');
+      const getServer = () => ctx.extensions.get('controlplane.server');
       const contractBus = asContractBus(ctx.bus);
 
       function sessionToJson(s: Session) {
@@ -86,7 +86,4 @@ export default () =>
 
 // ── Internal types ──────────────────────────────────────────────────────────
 
-interface ControlPlaneServer {
-  attachFrontend(frontendId: string, sessionId: string): void;
-  detachFrontend(frontendId: string, sessionId: string): void;
-}
+// ControlPlaneServer local type kept for structural typing in getServer()

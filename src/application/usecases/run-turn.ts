@@ -317,21 +317,21 @@ export async function runTurnUsecase(
 // ── Shared glue: build usecase deps from kernel-like context ──────────────
 
 export function buildRunTurnDeps(ctx: {
-  extensions: { get<T>(name: string): T }
+  extensions: { get(key: string): unknown }
   hooks: { dispatch(name: string, ...args: unknown[]): Promise<unknown> }
   bus: { emit(event: string, payload: unknown): void }
   logger: { info(d: string, m: string): void; warn(d: string, m: string): void; error(d: string, m: string): void }
   agentDir: string
 }): RunTurnUsecaseDeps {
   return {
-    provider: ctx.extensions.get<ProviderChat>('provider.llm'),
+    provider: ctx.extensions.get('provider.llm') as RunTurnUsecaseDeps['provider'],
     hooks: { dispatch: ctx.hooks.dispatch.bind(ctx.hooks) as <T>(n: string, ...a: unknown[]) => Promise<T> },
-    sessionStore: ctx.extensions.get<SessionStore>('session.store'),
-    history: ctx.extensions.get<SessionHistoryPort>('session.history'),
+    sessionStore: ctx.extensions.get('session.store') as RunTurnUsecaseDeps['sessionStore'],
+    history: ctx.extensions.get('session.history') as RunTurnUsecaseDeps['history'],
     bus: ctx.bus as unknown as BusPort,
     logger: ctx.logger as LoggerPort,
     agentDir: ctx.agentDir,
-    sessionAbort: ctx.extensions.get<RunTurnUsecaseDeps['sessionAbort']>('session.abort'),
-    compactor: ctx.extensions.get<Compactor>('session.compactor'),
+    sessionAbort: ctx.extensions.get('session.abort') as RunTurnUsecaseDeps['sessionAbort'],
+    compactor: ctx.extensions.get('session.compactor') as RunTurnUsecaseDeps['compactor'],
   }
 }

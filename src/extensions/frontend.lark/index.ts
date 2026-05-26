@@ -1,6 +1,5 @@
 import { defineExtension } from '../../kernel/define-extension'
 import { RoutingTable } from './routing-table'
-import type { Transport } from '../../application/ports/transport'
 import { LarkBotAdapter, setLarkBotAdapterLogger } from './lark-bot-adapter'
 import { randomUUID } from 'node:crypto'
 
@@ -29,11 +28,11 @@ export default () =>
 
       return {
         provide: {
-          lark: () => ({
+          'frontend-lark.lark': () => ({
             /** Create a bot adapter with real LarkClient. N bots share one Agent. */
             createBot(config: LarkBotConfig): LarkBotAdapter {
               const transport =
-                ctx.extensions.get<Transport>('transport-inmem.transport')
+                ctx.extensions.get('transport-inmem.transport')
               const adapter = new LarkBotAdapter(
                 config.id,
                 transport,
@@ -79,7 +78,7 @@ export default () =>
               for (const botCfg of autoBots) {
                 const botId = `lark-bot-${randomUUID().slice(0, UUID_SLICE_LEN)}`
                 try {
-                  const transport = ctx.extensions.get<Transport>('transport-inmem.transport')
+                  const transport = ctx.extensions.get('transport-inmem.transport')
                   const adapter = new LarkBotAdapter(
                     botId,
                     transport,

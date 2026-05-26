@@ -1,7 +1,6 @@
 import { defineExtension } from '../../kernel/define-extension';
 import { McpManager } from './manager';
 import type { McpServerConfig } from '../../config/types';
-import type { ToolCatalog } from '../../application/ports/tool-catalog';
 import { McpPromptRegistry } from './prompt-registry';
 import {
   createMcpListServersTool,
@@ -100,7 +99,7 @@ export default () =>
         maxReconnectAttempts: 3,
       }, ctx.logger);
 
-      const catalog = ctx.extensions.get<ToolCatalog>('tool-catalog.catalog');
+      const catalog = ctx.extensions.get('tool-catalog.catalog');
       const promptRegistry = new McpPromptRegistry(manager);
 
       // Register static MCP management tools
@@ -111,7 +110,7 @@ export default () =>
 
       return {
         provide: {
-          manager: () => manager,
+          'mcp.manager': () => manager,
         },
 
         hooks: {

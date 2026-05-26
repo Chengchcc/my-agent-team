@@ -15,7 +15,7 @@ describe('dataplane extension', () => {
     const k = createTestKernel({ extensions: [dataplaneExt()] })
     await k.start()
 
-    const stream = k.ctx.extensions.get<DataPlaneStream>('dataplane.stream')
+    const stream = k.ctx.extensions.get('dataplane.stream')
     expect(stream).toBeDefined()
     expect(typeof stream.replay).toBe('function')
     expect(typeof stream.getCursor).toBe('function')
@@ -43,7 +43,7 @@ describe('dataplane extension', () => {
       toolName: 'bash',
     })
 
-    const stream = k.ctx.extensions.get<DataPlaneStream>('dataplane.stream')
+    const stream = k.ctx.extensions.get('dataplane.stream')
 
     // Full replay
     const all = stream.replay()
@@ -66,7 +66,7 @@ describe('dataplane extension', () => {
     const k = createTestKernel({ extensions: [dataplaneExt()] })
     await k.start()
 
-    const stream = k.ctx.extensions.get<DataPlaneStream>('dataplane.stream')
+    const stream = k.ctx.extensions.get('dataplane.stream')
     expect(stream.getCursor()).toBe(0)
 
     await k.ctx.bus.emit('turn.started', { sessionId: 'main', turnId: 't1' })
@@ -100,7 +100,7 @@ describe('dataplane extension', () => {
       delta: 'streaming text',
     })
 
-    const stream = k.ctx.extensions.get<DataPlaneStream>('dataplane.stream')
+    const stream = k.ctx.extensions.get('dataplane.stream')
     const events = stream.replay()
 
     // turn.started event
@@ -140,7 +140,7 @@ describe('dataplane extension', () => {
     await k.ctx.bus.emit('permission.required', { toolName: 'bash' })
     await k.ctx.bus.emit('identity.changed', { field: 'profile' })
 
-    const stream = k.ctx.extensions.get<DataPlaneStream>('dataplane.stream')
+    const stream = k.ctx.extensions.get('dataplane.stream')
     const events = stream.replay()
 
     expect(events).toHaveLength(5)

@@ -25,7 +25,7 @@ class InMemoryTransport implements Transport {
   constructor(ctx: KernelContext) {
     // Cache the ControlPlane server handle — guaranteed to exist because
     // transport.inmem dependsOn ['controlplane', 'dataplane']
-    this.cpServer = ctx.extensions.get<CpServer>('controlplane.server')
+    this.cpServer = ctx.extensions.get('controlplane.server')
 
     // Subscribe to DataPlane events on bus, forward to handlers
     this.unsubscribeBus = ctx.bus.on('dataplane.event', (evt: unknown) => {

@@ -8,7 +8,7 @@ describe('provider extension', () => {
     const k = createTestKernel({ extensions: [providerExt({})] })
     await k.start()
 
-    const chat = k.ctx.extensions.get<ProviderChat>('provider.llm')
+    const chat = k.ctx.extensions.get('provider.llm')
     expect(chat).toBeDefined()
     expect(typeof chat.stream).toBe('function')
     expect(typeof chat.complete).toBe('function')
@@ -19,7 +19,7 @@ describe('provider extension', () => {
     const k = createTestKernel({ extensions: [providerExt({})] })
     await k.start()
 
-    const invoke = k.ctx.extensions.get<ProviderInvoke>('provider.llm')
+    const invoke = k.ctx.extensions.get('provider.llm')
     expect(invoke).toBeDefined()
     expect(typeof invoke.call).toBe('function')
     await k.stop()
@@ -29,7 +29,7 @@ describe('provider extension', () => {
     const k = createTestKernel({ extensions: [providerExt({})] })
     await k.start()
 
-    const chat = k.ctx.extensions.get<ProviderChat>('provider.llm')
+    const chat = k.ctx.extensions.get('provider.llm')
     const chunks: unknown[] = []
     for await (const chunk of chat.stream({
       messages: [{ role: 'user', content: 'hello' }],
@@ -83,7 +83,7 @@ describe('provider extension', () => {
     const k = createTestKernel({ extensions: [providerExt({})] })
     await k.start()
 
-    const chat = k.ctx.extensions.get<ProviderChat>('provider.llm')
+    const chat = k.ctx.extensions.get('provider.llm')
     const response = await chat.complete({
       messages: [{ role: 'user', content: 'test message' }],
     })

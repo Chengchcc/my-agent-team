@@ -25,7 +25,7 @@ describe('plan mode hooks (M1)', () => {
     await k.start()
 
     // Set main session to plan mode
-    const store = k.ctx.extensions.get<SessionStore>('session.store')
+    const store = k.ctx.extensions.get('session.store')
     const main = await store.load('main')
     main!.mode = 'plan'
     await store.save(main!)
@@ -76,7 +76,7 @@ describe('plan mode hooks (M1)', () => {
     })
     await k.start()
 
-    const store = k.ctx.extensions.get<SessionStore>('session.store')
+    const store = k.ctx.extensions.get('session.store')
     const main = await store.load('main')
     main!.mode = 'plan'
     await store.save(main!)
@@ -145,7 +145,7 @@ describe('plan mode hooks (M1)', () => {
     })
     await k.start()
 
-    const store = k.ctx.extensions.get<SessionStore>('session.store')
+    const store = k.ctx.extensions.get('session.store')
     const main = await store.load('main')
     main!.mode = 'plan'
     await store.save(main!)
@@ -175,7 +175,7 @@ describe('plan mode hooks (M1)', () => {
     })
     await k.start()
 
-    const store = k.ctx.extensions.get<SessionStore>('session.store')
+    const store = k.ctx.extensions.get('session.store')
     const main = await store.load('main')
     main!.mode = 'plan'
     await store.save(main!)

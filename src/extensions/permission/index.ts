@@ -116,7 +116,7 @@ export default () =>
 
       return {
         provide: {
-          checker: () => ({
+          'permission.checker': () => ({
             check: (toolName: string, _sessionId?: string) => {
               if (deniedTools.has(toolName)) return false
               if (_sessionId) {

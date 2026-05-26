@@ -19,7 +19,7 @@ describe('permission edge cases', () => {
     })
     await k.start()
 
-    const checker = k.ctx.extensions.get<PermissionChecker>('permission.checker')
+    const checker = k.ctx.extensions.get('permission.checker')
 
     checker.allowOnce('session-a', 'bash')
     expect(checker.check('bash', 'session-a')).toBe(true)
@@ -36,7 +36,7 @@ describe('permission edge cases', () => {
     await k.start()
 
     // Set up an allowlist for session-a that allows only 'read'
-    const checker = k.ctx.extensions.get<PermissionChecker>('permission.checker')
+    const checker = k.ctx.extensions.get('permission.checker')
     checker.allowOnce('session-a', 'read')
 
     // read in session-a: allowed

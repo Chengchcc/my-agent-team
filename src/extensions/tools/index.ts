@@ -133,7 +133,7 @@ export default () =>
     dependsOn: ['tool-catalog'],
 
     apply: (ctx) => {
-      const catalog = ctx.extensions.get<ToolCatalog>('tool-catalog.catalog')
+      const catalog = ctx.extensions.get('tool-catalog.catalog')
       registerBuiltinTools(catalog)
 
       catalog.register(defineTool({
