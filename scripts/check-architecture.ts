@@ -479,6 +479,37 @@ for (const f of project.getSourceFiles('src/application/slash/**/*.ts')) {
 }
 
 // ────────────────────────────────────────────
+// Rule L5: Per-session events emitted without opts (missing sessionId)
+// ────────────────────────────────────────────
+const L5_PER_SESSION_EVENTS = new Set([
+  'llm.delta', 'turn.started', 'turn.completed', 'turn.failed',
+  'tool.executed', 'wave.completed',
+  'permission.required', 'permission.resolved',
+  'ask-user-question.required', 'ask-user-question.resolved',
+])
+// Dataplane bridge forwards events from raw bus; it legitimately handles opts-less emits.
+const L5_WHITELIST = new Set(['dataplane/index.ts', 'extract-payload.ts'])
+for (const f of project.getSourceFiles('src/**/*.{ts,tsx}')) {
+  if (L5_WHITELIST.has(f.getBaseName()) || f.getFilePath().includes('dataplane/')) continue
+  for (const ce of f.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const prop = ce.getExpression()
+    if (prop.getKind() === SyntaxKind.PropertyAccessExpression) {
+      const pa = prop.asKindOrThrow(SyntaxKind.PropertyAccessExpression)
+      if (pa.getName() !== 'emit') continue
+      const args = ce.getArguments()
+      if (args.length < 2) continue
+      if (args[0].getKind() !== SyntaxKind.StringLiteral) continue
+      const eventName = args[0].asKindOrThrow(SyntaxKind.StringLiteral).getLiteralValue()
+      if (!L5_PER_SESSION_EVENTS.has(eventName)) continue
+      // Must have at least 3 args (type, payload, opts)
+      if (args.length < 3) {
+        v(`[L5] ${f.getFilePath()}:${ce.getStartLineNumber()} — emit('${eventName}', ...) is a per-session event; must pass { sessionId, turnId } as third arg`)
+      }
+    }
+  }
+}
+
+// ────────────────────────────────────────────
 // Output
 // ────────────────────────────────────────────
 if (violations.length) {

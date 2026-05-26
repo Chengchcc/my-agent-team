@@ -46,8 +46,9 @@ export default () =>
       // onToolCall handler: pre-intercept tool calls
       const onToolCall: HookHandler = async (...args: unknown[]) => {
         const call = args[0] as { name: string; id: string }
-        const runCtx = args[1] as { sessionId?: string } | undefined
+        const runCtx = args[1] as { sessionId?: string; turnId?: string } | undefined
         const sessionId = runCtx?.sessionId
+        const turnId = runCtx?.turnId
         if (!sessionId) {
           throw new Error('permission: missing sessionId in ToolContext')
         }
@@ -104,7 +105,7 @@ export default () =>
             reqId,
             toolName: call.name,
             sessionId,
-          })
+          }, { sessionId, turnId })
 
           await permissionPromise
         }

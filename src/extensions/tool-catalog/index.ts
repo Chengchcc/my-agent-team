@@ -34,7 +34,7 @@ export default () =>
           name: call.name,
           duration,
           isError,
-        });
+        }, { sessionId: toolCtx.sessionId, turnId: toolCtx.turnId });
 
         return result;
       };

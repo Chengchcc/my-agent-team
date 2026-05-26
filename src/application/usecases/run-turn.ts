@@ -146,11 +146,9 @@ export async function runTurnUsecase(
   const { provider, hooks, history, bus, logger } = deps
   const basePrompt = deps.basePrompt ?? 'You are a helpful AI assistant.'
   const tokenLimit = input.tokenLimit ?? BUDGET_DEFAULT_TOKEN_LIMIT
-
-  // Phase 1: load history
+  // Phase 1-2: load history + transformPrompt
   const historyMsgs = input.initialMessages ? [...input.initialMessages] : history.get(sessionId)
   await autoCompactIfNeeded(input, deps, historyMsgs)
-  // Phase 2: transformPrompt hook
   const promptR = await safeDispatch<{ system: string; messages: Array<{ role: string; content: string }> }>(
     hooks, 'transformPrompt', {
       system: basePrompt,
@@ -226,7 +224,8 @@ export async function runTurnUsecase(
       maxOutputTokens: input.maxOutputTokens,
       logger: { info: (t, m, f) => logger.info(t, m, f), warn: (t, m, f) => logger.warn(t, m, f) },
     })) {
-      void bus.emit(event.type, event)
+      event.type !== 'turn.completed' && event.type !== 'turn.failed' &&
+        void bus.emit(event.type, event, { sessionId, turnId })
 
       // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- only relevant TurnEvent variants handled
       switch (event.type) {
@@ -254,7 +253,7 @@ export async function runTurnUsecase(
           }, logger)
           return { usage: totalUsage, success: false }
         case 'wave.completed': {
-          void bus.emit('wave.completed', { sessionId, turnId, waveIndex: event.waveIndex, callsInWave: event.callsInWave, ts: event.ts })
+          void bus.emit('wave.completed', { sessionId, turnId, waveIndex: event.waveIndex, callsInWave: event.callsInWave, ts: event.ts }, { sessionId, turnId })
           const budgetResult = await reactiveCompactCheck(
             input, deps, historyMsgs, tokenLimit, sessionId, turnId, bus, logger, totalUsage,
             async (stage, reason) => {

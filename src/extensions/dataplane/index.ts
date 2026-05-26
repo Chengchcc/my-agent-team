@@ -1,5 +1,6 @@
 import { defineExtension } from '../../kernel/define-extension'
 import type { DataPlaneEvent, DataPlaneEventType } from '../../application/contracts'
+import { extractPayload } from './extract-payload'
 
 // ── Event factory (runtime, not a contract) ───────────────────────────────────
 
@@ -28,25 +29,6 @@ function createEventFactory() {
       return cursor;
     },
   };
-}
-
-// ── Envelope detection helper ────────────────────────────────────────────────
-
-function extractPayload(raw: unknown): {
-  payload: Record<string, unknown>;
-  sessionId?: string;
-  turnId?: string;
-} {
-  const r = (raw as Record<string, unknown> | undefined) ?? {}
-  // Detect EventEnvelope: { type, version, ts, sessionId, turnId, payload }
-  const isEnvelope =
-    typeof r.payload === 'object' && r.payload !== null &&
-    typeof r.type === 'string' && typeof r.version === 'number'
-  return {
-    payload: (isEnvelope ? r.payload : r) as Record<string, unknown>,
-    sessionId: (isEnvelope ? r.sessionId : r.sessionId) as string | undefined,
-    turnId: (isEnvelope ? r.turnId : r.turnId) as string | undefined,
-  }
 }
 
 /**
