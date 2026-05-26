@@ -69,7 +69,10 @@ export default () =>
               ctx.logger.info('lark', 'Lark bot adapter ready')
 
               // Auto-start bots from config
-              const larkCfg = ctx.config.raw.lark as { bots?: Array<{ appId: string; appSecretEnv: string; autoStart?: boolean }> } | undefined
+              const larkCfg = ctx.config.get<{ bots?: Array<{ appId: string; appSecretEnv: string; autoStart?: boolean }> } | undefined>(
+                'lark',
+                (raw) => raw as { bots?: Array<{ appId: string; appSecretEnv: string; autoStart?: boolean }> } | undefined,
+              )
               const bots = larkCfg?.bots ?? []
               const autoBots = bots.filter((b) => b.autoStart !== false)
 
