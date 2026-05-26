@@ -49,6 +49,9 @@ export function initMemoryTables(db: Database, embeddingDims: number): void {
     try { db.run(sql); } catch { /* column already dropped — safe to skip */ }
   }
 
+  // Migration: clean up empty-string superseded_by values
+  db.run("UPDATE memory SET superseded_by = NULL WHERE superseded_by = ''");
+
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_text_hash ON memory(text_hash) WHERE superseded_by IS NULL');
   db.run('CREATE INDEX IF NOT EXISTS idx_memory_superseded ON memory(superseded_by)');
   db.run('CREATE INDEX IF NOT EXISTS idx_memory_type ON memory(type)');

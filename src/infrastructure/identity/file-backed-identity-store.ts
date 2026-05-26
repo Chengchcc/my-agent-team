@@ -32,6 +32,11 @@ export class FileBackedIdentityStore {
     return this._hydrationDone
   }
 
+  /** Returns the resolved file path for writing draft identity documents. */
+  getDraftPath(): string {
+    return this.filePath
+  }
+
   hydrate(fields: Record<string, string>, body: string, _source: 'file' | 'bootstrap'): void {
     this.identity = createIdentity(this.agentId, { ...fields, __body: body })
     this.diffHistory = []

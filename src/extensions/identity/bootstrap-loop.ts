@@ -120,8 +120,10 @@ collected: ${JSON.stringify(state.collected)}
         try {
           await atomicWrite(deps.bootstrapPath, md)
           // Write draft identity.md
+          const draftPath = deps.store.getDraftPath()
+          if (!draftPath) throw new Error('identity draft path is empty')
           const draftMd = renderIdentityMd(state.collected, '# Identity (draft)')
-          await atomicWrite(deps.store['filePath'] ?? '', draftMd)
+          await atomicWrite(draftPath, draftMd)
         } catch (err) {
           deps.logger.warn('bootstrap', `file write failed: ${String(err)}`)
         }

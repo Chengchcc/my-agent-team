@@ -253,6 +253,13 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   async supersede(oldId: string, newId: string): Promise<void> {
+    if (!newId) throw new Error('supersede: newId must be non-empty');
+    if (oldId === newId) throw new Error('supersede: oldId and newId must differ');
+
+    // Verify that the successor row exists
+    const successor = this.db.query('SELECT 1 FROM memory WHERE id = ?').get(newId);
+    if (!successor) throw new Error(`supersede: newId row "${newId}" does not exist`);
+
     this.db.run('BEGIN');
     try {
       this.db.run('UPDATE memory SET superseded_by = ? WHERE id = ?', [newId, oldId]);

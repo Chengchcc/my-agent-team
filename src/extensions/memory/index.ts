@@ -334,7 +334,7 @@ export default (opts: MemoryOpts = {}) =>
                         c.text = decision.mergedText
                       }
                       for (const conflict of conflicts.conflicts) {
-                        try { void store.supersede(conflict.id, '') } catch { /* best-effort */ }
+                        try { void store.remove(conflict.id) } catch { /* best-effort */ }
                       }
                     } catch { /* arbitration failed, continue with add */ }
                   }

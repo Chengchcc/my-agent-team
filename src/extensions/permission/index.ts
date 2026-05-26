@@ -63,8 +63,13 @@ export default () =>
           )
         }
 
-        // For dangerous tools, wait for user permission (write only for MVP)
-        if (call.name === 'write') {
+        // For dangerous tools, wait for user permission
+        const rawCfg = ctx.config.raw as Record<string, unknown> | undefined;
+        const permCfg = rawCfg?.permission as Record<string, unknown> | undefined;
+        const dangerousToolNames = (permCfg?.dangerousTools as string[] | undefined)
+          ?? ['bash', 'bash_run', 'exec', 'edit', 'write', 'task'];
+        const dangerousTools = new Set(dangerousToolNames);
+        if (dangerousTools.has(call.name) || call.name.startsWith('mcp.')) {
           // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- toString radix
           const reqId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
