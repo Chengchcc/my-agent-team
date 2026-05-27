@@ -45,7 +45,21 @@ export function createBootstrapLoop(deps: BootstrapLoopDeps) {
           purpose: 'identity.bootstrap.extract',
           parentTurnId: `bootstrap-${crypto.randomUUID()}`,
           messages: [
-            { role: 'system', content: `Extract identity fields from user response as JSON. Fields: ${state.requiredFields.filter(f => !state.collected[f]).join(', ')}. Return only valid JSON like {"field":"value"}.` },
+            { role: 'system', content: `Extract identity fields from the user's response. Return ONLY a JSON object with the fields the user provided values for. Do NOT return markdown, code blocks, or explanatory text.
+
+Fields to watch for: ${state.requiredFields.filter(f => !state.collected[f]).join(', ')}
+
+Examples:
+User: "我是后端工程师"
+→ {"role":"后端工程师"}
+
+User: "团队主要是全栈开发者，用 TypeScript"
+→ {"audience":"全栈开发者","expertise":"TypeScript"}
+
+User: "你好啊"
+→ {}
+
+Return ONLY the JSON object.` },
             { role: 'user', content: lastUserMsg.content },
           ],
           maxTokens: 200,
@@ -150,10 +164,14 @@ function loadBootstrapState(bootstrapPath: string) {
 
 function parseBootstrapPatch(text: string): Record<string, string> | null {
   try {
-    // Try direct JSON
     const trimmed = text.trim()
-    if (trimmed.startsWith('{')) {
-      const parsed = JSON.parse(trimmed)
+
+    // Try extracting JSON from markdown code blocks first
+    const codeBlock = trimmed.match(/```(?:json)?\s*([\s\S]+?)```/)
+    const candidate = codeBlock ? codeBlock[1]!.trim() : trimmed
+
+    if (candidate.startsWith('{')) {
+      const parsed = JSON.parse(candidate)
       const result: Record<string, string> = {}
       for (const [k, v] of Object.entries(parsed)) {
         if (typeof v === 'string') result[k] = v
@@ -161,7 +179,7 @@ function parseBootstrapPatch(text: string): Record<string, string> | null {
       return Object.keys(result).length > 0 ? result : null
     }
     // Try key:value lines
-    const lines = trimmed.split('\n')
+    const lines = candidate.split('\n')
     const result: Record<string, string> = {}
     for (const line of lines) {
       const m = line.match(/^"?(\w+)"?\s*:\s*"?(.+?)"?$/)

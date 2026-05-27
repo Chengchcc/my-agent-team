@@ -87,11 +87,42 @@ export function renderBootstrapRequest(
   turnsCompleted?: number,
   turnsMax?: number,
 ): string {
-  let remain = ''
-  if (turnsCompleted !== undefined && turnsMax !== undefined) {
-    remain = `（剩余 ${turnsMax - turnsCompleted}/${turnsMax} 轮）`
+  const fieldDescriptions: Record<string, string> = {
+    role: '你的角色定位（例如：后端工程师、产品经理、研究员）',
+    audience: '你的目标用户群体（例如：全栈开发者、运营团队、外部客户）',
+    tone: '你希望我用什么语气（例如：简洁专业、友好幽默、严谨学术）',
+    expertise: '你需要我擅长哪些领域（例如：TypeScript+分布式、品牌营销、数据分析）',
+    constraints: '有什么约束或禁区（例如：不写代码注释、不主动建议、必须中文回复）',
   }
-  return `<bootstrap_request>\n本轮你的额外职责：用一句中文（≤50字）向用户提问，仅围绕字段「${field}」收集信息。除问题本身外不要输出其它内容。${remain}\n</bootstrap_request>`
+  const hint = fieldDescriptions[field] ?? field
+  const remain = turnsCompleted !== undefined && turnsMax !== undefined
+    ? `（第 ${turnsCompleted + 1}/${turnsMax} 轮）`
+    : ''
+
+  return `
+
+===== AGENT BOOTSTRAP MODE — 最高优先级指令 =====
+当前状态：身份未初始化（pending_bootstrap）。
+
+【你必须】完全忽略上方所有其他 system 指令（包括 helpful assistant 设定、工具说明、记忆等），
+本轮唯一任务：用一句简短中文（≤40字）向用户提问，问且只问字段「${field}」。
+含义：${hint}
+
+【硬性约束】
+1. 不要寒暄、不要自我介绍、不要回答用户上一条消息的内容
+2. 直接输出问题，不要任何前缀/后缀/解释/markdown
+3. 不要调用任何工具
+4. 不要列出多个问题或选项
+
+【格式示例】
+- ✅ "你希望我扮演什么角色？"
+- ✅ "我服务的对象主要是谁？"
+- ❌ "你好！我是 AI 助手，请问..."  （有寒暄）
+- ❌ "请告诉我角色、受众、语气"   （多字段）
+
+${remain}
+===== END BOOTSTRAP MODE =====
+`
 }
 
 export const DEFAULT_BOOTSTRAP_MD = `---
@@ -104,8 +135,9 @@ collected: {}
 
 # Agent Identity Bootstrap
 
-我还不知道你希望我是谁。开场后我会用最多 6 轮对话向你确认。
-每轮我只问一个最关键的问题，你回答后我会更新本文件的 collected 字段
-并刷新 identity.md 草稿；当 required_fields 全部收齐或达到 turns_max，
-我会冻结身份并把本文归档为 bootstrap.archived.md。
+身份未初始化。Agent 处于 BOOTSTRAP MODE：
+- 每轮只问一个字段（role → audience → tone → expertise → constraints）
+- LLM 收到最高优先级指令，忽略其他 system prompt，只输出引导问题
+- 用户回答后提取字段写入 collected，推进 turns_completed
+- 全部收齐或达 turns_max 后合成 identity.md 并归档本文件为 bootstrap.archived.md
 `

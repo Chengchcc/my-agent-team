@@ -94,6 +94,7 @@ async function emitTurnEnd(
     toolErrorCount?: number
     finalMessage?: string
     error?: { stage: string; reason: string }
+    userMessage?: { role: string; content: string }
   },
   logger: { warn(d: string, m: string): void },
 ): Promise<void> {
@@ -145,11 +146,9 @@ export async function runTurnUsecase(
   const { sessionId, turnId, userInput } = input
   const { provider, hooks, history, bus, logger } = deps
   const basePrompt = deps.basePrompt ?? 'You are a helpful AI assistant.'
-  const tokenLimit = input.tokenLimit ?? BUDGET_DEFAULT_TOKEN_LIMIT
-
+  const tokenLimit = input.tokenLimit ?? BUDGET_DEFAULT_TOKEN_LIMIT; const userMsg = { role: 'user' as const, content: userInput }
   const controller = input.abortSignal ? { signal: input.abortSignal, abort: () => {} } : new AbortController()
   if (!input.abortSignal) deps.sessionAbort.register(sessionId, controller as AbortController)
-
   const historyMsgs = input.initialMessages ? [...input.initialMessages] : history.get(sessionId)
   await autoCompactIfNeeded(input, deps, historyMsgs)
   const promptR = await safeDispatch<{ system: string; messages: Array<{ role: string; content: string }> }>(
@@ -161,15 +160,13 @@ export async function runTurnUsecase(
   )
   if (!promptR.ok) {
     logger.warn('turn', `transformPrompt failed: ${promptR.err.message}`)
-    await emitTurnEnd(hooks, sessionId, turnId, 'failed', { error: { stage: 'transformPrompt', reason: promptR.err.message } }, logger)
+    await emitTurnEnd(hooks, sessionId, turnId, 'failed', { error: { stage: 'transformPrompt', reason: promptR.err.message }, userMessage: userMsg, }, logger)
     return { usage: { input: 0, output: 0 }, success: false }
   }
-
   const finalMessages = toLlmMessages([
     { role: 'system', content: promptR.value.system },
     ...promptR.value.messages,
   ])
-
   const toolsR = await safeDispatch<ToolDescriptor[]>(hooks, 'resolveTools', [], sessionId)
   if (!toolsR.ok) {
     logger.warn('turn', `resolveTools failed: ${toolsR.err.message}`)
@@ -181,10 +178,8 @@ export async function runTurnUsecase(
     ? toolsR.value.filter(t => input.allowedToolNames!.includes(t.name))
     : toolsR.value
 
-  const baseEnv = { cwd: deps.agentDir }
-  const collectedToolCalls: ToolCallRecord[] = []
-  let toolErrorCount = 0, toolCallCount = 0, finalText = ''
-  let totalUsage = { input: 0, output: 0 }
+  const baseEnv = { cwd: deps.agentDir }; const collectedToolCalls: ToolCallRecord[] = []
+  let toolErrorCount = 0, toolCallCount = 0, finalText = ''; let totalUsage = { input: 0, output: 0 }
 
   try {
     for await (const event of runTurn({
@@ -236,6 +231,7 @@ export async function runTurnUsecase(
           await emitTurnEnd(hooks, sessionId, turnId, 'failed', {
             usage: totalUsage, toolCallCount, toolErrorCount,
             error: { stage: event.stage, reason: event.err.message },
+            userMessage: userMsg,
           }, logger)
           return { usage: totalUsage, success: false }
         case 'wave.completed': {
@@ -243,7 +239,7 @@ export async function runTurnUsecase(
           const budgetResult = await reactiveCompactCheck(
             input, deps, historyMsgs, tokenLimit, sessionId, turnId, bus, logger, totalUsage,
             async (stage, reason) => {
-              await emitTurnEnd(hooks, sessionId, turnId, 'failed', { error: { stage, reason } }, logger)
+              await emitTurnEnd(hooks, sessionId, turnId, 'failed', { error: { stage, reason }, userMessage: userMsg, }, logger)
             },
           )
           if (budgetResult) return budgetResult
@@ -269,6 +265,7 @@ export async function runTurnUsecase(
     await emitTurnEnd(hooks, sessionId, turnId, 'failed', {
       usage: totalUsage, toolCallCount, toolErrorCount,
       error: { stage: 'aborted', reason: 'turn aborted' },
+      userMessage: userMsg,
     }, logger)
     return { usage: totalUsage, success: false }
   }
@@ -276,7 +273,7 @@ export async function runTurnUsecase(
   // Phase 5b: reactive budget check after turn completes
   const budgetResult = await reactiveCompactCheck(input, deps, historyMsgs, tokenLimit, sessionId, turnId, bus, logger, totalUsage,
     async (stage, reason) => {
-      await emitTurnEnd(hooks, sessionId, turnId, 'failed', { error: { stage, reason } }, logger)
+      await emitTurnEnd(hooks, sessionId, turnId, 'failed', { error: { stage, reason }, userMessage: userMsg, }, logger)
     },
   )
   if (budgetResult) return budgetResult
@@ -301,6 +298,7 @@ export async function runTurnUsecase(
     toolCallCount,
     toolErrorCount,
     finalMessage: finalText,
+    userMessage: userMsg,
   }, logger)
 
   return { usage: totalUsage, success: true, finalText }
