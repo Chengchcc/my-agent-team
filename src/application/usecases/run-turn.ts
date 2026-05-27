@@ -146,7 +146,10 @@ export async function runTurnUsecase(
   const { provider, hooks, history, bus, logger } = deps
   const basePrompt = deps.basePrompt ?? 'You are a helpful AI assistant.'
   const tokenLimit = input.tokenLimit ?? BUDGET_DEFAULT_TOKEN_LIMIT
-  // Phase 1-2: load history + transformPrompt
+
+  const controller = input.abortSignal ? { signal: input.abortSignal, abort: () => {} } : new AbortController()
+  if (!input.abortSignal) deps.sessionAbort.register(sessionId, controller as AbortController)
+
   const historyMsgs = input.initialMessages ? [...input.initialMessages] : history.get(sessionId)
   await autoCompactIfNeeded(input, deps, historyMsgs)
   const promptR = await safeDispatch<{ system: string; messages: Array<{ role: string; content: string }> }>(
@@ -162,13 +165,11 @@ export async function runTurnUsecase(
     return { usage: { input: 0, output: 0 }, success: false }
   }
 
-  // Rebuild messages with transformed prompt (history goes after transform output)
   const finalMessages = toLlmMessages([
     { role: 'system', content: promptR.value.system },
     ...promptR.value.messages,
   ])
 
-  // Phase 3: resolveTools hook
   const toolsR = await safeDispatch<ToolDescriptor[]>(hooks, 'resolveTools', [], sessionId)
   if (!toolsR.ok) {
     logger.warn('turn', `resolveTools failed: ${toolsR.err.message}`)
@@ -176,25 +177,13 @@ export async function runTurnUsecase(
     return { usage: { input: 0, output: 0 }, success: false }
   }
 
-  // Phase 3b: filter tools for sub-agents
   const finalTools = input.allowedToolNames
     ? toolsR.value.filter(t => input.allowedToolNames!.includes(t.name))
     : toolsR.value
 
-  // Phase 4: prepare per-turn abort controller (use provided signal for sub-agents)
-  const controller = input.abortSignal
-    ? { signal: input.abortSignal, abort: () => {} } // wrapper, no-op abort
-    : new AbortController()
-  if (!input.abortSignal) {
-    deps.sessionAbort.register(sessionId, controller as AbortController)
-  }
   const baseEnv = { cwd: deps.agentDir }
-
-  // Phase 5: drive turn-runner generator
   const collectedToolCalls: ToolCallRecord[] = []
-  let toolErrorCount = 0
-  let toolCallCount = 0
-  let finalText = ''
+  let toolErrorCount = 0, toolCallCount = 0, finalText = ''
   let totalUsage = { input: 0, output: 0 }
 
   try {
@@ -211,10 +200,7 @@ export async function runTurnUsecase(
             const result = await hooks.dispatch('onToolCall', call, perCallCtx)
             flushSink(sink as ToolSinkInternal, bus, sessionId)
             return result
-          } catch (err) {
-            // Failed tool: drop all collected effects (no flush)
-            throw err
-          }
+          } catch (err) { throw err }
         },
       },
       maxIterations: DEFAULT_MAX_TURN_ITERATIONS,

@@ -30,13 +30,14 @@ export class E2EFakeProvider implements ProviderChat {
 
     for (const delta of turn.textDeltas ?? []) {
       if (turn.errorAfter !== undefined && n >= turn.errorAfter) throw new Error('E2EFakeProvider: simulated error')
-      if (req.signal?.aborted) return
+      if (req.signal?.aborted) { this.abortObserved = true; return }
       if (turn.delayMs) await new Promise(r => setTimeout(r, turn.delayMs))
       yield { type: 'text', delta }
       n++
     }
     for (const tc of turn.toolCalls ?? []) {
       if (turn.errorAfter !== undefined && n >= turn.errorAfter) throw new Error('E2EFakeProvider: simulated error')
+      if (req.signal?.aborted) { this.abortObserved = true; return }
       yield { type: 'tool_call_start', toolCall: tc }
       n++
     }

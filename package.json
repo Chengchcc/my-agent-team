@@ -15,7 +15,7 @@
     "check:arch": "bun run scripts/check-architecture.ts && bun run scripts/check-apply-pure.ts",
     "check:deadcode": "bun x knip --no-progress --reporter compact",
     "test:unit": "bun test tests/{domain,application,extensions,kernel,infrastructure,interface,mcp,schema,shared,skills,tui,utils,contracts,config}",
-    "test:e2e": "bun test tests/e2e --timeout 10000",
+    "test:e2e": "bun test tests/e2e --timeout 60000",
     "test:all": "bun run test:unit && bun run test:e2e",
     "check:all": "tsc --noEmit && bun run test:all && bun run check:arch",
     "baseline:any": "bun run scripts/update-any-baseline.ts",

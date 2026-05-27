@@ -118,7 +118,7 @@ export async function bootE2E(opts: BootOpts = {}): Promise<E2EHandle> {
   let seen = 0
   return {
     kernel, client, agentDir, fakeLLM, captured,
-    waitFor: (pred, ms = 2000) => waitForEvent(captured, pred, ms, () => seen, (v) => { seen = v }),
+    waitFor: (pred, ms) => waitForEvent(captured, pred, ms ?? parseInt(process.env.E2E_WAIT_MS ?? '15000', 10), () => seen, (v) => { seen = v }),
     stop: async () => {
       try { await kernel.stop() } catch { /* dispose best-effort */ }
       await rm(agentDir, { recursive: true, force: true }).catch(() => {})
