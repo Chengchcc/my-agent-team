@@ -23,8 +23,3 @@ export function terminalCount(buf: EventEnvelope[], sid: string): number {
 export function eventsWithoutSessionId(buf: EventEnvelope[], typePrefix: string): EventEnvelope[] {
   return buf.filter(e => e.type.startsWith(typePrefix) && !e.sessionId)
 }
-
-/** Filter captured events after a given index. */
-export function eventsAfter(buf: EventEnvelope[], cursor: number, pred: (e: EventEnvelope) => boolean): EventEnvelope[] {
-  return buf.slice(cursor).filter(pred)
-}

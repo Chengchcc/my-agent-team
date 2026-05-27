@@ -5,6 +5,8 @@ export type E2ETurn = {
   toolCalls?: Array<{ id: string; name: string; arguments: string }>
   usage?: { input: number; output: number }
   errorAfter?: number
+  /** Inter-chunk delay in ms — enables abort mid-stream testing. */
+  delayMs?: number
 }
 
 /**
@@ -29,6 +31,7 @@ export class E2EFakeProvider implements ProviderChat {
     for (const delta of turn.textDeltas ?? []) {
       if (turn.errorAfter !== undefined && n >= turn.errorAfter) throw new Error('E2EFakeProvider: simulated error')
       if (req.signal?.aborted) return
+      if (turn.delayMs) await new Promise(r => setTimeout(r, turn.delayMs))
       yield { type: 'text', delta }
       n++
     }

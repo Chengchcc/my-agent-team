@@ -10,6 +10,7 @@ import type { EventEnvelope } from '../../../src/application/contracts/event-env
 import type { Transport } from '../../../src/application/ports/transport'
 import { E2EFakeProvider, type E2ETurn } from './e2e-fake-provider'
 import { InMemoryAgentStore } from './in-memory-agent-store'
+import { makeFakeTool, type FakeToolSpec } from './fake-tool'
 
 const silentLogger = {
   debug: () => {}, info: () => {}, warn: () => {}, error: () => {},
@@ -19,6 +20,7 @@ const silentLogger = {
 export interface BootOpts {
   withLark?: boolean
   llmTurns?: E2ETurn[]
+  fakeTools?: FakeToolSpec[]
   frontendId?: string
 }
 
@@ -64,6 +66,20 @@ export async function bootE2E(opts: BootOpts = {}): Promise<E2EHandle> {
     apply: () => ({ provide: { 'provider.llm': () => fakeLLM } }),
   }))
 
+  // Fake tools (enforce: 'post', depends on tool-catalog)
+  for (const spec of opts.fakeTools ?? []) {
+    kernel.use(defineExtension({
+      name: `e2e.tool.${spec.name}`,
+      enforce: 'post',
+      dependsOn: ['tool-catalog'],
+      apply(ctx) {
+        const cat = ctx.extensions.get('tool-catalog.catalog') as { register(t: unknown): void }
+        cat.register(makeFakeTool(spec))
+        return {}
+      },
+    }))
+  }
+
   // Event capture (last, enforce: 'post')
   kernel.use(defineExtension({
     name: 'e2e.capture',
@@ -99,10 +115,14 @@ export async function bootE2E(opts: BootOpts = {}): Promise<E2EHandle> {
     capabilities: { events: 16, methods: 24 },
   })
 
+  let seen = 0
   return {
     kernel, client, agentDir, fakeLLM, captured,
-    waitFor: (pred, ms = 2000) => waitForEvent(captured, pred, ms),
-    stop: async () => { await kernel.stop(); await rm(agentDir, { recursive: true, force: true }) },
+    waitFor: (pred, ms = 2000) => waitForEvent(captured, pred, ms, () => seen, (v) => { seen = v }),
+    stop: async () => {
+      try { await kernel.stop() } catch { /* dispose best-effort */ }
+      await rm(agentDir, { recursive: true, force: true }).catch(() => {})
+    },
   }
 }
 
@@ -110,12 +130,17 @@ async function waitForEvent(
   buf: EventEnvelope[],
   pred: (e: EventEnvelope) => boolean,
   ms: number,
+  getSeen: () => number,
+  setSeen: (v: number) => void,
 ): Promise<EventEnvelope> {
   const deadline = Date.now() + ms
-  let cursor = 0
+  let cursor = getSeen()
   while (Date.now() < deadline) {
     while (cursor < buf.length) {
-      if (pred(buf[cursor]!)) return buf[cursor]!
+      if (pred(buf[cursor]!)) {
+        setSeen(cursor + 1)
+        return buf[cursor]!
+      }
       cursor++
     }
     await new Promise(r => setTimeout(r, 10))

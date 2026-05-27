@@ -5,7 +5,8 @@
     "bin/my-agent-cli.ts",
     "examples/**/*.ts",
     "scripts/**/*.ts",
-    "tests/**/*.test.{ts,tsx}"
+    "tests/**/*.test.{ts,tsx}",
+    "tests/**/*.spec.{ts,tsx}"
   ],
   "project": [
     "src/**/*.{ts,tsx}",
