@@ -278,6 +278,15 @@ export async function runTurnUsecase(
     deps.sessionAbort.unregister(sessionId)
   }
 
+  // Check if turn was aborted — emit failed instead of completing
+  if (controller.signal.aborted) {
+    await emitTurnEnd(hooks, sessionId, turnId, 'failed', {
+      usage: totalUsage, toolCallCount, toolErrorCount,
+      error: { stage: 'aborted', reason: 'turn aborted' },
+    }, logger)
+    return { usage: totalUsage, success: false }
+  }
+
   // Phase 5b: reactive budget check after turn completes
   const budgetResult = await reactiveCompactCheck(input, deps, historyMsgs, tokenLimit, sessionId, turnId, bus, logger, totalUsage,
     async (stage, reason) => {

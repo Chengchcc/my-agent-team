@@ -277,7 +277,6 @@ export function makeInputSendHandler(d: RpcHandlerDeps) {
       return { accepted: true, sessionId, queued: true, queueDepth: session.pendingInputs.length };
     }
 
-    session.enqueueInput(p.text);
     const turn = await d.ctx.hooks.dispatch('onTurnStart', sessionId, frontendId) as { id?: string } | undefined;
     const turnId = turn?.id ?? `turn-${Date.now()}`;
 
@@ -286,7 +285,6 @@ export function makeInputSendHandler(d: RpcHandlerDeps) {
       buildRunTurnDeps(d.ctx),
     ).catch((err) => { d.ctx.logger.warn('turn', `Turn ${turnId} failed: ${String(err)}`); });
 
-    await store.save(session);
     return { accepted: true, sessionId, turnId, queued: false };
   };
 }
@@ -311,9 +309,6 @@ export function makeInputCancelHandler(d: RpcHandlerDeps) {
     void d.contractBus.emit('input.cancelled', { sessionId, reason });
     if (session.state === 'RUNNING') {
       session.pendingInputs.length = 0;
-      try { session.completeTurn(); } catch { /* may already be IDLE */ }
-      await store.save(session);
-      void d.contractBus.emit('turn.cancelled', { sessionId, reason });
     }
     return { cancelled: true, sessionId, reason };
   };

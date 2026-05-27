@@ -18,11 +18,11 @@ export class SqliteHistoryStore implements SessionHistoryPort {
     ).get(sessionId) as { m: number } | null
     let next = (maxRow?.m ?? 0) + 1
 
-    const insert = this.db.prepare(
-      `INSERT INTO history (session_id, seq, role, content_json, usage_in, usage_out, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
     this.db.transaction(() => {
+      const insert = this.db.prepare(
+        `INSERT INTO history (session_id, seq, role, content_json, usage_in, usage_out, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
       for (const m of msgs) {
         insert.run(sessionId, next++, m.role ?? 'user', JSON.stringify(m), null, null, m.ts ?? Date.now())
       }

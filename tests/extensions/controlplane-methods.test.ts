@@ -523,6 +523,9 @@ describe('controlplane-methods extension', () => {
       expect(res.cancelled).toBe(true)
       expect(res.reason).toBe('user changed mind')
 
+      // Settling delay: cancel is async, session returns to IDLE after runTurnUsecase completes
+      await new Promise(r => setTimeout(r, 100))
+
       // Session should be back to IDLE
       const listRes = expectSuccess(await rpc(server, 'session.list'))
       const sessions = listRes.sessions as Array<Record<string, unknown>>

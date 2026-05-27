@@ -1,9 +1,7 @@
 import { describe, it, expect, afterEach } from 'bun:test'
 import { bootE2E, type E2EHandle } from './_fixtures/boot-kernel'
 
-// TODO: Re-enable after fixing E2E resource leak (temp dir accumulation).
-// Multi-turn requires session state machine to settle between turns.
-describe.skip('Feature: Multi-turn history (F4)', () => {
+describe('Feature: Multi-turn history (F4)', () => {
   let h: E2EHandle | null = null
   afterEach(async () => { if (h) await h.stop(); h = null })
 
@@ -17,14 +15,20 @@ describe.skip('Feature: Multi-turn history (F4)', () => {
     const { sessionId } = await h.client.createSession('e2e-f4')
     const sid = sessionId
 
-    // Verify first turn works
+    // First turn
     await h.client.sendInput(sid, 'my name is alice')
     await h.waitFor(e => e.type === 'turn.completed' && e.sessionId === sid)
 
-    // Second turn — multi-turn test tracks receivedRequests (non-racy assertion)
-    // TODO: fix race condition in session state machine that prevents second turn.completed
-    // The receivedRequests are recorded regardless of turn completion.
-    expect(h.fakeLLM.receivedRequests.length).toBeGreaterThanOrEqual(1)
+    // Second turn
+    await h.client.sendInput(sid, 'what is my name?')
+    await h.waitFor(e => e.type === 'turn.completed' && e.sessionId === sid)
+
+    // Verify both requests were sent
+    expect(h.fakeLLM.receivedRequests.length).toBeGreaterThanOrEqual(2)
+    // First request contains the first message
     expect(JSON.stringify(h.fakeLLM.receivedRequests[0]?.messages ?? [])).toContain('my name is alice')
+    // Second request contains both messages (history carried forward)
+    expect(JSON.stringify(h.fakeLLM.receivedRequests[1]?.messages ?? [])).toContain('my name is alice')
+    expect(JSON.stringify(h.fakeLLM.receivedRequests[1]?.messages ?? [])).toContain('what is my name?')
   })
 })

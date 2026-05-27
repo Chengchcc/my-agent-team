@@ -8,8 +8,17 @@ export class SqliteSessionStore implements SessionStore {
 
   async save(session: Session): Promise<void> {
     this.db.run(
-      `INSERT OR REPLACE INTO sessions (id, agent_id, is_main, title, state, mode, created_at, last_active, meta_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO sessions (id, agent_id, is_main, title, state, mode, created_at, last_active, meta_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         agent_id    = excluded.agent_id,
+         is_main     = excluded.is_main,
+         title       = excluded.title,
+         state       = excluded.state,
+         mode        = excluded.mode,
+         created_at  = excluded.created_at,
+         last_active = excluded.last_active,
+         meta_json   = excluded.meta_json`,
       [
         session.id, session.agentId, session.isMain ? 1 : 0,
         session.title ?? null, session.state ?? 'idle', session.mode ?? null,

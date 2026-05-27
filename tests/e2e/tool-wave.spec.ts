@@ -3,8 +3,7 @@ import { bootE2E, type E2EHandle } from './_fixtures/boot-kernel'
 import { assistantText, terminalCount } from './_fixtures/event-asserts'
 import { given, when, then } from './_fixtures/dsl'
 
-// TODO: Re-enable after fixing E2E resource leak
-describe.skip('Feature: Tool call wave (F5)', () => {
+describe('Feature: Tool call wave (F5)', () => {
   let h: E2EHandle | null = null
   afterEach(async () => { if (h) await h.stop(); h = null })
 
@@ -40,8 +39,9 @@ describe.skip('Feature: Tool call wave (F5)', () => {
       await h!.waitFor(e => e.type === 'turn.completed' && e.sessionId === sid)
       const waves = h!.captured.filter(e => e.type === 'wave.completed' && e.sessionId === sid)
       expect(waves.length).toBeGreaterThanOrEqual(1)
-      const payload = waves[0]!.payload as { callsInWave: number }
-      expect(payload.callsInWave).toBe(2)
+      const outerPayload = waves[0]!.payload as Record<string, unknown>
+      const innerPayload = (outerPayload.payload ?? outerPayload) as { callsInWave?: number }
+      expect(innerPayload.callsInWave).toBe(2)
     })
 
     await then('final assistant text is "done"', () => {

@@ -3,8 +3,7 @@ import { bootE2E, type E2EHandle } from './_fixtures/boot-kernel'
 import { terminalCount } from './_fixtures/event-asserts'
 import { given, when, then } from './_fixtures/dsl'
 
-// TODO: Re-enable after fixing E2E resource leak
-describe.skip('Feature: Auto-compact (F8)', () => {
+describe('Feature: Auto-compact (F8)', () => {
   let h: E2EHandle | null = null
   afterEach(async () => { if (h) await h.stop(); h = null })
 
