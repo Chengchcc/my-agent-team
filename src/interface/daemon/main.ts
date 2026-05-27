@@ -130,9 +130,10 @@ export async function bootstrap(opts: DaemonOptions): Promise<DaemonHandle> {
     logger,
   })
 
-  // Register kernel-level capabilities
+  // Register kernel-level capabilities (environment-dependent singletons → provideKernel)
   const registry = createAgentRegistryRead(agentStore, opts.agentId)
   const selfMutator = createAgentSelfMutator(agentStore, opts.agentId)
+  kernel.ctx.extensions.provideKernel('agent.store', agentStore)
   kernel.ctx.extensions.provideKernel('agent.registry', registry)
   kernel.ctx.extensions.provideKernel('agent.self', selfMutator)
 
