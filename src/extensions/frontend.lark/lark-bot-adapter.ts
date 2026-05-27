@@ -71,13 +71,16 @@ export class LarkBotAdapter implements FrontendHandle {
     routingTable: RoutingTable,
     appId: string,
     appSecret: string,
+    channel?: Lark.LarkChannel,
+    larkClientOverride?: LarkClient,
   ) {
     this.id = id
     this.transport = transport
     this.routingTable = routingTable
     this.appId = appId
     this.appSecret = appSecret
-    this.larkClient = getLarkClient(appId, appSecret)
+    this.channel = channel ?? null
+    this.larkClient = larkClientOverride ?? getLarkClient(appId, appSecret)
     this.sessionClient = new SessionClient(transport, appId)
     registerBuiltinSlashCommands(this.slashRegistry, {
       include: ['compact', 'help', 'cost', 'tools', 'daemon', 'cancel'],
@@ -147,21 +150,23 @@ export class LarkBotAdapter implements FrontendHandle {
       },
     })
 
-    // Start the real Lark websocket event channel
-    try {
-      const eventHandlers = this.createEventHandlers()
-      ctxLogger.warn('lark', `starting websocket channel for appId=${this.appId.slice(0, ROUTING_KEY_PREVIEW_CHARS)}...`)
-      this.channel = startLarkEventDispatcher(
-        this.appId,
-        this.appSecret,
-        eventHandlers,
-        this.botOpenId,
-        this.larkClient,
-        { debug: (tag: string, msg: string) => ctxLogger.warn(tag, msg) },
-      )
-      ctxLogger.warn('lark', `websocket channel created for appId=${this.appId.slice(0, ROUTING_KEY_PREVIEW_CHARS)}...`)
-    } catch (err) {
-      ctxLogger.warn('lark', `Lark websocket channel failed to start: ${String(err)}`)
+    // Start the Lark websocket event channel (skip if already provided, e.g. in tests)
+    if (!this.channel) {
+      try {
+        const eventHandlers = this.createEventHandlers()
+        ctxLogger.warn('lark', `starting websocket channel for appId=${this.appId.slice(0, ROUTING_KEY_PREVIEW_CHARS)}...`)
+        this.channel = startLarkEventDispatcher(
+          this.appId,
+          this.appSecret,
+          eventHandlers,
+          this.botOpenId,
+          this.larkClient,
+          { debug: (tag: string, msg: string) => ctxLogger.warn(tag, msg) },
+        )
+        ctxLogger.warn('lark', `websocket channel created for appId=${this.appId.slice(0, ROUTING_KEY_PREVIEW_CHARS)}...`)
+      } catch (err) {
+        ctxLogger.warn('lark', `Lark websocket channel failed to start: ${String(err)}`)
+      }
     }
   }
 
