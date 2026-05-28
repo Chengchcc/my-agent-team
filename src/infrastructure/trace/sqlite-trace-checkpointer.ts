@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import type { TraceCheckpointer, TraceRunListRow } from '../../application/ports/trace-checkpointer'
 import type { TraceEvent } from '../../domain/trace-event'
-import type { TraceRun, TraceSummary } from '../../domain/trace/types'
+import type { TraceRun, TraceSummary, TraceTurn } from '../../domain/trace/types'
 
 export class SqliteTraceCheckpointer implements TraceCheckpointer {
   private seq = 0
@@ -82,7 +82,67 @@ export class SqliteTraceCheckpointer implements TraceCheckpointer {
       totalTokens: { input: (row.tokens_in ?? 0) as number, output: (row.tokens_out ?? 0) as number },
       outcome: (row.outcome as TraceSummary['outcome']) ?? 'completed',
     }
-    return { id: row.run_id as string, sessionId: row.session_id as string, startTime: row.started_at as number, endTime: row.ended_at as number, model: '', turns: [], summary }
+    const turns = this.rebuildTurns(runId)
+    return { id: row.run_id as string, sessionId: row.session_id as string, startTime: row.started_at as number, endTime: row.ended_at as number, model: '', turns, summary }
+  }
+
+  private rebuildTurns(runId: string): TraceTurn[] {
+    const rows = this.db.query(
+      `SELECT turn_id, kind, ts, payload_json FROM trace_events
+       WHERE run_id = ? AND kind IN ('message.user', 'message.assistant', 'tool.call', 'tool.result')
+       ORDER BY seq ASC`
+    ).all(runId) as Array<Record<string, unknown>>
+
+    const byTurn = new Map<string, Array<{ kind: string; ts: number; payload: Record<string, unknown> }>>()
+    const turnOrder: string[] = []
+
+    for (const row of rows) {
+      const turnId = row.turn_id as string
+      if (!turnId) continue
+      if (!byTurn.has(turnId)) {
+        byTurn.set(turnId, [])
+        turnOrder.push(turnId)
+      }
+      byTurn.get(turnId)!.push({
+        kind: row.kind as string,
+        ts: Number(row.ts),
+        payload: JSON.parse(row.payload_json as string) as Record<string, unknown>,
+      })
+    }
+
+    return turnOrder.map((turnId, idx) => {
+      const evs = byTurn.get(turnId)!
+
+      const userEvt = evs.find(e => e.kind === 'message.user')
+      const userMessage = userEvt?.payload?.content as string | undefined
+
+      const assistantEvts = evs.filter(e => e.kind === 'message.assistant')
+      const lastAssistant = assistantEvts[assistantEvts.length - 1]
+
+      const modelResponse = lastAssistant ? {
+        text: (lastAssistant.payload.content as string) ?? '',
+        thinking: undefined,
+        toolCalls: ((lastAssistant.payload.toolCalls as Array<{ name: string }>) ?? []).map(tc => ({
+          name: tc.name,
+          arguments: {} as Record<string, unknown>,
+        })),
+        usage: (lastAssistant.payload.usage as Record<string, number>) ?? {},
+      } : undefined
+
+      const toolCallEvts = evs.filter(e => e.kind === 'tool.call')
+      const toolResultEvts = evs.filter(e => e.kind === 'tool.result')
+      const toolExecutions = toolCallEvts.map((tc, i) => {
+        const result = toolResultEvts[i]
+        return {
+          toolName: (tc.payload.name as string) ?? (tc.payload.toolName as string) ?? 'unknown',
+          success: result ? !(result.payload.isError || result.payload.error) : true,
+          durationMs: result ? Number(result.payload.durationMs ?? 0) : 0,
+          error: result?.payload.error as string | undefined,
+        }
+      })
+
+      return { turnIndex: idx, userMessage, modelResponse, toolExecutions }
+    })
   }
 
   async listRecentSummaries(opts: { limit: number; sessionId?: string; since?: number }): Promise<TraceSummary[]> {

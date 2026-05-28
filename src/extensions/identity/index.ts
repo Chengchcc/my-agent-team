@@ -5,6 +5,7 @@ import { FileBackedIdentityStore } from '../../infrastructure/identity/file-back
 import { atomicRead } from '../../shared/atomic-write'
 import { parseIdentityMarkdown } from '../../domain/identity-doc'
 import { createBootstrapLoop } from './bootstrap-loop'
+import { resolveBootstrapMode } from '../../domain/identity/bootstrap-mode'
 import type { AgentStore } from '../../application/ports/agent-store'
 
 /**
@@ -102,7 +103,13 @@ export default () =>
         if (status === 'pending_bootstrap') {
           const bootstrap = getBootstrapLoop(ctx, store)
           if (!bootstrap) return prompt
-          return bootstrap.buildBootstrapSupplement(prompt, 'full')
+          const mode = resolveBootstrapMode({
+            identityStatus: status,
+            hasToolAccess: true,
+            isHeadless: ctx.config.raw?.headless === true,
+          })
+          if (mode === 'none') return prompt
+          return bootstrap.buildBootstrapSupplement(prompt, mode)
         }
 
         // Inject identity

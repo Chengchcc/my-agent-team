@@ -85,7 +85,7 @@ describe('Feature: Lark p2p single-turn (F3)', () => {
     }
   })
 
-  it('Scenario 3.3: Given two p2p users, When both send "hi" concurrently, Then 2 distinct sessions + isolated replies', async () => {
+  it('Scenario 3.3: Given two p2p users on the same bot, When both send "hi" concurrently, Then both messages share the main session and are processed serially', async () => {
     let fx: LarkFixtures | null = null
     try {
       await given('kernel + fake lark adapter with 2-turn LLM', async () => {
@@ -97,26 +97,32 @@ describe('Feature: Lark p2p single-turn (F3)', () => {
 
       let sidA = ''
       let sidB = ''
+      let resA: { sessionId: string; accepted: boolean } | undefined
+      let resB: { sessionId: string; accepted: boolean } | undefined
       await when('uid-A and uid-B push "hi" concurrently', async () => {
         const anchorA: Anchor = { kind: 'lark-p2p', appId: 'fake-app', openId: 'chat-A' }
         const anchorB: Anchor = { kind: 'lark-p2p', appId: 'fake-app', openId: 'chat-B' }
-        const [resultA, resultB] = await Promise.all([
+        const [rA, rB] = await Promise.all([
           fx!.adapter.handleMessage(anchorA, 'hi', 'chat-A', 'msg-A'),
           fx!.adapter.handleMessage(anchorB, 'hi', 'chat-B', 'msg-B'),
         ])
-        sidA = (resultA as { sessionId: string }).sessionId
-        sidB = (resultB as { sessionId: string }).sessionId
+        resA = rA as { sessionId: string; accepted: boolean }
+        resB = rB as { sessionId: string; accepted: boolean }
+        sidA = resA.sessionId
+        sidB = resB.sessionId
       })
 
-      await then('two distinct sessions exist', () => {
-        expect(sidA).not.toBe(sidB)
+      await then('both p2p messages route to the same main session (one-bot-one-agent)', () => {
+        expect(sidA).toBe(sidB)
+        expect(sidA).toBe('tui-default')
+        expect(resA!.accepted).toBe(true)
+        expect(resB!.accepted).toBe(true)
       })
 
-      await then('each session completed independently', async () => {
-        await fx!.h.waitFor(e => e.type === 'turn.completed' && e.sessionId === sidA)
-        await fx!.h.waitFor(e => e.type === 'turn.completed' && e.sessionId === sidB)
-        expect(terminalCount(fx!.h.captured, sidA)).toBe(1)
-        expect(terminalCount(fx!.h.captured, sidB)).toBe(1)
+      await then('both turns complete serially on the shared session', async () => {
+        // Two messages → two turns on the same session; queue serializes them.
+        await fx!.h.waitFor(() => terminalCount(fx!.h.captured, sidA) >= 2)
+        expect(terminalCount(fx!.h.captured, sidA)).toBe(2)
       })
     } finally {
       if (fx) await fx.h.stop()

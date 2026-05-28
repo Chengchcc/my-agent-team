@@ -32,6 +32,7 @@ export const cliManifest: CliManifest = {
     '  my-agent trace list [--limit N] [--session ID]',
     '  my-agent trace show <runId>',
     '  my-agent trace events <runId> [--prompt] [--kind k1,k2]',
+    '  my-agent trace messages <runId>',
   ].join('\n'),
   handler: async (argv, ctx) => {
     const sub = argv[0]
@@ -68,6 +69,17 @@ export const cliManifest: CliManifest = {
           : (kindIdx >= 0 ? argv[kindIdx + 1]!.split(',') : undefined)
         const result = await ctx.rpc('trace.getEvents', { runId: argv[1], kinds })
         ctx.out(JSON.stringify((result as { events: unknown }).events, null, 2) + '\n')
+        return
+      }
+      case 'messages': {
+        if (!argv[1]) { ctx.err('missing <runId>\n'); process.exit(2) }
+        const result = await ctx.rpc('trace.getMessages', { runId: argv[1] })
+        const msgs = (result as { messages: Array<{ turnIndex: number; role: string; content: string; ts: string }> }).messages
+        if (msgs.length === 0) { ctx.out('No messages found for this run.\n'); return }
+        for (const m of msgs) {
+          const prefix = m.role === 'user' ? '[User]' : '[Assistant]'
+          ctx.out(`[Turn ${m.turnIndex}] ${prefix} (${m.ts}):\n${m.content}\n\n`)
+        }
         return
       }
       default:
@@ -134,23 +146,25 @@ export default (opts?: { baseDir?: string }) =>
             const reader = checkpointer as unknown as TraceReader
             const run = await reader.getRun(p.runId)
             if (!run) throw new Error(`run not found: ${p.runId}`)
-            return {
-              run: {
-                id: run.id,
-                sessionId: run.sessionId,
-                events: run.turns.flatMap((t, i) => [
-                  { type: 'turn.started', turnIndex: i, timestamp: new Date(run.startTime).toISOString() },
-                  ...(t.userMessage ? [{ type: 'user.message', turnIndex: i, timestamp: new Date(run.startTime).toISOString() }] : []),
-                  ...(t.modelResponse?.text ? [{ type: 'assistant.message', turnIndex: i, timestamp: new Date(run.startTime).toISOString() }] : []),
-                  ...t.toolExecutions.map(e => ({
-                    type: e.success ? 'tool.end' : 'tool.error',
-                    turnIndex: i,
-                    toolName: e.toolName,
-                    timestamp: new Date(run.startTime).toISOString(),
-                  })),
-                ]),
-              },
+            return { run }
+          },
+          'trace.getMessages': async (params: unknown) => {
+            const p = params as { runId?: string } | undefined
+            if (!p?.runId) throw new Error('runId is required')
+            const events = await checkpointer.getEvents(p.runId, ['message.user', 'message.assistant'])
+            const turnIds: string[] = []
+            const messages: Array<{ turnIndex: number; role: string; content: string; ts: string }> = []
+            for (const ev of events) {
+              let turnIdx = turnIds.indexOf(ev.turnId)
+              if (turnIdx < 0) { turnIds.push(ev.turnId); turnIdx = turnIds.length - 1 }
+              messages.push({
+                turnIndex: turnIdx,
+                role: ev.kind === 'message.user' ? 'user' : 'assistant',
+                content: (ev.payload.content as string) ?? '',
+                ts: new Date(ev.ts).toISOString(),
+              })
             }
+            return { messages }
           },
         },
 
