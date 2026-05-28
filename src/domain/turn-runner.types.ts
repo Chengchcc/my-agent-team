@@ -82,6 +82,7 @@ export interface RunTurnDeps {
   tools: ToolDescriptor[]
   provider: ProviderChat
   hooks: RunTurnHooks
+  systemPrompt?: string
   maxIterations?: number
   abortSignal?: AbortSignal
   parentTurnId?: string

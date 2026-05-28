@@ -169,10 +169,8 @@ export async function runTurnUsecase(
     return { usage: { input: 0, output: 0 }, success: false }
   }
 
-  const finalMessages = toLlmMessages([
-    { role: 'system', content: promptR.value.system },
-    ...promptR.value.messages,
-  ])
+  const finalMessages = toLlmMessages(promptR.value.messages)
+  const systemPrompt = promptR.value.system
   const toolsR = await safeDispatch<ToolDescriptor[]>(hooks, 'resolveTools', [], sessionId)
   if (!toolsR.ok) {
     logger.warn('turn', `resolveTools failed: ${toolsR.err.message}`)
@@ -207,6 +205,7 @@ export async function runTurnUsecase(
       messages: finalMessages,
       tools: finalTools,
       provider,
+      systemPrompt,
       hooks: {
         onToolCall: async (call) => {
           const sink = createToolSink()

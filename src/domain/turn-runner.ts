@@ -52,7 +52,7 @@ async function* consumeRound(
 
 // eslint-disable-next-line complexity
 export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, void, void> {
-  const { sessionId, turnId, messages, tools, provider, hooks } = deps
+  const { sessionId, turnId, messages, tools, provider, hooks, systemPrompt } = deps
   const max = deps.maxIterations ?? 10
 
   let currentMessages: LlmMessage[] = [...messages]
@@ -69,7 +69,7 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
       if (deps.abortSignal?.aborted) break
       if (log) log.info('turn-runner', 'round.start', { sessionId, turnId, roundIdx: iter, msgCount: currentMessages.length })
       const round = yield* consumeRound(
-        provider.stream({ messages: currentMessages, tools, signal: deps.abortSignal }),
+        provider.stream({ messages: currentMessages, tools, systemPrompt, signal: deps.abortSignal }),
         { sessionId, turnId },
       )
 
