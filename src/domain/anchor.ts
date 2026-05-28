@@ -35,3 +35,9 @@ export function anchorToSessionId(a: Anchor): string {
 export function anchorKey(a: Anchor): string {
   return anchorToSessionId(a)
 }
+
+/**
+ * Canonical Main session ID — shared by TUI default frontend and Lark p2p.
+ * Centralized here so cross-cutting consumers don't hardcode 'tui-default'.
+ */
+export const MAIN_SESSION_ID: string = anchorToSessionId({ kind: 'tui', frontendId: 'default' })

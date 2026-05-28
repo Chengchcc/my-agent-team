@@ -2,7 +2,7 @@ import type { FrontendHandle } from '../../application/ports/frontend-handle'
 import type { Transport } from '../../application/ports/transport'
 import type { DataPlaneEvent } from '../../application/contracts'
 import type { Anchor } from '../../domain/anchor'
-import { anchorToSessionId } from '../../domain/anchor'
+import { anchorToSessionId, MAIN_SESSION_ID } from '../../domain/anchor'
 import type { RoutingTable } from './routing-table'
 import { SessionClient } from '../frontend.tui/session-client'
 import { SlashRegistry, registerBuiltinSlashCommands } from '../../application/slash'
@@ -210,9 +210,14 @@ export class LarkBotAdapter implements FrontendHandle {
     let sessionId = this.routingTable.lookup(this.appId, anchor)
 
     if (!sessionId) {
-      // Create a new session for this anchor
-      const createResult = await this.sessionClient.createSession(`Lark: ${anchor.kind}`)
-      sessionId = createResult.sessionId
+      if (anchor.kind === 'lark-p2p') {
+        // One-agent-one-bot: p2p always routes to main session (guaranteed by session.kernelReady)
+        sessionId = MAIN_SESSION_ID
+      } else {
+        // lark-group: each group gets its own session
+        const createResult = await this.sessionClient.createSession(`Lark: ${anchor.kind}`)
+        sessionId = createResult.sessionId
+      }
       this.routingTable.bind(
         this.appId,
         anchor,

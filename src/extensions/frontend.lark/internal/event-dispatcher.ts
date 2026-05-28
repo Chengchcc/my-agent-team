@@ -135,7 +135,7 @@ async function decideRouting(
 ): Promise<Anchor> {
   // Real thread reply — both root_id and thread_id present
   if (rootId && threadId) return { kind: 'lark-group', appId: larkAppId, chatId: rootId };
-  // P2P — always main session, anchor on chatId for stable routing
+  // P2P — anchored on senderId; routes to MAIN_SESSION_ID in lark-bot-adapter
   if (chatType === 'p2p') return { kind: 'lark-p2p', appId: larkAppId, openId: chatId };
   // Group — check chat_mode
   const mode = await larkClient.getChatMode(chatId);
