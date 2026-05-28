@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { defineExtension } from '../../kernel/define-extension'
 import type { HookHandler } from '../../kernel/define-extension'
 import { asContractBus } from '../../application/event-bus/contract-bus'
@@ -5,6 +6,7 @@ import { createSkillDescriptor } from '../../domain/skill-descriptor'
 import type { SkillDescriptor } from '../../domain/skill-descriptor'
 import { SkillLoader } from './loader'
 import type { SkillInfo } from './loader'
+import type { SlashCommand } from '../../application/slash'
 import type { CliManifest } from '../../cli/cli-types'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
 
@@ -72,6 +74,73 @@ export type SkillsExtOptions = {
  *   - profile: daemon profile's skills/ directory (user-created, skill-creator output)
  *   - extra: additional paths from config
  */
+function createSkillHooks(deps: {
+  skills: Map<string, SkillDescriptor>
+  loader: SkillLoader
+}): {
+  resolveTools: HookHandler
+  onToolCall: HookHandler
+  transformPrompt: HookHandler
+} {
+  const { skills, loader } = deps
+
+  const resolveTools: HookHandler = async (...args: unknown[]) => {
+    const toolDescriptors = args[0] as Array<{
+      name: string; description: string; parameters: Record<string, unknown>
+    }>
+    if (skills.size === 0) return toolDescriptors
+
+    const skillTool = {
+      name: 'Skill',
+      description: "Load a skill's full instructions into context. Call when a user request matches a skill from the catalog in the system prompt.",
+      parameters: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            enum: [...skills.keys()].sort(),
+          },
+        },
+        required: ['name'],
+      },
+    }
+    return [...toolDescriptors, skillTool]
+  }
+
+  const onToolCall: HookHandler = async (...args: unknown[]) => {
+    const call = args[0] as { name: string; arguments: Record<string, unknown>; result?: unknown }
+    if (call.name !== 'Skill') return call
+    if (call.result !== undefined) return call
+
+    const skillName = call.arguments?.name as string | undefined
+    if (!skillName) {
+      return { ...call, result: { content: 'Missing required argument: name', isError: true } }
+    }
+    const info = await loader.loadSkill(skillName)
+    if (!info) {
+      return { ...call, result: { content: `Skill not found: ${skillName}`, isError: true } }
+    }
+    const skillDir = path.dirname(info.filePath)
+    const body = `# Skill: ${info.name}\n\nSkill directory (use Read/Bash for references): ${skillDir}\n\n---\n\n${info.content}`
+    return { ...call, result: { content: body, isError: false } }
+  }
+
+  const transformPrompt: HookHandler = async (...args: unknown[]) => {
+    const prompt = args[0] as { system: string; messages: Array<{ role: string; content: string }> }
+    if (skills.size === 0) return prompt
+
+    const lines = ['## Available Skills', '',
+      "The following skills are available via the `Skill` tool. Call `Skill(name='<name>')` to load full instructions.",
+      '']
+    for (const s of [...skills.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+      lines.push(`- **${s.name}**: ${s.description}`)
+    }
+    return { ...prompt, system: `${prompt.system}\n\n${lines.join('\n')}` }
+  }
+
+  return { resolveTools, onToolCall, transformPrompt }
+}
+
 export default (opts: SkillsExtOptions = {}) =>
   defineExtension({
     name: 'skills',
@@ -104,7 +173,24 @@ export default (opts: SkillsExtOptions = {}) =>
         logger: ctx.logger,
       })
 
-      // resolveTools: convert skill descriptors to tool descriptors
+      // ── Slash commands (mutable array for hot-reload) ──
+      const slashCommands: SlashCommand[] = []
+
+      function buildSlashCommands(): SlashCommand[] {
+        return [...skills.values()].map((s): SlashCommand => ({
+          name: s.name,
+          description: s.description,
+          source: 'skill',
+          resolve: async (input: string) => ({ kind: 'submit-prompt', text: input }),
+        }))
+      }
+
+      function refreshSlash(): void {
+        slashCommands.length = 0
+        slashCommands.push(...buildSlashCommands())
+      }
+
+      // ── Reload ──
       const doReload = async () => {
         try {
           const before = skills.size
@@ -114,6 +200,7 @@ export default (opts: SkillsExtOptions = {}) =>
             skills.set(info.name, fromSkillInfo(info))
           }
           const added = skills.size - before
+          refreshSlash()
           void contractBus.emit('skills.reloaded', { added, removed: 0, updated: 0 })
           return { added, removed: 0, updated: 0 }
         } catch {
@@ -121,17 +208,7 @@ export default (opts: SkillsExtOptions = {}) =>
         }
       }
 
-      const resolveTools: HookHandler = async (...args: unknown[]) => {
-        const toolDescriptors = args[0] as Array<{
-          name: string; description: string; parameters: Record<string, unknown>
-        }>
-        const skillTools = [...skills.values()].map((s) => ({
-          name: s.name,
-          description: s.description,
-          parameters: s.parameters ?? { type: 'object', properties: {} },
-        }))
-        return [...toolDescriptors, ...skillTools]
-      }
+      const hooks = createSkillHooks({ skills, loader })
 
       return {
         provide: {
@@ -155,21 +232,23 @@ export default (opts: SkillsExtOptions = {}) =>
                   skills.set(info.name, fromSkillInfo(info))
                 }
                 ctx.logger.info('skills', `${loaded.length} loaded from builtin+agent, ${skills.size} total`)
+                refreshSlash()
               } catch (err: unknown) {
                 ctx.logger.warn('skills', `Failed to load skills: ${String(err)}`)
               }
             },
           },
-          resolveTools: {
-            enforce: 'normal',
-            fn: resolveTools,
-          },
+          resolveTools: { enforce: 'normal', fn: hooks.resolveTools },
+          onToolCall: { enforce: 'pre', fn: hooks.onToolCall },
+          transformPrompt: { enforce: 'normal', order: 900, fn: hooks.transformPrompt },
         },
 
         rpc: {
           'skills.list': () => ({ skills: [...skills.values()] }),
           'skills.reload': async () => doReload(),
         },
+
+        slash: slashCommands,
 
         subscribe: {
           'skills.reload-requested': async () => {

@@ -19,7 +19,9 @@ export default () =>
       const contractBus = asContractBus(ctx.bus);
 
       const onToolCall: HookHandler = async (...args: unknown[]) => {
-        const call = args[0] as { name: string; arguments: Record<string, unknown>; id: string };
+        const call = args[0] as { name: string; arguments: Record<string, unknown>; id: string; result?: unknown };
+        if (call.result !== undefined) return call.result
+
         const toolCtx = args[1] as ToolContext;
 
         const startTime = Date.now();

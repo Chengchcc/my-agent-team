@@ -190,6 +190,10 @@ export default () =>
               mode: p.mode,
             })
           },
+          'skills.reloaded': () => {
+            extSlashCommands.length = 0
+            extSlashCommands.push(...ctx.extensions.collectSlashCommands())
+          },
         },
       }
     },

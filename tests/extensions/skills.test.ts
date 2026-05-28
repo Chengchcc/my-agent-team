@@ -191,7 +191,7 @@ describe('skills extension', () => {
     expect(typeof kernelReadyHandler === 'function' || typeof (kernelReadyHandler as any).fn === 'function').toBe(true)
   })
 
-  it('resolveTools merges file-loaded skills after kernelReady', async () => {
+  it('resolveTools emits single Skill tool with enum after kernelReady', async () => {
     const ctx = makeTestCtx()
     const ext = skillsExt()
     const result = ext.apply(ctx)
@@ -210,23 +210,23 @@ describe('skills extension', () => {
     // Dispatch kernelReady to trigger file-based skill loading
     await ctx.hooks.dispatch('kernelReady')
 
-    // resolveTools should merge loaded file skills (e.g. skill-creator from project skills/)
+    // resolveTools should emit a single Skill tool (not N per-skill tools)
     const resolved = (await ctx.hooks.dispatch('resolveTools', [])) as Array<{
       name: string
       description: string
       parameters: Record<string, unknown>
     }>
 
-    // skill-creator should be loaded from the project skills/ directory
+    // At least the Skill tool is present when skills are loaded
     expect(resolved.length).toBeGreaterThanOrEqual(1)
-    const names = resolved.map(t => t.name)
-    expect(names).toContain('skill-creator')
+    const skillTool = resolved.find(t => t.name === 'Skill')
+    expect(skillTool).toBeDefined()
+    expect(skillTool!.parameters.type).toBe('object')
+    expect(skillTool!.description).toBeTruthy()
 
-    // Loaded skills should have properly formed tool descriptors
-    for (const tool of resolved) {
-      expect(tool.parameters).toBeDefined()
-      expect(tool.parameters.type).toBe('object')
-      expect(tool.description).toBeTruthy()
-    }
+    // Loaded skill names are in the enum, not as separate top-level tools
+    const nameEnum = (skillTool!.parameters.properties as Record<string, Record<string, unknown>>)?.name?.enum as string[] | undefined
+    expect(nameEnum).toBeDefined()
+    expect(nameEnum).toContain('skill-creator')
   })
 })
