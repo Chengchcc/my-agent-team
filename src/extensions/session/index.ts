@@ -65,7 +65,12 @@ function makeOnTurnEnd(d: TurnEndDeps): HookHandler {
 
     // Emit trace event
     const traceEvt: TraceEvent = status === 'completed'
-      ? d.eventFactory.next(turnId, 'turn.completed', { tokens: result.usage })
+      ? d.eventFactory.next(turnId, 'turn.completed', {
+          usage: result.usage,
+          toolCallCount: result.toolCallCount ?? 0,
+          toolErrorCount: result.toolErrorCount ?? 0,
+          finalMessageLength: (result.finalMessage ?? '').length,
+        })
       : d.eventFactory.next(turnId, 'turn.failed', { error: result.error });
     await d.hooks.dispatch('onTraceEmit', traceEvt);
 

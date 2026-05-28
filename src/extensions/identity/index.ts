@@ -102,7 +102,7 @@ export default () =>
         if (status === 'pending_bootstrap') {
           const bootstrap = getBootstrapLoop(ctx, store)
           if (!bootstrap) return prompt
-          return bootstrap.buildOverridePrompt(prompt)
+          return bootstrap.buildBootstrapSupplement(prompt, 'full')
         }
 
         // Inject identity

@@ -17,7 +17,9 @@ import type {
   ToolCallRecord, ToolDescriptor,
 } from '../../domain/turn-runner.types'
 import { createTraceEventFactory } from '../../domain/trace-event'
-import { truncateForTrace } from '../../infrastructure/trace/trace-sanitizer'
+import { truncateForTrace, TRACE_TRUNCATE_CHARS } from '../../infrastructure/trace/trace-sanitizer'
+import { mapTurnEventToTraceKind, sanitizeTurnEventPayload } from '../../infrastructure/trace/trace-event-mapping'
+import { emitTraceRequest } from './emit-trace-request'
 
 const DEFAULT_MAX_TURN_ITERATIONS = 10
 
@@ -139,47 +141,6 @@ async function autoCompactIfNeeded(
   }
 }
 
-// ── Trace capture helper — extracts llm.request + prompt.snapshot emission ──
-
-function emitTraceRequest(
-  hooks: { dispatch(name: string, ...args: unknown[]): Promise<unknown> },
-  sessionId: string,
-  turnId: string,
-  system: string,
-  basePrompt: string,
-  messages: Array<{ role: string; content: string | Array<unknown> }>,
-  toolNames: string[],
-): ReturnType<typeof createTraceEventFactory> {
-  const traceFactory = createTraceEventFactory(sessionId)
-  const llmRequestPayload: Record<string, unknown> = {
-    system: truncateForTrace(system),
-    messages: messages.map(m => ({ role: m.role, contentLength: (m.content?.length ?? 0) })),
-    toolNames,
-    systemBytes: Buffer.byteLength(system, 'utf-8'),
-    messagesBytes: Buffer.byteLength(JSON.stringify(messages), 'utf-8'),
-    totalTokensEstimate: approxTokens(system + JSON.stringify(messages)),
-  }
-  if (process.env.MY_AGENT_TRACE_FULL) {
-    llmRequestPayload.messagesFull = messages.map(m => ({
-      role: m.role,
-      content: truncateForTrace(typeof m.content === 'string' ? m.content : JSON.stringify(m.content)),
-    }))
-  }
-  void hooks.dispatch('onTraceEmit', traceFactory.next(turnId, 'llm.request', llmRequestPayload))
-
-  if (process.env.MY_AGENT_TRACE_VERBOSE) {
-    void hooks.dispatch('onTraceEmit', createTraceEventFactory(sessionId).next(turnId, 'prompt.snapshot', {
-      hookName: 'transformPrompt.pipeline',
-      enforce: 'all', order: 0,
-      systemBefore: truncateForTrace(basePrompt),
-      systemAfter: truncateForTrace(system),
-      deltaBytes: Buffer.byteLength(system) - Buffer.byteLength(basePrompt),
-    }))
-  }
-
-  return traceFactory
-}
-
 // ── Run turn usecase ──────────────────────────────────────────────────────
 
 // eslint-disable-next-line max-lines-per-function, complexity
@@ -219,12 +180,23 @@ export async function runTurnUsecase(
     return { usage: { input: 0, output: 0 }, success: false }
   }
 
-  const finalTools = input.allowedToolNames
+  const resolvedTools = input.allowedToolNames
     ? toolsR.value.filter(t => input.allowedToolNames!.includes(t.name))
     : toolsR.value
 
+  // Central bootstrap tool gate — strip all tools when bootstrap is active
+  const isBootstrapActive = promptR.value.system.includes('## Bootstrap Pending')
+  const finalTools = isBootstrapActive ? [] : resolvedTools
+
   // Emit llm.request + optional prompt.snapshot trace events
   const traceFactory = emitTraceRequest(hooks, sessionId, turnId, promptR.value.system, basePrompt, finalMessages, finalTools.map(t => t.name))
+
+  // Emit message.user trace event
+  void hooks.dispatch('onTraceEmit', createTraceEventFactory(sessionId).next(turnId, 'message.user', {
+    content: truncateForTrace(userInput),
+    contentLength: userInput.length,
+    truncated: userInput.length > TRACE_TRUNCATE_CHARS,
+  }))
 
   const baseEnv = { cwd: deps.agentDir }; const collectedToolCalls: ToolCallRecord[] = []
   let toolErrorCount = 0, toolCallCount = 0, finalText = ''; let totalUsage = { input: 0, output: 0 }
@@ -255,6 +227,12 @@ export async function runTurnUsecase(
     })) {
       event.type !== 'turn.completed' && event.type !== 'turn.failed' &&
         void bus.emit(event.type, event, { sessionId, turnId })
+
+      // Bridge runtime turn events to trace persistence
+      const traceKind = mapTurnEventToTraceKind(event.type)
+      if (traceKind) {
+        void hooks.dispatch('onTraceEmit', traceFactory.next(turnId, traceKind, sanitizeTurnEventPayload(event as unknown as { type: string; [key: string]: unknown })))
+      }
 
       // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- only relevant TurnEvent variants handled
       switch (event.type) {
@@ -295,6 +273,20 @@ export async function runTurnUsecase(
         }
         case 'llm.usage':
           void hooks.dispatch('onTraceEmit', traceFactory.next(turnId, 'llm.end', { usage: event.usage }))
+          break
+        case 'round.completed':
+          void hooks.dispatch('onTraceEmit', traceFactory.next(turnId, 'message.assistant', {
+            content: truncateForTrace(event.assistantText),
+            contentLength: event.assistantText.length,
+            truncated: event.assistantText.length > TRACE_TRUNCATE_CHARS,
+            usage: event.usage,
+            roundIdx: event.roundIdx,
+            finishReason: event.finishReason,
+            toolCalls: event.toolCalls.map(c => ({
+              id: c.id, name: c.name,
+              argsSummary: truncateForTrace(JSON.stringify(c.arguments), 1024),
+            })),
+          }))
           break
         default:
           break

@@ -11,6 +11,8 @@ type TraceEventType =
   | 'llm.request'
   | 'llm.delta'
   | 'llm.end'
+  | 'message.user'
+  | 'message.assistant'
   | 'permission.req'
   | 'permission.resolve'
   | 'prompt.snapshot'

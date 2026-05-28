@@ -39,23 +39,29 @@ export function createBootstrapLoop(deps: BootstrapLoopDeps) {
     },
 
     /**
-     * BOOTSTRAP override — fully replace prompt.system with bootstrap-only content,
-     * discarding anything appended by upstream transformPrompt hooks
-     * (tools, session-mode, ...). Also trims messages to the last user turn
-     * to prevent historical-context bleed.
+     * BOOTSTRAP supplement — append bootstrap section to the existing system prompt,
+     * preserving upstream transformPrompt contributions (identity, memory, etc.).
+     * No longer replaces the entire prompt; tool gating is handled in run-turn.ts.
      */
-    buildOverridePrompt(
+    buildBootstrapSupplement(
       prompt: { system: string; messages: Array<{ role: string; content: string }> },
+      mode: 'full' | 'limited',
     ): typeof prompt {
       const state = loadBootstrapState(deps.bootstrapPath)
       computeNextAction(state)
       const missing = computeMissingFields(state.requiredFields, state.collected)
       const field = missing.length > 0 ? missing[0]! : state.requiredFields[0]!
-      const lastUser = [...prompt.messages].reverse().find(m => m.role === 'user')
-      return {
-        system: renderBootstrapRequest(field, state.turnsCompleted, state.turnsMax),
-        messages: lastUser ? [lastUser] : [],
+
+      let supplement = renderBootstrapRequest(field, state.turnsCompleted, state.turnsMax)
+      if (mode === 'limited') {
+        supplement = `## Bootstrap Pending — 身份初始化（受限模式）
+
+当前运行环境不能安全完成完整 bootstrap，只能继续收集缺失字段或告知下一步。
+请用一句简短中文询问当前缺失字段。
+不要假装 bootstrap 已完成。`
       }
+
+      return { ...prompt, system: `${prompt.system}\n\n${supplement}` }
     },
 
     async handleTurnEnd(payload: { userMessage?: { role: string; content: string } }): Promise<void> {

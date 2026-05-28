@@ -158,7 +158,7 @@ describe('session extension', () => {
     const completedEvent = events.find((e) => e.type === 'turn.completed')
     expect(completedEvent).toBeDefined()
     expect(completedEvent!.turnId).toBe(turn.id)
-    expect(completedEvent!.payload).toMatchObject({ tokens: { input: 42, output: 7 } })
+    expect(completedEvent!.payload).toMatchObject({ usage: { input: 42, output: 7 } })
 
     await k.stop()
   })
@@ -201,7 +201,7 @@ describe('session extension', () => {
 
     expect(completedEvent).toBeDefined()
     expect(completedEvent!.turnId).toBe(turn.id)
-    expect(completedEvent!.payload).toMatchObject({ tokens: { input: 10, output: 5 } })
+    expect(completedEvent!.payload).toMatchObject({ usage: { input: 10, output: 5 } })
 
     // Events should have monotonically increasing cursors
     expect(completedEvent!.cursor).toBeGreaterThan(startedEvent!.cursor)

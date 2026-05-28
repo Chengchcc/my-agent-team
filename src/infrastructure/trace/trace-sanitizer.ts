@@ -1,4 +1,5 @@
 const TRACE_FIELD_MAX = 16_384 // 16 KB per string field
+export const TRACE_TRUNCATE_CHARS = 16_384
 const TRACE_FULL_MODE = !!process.env.MY_AGENT_TRACE_FULL
 
 export function truncateForTrace(s: string, max = TRACE_FIELD_MAX): string {

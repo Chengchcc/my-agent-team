@@ -85,6 +85,36 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
           content: round.assistantText,
           tool_calls: round.toolCalls.length > 0 ? round.toolCalls : undefined,
         })
+        yield {
+          type: 'round.completed',
+          sessionId, turnId,
+          roundIdx: iter,
+          assistantText: round.assistantText,
+          toolCalls: round.toolCalls as Array<{ id: string; name: string; arguments: Record<string, unknown> }>,
+          usage: round.usage,
+          finishReason: round.toolCalls.length > 0 ? 'tool_use' : 'stop',
+        }
+      } else {
+        if (log) {
+          log.warn('turn-runner', 'empty.llm.response', {
+            sessionId, turnId, roundIdx: iter,
+            usageInput: round.usage.input, usageOutput: round.usage.output,
+          })
+        }
+        // Synthetic fallback — never silent
+        const synthetic = '(LLM returned an empty response. Please retry.)'
+        finalText += synthetic
+        currentMessages.push({ role: 'assistant', content: synthetic })
+        yield { type: 'llm.delta', sessionId, turnId, delta: synthetic }
+        yield {
+          type: 'round.completed',
+          sessionId, turnId,
+          roundIdx: iter,
+          assistantText: synthetic,
+          toolCalls: [],
+          usage: round.usage,
+          finishReason: 'empty',
+        }
       }
 
       if (round.toolCalls.length === 0) break

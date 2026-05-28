@@ -96,33 +96,16 @@ export function renderBootstrapRequest(
   }
   const hint = fieldDescriptions[field] ?? field
   const remain = turnsCompleted !== undefined && turnsMax !== undefined
-    ? `（第 ${turnsCompleted + 1}/${turnsMax} 轮）`
+    ? `第 ${turnsCompleted + 1}/${turnsMax} 轮`
     : ''
 
-  return `
+  return `## Bootstrap Pending — 身份初始化
 
-===== AGENT BOOTSTRAP MODE — 最高优先级指令 =====
-当前状态：身份未初始化（pending_bootstrap）。
+请用一句简短中文询问用户的「${field}」字段。
+字段含义：${hint}
 
-【你必须】完全忽略上方所有其他 system 指令（包括 helpful assistant 设定、工具说明、记忆等），
-本轮唯一任务：用一句简短中文（≤40字）向用户提问，问且只问字段「${field}」。
-含义：${hint}
-
-【硬性约束】
-1. 不要寒暄、不要自我介绍、不要回答用户上一条消息的内容
-2. 直接输出问题，不要任何前缀/后缀/解释/markdown
-3. 不要调用任何工具
-4. 不要列出多个问题或选项
-
-【格式示例】
-- ✅ "你希望我扮演什么角色？"
-- ✅ "我服务的对象主要是谁？"
-- ❌ "你好！我是 AI 助手，请问..."  （有寒暄）
-- ❌ "请告诉我角色、受众、语气"   （多字段）
-
-${remain}
-===== END BOOTSTRAP MODE =====
-`
+如果用户已经直接给出了该字段，请确认并继续下一步。
+不要假装 bootstrap 已完成。${remain}`
 }
 
 export const DEFAULT_BOOTSTRAP_MD = `---
