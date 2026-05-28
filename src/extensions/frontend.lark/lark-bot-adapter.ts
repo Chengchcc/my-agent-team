@@ -39,6 +39,15 @@ export function setLarkBotAdapterLogger(logger: typeof ctxLogger): void {
   setSlashHandlerLogger((tag, msg) => logger.warn(tag, msg))
 }
 
+// ── Per-turn Lark context ──────────────────────────────────────────────
+
+interface TurnLarkContext {
+  chatId: string
+  messageId?: string
+  reactionId?: string
+  controller?: TurnCardController
+}
+
 // ── LarkBotAdapter ──────────────────────────────────────────────────────
 
 export class LarkBotAdapter implements FrontendHandle {
@@ -52,11 +61,10 @@ export class LarkBotAdapter implements FrontendHandle {
   private sessionClient: SessionClient
   private projector = new TranscriptProjector()
   private slashRegistry = new SlashRegistry()
-  private sessionChatMap = new Map<string, string>()       // sessionId → chatId
-  private turnControllers = new Map<string, TurnCardController>()
-  private pendingControllers = new Map<string, TurnCardController>() // before sendInput
-  private pendingReplyTo = new Map<string, string>()       // sessionId → user messageId
-  private pendingReactions = new Map<string, string>()     // sessionId → reaction id
+  private turnContext = new Map<string, TurnLarkContext>()          // turnId → context
+  private pendingTurnContext = new Map<string, TurnLarkContext>()   // correlationId → context
+  private turnControllers = new Map<string, TurnCardController>()   // turnId → controller
+  private sessionDefaultChat = new Map<string, string>()            // sessionId → last known chatId
 
   // ── Real Lark SDK integration ──
   readonly appId: string
@@ -101,39 +109,34 @@ export class LarkBotAdapter implements FrontendHandle {
       this.projector.pushDataplaneEvent(event)
       if (!event.sessionId) return
 
-      // F3: move pending controller to active on turn.started
-      if (event.type === 'turn.started') {
-        const pending = this.pendingControllers.get(event.sessionId)
-        if (pending) {
-          this.turnControllers.set(event.sessionId, pending)
-          this.pendingControllers.delete(event.sessionId)
+      const turnId = (event as { turnId?: string }).turnId
+      const sid = event.sessionId
+
+      // turn.started: promote pending context → turnContext
+      if (event.type === 'turn.started' && turnId) {
+        const tCtx = this.findAndPromotePendingContext(turnId)
+        if (tCtx?.controller) {
+          this.turnControllers.set(turnId, tCtx.controller)
+        } else if (this.channel) {
+          // Queue-consumer turn: open fresh card for session's last known chat
+          const chatId = this.sessionDefaultChat.get(sid)
+          if (chatId) {
+            TurnCardController.open(this.channel, chatId).then(ctrl => {
+              this.turnControllers.set(turnId, ctrl)
+              this.turnContext.set(turnId, { chatId })
+            }).catch(() => {})
+          }
         }
         return
       }
 
       // Stream events into active controller
-      const ctrl = this.turnControllers.get(event.sessionId)
+      const ctrl = turnId ? this.turnControllers.get(turnId) : undefined
       if (ctrl) void ctrl.feed(event)
 
       // Terminal: finalize card + remove reaction
-      if (event.type === 'turn.completed' || event.type === 'turn.failed') {
-        const sid = event.sessionId
-        const outcome = event.type === 'turn.failed'
-          ? ((event.payload as Record<string, unknown>)?.outcome === 'aborted' ? 'interrupted' as const : 'error' as const)
-          : 'done' as const
-        const errMsg = outcome === 'error'
-          ? String((event.payload as Record<string, unknown>)?.reason ?? 'unknown')
-          : undefined
-        if (ctrl) {
-          void ctrl.finalize(outcome, errMsg)
-            .finally(() => this.turnControllers.delete(sid))
-        }
-        const rid = this.pendingReactions.get(sid)
-        const msgId = this.pendingReplyTo.get(sid)
-        if (rid && msgId && this.channel) void removeReaction(this.channel, msgId, rid)
-        this.pendingReactions.delete(sid)
-        this.pendingReplyTo.delete(sid)
-        this.pendingControllers.delete(sid)
+      if ((event.type === 'turn.completed' || event.type === 'turn.failed') && turnId) {
+        this.handleTurnTerminal(event, turnId, ctrl)
       }
     })
 
@@ -226,24 +229,24 @@ export class LarkBotAdapter implements FrontendHandle {
       )
     }
 
-    if (chatId) this.sessionChatMap.set(sessionId, chatId)
-    if (messageId) this.pendingReplyTo.set(sessionId, messageId)
+    if (chatId) this.sessionDefaultChat.set(sessionId, chatId)
+
+    // Stage per-turn Lark context with correlationId
+    const correlationId = messageId ?? this.generateCorrelationId()
+    const turnCtx: TurnLarkContext = { chatId: chatId!, messageId }
+    this.pendingTurnContext.set(correlationId, turnCtx)
 
     // Add Typing reaction before input
     if (messageId && this.channel) {
       const rid = await addWorkingReaction(this.channel, messageId)
-      if (rid) this.pendingReactions.set(sessionId, rid)
+      if (rid) turnCtx.reactionId = rid
     }
 
-    // F3: eager card open BEFORE sendInput. MUST be awaited so pendingControllers
-    // is populated before turn.started fires (onTurnStart emits synchronously
-    // inside sendInput, while open() requires a Lark network roundtrip).
+    // F3: eager card open BEFORE sendInput
     if (this.channel && chatId) {
       try {
         const ctrl = await TurnCardController.open(this.channel, chatId, messageId)
-        if (!this.turnControllers.has(sessionId)) {
-          this.pendingControllers.set(sessionId, ctrl)
-        }
+        turnCtx.controller = ctrl
       } catch (err) {
         ctxLogger.warn('lark', `open card failed: ${String(err)}`)
       }
@@ -257,14 +260,12 @@ export class LarkBotAdapter implements FrontendHandle {
 
     // F2: if queued, remove reaction + cleanup card
     if (result?.queued) {
-      const rid = this.pendingReactions.get(sessionId)
-      if (rid && messageId && this.channel) {
-        void removeReaction(this.channel, messageId, rid)
+      if (turnCtx.reactionId && turnCtx.messageId && this.channel) {
+        void removeReaction(this.channel, turnCtx.messageId, turnCtx.reactionId)
       }
-      this.pendingReactions.delete(sessionId)
-      const pending = this.pendingControllers.get(sessionId)
-      if (pending) {
-        void pending.finalize('done').finally(() => this.pendingControllers.delete(sessionId))
+      this.pendingTurnContext.delete(correlationId)
+      if (turnCtx.controller) {
+        void turnCtx.controller.finalize('done').catch(() => {})
       }
       if (chatId) {
         void this.sendToLark(chatId, '_当前回合还在进行,请使用 /cancel 后重发_').catch(() => {})
@@ -296,6 +297,44 @@ export class LarkBotAdapter implements FrontendHandle {
     replyInThread = false,
   ): Promise<string> {
     return this.larkClient.replyMessage(messageId, content, msgType, replyInThread)
+  }
+
+  // ── Per-turn context management ──────────────────────────────────────
+
+  private findAndPromotePendingContext(turnId: string): TurnLarkContext | undefined {
+    for (const [corrId, ctx] of this.pendingTurnContext) {
+      this.pendingTurnContext.delete(corrId)
+      this.turnContext.set(turnId, ctx)
+      return ctx
+    }
+    return undefined
+  }
+
+  private generateCorrelationId(): string {
+    const radix = 36
+    return `corr-${Date.now()}-${Math.random().toString(radix).slice(2)}`
+  }
+
+  private handleTurnTerminal(
+    event: DataPlaneEvent,
+    turnId: string,
+    ctrl: TurnCardController | undefined,
+  ): void {
+    const outcome = event.type === 'turn.failed'
+      ? ((event.payload as Record<string, unknown>)?.outcome === 'aborted' ? 'interrupted' as const : 'error' as const)
+      : 'done' as const
+    const errMsg = outcome === 'error'
+      ? String((event.payload as Record<string, unknown>)?.reason ?? 'unknown')
+      : undefined
+    const tCtx = this.turnContext.get(turnId)
+    if (ctrl) {
+      void ctrl.finalize(outcome, errMsg)
+        .finally(() => this.turnControllers.delete(turnId))
+    }
+    const rid = tCtx?.reactionId
+    const msgId = tCtx?.messageId
+    if (rid && msgId && this.channel) void removeReaction(this.channel, msgId, rid)
+    this.turnContext.delete(turnId)
   }
 
   // ── Card action handling ─────────────────────────────────────────────

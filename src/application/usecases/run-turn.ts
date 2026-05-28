@@ -150,7 +150,7 @@ export async function runTurnUsecase(
 ): Promise<{ usage: { input: number; output: number }; success: boolean; finalText?: string }> {
   const { sessionId, turnId, userInput } = input
   const { provider, hooks, history, bus, logger } = deps
-  const basePrompt = deps.basePrompt ?? 'You are a helpful AI assistant.'
+  const basePrompt = deps.basePrompt ?? "Follow the user's instructions."
   const tokenLimit = input.tokenLimit ?? BUDGET_DEFAULT_TOKEN_LIMIT; const userMsg = { role: 'user' as const, content: userInput }
   const controller = input.abortSignal ? { signal: input.abortSignal, abort: () => {} } : new AbortController()
   if (!input.abortSignal) deps.sessionAbort.register(sessionId, controller as AbortController)

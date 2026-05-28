@@ -101,11 +101,16 @@ export function renderBootstrapRequest(
 
   return `## Bootstrap Pending — 身份初始化
 
-请用一句简短中文询问用户的「${field}」字段。
-字段含义：${hint}
+**[最高优先级指令]** 本轮你唯一的任务：用一句简短中文向用户提问「${field}」。
+字段含义：${hint}。
 
-如果用户已经直接给出了该字段，请确认并继续下一步。
-不要假装 bootstrap 已完成。${remain}`
+规则：
+1. 直接输出问题，不要寒暄、不要自我介绍、不要回答用户的其他话题
+2. 如果用户上一条消息已经给出了该字段的值，确认并简短复述，不要追问
+3. 不要调用任何工具
+4. 不要假装 bootstrap 已完成
+
+${remain}`
 }
 
 export const DEFAULT_BOOTSTRAP_MD = `---

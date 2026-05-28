@@ -61,7 +61,9 @@ export function createBootstrapLoop(deps: BootstrapLoopDeps) {
 不要假装 bootstrap 已完成。`
       }
 
-      return { ...prompt, system: `${prompt.system}\n\n${supplement}` }
+      // Bootstrap 放最前面：LLM 对开头权重最高，同时剥离会引发角色冲突的 baseline 行
+      const cleaned = prompt.system.replace(/^(?:You are a helpful AI assistant\.?\s*|Follow the user's instructions\.?\s*)/i, '')
+      return { ...prompt, system: `${supplement}\n\n---\n\n${cleaned}` }
     },
 
     async handleTurnEnd(payload: { userMessage?: { role: string; content: string } }): Promise<void> {

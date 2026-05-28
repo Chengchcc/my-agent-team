@@ -259,6 +259,37 @@ export function makeToolListHandler(d: RpcHandlerDeps) {
 
 // ── Input domain ────────────────────────────────────────────────────────────
 
+const inputSendLocks = new Map<string, Promise<unknown>>()
+
+async function doInputSend(
+  d: RpcHandlerDeps,
+  sessionId: string,
+  text: string,
+  frontendId: string,
+): Promise<{ accepted: boolean; sessionId: string; turnId?: string; queued?: boolean; queueDepth?: number }> {
+  const store = d.getStore();
+  const session = await store.load(sessionId);
+  if (!session) {
+    throw new Error(`Session not found: ${sessionId}`);
+  }
+
+  if (session.state === 'RUNNING') {
+    session.enqueueInput(text);
+    await store.save(session);
+    return { accepted: true, sessionId, queued: true, queueDepth: session.pendingInputs.length };
+  }
+
+  const turn = await d.ctx.hooks.dispatch('onTurnStart', sessionId, frontendId) as { id?: string } | undefined;
+  const turnId = turn?.id ?? `turn-${Date.now()}`;
+
+  runTurnUsecase(
+    { sessionId, turnId, userInput: text, frontendId },
+    buildRunTurnDeps(d.ctx),
+  ).catch((err) => { d.ctx.logger.warn('turn', `Turn ${turnId} failed: ${String(err)}`); });
+
+  return { accepted: true, sessionId, turnId, queued: false };
+}
+
 export function makeInputSendHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { sessionId?: string; text?: string; frontendId?: string } | undefined;
@@ -266,27 +297,20 @@ export function makeInputSendHandler(d: RpcHandlerDeps) {
     if (p?.text === undefined) throw new Error('text is required');
     const frontendId = p?.frontendId ?? 'unknown';
 
-    const store = d.getStore();
-    const session = await store.load(sessionId);
-    if (!session) {
-      throw new Error(`Session not found: ${sessionId}`);
+    // Serialize per session: prevents two concurrent INIT-state reads.
+    // Lock is held only through the "decide + dispatch onTurnStart" critical section,
+    // which is fast (no LLM call). runTurnUsecase still runs async fire-and-forget.
+    const prev = inputSendLocks.get(sessionId);
+    const work = (async () => {
+      if (prev) { try { await prev } catch { /* ignore */ } }
+      return await doInputSend(d, sessionId, p.text!, frontendId);
+    })();
+    inputSendLocks.set(sessionId, work);
+    try {
+      return await work;
+    } finally {
+      if (inputSendLocks.get(sessionId) === work) inputSendLocks.delete(sessionId);
     }
-
-    if (session.state === 'RUNNING') {
-      session.enqueueInput(p.text);
-      await store.save(session);
-      return { accepted: true, sessionId, queued: true, queueDepth: session.pendingInputs.length };
-    }
-
-    const turn = await d.ctx.hooks.dispatch('onTurnStart', sessionId, frontendId) as { id?: string } | undefined;
-    const turnId = turn?.id ?? `turn-${Date.now()}`;
-
-    runTurnUsecase(
-      { sessionId, turnId, userInput: p.text, frontendId },
-      buildRunTurnDeps(d.ctx),
-    ).catch((err) => { d.ctx.logger.warn('turn', `Turn ${turnId} failed: ${String(err)}`); });
-
-    return { accepted: true, sessionId, turnId, queued: false };
   };
 }
 

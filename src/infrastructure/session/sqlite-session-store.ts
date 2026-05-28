@@ -4,9 +4,15 @@ import type { Session } from '../../domain/session'
 import { createSession } from '../../domain/session'
 
 export class SqliteSessionStore implements SessionStore {
+  private pendingInputsMap = new Map<string, string[]>()
+
   constructor(private db: Database) {}
 
   async save(session: Session): Promise<void> {
+    // Persist pendingInputs in-memory (survives load/save cycles within the process;
+    // daemon restart loses queue, which is acceptable — RUNNING state is also lost)
+    this.pendingInputsMap.set(session.id, [...session.pendingInputs])
+
     this.db.run(
       `INSERT INTO sessions (id, agent_id, is_main, title, state, mode, created_at, last_active, meta_json)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -35,12 +41,19 @@ export class SqliteSessionStore implements SessionStore {
     ).get(id) as Record<string, unknown> | null
     if (!row) return null
 
-    // Reconstruct via domain factory; pendingInputs/attachedFrontendIds are runtime-only
     const s = createSession(row.id as string, row.agent_id as string, Boolean(row.is_main), (row.title as string) ?? undefined)
     s.state = (row.state as Session['state']) ?? 'idle'
     s.mode = (row.mode as string) ?? 'normal'
     s.createdAt = new Date(row.created_at as number)
     s.lastActiveAt = new Date(row.last_active as number)
+
+    // Restore pendingInputs from in-memory map
+    const pending = this.pendingInputsMap.get(s.id)
+    if (pending && pending.length > 0) {
+      s.pendingInputs.length = 0
+      s.pendingInputs.push(...pending)
+    }
+
     return s
   }
 

@@ -15,6 +15,7 @@ import { createCompactor } from './compactor'
 import type { HookContainer } from '../../kernel/hook-container'
 import type { SessionStore } from '../../application/ports/session-store'
 import { anchorToSessionId } from '../../domain/anchor'
+import { runTurnUsecase, buildRunTurnDeps } from '../../application/usecases/run-turn'
 
 interface TurnStartDeps {
   sessionStore: SessionStore;
@@ -44,6 +45,7 @@ interface TurnEndDeps {
   eventFactory: ReturnType<typeof createTraceEventFactory>;
   hooks: HookContainer;
   contractBus: ContractBus;
+  drainQueue: (sessionId: string, text: string) => Promise<void>;
 }
 
 function makeOnTurnEnd(d: TurnEndDeps): HookHandler {
@@ -61,7 +63,17 @@ function makeOnTurnEnd(d: TurnEndDeps): HookHandler {
     };
     const { sessionId, turnId, status } = result;
     const session = await d.sessionStore.load(sessionId);
-    if (session) { session.completeTurn(); await d.sessionStore.save(session); }
+    if (session) {
+      session.completeTurn();
+      await d.sessionStore.save(session);
+
+      // Queue consumer: drain pendingInputs → start next turn
+      const nextInput = session.dequeueInput();
+      if (nextInput) {
+        await d.sessionStore.save(session);
+        queueMicrotask(() => { void d.drainQueue(sessionId, nextInput) });
+      }
+    }
 
     // Emit trace event
     const traceEvt: TraceEvent = status === 'completed'
@@ -123,7 +135,21 @@ export default () =>
       }
 
       const onTurnStart = makeOnTurnStart({ sessionStore, eventFactory, hooks: ctx.hooks, contractBus })
-      const onTurnEnd = makeOnTurnEnd({ sessionStore, eventFactory, hooks: ctx.hooks, contractBus })
+
+      const drainQueue = async (sessionId: string, text: string) => {
+        try {
+          const turn = await ctx.hooks.dispatch('onTurnStart', sessionId, 'queue-consumer') as { id?: string } | undefined
+          const turnId = turn?.id ?? `turn-${Date.now()}`
+          await runTurnUsecase(
+            { sessionId, turnId, userInput: text, frontendId: 'queue-consumer' },
+            buildRunTurnDeps(ctx),
+          )
+        } catch (err) {
+          ctx.logger.warn('session', `queue drain failed: ${String(err)}`)
+        }
+      }
+
+      const onTurnEnd = makeOnTurnEnd({ sessionStore, eventFactory, hooks: ctx.hooks, contractBus, drainQueue })
 
       return {
         provide: {
