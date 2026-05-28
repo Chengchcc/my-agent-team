@@ -103,6 +103,13 @@ export default () =>
         if (status === 'pending_bootstrap') {
           const bootstrap = getBootstrapLoop(ctx, store)
           if (!bootstrap) return prompt
+
+          // Advance state machine before building supplement (real-time, not lagging one turn)
+          const lastUserMsg = [...prompt.messages].reverse().find(m => m.role === 'user')
+          if (lastUserMsg) {
+            await bootstrap.preTurnAbsorb({ userMessage: lastUserMsg })
+          }
+
           const mode = resolveBootstrapMode({
             identityStatus: status,
             hasToolAccess: true,
@@ -150,14 +157,6 @@ export default () =>
         void contractBus.emit('identity.changed', (args[0] ?? {}) as Record<string, unknown>)
       }
 
-      // onTurnEnd handler: bootstrap-loop progress collection (M3 deferred identity)
-      const onTurnEnd: HookHandler = async (...args: unknown[]) => {
-        const bootstrap = getBootstrapLoop(ctx, store)
-        if (!bootstrap) return
-        const payload = args[0] as { userMessage?: { role: string; content: string } } | undefined
-        await bootstrap.handleTurnEnd(payload ?? {})
-      }
-
       return {
         provide: {
           'identity.store': () => store, // accessed as 'identity.store'
@@ -176,10 +175,6 @@ export default () =>
           onIdentityChanged: {
             enforce: 'post',
             fn: onIdentityChanged,
-          },
-          onTurnEnd: {
-            enforce: 'post',
-            fn: onTurnEnd,
           },
         },
 

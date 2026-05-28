@@ -11,6 +11,7 @@ import {
   renderBootstrapRequest,
   REQUIRED_FIELDS,
 } from '../../domain/identity-bootstrap'
+import type { BootstrapState } from '../../domain/identity-bootstrap'
 import { renderIdentityMd } from '../../domain/identity-doc'
 import { atomicWrite, atomicRead } from '../../shared/atomic-write'
 import { readFileSync } from 'node:fs'
@@ -66,18 +67,67 @@ export function createBootstrapLoop(deps: BootstrapLoopDeps) {
       return { ...prompt, system: `${supplement}\n\n---\n\n${cleaned}` }
     },
 
-    async handleTurnEnd(payload: { userMessage?: { role: string; content: string } }): Promise<void> {
+    /**
+     * Absorb user response BEFORE building the supplement.
+     * Moves state advancement from turn-end (lagging one turn) to turn-start (real-time).
+     * Called from buildBootstrapSupplement, which runs inside transformPrompt.
+     */
+    async preTurnAbsorb(payload: { userMessage?: { role: string; content: string } }): Promise<void> {
       const state = loadBootstrapState(deps.bootstrapPath)
-      const lastUserMsg = payload.userMessage
-      if (!lastUserMsg?.content) return
+      if (state.status === 'archived') return
+      const userContent = payload.userMessage?.content
+      if (!userContent) return
 
+      // Skip extract on first turn (no prior question to answer)
+      if (state.turnsCompleted === 0 && Object.keys(state.collected).length === 0) return
+
+      // 1. Extract fields from user's answer to the PREVIOUS question
       try {
-        const extractRes = await deps.provider.call({
-          kind: 'internal',
-          purpose: 'identity.bootstrap.extract',
-          parentTurnId: `bootstrap-${crypto.randomUUID()}`,
-          messages: [
-            { role: 'system', content: `Extract identity fields from the user's response. Return ONLY a JSON object with the fields the user provided values for. Do NOT return markdown, code blocks, or explanatory text.
+        const patch = await extractWithLLM(deps.provider, state, userContent)
+        if (patch && Object.keys(patch).length > 0) {
+          Object.assign(state.collected, patch)
+          state.turnsCompleted += 1
+          state.stallCount = 0
+        } else {
+          state.stallCount = (state.stallCount ?? 0) + 1
+          if (state.stallCount >= 2) {
+            state.turnsCompleted += 1
+            state.stallCount = 0
+          }
+        }
+      } catch (err) {
+        deps.logger.warn('bootstrap', `extract failed: ${String(err)}`)
+        return
+      }
+
+      // 2. If all collected or maxed out, finalize NOW (before injectRequest runs)
+      const action = computeNextAction(state)
+      if (action !== 'ask') {
+        await finalizeBootstrap(deps, state)
+        return
+      }
+
+      // 3. Persist updated state so supplement sees fresh collected
+      await persistBootstrapState(deps, state)
+    },
+
+    async handleTurnEnd(_payload: { userMessage?: { role: string; content: string } }): Promise<void> {
+      // State advancement moved to preTurnAbsorb; nothing to do here.
+    },
+  }
+}
+
+async function extractWithLLM(
+  provider: ProviderInvoke,
+  state: Pick<BootstrapState, 'requiredFields' | 'collected'>,
+  userContent: string,
+): Promise<Record<string, string> | null> {
+  const extractRes = await provider.call({
+    kind: 'internal',
+    purpose: 'identity.bootstrap.extract',
+    parentTurnId: `bootstrap-${crypto.randomUUID()}`,
+    messages: [
+      { role: 'system', content: `Extract identity fields from the user's response. Return ONLY a JSON object with the fields the user provided values for. Do NOT return markdown, code blocks, or explanatory text.
 
 Fields to watch for: ${state.requiredFields.filter(f => !state.collected[f]).join(', ')}
 
@@ -92,101 +142,91 @@ User: "你好啊"
 → {}
 
 Return ONLY the JSON object.` },
-            { role: 'user', content: lastUserMsg.content },
-          ],
-          maxTokens: 200,
-        })
+      { role: 'user', content: userContent },
+    ],
+    maxTokens: 200,
+  })
+  return parseBootstrapPatch(extractRes.content)
+}
 
-        const patch = parseBootstrapPatch(extractRes.content)
-        if (patch && Object.keys(patch).length > 0) {
-          Object.assign(state.collected, patch)
-          state.turnsCompleted += 1
-        } else {
-          state.turnsCompleted += 1
-        }
-      } catch (err) {
-        deps.logger.warn('bootstrap', `extract failed: ${String(err)}`)
-        return
+async function finalizeBootstrap(
+  deps: BootstrapLoopDeps,
+  state: BootstrapState,
+): Promise<void> {
+  try {
+    const synthRes = await deps.provider.call({
+      kind: 'internal',
+      purpose: 'identity.synthesize',
+      parentTurnId: `bootstrap-final-${crypto.randomUUID()}`,
+      messages: [
+        { role: 'system', content: `Generate an identity markdown document from these collected fields. Include YAML front-matter with: role, audience, tone, expertise. The user provided: ${JSON.stringify(state.collected)}` },
+        { role: 'user', content: 'Generate the identity document.' },
+      ],
+      maxTokens: 800,
+    })
+
+    const cleaned = synthRes.content.trim()
+    const fm = cleaned.match(/^---\n([\s\S]*?)\n---/)
+
+    const fields: Record<string, string> = { ...state.collected }
+    if (fm && fm[1]) {
+      for (const line of fm[1].split('\n')) {
+        const m = line.match(/^(\w+):\s*(.+)/)
+        if (m && m[1] && m[2]) fields[m[1]] = m[2].trim()
       }
+    }
 
-      const action = computeNextAction(state)
+    const body = cleaned.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+    await deps.store.update({ fields, body }, { source: 'bootstrap' })
 
-      if (action === 'finalize' || action === 'force-finalize') {
-        // Synthesize final identity
-        try {
-          const synthRes = await deps.provider.call({
-            kind: 'internal',
-            purpose: 'identity.synthesize',
-            parentTurnId: `bootstrap-final-${crypto.randomUUID()}`,
-            messages: [
-              { role: 'system', content: `Generate an identity markdown document from these collected fields. Include YAML front-matter with: role, audience, tone, expertise. The user provided: ${JSON.stringify(state.collected)}` },
-              { role: 'user', content: 'Generate the identity document.' },
-            ],
-            maxTokens: 800,
-          })
+    // Archive bootstrap.md
+    try {
+      const content = await atomicRead(deps.bootstrapPath, '')
+      if (content) {
+        await atomicWrite(deps.archivedPath, content)
+      }
+    } catch { /* best effort */ }
+    try { await unlink(deps.bootstrapPath) } catch { /* best effort */ }
 
-          const cleaned = synthRes.content.trim()
-          const fm = cleaned.match(/^---\n([\s\S]*?)\n---/)
+    // Promote AgentRecord.identityStatus to 'ready'
+    try {
+      await deps.agentStore.update(deps.agentId, { identityStatus: 'ready' })
+      deps.logger.info('bootstrap', `agent ${deps.agentId} identityStatus → ready`)
+    } catch (err) {
+      deps.logger.warn(
+        'bootstrap',
+        `failed to promote identityStatus to ready: ${String(err)}`,
+      )
+    }
+  } catch (err) {
+    deps.logger.error('bootstrap', `final synthesis failed: ${String(err)}`)
+  }
+}
 
-          const fields: Record<string, string> = { ...state.collected }
-          if (fm && fm[1]) {
-            for (const line of fm[1].split('\n')) {
-              const m = line.match(/^(\w+):\s*(.+)/)
-              if (m && m[1] && m[2]) fields[m[1]] = m[2].trim()
-            }
-          }
-
-          const body = cleaned.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
-          await deps.store.update({ fields, body }, { source: 'bootstrap' })
-
-          // Archive bootstrap.md
-          try {
-            const content = await atomicRead(deps.bootstrapPath, '')
-            if (content) {
-              await atomicWrite(deps.archivedPath, content)
-            }
-          } catch { /* best effort */ }
-          try { await unlink(deps.bootstrapPath) } catch { /* best effort */ }
-
-          state.status = 'archived'
-
-          // Promote AgentRecord.identityStatus to 'ready' — best-effort, never throw.
-          try {
-            await deps.agentStore.update(deps.agentId, { identityStatus: 'ready' })
-            deps.logger.info('bootstrap', `agent ${deps.agentId} identityStatus → ready`)
-          } catch (err) {
-            deps.logger.warn(
-              'bootstrap',
-              `failed to promote identityStatus to ready: ${String(err)} (bootstrap files archived but transformPrompt will keep using bootstrap branch until next restart)`,
-            )
-          }
-        } catch (err) {
-          deps.logger.error('bootstrap', `final synthesis failed: ${String(err)}`)
-        }
-      } else {
-        // Still in progress: save updated bootstrap.md and draft identity.md
-        const md = `---
+async function persistBootstrapState(
+  deps: BootstrapLoopDeps,
+  state: BootstrapState,
+): Promise<void> {
+  const md = `---
 status: pending
 turns_completed: ${state.turnsCompleted}
 turns_max: ${state.turnsMax}
 required_fields: ${JSON.stringify(state.requiredFields)}
 collected: ${JSON.stringify(state.collected)}
+stall_count: ${state.stallCount}
 ---
 
 # Agent Identity Bootstrap
 `
-        try {
-          await atomicWrite(deps.bootstrapPath, md)
-          // Write draft identity.md
-          const draftPath = deps.store.getDraftPath()
-          if (!draftPath) throw new Error('identity draft path is empty')
-          const draftMd = renderIdentityMd(state.collected, '# Identity (draft)')
-          await atomicWrite(draftPath, draftMd)
-        } catch (err) {
-          deps.logger.warn('bootstrap', `file write failed: ${String(err)}`)
-        }
-      }
-    },
+  try {
+    await atomicWrite(deps.bootstrapPath, md)
+    const draftPath = deps.store.getDraftPath()
+    if (draftPath) {
+      const draftMd = renderIdentityMd(state.collected, '# Identity (draft)')
+      await atomicWrite(draftPath, draftMd)
+    }
+  } catch (err) {
+    deps.logger.warn('bootstrap', `file write failed: ${String(err)}`)
   }
 }
 
@@ -201,6 +241,7 @@ function loadBootstrapState(bootstrapPath: string) {
       turnsMax: 6,
       requiredFields: [...REQUIRED_FIELDS],
       collected: {},
+      stallCount: 0,
     }
   }
 }

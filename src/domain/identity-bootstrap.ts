@@ -7,6 +7,7 @@ export interface BootstrapState {
   turnsMax: number
   requiredFields: string[]
   collected: Record<string, string>
+  stallCount: number
 }
 
 export function parseBootstrapFrontMatter(md: string): BootstrapState {
@@ -18,6 +19,7 @@ export function parseBootstrapFrontMatter(md: string): BootstrapState {
       turnsMax: TURNS_MAX,
       requiredFields: [...REQUIRED_FIELDS],
       collected: {},
+      stallCount: 0,
     }
   }
 
@@ -29,6 +31,7 @@ export function parseBootstrapFrontMatter(md: string): BootstrapState {
       turnsMax: TURNS_MAX,
       requiredFields: [...REQUIRED_FIELDS],
       collected: {},
+      stallCount: 0,
     }
   }
 
@@ -62,6 +65,7 @@ export function parseBootstrapFrontMatter(md: string): BootstrapState {
     turnsMax: parseInt(String(fm.turns_max ?? String(TURNS_MAX)), 10),
     requiredFields: (fm.required_fields as string[]) ?? [...REQUIRED_FIELDS],
     collected: (fm.collected as Record<string, string>) ?? {},
+    stallCount: parseInt(String(fm.stall_count ?? '0'), 10),
   }
 }
 
@@ -99,33 +103,28 @@ export function renderBootstrapRequest(
     ? `第 ${turnsCompleted + 1}/${turnsMax} 轮`
     : ''
 
-  return `## Bootstrap Pending — 身份初始化
+  return `## Bootstrap Pending — 身份初始化${remain}
 
-**[最高优先级指令]** 本轮你唯一的任务：用一句简短中文向用户提问「${field}」。
-字段含义：${hint}。
+**[最高优先级,本轮唯一任务]**
+用一句简短中文向用户提问：${hint}
 
-规则：
-1. 直接输出问题，不要寒暄、不要自我介绍、不要回答用户的其他话题
-2. 如果用户上一条消息已经给出了该字段的值，确认并简短复述，不要追问
-3. 不要调用任何工具
-4. 不要假装 bootstrap 已完成
+绝对禁止：
+- 输出字段名（如"role"、"audience"等英文）
+- 寒暄、自我介绍、复述用户上一条消息
+- 调用任何工具
+- 回答用户的其他话题
+- 假装 bootstrap 已完成
 
-${remain}`
+只输出一句问句,不要其他任何内容。`
 }
 
 export const DEFAULT_BOOTSTRAP_MD = `---
 status: pending
 turns_completed: 0
 turns_max: 6
+stall_count: 0
 required_fields: ["role","audience","tone","expertise","constraints"]
 collected: {}
----
+---`
 
-# Agent Identity Bootstrap
-
-身份未初始化。Agent 处于 BOOTSTRAP MODE：
-- 每轮只问一个字段（role → audience → tone → expertise → constraints）
-- LLM 收到最高优先级指令，忽略其他 system prompt，只输出引导问题
-- 用户回答后提取字段写入 collected，推进 turns_completed
-- 全部收齐或达 turns_max 后合成 identity.md 并归档本文件为 bootstrap.archived.md
-`
+// Agent Identity Bootstrap — code-driven state machine; LLM only outputs one question per turn.
