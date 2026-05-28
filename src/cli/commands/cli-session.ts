@@ -4,6 +4,7 @@ import type { CliManifest } from '../cli-types'
 import { UnixSocketTransport } from '../../infrastructure/transport/unix-socket-transport'
 import type { Transport } from '../../application/ports/transport'
 import { defaultAgentsRoot } from '../../infrastructure/paths/agent-paths'
+import { MAIN_SESSION_ID } from '../../domain/anchor'
 
 const PROFILES_DIR = defaultAgentsRoot()
 
@@ -23,7 +24,7 @@ async function handleAttachTUI(transport: Transport, sid?: string): Promise<void
   const { TUIAdapter } = await import('../../extensions/frontend.tui/index')
   const { runTUIClient } = await import('../../extensions/frontend.tui/run-tui')
   const { TranscriptProjector } = await import('../../extensions/frontend.tui/transcript/projector')
-  const sessionId = sid ?? 'main'
+  const sessionId = sid ?? MAIN_SESSION_ID
   const adapter = new TUIAdapter('cli-tui', transport)
   await adapter.start()
 
@@ -67,7 +68,7 @@ async function handleAttachText(transport: Transport, sid?: string): Promise<voi
       if (text === '/exit' || text === '/quit' || text === '/detach') {
         await transport.sendRpc({
           jsonrpc: '2.0', id: 'detach', method: 'session.detach',
-          params: { sessionId: sid ?? 'main' },
+          params: { sessionId: sid ?? MAIN_SESSION_ID },
         })
         unsub(); readline.close()
         console.log('Detached.')
@@ -76,7 +77,7 @@ async function handleAttachText(transport: Transport, sid?: string): Promise<voi
       }
       await transport.sendRpc({
         jsonrpc: '2.0', id: `input-${Date.now()}`, method: 'input.send',
-        params: { sessionId: sid ?? 'main', text },
+        params: { sessionId: sid ?? MAIN_SESSION_ID, text },
       })
       readline.prompt()
     })
@@ -164,7 +165,7 @@ export const cliSession: CliManifest = {
       case 'resume': {
         const rest = argv.slice(1)
         const agentId = getSessionAgentId(rest)
-        await handleSessionResume(agentId, rest.filter(a => a !== '-a' && a !== '-p' && a !== agentId)[0] ?? 'main')
+        await handleSessionResume(agentId, rest.filter(a => a !== '-a' && a !== '-p' && a !== agentId)[0] ?? MAIN_SESSION_ID)
         return
       }
       default: {

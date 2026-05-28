@@ -1,6 +1,7 @@
 import type { DataPlaneEvent, HistoryRecordV1 } from '../../../application/contracts';
 import type { TranscriptEvent } from './types';
 import { dataplaneToTranscriptEvent } from './from-dataplane';
+import { MAIN_SESSION_ID } from '../../../domain/anchor';
 
 export class TranscriptProjector {
   private listeners = new Set<(event: TranscriptEvent) => void>();
@@ -19,7 +20,7 @@ export class TranscriptProjector {
 
   loadHistory(records: HistoryRecordV1[]): void {
     for (const cb of this.listeners) {
-      cb({ type: 'session_snapshot_loaded', sessionId: 'main', records });
+      cb({ type: 'session_snapshot_loaded', sessionId: MAIN_SESSION_ID, records });
     }
   }
 

@@ -1,5 +1,6 @@
 import type { Transport } from '../../application/ports/transport';
 import type { DataPlaneEvent } from '../../application/contracts';
+import { MAIN_SESSION_ID } from '../../domain/anchor';
 
 export interface SessionSummary {
   id: string;
@@ -53,7 +54,7 @@ export class SessionClient {
   async attachSession(sessionId?: string): Promise<AttachResult> {
     return this.call('session.attach', {
       frontendId: this.frontendId,
-      sessionId: sessionId ?? 'main',
+      sessionId: sessionId ?? MAIN_SESSION_ID,
     }) as Promise<AttachResult>;
   }
 
@@ -61,7 +62,7 @@ export class SessionClient {
     return this.call('session.resume', {
       frontendId: this.frontendId,
       sessionId: targetSessionId,
-      currentSessionId: currentSessionId ?? 'main',
+      currentSessionId: currentSessionId ?? MAIN_SESSION_ID,
     }) as Promise<ResumeResult>;
   }
 

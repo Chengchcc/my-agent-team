@@ -12,6 +12,7 @@ import { createSession } from '../../domain/session';
 import { runTurnUsecase, buildRunTurnDeps } from '../../application/usecases/run-turn';
 import { compactSessionUsecase } from '../../application/usecases/compact-session';
 import type { ContractBus } from '../../application/event-bus/contract-bus';
+import { MAIN_SESSION_ID } from '../../domain/anchor';
 
 const SESSION_ID_SUFFIX_LEN = 8;
 
@@ -96,7 +97,7 @@ export function makeSessionDetachHandler(d: RpcHandlerDeps) {
 export function makeSessionResumeHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { sessionId?: string; frontendId?: string; currentSessionId?: string } | undefined;
-    const targetId = p?.sessionId ?? 'main';
+    const targetId = p?.sessionId ?? MAIN_SESSION_ID;
     const frontendId = p?.frontendId;
     const currentId = p?.currentSessionId;
 
@@ -154,7 +155,7 @@ export function makeSessionCreateHandler(d: RpcHandlerDeps) {
 export function makeSessionCloseHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { sessionId?: string; force?: boolean } | undefined;
-    const sessionId = p?.sessionId ?? 'main';
+    const sessionId = p?.sessionId ?? MAIN_SESSION_ID;
     const store = d.getStore();
     const session = await store.load(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
@@ -168,7 +169,7 @@ export function makeSessionCloseHandler(d: RpcHandlerDeps) {
 export function makeSessionRenameHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { sessionId?: string; title?: string } | undefined;
-    const sessionId = p?.sessionId ?? 'main';
+    const sessionId = p?.sessionId ?? MAIN_SESSION_ID;
     if (!p?.title) throw new Error('title is required');
     const store = d.getStore();
     const session = await store.load(sessionId);
@@ -183,7 +184,7 @@ export function makeSessionRenameHandler(d: RpcHandlerDeps) {
 export function makeSessionClearHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { sessionId?: string } | undefined;
-    const sessionId = p?.sessionId ?? 'main';
+    const sessionId = p?.sessionId ?? MAIN_SESSION_ID;
     const store = d.getStore();
     const session = await store.load(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
@@ -209,7 +210,7 @@ export function makeSessionClearHandler(d: RpcHandlerDeps) {
 export function makeSessionCompactHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { sessionId?: string; keepRecent?: number } | undefined;
-    const sessionId = p?.sessionId ?? 'main';
+    const sessionId = p?.sessionId ?? MAIN_SESSION_ID;
     const compactor = d.ctx.extensions.get('session.compactor');
     const history = d.ctx.extensions.get('session.history');
     const r = await compactSessionUsecase(
@@ -223,7 +224,7 @@ export function makeSessionCompactHandler(d: RpcHandlerDeps) {
 export function makeSessionStatsHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { sessionId?: string } | undefined;
-    const sessionId = p?.sessionId ?? 'main';
+    const sessionId = p?.sessionId ?? MAIN_SESSION_ID;
     let totalInput = 0, totalOutput = 0, turnCount = 0;
     try {
       const hist = d.ctx.extensions.get('session.history');
@@ -261,7 +262,7 @@ export function makeToolListHandler(d: RpcHandlerDeps) {
 export function makeInputSendHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { sessionId?: string; text?: string; frontendId?: string } | undefined;
-    const sessionId = p?.sessionId ?? 'main';
+    const sessionId = p?.sessionId ?? MAIN_SESSION_ID;
     if (p?.text === undefined) throw new Error('text is required');
     const frontendId = p?.frontendId ?? 'unknown';
 
@@ -292,7 +293,7 @@ export function makeInputSendHandler(d: RpcHandlerDeps) {
 export function makeInputCancelHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { sessionId?: string; reason?: string } | undefined;
-    const sessionId = p?.sessionId ?? 'main';
+    const sessionId = p?.sessionId ?? MAIN_SESSION_ID;
     const reason = p?.reason ?? 'user requested';
 
     if (d.ctx.extensions.has('session.abort')) {
@@ -320,8 +321,8 @@ export function makeUserAnswerHandler(d: RpcHandlerDeps) {
   return async (params: unknown) => {
     const p = params as { sessionId?: string; questionId?: string; answers?: Array<{ question_index: number; selected_labels: string[] }> } | undefined;
     if (!p?.questionId) throw new Error('questionId is required');
-    void d.contractBus.emit('user.question.answered', { sessionId: p?.sessionId ?? 'main', questionId: p.questionId, answers: p?.answers ?? [] });
-    return { ok: true, sessionId: p?.sessionId ?? 'main', questionId: p.questionId };
+    void d.contractBus.emit('user.question.answered', { sessionId: p?.sessionId ?? MAIN_SESSION_ID, questionId: p.questionId, answers: p?.answers ?? [] });
+    return { ok: true, sessionId: p?.sessionId ?? MAIN_SESSION_ID, questionId: p.questionId };
   };
 }
 

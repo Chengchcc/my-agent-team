@@ -67,7 +67,7 @@ export function buildSuccess(
 
 export function buildError(
   id: string | number | null,
-  error: JsonRpcErrorCode,
+  error: JsonRpcErrorCode | { code: number; message: string },
   data?: unknown,
 ): JsonRpcResponse {
   return { jsonrpc: '2.0', id, error: { ...error, data } };

@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import type { TraceCheckpointer } from '../../application/ports/trace-checkpointer'
+import type { TraceCheckpointer, TraceRunListRow } from '../../application/ports/trace-checkpointer'
 import type { TraceEvent } from '../../domain/trace-event'
 import type { TraceRun, TraceSummary } from '../../domain/trace/types'
 
@@ -51,6 +51,22 @@ export class SqliteTraceCheckpointer implements TraceCheckpointer {
       totalTokens: { input: (row.tokens_in ?? 0) as number, output: (row.tokens_out ?? 0) as number },
       outcome: (row.outcome as TraceSummary['outcome']) ?? 'completed',
     })
+  }
+
+  async listRecentRuns(opts: { limit: number; sessionId?: string; since?: number }): Promise<TraceRunListRow[]> {
+    let sql = `SELECT run_id, session_id, started_at, total_turns, outcome FROM trace_runs WHERE 1=1`
+    const params: Array<string | number> = []
+    if (opts.sessionId) { sql += ' AND session_id = ?'; params.push(opts.sessionId) }
+    if (opts.since) { sql += ' AND started_at >= ?'; params.push(opts.since) }
+    sql += ' ORDER BY started_at DESC LIMIT ?'; params.push(opts.limit)
+    const rows = this.db.query(sql).all(...params) as Array<Record<string, unknown>>
+    return rows.map(r => ({
+      id: r.run_id as string,
+      sessionId: (r.session_id as string) ?? '',
+      startedAt: Number(r.started_at ?? 0),
+      totalTurns: Number(r.total_turns ?? 0),
+      outcome: (r.outcome as string) ?? 'unknown',
+    }))
   }
 
   finalize(outcome: string, summary?: TraceSummary): void {

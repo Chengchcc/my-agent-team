@@ -103,11 +103,11 @@ export default (opts?: { baseDir?: string }) =>
           'trace.listRecent': async (params: unknown) => {
             const p = params as { limit?: number; sessionId?: string } | undefined
             const reader = checkpointer as unknown as TraceReader
-            const summaries = await reader.listRecentSummaries({
+            const runs = await reader.listRecentRuns({
               limit: p?.limit ?? TRACE_DEFAULT_LIMIT,
               sessionId: p?.sessionId,
             })
-            return { runs: summaries }
+            return { runs }
           },
           'trace.getRun': async (params: unknown) => {
             const p = params as { runId?: string } | undefined

@@ -21,6 +21,7 @@ import type { FinalItem } from './state/types';
 import type { LiveAssistant } from './state/store';
 import type { SessionClient } from './session-client';
 import type { TranscriptProjector } from './transcript/projector';
+import { MAIN_SESSION_ID } from '../../domain/anchor';
 
 interface AppV2Props {
   client: SessionClient;
@@ -80,7 +81,7 @@ async function resolveSlashSubmission(params: {
     frontend: 'tui', sessionId, userInputRaw: text,
     kernel: {
       rpc: async (method, params) => {
-        return client.sendRpc(method, { ...params, sessionId: sessionId ?? 'main' });
+        return client.sendRpc(method, { ...params, sessionId: sessionId ?? MAIN_SESSION_ID });
       },
     },
     reply: {

@@ -69,8 +69,8 @@ export default () =>
                 ctx.logger.error('rpc', `→ ${message.method} ERROR: ${error.message}`)
                 return buildError(
                   message.id ?? null,
-                  JSONRPC_ERRORS.INTERNAL_ERROR,
-                  { message: error.message },
+                  { code: JSONRPC_ERRORS.INTERNAL_ERROR.code, message: error.message },
+                  { message: error.message, stack: error.stack },
                 )
               }
             },

@@ -1,6 +1,7 @@
 import type { DataPlaneEvent } from '../../../application/contracts';
 import type { TranscriptEvent } from './types';
 import { nanoid } from 'nanoid';
+import { MAIN_SESSION_ID } from '../../../domain/anchor';
 
 const RANDOM_ID_LENGTH = 8
 let roundIndex = 0;
@@ -17,7 +18,7 @@ function unwrap(p: Record<string, unknown>): Record<string, unknown> {
 export function dataplaneToTranscriptEvent(event: DataPlaneEvent): TranscriptEvent | null {
   const p = event.payload as Record<string, unknown>;
   const inner = unwrap(p);
-  const sid = (event.sessionId ?? inner.sessionId ?? 'main') as string;
+  const sid = (event.sessionId ?? inner.sessionId ?? MAIN_SESSION_ID) as string;
   const tid = (inner.turnId ?? `turn-${nanoid(RANDOM_ID_LENGTH)}`) as string;
 
   // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- intentional default catch-all, not all event types need transcript mapping

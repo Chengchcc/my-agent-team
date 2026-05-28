@@ -4,6 +4,7 @@ import type { CliManifest } from '../cli-types'
 import { UnixSocketTransport } from '../../infrastructure/transport/unix-socket-transport'
 import { existsSync } from 'node:fs'
 import { defaultAgentsRoot } from '../../infrastructure/paths/agent-paths'
+import { MAIN_SESSION_ID } from '../../domain/anchor'
 
 const PROFILES_DIR = defaultAgentsRoot()
 
@@ -11,7 +12,7 @@ function socketPath(agentId: string): string {
   return `${PROFILES_DIR}/${agentId}/daemon.sock`
 }
 
-async function handleHeadless(agentId: string, prompt: string, sessionId = 'main'): Promise<void> {
+async function handleHeadless(agentId: string, prompt: string, sessionId = MAIN_SESSION_ID): Promise<void> {
   if (!prompt) {
     console.error('Usage: my-agent headless [-p profile] "your prompt"')
     process.exit(1)
@@ -61,7 +62,7 @@ export const cliHeadless: CliManifest = {
     const pIdx = rest.indexOf('-p')
     const profile = pIdx >= 0 ? (rest[pIdx + 1] ?? 'default') : 'default'
     const sIdx = rest.indexOf('-s')
-    const sessionId = sIdx >= 0 ? (rest[sIdx + 1] ?? 'main') : 'main'
+    const sessionId = sIdx >= 0 ? (rest[sIdx + 1] ?? MAIN_SESSION_ID) : MAIN_SESSION_ID
     const prompt = rest.filter(a => a !== '-p' && a !== '-s' && a !== profile && a !== sessionId).join(' ')
     await handleHeadless(profile, prompt, sessionId)
   },
