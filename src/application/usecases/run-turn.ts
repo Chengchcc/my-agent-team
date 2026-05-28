@@ -16,6 +16,8 @@ import { asContractBus } from '../event-bus/contract-bus'
 import type {
   ToolCallRecord, ToolDescriptor,
 } from '../../domain/turn-runner.types'
+import { createTraceEventFactory } from '../../domain/trace-event'
+import { truncateForTrace } from '../../infrastructure/trace/trace-sanitizer'
 
 const DEFAULT_MAX_TURN_ITERATIONS = 10
 
@@ -137,8 +139,50 @@ async function autoCompactIfNeeded(
   }
 }
 
+// ── Trace capture helper — extracts llm.request + prompt.snapshot emission ──
+
+function emitTraceRequest(
+  hooks: { dispatch(name: string, ...args: unknown[]): Promise<unknown> },
+  sessionId: string,
+  turnId: string,
+  system: string,
+  basePrompt: string,
+  messages: Array<{ role: string; content: string | Array<unknown> }>,
+  toolNames: string[],
+): ReturnType<typeof createTraceEventFactory> {
+  const traceFactory = createTraceEventFactory(sessionId)
+  const llmRequestPayload: Record<string, unknown> = {
+    system: truncateForTrace(system),
+    messages: messages.map(m => ({ role: m.role, contentLength: (m.content?.length ?? 0) })),
+    toolNames,
+    systemBytes: Buffer.byteLength(system, 'utf-8'),
+    messagesBytes: Buffer.byteLength(JSON.stringify(messages), 'utf-8'),
+    totalTokensEstimate: approxTokens(system + JSON.stringify(messages)),
+  }
+  if (process.env.MY_AGENT_TRACE_FULL) {
+    llmRequestPayload.messagesFull = messages.map(m => ({
+      role: m.role,
+      content: truncateForTrace(typeof m.content === 'string' ? m.content : JSON.stringify(m.content)),
+    }))
+  }
+  void hooks.dispatch('onTraceEmit', traceFactory.next(turnId, 'llm.request', llmRequestPayload))
+
+  if (process.env.MY_AGENT_TRACE_VERBOSE) {
+    void hooks.dispatch('onTraceEmit', createTraceEventFactory(sessionId).next(turnId, 'prompt.snapshot', {
+      hookName: 'transformPrompt.pipeline',
+      enforce: 'all', order: 0,
+      systemBefore: truncateForTrace(basePrompt),
+      systemAfter: truncateForTrace(system),
+      deltaBytes: Buffer.byteLength(system) - Buffer.byteLength(basePrompt),
+    }))
+  }
+
+  return traceFactory
+}
+
 // ── Run turn usecase ──────────────────────────────────────────────────────
 
+// eslint-disable-next-line max-lines-per-function, complexity
 export async function runTurnUsecase(
   input: RunTurnInput,
   deps: RunTurnUsecaseDeps,
@@ -163,6 +207,7 @@ export async function runTurnUsecase(
     await emitTurnEnd(hooks, sessionId, turnId, 'failed', { error: { stage: 'transformPrompt', reason: promptR.err.message }, userMessage: userMsg, }, logger)
     return { usage: { input: 0, output: 0 }, success: false }
   }
+
   const finalMessages = toLlmMessages([
     { role: 'system', content: promptR.value.system },
     ...promptR.value.messages,
@@ -177,6 +222,9 @@ export async function runTurnUsecase(
   const finalTools = input.allowedToolNames
     ? toolsR.value.filter(t => input.allowedToolNames!.includes(t.name))
     : toolsR.value
+
+  // Emit llm.request + optional prompt.snapshot trace events
+  const traceFactory = emitTraceRequest(hooks, sessionId, turnId, promptR.value.system, basePrompt, finalMessages, finalTools.map(t => t.name))
 
   const baseEnv = { cwd: deps.agentDir }; const collectedToolCalls: ToolCallRecord[] = []
   let toolErrorCount = 0, toolCallCount = 0, finalText = ''; let totalUsage = { input: 0, output: 0 }
@@ -245,6 +293,9 @@ export async function runTurnUsecase(
           if (budgetResult) return budgetResult
           break
         }
+        case 'llm.usage':
+          void hooks.dispatch('onTraceEmit', traceFactory.next(turnId, 'llm.end', { usage: event.usage }))
+          break
         default:
           break
       }

@@ -8,6 +8,7 @@ import type { TraceEvent } from '../../domain/trace-event'
 import type { TraceReader } from '../../application/ports/trace-checkpointer'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { MAIN_SESSION_ID } from '../../domain/anchor'
 import type { CliManifest } from '../../cli/cli-types'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
 
@@ -30,6 +31,7 @@ export const cliManifest: CliManifest = {
   usage: [
     '  my-agent trace list [--limit N] [--session ID]',
     '  my-agent trace show <runId>',
+    '  my-agent trace events <runId> [--prompt] [--kind k1,k2]',
   ].join('\n'),
   handler: async (argv, ctx) => {
     const sub = argv[0]
@@ -55,6 +57,17 @@ export const cliManifest: CliManifest = {
         if (!argv[1]) { ctx.err('missing <runId>\n'); process.exit(2) }
         const result = await ctx.rpc('trace.getRun', { runId: argv[1] })
         ctx.out(JSON.stringify((result as { run: unknown }).run, null, 2) + '\n')
+        return
+      }
+      case 'events': {
+        if (!argv[1]) { ctx.err('missing <runId>\n'); process.exit(2) }
+        const promptOnly = argv.includes('--prompt')
+        const kindIdx = argv.indexOf('--kind')
+        const kinds = promptOnly
+          ? ['llm.request', 'prompt.snapshot']
+          : (kindIdx >= 0 ? argv[kindIdx + 1]!.split(',') : undefined)
+        const result = await ctx.rpc('trace.getEvents', { runId: argv[1], kinds })
+        ctx.out(JSON.stringify((result as { events: unknown }).events, null, 2) + '\n')
         return
       }
       default:
@@ -83,7 +96,7 @@ export default (opts?: { baseDir?: string }) =>
       mkdirSync(baseDir, { recursive: true })
       const db = openDb(join(baseDir, 'traces.db'))
       runMigrations(db, traceMigrations)
-      const checkpointer = new SqliteTraceCheckpointer(db, `agent-${ctx.agentId}-${Date.now()}`)
+      const checkpointer = new SqliteTraceCheckpointer(db, `agent-${ctx.agentId}-${Date.now()}`, MAIN_SESSION_ID)
 
       const onTraceEmit: HookHandler = async (...args: unknown[]) => {
         const event = args[0] as TraceEvent
@@ -108,6 +121,12 @@ export default (opts?: { baseDir?: string }) =>
               sessionId: p?.sessionId,
             })
             return { runs }
+          },
+          'trace.getEvents': async (params: unknown) => {
+            const p = params as { runId?: string; kinds?: string[] } | undefined
+            if (!p?.runId) throw new Error('runId is required')
+            const events = await checkpointer.getEvents(p.runId, p.kinds)
+            return { events }
           },
           'trace.getRun': async (params: unknown) => {
             const p = params as { runId?: string } | undefined

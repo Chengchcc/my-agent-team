@@ -8,10 +8,12 @@ type TraceEventType =
   | 'turn.failed'
   | 'tool.call'
   | 'tool.result'
+  | 'llm.request'
   | 'llm.delta'
   | 'llm.end'
   | 'permission.req'
   | 'permission.resolve'
+  | 'prompt.snapshot'
   | 'identity.changed'
   | 'session.state'
 
