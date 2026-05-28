@@ -17,4 +17,6 @@ export interface CliRuntimeContext {
   readonly agentStore?: AgentStore
   readonly logger?: { info(tag: string, msg: string): void; warn(tag: string, msg: string): void; error(tag: string, msg: string): void }
   readonly paths?: { homeRoot: string; agentsRoot: string }
+  /** Internal — closes RPC transport on dispose. Not for handler use. */
+  readonly _dispose?: () => Promise<void>
 }
