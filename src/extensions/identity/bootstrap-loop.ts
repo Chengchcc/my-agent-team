@@ -1,5 +1,6 @@
 import type { FileBackedIdentityStore } from '../../infrastructure/identity/file-backed-identity-store'
 import type { AgentRegistryRead } from '../../application/ports/agent-registry'
+import type { AgentStore } from '../../application/ports/agent-store'
 import type { ProviderInvoke } from '../../application/ports/provider'
 import type { Logger } from '../../application/ports/logger'
 import crypto from 'crypto'
@@ -21,6 +22,9 @@ export interface BootstrapLoopDeps {
   logger: Logger
   bootstrapPath: string
   archivedPath: string
+  /** Used to flip identityStatus pending_bootstrap → ready after finalize. */
+  agentStore: AgentStore
+  agentId: string
 }
 
 export function createBootstrapLoop(deps: BootstrapLoopDeps) {
@@ -32,6 +36,26 @@ export function createBootstrapLoop(deps: BootstrapLoopDeps) {
       const field = missing.length > 0 ? missing[0]! : state.requiredFields[0]!
       prompt.system = `${prompt.system}\n${renderBootstrapRequest(field, state.turnsCompleted, state.turnsMax)}`
       return prompt
+    },
+
+    /**
+     * BOOTSTRAP override — fully replace prompt.system with bootstrap-only content,
+     * discarding anything appended by upstream transformPrompt hooks
+     * (tools, session-mode, ...). Also trims messages to the last user turn
+     * to prevent historical-context bleed.
+     */
+    buildOverridePrompt(
+      prompt: { system: string; messages: Array<{ role: string; content: string }> },
+    ): typeof prompt {
+      const state = loadBootstrapState(deps.bootstrapPath)
+      computeNextAction(state)
+      const missing = computeMissingFields(state.requiredFields, state.collected)
+      const field = missing.length > 0 ? missing[0]! : state.requiredFields[0]!
+      const lastUser = [...prompt.messages].reverse().find(m => m.role === 'user')
+      return {
+        system: renderBootstrapRequest(field, state.turnsCompleted, state.turnsMax),
+        messages: lastUser ? [lastUser] : [],
+      }
     },
 
     async handleTurnEnd(payload: { userMessage?: { role: string; content: string } }): Promise<void> {
@@ -117,6 +141,17 @@ Return ONLY the JSON object.` },
           try { await unlink(deps.bootstrapPath) } catch { /* best effort */ }
 
           state.status = 'archived'
+
+          // Promote AgentRecord.identityStatus to 'ready' — best-effort, never throw.
+          try {
+            await deps.agentStore.update(deps.agentId, { identityStatus: 'ready' })
+            deps.logger.info('bootstrap', `agent ${deps.agentId} identityStatus → ready`)
+          } catch (err) {
+            deps.logger.warn(
+              'bootstrap',
+              `failed to promote identityStatus to ready: ${String(err)} (bootstrap files archived but transformPrompt will keep using bootstrap branch until next restart)`,
+            )
+          }
         } catch (err) {
           deps.logger.error('bootstrap', `final synthesis failed: ${String(err)}`)
         }

@@ -168,6 +168,12 @@ export default () =>
 
       const transformPrompt: HookHandler = async (...args: unknown[]) => {
         const input = args[0] as { system: string; messages: Array<{ role: string; content: string }> }
+        // Bootstrap mode short-circuit — do not pollute system with tool guidance
+        try {
+          const registry = ctx.extensions.get('agent.registry') as { current(): Promise<{ identityStatus: string }> } | undefined
+          const rec = await registry?.current().catch(() => null)
+          if (rec?.identityStatus === 'pending_bootstrap') return input
+        } catch { /* fall through */ }
         const hasTodoWrite = catalog.list().some(t => t.name === 'todo_write')
         if (!hasTodoWrite) return input
         return { ...input, system: `${input.system}\n\n${TODO_WRITE_GUIDANCE}` }

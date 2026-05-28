@@ -97,6 +97,12 @@ function createApply(ctx: Parameters<Parameters<typeof defineExtension>[0]['appl
       function buildHooks(): Record<string, { enforce: 'pre' | 'normal' | 'post'; order?: number; fn: HookHandler }> {
         const transformPrompt: HookHandler = async (...args: unknown[]) => {
           const input = args[0] as { system: string; messages: Array<{ role: string; content: string }>; sessionId?: string }
+          // Bootstrap mode short-circuit
+          try {
+            const agentReg = ctx.extensions.get('agent.registry') as { current(): Promise<{ identityStatus: string }> } | undefined
+            const rec = await agentReg?.current().catch(() => null)
+            if (rec?.identityStatus === 'pending_bootstrap') return input
+          } catch { /* fall through */ }
           const sid = input.sessionId
           if (!sid) return input
           const mode = await getMode(sid)

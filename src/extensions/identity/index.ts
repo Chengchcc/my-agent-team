@@ -5,6 +5,7 @@ import { FileBackedIdentityStore } from '../../infrastructure/identity/file-back
 import { atomicRead } from '../../shared/atomic-write'
 import { parseIdentityMarkdown } from '../../domain/identity-doc'
 import { createBootstrapLoop } from './bootstrap-loop'
+import type { AgentStore } from '../../application/ports/agent-store'
 
 /**
  * Identity extension — provides identity versioning, prompt injection,
@@ -31,7 +32,8 @@ import { createBootstrapLoop } from './bootstrap-loop'
 function getBootstrapLoop(ctx: Parameters<Parameters<typeof defineExtension>[0]['apply']>[0], store: FileBackedIdentityStore) {
   const provider = ctx.extensions.get('provider.llm')
   const registry = ctx.extensions.get('agent.registry')
-  if (!provider || !registry) return null
+  const agentStore = ctx.extensions.get('agent.store') as AgentStore | undefined
+  if (!provider || !registry || !agentStore) return null
   return createBootstrapLoop({
     store,
     registry,
@@ -39,6 +41,8 @@ function getBootstrapLoop(ctx: Parameters<Parameters<typeof defineExtension>[0][
     logger: ctx.logger,
     bootstrapPath: ctx.paths.identity.bootstrap,
     archivedPath: ctx.paths.identity.archived,
+    agentStore,
+    agentId: ctx.agentId,
   })
 }
 
@@ -97,7 +101,8 @@ export default () =>
 
         if (status === 'pending_bootstrap') {
           const bootstrap = getBootstrapLoop(ctx, store)
-          return bootstrap ? bootstrap.injectRequest(prompt) : prompt
+          if (!bootstrap) return prompt
+          return bootstrap.buildOverridePrompt(prompt)
         }
 
         // Inject identity
@@ -157,7 +162,8 @@ export default () =>
             fn: hydrateStore,
           },
           transformPrompt: {
-            enforce: 'pre',
+            enforce: 'post',
+            order: 1000,   // after session-mode (order 0), last hook to write system
             fn: transformPrompt,
           },
           onIdentityChanged: {
