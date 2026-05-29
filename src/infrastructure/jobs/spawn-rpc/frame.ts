@@ -28,6 +28,7 @@ export interface Frame {
 
 // ── Payload types (documentation + type guards) ──
 
+/** @internal */
 export interface ChatRequestPayload {
   purpose: string
   messages: Array<{ role: string; content: string }>
@@ -35,6 +36,7 @@ export interface ChatRequestPayload {
   maxTokens?: number
 }
 
+/** @internal */
 export interface ChatResponsePayload {
   content: string
   toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>
@@ -42,23 +44,27 @@ export interface ChatResponsePayload {
   usage: { input: number; output: number }
 }
 
+/** @internal */
 export interface ChatErrorPayload {
   code: 'PURPOSE_NOT_ALLOWED' | 'PROVIDER_FAIL' | 'RATE_LIMITED' | 'TIMEOUT'
   message: string
 }
 
+/** @internal */
 export interface ToolCallRequestPayload {
   name: string
   arguments: Record<string, unknown>
   callId: string
 }
 
+/** @internal */
 export interface ToolCallResponsePayload {
   success: boolean
   result?: unknown
   error?: { code: 'TOOL_NOT_ALLOWED' | 'TOOL_NOT_FOUND' | 'TOOL_EXEC_FAIL'; message: string }
 }
 
+/** @internal */
 export interface ProgressPayload {
   kind: 'round-started' | 'round-completed' | 'tool-starting' | 'text-delta'
   data: Record<string, unknown>
