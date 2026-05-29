@@ -1,20 +1,16 @@
 /**
- * Integration smoke test for real-process sub-agent execution.
+ * Integration smoke test for real-process sub-agent execution via BunSpawnJobSpawner.
  *
- * Spawns a real Bun worker process and performs a full NDJSON RPC handshake:
- * init → chat-req → chat-resp → tool-call-req → tool-call-resp → chat-req → chat-resp → result.
- *
- * Verifies: worker boots, dispatchTool IPC works, mini-loop executes,
- * finishReason flows through, error taxonomy classifies correctly.
+ * Full NDJSON RPC handshake: init → chat-req → chat-resp → tool-call-req
+ * → tool-call-resp → chat-req → chat-resp → result.
  */
 
 import { describe, it, expect } from 'bun:test'
+import { BunSpawnJobSpawner } from '../../src/infrastructure/jobs/bun-spawn-job-spawner'
+import { createSpawnerSubAgentRunner } from '../../src/extensions/sub-agent/runner-spawner'
 import { SubAgentRegistry } from '../../src/extensions/sub-agent/registry'
-import { encodeFrame } from '../../src/infrastructure/jobs/spawn-rpc/frame'
 
-const WORKER_ENTRY = require.resolve('../../src/extensions/sub-agent/worker-entry-subagent')
-
-describe('Sub-agent real spawn smoke', () => {
+describe('Sub-agent real spawn smoke (via BunSpawnJobSpawner)', () => {
   it('full handshake — chat → tool → chat → result', async () => {
     const registry = new SubAgentRegistry()
     registry.register({
@@ -28,88 +24,64 @@ describe('Sub-agent real spawn smoke', () => {
 
     const callObserver: string[] = []
     let roundCount = 0
-    const decoder = new TextDecoder()
 
-    const child = Bun.spawn({
-      cmd: ['bun', 'run', WORKER_ENTRY],
-      stdin: 'pipe', stdout: 'pipe', stderr: 'pipe',
-      env: { ...process.env, JOB_MODE: 'spawn', JOB_WORKER_ENTRY: '1' },
-    })
-
-    await child.stdin.write(encodeFrame({
-      v: 1, id: 'init-1', kind: 'init', ts: Date.now(),
-      payload: {
-        jobType: 'sub-agent',
-        job: {
-          descriptor: registry.get('handshake-agent')!,
-          userPrompt: 'echo hello',
-          subSessionId: 's1', subTurnId: 't1', parentTurnId: 'p1',
-          agentDir: '/tmp',
-          toolSchemas: [{
-            name: 'echo', description: 'echo tool',
-            parameters: { type: 'object', properties: { msg: { type: 'string' } } },
-          }],
-        },
-        config: { invokeTimeoutMs: 10000 },
-      },
-    }))
-
-    const reader = child.stdout.getReader()
-    let resultPayload: any = null
-
-    while (!resultPayload) {
-      const { value, done } = await reader.read()
-      if (done) break
-
-      const lines = decoder.decode(value).trim().split('\n').filter(l => l)
-      for (const line of lines) {
-        const f = JSON.parse(line)
-        if (f.v !== 1) continue
-
-        switch (f.kind) {
-          case 'chat-req':
-            roundCount++
-            const isFirstRound = roundCount === 1
-            await child.stdin.write(encodeFrame({
-              v: 1, id: f.id, kind: 'chat-resp', ts: Date.now(),
-              payload: {
-                content: isFirstRound ? '' : 'All done after echo',
-                toolCalls: isFirstRound ? [{ id: 't1', name: 'echo', arguments: { msg: 'hello' } }] : undefined,
-                finishReason: isFirstRound ? 'tool_calls' as const : 'stop' as const,
-                usage: { input: 10, output: 5 },
-              },
-            }))
-            break
-
-          case 'tool-call-req':
-            callObserver.push(f.payload.name)
-            await child.stdin.write(encodeFrame({
-              v: 1, id: f.id, kind: 'tool-call-resp', ts: Date.now(),
-              payload: { success: true, result: `echoed: ${f.payload.arguments.msg}` },
-            }))
-            break
-
-          case 'result':
-            resultPayload = f.payload
-            break
-
-          case 'log':
-            break
-
-          default:
-            break
+    const provider = {
+      call: async () => ({ content: '{}', usage: { input: 0, output: 0 } }),
+      async *stream() {},
+      async complete(req: any) {
+        roundCount++
+        const isFirst = roundCount === 1
+        return {
+          id: 'smoke-' + roundCount,
+          content: isFirst ? '' : 'All done after echo',
+          toolCalls: isFirst ? [{ id: 't1', name: 'echo', arguments: { msg: 'hello' } }] : undefined,
+          finishReason: isFirst ? 'tool_calls' as const : 'stop' as const,
+          usage: { input: 10, output: 5 },
+          model: 'smoke',
         }
-      }
+      },
     }
 
-    reader.releaseLock()
-    const err = await Bun.readableStreamToText(child.stderr)
-    try { child.kill(9) } catch {}
+    const spawner = new BunSpawnJobSpawner(
+      provider as any,
+      provider.complete.bind(provider),
+      { debug() {}, info() {}, warn() {}, error() {}, withTag() { return this as any } } as any,
+      { invokeTimeoutMs: 10000, lifetimeMs: 15000 },
+    )
+
+    const runner = createSpawnerSubAgentRunner({
+      spawner, registry,
+      toolCatalog: {
+        register() {}, unregister() {}, list() { return [] },
+        get(name: string) {
+          if (name !== 'echo') return undefined
+          return {
+            name: 'echo', description: 'echo', parameters: {},
+            parse: (args: unknown) => args as Record<string, unknown>,
+            execute: async (_ctx: unknown, args: Record<string, unknown>) => {
+              callObserver.push(name as string)
+              return `echoed: ${(args as { msg: string }).msg}`
+            },
+          }
+        },
+      },
+      chatComplete: async (req) => provider.complete(req),
+      bus: { emit: () => {} } as any,
+      logger: { debug() {}, info() {}, warn() {}, error() {}, withTag() { return this as any } } as any,
+      agentDir: '/tmp/test-smoke',
+    })
+
+    const result = await runner({
+      type: 'handshake-agent',
+      prompt: 'echo hello',
+      parentSessionId: 's1', parentTurnId: 't1', parentCallId: 'c1',
+      parentSignal: new AbortController().signal,
+    })
 
     // 4-layer assertions
-    expect(resultPayload).not.toBeNull()                                   // (1) no error — worker produced result
-    expect(resultPayload.finalText).toContain('All done after echo')       // (2) LLM saw tool result
-    expect(callObserver).toEqual(['echo'])                                  // (3) tool dispatched through IPC
-    expect(roundCount).toBe(2)                                              // (4) mini-loop ran 2 rounds
+    expect(result).not.toMatch(/<sub-agent-error/)     // (1) no error
+    expect(result).toContain('All done after echo')     // (2) LLM saw tool result
+    expect(callObserver).toEqual(['echo'])               // (3) tool dispatched through IPC
+    expect(roundCount).toBe(2)                            // (4) mini-loop ran 2 rounds
   }, 10_000)
 })

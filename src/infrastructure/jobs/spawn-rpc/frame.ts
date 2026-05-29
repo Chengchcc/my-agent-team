@@ -87,8 +87,8 @@ export class FrameDecoder {
    * Partial (non-terminated) lines are held in the internal buffer.
    * Lines that fail JSON parse or lack `v === 1` are silently discarded.
    */
-  push(chunk: string | Buffer): Frame[] {
-    const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8')
+  push(chunk: string | Buffer | Uint8Array): Frame[] {
+    const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk)
     this.buf += text
     const lines = this.buf.split('\n')
     this.buf = lines.pop() ?? ''
