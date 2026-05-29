@@ -1,4 +1,4 @@
-import type { ProviderChat, ChatRequest, ChatResponse, ChatResponseChunk } from '../../../src/application/ports/provider'
+import type { ProviderChat, ProviderInvoke, ChatRequest, ChatResponse, ChatResponseChunk, InvokeRequest, InvokeResponse } from '../../../src/application/ports/provider'
 
 export type E2ETurn = {
   textDeltas?: string[]
@@ -14,13 +14,25 @@ export type E2ETurn = {
  * Separate from tests/fixtures/fake-provider.ts to avoid affecting 96 existing unit tests.
  * Yields real ChatResponseChunk union types consumed by turn-runner.
  */
-export class E2EFakeProvider implements ProviderChat {
+export class E2EFakeProvider implements ProviderChat, ProviderInvoke {
   private turns: E2ETurn[] = []
   private cursor = 0
   readonly receivedRequests: ChatRequest[] = []
   abortObserved = false
 
+  // ProviderInvoke support
+  private invokeResponses: InvokeResponse[] = []
+  private invokeDefault: (req: InvokeRequest) => InvokeResponse = () => ({
+    content: '{}', usage: { input: 0, output: 0 },
+  })
+
   setTurns(t: E2ETurn[]) { this.turns = t; this.cursor = 0 }
+  setInvokeResponses(r: InvokeResponse[]) { this.invokeResponses = r }
+  setInvokeDefault(fn: (req: InvokeRequest) => InvokeResponse) { this.invokeDefault = fn }
+
+  async call(req: InvokeRequest): Promise<InvokeResponse> {
+    return this.invokeResponses.shift() ?? this.invokeDefault(req)
+  }
 
   async *stream(req: ChatRequest): AsyncGenerator<ChatResponseChunk> {
     this.receivedRequests.push(req)

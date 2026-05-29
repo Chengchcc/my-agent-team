@@ -44,14 +44,19 @@ export function createBootstrapLoop(deps: BootstrapLoopDeps) {
      * preserving upstream transformPrompt contributions (identity, memory, etc.).
      * No longer replaces the entire prompt; tool gating is handled in run-turn.ts.
      */
-    buildBootstrapSupplement(
+    async buildBootstrapSupplement(
       prompt: { system: string; messages: Array<{ role: string; content: string }> },
       mode: 'full' | 'limited',
-    ): typeof prompt {
+    ): Promise<typeof prompt> {
       const state = loadBootstrapState(deps.bootstrapPath)
       computeNextAction(state)
       const missing = computeMissingFields(state.requiredFields, state.collected)
       const field = missing.length > 0 ? missing[0]! : state.requiredFields[0]!
+
+      // Persist initial state so preTurnAbsorb can find the file on next turn
+      if (state.turnsCompleted === 0 && Object.keys(state.collected).length === 0) {
+        await persistBootstrapState(deps, state)
+      }
 
       let supplement = renderBootstrapRequest(field, state.turnsCompleted, state.turnsMax)
       if (mode === 'limited') {
@@ -78,8 +83,10 @@ export function createBootstrapLoop(deps: BootstrapLoopDeps) {
       const userContent = payload.userMessage?.content
       if (!userContent) return
 
-      // Skip extract on first turn (no prior question to answer)
-      if (state.turnsCompleted === 0 && Object.keys(state.collected).length === 0) return
+      // Skip extract on first turn only if bootstrap state file was never persisted.
+      // Once buildBootstrapSupplement writes the initial state, subsequent turns will find
+      // the file on disk and proceed with extraction (even if turnsCompleted is still 0).
+      try { readFileSync(deps.bootstrapPath, 'utf-8') } catch { return }
 
       // 1. Extract fields from user's answer to the PREVIOUS question
       try {

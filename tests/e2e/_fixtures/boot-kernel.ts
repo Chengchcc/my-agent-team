@@ -22,6 +22,7 @@ export interface BootOpts {
   llmTurns?: E2ETurn[]
   fakeTools?: FakeToolSpec[]
   frontendId?: string
+  preExistingAgentDir?: string
 }
 
 export interface E2EHandle {
@@ -35,7 +36,7 @@ export interface E2EHandle {
 }
 
 export async function bootE2E(opts: BootOpts = {}): Promise<E2EHandle> {
-  const agentDir = await mkdtemp(path.join(tmpdir(), 'e2e-'))
+  const agentDir = opts.preExistingAgentDir ?? await mkdtemp(path.join(tmpdir(), 'e2e-'))
   const paths = createAgentPaths(path.dirname(agentDir), path.basename(agentDir))
   const captured: EventEnvelope[] = []
   const fakeLLM = new E2EFakeProvider()
@@ -49,7 +50,13 @@ export async function bootE2E(opts: BootOpts = {}): Promise<E2EHandle> {
   })
 
   // ① Kernel-level fakes (MUST be before any kernel.use)
-  kernel.ctx.extensions.provideKernel('agent.store', new InMemoryAgentStore('e2e'))
+  const agentStore = new InMemoryAgentStore('e2e')
+  kernel.ctx.extensions.provideKernel('agent.store', agentStore)
+  // agent.registry wraps agent.store — used by identity/memory/tools to check bootstrap status
+  kernel.ctx.extensions.provideKernel('agent.registry', {
+    current: async () => agentStore.get('e2e')!,
+    get: async (agentId: string) => agentStore.get(agentId),
+  })
 
   // Presets in daemon order, minus real 'provider' (replaced below)
   const presets = [
@@ -121,7 +128,9 @@ export async function bootE2E(opts: BootOpts = {}): Promise<E2EHandle> {
     waitFor: (pred, ms) => waitForEvent(captured, pred, ms ?? parseInt(process.env.E2E_WAIT_MS ?? '15000', 10), () => seen, (v) => { seen = v }),
     stop: async () => {
       try { await kernel.stop() } catch { /* dispose best-effort */ }
-      await rm(agentDir, { recursive: true, force: true }).catch(() => {})
+      if (!opts.preExistingAgentDir) {
+        await rm(agentDir, { recursive: true, force: true }).catch(() => {})
+      }
     },
   }
 }

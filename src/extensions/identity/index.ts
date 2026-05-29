@@ -110,13 +110,17 @@ export default () =>
             await bootstrap.preTurnAbsorb({ userMessage: lastUserMsg })
           }
 
+          // Re-read status — preTurnAbsorb may have finalized
+          try { const reg = ctx.extensions.get('agent.registry'); if (reg) { try { status = (await reg.current()).identityStatus } catch { } } } catch { }
+          if (status !== 'pending_bootstrap') return prompt
+
           const mode = resolveBootstrapMode({
-            identityStatus: status,
+            identityStatus: 'pending_bootstrap',
             hasToolAccess: true,
             isHeadless: ctx.config.raw?.headless === true,
           })
           if (mode === 'none') return prompt
-          return bootstrap.buildBootstrapSupplement(prompt, mode)
+          return await bootstrap.buildBootstrapSupplement(prompt, mode)
         }
 
         // Inject identity
