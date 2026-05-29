@@ -6,14 +6,8 @@
 import { FrameDecoder, encodeFrame, type Frame } from './spawn-rpc/frame'
 import type { JobContext } from '../../application/ports/job-spawner'
 
-/** Local invoke timeout in the worker — slightly longer than the parent's
- *  invokeTimeoutMs to avoid races where both sides time out independently. */
 const WORKER_INVOKE_TIMEOUT_MS = 70_000
-
-/** Local chatComplete timeout in the worker. */
 const WORKER_CHAT_TIMEOUT_MS = 70_000
-
-/** Grace period after stdin EOF before the worker force-exits. */
 const STDIN_EOF_EXIT_DELAY_MS = 5_000
 
 interface PendingEntry {
@@ -22,62 +16,30 @@ interface PendingEntry {
   timer: ReturnType<typeof setTimeout>
 }
 
-/**
- * Run a job handler inside the spawn worker protocol.
- *
- * The handler receives the deserialized job from the parent's `init` frame
- * and a `JobContext` whose `invoke()`, `chatComplete()`, and `log()` calls
- * are proxied over stdout NDJSON frames. The parent process services
- * `invoke-req` frames by calling its own ProviderInvoke and `chat-req`
- * frames by calling its own ProviderChat.complete.
- */
-export async function runWorker(
-  handler: (job: unknown, ctx: JobContext) => Promise<unknown>,
-): Promise<void> {
-  const decoder = new FrameDecoder()
-  const pending = new Map<string, PendingEntry>()
-  const pendingChat = new Map<string, PendingEntry>()
-  let initialised = false
-  let exited = false
+interface WorkerState {
+  pending: Map<string, PendingEntry>
+  pendingChat: Map<string, PendingEntry>
+  initialised: boolean
+  exited: boolean
+  writeFrame: (f: Frame) => void
+}
 
-  const writeFrame = (f: Frame): void => {
-    process.stdout.write(encodeFrame(f))
-  }
-
-  const cancelAllPending = (reason: string): void => {
-    for (const [, entry] of pending) {
-      clearTimeout(entry.timer)
-      entry.reject(new Error(reason))
-    }
-    pending.clear()
-    for (const [, entry] of pendingChat) {
-      clearTimeout(entry.timer)
-      entry.reject(new Error(reason))
-    }
-    pendingChat.clear()
-  }
-
-  const ctx: JobContext = {
+function createWorkerContext(state: WorkerState): JobContext {
+  return {
     invoke: (req) => {
       return new Promise<{ content: string; usage: { input: number; output: number } }>(
         (resolve, reject) => {
           const id = crypto.randomUUID()
           const timer = setTimeout(() => {
-            pending.delete(id)
+            state.pending.delete(id)
             reject(new Error('worker invoke timeout'))
           }, WORKER_INVOKE_TIMEOUT_MS)
-          pending.set(id, {
+          state.pending.set(id, {
             resolve: resolve as (v: unknown) => void,
             reject: reject as (e: unknown) => void,
             timer,
           })
-          writeFrame({
-            v: 1,
-            id,
-            kind: 'invoke-req',
-            ts: Date.now(),
-            payload: req,
-          })
+          state.writeFrame({ v: 1, id, kind: 'invoke-req', ts: Date.now(), payload: req })
         },
       )
     },
@@ -85,169 +47,159 @@ export async function runWorker(
       return new Promise((resolve, reject) => {
         const id = crypto.randomUUID()
         const timer = setTimeout(() => {
-          pendingChat.delete(id)
+          state.pendingChat.delete(id)
           reject(new Error('worker chatComplete timeout'))
         }, WORKER_CHAT_TIMEOUT_MS)
-        pendingChat.set(id, {
+        state.pendingChat.set(id, {
           resolve: resolve as (v: unknown) => void,
           reject: reject as (e: unknown) => void,
           timer,
         })
-        writeFrame({ v: 1, id, kind: 'chat-req', ts: Date.now(), payload: req })
+        state.writeFrame({ v: 1, id, kind: 'chat-req', ts: Date.now(), payload: req })
       })
     },
     log: (level, msg) => {
-      writeFrame({
-        v: 1,
-        id: crypto.randomUUID(),
-        kind: 'log',
-        ts: Date.now(),
-        payload: { level, msg },
+      state.writeFrame({
+        v: 1, id: crypto.randomUUID(), kind: 'log', ts: Date.now(), payload: { level, msg },
       })
     },
   }
+}
 
-  const handleInit = async (frame: Frame): Promise<void> => {
-    initialised = true
-    try {
-      try {
-        const payload = frame.payload as Record<string, unknown>
-        const job = payload.job
-        const result = await handler(job, ctx)
-        if (exited) { process.exit(0); return }
-        writeFrame({
-          v: 1,
-          id: crypto.randomUUID(),
-          kind: 'result',
-          ts: Date.now(),
-          payload: result,
-        })
-        process.exit(0)
-      } catch (err) {
-        if (exited) { process.exit(1); return }
-        writeFrame({
-          v: 1,
-          id: crypto.randomUUID(),
-          kind: 'error',
-          ts: Date.now(),
-          payload: {
-            code: 'INTERNAL',
-            message: err instanceof Error ? err.message : String(err),
-          },
-        })
-        process.exit(1)
-      }
-    } finally {
-      // Safety net: if any path misses process.exit, force exit after grace period
-      setTimeout(() => process.exit(1), 1000).unref()
-    }
+function cancelAllPending(state: WorkerState, reason: string): void {
+  for (const [, entry] of state.pending) {
+    clearTimeout(entry.timer)
+    entry.reject(new Error(reason))
   }
+  state.pending.clear()
+  for (const [, entry] of state.pendingChat) {
+    clearTimeout(entry.timer)
+    entry.reject(new Error(reason))
+  }
+  state.pendingChat.clear()
+}
 
-  const handleData = (chunk: Buffer): void => {
+function resolvePending(map: Map<string, PendingEntry>, frame: Frame): void {
+  const entry = map.get(frame.id)
+  if (entry) { clearTimeout(entry.timer); map.delete(frame.id); entry.resolve(frame.payload) }
+}
+
+function rejectPending(map: Map<string, PendingEntry>, frame: Frame, prefix: string): void {
+  const entry = map.get(frame.id)
+  if (entry) {
+    clearTimeout(entry.timer); map.delete(frame.id)
+    const p = frame.payload as { code?: string; message?: string }
+    entry.reject(new Error(`${prefix} error [${p.code ?? 'UNKNOWN'}]: ${p.message ?? 'no message'}`))
+  }
+}
+
+function makeHandleData(
+  state: WorkerState,
+  decoder: FrameDecoder,
+  handleInit: (frame: Frame) => Promise<void>,
+): (chunk: Buffer) => void {
+  return function handleData(chunk: Buffer): void {
     for (const frame of decoder.push(chunk)) {
       switch (frame.kind) {
         case 'init':
-          if (!initialised) {
-            // Fire-and-forget — handler runs async while we keep reading frames
-            handleInit(frame).catch(() => {
-              /* caught inside handleInit */
-            })
+          if (!state.initialised) {
+            handleInit(frame).catch(() => { /* caught inside handleInit */ })
           }
           break
 
-        case 'invoke-resp': {
-          const entry = pending.get(frame.id)
-          if (entry) {
-            clearTimeout(entry.timer)
-            pending.delete(frame.id)
-            entry.resolve(frame.payload)
-          }
+        case 'invoke-resp':
+          resolvePending(state.pending, frame)
           break
-        }
 
-        case 'chat-resp': {
-          const entry = pendingChat.get(frame.id)
-          if (entry) {
-            clearTimeout(entry.timer)
-            pendingChat.delete(frame.id)
-            entry.resolve(frame.payload)
-          }
+        case 'chat-resp':
+          resolvePending(state.pendingChat, frame)
           break
-        }
 
-        case 'chat-error': {
-          const entry = pendingChat.get(frame.id)
-          if (entry) {
-            clearTimeout(entry.timer)
-            pendingChat.delete(frame.id)
-            const payload = frame.payload as { code?: string; message?: string }
-            entry.reject(
-              new Error(
-                `chat error [${payload.code ?? 'UNKNOWN'}]: ${payload.message ?? 'no message'}`,
-              ),
-            )
-          }
+        case 'chat-error':
+          rejectPending(state.pendingChat, frame, 'chat')
           break
-        }
 
         case 'error': {
-          const entry = pending.get(frame.id)
+          const entry = state.pending.get(frame.id) ?? state.pendingChat.get(frame.id)
           if (entry) {
             clearTimeout(entry.timer)
-            pending.delete(frame.id)
-            const payload = frame.payload as { code?: string; message?: string }
-            entry.reject(
-              new Error(
-                `worker rpc error [${payload.code ?? 'UNKNOWN'}]: ${payload.message ?? 'no message'}`,
-              ),
-            )
-          }
-          // Also check pendingChat — an error frame might match a chat request
-          const chatEntry = pendingChat.get(frame.id)
-          if (chatEntry) {
-            clearTimeout(chatEntry.timer)
-            pendingChat.delete(frame.id)
-            const payload = frame.payload as { code?: string; message?: string }
-            chatEntry.reject(
-              new Error(
-                `worker rpc error [${payload.code ?? 'UNKNOWN'}]: ${payload.message ?? 'no message'}`,
-              ),
-            )
+            state.pending.delete(frame.id); state.pendingChat.delete(frame.id)
+            const p = frame.payload as { code?: string; message?: string }
+            entry.reject(new Error(`worker rpc error [${p.code ?? 'UNKNOWN'}]: ${p.message ?? 'no message'}`))
           }
           break
         }
 
         case 'shutdown': {
-          const payload = frame.payload as { reason?: string }
-          cancelAllPending(`shutdown: ${payload.reason ?? 'parent-requested'}`)
-          exited = true
+          const p = frame.payload as { reason?: string }
+          cancelAllPending(state, `shutdown: ${p.reason ?? 'parent-requested'}`)
+          state.exited = true
           setTimeout(() => process.exit(0), 100)
           break
         }
 
-        // The parent should never send these, but be defensive.
+        // Parent should never send these, but be defensive.
         case 'invoke-req':
         case 'result':
         case 'log':
         case 'chat-req':
         case 'tool-call-req':
         case 'tool-call-resp':
+        case 'progress':
           break
       }
     }
   }
+}
 
-  // stdin may be paused — resume it.
+/**
+ * Run a job handler inside the spawn worker protocol.
+ */
+export async function runWorker(
+  handler: (job: unknown, ctx: JobContext) => Promise<unknown>,
+): Promise<void> {
+  const decoder = new FrameDecoder()
+  const state: WorkerState = {
+    pending: new Map(), pendingChat: new Map(),
+    initialised: false, exited: false,
+    writeFrame: (f: Frame) => { process.stdout.write(encodeFrame(f)) },
+  }
+
+  const ctx = createWorkerContext(state)
+
+  const handleInit = async (frame: Frame): Promise<void> => {
+    state.initialised = true
+    try {
+      try {
+        const payload = frame.payload as Record<string, unknown>
+        const result = await handler(payload.job, ctx)
+        if (state.exited) { process.exit(0); return }
+        state.writeFrame({ v: 1, id: crypto.randomUUID(), kind: 'result', ts: Date.now(), payload: result })
+        process.exit(0)
+      } catch (err) {
+        if (state.exited) { process.exit(1); return }
+        state.writeFrame({
+          v: 1, id: crypto.randomUUID(), kind: 'error', ts: Date.now(),
+          payload: { code: 'INTERNAL', message: err instanceof Error ? err.message : String(err) },
+        })
+        process.exit(1)
+      }
+    } finally {
+      setTimeout(() => process.exit(1), 1000).unref()
+    }
+  }
+
+  const handleData = makeHandleData(state, decoder, handleInit)
+
   if (process.stdin.isPaused()) {
     process.stdin.resume()
   }
 
   process.stdin.on('data', handleData)
 
-  // Detect parent death via stdin EOF.
   process.stdin.on('end', () => {
-    cancelAllPending('parent stdin closed')
-    exited = true
+    cancelAllPending(state, 'parent stdin closed')
+    state.exited = true
     setTimeout(() => process.exit(1), STDIN_EOF_EXIT_DELAY_MS)
   })
 }

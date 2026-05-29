@@ -19,6 +19,7 @@ export interface SpawnerRunnerDeps {
 }
 
 const MAX_CONCURRENT_SUBAGENTS_PER_TURN = 3
+const DEFAULT_SUBAGENT_LIFETIME_MS = 120_000
 const concurrentByTurn = new Map<string, number>()
 
 function escapeXmlAttr(s: string): string {
@@ -88,7 +89,7 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
               const tctx: ToolContext = {
                 signal: input.parentSignal,
                 environment: { cwd: deps.agentDir },
-                sink: createToolSink() as any,
+                sink: createToolSink() as unknown as ToolContext['sink'],
                 sessionId: input.parentSessionId,
                 turnId: input.parentTurnId,
                 callId: call.callId,
@@ -103,16 +104,17 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
           },
           log: (level, msg) => deps.logger[level]('sub-agent.worker', msg),
         },
-        timeoutMs: desc.lifetimeMs ?? 120_000,
+        timeoutMs: desc.lifetimeMs ?? DEFAULT_SUBAGENT_LIFETIME_MS,
       })
 
+      const typed = result as unknown as { usage: { input: number; output: number }; finalText: string; finishReason: string }
       void deps.bus.emit('subagent.completed', {
         parentTurnId: input.parentTurnId, type: input.type, subSessionId,
         callId: input.parentCallId, ok: true,
-        usage: (result as any).usage, finalText: (result as any).finalText,
-        finishReason: (result as any).finishReason, ts: Date.now(),
+        usage: typed.usage, finalText: typed.finalText,
+        finishReason: typed.finishReason, ts: Date.now(),
       })
-      return (result as any).finalText
+      return typed.finalText
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       const tag = (err instanceof Error && err.name === 'AbortError') ? 'cancelled' : 'failed'

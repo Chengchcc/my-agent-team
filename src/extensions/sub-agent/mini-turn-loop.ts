@@ -113,6 +113,9 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
             finalText: `<sub-agent-error type="response_filtered" reason="content_filter"></sub-agent-error>`,
             usage: totalUsage, toolCallCount, rounds: round + 1, finishReason: 'content_filter',
           }
+        case 'tool_calls':
+          // Not reachable — this branch only entered when toolCalls is empty
+          return { finalText: '', usage: totalUsage, toolCallCount, rounds: round + 1, finishReason: 'tool_calls' }
         default:
           if (!finalText) {
             return {

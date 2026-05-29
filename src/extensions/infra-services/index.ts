@@ -1,5 +1,6 @@
 import { defineExtension } from '../../kernel/define-extension'
 import { createJobSpawner } from '../../infrastructure/jobs'
+import type { ProviderInvoke, ProviderChat } from '../../application/ports/provider'
 import { SqliteProposalStore } from '../../infrastructure/evolution/sqlite-proposal-store'
 import { SqliteSkillStatsStore } from '../../infrastructure/evolution/sqlite-skill-stats-store'
 import { SqliteSkillMetaRepo } from '../../infrastructure/evolution/sqlite-skill-meta-repo'
@@ -25,12 +26,12 @@ export default () =>
 
     apply: (ctx) => {
       const provider = ctx.extensions.has('provider.llm')
-        ? ctx.extensions.get('provider.llm')
+        ? (ctx.extensions.get('provider.llm') as ProviderInvoke & ProviderChat)
         : undefined
 
       const spawner = createJobSpawner({
-        invoke: provider as any,
-        chatComplete: provider ? (provider as any).complete?.bind(provider) : undefined,
+        invoke: provider ?? undefined,
+        chatComplete: provider?.complete?.bind(provider),
         logger: ctx.logger,
       })
 
@@ -50,7 +51,7 @@ export default () =>
           'infra-services.skill-meta-repo': () => meta,
           'infra-services.job-context-factory': () =>
             provider
-              ? createJobContextFactory(provider as any, ctx.logger)
+              ? createJobContextFactory(provider, ctx.logger)
               : undefined,
         },
         dispose: () => { db.close() },

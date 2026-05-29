@@ -5,6 +5,7 @@ import { encodeFrame, type Frame } from './spawn-rpc/frame'
 
 export const CHAT_PURPOSE_PREFIXES = ['subagent.run.']
 
+// eslint-disable-next-line @typescript-eslint/no-magic-numbers
 export const MAX_MESSAGE_SIZE = 128 * 1024 // 128KB
 
 export async function handleChatRequest(
