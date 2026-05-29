@@ -2,13 +2,19 @@
 // Each frame is one JSON line terminated by '\n'.
 
 export type FrameKind =
-  | 'init'        // parent -> worker: initialisation payload
-  | 'invoke-req'  // worker -> parent: LLM call request
-  | 'invoke-resp' // parent -> worker: LLM call response
-  | 'result'      // worker -> parent: job result (last frame)
-  | 'log'         // worker -> parent: log relay
-  | 'shutdown'    // parent -> worker: request graceful exit
-  | 'error'       // bidirectional: error
+  | 'init'          // parent -> worker: initialisation payload
+  | 'invoke-req'    // worker -> parent: LLM call request (tool-free)
+  | 'invoke-resp'   // parent -> worker: LLM call response
+  | 'result'        // worker -> parent: job result (last frame)
+  | 'log'           // worker -> parent: log relay
+  | 'shutdown'      // parent -> worker: request graceful exit
+  | 'error'         // bidirectional: error
+  | 'chat-req'      // worker -> parent: LLM chat call (tool-capable)
+  | 'chat-resp'     // parent -> worker: LLM chat response
+  | 'chat-error'    // parent -> worker: LLM chat failed
+  | 'tool-call-req' // worker -> parent: call parent's tool catalog
+  | 'tool-call-resp'// parent -> worker: tool execution result
+  | 'progress'      // worker -> parent: intermediate status (optional)
 
 export interface Frame {
   v: 1
@@ -18,6 +24,44 @@ export interface Frame {
   /** Sender timestamp in ms. */
   ts: number
   payload: unknown
+}
+
+// ── Payload types (documentation + type guards) ──
+
+export interface ChatRequestPayload {
+  purpose: string
+  messages: Array<{ role: string; content: string }>
+  tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
+  maxTokens?: number
+}
+
+export interface ChatResponsePayload {
+  content: string
+  toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>
+  finishReason: 'stop' | 'length' | 'tool_calls' | 'content_filter'
+  usage: { input: number; output: number }
+}
+
+export interface ChatErrorPayload {
+  code: 'PURPOSE_NOT_ALLOWED' | 'PROVIDER_FAIL' | 'RATE_LIMITED' | 'TIMEOUT'
+  message: string
+}
+
+export interface ToolCallRequestPayload {
+  name: string
+  arguments: Record<string, unknown>
+  callId: string
+}
+
+export interface ToolCallResponsePayload {
+  success: boolean
+  result?: unknown
+  error?: { code: 'TOOL_NOT_ALLOWED' | 'TOOL_NOT_FOUND' | 'TOOL_EXEC_FAIL'; message: string }
+}
+
+export interface ProgressPayload {
+  kind: 'round-started' | 'round-completed' | 'tool-starting' | 'text-delta'
+  data: Record<string, unknown>
 }
 
 /** Encode a Frame to its NDJSON wire representation. */
