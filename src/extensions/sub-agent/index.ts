@@ -37,16 +37,16 @@ export default () =>
         bus,
         chatComplete: async (req) => {
           const resp = await provider.complete({
+            purpose: req.purpose,
             messages: req.messages,
             tools: req.tools,
             maxTokens: req.maxTokens,
             signal: req.signal,
           })
-          const hasToolCalls = resp.toolCalls && resp.toolCalls.length > 0
           return {
             content: resp.content,
             toolCalls: resp.toolCalls,
-            finishReason: hasToolCalls ? 'tool_calls' as const : 'stop' as const,
+            finishReason: resp.finishReason,
             usage: resp.usage,
           }
         },

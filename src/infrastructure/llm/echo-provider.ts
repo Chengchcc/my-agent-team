@@ -34,6 +34,7 @@ export class EchoProvider implements ProviderChat, ProviderInvoke {
     return {
       id: 'echo-' + Date.now(),
       content: `ECHO: ${lastMsg}`,
+      finishReason: 'stop',
       usage: { input: lastMsg.length, output: lastMsg.length + ECHO_PREFIX_LENGTH },
       model: 'echo',
     }

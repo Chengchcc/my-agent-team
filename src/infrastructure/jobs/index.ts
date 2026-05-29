@@ -19,7 +19,7 @@ export function createJobSpawner(opts?: {
     }
     return new BunSpawnJobSpawner(
       opts.invoke,
-      opts.chatComplete ?? (async () => ({ id: '', content: '', usage: { input: 0, output: 0 }, model: '' })),
+      opts.chatComplete ?? (async () => ({ id: '', content: '', finishReason: 'stop' as const, usage: { input: 0, output: 0 }, model: '' })),
       opts.logger,
       { invokeTimeoutMs: 60_000, lifetimeMs: 300_000 },
     )

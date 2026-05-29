@@ -4,6 +4,7 @@ export type E2ETurn = {
   textDeltas?: string[]
   toolCalls?: Array<{ id: string; name: string; arguments: string }>
   usage?: { input: number; output: number }
+  finishReason?: 'stop' | 'length' | 'tool_calls' | 'content_filter'
   errorAfter?: number
   /** Inter-chunk delay in ms — enables abort mid-stream testing. */
   delayMs?: number
@@ -64,6 +65,7 @@ export class E2EFakeProvider implements ProviderChat, ProviderInvoke {
       id: `e2e-${Date.now()}`,
       content: (turn.textDeltas ?? []).join(''),
       toolCalls: turn.toolCalls?.map(tc => ({ id: tc.id, name: tc.name, arguments: JSON.parse(tc.arguments) })),
+      finishReason: turn.finishReason ?? (turn.toolCalls && turn.toolCalls.length > 0 ? 'tool_calls' : 'stop'),
       usage: turn.usage ?? { input: 0, output: 0 },
       model: 'e2e-fake',
     }

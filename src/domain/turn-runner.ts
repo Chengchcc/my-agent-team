@@ -69,7 +69,7 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
       if (deps.abortSignal?.aborted) break
       if (log) log.info('turn-runner', 'round.start', { sessionId, turnId, roundIdx: iter, msgCount: currentMessages.length })
       const round = yield* consumeRound(
-        provider.stream({ messages: currentMessages, tools, systemPrompt, signal: deps.abortSignal }),
+        provider.stream({ purpose: 'turn', messages: currentMessages, tools, systemPrompt, signal: deps.abortSignal }),
         { sessionId, turnId },
       )
 

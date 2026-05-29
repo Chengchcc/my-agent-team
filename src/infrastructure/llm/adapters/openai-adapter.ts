@@ -76,6 +76,7 @@ export class OpenAiAdapter implements ProviderAdapter {
   toInvokeWire(req: InvokeRequest): unknown {
     return this.toChatWire(
       {
+        purpose: 'internal',
         messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
         maxTokens: req.maxTokens,
         model: req.model,
@@ -132,6 +133,7 @@ export class OpenAiAdapter implements ProviderAdapter {
       id: string
       model: string
       usage?: { input_tokens: number; output_tokens: number }
+      finish_reason?: string
       output: Array<{
         type: string
         content?: Array<{ type: string; text?: string }>
@@ -170,10 +172,17 @@ export class OpenAiAdapter implements ProviderAdapter {
       }
     }
 
+    const finishReason: ChatResponse['finishReason'] =
+      resp.finish_reason === 'length' ? 'length'
+      : resp.finish_reason === 'tool_calls' ? 'tool_calls'
+      : resp.finish_reason === 'content_filter' ? 'content_filter'
+      : 'stop'
+
     return {
       id: resp.id,
       content,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      finishReason,
       usage: {
         input: resp.usage?.input_tokens ?? 0,
         output: resp.usage?.output_tokens ?? 0,

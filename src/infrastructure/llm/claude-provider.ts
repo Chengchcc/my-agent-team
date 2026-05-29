@@ -113,6 +113,7 @@ export class ClaudeProvider implements ProviderChat, ProviderInvoke {
 
   async call(req: InvokeRequest): Promise<InvokeResponse> {
     const chatReq: ChatRequest = {
+      purpose: 'invoke',
       messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
       maxTokens: req.maxTokens,
     }

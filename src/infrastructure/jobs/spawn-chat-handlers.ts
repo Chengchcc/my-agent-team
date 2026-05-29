@@ -44,17 +44,17 @@ export async function handleChatRequest(
   const startTime = Date.now()
   try {
     const resp = await chatComplete({
+      purpose: payload.purpose ?? '',
       messages: payload.messages ?? [],
       tools: payload.tools ?? [],
       maxTokens: payload.maxTokens,
     })
-    const hasToolCalls = resp.toolCalls && resp.toolCalls.length > 0
     void stdin.write(encodeFrame({
       v: 1, id: frame.id, kind: 'chat-resp', ts: Date.now(),
       payload: {
         content: resp.content,
         toolCalls: resp.toolCalls,
-        finishReason: hasToolCalls ? 'tool_calls' as const : 'stop' as const,
+        finishReason: resp.finishReason,
         usage: resp.usage,
       },
     }))

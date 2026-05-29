@@ -129,6 +129,7 @@ export class ClaudeAdapter implements ProviderAdapter {
   toInvokeWire(req: InvokeRequest): unknown {
     return this.toChatWire(
       {
+        purpose: 'internal',
         messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
         maxTokens: req.maxTokens,
         model: req.model,
@@ -195,6 +196,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       id: string
       model: string
       usage: { input_tokens: number; output_tokens: number }
+      stop_reason?: string
       content: Array<{
         type: string
         text?: string
@@ -214,10 +216,17 @@ export class ClaudeAdapter implements ProviderAdapter {
       arguments: b.input ?? {},
     }))
 
+    const finishReason: ChatResponse['finishReason'] =
+      msg.stop_reason === 'end_turn' ? 'stop'
+      : msg.stop_reason === 'max_tokens' ? 'length'
+      : msg.stop_reason === 'tool_use' ? 'tool_calls'
+      : 'stop'
+
     return {
       id: msg.id,
       content,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      finishReason,
       usage: {
         input: msg.usage.input_tokens,
         output: msg.usage.output_tokens,

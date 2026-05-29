@@ -1,6 +1,7 @@
 // Port interfaces for LLM provider abstraction — zero IO, zero adapter imports.
 
 interface ChatRequest {
+  purpose: string                    // mandatory — audit / quota / whitelist
   messages: Array<{ role: string; content: string }>
   tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
   systemPrompt?: string
@@ -14,6 +15,7 @@ interface ChatResponse {
   id: string
   content: string
   toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>
+  finishReason: 'stop' | 'length' | 'tool_calls' | 'content_filter'  // mandatory
   usage: { input: number; output: number }
   model: string
 }
