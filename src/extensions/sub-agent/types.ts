@@ -14,6 +14,7 @@ export interface SubAgentDescriptor {
 export interface SubAgentRunInput {
   type: string
   prompt: string
+  description: string
   parentSessionId: string
   parentTurnId: string
   parentCallId: string

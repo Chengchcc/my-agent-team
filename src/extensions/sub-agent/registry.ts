@@ -1,9 +1,19 @@
 import type { SubAgentDescriptor } from './types'
 
+const ALWAYS_FORBIDDEN_TOOLS = ['ask_user_question'] as const
+
 export class SubAgentRegistry {
   private descriptors = new Map<string, SubAgentDescriptor>()
 
   register(desc: SubAgentDescriptor): void {
+    for (const forbidden of ALWAYS_FORBIDDEN_TOOLS) {
+      if (desc.allowedToolNames.includes(forbidden)) {
+        throw new Error(
+          `Sub-agent "${desc.type}" cannot allow "${forbidden}" — ` +
+          `hand-off mode has no human loop`,
+        )
+      }
+    }
     const existing = this.descriptors.get(desc.type)
     if (existing) {
       if (existing.source === 'builtin') {

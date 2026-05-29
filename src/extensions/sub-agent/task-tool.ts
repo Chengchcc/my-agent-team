@@ -45,9 +45,13 @@ export function createTaskTool(deps: TaskToolDeps): Tool {
     },
 
     async execute(ctx: ToolContext, params: Record<string, unknown>): Promise<unknown> {
+      if (ctx.source?.kind === 'subagent') {
+        throw new Error('task tool cannot be called from inside a sub-agent')
+      }
       const result = await deps.runSubAgent({
         type: params.subagent_type as string,
         prompt: params.prompt as string,
+        description: params.description as string,
         parentSessionId: ctx.sessionId,
         parentTurnId: ctx.turnId,
         parentCallId: ctx.callId,
