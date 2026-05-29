@@ -6,7 +6,7 @@ export interface LlmMessage {
   role: string
   content: string
   tool_call_id?: string
-  tool_calls?: ToolCall[]
+  tool_calls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>
   isError?: boolean
 }
 
@@ -25,7 +25,7 @@ export interface ToolDescriptor {
 export interface ToolCall {
   id: string
   name: string
-  arguments: unknown
+  arguments: Record<string, unknown>
 }
 
 // ── Tool call record with result text (collected by usecase for history) ──

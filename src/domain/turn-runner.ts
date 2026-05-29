@@ -11,11 +11,11 @@ const LOG_TRUNCATE_CHARS = 200
 
 // ── Parse tool call arguments from provider chunk ──
 
-function parseToolArgs(args: unknown): unknown {
+function parseToolArgs(args: unknown): Record<string, unknown> {
   if (typeof args === 'string') {
-    try { return JSON.parse(args) } catch { return {} }
+    try { return JSON.parse(args) } catch { return {} as Record<string, unknown> }
   }
-  return args ?? {}
+  return (args ?? {}) as Record<string, unknown>
 }
 
 // ── Consume one LLM stream round, yielding deltas + collecting tool calls ──

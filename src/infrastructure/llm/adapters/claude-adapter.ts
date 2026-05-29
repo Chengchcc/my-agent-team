@@ -16,7 +16,7 @@ interface LlmMessage {
   role: string
   content: string
   tool_call_id?: string
-  tool_calls?: Array<{ id: string; name: string; arguments: unknown }>
+  tool_calls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>
   isError?: boolean
 }
 
