@@ -10,6 +10,9 @@ import type { JobContext } from '../../application/ports/job-spawner'
  *  invokeTimeoutMs to avoid races where both sides time out independently. */
 const WORKER_INVOKE_TIMEOUT_MS = 70_000
 
+/** Local chatComplete timeout in the worker. */
+const WORKER_CHAT_TIMEOUT_MS = 70_000
+
 /** Grace period after stdin EOF before the worker force-exits. */
 const STDIN_EOF_EXIT_DELAY_MS = 5_000
 
@@ -23,15 +26,17 @@ interface PendingEntry {
  * Run a job handler inside the spawn worker protocol.
  *
  * The handler receives the deserialized job from the parent's `init` frame
- * and a `JobContext` whose `invoke()` and `log()` calls are proxied over
- * stdout NDJSON frames. The parent process services `invoke-req` frames
- * by calling its own ProviderInvoke and writing `invoke-resp` back on stdin.
+ * and a `JobContext` whose `invoke()`, `chatComplete()`, and `log()` calls
+ * are proxied over stdout NDJSON frames. The parent process services
+ * `invoke-req` frames by calling its own ProviderInvoke and `chat-req`
+ * frames by calling its own ProviderChat.complete.
  */
 export async function runWorker(
   handler: (job: unknown, ctx: JobContext) => Promise<unknown>,
 ): Promise<void> {
   const decoder = new FrameDecoder()
   const pending = new Map<string, PendingEntry>()
+  const pendingChat = new Map<string, PendingEntry>()
   let initialised = false
   let exited = false
 
@@ -45,6 +50,11 @@ export async function runWorker(
       entry.reject(new Error(reason))
     }
     pending.clear()
+    for (const [, entry] of pendingChat) {
+      clearTimeout(entry.timer)
+      entry.reject(new Error(reason))
+    }
+    pendingChat.clear()
   }
 
   const ctx: JobContext = {
@@ -70,6 +80,21 @@ export async function runWorker(
           })
         },
       )
+    },
+    chatComplete: (req) => {
+      return new Promise((resolve, reject) => {
+        const id = crypto.randomUUID()
+        const timer = setTimeout(() => {
+          pendingChat.delete(id)
+          reject(new Error('worker chatComplete timeout'))
+        }, WORKER_CHAT_TIMEOUT_MS)
+        pendingChat.set(id, {
+          resolve: resolve as (v: unknown) => void,
+          reject: reject as (e: unknown) => void,
+          timer,
+        })
+        writeFrame({ v: 1, id, kind: 'chat-req', ts: Date.now(), payload: req })
+      })
     },
     log: (level, msg) => {
       writeFrame({
@@ -140,6 +165,31 @@ export async function runWorker(
           break
         }
 
+        case 'chat-resp': {
+          const entry = pendingChat.get(frame.id)
+          if (entry) {
+            clearTimeout(entry.timer)
+            pendingChat.delete(frame.id)
+            entry.resolve(frame.payload)
+          }
+          break
+        }
+
+        case 'chat-error': {
+          const entry = pendingChat.get(frame.id)
+          if (entry) {
+            clearTimeout(entry.timer)
+            pendingChat.delete(frame.id)
+            const payload = frame.payload as { code?: string; message?: string }
+            entry.reject(
+              new Error(
+                `chat error [${payload.code ?? 'UNKNOWN'}]: ${payload.message ?? 'no message'}`,
+              ),
+            )
+          }
+          break
+        }
+
         case 'error': {
           const entry = pending.get(frame.id)
           if (entry) {
@@ -147,6 +197,18 @@ export async function runWorker(
             pending.delete(frame.id)
             const payload = frame.payload as { code?: string; message?: string }
             entry.reject(
+              new Error(
+                `worker rpc error [${payload.code ?? 'UNKNOWN'}]: ${payload.message ?? 'no message'}`,
+              ),
+            )
+          }
+          // Also check pendingChat — an error frame might match a chat request
+          const chatEntry = pendingChat.get(frame.id)
+          if (chatEntry) {
+            clearTimeout(chatEntry.timer)
+            pendingChat.delete(frame.id)
+            const payload = frame.payload as { code?: string; message?: string }
+            chatEntry.reject(
               new Error(
                 `worker rpc error [${payload.code ?? 'UNKNOWN'}]: ${payload.message ?? 'no message'}`,
               ),
@@ -167,6 +229,9 @@ export async function runWorker(
         case 'invoke-req':
         case 'result':
         case 'log':
+        case 'chat-req':
+        case 'tool-call-req':
+        case 'tool-call-resp':
           break
       }
     }
