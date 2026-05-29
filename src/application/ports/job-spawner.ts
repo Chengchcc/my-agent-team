@@ -6,14 +6,31 @@ export interface InvokeFn {
   }): Promise<{ content: string; usage: { input: number; output: number } }>
 }
 
+export interface ChatCompleteRequest {
+  purpose: string
+  messages: Array<{ role: string; content: string }>
+  tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
+  maxTokens?: number
+  signal?: AbortSignal
+}
+
+export interface ChatCompleteResponse {
+  content: string
+  toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>
+  finishReason: 'stop' | 'length' | 'tool_calls' | 'content_filter'
+  usage: { input: number; output: number }
+}
+
 export interface JobContext {
   invoke: InvokeFn
+  chatComplete?: (req: ChatCompleteRequest) => Promise<ChatCompleteResponse>
+  dispatchTool?: (call: { name: string; arguments: Record<string, unknown>; callId: string }) => Promise<{ success: boolean; result?: unknown; error?: { code: string; message: string } }>
   log?: (level: 'info' | 'warn' | 'error', msg: string) => void
 }
 
 /**
  * Spawns a short-lived worker for LLM-heavy, one-shot tasks
- * (evolution review, memory extract). TJob and TResult must be
+ * (evolution review, memory extract, sub-agent run). TJob and TResult must be
  * JSON-safe — no Date, no Map, no circular references.
  */
 export interface JobSpawner {
