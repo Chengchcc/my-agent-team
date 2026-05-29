@@ -79,6 +79,8 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
   let toolCallCount = 0
   let finalText = ''
   const toolFailureCounts = new Map<string, number>()
+  let consecutiveEmptyRounds = 0
+  const MAX_EMPTY_ROUNDS = 2
 
   for (let round = 0; round < maxRounds; round++) {
     if (totalUsage.input + totalUsage.output > maxTotalTokens) {
@@ -112,6 +114,22 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
 
     totalUsage.input += resp.usage.input
     totalUsage.output += resp.usage.output
+
+    const isEmpty = !resp.content && (!resp.toolCalls || resp.toolCalls.length === 0)
+    if (isEmpty) {
+      consecutiveEmptyRounds++
+      if (consecutiveEmptyRounds >= MAX_EMPTY_ROUNDS) {
+        log('warn', `terminating after ${consecutiveEmptyRounds} consecutive empty rounds`)
+        return {
+          finalText: `<sub-agent-warning type="empty_rounds" rounds="${consecutiveEmptyRounds}"></sub-agent-warning>`,
+          usage: totalUsage, toolCallCount, rounds: round + 1,
+          finishReason: 'empty_rounds',
+        }
+      }
+      messages.push({ role: 'user', content: 'You produced no output. Either call a tool or output your final answer.' })
+      continue
+    }
+    consecutiveEmptyRounds = 0
 
     if (!resp.toolCalls || resp.toolCalls.length === 0) {
       finalText = resp.content
