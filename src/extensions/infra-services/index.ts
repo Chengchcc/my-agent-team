@@ -24,12 +24,13 @@ export default () =>
     enforce: 'post',
 
     apply: (ctx) => {
-      const providerInvoke = ctx.extensions.has('provider.llm')
+      const provider = ctx.extensions.has('provider.llm')
         ? ctx.extensions.get('provider.llm')
         : undefined
 
       const spawner = createJobSpawner({
-        invoke: providerInvoke,
+        invoke: provider as any,
+        chatComplete: provider ? (provider as any).complete?.bind(provider) : undefined,
         logger: ctx.logger,
       })
 
@@ -48,8 +49,8 @@ export default () =>
           'infra-services.skill-stats-store': () => stats,
           'infra-services.skill-meta-repo': () => meta,
           'infra-services.job-context-factory': () =>
-            providerInvoke
-              ? createJobContextFactory(providerInvoke, ctx.logger)
+            provider
+              ? createJobContextFactory(provider as any, ctx.logger)
               : undefined,
         },
         dispose: () => { db.close() },

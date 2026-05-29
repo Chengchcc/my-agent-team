@@ -3,7 +3,7 @@
 import type { JobSpawner } from '../../application/ports/job-spawner'
 import type { JobContext } from '../../application/ports/job-spawner'
 import type { Logger } from '../../application/ports/logger'
-import type { ProviderInvoke } from '../../application/ports/provider'
+import type { ProviderInvoke, ProviderChat } from '../../application/ports/provider'
 import { FrameDecoder, encodeFrame, type Frame } from './spawn-rpc/frame'
 
 /** Purposes that workers are allowed to request via invoke-req. */
@@ -14,7 +14,10 @@ const PURPOSE_WHITELIST = new Set([
   'memory.contradiction',
 ])
 
-/** Hard cap on serialised message size for invoke-req payloads. */
+/** Purposes that workers are allowed to request via chat-req (prefix match). */
+const CHAT_PURPOSE_PREFIXES = ['subagent.run.']
+
+/** Hard cap on serialised message size for invoke-req/chat-req payloads. */
 // eslint-disable-next-line @typescript-eslint/no-magic-numbers
 const MAX_MESSAGE_SIZE = 128 * 1024 // 128KB
 
@@ -29,11 +32,13 @@ interface SpawnConfig {
 /**
  * Spawns a short-lived Bun worker that communicates with the parent
  * via NDJSON bidirectional RPC over stdio. The worker can call back
- * into the parent's ProviderInvoke via invoke-req frames.
+ * into the parent's ProviderInvoke via invoke-req frames or
+ * ProviderChat via chat-req frames.
  */
 export class BunSpawnJobSpawner implements JobSpawner {
   constructor(
     private invoke: ProviderInvoke,
+    private chatComplete: ProviderChat['complete'],
     private logger: Logger,
     private cfg: SpawnConfig,
   ) {}
@@ -55,7 +60,7 @@ export class BunSpawnJobSpawner implements JobSpawner {
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'inherit',
-      env: { ...process.env, JOB_MODE: 'spawn' },
+      env: { ...process.env, JOB_MODE: 'spawn', JOB_WORKER_ENTRY: '1' },
     })
 
     this.logger.info('spawn', `worker started [${jobType}] pid=${child.pid}`, {
@@ -99,6 +104,15 @@ export class BunSpawnJobSpawner implements JobSpawner {
               case 'invoke-req':
                 await this.handleInvokeReq(frame, child.stdin, jobType, spawnId)
                 break
+              case 'chat-req':
+                await this.handleChatRequest(frame, child.stdin, jobType, spawnId)
+                break
+              case 'tool-call-req':
+                await this.handleToolCall(frame, child.stdin, opts.ctx, jobType, spawnId)
+                break
+              case 'progress':
+                this.relayProgress(frame, child.pid, jobType)
+                break
               case 'log':
                 this.relayLog(frame, child.pid, jobType)
                 break
@@ -114,6 +128,9 @@ export class BunSpawnJobSpawner implements JobSpawner {
               // Frames that should not arrive from the worker (parent→worker only).
               case 'init':
               case 'invoke-resp':
+              case 'chat-resp':
+              case 'chat-error':
+              case 'tool-call-resp':
               case 'shutdown':
                 break
             }
@@ -267,6 +284,104 @@ export class BunSpawnJobSpawner implements JobSpawner {
     }
   }
 
+  private async handleChatRequest(
+    frame: Frame,
+    stdin: { write: (d: Uint8Array | string) => number | Promise<number> },
+    jobType: string,
+    _spawnId: string,
+  ): Promise<void> {
+    const payload = frame.payload as {
+      purpose?: string
+      messages?: Array<{ role: string; content: string }>
+      tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
+      maxTokens?: number
+    }
+    const purpose = payload.purpose ?? ''
+
+    // Purpose whitelist — prefix match security boundary
+    if (!CHAT_PURPOSE_PREFIXES.some(p => purpose.startsWith(p))) {
+      void stdin.write(encodeFrame({
+        v: 1, id: frame.id, kind: 'chat-error', ts: Date.now(),
+        payload: { code: 'PURPOSE_NOT_ALLOWED', message: `purpose "${purpose}" not allowed for chat-req` },
+      }))
+      return
+    }
+
+    // Message size cap
+    const raw = JSON.stringify(payload.messages ?? [])
+    if (raw.length > MAX_MESSAGE_SIZE) {
+      void stdin.write(encodeFrame({
+        v: 1, id: frame.id, kind: 'chat-error', ts: Date.now(),
+        payload: { code: 'PROVIDER_FAIL', message: `messages exceed ${MAX_MESSAGE_SIZE} byte limit` },
+      }))
+      return
+    }
+
+    const startTime = Date.now()
+    try {
+      const resp = await this.chatComplete({
+        messages: payload.messages ?? [],
+        tools: payload.tools ?? [],
+        maxTokens: payload.maxTokens,
+      })
+      const hasToolCalls = resp.toolCalls && resp.toolCalls.length > 0
+      void stdin.write(encodeFrame({
+        v: 1, id: frame.id, kind: 'chat-resp', ts: Date.now(),
+        payload: {
+          content: resp.content,
+          toolCalls: resp.toolCalls,
+          finishReason: hasToolCalls ? 'tool_calls' as const : 'stop' as const,
+          usage: resp.usage,
+        },
+      }))
+      const latencyMs = Date.now() - startTime
+      this.logger.info('spawn', `chat ok [${jobType}] purpose=${purpose} latency=${latencyMs}ms`, { jobType, purpose, latencyMs })
+    } catch (err) {
+      void stdin.write(encodeFrame({
+        v: 1, id: frame.id, kind: 'chat-error', ts: Date.now(),
+        payload: { code: 'PROVIDER_FAIL', message: err instanceof Error ? err.message : String(err) },
+      }))
+    }
+  }
+
+  private async handleToolCall(
+    frame: Frame,
+    stdin: { write: (d: Uint8Array | string) => number | Promise<number> },
+    ctx: JobContext,
+    _jobType: string,
+    _spawnId: string,
+  ): Promise<void> {
+    const payload = frame.payload as { name?: string; arguments?: Record<string, unknown>; callId?: string }
+    if (!ctx.dispatchTool) {
+      void stdin.write(encodeFrame({
+        v: 1, id: frame.id, kind: 'tool-call-resp', ts: Date.now(),
+        payload: { success: false, error: { code: 'TOOL_NOT_ALLOWED', message: 'tool dispatch not enabled for this worker' } },
+      }))
+      return
+    }
+    try {
+      const result = await ctx.dispatchTool({
+        name: payload.name ?? '',
+        arguments: payload.arguments ?? {},
+        callId: payload.callId ?? '',
+      })
+      void stdin.write(encodeFrame({
+        v: 1, id: frame.id, kind: 'tool-call-resp', ts: Date.now(),
+        payload: result,
+      }))
+    } catch (err) {
+      void stdin.write(encodeFrame({
+        v: 1, id: frame.id, kind: 'tool-call-resp', ts: Date.now(),
+        payload: { success: false, error: { code: 'TOOL_EXEC_FAIL', message: err instanceof Error ? err.message : String(err) } },
+      }))
+    }
+  }
+
+  private relayProgress(frame: Frame, pid: number, jobType: string): void {
+    const payload = frame.payload as { kind?: string; data?: Record<string, unknown> }
+    this.logger.info('spawn', `[worker ${jobType} pid=${pid}] progress: ${payload.kind ?? 'unknown'}`, { jobType, pid, ...payload.data })
+  }
+
   private relayLog(frame: Frame, pid: number, jobType: string): void {
     const payload = frame.payload as { level?: string; msg?: string }
     const msg = payload.msg ?? ''
@@ -316,6 +431,7 @@ export class BunSpawnJobSpawner implements JobSpawner {
   }
 
   private inferJobType(entry: string): string {
+    if (entry.includes('worker-entry-subagent')) return 'sub-agent'
     if (entry.includes('worker-entry')) return 'evolution.review'
     if (entry.includes('extract-worker')) return 'memory.extract'
     return 'unknown'
