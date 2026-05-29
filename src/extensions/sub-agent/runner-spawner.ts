@@ -5,6 +5,7 @@ import type { Logger } from '../../application/ports/logger'
 import type { ContractBus } from '../../application/event-bus/contract-bus'
 import type { SubAgentRegistry } from './registry'
 import type { ToolContext, ToolCallSource } from '../../application/ports/tool-context'
+import type { SubAgentErrorType } from '../../application/contracts/subagent-events'
 import { generateULID } from '../../shared/ulid'
 import { createToolSink } from '../../application/dispatch'
 
@@ -16,6 +17,7 @@ export interface SpawnerRunnerDeps {
   bus: ContractBus
   logger: Logger
   agentDir: string
+  resolveModel?: (hint: 'fast' | 'strong' | undefined) => string | undefined
 }
 
 const MAX_CONCURRENT_SUBAGENTS_PER_TURN = 3
@@ -24,6 +26,21 @@ const DEFAULT_SUBAGENT_LIFETIME_MS = 120_000
 function escapeXmlAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\n/g, '&#10;').replace(/\r/g, '&#13;').replace(/\t/g, '&#9;')
+}
+
+function mapFinishReasonToErrorType(fr: string): SubAgentErrorType | undefined {
+  switch (fr) {
+    case 'length': return 'response_truncated'
+    case 'content_filter': return 'response_filtered'
+    case 'tool_calls': case 'inconsistent': return 'provider_inconsistent'
+    case 'budget': return 'budget'
+    case 'tool_failed': return 'tool_failed'
+    case 'tool_unavailable': return 'tool_unavailable'
+    case 'max_rounds': return 'max_rounds'
+    case 'empty': return 'empty_response'
+    case 'error': return 'llm_failed'
+    default: return undefined
+  }
 }
 
 function buildToolSchemas(catalog: ToolCatalog, desc: { allowedToolNames: readonly string[] }) {
@@ -37,7 +54,6 @@ function buildToolSchemas(catalog: ToolCatalog, desc: { allowedToolNames: readon
 }
 
 export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRunner {
-  // Per-instance counter — was module-level, now closure-scoped (Q2, P0-3)
   const concurrentByTurn = new Map<string, number>()
 
   function tryAcquire(turnId: string): boolean {
@@ -67,19 +83,21 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
 
     const subSessionId = `sub:${input.parentTurnId}:${generateULID()}`
     const subTurnId = `${input.parentTurnId}#sub-${input.parentCallId}`
+    const startedAt = Date.now()
+    const model = deps.resolveModel?.(desc.modelHint)
 
-    let startEmitted = false
+    // R-2: best-effort emit, no try/catch
+    deps.bus.emit('subagent.started', {
+      parentTurnId: input.parentTurnId,
+      parentSessionId: input.parentSessionId,
+      subSessionId,
+      type: input.type,
+      description: input.description,
+      callId: input.parentCallId,
+      ts: startedAt,
+    })
+
     try {
-      try {
-        void deps.bus.emit('subagent.started', {
-          parentTurnId: input.parentTurnId, parentSessionId: input.parentSessionId,
-          type: input.type, subSessionId, callId: input.parentCallId, ts: Date.now(),
-        })
-        startEmitted = true
-      } catch (err) {
-        deps.logger.warn('sub-agent', `subagent.started emit failed: ${String(err)}`)
-      }
-
       const result = await deps.spawner.run({
         entry: require.resolve('./worker-entry-subagent'),
         job: {
@@ -95,8 +113,12 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
           invoke: async () => {
             return { content: '', usage: { input: 0, output: 0 } }
           },
-          chatComplete: async (req) => deps.chatComplete({ ...req, signal: input.parentSignal }),
+          chatComplete: async (req) => deps.chatComplete({ ...req, model: req.model ?? model, signal: input.parentSignal }),
           dispatchTool: async (call) => {
+            // S-2 gate: reject nested task tool
+            if (call.name === 'task') {
+              return { success: false, error: { code: 'TOOL_NOT_ALLOWED' as const, message: 'sub-agent cannot dispatch task tool (no nested sub-agents)' } }
+            }
             if (!desc.allowedToolNames.includes(call.name)) {
               return { success: false, error: { code: 'TOOL_NOT_ALLOWED' as const, message: `tool "${call.name}" not in allowedToolNames` } }
             }
@@ -105,13 +127,19 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
               return { success: false, error: { code: 'TOOL_NOT_FOUND' as const, message: `tool "${call.name}" not found` } }
             }
             try {
-              const source: ToolCallSource = { kind: 'subagent', subAgentType: input.type, subAgentCallId: input.parentCallId }
+              const source: ToolCallSource = {
+                kind: 'subagent',
+                subAgentType: input.type,
+                subAgentCallId: input.parentCallId,
+                parentSessionId: input.parentSessionId,
+                parentTurnId: input.parentTurnId,
+              }
               const tctx: ToolContext = {
                 signal: input.parentSignal,
                 environment: { cwd: deps.agentDir },
                 sink: createToolSink() as unknown as ToolContext['sink'],
-                sessionId: input.parentSessionId,
-                turnId: input.parentTurnId,
+                sessionId: subSessionId,
+                turnId: subTurnId,
                 callId: call.callId,
                 source,
               }
@@ -128,31 +156,41 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
       })
 
       const typed = result as unknown as { usage: { input: number; output: number }; finalText: string; finishReason: string }
-      if (startEmitted) {
-        try {
-          void deps.bus.emit('subagent.completed', {
-            parentTurnId: input.parentTurnId, type: input.type, subSessionId,
-            callId: input.parentCallId, ok: true,
-            usage: typed.usage, finalText: typed.finalText,
-            finishReason: typed.finishReason, ts: Date.now(),
-          })
-        } catch { /* best-effort */ }
-      }
+      deps.bus.emit('subagent.completed', {
+        parentTurnId: input.parentTurnId,
+        parentSessionId: input.parentSessionId,
+        subSessionId,
+        type: input.type,
+        callId: input.parentCallId,
+        ok: true,
+        usage: typed.usage,
+        finalText: typed.finalText,
+        finishReason: typed.finishReason,
+        durationMs: Date.now() - startedAt,
+        ts: Date.now(),
+      })
       return typed.finalText
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      const tag = (err instanceof Error && err.name === 'AbortError') ? 'cancelled' : 'failed'
+      const isAbort = err instanceof Error && err.name === 'AbortError'
+      const tag = isAbort ? 'cancelled' : 'failed'
       deps.logger.warn('sub-agent', `worker ${tag} [${input.type}]: ${msg}`)
-      if (startEmitted) {
-        try {
-          void deps.bus.emit('subagent.completed', {
-            parentTurnId: input.parentTurnId, type: input.type, subSessionId,
-            callId: input.parentCallId, ok: false,
-            usage: { input: 0, output: 0 }, finalText: '',
-            finishReason: tag, ts: Date.now(),
-          })
-        } catch { /* best-effort */ }
-      }
+
+      const errorType: SubAgentErrorType = isAbort ? 'cancelled' : 'failed'
+
+      deps.bus.emit('subagent.completed', {
+        parentTurnId: input.parentTurnId,
+        parentSessionId: input.parentSessionId,
+        subSessionId,
+        type: input.type,
+        callId: input.parentCallId,
+        ok: false,
+        usage: { input: 0, output: 0 },
+        errorType,
+        errorMessage: msg,
+        durationMs: Date.now() - startedAt,
+        ts: Date.now(),
+      })
       return `<sub-agent-error type="${tag}" reason="${escapeXmlAttr(msg)}" />`
     } finally {
       release(input.parentTurnId)
