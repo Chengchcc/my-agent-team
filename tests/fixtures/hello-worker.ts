@@ -3,7 +3,7 @@ export async function handle(job: { name: string }): Promise<{ greeting: string 
 }
 
 // Standalone entry (called by BunSpawnJobSpawner)
-if (process.env.JOB_MODE === 'spawn') {
+if (process.env.JOB_MODE === 'spawn' && process.env.JOB_WORKER_ENTRY === '1') {
   const chunks: Buffer[] = []
   process.stdin.on('data', (chunk: Buffer) => chunks.push(chunk))
   process.stdin.on('end', async () => {

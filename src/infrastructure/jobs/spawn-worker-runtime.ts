@@ -1,13 +1,23 @@
-// Worker-side runtime helper for the spawn LLM bridge.
-// Workers that want to participate in the stdio NDJSON RPC protocol
-// wrap their `handle()` call in `runWorker()` instead of hand-writing
-// the protocol.
+/**
+ * Worker-side runtime helper for the spawn LLM bridge.
+ * Workers that want to participate in the stdio NDJSON RPC protocol
+ * wrap their `handle()` call in `runWorker()` instead of hand-writing
+ * the protocol.
+ *
+ * @worker-runtime
+ * This module is statically imported by all worker entries.
+ * MUST NOT execute side effects at top level (no process.stdin access,
+ * no console.log, no connection setup). All runtime behavior must be
+ * inside runWorker() or later.
+ */
 
 import { FrameDecoder, encodeFrame, type Frame } from './spawn-rpc/frame'
 import type { JobContext } from '../../application/ports/job-spawner'
+import { WorkerRpcError, type WorkerRpcCode } from './spawn-rpc/errors'
 
 const WORKER_INVOKE_TIMEOUT_MS = 70_000
 const WORKER_CHAT_TIMEOUT_MS = 70_000
+const WORKER_TOOL_TIMEOUT_MS = 60_000
 const STDIN_EOF_EXIT_DELAY_MS = 5_000
 
 interface PendingEntry {
@@ -19,20 +29,23 @@ interface PendingEntry {
 interface WorkerState {
   pending: Map<string, PendingEntry>
   pendingChat: Map<string, PendingEntry>
+  pendingTool: Map<string, PendingEntry>
   initialised: boolean
   exited: boolean
+  fatal: WorkerRpcError | null
   writeFrame: (f: Frame) => void
 }
 
 function createWorkerContext(state: WorkerState): JobContext {
   return {
     invoke: (req) => {
+      if (state.fatal) throw state.fatal
       return new Promise<{ content: string; usage: { input: number; output: number } }>(
         (resolve, reject) => {
           const id = crypto.randomUUID()
           const timer = setTimeout(() => {
             state.pending.delete(id)
-            reject(new Error('worker invoke timeout'))
+            reject(new WorkerRpcError('TIMEOUT', 'worker invoke timeout', id))
           }, WORKER_INVOKE_TIMEOUT_MS)
           state.pending.set(id, {
             resolve: resolve as (v: unknown) => void,
@@ -44,11 +57,12 @@ function createWorkerContext(state: WorkerState): JobContext {
       )
     },
     chatComplete: (req) => {
+      if (state.fatal) throw state.fatal
       return new Promise((resolve, reject) => {
         const id = crypto.randomUUID()
         const timer = setTimeout(() => {
           state.pendingChat.delete(id)
-          reject(new Error('worker chatComplete timeout'))
+          reject(new WorkerRpcError('TIMEOUT', 'worker chatComplete timeout', id))
         }, WORKER_CHAT_TIMEOUT_MS)
         state.pendingChat.set(id, {
           resolve: resolve as (v: unknown) => void,
@@ -57,6 +71,24 @@ function createWorkerContext(state: WorkerState): JobContext {
         })
         state.writeFrame({ v: 1, id, kind: 'chat-req', ts: Date.now(), payload: req })
       })
+    },
+    dispatchTool: (call) => {
+      if (state.fatal) throw state.fatal
+      return new Promise<{ success: boolean; result?: unknown; error?: { code: string; message: string } }>(
+        (resolve, reject) => {
+          const id = crypto.randomUUID()
+          const timer = setTimeout(() => {
+            state.pendingTool.delete(id)
+            reject(new WorkerRpcError('TOOL_TIMEOUT', 'worker dispatchTool timeout', id))
+          }, WORKER_TOOL_TIMEOUT_MS)
+          state.pendingTool.set(id, {
+            resolve: resolve as (v: unknown) => void,
+            reject: reject as (e: unknown) => void,
+            timer,
+          })
+          state.writeFrame({ v: 1, id, kind: 'tool-call-req', ts: Date.now(), payload: call })
+        },
+      )
     },
     log: (level, msg) => {
       state.writeFrame({
@@ -67,16 +99,13 @@ function createWorkerContext(state: WorkerState): JobContext {
 }
 
 function cancelAllPending(state: WorkerState, reason: string): void {
-  for (const [, entry] of state.pending) {
-    clearTimeout(entry.timer)
-    entry.reject(new Error(reason))
+  for (const m of [state.pending, state.pendingChat, state.pendingTool]) {
+    for (const [, entry] of m) {
+      clearTimeout(entry.timer)
+      entry.reject(new WorkerRpcError('WORKER_FATAL', reason))
+    }
+    m.clear()
   }
-  state.pending.clear()
-  for (const [, entry] of state.pendingChat) {
-    clearTimeout(entry.timer)
-    entry.reject(new Error(reason))
-  }
-  state.pendingChat.clear()
 }
 
 function resolvePending(map: Map<string, PendingEntry>, frame: Frame): void {
@@ -84,12 +113,13 @@ function resolvePending(map: Map<string, PendingEntry>, frame: Frame): void {
   if (entry) { clearTimeout(entry.timer); map.delete(frame.id); entry.resolve(frame.payload) }
 }
 
-function rejectPending(map: Map<string, PendingEntry>, frame: Frame, prefix: string): void {
+function rejectPending(map: Map<string, PendingEntry>, frame: Frame, code: WorkerRpcCode): void {
   const entry = map.get(frame.id)
   if (entry) {
-    clearTimeout(entry.timer); map.delete(frame.id)
-    const p = frame.payload as { code?: string; message?: string }
-    entry.reject(new Error(`${prefix} error [${p.code ?? 'UNKNOWN'}]: ${p.message ?? 'no message'}`))
+    clearTimeout(entry.timer)
+    map.delete(frame.id)
+    const p = frame.payload as { message?: string }
+    entry.reject(new WorkerRpcError(code, p.message ?? 'no message', frame.id))
   }
 }
 
@@ -115,18 +145,32 @@ function makeHandleData(
           resolvePending(state.pendingChat, frame)
           break
 
+        case 'tool-call-resp':
+          resolvePending(state.pendingTool, frame)
+          break
+
         case 'chat-error':
-          rejectPending(state.pendingChat, frame, 'chat')
+          rejectPending(state.pendingChat, frame, 'PROVIDER_ERROR')
           break
 
         case 'error': {
+          const p = frame.payload as { code?: WorkerRpcCode; message?: string }
+          const code = p.code ?? 'UNKNOWN'
+          const err = new WorkerRpcError(code, p.message ?? 'no message', frame.id)
+
+          // Reject trigger entry only (invoke or chat — NOT tool)
           const entry = state.pending.get(frame.id) ?? state.pendingChat.get(frame.id)
-          if (entry) {
-            clearTimeout(entry.timer)
-            state.pending.delete(frame.id); state.pendingChat.delete(frame.id)
-            const p = frame.payload as { code?: string; message?: string }
-            entry.reject(new Error(`worker rpc error [${p.code ?? 'UNKNOWN'}]: ${p.message ?? 'no message'}`))
+          if (entry) { clearTimeout(entry.timer); entry.reject(err) }
+          state.pending.delete(frame.id); state.pendingChat.delete(frame.id)
+
+          // Reject ALL pending tool calls (they'll never get a response)
+          for (const [id, tool] of state.pendingTool) {
+            clearTimeout(tool.timer)
+            tool.reject(new WorkerRpcError('WORKER_FATAL', `Worker entered fatal state: ${err.message}`, id))
           }
+          state.pendingTool.clear()
+
+          state.fatal = err
           break
         }
 
@@ -144,7 +188,6 @@ function makeHandleData(
         case 'log':
         case 'chat-req':
         case 'tool-call-req':
-        case 'tool-call-resp':
         case 'progress':
           break
       }
@@ -160,8 +203,8 @@ export async function runWorker(
 ): Promise<void> {
   const decoder = new FrameDecoder()
   const state: WorkerState = {
-    pending: new Map(), pendingChat: new Map(),
-    initialised: false, exited: false,
+    pending: new Map(), pendingChat: new Map(), pendingTool: new Map(),
+    initialised: false, exited: false, fatal: null,
     writeFrame: (f: Frame) => { process.stdout.write(encodeFrame(f)) },
   }
 

@@ -284,7 +284,7 @@ export class BunSpawnJobSpawner implements JobSpawner {
     jobType: string,
     _spawnId: string,
   ): Promise<void> {
-    return handleChatRequest(frame, stdin, jobType, _spawnId, this.chatComplete, this.logger)
+    return handleChatRequest(frame, stdin, jobType, _spawnId, this.chatComplete, this.logger, this.cfg.invokeTimeoutMs)
   }
 
   private async handleToolCall(

@@ -1,5 +1,6 @@
 import type { SubAgentDescriptor } from './types'
 import type { ChatCompleteRequest, ChatCompleteResponse } from '../../application/ports/job-spawner'
+import { WorkerRpcError } from '../../infrastructure/jobs/spawn-rpc/errors'
 
 export type ToolCallHandler = (call: {
   name: string
@@ -42,11 +43,18 @@ function escapeXml(s: string): string {
 }
 
 function classifyLlmError(err: unknown): LlmFailureReason {
+  if (err instanceof WorkerRpcError) {
+    switch (err.code) {
+      case 'RATE_LIMITED': return 'rate_limit'
+      case 'TIMEOUT': return 'network'
+      case 'PURPOSE_NOT_ALLOWED': return 'auth'
+      case 'WORKER_FATAL': case 'PROTOCOL_VIOLATION': return 'unknown'
+      default: return 'unknown'
+    }
+  }
   const msg = err instanceof Error ? err.message : String(err)
-  if (/rate.limit|429|quota/i.test(msg)) return 'rate_limit'
-  if (/unauthorized|401|403|auth/i.test(msg)) return 'auth'
-  if (/network|timeout|ECONN|ETIMEDOUT/i.test(msg)) return 'network'
-  if (/parse|invalid|unexpected/i.test(msg)) return 'invalid_response'
+  if (/rate.limit|429/i.test(msg)) return 'rate_limit'
+  if (/timeout|TIMEOUT/i.test(msg)) return 'network'
   return 'unknown'
 }
 
@@ -114,8 +122,11 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
             usage: totalUsage, toolCallCount, rounds: round + 1, finishReason: 'content_filter',
           }
         case 'tool_calls':
-          // Not reachable — this branch only entered when toolCalls is empty
-          return { finalText: '', usage: totalUsage, toolCallCount, rounds: round + 1, finishReason: 'tool_calls' }
+          log('warn', 'provider returned finishReason=tool_calls but no toolCalls in response')
+          return {
+            finalText: '<sub-agent-error type="provider_inconsistent" reason="finishReason=tool_calls but no toolCalls"></sub-agent-error>',
+            usage: totalUsage, toolCallCount, rounds: round + 1, finishReason: 'inconsistent',
+          }
         default:
           if (!finalText) {
             return {

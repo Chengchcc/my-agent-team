@@ -20,10 +20,10 @@ export interface SpawnerRunnerDeps {
 
 const MAX_CONCURRENT_SUBAGENTS_PER_TURN = 3
 const DEFAULT_SUBAGENT_LIFETIME_MS = 120_000
-const concurrentByTurn = new Map<string, number>()
 
 function escapeXmlAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\n/g, '&#10;').replace(/\r/g, '&#13;').replace(/\t/g, '&#9;')
 }
 
 function buildToolSchemas(catalog: ToolCatalog, desc: { allowedToolNames: readonly string[] }) {
@@ -37,6 +37,22 @@ function buildToolSchemas(catalog: ToolCatalog, desc: { allowedToolNames: readon
 }
 
 export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRunner {
+  // Per-instance counter — was module-level, now closure-scoped (Q2, P0-3)
+  const concurrentByTurn = new Map<string, number>()
+
+  function tryAcquire(turnId: string): boolean {
+    const count = concurrentByTurn.get(turnId) ?? 0
+    if (count >= MAX_CONCURRENT_SUBAGENTS_PER_TURN) return false
+    concurrentByTurn.set(turnId, count + 1)
+    return true
+  }
+
+  function release(turnId: string): void {
+    const c = concurrentByTurn.get(turnId) ?? 1
+    if (c <= 1) concurrentByTurn.delete(turnId)
+    else concurrentByTurn.set(turnId, c - 1)
+  }
+
   return async (input: SubAgentRunInput): Promise<string> => {
     const desc = deps.registry.get(input.type)
     if (!desc) {
@@ -44,22 +60,26 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
       return `<sub-agent-error type="unknown_subagent_type" reason="${escapeXmlAttr(input.type)}" available="${escapeXmlAttr(available)}" />`
     }
 
-    const count = concurrentByTurn.get(input.parentTurnId) ?? 0
-    if (count >= MAX_CONCURRENT_SUBAGENTS_PER_TURN) {
+    if (!tryAcquire(input.parentTurnId)) {
       deps.logger.warn('sub-agent', `concurrency cap reached for turn ${input.parentTurnId}`)
       return `<sub-agent-error type="busy" reason="too many concurrent sub-agents (max ${MAX_CONCURRENT_SUBAGENTS_PER_TURN})" />`
     }
-    concurrentByTurn.set(input.parentTurnId, count + 1)
 
     const subSessionId = `sub:${input.parentTurnId}:${generateULID()}`
     const subTurnId = `${input.parentTurnId}#sub-${input.parentCallId}`
 
-    void deps.bus.emit('subagent.started', {
-      parentTurnId: input.parentTurnId, parentSessionId: input.parentSessionId,
-      type: input.type, subSessionId, callId: input.parentCallId, ts: Date.now(),
-    })
-
+    let startEmitted = false
     try {
+      try {
+        void deps.bus.emit('subagent.started', {
+          parentTurnId: input.parentTurnId, parentSessionId: input.parentSessionId,
+          type: input.type, subSessionId, callId: input.parentCallId, ts: Date.now(),
+        })
+        startEmitted = true
+      } catch (err) {
+        deps.logger.warn('sub-agent', `subagent.started emit failed: ${String(err)}`)
+      }
+
       const result = await deps.spawner.run({
         entry: require.resolve('./worker-entry-subagent'),
         job: {
@@ -108,25 +128,34 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
       })
 
       const typed = result as unknown as { usage: { input: number; output: number }; finalText: string; finishReason: string }
-      void deps.bus.emit('subagent.completed', {
-        parentTurnId: input.parentTurnId, type: input.type, subSessionId,
-        callId: input.parentCallId, ok: true,
-        usage: typed.usage, finalText: typed.finalText,
-        finishReason: typed.finishReason, ts: Date.now(),
-      })
+      if (startEmitted) {
+        try {
+          void deps.bus.emit('subagent.completed', {
+            parentTurnId: input.parentTurnId, type: input.type, subSessionId,
+            callId: input.parentCallId, ok: true,
+            usage: typed.usage, finalText: typed.finalText,
+            finishReason: typed.finishReason, ts: Date.now(),
+          })
+        } catch { /* best-effort */ }
+      }
       return typed.finalText
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       const tag = (err instanceof Error && err.name === 'AbortError') ? 'cancelled' : 'failed'
       deps.logger.warn('sub-agent', `worker ${tag} [${input.type}]: ${msg}`)
+      if (startEmitted) {
+        try {
+          void deps.bus.emit('subagent.completed', {
+            parentTurnId: input.parentTurnId, type: input.type, subSessionId,
+            callId: input.parentCallId, ok: false,
+            usage: { input: 0, output: 0 }, finalText: '',
+            finishReason: tag, ts: Date.now(),
+          })
+        } catch { /* best-effort */ }
+      }
       return `<sub-agent-error type="${tag}" reason="${escapeXmlAttr(msg)}" />`
     } finally {
-      const c = concurrentByTurn.get(input.parentTurnId) ?? 1
-      if (c <= 1) {
-        concurrentByTurn.delete(input.parentTurnId)
-      } else {
-        concurrentByTurn.set(input.parentTurnId, c - 1)
-      }
+      release(input.parentTurnId)
     }
   }
 }

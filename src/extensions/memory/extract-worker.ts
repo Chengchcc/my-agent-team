@@ -1,6 +1,7 @@
 import type { ExtractJob, ExtractResult, MemoryCandidate } from './types'
 import type { JobContext } from '../../application/ports/job-spawner'
 import { buildExtractPrompt } from './extract-prompt'
+import { runWorker } from '../../infrastructure/jobs/spawn-worker-runtime'
 
 const DEFAULT_WEIGHT = 1
 
@@ -39,9 +40,8 @@ export function parseCandidates(raw: string): MemoryCandidate[] {
   return out
 }
 
-if (process.env.JOB_MODE === 'spawn') {
-  import('../../infrastructure/jobs/spawn-worker-runtime')
-    .then(({ runWorker }) => runWorker((job, ctx) => handle(job as ExtractJob, ctx)))
+if (process.env.JOB_MODE === 'spawn' && process.env.JOB_WORKER_ENTRY === '1') {
+  runWorker((job, ctx) => handle(job as ExtractJob, ctx))
     .catch((err: unknown) => {
       process.stderr.write(`runWorker failed: ${String(err)}\n`)
       process.exit(1)

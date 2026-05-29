@@ -9,30 +9,30 @@ interface TaskToolDeps {
 }
 
 export function createTaskTool(deps: TaskToolDeps): Tool {
-  const schema: Record<string, unknown> = {
-    type: 'object',
-    properties: {
-      subagent_type: {
-        type: 'string',
-        enum: deps.registry.list().map(d => d.type),
-        description: 'Type of sub-agent to invoke.',
-      },
-      description: {
-        type: 'string',
-        description: 'Short description of the sub-task (one sentence).',
-      },
-      prompt: {
-        type: 'string',
-        description: 'Full prompt for the sub-agent. Include all necessary context.',
-      },
-    },
-    required: ['subagent_type', 'description', 'prompt'],
-  }
-
   return {
     name: 'task',
     description: 'Delegate a self-contained sub-task to a sub-agent. Use when context-isolated investigation or planning helps.',
-    parameters: schema,
+    get parameters(): Record<string, unknown> {
+      return {
+        type: 'object',
+        properties: {
+          subagent_type: {
+            type: 'string',
+            enum: deps.registry.list().map(d => d.type),
+            description: 'Type of sub-agent to invoke.',
+          },
+          description: {
+            type: 'string',
+            description: 'Short description of the sub-task (one sentence).',
+          },
+          prompt: {
+            type: 'string',
+            description: 'Full prompt for the sub-agent. Include all necessary context.',
+          },
+        },
+        required: ['subagent_type', 'description', 'prompt'],
+      }
+    },
     readonly: false,
     renderHint: 'widget' as const,
 

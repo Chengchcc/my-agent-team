@@ -15,6 +15,7 @@ export async function handleChatRequest(
   _spawnId: string,
   chatComplete: ProviderChat['complete'],
   logger: Logger,
+  chatTimeoutMs: number,
 ): Promise<void> {
   const payload = frame.payload as {
     purpose?: string
@@ -42,13 +43,24 @@ export async function handleChatRequest(
   }
 
   const startTime = Date.now()
+  const abortController = new AbortController()
+  const timer = setTimeout(() => {
+    abortController.abort()
+    void stdin.write(encodeFrame({
+      v: 1, id: frame.id, kind: 'chat-error', ts: Date.now(),
+      payload: { code: 'TIMEOUT', message: `chat timeout after ${chatTimeoutMs}ms` },
+    }))
+  }, chatTimeoutMs)
+
   try {
     const resp = await chatComplete({
       purpose: payload.purpose ?? '',
       messages: payload.messages ?? [],
       tools: payload.tools ?? [],
       maxTokens: payload.maxTokens,
+      signal: abortController.signal,
     })
+    clearTimeout(timer)
     void stdin.write(encodeFrame({
       v: 1, id: frame.id, kind: 'chat-resp', ts: Date.now(),
       payload: {
@@ -61,6 +73,7 @@ export async function handleChatRequest(
     const latencyMs = Date.now() - startTime
     logger.info('spawn', `chat ok [${jobType}] purpose=${purpose} latency=${latencyMs}ms`, { jobType, purpose, latencyMs })
   } catch (err) {
+    clearTimeout(timer)
     void stdin.write(encodeFrame({
       v: 1, id: frame.id, kind: 'chat-error', ts: Date.now(),
       payload: { code: 'PROVIDER_FAIL', message: err instanceof Error ? err.message : String(err) },

@@ -2,6 +2,7 @@ import type { ReviewJob, ReviewResult } from './types'
 import type { JobContext } from '../../application/ports/job-spawner'
 import { buildPrompt } from './prompt-templates'
 import { parseVerdict } from './parse-verdict'
+import { runWorker } from '../../infrastructure/jobs/spawn-worker-runtime'
 
 export async function handle(job: ReviewJob, ctx: JobContext): Promise<ReviewResult> {
   const prompt = buildPrompt(job)
@@ -19,9 +20,8 @@ export async function handle(job: ReviewJob, ctx: JobContext): Promise<ReviewRes
   }
 }
 
-if (process.env.JOB_MODE === 'spawn') {
-  import('../../infrastructure/jobs/spawn-worker-runtime')
-    .then(({ runWorker }) => runWorker((job, ctx) => handle(job as ReviewJob, ctx)))
+if (process.env.JOB_MODE === 'spawn' && process.env.JOB_WORKER_ENTRY === '1') {
+  runWorker((job, ctx) => handle(job as ReviewJob, ctx))
     .catch((err: unknown) => {
       process.stderr.write(`runWorker failed: ${String(err)}\n`)
       process.exit(1)
