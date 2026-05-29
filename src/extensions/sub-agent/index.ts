@@ -48,7 +48,7 @@ export default () =>
               frontendId: 'sub-agent',
               kind: 'sub-agent',
               allowedToolNames: desc.allowedToolNames.filter(n => n !== 'task'),
-              maxOutputTokens: desc.maxOutputTokens,
+              maxOutputTokens: desc.maxTokensPerCall,
               compaction: 'disabled',
               abortSignal: input.parentSignal,
               initialMessages: [

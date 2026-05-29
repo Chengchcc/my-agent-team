@@ -34,7 +34,7 @@ export function registerBuiltins(registry: SubAgentRegistry): void {
     systemPrompt: 'You are a codebase explorer. Investigate the codebase and answer questions. DO NOT modify any files. DO NOT run bash commands that write. Cite exact file paths and line numbers in your answers. Use read/grep/glob/ls to explore. Output findings concisely.',
     allowedToolNames: ['read', 'grep', 'glob', 'ls', 'web_search', 'web_fetch'],
     maxRounds: 8,
-    maxOutputTokens: 4096,
+    maxTokensPerCall: 4096,
     modelHint: 'fast',
     source: 'builtin',
   })
@@ -45,7 +45,7 @@ export function registerBuiltins(registry: SubAgentRegistry): void {
     systemPrompt: 'You are a planning assistant. Given a task description, produce a numbered list of implementation steps. For each step, include: (1) what files to create or modify, (2) what the change achieves, (3) acceptance criteria. Do NOT modify files. Do NOT call todo_write. Output your plan in structured markdown.',
     allowedToolNames: ['read', 'grep', 'glob', 'ls'],
     maxRounds: 5,
-    maxOutputTokens: 8192,
+    maxTokensPerCall: 8192,
     modelHint: 'fast',
     source: 'builtin',
   })
@@ -56,7 +56,7 @@ export function registerBuiltins(registry: SubAgentRegistry): void {
     systemPrompt: 'You are a sub-agent. Complete the assigned task autonomously. You may search, read, and make changes within scope. Report what you did concisely. Do NOT ask the user questions — work independently and return results.',
     allowedToolNames: ['read', 'grep', 'glob', 'ls', 'bash', 'text_editor', 'web_search', 'web_fetch'],
     maxRounds: 12,
-    maxOutputTokens: 8192,
+    maxTokensPerCall: 8192,
     modelHint: 'strong',
     source: 'builtin',
   })
