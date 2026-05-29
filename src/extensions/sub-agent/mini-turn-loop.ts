@@ -48,7 +48,14 @@ function classifyLlmError(err: unknown): LlmFailureReason {
       case 'RATE_LIMITED': return 'rate_limit'
       case 'TIMEOUT': return 'network'
       case 'PURPOSE_NOT_ALLOWED': return 'auth'
-      case 'WORKER_FATAL': case 'PROTOCOL_VIOLATION': return 'unknown'
+      case 'PROVIDER_ERROR':
+      case 'TOOL_NOT_ALLOWED':
+      case 'TOOL_EXEC_FAIL':
+      case 'TOOL_TIMEOUT':
+      case 'WORKER_FATAL':
+      case 'PROTOCOL_VIOLATION':
+      case 'WORKER_CRASHED':
+      case 'UNKNOWN':
       default: return 'unknown'
     }
   }
