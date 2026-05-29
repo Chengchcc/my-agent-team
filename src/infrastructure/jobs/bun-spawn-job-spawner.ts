@@ -53,7 +53,7 @@ export class BunSpawnJobSpawner implements JobSpawner {
       cmd: ['bun', 'run', opts.entry],
       stdin: 'pipe',
       stdout: 'pipe',
-      stderr: 'inherit',
+      stderr: 'pipe',
       env: { ...process.env, JOB_MODE: 'spawn', JOB_WORKER_ENTRY: '1' },
     })
 
@@ -70,8 +70,8 @@ export class BunSpawnJobSpawner implements JobSpawner {
     }, lifetimeMs)
 
     try {
-      // Send init frame
-      void child.stdin.write(
+      // Send init frame — await ensures worker receives it before we start reading
+      await child.stdin.write(
         encodeFrame({
           v: 1,
           id: spawnId,
