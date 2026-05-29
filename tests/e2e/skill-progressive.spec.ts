@@ -80,4 +80,46 @@ describe('Feature: Skill Progressive Loading (F15)', () => {
       if (h) await h.stop()
     }
   })
+
+  it('Scenario 15.3: Skill enum updates when new skill registered at runtime', async () => {
+    let h: E2EHandle | null = null
+    try {
+      await given('kernel with skills + extra LLM turn', async () => {
+        h = await bootE2E({
+          llmTurns: [
+            { textDeltas: ['ok1'], usage: { input: 1, output: 1 } },
+            { textDeltas: ['ok2'], usage: { input: 1, output: 1 } },
+          ],
+        })
+      })
+
+      // Run turn 1 — capture initial enum
+      const { sessionId } = await h!.client.createSession()
+      await h!.client.sendInput(sessionId, 't1')
+      await h!.waitFor(e => e.type === 'turn.completed' && e.sessionId === sessionId)
+      const initEnum = (h!.fakeLLM.receivedRequests[0]!.tools!
+        .find(t => t.name === 'Skill')?.parameters as Record<string, unknown>)?.properties as Record<string, { enum?: string[] }> | undefined
+      const initSkills = initEnum?.name?.enum ?? []
+
+      // Register a new skill dynamically
+      const reg = h!.kernel.ctx.extensions.get('skills.registry') as {
+        register(skill: { name: string; description: string; scope: string }): void
+      }
+      reg.register({ name: 'new-test-skill', description: 'A dynamically added skill', scope: 'agent' })
+
+      // Run turn 2 — verify enum updated
+      await h!.client.sendInput(sessionId, 't2')
+      await h!.waitFor(e => e.type === 'turn.completed' && e.sessionId === sessionId)
+      const updatedEnum = (h!.fakeLLM.receivedRequests[1]!.tools!
+        .find(t => t.name === 'Skill')?.parameters as Record<string, unknown>)?.properties as Record<string, { enum?: string[] }> | undefined
+      const updatedSkills = updatedEnum?.name?.enum ?? []
+
+      await then('enum includes the newly registered skill', () => {
+        expect(updatedSkills).toContain('new-test-skill')
+        expect(updatedSkills.length).toBeGreaterThan(initSkills.length)
+      })
+    } finally {
+      if (h) await h.stop()
+    }
+  })
 })

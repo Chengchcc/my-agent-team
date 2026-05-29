@@ -4,6 +4,7 @@ import path from 'node:path'
 import { createKernel } from '../../../src/kernel/kernel'
 import { defineExtension } from '../../../src/kernel/define-extension'
 import { domainCore, memory, identity, skills, evolution, mcp, infraServices, transportInmem, frontendLark } from '../../../src/extensions/presets'
+import subAgent from '../../../src/extensions/sub-agent'
 import { createAgentPaths } from '../../../src/infrastructure/paths/agent-paths'
 import { SessionClient } from '../../../src/extensions/frontend.tui/session-client'
 import type { EventEnvelope } from '../../../src/application/contracts/event-envelope'
@@ -52,10 +53,10 @@ export async function bootE2E(opts: BootOpts = {}): Promise<E2EHandle> {
   // ① Kernel-level fakes (MUST be before any kernel.use)
   const agentStore = new InMemoryAgentStore('e2e')
   kernel.ctx.extensions.provideKernel('agent.store', agentStore)
-  // agent.registry wraps agent.store — used by identity/memory/tools to check bootstrap status
   kernel.ctx.extensions.provideKernel('agent.registry', {
     current: async () => agentStore.get('e2e')!,
     get: async (agentId: string) => agentStore.get(agentId),
+    subscribe: () => () => {},
   })
 
   // Presets in daemon order, minus real 'provider' (replaced below)

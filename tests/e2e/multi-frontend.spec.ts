@@ -104,4 +104,46 @@ describe('Feature: Multi-Frontend Route Isolation (F14)', () => {
       if (fx) await fx.h.stop()
     }
   })
+
+  it('Scenario 14.2: per-turn context isolation — replies route to correct messageId', async () => {
+    let fx: LarkFixtures | null = null
+    try {
+      await given('kernel with Lark adapter + 2-turn LLM + withLark', async () => {
+        fx = await setupLark([
+          { textDeltas: ['reply for A'], usage: { input: 1, output: 1 } },
+          { textDeltas: ['reply for B'], usage: { input: 1, output: 1 }, delayMs: 100 },
+        ])
+      })
+
+      let sidA = ''
+      let sidB = ''
+
+      await when('user A and user B send messages concurrently', async () => {
+        const anchorA: Anchor = { kind: 'lark-p2p', appId: 'fake-app', openId: 'chat-A' }
+        const anchorB: Anchor = { kind: 'lark-p2p', appId: 'fake-app', openId: 'chat-B' }
+        const [rA, rB] = await Promise.all([
+          fx!.adapter.handleMessage(anchorA, 'hi A', 'chat-A', 'msg-A'),
+          fx!.adapter.handleMessage(anchorB, 'hi B', 'chat-B', 'msg-B'),
+        ])
+        sidA = (rA as { sessionId: string }).sessionId
+        sidB = (rB as { sessionId: string }).sessionId
+      })
+
+      await then('both messages route to same main session', () => {
+        expect(sidA).toBe(sidB)
+        expect(sidA).toBe('tui-default')
+      })
+
+      await then('both turns complete serially', async () => {
+        await fx!.h.waitFor(() => terminalCount(fx!.h.captured, sidA) >= 2)
+        expect(terminalCount(fx!.h.captured, sidA)).toBe(2)
+      })
+
+      await then('both replies delivered via card', () => {
+        expect(fx!.channel.cards.size).toBeGreaterThanOrEqual(2)
+      })
+    } finally {
+      if (fx) await fx.h.stop()
+    }
+  })
 })

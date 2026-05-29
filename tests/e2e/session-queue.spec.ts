@@ -72,4 +72,68 @@ describe('Feature: Session Queue End-to-End (F12)', () => {
       if (h) await h.stop()
     }
   })
+
+  it('Scenario 12.3: 5 concurrent inputs → all complete in order, no deadlock', async () => {
+    let h: E2EHandle | null = null
+    let sid = ''
+    try {
+      await given('kernel with 5-turn LLM', async () => {
+        h = await bootE2E({
+          llmTurns: [
+            { textDeltas: ['r1'], usage: { input: 1, output: 1 } },
+            { textDeltas: ['r2'], usage: { input: 1, output: 1 } },
+            { textDeltas: ['r3'], usage: { input: 1, output: 1 } },
+            { textDeltas: ['r4'], usage: { input: 1, output: 1 } },
+            { textDeltas: ['r5'], usage: { input: 1, output: 1 } },
+          ],
+        })
+      })
+
+      await when('5 messages sent concurrently', async () => {
+        const { sessionId } = await h!.client.createSession()
+        sid = sessionId
+        const promises = [1, 2, 3, 4, 5].map(i => h!.client.sendInput(sid, `msg${i}`))
+        const results = await Promise.all(promises)
+        expect(results.every((r: unknown) => (r as { accepted?: boolean }).accepted)).toBe(true)
+      })
+
+      await then('all 5 turns complete', async () => {
+        await h!.waitFor(() => terminalCount(h!.captured, sid) >= 5)
+        expect(terminalCount(h!.captured, sid)).toBe(5)
+      })
+    } finally {
+      if (h) await h.stop()
+    }
+  })
+
+  it('Scenario 12.4: drain failure does not pollute previous turn', async () => {
+    let h: E2EHandle | null = null
+    let sid = ''
+    try {
+      await given('kernel with ok turn + error turn', async () => {
+        h = await bootE2E({
+          llmTurns: [
+            { textDeltas: ['ok'], usage: { input: 1, output: 1 }, delayMs: 200 },
+            { textDeltas: ['will crash'], errorAfter: 0, usage: { input: 1, output: 1 } },
+          ],
+        })
+      })
+
+      await when('two messages sent, second causes error', async () => {
+        const { sessionId } = await h!.client.createSession()
+        sid = sessionId
+        h!.client.sendInput(sid, 'msg1')
+        await h!.client.sendInput(sid, 'msg2')
+      })
+
+      await then('turn1 completes, turn2 fails', async () => {
+        await h!.waitFor(() => terminalCount(h!.captured, sid) >= 2)
+        const completed = h!.captured.filter(e => e.type === 'turn.completed' && e.sessionId === sid)
+        expect(completed.length).toBeGreaterThanOrEqual(1)
+        expect(terminalCount(h!.captured, sid)).toBe(2)
+      })
+    } finally {
+      if (h) await h.stop()
+    }
+  })
 })

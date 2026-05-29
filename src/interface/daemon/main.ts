@@ -20,6 +20,11 @@ async function seedDefault(
   agentStore: SqliteAgentStore,
   logger: FileLogger,
 ): Promise<NonNullable<Awaited<ReturnType<SqliteAgentStore['get']>>>> {
+  // If a default agent already exists (e.g. from a previous run in the same home),
+  // return it instead of failing with UNIQUE constraint on is_default.
+  const existing = await agentStore.getDefault()
+  if (existing) return existing
+
   const identityMd = renderIdentityMd(
     { role: 'Engineering Assistant', audience: '开发团队', tone: 'concise, helpful', expertise: 'TypeScript, distributed systems, debugging' },
     '# Identity\n\nYou are a general-purpose coding assistant. Be helpful, concise, and accurate.\n'

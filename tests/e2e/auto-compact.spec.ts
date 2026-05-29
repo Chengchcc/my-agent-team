@@ -10,14 +10,18 @@ describe('Feature: Auto-compact (F8)', () => {
     try {
       await given('kernel with long history preamble', async () => {
         h = await bootE2E({
-          llmTurns: [{ textDeltas: ['short reply'], usage: { input: 100, output: 1 } }],
+          llmTurns: [
+            { textDeltas: ['short reply'], usage: { input: 100, output: 1 } },
+            { textDeltas: ['short reply 2'], usage: { input: 100, output: 1 } },
+            { textDeltas: ['short reply 3'], usage: { input: 100, output: 1 } },
+            { textDeltas: ['compaction reply if needed'], usage: { input: 100, output: 1 } },
+          ],
         })
       })
 
       await when('user sends many large inputs to fill history', async () => {
         const { sessionId } = await h!.client.createSession()
         sid = sessionId
-        // Send several long inputs to bloat history toward compaction threshold
         const longText = 'x'.repeat(500)
         for (let i = 0; i < 3; i++) {
           await h!.client.sendInput(sid, `${longText} turn${i}`)

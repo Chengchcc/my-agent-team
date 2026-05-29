@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { tmpdir, homedir } from 'node:os'
 import path from 'node:path'
 import { given, when, then } from './_fixtures/dsl'
 import type { DaemonHandle } from '../../src/interface/daemon/types'
@@ -12,10 +12,17 @@ function tempHome(): string {
 describe('Feature: Daemon lifecycle (F1)', () => {
   let handle: DaemonHandle | null = null
   let agentDir = ''
+  let fakeHome = ''
+  const origHome = process.env.HOME
+
   afterEach(async () => {
     if (handle) await handle.stop()
     if (agentDir) try { rmSync(agentDir, { recursive: true, force: true }) } catch { /* cleanup */ }
+    if (fakeHome) try { rmSync(fakeHome, { recursive: true, force: true }) } catch { /* cleanup */ }
     handle = null
+    agentDir = ''
+    fakeHome = ''
+    process.env.HOME = origHome
   })
 
   it('Scenario 1.1: Given a fresh temp agent home, When bootstrap({transport:"inmem"}), Then kernel starts with 18 extensions', async () => {
@@ -24,6 +31,8 @@ describe('Feature: Daemon lifecycle (F1)', () => {
     })
 
     await when('bootstrap with inmem transport', async () => {
+      fakeHome = mkdtempSync(path.join(tmpdir(), 'e2e-f1-home-'))
+      process.env.HOME = fakeHome
       const { bootstrap } = await import('../../src/interface/daemon/main')
       handle = await bootstrap({
         agentId: 'default',
@@ -42,6 +51,8 @@ describe('Feature: Daemon lifecycle (F1)', () => {
   it('Scenario 1.2: Given a started kernel, When stop() twice, Then both resolve without throwing', async () => {
     await given('a started kernel', async () => {
       agentDir = tempHome()
+      fakeHome = mkdtempSync(path.join(tmpdir(), 'e2e-f1-home-'))
+      process.env.HOME = fakeHome
       const { bootstrap } = await import('../../src/interface/daemon/main')
       handle = await bootstrap({
         agentId: 'default',
@@ -68,6 +79,8 @@ describe('Feature: Daemon lifecycle (F1)', () => {
 
     await when('bootstrap with unix transport', async () => {
       agentDir = tempHome()
+      fakeHome = mkdtempSync(path.join(tmpdir(), 'e2e-f1-home-'))
+      process.env.HOME = fakeHome
       const { bootstrap } = await import('../../src/interface/daemon/main')
       try {
         handle = await bootstrap({
