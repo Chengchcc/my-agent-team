@@ -70,7 +70,7 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
   const maxRounds = desc.maxRounds ?? DEFAULT_MAX_ROUNDS
   const maxTotalTokens = desc.maxTotalTokens ?? Infinity
 
-  const messages: Array<{ role: string; content: string }> = [
+  const messages: Array<{ role: string; content: string; tool_calls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>; tool_call_id?: string; name?: string }> = [
     { role: 'system', content: desc.systemPrompt },
     { role: 'user', content: deps.userPrompt },
   ]
@@ -145,7 +145,7 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
       }
     }
 
-    messages.push({ role: 'assistant', content: resp.content })
+    messages.push({ role: 'assistant', content: resp.content, tool_calls: resp.toolCalls })
 
     for (const tc of resp.toolCalls) {
       toolCallCount++
@@ -169,6 +169,8 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
         messages.push({
           role: 'tool',
           content: `<tool-error>${escapeXml(response.error!.message)}</tool-error>`,
+          tool_call_id: tc.id,
+          name: tc.name,
         })
         if (count >= MAX_TOOL_FAILURES_PER_NAME) {
           return {
@@ -181,6 +183,8 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
         messages.push({
           role: 'tool',
           content: typeof response.result === 'string' ? response.result : JSON.stringify(response.result),
+          tool_call_id: tc.id,
+          name: tc.name,
         })
       }
     }

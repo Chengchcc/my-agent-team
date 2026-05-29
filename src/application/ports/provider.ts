@@ -2,7 +2,7 @@
 
 interface ChatRequest {
   purpose: string                    // mandatory — audit / quota / whitelist
-  messages: Array<{ role: string; content: string }>
+  messages: Array<{ role: string; content: string; tool_calls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>; tool_call_id?: string; name?: string }>
   tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
   systemPrompt?: string
   maxTokens?: number
