@@ -1,90 +1,64 @@
 import { defineExtension } from '../../kernel/define-extension'
 import { asContractBus } from '../../application/event-bus/contract-bus'
-import { generateULID } from '../../shared/ulid'
-import { runTurnUsecase, buildRunTurnDeps } from '../../application/usecases/run-turn'
-import type { SubAgentRunner, SubAgentRunInput } from './types'
 import { SubAgentRegistry, registerBuiltins } from './registry'
 import { createTaskTool } from './task-tool'
-
-/** Structured error marker for sub-agent failures — XML-style for LLM recognition. */
-function errorResult(tag: string, reason: string): string {
-  return `<sub-agent-error type="${tag}" reason="${reason}" />`
-}
+import { createSpawnerSubAgentRunner } from './runner-spawner'
+import type { JobSpawner } from '../../application/ports/job-spawner'
+import type { ToolCatalog } from '../../application/ports/tool-catalog'
+import type { ProviderChat, ProviderInvoke } from '../../application/ports/provider'
 
 /**
- * Sub-agent extension.
+ * Sub-agent extension (M2).
  *
- * M1 scope:
+ * M2 scope:
  * - SubAgentRegistry with 3 builtin descriptors (explore/plan/general-purpose)
- * - task tool registered via tool-catalog
- * - runSubAgent closure reaches back to runTurnUsecase (DI via import)
+ * - task tool registered via tool-catalog with dynamic enum
+ * - runSubAgent delegates to spawner-based SubAgentRunner (process isolation)
  */
 export default () =>
   defineExtension({
     name: 'sub-agent',
     enforce: 'normal',
-    dependsOn: ['tool-catalog', 'session'],
+    dependsOn: ['tool-catalog', 'session', 'provider', 'infra-services'],
 
     apply(ctx) {
       const bus = asContractBus(ctx.bus)
       const registry = new SubAgentRegistry()
       registerBuiltins(registry)
 
-      const runSubAgent: SubAgentRunner = async (input: SubAgentRunInput): Promise<string> => {
-        const desc = registry.get(input.type)
-        if (!desc) return errorResult('unknown_subagent_type', `"${input.type}" is not a registered sub-agent type`)
+      const spawner = ctx.extensions.get('infra-services.job-spawner') as JobSpawner
+      const toolCatalog = ctx.extensions.get('tool-catalog.catalog') as ToolCatalog
+      const provider = ctx.extensions.get('provider.llm') as ProviderChat & ProviderInvoke
 
-        const subSessionId = `sub:${input.parentTurnId}:${generateULID()}`
-
-        ctx.logger.info('sub-agent', `Starting sub-agent "${input.type}" (${subSessionId})`)
-        void bus.emit('subagent.started', { parentTurnId: input.parentTurnId, parentSessionId: input.parentSessionId, type: input.type, subSessionId, callId: input.parentCallId, ts: Date.now() })
-
-        try {
-          const res = await runTurnUsecase(
-            {
-              sessionId: subSessionId,
-              turnId: `${input.parentTurnId}#sub`,
-              userInput: input.prompt,
-              frontendId: 'sub-agent',
-              kind: 'sub-agent',
-              allowedToolNames: desc.allowedToolNames.filter(n => n !== 'task'),
-              maxOutputTokens: desc.maxTokensPerCall,
-              compaction: 'disabled',
-              abortSignal: input.parentSignal,
-              initialMessages: [
-                { kind: 'history.record' as const, version: 1 as const, sessionId: subSessionId, role: 'system' as const, content: desc.systemPrompt, ts: Date.now() },
-                { kind: 'history.record' as const, version: 1 as const, sessionId: subSessionId, role: 'user' as const, content: input.prompt, ts: Date.now() },
-              ],
-            },
-            buildRunTurnDeps(ctx),
-          )
-
-          ctx.logger.info('sub-agent', `Sub-agent "${input.type}" completed, via:subagent:${input.type} usage: ${res.usage.input}+${res.usage.output}`)
-          void bus.emit('subagent.completed', { parentTurnId: input.parentTurnId, parentSessionId: input.parentSessionId, type: input.type, subSessionId, callId: input.parentCallId, ok: true, usage: res.usage, finalText: res.finalText ?? '', ts: Date.now() })
-          return res.finalText ?? ''
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          if (msg.includes('AbortError') || msg.includes('abort')) {
-            return errorResult('cancelled', msg)
+      const runSubAgent = createSpawnerSubAgentRunner({
+        spawner,
+        registry,
+        toolCatalog,
+        bus,
+        chatComplete: async (req) => {
+          const resp = await provider.complete({
+            messages: req.messages,
+            tools: req.tools,
+            maxTokens: req.maxTokens,
+            signal: req.signal,
+          })
+          const hasToolCalls = resp.toolCalls && resp.toolCalls.length > 0
+          return {
+            content: resp.content,
+            toolCalls: resp.toolCalls,
+            finishReason: hasToolCalls ? 'tool_calls' as const : 'stop' as const,
+            usage: resp.usage,
           }
-          ctx.logger.warn('sub-agent', `Sub-agent "${input.type}" failed: ${msg}`)
-          return errorResult('failed', msg)
-        } finally {
-          const history = ctx.extensions.get('session.history')
-          void history?.drop(subSessionId)
-        }
-      }
+        },
+        logger: ctx.logger,
+        agentDir: ctx.agentDir,
+      })
 
-      const catalog = ctx.extensions.get('tool-catalog.catalog')
-      catalog.register(createTaskTool({ runSubAgent }))
+      toolCatalog.register(createTaskTool({ runSubAgent, registry }))
 
       return {
-        provide: {
-          'sub-agent.registry': () => registry,
-        },
-        dispose: () => {
-          registry.clear()
-        },
+        provide: { 'sub-agent.registry': () => registry },
+        dispose: () => registry.clear(),
       }
     },
   })

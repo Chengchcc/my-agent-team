@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { createTaskTool } from '../../../src/extensions/sub-agent/task-tool'
+import { SubAgentRegistry, registerBuiltins } from '../../../src/extensions/sub-agent/registry'
 import type { ToolContext } from '../../../src/application/ports/tool-context'
 
 function makeCtx(overrides?: Partial<ToolContext>): ToolContext {
@@ -13,28 +14,33 @@ function makeCtx(overrides?: Partial<ToolContext>): ToolContext {
   }
 }
 
-describe('task tool', () => {
-  it('has name "task" and conflictKey "subagent:<type>"', () => {
-    const tool = createTaskTool({ runSubAgent: async () => '' })
-    expect(tool.name).toBe('task')
-    const key = tool.conflictKey?.(makeCtx(), { subagent_type: 'explore' })
-    expect(key).toBe('subagent:explore')
-  })
+function makeRegistry(): SubAgentRegistry {
+  const r = new SubAgentRegistry()
+  registerBuiltins(r)
+  return r
+}
 
-  it('conflictKey defaults to "subagent:unknown" when type missing', () => {
-    const tool = createTaskTool({ runSubAgent: async () => '' })
-    const key = tool.conflictKey?.(makeCtx(), {})
-    expect(key).toBe('subagent:unknown')
+describe('task tool', () => {
+  it('has name "task" and dynamic enum from registry', () => {
+    const registry = makeRegistry()
+    const tool = createTaskTool({ runSubAgent: async () => '', registry })
+    expect(tool.name).toBe('task')
+    const schema = tool.parameters as Record<string, unknown>
+    const props = (schema.properties as Record<string, unknown>)
+    const typeEnum = (props.subagent_type as Record<string, unknown>).enum as string[]
+    expect(typeEnum).toContain('explore')
+    expect(typeEnum).toContain('plan')
+    expect(typeEnum).toContain('general-purpose')
   })
 
   it('parse rejects empty prompt', () => {
-    const tool = createTaskTool({ runSubAgent: async () => '' })
+    const tool = createTaskTool({ runSubAgent: async () => '', registry: makeRegistry() })
     expect(() => tool.parse?.({ subagent_type: 'explore', description: 'x', prompt: '' }))
       .toThrow('task prompt must not be empty')
   })
 
   it('parse returns trimmed fields', () => {
-    const tool = createTaskTool({ runSubAgent: async () => '' })
+    const tool = createTaskTool({ runSubAgent: async () => '', registry: makeRegistry() })
     const result = tool.parse?.({ subagent_type: 'plan', description: ' plan things ', prompt: 'do X' })
     expect(result).toEqual({ subagent_type: 'plan', description: ' plan things ', prompt: 'do X' })
   })
@@ -43,6 +49,7 @@ describe('task tool', () => {
     let captured: unknown = null
     const tool = createTaskTool({
       runSubAgent: async (input) => { captured = input; return 'done' },
+      registry: makeRegistry(),
     })
 
     const result = await tool.execute(makeCtx(), {
@@ -66,6 +73,7 @@ describe('task tool', () => {
 
     const tool = createTaskTool({
       runSubAgent: async (input) => { capturedSignal = input.parentSignal; return 'ok' },
+      registry: makeRegistry(),
     })
 
     await tool.execute(makeCtx({ signal: ctrl.signal }), {
@@ -78,10 +86,9 @@ describe('task tool', () => {
   it('execute returns error string when runSubAgent throws', async () => {
     const tool = createTaskTool({
       runSubAgent: async () => { throw new Error('sub crash') },
+      registry: makeRegistry(),
     })
 
-    // The tool's execute catches the runner error and returns the structured error string
-    // (runSubAgent handles its own errors, so this tests the tool-level throw propagation)
     await expect(tool.execute(makeCtx(), {
       subagent_type: 'explore', description: 'test', prompt: 'do',
     })).rejects.toThrow('sub crash')

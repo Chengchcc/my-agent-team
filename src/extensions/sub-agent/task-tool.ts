@@ -1,36 +1,38 @@
 import type { Tool } from '../../application/ports/tool'
 import type { ToolContext } from '../../application/ports/tool-context'
 import type { SubAgentRunner } from './types'
+import type { SubAgentRegistry } from './registry'
 
 interface TaskToolDeps {
   runSubAgent: SubAgentRunner
-}
-
-const TASK_TOOL_SCHEMA: Record<string, unknown> = {
-  type: 'object',
-  properties: {
-    subagent_type: {
-      type: 'string',
-      enum: ['explore', 'plan', 'general-purpose'],
-      description: 'Type of sub-agent to invoke.',
-    },
-    description: {
-      type: 'string',
-      description: 'Short description of the sub-task (one sentence).',
-    },
-    prompt: {
-      type: 'string',
-      description: 'Full prompt for the sub-agent. Include all necessary context.',
-    },
-  },
-  required: ['subagent_type', 'description', 'prompt'],
+  registry: SubAgentRegistry
 }
 
 export function createTaskTool(deps: TaskToolDeps): Tool {
+  const schema: Record<string, unknown> = {
+    type: 'object',
+    properties: {
+      subagent_type: {
+        type: 'string',
+        enum: deps.registry.list().map(d => d.type),
+        description: 'Type of sub-agent to invoke.',
+      },
+      description: {
+        type: 'string',
+        description: 'Short description of the sub-task (one sentence).',
+      },
+      prompt: {
+        type: 'string',
+        description: 'Full prompt for the sub-agent. Include all necessary context.',
+      },
+    },
+    required: ['subagent_type', 'description', 'prompt'],
+  }
+
   return {
     name: 'task',
     description: 'Delegate a self-contained sub-task to a sub-agent. Use when context-isolated investigation or planning helps.',
-    parameters: TASK_TOOL_SCHEMA,
+    parameters: schema,
     readonly: false,
     renderHint: 'widget' as const,
 
@@ -52,11 +54,6 @@ export function createTaskTool(deps: TaskToolDeps): Tool {
         parentSignal: ctx.signal,
       })
       return result
-    },
-
-    conflictKey: (_toolCtx, input: unknown) => {
-      const type = (input as { subagent_type?: string }).subagent_type ?? 'unknown'
-      return `subagent:${type}`
     },
   }
 }

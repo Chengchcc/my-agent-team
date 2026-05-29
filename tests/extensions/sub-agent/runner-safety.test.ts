@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'bun:test'
+import { defineExtension } from '../../../src/kernel/define-extension'
 import { createTestKernel } from '../../helpers/kernel-helper'
 import traceExt from '../../../src/extensions/trace'
 import sessionExt from '../../../src/extensions/session'
@@ -9,6 +10,30 @@ import subAgentExt from '../../../src/extensions/sub-agent'
 import type { ToolCatalog } from '../../../src/application/ports/tool-catalog'
 import type { SubAgentRegistry } from '../../../src/extensions/sub-agent/registry'
 import type { ToolContext } from '../../../src/application/ports/tool-context'
+
+const mockProvider = defineExtension({
+  name: 'provider', enforce: 'pre',
+  apply: () => ({
+    provide: {
+      'provider.llm': () => ({
+        stream: async function* () {},
+        complete: async () => ({ id: 'mock', content: 'ok', usage: { input: 0, output: 0 }, model: 'mock' }),
+        call: async () => ({ content: '{}', usage: { input: 0, output: 0 } }),
+      }),
+    },
+  }),
+})
+
+const mockInfraServices = defineExtension({
+  name: 'infra-services', enforce: 'post',
+  apply: () => ({
+    provide: {
+      'infra-services.job-spawner': () => ({
+        run: async () => ({ finalText: 'mock result', usage: { input: 0, output: 0 }, toolCallCount: 0, rounds: 1 }),
+      }),
+    },
+  }),
+})
 
 /**
  * M2 safety tests: recursive guard, compaction disabled, permission isolation.
@@ -29,6 +54,7 @@ describe('sub-agent safety guards (M2)', () => {
   it('task is filtered from allowedToolNames before passing to runTurnUsecase', async () => {
     const k = createTestKernel({
       extensions: [
+        mockProvider, mockInfraServices,
         traceExt(), sessionExt(), toolCatalogExt(),
         toolsExt(), permissionExt(), subAgentExt(),
       ],
@@ -67,6 +93,7 @@ describe('sub-agent safety guards (M2)', () => {
   it('builtin explore/plan/general-purpose descriptors never include task', async () => {
     const k = createTestKernel({
       extensions: [
+        mockProvider, mockInfraServices,
         traceExt(), sessionExt(), toolCatalogExt(),
         toolsExt(), permissionExt(), subAgentExt(),
       ],
@@ -89,6 +116,7 @@ describe('sub-agent safety guards (M2)', () => {
   it('sub-agent with small prompt completes without compaction interference', async () => {
     const k = createTestKernel({
       extensions: [
+        mockProvider, mockInfraServices,
         traceExt(), sessionExt(), toolCatalogExt(),
         toolsExt(), permissionExt(), subAgentExt(),
       ],
@@ -118,6 +146,7 @@ describe('sub-agent safety guards (M2)', () => {
   it('permission deny-list in parent session does not affect sub session', async () => {
     const k = createTestKernel({
       extensions: [
+        mockProvider, mockInfraServices,
         traceExt(), sessionExt(), toolCatalogExt(),
         toolsExt(), permissionExt(), subAgentExt(),
       ],
