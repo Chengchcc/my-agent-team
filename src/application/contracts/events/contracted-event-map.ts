@@ -22,7 +22,7 @@ import type {
 } from '../system-events'
 import type { McpServerConnectedV1, McpServerDisconnectedV1, McpServerFailedV1, McpReloadedV1, McpToolsChangedV1 } from './mcp-events'
 import type { InlineBlockV1 } from '../widget-events'
-import type { SubAgentStartedV1, SubAgentCompletedV1 } from '../subagent-events'
+import type { SubAgentStartedV1, SubAgentCompletedV1, SubAgentProgressV1 } from '../subagent-events'
 import type { CompactionStartedV1, CompactionCompletedV1, CompactionFailedV1 } from '../compaction-events'
 import type { WaveCompletedV1 } from '../wave-events'
 import type { SpawnWorkerStartedV1, SpawnWorkerInvokeV1, SpawnWorkerExitedV1, SpawnWorkerKilledV1 } from '../spawn-events'
@@ -79,6 +79,7 @@ export interface ContractedEventMap {
   'tui.inline-block': InlineBlockV1
   'subagent.started': SubAgentStartedV1
   'subagent.completed': SubAgentCompletedV1
+  'subagent.progress': SubAgentProgressV1
   'compaction.started': CompactionStartedV1
   'compaction.completed': CompactionCompletedV1
   'compaction.failed': CompactionFailedV1
