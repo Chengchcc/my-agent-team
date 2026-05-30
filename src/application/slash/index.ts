@@ -9,6 +9,7 @@ import { slashToolsCommand } from './builtin/slash-tools'
 import { slashNewCommand } from './builtin/slash-new'
 import { slashSessionsCommand } from './builtin/slash-sessions'
 import { slashResumeCommand } from './builtin/slash-resume'
+import { slashPermissions } from './builtin/slash-permissions'
 import type { SlashCommand } from './slash-types'
 import type { SlashRegistry } from './slash-registry'
 
@@ -31,6 +32,7 @@ export function registerBuiltinSlashCommands(
     slashExitCommand, slashDaemonCommand, slashCancelCommand,
     slashNewCommand, slashSessionsCommand, slashResumeCommand,
     createSlashHelpCommand(() => r),
+    slashPermissions,
   ]
   const include = opts?.include ? new Set(opts.include) : null
   const exclude = opts?.exclude ? new Set(opts.exclude) : null

@@ -1,6 +1,7 @@
 import { defineExtension } from '../../kernel/define-extension'
 import type { HookHandler } from '../../kernel/define-extension'
 import { asContractBus } from '../../application/event-bus/contract-bus'
+import { PermissionStore } from './store'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
@@ -41,6 +42,10 @@ export default () =>
       const deniedTools = new Set<string>()
       const sessionAllowlists = new Map<string, Set<string>>()
       const pendingRequests = new Map<string, PendingRequest>()
+      const store = new PermissionStore(ctx.paths.permissions)
+      // Load global allowlist on startup (async, non-blocking)
+      let globalAllowlist = new Set<string>()
+      store.load().then(s => { globalAllowlist = s; }).catch(() => {})
       const timeoutMs: number = (ctx.config.raw.permissionTimeoutMs as number) ?? DEFAULT_TIMEOUT_MS
 
       // onToolCall handler: pre-intercept tool calls
@@ -65,6 +70,9 @@ export default () =>
             `Tool "${call.name}" is not allowed in session "${sessionId}"`,
           )
         }
+
+        // Global allowlist check (persisted always-allow)
+        if (globalAllowlist.has(call.name)) return call;
 
         // For dangerous tools, wait for user permission
         const rawCfg = ctx.config.raw as Record<string, unknown> | undefined;
@@ -165,6 +173,13 @@ export default () =>
                 pendingRequests.delete(p.reqId)
                 if (p.decision === 'allow') {
                   pending.grant()
+                } else if (p.decision === 'always') {
+                  // Persist always-allow
+                  if (p.toolName) {
+                    globalAllowlist.add(p.toolName)
+                    store.addAlways(p.toolName).catch(() => {})
+                  }
+                  pending.grant()
                 } else {
                   pending.deny(
                     new Error(
@@ -188,6 +203,19 @@ export default () =>
               sessionAllowlists.set(p.sessionId, allowed)
             }
             return { ok: true }
+          },
+
+          'permission.list': async () => {
+            const tools = await store.listAlways()
+            return { tools }
+          },
+
+          'permission.remove': async (params: unknown) => {
+            const p = params as { sessionId?: string; toolName?: string }
+            if (!p.toolName) return { ok: false }
+            const removed = await store.removeAlways(p.toolName)
+            if (removed) globalAllowlist.delete(p.toolName)
+            return { ok: removed }
           },
         },
 

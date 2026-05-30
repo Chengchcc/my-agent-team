@@ -26,6 +26,7 @@ export interface AgentPaths {
     readonly bootstrap: string
     readonly archived: string
   }
+  readonly permissions: string           // <agentDir>/permissions.json
 }
 
 export function defaultAgentsRoot(): string {
@@ -64,6 +65,7 @@ export function createAgentPaths(agentsRoot: string, agentId: string, opts?: {
       stats:     path.join(agentDir, 'evolution', 'stats'),
       state:     path.join(agentDir, 'evolution', 'state'),
     },
+    permissions: path.join(agentDir, 'permissions.json'),
   }
 }
 
