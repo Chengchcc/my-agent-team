@@ -3,6 +3,7 @@ import { asContractBus } from '../../application/event-bus/contract-bus'
 import { SubAgentRegistry, registerBuiltins } from './registry'
 import { createTaskTool } from './task-tool'
 import { createSpawnerSubAgentRunner } from './runner-spawner'
+import { attachWidgetBridge } from './widget-bridge'
 import type { SubAgentDescriptor } from './types'
 import type { JobSpawner } from '../../application/ports/job-spawner'
 import type { ToolCatalog } from '../../application/ports/tool-catalog'
@@ -62,12 +63,17 @@ export default () =>
 
       toolCatalog.register(createTaskTool({ runSubAgent, registry }))
 
+      const detachBridge = attachWidgetBridge(bus, ctx.logger)
+
       return {
         provide: {
           'sub-agent.registry': () => registry,
           'sub-agent.runner': () => runSubAgent,
         },
-        dispose: () => registry.clear(),
+        dispose: () => {
+          detachBridge()
+          registry.clear()
+        },
       }
     },
   })

@@ -12,6 +12,7 @@ import '../../trace/widget-payloads'
 import '../../tools/widget-payloads'
 import '../../evolution/widget-payloads'
 import '../../session-mode/widget-payloads'
+import '../../sub-agent/widget-payloads'
 
 import type { WidgetName, WidgetPayloadFor } from '../../../application/contracts/widget-payload-map'
 import type { WidgetDescriptor } from './widget-types'
@@ -21,6 +22,7 @@ import { widgetTraceList } from './impls/widget-trace-list'
 import { widgetMemoryList } from './impls/widget-memory-list'
 import { widgetEvolutionProposals } from './impls/widget-evolution-proposals'
 import { widgetPlanProposal } from './impls/widget-plan-proposal'
+import { widgetSubAgentTask } from './impls/widget-subagent-task'
 
 type WidgetMap = { [W in WidgetName]: WidgetDescriptor<WidgetPayloadFor<W>> }
 
@@ -32,6 +34,7 @@ const WIDGETS: WidgetMap = {
   'memory.list': widgetMemoryList,
   'evolution.proposals': widgetEvolutionProposals,
   'plan.proposal': widgetPlanProposal,
+  'subagent.task': widgetSubAgentTask,
 }
 
 export function lookupWidget(name: string): WidgetDescriptor | null {
