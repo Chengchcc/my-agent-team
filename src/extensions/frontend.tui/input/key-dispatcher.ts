@@ -1,6 +1,14 @@
 type KeyHandler = (key: KeyEvent) => boolean; // true = consumed, stop propagation
 
 export interface KeyEvent {
+  /** Normalized key name: 't', 'enter', 'escape', 'up', etc. */
+  key: string;
+  ctrl: boolean;
+  meta: boolean;
+  shift: boolean;
+  /** Original input string from Ink (for paste/IME detection) */
+  raw: string;
+  // Backward-compat boolean fields for existing consumers (will be migrated to new shape)
   upArrow?: boolean;
   downArrow?: boolean;
   leftArrow?: boolean;
@@ -8,19 +16,16 @@ export interface KeyEvent {
   escape?: boolean;
   return?: boolean;
   tab?: boolean;
-  shiftTab?: boolean;
-  ctrl?: boolean;
-  meta?: boolean;
-  shift?: boolean;
   delete?: boolean;
   backspace?: boolean;
-  key?: string;
 }
 
 export interface KeyLayer {
   id: string;
   handler: KeyHandler;
   priority?: number;
+  /** Dynamic gate. If present and returns false, this layer is skipped in dispatch. */
+  when?: () => boolean;
 }
 
 /** Ink `useInput` key shape (subset used by TUI components). */
@@ -40,9 +45,14 @@ export interface InkKey {
   backspace?: boolean;
 }
 
-/** Convert an Ink useInput `(input: string, key: InkKey)` pair into a canonical KeyEvent. */
+/** @deprecated Use normalizeKey from keys/normalize.ts instead. Kept for backward compat during migration. */
 export function inkKeyToKeyEvent(input: string, key: InkKey): KeyEvent {
   return {
+    key: input,
+    ctrl: !!key.ctrl,
+    meta: !!key.meta,
+    shift: !!key.shift,
+    raw: input,
     upArrow: key.upArrow,
     downArrow: key.downArrow,
     leftArrow: key.leftArrow,
@@ -50,23 +60,27 @@ export function inkKeyToKeyEvent(input: string, key: InkKey): KeyEvent {
     escape: key.escape,
     return: key.return,
     tab: key.tab,
-    shiftTab: key.shiftTab,
-    ctrl: key.ctrl,
-    meta: key.meta,
-    shift: key.shift,
     delete: key.delete,
     backspace: key.backspace,
-    key: input,
   };
 }
 
 export class KeyDispatcher {
   private stack: KeyLayer[] = [];
 
-  /** Push a layer onto the stack. If a layer with the same id exists, remove it first (idempotent). */
+  /**
+   * Push a layer onto the stack, sorted by priority descending.
+   * If a layer with the same id exists, remove it first (idempotent).
+   * Layers with the same priority are ordered LIFO within that priority group.
+   */
   push(layer: KeyLayer): void {
     this.pop(layer.id);
-    this.stack.push(layer);
+    const prio = layer.priority ?? 0;
+    let i = 0;
+    for (; i < this.stack.length; i++) {
+      if ((this.stack[i]!.priority ?? 0) <= prio) break;
+    }
+    this.stack.splice(i, 0, layer);
   }
 
   /** Remove a layer by id */
@@ -74,11 +88,16 @@ export class KeyDispatcher {
     this.stack = this.stack.filter(l => l.id !== id);
   }
 
-  /** Dispatch a key event. Iterates stack top-down (LIFO).
-   *  Returns true if the event was consumed by a layer. */
+  /**
+   * Dispatch a key event. Iterates stack top-down (LIFO within same priority).
+   * Skips layers whose when() gate returns false.
+   * Returns true if the event was consumed by a layer.
+   */
   dispatch(key: KeyEvent): boolean {
-    for (let i = this.stack.length - 1; i >= 0; i--) {
-      if (this.stack[i]!.handler(key)) return true;
+    for (let i = 0; i < this.stack.length; i++) {
+      const layer = this.stack[i]!;
+      if (layer.when && !layer.when()) continue;
+      if (layer.handler(key)) return true;
     }
     return false;
   }
@@ -93,3 +112,6 @@ export class KeyDispatcher {
     return this.stack.length;
   }
 }
+
+/** Module-level singleton — the TUI has exactly one KeyDispatcher. */
+export const keyDispatcher = new KeyDispatcher();
