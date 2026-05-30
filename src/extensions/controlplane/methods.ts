@@ -42,6 +42,11 @@ export default () =>
 
       const getServer = () => ctx.extensions.get('controlplane.server');
       const contractBus = asContractBus(ctx.bus);
+      const cfg = (ctx.config as { allowSubAgentDirectInvoke?: boolean } | undefined)
+      const allowSubAgentInvoke = cfg?.allowSubAgentDirectInvoke ?? false
+      if (allowSubAgentInvoke) {
+        ctx.logger.warn('security', 'allowSubAgentDirectInvoke=true. Direct RPC invocation enabled. Do not use in production.')
+      }
 
       function sessionToJson(s: Session) {
         return {
@@ -121,6 +126,30 @@ export default () =>
             },
           }
         },
+
+        // C-3: direct invoke (debug only, gated by allowSubAgentDirectInvoke config)
+        ...(allowSubAgentInvoke ? {
+          'subagent.invoke': async (args: unknown) => {
+            const p = args as { type?: string; prompt?: string; description?: string }
+            if (!p?.type) throw new Error('type is required')
+            if (!p?.prompt) throw new Error('prompt is required')
+
+            let runner: ((input: { type: string; prompt: string; description: string; parentSessionId: string; parentTurnId: string; parentCallId: string; parentSignal: AbortSignal }) => Promise<string>) | null = null
+            try { runner = ctx.extensions.get('sub-agent.runner') } catch { throw new Error('sub-agent extension not loaded') }
+
+            const controller = new AbortController()
+            const result = await runner({
+              type: p.type,
+              prompt: p.prompt,
+              description: p.description ?? `direct invoke: ${p.type}`,
+              parentSessionId: '__controlplane_debug__',
+              parentTurnId: `cp-debug-${Date.now()}`,
+              parentCallId: `cp-call-${Date.now()}`,
+              parentSignal: controller.signal,
+            })
+            return { result }
+          },
+        } : {}),
       };
 
       return { rpc };

@@ -207,6 +207,12 @@ export const settingsSchema = z.object({
   skills: skillsSettingsSchema,
   tui: tuiSettingsSchema,
   subAgent: subAgentSettingsSchema,
+  /**
+   * SECURITY: Allow direct sub-agent invocation via controlplane RPC,
+   * bypassing the LLM tool-call gate. Intended for debugging only.
+   * MUST remain false in production. Cannot be modified at runtime.
+   */
+  allowSubAgentDirectInvoke: z.boolean().default(false),
   security: securitySettingsSchema,
   tools: toolsSettingsSchema,
   debug: debugSettingsSchema,
