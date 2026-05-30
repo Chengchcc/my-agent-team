@@ -12,6 +12,7 @@ export interface ChatCompleteRequest {
   tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
   maxTokens?: number
   signal?: AbortSignal
+  model?: string
 }
 
 export interface ChatCompleteResponse {

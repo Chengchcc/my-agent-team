@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Box, Text } from 'ink'
+import { Box, Text, useInput } from 'ink'
 import type { WidgetDescriptor } from '../widget-types'
 import type { SubAgentTaskPayload } from '../../../sub-agent/widget-payloads'
 
@@ -30,6 +30,9 @@ function fmtUsage(u?: { input: number; output: number }): string | null {
 
 const WidgetSubAgentTask: React.FC<{ payload: SubAgentTaskPayload }> = ({ payload }) => {
   const [expanded, setExpanded] = useState(false)
+  useInput((_input, key) => {
+    if (key.return) setExpanded(prev => !prev)
+  })
   const color = STATUS_COLOR[payload.status] ?? 'gray'
   const toolCount = payload.innerToolCalls.length
   const durStr = payload.durationMs ? ` \u00b7 ${fmtDuration(payload.durationMs)}` : ''

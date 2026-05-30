@@ -28,21 +28,6 @@ function escapeXmlAttr(s: string): string {
     .replace(/\n/g, '&#10;').replace(/\r/g, '&#13;').replace(/\t/g, '&#9;')
 }
 
-function mapFinishReasonToErrorType(fr: string): SubAgentErrorType | undefined {
-  switch (fr) {
-    case 'length': return 'response_truncated'
-    case 'content_filter': return 'response_filtered'
-    case 'tool_calls': case 'inconsistent': return 'provider_inconsistent'
-    case 'budget': return 'budget'
-    case 'tool_failed': return 'tool_failed'
-    case 'tool_unavailable': return 'tool_unavailable'
-    case 'max_rounds': return 'max_rounds'
-    case 'empty': return 'empty_response'
-    case 'error': return 'llm_failed'
-    default: return undefined
-  }
-}
-
 function buildToolSchemas(catalog: ToolCatalog, desc: { allowedToolNames: readonly string[] }) {
   return desc.allowedToolNames
     .filter(n => n !== 'task')

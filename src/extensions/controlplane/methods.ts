@@ -134,11 +134,10 @@ export default () =>
             if (!p?.type) throw new Error('type is required')
             if (!p?.prompt) throw new Error('prompt is required')
 
-            let runner: ((input: { type: string; prompt: string; description: string; parentSessionId: string; parentTurnId: string; parentCallId: string; parentSignal: AbortSignal }) => Promise<string>) | null = null
-            try { runner = ctx.extensions.get('sub-agent.runner') } catch { throw new Error('sub-agent extension not loaded') }
+            const runnerFn = ctx.extensions.get('sub-agent.runner') as (input: { type: string; prompt: string; description: string; parentSessionId: string; parentTurnId: string; parentCallId: string; parentSignal: AbortSignal }) => Promise<string>
 
             const controller = new AbortController()
-            const result = await runner({
+            const result = await runnerFn({
               type: p.type,
               prompt: p.prompt,
               description: p.description ?? `direct invoke: ${p.type}`,
