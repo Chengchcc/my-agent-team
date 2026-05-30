@@ -83,6 +83,18 @@ describe('task tool', () => {
     expect(capturedSignal).toBe(ctrl.signal)
   })
 
+  it('I-5: throws when called from sub-agent context', async () => {
+    const tool = createTaskTool({
+      runSubAgent: async () => 'ok',
+      registry: makeRegistry(),
+    })
+    await expect(
+      tool.execute(makeCtx({ source: { kind: 'subagent', subAgentType: 'explore', subAgentCallId: 'c0', parentSessionId: 'root', parentTurnId: 'rt' } }), {
+        subagent_type: 'explore', description: 'test', prompt: 'do it',
+      }),
+    ).rejects.toThrow(/cannot be called from inside a sub-agent/)
+  })
+
   it('execute returns error string when runSubAgent throws', async () => {
     const tool = createTaskTool({
       runSubAgent: async () => { throw new Error('sub crash') },

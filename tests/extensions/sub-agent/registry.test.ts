@@ -49,6 +49,14 @@ describe('SubAgentRegistry', () => {
     r.clear()
     expect(r.list()).toHaveLength(0)
   })
+
+  it('I-3: rejects ask_user_question in allowedToolNames', () => {
+    const r = new SubAgentRegistry()
+    expect(() => r.register({
+      type: 'bad-agent', description: 'test', systemPrompt: 'you are bad',
+      allowedToolNames: ['read', 'ask_user_question'], source: 'extension',
+    })).toThrow(/cannot allow "ask_user_question"/)
+  })
 })
 
 describe('registerBuiltins', () => {

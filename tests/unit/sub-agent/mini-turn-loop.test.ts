@@ -199,4 +199,26 @@ describe('runMiniTurnLoop', () => {
     // 3 rounds: 2 failures injected, 1 recovery
     expect(chatComplete).toHaveBeenCalledTimes(3)
   })
+
+  it('I-7: terminates after 2 consecutive empty rounds', async () => {
+    let callCount = 0
+    const chatComplete = mock(async () => {
+      callCount++
+      return { content: '', toolCalls: undefined, finishReason: 'stop' as const, usage: { input: 1, output: 0 } }
+    })
+
+    const result = await runMiniTurnLoop({
+      descriptor: makeDesc({ maxRounds: 10 }),
+      userPrompt: 'test',
+      subSessionId: 's1', subTurnId: 't1', parentTurnId: 'pt1',
+      chatComplete,
+      dispatchTool: mock(async () => ({ success: true, result: '' })),
+      toolSchemas: [],
+      log: noopLog,
+    })
+
+    expect(result.finishReason).toBe('empty_rounds')
+    expect(callCount).toBe(2)
+    expect(result.finalText).toContain('empty_rounds')
+  })
 })
