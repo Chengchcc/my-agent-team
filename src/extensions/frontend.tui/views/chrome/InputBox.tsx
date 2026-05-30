@@ -7,6 +7,7 @@ import { SlashCommandList } from '../../slash/components/slash-command-list';
 import { FilePicker } from '../../components/file-picker-popover';
 import type { PromptSubmission, SlashCommand } from '../../../../application/slash';
 import { useTuiStore } from '../../state/store';
+import { INPUT_PREFIXES } from '../../input/input-prefixes';
 
 interface InputBoxProps {
   commands: SlashCommand[];
@@ -49,6 +50,15 @@ export function InputBox({ commands, onSubmit, onAbort }: InputBoxProps) {
         atFiles.length > 0
           ? <FilePicker files={atFiles} selectedIndex={atSelectedIndex} />
           : <Box paddingX={2}><Text dimColor>  searching files…</Text></Box>
+      ) : null}
+
+      {!pickerOpen && !atFilePickerOpen && !displayText ? (
+        <Box paddingX={2}>
+          <Text dimColor>
+            {INPUT_PREFIXES.map(p => p.shortLabel).join('  ·  ')}
+            {'  ·  ↑ for history'}
+          </Text>
+        </Box>
       ) : null}
 
       {pendingInputs.length > 0 ? (

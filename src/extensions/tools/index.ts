@@ -12,6 +12,7 @@ import { editToolSchema } from '../../application/contracts/tool-schemas/edit';
 import { editExecute } from './edit';
 import { writeToolSchema } from '../../application/contracts/tool-schemas/write';
 import { writeExecute } from './write';
+import { createSlashBashCommand } from './slash-bash';
 import { grepToolSchema } from '../../application/contracts/tool-schemas/grep';
 import { grepExecute } from './grep';
 import { globToolSchema } from '../../application/contracts/tool-schemas/glob';
@@ -229,6 +230,9 @@ export default () =>
             fn: transformPrompt,
           },
         },
+        slash: [
+          createSlashBashCommand({ getCatalog: () => catalog }),
+        ],
         dispose: () => {},
       };
     },

@@ -16,9 +16,11 @@ import evolutionExt from './evolution'
 import mcpExt from './mcp'
 import infraServicesExt from './infra-services'
 import frontendLarkExt from './frontend.lark'
+import frontendCapabilityHintsExt from './frontend-capability-hints'
 
 // Multi-extension preset
 export const domainCore = [toolCatalogExt(), traceExt(), providerExt(), sessionExt(), toolsExt(), permissionExt(), controlplaneExt(), controlplaneMethodsExt(), dataplaneExt()]
+export const frontendCapabilityHints = [frontendCapabilityHintsExt()]
 
 // Single-extension presets (named exactly after the extension, no "Preset" suffix)
 export const memory = [memoryExt()]

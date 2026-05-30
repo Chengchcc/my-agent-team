@@ -286,11 +286,15 @@ export function useCommandInput({
           // Submit
           const resolvedText = resolvePastePlaceholders(editorStateRef.current.text);
           if (!resolvedText.trim()) return true;
+          // S-1: ! prefix → /! slash command rewrite
+          const submittedText = resolvedText.startsWith('!')
+            ? `/!${resolvedText.slice(1).trimStart() ? ' ' + resolvedText.slice(1).trimStart() : ''}`
+            : resolvedText;
           const markerRe = createPasteMarkerRe();
           let m: RegExpExecArray | null;
           while ((m = markerRe.exec(editorStateRef.current.text)) !== null) { attachmentMap.delete(m[1]!); }
           saveEntry(resolvedText);
-          void onSubmit?.(buildPromptSubmissionTui(resolvedText, commands));
+          void onSubmit?.(buildPromptSubmissionTui(submittedText, commands));
           setEditorState({ text: '', cursorOffset: 0 });
           setDismissedQuery(null);
           setSelectedIndex(0);
