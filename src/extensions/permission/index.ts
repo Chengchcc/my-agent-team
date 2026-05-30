@@ -45,9 +45,7 @@ export default () =>
       const sessionAllowlists = new Map<string, Set<string>>()
       const pendingRequests = new Map<string, PendingRequest>()
       const store = new PermissionStore(ctx.paths.permissions)
-      // Load global allowlist on startup (async, non-blocking)
       let globalAllowlist = new Set<string>()
-      store.load().then(s => { globalAllowlist = s; }).catch(() => {})
       const timeoutMs: number = (ctx.config.raw.permissionTimeoutMs as number) ?? DEFAULT_TIMEOUT_MS
 
       // onToolCall handler: pre-intercept tool calls
@@ -156,6 +154,14 @@ export default () =>
           onToolCall: {
             enforce: 'guard',
             fn: onToolCall,
+          },
+          kernelReady: {
+            enforce: 'normal',
+            fn: async () => {
+              try {
+                globalAllowlist = await store.load();
+              } catch { /* permissions file not readable; start empty */ }
+            },
           },
         },
 
