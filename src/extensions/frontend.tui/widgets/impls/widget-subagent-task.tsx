@@ -16,15 +16,19 @@ const TOOL_STATUS_ICON: Record<string, string> = {
   error: '\u2717',
 }
 
+const FINAL_TEXT_TRUNCATE_LENGTH = 200
+const MILLIS_PER_SECOND = 1000
+const BYTES_PER_KILO = 1000
+
 function fmtDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  return `${(ms / 1000).toFixed(1)}s`
+  if (ms < MILLIS_PER_SECOND) return `${ms}ms`
+  return `${(ms / MILLIS_PER_SECOND).toFixed(1)}s`
 }
 
 function fmtUsage(u?: { input: number; output: number }): string | null {
   if (!u) return null
-  const ik = u.input >= 1000 ? `${(u.input / 1000).toFixed(1)}k` : `${u.input}`
-  const ok = u.output >= 1000 ? `${(u.output / 1000).toFixed(1)}k` : `${u.output}`
+  const ik = u.input >= BYTES_PER_KILO ? `${(u.input / BYTES_PER_KILO).toFixed(1)}k` : `${u.input}`
+  const ok = u.output >= BYTES_PER_KILO ? `${(u.output / BYTES_PER_KILO).toFixed(1)}k` : `${u.output}`
   return `${ik} in / ${ok} out`
 }
 
@@ -39,6 +43,7 @@ const WidgetSubAgentTask: React.FC<{ payload: SubAgentTaskPayload }> = ({ payloa
   const usageStr = fmtUsage(payload.usage)
   const meta = [toolCount > 0 ? `${toolCount} tools` : null, durStr, usageStr]
     .filter(Boolean).join(' \u00b7 ')
+  const truncated = payload.finalText && payload.finalText.length > FINAL_TEXT_TRUNCATE_LENGTH
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={color} paddingX={1} marginY={1}>
@@ -50,7 +55,7 @@ const WidgetSubAgentTask: React.FC<{ payload: SubAgentTaskPayload }> = ({ payloa
         {meta ? <Text color="gray"> ({meta})</Text> : null}
       </Box>
 
-      {expanded && (
+      {expanded ? (
         <>
           {payload.innerToolCalls.map((tc, i) => (
             <Box key={tc.innerCallId}>
@@ -70,12 +75,12 @@ const WidgetSubAgentTask: React.FC<{ payload: SubAgentTaskPayload }> = ({ payloa
               </Box>
               <Box>
                 <Text dimColor>
-                  {payload.finalText.length > 200
-                    ? payload.finalText.slice(0, 200) + '...'
+                  {truncated
+                    ? payload.finalText!.slice(0, FINAL_TEXT_TRUNCATE_LENGTH) + '...'
                     : payload.finalText}
                 </Text>
               </Box>
-              {payload.finalText.length > 200 && (
+              {truncated && (
                 <Box>
                   <Text color="gray" dimColor>
                     (truncated, see sub session {payload.subSessionId})
@@ -84,13 +89,13 @@ const WidgetSubAgentTask: React.FC<{ payload: SubAgentTaskPayload }> = ({ payloa
               )}
             </>
           ) : null}
-          {payload.errorMessage && (
+          {payload.errorMessage ? (
             <Box>
               <Text color="red">  Error: {payload.errorMessage}</Text>
             </Box>
-          )}
+          ) : null}
         </>
-      )}
+      ) : null}
     </Box>
   )
 }

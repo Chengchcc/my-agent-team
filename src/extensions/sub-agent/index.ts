@@ -12,8 +12,7 @@ import type { ProviderChat, ProviderInvoke } from '../../application/ports/provi
 function resolveModel(hint: SubAgentDescriptor['modelHint']): string | undefined {
   switch (hint) {
     case 'fast': return 'claude-haiku-4-5-20251001'
-    case 'strong': return undefined
-    default: return undefined
+    case 'strong': case undefined: return undefined
   }
 }
 

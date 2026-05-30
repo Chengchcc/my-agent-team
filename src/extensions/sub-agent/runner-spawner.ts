@@ -72,7 +72,7 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
     const model = deps.resolveModel?.(desc.modelHint)
 
     // R-2: best-effort emit, no try/catch
-    deps.bus.emit('subagent.started', {
+    void deps.bus.emit('subagent.started', {
       parentTurnId: input.parentTurnId,
       parentSessionId: input.parentSessionId,
       subSessionId,
@@ -139,7 +139,7 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
           onProgress: (payload) => {
             if ((payload as { kind?: string }).kind !== 'sub-agent.inner-tool') return
             const p = payload as { kind: 'sub-agent.inner-tool'; innerCallId: string; toolName: string; phase: 'start' | 'end'; ok?: boolean; durationMs?: number }
-            deps.bus.emit('subagent.progress', {
+            void deps.bus.emit('subagent.progress', {
               parentTurnId: input.parentTurnId,
               parentSessionId: input.parentSessionId,
               subSessionId,
@@ -157,7 +157,7 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
       })
 
       const typed = result as unknown as { usage: { input: number; output: number }; finalText: string; finishReason: string }
-      deps.bus.emit('subagent.completed', {
+      void deps.bus.emit('subagent.completed', {
         parentTurnId: input.parentTurnId,
         parentSessionId: input.parentSessionId,
         subSessionId,
@@ -179,7 +179,7 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
 
       const errorType: SubAgentErrorType = isAbort ? 'cancelled' : 'failed'
 
-      deps.bus.emit('subagent.completed', {
+      void deps.bus.emit('subagent.completed', {
         parentTurnId: input.parentTurnId,
         parentSessionId: input.parentSessionId,
         subSessionId,

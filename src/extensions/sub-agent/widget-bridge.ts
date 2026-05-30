@@ -4,8 +4,12 @@ import type { Logger } from '../../application/ports/logger'
 import type { SubAgentStartedV1, SubAgentCompletedV1, SubAgentProgressV1 } from '../../application/contracts/subagent-events'
 import type { SubAgentTaskPayload, SubAgentInnerToolCall } from './widget-payloads'
 
-const WIDGET_TIMEOUT_MS = 30 * 60 * 1000
-const SWEEP_INTERVAL_MS = 5 * 60 * 1000
+const MINUTES_PER_TIMEOUT = 30
+const MINUTES_PER_SWEEP = 5
+const SECONDS_PER_MINUTE = 60
+const MILLISECONDS_PER_SECOND = 1000
+const WIDGET_TIMEOUT_MS = MINUTES_PER_TIMEOUT * SECONDS_PER_MINUTE * MILLISECONDS_PER_SECOND
+const SWEEP_INTERVAL_MS = MINUTES_PER_SWEEP * SECONDS_PER_MINUTE * MILLISECONDS_PER_SECOND
 
 interface BridgeEntry {
   payload: SubAgentTaskPayload
