@@ -8,6 +8,8 @@ import { PRIORITY } from './keys/priority';
 import { useKeyLayer } from './keys/use-key-layer';
 import { GLOBAL_BINDINGS } from './keys/global-keymap';
 import type { GlobalKeyCtx } from './keys/global-keymap';
+import { INPUT_BINDINGS } from './keys/input-keymap';
+import { PICKER_BINDINGS } from './keys/picker-keymap';
 import { getInkInstance } from './run-tui';
 import { FinalItemView } from './views/final/FinalItemView';
 import { ActiveAssistantView } from './views/active/ActiveAssistantView';
@@ -103,6 +105,11 @@ async function resolveSlashSubmission(params: {
           );
         }).catch(() => {});
       },
+      getCheatsheet: () => [
+        { scope: 'Global', bindings: GLOBAL_BINDINGS.map(b => ({ label: b.label, description: b.description })) },
+        { scope: 'Input', bindings: INPUT_BINDINGS.map(b => ({ label: b.label, description: b.description })) },
+        { scope: 'Picker', bindings: PICKER_BINDINGS.map(b => ({ label: b.label, description: b.description })) },
+      ],
     },
   };
   const result = await resolved.command.resolve(text, ctx);

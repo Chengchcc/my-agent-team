@@ -9,7 +9,7 @@ export function createSlashHelpCommand(
     description: 'Show available commands grouped by category',
     source: 'builtin',
     group: 'core',
-    async resolve(_input, _ctx): Promise<SlashResolution> {
+    async resolve(_input, ctx): Promise<SlashResolution> {
       const registry = getRegistry()
       const all = registry.list({ source: 'builtin' })
       const grouped = new Map<string, Array<{ name: string; description: string }>>()
@@ -28,6 +28,21 @@ export function createSlashHelpCommand(
         }
         lines.push('')
       }
+
+      // Keyboard shortcuts via ctx.ui.getCheatsheet (TUI only)
+      const cheatsheet = ctx.ui?.getCheatsheet?.() ?? [];
+      if (cheatsheet.length > 0) {
+        lines.push('\n**Keyboard shortcuts**\n');
+        for (const group of cheatsheet) {
+          if (group.bindings.length === 0) continue;
+          lines.push(`_${group.scope}_`);
+          for (const b of group.bindings) {
+            lines.push(`  ${b.label} — ${b.description}`);
+          }
+          lines.push('');
+        }
+      }
+
       return { kind: 'handled', message: lines.join('\n') }
     },
   }
