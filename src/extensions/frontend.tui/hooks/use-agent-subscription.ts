@@ -57,14 +57,9 @@ export function useAgentSubscription(
         case 'turn_completed': {
           logger?.debug('tui', 'TRANSCRIPT turn_completed' + JSON.stringify({ finalMessageLen: event.finalMessage.length, usage: event.usage }));
           if (event.usage) {
-            store.accumulateUsage({
-              prompt_tokens: event.usage.input,
-              completion_tokens: event.usage.output,
-            });
+            store.setPromptTokens(event.usage.input);
+            store.accumulateCompletionTokens(event.usage.output);
           }
-          // Track context tokens from accumulated usage
-          const s = useTuiStore.getState().stats;
-          store.setContextTokens((s.promptTokens || 0) + (s.completionTokens || 0));
           const hasToolCalls = false; // projector doesn't expose this, default to flush
           if (hasToolCalls) {
             committer.flush();

@@ -25,8 +25,8 @@ export interface ProviderAdapter {
   /** Build vendor wire request body for invoke (always non-stream). */
   toInvokeWire(req: InvokeRequest): unknown
 
-  /** Parse one streaming chunk; return null to skip (heartbeat / unknown event). */
-  fromChatStreamChunk(raw: unknown): ChatResponseChunk | null
+  /** Parse one streaming chunk; return null to skip (heartbeat / unknown event), array of chunks otherwise. */
+  fromChatStreamChunk(raw: unknown): ChatResponseChunk[] | null
 
   /** Parse complete (non-stream) chat response. */
   fromChatResponse(raw: unknown): ChatResponse

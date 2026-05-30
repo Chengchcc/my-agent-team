@@ -29,7 +29,7 @@ function renderBar(ratio: number): string {
 }
 
 export function Footer() {
-  const contextTokens = useTuiStore(s => s.stats.contextTokens);
+  const contextTokens = useTuiStore(s => s.stats.lastTurnInputTokens);
   const tokenLimit = useTuiStore(s => s.stats.tokenLimit);
   const completionTokens = useTuiStore(s => s.stats.completionTokens);
   const interrupted = useTuiStore(s => s.stats.interrupted);

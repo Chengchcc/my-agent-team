@@ -26,7 +26,7 @@ export class EchoProvider implements ProviderChat, ProviderInvoke {
       type: 'usage',
       usage: { input: lastMsg.length, output: lastMsg.length + ECHO_PREFIX_LENGTH },
     }
-    yield { type: 'done' }
+    yield { type: 'done', finishReason: 'stop' }
   }
 
   async complete(req: ChatRequest): Promise<ChatResponse> {

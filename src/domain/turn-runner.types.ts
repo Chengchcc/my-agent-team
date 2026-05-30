@@ -57,7 +57,7 @@ export type TurnEvent =
   | { type: 'turn.completed'; sessionId: string; turnId: string; usage: { input: number; output: number }; finalMessage: string }
   | { type: 'turn.failed'; sessionId: string; turnId: string; stage: TurnFailureStage; err: { message: string } }
   | { type: 'wave.completed'; sessionId: string; turnId: string; waveIndex: number; callsInWave: number; ts: number }
-  | { type: 'round.completed'; sessionId: string; turnId: string; roundIdx: number; assistantText: string; toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>; usage: { input: number; output: number }; finishReason: 'stop' | 'tool_use' | 'empty' }
+  | { type: 'round.completed'; sessionId: string; turnId: string; roundIdx: number; assistantText: string; toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>; usage: { input: number; output: number }; finishReason: 'stop' | 'tool_use' | 'empty' | 'length' | 'tool_calls' | 'content_filter' }
 
 // ── Turn runner hooks (narrow — only what the agent loop needs) ──
 
@@ -99,6 +99,7 @@ export interface RoundResult {
   assistantText: string
   toolCalls: ToolCall[]
   usage: { input: number; output: number }
+  finishReason?: 'stop' | 'length' | 'tool_calls' | 'content_filter'
 }
 
 // ── Re-export provider chunk for consumeRound ──

@@ -91,7 +91,7 @@ function makeOnTurnEnd(d: TurnEndDeps): HookHandler {
       void d.contractBus.emit('turn.completed', {
         sessionId,
         turnId,
-        usage: { input: result.usage?.input ?? null, output: result.usage?.output ?? null },
+        usage: result.usage ?? { input: 0, output: 0 },
         toolCallCount: result.toolCallCount ?? 0,
         toolErrorCount: result.toolErrorCount ?? 0,
         activatedSkills: result.activatedSkills ?? [],

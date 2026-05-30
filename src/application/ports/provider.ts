@@ -29,7 +29,7 @@ type ChatResponseChunk =
   | { type: 'text'; delta: string }
   | { type: 'tool_call_start'; toolCall: { id: string; name: string; arguments: string } }
   | { type: 'usage'; usage: { input: number; output: number } }
-  | { type: 'done' }
+  | { type: 'done'; finishReason: 'stop' | 'length' | 'tool_calls' | 'content_filter' }
 
 interface InvokeRequest {
   kind: 'internal'

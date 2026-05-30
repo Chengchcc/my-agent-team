@@ -138,7 +138,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     )
   }
 
-  fromChatStreamChunk(raw: unknown): ChatResponseChunk | null {
+  fromChatStreamChunk(raw: unknown): ChatResponseChunk[] | null {
     if (typeof raw !== 'string') return null
 
     let event: { type: string; [key: string]: unknown }
@@ -160,17 +160,17 @@ export class ClaudeAdapter implements ProviderAdapter {
       case 'content_block_delta': {
         const delta = event.delta as Record<string, unknown> | undefined
         if (delta?.type === 'text_delta') {
-          return { type: 'text', delta: delta.text as string }
+          return [{ type: 'text', delta: delta.text as string }]
         }
         if (delta?.type === 'input_json_delta') {
-          return {
+          return [{
             type: 'tool_call_start',
             toolCall: {
               id: this.currentToolId,
               name: this.currentToolName,
               arguments: (delta.partial_json as string) ?? '',
             },
-          }
+          }]
         }
         if (delta?.type === 'thinking_delta') {
           return null
@@ -185,7 +185,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       case 'message_delta':
         return null
       case 'message_stop':
-        return { type: 'done' }
+        return [{ type: 'done', finishReason: 'stop' }]
       default:
         return null
     }

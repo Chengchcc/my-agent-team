@@ -27,6 +27,7 @@ async function* consumeRound(
   let assistantText = ''
   const toolCalls: ToolCall[] = []
   let usage = { input: 0, output: 0 }
+  let finishReasonFromStream: 'stop' | 'length' | 'tool_calls' | 'content_filter' | undefined
 
   for await (const chunk of stream) {
     if (chunk.type === 'text') {
@@ -39,11 +40,12 @@ async function* consumeRound(
       usage = chunk.usage
       yield { type: 'llm.usage', ...ids, usage }
     } else if (chunk.type === 'done') {
+      finishReasonFromStream = chunk.finishReason
       break
     }
   }
 
-  return { assistantText, toolCalls, usage }
+  return { assistantText, toolCalls, usage, finishReason: finishReasonFromStream }
 }
 
 // ── Turn runner: agent loop as async generator ──
@@ -92,7 +94,7 @@ export async function* runTurn(deps: RunTurnDeps): AsyncGenerator<TurnEvent, voi
           assistantText: round.assistantText,
           toolCalls: round.toolCalls as Array<{ id: string; name: string; arguments: Record<string, unknown> }>,
           usage: round.usage,
-          finishReason: round.toolCalls.length > 0 ? 'tool_use' : 'stop',
+          finishReason: round.finishReason ?? (round.toolCalls.length > 0 ? 'tool_use' : 'stop'),
         }
       } else {
         if (log) {

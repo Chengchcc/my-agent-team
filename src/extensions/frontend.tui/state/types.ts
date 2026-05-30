@@ -64,9 +64,8 @@ export interface InteractionState {
 }
 
 export interface StatsState {
-  promptTokens: number;
+  lastTurnInputTokens: number;
   completionTokens: number;
-  contextTokens: number;
   tokenLimit: number;
   streaming: boolean;
   streamingStartTime: number | null;
@@ -99,9 +98,8 @@ export const initialInteraction: InteractionState = {
 };
 
 export const initialStats: StatsState = {
-  promptTokens: 0,
+  lastTurnInputTokens: 0,
   completionTokens: 0,
-  contextTokens: 0,
   tokenLimit: 0,
   streaming: false,
   streamingStartTime: null,

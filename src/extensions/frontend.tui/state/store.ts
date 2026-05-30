@@ -65,8 +65,8 @@ interface TuiStore {
   // Stats
   streamingStart: () => void;
   streamingStop: () => void;
-  accumulateUsage: (usage: { prompt_tokens: number; completion_tokens: number }) => void;
-  setContextTokens: (tokens: number) => void;
+  setPromptTokens: (tokens: number) => void;
+  accumulateCompletionTokens: (tokens: number) => void;
   setTokenLimit: (limit: number) => void;
   setInterrupted: (interrupted: boolean) => void;
   setCompacting: (compacting: boolean) => void;
@@ -248,12 +248,12 @@ function buildInteractionActions(set: ImmerSet): Pick<TuiStore, 'toggleToolsExpa
   };
 }
 
-function buildStatsActions(set: ImmerSet): Pick<TuiStore, 'streamingStart' | 'streamingStop' | 'accumulateUsage' | 'setContextTokens' | 'setTokenLimit' | 'setInterrupted' | 'setCompacting' | 'setMode' | 'subagentStarted' | 'subagentCompleted'> {
+function buildStatsActions(set: ImmerSet): Pick<TuiStore, 'streamingStart' | 'streamingStop' | 'setPromptTokens' | 'accumulateCompletionTokens' | 'setTokenLimit' | 'setInterrupted' | 'setCompacting' | 'setMode' | 'subagentStarted' | 'subagentCompleted'> {
   return {
     streamingStart: () => set((s) => { s.stats.streaming = true; s.stats.streamingStartTime = Date.now(); s.stats.interrupted = false; }),
     streamingStop: () => set((s) => { s.stats.streaming = false; s.stats.streamingStartTime = null; }),
-    accumulateUsage: (usage) => set((s) => { s.stats.promptTokens = usage.prompt_tokens; s.stats.completionTokens += usage.completion_tokens; }),
-    setContextTokens: (tokens) => set((s) => { s.stats.contextTokens = tokens; }),
+    setPromptTokens: (tokens) => set((s) => { s.stats.lastTurnInputTokens = tokens; }),
+    accumulateCompletionTokens: (tokens) => set((s) => { s.stats.completionTokens += tokens; }),
     setTokenLimit: (limit) => set((s) => { s.stats.tokenLimit = limit; }),
     setInterrupted: (interrupted) => set((s) => { s.stats.interrupted = interrupted; }),
     setCompacting: (compacting) => set((s) => { s.stats.compacting = compacting; }),

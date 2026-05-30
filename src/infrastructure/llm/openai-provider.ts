@@ -46,8 +46,10 @@ export class OpenAiProvider implements ProviderChat, ProviderInvoke {
     }
 
     for await (const sseEvent of parseSSE(resp.body!)) {
-      const chunk = this.adapter.fromChatStreamChunk(sseEvent.data)
-      if (chunk !== null) yield chunk
+      const chunks = this.adapter.fromChatStreamChunk(sseEvent.data)
+      if (chunks !== null) {
+        for (const chunk of chunks) yield chunk
+      }
     }
   }
 

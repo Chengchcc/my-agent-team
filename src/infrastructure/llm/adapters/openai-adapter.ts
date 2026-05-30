@@ -85,7 +85,7 @@ export class OpenAiAdapter implements ProviderAdapter {
     )
   }
 
-  fromChatStreamChunk(raw: unknown): ChatResponseChunk | null {
+  fromChatStreamChunk(raw: unknown): ChatResponseChunk[] | null {
     if (typeof raw !== 'string') return null
 
     let event: { type: string; [key: string]: unknown }
@@ -99,27 +99,35 @@ export class OpenAiAdapter implements ProviderAdapter {
       case 'response.output_text.delta': {
         const delta = event.delta as string | undefined
         if (delta) {
-          return { type: 'text', delta }
+          return [{ type: 'text', delta }]
         }
         return null
       }
       case 'response.output_item.done': {
         const item = event.item as Record<string, unknown> | undefined
         if (item?.type === 'function_call') {
-          return {
+          return [{
             type: 'tool_call_start',
             toolCall: {
               id: (item.id as string) ?? '',
               name: (item.name as string) ?? '',
               arguments: JSON.stringify(item.arguments ?? {}),
             },
-          }
+          }]
         }
         return null
       }
-      case 'response.completed':
+      case 'response.completed': {
+        const resp = event.response as { usage?: { input_tokens: number; output_tokens: number } } | undefined
+        const chunks: ChatResponseChunk[] = []
+        if (resp?.usage) {
+          chunks.push({ type: 'usage', usage: { input: resp.usage.input_tokens, output: resp.usage.output_tokens } })
+        }
+        chunks.push({ type: 'done', finishReason: 'stop' })
+        return chunks
+      }
       case 'response.done':
-        return { type: 'done' }
+        return [{ type: 'done', finishReason: 'stop' }]
       case 'response.created':
       case 'response.in_progress':
         return null

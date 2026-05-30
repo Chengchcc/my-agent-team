@@ -50,43 +50,63 @@ export class ClaudeProvider implements ProviderChat, ProviderInvoke {
     let currentToolId = ''
     let currentToolName = ''
     let currentToolArgs = ''
+    let pendingInput = 0
+    let pendingOutput = 0
 
     for await (const sseEvent of parseSSE(resp.body!)) {
-      const chunk = this.adapter.fromChatStreamChunk(sseEvent.data)
-      if (chunk === null) continue
+      const rawStr = sseEvent.data as string
 
-      if (chunk.type === 'tool_call_start') {
-        if (chunk.toolCall.name) currentToolName = chunk.toolCall.name
-        if (chunk.toolCall.id) currentToolId = chunk.toolCall.id
-        currentToolArgs += chunk.toolCall.arguments
-        continue
-      }
-
-      if (chunk.type === 'done') {
-        if (currentToolArgs) {
-          let args: Record<string, unknown> = {}
-          try {
-            args = JSON.parse(currentToolArgs) as Record<string, unknown>
-          } catch {
-            /* keep as string */
-          }
-          yield {
-            type: 'tool_call_start',
-            toolCall: {
-              id: currentToolId,
-              name: currentToolName,
-              arguments: JSON.stringify(args),
-            },
-          }
-          currentToolId = ''
-          currentToolName = ''
-          currentToolArgs = ''
+      // Track usage from raw SSE events before adapter parsing
+      try {
+        const raw = JSON.parse(rawStr) as { type: string; message?: { usage?: { input_tokens: number } }; usage?: { output_tokens: number } }
+        if (raw.type === 'message_start') {
+          pendingInput = raw.message?.usage?.input_tokens ?? 0
+        } else if (raw.type === 'message_delta') {
+          pendingOutput = raw.usage?.output_tokens ?? pendingOutput
         }
-        yield chunk
-        continue
-      }
+      } catch { /* not JSON, skip */ }
 
-      yield chunk
+      const chunks = this.adapter.fromChatStreamChunk(rawStr)
+      if (chunks === null) continue
+
+      for (const chunk of chunks) {
+        if (chunk.type === 'tool_call_start') {
+          if (chunk.toolCall.name) currentToolName = chunk.toolCall.name
+          if (chunk.toolCall.id) currentToolId = chunk.toolCall.id
+          currentToolArgs += chunk.toolCall.arguments
+          continue
+        }
+
+        if (chunk.type === 'done') {
+          if (currentToolArgs) {
+            let args: Record<string, unknown> = {}
+            try {
+              args = JSON.parse(currentToolArgs) as Record<string, unknown>
+            } catch {
+              /* keep as string */
+            }
+            yield {
+              type: 'tool_call_start',
+              toolCall: {
+                id: currentToolId,
+                name: currentToolName,
+                arguments: JSON.stringify(args),
+              },
+            }
+            currentToolId = ''
+            currentToolName = ''
+            currentToolArgs = ''
+          }
+          // Emit accumulated usage before done
+          if (pendingInput > 0 || pendingOutput > 0) {
+            yield { type: 'usage', usage: { input: pendingInput, output: pendingOutput } }
+          }
+          yield chunk
+          continue
+        }
+
+        yield chunk
+      }
     }
   }
 
