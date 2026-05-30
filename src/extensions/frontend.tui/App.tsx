@@ -1,8 +1,9 @@
 import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import { nanoid } from 'nanoid';
-import { KeyDispatcher } from './input/key-dispatcher';
-import { Box, Static } from 'ink';
+import { keyDispatcher } from './input/key-dispatcher';
+import { Box, Static, useInput } from 'ink';
 import { useTuiStore, useFrozenItems, useLiveItem, useStreaming } from './state/store';
+import { normalizeKey } from './keys/normalize';
 import { FinalItemView } from './views/final/FinalItemView';
 import { ActiveAssistantView } from './views/active/ActiveAssistantView';
 import { InputBox } from './views/chrome/InputBox';
@@ -120,8 +121,6 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
   const noticIdx = useRef(0);
   const staticKey = 0; // no remount needed — /clear now uses divider instead of wipe
 
-  const keyDispatcher = useRef(new KeyDispatcher()).current;
-
   const { submit, abort } = useAgentSubscription(client, projector, sessionId);
 
   useEffect(() => {
@@ -191,6 +190,11 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
     }).catch(() => { /* mode not available */ });
   }, [client, sessionId]);
 
+  // Single useInput entry point — all key events route through KeyDispatcher
+  useInput((rawInput, rawKey) => {
+    keyDispatcher.dispatch(normalizeKey(rawInput, rawKey));
+  });
+
   const allCommands = useMemo(() => slashRegistry.list(), [slashRegistry]);
 
   const banner: FinalItem = useMemo(
@@ -229,7 +233,6 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
             commands={allCommands}
             onSubmit={(s) => { void handleSubmit(s); }}
             onAbort={handleAbort}
-            keyDispatcher={keyDispatcher}
           />
         )}
       </Box>

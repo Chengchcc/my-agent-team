@@ -1,6 +1,5 @@
-import { useInput } from "ink";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
-import type { KeyDispatcher } from "../input/key-dispatcher";
+import { keyDispatcher } from "../input/key-dispatcher";
 import fastGlob from "fast-glob";
 import {
   type InputEditorState,
@@ -59,26 +58,25 @@ function useAtFilePicker(atQuery: ReturnType<typeof getAtQuery>) {
   return atFiles;
 }
 
-function useStreamingKeyLayer(streaming: boolean, keyDispatcher: KeyDispatcher | undefined, onAbort: (() => void) | undefined) {
+function useStreamingKeyLayer(streaming: boolean, onAbort: (() => void) | undefined) {
   useEffect(() => {
-    if (!streaming || !keyDispatcher || !onAbort) return;
+    if (!streaming || !onAbort) return;
     const handler = (keyEvent: { escape?: boolean }) => {
       if (keyEvent.escape) { onAbort(); return true; }
       return false;
     };
     keyDispatcher.push({ id: 'streaming-mode', handler });
     return () => void keyDispatcher.pop('streaming-mode');
-  }, [streaming, keyDispatcher, onAbort]);
+  }, [streaming, onAbort]);
 }
 
 function useSlashPickerKeyLayer(
   pickerOpen: boolean,
   filteredCommands: SlashCommand[],
-  keyDispatcher: KeyDispatcher | undefined,
   pickerStateRef: React.MutableRefObject<PickerState>,
 ) {
   useEffect(() => {
-    if (!pickerOpen || filteredCommands.length === 0 || !keyDispatcher) return;
+    if (!pickerOpen || filteredCommands.length === 0) return;
     const handler = (keyEvent: { escape?: boolean; return?: boolean; tab?: boolean; upArrow?: boolean; downArrow?: boolean; ctrl?: boolean }) => {
       const s = pickerStateRef.current;
       if (keyEvent.escape) { s.setDismissedQuery(s.slashQuery); return true; }
@@ -115,13 +113,11 @@ export function useCommandInput({
   streaming,
   onSubmit,
   onAbort,
-  keyDispatcher,
 }: {
   commands: SlashCommand[];
   streaming: boolean;
   onSubmit?: (submission: PromptSubmission) => void | Promise<void>;
   onAbort?: () => void;
-  keyDispatcher?: KeyDispatcher;
 }) {
   const [firstMessage, setFirstMessage] = useState(true);
   const [editorState, setEditorState] = useState<InputEditorState>({ text: "", cursorOffset: 0 });
@@ -215,10 +211,11 @@ export function useCommandInput({
   }, [filteredCommands, slashQuery, setSelectedIndex, setDismissedQuery, editorStateRef, acceptSelectedCommand, suppressEnterRef]);
 
   // ── Key layers ──
-  useStreamingKeyLayer(streaming, keyDispatcher, onAbort);
-  useSlashPickerKeyLayer(pickerOpen, filteredCommands, keyDispatcher, pickerStateRef);
+  useStreamingKeyLayer(streaming, onAbort);
+  useSlashPickerKeyLayer(pickerOpen, filteredCommands, pickerStateRef);
 
-  const inputKeyHandler = makeInputKeyHandler({
+  // PR-3: inputKeyHandler will be wired via FALLTHROUGH KeyDispatcher layer
+  void makeInputKeyHandler({
     onAbort, streaming, pickerOpen, slashQuery, setDismissedQuery,
     atFilePickerOpen, atQuery, atFiles, setDismissedAtQuery,
     isBrowsing, exitBrowsing, editorStateRef, setEditorState, updateEditorState,
@@ -226,8 +223,6 @@ export function useCommandInput({
     saveEntry, setFirstMessage, setSelectedIndex, hasMarkers,
     beginBrowsing, browseUp, browseDown,
   });
-
-  useInput(inputKeyHandler, { isActive: true });
 
   return {
     filteredCommands, highlightedCommandName, pickerOpen,

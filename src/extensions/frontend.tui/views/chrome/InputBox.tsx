@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import { useCommandInput } from '../../slash/use-slash-input';
 import { useBracketedPaste } from '../../hooks/use-bracketed-paste';
 import { HighlightedInput } from '../../components/HighlightedInput';
@@ -7,25 +7,22 @@ import { SlashCommandList } from '../../slash/components/slash-command-list';
 import { FilePicker } from '../../components/file-picker-popover';
 import type { PromptSubmission, SlashCommand } from '../../../../application/slash';
 import { useTuiStore } from '../../state/store';
-import type { KeyDispatcher as KeyDispatcherType } from '../../input/key-dispatcher';
-import { inkKeyToKeyEvent } from '../../input/key-dispatcher';
 
 interface InputBoxProps {
   commands: SlashCommand[];
   onSubmit: (submission: PromptSubmission) => void;
   onAbort?: () => void;
-  keyDispatcher: KeyDispatcherType;
 }
 
 const PENDING_PREVIEW_MAX = 120;
 const PENDING_TRUNC = 117;
 
-export function InputBox({ commands, onSubmit, onAbort, keyDispatcher }: InputBoxProps) {
+export function InputBox({ commands, onSubmit, onAbort }: InputBoxProps) {
   useBracketedPaste();
   const streaming = useTuiStore(s => s.stats.streaming);
   const pendingInputs = useTuiStore(s => s.interaction.pendingInputs);
 
-  const commandInputOpts = { commands, streaming, onSubmit, keyDispatcher };
+  const commandInputOpts = { commands, streaming, onSubmit };
   const {
     filteredCommands,
     highlightedCommandName,
@@ -42,10 +39,8 @@ export function InputBox({ commands, onSubmit, onAbort, keyDispatcher }: InputBo
     onAbort ? { ...commandInputOpts, onAbort } : commandInputOpts,
   );
 
-  useInput((input, key) => {
-    // Route through KeyDispatcher — overlays and global chrome get priority
-    if (keyDispatcher.dispatch(inkKeyToKeyEvent(input, key))) return;
-  });
+  // Key input now routed through App-level single useInput → keyDispatcher
+  // INPUT_EDIT + FALLTHROUGH layers registered in PR-3 (K-1)
 
   return (
     <Box flexDirection="column">

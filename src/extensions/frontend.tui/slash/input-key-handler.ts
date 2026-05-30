@@ -63,9 +63,7 @@ export function makeInputKeyHandler(d: InputKeyHandlerDeps) {
     leftArrow: boolean; rightArrow: boolean; return: boolean; tab: boolean;
     shift: boolean; backspace: boolean; delete: boolean;
   }) => {
-    if (key.ctrl && input === "c") { d.onAbort?.(); return; }
-
-    if (key.escape && d.streaming) return;
+    // Ctrl+C and streaming ESC handled by KeyDispatcher GLOBAL_CHROME layer
 
     if (d.pickerOpen && key.escape) { d.setDismissedQuery(d.slashQuery); return; }
 
