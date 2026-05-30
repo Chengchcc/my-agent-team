@@ -5,7 +5,7 @@ import { Box, Static } from 'ink';
 import { useTuiStore, useFrozenItems, useLiveItem, useStreaming } from './state/store';
 import { FinalItemView } from './views/final/FinalItemView';
 import { ActiveAssistantView } from './views/active/ActiveAssistantView';
-import { InputBox, type InputBoxCallbacks } from './views/chrome/InputBox';
+import { InputBox } from './views/chrome/InputBox';
 import { PanelHost } from './panels/panel-host';
 import { useAgentSubscription } from './hooks/use-agent-subscription';
 
@@ -178,21 +178,6 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
     useTuiStore.getState().setInterrupted(true);
   }, [abort]);
 
-  const handleToggleToolsExpanded = useCallback(() => {
-    if (streaming) return;
-    useTuiStore.getState().toggleToolsExpanded();
-  }, [streaming]);
-
-  const callbacks: InputBoxCallbacks = useMemo(
-    () => ({
-      onToggleExpand: handleToggleToolsExpanded,
-      onClearPending: () => {
-        useTuiStore.getState().clearPendingInputs();
-      },
-    }),
-    [handleToggleToolsExpanded],
-  );
-
   useEffect(() => {
     if (useTuiStore.getState().stats.tokenLimit === 0) {
       useTuiStore.getState().setTokenLimit(DEFAULT_TOKEN_LIMIT);
@@ -244,7 +229,6 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
             commands={allCommands}
             onSubmit={(s) => { void handleSubmit(s); }}
             onAbort={handleAbort}
-            callbacks={callbacks}
             keyDispatcher={keyDispatcher}
           />
         )}

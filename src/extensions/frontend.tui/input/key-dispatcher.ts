@@ -18,6 +18,8 @@ export interface KeyEvent {
   tab?: boolean;
   delete?: boolean;
   backspace?: boolean;
+  pageUp?: boolean;
+  pageDown?: boolean;
 }
 
 export interface KeyLayer {
@@ -43,6 +45,8 @@ export interface InkKey {
   shift?: boolean;
   delete?: boolean;
   backspace?: boolean;
+  pageUp?: boolean;
+  pageDown?: boolean;
 }
 
 /** @deprecated Use normalizeKey from keys/normalize.ts instead. Kept for backward compat during migration. */
@@ -62,6 +66,8 @@ export function inkKeyToKeyEvent(input: string, key: InkKey): KeyEvent {
     tab: key.tab,
     delete: key.delete,
     backspace: key.backspace,
+    pageUp: key.pageUp,
+    pageDown: key.pageDown,
   };
 }
 

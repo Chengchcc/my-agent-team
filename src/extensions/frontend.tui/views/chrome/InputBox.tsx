@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { Box, Text, useInput } from 'ink';
 import { useCommandInput } from '../../slash/use-slash-input';
 import { useBracketedPaste } from '../../hooks/use-bracketed-paste';
@@ -7,25 +7,20 @@ import { SlashCommandList } from '../../slash/components/slash-command-list';
 import { FilePicker } from '../../components/file-picker-popover';
 import type { PromptSubmission, SlashCommand } from '../../../../application/slash';
 import { useTuiStore } from '../../state/store';
-import { buildHotkeys } from './keymap';
-import type { InputBoxCallbacks } from './keymap';
 import type { KeyDispatcher as KeyDispatcherType } from '../../input/key-dispatcher';
 import { inkKeyToKeyEvent } from '../../input/key-dispatcher';
-
-export type { InputBoxCallbacks } from './keymap';
 
 interface InputBoxProps {
   commands: SlashCommand[];
   onSubmit: (submission: PromptSubmission) => void;
   onAbort?: () => void;
-  callbacks: InputBoxCallbacks;
   keyDispatcher: KeyDispatcherType;
 }
 
 const PENDING_PREVIEW_MAX = 120;
 const PENDING_TRUNC = 117;
 
-export function InputBox({ commands, onSubmit, onAbort, callbacks, keyDispatcher }: InputBoxProps) {
+export function InputBox({ commands, onSubmit, onAbort, keyDispatcher }: InputBoxProps) {
   useBracketedPaste();
   const streaming = useTuiStore(s => s.stats.streaming);
   const pendingInputs = useTuiStore(s => s.interaction.pendingInputs);
@@ -47,29 +42,9 @@ export function InputBox({ commands, onSubmit, onAbort, callbacks, keyDispatcher
     onAbort ? { ...commandInputOpts, onAbort } : commandInputOpts,
   );
 
-  const hotkeys = useMemo(() => buildHotkeys(callbacks), [callbacks]);
-
   useInput((input, key) => {
-    // Route through KeyDispatcher first — overlays get priority
+    // Route through KeyDispatcher — overlays and global chrome get priority
     if (keyDispatcher.dispatch(inkKeyToKeyEvent(input, key))) return;
-
-    for (const hk of hotkeys) {
-      if (hk.guard && !hk.guard({ streaming, pendingCount: pendingInputs.length, atFilePickerOpen, pickerOpen })) continue;
-
-      // Special keys (upArrow, downArrow, escape, etc.) are exposed as key.*
-      // booleans by Ink, not as input characters. Check the named property first,
-      // fall back to input string comparison for regular character keys.
-      const matched = hk.key in key
-        ? key[hk.key as keyof typeof key] === true
-        : input === hk.key;
-
-      if (!matched) continue;
-      if (hk.ctrl && !key.ctrl) continue;
-      if (hk.meta && !key.meta) continue;
-      if (hk.shift && !key.shift) continue;
-      hk.handler();
-      return;
-    }
   });
 
   return (
