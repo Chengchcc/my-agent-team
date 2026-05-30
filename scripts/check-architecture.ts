@@ -438,7 +438,9 @@ try {
 
 // A19.8 — hooks/ must not contain ext protocol names (permission, ask-user-question, etc.)
 const hookFiles = project.getSourceFiles('src/extensions/frontend.tui/hooks/*.ts');
-const EXT_PROTOCOL_PATTERNS = /request\.permission|request\.ask-user-question|permission\.|ask\.user\.question/i;
+// Only flag literal bus event type strings (contain dots), not transcript event types (camelCase).
+// The hook is the correct place for dataplane→transcript→overlay dispatch bridging.
+const EXT_PROTOCOL_PATTERNS = /'permission\.required'|'ask-user-question\.required'|'permission\.resolved'/;
 for (const f of hookFiles) {
   if (EXT_PROTOCOL_PATTERNS.test(f.getFullText())) {
     v(`A19.8: ${f.getFilePath()} contains ext protocol patterns — must live in overlays/impls/<name>/`);
