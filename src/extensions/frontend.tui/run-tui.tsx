@@ -6,6 +6,12 @@ import type { TranscriptProjector } from './transcript/projector';
 import { AppV2 } from './App';
 import { PasteBufferingStdin } from './paste-buffering-stdin';
 
+let _instance: InkInstance | null = null;
+
+export function getInkInstance(): InkInstance | null {
+  return _instance;
+}
+
 export function runTUIClient(
   client: SessionClient,
   projector: TranscriptProjector,
@@ -13,10 +19,12 @@ export function runTUIClient(
   snapshot?: Array<{ role: string; content: unknown }>,
 ): InkInstance {
   const stdin = new PasteBufferingStdin(process.stdin);
-  return render(
+  const instance = render(
     <AppV2 client={client} projector={projector} sessionId={sessionId} snapshot={snapshot} />,
     {
       stdin: stdin as unknown as NodeJS.ReadStream,
     },
   );
+  _instance = instance;
+  return instance;
 }

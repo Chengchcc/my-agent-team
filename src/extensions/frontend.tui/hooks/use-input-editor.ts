@@ -52,3 +52,45 @@ export function moveCursorRight(state: InputEditorState): InputEditorState {
   };
 }
 
+const WORD_RE = /[\p{L}\p{N}_]/u;
+
+export function moveCursorWordLeft(state: InputEditorState): InputEditorState {
+  if (state.cursorOffset <= 0) return state;
+  let pos = state.cursorOffset;
+  // Skip trailing whitespace
+  while (pos > 0 && /\s/u.test(state.text[pos - 1]!)) pos--;
+  // Skip word chars
+  while (pos > 0 && WORD_RE.test(state.text[pos - 1]!)) pos--;
+  return { ...state, cursorOffset: pos };
+}
+
+export function moveCursorWordRight(state: InputEditorState): InputEditorState {
+  if (state.cursorOffset >= state.text.length) return state;
+  let pos = state.cursorOffset;
+  // Skip word chars
+  while (pos < state.text.length && WORD_RE.test(state.text[pos]!)) pos++;
+  // Skip whitespace
+  while (pos < state.text.length && /\s/u.test(state.text[pos]!)) pos++;
+  return { ...state, cursorOffset: pos };
+}
+
+export function moveCursorLineStart(state: InputEditorState): InputEditorState {
+  const before = state.text.slice(0, state.cursorOffset);
+  const lastNewline = before.lastIndexOf('\n');
+  return { ...state, cursorOffset: lastNewline === -1 ? 0 : lastNewline + 1 };
+}
+
+export function moveCursorLineEnd(state: InputEditorState): InputEditorState {
+  const nextNewline = state.text.indexOf('\n', state.cursorOffset);
+  return { ...state, cursorOffset: nextNewline === -1 ? state.text.length : nextNewline };
+}
+
+export function deleteWordBeforeCursor(state: InputEditorState): InputEditorState {
+  if (state.cursorOffset <= 0) return state;
+  const afterMove = moveCursorWordLeft(state);
+  return {
+    text: state.text.slice(0, afterMove.cursorOffset) + state.text.slice(state.cursorOffset),
+    cursorOffset: afterMove.cursorOffset,
+  };
+}
+

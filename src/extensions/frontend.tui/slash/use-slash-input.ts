@@ -1,17 +1,29 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { keyDispatcher } from "../input/key-dispatcher";
+import { PRIORITY } from "../keys/priority";
+import { useKeyLayer } from "../keys/use-key-layer";
 import fastGlob from "fast-glob";
 import {
   type InputEditorState,
+  insertTextAtCursor,
+  removeCharacterBeforeCursor,
+  moveCursorLeft,
+  moveCursorRight,
+  moveCursorWordLeft,
+  moveCursorWordRight,
+  moveCursorLineStart,
+  moveCursorLineEnd,
+  deleteWordBeforeCursor,
 } from "../hooks/use-input-editor";
 import { useInputHistory } from "../hooks/use-input-history";
-import { getFoldedDisplay, hasPasteMarkers } from "../paste-attachments";
+import { getFoldedDisplay, hasPasteMarkers, attachmentMap, createPasteMarkerRe, resolvePastePlaceholders } from "../paste-attachments";
 
 import {
   filterCommands,
   getSlashQuery,
   insertSlashCommand,
   getHighlightedCommandName,
+  getBestCompletion,
 } from '../../../application/slash';
 
 import {
@@ -20,11 +32,11 @@ import {
   AT_FILE_GLOB_DEPTH,
   MAX_AT_FILE_RESULTS,
   AT_FILE_DEBOUNCE_MS,
+  buildPromptSubmissionTui,
 } from './tui-slash-utils';
 
 import type { SlashCommand, PromptSubmission } from '../../../application/slash';
 import {
-  makeInputKeyHandler,
   type PickerState,
 } from './input-key-handler';
 
@@ -214,14 +226,112 @@ export function useCommandInput({
   useStreamingKeyLayer(streaming, onAbort);
   useSlashPickerKeyLayer(pickerOpen, filteredCommands, pickerStateRef);
 
-  // PR-3: inputKeyHandler will be wired via FALLTHROUGH KeyDispatcher layer
-  void makeInputKeyHandler({
-    onAbort, streaming, pickerOpen, slashQuery, setDismissedQuery,
-    atFilePickerOpen, atQuery, atFiles, setDismissedAtQuery,
-    isBrowsing, exitBrowsing, editorStateRef, setEditorState, updateEditorState,
-    atSelectedIndex, setAtSelectedIndex, suppressEnterRef, commands, onSubmit,
-    saveEntry, setFirstMessage, setSelectedIndex, hasMarkers,
-    beginBrowsing, browseUp, browseDown,
+  // ── INPUT_EDIT layer (K-1): editor cursor + history keys ──
+  useKeyLayer({
+    id: 'input-edit',
+    priority: PRIORITY.INPUT_EDIT,
+    handler: (ev) => {
+      // Word jump
+      if (ev.key === 'left' && (ev.meta || ev.ctrl)) { updateEditorState(prev => moveCursorWordLeft(prev)); return true; }
+      if (ev.key === 'right' && (ev.meta || ev.ctrl)) { updateEditorState(prev => moveCursorWordRight(prev)); return true; }
+      // Line start/end
+      if (ev.ctrl && ev.key === 'a') { updateEditorState(prev => moveCursorLineStart(prev)); return true; }
+      if (ev.ctrl && ev.key === 'e') { updateEditorState(prev => moveCursorLineEnd(prev)); return true; }
+      // Delete word
+      if (ev.ctrl && ev.key === 'w') { updateEditorState(prev => deleteWordBeforeCursor(prev)); return true; }
+      // Codepoint cursor
+      if (ev.key === 'left') { updateEditorState(prev => moveCursorLeft(prev)); return true; }
+      if (ev.key === 'right') { updateEditorState(prev => moveCursorRight(prev)); return true; }
+      // Backspace
+      if (ev.key === 'backspace' || ev.key === 'delete') { exitBrowsing(); updateEditorState(prev => removeCharacterBeforeCursor(prev)); return true; }
+      // Tab completion
+      if (ev.key === 'tab' && editorStateRef.current.text.startsWith('/')) {
+        if (!pickerOpen) {
+          const completion = getBestCompletion(slashQuery ?? '', commands);
+          if (completion) {
+            updateEditorState({ text: `/${completion} `, cursorOffset: completion.length + 2 });
+            setDismissedQuery(slashQuery);
+          } else { setDismissedQuery(null); }
+        }
+        return true;
+      }
+      // History browse
+      if (!pickerOpen && (editorStateRef.current.text === '' || isBrowsing) && ev.key === 'up' && !ev.ctrl) {
+        if (!isBrowsing) beginBrowsing(editorStateRef.current.text);
+        const entry = browseUp();
+        if (entry !== null) { setEditorState({ text: entry, cursorOffset: entry.length }); }
+        return true;
+      }
+      if (!pickerOpen && isBrowsing && ev.key === 'down' && !ev.ctrl) {
+        const entry = browseDown();
+        if (entry !== null) { setEditorState({ text: entry, cursorOffset: entry.length }); }
+        return true;
+      }
+      return false;
+    },
+  });
+
+  // ── FALLTHROUGH layer: text insertion, enter, escape ──
+  useKeyLayer({
+    id: 'input-fallthrough',
+    priority: PRIORITY.FALLTHROUGH,
+    handler: (ev) => {
+      // Modifier chords don't produce text
+      if (ev.ctrl || ev.meta) return false;
+      // Named keys don't produce text
+      if (['enter', 'escape', 'tab', 'backspace', 'delete', 'up', 'down', 'left', 'right'].includes(ev.key)) {
+        if (ev.key === 'enter') {
+          // shift+enter = newline
+          if (ev.shift) { exitBrowsing(); updateEditorState(prev => insertTextAtCursor(prev, '\n')); return true; }
+          // Submit
+          const resolvedText = resolvePastePlaceholders(editorStateRef.current.text);
+          if (!resolvedText.trim()) return true;
+          const markerRe = createPasteMarkerRe();
+          let m: RegExpExecArray | null;
+          while ((m = markerRe.exec(editorStateRef.current.text)) !== null) { attachmentMap.delete(m[1]!); }
+          saveEntry(resolvedText);
+          void onSubmit?.(buildPromptSubmissionTui(resolvedText, commands));
+          setEditorState({ text: '', cursorOffset: 0 });
+          setDismissedQuery(null);
+          setSelectedIndex(0);
+          setFirstMessage(false);
+          return true;
+        }
+        if (ev.key === 'escape') {
+          if (isBrowsing) {
+            const fallback = exitBrowsing();
+            const markerRe = createPasteMarkerRe();
+            let m: RegExpExecArray | null;
+            while ((m = markerRe.exec(editorStateRef.current.text)) !== null) { attachmentMap.delete(m[1]!); }
+            setEditorState({ text: fallback ?? '', cursorOffset: fallback?.length ?? 0 });
+            setDismissedQuery(null);
+            return true;
+          }
+          if (editorStateRef.current.text.length > 0) {
+            exitBrowsing();
+            const markerRe = createPasteMarkerRe();
+            let m: RegExpExecArray | null;
+            while ((m = markerRe.exec(editorStateRef.current.text)) !== null) { attachmentMap.delete(m[1]!); }
+            setEditorState({ text: '', cursorOffset: 0 });
+            setDismissedQuery(null);
+          } else {
+            onAbort?.();
+          }
+          return true;
+        }
+        // Up/down already handled by INPUT_EDIT if applicable; otherwise suppressed
+        if (ev.key === 'up' || ev.key === 'down') return true;
+        return false;
+      }
+      // Bracketed paste passthrough
+      if (ev.raw === '[I' || ev.raw === '[O') return false;
+      // Strip escape sequences
+      if (ev.raw.includes('\x1b')) return true;
+      // Insert text character
+      exitBrowsing();
+      updateEditorState(prev => insertTextAtCursor(prev, ev.raw));
+      return true;
+    },
   });
 
   return {

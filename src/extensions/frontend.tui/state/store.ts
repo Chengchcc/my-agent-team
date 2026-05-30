@@ -9,8 +9,9 @@ import type {
   ToolCallResult,
   SessionPickerState,
   SessionPickerSession,
+  TransientState,
 } from './types';
-import { initialInteraction, initialStats, initialSessionPicker } from './types';
+import { initialInteraction, initialStats, initialSessionPicker, initialTransient } from './types';
 import type { HistoryRecordV1 } from '../../../application/contracts';
 import { historyToFinalizedItems } from './message-converter';
 
@@ -36,6 +37,7 @@ interface TuiStore {
   interaction: InteractionState;
   stats: StatsState;
   sessionPicker: SessionPickerState;
+  transient: TransientState;
 
   // Core turn lifecycle
   turnStart: (assistantId: string) => void;
@@ -55,9 +57,12 @@ interface TuiStore {
 
   // Interaction
   toggleToolsExpanded: () => void;
+  toggleThinking: () => void;
+  toggleDebug: () => void;
   enqueuePendingInput: (text: string) => void;
   dequeuePendingInput: () => void;
   clearPendingInputs: () => void;
+  setTransientHint: (text: string, durationMs: number) => void;
 
   // Stats
   streamingStart: () => void;
@@ -213,12 +218,15 @@ function buildAuxActions(set: ImmerSet): Pick<TuiStore, 'userSubmit' | 'appendDi
   };
 }
 
-function buildInteractionActions(set: ImmerSet): Pick<TuiStore, 'toggleToolsExpanded' | 'enqueuePendingInput' | 'dequeuePendingInput' | 'clearPendingInputs'> {
+function buildInteractionActions(set: ImmerSet): Pick<TuiStore, 'toggleToolsExpanded' | 'toggleThinking' | 'toggleDebug' | 'enqueuePendingInput' | 'dequeuePendingInput' | 'clearPendingInputs' | 'setTransientHint'> {
   return {
     toggleToolsExpanded: () => set((s) => { s.interaction.toolsExpanded = !s.interaction.toolsExpanded; }),
+    toggleThinking: () => set((s) => { s.interaction.thinkingVisible = !s.interaction.thinkingVisible; }),
+    toggleDebug: () => set((s) => { s.interaction.debugVisible = !s.interaction.debugVisible; }),
     enqueuePendingInput: (text) => set((s) => { s.interaction.pendingInputs.push(text); }),
     dequeuePendingInput: () => set((s) => { s.interaction.pendingInputs.shift(); }),
     clearPendingInputs: () => set((s) => { s.interaction.pendingInputs.length = 0; }),
+    setTransientHint: (text, durationMs) => set((s) => { s.transient.hint = { text, expiresAt: Date.now() + durationMs }; }),
   };
 }
 
@@ -264,6 +272,7 @@ export const useTuiStore = create<TuiStore>()(
     interaction: { ...initialInteraction },
     stats: { ...initialStats },
     sessionPicker: { ...initialSessionPicker },
+    transient: { ...initialTransient },
 
     ...buildCoreActions(set),
     ...buildAuxActions(set),

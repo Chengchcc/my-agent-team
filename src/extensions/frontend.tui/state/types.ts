@@ -40,6 +40,12 @@ export type FinalItem =
 export interface InteractionState {
   toolsExpanded: boolean;
   pendingInputs: string[];
+  thinkingVisible: boolean;
+  debugVisible: boolean;
+}
+
+export interface TransientState {
+  hint: { text: string; expiresAt: number } | null;
 }
 
 export interface StatsState {
@@ -74,6 +80,12 @@ export interface SessionPickerState {
 export const initialInteraction: InteractionState = {
   toolsExpanded: false,
   pendingInputs: [],
+  thinkingVisible: true,
+  debugVisible: false,
+};
+
+export const initialTransient: TransientState = {
+  hint: null,
 };
 
 export const initialStats: StatsState = {

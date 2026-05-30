@@ -4,6 +4,11 @@ import { keyDispatcher } from './input/key-dispatcher';
 import { Box, Static, useInput } from 'ink';
 import { useTuiStore, useFrozenItems, useLiveItem, useStreaming } from './state/store';
 import { normalizeKey } from './keys/normalize';
+import { PRIORITY } from './keys/priority';
+import { useKeyLayer } from './keys/use-key-layer';
+import { GLOBAL_BINDINGS } from './keys/global-keymap';
+import type { GlobalKeyCtx } from './keys/global-keymap';
+import { getInkInstance } from './run-tui';
 import { FinalItemView } from './views/final/FinalItemView';
 import { ActiveAssistantView } from './views/active/ActiveAssistantView';
 import { InputBox } from './views/chrome/InputBox';
@@ -189,6 +194,63 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
       useTuiStore.getState().setMode(mode);
     }).catch(() => { /* mode not available */ });
   }, [client, sessionId]);
+
+  // ── Global chrome actions ────────────────────────────────────────────────
+  const CTRL_C_EXIT_WINDOW_MS = 500;
+  const lastCtrlC = useRef(0);
+
+  const actions = useMemo<Record<string, () => void>>(() => ({
+    'toggle-thinking': () => { useTuiStore.getState().toggleThinking(); },
+    'toggle-debug': () => { useTuiStore.getState().toggleDebug(); },
+    'toggle-expand': () => { if (!streaming) useTuiStore.getState().toggleToolsExpanded(); },
+    'clear-pending': () => { useTuiStore.getState().clearPendingInputs(); },
+    'abort': () => { abort(); useTuiStore.getState().setInterrupted(true); },
+    'open-cheatsheet': () => { /* PR-7b: open cheatsheet overlay */ },
+  }), [streaming, abort]);
+
+  const handleCtrlC = useCallback(() => {
+    const now = Date.now();
+    const within = now - lastCtrlC.current < CTRL_C_EXIT_WINDOW_MS;
+    lastCtrlC.current = now;
+    if (within) {
+      getInkInstance()?.unmount();
+      process.exit(0);
+      return;
+    }
+    if (streaming) {
+      abort();
+      useTuiStore.getState().setInterrupted(true);
+      return;
+    }
+    useTuiStore.getState().setTransientHint('Press Ctrl+C again to exit', 500);
+  }, [streaming, abort]);
+
+  // ── GLOBAL_CHROME layer ───────────────────────────────────────────────────
+  useKeyLayer({
+    id: 'global-chrome',
+    priority: PRIORITY.GLOBAL_CHROME,
+    handler: (ev) => {
+      for (const b of GLOBAL_BINDINGS) {
+        if (b.key !== ev.key) continue;
+        if (!!b.ctrl !== ev.ctrl) continue;
+        if (!!b.meta !== ev.meta) continue;
+        if (!!b.shift !== ev.shift) continue;
+        if (b.guard) {
+          const ctx: GlobalKeyCtx = {
+            streaming,
+            pendingCount: useTuiStore.getState().interaction.pendingInputs.length,
+            inputFocused: true, // TODO: track actual input focus state
+            mode: useTuiStore.getState().stats.mode,
+          };
+          if (!b.guard(ctx)) continue;
+        }
+        if (b.id === 'ctrl-c') { handleCtrlC(); return true; }
+        actions[b.action]?.();
+        return true;
+      }
+      return false;
+    },
+  });
 
   // Single useInput entry point — all key events route through KeyDispatcher
   useInput((rawInput, rawKey) => {
