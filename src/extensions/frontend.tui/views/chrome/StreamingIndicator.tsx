@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Text } from 'ink';
 import { useTuiStore } from '../../state/store';
+import { useSpinner } from '../../components/use-spinner';
 
-const MS_PER_SECOND = 1000;
 const TICK_MS = 250;
+const MS_PER_SECOND = 1000;
 const SECS_WIDTH = 3;
-
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 export function StreamingIndicator() {
   const streaming = useTuiStore(s => s.stats.streaming);
@@ -14,7 +13,11 @@ export function StreamingIndicator() {
   const interrupted = useTuiStore(s => s.stats.interrupted);
   const compacting = useTuiStore(s => s.stats.compacting);
 
-  const [tick, setTick] = useState(0);
+  const frame = useSpinner(streaming || compacting);
+
+  // Re-render tick for elapsed time display
+  const [_tick, setTick] = useState(0);
+  void _tick;
   useEffect(() => {
     if (!streaming && !compacting) return;
     const timer = setInterval(() => setTick(t => t + 1), TICK_MS);
@@ -22,7 +25,6 @@ export function StreamingIndicator() {
   }, [streaming, compacting]);
 
   if (compacting) {
-    const frame = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
     return <Text color="cyan">{frame} Compacting context...</Text>;
   }
 
@@ -34,9 +36,8 @@ export function StreamingIndicator() {
   const elapsedStr = String(elapsed).padStart(SECS_WIDTH);
 
   if (interrupted) {
-    return <Text color="yellow">{'⚠'} interrupted after {elapsedStr}s</Text>;
+    return <Text color="yellow">{'\u26A0'} interrupted after {elapsedStr}s</Text>;
   }
 
-  const frame = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
   return <Text color="yellow">{frame} thinking ({elapsedStr}s)</Text>;
 }

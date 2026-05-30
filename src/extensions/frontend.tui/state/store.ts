@@ -223,7 +223,7 @@ function buildInteractionActions(set: ImmerSet): Pick<TuiStore, 'toggleToolsExpa
     toggleToolsExpanded: () => set((s) => { s.interaction.toolsExpanded = !s.interaction.toolsExpanded; }),
     toggleThinking: () => set((s) => { s.interaction.thinkingVisible = !s.interaction.thinkingVisible; }),
     toggleDebug: () => set((s) => { s.interaction.debugVisible = !s.interaction.debugVisible; }),
-    enqueuePendingInput: (text) => set((s) => { s.interaction.pendingInputs.push(text); }),
+    enqueuePendingInput: (text) => set((s) => { s.interaction.pendingInputs.push({ id: nanoid(), text }); }),
     dequeuePendingInput: () => set((s) => { s.interaction.pendingInputs.shift(); }),
     clearPendingInputs: () => set((s) => { s.interaction.pendingInputs.length = 0; }),
     setTransientHint: (text, durationMs) => set((s) => { s.transient.hint = { text, expiresAt: Date.now() + durationMs }; }),

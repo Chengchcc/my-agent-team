@@ -39,7 +39,7 @@ export type FinalItem =
 
 export interface InteractionState {
   toolsExpanded: boolean;
-  pendingInputs: string[];
+  pendingInputs: Array<{ id: string; text: string }>;
   thinkingVisible: boolean;
   debugVisible: boolean;
 }

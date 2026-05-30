@@ -8,6 +8,7 @@ import { FilePicker } from '../../components/file-picker-popover';
 import type { PromptSubmission, SlashCommand } from '../../../../application/slash';
 import { useTuiStore } from '../../state/store';
 import { INPUT_PREFIXES } from '../../input/input-prefixes';
+import { useSpinner } from '../../components/use-spinner';
 
 interface InputBoxProps {
   commands: SlashCommand[];
@@ -41,7 +42,7 @@ export function InputBox({ commands, onSubmit, onAbort }: InputBoxProps) {
   );
 
   // Key input now routed through App-level single useInput → keyDispatcher
-  // INPUT_EDIT + FALLTHROUGH layers registered in PR-3 (K-1)
+  const spinnerFrame = useSpinner(atFilePickerOpen && atFiles.length === 0);
 
   return (
     <Box flexDirection="column">
@@ -49,7 +50,7 @@ export function InputBox({ commands, onSubmit, onAbort }: InputBoxProps) {
       {atFilePickerOpen ? (
         atFiles.length > 0
           ? <FilePicker files={atFiles} selectedIndex={atSelectedIndex} />
-          : <Box paddingX={2}><Text dimColor>  searching files…</Text></Box>
+          : <Box paddingX={2}><Text dimColor>{spinnerFrame} searching files…</Text></Box>
       ) : null}
 
       {!pickerOpen && !atFilePickerOpen && !displayText ? (
@@ -64,7 +65,7 @@ export function InputBox({ commands, onSubmit, onAbort }: InputBoxProps) {
       {pendingInputs.length === 1 ? (
         <Box paddingX={2}>
           <Text color="yellow">[queued] </Text>
-          <Text dimColor>{pendingInputs[0]!.length > PENDING_PREVIEW_MAX ? pendingInputs[0]!.slice(0, PENDING_TRUNC) + '…' : pendingInputs[0]}</Text>
+          <Text dimColor>{pendingInputs[0]!.text.length > PENDING_PREVIEW_MAX ? pendingInputs[0]!.text.slice(0, PENDING_TRUNC) + '…' : pendingInputs[0]!.text}</Text>
           <Text dimColor> · Ctrl+K to clear</Text>
         </Box>
       ) : pendingInputs.length > 1 ? (
@@ -73,11 +74,11 @@ export function InputBox({ commands, onSubmit, onAbort }: InputBoxProps) {
             <Text color="yellow" bold>Pending ({pendingInputs.length})</Text>
             {streaming ? <Text dimColor> — waiting for current turn</Text> : null}
           </Box>
-          {pendingInputs.map((text, i) => (
-            <Box key={i}>
+          {pendingInputs.map((p, i) => (
+            <Box key={p.id}>
               <Text dimColor>{i + 1}. </Text>
               <Text>
-                {text.length > PENDING_PREVIEW_MAX ? text.slice(0, PENDING_TRUNC) + '…' : text}
+                {p.text.length > PENDING_PREVIEW_MAX ? p.text.slice(0, PENDING_TRUNC) + '…' : p.text}
               </Text>
             </Box>
           ))}
