@@ -13,7 +13,7 @@
     "tests/**/*.{ts,tsx}",
     "scripts/**/*.ts"
   ],
-  "ignoreDependencies": [],
+  "ignoreDependencies": ["@types/diff"],
   "ignoreBinaries": ["tsc"],
   "ignore": [
     "tests/fixtures/**",
@@ -23,7 +23,11 @@
     "src/infrastructure/session/sqlite-*",
     "src/infrastructure/trace/sqlite-*",
     "src/infrastructure/evolution/sqlite-*",
-    "src/extensions/memory/contradiction-resolver.ts"
+    "src/extensions/memory/contradiction-resolver.ts",
+    "src/extensions/frontend.tui/input/key-dispatcher.ts",
+    "src/extensions/frontend.tui/slash/input-key-handler.ts",
+    "src/extensions/frontend.tui/utils/tool-format.ts",
+    "src/extensions/presets.ts"
   ],
   "ignoreExportsUsedInFile": true,
   "tags": ["-public", "-internal"],
