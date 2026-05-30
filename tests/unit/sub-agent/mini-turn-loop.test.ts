@@ -221,4 +221,36 @@ describe('runMiniTurnLoop', () => {
     expect(callCount).toBe(2)
     expect(result.finalText).toContain('empty_rounds')
   })
+
+  it('I-13: progress events are paired — start+end per innerCallId', async () => {
+    const events: Array<{ innerCallId: string; phase: string; ok?: boolean }> = []
+    const chatComplete = mock(async () => ({
+      content: '',
+      toolCalls: [{ id: 't1', name: 'read', arguments: {} }],
+      finishReason: 'tool_calls' as const,
+      usage: { input: 1, output: 0 },
+    }))
+
+    await runMiniTurnLoop({
+      descriptor: makeDesc({ maxRounds: 1 }),
+      userPrompt: 'test',
+      subSessionId: 's1', subTurnId: 'st1', parentTurnId: 'pt1',
+      chatComplete,
+      dispatchTool: mock(async () => ({ success: true, result: 'ok' })),
+      toolSchemas: [{ name: 'read', description: 'read', parameters: {} }],
+      log: noopLog,
+      progress: (p) => { events.push({ innerCallId: p.innerCallId, phase: p.phase, ok: p.ok }) },
+    })
+
+    const byId = new Map<string, string[]>()
+    for (const e of events) {
+      const arr = byId.get(e.innerCallId) ?? []
+      arr.push(e.phase)
+      byId.set(e.innerCallId, arr)
+    }
+    for (const [, phases] of byId) {
+      expect(phases).toEqual(['start', 'end'])
+    }
+    expect(events.length).toBe(2)
+  })
 })

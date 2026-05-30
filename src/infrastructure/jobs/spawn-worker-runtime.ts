@@ -95,6 +95,11 @@ function createWorkerContext(state: WorkerState): JobContext {
         v: 1, id: crypto.randomUUID(), kind: 'log', ts: Date.now(), payload: { level, msg },
       })
     },
+    onProgress: (payload: Record<string, unknown>) => {
+      state.writeFrame({
+        v: 1, id: crypto.randomUUID(), kind: 'progress', ts: Date.now(), payload,
+      })
+    },
   }
 }
 

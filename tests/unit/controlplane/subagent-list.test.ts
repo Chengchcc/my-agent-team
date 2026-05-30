@@ -35,6 +35,16 @@ describe('Controlplane SubAgent RPC', () => {
     expect(types).toContain('general-purpose')
   })
 
+  it('I-12: config schema has allowSubAgentDirectInvoke defaulting to false', () => {
+    const { settingsSchema } = require('../../../src/config/schema')
+    // Check the shape directly — field exists with boolean type and default(false)
+    const shape = settingsSchema.shape as Record<string, unknown>
+    expect(shape.allowSubAgentDirectInvoke).toBeDefined()
+    const field = shape.allowSubAgentDirectInvoke as { _def?: { defaultValue?: unknown } }
+    expect(field._def?.defaultValue).toBeDefined()
+    expect(field._def!.defaultValue()).toBe(false)
+  })
+
   it('describe nonexistent returns found=false', () => {
     const registry = new SubAgentRegistry()
     registerBuiltins(registry)

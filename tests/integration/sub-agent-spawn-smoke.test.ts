@@ -84,4 +84,94 @@ describe('Sub-agent real spawn smoke (via BunSpawnJobSpawner)', () => {
     expect(callObserver).toEqual(['echo'])               // (3) tool dispatched through IPC
     expect(roundCount).toBe(2)                            // (4) mini-loop ran 2 rounds
   }, 10_000)
+
+  it('I-15: full handshake — started → progress → completed chain', async () => {
+    const registry = new SubAgentRegistry()
+    registry.register({
+      type: 'progress-agent',
+      description: 'test progress chain',
+      systemPrompt: 'Echo the message.',
+      allowedToolNames: ['echo'],
+      source: 'extension',
+      maxRounds: 3,
+    })
+
+    const events: Array<{ event: string; payload: Record<string, unknown> }> = []
+    const providerRounds: Array<{ content: string; toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>; finishReason: 'stop' | 'tool_calls' }> = [
+      { content: '', toolCalls: [{ id: 't1', name: 'echo', arguments: { msg: 'ping' } }], finishReason: 'tool_calls' },
+      { content: 'done after echo', finishReason: 'stop' },
+    ]
+    let roundIdx = 0
+
+    const provider = {
+      call: async () => ({ content: '{}', usage: { input: 0, output: 0 } }),
+      async *stream() {},
+      async complete() {
+        const r = providerRounds[roundIdx++]
+        return {
+          id: 'smoke-' + roundIdx,
+          content: r.content,
+          toolCalls: r.toolCalls,
+          finishReason: r.finishReason,
+          usage: { input: 10, output: 5 },
+          model: 'smoke',
+        }
+      },
+    }
+
+    const spawner = new BunSpawnJobSpawner(
+      provider as any,
+      provider.complete.bind(provider),
+      { debug() {}, info() {}, warn() {}, error() {}, withTag() { return this as any } } as any,
+      { invokeTimeoutMs: 10000, lifetimeMs: 15000 },
+    )
+
+    const bus = {
+      emit(event: string, payload: Record<string, unknown>) { events.push({ event, payload }) },
+      on() { return () => {} },
+    }
+
+    const runner = createSpawnerSubAgentRunner({
+      spawner, registry,
+      toolCatalog: {
+        register() {}, unregister() {}, list() { return [] },
+        get(name: string) {
+          if (name !== 'echo') return undefined
+          return {
+            name: 'echo', description: 'echo', parameters: {},
+            parse: (args: unknown) => args as Record<string, unknown>,
+            execute: async (_ctx: unknown, args: Record<string, unknown>) => `echoed: ${(args as { msg: string }).msg}`,
+          }
+        },
+      },
+      chatComplete: async (req) => provider.complete(req),
+      bus: bus as any,
+      logger: { debug() {}, info() {}, warn() {}, error() {}, withTag() { return this as any } } as any,
+      agentDir: '/tmp/test-smoke-progress',
+    })
+
+    const result = await runner({
+      type: 'progress-agent',
+      prompt: 'echo ping',
+      description: 'progress chain test',
+      parentSessionId: 's1', parentTurnId: 't1', parentCallId: 'c1',
+      parentSignal: new AbortController().signal,
+    })
+
+    const startedEvt = events.find(e => e.event === 'subagent.started')
+    const progressEvts = events.filter(e => e.event === 'subagent.progress')
+    const completedEvt = events.find(e => e.event === 'subagent.completed')
+
+    expect(startedEvt).toBeDefined()
+    expect(startedEvt!.payload.description).toBe('progress chain test')
+    expect(progressEvts.length).toBeGreaterThanOrEqual(2)          // tool start + end
+    // Verify started→progress→completed temporal order
+    const startedIdx = events.indexOf(startedEvt!)
+    const firstProgressIdx = events.indexOf(progressEvts[0])
+    const completedIdx = events.indexOf(completedEvt!)
+    expect(startedIdx).toBeLessThan(firstProgressIdx)
+    expect(firstProgressIdx).toBeLessThan(completedIdx)
+    expect(completedEvt!.payload.ok).toBe(true)
+    expect(completedEvt!.payload.durationMs).toBeGreaterThanOrEqual(0)
+  }, 30_000)
 })
