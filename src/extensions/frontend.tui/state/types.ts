@@ -35,16 +35,6 @@ export type FinalItem =
   | { kind: 'system-notice'; id: string; content: string }
   | { kind: 'widget'; blockId: string; widget: string; payload: unknown; mode: 'append' | 'replace' };
 
-// ── Todos ──
-
-export interface UITodoItem {
-  id: string;
-  content: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
-}
-
-// ── Review notifications ──
-
 // ── Slice states ──
 
 export interface InteractionState {
