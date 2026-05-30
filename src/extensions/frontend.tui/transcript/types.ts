@@ -17,6 +17,6 @@ export type TranscriptEvent =
   | { type: 'compaction_started'; sessionId: string; turnId: string }
   | { type: 'compaction_completed'; sessionId: string; turnId: string }
   | { type: 'compaction_failed'; sessionId: string; turnId: string; reason: string }
-  | { type: 'subagent_started'; sessionId: string; callId: string; subagentType: string }
-  | { type: 'subagent_completed'; sessionId: string; callId: string; ok: boolean; finalText: string; usage: { input: number; output: number } };
+  | { type: 'mode_changed'; sessionId: string; mode: string }
+  | { type: 'session_cleared'; sessionId: string };
 

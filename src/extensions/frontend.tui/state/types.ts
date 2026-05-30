@@ -33,8 +33,7 @@ export type FinalItem =
   | { kind: 'assistant-tail'; id: string; assistantId: string; raw: string }
   | { kind: 'divider'; reason: 'clear' | 'compact' }
   | { kind: 'system-notice'; id: string; content: string }
-  | { kind: 'widget'; blockId: string; widget: string; payload: unknown; mode: 'append' | 'replace' }
-  | { kind: 'subagent-block'; id: string; callId: string; type: string; status: 'running' | 'completed' | 'failed' | 'cancelled'; startedAt: number; completedAt?: number; finalText?: string; usage?: { input: number; output: number } };
+  | { kind: 'widget'; blockId: string; widget: string; payload: unknown; mode: 'append' | 'replace' };
 
 // ── Todos ──
 
@@ -45,16 +44,6 @@ export interface UITodoItem {
 }
 
 // ── Review notifications ──
-
-export interface ReviewNotification {
-  skillName: string;
-  description: string;
-  outputDir: string;
-  dismissed: boolean;
-  createdAt: number;
-  kept?: boolean;
-  deleted?: boolean;
-}
 
 // ── Slice states ──
 

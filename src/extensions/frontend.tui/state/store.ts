@@ -7,8 +7,6 @@ import type {
   InteractionState,
   StatsState,
   ToolCallResult,
-  ReviewNotification,
-  UITodoItem,
   SessionPickerState,
   SessionPickerSession,
 } from './types';
@@ -37,7 +35,6 @@ interface TuiStore {
   live: LiveAssistant | null;
   interaction: InteractionState;
   stats: StatsState;
-  todos: UITodoItem[];
   sessionPicker: SessionPickerState;
 
   // Core turn lifecycle
@@ -71,18 +68,7 @@ interface TuiStore {
   setInterrupted: (interrupted: boolean) => void;
   setCompacting: (compacting: boolean) => void;
   setMode: (mode: string) => void;
-  subagentStarted: (callId: string, type: string, startedAt: number) => void;
-  subagentCompleted: (callId: string, finalText: string, usage: { input: number; output: number }, ok: boolean) => void;
-
-  // Todos
-  updateTodos: (todos: UITodoItem[]) => void;
-
-  // Review notifications
-  reviewNotifications: ReviewNotification[];
-  addReviewNotification: (skillName: string, description: string, outputDir: string) => void;
-  dismissReviewNotification: (skillName: string) => void;
-  keepReviewSkill: (skillName: string) => void;
-  deleteReviewSkill: (skillName: string) => void;
+  resetStats: () => void;
 
   // Session picker
   openSessionPicker: (sessions: SessionPickerSession[]) => void;
@@ -186,19 +172,7 @@ function buildCoreActions(set: ImmerSet): Pick<TuiStore, 'turnStart' | 'textDelt
           }
         }
 
-        const hasGranular = s.finalized.some(
-          it => (it.kind === 'committed-block' || it.kind === 'tool-call-final' || it.kind === 'assistant-header')
-            && (it.kind === 'assistant-header' ? it.assistantId : it.kind === 'committed-block' ? it.assistantId : it.assistantId) === assistantId,
-        );
-        if (!hasGranular) {
-          s.finalized.push({
-            kind: 'assistant-message',
-            id: assistantId,
-            segments: s.live.segments,
-            status: 'done',
-          });
-        }
-
+        // turnStart unconditionally pushes assistant-header, so granular items guaranteed. No fallback needed.
         s.live = null;
       }),
   };
@@ -234,7 +208,7 @@ function buildAuxActions(set: ImmerSet): Pick<TuiStore, 'userSubmit' | 'appendDi
 
     clearActive: () =>
       set((s) => {
-        s.finalized = []; s.live = null; s.stats.streaming = false; s.stats.streamingStartTime = null; s.todos = [];
+        s.finalized = []; s.live = null; s.stats.streaming = false; s.stats.streamingStartTime = null;
       }),
   };
 }
@@ -248,7 +222,7 @@ function buildInteractionActions(set: ImmerSet): Pick<TuiStore, 'toggleToolsExpa
   };
 }
 
-function buildStatsActions(set: ImmerSet): Pick<TuiStore, 'streamingStart' | 'streamingStop' | 'setPromptTokens' | 'accumulateCompletionTokens' | 'setTokenLimit' | 'setInterrupted' | 'setCompacting' | 'setMode' | 'subagentStarted' | 'subagentCompleted'> {
+function buildStatsActions(set: ImmerSet): Pick<TuiStore, 'streamingStart' | 'streamingStop' | 'setPromptTokens' | 'accumulateCompletionTokens' | 'setTokenLimit' | 'setInterrupted' | 'setCompacting' | 'setMode' | 'resetStats'> {
   return {
     streamingStart: () => set((s) => { s.stats.streaming = true; s.stats.streamingStartTime = Date.now(); s.stats.interrupted = false; }),
     streamingStop: () => set((s) => { s.stats.streaming = false; s.stats.streamingStartTime = null; }),
@@ -258,37 +232,13 @@ function buildStatsActions(set: ImmerSet): Pick<TuiStore, 'streamingStart' | 'st
     setInterrupted: (interrupted) => set((s) => { s.stats.interrupted = interrupted; }),
     setCompacting: (compacting) => set((s) => { s.stats.compacting = compacting; }),
     setMode: (mode) => set((s) => { s.stats.mode = mode; }),
-    subagentStarted: (callId, type, startedAt) =>
-      set((s) => { s.finalized.push({ kind: 'subagent-block', id: `sa-${callId}`, callId, type, status: 'running', startedAt }) }),
-    subagentCompleted: (callId, finalText, usage, ok) =>
-      set((s) => {
-        for (let i = s.finalized.length - 1; i >= 0; i--) {
-          const it = s.finalized[i]
-          if (it?.kind === 'subagent-block' && it.callId === callId) {
-            s.finalized[i] = { ...it, status: ok ? 'completed' : 'failed', completedAt: Date.now(), finalText, usage }
-            return
-          }
-        }
-      }),
-  };
-}
-
-function buildReviewActions(set: ImmerSet): Pick<TuiStore, 'addReviewNotification' | 'dismissReviewNotification' | 'keepReviewSkill' | 'deleteReviewSkill'> {
-  return {
-    addReviewNotification: (skillName, description, outputDir) =>
-      set((s) => { s.reviewNotifications.push({ skillName, description, outputDir, dismissed: false, createdAt: Date.now() }); }),
-    dismissReviewNotification: (skillName) =>
-      set((s) => { const n = s.reviewNotifications.find(r => r.skillName === skillName); if (n) n.dismissed = true; }),
-    keepReviewSkill: (skillName) =>
-      set((s) => { const n = s.reviewNotifications.find(r => r.skillName === skillName); if (n) { n.dismissed = true; n.kept = true; } }),
-    deleteReviewSkill: (skillName) =>
-      set((s) => { const n = s.reviewNotifications.find(r => r.skillName === skillName); if (n) { n.dismissed = true; n.deleted = true; } }),
-  };
-}
-
-function buildTodoActions(set: ImmerSet): Pick<TuiStore, 'updateTodos'> {
-  return {
-    updateTodos: (todos) => set((s) => { s.todos = todos; }),
+    resetStats: () => set((s) => {
+      s.stats.lastTurnInputTokens = 0
+      s.stats.completionTokens = 0
+      s.stats.streaming = false
+      s.stats.streamingStartTime = null
+      s.stats.interrupted = false
+    }),
   };
 }
 
@@ -313,16 +263,12 @@ export const useTuiStore = create<TuiStore>()(
     live: null,
     interaction: { ...initialInteraction },
     stats: { ...initialStats },
-    todos: [],
-    reviewNotifications: [],
     sessionPicker: { ...initialSessionPicker },
 
     ...buildCoreActions(set),
     ...buildAuxActions(set),
     ...buildInteractionActions(set),
     ...buildStatsActions(set),
-    ...buildReviewActions(set),
-    ...buildTodoActions(set),
     ...buildSessionPickerActions(set),
   })),
 );

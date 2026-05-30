@@ -23,12 +23,11 @@ export type DataPlaneEventType =
   | 'evolution.skillProposed'
   | 'system.warn'
   | 'tui.inline-block'
-  | 'sub-agent.started'
-  | 'sub-agent.completed'
-  | 'sub-agent.progress'
   | 'compaction.started'
   | 'compaction.completed'
-  | 'compaction.failed';
+  | 'compaction.failed'
+  | 'session.mode-changed'
+  | 'session.cleared';
 
 /**
  * DataPlaneEvent — the unified event type consumed by frontends via the

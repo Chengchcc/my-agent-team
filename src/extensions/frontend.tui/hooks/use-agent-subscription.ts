@@ -109,12 +109,13 @@ export function useAgentSubscription(
           store.appendSystemNotice('compaction-failed', `⚠ Token budget exceeded — turn aborted. Try /clear or /compact manually.`);
           break;
 
-        case 'subagent_started':
-          store.subagentStarted(event.callId, event.subagentType, Date.now());
-          break;
-        case 'subagent_completed':
-          store.subagentCompleted(event.callId, event.finalText, event.usage, event.ok);
-          break;
+        case 'mode_changed':
+          store.setMode(event.mode)
+          break
+
+        case 'session_cleared':
+          store.resetStats()
+          break
 
         case 'permission_requested': {
           const resp = await _enqueuePermissionRequest({

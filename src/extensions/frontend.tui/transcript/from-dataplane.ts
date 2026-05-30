@@ -87,6 +87,12 @@ export function dataplaneToTranscriptEvent(event: DataPlaneEvent): TranscriptEve
     case 'compaction.failed':
       return { type: 'compaction_failed', sessionId: sid, turnId: tid, reason: String(inner.reason ?? '') }
 
+    case 'session.mode-changed':
+      return { type: 'mode_changed', sessionId: sid, mode: String(inner.to ?? inner.mode ?? 'normal') }
+
+    case 'session.cleared':
+      return { type: 'session_cleared', sessionId: sid }
+
     default:
       return null;
   }

@@ -147,7 +147,7 @@ export default () =>
 
       catalog.register(defineTool({
         name: 'todo_write',
-        description: 'Track a multi-step plan visible to the user. Use SPARINGLY.',
+        description: 'Track a multi-step plan visible to the user. Use proactively for non-trivial work.',
         parameters: todoWriteToolSchema.jsonSchema,
         parse: todoWriteToolSchema.parse,
         execute: async (toolCtx, params) => todoWriteExecute(params as never, toolCtx),
@@ -197,15 +197,25 @@ export default () =>
 
 const TODO_WRITE_GUIDANCE = `## Task Tracking
 
-You have access to a \`todo_write\` tool. Use it SPARINGLY — only when ALL of:
-  1. The task has 3+ distinct, non-trivial steps.
-  2. The work spans multiple turns or takes >1 minute wall time.
-  3. The user benefits from visible progress.
+You have access to a \`todo_write\` tool. Use it **proactively** for any non-trivial multi-step work to give the user visible progress.
 
-DO NOT use for: single-tool answers, quick lookups, conversational replies.
+### When to use
+Trigger when ANY of these are true:
+- The task has 3+ distinct steps that could be enumerated upfront.
+- The work will span multiple turns or take noticeable wall time.
+- The user explicitly asks to plan, track, or break down work.
+- You are about to execute a sequence where intermediate failures matter.
 
-When you do use it:
+Bias toward using it. A visible plan is better than silent execution for anything beyond a single tool call.
+
+### When NOT to use
+- Single-tool answers ("read this file", "run this command").
+- Pure Q&A or conversational replies.
+- Trivial 1-2 step sequences.
+
+### Usage rules
+- Send the FULL list every call (replace semantics, not delta).
 - Exactly one item \`in_progress\` at a time.
-- Mark items \`completed\` in the same turn they finish.
-- Send the FULL list each call (replace semantics, not delta).
-- Don't keep re-asserting an empty list — the widget self-hides when empty.`
+- Mark items \`completed\` in the same turn they finish — don't batch at the end.
+- When resuming a multi-turn task, re-send the full current list (including completed items) so the user can see progress restored.
+- Don't re-send an unchanged list — only call when state actually changes.`

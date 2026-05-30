@@ -24,7 +24,7 @@ export interface SlashContext {
   }
   readonly ui?: {
     openSessionPicker?(): void
-    clearTranscript?(): void
+    appendDivider?(reason: 'clear' | 'compact'): void
     /** Switch to an existing session (detach old, attach target, render snapshot). */
     switchSession?(targetId: string): Promise<void>
     /** Create a new session and switch to it immediately. */

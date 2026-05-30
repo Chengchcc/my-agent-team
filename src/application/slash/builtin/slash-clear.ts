@@ -8,7 +8,7 @@ export const slashClearCommand: SlashCommand = {
   group: 'session',
   async resolve(_input, ctx) {
     await ctx.kernel.rpc('session.clear', { sessionId: ctx.sessionId })
-    ctx.ui?.clearTranscript?.()
-    return { kind: 'handled', message: 'Session cleared.' }
+    ctx.ui?.appendDivider?.('clear')
+    return { kind: 'handled' }
   },
 }

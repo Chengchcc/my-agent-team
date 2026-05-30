@@ -16,6 +16,7 @@ export const slashCompactCommand: SlashCommand = {
     if (r.removedCount === 0) {
       return { kind: 'handled', message: 'History below threshold — nothing to compact.' }
     }
+    ctx.ui?.appendDivider?.('compact')
     const tokens = r.usage ? ` (used ${r.usage.input}+${r.usage.output} tokens)` : ''
     return {
       kind: 'handled',

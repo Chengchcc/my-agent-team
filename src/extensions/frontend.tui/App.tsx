@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef, useState, useEffect } from 'react';
+import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import { nanoid } from 'nanoid';
 import { KeyDispatcher } from './input/key-dispatcher';
 import { Box, Static } from 'ink';
@@ -11,7 +11,6 @@ import { useAgentSubscription } from './hooks/use-agent-subscription';
 
 const DEFAULT_TOKEN_LIMIT = 200_000
 import { OverlayHost } from './overlays/overlay-host';
-import { OverlayReviewNotification } from './overlays/impls/overlay-review-notification';
 import { OverlaySessionPicker } from './overlays/impls/overlay-session-picker';
 import { useSessionPicker } from './hooks/use-session-picker';
 import type { PromptSubmission, SlashContext } from '../../application/slash';
@@ -71,9 +70,8 @@ function toActiveAssistant(item: LiveAssistant): CompatActiveAssistant {
 async function resolveSlashSubmission(params: {
   text: string; slashRegistry: SlashRegistry; sessionId: string;
   client: SessionClient; submit: (text: string) => Promise<void>;
-  setStaticKey: React.Dispatch<React.SetStateAction<number>>;
 }): Promise<boolean> {
-  const { text, slashRegistry, sessionId, client, submit, setStaticKey } = params;
+  const { text, slashRegistry, sessionId, client, submit } = params;
   const resolved = slashRegistry.resolve(text);
   if (!resolved) return false;
 
@@ -89,10 +87,8 @@ async function resolveSlashSubmission(params: {
       notice: async (msg) => { useTuiStore.getState().appendSystemNotice(Date.now().toString(), msg); },
     },
     ui: {
-      clearTranscript: () => {
-        process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
-        setStaticKey(k => k + 1);
-        useTuiStore.getState().clearActive();
+      appendDivider: (reason: 'clear' | 'compact') => {
+        useTuiStore.getState().appendDivider(reason);
       },
       openSessionPicker: () => {
         void client.listSessions().then(sessions => {
@@ -122,7 +118,7 @@ async function resolveSlashSubmission(params: {
 
 export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
   const noticIdx = useRef(0);
-  const [staticKey, setStaticKey] = useState(0);
+  const staticKey = 0; // no remount needed — /clear now uses divider instead of wipe
 
   const keyDispatcher = useRef(new KeyDispatcher()).current;
 
@@ -157,7 +153,7 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
       useTuiStore.getState().setInterrupted(false);
       const text = submission.text.trim();
 
-      const handled = await resolveSlashSubmission({ text, slashRegistry, sessionId, client, submit, setStaticKey });
+      const handled = await resolveSlashSubmission({ text, slashRegistry, sessionId, client, submit });
       if (handled) return;
 
       const messageText = submission.requestedSkillName
@@ -174,7 +170,7 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
         }
       }
     },
-    [submit, streaming, slashRegistry, client, sessionId, setStaticKey],
+    [submit, streaming, slashRegistry, client, sessionId],
   );
 
   const handleAbort = useCallback(() => {
@@ -230,7 +226,6 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
           <ActiveAssistantView assistant={activeAssistant} />
         )}
         <PanelHost />
-        <OverlayReviewNotification />
         <OverlayHost keyDispatcher={keyDispatcher} />
         {sessionPicker.active ? (
           <OverlaySessionPicker
