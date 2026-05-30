@@ -189,7 +189,7 @@ function buildAuxActions(set: ImmerSet): Pick<TuiStore, 'userSubmit' | 'appendDi
       set((s) => { s.finalized.push({ kind: 'user-message', id, content }); }),
 
     appendDivider: (reason) =>
-      set((s) => { s.finalized.push({ kind: 'divider', reason }); }),
+      set((s) => { s.finalized.push({ kind: 'divider', id: nanoid(), reason }); }),
 
     appendSystemNotice: (id, content) =>
       set((s) => { s.finalized.push({ kind: 'system-notice', id, content }); }),

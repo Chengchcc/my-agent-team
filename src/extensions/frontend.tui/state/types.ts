@@ -31,7 +31,7 @@ export type FinalItem =
   | { kind: 'committed-block'; id: string; assistantId: string; segId: string; blockId: string; raw: string }
   | { kind: 'tool-call-final'; id: string; assistantId: string; name: string; input: unknown; result: ToolCallResult }
   | { kind: 'assistant-tail'; id: string; assistantId: string; raw: string }
-  | { kind: 'divider'; reason: 'clear' | 'compact' }
+  | { kind: 'divider'; id: string; reason: 'clear' | 'compact' }
   | { kind: 'system-notice'; id: string; content: string }
   | { kind: 'widget'; blockId: string; widget: string; payload: unknown; mode: 'append' | 'replace' };
 

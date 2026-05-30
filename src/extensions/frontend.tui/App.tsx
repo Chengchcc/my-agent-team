@@ -15,7 +15,7 @@ import { InputBox } from './views/chrome/InputBox';
 import { PanelHost } from './panels/panel-host';
 import { useAgentSubscription } from './hooks/use-agent-subscription';
 
-const DEFAULT_TOKEN_LIMIT = 200_000
+import { BUDGET_DEFAULT_TOKEN_LIMIT as DEFAULT_TOKEN_LIMIT } from '../../application/constants/compact';
 import { OverlayHost } from './overlays/overlay-host';
 import { OverlaySessionPicker } from './overlays/impls/overlay-session-picker';
 import { useSessionPicker } from './hooks/use-session-picker';
@@ -39,7 +39,7 @@ interface AppV2Props {
 
 function finalItemKey(item: FinalItem): string {
   if (item.kind === 'banner') return 'banner';
-  if (item.kind === 'divider') return `divider-${item.reason}`;
+  if (item.kind === 'divider') return `divider-${item.id}`;
   if (item.kind === 'widget') return `widget-${item.blockId}`;
   return (item as { id?: string }).id || 'unknown';
 }

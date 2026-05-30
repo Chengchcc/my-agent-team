@@ -21,7 +21,7 @@ export function FilePicker({ files, selectedIndex }: FilePickerProps) {
         const isSelected = actualIndex === selectedIndex;
         return isSelected ? (
           <Box key={file}>
-            <Text color="cyan">{'>'} {file}</Text>
+            <Text color="cyan">{'\u276F'} {file}</Text>
           </Box>
         ) : (
           <Box key={file}>
