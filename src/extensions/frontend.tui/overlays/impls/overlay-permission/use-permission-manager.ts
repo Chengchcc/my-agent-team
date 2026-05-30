@@ -4,6 +4,8 @@ export type PermissionResponse = 'allow' | 'deny' | 'always';
 export interface PermissionRequest {
   toolName: string;
   reason: string;
+  input?: unknown;
+  cwd?: string;
 }
 
 interface Pending {

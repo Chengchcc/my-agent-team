@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef } from 'react';
 import type { PermissionRequest, PermissionResponse } from './use-permission-manager';
 import type { KeyDispatcher } from '../../../input/key-dispatcher';
 import { usePermissionManager } from './use-permission-manager';
+import { ToolInputPreview } from './preview';
 import type { OverlayDescriptor } from '../../overlay-types';
 
 interface OverlayPermissionProps {
@@ -62,6 +63,7 @@ function OverlayPermission({ request, respond, dismiss, keyDispatcher }: Overlay
       <Box>
         <Text dimColor>{request.reason}</Text>
       </Box>
+      <ToolInputPreview toolName={request.toolName} input={request.input} />
       <Box marginTop={1}>
         <Text>
           <Text color="green">[y]</Text> allow once{'  '}

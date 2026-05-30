@@ -45,8 +45,8 @@ export default () =>
 
       // onToolCall handler: pre-intercept tool calls
       const onToolCall: HookHandler = async (...args: unknown[]) => {
-        const call = args[0] as { name: string; id: string }
-        const runCtx = args[1] as { sessionId?: string; turnId?: string } | undefined
+        const call = args[0] as { name: string; id: string; arguments?: unknown }
+        const runCtx = args[1] as { sessionId?: string; turnId?: string; environment?: { cwd?: string } } | undefined
         const sessionId = runCtx?.sessionId
         const turnId = runCtx?.turnId
         if (!sessionId) {
@@ -70,7 +70,7 @@ export default () =>
         const rawCfg = ctx.config.raw as Record<string, unknown> | undefined;
         const permCfg = rawCfg?.permission as Record<string, unknown> | undefined;
         const dangerousToolNames = (permCfg?.dangerousTools as string[] | undefined)
-          ?? ['bash', 'bash_run', 'exec', 'edit', 'write', 'task'];
+          ?? ['bash', 'edit', 'write'];
         const dangerousTools = new Set(dangerousToolNames);
         if (dangerousTools.has(call.name) || call.name.startsWith('mcp.')) {
           // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- toString radix
@@ -101,10 +101,15 @@ export default () =>
             })
           })
 
+          const inputRaw = JSON.stringify(call.arguments ?? '');
+          const truncated = inputRaw.length > 65536;
           await contractBus.emit('permission.required', {
             reqId,
             toolName: call.name,
             sessionId,
+            input: truncated ? JSON.parse(inputRaw.slice(0, 65536)) as unknown : call.arguments,
+            cwd: runCtx?.environment?.cwd ?? process.cwd(),
+            inputTruncated: truncated || undefined,
           }, { sessionId, turnId })
 
           await permissionPromise
