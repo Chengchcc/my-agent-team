@@ -12,17 +12,22 @@ interface Pending {
 }
 
 const listeners = new Set<(p: Pending | null) => void>();
-let current: Pending | null = null;
+let queue: Pending[] = [];
+
+function notify() {
+  const current = queue[0] ?? null;
+  listeners.forEach(fn => fn(current));
+}
 
 export function _enqueuePermissionRequest(req: PermissionRequest): Promise<PermissionResponse> {
   return new Promise((resolve) => {
-    current = { request: req, resolve };
-    listeners.forEach(fn => fn(current));
+    queue.push({ request: req, resolve });
+    if (queue.length === 1) notify(); // only notify if first in queue
   });
 }
 
 export function usePermissionManager() {
-  const [pending, setPending] = useState<Pending | null>(current);
+  const [pending, setPending] = useState<Pending | null>(queue[0] ?? null);
 
   useEffect(() => {
     const fn = (p: Pending | null) => setPending(p);
@@ -31,11 +36,10 @@ export function usePermissionManager() {
   }, []);
 
   const respond = useCallback((r: PermissionResponse) => {
-    const p = current;
+    const p = queue.shift();
     if (!p) return;
-    current = null;
-    listeners.forEach(fn => fn(null));
     p.resolve(r);
+    notify(); // show next in queue
   }, []);
 
   const dismiss = useCallback(() => respond('deny'), [respond]);
@@ -45,9 +49,8 @@ export function usePermissionManager() {
 
 /** Test-only: force-resolve the current pending permission request. */
 export function _respondPermissionForTest(r: PermissionResponse): void {
-  if (!current) return
-  const p = current
-  current = null
-  listeners.forEach(fn => fn(null))
-  p.resolve(r)
+  const p = queue.shift();
+  if (!p) return;
+  p.resolve(r);
+  notify();
 }

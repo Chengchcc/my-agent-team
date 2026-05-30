@@ -40,10 +40,9 @@ describe('OpenAiAdapter', () => {
   it('fromChatStreamChunk extracts text deltas', () => {
     const adapter = new OpenAiAdapter()
     const chunks = RECORD_STREAM_CHUNKS
-      .map((raw) => adapter.fromChatStreamChunk(raw))
-      .filter((c) => c !== null)
+      .flatMap((raw) => adapter.fromChatStreamChunk(raw) ?? [])
 
-    const textDeltas = chunks.filter((c) => c!.type === 'text')
+    const textDeltas = chunks.filter((c) => c.type === 'text')
     expect(textDeltas.length).toBe(2)
     expect(textDeltas[0]!.delta).toBe('Hello')
     expect(textDeltas[1]!.delta).toBe(' world')

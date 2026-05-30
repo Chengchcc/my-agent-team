@@ -10,7 +10,7 @@ function resetStore() {
     finalized: [],
     live: null,
     interaction: { toolsExpanded: false, pendingInputs: [] },
-    stats: { promptTokens: 0, completionTokens: 0, contextTokens: 0, tokenLimit: 0, streaming: false, streamingStartTime: null, interrupted: false, compacting: false },
+    stats: { lastTurnInputTokens: 0, completionTokens: 0, tokenLimit: 0, streaming: false, streamingStartTime: null, interrupted: false, compacting: false, mode: 'normal' },
     reviewNotifications: [],
     todos: [],
     sessionPicker: { active: false, sessions: [], selectedIndex: 0 },
@@ -184,13 +184,15 @@ describe('stats actions', () => {
     expect(store().stats.streamingStartTime).toBeNull();
   });
 
-  test('accumulateUsage snapshots prompt and accumulates completion', () => {
-    store().accumulateUsage({ prompt_tokens: 100, completion_tokens: 50 });
-    expect(store().stats.promptTokens).toBe(100);
+  test('setPromptTokens overwrites lastTurnInputTokens and accumulateCompletionTokens accumulates', () => {
+    store().setPromptTokens(100);
+    store().accumulateCompletionTokens(50);
+    expect(store().stats.lastTurnInputTokens).toBe(100);
     expect(store().stats.completionTokens).toBe(50);
 
-    store().accumulateUsage({ prompt_tokens: 80, completion_tokens: 40 });
-    expect(store().stats.promptTokens).toBe(80);
+    store().setPromptTokens(80);
+    store().accumulateCompletionTokens(40);
+    expect(store().stats.lastTurnInputTokens).toBe(80);
     expect(store().stats.completionTokens).toBe(90);
   });
 

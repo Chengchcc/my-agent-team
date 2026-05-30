@@ -59,6 +59,18 @@ export function dataplaneToTranscriptEvent(event: DataPlaneEvent): TranscriptEve
     case 'permission.required':
       return { type: 'permission_requested', sessionId: sid, reqId: String(inner.reqId ?? ''), toolName: String(inner.toolName ?? '') };
 
+    case 'ask-user-question.required': {
+      const questions = (inner.questions ?? []) as Array<{
+        question: string; header: string; options: Array<{ label: string; description: string }>; multi_select?: boolean
+      }>
+      return {
+        type: 'user_question_requested',
+        sessionId: sid,
+        questionId: String(inner.questionId ?? ''),
+        questions,
+      }
+    }
+
     case 'tui.inline-block':
       return {
         type: 'widget_inline_block', sessionId: sid,

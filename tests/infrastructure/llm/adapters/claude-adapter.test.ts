@@ -38,10 +38,9 @@ describe('ClaudeAdapter', () => {
   it('fromChatStreamChunk yields text deltas', () => {
     const adapter = new ClaudeAdapter()
     const chunks = RECORD_STREAM_CHUNKS
-      .map((raw) => adapter.fromChatStreamChunk(raw))
-      .filter((c) => c !== null)
+      .flatMap((raw) => adapter.fromChatStreamChunk(raw) ?? [])
 
-    const textDeltas = chunks.filter((c) => c!.type === 'text')
+    const textDeltas = chunks.filter((c) => c.type === 'text')
     expect(textDeltas.length).toBe(2)
     expect(textDeltas[0]!.delta).toBe('Hello')
     expect(textDeltas[1]!.delta).toBe(' world')
@@ -50,11 +49,11 @@ describe('ClaudeAdapter', () => {
   it('fromChatStreamChunk yields done at message_stop', () => {
     const adapter = new ClaudeAdapter()
     const chunks = RECORD_STREAM_CHUNKS
-      .map((raw) => adapter.fromChatStreamChunk(raw))
-      .filter((c) => c !== null)
+      .flatMap((raw) => adapter.fromChatStreamChunk(raw) ?? [])
 
-    const doneChunks = chunks.filter((c) => c!.type === 'done')
+    const doneChunks = chunks.filter((c) => c.type === 'done')
     expect(doneChunks.length).toBe(1)
+    expect(doneChunks[0]!.finishReason).toBe('stop')
   })
 
   it('fromChatStreamChunk returns null for bookkeeping', () => {

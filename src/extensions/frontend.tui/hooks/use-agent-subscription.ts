@@ -5,6 +5,8 @@ import { useTuiStore } from '../state/store';
 import { getCommitter } from '../streaming/committer';
 import type { SessionClient } from '../session-client';
 import type { TranscriptProjector } from '../transcript/projector';
+import { _enqueuePermissionRequest } from '../overlays/impls/overlay-permission/use-permission-manager';
+import { _enqueueAskUserQuestion } from '../overlays/impls/overlay-ask-user-question/use-ask-user-question-manager';
 
 export function useAgentSubscription(
   client: SessionClient,
@@ -25,7 +27,7 @@ export function useAgentSubscription(
   // Subscribe to projector transcript events → update TUI store
   useEffect(() => {
     // eslint-disable-next-line complexity -- pre-existing projector event handler
-    const unsub = projector.onEvent((event) => {
+    const unsub = projector.onEvent(async (event) => {
       const store = useTuiStore.getState();
       const committer = getCommitter();
 
@@ -114,10 +116,36 @@ export function useAgentSubscription(
           store.subagentCompleted(event.callId, event.finalText, event.usage, event.ok);
           break;
 
-        case 'permission_requested':
-        case 'user_question_requested':
-          // Handled by other hooks
-          break;
+        case 'permission_requested': {
+          const resp = await _enqueuePermissionRequest({
+            toolName: event.toolName,
+            reason: `Tool "${event.toolName}" requires permission`,
+          })
+          void client.sendRpc('permission.resolve', {
+            reqId: event.reqId,
+            decision: resp,
+            sessionId,
+          })
+          break
+        }
+
+        case 'user_question_requested': {
+          const questions = event.questions.map(q => ({
+            question: q.question,
+            header: q.header,
+            options: q.options,
+            multi_select: q.multiSelect ?? false,
+          }))
+          const result = await _enqueueAskUserQuestion({ questions })
+          if (!result.cancelled) {
+            void client.sendRpc('user.answer', {
+              sessionId,
+              questionId: event.questionId,
+              answers: result.answers,
+            })
+          }
+          break
+        }
       }
     });
     return unsub;

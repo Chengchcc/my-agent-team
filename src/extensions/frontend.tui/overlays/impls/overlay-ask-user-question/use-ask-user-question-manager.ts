@@ -27,17 +27,22 @@ interface Pending {
 }
 
 const listeners = new Set<(p: Pending | null) => void>();
-let current: Pending | null = null;
+let queue: Pending[] = [];
+
+function notify() {
+  const current = queue[0] ?? null;
+  listeners.forEach(fn => fn(current));
+}
 
 export function _enqueueAskUserQuestion(req: AskUserQuestionRequest): Promise<AskUserQuestionResult> {
   return new Promise((resolve) => {
-    current = { request: req, resolve };
-    listeners.forEach(fn => fn(current));
+    queue.push({ request: req, resolve });
+    if (queue.length === 1) notify(); // only notify if first in queue
   });
 }
 
 export function useAskUserQuestionManager() {
-  const [pending, setPending] = useState<Pending | null>(current);
+  const [pending, setPending] = useState<Pending | null>(queue[0] ?? null);
 
   useEffect(() => {
     const fn = (p: Pending | null) => setPending(p);
@@ -46,11 +51,10 @@ export function useAskUserQuestionManager() {
   }, []);
 
   const respond = useCallback((r: AskUserQuestionResult) => {
-    const p = current;
+    const p = queue.shift();
     if (!p) return;
-    current = null;
-    listeners.forEach(fn => fn(null));
     p.resolve(r);
+    notify(); // show next in queue
   }, []);
 
   const dismiss = useCallback(() => respond({ cancelled: true }), [respond]);
@@ -60,9 +64,8 @@ export function useAskUserQuestionManager() {
 
 /** Test-only: force-resolve the current pending ask-user-question request. */
 export function _respondAskUserQuestionForTest(r: AskUserQuestionResult): void {
-  if (!current) return
-  const p = current
-  current = null
-  listeners.forEach(fn => fn(null))
-  p.resolve(r)
+  const p = queue.shift();
+  if (!p) return;
+  p.resolve(r);
+  notify();
 }

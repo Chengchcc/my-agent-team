@@ -48,8 +48,8 @@ describe('provider extension', () => {
       usage: { input: 5, output: 11 },
     })
 
-    // Third chunk: done
-    expect(chunks[2]).toEqual({ type: 'done' })
+    // Third chunk: done with finishReason
+    expect(chunks[2]).toEqual({ type: 'done', finishReason: 'stop' })
 
     await k.stop()
   })
