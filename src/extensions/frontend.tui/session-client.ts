@@ -70,6 +70,11 @@ export class SessionClient {
     return this.call(method, params);
   }
 
+  async getMode(sessionId: string): Promise<string> {
+    const result = await this.call('session.getMode', { sessionId }) as { mode: string }
+    return result.mode
+  }
+
   async createSession(title?: string): Promise<{ sessionId: string }> {
     return this.call('session.create', {
       frontendId: this.frontendId,

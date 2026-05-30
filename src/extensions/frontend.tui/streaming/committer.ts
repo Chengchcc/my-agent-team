@@ -158,6 +158,7 @@ class Committer {
 
   destroy(): void {
     if (this.trailing) clearTimeout(this.trailing);
+    // callback may fire after destroy; listeners already cleared on next line so no-op
     this.notifyScheduled = false;
     this.listeners.clear();
   }

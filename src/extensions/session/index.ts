@@ -124,6 +124,7 @@ export default () =>
       const historyStore = new SqliteHistoryStore(db)
       const eventFactory = createTraceEventFactory()
       const abortControllers = new Map<string, AbortController>()
+      const drainResolvers = new Map<string, () => void>()
 
       const defaultSessionId = anchorToSessionId({ kind: 'tui', frontendId: 'default' })
       const kernelReady: HookHandler = async () => {
@@ -157,9 +158,21 @@ export default () =>
           'session.history': () => historyStore,
           'session.compactor': () => createCompactor({ invoke: ctx.extensions.get('provider.llm') }),
           'session.abort': () => ({
-            register: (sessionId: string, controller: AbortController) => abortControllers.set(sessionId, controller),
-            unregister: (sessionId: string) => { abortControllers.delete(sessionId) },
+            register: (sessionId: string, controller: AbortController) => {
+              abortControllers.set(sessionId, controller)
+            },
+            unregister: (sessionId: string) => {
+              abortControllers.delete(sessionId)
+              const resolve = drainResolvers.get(sessionId)
+              if (resolve) { resolve(); drainResolvers.delete(sessionId) }
+            },
             abort: (sessionId: string) => { abortControllers.get(sessionId)?.abort() },
+            waitDrained: async (sessionId: string, timeoutMs = 2000) => {
+              if (!abortControllers.has(sessionId)) return
+              const p = new Promise<void>(resolve => { drainResolvers.set(sessionId, resolve) })
+              await Promise.race([p, new Promise<void>(r => setTimeout(r, timeoutMs))])
+              drainResolvers.delete(sessionId)
+            },
           }),
         },
         hooks: { kernelReady, onTurnStart, onTurnEnd },

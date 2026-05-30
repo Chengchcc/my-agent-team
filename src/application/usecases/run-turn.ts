@@ -321,6 +321,10 @@ export async function runTurnUsecase(
   if (budgetResult) return budgetResult
 
   // Phase 6: persist history
+  // Re-check abort before writing — defense-in-depth against session.clear race (W-3.f)
+  if (controller?.signal.aborted) {
+    return { usage: totalUsage, success: false }
+  }
   const newEntries = appendHistory({
     sessionId,
     turnId,

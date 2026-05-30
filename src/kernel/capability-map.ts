@@ -101,6 +101,7 @@ export interface SessionAbortController {
   register(sessionId: string, controller: AbortController): void
   unregister(sessionId: string): void
   abort(sessionId: string): void
+  waitDrained(sessionId: string, timeoutMs: number): Promise<void>
 }
 
 /** Lightweight session message accessor (optional, consumed only in controlplane attach). */

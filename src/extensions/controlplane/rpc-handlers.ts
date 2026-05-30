@@ -189,19 +189,21 @@ export function makeSessionClearHandler(d: RpcHandlerDeps) {
     const session = await store.load(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
 
-    // 1. Cancel in-flight turn to prevent residual events
-    if (d.ctx.extensions.has('session.abort')) {
-      const abort = d.ctx.extensions.get('session.abort')
-      abort?.abort(sessionId)
-    } else {
-      d.ctx.logger.warn('session', 'session.abort not available, cannot abort turn')
+    // 1. Abort current turn and wait for it to drain (W-3.c race fix)
+    const abort = d.ctx.extensions.get('session.abort') as {
+      abort: (sid: string) => void
+      waitDrained: (sid: string, timeoutMs: number) => Promise<void>
+    } | undefined
+    if (abort) {
+      abort.abort(sessionId)
+      await abort.waitDrained(sessionId, 2000)
     }
 
-    // 2. Clear message history
+    // 2. Clear message history (safe — no turn writing to it)
     const hist = d.ctx.extensions.get('session.history')
     if (hist) await hist.clear(sessionId)
 
-    // 3. Emit correct event
+    // 3. Emit
     void d.contractBus.emit('session.cleared', { sessionId, ts: Date.now() }, { sessionId })
     return { ok: true, sessionId }
   };

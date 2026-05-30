@@ -199,6 +199,13 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
     }
   }, []);
 
+  // W-1: sync mode from server on attach
+  useEffect(() => {
+    client.getMode(sessionId).then(mode => {
+      useTuiStore.getState().setMode(mode);
+    }).catch(() => { /* mode not available */ });
+  }, [client, sessionId]);
+
   const allCommands = useMemo(() => slashRegistry.list(), [slashRegistry]);
 
   const banner: FinalItem = useMemo(
