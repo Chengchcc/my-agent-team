@@ -54,35 +54,103 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
     else concurrentByTurn.set(turnId, c - 1)
   }
 
+  function mapFinishReasonToErrorType(fr: string): SubAgentErrorType {
+    switch (fr) {
+      case 'stop': return 'failed'
+      case 'length': return 'response_truncated'
+      case 'content_filter': return 'response_filtered'
+      case 'inconsistent': return 'provider_inconsistent'
+      case 'tool_unavailable': return 'tool_unavailable'
+      case 'tool_failed': return 'tool_failed'
+      case 'budget': return 'budget'
+      case 'max_rounds': return 'max_rounds'
+      case 'empty_rounds':
+      case 'empty': return 'empty_response'
+      case 'error': return 'llm_failed'
+      default: return 'failed'
+    }
+  }
+
+  function emitEarlyCompleted(
+    parentTurnId: string,
+    parentSessionId: string,
+    type: string,
+    parentCallId: string,
+    errorType: SubAgentErrorType,
+    errorMessage: string,
+    finishReason: string,
+    subSessionId: string,
+    startedAt: number,
+  ): void {
+    void deps.bus.emit('subagent.completed', {
+      parentTurnId,
+      parentSessionId,
+      subSessionId,
+      type,
+      callId: parentCallId,
+      ok: false,
+      usage: { input: 0, output: 0 },
+      errorType,
+      errorMessage,
+      finishReason,
+      durationMs: Date.now() - startedAt,
+      ts: Date.now(),
+    })
+  }
+
   return async (input: SubAgentRunInput): Promise<string> => {
     const desc = deps.registry.get(input.type)
     if (!desc) {
       const available = deps.registry.list().map(d => d.type).join(', ')
-      return `<sub-agent-error type="unknown_subagent_type" reason="${escapeXmlAttr(input.type)}" available="${escapeXmlAttr(available)}" />`
+      const subSessionId = `sub:${input.parentTurnId}:${generateULID()}`
+      const nowTs = Date.now()
+      void deps.bus.emit('subagent.started', {
+        parentTurnId: input.parentTurnId,
+        parentSessionId: input.parentSessionId,
+        subSessionId,
+        type: input.type,
+        description: input.description,
+        callId: input.parentCallId,
+        ts: nowTs,
+      })
+      emitEarlyCompleted(input.parentTurnId, input.parentSessionId, input.type, input.parentCallId, 'unknown_type', `Unknown sub-agent type "${input.type}". Available: ${available}`, 'unknown_type', subSessionId, nowTs)
+      return `<sub-agent-error type="unknown_type" reason="${escapeXmlAttr(input.type)}" available="${escapeXmlAttr(available)}" />`
     }
 
     if (!tryAcquire(input.parentTurnId)) {
       deps.logger.warn('sub-agent', `concurrency cap reached for turn ${input.parentTurnId}`)
+      const subSessionId = `sub:${input.parentTurnId}:${generateULID()}`
+      const nowTs = Date.now()
+      void deps.bus.emit('subagent.started', {
+        parentTurnId: input.parentTurnId,
+        parentSessionId: input.parentSessionId,
+        subSessionId,
+        type: input.type,
+        description: input.description,
+        callId: input.parentCallId,
+        ts: nowTs,
+      })
+      emitEarlyCompleted(input.parentTurnId, input.parentSessionId, input.type, input.parentCallId, 'busy', `too many concurrent sub-agents (max ${MAX_CONCURRENT_SUBAGENTS_PER_TURN})`, 'busy', subSessionId, nowTs)
       return `<sub-agent-error type="busy" reason="too many concurrent sub-agents (max ${MAX_CONCURRENT_SUBAGENTS_PER_TURN})" />`
     }
 
     const subSessionId = `sub:${input.parentTurnId}:${generateULID()}`
     const subTurnId = `${input.parentTurnId}#sub-${input.parentCallId}`
     const startedAt = Date.now()
+    // req.model reserved for future per-call override; currently always undefined → falls back to closure model
     const model = deps.resolveModel?.(desc.modelHint)
 
-    // R-2: best-effort emit, no try/catch
-    void deps.bus.emit('subagent.started', {
-      parentTurnId: input.parentTurnId,
-      parentSessionId: input.parentSessionId,
-      subSessionId,
-      type: input.type,
-      description: input.description,
-      callId: input.parentCallId,
-      ts: startedAt,
-    })
-
     try {
+      void deps.bus.emit('subagent.started', {
+        parentTurnId: input.parentTurnId,
+        parentSessionId: input.parentSessionId,
+        subSessionId,
+        type: input.type,
+        description: input.description,
+        callId: input.parentCallId,
+        ts: startedAt,
+      })
+
       const result = await deps.spawner.run({
         entry: require.resolve('./worker-entry-subagent'),
         job: {
@@ -157,15 +225,20 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
       })
 
       const typed = result as unknown as { usage: { input: number; output: number }; finalText: string; finishReason: string }
+      const ok = typed.finishReason === 'stop'
+      const errorType = ok ? undefined : mapFinishReasonToErrorType(typed.finishReason)
+
       void deps.bus.emit('subagent.completed', {
         parentTurnId: input.parentTurnId,
         parentSessionId: input.parentSessionId,
         subSessionId,
         type: input.type,
         callId: input.parentCallId,
-        ok: true,
+        ok,
         usage: typed.usage,
         finalText: typed.finalText,
+        errorType,
+        errorMessage: ok ? undefined : `Sub-agent finished with reason: ${typed.finishReason}`,
         finishReason: typed.finishReason,
         durationMs: Date.now() - startedAt,
         ts: Date.now(),

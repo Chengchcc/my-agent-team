@@ -11,7 +11,7 @@ export interface SubAgentTaskPayload {
   readonly callId: string
   readonly subagentType: string
   readonly description: string
-  readonly status: 'running' | 'ok' | 'failed' | 'cancelled'
+  readonly status: 'running' | 'ok' | 'warn' | 'failed' | 'cancelled'
   readonly subSessionId: string
   readonly innerToolCalls: ReadonlyArray<SubAgentInnerToolCall>
   readonly finalText?: string

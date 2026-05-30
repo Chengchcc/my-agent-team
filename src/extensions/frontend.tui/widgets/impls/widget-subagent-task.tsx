@@ -3,11 +3,30 @@ import { Box, Text, useInput } from 'ink'
 import type { WidgetDescriptor } from '../widget-types'
 import type { SubAgentTaskPayload } from '../../../sub-agent/widget-payloads'
 
+import type { SubAgentErrorType } from '../../../../application/contracts/subagent-events'
+
 const STATUS_COLOR: Record<string, string> = {
   running: 'cyan',
   ok: 'green',
+  warn: 'yellow',
   failed: 'red',
   cancelled: 'gray',
+}
+
+const ERROR_LABELS: Record<SubAgentErrorType, { label: string; severity: 'warn' | 'error' }> = {
+  cancelled:            { label: 'Cancelled',             severity: 'warn' },
+  failed:               { label: 'Failed',                severity: 'error' },
+  busy:                 { label: 'Too many concurrent',   severity: 'error' },
+  unknown_type:         { label: 'Unknown type',          severity: 'error' },
+  budget:               { label: 'Budget exhausted',      severity: 'warn' },
+  max_rounds:           { label: 'Max rounds reached',    severity: 'warn' },
+  response_truncated:   { label: 'Output truncated',      severity: 'warn' },
+  empty_response:       { label: 'Empty response',        severity: 'warn' },
+  response_filtered:    { label: 'Content filtered',      severity: 'error' },
+  tool_unavailable:     { label: 'Tool not allowed',      severity: 'error' },
+  tool_failed:          { label: 'Tool failed',           severity: 'error' },
+  provider_inconsistent: { label: 'Provider inconsistent', severity: 'error' },
+  llm_failed:           { label: 'LLM failed',            severity: 'error' },
 }
 
 const TOOL_STATUS_ICON: Record<string, string> = {
@@ -51,7 +70,9 @@ const WidgetSubAgentTask: React.FC<{ payload: SubAgentTaskPayload }> = ({ payloa
         <Text color={color} bold>
           {expanded ? '\u25BC' : '\u25B6'} {payload.subagentType}: {payload.description}
         </Text>
-        <Text color={color}> [{payload.status}]</Text>
+        <Text color={color}>
+          {' '}[{payload.errorType && ERROR_LABELS[payload.errorType] ? ERROR_LABELS[payload.errorType].label : payload.status}]
+        </Text>
         {meta ? <Text color="gray"> ({meta})</Text> : null}
       </Box>
 
@@ -91,7 +112,9 @@ const WidgetSubAgentTask: React.FC<{ payload: SubAgentTaskPayload }> = ({ payloa
           ) : null}
           {payload.errorMessage ? (
             <Box>
-              <Text color="red">  Error: {payload.errorMessage}</Text>
+              <Text color={payload.errorType && ERROR_LABELS[payload.errorType]?.severity === 'warn' ? 'yellow' : 'red'}>
+                {'  '}{payload.errorType && ERROR_LABELS[payload.errorType] ? ERROR_LABELS[payload.errorType].label : 'Error'}: {payload.errorMessage}
+              </Text>
             </Box>
           ) : null}
         </>

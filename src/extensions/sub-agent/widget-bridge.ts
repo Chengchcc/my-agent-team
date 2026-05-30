@@ -1,7 +1,7 @@
 import { emitInlineBlock } from '../../application/contracts/widget-events'
 import type { ContractBus } from '../../application/event-bus/contract-bus'
 import type { Logger } from '../../application/ports/logger'
-import type { SubAgentStartedV1, SubAgentCompletedV1, SubAgentProgressV1 } from '../../application/contracts/subagent-events'
+import type { SubAgentStartedV1, SubAgentCompletedV1, SubAgentProgressV1, SubAgentErrorType } from '../../application/contracts/subagent-events'
 import type { SubAgentTaskPayload, SubAgentInnerToolCall } from './widget-payloads'
 
 const MINUTES_PER_TIMEOUT = 30
@@ -17,6 +17,18 @@ interface BridgeEntry {
   parentTurnId: string
   startedAt: number
   blockId: string
+}
+
+function mapToWidgetStatus(
+  ok: boolean,
+  errorType: SubAgentErrorType | undefined,
+  hasFinalText: boolean,
+): 'ok' | 'warn' | 'failed' | 'cancelled' {
+  if (ok) return 'ok'
+  if (errorType === 'cancelled') return 'cancelled'
+  const PARTIAL_USABLE = new Set<SubAgentErrorType>(['budget', 'max_rounds', 'response_truncated', 'empty_response'])
+  if (errorType && PARTIAL_USABLE.has(errorType) && hasFinalText) return 'warn'
+  return 'failed'
 }
 
 export function attachWidgetBridge(bus: ContractBus, logger: Logger): () => void {
@@ -90,9 +102,7 @@ export function attachWidgetBridge(bus: ContractBus, logger: Logger): () => void
   const offCompleted = bus.on('subagent.completed', (e: SubAgentCompletedV1) => {
     const entry = state.get(e.callId)
     if (!entry) return
-    const status: SubAgentTaskPayload['status'] = e.ok
-      ? 'ok'
-      : (e.errorType === 'cancelled' ? 'cancelled' : 'failed')
+    const status = mapToWidgetStatus(e.ok, e.errorType, Boolean(e.finalText))
     entry.payload = {
       ...entry.payload,
       status,
@@ -107,10 +117,10 @@ export function attachWidgetBridge(bus: ContractBus, logger: Logger): () => void
   })
 
   return () => {
+    clearInterval(sweepTimer)
     offStarted()
     offProgress()
     offCompleted()
-    clearInterval(sweepTimer)
     state.clear()
   }
 }

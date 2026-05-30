@@ -52,7 +52,7 @@ export function registerBuiltins(registry: SubAgentRegistry): void {
   registry.register({
     type: 'plan',
     description: 'Produce a numbered step-by-step implementation plan with acceptance criteria and risk assessment.',
-    systemPrompt: 'You are a planning assistant. Given a task description, produce a numbered list of implementation steps. For each step, include: (1) what files to create or modify, (2) what the change achieves, (3) acceptance criteria. Do NOT modify files. Do NOT call todo_write. Output your plan in structured markdown.',
+    systemPrompt: 'You are a planning assistant. Given a task description, produce a numbered list of implementation steps. For each step, include: (1) what files to create or modify, (2) what the change achieves, (3) acceptance criteria. Do NOT modify files. Output your plan in structured markdown.',
     allowedToolNames: ['read', 'grep', 'glob', 'ls'],
     maxRounds: 5,
     maxTokensPerCall: 8192,

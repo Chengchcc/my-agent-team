@@ -123,7 +123,7 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
       log('warn', `budget exhausted: ${totalUsage.input + totalUsage.output} > ${maxTotalTokens}`)
       return {
         finalText:
-          `<sub-agent-error type="budget_exhausted" totalTokens="${totalUsage.input + totalUsage.output}" maxTokens="${maxTotalTokens}">` +
+          `<sub-agent-error type="budget" totalTokens="${totalUsage.input + totalUsage.output}" maxTokens="${maxTotalTokens}">` +
           `<partial-result>${escapeXml(finalText)}</partial-result></sub-agent-error>`,
         usage: totalUsage, toolCallCount, rounds: round + 1,
         finishReason: 'budget',
@@ -152,13 +152,13 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
     totalUsage.output += resp.usage.output
 
     const isEmpty = !resp.content && (!resp.toolCalls || resp.toolCalls.length === 0)
-      && (resp.finishReason === 'stop' || resp.finishReason === 'tool_calls')
+      && resp.finishReason === 'stop'
     if (isEmpty) {
       consecutiveEmptyRounds++
       if (consecutiveEmptyRounds >= MAX_EMPTY_ROUNDS) {
         log('warn', `terminating after ${consecutiveEmptyRounds} consecutive empty rounds`)
         return {
-          finalText: `<sub-agent-warning type="empty_rounds" rounds="${consecutiveEmptyRounds}"></sub-agent-warning>`,
+          finalText: `<sub-agent-error type="empty_response" rounds="${consecutiveEmptyRounds}"></sub-agent-error>`,
           usage: totalUsage, toolCallCount, rounds: round + 1,
           finishReason: 'empty_rounds',
         }
@@ -223,7 +223,7 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
   log('warn', `maxRounds=${maxRounds} reached, force-finalizing`)
   return {
     finalText:
-      `<sub-agent-error type="max_rounds_reached" rounds="${maxRounds}" maxRounds="${maxRounds}">` +
+      `<sub-agent-error type="max_rounds" rounds="${maxRounds}" maxRounds="${maxRounds}">` +
       `<partial-result>${escapeXml(finalText)}</partial-result></sub-agent-error>`,
     usage: totalUsage, toolCallCount, rounds: maxRounds,
     finishReason: 'max_rounds',
