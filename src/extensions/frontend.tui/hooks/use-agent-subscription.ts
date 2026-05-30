@@ -26,7 +26,7 @@ export function useAgentSubscription(
 
   // Subscribe to projector transcript events → update TUI store
   useEffect(() => {
-    // eslint-disable-next-line complexity -- pre-existing projector event handler
+    // eslint-disable-next-line complexity, @typescript-eslint/no-misused-promises -- projector event handler with overlay RPC calls
     const unsub = projector.onEvent(async (event) => {
       const store = useTuiStore.getState();
       const committer = getCommitter();
@@ -150,7 +150,7 @@ export function useAgentSubscription(
       }
     });
     return unsub;
-  }, [projector, logger]);
+  }, [projector, logger, client, sessionId]);
 
   const submit = useCallback(
     async (text: string) => {

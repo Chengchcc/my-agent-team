@@ -36,6 +36,7 @@ export function mapDataPlaneToAgentEvent(evt: DataPlaneEvent): AgentEvent | null
     case 'state.changed': case 'attach.changed': case 'identity.changed':
     case 'skills.reloaded': case 'mcp.reloaded': case 'evolution.progress':
     case 'system.warn': case 'tui.inline-block':
+    case 'session.mode-changed': case 'session.cleared':
     case 'compaction.started': case 'compaction.completed': case 'compaction.failed':
       return null;
   }

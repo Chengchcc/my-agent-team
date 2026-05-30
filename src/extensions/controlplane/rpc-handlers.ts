@@ -196,7 +196,8 @@ export function makeSessionClearHandler(d: RpcHandlerDeps) {
     } | undefined
     if (abort) {
       abort.abort(sessionId)
-      await abort.waitDrained(sessionId, 2000)
+      const CLEAR_DRAIN_TIMEOUT_MS = 2000
+      await abort.waitDrained(sessionId, CLEAR_DRAIN_TIMEOUT_MS)
     }
 
     // 2. Clear message history (safe — no turn writing to it)

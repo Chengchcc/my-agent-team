@@ -38,6 +38,7 @@ function buildToolSchemas(catalog: ToolCatalog, desc: { allowedToolNames: readon
     .filter(Boolean) as Array<{ name: string; description: string; parameters: Record<string, unknown> }>
 }
 
+// eslint-disable-next-line max-lines-per-function -- runner orchestrates acquire/spawn/emit/cleanup, extraction would scatter invariants
 export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRunner {
   const concurrentByTurn = new Map<string, number>()
 
@@ -98,6 +99,7 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
     })
   }
 
+  // eslint-disable-next-line max-lines-per-function -- runner body orchestrates acquire/spawn/emit/cleanup
   return async (input: SubAgentRunInput): Promise<string> => {
     const desc = deps.registry.get(input.type)
     if (!desc) {

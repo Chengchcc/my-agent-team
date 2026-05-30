@@ -20,7 +20,6 @@ export type DataPlaneEventType =
   | 'skills.reloaded'
   | 'mcp.reloaded'
   | 'evolution.progress'
-  | 'evolution.skillProposed'
   | 'system.warn'
   | 'tui.inline-block'
   | 'compaction.started'
