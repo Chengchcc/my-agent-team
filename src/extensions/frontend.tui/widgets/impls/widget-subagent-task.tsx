@@ -80,13 +80,13 @@ const WidgetSubAgentTask: React.FC<{ payload: SubAgentTaskPayload }> = ({ payloa
                     : payload.finalText}
                 </Text>
               </Box>
-              {truncated && (
+              {truncated ? (
                 <Box>
                   <Text color="gray" dimColor>
                     (truncated, see sub session {payload.subSessionId})
                   </Text>
                 </Box>
-              )}
+              ) : null}
             </>
           ) : null}
           {payload.errorMessage ? (

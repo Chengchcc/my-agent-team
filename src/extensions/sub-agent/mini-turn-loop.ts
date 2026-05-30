@@ -40,7 +40,6 @@ function escapeXml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-// eslint-disable-next-line complexity
 function classifyLlmError(err: unknown): LlmFailureReason {
   if (err instanceof WorkerRpcError) {
     switch (err.code) {
