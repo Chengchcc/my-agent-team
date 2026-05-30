@@ -78,6 +78,49 @@ export default () =>
         'system.shutdown': makeSystemShutdownHandler(deps),
         'system.version': makeSystemVersionHandler(deps),
         'system.ping': () => ({ ok: true, ts: Date.now() }),
+
+        'subagent.list': async () => {
+          let reg: { list(): Array<{ type: string; description: string; allowedToolNames: readonly string[]; source: string; maxRounds?: number; maxTokensPerCall?: number; maxTotalTokens?: number; lifetimeMs?: number; modelHint?: 'fast' | 'strong' }> } | null = null
+          try { reg = ctx.extensions.get('sub-agent.registry') } catch { /* unavailable */ }
+          if (!reg) return { agents: [] }
+          return {
+            agents: reg.list().map(d => ({
+              type: d.type,
+              description: d.description,
+              allowedToolNames: [...d.allowedToolNames],
+              source: d.source,
+              maxRounds: d.maxRounds,
+              maxTokensPerCall: d.maxTokensPerCall,
+              maxTotalTokens: d.maxTotalTokens,
+              lifetimeMs: d.lifetimeMs,
+              modelHint: d.modelHint,
+            })),
+          }
+        },
+
+        'subagent.describe': async (args: unknown) => {
+          const p = args as { type?: string }
+          if (!p?.type) throw new Error('type is required')
+          let reg: { get(type: string): { type: string; description: string; allowedToolNames: readonly string[]; source: string; maxRounds?: number; maxTokensPerCall?: number; maxTotalTokens?: number; lifetimeMs?: number; modelHint?: 'fast' | 'strong' } | undefined } | null = null
+          try { reg = ctx.extensions.get('sub-agent.registry') } catch { /* unavailable */ }
+          if (!reg) return { found: false }
+          const d = reg.get(p.type)
+          if (!d) return { found: false }
+          return {
+            found: true,
+            agent: {
+              type: d.type,
+              description: d.description,
+              allowedToolNames: [...d.allowedToolNames],
+              source: d.source,
+              maxRounds: d.maxRounds,
+              maxTokensPerCall: d.maxTokensPerCall,
+              maxTotalTokens: d.maxTotalTokens,
+              lifetimeMs: d.lifetimeMs,
+              modelHint: d.modelHint,
+            },
+          }
+        },
       };
 
       return { rpc };
