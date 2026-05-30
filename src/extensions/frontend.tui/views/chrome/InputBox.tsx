@@ -61,7 +61,13 @@ export function InputBox({ commands, onSubmit, onAbort }: InputBoxProps) {
         </Box>
       ) : null}
 
-      {pendingInputs.length > 0 ? (
+      {pendingInputs.length === 1 ? (
+        <Box paddingX={2}>
+          <Text color="yellow">[queued] </Text>
+          <Text dimColor>{pendingInputs[0]!.length > PENDING_PREVIEW_MAX ? pendingInputs[0]!.slice(0, PENDING_TRUNC) + '…' : pendingInputs[0]}</Text>
+          <Text dimColor> · Ctrl+K to clear</Text>
+        </Box>
+      ) : pendingInputs.length > 1 ? (
         <Box flexDirection="column" borderStyle="single" borderColor="yellow" paddingX={1}>
           <Box>
             <Text color="yellow" bold>Pending ({pendingInputs.length})</Text>
@@ -83,16 +89,16 @@ export function InputBox({ commands, onSubmit, onAbort }: InputBoxProps) {
 
       {pasteLineCount > 0 ? (
         <Box paddingX={2}>
-          <Text dimColor>[paste folded · Backspace on marker to remove · Space on marker to expand · ←→ skip over]</Text>
+          <Text dimColor>[paste] folded ({pasteLineCount} lines) · ? for help</Text>
         </Box>
       ) : null}
 
-      <Box borderStyle="round" borderColor="cyan" paddingX={1}>
+      <Box borderStyle="round" borderColor={streaming ? 'gray' : pendingInputs.length > 0 ? 'yellow' : 'cyan'} paddingX={1}>
         <Text color="cyan">{'>'} </Text>
         <HighlightedInput
           value={displayText}
           cursorOffset={displayCursorOffset}
-          placeholder={placeholder}
+          placeholder={streaming ? '(replying… Esc to interrupt, Enter to queue)' : placeholder}
           highlightedCommandName={highlightedCommandName}
         />
       </Box>

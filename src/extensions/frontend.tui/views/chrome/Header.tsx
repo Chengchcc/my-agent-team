@@ -34,7 +34,7 @@ export function Header({ model, sessionId }: HeaderProps) {
         <Text>
           <Text bold color="cyan">my-agent</Text>
           {model ? <Text dimColor> - {model}</Text> : null}
-          {mode !== 'normal' ? <Text bold color="magenta"> [{mode}]</Text> : null}
+          {mode !== 'normal' ? <Text backgroundColor="magenta" color="white"> {mode.toUpperCase()} </Text> : null}
           <Text dimColor> - </Text>
           <Text color={st.color}>{st.char}</Text>
           <Text dimColor> {st.label}</Text>

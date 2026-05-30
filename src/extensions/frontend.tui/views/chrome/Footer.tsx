@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
-import { Text } from 'ink';
+import React from 'react';
+import { Box, Text } from 'ink';
 import { useTuiStore } from '../../state/store';
 import { BUDGET_COMPACT_RATIO, BUDGET_WARN_RATIO, BUDGET_DANGER_RATIO } from '../../../../application/constants/compact';
+import { GLOBAL_BINDINGS } from '../../keys/global-keymap';
 
 const TOKENS_PER_K = 1000;
 const BAR_WIDTH = 10;
@@ -25,7 +26,7 @@ function renderBar(ratio: number): string {
     else if (isDMark) marked += '│';
     else marked += bar[i];
   }
-  return marked
+  return marked;
 }
 
 export function Footer() {
@@ -35,40 +36,43 @@ export function Footer() {
   const interrupted = useTuiStore(s => s.stats.interrupted);
   const streaming = useTuiStore(s => s.stats.streaming);
   const compacting = useTuiStore(s => s.stats.compacting);
-  const toolsExpanded = useTuiStore(s => s.interaction.toolsExpanded);
-
   const contextPct = tokenLimit > 0 ? contextTokens / tokenLimit : 0;
   const ctxColor = contextPct > BUDGET_DANGER_RATIO ? 'red' as const : contextPct > BUDGET_WARN_RATIO ? 'yellow' as const : undefined;
 
   const ctxStr = (contextTokens / TOKENS_PER_K).toFixed(1).padStart(CTX_W);
   const limitStr = tokenLimit > 0 ? `${(tokenLimit / TOKENS_PER_K).toFixed(0)}k` : ' ---';
   const pctStr = tokenLimit > 0 ? `${(contextPct * PCT_BASE).toFixed(0).padStart(PCT_W)}%` : ' ---';
-  const outStr = `${(completionTokens / TOKENS_PER_K).toFixed(1).padStart(OUT_W)}k`;
+  const outStr = completionTokens > 0 ? `${(completionTokens / TOKENS_PER_K).toFixed(1).padStart(OUT_W)}k` : '';
 
-  const status = compacting ? '⟳ compacting' : interrupted ? '⚠ interrupted' : streaming ? '● streaming' : '○ idle      ';
+  const statusBadge = compacting
+    ? <Text color="yellow">⟳ compacting</Text>
+    : interrupted
+    ? <Text color="red">⚠ interrupted</Text>
+    : streaming
+    ? <Text color="green">● streaming</Text>
+    : <Text dimColor>○ idle</Text>;
 
-  const hints = useMemo(() => {
-    const expandLabel = toolsExpanded ? 'spc collapse' : 'spc expand';
-    return `↑↓ hist · esc clr · tab · ⇧↵ newline · ${expandLabel} · ctrl+k clr`;
-  }, [toolsExpanded]);
+  const footerBindings = GLOBAL_BINDINGS
+    .filter(b => b.showInFooter)
+    .sort((a, b) => (a.hintPriority ?? 99) - (b.hintPriority ?? 99));
+  const hintStr = footerBindings.map(b => b.label.toLowerCase()).join(' · ');
 
   const bar = renderBar(contextPct);
   const barColor = ctxColor ?? 'white';
 
-  const ctxField = <Text color={barColor}>{ctxStr}</Text>;
-  const pctField = <Text color={barColor}>{pctStr}</Text>;
-
   return (
-    <Text dimColor>
-      {hints}  ctx:{' '}
-      <Text color={barColor}>{bar}</Text>
-      {' '}
-      {ctxField}
-      /{limitStr} (
-      {pctField}
-      )  out:{' '}
-      <Text>{outStr}</Text>
-      {' '}{status}
-    </Text>
+    <Box flexDirection="row" width="100%">
+      <Box flexGrow={1} overflow="hidden">
+        <Text dimColor>{hintStr}</Text>
+      </Box>
+      <Box marginX={1}>
+        <Text dimColor={streaming}>ctx: </Text>
+        <Text color={barColor} dimColor={streaming}>{bar}</Text>
+        <Text dimColor={streaming}> {ctxStr}/{limitStr} ({pctStr})</Text>
+        {outStr ? <Text dimColor> out: </Text> : null}
+        {outStr ? <Text>{outStr}</Text> : null}
+      </Box>
+      <Box width={14}>{statusBadge}</Box>
+    </Box>
   );
 }
