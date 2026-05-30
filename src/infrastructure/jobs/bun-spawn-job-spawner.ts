@@ -105,6 +105,7 @@ export class BunSpawnJobSpawner implements JobSpawner {
                 await this.handleToolCall(frame, child.stdin, opts.ctx, jobType, spawnId)
                 break
               case 'progress':
+                opts.ctx.onProgress?.(frame.payload as Record<string, unknown>)
                 this.relayProgress(frame, child.pid, jobType)
                 break
               case 'log':

@@ -88,6 +88,7 @@ export default () =>
         { busEvent: 'tui.inline-block', dpType: 'tui.inline-block' },
         { busEvent: 'subagent.started', dpType: 'sub-agent.started' },
         { busEvent: 'subagent.completed', dpType: 'sub-agent.completed' },
+        { busEvent: 'subagent.progress', dpType: 'sub-agent.progress' },
         { busEvent: 'compaction.started', dpType: 'compaction.started' },
         { busEvent: 'compaction.completed', dpType: 'compaction.completed' },
         { busEvent: 'compaction.failed', dpType: 'compaction.failed' },

@@ -3,17 +3,21 @@ import { asContractBus } from '../../application/event-bus/contract-bus'
 import { SubAgentRegistry, registerBuiltins } from './registry'
 import { createTaskTool } from './task-tool'
 import { createSpawnerSubAgentRunner } from './runner-spawner'
+import type { SubAgentDescriptor } from './types'
 import type { JobSpawner } from '../../application/ports/job-spawner'
 import type { ToolCatalog } from '../../application/ports/tool-catalog'
 import type { ProviderChat, ProviderInvoke } from '../../application/ports/provider'
 
+function resolveModel(hint: SubAgentDescriptor['modelHint']): string | undefined {
+  switch (hint) {
+    case 'fast': return 'claude-haiku-4-5-20251001'
+    case 'strong': return undefined
+    default: return undefined
+  }
+}
+
 /**
- * Sub-agent extension (M2).
- *
- * M2 scope:
- * - SubAgentRegistry with 3 builtin descriptors (explore/plan/general-purpose)
- * - task tool registered via tool-catalog with dynamic enum
- * - runSubAgent delegates to spawner-based SubAgentRunner (process isolation)
+ * Sub-agent extension (M3).
  */
 export default () =>
   defineExtension({
@@ -41,6 +45,7 @@ export default () =>
             messages: req.messages,
             tools: req.tools,
             maxTokens: req.maxTokens,
+            model: req.model,
             signal: req.signal,
           })
           return {
@@ -52,12 +57,16 @@ export default () =>
         },
         logger: ctx.logger,
         agentDir: ctx.agentDir,
+        resolveModel,
       })
 
       toolCatalog.register(createTaskTool({ runSubAgent, registry }))
 
       return {
-        provide: { 'sub-agent.registry': () => registry },
+        provide: {
+          'sub-agent.registry': () => registry,
+          'sub-agent.runner': () => runSubAgent,
+        },
         dispose: () => registry.clear(),
       }
     },

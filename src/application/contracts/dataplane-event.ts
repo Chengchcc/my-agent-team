@@ -25,6 +25,7 @@ export type DataPlaneEventType =
   | 'tui.inline-block'
   | 'sub-agent.started'
   | 'sub-agent.completed'
+  | 'sub-agent.progress'
   | 'compaction.started'
   | 'compaction.completed'
   | 'compaction.failed';

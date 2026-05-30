@@ -26,6 +26,7 @@ export interface JobContext {
   chatComplete?: (req: ChatCompleteRequest) => Promise<ChatCompleteResponse>
   dispatchTool?: (call: { name: string; arguments: Record<string, unknown>; callId: string }) => Promise<{ success: boolean; result?: unknown; error?: { code: string; message: string } }>
   log?: (level: 'info' | 'warn' | 'error', msg: string) => void
+  onProgress?: (payload: Record<string, unknown>) => void
 }
 
 /**

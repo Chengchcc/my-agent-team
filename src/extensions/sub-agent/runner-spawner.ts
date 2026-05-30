@@ -151,6 +151,22 @@ export function createSpawnerSubAgentRunner(deps: SpawnerRunnerDeps): SubAgentRu
             }
           },
           log: (level, msg) => deps.logger[level]('sub-agent.worker', msg),
+          onProgress: (payload) => {
+            if ((payload as { kind?: string }).kind !== 'sub-agent.inner-tool') return
+            const p = payload as { kind: 'sub-agent.inner-tool'; innerCallId: string; toolName: string; phase: 'start' | 'end'; ok?: boolean; durationMs?: number }
+            deps.bus.emit('subagent.progress', {
+              parentTurnId: input.parentTurnId,
+              parentSessionId: input.parentSessionId,
+              subSessionId,
+              callId: input.parentCallId,
+              innerCallId: p.innerCallId,
+              toolName: p.toolName,
+              phase: p.phase,
+              ok: p.ok,
+              durationMs: p.durationMs,
+              ts: Date.now(),
+            })
+          },
         },
         timeoutMs: desc.lifetimeMs ?? DEFAULT_SUBAGENT_LIFETIME_MS,
       })

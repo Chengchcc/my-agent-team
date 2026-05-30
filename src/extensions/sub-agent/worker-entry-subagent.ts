@@ -39,6 +39,7 @@ export async function handle(job: SubAgentJobInput, ctx: JobContext): Promise<Su
     dispatchTool: ctx.dispatchTool,
     toolSchemas: job.toolSchemas,
     log: ctx.log ?? (() => {}),
+    progress: (p) => { ctx.onProgress?.(p as unknown as Record<string, unknown>) },
   })
 }
 

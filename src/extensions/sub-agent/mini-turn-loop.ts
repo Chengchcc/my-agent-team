@@ -25,6 +25,7 @@ interface MiniLoopDeps {
   dispatchTool: ToolCallHandler
   toolSchemas: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
   log: (level: 'info' | 'warn' | 'error', msg: string) => void
+  progress?: (p: { kind: 'sub-agent.inner-tool'; innerCallId: string; toolName: string; phase: 'start' | 'end'; ok?: boolean; durationMs?: number }) => void
 }
 
 interface MiniLoopResult {
@@ -115,7 +116,9 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
     totalUsage.input += resp.usage.input
     totalUsage.output += resp.usage.output
 
+    // Only treat as "empty" when finishReason is stop/tool_calls (not a terminal error)
     const isEmpty = !resp.content && (!resp.toolCalls || resp.toolCalls.length === 0)
+      && (resp.finishReason === 'stop' || resp.finishReason === 'tool_calls')
     if (isEmpty) {
       consecutiveEmptyRounds++
       if (consecutiveEmptyRounds >= MAX_EMPTY_ROUNDS) {
@@ -167,10 +170,29 @@ export async function runMiniTurnLoop(deps: MiniLoopDeps): Promise<MiniLoopResul
 
     for (const tc of resp.toolCalls) {
       toolCallCount++
+      const innerCallId = `${deps.subTurnId}:${tc.id}`
+      const toolStartTs = Date.now()
+
+      deps.progress?.({
+        kind: 'sub-agent.inner-tool',
+        innerCallId,
+        toolName: tc.name,
+        phase: 'start',
+      })
+
       const response = await dispatchTool({
         name: tc.name,
         arguments: tc.arguments,
         callId: tc.id,
+      })
+
+      deps.progress?.({
+        kind: 'sub-agent.inner-tool',
+        innerCallId,
+        toolName: tc.name,
+        phase: 'end',
+        ok: response.success,
+        durationMs: Date.now() - toolStartTs,
       })
 
       if (!response.success) {
