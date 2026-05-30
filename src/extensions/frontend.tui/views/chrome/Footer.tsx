@@ -10,6 +10,7 @@ const PCT_BASE = 100;
 const CTX_W = 5;
 const PCT_W = 3;
 const OUT_W = 5;
+const DEFAULT_HINT_PRIORITY = 99;
 
 function renderBar(ratio: number): string {
   const clamped = Math.max(0, Math.min(1, ratio));
@@ -54,7 +55,7 @@ export function Footer() {
 
   const footerBindings = GLOBAL_BINDINGS
     .filter(b => b.showInFooter)
-    .sort((a, b) => (a.hintPriority ?? 99) - (b.hintPriority ?? 99));
+    .sort((a, b) => (a.hintPriority ?? DEFAULT_HINT_PRIORITY) - (b.hintPriority ?? DEFAULT_HINT_PRIORITY));
   const hintStr = footerBindings.map(b => b.label.toLowerCase()).join(' · ');
 
   const bar = renderBar(contextPct);

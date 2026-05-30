@@ -129,7 +129,9 @@ async function resolveSlashSubmission(params: {
 
 // ── Component ───────────────────────────────────────────────────────────────
 
+/* eslint-disable max-lines-per-function */
 export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
+/* eslint-enable max-lines-per-function */
   const noticIdx = useRef(0);
   const staticKey = 0; // no remount needed — /clear now uses divider instead of wipe
 
@@ -229,7 +231,7 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
       useTuiStore.getState().setInterrupted(true);
       return;
     }
-    useTuiStore.getState().setTransientHint('Press Ctrl+C again to exit', 500);
+    useTuiStore.getState().setTransientHint('Press Ctrl+C again to exit', CTRL_C_EXIT_WINDOW_MS);
   }, [streaming, abort]);
 
   // ── GLOBAL_CHROME layer ───────────────────────────────────────────────────

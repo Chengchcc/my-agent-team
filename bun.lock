@@ -9,7 +9,9 @@
         "@larksuiteoapi/node-sdk": "^1.63.1",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@tavily/core": "^0.7.3",
+        "@types/diff": "^8.0.0",
         "chalk": "^5.4.1",
+        "diff": "^9.0.0",
         "dotenv": "^16.4.7",
         "fast-glob": "^3.3.3",
         "gray-matter": "^4.0.3",
@@ -30,7 +32,6 @@
       },
       "devDependencies": {
         "@types/bun": "latest",
-        "@types/diff": "^8.0.0",
         "@types/js-yaml": "^4.0.9",
         "@types/mdast": "^4.0.4",
         "@types/node": "^25.6.0",

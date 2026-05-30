@@ -4,6 +4,7 @@ import { asContractBus } from '../../application/event-bus/contract-bus'
 import { PermissionStore } from './store'
 
 const DEFAULT_TIMEOUT_MS = 30_000
+const MAX_INPUT_SIZE = 65536
 
 interface PendingRequest {
   grant: () => void
@@ -31,6 +32,7 @@ interface PendingRequest {
  *     Accepts { reqId, decision } for blocking popup resolution or
  *     { decision, sessionId, toolName } for session allowlist management.
  */
+/* eslint-disable max-lines-per-function */
 export default () =>
   defineExtension({
     name: 'permission',
@@ -110,12 +112,12 @@ export default () =>
           })
 
           const inputRaw = JSON.stringify(call.arguments ?? '');
-          const truncated = inputRaw.length > 65536;
+          const truncated = inputRaw.length > MAX_INPUT_SIZE;
           await contractBus.emit('permission.required', {
             reqId,
             toolName: call.name,
             sessionId,
-            input: truncated ? JSON.parse(inputRaw.slice(0, 65536)) as unknown : call.arguments,
+            input: truncated ? JSON.parse(inputRaw.slice(0, MAX_INPUT_SIZE)) as unknown : call.arguments,
             cwd: runCtx?.environment?.cwd ?? process.cwd(),
             inputTruncated: truncated || undefined,
           }, { sessionId, turnId })

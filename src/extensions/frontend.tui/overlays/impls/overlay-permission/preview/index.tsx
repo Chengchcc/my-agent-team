@@ -9,6 +9,7 @@ interface ToolInputPreviewProps {
 const MAX_PREVIEW_LINES = 30;
 const MAX_LINE_LENGTH = 200;
 const WRITE_PREVIEW_LINES = 20;
+const CMD_MAX_LENGTH = 120;
 
 function formatPreview(input: unknown): { label: string; content: string[] } {
   const obj = input as Record<string, unknown> | undefined;
@@ -34,14 +35,12 @@ export function ToolInputPreview({ toolName, input }: ToolInputPreviewProps) {
     return (
       <Box flexDirection="column" marginTop={1}>
         <Text dimColor>Edit: {path}</Text>
-        {oldStr && (
-          <Box flexDirection="column" marginTop={1}>
+        {oldStr.length > 0 ? <Box flexDirection="column" marginTop={1}>
             <Text dimColor>Replace:</Text>
             <Text color="red">{truncateLine(oldStr, MAX_LINE_LENGTH)}</Text>
             <Text dimColor>With:</Text>
             <Text color="green">{truncateLine(newStr, MAX_LINE_LENGTH)}</Text>
-          </Box>
-        )}
+          </Box> : null}
       </Box>
     );
   }
@@ -70,7 +69,7 @@ export function ToolInputPreview({ toolName, input }: ToolInputPreviewProps) {
     return (
       <Box flexDirection="column" marginTop={1}>
         <Text dimColor>Command:</Text>
-        <Text>$ {truncateLine(command, 120)}</Text>
+        <Text>$ {truncateLine(command, CMD_MAX_LENGTH)}</Text>
       </Box>
     );
   }

@@ -22,11 +22,9 @@ export function UserMessageView({ content }: UserMessageViewProps) {
       <Box paddingLeft={1}>
         <Text color="cyan" dimColor={overflowed}>{decorated}</Text>
       </Box>
-      {overflowed && (
-        <Box paddingLeft={1}>
+      {overflowed ? <Box paddingLeft={1}>
           <Text dimColor>({lines.length} lines, prefix omitted)</Text>
-        </Box>
-      )}
+        </Box> : null}
     </Box>
   );
 }

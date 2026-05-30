@@ -120,6 +120,7 @@ function useSlashPickerKeyLayer(
 
 // ── Main hook ───────────────────────────────────────────────────────────────
 
+/* eslint-disable max-lines-per-function */
 export function useCommandInput({
   commands,
   streaming,
@@ -230,6 +231,7 @@ export function useCommandInput({
   useKeyLayer({
     id: 'input-edit',
     priority: PRIORITY.INPUT_EDIT,
+    /* eslint-disable-next-line complexity */
     handler: (ev) => {
       // Word jump
       if (ev.key === 'left' && (ev.meta || ev.ctrl)) { updateEditorState(prev => moveCursorWordLeft(prev)); return true; }

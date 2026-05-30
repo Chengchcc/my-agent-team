@@ -37,6 +37,7 @@ const STATUS_ICON: Record<string, string> = {
 }
 
 const ERROR_MSG_MAX = 80
+const ELLIPSIS_LEN = 3
 
 function fmtDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
@@ -75,7 +76,7 @@ const WidgetSubAgentTask: React.FC<{ payload: SubAgentTaskPayload }> = ({ payloa
       {payload.errorMessage ? (
         <Box>
           <Text color={payload.errorType && ERROR_LABELS[payload.errorType]?.severity === 'warn' ? 'yellow' : 'red'}>
-            {'\u2514 '}{errorLabel ?? 'Error'}: {payload.errorMessage.length > ERROR_MSG_MAX ? payload.errorMessage.slice(0, ERROR_MSG_MAX - 3) + '\u2026' : payload.errorMessage}
+            {'\u2514 '}{errorLabel ?? 'Error'}: {payload.errorMessage.length > ERROR_MSG_MAX ? payload.errorMessage.slice(0, ERROR_MSG_MAX - ELLIPSIS_LEN) + '\u2026' : payload.errorMessage}
           </Text>
         </Box>
       ) : null}
