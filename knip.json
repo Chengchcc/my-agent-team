@@ -2,8 +2,6 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": [
     "bin/my-agent-daemon.ts",
-    "bin/my-agent-cli.ts",
-    "examples/**/*.ts",
     "scripts/**/*.ts",
     "tests/**/*.test.{ts,tsx}",
     "tests/**/*.spec.{ts,tsx}"
@@ -16,18 +14,7 @@
   "ignoreDependencies": ["@types/diff"],
   "ignoreBinaries": ["tsc"],
   "ignore": [
-    "tests/fixtures/**",
-    "src/index.ts",
-    "src/domain/agent.ts",
-    "src/infrastructure/_sqlite/**",
-    "src/infrastructure/session/sqlite-*",
-    "src/infrastructure/trace/sqlite-*",
-    "src/infrastructure/evolution/sqlite-*",
-    "src/extensions/memory/contradiction-resolver.ts",
-    "src/extensions/frontend.tui/input/key-dispatcher.ts",
-    "src/extensions/frontend.tui/slash/input-key-handler.ts",
-    "src/extensions/frontend.tui/utils/tool-format.ts",
-    "src/extensions/presets.ts"
+    "tests/fixtures/**"
   ],
   "ignoreExportsUsedInFile": true,
   "tags": ["-public", "-internal"],

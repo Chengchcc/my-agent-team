@@ -83,7 +83,7 @@ describe('sub-agent safety guards (M2)', () => {
     }) as string
 
     // The sub-agent should fail or complete, but NOT because it recursively called task
-    // (it would fail with unknown_subagent_type or provider error, not task-related)
+    // (it would fail with unknown_type or provider error, not task-related)
     expect(typeof result).toBe('string')
     expect(result).not.toContain('recursion')
 

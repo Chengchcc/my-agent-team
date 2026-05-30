@@ -69,7 +69,7 @@ describe('runMiniTurnLoop', () => {
     })
 
     expect(result.finishReason).toBe('max_rounds')
-    expect(result.finalText).toContain('max_rounds_reached')
+    expect(result.finalText).toContain('type="max_rounds"')
     expect(result.finalText).toContain('rounds="2"')
     expect(chatComplete).toHaveBeenCalledTimes(2)
   })
@@ -219,7 +219,7 @@ describe('runMiniTurnLoop', () => {
 
     expect(result.finishReason).toBe('empty_rounds')
     expect(callCount).toBe(2)
-    expect(result.finalText).toContain('empty_rounds')
+    expect(result.finalText).toContain('empty_response')
   })
 
   it('I-13: progress events are paired — start+end per innerCallId', async () => {

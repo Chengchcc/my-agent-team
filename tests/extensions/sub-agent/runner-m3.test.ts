@@ -144,7 +144,7 @@ describe('sub-agent M3', () => {
       { subagent_type: 'nonexistent-type', description: 'test', prompt: 'do' },
     ) as string
 
-    expect(result).toContain('<sub-agent-error type="unknown_subagent_type"')
+    expect(result).toContain('<sub-agent-error type="unknown_type"')
     expect(result).toContain('nonexistent-type')
 
     await k.stop()

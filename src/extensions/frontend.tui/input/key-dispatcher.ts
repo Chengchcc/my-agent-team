@@ -8,18 +8,6 @@ export interface KeyEvent {
   shift: boolean;
   /** Original input string from Ink (for paste/IME detection) */
   raw: string;
-  // Backward-compat boolean fields for existing consumers (will be migrated to new shape)
-  upArrow?: boolean;
-  downArrow?: boolean;
-  leftArrow?: boolean;
-  rightArrow?: boolean;
-  escape?: boolean;
-  return?: boolean;
-  tab?: boolean;
-  delete?: boolean;
-  backspace?: boolean;
-  pageUp?: boolean;
-  pageDown?: boolean;
 }
 
 export interface KeyLayer {
@@ -47,28 +35,6 @@ export interface InkKey {
   backspace?: boolean;
   pageUp?: boolean;
   pageDown?: boolean;
-}
-
-/** @deprecated Use normalizeKey from keys/normalize.ts instead. Kept for backward compat during migration. */
-export function inkKeyToKeyEvent(input: string, key: InkKey): KeyEvent {
-  return {
-    key: input,
-    ctrl: !!key.ctrl,
-    meta: !!key.meta,
-    shift: !!key.shift,
-    raw: input,
-    upArrow: key.upArrow,
-    downArrow: key.downArrow,
-    leftArrow: key.leftArrow,
-    rightArrow: key.rightArrow,
-    escape: key.escape,
-    return: key.return,
-    tab: key.tab,
-    delete: key.delete,
-    backspace: key.backspace,
-    pageUp: key.pageUp,
-    pageDown: key.pageDown,
-  };
 }
 
 export class KeyDispatcher {

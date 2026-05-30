@@ -2,7 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import { createKernel } from '../../kernel/kernel'
 import type { DaemonOptions, DaemonHandle } from './types'
-import { domainCore, memory, identity, skills, evolution, mcp, infraServices, transportInmem, transportUnix, frontendLark } from '../../extensions/presets'
+import { domainCore, memory, identity, skills, evolution, mcp, infraServices, transportInmem, transportUnix, frontendLark, frontendCapabilityHints } from '../../extensions/presets'
 import { MB } from '../../application/constants/units'
 import { FileLogger } from '../../infrastructure/logging/file-logger'
 import { createAgentPaths, ensureAgentPaths, defaultAgentsRoot } from '../../infrastructure/paths/agent-paths'
@@ -149,6 +149,7 @@ export async function bootstrap(opts: DaemonOptions): Promise<DaemonHandle> {
   for (const ext of evolution) kernel.use(ext)
   for (const ext of mcp) kernel.use(ext)
   for (const ext of infraServices) kernel.use(ext)
+  for (const ext of frontendCapabilityHints) kernel.use(ext)
 
   registerTransport(kernel, opts, socketPath)
   for (const ext of (opts.extraExtensions ?? [])) kernel.use(ext)

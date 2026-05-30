@@ -1,4 +1,3 @@
-import type { AgentContext } from '../../src/domain/agent'
 import type { ToolCall } from '../../src/application/ports/provider-adapter';
 
 export interface FakeProviderOptions {
@@ -38,7 +37,7 @@ export class FakeProvider {
   }
 
   // eslint-disable-next-line require-await
-  async invoke(_context: AgentContext, _options?: { tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }> }): Promise<{
+  async invoke(_context: unknown, _options?: { tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }> }): Promise<{
     content: string; usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }; model: string; tool_calls?: ToolCall[]; blocks?: Array<{ type: string; thinking?: string; text?: string }>
   }> {
     // For non-streaming, aggregate all preset turns into a single response
@@ -81,7 +80,7 @@ export class FakeProvider {
 
   // eslint-disable-next-line require-await
   async *stream(
-    _context: AgentContext,
+    _context: unknown,
     _options?: { signal?: AbortSignal; tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }> },
   ): AsyncIterable<{
     content: string; thinking?: string; thinkingSignature?: string; done: boolean; tool_calls?: ToolCall[]; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }

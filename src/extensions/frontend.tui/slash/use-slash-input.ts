@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { keyDispatcher } from "../input/key-dispatcher";
+import type { KeyEvent } from "../input/key-dispatcher";
 import { PRIORITY } from "../keys/priority";
 import { useKeyLayer } from "../keys/use-key-layer";
 import fastGlob from "fast-glob";
@@ -33,12 +34,10 @@ import {
   MAX_AT_FILE_RESULTS,
   AT_FILE_DEBOUNCE_MS,
   buildPromptSubmissionTui,
+  type PickerState,
 } from './tui-slash-utils';
 
 import type { SlashCommand, PromptSubmission } from '../../../application/slash';
-import {
-  type PickerState,
-} from './input-key-handler';
 
 // ── Hooks for extracted effects ─────────────────────────────────────────────
 
@@ -73,8 +72,8 @@ function useAtFilePicker(atQuery: ReturnType<typeof getAtQuery>) {
 function useStreamingKeyLayer(streaming: boolean, onAbort: (() => void) | undefined) {
   useEffect(() => {
     if (!streaming || !onAbort) return;
-    const handler = (keyEvent: { escape?: boolean }) => {
-      if (keyEvent.escape) { onAbort(); return true; }
+    const handler = (keyEvent: KeyEvent) => {
+      if (keyEvent.key === 'escape') { onAbort(); return true; }
       return false;
     };
     keyDispatcher.push({ id: 'streaming-mode', handler });
@@ -89,23 +88,23 @@ function useSlashPickerKeyLayer(
 ) {
   useEffect(() => {
     if (!pickerOpen || filteredCommands.length === 0) return;
-    const handler = (keyEvent: { escape?: boolean; return?: boolean; tab?: boolean; upArrow?: boolean; downArrow?: boolean; ctrl?: boolean }) => {
+    const handler = (keyEvent: KeyEvent) => {
       const s = pickerStateRef.current;
-      if (keyEvent.escape) { s.setDismissedQuery(s.slashQuery); return true; }
-      if (keyEvent.upArrow && !keyEvent.ctrl) {
+      if (keyEvent.key === 'escape') { s.setDismissedQuery(s.slashQuery); return true; }
+      if (keyEvent.key === 'up' && !keyEvent.ctrl) {
         s.setSelectedIndex((index: number) => (index > 0 ? index - 1 : s.filteredCommands.length - 1));
         return true;
       }
-      if (keyEvent.downArrow && !keyEvent.ctrl) {
+      if (keyEvent.key === 'down' && !keyEvent.ctrl) {
         s.setSelectedIndex((index: number) => (index < s.filteredCommands.length - 1 ? index + 1 : 0));
         return true;
       }
-      if (keyEvent.return || keyEvent.tab) {
-        if (keyEvent.return && s.editorStateRef.current.text.includes(' ')) {
+      if (keyEvent.key === 'enter' || keyEvent.key === 'tab') {
+        if (keyEvent.key === 'enter' && s.editorStateRef.current.text.includes(' ')) {
           s.setDismissedQuery(s.slashQuery);
           return false;
         }
-        if (keyEvent.return) {
+        if (keyEvent.key === 'enter') {
           s.suppressEnterRef.current = true;
         }
         s.acceptSelectedCommand();

@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { useTuiStore } from '../state/store';
 import type { SessionClient } from '../session-client';
 import type { TranscriptProjector } from '../transcript/projector';
-import type { KeyDispatcher } from '../input/key-dispatcher';
+import type { KeyDispatcher, KeyEvent } from '../input/key-dispatcher';
 
 export function useSessionPicker(
   client: SessionClient,
@@ -40,11 +40,11 @@ export function useSessionPicker(
   // Register as a KeyDispatcher layer while session picker is active
   useEffect(() => {
     if (!sessionPicker.active || sessionPicker.sessions.length === 0) return;
-    const handler = (keyEvent: { escape?: boolean; return?: boolean; upArrow?: boolean; downArrow?: boolean }) => {
-      if (keyEvent.escape) { useTuiStore.getState().closeSessionPicker(); return true; }
-      if (keyEvent.return) { void handleSelectSession(useTuiStore.getState().sessionPicker.selectedIndex); return true; }
-      if (keyEvent.upArrow) { useTuiStore.getState().sessionPickerMove(-1); return true; }
-      if (keyEvent.downArrow) { useTuiStore.getState().sessionPickerMove(1); return true; }
+    const handler = (keyEvent: KeyEvent) => {
+      if (keyEvent.key === 'escape') { useTuiStore.getState().closeSessionPicker(); return true; }
+      if (keyEvent.key === 'enter') { void handleSelectSession(useTuiStore.getState().sessionPicker.selectedIndex); return true; }
+      if (keyEvent.key === 'up') { useTuiStore.getState().sessionPickerMove(-1); return true; }
+      if (keyEvent.key === 'down') { useTuiStore.getState().sessionPickerMove(1); return true; }
       return false;
     };
     keyDispatcher.push({ id: 'session-picker', handler });

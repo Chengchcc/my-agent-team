@@ -122,7 +122,7 @@ describe('auxiliary actions', () => {
 
   test('appendDivider adds divider', () => {
     store().appendDivider('clear');
-    expect(store().finalized).toEqual([{ kind: 'divider', reason: 'clear' }]);
+    expect(store().finalized).toEqual([{ kind: 'divider', id: expect.any(String), reason: 'clear' }]);
   });
 
   test('appendSystemNotice adds system-notice', () => {
@@ -145,9 +145,14 @@ describe('interaction actions', () => {
   test('enqueue / dequeue pending inputs', () => {
     store().enqueuePendingInput('a');
     store().enqueuePendingInput('b');
-    expect(store().interaction.pendingInputs).toEqual(['a', 'b']);
+    expect(store().interaction.pendingInputs).toEqual([
+      { id: expect.any(String), text: 'a' },
+      { id: expect.any(String), text: 'b' },
+    ]);
     store().dequeuePendingInput();
-    expect(store().interaction.pendingInputs).toEqual(['b']);
+    expect(store().interaction.pendingInputs).toEqual([
+      { id: expect.any(String), text: 'b' },
+    ]);
   });
 
   test('clearPendingInputs removes all', () => {

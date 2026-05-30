@@ -106,7 +106,7 @@ describe('sub-agent runner (M2)', () => {
     ) as string
 
     expect(result).toContain('<sub-agent-error')
-    expect(result).toContain('unknown_subagent_type')
+    expect(result).toContain('unknown_type')
     expect(result).toContain('nonexistent')
 
     await k.stop()

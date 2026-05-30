@@ -43,7 +43,7 @@ describe('createSpawnerSubAgentRunner', () => {
     expect(result).toBe('result')
   })
 
-  it('returns unknown_subagent_type for unregistered type', async () => {
+  it('returns unknown_type for unregistered type', async () => {
     const deps = makeDeps()
     const runner = createSpawnerSubAgentRunner(deps)
     const result = await runner({
@@ -53,7 +53,7 @@ describe('createSpawnerSubAgentRunner', () => {
       parentSessionId: 's1', parentTurnId: 't1', parentCallId: 'c1',
       parentSignal: new AbortController().signal,
     })
-    expect(result).toContain('unknown_subagent_type')
+    expect(result).toContain('unknown_type')
     expect(result).toContain('nonexistent')
   })
 

@@ -6,3 +6,8 @@ dist/
 worktrees/
 .claude/
 out/
+
+# Non-bun lockfiles — this project uses bun.lock as the single source of truth.
+package-lock.json
+pnpm-lock.yaml
+yarn.lock

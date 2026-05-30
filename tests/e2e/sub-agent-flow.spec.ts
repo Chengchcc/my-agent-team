@@ -39,7 +39,7 @@ describe('Sub-agent E2E flows (M2)', () => {
       parentSignal: new AbortController().signal,
     })
 
-    expect(result).toContain('unknown_subagent_type')
+    expect(result).toContain('unknown_type')
     expect(result).toContain('nonexistent')
     expect(result).toContain('available=')
   })

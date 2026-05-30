@@ -1,6 +1,18 @@
+import type React from 'react'
 import { resolvePastePlaceholders } from '../paste-attachments'
 import type { SlashCommand, PromptSubmission } from '../../../application/slash'
 import { buildPromptSubmission as buildCore } from '../../../application/slash'
+import type { InputEditorState } from '../hooks/use-input-editor'
+
+export interface PickerState {
+  filteredCommands: SlashCommand[];
+  slashQuery: string | null;
+  setSelectedIndex: React.Dispatch<React.SetStateAction<number>>;
+  setDismissedQuery: React.Dispatch<React.SetStateAction<string | null>>;
+  editorStateRef: React.MutableRefObject<InputEditorState>;
+  acceptSelectedCommand: () => void;
+  suppressEnterRef: React.MutableRefObject<boolean>;
+}
 
 export function buildPromptSubmissionTui(text: string, commands: SlashCommand[]): PromptSubmission {
   return buildCore(resolvePastePlaceholders(text), commands)

@@ -6,16 +6,6 @@ export interface ToolCallShape {
   arguments: Record<string, unknown>;
 }
 
-export interface DiffData {
-  hunks?: Array<{
-    oldStart?: number;
-    oldLines?: number;
-    newStart?: number;
-    newLines?: number;
-    lines?: Array<{ type: string; content: string }>;
-  }>;
-}
-
 // Truncation lengths for tool call titles
 const BASH_CMD_TRUNCATION = 80;
 const SUB_AGENT_TASK_TRUNCATION = 60;
@@ -31,34 +21,6 @@ const ELLIPSIS_LENGTH = 3;
 function truncate(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
   return str.slice(0, maxLen - ELLIPSIS_LENGTH) + '...';
-}
-
-export function countAdded(diff: DiffData): number {
-  let count = 0;
-  if (diff.hunks) {
-    for (const hunk of diff.hunks) {
-      if (hunk.lines) {
-        for (const line of hunk.lines) {
-          if (line.type === 'added') count++;
-        }
-      }
-    }
-  }
-  return count;
-}
-
-export function countRemoved(diff: DiffData): number {
-  let count = 0;
-  if (diff.hunks) {
-    for (const hunk of diff.hunks) {
-      if (hunk.lines) {
-        for (const line of hunk.lines) {
-          if (line.type === 'removed') count++;
-        }
-      }
-    }
-  }
-  return count;
 }
 
 /**
