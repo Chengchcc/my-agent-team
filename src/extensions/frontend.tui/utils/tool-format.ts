@@ -6,7 +6,7 @@ export interface ToolCallShape {
   arguments: Record<string, unknown>;
 }
 
-interface DiffData {
+export interface DiffData {
   hunks?: Array<{
     oldStart?: number;
     oldLines?: number;
@@ -33,7 +33,7 @@ function truncate(str: string, maxLen: number): string {
   return str.slice(0, maxLen - ELLIPSIS_LENGTH) + '...';
 }
 
-function countAdded(diff: DiffData): number {
+export function countAdded(diff: DiffData): number {
   let count = 0;
   if (diff.hunks) {
     for (const hunk of diff.hunks) {
@@ -47,7 +47,7 @@ function countAdded(diff: DiffData): number {
   return count;
 }
 
-function countRemoved(diff: DiffData): number {
+export function countRemoved(diff: DiffData): number {
   let count = 0;
   if (diff.hunks) {
     for (const hunk of diff.hunks) {
@@ -73,10 +73,14 @@ export function formatToolCallTitle(toolCall: ToolCallShape): string {
       return `bash(${JSON.stringify(cmd)})`;
     }
 
-    case 'text_editor': {
-      const sub = String(args.command ?? 'view');
-      const path = String(args.path ?? args.file_path ?? '');
-      return `text_editor(${sub}, ${JSON.stringify(path)})`;
+    case 'edit': {
+      const path = String(args.path ?? '');
+      return `edit(${JSON.stringify(path)})`;
+    }
+
+    case 'write': {
+      const path = String(args.path ?? '');
+      return `write(${JSON.stringify(path)})`;
     }
 
     case 'sub_agent': {
@@ -154,20 +158,13 @@ export function smartSummarize(
     if (!result.trim()) return '(no output)';
   }
 
-  // text_editor special cases
-  if (toolName === 'text_editor') {
-    const cmd = String(args.command ?? 'view');
-    if (cmd === 'view') {
-      const lineCount = result.split('\n').length;
-      return `(${lineCount} lines)`;
-    }
-    if (cmd === 'create') {
-      const lineCount = ((args.file_text as string) ?? '').split('\n').length;
-      return `✓ Created (${lineCount} lines)`;
-    }
-    if (cmd === 'str_replace') {
-      return '✓ Replaced';
-    }
+  // edit/write special cases
+  if (toolName === 'edit') {
+    return '✓ Applied';
+  }
+  if (toolName === 'write') {
+    const lineCount = result.split('\n').length;
+    return `(${lineCount} lines)`;
   }
 
   // read tool special cases
@@ -179,10 +176,7 @@ export function smartSummarize(
       const lineRange = start === 1 && end === parsedResult.total_lines
         ? `${parsedResult.total_lines} lines`
         : `lines ${start}-${end} of ${parsedResult.total_lines}`;
-      const diffTag = parsedResult.diff
-        ? ` (${countAdded(parsedResult.diff)} added, ${countRemoved(parsedResult.diff)} removed)`
-        : '';
-      return `${parsedResult.path} — ${lineRange}${diffTag}`;
+      return `${parsedResult.path} — ${lineRange}`;
     } catch (_e) {
       // If parsing fails, return default summary
       return `Read file operation completed`;

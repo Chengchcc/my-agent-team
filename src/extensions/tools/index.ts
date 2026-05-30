@@ -8,8 +8,10 @@ import { truncateOutput } from './truncation';
 import { bashToolSchema } from '../../application/contracts/tool-schemas/bash';
 import { readToolSchema } from '../../application/contracts/tool-schemas/read';
 import { readExecute } from './read';
-import { textEditorToolSchema } from '../../application/contracts/tool-schemas/text-editor';
-import { createTextEditorExecute } from './text-editor';
+import { editToolSchema } from '../../application/contracts/tool-schemas/edit';
+import { editExecute } from './edit';
+import { writeToolSchema } from '../../application/contracts/tool-schemas/write';
+import { writeExecute } from './write';
 import { grepToolSchema } from '../../application/contracts/tool-schemas/grep';
 import { grepExecute } from './grep';
 import { globToolSchema } from '../../application/contracts/tool-schemas/glob';
@@ -62,11 +64,48 @@ function registerBuiltinTools(catalog: ToolCatalog): void {
   }))
 
   catalog.register(defineTool({
+    name: 'edit',
+    description: 'Replace exact text in a file using str_replace semantics.',
+    parameters: editToolSchema.jsonSchema,
+    parse: editToolSchema.parse,
+    execute: cap((tCtx: unknown, params: unknown) => editExecute(params as never, tCtx as never), CAP_100KB),
+    conflictKey: (_toolCtx, input: unknown) => {
+      const raw = (input as Record<string, unknown>).path
+      const resolved = typeof raw === 'string' ? path.resolve(raw) : 'unknown'
+      return `file:${resolved}`
+    },
+    outputCap: CAP_100KB,
+  }))
+
+  catalog.register(defineTool({
+    name: 'write',
+    description: 'Write or create a file, optionally overwriting existing content.',
+    parameters: writeToolSchema.jsonSchema,
+    parse: writeToolSchema.parse,
+    execute: cap((tCtx: unknown, params: unknown) => writeExecute(params as never, tCtx as never), CAP_100KB),
+    conflictKey: (_toolCtx, input: unknown) => {
+      const raw = (input as Record<string, unknown>).path
+      const resolved = typeof raw === 'string' ? path.resolve(raw) : 'unknown'
+      return `file:${resolved}`
+    },
+    outputCap: CAP_100KB,
+  }))
+
+  // T-1 deprecated alias: text_editor routes to edit or write
+  catalog.register(defineTool({
     name: 'text_editor',
-    description: 'Read, create, edit, and write text files.',
-    parameters: textEditorToolSchema.jsonSchema,
-    parse: textEditorToolSchema.parse,
-    execute: cap((tCtx: unknown, params: unknown) => createTextEditorExecute()(params as never, tCtx as never), CAP_100KB),
+    description: '[DEPRECATED] Use edit or write instead. Routed automatically.',
+    parameters: editToolSchema.jsonSchema,
+    parse: editToolSchema.parse,
+    execute: cap(async (tCtx: unknown, params: unknown) => {
+      const p = params as Record<string, unknown>
+      const logger = (tCtx as Record<string, unknown>).logger as { warn: (m: string, d: string) => void } | undefined
+      logger?.warn('tools', 'Deprecated text_editor used; routing to edit')
+      if (typeof p.old_string === 'string') {
+        return editExecute({ path: String(p.path ?? ''), old_string: String(p.old_string), new_string: String(p.new_string ?? '') }, tCtx as never)
+      }
+      return writeExecute({ path: String(p.path ?? ''), content: String(p.content ?? ''), overwrite: true }, tCtx as never)
+    }, CAP_100KB),
     conflictKey: (_toolCtx, input: unknown) => {
       const raw = (input as Record<string, unknown>).path
       const resolved = typeof raw === 'string' ? path.resolve(raw) : 'unknown'
