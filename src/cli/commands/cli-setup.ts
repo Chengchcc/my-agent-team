@@ -1,5 +1,6 @@
 import type { CliRuntimeContext } from '../cli-types'
 import { runCreateAgentFlow } from '../flows/create-agent-flow'
+import { createPrompts, runWithPromptGuard } from '../prompts/prompt-runner'
 
 export const cliSetup = {
   name: 'setup',
@@ -7,6 +8,7 @@ export const cliSetup = {
   needs: ['agentStore'] as const,
   usage: '  my-agent setup',
   async handler(_argv: string[], ctx: CliRuntimeContext): Promise<void> {
-    await runCreateAgentFlow(ctx)
+    const prompts = createPrompts()
+    await runWithPromptGuard(prompts, () => runCreateAgentFlow(ctx))
   },
 }
