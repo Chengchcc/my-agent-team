@@ -1,5 +1,3 @@
-/* eslint-disable no-console -- CLI interactive flow output */
-
 import { createPrompts } from '../prompts/prompt-runner';
 import type { CliRuntimeContext } from '../cli-types';
 import { createAgent } from '../../application/usecases/create-agent';

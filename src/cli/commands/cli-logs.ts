@@ -6,6 +6,7 @@ async function handleLogs(args: string[]): Promise<void> {
     stdio: 'inherit',
     env: { ...process.env },
   })
+  // eslint-disable-next-line no-restricted-syntax -- subprocess exit passthrough
   proc.on('exit', (code) => process.exit(code ?? 0))
 }
 

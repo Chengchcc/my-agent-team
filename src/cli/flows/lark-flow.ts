@@ -14,7 +14,6 @@ export interface LarkFlowResult {
 const ENV_NAME_RE = /^[A-Z_][A-Z0-9_]{0,63}$/
 const MAX_SECRET_HINT_LEN = 30
 
-/* eslint-disable no-console -- CLI interactive flow output */
 export async function runLarkFlow(prompts: Prompts, opts: LarkFlowOptions): Promise<LarkFlowResult> {
   const appId = await prompts.text({
     message: 'Lark App ID:',

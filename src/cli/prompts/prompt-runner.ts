@@ -33,6 +33,7 @@ export function createPrompts(): Prompts {
       })
       if (clack.isCancel(result)) {
         clack.cancel(chalk.red('Cancelled'))
+        // eslint-disable-next-line no-restricted-syntax -- user cancellation
         process.exit(0)
       }
       return result as string
@@ -42,6 +43,7 @@ export function createPrompts(): Prompts {
       const result = await clack.password({ message: opts.message })
       if (clack.isCancel(result)) {
         clack.cancel(chalk.red('Cancelled'))
+        // eslint-disable-next-line no-restricted-syntax -- user cancellation
         process.exit(0)
       }
       return result as string
@@ -54,6 +56,7 @@ export function createPrompts(): Prompts {
       })
       if (clack.isCancel(result)) {
         clack.cancel(chalk.red('Cancelled'))
+        // eslint-disable-next-line no-restricted-syntax -- user cancellation
         process.exit(0)
       }
       return result as boolean
@@ -66,6 +69,7 @@ export function createPrompts(): Prompts {
       })
       if (clack.isCancel(result)) {
         clack.cancel(chalk.red('Cancelled'))
+        // eslint-disable-next-line no-restricted-syntax -- user cancellation
         process.exit(0)
       }
       return result as string
@@ -78,6 +82,7 @@ export function createPrompts(): Prompts {
       })
       if (clack.isCancel(result)) {
         clack.cancel(chalk.red('Cancelled'))
+        // eslint-disable-next-line no-restricted-syntax -- user cancellation
         process.exit(0)
       }
       return result as string[]
@@ -90,6 +95,7 @@ export function createPrompts(): Prompts {
       })
       if (clack.isCancel(result)) {
         clack.cancel(chalk.red('Cancelled'))
+        // eslint-disable-next-line no-restricted-syntax -- user cancellation
         process.exit(0)
       }
       return result as string
@@ -110,12 +116,14 @@ export function createPrompts(): Prompts {
 
     cancel(message?: string): never {
       clack.cancel(chalk.red(message ?? 'Cancelled'))
+      // eslint-disable-next-line no-restricted-syntax -- user cancellation
       process.exit(0)
     },
 
     fail(message: string, hint?: string): never {
       clack.cancel(chalk.red('\u2716 ' + message))
       if (hint) process.stderr.write(chalk.gray('  ' + hint) + '\n')
+      // eslint-disable-next-line no-restricted-syntax -- prompts-managed terminal exit
       process.exit(2)
     },
   }

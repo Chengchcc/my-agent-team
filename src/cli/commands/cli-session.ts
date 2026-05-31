@@ -1,5 +1,3 @@
-/* eslint-disable no-console -- CLI output */
-
 import type { CliManifest } from '../cli-types'
 import { UnixSocketTransport } from '../../infrastructure/transport/unix-socket-transport'
 import type { Transport } from '../../application/ports/transport'

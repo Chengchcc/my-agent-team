@@ -212,6 +212,18 @@ export default [
     },
   },
 
+  // ===== CLI + daemon interface — block process.exit, restrict console =====
+  {
+    files: ['src/cli/**/*.ts', 'src/interface/**/*.ts'],
+    rules: {
+      'no-console': ['error', { allow: ['log'] }],
+      'no-restricted-syntax': ['error', {
+        selector: "CallExpression[callee.object.name='process'][callee.property.name='exit']",
+        message: 'Use CliError + throw; let main.ts handle exit. Allowed only in main.ts catch, prompt-runner.ts cancel paths, and cli-daemon.ts log subprocess passthrough.',
+      }],
+    },
+  },
+
   // ===== bin scripts — allow console, prohibit infrastructure imports =====
   {
     files: ['bin/**/*.ts'],

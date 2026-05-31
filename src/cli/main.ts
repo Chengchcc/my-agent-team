@@ -1,5 +1,3 @@
-/* eslint-disable no-console -- CLI output */
-
 import { CLI_COMMANDS, findCommand } from './cli-registry'
 import type { CliRuntimeContext } from './cli-types'
 import { buildRuntimeContext, disposeRuntimeContext } from './cli-runtime'
@@ -51,6 +49,7 @@ export async function main(argv: string[]): Promise<void> {
   } catch (err) {
     const { stderr, exitCode } = renderCliError(err, { verbose })
     process.stderr.write(stderr + '\n')
+    // eslint-disable-next-line no-restricted-syntax -- catch block, sole exit point
     process.exit(exitCode)
   } finally {
     if (ctx) await disposeRuntimeContext(ctx)

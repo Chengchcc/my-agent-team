@@ -63,7 +63,7 @@ export async function runPrintWithTransport(opts: PrintWithTransportOpts): Promi
 
   const attachResp = await opts.transport.sendRpc({
     jsonrpc: '2.0', id: 'attach', method: 'session.attach',
-    params: { sessionId: opts.sessionId },
+    params: { sessionId: opts.sessionId, frontendId: 'cli-print' },
   })
   if (attachResp && 'error' in attachResp && attachResp.error) {
     throw Errors.rpcFailed('session.attach', attachResp.error)

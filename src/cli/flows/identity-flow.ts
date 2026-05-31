@@ -65,7 +65,6 @@ export async function runIdentityFlow(
           )
           // Show preview
           const preview = result.identityMd.slice(0, PREVIEW_CHAR_LIMIT)
-          // eslint-disable-next-line no-console -- CLI flow output
           console.log(chalk.dim(preview))
           const ok = await prompts.confirm({ message: '保存这份身份？' })
           if (ok) return { ...result, mode }
@@ -76,7 +75,6 @@ export async function runIdentityFlow(
           }
         } catch (err) {
           if (attempt >= MAX_REFINEMENT_ATTEMPTS - 1) throw err
-          // eslint-disable-next-line no-console -- CLI flow output
           console.log(chalk.yellow(`生成失败：${String(err)}，重试...`))
         }
       }

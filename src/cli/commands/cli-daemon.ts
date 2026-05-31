@@ -6,8 +6,6 @@ import { createAgentPaths } from '../../infrastructure/paths/agent-paths'
 import type { CliManifest } from '../cli-types'
 import { CliError } from '../errors/cli-error'
 
-/* eslint-disable no-console -- CLI command output */
-
 const DAEMON_READY_PROBE_MS = 2500
 
 async function daemonStart(agentId: string): Promise<void> {
@@ -102,6 +100,7 @@ async function handleLogs(args: string[]): Promise<void> {
     stdio: 'inherit',
     env: { ...process.env },
   })
+  // eslint-disable-next-line no-restricted-syntax -- subprocess exit passthrough
   proc.on('exit', (code) => process.exit(code ?? 0))
 }
 
@@ -143,5 +142,3 @@ export const cliDaemon: CliManifest = {
     }
   },
 }
-
-/* eslint-enable no-console */
