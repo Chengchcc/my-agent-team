@@ -210,8 +210,7 @@ export default () =>
         const input = args[0] as { system: string; messages: Array<{ role: string; content: string }> }
         // Bootstrap mode short-circuit — do not pollute system with tool guidance
         try {
-          const registry = ctx.extensions.get('agent.registry') as { current(): Promise<{ identityStatus: string }> } | undefined
-          const rec = await registry?.current().catch(() => null)
+          const rec = await ctx.extensions.get('agent.registry').current().catch(() => null)
           if (rec?.identityStatus === 'pending_bootstrap') return input
         } catch { /* fall through */ }
         const hasTodoWrite = catalog.list().some(t => t.name === 'todo_write')

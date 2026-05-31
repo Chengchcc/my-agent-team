@@ -1,6 +1,11 @@
 import { defineExtension } from '../../kernel/define-extension';
 import type { HookHandler } from '../../kernel/define-extension';
-import { INPUT_PREFIXES } from '../frontend.tui/input/input-prefixes';
+
+const PREFIX_HINTS = [
+  '- `! <command>` — Directly execute a shell command (e.g. `! ls -la`). Skips LLM round-trip.',
+  '- `/<command>` — Invoke a slash command (e.g. `/help`, `/clear`, `/compact`).',
+  '- `@<file>` — Attach a file to your input.',
+] as const;
 
 export default () =>
   defineExtension({
@@ -13,7 +18,7 @@ export default () =>
         // Only inject for TUI (Lark has no keyboard shortcuts)
         if (prompt.frontend && prompt.frontend !== 'tui') return prompt;
 
-        const hints = INPUT_PREFIXES.map(p => `  ${p.llmDescription}`).join('\n');
+        const hints = PREFIX_HINTS.map(p => `  ${p}`).join('\n');
         const block = `\n<!-- user-shortcuts\nThe user is interacting through a terminal. The following input prefixes are available:\n${hints}\nThese are user-side conveniences. Do not type them yourself. Suggest them when the user would benefit from a faster path.\n-->\n`;
 
         return { ...prompt, system: `${prompt.system}${block}` };

@@ -58,11 +58,11 @@ export default () =>
        */
       function register(
         rawType: string,
-        mapper: (raw: unknown) => { dpType: DataPlaneEventType; payload: Record<string, unknown>; sessionId?: string; turnId?: string },
+        mapper: (raw: unknown) => { dpType: DataPlaneEventType; payload: Record<string, unknown>; sessionId?: string; turnId?: string; target?: string },
       ): void {
         ctx.bus.on(rawType, async (raw: unknown) => {
           const mapped = mapper(raw)
-          const evt = factory.next(mapped.dpType, mapped.payload, { sessionId: mapped.sessionId, turnId: mapped.turnId })
+          const evt = factory.next(mapped.dpType, mapped.payload, { sessionId: mapped.sessionId, turnId: mapped.turnId, target: mapped.target })
           eventLog.push(evt)
           ctx.logger.info('dataplane', `emit dataplane.event type=${evt.type}`)
           await ctx.bus.emit('dataplane.event', evt)

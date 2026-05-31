@@ -59,10 +59,18 @@ class RpcRegistry {
     return this.handlers.delete(method)
   }
 
-  /** Unregister all methods for an extension (by prefix) */
-  unregisterByExtension(_name: string): void {
-    // Convention: methods may be prefixed; MVP just clears everything
-    // Future: use method→extension mapping
+  /** Unregister all methods registered by a given extension */
+  unregisterByExtension(name: string): void {
+    for (const [method, ext] of this.handlerExtensions) {
+      if (ext === name) {
+        this.handlers.delete(method)
+        // Safe: modifying map under iteration; for..of snapshots keys
+      }
+    }
+    // Clean up extension→method entries
+    for (const [method, ext] of this.handlerExtensions) {
+      if (ext === name) this.handlerExtensions.delete(method)
+    }
   }
 
   /** Clear all method registrations */

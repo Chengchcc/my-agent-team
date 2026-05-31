@@ -79,9 +79,10 @@ export default (env?: Record<string, string | undefined>) =>
           },
           onLLMDelta: {
             enforce: 'normal',
-            fn: async (chunk: unknown) => {
-              // Internal event for raw provider chunks (not a contracted event)
-              void ctx.bus.emit('provider.stream.chunk', chunk);
+            fn: async (_chunk: unknown) => {
+              // Reserved for future frontend streaming instrumentation.
+              // No bus emit needed — frontends consume deltas through the
+              // dataplane bridge (dataplane turns llm.delta into dataplane events).
             },
           },
         },

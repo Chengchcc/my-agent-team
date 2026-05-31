@@ -55,11 +55,14 @@ describe('RpcRegistry', () => {
     expect(reg.listMethods()).toHaveLength(0)
   })
 
-  it('unregisterByExtension exists as a no-op stub for MVP', () => {
+  it('unregisterByExtension removes all methods for an extension', () => {
     const reg = new RpcRegistry()
-    reg.register('prefix.method', async () => {})
-    // Currently a no-op — methods persist after unregisterByExtension
-    reg.unregisterByExtension('prefix')
-    expect(reg.has('prefix.method')).toBe(true)
+    reg.register('ext-a.method1', async () => {}, 'ext-a')
+    reg.register('ext-a.method2', async () => {}, 'ext-a')
+    reg.register('ext-b.other', async () => {}, 'ext-b')
+    reg.unregisterByExtension('ext-a')
+    expect(reg.has('ext-a.method1')).toBe(false)
+    expect(reg.has('ext-a.method2')).toBe(false)
+    expect(reg.has('ext-b.other')).toBe(true)
   })
 })

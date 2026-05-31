@@ -156,6 +156,14 @@ export default () =>
         provide: {
           'session.store': () => sessionStore,
           'session.history': () => historyStore,
+          'session.messages': () => ({
+            get(sessionId: string) {
+              return historyStore.get(sessionId).map(r => ({
+                role: r.role,
+                content: r.content ?? '',
+              }))
+            },
+          }),
           'session.compactor': () => createCompactor({ invoke: ctx.extensions.get('provider.llm') }),
           'session.abort': () => ({
             register: (sessionId: string, controller: AbortController) => {

@@ -54,28 +54,14 @@ describe('provider extension', () => {
     await k.stop()
   })
 
-  it('should emit provider.stream.chunk bus event via onLLMDelta hook', async () => {
+  it('should register onLLMDelta hook for streaming instrumentation', async () => {
     const k = createTestKernel({ extensions: [providerExt({})] })
     await k.start()
 
-    const deltas: unknown[] = []
-    k.ctx.bus.on('provider.stream.chunk', (payload) => {
-      deltas.push(payload)
-    })
-
-    // Simulate dispatching delta chunks (what agent loop would do)
-    const chunks = [
-      { type: 'text' as const, delta: 'ECHO: test' },
-      { type: 'usage' as const, usage: { input: 4, output: 10 } },
-    ]
-
-    for (const chunk of chunks) {
-      await k.ctx.hooks.dispatch('onLLMDelta', chunk)
-    }
-
-    expect(deltas).toHaveLength(2)
-    expect(deltas[0]).toMatchObject({ type: 'text', delta: 'ECHO: test' })
-    expect(deltas[1]).toMatchObject({ type: 'usage' })
+    // onLLMDelta is registered — reserved for future frontend streaming
+    // instrumentation. Frontends consume deltas through the dataplane bridge
+    // (dataplane turns llm.delta into dataplane events).
+    expect(k.ctx.hooks.hasHandlers('onLLMDelta')).toBe(true)
     await k.stop()
   })
 

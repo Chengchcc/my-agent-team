@@ -6,7 +6,7 @@ import { cliSession } from './commands/cli-session'
 import { cliPrint } from './commands/cli-print'
 import { cliLogs } from './commands/cli-logs'
 
-// Phase 4 ext contributions (uncomment per ext as each PR lands):
+// Extension CLI manifests (all wired):
 import { cliManifest as traceCli } from '../extensions/trace'
 import { cliManifest as memoryCli } from '../extensions/memory'
 import { cliManifest as skillsCli } from '../extensions/skills'

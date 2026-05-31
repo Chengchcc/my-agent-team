@@ -33,7 +33,7 @@ export default () =>
       const server = {
             /**
              * Handle an incoming JSON-RPC message.
-             * Routes to serveControlMethod hook (first-match).
+             * Routes via ctx.rpc.resolve (O(1) dispatch).
              */
             async handle(
               message: JsonRpcMessage,
