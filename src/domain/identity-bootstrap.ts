@@ -86,40 +86,64 @@ export function computeNextAction(
   return 'ask'
 }
 
+export const FIELD_HINTS: Record<string, string> = {
+  role: '你的角色定位（例如：后端工程师、产品经理、研究员）',
+  audience: '你的目标用户群体（例如：全栈开发者、运营团队、外部客户）',
+  tone: '你希望我用什么语气（例如：简洁专业、友好幽默、严谨学术）',
+  expertise: '你需要我擅长哪些领域（例如：TypeScript+分布式、品牌营销、数据分析）',
+  constraints: '有什么约束或禁区（例如：不写代码注释、不主动建议、必须中文回复）',
+}
+
+export function renderProgressTag(turn: number, max: number): string {
+  return `_(${turn}/${max} · 输入 \`/bootstrap skip\` 可跳过身份初始化)_`
+}
+
 export function renderBootstrapRequest(
   field: string,
   turnsCompleted?: number,
   turnsMax?: number,
 ): string {
-  const fieldDescriptions: Record<string, string> = {
-    role: '你的角色定位（例如：后端工程师、产品经理、研究员）',
-    audience: '你的目标用户群体（例如：全栈开发者、运营团队、外部客户）',
-    tone: '你希望我用什么语气（例如：简洁专业、友好幽默、严谨学术）',
-    expertise: '你需要我擅长哪些领域（例如：TypeScript+分布式、品牌营销、数据分析）',
-    constraints: '有什么约束或禁区（例如：不写代码注释、不主动建议、必须中文回复）',
-  }
-  const hint = fieldDescriptions[field] ?? field
-  const remain = turnsCompleted !== undefined && turnsMax !== undefined
-    ? `第 ${turnsCompleted + 1}/${turnsMax} 轮`
-    : ''
+  const hint = FIELD_HINTS[field] ?? field
+  const turn = (turnsCompleted ?? 0) + 1
+  const max = turnsMax ?? TURNS_MAX
+  const progress = renderProgressTag(turn, max)
 
-  return `## Bootstrap Pending — 身份初始化${remain}
+  return `## Bootstrap Pending — 身份初始化 (${turn}/${max})
 
-**[最高优先级,本轮唯一任务]**
-默认行为：用一句简短中文向用户提问：${hint}
+你正在和一位还没完成身份设置的用户对话。本轮你需要朝目标推进：
+**收集字段：${hint}**
 
-例外：如果用户上一条消息明显不是字段答案（例如要求执行命令、读文件、查代码、闲聊），
-不要拒绝、不要假装能做。直接尝试调用对应工具 —— 系统会自动返回一个错误，
-错误内容会告诉用户当前处于身份初始化阶段、需要先完成 bootstrap
-或运行 \`my-agent agent bootstrap skip -a <id>\` 跳过。
-你拿到错误后，用一句中文把错误内容转告用户，然后回到原本的字段提问：${hint}
+判断用户上一条消息，从下面四类里选**最匹配**的一种回应方式：
 
-无论哪种，都遵守：
-- 不要输出字段名（如"role"、"audience"等英文）
-- 不要寒暄、自我介绍、复述用户上一条消息
+1) 用户给出了字段答案
+   → 用一句话简短致谢/确认，然后过渡到下一字段
+   例："好的，记住你是后端工程师。那你的目标用户群体是？"
+
+2) 用户在打招呼或闲聊（如"你好""嗨""在吗"）
+   → 先回应问候，再用一两句说明："我是 my-agent，正在做一次性的身份初始化，
+     这样我之后才能更贴近你的工作方式。一共 ${max} 个问题，大概 1 分钟。
+     第一个问题：${hint}"
+
+3) 用户在问元问题（如"你是谁""为什么问这个"）
+   → 用一两句回答 + 解释 bootstrap 用途 + 自然过渡到本轮字段
+
+4) 用户表达犹豫或想跳过
+   → 共情一句，告知"可以随时输入 /bootstrap skip 跳过"，
+     同时邀请："或者我们继续？${hint}"
+
+5) 用户在让你做事（读文件/执行命令）
+   → 不要拒绝。直接调对应工具，系统会返回错误。
+     拿到错误后，把错误转告用户，再回到本轮字段问题。
+
+通用约束：
+- 全程中文，语气友好但不油腻
+- 不要输出英文字段名（role/audience/tone/…）
+- 不要长篇大论，整段回复控制在 1-3 句（分类 2/3 可放宽到 4 句）
 - 不要假装 bootstrap 已完成
+- 不要复述用户消息
 
-只输出一两句话，不要长篇大论。`
+回复末尾必须带一行进度提示：
+${progress}`
 }
 
 export const DEFAULT_BOOTSTRAP_MD = `---

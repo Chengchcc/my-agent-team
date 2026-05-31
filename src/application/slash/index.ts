@@ -1,3 +1,4 @@
+import { bootstrapSkip } from './builtin/bootstrap-skip'
 import { slashCancelCommand } from './builtin/slash-cancel'
 import { slashClearCommand } from './builtin/slash-clear'
 import { slashCompactCommand } from './builtin/slash-compact'
@@ -28,6 +29,7 @@ export function registerBuiltinSlashCommands(
   opts?: { include?: ReadonlyArray<string>; exclude?: ReadonlyArray<string> },
 ): void {
   const all: SlashCommand[] = [
+    bootstrapSkip,
     slashClearCommand, slashCompactCommand, slashCostCommand, slashToolsCommand,
     slashExitCommand, slashDaemonCommand, slashCancelCommand,
     slashNewCommand, slashSessionsCommand, slashResumeCommand,

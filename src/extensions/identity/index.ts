@@ -2,7 +2,8 @@ import { defineExtension } from '../../kernel/define-extension'
 import type { HookHandler } from '../../kernel/define-extension'
 import { asContractBus } from '../../application/event-bus/contract-bus'
 import { FileBackedIdentityStore } from '../../infrastructure/identity/file-backed-identity-store'
-import { atomicRead } from '../../shared/atomic-write'
+import { atomicRead, atomicWrite } from '../../shared/atomic-write'
+import { unlink } from 'node:fs/promises'
 import { parseIdentityMarkdown } from '../../domain/identity-doc'
 import { createBootstrapLoop } from './bootstrap-loop'
 import { resolveBootstrapMode } from '../../domain/identity/bootstrap-mode'
@@ -45,6 +46,20 @@ function getBootstrapLoop(ctx: Parameters<Parameters<typeof defineExtension>[0][
     agentStore,
     agentId: ctx.agentId,
   })
+}
+
+function makeBootstrapSkipHandler(ctx: Parameters<Parameters<typeof defineExtension>[0]['apply']>[0]) {
+  return async () => {
+    const agentStore = ctx.extensions.get('agent.store') as AgentStore | undefined
+    if (!agentStore) return { error: 'agent store not available' }
+    await agentStore.update(ctx.agentId, { identityStatus: 'ready' })
+    try {
+      const content = await atomicRead(ctx.paths.identity.bootstrap, '')
+      if (content) await atomicWrite(ctx.paths.identity.archived, content)
+    } catch { /* best effort */ }
+    try { await unlink(ctx.paths.identity.bootstrap) } catch { /* best effort */ }
+    return { ok: true, agentId: ctx.agentId }
+  }
 }
 
 export default () =>
@@ -198,6 +213,8 @@ export default () =>
             void contractBus.emit('identity.changed', diff as unknown as Record<string, unknown>)
             return { effectiveFrom: 'next-turn' }
           },
+
+          'agent.bootstrap.skip': makeBootstrapSkipHandler(ctx),
 
           'identity.history': () => ({ history: store.getHistory() }),
 
