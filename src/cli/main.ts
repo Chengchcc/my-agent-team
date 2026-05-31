@@ -6,12 +6,17 @@ import { buildRuntimeContext, disposeRuntimeContext } from './cli-runtime'
 import { parseArgv } from './args/parse'
 import { FLAG_AGENT, FLAG_VERBOSE } from './args/common-flags'
 import type { FlagSpec } from './args/parse'
+import { Errors } from './errors/cli-error'
+import { renderCliError } from './errors/render'
 
 const COL_CMD_NAME = 12
 const COL_FLAG_NAME = 14
 const GLOBAL_FLAGS: FlagSpec[] = [FLAG_AGENT, FLAG_VERBOSE]
 
 export async function main(argv: string[]): Promise<void> {
+  const verbose = argv.includes('--verbose') || argv.includes('-v')
+    || argv.includes('--debug') || !!process.env.MY_AGENT_DEBUG
+
   const parsed = parseArgv(argv, GLOBAL_FLAGS, 'permissive')
   const [cmdName, ...rest] = parsed.positional
 
@@ -33,29 +38,23 @@ export async function main(argv: string[]): Promise<void> {
 
   const cmd = findCommand(cmdName)
   if (!cmd) {
-    console.error(`unknown command: ${cmdName}`)
-    printHelp()
-    process.exit(2)
+    throw Errors.unknownCommand(cmdName)
   }
 
-  const ctx: CliRuntimeContext = await buildRuntimeContext({
-    agentId: String(parsed.flags.agent ?? 'default'),
-    needs: cmd.needs ?? [],
-  })
+  let ctx: CliRuntimeContext | undefined
   try {
+    ctx = await buildRuntimeContext({
+      agentId: String(parsed.flags.agent ?? 'default'),
+      needs: cmd.needs ?? [],
+    })
     await cmd.handler(rest, ctx)
+  } catch (err) {
+    const { stderr, exitCode } = renderCliError(err, { verbose })
+    process.stderr.write(stderr + '\n')
+    process.exit(exitCode)
   } finally {
-    await disposeRuntimeContext(ctx)
+    if (ctx) await disposeRuntimeContext(ctx)
   }
-}
-
-function printHelp() {
-  console.log('my-agent — AI agent framework\n')
-  console.log('Commands:')
-  for (const cmd of CLI_COMMANDS) {
-    console.log(`  ${cmd.name.padEnd(COL_CMD_NAME)} ${cmd.description}`)
-  }
-  console.log('Global flags: -a, --agent <id>  Use: my-agent <command> --help')
 }
 
 function renderGlobalHelp(): string {
