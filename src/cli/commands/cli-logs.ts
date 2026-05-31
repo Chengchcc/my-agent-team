@@ -12,6 +12,7 @@ async function handleLogs(args: string[]): Promise<void> {
 export const cliLogs: CliManifest = {
   name: 'logs',
   description: 'View daemon logs',
+  needs: ['rpc'] as const,
   usage: 'my-agent logs [args]',
   handler: async (argv, _ctx) => {
     await handleLogs(argv)

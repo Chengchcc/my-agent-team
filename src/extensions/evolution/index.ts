@@ -18,6 +18,7 @@ import type { SkillMetaRepo } from '../../application/ports/skill-meta-repo'
 import type { ReviewJob, ReviewResult } from './types'
 import type { JobContextFactory } from '../infra-services/job-context-factory'
 import type { CliManifest } from '../../cli/cli-types'
+import { requireRpc } from '../../cli/cli-runtime'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
 import type { EvolutionReviewCompletedV1 } from '../../application/contracts/evolution-events'
 
@@ -234,6 +235,7 @@ function buildEvolutionApply(ctx: Parameters<typeof defineExtension>[0]['apply']
 export const cliManifest: CliManifest = {
   name: 'evolution',
   description: 'Review and manage evolution proposals',
+  needs: ['rpc'] as const,
   usage: [
     '  my-agent evolution list [--limit N]',
     '  my-agent evolution promote <id>',
@@ -241,13 +243,14 @@ export const cliManifest: CliManifest = {
     '  my-agent evolution stats',
   ].join('\n'),
   handler: async (argv, ctx) => {
+    const rpc = requireRpc(ctx)
     const sub = argv[0]
     // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- CLI subcommand dispatch with default catch-all
     switch (sub) {
       case 'list': {
         const limitIdx = argv.indexOf('--limit')
         const limit = limitIdx >= 0 ? parseInt(argv[limitIdx + 1]!, 10) : EVO_DEFAULT_LIMIT
-        const result = await ctx.rpc('evolution.listProposals', { limit })
+        const result = await rpc('evolution.listProposals', { limit })
         const data = result as { proposals: Array<{ id: string; tier: string; outcome: string; skillName?: string; reasoning: string; createdAt: number }> }
         if (data.proposals.length === 0) {
           ctx.out('No proposals yet.\n')
@@ -261,18 +264,18 @@ export const cliManifest: CliManifest = {
       }
       case 'promote': {
         if (!argv[1]) { ctx.err('missing <id>\n'); process.exit(2) }
-        await ctx.rpc('evolution.promote', { id: argv[1] })
+        await rpc('evolution.promote', { id: argv[1] })
         ctx.out(`Proposal ${argv[1]} promoted.\n`)
         return
       }
       case 'discard': {
         if (!argv[1]) { ctx.err('missing <id>\n'); process.exit(2) }
-        await ctx.rpc('evolution.discard', { id: argv[1] })
+        await rpc('evolution.discard', { id: argv[1] })
         ctx.out(`Proposal ${argv[1]} discarded.\n`)
         return
       }
       case 'stats': {
-        const result = await ctx.rpc('evolution.stats')
+        const result = await rpc('evolution.stats')
         const data = result as { skills: Array<{ name: string; totalRuns: number; successfulRuns: number; lastReviewedAt: number }> }
         if (data.skills.length === 0) {
           ctx.out('No skill stats yet.\n')

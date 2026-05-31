@@ -3,7 +3,7 @@ import { cliSetup } from './commands/cli-setup'
 import { cliAgent } from './commands/cli-agent'
 import { cliDaemon } from './commands/cli-daemon'
 import { cliSession } from './commands/cli-session'
-import { cliHeadless } from './commands/cli-headless'
+import { cliPrint } from './commands/cli-print'
 import { cliLogs } from './commands/cli-logs'
 
 // Phase 4 ext contributions (uncomment per ext as each PR lands):
@@ -18,7 +18,7 @@ export const CLI_COMMANDS: ReadonlyArray<CliManifest> = [
   cliAgent,
   cliDaemon,
   cliSession,
-  cliHeadless,
+  cliPrint,
   cliLogs,
   skillsCli,
   traceCli,

@@ -8,14 +8,6 @@ import { MAIN_SESSION_ID } from '../../domain/anchor'
 
 const PROFILES_DIR = defaultAgentsRoot()
 
-function getSessionAgentId(argv: string[]): string {
-  const aIdx = argv.indexOf('-a')
-  if (aIdx >= 0 && aIdx + 1 < argv.length) return argv[aIdx + 1] ?? 'default'
-  const pIdx = argv.indexOf('-p')
-  if (pIdx >= 0 && pIdx + 1 < argv.length) return argv[pIdx + 1] ?? 'default'
-  return 'default'
-}
-
 function socketPath(agentId: string): string {
   return `${PROFILES_DIR}/${agentId}/daemon.sock`
 }
@@ -138,34 +130,31 @@ export const cliSession: CliManifest = {
   name: 'session',
   description: 'Manage sessions',
   usage: 'my-agent session <attach|list|create|resume> [args]',
-  handler: async (argv, _ctx) => {
+  needs: [],
+  handler: async (argv, ctx) => {
     const sub = argv[0] ?? ''
     switch (sub) {
       case 'attach': {
         const rest = argv.slice(1)
         const textMode = rest.includes('--text')
-        const agentId = getSessionAgentId(rest)
         const sIdx = rest.indexOf('-s')
         const sessionId = sIdx >= 0 ? (rest[sIdx + 1] ?? undefined) : undefined
-        await handleSessionAttach(agentId, sessionId, textMode)
+        await handleSessionAttach(ctx.agentId, sessionId, textMode)
         return
       }
       case 'list':
       case 'ls': {
-        const rest = argv.slice(1)
-        await handleSessionList(getSessionAgentId(rest))
+        await handleSessionList(ctx.agentId)
         return
       }
       case 'create': {
         const rest = argv.slice(1)
-        const agentId = getSessionAgentId(rest)
-        await handleSessionCreate(agentId, rest.filter(a => a !== '-a' && a !== '-p' && a !== agentId)[0])
+        await handleSessionCreate(ctx.agentId, rest[0])
         return
       }
       case 'resume': {
         const rest = argv.slice(1)
-        const agentId = getSessionAgentId(rest)
-        await handleSessionResume(agentId, rest.filter(a => a !== '-a' && a !== '-p' && a !== agentId)[0] ?? MAIN_SESSION_ID)
+        await handleSessionResume(ctx.agentId, rest[0] ?? MAIN_SESSION_ID)
         return
       }
       default: {

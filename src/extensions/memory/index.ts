@@ -23,6 +23,7 @@ import type { ExtractJob, ExtractResult } from './types'
 import type { EventEnvelope } from '../../application/contracts/event-envelope'
 import type { TurnCompletedV1, TurnFailedV1 } from '../../application/contracts/session-events'
 import type { CliManifest } from '../../cli/cli-types'
+import { requireRpc } from '../../cli/cli-runtime'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
 import { defineTool } from '../../application/tool-factory/define-tool'
 import type { MemoryType } from '../../domain/memory-entry'
@@ -49,6 +50,7 @@ function inferType(tags: string[]): MemoryType {
 export const cliManifest: CliManifest = {
   name: 'memory',
   description: 'List, search, and manage agent memories',
+  needs: ['rpc'] as const,
   usage: [
     '  my-agent memory list [--limit N] [--type general|preference]',
     '  my-agent memory search <query> [--limit N]',
@@ -56,6 +58,7 @@ export const cliManifest: CliManifest = {
     '  my-agent memory prune [--dry-run]',
   ].join('\n'),
   handler: async (argv, ctx) => {
+    const rpc = requireRpc(ctx)
     const sub = argv[0]
     // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- default handles undefined
     switch (sub) {
@@ -64,7 +67,7 @@ export const cliManifest: CliManifest = {
         const limit = limitIdx >= 0 ? parseInt(argv[limitIdx + 1]!, 10) : MEM_DEFAULT_LIST_LIMIT
         const typeIdx = argv.indexOf('--type')
         const type = typeIdx >= 0 ? argv[typeIdx + 1] : undefined
-        const result = await ctx.rpc('memory.list', { limit, type })
+        const result = await rpc('memory.list', { limit, type })
         const data = result as { entries: Array<{ id: string; type: string; text: string; weight: number; createdAt: unknown }> }
         if (data.entries.length === 0) {
           ctx.out('No memories found.\n')
@@ -82,7 +85,7 @@ export const cliManifest: CliManifest = {
         const query = argv[1]
         const limitIdx = argv.indexOf('--limit')
         const limit = limitIdx >= 0 ? parseInt(argv[limitIdx + 1]!, 10) : MEM_DEFAULT_SEARCH_LIMIT
-        const result = await ctx.rpc('memory.search', { query, limit })
+        const result = await rpc('memory.search', { query, limit })
         const data = result as { entries: Array<{ id: string; text: string; weight: number }> }
         if (data.entries.length === 0) {
           ctx.out('No matches.\n')
@@ -95,13 +98,13 @@ export const cliManifest: CliManifest = {
       }
       case 'forget': {
         if (!argv[1]) { ctx.err('missing <id>\n'); process.exit(2) }
-        await ctx.rpc('memory.forget-by-id', { id: argv[1] })
+        await rpc('memory.forget-by-id', { id: argv[1] })
         ctx.out(`Forgot ${argv[1]}\n`)
         return
       }
       case 'prune': {
         const dryRun = argv.includes('--dry-run')
-        const result = await ctx.rpc('memory.prune', { dryRun })
+        const result = await rpc('memory.prune', { dryRun })
         const data = result as { deleted?: number; wouldDelete?: number; ids?: string[] }
         if (dryRun) {
           ctx.out(`Would delete ${data.wouldDelete} entries\n`)

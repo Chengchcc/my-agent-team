@@ -1,5 +1,3 @@
-/* eslint-disable no-console -- CLI output */
-
 import type { CliManifest } from '../cli-types'
 import { UnixSocketTransport } from '../../infrastructure/transport/unix-socket-transport'
 import { existsSync } from 'node:fs'
@@ -12,22 +10,19 @@ function socketPath(agentId: string): string {
   return `${PROFILES_DIR}/${agentId}/daemon.sock`
 }
 
-async function handleHeadless(agentId: string, prompt: string, sessionId = MAIN_SESSION_ID): Promise<void> {
+async function handlePrint(agentId: string, prompt: string, sessionId = MAIN_SESSION_ID): Promise<void> {
   if (!prompt) {
-    console.error('Usage: my-agent headless [-p profile] "your prompt"')
-    process.exit(1)
+    throw new Error('Usage: my-agent print "your prompt"')
   }
 
   const sp = socketPath(agentId)
   if (!existsSync(sp)) {
-    console.error(`Daemon not running. Start it first: my-agent daemon start`)
-    process.exit(1)
+    throw new Error(`Daemon not running. Start it first: my-agent daemon start`)
   }
 
   const transport = new UnixSocketTransport(sp)
   await transport.connect()
 
-  // Resolve directly when turn completes
   let resolveTurn: () => void
   const turnDone = new Promise<void>((r) => { resolveTurn = r })
 
@@ -37,8 +32,7 @@ async function handleHeadless(agentId: string, prompt: string, sessionId = MAIN_
     }
     if (ev.type === 'turn.completed') { resolveTurn() }
     if (ev.type === 'turn.failed') {
-      console.error('\nError:', (ev.payload as Record<string, unknown>)?.error ?? 'Turn failed')
-      resolveTurn()
+      throw new Error(String((ev.payload as Record<string, unknown>)?.error ?? 'Turn failed'))
     }
   })
 
@@ -49,21 +43,19 @@ async function handleHeadless(agentId: string, prompt: string, sessionId = MAIN_
   })
 
   await turnDone
-  console.log('')
-  process.exit(0)
+  process.stdout.write('\n')
 }
 
-export const cliHeadless: CliManifest = {
-  name: 'headless',
-  description: 'Run a single-turn agent (no TUI)',
-  usage: 'my-agent headless [-p profile] "your prompt"',
-  handler: async (argv, _ctx) => {
+export const cliPrint: CliManifest = {
+  name: 'print',
+  description: 'Run a single-turn agent non-interactively (stdin/stdout)',
+  usage: 'my-agent print [flags] "<prompt>"',
+  needs: [],
+  handler: async (argv, ctx) => {
     const rest = argv
-    const pIdx = rest.indexOf('-p')
-    const profile = pIdx >= 0 ? (rest[pIdx + 1] ?? 'default') : 'default'
     const sIdx = rest.indexOf('-s')
     const sessionId = sIdx >= 0 ? (rest[sIdx + 1] ?? MAIN_SESSION_ID) : MAIN_SESSION_ID
-    const prompt = rest.filter(a => a !== '-p' && a !== '-s' && a !== profile && a !== sessionId).join(' ')
-    await handleHeadless(profile, prompt, sessionId)
+    const prompt = rest.filter(a => a !== '-s' && a !== sessionId).join(' ')
+    await handlePrint(ctx.agentId, prompt, sessionId)
   },
 }

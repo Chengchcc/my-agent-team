@@ -5,6 +5,7 @@ import { runLarkFlow } from '../flows/lark-flow'
 export const cliAgentLark = {
   name: 'agent-lark',
   description: 'Manage Lark bot configuration for an agent',
+  needs: ['agentStore'] as const,
   usage: [
     '  my-agent agent lark set     -a <id>',
     '  my-agent agent lark show    -a <id>',
@@ -14,8 +15,7 @@ export const cliAgentLark = {
     '  my-agent agent lark disable -a <id>',
   ].join('\n'),
   async handler(argv: string[], ctx: CliRuntimeContext): Promise<void> {
-    const id = getLarkAgentArg(argv)
-    if (!id) { ctx.err('Usage: -a <agentId> required\n'); return }
+    const id = ctx.agentId
     if (!ctx.agentStore) { ctx.err('agentStore not available\n'); return }
     const rec = await ctx.agentStore.get(id)
     if (!rec) { ctx.err(`Agent '${id}' not found\n`); return }
@@ -71,10 +71,4 @@ export const cliAgentLark = {
         process.exit(2)
     }
   },
-}
-
-function getLarkAgentArg(argv: string[]): string | null {
-  const aIdx = argv.indexOf('-a')
-  if (aIdx >= 0 && aIdx + 1 < argv.length) return argv[aIdx + 1] ?? null
-  return null
 }

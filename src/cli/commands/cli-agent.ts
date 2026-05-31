@@ -7,6 +7,7 @@ const AGENT_ID_PAD_LEN = 20
 export const cliAgent = {
   name: 'agent',
   description: 'Manage agents',
+  needs: ['agentStore'] as const,
   usage: [
     '  my-agent agent create',
     '  my-agent agent list',
@@ -89,8 +90,5 @@ function getAgentArg(argv: string[]): string | null {
   if (aIdx >= 0 && aIdx + 1 < argv.length) return argv[aIdx + 1] ?? null
   const agentIdx = argv.indexOf('--agent')
   if (agentIdx >= 0 && agentIdx + 1 < argv.length) return argv[agentIdx + 1] ?? null
-  // Fallback: check --profile alias
-  const pIdx = argv.indexOf('--profile')
-  if (pIdx >= 0 && pIdx + 1 < argv.length) return argv[pIdx + 1] ?? null
   return null
 }

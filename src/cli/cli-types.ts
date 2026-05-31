@@ -4,6 +4,8 @@ export interface CliManifest {
   readonly description: string
   readonly usage: string
   readonly handler: (argv: string[], ctx: CliRuntimeContext) => Promise<void>
+  /** Declares which runtime capabilities this command needs. Defaults to []. */
+  readonly needs?: ReadonlyArray<'agentStore' | 'rpc'>
 }
 
 import type { AgentStore } from '../application/ports/agent-store'
@@ -11,7 +13,7 @@ import type { AgentStore } from '../application/ports/agent-store'
 export interface CliRuntimeContext {
   readonly agentId: string
   readonly socketPath: string
-  rpc(method: string, params?: unknown): Promise<unknown>
+  readonly rpc?: (method: string, params?: unknown) => Promise<unknown>
   out(s: string): void
   err(s: string): void
   readonly agentStore?: AgentStore

@@ -9,21 +9,7 @@ import type { CliManifest } from '../cli-types'
 
 const DAEMON_READY_PROBE_MS = 2500
 
-function getAgentArg(argv: string[]): string | null {
-  const aIdx = argv.indexOf('-a')
-  if (aIdx >= 0 && aIdx + 1 < argv.length) return argv[aIdx + 1] ?? null
-  const agentIdx = argv.indexOf('--agent')
-  if (agentIdx >= 0 && agentIdx + 1 < argv.length) return argv[agentIdx + 1] ?? null
-  const pIdx = argv.indexOf('--profile')
-  if (pIdx >= 0 && pIdx + 1 < argv.length) {
-    console.warn('Warning: --profile is deprecated. Use --agent or -a instead.')
-    return argv[pIdx + 1] ?? null
-  }
-  return null
-}
-
-async function daemonStart(argv: string[]): Promise<void> {
-  const agentId = getAgentArg(argv) ?? 'default'
+async function daemonStart(agentId: string): Promise<void> {
   const home = createHomePaths()
   const paths = createAgentPaths(home.agentsRoot, agentId)
 
@@ -75,8 +61,7 @@ async function daemonStart(argv: string[]): Promise<void> {
   }
 }
 
-async function daemonStop(argv: string[]): Promise<void> {
-  const agentId = getAgentArg(argv) ?? 'default'
+async function daemonStop(agentId: string): Promise<void> {
   const home = createHomePaths()
   const paths = createAgentPaths(home.agentsRoot, agentId)
   const pidFile = join(paths.agentDir, 'daemon.pid')
@@ -119,15 +104,16 @@ export const cliDaemon: CliManifest = {
   name: 'daemon',
   description: 'Manage daemon lifecycle',
   usage: 'my-agent daemon <start|stop|status|logs> -a <agent>',
-  handler: async (argv, _ctx) => {
+  needs: [],
+  handler: async (argv, ctx) => {
     const sub = argv[0] ?? ''
     switch (sub) {
       case 'start': {
-        await daemonStart(argv)
+        await daemonStart(ctx.agentId)
         return
       }
       case 'stop': {
-        await daemonStop(argv)
+        await daemonStop(ctx.agentId)
         return
       }
       case 'status':

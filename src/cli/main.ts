@@ -18,9 +18,12 @@ export async function main(argv: string[]): Promise<void> {
     printHelp()
     process.exit(2)
   }
-  const ctx: CliRuntimeContext = await buildRuntimeContext(rest)
+  const ctx: CliRuntimeContext = await buildRuntimeContext({
+    agentId: 'default',  // Phase 1 will parse --agent from argv
+    needs: cmd.needs ?? [],
+  })
   try {
-    await cmd.handler(rest.filter(a => a !== '-p' && a !== '-v' && !a.startsWith('--profile=') && !a.startsWith('--verbose')), ctx)
+    await cmd.handler(rest, ctx)
   } finally {
     await disposeRuntimeContext(ctx)
   }
@@ -32,5 +35,5 @@ function printHelp() {
   for (const cmd of CLI_COMMANDS) {
     console.log(`  ${cmd.name.padEnd(COL_CMD_NAME)} ${cmd.description}`)
   }
-  console.log('\nGlobal flags: -p <profile>  Use: my-agent <command> --help')
+  console.log('Global flags: -a, --agent <id>  Use: my-agent <command> --help')
 }

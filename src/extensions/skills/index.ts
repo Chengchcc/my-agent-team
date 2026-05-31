@@ -9,21 +9,24 @@ import type { SkillInfo } from './loader'
 import type { SlashCommand } from '../../application/slash'
 import type { CliManifest } from '../../cli/cli-types'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
+import { requireRpc } from '../../cli/cli-runtime'
 
 export const cliManifest: CliManifest = {
   name: 'skills',
   description: 'List and manage agent skills',
+  needs: ['rpc'] as const,
   usage: [
     '  my-agent skills list [--scope builtin|agent]',
     '  my-agent skills reload',
   ].join('\n'),
   handler: async (argv, ctx) => {
+    const rpc = requireRpc(ctx)
     const sub = argv[0]
     // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- default handles undefined
     switch (sub) {
       case 'list': {
         const scope = argv.includes('--scope') ? argv[argv.indexOf('--scope') + 1] : undefined
-        const result = await ctx.rpc('skills.list', scope ? { scope } : undefined)
+        const result = await rpc('skills.list', scope ? { scope } : undefined)
         const data = result as { skills: Array<{ name: string; description: string; scope: string }> }
         if (data.skills.length === 0) {
           ctx.out('No skills loaded.\n')
@@ -35,7 +38,7 @@ export const cliManifest: CliManifest = {
         return
       }
       case 'reload': {
-        const result = await ctx.rpc('skills.reload')
+        const result = await rpc('skills.reload')
         const data = result as { added: number; removed: number; updated: number }
         ctx.out(`Reloaded: ${data.added} added, ${data.removed} removed, ${data.updated} updated\n`)
         return

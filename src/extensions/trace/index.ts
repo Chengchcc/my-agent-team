@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { MAIN_SESSION_ID } from '../../domain/anchor'
 import type { CliManifest } from '../../cli/cli-types'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
+import { requireRpc } from '../../cli/cli-runtime'
 
 const TRACE_COLUMNS = { id: 28, session: 10, turns: 6 } as const
 const TRACE_DEFAULT_LIMIT = 20
@@ -28,6 +29,7 @@ const TRACE_DEFAULT_LIMIT = 20
 export const cliManifest: CliManifest = {
   name: 'trace',
   description: 'Inspect persisted trace runs',
+  needs: ['rpc'] as const,
   usage: [
     '  my-agent trace list [--limit N] [--session ID]',
     '  my-agent trace show <runId>',
@@ -35,6 +37,7 @@ export const cliManifest: CliManifest = {
     '  my-agent trace messages <runId>',
   ].join('\n'),
   handler: async (argv, ctx) => {
+    const rpc = requireRpc(ctx)
     const sub = argv[0]
     // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- default handles undefined
     switch (sub) {
@@ -43,7 +46,7 @@ export const cliManifest: CliManifest = {
         const limit = limitIdx >= 0 ? parseInt(argv[limitIdx + 1]!, 10) : TRACE_DEFAULT_LIMIT
         const sessionIdx = argv.indexOf('--session')
         const sessionId = sessionIdx >= 0 ? argv[sessionIdx + 1] : undefined
-        const result = await ctx.rpc('trace.listRecent', { limit, sessionId })
+        const result = await rpc('trace.listRecent', { limit, sessionId })
         const data = result as { runs: Array<{ id: string; sessionId: string; totalTurns: number; outcome: string }> }
         if (data.runs.length === 0) {
           ctx.out('No trace runs found.\n')
@@ -56,7 +59,7 @@ export const cliManifest: CliManifest = {
       }
       case 'show': {
         if (!argv[1]) { ctx.err('missing <runId>\n'); process.exit(2) }
-        const result = await ctx.rpc('trace.getRun', { runId: argv[1] })
+        const result = await rpc('trace.getRun', { runId: argv[1] })
         ctx.out(JSON.stringify((result as { run: unknown }).run, null, 2) + '\n')
         return
       }
@@ -67,13 +70,13 @@ export const cliManifest: CliManifest = {
         const kinds = promptOnly
           ? ['llm.request', 'prompt.snapshot']
           : (kindIdx >= 0 ? argv[kindIdx + 1]!.split(',') : undefined)
-        const result = await ctx.rpc('trace.getEvents', { runId: argv[1], kinds })
+        const result = await rpc('trace.getEvents', { runId: argv[1], kinds })
         ctx.out(JSON.stringify((result as { events: unknown }).events, null, 2) + '\n')
         return
       }
       case 'messages': {
         if (!argv[1]) { ctx.err('missing <runId>\n'); process.exit(2) }
-        const result = await ctx.rpc('trace.getMessages', { runId: argv[1] })
+        const result = await rpc('trace.getMessages', { runId: argv[1] })
         const msgs = (result as { messages: Array<{ turnIndex: number; role: string; content: string; ts: string }> }).messages
         if (msgs.length === 0) { ctx.out('No messages found for this run.\n'); return }
         for (const m of msgs) {

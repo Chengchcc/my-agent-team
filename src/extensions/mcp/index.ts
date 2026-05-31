@@ -11,12 +11,14 @@ import {
 import { createMcpRpc } from './rpc';
 import type { CliManifest } from '../../cli/cli-types'
 import type { AssertHasCliManifest } from '../../cli/assert-cli-bearing'
+import { requireRpc } from '../../cli/cli-runtime'
 
 const MCP_COLUMNS = { name: 20, status: 14 } as const
 
 export const cliManifest: CliManifest = {
   name: 'mcp',
   description: 'Manage MCP (Model Context Protocol) servers',
+  needs: ['rpc'] as const,
   usage: [
     '  my-agent mcp list',
     '  my-agent mcp add <name> --transport stdio|sse|http [--command <cmd>] [--url <url>]',
@@ -24,11 +26,12 @@ export const cliManifest: CliManifest = {
     '  my-agent mcp reload',
   ].join('\n'),
   handler: async (argv, ctx) => {
+    const rpc = requireRpc(ctx)
     const sub = argv[0]
     // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- default handles undefined
     switch (sub) {
       case 'list': {
-        const result = await ctx.rpc('mcp.list')
+        const result = await rpc('mcp.list')
         const data = result as { servers: Array<{ name: string; status: string; capabilities: { tools: number; resources: number; prompts: number }; message?: string }> }
         if (data.servers.length === 0) {
           ctx.out('No MCP servers configured.\n')
@@ -53,18 +56,18 @@ export const cliManifest: CliManifest = {
         }
         if (commandIdx >= 0) config.command = argv[commandIdx + 1]
         if (urlIdx >= 0) config.url = argv[urlIdx + 1]
-        await ctx.rpc('mcp.add', { config })
+        await rpc('mcp.add', { config })
         ctx.out(`Server "${argv[1]}" added.\n`)
         return
       }
       case 'remove': {
         if (!argv[1]) { ctx.err('missing <name>\n'); process.exit(2) }
-        await ctx.rpc('mcp.remove', { name: argv[1] })
+        await rpc('mcp.remove', { name: argv[1] })
         ctx.out(`Server "${argv[1]}" removed.\n`)
         return
       }
       case 'reload': {
-        const result = await ctx.rpc('mcp.reload')
+        const result = await rpc('mcp.reload')
         const data = result as { added: number; removed: number; updated: number }
         ctx.out(`Reloaded: ${data.added} added, ${data.removed} removed, ${data.updated} updated\n`)
         return

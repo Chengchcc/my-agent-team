@@ -5,11 +5,9 @@ function getFlag(argv: string[], flag: string): string | undefined {
   return idx >= 0 ? argv[idx + 1] : undefined
 }
 
-export function parseArgs(argv: string[]): DaemonOptions {
+export function parseDaemonArgs(argv: string[]): DaemonOptions {
   const agentId = getFlag(argv, '--agent')
     ?? getFlag(argv, '-a')
-    ?? getFlag(argv, '--profile')  // deprecated alias
-    ?? process.env.MY_AGENT_PROFILE
     ?? 'default'
   const agentsRoot = getFlag(argv, '--agents-root')
     ?? process.env.MY_AGENT_AGENTS_ROOT

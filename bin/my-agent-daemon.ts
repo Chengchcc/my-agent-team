@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 import 'dotenv/config'
 import { bootstrap, AgentNotFoundError } from '../src/interface/daemon/main'
-import { parseArgs } from '../src/interface/daemon/parse-daemon-args'
+import { parseDaemonArgs } from '../src/interface/daemon/parse-daemon-args'
 
 const EXIT_AGENT_NOT_FOUND = 3
 
-const opts = parseArgs(process.argv.slice(2))
+const opts = parseDaemonArgs(process.argv.slice(2))
 let handle: Awaited<ReturnType<typeof bootstrap>>
 try {
   handle = await bootstrap(opts)

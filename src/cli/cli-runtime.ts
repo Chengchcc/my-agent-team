@@ -11,7 +11,7 @@ const RPC_REQ_ID_PREFIX = 'cli'
  * Connection is opened on first call and reused; disposed via disposeRuntimeContext.
  */
 interface RpcHolder {
-  rpc: CliRuntimeContext['rpc']
+  rpc: NonNullable<CliRuntimeContext['rpc']>
   close: () => Promise<void>
 }
 
@@ -25,7 +25,7 @@ function createRpcClient(socketPath: string): RpcHolder {
     if (!existsSync(socketPath)) {
       throw new Error(
         `daemon socket not found at ${socketPath}\n` +
-        `  → start the daemon first: my-agent daemon start --agent-id=<id>`,
+        `  → start the daemon first: my-agent daemon start --agent <id>`,
       )
     }
     if (!connectPromise) {
@@ -35,7 +35,7 @@ function createRpcClient(socketPath: string): RpcHolder {
         connectPromise = null
         throw new Error(
           `failed to connect to daemon at ${socketPath}: ${err instanceof Error ? err.message : String(err)}\n` +
-          `  → check the daemon is running: my-agent daemon status --agent-id=<id>`,
+          `  → check the daemon is running: my-agent daemon status --agent <id>`,
         )
       })
     }
@@ -43,7 +43,7 @@ function createRpcClient(socketPath: string): RpcHolder {
     return transport!
   }
 
-  const rpc: CliRuntimeContext['rpc'] = async (method, params) => {
+  const rpc: NonNullable<CliRuntimeContext['rpc']> = async (method, params) => {
     const t = await ensureConnected()
     const id = `${RPC_REQ_ID_PREFIX}-${++reqSeq}`
     const resp = await t.sendRpc({ jsonrpc: '2.0', id, method, params: params as Record<string, unknown> | undefined })
@@ -66,32 +66,45 @@ function createRpcClient(socketPath: string): RpcHolder {
   return { rpc, close }
 }
 
-export async function buildRuntimeContext(argv: string[]): Promise<CliRuntimeContext> {
-  const aIdx = argv.indexOf('-a')
-  const pIdx = argv.indexOf('-p')
-  const agentId = (aIdx >= 0 ? argv[aIdx + 1] : null)
-    ?? (pIdx >= 0 ? argv[pIdx + 1] : null)
-    ?? 'default'
+export function requireRpc(ctx: CliRuntimeContext): NonNullable<CliRuntimeContext['rpc']> {
+  if (!ctx.rpc) throw new Error('internal: command did not declare needs:["rpc"]')
+  return ctx.rpc
+}
 
+export async function buildRuntimeContext(
+  opts: { agentId: string; needs: ReadonlyArray<'agentStore' | 'rpc'> },
+): Promise<CliRuntimeContext> {
+  const agentId = opts.agentId
   const homePaths = createHomePaths()
-  await ensureHomePaths(homePaths)
+  try { await ensureHomePaths(homePaths) } catch (err) {
+    throw new Error(`Could not prepare agent storage directory: ${homePaths.agentsRoot} — ${String(err)}`)
+  }
 
   const socketPath = `${homePaths.agentsRoot}/${agentId}/daemon.sock`
 
-  const agentStore = new SqliteAgentStore(homePaths.registryDb)
-  await agentStore.init()
+  let agentStore
+  if (opts.needs.includes('agentStore')) {
+    const store = new SqliteAgentStore(homePaths.registryDb)
+    try { await store.init() } catch (err) {
+      throw new Error(`Could not open agent registry database at ${homePaths.registryDb}: ${String(err)}`)
+    }
+    agentStore = store
+  }
 
-  const rpcHolder = createRpcClient(socketPath)
+  let rpcHolder: RpcHolder | undefined
+  if (opts.needs.includes('rpc')) {
+    rpcHolder = createRpcClient(socketPath)
+  }
 
   return {
     agentId,
     socketPath,
-    rpc: rpcHolder.rpc,
+    rpc: rpcHolder?.rpc,
     out: (s) => process.stdout.write(s),
     err: (s) => process.stderr.write(s),
     agentStore,
     paths: { homeRoot: homePaths.homeRoot, agentsRoot: homePaths.agentsRoot },
-    _dispose: rpcHolder.close,
+    _dispose: rpcHolder?.close,
   }
 }
 
