@@ -177,12 +177,12 @@ export function parseArgv(
     if (state.ended) { state.positional.push(token); state.i++; continue }
     if (HELP_TOKENS.has(token)) { flags.help = true; state.i++; continue }
 
-    if (token.startsWith('--')) {
+    if (token.startsWith(NO_PREFIX)) {
+      handleNegateFlag(state, token)
+    } else if (token.startsWith('--')) {
       handleLongFlag(state, token)
     } else if (token.startsWith('-') && token.length === 2 && token[1] !== '-') {
       handleShortFlag(state, token)
-    } else if (token.startsWith(NO_PREFIX)) {
-      handleNegateFlag(state, token)
     } else {
       state.positional.push(token)
     }
