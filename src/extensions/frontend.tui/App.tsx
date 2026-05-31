@@ -14,6 +14,7 @@ import { getInkInstance } from './run-tui';
 import { FinalItemView } from './views/final/FinalItemView';
 import { ActiveAssistantView } from './views/active/ActiveAssistantView';
 import { InputBox } from './views/chrome/InputBox';
+import { Header } from './views/chrome/Header';
 import { PanelHost } from './panels/panel-host';
 import { useAgentSubscription } from './hooks/use-agent-subscription';
 
@@ -35,6 +36,7 @@ interface AppV2Props {
   projector: TranscriptProjector;
   sessionId: string;
   snapshot?: Array<{ role: string; content: unknown }>;
+  model?: string;
 }
 
 // ── Helpers ──
@@ -130,7 +132,7 @@ async function resolveSlashSubmission(params: {
 // ── Component ───────────────────────────────────────────────────────────────
 
 /* eslint-disable max-lines-per-function */
-export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
+export function AppV2({ client, projector, sessionId, snapshot, model }: AppV2Props) {
 /* eslint-enable max-lines-per-function */
   const noticIdx = useRef(0);
   const staticKey = 0; // no remount needed — /clear now uses divider instead of wipe
@@ -268,15 +270,22 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
 
   const allCommands = useMemo(() => slashRegistry.list(), [slashRegistry]);
 
-  const banner: FinalItem = useMemo(
-    () => ({ kind: 'banner' as const, model: 'claude-sonnet-4-20250514', sessionId }),
-    [sessionId],
-  );
-
   const frozenItems = useFrozenItems();
   const liveItem = useLiveItem();
 
-  const staticItems = useMemo(() => [banner, ...frozenItems], [banner, frozenItems]);
+  // I-2: staticItems reference must only change when frozenItems does
+  // (append-only). Wrapping in useMemo([extra, ...frozen]) would create a
+  // fresh array on every render, breaking Ink <Static>'s internal memo.
+  const staticItems = frozenItems;
+
+  // I-3: render-prop identity must be stable. Carry toolsExpanded through a ref
+  // so closure doesn't invalidate when the toggle changes.
+  const toolsExpandedRef = useRef(toolsExpanded);
+  toolsExpandedRef.current = toolsExpanded;
+  const renderStaticItem = useCallback(
+    (item: FinalItem) => <FinalItemView key={finalItemKey(item)} item={item} toolsExpanded={toolsExpandedRef.current} />,
+    [],
+  );
 
   const activeAssistant = useMemo(
     () => liveItem?.kind === 'assistant-message' ? toActiveAssistant(liveItem) : null,
@@ -285,8 +294,9 @@ export function AppV2({ client, projector, sessionId, snapshot }: AppV2Props) {
 
   return (
     <Box flexDirection="column">
+      <Header model={model ?? ''} sessionId={sessionId} />
       <Static key={staticKey} items={staticItems}>
-        {(item) => <FinalItemView key={finalItemKey(item)} item={item} toolsExpanded={toolsExpanded} />}
+        {renderStaticItem}
       </Static>
       <Box flexDirection="column">
         {activeAssistant != null && (

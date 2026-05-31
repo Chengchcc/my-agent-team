@@ -17,10 +17,11 @@ export function runTUIClient(
   projector: TranscriptProjector,
   sessionId: string,
   snapshot?: Array<{ role: string; content: unknown }>,
+  model?: string,
 ): InkInstance {
   const stdin = new PasteBufferingStdin(process.stdin);
   const instance = render(
-    <AppV2 client={client} projector={projector} sessionId={sessionId} snapshot={snapshot} />,
+    <AppV2 client={client} projector={projector} sessionId={sessionId} snapshot={snapshot} model={model ?? ''} />,
     {
       stdin: stdin as unknown as NodeJS.ReadStream,
     },

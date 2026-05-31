@@ -115,13 +115,24 @@ export default () =>
         },
 
         rpc: {
-          hello: () => ({
-            server: 'my-agent',
-            daemonVersion: '2.0.0',
-            agentId: ctx.agentId,
-            capabilities: { events: 16, methods: 24 },
-            ts: Date.now(),
-          }),
+          hello: () => {
+            let model = ''
+            try {
+              const p = ctx.extensions.get('provider.llm') as { model?: string } | undefined
+              if (p?.model) model = p.model
+            } catch { /* provider may not be registered */ }
+            return {
+              server: 'my-agent',
+              daemonVersion: '2.0.0',
+              agentId: ctx.agentId,
+              model,
+              capabilities: {
+                events: 25, // Keep in sync with DataPlaneEventType union
+                methods: ctx.rpc.listMethods().length,
+              },
+              ts: Date.now(),
+            }
+          },
         },
 
         dispose: () => frontendSessions.clear(),

@@ -27,11 +27,16 @@ class TUIAdapter implements FrontendHandle {
   private running = false
   private unsubscribeEvent: (() => void) | null = null
   private logger?: Logger
+  private _model = ''
 
   constructor(id: string, transport: Transport, logger?: Logger) {
     this.id = id
     this.transport = transport
     this.logger = logger
+  }
+
+  get model(): string {
+    return this._model
   }
 
   onAgentEvent(event: DataPlaneEvent): void {
@@ -59,6 +64,8 @@ class TUIAdapter implements FrontendHandle {
         capabilities: { events: 16, methods: 24 },
       },
     })
+    const hr = response?.result as { model?: string } | undefined
+    if (hr?.model) this._model = hr.model
     this.logger?.debug('tui', `Hello response: ${JSON.stringify(response)}`)
   }
 

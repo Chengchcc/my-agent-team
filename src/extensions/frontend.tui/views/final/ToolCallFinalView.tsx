@@ -10,6 +10,11 @@ interface ToolCallFinalViewProps {
   name: string;
   input: unknown;
   result: ToolCallResult;
+  /**
+   * Snapshot value at commit time — must NOT subscribe to useTuiStore inside
+   * <Static> subtree (I-1 invariant). The parent passes the current value
+   * through a ref so the render-prop identity stays stable.
+   */
   expanded: boolean;
 }
 

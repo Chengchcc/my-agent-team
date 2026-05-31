@@ -27,7 +27,7 @@ async function handleAttachTUI(transport: Transport, sid?: string): Promise<void
 
   const projector = new TranscriptProjector()
 
-  const inkInstance = runTUIClient(client, projector, sessionId, snapshot as unknown[] as Array<{ role: string; content: unknown }>)
+  const inkInstance = runTUIClient(client, projector, sessionId, snapshot as unknown[] as Array<{ role: string; content: unknown }>, adapter.model)
   await inkInstance.waitUntilExit()
   projector.destroy()
   await adapter.stop()
