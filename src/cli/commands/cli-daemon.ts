@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { createHomePaths } from '../../infrastructure/paths/home-paths'
 import { createAgentPaths } from '../../infrastructure/paths/agent-paths'
 import type { CliManifest } from '../cli-types'
+import { CliError } from '../errors/cli-error'
 
 /* eslint-disable no-console -- CLI command output */
 
@@ -53,8 +54,12 @@ async function daemonStart(agentId: string): Promise<void> {
     if (existsSync(join(paths.agentDir, 'daemon.pid'))) {
       try { unlinkSync(join(paths.agentDir, 'daemon.pid')) } catch { /* ignore */ }
     }
-    console.error(daemonStderr.trim() || `Daemon exited with code ${proc.exitCode}`)
-    process.exit(proc.exitCode ?? 1)
+    throw new CliError({
+      code: 'E_DAEMON_START_FAILED',
+      message: 'Daemon failed to start.',
+      details: daemonStderr.trim() || `Daemon exited with code ${proc.exitCode}`,
+      exitCode: proc.exitCode ?? 1,
+    })
   } else {
     console.log(`Daemon started (PID: ${proc.pid}). Socket may still be initializing.`)
     console.log('Check: ' + join(paths.logs, 'agent.log'))
@@ -128,8 +133,12 @@ export const cliDaemon: CliManifest = {
       }
       case undefined:
       default: {
-        console.error('Usage: my-agent daemon <start|stop|status|logs> -a <agent>')
-        process.exit(1)
+        throw new CliError({
+          code: 'E_UNKNOWN_FLAG',
+          message: `Unknown daemon subcommand: ${sub}`,
+          hint: 'Usage: my-agent daemon <start|stop|status|logs|list> -a <agent>',
+          exitCode: 2,
+        })
       }
     }
   },

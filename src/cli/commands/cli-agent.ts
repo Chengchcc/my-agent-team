@@ -1,6 +1,7 @@
 import type { CliRuntimeContext } from '../cli-types'
 import { runCreateAgentFlow } from '../flows/create-agent-flow'
 import { cliAgentLark } from './cli-agent-lark'
+import { Errors } from '../errors/cli-error'
 
 const AGENT_ID_PAD_LEN = 20
 
@@ -78,9 +79,7 @@ export const cliAgent = {
       }
       case undefined:
       default:
-        ctx.err(`Unknown subcommand: ${sub ?? '(none)'}\n`)
-        ctx.err(this.usage + '\n')
-        process.exit(2)
+        throw Errors.unknownFlag(sub ?? '(none)', ['list', 'ls', 'create', 'show', 'default', 'delete', 'init', 'lark'])
     }
   },
 }

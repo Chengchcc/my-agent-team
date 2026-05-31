@@ -1,6 +1,7 @@
 import type { CliRuntimeContext } from '../cli-types'
 import { createPrompts } from '../prompts/prompt-runner'
 import { runLarkFlow } from '../flows/lark-flow'
+import { Errors } from '../errors/cli-error'
 
 export const cliAgentLark = {
   name: 'agent-lark',
@@ -66,9 +67,7 @@ export const cliAgentLark = {
         return
       case undefined:
       default:
-        ctx.err(`Unknown lark subcommand: ${sub ?? '(none)'}\n`)
-        ctx.err(this.usage + '\n')
-        process.exit(2)
+        throw Errors.unknownFlag(sub ?? '(none)', ['show', 'set', 'unset', 'enable', 'disable', 'test'])
     }
   },
 }

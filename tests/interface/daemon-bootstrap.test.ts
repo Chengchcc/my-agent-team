@@ -90,6 +90,6 @@ describe('daemon bootstrap', () => {
       transport: 'inmem',
     }
 
-    await expect(bootstrap(opts)).rejects.toThrow('socket path too long')
+    await expect(bootstrap(opts)).rejects.toThrow('Socket path too long')
   })
 })

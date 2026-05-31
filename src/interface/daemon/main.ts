@@ -12,6 +12,7 @@ import { createHomePaths, ensureHomePaths } from '../../infrastructure/paths/hom
 import { AgentNotFoundError } from '../../infrastructure/agent/sqlite-agent-store'
 
 export { AgentNotFoundError }
+import { CliError } from '../../cli/errors/cli-error'
 import { renderIdentityMd } from '../../domain/identity-doc'
 import { atomicWrite } from '../../shared/atomic-write'
 
@@ -98,9 +99,12 @@ export async function bootstrap(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const SOCKET_PATH_MAX_BYTES = 104
   if (Buffer.byteLength(socketPath) >= SOCKET_PATH_MAX_BYTES) {
-    throw new Error(
-      `socket path too long (${socketPath.length} bytes); set MY_AGENT_AGENTS_ROOT to a shorter path`
-    )
+    throw new CliError({
+      code: 'E_SOCKET_PATH_TOO_LONG',
+      message: `Socket path too long (${socketPath.length} bytes).`,
+      hint: 'Set MY_AGENT_AGENTS_ROOT to a shorter path.',
+      exitCode: 2,
+    })
   }
 
   await ensureAgentPaths(paths)

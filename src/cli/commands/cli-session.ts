@@ -5,6 +5,7 @@ import { UnixSocketTransport } from '../../infrastructure/transport/unix-socket-
 import type { Transport } from '../../application/ports/transport'
 import { defaultAgentsRoot } from '../../infrastructure/paths/agent-paths'
 import { MAIN_SESSION_ID } from '../../domain/anchor'
+import { Errors } from '../errors/cli-error'
 
 const PROFILES_DIR = defaultAgentsRoot()
 
@@ -158,8 +159,7 @@ export const cliSession: CliManifest = {
         return
       }
       default: {
-        console.error('Usage: my-agent session <attach|list|create|resume> [args]')
-        process.exit(1)
+        throw Errors.unknownFlag(sub, ['attach', 'list', 'create', 'resume'])
       }
     }
   },

@@ -3,6 +3,7 @@ import { UnixSocketTransport } from '../../infrastructure/transport/unix-socket-
 import { existsSync } from 'node:fs'
 import { defaultAgentsRoot } from '../../infrastructure/paths/agent-paths'
 import { MAIN_SESSION_ID } from '../../domain/anchor'
+import { Errors } from '../errors/cli-error'
 
 const PROFILES_DIR = defaultAgentsRoot()
 
@@ -12,12 +13,12 @@ function socketPath(agentId: string): string {
 
 async function handlePrint(agentId: string, prompt: string, sessionId = MAIN_SESSION_ID): Promise<void> {
   if (!prompt) {
-    throw new Error('Usage: my-agent print "your prompt"')
+    throw Errors.missingPrompt()
   }
 
   const sp = socketPath(agentId)
   if (!existsSync(sp)) {
-    throw new Error(`Daemon not running. Start it first: my-agent daemon start`)
+    throw Errors.daemonNotRunning(agentId, sp)
   }
 
   const transport = new UnixSocketTransport(sp)
@@ -32,7 +33,7 @@ async function handlePrint(agentId: string, prompt: string, sessionId = MAIN_SES
     }
     if (ev.type === 'turn.completed') { resolveTurn() }
     if (ev.type === 'turn.failed') {
-      throw new Error(String((ev.payload as Record<string, unknown>)?.error ?? 'Turn failed'))
+      throw Errors.turnFailed(String((ev.payload as Record<string, unknown>)?.error ?? 'Turn failed'))
     }
   })
 

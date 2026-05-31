@@ -12,6 +12,7 @@ export interface Prompts {
   multiline(opts: { message: string; terminator?: string }): Promise<string>
   withSpinner<T>(label: string, fn: () => Promise<T>): Promise<T>
   cancel(message?: string): never
+  fail(message: string, hint?: string): never
 }
 
 export function createPrompts(): Prompts {
@@ -111,5 +112,21 @@ export function createPrompts(): Prompts {
       clack.cancel(chalk.red(message ?? 'Cancelled'))
       process.exit(0)
     },
+
+    fail(message: string, hint?: string): never {
+      clack.cancel(chalk.red('\u2716 ' + message))
+      if (hint) process.stderr.write(chalk.gray('  ' + hint) + '\n')
+      process.exit(2)
+    },
+  }
+}
+
+/** Wrap a flow function: catches throws inside clack scope, restores terminal, re-throws for main.ts. */
+export async function runWithPromptGuard<T>(_prompts: Prompts, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    clack.cancel('')
+    throw err
   }
 }

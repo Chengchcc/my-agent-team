@@ -91,7 +91,7 @@ describe('Feature: Daemon lifecycle (F1)', () => {
         // Should not reach here
         handle = null
       } catch (err) {
-        expect((err as Error).message).toContain('socket path too long')
+        expect((err as Error).message).toContain('Socket path too long')
       }
     })
   })

@@ -43,10 +43,10 @@ export async function runCreateAgentFlow(ctx: CliRuntimeContext): Promise<void> 
 
   const errors = validateAgent(agentId, displayName);
   if (errors.length > 0) {
-    for (const e of errors) {
-      console.error(chalk.red(`${e.field}: ${e.message}`));
-    }
-    process.exit(1);
+    prompts.fail(
+      'Validation failed',
+      errors.map(e => `${e.field}: ${e.message}`).join('\n  '),
+    )
   }
 
   // Check for existing agent dir
@@ -64,8 +64,7 @@ export async function runCreateAgentFlow(ctx: CliRuntimeContext): Promise<void> 
 
   // Check for existing agent in store
   if (await store.exists(agentId)) {
-    console.error(chalk.red(`Agent '${agentId}' already exists.`));
-    process.exit(1);
+    prompts.fail(`Agent '${agentId}' already exists.`, 'Pick a different ID or remove the existing one.')
   }
 
   // Step 3: identity mode
@@ -79,8 +78,15 @@ export async function runCreateAgentFlow(ctx: CliRuntimeContext): Promise<void> 
   }) as 'questionnaire' | 'llm_oneshot' | 'deferred';
 
   // Step 4: identity flow
+  if (identityMode === 'llm_oneshot') {
+    prompts.fail(
+      'LLM one-shot identity requires a running daemon (provider not available).',
+      'Use questionnaire mode, or start the daemon first: my-agent daemon start',
+    )
+  }
+
   const identity = await runIdentityFlow(prompts, identityMode, {
-    provider: undefined, // Provider will be available when daemon is running
+    provider: undefined,
     defaults: {},
   });
 
