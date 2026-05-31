@@ -154,6 +154,8 @@ Adapter implementations organized by domain: `llm/` (ClaudeProvider, OpenAiProvi
 
 `types.ts`, `schema.ts` (Zod, exempt from the application/contracts zod restriction), `defaults.ts`, `loader.ts` (YAML/JSON), `constants.ts`, `migrations.ts`, `index.ts`.
 
+**Memory embedding encoder**: Defaults to Ollama (`localhost:11434`). Override via `memory({ encoder })` preset injection, `agent.yaml` `memory.embedding.*` keys, or env vars `MY_AGENT_MEMORY_EMBED_BASE_URL` / `MY_AGENT_MEMORY_EMBED_MODEL` / `MY_AGENT_MEMORY_EMBED_TIMEOUT_MS`. E2E fixtures assemble `fakeEncoder` — E2E must never touch the network.
+
 ### Terminal UI (`/src/extensions/frontend.tui/`)
 
 Ink/React TUI implementing `FrontendHandle`. TUIAdapter wraps Transport, bridges `DataPlaneEvent` → view-model events. Zustand store with live / committed streaming state. Views organized by rendering lifecycle: `views/chrome/`, `views/active/`, `views/final/`, `overlays/`, `panels/`. Hooks: `use-agent-subscription`, `use-command-input`, `use-permission-manager`, `use-session-picker`.
