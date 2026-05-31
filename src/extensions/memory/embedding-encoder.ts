@@ -1,9 +1,9 @@
 import type { EmbeddingEncoder } from './retrievers'
 interface EncoderConfig { baseUrl: string; model: string; timeoutMs: number }
 const DEFAULT: EncoderConfig = {
-  baseUrl: 'http://localhost:11434',
-  model: 'nomic-embed-text',
-  timeoutMs: 10_000,
+  baseUrl: process.env.MY_AGENT_MEMORY_EMBED_BASE_URL ?? 'http://localhost:11434',
+  model:   process.env.MY_AGENT_MEMORY_EMBED_MODEL    ?? 'nomic-embed-text',
+  timeoutMs: parseInt(process.env.MY_AGENT_MEMORY_EMBED_TIMEOUT_MS ?? '10000', 10),
 }
 
 export function createOllamaEncoder(cfg: Partial<EncoderConfig> = {}): EmbeddingEncoder {

@@ -13,6 +13,7 @@ import { DedupPipeline } from './dedup-pipeline'
 import { ContradictionResolver } from './contradiction-resolver'
 import type { InvokeFn } from '../../application/ports/job-spawner'
 import type { MemoryEntry } from '../../domain/memory-entry'
+import type { EmbeddingEncoder } from './retrievers'
 import { RememberUseCase } from './explicit-write/remember-use-case'
 import type { RememberInput } from './explicit-write/remember-use-case'
 import { ForgetUseCase } from './explicit-write/forget-use-case'
@@ -127,6 +128,7 @@ export type _CheckCliManifest = AssertHasCliManifest<typeof import('./index')>
 
 interface MemoryOpts {
   baseDir?: string
+  encoder?: EmbeddingEncoder
   embedding?: { baseUrl?: string; model?: string }
   weights?: { vector?: number; bm25?: number; keyword?: number }
 }
@@ -144,7 +146,10 @@ export default (opts: MemoryOpts = {}) =>
       mkdirSync(baseDir, { recursive: true })
       const db = openDb(join(baseDir, 'memory.db'))
       const store = createSqliteMemoryStore(db)
-      const encoder = createOllamaEncoder(opts.embedding ?? {})
+      const embedCfg = (ctx.config.raw.memory as Record<string, unknown> | undefined)?.embedding as
+        { baseUrl?: string; model?: string } | undefined
+      const encoder = opts.encoder
+        ?? createOllamaEncoder({ ...embedCfg, ...opts.embedding })
       const reader = ctx.extensions.get('trace.reader')
       const spawner = ctx.extensions.has('infra-services.job-spawner')
         ? ctx.extensions.get('infra-services.job-spawner')
