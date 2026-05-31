@@ -143,7 +143,7 @@ export async function bootstrap(opts: DaemonOptions): Promise<DaemonHandle> {
   kernel.ctx.extensions.provideKernel('agent.self', selfMutator)
 
   for (const ext of domainCore) kernel.use(ext)
-  for (const ext of memory) kernel.use(ext)
+  for (const ext of memory()) kernel.use(ext)
   for (const ext of identity) kernel.use(ext)
   for (const ext of skills()) kernel.use(ext)
   for (const ext of evolution) kernel.use(ext)

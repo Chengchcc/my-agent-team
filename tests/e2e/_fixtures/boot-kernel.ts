@@ -12,6 +12,7 @@ import type { Transport } from '../../../src/application/ports/transport'
 import { E2EFakeProvider, type E2ETurn } from './e2e-fake-provider'
 import { InMemoryAgentStore } from './in-memory-agent-store'
 import { makeFakeTool, type FakeToolSpec } from './fake-tool'
+import { fakeEncoder } from './fake-embedding-encoder'
 
 const silentLogger = {
   debug: () => {}, info: () => {}, warn: () => {}, error: () => {},
@@ -61,7 +62,7 @@ export async function bootE2E(opts: BootOpts = {}): Promise<E2EHandle> {
 
   // Presets in daemon order, minus real 'provider' (replaced below)
   const presets = [
-    ...domainCore, ...memory, ...identity, ...skills(), ...evolution,
+    ...domainCore, ...memory({ encoder: fakeEncoder }), ...identity, ...skills(), ...evolution,
     ...mcp, ...infraServices, ...transportInmem,
     ...(opts.withLark ? frontendLark : []),
   ].filter(b => b.name !== 'provider')

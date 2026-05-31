@@ -3,6 +3,7 @@ import traceExt from './trace'
 import providerExt from './provider'
 import sessionExt from './session'
 import memoryExt from './memory'
+import type { EmbeddingEncoder } from './memory/retrievers'
 import identityExt from './identity'
 import skillsExt from './skills'
 import toolsExt from './tools'
@@ -22,8 +23,15 @@ import frontendCapabilityHintsExt from './frontend-capability-hints'
 export const domainCore = [toolCatalogExt(), traceExt(), providerExt(), sessionExt(), toolsExt(), permissionExt(), controlplaneExt(), controlplaneMethodsExt(), dataplaneExt()]
 export const frontendCapabilityHints = [frontendCapabilityHintsExt()]
 
+export interface MemoryPresetOpts {
+  baseDir?: string
+  encoder?: EmbeddingEncoder
+  embedding?: { baseUrl?: string; model?: string }
+  weights?: { vector?: number; bm25?: number; keyword?: number }
+}
+
 // Single-extension presets (named exactly after the extension, no "Preset" suffix)
-export const memory = [memoryExt()]
+export const memory = (opts: MemoryPresetOpts = {}): ReturnType<typeof memoryExt>[] => [memoryExt(opts)]
 export const identity = [identityExt()]
 export const skills = (opts?: { builtinDir?: string; agentDir?: string; extraPaths?: string[] }) => [skillsExt(opts)]
 export const evolution = [evolutionExt()]
