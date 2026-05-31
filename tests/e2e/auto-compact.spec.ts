@@ -37,3 +37,6 @@ describe('Feature: Auto-compact (F8)', () => {
     }
   })
 })
+
+// regression: memory recall must not invoke real network
+// (fakeEncoder doesn't fetch — if anyone re-introduces Ollama, this will hang)
