@@ -182,9 +182,12 @@ export async function runTurnUsecase(
     ? toolsR.value.filter(t => input.allowedToolNames!.includes(t.name))
     : toolsR.value
 
-  // Central bootstrap tool gate — strip all tools when bootstrap is active
+  // Bootstrap mode: tools are ADVERTISED to the model (so it uses native
+  // tool_use and never hallucinates XML tool calls), but execution is
+  // blocked below in the onToolCall closure with a clear error. The model
+  // receives tool_result(is_error=true) and naturally explains it to the user.
   const isBootstrapActive = promptR.value.system.includes('## Bootstrap Pending')
-  const finalTools = isBootstrapActive ? [] : resolvedTools
+  const finalTools = resolvedTools
 
   // Emit llm.request + optional prompt.snapshot trace events
   const traceFactory = emitTraceRequest(hooks, sessionId, turnId, promptR.value.system, basePrompt, finalMessages, finalTools.map(t => t.name))
@@ -208,6 +211,16 @@ export async function runTurnUsecase(
       systemPrompt,
       hooks: {
         onToolCall: async (call) => {
+          if (isBootstrapActive) {
+            logger.info('turn', `bootstrap blocked tool call: ${call.name}`)
+            // Throw → turn-runner records tool.error + history.isError=true.
+            // Claude reads tool_result(is_error=true) and surfaces a clear
+            // message to the user instead of looping or hallucinating.
+            throw new Error(
+              `工具 "${call.name}" 不可用：当前 agent 仍处于身份初始化阶段（identity_status=pending_bootstrap）。` +
+              `请先完成 bootstrap 字段问答，或运行 \`my-agent agent bootstrap skip -a <id>\` 跳过初始化后再使用工具。`,
+            )
+          }
           const sink = createToolSink()
           const perCallCtx: ToolContext = { signal: controller.signal, environment: baseEnv, sink, sessionId, turnId, callId: call.id }
           try {

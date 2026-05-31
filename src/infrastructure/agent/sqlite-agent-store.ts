@@ -116,7 +116,16 @@ export class SqliteAgentStore implements AgentStore {
     }
 
     vals.push(agentId, cur.updatedAt)
-    this.db.run(`UPDATE agents SET ${sets.join(', ')} WHERE agent_id = ? AND updated_at = ?`, vals)
+    const result = this.db.run(
+      `UPDATE agents SET ${sets.join(', ')} WHERE agent_id = ? AND updated_at = ?`,
+      vals,
+    )
+    if (result.changes === 0) {
+      throw new Error(
+        `AgentStore.update('${agentId}') affected 0 rows — optimistic lock conflict ` +
+        `(expected updated_at=${cur.updatedAt}). Patch keys: ${Object.keys(patch).join(',')}`,
+      )
+    }
 
     if (patch.isDefault) {
       this.db.run('UPDATE agents SET is_default = 0 WHERE agent_id != ?', [agentId])

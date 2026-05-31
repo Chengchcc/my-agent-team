@@ -106,16 +106,20 @@ export function renderBootstrapRequest(
   return `## Bootstrap Pending — 身份初始化${remain}
 
 **[最高优先级,本轮唯一任务]**
-用一句简短中文向用户提问：${hint}
+默认行为：用一句简短中文向用户提问：${hint}
 
-绝对禁止：
-- 输出字段名（如"role"、"audience"等英文）
-- 寒暄、自我介绍、复述用户上一条消息
-- 调用任何工具
-- 回答用户的其他话题
-- 假装 bootstrap 已完成
+例外：如果用户上一条消息明显不是字段答案（例如要求执行命令、读文件、查代码、闲聊），
+不要拒绝、不要假装能做。直接尝试调用对应工具 —— 系统会自动返回一个错误，
+错误内容会告诉用户当前处于身份初始化阶段、需要先完成 bootstrap
+或运行 \`my-agent agent bootstrap skip -a <id>\` 跳过。
+你拿到错误后，用一句中文把错误内容转告用户，然后回到原本的字段提问：${hint}
 
-只输出一句问句,不要其他任何内容。`
+无论哪种，都遵守：
+- 不要输出字段名（如"role"、"audience"等英文）
+- 不要寒暄、自我介绍、复述用户上一条消息
+- 不要假装 bootstrap 已完成
+
+只输出一两句话，不要长篇大论。`
 }
 
 export const DEFAULT_BOOTSTRAP_MD = `---

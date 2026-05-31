@@ -2,6 +2,9 @@ import type { CliRuntimeContext } from '../cli-types'
 import { runCreateAgentFlow } from '../flows/create-agent-flow'
 import { cliAgentLark } from './cli-agent-lark'
 import { Errors } from '../errors/cli-error'
+import { createAgentPaths } from '../../infrastructure/paths/agent-paths'
+import { atomicRead, atomicWrite } from '../../shared/atomic-write'
+import { unlink } from 'node:fs/promises'
 
 const AGENT_ID_PAD_LEN = 20
 
@@ -77,6 +80,10 @@ export const cliAgent = {
         await cliAgentLark.handler(argv.slice(1), ctx)
         return
       }
+      case 'bootstrap': {
+        await handleBootstrap(argv, ctx)
+        return
+      }
       case undefined:
       default:
         throw Errors.unknownFlag(sub ?? '(none)', ['list', 'ls', 'create', 'show', 'default', 'delete', 'init', 'lark'])
@@ -90,4 +97,23 @@ function getAgentArg(argv: string[]): string | null {
   const agentIdx = argv.indexOf('--agent')
   if (agentIdx >= 0 && agentIdx + 1 < argv.length) return argv[agentIdx + 1] ?? null
   return null
+}
+
+async function handleBootstrap(argv: string[], ctx: CliRuntimeContext): Promise<void> {
+  const subAction = argv[1]
+  if (subAction !== 'skip') {
+    ctx.out('Usage: my-agent agent bootstrap skip -a <id>\n')
+    return
+  }
+  const id = getAgentArg(argv)
+  if (!id) { ctx.err('Usage: my-agent agent bootstrap skip -a <id>\n'); return }
+  if (!ctx.agentStore) { ctx.err('agentStore not available\n'); return }
+  await ctx.agentStore.update(id, { identityStatus: 'ready' })
+  const paths = createAgentPaths(ctx.paths?.agentsRoot ?? '', id)
+  try {
+    const content = await atomicRead(paths.identity.bootstrap, '')
+    if (content) await atomicWrite(paths.identity.archived, content)
+  } catch { /* best effort */ }
+  try { await unlink(paths.identity.bootstrap) } catch { /* best effort */ }
+  ctx.out(`agent '${id}' bootstrap skipped; identityStatus → ready\n`)
 }

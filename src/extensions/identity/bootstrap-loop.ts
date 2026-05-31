@@ -16,6 +16,7 @@ import { renderIdentityMd } from '../../domain/identity-doc'
 import { atomicWrite, atomicRead } from '../../shared/atomic-write'
 import { readFileSync } from 'node:fs'
 import { unlink } from 'node:fs/promises'
+const LOG_USER_CONTENT_MAX_LEN = 80
 export interface BootstrapLoopDeps {
   store: FileBackedIdentityStore
   registry: AgentRegistryRead
@@ -95,12 +96,19 @@ export function createBootstrapLoop(deps: BootstrapLoopDeps) {
           Object.assign(state.collected, patch)
           state.turnsCompleted += 1
           state.stallCount = 0
+          deps.logger.info(
+            'bootstrap',
+            `extract ok: ${JSON.stringify(patch)} (turn ${state.turnsCompleted}/${state.turnsMax})`,
+          )
         } else {
           state.stallCount = (state.stallCount ?? 0) + 1
-          if (state.stallCount >= 2) {
-            state.turnsCompleted += 1
-            state.stallCount = 0
-          }
+          // Always advance the turn counter on every user message — guarantees finalize
+          // within turnsMax even if every extraction fails (escape hatch from forever-pending state).
+          state.turnsCompleted += 1
+          deps.logger.info(
+            'bootstrap',
+            `extract empty (stall ${state.stallCount}, turn ${state.turnsCompleted}/${state.turnsMax}): "${userContent.slice(0, LOG_USER_CONTENT_MAX_LEN)}"`,
+          )
         }
       } catch (err) {
         deps.logger.warn('bootstrap', `extract failed: ${String(err)}`)
@@ -186,24 +194,31 @@ async function finalizeBootstrap(
     const body = cleaned.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
     await deps.store.update({ fields, body }, { source: 'bootstrap' })
 
-    // Archive bootstrap.md
+    // Promote AgentRecord.identityStatus to 'ready' FIRST — must succeed before we
+    // touch bootstrap.md, otherwise the next session sees DB=pending + missing
+    // bootstrap.md and loops forever from a default state.
+    try {
+      await deps.agentStore.update(deps.agentId, { identityStatus: 'ready' })
+      deps.logger.info('bootstrap', `agent ${deps.agentId} identityStatus → ready`)
+    } catch (err) {
+      deps.logger.error(
+        'bootstrap',
+        `failed to promote identityStatus to ready, ABORTING archive: ${String(err)}`,
+      )
+      return // ← do NOT archive/unlink; next turn will retry the whole finalize
+    }
+
+    // Archive bootstrap.md (best effort — DB already authoritative)
     try {
       const content = await atomicRead(deps.bootstrapPath, '')
       if (content) {
         await atomicWrite(deps.archivedPath, content)
       }
-    } catch { /* best effort */ }
-    try { await unlink(deps.bootstrapPath) } catch { /* best effort */ }
-
-    // Promote AgentRecord.identityStatus to 'ready'
-    try {
-      await deps.agentStore.update(deps.agentId, { identityStatus: 'ready' })
-      deps.logger.info('bootstrap', `agent ${deps.agentId} identityStatus → ready`)
     } catch (err) {
-      deps.logger.warn(
-        'bootstrap',
-        `failed to promote identityStatus to ready: ${String(err)}`,
-      )
+      deps.logger.warn('bootstrap', `archive failed: ${String(err)}`)
+    }
+    try { await unlink(deps.bootstrapPath) } catch (err) {
+      deps.logger.warn('bootstrap', `unlink bootstrap.md failed: ${String(err)}`)
     }
   } catch (err) {
     deps.logger.error('bootstrap', `final synthesis failed: ${String(err)}`)
