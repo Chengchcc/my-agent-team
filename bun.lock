@@ -62,6 +62,7 @@
       "name": "@my-agent-team/harness",
       "version": "0.1.0",
       "dependencies": {
+        "@my-agent-team/checkpointer-sqlite": "workspace:*",
         "@my-agent-team/core": "workspace:*",
         "@my-agent-team/framework": "workspace:*",
         "@my-agent-team/plugin-fs-memory": "workspace:*",

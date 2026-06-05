@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AIMessageChunk, ChatModel, Message, Tool } from "@my-agent-team/core";
+import { Database } from "bun:sqlite";
 import { createGenericAgent } from "./create-generic-agent.js";
 
 async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
@@ -180,6 +181,83 @@ describe("createGenericAgent", () => {
 
       expect(agent.thread.messages).toBeDefined();
     } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  // ─── M8: Checkpointer default & injection ────────────────────
+
+  test("default checkpointer creates .checkpoints/db.sqlite", async () => {
+    const ws = `/tmp/test-harness-cp-${Date.now()}`;
+    await mkdir(ws, { recursive: true });
+    await mkdir(path.join(ws, "memory"), { recursive: true });
+
+    try {
+      await writeFile(path.join(ws, "SOUL.md"), "You are a test agent.");
+
+      await createGenericAgent({
+        workspace: ws,
+        model: scriptedModel([{ type: "text", text: "ok" }]),
+      });
+
+      // The sqlite checkpointer should create the .checkpoints dir and db file
+      const dbPath = path.join(ws, ".checkpoints", "db.sqlite");
+      const s = await stat(dbPath);
+      expect(s.isFile()).toBe(true);
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  test('checkpointer: "memory" alias uses in-memory (no db.sqlite)', async () => {
+    const ws = `/tmp/test-harness-cp-mem-${Date.now()}`;
+    await mkdir(ws, { recursive: true });
+    await mkdir(path.join(ws, "memory"), { recursive: true });
+
+    try {
+      await writeFile(path.join(ws, "SOUL.md"), "You are a test agent.");
+
+      await createGenericAgent({
+        workspace: ws,
+        model: scriptedModel([{ type: "text", text: "ok" }]),
+        checkpointer: "memory",
+      });
+
+      // No .checkpoints/db.sqlite should be created
+      const dbPath = path.join(ws, ".checkpoints", "db.sqlite");
+      await expect(stat(dbPath)).rejects.toBeDefined();
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("checkpointerDb injected → uses backend-owned Database", async () => {
+    const ws = `/tmp/test-harness-cp-inject-${Date.now()}`;
+    await mkdir(ws, { recursive: true });
+    await mkdir(path.join(ws, "memory"), { recursive: true });
+
+    const sharedDb = new Database(":memory:");
+    try {
+      await writeFile(path.join(ws, "SOUL.md"), "You are a test agent.");
+
+      const agent = await createGenericAgent({
+        workspace: ws,
+        model: scriptedModel([{ type: "text", text: "ok" }]),
+        checkpointerDb: sharedDb,
+      });
+
+      // Run a turn to trigger save
+      await collect(agent.run("hi"));
+
+      // Verify messages were saved to the shared DB (not a workspace file)
+      const row = sharedDb
+        .query("SELECT messages FROM checkpoint_messages WHERE thread_id = ?")
+        .get(agent.thread.id) as { messages: string } | undefined;
+      expect(row).toBeDefined();
+      const msgs = JSON.parse(row!.messages);
+      expect(msgs.length).toBeGreaterThan(0);
+    } finally {
+      sharedDb.close();
       await rm(ws, { recursive: true, force: true });
     }
   });

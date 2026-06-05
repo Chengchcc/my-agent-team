@@ -20,6 +20,7 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
+    "@my-agent-team/checkpointer-sqlite": "workspace:*",
     "@my-agent-team/core": "workspace:*",
     "@my-agent-team/framework": "workspace:*",
     "@my-agent-team/plugin-fs-memory": "workspace:*",

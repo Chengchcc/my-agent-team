@@ -1,5 +1,7 @@
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import type { Tool } from "@my-agent-team/core";
+import { sqliteCheckpointer } from "@my-agent-team/checkpointer-sqlite";
 import {
   type Agent,
   type Checkpointer,
@@ -20,6 +22,7 @@ import {
   writeTool,
 } from "@my-agent-team/tools-common";
 import { bootstrap } from "./bootstrap.js";
+import type { Database } from "bun:sqlite";
 
 function checkDuplicateNames(
   kind: string,
@@ -50,13 +53,36 @@ export interface GenericAgentOptions {
   /** Permission mode. Default 'ask'. M6 passes through to framework; enforcement lands in M8. */
   permissionMode?: "ask" | "auto" | "deny";
 
-  /** Injectable logger / checkpointer, defaults to console + in-memory. */
+  /** Injectable logger / checkpointer. Default logger = console, default checkpointer = sqlite. */
   logger?: Logger;
-  checkpointer?: Checkpointer;
+  checkpointer?: Checkpointer | "memory" | "sqlite";
+
+  /** When checkpointer is sqlite (or default), use this Database instance instead of opening workspace file. */
+  checkpointerDb?: Database;
 
   /** Additional user-defined plugins / tools. Merged with defaults; duplicate names fail fast. */
   extraPlugins?: readonly Plugin[];
   extraTools?: readonly Tool[];
+}
+
+function resolveCheckpointer(
+  workspace: string,
+  checkpointer?: Checkpointer | "memory" | "sqlite",
+  checkpointerDb?: Database,
+): Checkpointer {
+  // Explicit Checkpointer instance passed — use directly
+  if (checkpointer && typeof checkpointer !== "string") return checkpointer;
+
+  // "memory" alias — use in-memory (old default, for backward compat)
+  if (checkpointer === "memory") return inMemoryCheckpointer();
+
+  // "sqlite" or default — use sqlite with workspace file or injected db
+  if (checkpointerDb) return sqliteCheckpointer({ db: checkpointerDb });
+
+  // Ensure .checkpoints/ directory exists in workspace
+  const cpDir = path.join(workspace, ".checkpoints");
+  mkdirSync(cpDir, { recursive: true });
+  return sqliteCheckpointer({ db: path.join(cpDir, "db.sqlite") });
 }
 
 export async function createGenericAgent(opts: GenericAgentOptions): Promise<Agent> {
@@ -67,6 +93,7 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
     permissionMode: _permissionMode = "ask",
     logger: _logger,
     checkpointer: _checkpointer,
+    checkpointerDb,
   } = opts;
   const lg = _logger ?? consoleLogger();
 
@@ -88,7 +115,10 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
   const tools = [...defaultTools, ...(opts.extraTools ?? [])];
   const plugins = [...defaultPlugins, ...(opts.extraPlugins ?? [])];
 
-  // 5. Wire up framework
+  // 5. Resolve checkpointer (default → sqlite with workspace file)
+  const checkpointer = resolveCheckpointer(workspace, _checkpointer, checkpointerDb);
+
+  // 6. Wire up framework
   return createAgent({
     model,
     systemPrompt,
@@ -96,6 +126,6 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
     plugins,
     threadId,
     logger: lg,
-    checkpointer: _checkpointer ?? inMemoryCheckpointer(),
+    checkpointer,
   });
 }
