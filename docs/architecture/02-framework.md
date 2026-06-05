@@ -38,14 +38,17 @@ type AgentMessage =
 interface Agent {
   readonly thread: Thread;
   run(input: string, options?: RunOptions): AsyncIterable<AgentMessage>;
-  /** 从 interrupt 恢复，decision.approved 决定 tool 是否执行 */
-  resume(decision: ResumeDecision, options?: RunOptions): AsyncIterable<AgentMessage>;
+  /** 从 interrupt 恢复，传入 ResumeCommand 告知 framework 如何处理挂起的 tool */
+  resume(command: ResumeCommand, options?: RunOptions): AsyncIterable<AgentMessage>;
   fork(messages?: Message[], id?: string): Agent;
 }
 
-interface ResumeDecision {
-  approved: boolean;
-  message?: string;
+/** 调用方控制中断后如何恢复。比 LangChain Command 简单——没有 goto/update */
+interface ResumeCommand {
+  /** 填入 tool_result.content 的内容 */
+  content: string;
+  /** 用户拒绝时设 true */
+  isError?: boolean;
 }
 ```
 

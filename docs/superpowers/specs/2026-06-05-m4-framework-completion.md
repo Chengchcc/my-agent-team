@@ -28,10 +28,12 @@ M4 不是新包——是 **`@my-agent-team/framework` 的内部补齐**。零新
 | 项 | 当前 | 目标 |
 |---|---|---|
 | `Agent.run()` 返回类型 | `AsyncIterable<Message>` | `AsyncIterable<AgentMessage>` |
-| `Agent.resume()` | 无 | `resume(decision: ResumeDecision): AsyncIterable<AgentMessage>` |
+| `Agent.resume()` | 无 | `resume(command: ResumeCommand): AsyncIterable<AgentMessage>` |
 | `AgentMessage` | 无 | `Message \| { type: 'interrupted', ... }` |
-| `ResumeDecision` | 无 | `{ approved: boolean, message?: string }` |
+| `ResumeCommand` | 无 | `{ content: string, isError?: boolean }`（比 LangChain Command 简单，无 goto/update） |
 | 并发保护 | `run()` only | `run()` + `resume()` 都受 `#running` 保护 |
+
+**Interrupt 时的 save 顺序**：保存完整 messages（含 `assistant(tool_use)`）。`agent.resume()` 时先补 `tool_result` 再继续 loop。不丢失 model 产出，不重新调 LLM。
 
 ### 3.2 补齐 Checkpointer（中断 + 事件流）
 
@@ -81,9 +83,9 @@ interface Checkpointer {
 interface ContextManagerContext {
   threadId: string;
   signal?: AbortSignal;
-  modelInfo?: { id?: string; maxInputTokens?: number };
-  systemPrompt?: string;
 }
+```
+`modelInfo` 和 `systemPrompt` 不进 ctx。token 限制在构造时传入，system prompt 从 `messages[0]` 取。
 
 interface ContextManager {
   shape(ctx: ContextManagerContext, messages: readonly Message[]): Message[] | Promise<Message[]>;

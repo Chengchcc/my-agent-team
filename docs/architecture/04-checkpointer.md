@@ -169,10 +169,9 @@ ${dir}/
 └── ${threadId}.events.jsonl      # 事件追加流
 ```
 
-- `save`：原子写（temp + rename）`state.json`
-- `load`：读 `state.json`
-- `saveInterrupt`：写 `interrupt.json`；`consumeInterrupt`：读 + 删
-- `appendEvent`：append 一行 JSONL 到 `events.jsonl`
+- `save` / `saveInterrupt`：原子写（`Bun.write(tmp, ...)` + `Bun.rename(tmp, target)`），防止写一半崩溃文件损坏
+- `load` / `consumeInterrupt`：读对应 json 文件
+- `appendEvent`：直接 append 一行 JSONL（丢一行事件可接受，不需要原子写）
 
 适合：CLI、单机服务、本地开发。
 
@@ -205,29 +204,25 @@ ${dir}/
 - `assistant(text only)` —— 完成的轮次
 - `user(tool_result)` —— tool 执行完成
 
-**绝不**在 `assistant(tool_use)` 单独存在时 save（那是 API 非法状态，恢复会报错）。
+**Interrupt 时的特殊处理**：tool 抛 `InterruptSignal` 时，messages 末尾是 `assistant(tool_use)`——严格说是非法 API 状态。但中断时**不做回退**——保存当前完整 messages。`agent.resume()` 时 framework 会先补上 `tool_result`，让 messages 恢复合法后再继续 loop。这样不丢失 model 已产出的 tool_use，也避免了重新调 LLM。
 
 ### Agent API 暴露
 
 ```ts
 interface Agent {
   readonly thread: Thread;
-
-  /** 正常运行 */
   run(input: string, options?: RunOptions): AsyncIterable<AgentMessage>;
-
-  /** 从 interrupt 恢复 */
-  resume(decision: ResumeDecision, options?: RunOptions): AsyncIterable<AgentMessage>;
-
-  /** 复制 thread 创建分支 */
+  /** 从 interrupt 恢复。ResumeCommand 告知 framework 如何处理挂起的 tool */
+  resume(command: ResumeCommand, options?: RunOptions): AsyncIterable<AgentMessage>;
   fork(messages?: Message[], id?: string): Agent;
 }
 
-interface ResumeDecision {
-  /** 是否同意挂起的 tool 调用 */
-  approved: boolean;
-  /** 拒绝时返回给 LLM 的说明，或同意时的预先结果 */
-  message?: string;
+/** 比 LangChain Command 简单——没有 goto/update */
+interface ResumeCommand {
+  /** 填入 tool_result.content */
+  content: string;
+  /** 用户拒绝时设 true */
+  isError?: boolean;
 }
 
 type AgentMessage =

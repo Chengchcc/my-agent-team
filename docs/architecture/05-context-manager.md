@@ -114,14 +114,10 @@ interface ContextManager {
 interface ContextManagerContext {
   threadId: string;
   signal?: AbortSignal;
-  /** Model 容量提示（如果 ChatModel 暴露了） */
-  modelInfo?: {
-    id?: string;
-    maxInputTokens?: number;
-  };
-  /** Agent 创建时的 systemPrompt（如果有） */
-  systemPrompt?: string;
 }
+```
+
+`modelInfo` 和 `systemPrompt` 不进 ctx：token 限制在 ContextManager **构造时**传入（`tokenBudgetContextManager({ maxTokens, tokenizer })`），system prompt 直接从 `messages[0]` 取。
 ```
 
 ### 配套：组合多个策略

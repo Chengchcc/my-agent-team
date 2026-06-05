@@ -80,7 +80,7 @@
 | `createAgent()` | 框架入口工厂。`async createAgent(config) → Agent`。若配了 checkpointer + threadId，异步恢复历史。不接受具体 model 类或 tool 实例——只依赖 core 类型 | `packages/framework/src/create-agent.ts` |
 | `Agent` | 框架核心对象。`{ thread, run(input, opts?), resume(decision, opts?), fork(msgs?, id?) }`。run/resume 返回 `AsyncIterable<AgentMessage>` | 同上 |
 | `AgentMessage` | `Message \| { type: 'interrupted', pendingTool, reason, meta? }`。interrupted 类型在 tool 抛 InterruptSignal 时 yield | 同上 |
-| `ResumeDecision` | `{ approved: boolean, message?: string }`。传给 `agent.resume()` | 同上 |
+| `ResumeCommand` | `{ content: string, isError?: boolean }`。传给 `agent.resume()`。比 LangChain Command 简单——无 goto/update | 同上 |
 | `AgentConfig` | `{ model, tools?, systemPrompt?, plugins?, checkpointer?, contextManager?, logger?, threadId? }` | 同上 |
 | `Thread` | `{ id: string, messages: Message[] }` — 一条对话线。调用方可随时读写、fork、序列化。状态归调用方 | `packages/framework/src/thread.ts` |
 | `fork()` | Agent 的方法。`agent.fork(messages?, id?)`。复用 model/tools/plugins，创建新 thread。默认 `messages ?? structuredClone(thread.messages)`。用于分支对话、A/B 对比 | `packages/framework/src/create-agent.ts` |
