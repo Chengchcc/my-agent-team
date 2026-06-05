@@ -20,10 +20,11 @@ L1 Protocols   类型契约：Message / ChatModel / Tool
 |---|---|
 | M1 | `@my-agent-team/core`（L1+L2）+ `@my-agent-team/test-helpers` |
 | M2 | `@my-agent-team/adapter-anthropic` + `@my-agent-team/tools-common` + `@my-agent-team/cli` |
-| M3 | `@my-agent-team/framework`（L3） |
-| M4 | `@my-agent-team/harness-coding`（L4） |
-| M5 | `apps/backend`（L5） |
-| M6 | `@my-agent-team/plugin-fs-memory` + `@my-agent-team/plugin-progressive-skill` |
+| M3 | `@my-agent-team/framework`（L3 骨架） |
+| M4 | framework 补齐（resume / Interrupt / ContextManager / Logger / Checkpointer 6 法） |
+| M5 | `@my-agent-team/plugin-fs-memory` + `@my-agent-team/plugin-progressive-skill` + framework `Plugin.tools` 静态字段 |
+| M6 | `apps/backend`（L5） |
+| M7+ | `@my-agent-team/harness-coding`（L4） |
 
 ## 架构文档
 
