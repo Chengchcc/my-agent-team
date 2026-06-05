@@ -173,7 +173,7 @@ LLM 调 write_file({ path: 'memory/2026-06-05.md', content: '今天...', append:
 |---|---|---|
 | `read` | 读 workspace 内文件 | 必须 `${workspace}/...` |
 | `write` | 写 workspace 内文件 | 必须 `${workspace}/...`，支持 `append` 模式 |
-| `bash` | 执行 shell 命令 | `cwd = workspace` |
+| `bash` | 执行 shell 命令 | 默认 `cwd = workspace`，LLM 可按用户请求覆盖 |
 | `grep` | 文件内搜索 | 限定 workspace 内 |
 | `glob` | 文件 pattern 匹配 | 限定 workspace 内 |
 
