@@ -19,8 +19,6 @@
 
 M4 不是新包——是 **`@my-agent-team/framework` 的内部补齐**。零新依赖（只依赖 core）。
 
-M4 之前的 harness-coding 推后到 M5，M4 先把 foundation 做对。
-
 ---
 
 ## 三、交付范围
@@ -236,11 +234,10 @@ packages/framework/src/
 
 ## 五、不做的
 
-- ❌ 不做 `redisCheckpointer`（独立适配包，M5+）
-- ❌ 不做 `summarizingContextManager` 的内置 summarizer（用户提供函数，framework 只提供框架）
+- ❌ 不做 `redisCheckpointer`（独立适配包）
+- ❌ 不做 `summarizingContextManager` 的内置 summarizer（用户提供函数）
 - ❌ 不修改 M1/M2 包
-- ❌ 不做 Backend（M5）
-- ❌ 不做 Harness（M5）
+- ❌ 不做 Backend 和 Harness（那是后续 milestone 的事）
 
 ---
 
