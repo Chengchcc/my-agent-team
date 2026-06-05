@@ -1,0 +1,29 @@
+{
+  "name": "my-agent-team",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "create": "bun run scripts/create-package.ts",
+    "format": "biome format --write .",
+    "lint": "biome check . && eslint .",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "latest",
+    "@eslint/js": "latest",
+    "@inquirer/prompts": "latest",
+    "@types/bun": "latest",
+    "eslint": "latest",
+    "typescript": "latest",
+    "typescript-eslint": "latest",
+    "turbo": "latest"
+  }
+}
