@@ -322,15 +322,15 @@ sequenceDiagram
   participant R as Runner
   participant SSE as sse.ts
 
-  C->>S: POST /agents/abc/run {input, threadId}
+  C->>S: "POST /agents/abc/run {input, threadId}"
   S->>ST: load(abc)
   ST-->>S: AgentSpec
   S->>P: spawn(abc, input, threadId)
   P->>R: start runner with spec
-  R-->>P: AsyncIterable<AgentEvent>
+  R-->>P: "AsyncIterable<AgentEvent>"
   loop each yield
     P-->>SSE: AgentEvent
-    SSE-->>C: event: <type> data: <JSON>
+    SSE-->>C: "event: <type> data: <JSON>"
   end
   SSE-->>C: connection close
 ```

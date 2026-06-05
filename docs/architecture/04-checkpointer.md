@@ -309,9 +309,9 @@ sequenceDiagram
     T-->>A: throw InterruptSignal('permission_required', meta)
 
     A->>CP: save(messages)               %% 保存到 tool_use 之前的安全态
-    A->>CP: saveInterrupt({pendingTool, reason, ts})
+    A->>CP: "saveInterrupt({pendingTool, reason, ts})"
     A->>CP: appendEvent(interrupt)
-    A-->>U: yield {type:'interrupted', pendingTool, reason}
+    A-->>U: "yield {type:'interrupted', pendingTool, reason}"
     A-->>U: generator return
   end
 
@@ -327,7 +327,7 @@ sequenceDiagram
   participant CP as Checkpointer
   participant M as ChatModel
 
-  U->>A: createAgent({threadId:'s-1', checkpointer:fileCheckpointer(...)})
+  U->>A: "createAgent({threadId:'s-1', checkpointer:fileCheckpointer(...)})"
   A->>CP: load('s-1')
   CP-->>A: messages (含未消化的 tool_use)
 
@@ -335,7 +335,7 @@ sequenceDiagram
   U->>A: resume(cmd)
 
   A->>CP: consumeInterrupt('s-1')
-  CP-->>A: {pendingTool, reason}
+  CP-->>A: "{pendingTool, reason}"
   A->>CP: appendEvent(resume)
 
   A->>A: messages.push(tool_result mapped from cmd)

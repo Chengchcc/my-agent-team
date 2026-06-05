@@ -200,7 +200,7 @@ sequenceDiagram
     M-->>A: assistant chunks
     A->>A: messages.push(assistant)
     A->>PG: afterModel(ctx, messages)
-    A-->>U: yield { type: 'message', payload: assistant }
+    A-->>U: "yield { type: 'message', payload: assistant }"
     loop each tool_use
       A->>PG: beforeTool(ctx, call, messages)
       alt skip
@@ -212,7 +212,7 @@ sequenceDiagram
           A->>CP: save(messages)
           A->>CP: saveInterrupt(state)
           A->>CP: appendEvent(interrupt)
-          A-->>U: yield { type: 'interrupted', payload }
+          A-->>U: "yield { type: 'interrupted', payload }"
         else normal result
           A->>A: messages.push(tool_result)
           A->>PG: afterTool(ctx, call, result, messages)
