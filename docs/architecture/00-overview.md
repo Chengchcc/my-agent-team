@@ -17,6 +17,8 @@ M1 ships L1 and L2 in `@my-agent-team/core`, plus `@my-agent-team/test-helpers` 
 
 M2 adds `@my-agent-team/adapter-anthropic` (Anthropic `ChatModel` implementation via `@anthropic-ai/sdk`), `@my-agent-team/tools-common` (6 reusable tools: web_fetch, web_search, memory_save, memory_recall, read, write), and `@my-agent-team/cli` (`apps/cli`, interactive entry point).
 
+M3 will add `@my-agent-team/framework` (L3). See [01-framework.md](./01-framework.md) for the layer design.
+
 ## Design Principles
 
 1. No protocol without proven need: add fields only for real repeated pain, not imagined future cases.
