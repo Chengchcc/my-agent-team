@@ -2,6 +2,7 @@ import type { agentRoutes } from "../features/agent/http.js";
 import type { checkpointRoutes } from "../features/checkpoint/http.js";
 import type { runRoutes } from "../features/run/http.js";
 import type { threadRoutes } from "../features/thread/http.js";
+import { HttpError } from "../infra/errors.js";
 import { withAuth } from "./middleware.js";
 
 interface FeatureSet {
@@ -65,12 +66,18 @@ export function createRouter(token: string, features?: FeatureSet) {
         return withAuth((r) => agents.update(r, agentMatch?.[1] ?? ""), token)(req);
       if (agentMatch && method === "DELETE")
         return withAuth((r) => agents.archive(r, agentMatch?.[1] ?? ""), token)(req);
+      // M6: 405 for /api/agents/:id with wrong method
+      if (agentMatch)
+        return json({ error: "Method not allowed" }, 405);
 
       // Threads
       if (agentThreadsMatch && method === "POST")
         return withAuth((r) => threads.create(r, agentThreadsMatch[1]!), token)(req);
       if (agentThreadsMatch && method === "GET")
         return withAuth((r) => threads.list(r, agentThreadsMatch[1]!), token)(req);
+      // M6: 405 for /api/agents/:id/threads with wrong method
+      if (agentThreadsMatch)
+        return json({ error: "Method not allowed" }, 405);
 
       const threadMatch = path.match(/^\/api\/threads\/([^/]+)$/);
       const threadMsgsMatch = path.match(/^\/api\/threads\/([^/]+)\/messages$/);
@@ -80,21 +87,32 @@ export function createRouter(token: string, features?: FeatureSet) {
         return withAuth((r) => threads.getById(r, threadMatch[1]!), token)(req);
       if (threadMatch && method === "DELETE")
         return withAuth((r) => threads.delete(r, threadMatch[1]!), token)(req);
+      // M6: 405 for /api/threads/:id with wrong method
+      if (threadMatch)
+        return json({ error: "Method not allowed" }, 405);
       if (threadMsgsMatch && method === "GET")
         return withAuth((r) => checkpoints.getMessages(r, threadMsgsMatch[1]!), token)(req);
+      if (threadMsgsMatch)
+        return json({ error: "Method not allowed" }, 405);
       if (threadRunsMatch && method === "POST")
         return withAuth((r) => runs.run(r, threadRunsMatch[1]!), token)(req);
+      if (threadRunsMatch)
+        return json({ error: "Method not allowed" }, 405);
 
       // Cancel
       const cancelMatch = path.match(/^\/api\/runs\/([^/]+)\/cancel$/);
       if (cancelMatch && method === "POST")
         return withAuth((r) => runs.cancel(r, cancelMatch[1]!), token)(req);
+      if (cancelMatch)
+        return json({ error: "Method not allowed" }, 405);
 
       return withAuth(async () => notFound(req), token)(req);
     } catch (err) {
-      // M6: top-level error boundary — never leak stack traces
-      const message = err instanceof Error ? err.message : "Internal server error";
-      return json({ error: message }, 500);
+      // M6: top-level error boundary — use HttpError status, never leak internal messages
+      if (err instanceof HttpError) {
+        return json({ error: err.message }, err.status);
+      }
+      return json({ error: "Internal server error" }, 500);
     }
   };
 }

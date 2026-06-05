@@ -680,8 +680,11 @@ describe("createAgent", () => {
 
     const resultIds = new Set(toolResults.map((r) => r.tool_use_id));
 
-    // t1 (the interrupting tool): must NOT have a tool_result (it gets one on resume)
-    expect(resultIds.has("t1")).toBe(false);
+    // t1 (the interrupting tool): R4 now gets an immediate placeholder
+    expect(resultIds.has("t1")).toBe(true);
+    const t1Result = toolResults.find((r) => r.tool_use_id === "t1")!;
+    expect(t1Result.is_error).toBe(true);
+    expect(t1Result.content).toBe("Interrupted");
 
     // t2 (the non-interrupting tool after the interrupt): must have placeholder tool_result
     expect(resultIds.has("t2")).toBe(true);

@@ -180,6 +180,7 @@ test("migrations array is re-exported with id and up fields", async () => {
 
   for (const m of SQLITE_CHECKPOINTER_MIGRATIONS) {
     expect(typeof m.id).toBe("number");
+    expect(typeof m.name).toBe("string");
     expect(typeof m.up).toBe("string");
     expect(m.up.length).toBeGreaterThan(0);
   }

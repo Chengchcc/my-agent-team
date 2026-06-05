@@ -337,8 +337,9 @@ function createAgentInternal(
         const call = toolUses[i]!;
         const interrupted = yield* executeOne(call, opts);
         if (interrupted) {
-          // H1: Add placeholder tool_results for remaining unexecuted tool_use blocks
-          for (let j = i + 1; j < toolUses.length; j++) {
+          // H1+R4: Add placeholder tool_results for ALL unexecuted tool_use blocks
+          // (including the interrupting one — eliminates orphan window before resume)
+          for (let j = i; j < toolUses.length; j++) {
             const remaining = toolUses[j]!;
             thread.messages.push({
               role: "user",
@@ -419,17 +420,25 @@ function createAgentInternal(
           ts: Date.now(),
         });
 
-        thread.messages.push({
-          role: "user",
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: it.pendingTool.call.id,
-              content: command.message ?? (command.approved ? "approved" : "denied by user"),
-              is_error: !command.approved,
-            },
-          ],
-        });
+        // R4: Replace interrupt placeholder with real tool_result
+        const placeholderIdx = thread.messages.findLastIndex((m) =>
+          Array.isArray(m.content) &&
+          m.content.some(
+            (b) => b.type === "tool_result" && b.tool_use_id === it.pendingTool.call.id && b.is_error === true,
+          ),
+        );
+        const realResult = {
+          type: "tool_result" as const,
+          tool_use_id: it.pendingTool.call.id,
+          content: command.message ?? (command.approved ? "approved" : "denied by user"),
+          is_error: !command.approved,
+        };
+        if (placeholderIdx >= 0) {
+          // Replace the placeholder message in-place
+          thread.messages[placeholderIdx] = { role: "user", content: [realResult] } as Message;
+        } else {
+          thread.messages.push({ role: "user", content: [realResult] } as Message);
+        }
         await save(thread.messages);
 
         yield* runLoop({ signal: opts.signal, maxSteps: opts.maxSteps ?? 32 });

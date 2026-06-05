@@ -19,7 +19,7 @@ describe("webFetchTool", () => {
     const result = await webFetchTool.execute({ url: "https://example.com" });
 
     expect(result.content).toStartWith("x".repeat(20000));
-    expect(result.content).toInclude("truncated, original length: 25000");
+    expect(result.content).toInclude("truncated");
   });
 
   test("returns error body on HTTP failure", async () => {

@@ -6,8 +6,9 @@ export interface SqliteCheckpointerOptions {
   tablePrefix?: string;
 }
 
-export const SQLITE_CHECKPOINTER_MIGRATIONS: readonly { id: number; up: string }[] = [
+export const SQLITE_CHECKPOINTER_MIGRATIONS: readonly { name: string; id: number; up: string }[] = [
   {
+    name: "checkpointer_v1_messages",
     id: 1000,
     up: `CREATE TABLE IF NOT EXISTS checkpoint_messages (
   thread_id  TEXT PRIMARY KEY,
@@ -16,6 +17,7 @@ export const SQLITE_CHECKPOINTER_MIGRATIONS: readonly { id: number; up: string }
 )`,
   },
   {
+    name: "checkpointer_v2_interrupts",
     id: 1001,
     up: `CREATE TABLE IF NOT EXISTS checkpoint_interrupts (
   thread_id  TEXT PRIMARY KEY,
@@ -24,6 +26,7 @@ export const SQLITE_CHECKPOINTER_MIGRATIONS: readonly { id: number; up: string }
 )`,
   },
   {
+    name: "checkpointer_v3_events",
     id: 1002,
     up: `CREATE TABLE IF NOT EXISTS checkpoint_events (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,6 +36,7 @@ export const SQLITE_CHECKPOINTER_MIGRATIONS: readonly { id: number; up: string }
 )`,
   },
   {
+    name: "checkpointer_v4_events_idx",
     id: 1003,
     up: `CREATE INDEX IF NOT EXISTS idx_checkpoint_events_thread ON checkpoint_events(thread_id, id)`,
   },

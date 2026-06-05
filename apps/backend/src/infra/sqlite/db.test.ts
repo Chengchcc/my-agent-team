@@ -55,14 +55,19 @@ test("migrations are idempotent (calling openDb twice is safe)", () => {
   } catch {}
 });
 
-// ─── Test 3: user_version tracks migration progress ─────────────
+// ─── Test 3: _migrations table tracks applied migrations ────────
 
-test("user_version tracks migration count", () => {
+test("_migrations table tracks applied migrations by name", () => {
   const tmpPath = `/tmp/test-backend-db-ver-${Date.now()}.db`;
   const db = openDb(tmpPath);
 
-  const row = db.query("PRAGMA user_version").get() as { user_version: number };
-  expect(row.user_version).toBeGreaterThan(0);
+  const rows = db.query("SELECT name, id FROM _migrations ORDER BY id").all() as {
+    name: string;
+    id: number;
+  }[];
+  expect(rows.length).toBeGreaterThan(0);
+  expect(rows.some((r) => r.name === "backend_v1_agents")).toBe(true);
+  expect(rows.some((r) => r.name === "checkpointer_v1_messages")).toBe(true);
 
   db.close();
   try {

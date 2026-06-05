@@ -1,7 +1,8 @@
 import { SQLITE_CHECKPOINTER_MIGRATIONS } from "@my-agent-team/checkpointer-sqlite";
 
-export const BACKEND_MIGRATIONS: readonly { id: number; up: string }[] = [
+export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string }[] = [
   {
+    name: "backend_v1_agents",
     id: 1,
     up: `CREATE TABLE IF NOT EXISTS agents (
   id              TEXT PRIMARY KEY,
@@ -19,10 +20,12 @@ export const BACKEND_MIGRATIONS: readonly { id: number; up: string }[] = [
 )`,
   },
   {
+    name: "backend_v2_agents_archive_idx",
     id: 2,
     up: `CREATE INDEX IF NOT EXISTS idx_agents_archived ON agents(archived_at)`,
   },
   {
+    name: "backend_v3_threads",
     id: 3,
     up: `CREATE TABLE IF NOT EXISTS threads (
   id            TEXT PRIMARY KEY,
@@ -35,10 +38,12 @@ export const BACKEND_MIGRATIONS: readonly { id: number; up: string }[] = [
 )`,
   },
   {
+    name: "backend_v4_threads_agent_idx",
     id: 4,
     up: `CREATE INDEX IF NOT EXISTS idx_threads_agent ON threads(agent_id, updated_at DESC)`,
   },
   {
+    name: "backend_v5_runs",
     id: 5,
     up: `CREATE TABLE IF NOT EXISTS runs (
   id            TEXT PRIMARY KEY,
@@ -51,13 +56,14 @@ export const BACKEND_MIGRATIONS: readonly { id: number; up: string }[] = [
 )`,
   },
   {
+    name: "backend_v6_runs_thread_idx",
     id: 6,
     up: `CREATE INDEX IF NOT EXISTS idx_runs_thread ON runs(thread_id, started_at DESC)`,
   },
 ];
 
 /** Combined migrations: backend own + checkpointer tables. Sorted by id. */
-export const ALL_MIGRATIONS: readonly { id: number; up: string }[] = [
+export const ALL_MIGRATIONS: readonly { name: string; id: number; up: string }[] = [
   ...BACKEND_MIGRATIONS,
   ...SQLITE_CHECKPOINTER_MIGRATIONS,
-].sort((a, b) => a.id - b.id);
+];

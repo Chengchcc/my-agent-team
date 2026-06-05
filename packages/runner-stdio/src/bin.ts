@@ -14,13 +14,5 @@ const code = await runEntry({
   signal: ac.signal,
 });
 
-// H5: drain stdout before exit to avoid truncating final events
-await new Promise<void>((resolve) => {
-  if ((process.stdout as unknown as { writableLength?: number }).writableLength === 0) {
-    resolve();
-  } else {
-    process.stdout.once("drain", () => resolve());
-    setTimeout(resolve, 500);
-  }
-});
+// H5: use exitCode instead of process.exit() to let event loop drain stdout naturally
 process.exitCode = code;
