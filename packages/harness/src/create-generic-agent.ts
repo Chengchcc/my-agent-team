@@ -74,14 +74,7 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
   const systemPrompt = await bootstrap(workspace, lg);
 
   // 2. Default 6 built-in file tools (domain-neutral, needed by all workspace agents)
-  // bashTool wrapped to enforce cwd=workspace per architecture doc §四 contract
-  const bashWithCwd: Tool = {
-    ...bashTool,
-    execute(input) {
-      return bashTool.execute({ ...(input as Record<string, unknown>), cwd: workspace });
-    },
-  };
-  const defaultTools: Tool[] = [readTool, writeTool, editTool, bashWithCwd, grepTool, globTool];
+  const defaultTools: Tool[] = [readTool, writeTool, editTool, bashTool, grepTool, globTool];
 
   // 3. Default 2 plugins with conventional paths
   const defaultPlugins: Plugin[] = [

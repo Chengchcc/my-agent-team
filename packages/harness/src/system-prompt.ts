@@ -23,7 +23,7 @@ function escapeClosingTags(s: string): string {
 
 export function composeSystemPrompt(p: SystemPromptParts): string {
   return [
-    `<workspace>\nRoot: ${p.workspace}\nAll file paths (read, write, edit, grep, glob) are resolved relative to this directory.\nToday: ${p.today}\n</workspace>`,
+    `<workspace>\nRoot: ${p.workspace}\nFile tools (read, write, edit, grep, glob) use absolute paths relative to this root.\nFor bash, pass cwd='${p.workspace}' by default; override when the user explicitly requests a different directory.\nToday: ${p.today}\n</workspace>`,
     `<soul>\n${escapeClosingTags(p.soul)}\n</soul>`,
     `<user>\n${escapeClosingTags(p.user)}\n</user>`,
     `<tools>\n${escapeClosingTags(p.tools)}\n</tools>`,
