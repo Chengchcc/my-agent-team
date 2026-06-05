@@ -102,6 +102,16 @@
 
 ---
 
+## Backend 层（L5）
+
+| 术语 | 定义 |
+|---|---|
+| Backend | 常驻进程。管理多个 agent 实例，通过 HTTP + SSE 暴露能力给前端。agent pool 维护 threadId → Agent 映射。详见 [08-backend.md](./08-backend.md) |
+| Agent Pool | `{ getOrCreate(threadId), remove(threadId), shutdown() }`。Backend 内部的 agent 生命周期管理器 |
+| SSE（Server-Sent Events） | `AgentMessage` 流 → `text/event-stream` 的序列化。单向 server→client，用于 run/resume 的实时输出 |
+
+---
+
 ## Harness 层（L4）
 
 | 术语 | 定义 |

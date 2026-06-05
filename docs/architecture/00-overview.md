@@ -7,10 +7,11 @@
 ## 四层架构
 
 ```text
-L4 Harness    有观点的产品层：内置 tools + system prompt + 权限策略
-L3 Framework  装配层：createAgent 式 API，组合 model + tools + plugins
-L2 Runtime    运行内核：messages → model → tools → messages
-L1 Protocols  类型契约：Message / ChatModel / Tool
+L5 Backend     常驻服务：多 agent 管理 + HTTP/SSE + 鉴权 + 多租户
+L4 Harness     有观点的产品层：内置 tools + system prompt + 权限策略
+L3 Framework   装配层：createAgent 式 API，组合 model + tools + plugins
+L2 Runtime     运行内核：messages → model → tools → messages
+L1 Protocols   类型契约：Message / ChatModel / Tool
 ```
 
 ## Milestone 交付
@@ -20,6 +21,8 @@ L1 Protocols  类型契约：Message / ChatModel / Tool
 | M1 | `@my-agent-team/core`（L1+L2）+ `@my-agent-team/test-helpers` |
 | M2 | `@my-agent-team/adapter-anthropic` + `@my-agent-team/tools-common` + `@my-agent-team/cli` |
 | M3 | `@my-agent-team/framework`（L3） |
+| M4 | `@my-agent-team/harness-coding`（L4） |
+| M5 | `apps/backend`（L5） |
 
 ## 架构文档
 
@@ -30,6 +33,7 @@ L1 Protocols  类型契约：Message / ChatModel / Tool
 - [05-context-manager.md](./05-context-manager.md) — ContextManager 上下文管理
 - [06-harness.md](./06-harness.md) — Harness 的定义
 - [07-harness-vs-framework.md](./07-harness-vs-framework.md) — Framework vs Harness 边界
+- [08-backend.md](./08-backend.md) — Backend Agent 托管服务
 
 ## 设计原则
 
