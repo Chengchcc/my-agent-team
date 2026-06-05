@@ -2,7 +2,7 @@
 
 技能渐进式加载 plugin。把"agent 会哪些技能"做成一个**目录里的多个 SKILL.md**——每个 SKILL.md 由 frontmatter（name + description）和 body（详细指令）组成。plugin 在每轮 LLM 调用前自动注入 skill **索引**（只 name + description），LLM 需要时通过 tool 主动加载某个 skill 的**正文**。
 
-> 这是 [Plugin](./03-plugin.md) 的一个具体实现，与 [fsMemory](./09-plugin-fs-memory.md) 是兄弟形态：都走 `beforeModel` + 自带 tools。
+> 这是 [Plugin](./03-plugin.md) 的一个具体实现，与 [fsMemory](./06-plugin-fs-memory.md) 是兄弟形态：都走 `beforeModel` + 自带 tools。
 
 ---
 
@@ -114,7 +114,7 @@ Call \`skill_load(name)\` to load the full instructions for a skill before using
 
 ### 注入位置：system 末尾（与 fsMemory 同源）
 
-直接对齐 [fsMemory 的注入决议](./09-plugin-fs-memory.md#为什么拼-system-而不是新建-user-消息)——工业一致实践。
+直接对齐 [fsMemory 的注入决议](./06-plugin-fs-memory.md#为什么拼-system-而不是新建-user-消息)——工业一致实践。
 
 如果 fsMemory 和 progressiveSkill 同时启用且都拼 system 末尾，**plugins 数组顺序决定追加顺序**（[Plugin 管道链与错误隔离](./03-plugin.md#管道链与错误隔离)）：先 fsMemory 追加 `<memory>...`，再 progressiveSkill 追加 `<available-skills>...`，两段并列在 system 末尾。
 
@@ -291,4 +291,4 @@ const agent = createAgent({
 
 ---
 
-**Plugin 文档结束。** 兄弟文档：[FS Memory](./09-plugin-fs-memory.md)。
+**Plugin 文档结束。** 兄弟文档：[FS Memory](./06-plugin-fs-memory.md)。

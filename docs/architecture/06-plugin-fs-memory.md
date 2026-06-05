@@ -251,4 +251,4 @@ const agent = createAgent({
 
 ---
 
-**Plugin 文档结束。** 兄弟文档：[Progressive Skill](./10-plugin-progressive-skill.md)。
+**Plugin 文档结束。** 兄弟文档：[Progressive Skill](./07-plugin-progressive-skill.md)。
