@@ -59,7 +59,15 @@ beforeTool(ctx, call, messages) → { skip?, input?, result? }
 
 - `redactor` — 调 LLM 前给 PII 打码
 - `injectMetadata` — 给每条 user 消息拼接时间戳、项目信息
-- `permissionGate` — `beforeTool` 检查是否需要中断（实际中断由 [InterruptSignal](./04-checkpointer.md#tool-端interruptsignal-用法) 表达，plugin 只做"判定+提示"）
+- `permissionGate` — `beforeTool` 想阻止 tool 执行时，三种方式：
+
+| 意图 | 机制 |
+|------|------|
+| 直接拒绝，告诉 LLM 失败原因 | `return { skip: true, result: 'Permission denied' }` |
+| 改 input 后执行 | `return { input: newInput }` |
+| 停下来等人决定（human-in-the-loop） | 用 [`withPermission(tool, gating, reason)`](./04-checkpointer.md#tool-端interruptsignal-用法) 包装器，在 `tool.execute` 内部抛 `InterruptSignal` |
+
+`beforeTool` 抛 `InterruptSignal` **不会被识别为中断**——按 before* 错误规则整轮 abort。要做 permission 用 `withPermission` 包装 tool，让中断信号从正确位置（`tool.execute`）发出。
 
 ### Observer (after*)
 
@@ -140,7 +148,38 @@ plugin **不能做**的事（设计纪律）：
 | **Tool** | tool 是 LLM 主动调；plugin 是 framework 被动调 |
 | **Event Listener** | listener 只能"知道发生了"；plugin 的 `before*` 可以 transform 数据流 |
 | **Checkpointer** | checkpointer 是 framework 内化（持久化 + 中断），plugin 只是观察。详见 [Checkpointer vs Plugin 边界](./04-checkpointer.md#与-plugin-的协作边界) |
-| **ContextManager** | context manager 决定"送给 LLM 的视图"；plugin 在那个视图上做最后修饰。详见 [边界](./05-context-manager.md#八contextmanager-vs-pluginbeforemodel-的边界) |
+| **ContextManager** | context manager 决定"送给 LLM 的视图"（集合选择：哪些 message）；plugin 在那个视图上做最后修饰（元素修饰：message 长什么样）。详见 [边界](./05-context-manager.md#八contextmanager-vs-pluginbeforemodel-的边界) |
+
+---
+
+## 变形职责分层（与 ContextManager 的协作）
+
+```
+thread.messages (真实状态)
+  → ContextManager.shape(...)   ← 答"哪些 message 进 LLM"（集合选择）
+    → plugin.beforeModel(...)   ← 答"message 长什么样"（元素修饰）
+      → model.stream(...)
+```
+
+两层正交，顺序写死。详见 [05-context-manager.md#八contextmanager-vs-pluginbeforemodel-的边界](./05-context-manager.md#八contextmanager-vs-pluginbeforemodel-的边界)。
+
+典型协作示例：
+
+```ts
+createAgent({
+  model, tools,
+  contextManager: pipeContextManagers(
+    toolResultTruncator({ maxCharsPerResult: 8000 }),
+    tokenBudgetContextManager({ maxTokens: 180_000 }),
+  ),
+  plugins: [
+    injectMetadata({ projectName: 'my-agent', cwd: process.cwd() }),
+    redactor({ patterns: [/AKIA[0-9A-Z]{16}/g] }),
+  ],
+});
+```
+
+执行顺序：ContextManager 裁剪集合 → `injectMetadata` 修饰元素 → `redactor` 修饰元素 → 送 LLM。
 
 ---
 
@@ -163,12 +202,16 @@ async function fireBeforeModel(plugins, ctx, msgs) {
 
 错误隔离规则：
 
-```
-before*  抛错 → 整轮 abort，传给调用方
-after*   抛错 → 吞掉 + logger.warn(pluginName, err)
-```
+| 钩子类型 | 抛错行为 |
+|----------|----------|
+| `before*` | **短路**：第 N 个抛 → 第 N+1 起不调；整轮 abort，异常传给调用方 |
+| `after*` | **继续**：第 N 个抛 → `logger.warn(pluginName, err)`；第 N+1 起继续调 |
 
-不引入"plugin 优先级"枚举——`plugins` 数组顺序就是调用顺序。
+**为什么 before* 短路**：before* 是 transformer——前一个的输出 = 后一个的输入。第 N 个抛了 = 没产生有效输出 = 第 N+1 个的输入定义不出来。只能短路。
+
+**为什么 after* 继续**：after* 是 observer——各自独立的副作用，没有"上一个输出是下一个输入"的依赖。一个上报失败不该影响其他 plugin。
+
+不引入"可配置错误策略"——规则由 hook 类型（transformer vs observer）决定，这是 hook 设计根本。不引入"plugin 优先级"枚举——`plugins` 数组顺序就是调用顺序。
 
 ---
 

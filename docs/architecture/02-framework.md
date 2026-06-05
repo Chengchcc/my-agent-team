@@ -17,21 +17,29 @@ L2 的契约简单到只剩一个 generator——你每次都要自己提供 `mo
 ```ts
 interface Agent {
   readonly thread: Thread;
-  run(input: string, options?: RunOptions): AsyncIterable<AgentMessage>;
-  resume(command: ResumeCommand, options?: RunOptions): AsyncIterable<AgentMessage>;
+  run(input: string, options?: RunOptions): AsyncIterable<AgentEvent>;
+  resume(command: ResumeCommand, options?: RunOptions): AsyncIterable<AgentEvent>;
   fork(messages?: Message[], id?: string): Agent;
 }
 
-type AgentMessage =
-  | Message
-  | { type: 'interrupted'; pendingTool: ToolUseBlock; reason: string; meta?: unknown };
+type AgentEvent =
+  | { type: 'message'; payload: Message }
+  | { type: 'interrupted'; payload: Interrupt };
+
+interface Interrupt {
+  pendingTool: ToolUseBlock;
+  reason: string;
+  meta?: Record<string, unknown>;
+}
 
 /** 调用方告诉 framework 怎么处理挂起的 tool —— 同意/拒绝二态。 */
 interface ResumeCommand {
   approved: boolean;
-  message?: string;          // 拒绝时给 LLM 的说明，或同意时附带的预先结果
+  message?: string;
 }
 ```
+
+**Envelope 设计**：所有 yield 都是 `{ type, payload }` 统一形状。调用方用 `switch (ev.type)` 判别，访问永远走 `ev.payload`。`Interrupt` 是纯领域类型（不含 envelope 元数据），Checkpointer 的 `InterruptState` 可直接复用。
 
 `agent.thread.messages` 是真相，**状态归调用方**：调用方可以随时读、写、序列化、`fork`。framework 只 push（append-only），不 mutate 历史。
 
@@ -100,6 +108,45 @@ interface HookContext {
 
 ## 执行流程
 
+### 三层架构：`run`/`resume` → `#runLoop` → `#executeOne`
+
+```
+run(input)                           resume(command)
+  ↓ prep: push user message            ↓ prep: consumeInterrupt → push tool_result
+  ↓ save + appendEvent                 ↓ save + appendEvent
+  ↓                                    ↓
+  └──────→ #runLoop() ←───────────────┘
+              ↓
+            shape → beforeModel → model.stream → yield message
+              ↓
+            has tool_use? ──No──→ return (run_end)
+              ↓ Yes
+            for each tool_use:
+              #executeOne(call) → boolean (true=interrupted)
+                ↓
+              beforeTool → skip? → execute → InterruptSignal?
+                ↓                        ↓ Yes → save+saveInterrupt → yield interrupted → return true
+                ↓ No → push tool_result → afterTool → save → return false
+```
+
+**`#runLoop()` 入口契约**：调用前 `thread.messages` 末尾 ∈ {user(text), user(tool_result)} 且已 `checkpointer.save()`。`#runLoop` 不 push 前置消息，直接进入主循环。
+
+三层职责不交叉：
+
+| 层 | 方法 | 职责 |
+|----|------|------|
+| prep | `run()` / `resume()` | 接收外部输入 → 翻译成 Message → push → save → 委托 `#runLoop` |
+| work | `#runLoop()` | shape → beforeModel → model.stream → yield message → delegate to `#executeOne` |
+| inner step | `#executeOne(call)` | beforeTool → skip? → execute → catch InterruptSignal → push result → afterTool → save；返回 `boolean` |
+
+`#executeOne` 用**布尔返回值**（非抛错）传递 interrupt 信号——避免 try/catch 穿透到 `run`/`resume` 层。
+
+**`#runLoop` 四种退出**：
+1. 正常完成（无 tool_use）→ `return`
+2. maxSteps → `return`
+3. Interrupted（`#executeOne` 返回 true）→ `return`
+4. 抛错（beforeModel / CM.shape / model.stream / 非 InterruptSignal 的 tool 错误）→ 穿透到外层 finally
+
 ```mermaid
 sequenceDiagram
   participant U as 调用方
@@ -123,6 +170,7 @@ sequenceDiagram
     M-->>A: assistant chunks
     A->>A: messages.push(assistant)
     A->>PG: afterModel(ctx, messages)
+    A-->>U: yield { type: 'message', payload: assistant }
     loop each tool_use
       A->>PG: beforeTool(ctx, call, messages)
       alt skip
@@ -130,60 +178,180 @@ sequenceDiagram
       else execute
         A->>T: execute(input, signal)
         T-->>A: result | InterruptSignal
-        A->>A: messages.push(tool_result)
-        A->>PG: afterTool(ctx, call, result, messages)
+        alt InterruptSignal
+          A->>CP: save(messages)
+          A->>CP: saveInterrupt(state)
+          A->>CP: appendEvent(interrupt)
+          A-->>U: yield { type: 'interrupted', payload }
+        else normal result
+          A->>A: messages.push(tool_result)
+          A->>PG: afterTool(ctx, call, result, messages)
+          A->>CP: save(messages)
+        end
       end
-      A->>CP: save(messages)
     end
   end
 ```
 
-伪代码版本（去掉序列图细节，留下 framework 的循环骨架）：
+伪代码版本：
 
 ```ts
-async function* runAgent(input: string) {
-  signal?.throwIfAborted();
-  messages.push({ role: 'user', content: input });
-  await checkpointer.save(threadId, messages);
-
-  for (let step = 0; step < maxSteps; step++) {
-    const shaped = await contextManager.shape(ctx, messages);
-    const pluginShaped = await firePipeline('beforeModel', shaped);
-    const assistant = await collectStream(model.stream(pluginShaped));
-    messages.push(assistant);
-    await fireObservers('afterModel', messages);
-    yield assistant;
-
-    const toolUses = assistant.content.filter(b => b.type === 'tool_use');
-    if (toolUses.length === 0) break;
-
-    for (const call of toolUses) {
-      const decision = await firePipeline('beforeTool', call);
-      const result = decision?.skip
-        ? makeToolResult(call, decision.result ?? 'Tool skipped')
-        : await tryExecute(tool, decision?.input ?? call.input);
-      messages.push(wrapToolResult(result));
-      await fireObservers('afterTool', call, result, messages);
-      await checkpointer.save(threadId, messages);
-      yield wrapToolResult(result);
-    }
+async function* run(input: string): AsyncGenerator<AgentEvent> {
+  if (this.#running) throw new Error('Agent is already running');
+  this.#running = true;
+  try {
+    signal?.throwIfAborted();
+    thread.messages.push({ role: 'user', content: input });
+    await checkpointer.save(threadId, thread.messages);
+    await checkpointer.appendEvent?.(threadId, { type: 'user_input', content: input, ts: Date.now() });
+    yield* this.#runLoop();
+  } finally {
+    this.#running = false;
   }
 }
+
+async function* resume(command: ResumeCommand): AsyncGenerator<AgentEvent> {
+  if (this.#running) throw new Error('Agent is already running');
+  this.#running = true;
+  try {
+    const it = await checkpointer.consumeInterrupt?.(threadId);
+    if (!it) throw new Error('No pending interrupt for this thread');
+    await checkpointer.appendEvent?.(threadId, { type: 'resume', ts: Date.now() });
+    thread.messages.push({
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: it.pendingTool.call.id,
+        content: command.message ?? (command.approved ? 'approved' : 'denied by user'),
+        is_error: !command.approved,
+      }],
+    });
+    await checkpointer.save(threadId, thread.messages);
+    yield* this.#runLoop();
+  } finally {
+    this.#running = false;
+  }
+}
+
+async function* #runLoop(): AsyncGenerator<AgentEvent> {
+  for (let step = 0; step < maxSteps; step++) {
+    const shaped = await contextManager.shape(ctx, thread.messages);
+    const pluginShaped = await firePipeline('beforeModel', shaped);
+    const assistant = await collectStream(model.stream(pluginShaped));
+    thread.messages.push(assistant);
+    await fireObservers('afterModel', thread.messages);
+    yield { type: 'message', payload: assistant };
+
+    const toolUses = assistant.content.filter(b => b.type === 'tool_use');
+    if (toolUses.length === 0) {
+      await checkpointer.appendEvent?.(threadId, { type: 'run_end', reason: 'complete', ts: Date.now() });
+      return;
+    }
+
+    for (const call of toolUses) {
+      const interrupted = yield* this.#executeOne(call);
+      if (interrupted) return;
+    }
+  }
+  await checkpointer.appendEvent?.(threadId, { type: 'run_end', reason: 'maxSteps', ts: Date.now() });
+}
+
+async function* #executeOne(call: ToolUseBlock): AsyncGenerator<AgentEvent, boolean> {
+  await checkpointer.appendEvent?.(threadId, { type: 'tool_start', call, ts: Date.now() });
+  const decision = await firePipeline('beforeTool', call, thread.messages);
+
+  if (decision?.skip) {
+    const resultBlock = wrapToolResult(call, { content: decision.result ?? 'Tool skipped' });
+    thread.messages.push({ role: 'user', content: [resultBlock] });
+    await checkpointer.save(threadId, thread.messages);
+    return false;
+  }
+
+  let resultBlock: ToolResultBlock;
+  try {
+    const result = await tool.execute(decision?.input ?? call.input, signal);
+    resultBlock = wrapToolResult(call, result);
+  } catch (err) {
+    if (err instanceof InterruptSignal) {
+      await checkpointer.save(threadId, thread.messages);
+      if (!checkpointer.saveInterrupt) throw new Error('Tool requested interrupt but checkpointer does not support it. ...');
+      await checkpointer.saveInterrupt(threadId, { pendingTool: { call, reason: err.reason }, ts: Date.now(), meta: err.meta });
+      await checkpointer.appendEvent?.(threadId, { type: 'interrupt', pendingTool: call, reason: err.reason, ts: Date.now() });
+      yield { type: 'interrupted', payload: { pendingTool: call, reason: err.reason, meta: err.meta } };
+      return true;
+    }
+    resultBlock = wrapToolResult(call, { content: String(err), isError: true });
+  }
+
+  thread.messages.push({ role: 'user', content: [resultBlock] });
+  await fireObservers('afterTool', call, resultBlock, thread.messages);
+  await checkpointer.appendEvent?.(threadId, { type: 'tool_end', result: resultBlock, durationMs: Date.now(), ts: Date.now() });
+  await checkpointer.save(threadId, thread.messages);
+  return false;
+}
+```
+
+注意 `#executeOne` 中 **InterruptSignal 的 catch 仅在 `tool.execute` 周围**——`firePipeline('beforeTool')` 抛 InterruptSignal 不被识别（走 before* 错误规则：整轮 abort）。这就是"识别边界（严格）"的落地方式——位置决定语义，不需要反射检测来源。
 ```
 
 ---
 
 ## 语义细节
 
-### beforeModel 每个 loop step 调一次
+### 变形职责分层
 
-不是每个 chunk 调一次。`beforeModel` 看到的是 `ContextManager.shape()` 之后的 messages；plugin 在这个 shaped view 上做最后修饰（脱敏、注入时间戳……）。
+`thread.messages` 到 `model.stream` 之间有两层变形，顺序写死：
 
-### Checkpointer save 时机
+```
+thread.messages (真实状态)
+  → ContextManager.shape(...)   ← 答"哪些 message 进 LLM"（集合选择）
+    → plugin.beforeModel(...)   ← 答"message 长什么样"（元素修饰）
+      → model.stream(...)
+```
 
-在 `afterTool` 之后由 framework 调用，**不是** plugin 钩子。理由：那一刻 messages 末尾是 `user(tool_result)`，是合法 API 输入态。崩在这之后直接可恢复，不需要修复 messages。详见 [Checkpointer#时机契约](./04-checkpointer.md#时机契约强制写死不可配置)。
+| 改动语义 | 归属层 |
+|----------|--------|
+| 决定**哪些 message** 进 LLM（数量、配对、顺序、token 预算） | ContextManager |
+| 决定**单条 message 长什么样**（内容修饰、注入字段、PII 脱敏） | Plugin.beforeModel |
 
-### before\* 管道链
+ContextManager 答"集合问题"，beforeModel 答"元素问题"。两层正交，不重叠。
+
+**beforeModel 白名单（文档纪律，非机制强制）**：
+- ✓ 修饰单条 message 的 content（加时间戳、注入项目信息、PII 脱敏）
+- ✓ 增加 system message（把动态 context 拼到 messages 头部）
+- ✓ Map/transform 每条 message 但不增删
+- ✗ 按数量/token 裁剪 messages → 交给 ContextManager
+- ✗ 删除老消息 → 交给 ContextManager
+- ✗ 摘要压缩 → 交给 ContextManager
+- ✗ 跨 message 的配对感知操作 → 交给 ContextManager
+
+自检决策树：
+```
+要变形 messages，问自己：
+1. 我在决定"哪些 message 进 LLM" 吗？  →  ContextManager
+2. 我在做 token / 数量 / 配对感知的裁剪吗？  →  ContextManager
+3. 我在改单条 message 的 content / 加新 message 吗？  →  beforeModel
+4. 我只是想观察，不改任何东西？  →  afterModel
+5. 我同时想做 1+3？  →  分成两个组件，ContextManager 一个 + Plugin 一个
+```
+
+### ContextManager.shape 每次 loop step 调一次
+
+不是每个 chunk 调一次。`shape` 看到的是完整 `thread.messages`；返回值不污染 `thread.messages`（framework 保证 push 的是 model 返回的新消息，不是 shape 后的）。Resume 路径也正常调 `shape`——不跳过。
+
+### Checkpointer save 时机（5 个，写死不可配置）
+
+| # | 时机 | messages 末尾状态 |
+|---|------|-------------------|
+| 1 | `run()` 入口 push user message 之后 | `user(text)` |
+| 2 | 每个 tool 执行完成 push tool_result 之后 | `user(tool_result)` |
+| 3 | 每轮 turn 结束（assistant 无 tool_use）之后 | `assistant(text only)` |
+| 4 | Interrupt 发生时（**特殊**：末尾是 `assistant(tool_use)`，等 resume 修复） | `assistant(tool_use)` |
+| 5 | Resume 时 push tool_result 之后 | `user(tool_result)` |
+
+Save 频率 = tool 调用次数 + 2（首尾各一次）。`fileCheckpointer` 单次 save < 1ms（典型 messages），不构成瓶颈。需要优化的用户可自行包装 checkpointer 实现 debounce。
+
+### before* 管道链
 
 多个 plugin 挂同一个 `before*` 时，按 plugins 数组顺序依次调用，上一个的返回值作为下一个的输入：
 
@@ -210,18 +378,30 @@ async function fireBeforeModel(plugins, ctx, msgs) {
 | `{ input: x }` | 用改写后的 input 执行 tool |
 | `undefined` | 原样执行 |
 
-`afterTool` **不在 skip 路径触发**——`afterTool` 语义是"tool 真的跑完了"，skip 时没跑，metrics/日志类 observer 不应当真。需要统计 skip 的话，从 Checkpointer 的事件流读 `tool_end{skipped: true}` 即可。framework 在 skip 路径仍 `appendEvent({ type: 'tool_end', durationMs: 0, meta: { skipped: true, reason } })` 保持事件流完整。
+`afterTool` **不在 skip 路径触发**——`afterTool` 语义是"tool 真的跑完了"，skip 时没跑，metrics/日志类 observer 不应当真。
+
+### beforeTool 阻止 tool 执行的三种方式
+
+| 意图 | 用什么 |
+|------|--------|
+| 直接拒绝，告诉 LLM 失败原因 | `return { skip: true, result: '...' }` |
+| 改 input 后执行 | `return { input: newInput }` |
+| 停下来等人决定 | 用 [`withPermission(tool, gating, reason)`](./04-checkpointer.md#tool-端interruptsignal-用法) 包装器，在 execute 里抛 `InterruptSignal` |
+
+`beforeTool` 抛 `InterruptSignal` **不会被识别为中断**——按 before* 错误规则整轮 abort。要做 permission 用 `withPermission` 包装 tool，让 `InterruptSignal` 从 `tool.execute` 内部抛出。
 
 ### 错误隔离
 
 | 抛错位置 | Framework 处理 |
 |---|---|
-| `before*` | 整轮 abort，传播给调用方（transformer 返回的是关键数据，坏了无法继续） |
-| `after*` | 吞掉 + `logger.warn`，带 plugin name |
+| `before*` | **短路**：第 N 个抛 → 第 N+1 起不调；整轮 abort，传播给调用方 |
+| `after*` | **继续**：第 N 个抛 → `logger.warn(pluginName, err)`；第 N+1 起继续调 |
 | `checkpointer.save` | 吞掉 + `logger.warn`（一个坏的磁盘不该让 agent 不可用） |
 | `ContextManager.shape` | 整轮 abort（与 `before*` 同性质，结果非法不能继续） |
 | `tool.execute` 抛 `InterruptSignal` | 走 interrupt 流程，见 [Checkpointer](./04-checkpointer.md) |
 | `tool.execute` 抛其他错 | 包成 `tool_result{is_error: true}`，让 LLM 看到 |
+
+不引入"可配置错误策略"——规则由 hook 类型（transformer vs observer）决定，这是 hook 设计根本。
 
 ### Abort 的 messages 状态
 
@@ -269,13 +449,16 @@ interface Thread {
 
 纯数据，没有方法。Thread 是 messages 的命名容器，**id 是 Checkpointer 的存储 key**，也是 fork 的引用锚点。调用方可以直接读写 `thread.messages`——framework 不藏。
 
-`agent.fork(messages?, id?)` 复用 model / tools / plugins / checkpointer / contextManager / logger，创建一个新 thread：
+`agent.fork(messages?, id?)` 共享所有能力引用（model / tools / plugins / checkpointer / contextManager / logger），创建新 thread：
 
 ```ts
-agent.fork()                              // 默认深拷贝当前 messages，新 id
+agent.fork()                              // 默认深拷贝当前 messages，自动 randomUUID()
 agent.fork([], 'fresh-thread')            // 空白历史，指定 id
 agent.fork(structuredClone(snapshot))    // 从快照恢复
+agent.fork(msgs, parentId)                // ❌ throw！同 id 不可 fork
 ```
+
+**强制新 threadId**：不传 → `crypto.randomUUID()`；传父 threadId → throw。防止两 fork 同 id 互相覆盖 save。
 
 适合：A/B 比较、并发对话、试探性分支。
 
@@ -285,10 +468,10 @@ agent.fork(structuredClone(snapshot))    // 从快照恢复
 
 | 组件 | 默认 | 其他内置 | 详见 |
 |---|---|---|---|
-| Checkpointer | `inMemoryCheckpointer` | `fileCheckpointer({ dir })` | [04-checkpointer.md](./04-checkpointer.md) |
+| Checkpointer | `inMemoryCheckpointer`（全 6 方法） | `fileCheckpointer({ dir })` | [04-checkpointer.md](./04-checkpointer.md) |
 | ContextManager | `passthroughContextManager` | `slidingWindow` / `tokenBudget` / `toolResultTruncator` / `summarizing` / `pipeContextManagers` | [05-context-manager.md](./05-context-manager.md) |
-| Logger | `consoleLogger` | `noopLogger` | 本页 §Logger |
-| Plugin | 无 | 无内置——全由用户/harness 提供 | [03-plugin.md](./03-plugin.md) |
+| Logger | `consoleLogger` (level=`info`) | `noopLogger` (level=`silent`) | 本页 §Logger |
+| Plugin | 无 | 无内置——全由用户/harness 提供。framework 零内置 plugin | [03-plugin.md](./03-plugin.md) |
 
 依赖方向：framework → core。framework 不依赖 adapter 或 tools。
 
@@ -296,4 +479,4 @@ agent.fork(structuredClone(snapshot))    // 从快照恢复
 
 ## 与 L2 的关系
 
-L2 `run(model, tools, messages)` 保持不变。L3 是对 L2 的装配层——每次 `agent.run()` 内部调一次 L2 `run()`。上层 ([Harness](./06-harness.md)) 可以替换 L3 或直接调 L2，两者独立。
+L2 `run(model, tools, messages)` 保持不变。L3 有自己的 loop（`#runLoop` / `#executeOne`），不调 L2 `run()`——L2 generator 太封闭，无法在中间 fire hooks。两者复用 `collectStream` 和 `ChatModel` / `Tool` 接口。上层 ([Harness](./06-harness.md)) 可以替换 L3 或直接调 L2，两者独立。

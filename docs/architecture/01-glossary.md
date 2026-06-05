@@ -78,27 +78,31 @@
 | 术语 | 定义 | 文件 |
 |---|---|---|
 | `createAgent()` | 框架入口工厂。`async createAgent(config) → Agent`。若配了 checkpointer + threadId，异步恢复历史。不接受具体 model 类或 tool 实例——只依赖 core 类型 | `packages/framework/src/create-agent.ts` |
-| `Agent` | 框架核心对象。`{ thread, run(input, opts?), resume(decision, opts?), fork(msgs?, id?) }`。run/resume 返回 `AsyncIterable<AgentMessage>` | 同上 |
-| `AgentMessage` | `Message \| { type: 'interrupted', pendingTool, reason, meta? }`。interrupted 类型在 tool 抛 InterruptSignal 时 yield | 同上 |
-| `ResumeCommand` | `{ content: string, isError?: boolean }`。传给 `agent.resume()`。比 LangChain Command 简单——无 goto/update | 同上 |
-| `AgentConfig` | `{ model, tools?, systemPrompt?, plugins?, checkpointer?, contextManager?, logger?, threadId? }` | 同上 |
+| `Agent` | 框架核心对象。`{ thread, run(input, opts?), resume(command, opts?), fork(msgs?, id?) }`。run/resume 返回 `AsyncIterable<AgentEvent>` | 同上 |
+| `AgentEvent` | Framework 对外 yield 的流事件类型（envelope）。`{ type: 'message' \| 'interrupted', payload }`。`message` payload 是 `Message`；`interrupted` payload 是 `Interrupt`。调用方用 `switch (ev.type)` 判别 | 同上 |
+| `Interrupt` | 纯领域类型：`{ pendingTool: ToolUseBlock, reason: string, meta?: Record<string, unknown> }`。不含 envelope 元数据——只描述中断态的全部信息。Checkpointer 的 `InterruptState` 可复用 | 同上 |
+| `ResumeCommand` | `{ approved: boolean, message?: string }`。传给 `agent.resume()`。比 LangChain Command 简单——无 goto/update。framework 映射为 `tool_result.is_error = !approved` | 同上 |
+| `AgentConfig` | `{ model, tools?, systemPrompt?, plugins?, checkpointer?, contextManager?, logger?, threadId? }`。checkpointer 默认 `inMemoryCheckpointer()`，contextManager 默认 `passthroughContextManager()`，logger 默认 `consoleLogger({ level: 'info' })` | 同上 |
 | `Thread` | `{ id: string, messages: Message[] }` — 一条对话线。调用方可随时读写、fork、序列化。状态归调用方 | `packages/framework/src/thread.ts` |
-| `fork()` | Agent 的方法。`agent.fork(messages?, id?)`。复用 model/tools/plugins，创建新 thread。默认 `messages ?? structuredClone(thread.messages)`。用于分支对话、A/B 对比 | `packages/framework/src/create-agent.ts` |
+| `fork()` | Agent 的方法。`agent.fork(messages?, id?)`。复用 model/tools/plugins/checkpointer/contextManager/logger 共享引用；**强制新 threadId**（同 id throw，无 id auto-uuid）；默认 `messages ?? structuredClone(thread.messages)`。用于分支对话、A/B 对比 | `packages/framework/src/create-agent.ts` |
 | `Plugin` | `{ name, hooks }` — 一组事件钩子的封装。Framework 的唯一扩展点。非 middleware、非 decorator、非 event bus | `packages/framework/src/plugin.ts` |
 | `PluginHooks` | `{ beforeModel?, afterModel?, beforeTool?, afterTool? }` — 4 个生命周期钩子 | 同上 |
-| `HookContext` | `{ threadId, signal?, logger, checkpointer, contextManager }` — 每个钩子的执行上下文，暴露 framework 三大内化能力供 plugin 使用（可读、不可越权重写）。ctx 永远是第一个参数 | 同上 |
+| `HookContext` | `{ threadId, signal?, logger, checkpointer, contextManager }` — 每个钩子的执行上下文，暴露 framework 三大内化能力供 plugin 使用（可读、不可越权重写）。三个字段都**必需**（非可选）。ctx 永远是第一个参数 | 同上 |
 | `definePlugin()` | 类型安全的 plugin 构造函数。`definePlugin({ name, hooks }) → Plugin` | 同上 |
-| **Transformer** | 一类 plugin 钩子（before*）：返回值有语义，改变数据流。`beforeModel` 返回裁剪后的 messages；`beforeTool` 返回 `{ skip?, input?, result? }` | — |
-| **Observer** | 一类 plugin 钩子（after*）：副作用收集，返回值被忽略。失败必须吞掉 + `console.warn` | — |
-| `Checkpointer` | 持久化后端接口。三层能力：`save`/`load`（必需，崩溃恢复）、`saveInterrupt`/`consumeInterrupt`（可选，human-in-the-loop）、`appendEvent`/`readEvents`（可选，UX 回放）。独立于 Plugin，一个 agent 只有一个。详见 [04-checkpointer.md](./04-checkpointer.md) | `packages/framework/src/checkpointer.ts` |
-| `InterruptSignal` | Tool 抛出的中断信号。继承 Error。framework 识别后走 interrupt 流程而非普通 tool 错误。携带 `reason` + `meta` | 同上 |
-| `InterruptState` | 中断状态：`{ pendingTool, ts, meta? }`。由 Checkpointer 持久化，`agent.resume()` 时消费 | 同上 |
-| `AgentEvent` | 事件流类型：user_input / model_start / model_end / tool_start / tool_end / interrupt / resume / run_end。供 UX 回放和审计 | 同上 |
-| `ContextManager` | 上下文塑形接口。`shape(ctx, messages) → Message[]`。在每次调 LLM 前决定实际送进去的 messages。不改 thread.messages。默认 passthrough（原样）。详见 [05-context-manager.md](./05-context-manager.md) | `packages/framework/src/context-manager.ts` |
+| **Transformer** | 一类 plugin 钩子（before*）：返回值有语义，改变数据流。`beforeModel` 返回修饰后的 messages；`beforeTool` 返回 `{ skip?, input?, result? }` | — |
+| **Observer** | 一类 plugin 钩子（after*）：副作用收集，返回值被忽略。失败吞掉 + `logger.warn` | — |
+| **变形职责分层** | ContextManager 答"哪些 message 进 LLM"（集合选择）；Plugin.beforeModel 答"message 长什么样"（元素修饰）。两层正交，顺序写死：shape → beforeModel → model.stream | — |
+| `Checkpointer` | 持久化后端接口。三层成对能力：`save`/`load`（必需）、`saveInterrupt`/`consumeInterrupt`（成对可选）、`appendEvent`/`readEvents`（成对可选）。独立于 Plugin，一个 agent 只有一个。默认 `inMemoryCheckpointer()`。详见 [04-checkpointer.md](./04-checkpointer.md) | `packages/framework/src/checkpointer.ts` |
+| `InterruptSignal` | Tool 抛出的中断信号。继承 Error。携带 `reason` + `meta`。**仅**在 `tool.execute()` 抛出时被 framework 识别——其他位置抛按普通故障处理 | 同上 |
+| `InterruptState` | 中断状态：`{ pendingTool, ts, meta? }`。由 Checkpointer 持久化（`saveInterrupt`），`agent.resume()` 时消费（`consumeInterrupt` = read + unlink） | 同上 |
+| `CheckpointEvent` | Checkpointer 持久化的事件流类型（与 framework yield 的 `AgentEvent` 不同）：user_input / model_start / model_end / tool_start / tool_end / interrupt / resume / run_end。供 UX 回放和审计 | 同上 |
+| `ContextManager` | 上下文塑形接口。`shape(ctx, messages) → Message[]`。在每次调 LLM 前决定实际送进去的 messages。不改 thread.messages。`ctx` 暴露 `threadId`/`signal`/`logger`/`model`。默认 passthrough（原样）。详见 [05-context-manager.md](./05-context-manager.md) | `packages/framework/src/context-manager.ts` |
+| `ContextManagerContext` | `{ threadId, signal?, logger, model }`。framework 注入 agent 的内化能力给 CM。故意不暴露 `checkpointer`（CM 不读写持久状态）和 `contextManager` 自己（避免循环） | 同上 |
+| `countTokens` | `ChatModel` 的可选方法：`countTokens?(messages) → number \| Promise<number>`。由 adapter 实现精确计数，不实现时 `tokenBudgetContextManager` fallback 到字符近似。M4 `adapter-anthropic` 不实现 | `packages/core/src/chat-model.ts` |
 | `Logger` | `{ level, debug, info, warn, error }`。level 过滤。默认 level=`info`，输出到 `console`。可注入替换 | `packages/framework/src/logger.ts` |
 | `LogLevel` | `'debug' \| 'info' \| 'warn' \| 'error' \| 'silent'` | 同上 |
-| **错误隔离** | `before*` 抛错 → 整轮 abort，传播给调用方。`after*` 抛错 → 吞掉 + `console.warn(pluginName, error)`。`checkpointer.save` 抛错 → 吞掉 + `console.warn` | — |
-| **管道链** | 多个 plugin 挂同一个 `before*` 时，按 plugins 数组顺序依次调用，上一个的返回值作为下一个的输入 | — |
+| **错误隔离** | `before*` 抛错 → 短路 pipeline + 整轮 abort，传播给调用方。`after*` 抛错 → 吞掉 + `logger.warn(pluginName, error)` 后继续 pipeline。`checkpointer.save` 抛错 → 吞掉 + `logger.warn`。规则由 hook 类型（transformer vs observer）决定，不可配置 | — |
+| **管道链** | 多个 plugin 挂同一个 `before*` 时，按 plugins 数组顺序依次调用，上一个的返回值作为下一个的输入。一个抛错则短路，后续 plugin 不调 | — |
 
 ---
 

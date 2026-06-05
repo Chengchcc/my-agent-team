@@ -16,7 +16,7 @@ Framework 的**内化能力**，负责 agent 执行状态的**持久化与可恢
 |---|---|
 | `Checkpointer` | 接口定义 + 内置 `inMemoryCheckpointer` |
 | `InterruptSignal` | Tool 抛出的中断信号 |
-| `AgentEvent` | 事件流的类型定义 |
+| `CheckpointEvent` | 事件流的类型定义（注意：与 framework yield 的 `AgentEvent` 不同） |
 | `fileCheckpointer` | 文件实现（JSON state + JSONL events） |
 | `redisCheckpointer` 等 | 其他持久层实现，独立适配包 |
 
@@ -30,19 +30,17 @@ Framework 的**内化能力**，负责 agent 执行状态的**持久化与可恢
 
 ```ts
 interface Checkpointer {
-  // ============== 必需能力 ==============
-  /** 保存 thread 当前完整 messages */
+  // ============== Tier 1: 必需 ==============
   save(threadId: string, messages: readonly Message[]): Promise<void>;
-  /** 加载 thread 历史 messages，无则返回 null */
   load(threadId: string): Promise<Message[] | null>;
 
-  // ============== 可选能力:Interrupt ==============
+  // ============== Tier 2: Interrupt（成对）==============
   saveInterrupt?(threadId: string, state: InterruptState): Promise<void>;
   consumeInterrupt?(threadId: string): Promise<InterruptState | null>;
 
-  // ============== 可选能力:Event Stream ==============
-  appendEvent?(threadId: string, event: AgentEvent): Promise<void>;
-  readEvents?(threadId: string): AsyncIterable<AgentEvent>;
+  // ============== Tier 3: Event Stream（成对）==============
+  appendEvent?(threadId: string, event: CheckpointEvent): Promise<void>;
+  readEvents?(threadId: string): AsyncIterable<CheckpointEvent>;
 }
 ```
 
@@ -55,7 +53,7 @@ interface InterruptState {
   meta?: Record<string, unknown>;   // tool 提供给前端展示用
 }
 
-type AgentEvent =
+type CheckpointEvent =
   | { type: 'user_input'; content: string; ts: number }
   | { type: 'model_start'; messageCount: number; ts: number }
   | { type: 'model_end'; blocks: ContentBlock[]; usage?: { input: number; output: number }; ts: number }
@@ -77,20 +75,45 @@ class InterruptSignal extends Error {
 
 ## 能力分层（Capability Detection）
 
-接口分**必需 / 可选**两层，framework 用方法存在性判断能力：
+接口分三层，每层**成对**：要么两个方法都实现，要么都不实现。
 
-| 能力 | 方法 | 不实现的后果 |
-|---|---|---|
-| 基础持久化 | `save` / `load` | **强制**——不实现 = 不是 Checkpointer |
-| Human-in-the-loop | `saveInterrupt` / `consumeInterrupt` | Tool 抛 `InterruptSignal` 时 throw |
-| UX 回放 / 审计 | `appendEvent` / `readEvents` | 不记录事件流，但 agent 正常运行 |
+| Tier | 方法 | 成对契约 | 不实现的后果 |
+|------|------|----------|-------------|
+| 1 — 基础持久化 | `save` / `load` | **强制**——不实现 = 不是 Checkpointer | — |
+| 2 — Human-in-the-loop | `saveInterrupt` / `consumeInterrupt` | 必须成对 | Tool 抛 `InterruptSignal` 时 throw |
+| 3 — UX 回放 / 审计 | `appendEvent` / `readEvents` | 必须成对 | 不记录事件流，但 agent 正常运行 |
 
-framework 在调用前检查：
+**`createAgent` 构造时校验成对契约**——fail fast：
 
 ```ts
-if (checkpointer.saveInterrupt) {
-  await checkpointer.saveInterrupt(threadId, interruptState);
-} else {
+function validateCheckpointer(cp: Checkpointer): void {
+  const hasAppend = typeof cp.appendEvent === 'function';
+  const hasRead = typeof cp.readEvents === 'function';
+  if (hasAppend !== hasRead) {
+    throw new Error(
+      'Checkpointer event capability is partial: ' +
+      `appendEvent=${hasAppend}, readEvents=${hasRead}. ` +
+      'Both must be implemented or both omitted.'
+    );
+  }
+  const hasSaveInt = typeof cp.saveInterrupt === 'function';
+  const hasConsumeInt = typeof cp.consumeInterrupt === 'function';
+  if (hasSaveInt !== hasConsumeInt) {
+    throw new Error(
+      'Checkpointer interrupt capability is partial: ' +
+      `saveInterrupt=${hasSaveInt}, consumeInterrupt=${hasConsumeInt}. ` +
+      'Both must be implemented or both omitted.'
+    );
+  }
+}
+```
+
+framework 内部访问仍用可选链（`cp.appendEvent?.(...)`）——协议层强制成对让 `?` 实际要么 always-hit 要么 always-miss。
+
+**Tier 2 缺失时的降级**：
+
+```ts
+if (!checkpointer.saveInterrupt) {
   throw new Error(
     'Tool requested interrupt but checkpointer does not support it. ' +
     'Use fileCheckpointer or implement saveInterrupt/consumeInterrupt.'
@@ -140,25 +163,77 @@ export const inMemoryCheckpointer = (): Checkpointer => {
 fileCheckpointer({ dir }): Checkpointer
 ```
 
+**构造时 `mkdir(dir, { recursive: true })`**——fail fast。路径权限有问题立刻报，不会跑了 10 分钟到第一次 save 才崩。
+
 文件布局：
 
 ```
 ${dir}/
-├── ${threadId}.state.json        # messages 快照
+├── ${threadId}.state.json        # messages 快照（原子写）
 ├── ${threadId}.interrupt.json    # 当前 interrupt（可能不存在）
-└── ${threadId}.events.jsonl      # 事件追加流
+└── ${threadId}.events.jsonl      # 事件追加流（append-only）
 ```
 
-- `save` / `saveInterrupt`：原子写（`Bun.write(tmp, ...)` + `Bun.rename(tmp, target)`），防止写一半崩溃文件损坏
-- `load` / `consumeInterrupt`：读对应 json 文件
-- `appendEvent`：直接 append 一行 JSONL（丢一行事件可接受，不需要原子写）
+**原子写实现**（`node:fs/promises`）：
 
-**threadId 安全契约**：threadId 直接拼进文件路径，必须防止路径穿越（`../`、绝对路径、`\0`）和文件名非法字符。`fileCheckpointer` 在每次操作前对 threadId 校验：
+```ts
+import { writeFile, rename, rm, appendFile, readFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 
-- 允许字符：`[A-Za-z0-9_\-.]`，长度 1–128
-- 不通过校验 → `throw new Error('Invalid threadId: ${id}')`，**不做静默替换**（静默替换会让两个不同 threadId 落到同一文件）
+async function atomicWriteJSON(target: string, data: unknown): Promise<void> {
+  const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
+  try {
+    await writeFile(tmp, JSON.stringify(data));
+    await rename(tmp, target);
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
+}
+```
 
-调用方负责提供合法的 threadId。如果上层有自由格式的 session id（UUID / 邮箱），应在交给 framework 前自行 hash（`sha256(rawId)`）。
+- **不 fsync**——接受极端断电丢最后一次 save，event log 兜底
+- `rename(tmp, target)` 是 POSIX 原子操作——要么 target 完全新内容，要么完全旧内容，不存在半截文件
+- `Bun.write` 自身不是原子写（等价 O_WRONLY|O_CREAT|O_TRUNC），所以 tmp + rename 是必须的
+- tmp 文件名含 `pid + timestamp` 防止同进程并发 save 撞文件名
+- **不主动清理 `.tmp.*` 残留**——进程被 kill 时 catch 跑不到，残留文件不影响正确性，文档提示可安全删除
+
+**`consumeInterrupt` = readFile + unlink**：
+
+```ts
+async function consumeInterrupt(id: string): Promise<InterruptState | null> {
+  const p = path(id, '.interrupt.json');
+  try {
+    const buf = await readFile(p, 'utf8');
+    await rm(p);  // unlink; 失败则 throw（防止双消费）
+    return JSON.parse(buf);
+  } catch (err: any) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+```
+
+**`appendEvent`**：`appendFile(path, JSON.stringify(event) + '\n')`。`O_APPEND` 保证单事件 < PIPE_BUF（4KB）时原子追加——多进程并发不会撕裂行。
+
+**threadId 安全契约**（防御纵深）：
+
+```ts
+const VALID_ID = /^(?!\.)[A-Za-z0-9_\-.]{1,128}$/;
+
+function assertId(id: string): void {
+  if (!VALID_ID.test(id) || /^\.+$/.test(id)) {
+    throw new Error(`Invalid threadId: ${JSON.stringify(id)}`);
+  }
+}
+```
+
+- 禁止以点开头（避免生成隐藏文件、与 dotfile 撞名）
+- 禁止全点串（`.`, `..`, `....` 等虽不穿越路径但语义混乱）
+- `/` 和 `\` 本就不在白名单，路径穿越被阻断
+- **不做静默替换**——静默替换会让两个不同 threadId 落到同一文件
+
+调用方提供自由格式 session id 时，推荐先 hash：`sha256(rawId).slice(0, 32)`。
 
 适合 CLI、单机服务、本地开发。
 
@@ -176,14 +251,19 @@ ${dir}/
 
 ### 时机契约（强制，写死，不可配置）
 
-| Framework 调用 | 时机 | 目的 |
-|---|---|---|
-| `checkpointer.load(threadId)` | `createAgent` 后第一次 `run` 前 | 恢复历史 messages |
-| `checkpointer.save(threadId, messages)` | 每次 tool 执行完成、tool_result 已 push 之后 | 状态落点必须是合法 API 输入 |
-| `checkpointer.save(threadId, messages)` | 每次 model 返回纯文本（无 tool_use）loop 结束之后 | 收尾保存 |
-| `checkpointer.saveInterrupt(...)` | 捕获 `InterruptSignal` 之后、退出 generator 之前 | 必须在 save 之后调，保证 interrupt 引用的 messages 已落盘 |
-| `checkpointer.consumeInterrupt(...)` | `agent.resume()` 调用时 | 读出 pending tool 信息 |
-| `checkpointer.appendEvent?(...)` | 每个关键事件发生时（model_start / tool_end / ...） | 可选记录 |
+**Save 时机（5 个）**：
+
+| # | Framework 调用 | 时机 | messages 末尾状态 |
+|---|---------------|------|-------------------|
+| 1 | `checkpointer.save(...)` | `run()` 入口 push user message 之后 | `user(text)` |
+| 2 | `checkpointer.save(...)` | 每个 tool 执行完成 push tool_result 之后 | `user(tool_result)` |
+| 3 | `checkpointer.save(...)` | 每轮 turn 结束（assistant 无 tool_use）之后 | `assistant(text only)` |
+| 4 | `checkpointer.save(...)` → `checkpointer.saveInterrupt(...)` | 捕获 `InterruptSignal` 之后、yield interrupted 之前 | `assistant(tool_use)`（特殊） |
+| 5 | `checkpointer.save(...)` | `resume()` push tool_result 之后 | `user(tool_result)` |
+| — | `checkpointer.consumeInterrupt(...)` | `agent.resume()` 调用时 | — |
+| — | `checkpointer.appendEvent?(...)` | 每个关键事件发生时 | — |
+
+Save 频率 ≈ tool 调用次数 + 2（首尾各一次）。`fileCheckpointer` 单次 save < 1ms（典型 messages），不构成瓶颈。需要优化的用户可自行包装 checkpointer 实现 debounce。
 
 **关键纪律**：`save` 时机只在 messages 处于**合法 API 输入态**时触发。即 messages 末尾必须是：
 
@@ -331,7 +411,30 @@ export const bashTool: Tool = {
 - ✗ `ChatModel.stream` 里抛 → 视作 model 故障
 - ✓ 仅 `tool.execute(input, signal)` 直接抛出 → 走 `saveInterrupt` + yield `interrupted` + 退出 generator
 
-理由：中断的语义是"tool 想要外部决策"。允许其他位置抛会让控制流分裂—— plugin 可以伪造中断、context manager 可以打断未开始的 turn——丧失"中断点 = 当前 tool_use"这个清晰锚点。
+理由：中断的语义是"tool 想要外部决策"。允许其他位置抛会让控制流分裂——丧失"中断点 = 当前 tool_use"这个清晰锚点。
+
+**工具包装器——`withPermission`**（推荐 pattern，替代在 beforeTool 里抛 InterruptSignal）：
+
+```ts
+function withPermission<T extends Tool>(
+  tool: T,
+  shouldGate: (input: unknown) => boolean,
+  reason: string = 'permission_required',
+): Tool {
+  return {
+    ...tool,
+    async execute(input, signal) {
+      if (shouldGate(input)) throw new InterruptSignal(reason, { tool: tool.name, input });
+      return tool.execute(input, signal);
+    },
+  };
+}
+
+const safeBash = withPermission(bashTool, (input) => isDangerous(input.command));
+createAgent({ model, tools: [safeBash, readTool, writeTool] });
+```
+
+这彻底符合"中断 = tool.execute 抛"契约——`withPermission` 返回的就是一个 Tool，它的 `execute` 抛 `InterruptSignal` 完全合法。Plugin 想做审批/权限，用包装器而非在 `beforeTool` 里抛。
 
 ---
 
@@ -346,7 +449,7 @@ Checkpointer **不是** plugin——它是 framework 内化。但 plugin 通过 
 | 把每次 tool 调用上报到 metrics 系统 | **Plugin**（observer 模式） |
 | 调 LLM 前裁剪 messages | **[ContextManager](./05-context-manager.md)** |
 | 调 LLM 前修饰 messages（脱敏、注入信息） | **Plugin**（`beforeModel`） |
-| 调 tool 前请求权限 | **Tool 抛 `InterruptSignal`**（不是 plugin） |
+| 调 tool 前请求权限 | **Tool 抛 `InterruptSignal`** 或用 **`withPermission(tool)` 包装器** |
 
 核心区分：
 

@@ -67,57 +67,54 @@ GET    /health                — 健康检查
 Request:  { "input": "add a unit test for utils.ts" }
 Response: text/event-stream
 
-event: model_start
-data: {"messageCount":5}
+event: message
+data: {"role":"assistant","content":[{"type":"text","text":"Let me add that test"}]}
 
-event: model_delta
-data: {"delta":{"type":"text","text":"Let me "}}
+event: message
+data: {"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"read","input":{"path":"utils.ts"}}]}
 
-event: model_delta
-data: {"delta":{"type":"text","text":"add that test"}}
+event: message
+data: {"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"..."}]}
 
-event: model_end
-data: {"blocks":[...], "usage":{"input":500,"output":200}}
-
-event: tool_start
-data: {"call":{"type":"tool_use","id":"t1","name":"read","input":{"path":"utils.ts"}}}
-
-event: tool_end
-data: {"result":{"type":"tool_result","tool_use_id":"t1","content":"..."}}
+event: message
+data: {"role":"assistant","content":[{"type":"text","text":"Done"}]}
 
 event: interrupted
-data: {"pendingTool":{...},"reason":"permission_required"}
-
-event: run_end
-data: {"reason":"complete"}
+data: {"pendingTool":{"type":"tool_use","id":"t2","name":"bash","input":{"command":"rm -rf /"}},"reason":"permission_required"}
 ```
 
 **为什么是 SSE 不是 WebSocket**：
 
-- Agent run 是单向流（server → client），client 只发一次 input。SSE 比 WebSocket 简单一个量级
+- Agent run/resume 返回 `AsyncIterable<AgentEvent>`——单向流（server → client），client 只发一次 input。SSE 比 WebSocket 简单一个量级
 - `resume` 场景下 client 再次 POST，重新建立 SSE 流
+- AgentEvent envelope `{ type, payload }` 直接映射 SSE `event:` + `data:`——机械转译，零分支
 - WebSocket 留给未来双向实时场景（用户在 agent 运行中追加指令）
 
-**SSE 事件与 framework 内部 AgentEvent 的关系**：
+**SSE 事件与 framework 内部事件的关系**：
 
-Backend SSE 事件 ≠ Checkpointer `AgentEvent`，但**一一对应**：
+Framework 有两套事件体系，Backend SSE 转译的是对外 yield 的 `AgentEvent`：
 
-| 来源 | 类型 | 谁产生 |
-|---|---|---|
-| Framework 内部 | `AgentEvent`（见 04-checkpointer.md） | framework 在关键时机调 `checkpointer.appendEvent` |
-| Backend over the wire | SSE `event:` + JSON `data:` | backend 把 `agent.run()` 流式 yield 的 `AgentMessage` + framework 内部 event 转译 |
+| 名称 | 类型 | 谁产生 |
+|------|------|--------|
+| `AgentEvent` | `{ type: 'message' \| 'interrupted', payload }` | framework `agent.run()` / `agent.resume()` yield |
+| `CheckpointEvent` | `user_input` / `model_start` / `model_end` / `tool_start` / `tool_end` / `interrupt` / `resume` / `run_end` | framework 调 `checkpointer.appendEvent` |
 
-Backend **不直接**订阅 `checkpointer.appendEvent`——那是 framework 内部能力。Backend 的事件源是 `agent.run()` 返回的 `AsyncIterable<AgentMessage>`，加上自己在调 `agent.run()` 前后注入的边界事件（`run_end` 等）。
+Backend **不直接**订阅 `checkpointer.appendEvent`。Backend 的事件源是 `agent.run()` 返回的 `AsyncIterable<AgentEvent>`。
 
-转译规则（backend `sse.ts` 实现）：
+**SSE 转译规则**（backend `sse.ts`）：
 
-| AgentMessage / 时机 | SSE event |
+| AgentEvent | SSE |
 |---|---|
-| `Message{role:'assistant'}` | `model_end` |
-| `Message{role:'user', content:tool_result}` | `tool_end` |
-| `{type:'interrupted', ...}` | `interrupted` |
-| stream 自然结束 | `run_end{reason:'complete'}` |
-| 中途异常 / abort | `run_end{reason:'aborted'}` |
+| `{ type: 'message', payload: Message }` | `event: message` + `data: <JSON Message>` |
+| `{ type: 'interrupted', payload: Interrupt }` | `event: interrupted` + `data: <JSON Interrupt>` |
+
+Envelope `type` 直接映射到 SSE `event:` 字段，`payload` 直接序列化到 `data:`——机械操作，无需 switch 分支：
+
+```ts
+for await (const ev of agent.run(input)) {
+  res.write(`event: ${ev.type}\ndata: ${JSON.stringify(ev.payload)}\n\n`);
+}
+```
 
 **模型增量（`model_delta`）**：M1 的 `model.stream()` 已经按 block 粒度 yield 快照；backend 若要做 token 级 delta 推送，需要再包一层 diff（M5+ 再做，M3/M4 不强求）。
 
@@ -193,11 +190,10 @@ sequenceDiagram
   P-->>S: Agent 实例
 
   S->>A: run(input)
-  A-->>SSE: AsyncIterable<AgentMessage>
+  A-->>SSE: AsyncIterable<AgentEvent>
   loop each yield
-    SSE-->>C: event: model_end | tool_end | interrupted ...
+    SSE-->>C: event: <ev.type> data: <JSON ev.payload>
   end
-  SSE-->>C: event: run_end
   SSE-->>C: connection close
 ```
 
