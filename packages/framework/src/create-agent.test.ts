@@ -395,6 +395,29 @@ describe("createAgent", () => {
     }
   });
 
+  // ─── M7: AgentEvent error variant ─────────────────────────────
+
+  test("AgentEvent supports error variant with message and optional stack", () => {
+    const withoutStack: AgentEvent = {
+      type: "error",
+      payload: { message: "something went wrong" },
+    };
+    expect(withoutStack.type).toBe("error");
+    expect(withoutStack.payload.message).toBe("something went wrong");
+    expect(withoutStack.payload.stack).toBeUndefined();
+
+    const withStack: AgentEvent = {
+      type: "error",
+      payload: {
+        message: "boom",
+        stack: "Error: boom\n    at foo (bar.ts:1:2)",
+      },
+    };
+    expect(withStack.type).toBe("error");
+    expect(withStack.payload.message).toBe("boom");
+    expect(withStack.payload.stack).toBeDefined();
+  });
+
   // ─── M4: Interrupt & Resume ──────────────────────────────────
 
   test("tool throws InterruptSignal → yields interrupted and saves state", async () => {

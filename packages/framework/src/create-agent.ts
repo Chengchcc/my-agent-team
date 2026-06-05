@@ -17,7 +17,8 @@ export interface Interrupt {
 
 export type AgentEvent =
   | { type: "message"; payload: Message }
-  | { type: "interrupted"; payload: Interrupt };
+  | { type: "interrupted"; payload: Interrupt }
+  | { type: "error"; payload: { message: string; stack?: string } };
 
 export interface ResumeCommand {
   approved: boolean;
