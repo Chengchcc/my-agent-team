@@ -23,7 +23,7 @@ function toRow(db: { id: string; name: string; template: string | null; workspac
 
 export function sqliteAgentAdapter(db: Database): AgentPort {
   return {
-    async create(input: CreateAgentInput & { id: string; workspacePath: string; now: number }): AgentRow {
+    async create(input: CreateAgentInput & { id: string; workspacePath: string; now: number }): Promise<AgentRow> {
       db.run(
         `INSERT INTO agents (id, name, template, workspace_path, model_provider, model_name, model_base_url, permission_mode, max_steps, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -38,21 +38,21 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
       return toRow(raw);
     },
 
-    async findById(id: string): AgentRow | null {
+    async findById(id: string): Promise<AgentRow | null> {
       const raw = db.query("SELECT * FROM agents WHERE id = ?").get(id) as DbAgentRow | undefined;
       return raw ? toRow(raw) : null;
     },
 
-    async list(includeArchived = false): AgentRow[] {
+    async list(includeArchived = false): Promise<AgentRow[]> {
       const sql = includeArchived
         ? "SELECT * FROM agents ORDER BY created_at DESC"
         : "SELECT * FROM agents WHERE archived_at IS NULL ORDER BY created_at DESC";
       return (db.query(sql).all() as DbAgentRow[]).map(toRow);
     },
 
-    async update(id: string, input: UpdateAgentInput & { now: number }): AgentRow | null {
+    async update(id: string, input: UpdateAgentInput & { now: number }): Promise<AgentRow | null> {
       const sets: string[] = ["updated_at = ?"];
-      const vals: unknown[] = [input.now];
+      const vals: any[] = [input.now];
       if (input.name !== undefined) { sets.push("name = ?"); vals.push(input.name); }
       if (input.permissionMode !== undefined) { sets.push("permission_mode = ?"); vals.push(input.permissionMode); }
       if (input.maxSteps !== undefined) { sets.push("max_steps = ?"); vals.push(input.maxSteps); }
@@ -63,7 +63,7 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
       return toRow(raw);
     },
 
-    async archive(id: string, now: number): AgentRow | null {
+    async archive(id: string, now: number): Promise<AgentRow | null> {
       const result = db.run(
         "UPDATE agents SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL",
         [now, now, id],
