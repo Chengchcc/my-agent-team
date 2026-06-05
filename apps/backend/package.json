@@ -1,0 +1,23 @@
+{
+  "name": "@my-agent-team/backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Team Runtime HTTP Server — L5 Backend",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "bun run src/main.ts",
+    "lint": "biome check . && eslint .",
+    "test": "bun test --pass-with-no-tests",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "@my-agent-team/adapter-anthropic": "workspace:*",
+    "@my-agent-team/agent-spec": "workspace:*",
+    "@my-agent-team/checkpointer-sqlite": "workspace:*",
+    "@my-agent-team/harness": "workspace:*",
+    "@my-agent-team/runner-stdio": "workspace:*",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {}
+}

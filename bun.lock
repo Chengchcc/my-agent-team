@@ -16,6 +16,18 @@
         "typescript-eslint": "^8.60.1",
       },
     },
+    "apps/backend": {
+      "name": "@my-agent-team/backend",
+      "version": "0.1.0",
+      "dependencies": {
+        "@my-agent-team/adapter-anthropic": "workspace:*",
+        "@my-agent-team/agent-spec": "workspace:*",
+        "@my-agent-team/checkpointer-sqlite": "workspace:*",
+        "@my-agent-team/harness": "workspace:*",
+        "@my-agent-team/runner-stdio": "workspace:*",
+        "zod": "^3.23.0",
+      },
+    },
     "apps/cli": {
       "name": "@my-agent-team/cli",
       "version": "0.1.0",
@@ -199,6 +211,8 @@
     "@my-agent-team/adapter-anthropic": ["@my-agent-team/adapter-anthropic@workspace:packages/adapter-anthropic"],
 
     "@my-agent-team/agent-spec": ["@my-agent-team/agent-spec@workspace:packages/agent-spec"],
+
+    "@my-agent-team/backend": ["@my-agent-team/backend@workspace:apps/backend"],
 
     "@my-agent-team/checkpointer-sqlite": ["@my-agent-team/checkpointer-sqlite@workspace:packages/checkpointer-sqlite"],
 
