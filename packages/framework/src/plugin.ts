@@ -1,8 +1,14 @@
 import type { Message, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
+import type { Checkpointer } from "./checkpointer.js";
+import type { ContextManager } from "./context-manager.js";
+import type { Logger } from "./logger.js";
 
 export interface HookContext {
   threadId: string;
   signal?: AbortSignal;
+  logger: Logger;
+  checkpointer: Checkpointer;
+  contextManager: ContextManager;
 }
 
 export interface PluginHooks {

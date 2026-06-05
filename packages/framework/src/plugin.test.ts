@@ -1,6 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import type { Message, ToolUseBlock } from "@my-agent-team/core";
+import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
+import { passthroughContextManager } from "./context-managers/passthrough.js";
+import { consoleLogger } from "./logger.js";
 import { definePlugin, type HookContext } from "./plugin.js";
+
+function testCtx(overrides?: Partial<HookContext>): HookContext {
+  return {
+    threadId: "t1",
+    logger: consoleLogger({ level: "silent" }),
+    checkpointer: inMemoryCheckpointer(),
+    contextManager: passthroughContextManager(),
+    ...overrides,
+  };
+}
 
 describe("definePlugin", () => {
   test("creates a plugin with the given name", () => {
@@ -42,26 +55,35 @@ describe("definePlugin", () => {
       },
     });
 
-    const ctx: HookContext = { threadId: "t1" };
+    const ctx = testCtx();
     const msgs: Message[] = [{ role: "user", content: "hi" }];
     await plugin.hooks.afterModel?.(ctx, msgs);
 
-    expect(capturedCtx).toEqual({ threadId: "t1" });
+    expect(capturedCtx).toHaveProperty("threadId", "t1");
+    expect(capturedCtx).toHaveProperty("logger");
+    expect(capturedCtx).toHaveProperty("checkpointer");
+    expect(capturedCtx).toHaveProperty("contextManager");
     expect(capturedMsgs).toBe(msgs);
+  });
+
+  test("HookContext exposes three capabilities", () => {
+    const ctx = testCtx();
+    expect(ctx.logger).toBeDefined();
+    expect(ctx.checkpointer).toBeDefined();
+    expect(ctx.contextManager).toBeDefined();
+    expect(ctx.threadId).toBe("t1");
   });
 
   test("beforeTool returns undefined by default", async () => {
     const plugin = definePlugin({
       name: "passthrough",
       hooks: {
-        beforeTool(_ctx, _call) {
-          // no explicit return
-        },
+        beforeTool(_ctx, _call) {},
       },
     });
 
     const call: ToolUseBlock = { type: "tool_use", id: "t1", name: "read", input: {} };
-    const result = await plugin.hooks.beforeTool?.({ threadId: "t" }, call, []);
+    const result = await plugin.hooks.beforeTool?.(testCtx(), call, []);
     expect(result).toBeUndefined();
   });
 
@@ -76,7 +98,7 @@ describe("definePlugin", () => {
     });
 
     const call: ToolUseBlock = { type: "tool_use", id: "t1", name: "write", input: {} };
-    const result = await plugin.hooks.beforeTool?.({ threadId: "t" }, call, []);
+    const result = await plugin.hooks.beforeTool?.(testCtx(), call, []);
 
     expect(result).toEqual({ skip: true, result: "not allowed" });
   });

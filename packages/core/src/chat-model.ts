@@ -19,4 +19,5 @@ export interface ChatModelOptions {
 export interface ChatModel {
   readonly id?: string;
   stream(messages: readonly Message[], options?: ChatModelOptions): AsyncIterable<AIMessageChunk>;
+  countTokens?(messages: readonly Message[]): number | Promise<number>;
 }
