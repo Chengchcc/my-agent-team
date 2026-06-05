@@ -95,7 +95,7 @@ async function createGenericAgent(opts: GenericAgentOptions): Promise<Agent> {
 
   // 2. 拼 systemPrompt 静态段
   const systemPrompt = composeSystemPrompt({
-    soul, user, tools, agents, todayLog, yestLog,
+    workspace: ws, today, yesterday, soul, user, tools, agents, todayLog, yestLog,
   });
 
   // 3. 装配 framework
@@ -116,9 +116,16 @@ async function createGenericAgent(opts: GenericAgentOptions): Promise<Agent> {
 }
 ```
 
-### systemPrompt 拼装规则
+### systemPrompt 拼装规则（6 段）
 
 ```
+<workspace>
+Root: ${workspace}
+File tools (read, write, edit, grep, glob) use absolute paths relative to this root.
+For bash, pass cwd='${workspace}' by default; override when the user explicitly requests a different directory.
+Today: ${today}
+</workspace>
+
 <soul>
 ${soul}
 </soul>
@@ -145,6 +152,8 @@ ${todayLog}
 ```
 
 空段保留标签外壳但内容为空（让 LLM 知道这是有意为空，不是漏掉）。
+
+为防止 workspace 文件内容注入闭合标签破坏 prompt 结构，6 个 XML 标签名（`workspace/soul/user/tools/agents/recent-work`）的闭合标签在用户内容中被转义为 `<\\/tagname>`。
 
 ### 为什么 daily-log 在 bootstrap 一次性注入，不做 plugin
 
