@@ -19,11 +19,16 @@ export const globTool: Tool = {
   async execute(input) {
     const { pattern, cwd } = input as { pattern: string; cwd?: string };
 
+    const LIMIT = 500;
     const glob = new Bun.Glob(pattern);
     const matches: string[] = [];
+    let truncated = false;
     for await (const m of glob.scan({ cwd, absolute: false, onlyFiles: true })) {
+      if (matches.length >= LIMIT) {
+        truncated = true;
+        break;
+      }
       matches.push(m);
-      if (matches.length >= 500) break;
     }
 
     if (matches.length === 0) {
@@ -31,9 +36,6 @@ export const globTool: Tool = {
     }
 
     const body = matches.join("\n");
-    if (matches.length >= 500) {
-      return { content: `${body}\n... (truncated at 500)` };
-    }
-    return { content: body };
+    return { content: truncated ? `${body}\n... (truncated at ${LIMIT})` : body };
   },
 };

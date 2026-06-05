@@ -57,9 +57,7 @@ export const grepTool: Tool = {
     if (exitCode === 1) return { content: "" };
     if (exitCode >= 2) {
       return {
-        content:
-          stderr ||
-          "grep failed: ripgrep not found, install via brew install ripgrep / apt install ripgrep",
+        content: `grep failed (exit=${exitCode}): ${stderr || "unknown error"}`,
         isError: true,
       };
     }

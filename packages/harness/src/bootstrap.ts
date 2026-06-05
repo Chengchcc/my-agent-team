@@ -18,8 +18,15 @@ export async function bootstrap(workspace: string, logger: Logger): Promise<stri
     readOrEmpty(path.join(workspace, "memory", `${yesterday}.md`), logger),
   ]);
 
-  // All empty → fallback prompt (Q7 = A)
-  if (!soul && !user && !tools && !agents && !todayLog && !yestLog) {
+  // All empty (or whitespace-only) → fallback prompt (Q7 = A)
+  if (
+    !soul.trim() &&
+    !user.trim() &&
+    !tools.trim() &&
+    !agents.trim() &&
+    !todayLog.trim() &&
+    !yestLog.trim()
+  ) {
     return fallbackSystemPrompt(workspace);
   }
 

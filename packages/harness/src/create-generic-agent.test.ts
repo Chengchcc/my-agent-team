@@ -63,23 +63,27 @@ describe("createGenericAgent", () => {
     }
   });
 
-  test("default-assembles 6 file tools", async () => {
+  test("bootstrap injects systemPrompt from workspace files", async () => {
     const ws = `/tmp/test-harness-${Date.now()}`;
     await mkdir(ws, { recursive: true });
+    await mkdir(path.join(ws, "memory"), { recursive: true });
 
     try {
-      await writeFile(path.join(ws, "SOUL.md"), "test");
+      await writeFile(path.join(ws, "SOUL.md"), "You are a test agent.");
 
       const agent = await createGenericAgent({
         workspace: ws,
         model: scriptedModel([{ type: "text", text: "ok" }]),
       });
 
-      // Default tools: read, write, edit, bash, grep, glob
-      // Plus up to 5 from plugins (memory_read, memory_write, memory_search, skill_load)
-      // fs-memory has 3 tools, progressive-skill has 1
-      // Total expected: 6 + 3 + 1 = 10
-      expect(agent.thread.messages).toBeDefined();
+      // Run one turn to trigger system prompt injection
+      await collect(agent.run("hello"));
+
+      // Verify system prompt was injected and contains workspace content
+      const sysMsg = agent.thread.messages.find((m) => m.role === "system");
+      expect(sysMsg).toBeDefined();
+      expect((sysMsg as Message).content).toInclude("<soul>");
+      expect((sysMsg as Message).content).toInclude("You are a test agent.");
     } finally {
       await rm(ws, { recursive: true, force: true });
     }

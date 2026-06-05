@@ -9,12 +9,24 @@ export interface SystemPromptParts {
   yestLog: string;
 }
 
+const TAGS = ["soul", "user", "tools", "agents", "recent-work"] as const;
+
+/** Escape closing XML tags in user-provided content to prevent prompt-structure injection. */
+function escapeClosingTags(s: string): string {
+  for (const tag of TAGS) {
+    const closing = `</${tag}>`;
+    // Insert a zero-width joiner-like escape: <\/tagname>
+    s = s.replaceAll(closing, `<\\/${tag}>`);
+  }
+  return s;
+}
+
 export function composeSystemPrompt(p: SystemPromptParts): string {
   return [
-    `<soul>\n${p.soul}\n</soul>`,
-    `<user>\n${p.user}\n</user>`,
-    `<tools>\n${p.tools}\n</tools>`,
-    `<agents>\n${p.agents}\n</agents>`,
-    `<recent-work>\n## ${p.yesterday}\n${p.yestLog}\n\n## ${p.today}\n${p.todayLog}\n</recent-work>`,
+    `<soul>\n${escapeClosingTags(p.soul)}\n</soul>`,
+    `<user>\n${escapeClosingTags(p.user)}\n</user>`,
+    `<tools>\n${escapeClosingTags(p.tools)}\n</tools>`,
+    `<agents>\n${escapeClosingTags(p.agents)}\n</agents>`,
+    `<recent-work>\n## ${p.yesterday}\n${escapeClosingTags(p.yestLog).trimEnd()}\n\n## ${p.today}\n${escapeClosingTags(p.todayLog).trimEnd()}\n</recent-work>`,
   ].join("\n\n");
 }

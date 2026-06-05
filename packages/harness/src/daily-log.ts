@@ -6,10 +6,10 @@ export function isoDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Today's date string and yesterday's, computed from current time. */
+/** Today's date string and yesterday's, computed from a single timestamp. */
 export function todayAndYesterday(): { today: string; yesterday: string } {
-  const now = new Date();
-  const today = isoDate(now);
-  const yesterday = isoDate(new Date(now.getTime() - 86_400_000));
+  const nowMs = Date.now();
+  const today = isoDate(new Date(nowMs));
+  const yesterday = isoDate(new Date(nowMs - 86_400_000));
   return { today, yesterday };
 }

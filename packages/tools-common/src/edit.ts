@@ -26,20 +26,31 @@ export const editTool: Tool = {
     }
 
     const content = await file.text();
-    const parts = content.split(oldString);
 
-    if (parts.length === 1) {
+    const first = content.indexOf(oldString);
+    if (first === -1) {
       return { content: `oldString not found in ${path}`, isError: true };
     }
 
-    if (parts.length > 2) {
+    // Check uniqueness: search for a second occurrence after the first
+    const second = content.indexOf(oldString, first + oldString.length);
+    if (second !== -1) {
+      // Count total occurrences for the error message
+      let count = 2;
+      let pos = second + oldString.length;
+      while ((pos = content.indexOf(oldString, pos)) !== -1) {
+        count++;
+        pos += oldString.length;
+      }
       return {
-        content: `oldString matches ${parts.length - 1} times in ${path}; narrow the match`,
+        content: `oldString matches ${count} times in ${path}; narrow the match`,
         isError: true,
       };
     }
 
-    await Bun.write(path, parts.join(newString));
+    // Single match: replace via slice (avoids O(n) split memory)
+    const result = content.slice(0, first) + newString + content.slice(first + oldString.length);
+    await Bun.write(path, result);
     return { content: `Edited: ${path}` };
   },
 };

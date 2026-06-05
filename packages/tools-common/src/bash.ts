@@ -22,12 +22,17 @@ export const bashTool: Tool = {
     };
     const clamped = Math.min(Math.max(timeout, 1), 600_000);
 
-    const proc = Bun.spawn(["bash", "-c", command], {
+    // setsid → new session + process group, so timeout can kill all descendants
+    const proc = Bun.spawn(["setsid", "bash", "-c", command], {
       stdout: "pipe",
       stderr: "pipe",
     });
 
-    const timer = setTimeout(() => proc.kill(), clamped);
+    const timer = setTimeout(() => {
+      proc.kill();
+      // Kill the entire process group to catch orphaned children
+      try { process.kill(-proc.pid, "SIGTERM"); } catch { /* already dead */ }
+    }, clamped);
 
     try {
       const [stdout, stderr, exitCode] = await Promise.all([
@@ -36,7 +41,8 @@ export const bashTool: Tool = {
         proc.exited,
       ]);
 
-      const body = `exit=${exitCode}\n--- stdout ---\n${stdout}--- stderr ---\n${stderr}`;
+      const code = exitCode === null ? "killed" : exitCode;
+      const body = `exit=${code}\n--- stdout ---\n${stdout}\n--- stderr ---\n${stderr}\n`;
       if (exitCode === 0) {
         return { content: body };
       }
