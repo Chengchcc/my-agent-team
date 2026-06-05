@@ -1,6 +1,24 @@
-# 术语表
+# Glossary — 术语表
 
 > 核心原则：**一个概念，一个名字**。全项目跨包跨 milestone 统一。新增术语更新此文档。
+
+---
+
+## 核心概念
+
+| 术语 | 定义 |
+|---|---|
+| **Turn** | 一轮对话。从一条 user 消息开始，到 assistant 返回最终文本（不再调 tool）结束。中间可能包含多次 tool 调用 |
+| **Thread** | 一条对话线。`{ id, messages }`，messages 是完整的 Message[]。调用方可随时读写、fork、序列化。状态归调用方 |
+| **System Prompt** | 定义 agent 人格和行为边界的提示词。在 messages 首位，role=`system`。M1 作为普通 message 传递，M2 adapter 自动提取到 API system 参数 |
+| **Context Window** | LLM 能处理的输入 token 上限。agent loop 跑得越久 messages 越长，最终撞墙。ContextManager 负责在撞墙前塑形 |
+| **Agent Loop** | `run()` 内部的 while 循环。每步：调 model → 收集 assistant → 执行 tool → 回喂 results → 继续，直到无 tool_use 或 maxSteps |
+| **Checkpoint** | 一次持久化保存。Checkpointer.save() 在 tool 边界将完整 thread.messages 落盘，保证崩溃后可恢复 |
+| **Interrupt** | Tool 抛 `InterruptSignal` 暂停 agent loop。用于 human-in-the-loop（权限询问、人工审核）。需 Checkpointer 支持 interrupt 能力 |
+| **Resume** | `agent.resume(decision)` 从中断恢复。framework 消费 Checkpointer 中保存的 `InterruptState`，补充 tool_result 后继续 loop |
+| **Fork** | `agent.fork(messages?, id?)`。复用 model/tools/plugins/checkpointer/contextManager，创建新 thread。用于分支对话、A/B 对比 |
+| **Streaming** | LLM 输出的逐 token 传输模式。`AsyncIterable<AIMessageChunk>` 贯穿全栈——L1 协议到 L4 harness 都是同一个流 |
+| **State Belongs to Caller** | 核心设计原则。`messages` 数组由调用方持有，framework 只原地推进（push）。调用方可随时读写、fork、持久化 |
 
 ---
 
@@ -72,17 +90,13 @@
 | `definePlugin()` | 类型安全的 plugin 构造函数。`definePlugin({ name, hooks }) → Plugin` | 同上 |
 | **Transformer** | 一类 plugin 钩子（before*）：返回值有语义，改变数据流。`beforeModel` 返回裁剪后的 messages；`beforeTool` 返回 `{ skip?, input?, result? }` | — |
 | **Observer** | 一类 plugin 钩子（after*）：副作用收集，返回值被忽略。失败必须吞掉 + `console.warn` | — |
-| `Checkpointer` | 持久化后端接口。三层能力：`save`/`load`（必需）、`saveInterrupt`/`consumeInterrupt`（可选，human-in-the-loop）、`appendEvent`/`readEvents`（可选，UX 回放）。独立于 Plugin，一个 agent 只有一个。详见 [04-checkpointer.md](./04-checkpointer.md) | `packages/framework/src/checkpointer.ts` |
+| `Checkpointer` | 持久化后端接口。三层能力：`save`/`load`（必需，崩溃恢复）、`saveInterrupt`/`consumeInterrupt`（可选，human-in-the-loop）、`appendEvent`/`readEvents`（可选，UX 回放）。独立于 Plugin，一个 agent 只有一个。详见 [04-checkpointer.md](./04-checkpointer.md) | `packages/framework/src/checkpointer.ts` |
 | `InterruptSignal` | Tool 抛出的中断信号。继承 Error。framework 识别后走 interrupt 流程而非普通 tool 错误。携带 `reason` + `meta` | 同上 |
 | `InterruptState` | 中断状态：`{ pendingTool, ts, meta? }`。由 Checkpointer 持久化，`agent.resume()` 时消费 | 同上 |
 | `AgentEvent` | 事件流类型：user_input / model_start / model_end / tool_start / tool_end / interrupt / resume / run_end。供 UX 回放和审计 | 同上 |
-| `inMemoryCheckpointer()` | 默认 Checkpointer。`createAgent` 不传 checkpointer 时使用。进程退出状态丢失 | `packages/framework/src/checkpointers/in-memory-checkpointer.ts` |
-| `fileCheckpointer()` | 文件 Checkpointer。`state.json` + `interrupt.json` + `events.jsonl`。适合 CLI/单机 | `packages/framework/src/checkpointers/file-checkpointer.ts` |
-| `slidingWindow()` | 内置 plugin。`beforeModel` 钩子，保留最近 N 轮。`maxTurns=0` 时只保留 system 消息 | `packages/framework/src/plugins/sliding-window.ts` |
-| `Logger` | `{ level, debug, info, warn, error }`。level 过滤低于当前级别的调用。默认 `consoleLogger({ level: 'info' })` | `packages/framework/src/logger.ts` |
+| `ContextManager` | 上下文塑形接口。`shape(ctx, messages) → Message[]`。在每次调 LLM 前决定实际送进去的 messages。不改 thread.messages。默认 passthrough（原样）。详见 [05-context-manager.md](./05-context-manager.md) | `packages/framework/src/context-manager.ts` |
+| `Logger` | `{ level, debug, info, warn, error }`。level 过滤。默认 level=`info`，输出到 `console`。可注入替换 | `packages/framework/src/logger.ts` |
 | `LogLevel` | `'debug' \| 'info' \| 'warn' \| 'error' \| 'silent'` | 同上 |
-| `consoleLogger()` | 默认 Logger 实现。包装 `console`。`debug`→`console.debug`、`info`→`console.log`、`warn`→`console.warn`、`error`→`console.error` | 同上 |
-| `noopLogger()` | `consoleLogger({ level: 'silent' })`。所有方法为空操作，完全静默框架日志 | 同上 |
 | **错误隔离** | `before*` 抛错 → 整轮 abort，传播给调用方。`after*` 抛错 → 吞掉 + `console.warn(pluginName, error)`。`checkpointer.save` 抛错 → 吞掉 + `console.warn` | — |
 | **管道链** | 多个 plugin 挂同一个 `before*` 时，按 plugins 数组顺序依次调用，上一个的返回值作为下一个的输入 | — |
 

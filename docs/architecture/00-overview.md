@@ -23,7 +23,7 @@ L1 Protocols  类型契约：Message / ChatModel / Tool
 
 ## 架构文档
 
-- [01-terminology.md](./01-terminology.md) — 术语表
+- [01-glossary.md](./01-glossary.md) — 术语表
 - [02-framework.md](./02-framework.md) — 框架层设计
 - [03-plugin.md](./03-plugin.md) — Plugin 扩展机制详解
 - [04-checkpointer.md](./04-checkpointer.md) — Checkpointer 持久化与中断
