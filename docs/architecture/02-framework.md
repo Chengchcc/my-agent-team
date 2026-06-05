@@ -19,8 +19,10 @@ L2 `run()` 是裸的 async generator — 调用方每次都要手动管理 messa
 | `Agent` | 组合 model + tools + plugins + checkpointer + thread，执行 loop | framework |
 | `createAgent()` | 装配 Agent；如果有 threadId + checkpointer，异步恢复历史 | framework |
 | `definePlugin()` | 类型安全的 plugin 构造函数 | framework |
-| 内置 plugins | slidingWindow、consoleLogger | framework |
-| 内置 checkpointer | fileCheckpointer | framework |
+| 内置 plugins | 无 — Plugin 全是用户/harness 定义 | framework |
+| 内置 checkpointer | inMemoryCheckpointer（默认）、fileCheckpointer | framework |
+| 内置 contextManager | passthroughContextManager（默认）| framework |
+| 内置 logger | consoleLogger（默认），包装 `console` | framework |
 
 依赖方向：framework → core。框架不依赖 adapter-anthropic 或 tools-common。
 
@@ -29,20 +31,32 @@ L2 `run()` 是裸的 async generator — 调用方每次都要手动管理 messa
 ## Agent
 
 ```ts
+type AgentMessage =
+  | Message
+  | { type: 'interrupted'; pendingTool: ToolUseBlock; reason: string; meta?: unknown };
+
 interface Agent {
   readonly thread: Thread;
-  run(input: string, options?: RunOptions): AsyncIterable<Message>;
+  run(input: string, options?: RunOptions): AsyncIterable<AgentMessage>;
+  /** 从 interrupt 恢复，decision.approved 决定 tool 是否执行 */
+  resume(decision: ResumeDecision, options?: RunOptions): AsyncIterable<AgentMessage>;
   fork(messages?: Message[], id?: string): Agent;
+}
+
+interface ResumeDecision {
+  approved: boolean;
+  message?: string;
 }
 ```
 
 - `agent.thread.messages` — 调用方可随时读写、fork、序列化。状态归调用方
-- `agent.run(input)` — 把 input 推成 user 消息 → 调 L2 `run()` → 流式 yield
-- `agent.fork(messages, id)` — 复用 model/tools/plugins，创建新 thread。用于分支对话
+- `agent.run(input)` — 把 input 推成 user 消息 → 执行 agent loop → 流式 yield
+- `agent.resume(decision)` — 从 interrupt 恢复，补充 tool_result 后继续 loop
+- `agent.fork(messages, id)` — 复用 model/tools/plugins/checkpointer/contextManager，创建新 thread
 
-**并发保护：** 同一 Agent 同时只能有一个 `run()` 在执行。第二个调用直接抛错 —— `"Agent is already running. Use fork() for concurrent conversations."`。fail-fast，错误信息自带指引。
+**并发保护：** 同一 Agent 同时只能有一个 `run()`/`resume()` 在执行。第二个调用抛错 —— `"Agent is already running. Use fork() for concurrent conversations."`。
 
-**Abort 行为：** signal 在 `run()` 入口处先检查（已 abort 时 user 消息不会 push，thread 不受影响）。中途 abort 时，messages 中已 push 的内容（user input + 已完成的 assistant turn）保留不 rollback —— framework 无法判断调用方意图是重试还是撤销，决策权归调用方。调用方可 `thread.messages.pop()` 手动撤销。
+**Abort 行为：** signal 在入口处检查（已 abort 不 push user 消息）。中途 abort 保留已完成内容，不 rollback。
 
 ---
 
@@ -85,21 +99,13 @@ interface PluginHooks {
 
 ## Checkpointer
 
-```ts
-interface Checkpointer {
-  load(threadId: string): Promise<Message[] | null>;
-  save(threadId: string, messages: Message[]): Promise<void>;
-}
-```
+Framework 内化能力（不是 plugin）。承担状态持久化、human-in-the-loop、UX 回放。详见 **[04-checkpointer.md](./04-checkpointer.md)**。
 
-**Checkpointer 是独立字段，不是 plugin。**
+---
 
-- `load` 是主动查询（framework 问 "这个 thread 有历史吗？"），不是事件回调——和 4 个钩子性质不同
-- `save` 时机由 framework 决定：每次 afterTool 之后调 `checkpointer.save()`
-- 一个 agent 只有一个 Checkpointer —— 不需要数组 + 优先级
-- `createAgent` 如果配了 `threadId` + `checkpointer`，先调 `load()` 恢复 messages；无则创建空 thread
+## ContextManager
 
-**不是 plugin 的理由：** plugin 是事件回调（发生时被调），checkpointer 是被动查询（framework 来问）。把 load 塞进 plugin 数组会产生"第一个非 null 就是答案"的隐式优先级，违反 "plugins 数组顺序即调用顺序，无 priority" 的纪律。
+Framework 内化能力（不是 plugin）。在每次调 LLM 前决定"实际送进去的 messages 是什么"的策略层。默认 `passthroughContextManager`（原样传）。详见 **[05-context-manager.md](./05-context-manager.md)**。
 
 ---
 
@@ -113,24 +119,40 @@ definePlugin({ name, hooks }): Plugin
 
 ---
 
-## 内置 Plugin
+## Logger
 
-| Plugin | 挂载点 | 职责 |
-|---|---|---|
-| `slidingWindow({ maxTurns })` | `beforeModel` | 保留最近 N 轮，transform messages |
-| `consoleLogger()` | `afterModel` + `afterTool` | 开发调试日志 |
+Framework 内化能力。可注入，默认 `consoleLogger`。
 
-两个内置 plugin + 内置 checkpointer 合起来触发 Rule of Three。未来扩展不加模块，只加 `definePlugin({ ... })`。
+```ts
+type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
+
+interface Logger {
+  level: LogLevel;
+  debug(message: string, ...args: unknown[]): void;
+  info(message: string, ...args: unknown[]): void;
+  warn(message: string, ...args: unknown[]): void;
+  error(message: string, ...args: unknown[]): void;
+}
+```
+
+- `createAgent` 不传 `logger` → 用 `consoleLogger`（level=`info`，包装 `console`）
+- framework 内部调用前检查 `level`：低于当前 level 的方法不执行（如 level=`warn` 时 `debug`/`info` 为空操作）
+- 错误隔离（`after*` / `checkpointer.save` 抛错）→ `logger.warn`
+- Interrupt 触发 / Resume 恢复 → `logger.info`
+- 内部调试信息（hook fire、loop step）→ `logger.debug`
+- 用户可替换（`pino`、`winston`）或禁用（`noopLogger`，level=`silent`）
 
 ---
 
 ## 内置 Checkpointer
 
-| Checkpointer | 实现 |
-|---|---|
-| `fileCheckpointer({ path })` | `save` 写 JSON 文件，`load` 读并 parse |
+`inMemoryCheckpointer` 是默认实现（进程内 Map）。`fileCheckpointer({ dir })` 提供文件持久化（state.json + events.jsonl + interrupt.json）。详见 **[04-checkpointer.md](./04-checkpointer.md)**。
 
-调用方可以用任意存储后端（redis/memory/db）实现 `Checkpointer` 接口，替换内置实现。
+---
+
+## 内置 ContextManager
+
+`passthroughContextManager` 是默认实现（原样传）。`slidingWindowContextManager`、`tokenBudgetContextManager`、`toolResultTruncator`、`summarizingContextManager` 提供可组合的裁剪策略。详见 **[05-context-manager.md](./05-context-manager.md)**。
 
 ---
 
@@ -140,22 +162,25 @@ definePlugin({ name, hooks }): Plugin
 agent.run(input)
   signal.throwIfAborted()                      // 早抛,thread 不污染
   messages.push({ role: "user", content: input })
+  checkpointer.save(...)                       // 持久化完整版
   ↓
-  beforeModel(ctx, messages)          // plugin: slidingWindow
-  ↓
-  model.stream(messages)              // yield 快照
-  ↓
-  messages.push(assistant msg)
-  afterModel(ctx, messages)           // plugin: consoleLogger
-  ↓
-  [for each tool_use:]
-    beforeTool(ctx, call, messages)   // plugin: 鉴权/跳过
-    execute tool
-    messages.push(tool result)
-    afterTool(ctx, call, result, messages)     // plugin: consoleLogger
-    checkpointer.save(thread.id, messages)     // framework 自动调
-  ↓
-  loop until no tool_use or maxSteps
+  loop:
+    shapedMessages = contextManager.shape(...)  // 空间塑形
+    beforeModel(ctx, shapedMessages)            // plugin: 修饰
+    ↓
+    model.stream(shapedMessages)               // yield 快照
+    ↓
+    messages.push(assistant msg)                // push 到完整版
+    afterModel(ctx, messages)                  // plugin: consoleLogger
+    ↓
+    [for each tool_use:]
+      beforeTool(ctx, call, messages)           // plugin: 鉴权/跳过
+      execute tool
+      messages.push(tool result)
+      afterTool(ctx, call, result, messages)   // plugin: consoleLogger
+      checkpointer.save(...)                   // 持久化完整版
+    ↓
+    loop until no tool_use or maxSteps
 ```
 
 ---

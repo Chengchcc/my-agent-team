@@ -1,37 +1,49 @@
-# Architecture Overview
+# 架构概览
 
-## Goal
+## 目标
 
-This repo builds a small agent stack from first principles: a caller provides messages, a model streams assistant output, tools may run, and results are fed back until the model ends the turn.
+从第一性原理构建一个小型 agent 栈：调用方提供 messages，模型流式输出 assistant 内容，工具按需执行，结果回喂，直到模型结束 turn。
 
-## Layers
+## 四层架构
 
 ```text
-L4 Harness    opinionated product layer: built-in tools, prompts, permissions
-L3 Framework  assembly layer: createAgent-style API over model + tools
-L2 Runtime    run loop: messages -> model -> tools -> messages
-L1 Protocols  type contracts: Message, ChatModel, Tool
+L4 Harness    有观点的产品层：内置 tools + system prompt + 权限策略
+L3 Framework  装配层：createAgent 式 API，组合 model + tools + plugins
+L2 Runtime    运行内核：messages → model → tools → messages
+L1 Protocols  类型契约：Message / ChatModel / Tool
 ```
 
-M1 ships L1 and L2 in `@my-agent-team/core`, plus `@my-agent-team/test-helpers` for reusable scripted model tests.
+## Milestone 交付
 
-M2 adds `@my-agent-team/adapter-anthropic` (Anthropic `ChatModel` implementation via `@anthropic-ai/sdk`), `@my-agent-team/tools-common` (6 reusable tools: web_fetch, web_search, memory_save, memory_recall, read, write), and `@my-agent-team/cli` (`apps/cli`, interactive entry point).
+| Milestone | 交付 |
+|---|---|
+| M1 | `@my-agent-team/core`（L1+L2）+ `@my-agent-team/test-helpers` |
+| M2 | `@my-agent-team/adapter-anthropic` + `@my-agent-team/tools-common` + `@my-agent-team/cli` |
+| M3 | `@my-agent-team/framework`（L3） |
 
-M3 will add `@my-agent-team/framework` (L3). See [01-framework.md](./01-framework.md) for the layer design.
+## 架构文档
 
-## Design Principles
+- [01-terminology.md](./01-terminology.md) — 术语表
+- [02-framework.md](./02-framework.md) — 框架层设计
+- [03-plugin.md](./03-plugin.md) — Plugin 扩展机制详解
+- [04-checkpointer.md](./04-checkpointer.md) — Checkpointer 持久化与中断
+- [05-context-manager.md](./05-context-manager.md) — ContextManager 上下文管理
+- [06-harness.md](./06-harness.md) — Harness 的定义
+- [07-harness-vs-framework.md](./07-harness-vs-framework.md) — Framework vs Harness 边界
 
-1. No protocol without proven need: add fields only for real repeated pain, not imagined future cases.
-2. No deep imports: package consumers enter through `index.ts` exports.
-3. Composition over hooks: if normal JavaScript function wrapping solves it, do not add a framework hook.
-4. State belongs to caller by default: `messages` is owned by the caller and advanced by the runtime.
-5. Layer downward dependency: L4 can depend on L3/L2/L1; reverse dependency is a bug.
-6. AsyncIterable is the event stream: do not introduce an EventBus or Observer for M1.
-7. One concept, one name: keep protocol names consistent across packages.
-8. Rule of three: extract shared abstraction on the third real repetition.
+## 设计原则
 
-## Runtime Contract
+1. **No protocol without proven need** — 协议字段只为已发生的痛点加，不为想象需求加
+2. **No deep imports** — 跨包只能从 index.ts 进
+3. **Composition over hooks** — 能用 JS 函数嵌套解决的，不加框架钩子
+4. **State belongs to caller by default** — messages 由调用方持有，runtime 原地推进
+5. **Layer downward dependency** — L4→L3→L2→L1，反向 = bug
+6. **AsyncIterable is the event stream** — 不重新发明 EventBus / Observer
+7. **One concept, one name** — 同一事物全项目同一称呼
+8. **Rule of three** — 第三次重复出现才提取抽象
 
-`run(model, tools, messages, options)` is an async generator. It streams assistant snapshots while the model emits deltas, appends completed assistant messages to the caller-owned `messages` array, executes requested tools serially, appends tool results as user messages, and stops when there are no tool calls or `maxSteps` is reached.
+## Runtime 契约
 
-Model errors propagate to the caller. Tool errors become `tool_result` blocks with `is_error: true` so the model can continue from the error context.
+`run(model, tools, messages, options)` 是一个 async generator。流式 yield assistant 快照，把完成的 assistant 消息和 tool 结果推进调用方持有的 `messages` 数组，串行执行 tool，无 tool_use 或达 maxSteps 时停止。
+
+Model 抛错向上传播。Tool 抛错转成 `is_error: true` 的 `tool_result`，让 LLM 能从错误上下文继续。
