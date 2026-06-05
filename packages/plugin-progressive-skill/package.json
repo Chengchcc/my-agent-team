@@ -1,0 +1,28 @@
+{
+  "name": "@my-agent-team/plugin-progressive-skill",
+  "version": "0.1.0",
+  "description": "Progressive skill loading with Claude Code-style SKILL.md",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check . && eslint .",
+    "test": "bun test --pass-with-no-tests",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "@my-agent-team/core": "workspace:*",
+    "@my-agent-team/framework": "workspace:*",
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {}
+}
