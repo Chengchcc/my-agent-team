@@ -1,7 +1,7 @@
 {
-  "name": "{{name}}",
+  "name": "@my-agent-team/core",
   "version": "0.1.0",
-  "description": "{{description}}",
+  "description": "Core protocol and minimal runtime",
   "type": "module",
   "exports": {
     ".": {

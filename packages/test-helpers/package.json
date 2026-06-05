@@ -1,7 +1,7 @@
 {
-  "name": "{{name}}",
+  "name": "@my-agent-team/test-helpers",
   "version": "0.1.0",
-  "description": "{{description}}",
+  "description": "Test helpers for my-agent-team packages",
   "type": "module",
   "exports": {
     ".": {
@@ -18,6 +18,9 @@
     "lint": "biome check . && eslint .",
     "test": "bun test --pass-with-no-tests",
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "@my-agent-team/core": "workspace:*"
   },
   "devDependencies": {}
 }

@@ -8,7 +8,11 @@ describe("toAnthropicTools", () => {
       {
         name: "read",
         description: "Read a file",
-        inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+        inputSchema: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        },
         execute: () => ({ content: "done" }),
       },
       {
@@ -29,7 +33,11 @@ describe("toAnthropicTools", () => {
       {
         name: "read",
         description: "Read a file",
-        input_schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+        input_schema: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        },
       },
       {
         name: "write",
