@@ -199,4 +199,100 @@ describe("AnthropicChatModel", () => {
 
     expect(capturedSystem).toBeUndefined();
   });
+
+  test("forwards thinking and effort config to API", async () => {
+    let capturedThinking: unknown;
+    let capturedEffort: unknown;
+
+    mock.module("@anthropic-ai/sdk", () => ({
+      Anthropic: class {
+        messages = {
+          stream: (params: Record<string, unknown>) => {
+            capturedThinking = params.thinking;
+            capturedEffort = params.effort;
+            return {
+              [Symbol.asyncIterator]() {
+                return { next: () => ({ done: true, value: undefined }) };
+              },
+              finalMessage: () =>
+                Promise.resolve({
+                  stop_reason: "end_turn",
+                  usage: { input_tokens: 1, output_tokens: 0 },
+                }),
+            };
+          },
+        };
+      },
+    }));
+
+    const model = new AnthropicChatModel({
+      apiKey: "test-key",
+      thinking: { type: "adaptive" },
+      effort: "xhigh",
+    });
+    await collect(model.stream([{ role: "user", content: "hi" }]));
+
+    expect(capturedThinking).toEqual({ type: "adaptive" });
+    expect(capturedEffort).toBe("xhigh");
+  });
+
+  test("extracts system prompt from ContentBlock array", async () => {
+    let capturedSystem: unknown;
+
+    mock.module("@anthropic-ai/sdk", () => ({
+      Anthropic: class {
+        messages = {
+          stream: (params: Record<string, unknown>) => {
+            capturedSystem = params.system;
+            return {
+              [Symbol.asyncIterator]() {
+                return { next: () => ({ done: true, value: undefined }) };
+              },
+              finalMessage: () =>
+                Promise.resolve({
+                  stop_reason: "end_turn",
+                  usage: { input_tokens: 1, output_tokens: 0 },
+                }),
+            };
+          },
+        };
+      },
+    }));
+
+    const model = new AnthropicChatModel({ apiKey: "test-key" });
+    await collect(
+      model.stream([
+        { role: "system", content: [{ type: "text", text: "sys from blocks" }] },
+        { role: "user", content: "hi" },
+      ]),
+    );
+
+    expect(capturedSystem).toBe("sys from blocks");
+  });
+
+  test("handles empty messages array gracefully", async () => {
+    mock.module("@anthropic-ai/sdk", () => ({
+      Anthropic: class {
+        messages = {
+          stream: () => ({
+            [Symbol.asyncIterator]() {
+              return { next: () => ({ done: true, value: undefined }) };
+            },
+            finalMessage: () =>
+              Promise.resolve({
+                stop_reason: "end_turn",
+                usage: { input_tokens: 0, output_tokens: 0 },
+              }),
+          }),
+        };
+      },
+    }));
+
+    const model = new AnthropicChatModel({ apiKey: "test-key" });
+    const chunks = await collect(model.stream([]));
+
+    expect(chunks).toEqual([
+      { done: true, stopReason: "end_turn", usage: { input: 0, output: 0 } },
+    ]);
+  });
 });

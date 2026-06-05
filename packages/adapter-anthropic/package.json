@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@my-agent-team/core": "workspace:*",
-    "@anthropic-ai/sdk": "^0.54.0"
+    "@anthropic-ai/sdk": "^0.100.1"
   },
   "devDependencies": {}
 }

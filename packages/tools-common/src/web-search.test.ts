@@ -26,4 +26,15 @@ describe("createWebSearchTool", () => {
 
     expect(result.content).toBe(JSON.stringify({ answer: "42" }));
   });
+
+  test("returns empty results array as JSON string", async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve(new Response(JSON.stringify({ results: [] }))),
+    ) as unknown as typeof fetch;
+
+    const tool = createWebSearchTool("key");
+    const result = await tool.execute({ query: "nothing" });
+
+    expect(result.content).toBe(JSON.stringify([]));
+  });
 });

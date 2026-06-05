@@ -31,8 +31,15 @@ export class AnthropicChatModel implements ChatModel {
   ): AsyncIterable<AIMessageChunk> {
     const systemMessages = messages.filter((msg) => msg.role === "system");
     const systemBlock = systemMessages.at(-1);
-    const system: string | undefined =
-      typeof systemBlock?.content === "string" ? systemBlock.content : undefined;
+    let system: string | undefined;
+    if (systemBlock) {
+      if (typeof systemBlock.content === "string") {
+        system = systemBlock.content;
+      } else {
+        const firstText = systemBlock.content.find((b) => b.type === "text");
+        system = firstText?.text;
+      }
+    }
 
     const apiMessages: Anthropic.Messages.MessageParam[] = [];
     for (const msg of messages) {
@@ -77,6 +84,8 @@ export class AnthropicChatModel implements ChatModel {
         messages: apiMessages,
         ...(system ? { system } : {}),
         ...(tools ? { tools } : {}),
+        ...(this.#config.thinking ? { thinking: this.#config.thinking } : {}),
+        ...(this.#config.effort ? { effort: this.#config.effort } : {}),
       },
       { signal: options?.signal },
     );
