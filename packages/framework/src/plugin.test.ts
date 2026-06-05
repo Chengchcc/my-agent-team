@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Message, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
-import { definePlugin, type Plugin, type HookContext } from "./plugin.js";
+import type { Message, ToolUseBlock } from "@my-agent-team/core";
+import { definePlugin, type HookContext } from "./plugin.js";
 
 describe("definePlugin", () => {
   test("creates a plugin with the given name", () => {
@@ -14,7 +14,7 @@ describe("definePlugin", () => {
   });
 
   test("preserves hook functions", () => {
-    const beforeModel = (ctx: HookContext, msgs: readonly Message[]) => msgs;
+    const beforeModel = (_ctx: HookContext, msgs: readonly Message[]) => [...msgs];
     const afterModel = () => {};
 
     const plugin = definePlugin({

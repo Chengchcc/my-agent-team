@@ -37,6 +37,13 @@
       "name": "@my-agent-team/core",
       "version": "0.1.0",
     },
+    "packages/framework": {
+      "name": "@my-agent-team/framework",
+      "version": "0.1.0",
+      "dependencies": {
+        "@my-agent-team/core": "workspace:*",
+      },
+    },
     "packages/test-helpers": {
       "name": "@my-agent-team/test-helpers",
       "version": "0.1.0",
@@ -138,6 +145,8 @@
     "@my-agent-team/cli": ["@my-agent-team/cli@workspace:apps/cli"],
 
     "@my-agent-team/core": ["@my-agent-team/core@workspace:packages/core"],
+
+    "@my-agent-team/framework": ["@my-agent-team/framework@workspace:packages/framework"],
 
     "@my-agent-team/test-helpers": ["@my-agent-team/test-helpers@workspace:packages/test-helpers"],
 

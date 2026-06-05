@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk, ChatModel, Message, Tool } from "@my-agent-team/core";
-import { createAgent, type AgentConfig } from "./create-agent.js";
+import { createAgent } from "./create-agent.js";
 import { definePlugin } from "./plugin.js";
 
 async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
@@ -10,7 +10,9 @@ async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
 }
 
 function scriptedModel(
-  turns: Array<{ type: "text"; text: string } | { type: "tool_call"; id: string; name: string; input: unknown }>,
+  turns: Array<
+    { type: "text"; text: string } | { type: "tool_call"; id: string; name: string; input: unknown }
+  >,
 ): ChatModel {
   return {
     async *stream(messages): AsyncIterable<AIMessageChunk> {
@@ -22,7 +24,13 @@ function scriptedModel(
         yield { done: true, stopReason: "end_turn" };
       } else {
         yield { delta: { type: "tool_use", id: item.id, name: item.name } };
-        yield { delta: { type: "input_json_delta", id: item.id, partial_json: JSON.stringify(item.input) } };
+        yield {
+          delta: {
+            type: "input_json_delta",
+            id: item.id,
+            partial_json: JSON.stringify(item.input),
+          },
+        };
         yield { done: true, stopReason: "tool_use" };
       }
     },
@@ -57,7 +65,10 @@ describe("createAgent", () => {
 
   test("does not duplicate systemPrompt across runs", async () => {
     const agent = await createAgent({
-      model: scriptedModel([{ type: "text", text: "a" }, { type: "text", text: "b" }]),
+      model: scriptedModel([
+        { type: "text", text: "a" },
+        { type: "text", text: "b" },
+      ]),
       systemPrompt: "sys",
     });
 
@@ -130,7 +141,9 @@ describe("createAgent", () => {
         { type: "tool_call", id: "t1", name: "lookup", input: { q: "x" } },
         { type: "text", text: "done" },
       ]),
-      tools: [{ name: "lookup", description: "", inputSchema: {}, execute: () => ({ content: "ok" }) }],
+      tools: [
+        { name: "lookup", description: "", inputSchema: {}, execute: () => ({ content: "ok" }) },
+      ],
       checkpointer: {
         load: () => Promise.resolve(null),
         save: (id, msgs) => {
@@ -196,7 +209,17 @@ describe("createAgent", () => {
         { type: "tool_call", id: "t1", name: "blocked", input: {} },
         { type: "text", text: "handled" },
       ]),
-      tools: [{ name: "blocked", description: "", inputSchema: {}, execute: () => { toolExecuted = true; return { content: "ok" }; } }],
+      tools: [
+        {
+          name: "blocked",
+          description: "",
+          inputSchema: {},
+          execute: () => {
+            toolExecuted = true;
+            return { content: "ok" };
+          },
+        },
+      ],
       plugins: [
         definePlugin({
           name: "guard",
@@ -211,7 +234,10 @@ describe("createAgent", () => {
 
     expect(toolExecuted).toBe(false);
     const toolResults = agent.thread.messages.filter(
-      (m) => m.role === "user" && Array.isArray(m.content) && m.content.some((b) => b.type === "tool_result"),
+      (m) =>
+        m.role === "user" &&
+        Array.isArray(m.content) &&
+        m.content.some((b) => b.type === "tool_result"),
     );
     expect(toolResults).toHaveLength(1);
   });
@@ -224,12 +250,16 @@ describe("createAgent", () => {
         { type: "tool_call", id: "t1", name: "log", input: {} },
         { type: "text", text: "ok" },
       ]),
-      tools: [{ name: "log", description: "", inputSchema: {}, execute: () => ({ content: "done" }) }],
+      tools: [
+        { name: "log", description: "", inputSchema: {}, execute: () => ({ content: "done" }) },
+      ],
       plugins: [
         definePlugin({
           name: "audit",
           hooks: {
-            afterTool: (_, call) => { sideEffectCall = call.id; },
+            afterTool: (_, call) => {
+              sideEffectCall = call.id;
+            },
           },
         }),
       ],
@@ -247,7 +277,9 @@ describe("createAgent", () => {
         definePlugin({
           name: "explode",
           hooks: {
-            beforeModel: () => { throw new Error("boom"); },
+            beforeModel: () => {
+              throw new Error("boom");
+            },
           },
         }),
       ],
@@ -263,7 +295,9 @@ describe("createAgent", () => {
         definePlugin({
           name: "flaky",
           hooks: {
-            afterModel: () => { throw new Error("unimportant"); },
+            afterModel: () => {
+              throw new Error("unimportant");
+            },
           },
         }),
       ],
@@ -277,7 +311,9 @@ describe("createAgent", () => {
   test("maxSteps stops infinite tool loop", async () => {
     const agent = await createAgent({
       model: scriptedModel([{ type: "tool_call", id: "t1", name: "loop", input: {} }]),
-      tools: [{ name: "loop", description: "", inputSchema: {}, execute: () => ({ content: "again" }) }],
+      tools: [
+        { name: "loop", description: "", inputSchema: {}, execute: () => ({ content: "again" }) },
+      ],
     });
 
     await collect(agent.run("go"));

@@ -1,4 +1,11 @@
-import type { ChatModel, ContentBlock, Message, Tool } from "@my-agent-team/core";
+import type {
+  ChatModel,
+  ContentBlock,
+  Message,
+  Tool,
+  ToolResultBlock,
+  ToolUseBlock,
+} from "@my-agent-team/core";
 import { collectStream } from "@my-agent-team/core";
 import type { Checkpointer } from "./checkpointer.js";
 import type { HookContext, Plugin } from "./plugin.js";
@@ -79,12 +86,17 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         // afterModel
         for (const p of plugins) {
           if (p.hooks.afterModel) {
-            try { await p.hooks.afterModel(ctx, thread.messages.slice()); } catch { /* swallowed */ }
+            try {
+              await p.hooks.afterModel(ctx, thread.messages.slice());
+            } catch {
+              /* swallowed */
+            }
           }
         }
 
         const toolUses = blocks.filter(
-          (b): b is { type: "tool_use"; id: string; name: string; input: unknown } => b.type === "tool_use",
+          (b): b is { type: "tool_use"; id: string; name: string; input: unknown } =>
+            b.type === "tool_use",
         );
         if (toolUses.length === 0) {
           await config.checkpointer?.save(thread.id, thread.messages.slice());
@@ -159,8 +171,14 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
           for (const p of plugins) {
             if (p.hooks.afterTool) {
               try {
-                await p.hooks.afterTool(ctx, toolUses[i]!, results[i]!, thread.messages.slice());
-              } catch { /* swallowed */ }
+                const call = toolUses[i] as ToolUseBlock | undefined;
+                const result = results[i] as ToolResultBlock | undefined;
+                if (call && result) {
+                  await p.hooks.afterTool(ctx, call, result, thread.messages.slice());
+                }
+              } catch {
+                /* swallowed */
+              }
             }
           }
         }
@@ -212,11 +230,16 @@ function createAgentInternal(config: AgentConfig & { _initialMessages: Message[]
         yield assistantMsg;
         for (const p of plugins) {
           if (p.hooks.afterModel) {
-            try { await p.hooks.afterModel(ctx, thread.messages.slice()); } catch { /* swallowed */ }
+            try {
+              await p.hooks.afterModel(ctx, thread.messages.slice());
+            } catch {
+              /* swallowed */
+            }
           }
         }
         const toolUses = blocks.filter(
-          (b): b is { type: "tool_use"; id: string; name: string; input: unknown } => b.type === "tool_use",
+          (b): b is { type: "tool_use"; id: string; name: string; input: unknown } =>
+            b.type === "tool_use",
         );
         if (toolUses.length === 0) {
           await config.checkpointer?.save(thread.id, thread.messages.slice());
@@ -231,7 +254,10 @@ function createAgentInternal(config: AgentConfig & { _initialMessages: Message[]
             if (p.hooks.beforeTool) {
               const decision = await p.hooks.beforeTool(ctx, call, thread.messages);
               if (decision) {
-                if (decision.skip) { skip = true; if (decision.result) skipResult = decision.result; }
+                if (decision.skip) {
+                  skip = true;
+                  if (decision.result) skipResult = decision.result;
+                }
                 if (decision.input !== undefined) toolInput = decision.input;
               }
             }
@@ -247,7 +273,12 @@ function createAgentInternal(config: AgentConfig & { _initialMessages: Message[]
           }
           const tool = toolMap.get(call.name);
           if (!tool) {
-            results.push({ type: "tool_result", tool_use_id: call.id, content: `Tool not found: ${call.name}`, is_error: true });
+            results.push({
+              type: "tool_result",
+              tool_use_id: call.id,
+              content: `Tool not found: ${call.name}`,
+              is_error: true,
+            });
             continue;
           }
           try {
@@ -259,7 +290,12 @@ function createAgentInternal(config: AgentConfig & { _initialMessages: Message[]
               ...(out.isError !== undefined ? { is_error: out.isError } : {}),
             });
           } catch (err) {
-            results.push({ type: "tool_result", tool_use_id: call.id, content: err instanceof Error ? err.message : String(err), is_error: true });
+            results.push({
+              type: "tool_result",
+              tool_use_id: call.id,
+              content: err instanceof Error ? err.message : String(err),
+              is_error: true,
+            });
           }
         }
         const userMsg: Message = { role: "user", content: results };
@@ -268,7 +304,15 @@ function createAgentInternal(config: AgentConfig & { _initialMessages: Message[]
         for (let i = 0; i < toolUses.length; i++) {
           for (const p of plugins) {
             if (p.hooks.afterTool) {
-              try { await p.hooks.afterTool(ctx, toolUses[i]!, results[i]!, thread.messages.slice()); } catch { /* swallowed */ }
+              try {
+                const call = toolUses[i] as ToolUseBlock | undefined;
+                const result = results[i] as ToolResultBlock | undefined;
+                if (call && result) {
+                  await p.hooks.afterTool(ctx, call, result, thread.messages.slice());
+                }
+              } catch {
+                /* swallowed */
+              }
             }
           }
         }

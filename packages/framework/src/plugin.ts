@@ -8,13 +8,20 @@ export interface HookContext {
 export interface PluginHooks {
   beforeModel?(ctx: HookContext, messages: readonly Message[]): Message[] | Promise<Message[]>;
   afterModel?(ctx: HookContext, messages: readonly Message[]): void | Promise<void>;
-  beforeTool?(ctx: HookContext, call: ToolUseBlock, messages: readonly Message[]):
+  beforeTool?(
+    ctx: HookContext,
+    call: ToolUseBlock,
+    messages: readonly Message[],
+  ):
     | { skip?: boolean; input?: unknown; result?: string }
-    | void
-    | Promise<{ skip?: boolean; input?: unknown; result?: string } | void>;
-  afterTool?(ctx: HookContext, call: ToolUseBlock, result: ToolResultBlock, messages: readonly Message[]):
-    | void
-    | Promise<void>;
+    | undefined
+    | Promise<{ skip?: boolean; input?: unknown; result?: string } | undefined>;
+  afterTool?(
+    ctx: HookContext,
+    call: ToolUseBlock,
+    result: ToolResultBlock,
+    messages: readonly Message[],
+  ): void | Promise<void>;
 }
 
 export interface Plugin {
