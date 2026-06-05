@@ -395,3 +395,72 @@ test("writeEvent receives valid NDJSON-roundtrippable events", async () => {
   expect(err.message).toBe("oops");
   expect(err.stack).toBe("Error: oops\n    at test (x.ts:1:2)");
 });
+
+// ─── M8 N1 fix: factory throws → error event ──────────────────
+
+test("factory throws → error event (M7 N1 fix)", async () => {
+  const written: AgentEvent[] = [];
+  const stderr: string[] = [];
+
+  const result = await runEntry({
+    specJson: makeValidSpec(),
+    writeEvent: (ev) => written.push(ev),
+    writeStderr: (line) => stderr.push(line),
+    signal: new AbortController().signal,
+    createAgent: () => {
+      throw new Error("bootstrap failed");
+    },
+  });
+
+  expect(result).toBe(1);
+  expect(written.length).toBe(1);
+  expect(asError(written[0]).message).toBe("bootstrap failed");
+});
+
+// ─── M8: checkpointerDb passthrough ───────────────────────────
+
+test("checkpointerDb passed through to createAgent", async () => {
+  const events: AgentEvent[] = [msgEvent("ok")];
+  let receivedDb: unknown = undefined;
+
+  const written: AgentEvent[] = [];
+  const stderr: string[] = [];
+
+  const mockDb = {}; // Stand-in for Database — runner doesn't import bun:sqlite
+
+  const result = await runEntry({
+    specJson: makeValidSpec(),
+    writeEvent: (ev) => written.push(ev),
+    writeStderr: (line) => stderr.push(line),
+    signal: new AbortController().signal,
+    checkpointerDb: mockDb as any,
+    createAgent: (opts) => {
+      receivedDb = (opts as any).checkpointerDb;
+      return Promise.resolve(makeMockAgent(events));
+    },
+  });
+
+  expect(result).toBe(0);
+  expect(receivedDb).toBe(mockDb);
+});
+
+// ─── M8: backward compat — no checkpointerDb still works ──────
+
+test("old EntryIO without checkpointerDb still works", async () => {
+  const events: AgentEvent[] = [msgEvent("hello")];
+
+  const written: AgentEvent[] = [];
+  const stderr: string[] = [];
+
+  // Construct EntryIO without checkpointerDb field at all
+  const result = await runEntry({
+    specJson: makeValidSpec(),
+    writeEvent: (ev) => written.push(ev),
+    writeStderr: (line) => stderr.push(line),
+    signal: new AbortController().signal,
+    createAgent: () => Promise.resolve(makeMockAgent(events)),
+  });
+
+  expect(result).toBe(0);
+  expect(written.length).toBe(1);
+});

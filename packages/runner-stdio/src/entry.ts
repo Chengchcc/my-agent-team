@@ -16,11 +16,13 @@ export interface EntryIO {
   apiKeyEnv?: string;
   /** Injectable agent factory for testing. Defaults to createGenericAgent. */
   createAgent?: typeof createGenericAgent;
+  /** Inject a backend-owned Database instance for the sqlite checkpointer. */
+  checkpointerDb?: unknown;
 }
 
 /** Returns exit code: 0 = clean, 1 = any failure. */
 export async function runEntry(io: EntryIO): Promise<number> {
-  const { specJson, writeEvent, writeStderr, signal, apiKeyEnv, createAgent } = io;
+  const { specJson, writeEvent, writeStderr, signal, apiKeyEnv, createAgent, checkpointerDb } = io;
 
   // 1. Parse spec
   let raw: unknown;
@@ -61,18 +63,19 @@ export async function runEntry(io: EntryIO): Promise<number> {
     baseUrl: spec.model.baseURL,
   });
 
-  // 4. Construct agent (DI for testing)
-  const factory = createAgent ?? (await import("@my-agent-team/harness")).createGenericAgent;
-  const agent = await factory({
-    workspace: spec.workspace,
-    model,
-    threadId: spec.threadId,
-    permissionMode: spec.permissionMode,
-  });
-
-  // 5. Run
+  // 4+5. Construct agent + run (both inside try/catch — M7 N1 fix)
   try {
     writeStderr(`[runner-stdio] spec parsed, threadId=${spec.threadId}`);
+
+    const factory = createAgent ?? (await import("@my-agent-team/harness")).createGenericAgent;
+    const agent = await factory({
+      workspace: spec.workspace,
+      model,
+      threadId: spec.threadId,
+      permissionMode: spec.permissionMode,
+      checkpointerDb: checkpointerDb as Parameters<typeof factory>[0]["checkpointerDb"],
+    });
+
     writeStderr("[runner-stdio] agent.run started");
     for await (const ev of agent.run(spec.input, {
       signal,
