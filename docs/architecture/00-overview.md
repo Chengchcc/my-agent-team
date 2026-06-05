@@ -24,7 +24,7 @@ L1 Protocols   类型契约：Message / ChatModel / Tool
 | M4 | framework 补齐（resume / Interrupt / ContextManager / Logger / Checkpointer 6 法） | ✅ |
 | M5 | plugin-fs-memory + plugin-progressive-skill + framework `Plugin.tools` | ✅ |
 | **M6** | **`@my-agent-team/harness` + tools-common 4 tool + cli `--workspace`** | ✅ |
-| M7 | `@my-agent-team/agent-spec` + `runner-core` + `runner-stdio` + cli `runner` 子命令 | 待定 |
+| **M7** | **`@my-agent-team/agent-spec` + `@my-agent-team/runner-stdio` + framework `AgentEvent.error`** | 🚧 |
 | M8 | `apps/backend`（L5）+ `@my-agent-team/plugin-permission` | 待定 |
 | M9+ | `runner-http`、`templates/*`、sandbox 集成 | 待定 |
 

@@ -1,0 +1,27 @@
+{
+  "name": "@my-agent-team/runner-stdio",
+  "version": "0.1.0",
+  "description": "Stdio runner entry for backend-to-agent subprocess isolation",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "my-agent-runner": "./dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check . && eslint .",
+    "test": "bun test --pass-with-no-tests",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "@my-agent-team/adapter-anthropic": "workspace:*",
+    "@my-agent-team/agent-spec": "workspace:*",
+    "@my-agent-team/framework": "workspace:*",
+    "@my-agent-team/harness": "workspace:*"
+  },
+  "devDependencies": {}
+}
