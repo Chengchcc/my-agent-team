@@ -1,0 +1,22 @@
+import type { Message } from "./message.js";
+import type { Tool } from "./tool.js";
+
+export interface AIMessageChunk {
+  delta?:
+    | { type: "text"; text: string }
+    | { type: "tool_use"; id: string; name: string }
+    | { type: "input_json_delta"; id: string; partial_json: string };
+  done?: boolean;
+  stopReason?: "end_turn" | "tool_use" | "max_tokens" | "stop_sequence" | "pause_turn" | "refusal";
+  usage?: { input: number; output: number };
+}
+
+export interface ChatModelOptions {
+  signal?: AbortSignal;
+  tools?: readonly Tool[];
+}
+
+export interface ChatModel {
+  readonly id?: string;
+  stream(messages: readonly Message[], options?: ChatModelOptions): AsyncIterable<AIMessageChunk>;
+}
