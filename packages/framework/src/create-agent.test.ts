@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AIMessageChunk, ChatModel, Message, Tool } from "@my-agent-team/core";
+import type { AIMessageChunk, ChatModel, ContentBlock, Message, Tool } from "@my-agent-team/core";
 import { createAgent } from "./create-agent.js";
 import { definePlugin } from "./plugin.js";
 
@@ -109,7 +109,10 @@ describe("createAgent", () => {
     const forked = agent.fork();
 
     expect(forked.thread.id).not.toBe(agent.thread.id);
-    expect(forked.thread.messages).toHaveLength(0);
+    // fork() defaults to structuredClone of current thread.messages
+    expect(forked.thread.messages).toHaveLength(2);
+    expect(forked.thread.messages).toEqual(agent.thread.messages);
+    expect(forked.thread.messages).not.toBe(agent.thread.messages); // deep clone
   });
 
   test("parallel fork does not interfere with original", async () => {
@@ -180,6 +183,71 @@ describe("createAgent", () => {
     });
 
     expect(agent.thread.messages).toEqual(savedMessages);
+  });
+
+  test("checkpointer load returns null → empty thread", async () => {
+    const agent = await createAgent({
+      model: scriptedModel([{ type: "text", text: "fresh" }]),
+      threadId: "new-thread",
+      checkpointer: {
+        load: () => Promise.resolve(null),
+        save: () => Promise.resolve(),
+      },
+    });
+
+    expect(agent.thread.messages).toEqual([]);
+  });
+
+  test("throws on concurrent run", async () => {
+    // Use a never-returning model so the first run stays active
+    const agent = await createAgent({
+      model: {
+        // eslint-disable-next-line require-yield
+        async *stream() {
+          // never actually yields — loop stays in progress
+          await new Promise(() => {});
+        },
+      },
+    });
+
+    // First run starts and stays active (never-returning model)
+    void collect(agent.run("one"));
+
+    // Second call should throw immediately
+    await expect(collect(agent.run("two"))).rejects.toThrow("already running");
+  });
+
+  test("beforeTool plain skip without result", async () => {
+    let toolExecuted = false;
+
+    const agent = await createAgent({
+      model: scriptedModel([
+        { type: "tool_call", id: "t1", name: "blocked", input: {} },
+        { type: "text", text: "ok" },
+      ]),
+      tools: [
+        {
+          name: "blocked",
+          description: "",
+          inputSchema: {},
+          execute: () => {
+            toolExecuted = true;
+            return { content: "ok" };
+          },
+        },
+      ],
+      plugins: [definePlugin({ name: "skip", hooks: { beforeTool: () => ({ skip: true }) } })],
+    });
+
+    await collect(agent.run("do it"));
+
+    expect(toolExecuted).toBe(false);
+    const resultMsg = agent.thread.messages.find(
+      (m) => Array.isArray(m.content) && m.content.some((b) => b.type === "tool_result"),
+    );
+    const block = (resultMsg?.content as ContentBlock[])[0];
+    expect(block).toMatchObject({ type: "tool_result", content: "Tool skipped" });
+    expect((block as { is_error?: boolean }).is_error).toBeUndefined();
   });
 
   test("beforeModel plugin transforms messages", async () => {
@@ -316,9 +384,11 @@ describe("createAgent", () => {
       ],
     });
 
-    await collect(agent.run("go"));
+    const yielded = await collect(agent.run("go", { maxSteps: 2 }));
 
-    // with scriptedModel + maxSteps=32 default, 31 tool turns then last one
-    // But our default is 32. Actually the spec says "based on R2's run()" which has maxSteps=32
+    // 2 steps: user+assistant(tool)+user(result)+assistant(tool)+user(result) = 5 messages yielded
+    expect(agent.thread.messages).toHaveLength(5);
+    // yielded messages: ass(tool), user(result), ass(tool), user(result)
+    expect(yielded.filter((m) => m.role === "user" && Array.isArray(m.content))).toHaveLength(2);
   });
 });
