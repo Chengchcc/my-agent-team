@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import { AnthropicChatModel } from "./anthropic-chat-model.js";
 import type { Message } from "@my-agent-team/core";
+import { AnthropicChatModel } from "./anthropic-chat-model.js";
 
 async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
   const items: T[] = [];
@@ -162,13 +162,13 @@ describe("AnthropicChatModel", () => {
     const model = new AnthropicChatModel({ apiKey: "test-key" });
     await collect(
       model.stream([{ role: "user", content: "hi" }], {
-        tools: [{ name: "read", description: "r", inputSchema: {}, execute: () => ({ content: "" }) }],
+        tools: [
+          { name: "read", description: "r", inputSchema: {}, execute: () => ({ content: "" }) },
+        ],
       }),
     );
 
-    expect(capturedTools).toEqual([
-      { name: "read", description: "r", input_schema: {} },
-    ]);
+    expect(capturedTools).toEqual([{ name: "read", description: "r", input_schema: {} }]);
   });
 
   test("omits system when none present", async () => {

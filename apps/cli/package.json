@@ -1,0 +1,16 @@
+{
+  "name": "@my-agent-team/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interactive CLI for my-agent-team",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/main.ts"
+  },
+  "dependencies": {
+    "@my-agent-team/adapter-anthropic": "workspace:*",
+    "@my-agent-team/tools-common": "workspace:*",
+    "@my-agent-team/core": "workspace:*"
+  },
+  "devDependencies": {}
+}

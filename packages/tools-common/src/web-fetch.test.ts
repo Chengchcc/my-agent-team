@@ -5,8 +5,7 @@ describe("webFetchTool", () => {
   test("returns fetched text content", async () => {
     globalThis.fetch = mock(() =>
       Promise.resolve(new Response("hello world", { status: 200 })),
-    );
-
+    ) as unknown as typeof fetch;
     const result = await webFetchTool.execute({ url: "https://example.com" });
 
     expect(result).toEqual({ content: "hello world" });
@@ -16,8 +15,7 @@ describe("webFetchTool", () => {
     const longText = "x".repeat(25000);
     globalThis.fetch = mock(() =>
       Promise.resolve(new Response(longText, { status: 200 })),
-    );
-
+    ) as unknown as typeof fetch;
     const result = await webFetchTool.execute({ url: "https://example.com" });
 
     expect(result.content).toStartWith("x".repeat(20000));

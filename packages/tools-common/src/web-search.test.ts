@@ -10,8 +10,7 @@ describe("createWebSearchTool", () => {
       return Promise.resolve(
         new Response(JSON.stringify({ results: [{ title: "Weather", url: "https://w.com" }] })),
       );
-    });
-
+    }) as unknown as typeof fetch;
     const tool = createWebSearchTool("tvly-test-key");
     const result = await tool.execute({ query: "weather" });
 
@@ -21,8 +20,7 @@ describe("createWebSearchTool", () => {
   test("returns raw data when results field absent", async () => {
     globalThis.fetch = mock(() =>
       Promise.resolve(new Response(JSON.stringify({ answer: "42" }))),
-    );
-
+    ) as unknown as typeof fetch;
     const tool = createWebSearchTool("key");
     const result = await tool.execute({ query: "life" });
 

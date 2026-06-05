@@ -15,6 +15,15 @@
         "typescript-eslint": "^8.60.1",
       },
     },
+    "apps/cli": {
+      "name": "@my-agent-team/cli",
+      "version": "0.1.0",
+      "dependencies": {
+        "@my-agent-team/adapter-anthropic": "workspace:*",
+        "@my-agent-team/core": "workspace:*",
+        "@my-agent-team/tools-common": "workspace:*",
+      },
+    },
     "packages/adapter-anthropic": {
       "name": "@my-agent-team/adapter-anthropic",
       "version": "0.1.0",
@@ -29,6 +38,13 @@
     },
     "packages/test-helpers": {
       "name": "@my-agent-team/test-helpers",
+      "version": "0.1.0",
+      "dependencies": {
+        "@my-agent-team/core": "workspace:*",
+      },
+    },
+    "packages/tools-common": {
+      "name": "@my-agent-team/tools-common",
       "version": "0.1.0",
       "dependencies": {
         "@my-agent-team/core": "workspace:*",
@@ -116,9 +132,13 @@
 
     "@my-agent-team/adapter-anthropic": ["@my-agent-team/adapter-anthropic@workspace:packages/adapter-anthropic"],
 
+    "@my-agent-team/cli": ["@my-agent-team/cli@workspace:apps/cli"],
+
     "@my-agent-team/core": ["@my-agent-team/core@workspace:packages/core"],
 
     "@my-agent-team/test-helpers": ["@my-agent-team/test-helpers@workspace:packages/test-helpers"],
+
+    "@my-agent-team/tools-common": ["@my-agent-team/tools-common@workspace:packages/tools-common"],
 
     "@turbo/darwin-64": ["@turbo/darwin-64@2.9.16", "", { "os": "darwin", "cpu": "x64" }, "sha512-jLjApWTSNd7JZ5JaLYfelW1ytnGQOvB7ivl+2RD1xQvJTbi8I9gBjzcga7tDZVPyaxpl10YTfJt3BrYXR18KDw=="],
 

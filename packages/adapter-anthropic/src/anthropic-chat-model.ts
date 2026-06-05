@@ -20,7 +20,7 @@ export class AnthropicChatModel implements ChatModel {
     this.#config = config;
     this.id = config.model ?? "claude-opus-4-7";
     this.#client = new Anthropic({
-      apiKey: config.apiKey ?? process.env["ANTHROPIC_API_KEY"],
+      apiKey: config.apiKey ?? process.env.ANTHROPIC_API_KEY,
       baseURL: config.baseUrl,
     });
   }
@@ -34,14 +34,14 @@ export class AnthropicChatModel implements ChatModel {
     const system: string | undefined =
       typeof systemBlock?.content === "string" ? systemBlock.content : undefined;
 
-    const apiMessages: Array<{ role: "user" | "assistant"; content: unknown }> = [];
+    const apiMessages: Anthropic.Messages.MessageParam[] = [];
     for (const msg of messages) {
       if (msg.role === "system") continue;
 
       if (typeof msg.content === "string") {
         apiMessages.push({ role: msg.role, content: msg.content });
       } else {
-        const blocks: Array<Record<string, unknown>> = [];
+        const blocks: Anthropic.Messages.ContentBlockParam[] = [];
         for (const block of msg.content) {
           if (block.type === "text") {
             blocks.push({ type: "text", text: block.text });
@@ -53,13 +53,13 @@ export class AnthropicChatModel implements ChatModel {
               input: block.input as Record<string, unknown>,
             });
           } else if (block.type === "tool_result") {
-            const tr: Record<string, unknown> = {
+            const tr: Anthropic.Messages.ToolResultBlockParam = {
               type: "tool_result",
               tool_use_id: block.tool_use_id,
               content: block.content,
             };
             if (block.is_error !== undefined) {
-              tr["is_error"] = block.is_error;
+              tr.is_error = block.is_error;
             }
             blocks.push(tr);
           }
@@ -68,18 +68,18 @@ export class AnthropicChatModel implements ChatModel {
       }
     }
 
-    const params = {
-      model: this.#config.model ?? "claude-opus-4-7",
-      max_tokens: this.#config.maxTokens ?? 16000,
-      messages: apiMessages,
-      ...(system ? { system } : {}),
-      ...(options?.tools ? { tools: toAnthropicTools(options.tools) } : {}),
-    };
+    const tools = options?.tools ? toAnthropicTools(options.tools) : undefined;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const stream = this.#client.messages.stream(params as any, {
-      signal: options?.signal,
-    });
+    const stream = this.#client.messages.stream(
+      {
+        model: this.#config.model ?? "claude-opus-4-7",
+        max_tokens: this.#config.maxTokens ?? 16000,
+        messages: apiMessages,
+        ...(system ? { system } : {}),
+        ...(tools ? { tools } : {}),
+      },
+      { signal: options?.signal },
+    );
 
     const blockIds = new Map<number, string>();
 
