@@ -23,6 +23,8 @@ describe("bootstrap", () => {
 
       const prompt = await bootstrap(ws, logger);
 
+      expect(prompt).toInclude("<workspace>");
+      expect(prompt).toInclude(`Root: ${ws}`);
       expect(prompt).toInclude("<soul>");
       expect(prompt).toInclude("be helpful");
       expect(prompt).toInclude("<user>");

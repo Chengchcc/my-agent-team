@@ -30,5 +30,15 @@ export async function bootstrap(workspace: string, logger: Logger): Promise<stri
     return fallbackSystemPrompt(workspace);
   }
 
-  return composeSystemPrompt({ soul, user, tools, agents, today, yesterday, todayLog, yestLog });
+  return composeSystemPrompt({
+    workspace,
+    today,
+    yesterday,
+    soul,
+    user,
+    tools,
+    agents,
+    todayLog,
+    yestLog,
+  });
 }

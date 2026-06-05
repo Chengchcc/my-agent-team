@@ -12,13 +12,18 @@ export const bashTool: Tool = {
         type: "number",
         description: "Timeout in milliseconds (default 30000, max 600000)",
       },
+      cwd: {
+        type: "string",
+        description: "Working directory for the command (optional)",
+      },
     },
     required: ["command"],
   },
   async execute(input) {
-    const { command, timeout = 30_000 } = input as {
+    const { command, timeout = 30_000, cwd } = input as {
       command: string;
       timeout?: number;
+      cwd?: string;
     };
     const clamped = Math.min(Math.max(timeout, 1), 600_000);
 
@@ -26,6 +31,7 @@ export const bashTool: Tool = {
     const proc = Bun.spawn(["setsid", "bash", "-c", command], {
       stdout: "pipe",
       stderr: "pipe",
+      cwd,
     });
 
     const timer = setTimeout(() => {
