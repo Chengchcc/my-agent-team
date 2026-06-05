@@ -20,7 +20,11 @@ export const bashTool: Tool = {
     required: ["command"],
   },
   async execute(input) {
-    const { command, timeout = 30_000, cwd } = input as {
+    const {
+      command,
+      timeout = 30_000,
+      cwd,
+    } = input as {
       command: string;
       timeout?: number;
       cwd?: string;
@@ -37,7 +41,11 @@ export const bashTool: Tool = {
     const timer = setTimeout(() => {
       proc.kill();
       // Kill the entire process group to catch orphaned children
-      try { process.kill(-proc.pid, "SIGTERM"); } catch { /* already dead */ }
+      try {
+        process.kill(-proc.pid, "SIGTERM");
+      } catch {
+        /* already dead */
+      }
     }, clamped);
 
     try {
