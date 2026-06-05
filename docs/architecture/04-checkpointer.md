@@ -453,7 +453,49 @@ Checkpointer **不是** plugin——它是 framework 内化。但 plugin 通过 
 
 核心区分：
 
-- **改变 agent 控制流**（暂停 / 恢复 / 状态持久化）→ Checkpointer
+- **改变 agent 控制流**(暂停 / 恢复 / 状态持久化)→ Checkpointer
 - **观察或 transform 数据**（log / metrics / 裁剪修饰）→ Plugin / ContextManager
 
 Permission 这类需求**从 plugin 中迁出**——它本质上是控制流操作（暂停 loop、等待外部输入、恢复），不是数据 transform。
+
+---
+
+## 已知限制：sandbox 隔离
+
+当前所有内置 checkpointer 实现（`inMemoryCheckpointer` / `fileCheckpointer` / 计划中的 `sqliteCheckpointer`）都是**进程内对象 + 本地文件系统**。这在两种部署形态下成立：
+
+1. **CLI / 单进程**：harness 直接持有 checkpointer，进程结束 = 自洽
+2. **Backend in-proc runner（M8）**：backend 与 runner 同进程，共享同一个文件路径 / 同一个 SQLite handle
+
+但**沙箱化 runner 落地后这套必然崩溃**：
+
+| 场景 | 现状 | 沙箱化后的问题 |
+|---|---|---|
+| `fileCheckpointer({ dir: '/workspace/.checkpoints' })` | 直接 read/write 主机文件系统 | sandbox 容器无法访问主机路径；workspace 是只读挂载或 overlay；checkpoint 写入沙箱内即丢 |
+| `sqliteCheckpointer({ db })` | 共享 `bun:sqlite` Database handle | sandbox 与 backend 不共享内存，handle 无法跨进程传 |
+| `inMemoryCheckpointer` | 进程内 Map | sandbox 进程退出 = 全丢，连不上 backend 的 thread 历史 |
+
+**根本矛盾**：checkpointer 的契约要求"任何 runner 进程都能读写同一 thread 的状态"，但 sandbox 的契约要求"runner 进程隔离、不共享主机资源"。
+
+### 长期方向：checkpointer 子服务化
+
+未来必须升级为 **backend 内部 HTTP/RPC 子服务**：
+
+```text
+sandbox runner ──HTTP/Unix-socket──> backend checkpointer service ──> SQLite/PG
+```
+
+- backend 自己持有 SQLite/Postgres 连接（不暴露给 runner）
+- runner 通过狭窄的 HTTP 接口调 `save` / `load` / `appendEvent` / `saveInterrupt` / `consumeInterrupt`
+- 鉴权用 spec 里的 short-lived token；threadId 范围由 backend 校验，runner 无法越权写其他 thread
+- 网络往返额外开销可控（save 频率 ≈ tool 次数 + 2，单 thread 一轮通常 < 20 次调用）
+
+### MVP 阶段的权宜
+
+M8 暂用 `sqliteCheckpointer` + 共享文件方案。理由：
+
+- sandbox 尚未落地（计划在 M9 之后），现阶段无隔离需求
+- 共享 SQLite handle 实现简单（一个 `Database` 对象注入到 harness）
+- 升级路径清晰：把直接调用 `checkpointer.save(...)` 换成 HTTP client，contract 不变
+
+**升级触发器（永久 invariant）**：**sandbox runner 启用前**必须完成 checkpointer HTTP/RPC 化，否则 sandbox 默认会破坏 thread 历史完整性。此项在 [00-vision.md](./00-vision.md#五milestone-路线) milestone 表中记为 M9.x。

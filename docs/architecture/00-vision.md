@@ -95,9 +95,10 @@ L1 Protocols   类型契约：Message / ChatModel / Tool
 | M5 | plugin-fs-memory + plugin-progressive-skill + framework `Plugin.tools` | ✅ |
 | M6 | `@my-agent-team/harness` + tools-common 4 tool + cli `--workspace` | ✅ |
 | M7 | `@my-agent-team/agent-spec` + `@my-agent-team/runner-stdio` + framework `AgentEvent.error` | ✅ |
-| **M8** | **`apps/backend` MVP：HTTP server + SQLite + agent CRUD + run SSE + runner pool（in-proc）** | 🚧 |
+| **M8** | **`apps/backend` MVP + `@my-agent-team/checkpointer-sqlite`：HTTP server + SQLite + agent CRUD + run SSE + runner pool（in-proc）** | 🚧 |
 | M8.5 | `@my-agent-team/plugin-permission` | 待定 |
 | M9 | runner-stdio v2（长进程 + stdin frame protocol）+ runner pool spawn 模式 | 待定 |
+| **M9.x** | **Checkpointer HTTP/RPC 子服务化**（sandbox 落地的前置；详见 [04-checkpointer §已知限制](./04-checkpointer.md#已知限制sandbox-隔离)） | 待定 |
 | M10 | **Member / Conversation 抽象**（thread → conversation；引入 `HumanMember`） | 待定 |
 | M11 | agent-as-tool（一个 agent 可作为另一个 agent 的 tool） | 待定 |
 | M12 | 多方 conversation（>2 个 member 同时在场） | 待定 |
