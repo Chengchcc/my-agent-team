@@ -63,7 +63,7 @@ Rule of three 检验：
 ```mermaid
 flowchart TD
   TM["thread.messages<br/>（真相，append-only）"] -->|读| CM["ContextManager.shape<br/>（纯函数）"]
-  CM -->|产出视图| MI[modelInput: Message[]]
+  CM -->|产出视图| MI["modelInput: Message[]"]
   MI --> MS[model.stream]
   MS --> NA[新 assistant message]
   NA -->|append| TM
@@ -412,7 +412,7 @@ flowchart TD
   TM --> CMR[ContextManager<br/>塑形视图]
   TM --> PG[Plugins<br/>观察/修饰]
   CMR --> SM[shapedMessages<br/>这次调 LLM 用的]
-  PG -.beforeModel.-> SM
+  PG -. beforeModel .-> SM
   SM --> M[model.stream]
 ```
 
