@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { input, select } from "@inquirer/prompts";
 
@@ -7,7 +7,7 @@ const rootDir = path.resolve(import.meta.dir, "..");
 const templateDir = path.join(rootDir, "_template", "package");
 
 function normalizeDirectoryName(value: string): string {
-  return value.trim().replace(/^\/+|\/+$/g, "");
+  return value.trim();
 }
 
 function assertSafeDirectoryName(value: string): void {
@@ -15,8 +15,19 @@ function assertSafeDirectoryName(value: string): void {
     throw new Error("Directory name is required.");
   }
 
-  if (value.includes("..") || path.isAbsolute(value)) {
-    throw new Error("Directory name must be relative and cannot contain '..'.");
+  if (path.isAbsolute(value)) {
+    throw new Error("Directory name must be relative.");
+  }
+
+  if (value.includes("/") || value.includes(path.sep)) {
+    throw new Error(
+      "Directory name must not contain '/'; only direct children of apps/ or packages/ are workspace members.",
+    );
+  }
+
+  const segments = value.split(/[\\/]/);
+  if (segments.some((segment) => segment === "..")) {
+    throw new Error("Directory name must not contain '..' path segments.");
   }
 }
 
@@ -31,6 +42,22 @@ async function replacePlaceholders(
   }
 
   await writeFile(filePath, content);
+}
+
+async function listFilesRecursively(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const results: string[] = [];
+
+  for (const entry of entries) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...(await listFilesRecursively(entryPath)));
+    } else if (entry.isFile()) {
+      results.push(entryPath);
+    }
+  }
+
+  return results;
 }
 
 async function main(): Promise<void> {
@@ -50,7 +77,7 @@ async function main(): Promise<void> {
   );
   assertSafeDirectoryName(directoryName);
 
-  const defaultPackageName = `@my-agent-team/${directoryName.split("/").at(-1)}`;
+  const defaultPackageName = `@my-agent-team/${directoryName}`;
   const packageName = await input({
     message: "Package name:",
     default: defaultPackageName,
@@ -62,7 +89,17 @@ async function main(): Promise<void> {
     default: `${packageName} package`,
   });
 
-  const targetDir = path.join(rootDir, area, directoryName);
+  const areaDir = path.join(rootDir, area);
+  const targetDir = path.join(areaDir, directoryName);
+
+  const resolvedAreaDir = path.resolve(areaDir);
+  const resolvedTargetDir = path.resolve(targetDir);
+  const areaPrefix = resolvedAreaDir + path.sep;
+  if (!resolvedTargetDir.startsWith(areaPrefix)) {
+    throw new Error(
+      `Resolved target ${resolvedTargetDir} is not inside workspace area ${resolvedAreaDir}.`,
+    );
+  }
 
   if (existsSync(targetDir)) {
     throw new Error(`Target already exists: ${path.relative(rootDir, targetDir)}`);
@@ -71,14 +108,15 @@ async function main(): Promise<void> {
   await mkdir(path.dirname(targetDir), { recursive: true });
   await cp(templateDir, targetDir, { recursive: true });
 
-  await replacePlaceholders(path.join(targetDir, "package.json"), {
+  const replacements = {
     name: packageName.trim(),
     description: description.trim(),
-  });
-  await replacePlaceholders(path.join(targetDir, "src", "index.ts"), {
-    name: packageName.trim(),
-    description: description.trim(),
-  });
+  };
+
+  const copiedFiles = await listFilesRecursively(targetDir);
+  for (const file of copiedFiles) {
+    await replacePlaceholders(file, replacements);
+  }
 
   const relativeTarget = path.relative(rootDir, targetDir);
   console.log(`Created ${relativeTarget}`);
