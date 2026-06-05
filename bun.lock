@@ -44,6 +44,17 @@
         "@my-agent-team/core": "workspace:*",
       },
     },
+    "packages/harness": {
+      "name": "@my-agent-team/harness",
+      "version": "0.1.0",
+      "dependencies": {
+        "@my-agent-team/core": "workspace:*",
+        "@my-agent-team/framework": "workspace:*",
+        "@my-agent-team/plugin-fs-memory": "workspace:*",
+        "@my-agent-team/plugin-progressive-skill": "workspace:*",
+        "@my-agent-team/tools-common": "workspace:*",
+      },
+    },
     "packages/plugin-fs-memory": {
       "name": "@my-agent-team/plugin-fs-memory",
       "version": "0.1.0",
@@ -164,6 +175,8 @@
     "@my-agent-team/core": ["@my-agent-team/core@workspace:packages/core"],
 
     "@my-agent-team/framework": ["@my-agent-team/framework@workspace:packages/framework"],
+
+    "@my-agent-team/harness": ["@my-agent-team/harness@workspace:packages/harness"],
 
     "@my-agent-team/plugin-fs-memory": ["@my-agent-team/plugin-fs-memory@workspace:packages/plugin-fs-memory"],
 
