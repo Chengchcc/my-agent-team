@@ -1,26 +1,24 @@
-# Checkpointer 架构设计
+# Checkpointer
 
-## 定位
+Framework 的**内化能力**，负责 agent 执行状态的**持久化与可恢复性**。它不是可选 plugin——永远存在，只是实现可替换（内存 / 文件 / Redis / 数据库）。
 
-Checkpointer 是 framework 的**内化能力**，承担 agent 执行状态的持久化与可恢复性。它不是可选的 plugin 扩展 —— 它是 framework 的核心组件，永远存在，只是实现可替换（内存 / 文件 / Redis / 数据库）。
+解决三个第一性问题：
 
-它解决三个第一性问题：
-
-1. **状态持久化** —— 进程崩溃后，下次启动能从最近的 tool 边界续跑
-2. **可中断执行** —— human-in-the-loop 场景下，agent loop 能暂停、退出进程、等待外部决策、新进程恢复
-3. **执行流可观测** —— UX 层可以读取历史事件流，做时间轴回放
+1. **状态持久化** — 进程崩溃后，下次启动能从最近的 tool 边界续跑
+2. **可中断执行** — human-in-the-loop 场景下，agent loop 能暂停、退出进程、等待外部决策、新进程恢复
+3. **执行流可观测** — UX 层可以读取历史事件流，做时间轴回放
 
 ---
 
 ## 模块边界
 
-| 模块 | 职责 | 归属 |
-|---|---|---|
-| `Checkpointer` | 接口定义 + 内置 InMemory 实现 | framework |
-| `InterruptSignal` | Tool 抛出的中断信号 | framework |
-| `AgentEvent` | 事件流的类型定义 | framework |
-| `fileCheckpointer` | 文件实现（JSON state + JSONL events） | framework |
-| `redisCheckpointer` 等 | 其他持久层实现 | 独立适配包（M5+） |
+| 模块 | 职责 |
+|---|---|
+| `Checkpointer` | 接口定义 + 内置 `inMemoryCheckpointer` |
+| `InterruptSignal` | Tool 抛出的中断信号 |
+| `AgentEvent` | 事件流的类型定义 |
+| `fileCheckpointer` | 文件实现（JSON state + JSONL events） |
+| `redisCheckpointer` 等 | 其他持久层实现，独立适配包 |
 
 依赖方向：framework → core。Checkpointer 实现不依赖 adapter / tools / harness。
 
@@ -33,27 +31,17 @@ Checkpointer 是 framework 的**内化能力**，承担 agent 执行状态的持
 ```ts
 interface Checkpointer {
   // ============== 必需能力 ==============
-
   /** 保存 thread 当前完整 messages */
   save(threadId: string, messages: readonly Message[]): Promise<void>;
-
   /** 加载 thread 历史 messages，无则返回 null */
   load(threadId: string): Promise<Message[] | null>;
 
-  // ============== 可选能力：Interrupt ==============
-
-  /** 保存中断状态（用于 human-in-the-loop） */
+  // ============== 可选能力:Interrupt ==============
   saveInterrupt?(threadId: string, state: InterruptState): Promise<void>;
-
-  /** 读取并清除中断状态（恢复时用） */
   consumeInterrupt?(threadId: string): Promise<InterruptState | null>;
 
-  // ============== 可选能力：Event Stream ==============
-
-  /** 追加一条执行事件（用于 UX 回放、审计） */
+  // ============== 可选能力:Event Stream ==============
   appendEvent?(threadId: string, event: AgentEvent): Promise<void>;
-
-  /** 读取完整事件流 */
   readEvents?(threadId: string): AsyncIterable<AgentEvent>;
 }
 ```
@@ -62,12 +50,9 @@ interface Checkpointer {
 
 ```ts
 interface InterruptState {
-  /** 中断时挂起的 tool call —— 等待外部决策 */
   pendingTool: { call: ToolUseBlock; reason: string };
-  /** 中断时间戳 */
   ts: number;
-  /** 附加上下文（由 Tool 提供给前端展示用） */
-  meta?: Record<string, unknown>;
+  meta?: Record<string, unknown>;   // tool 提供给前端展示用
 }
 
 type AgentEvent =
@@ -81,10 +66,7 @@ type AgentEvent =
   | { type: 'run_end'; reason: 'complete' | 'aborted' | 'maxSteps'; ts: number };
 
 class InterruptSignal extends Error {
-  constructor(
-    public readonly reason: string,
-    public readonly meta?: Record<string, unknown>,
-  ) {
+  constructor(public readonly reason: string, public readonly meta?: Record<string, unknown>) {
     super(`Interrupted: ${reason}`);
     this.name = 'InterruptSignal';
   }
@@ -95,15 +77,15 @@ class InterruptSignal extends Error {
 
 ## 能力分层（Capability Detection）
 
-Checkpointer 接口分**必需 / 可选**两层，framework 用方法存在性判断能力：
+接口分**必需 / 可选**两层，framework 用方法存在性判断能力：
 
 | 能力 | 方法 | 不实现的后果 |
 |---|---|---|
-| 基础持久化 | `save` / `load` | **强制** —— 不实现 = 不是 Checkpointer |
+| 基础持久化 | `save` / `load` | **强制**——不实现 = 不是 Checkpointer |
 | Human-in-the-loop | `saveInterrupt` / `consumeInterrupt` | Tool 抛 `InterruptSignal` 时 throw |
 | UX 回放 / 审计 | `appendEvent` / `readEvents` | 不记录事件流，但 agent 正常运行 |
 
-Framework 在调用前检查：
+framework 在调用前检查：
 
 ```ts
 if (checkpointer.saveInterrupt) {
@@ -120,7 +102,7 @@ if (checkpointer.saveInterrupt) {
 
 ## 内置实现
 
-### `inMemoryCheckpointer` （默认）
+### `inMemoryCheckpointer`（默认）
 
 ```ts
 export const inMemoryCheckpointer = (): Checkpointer => {
@@ -150,9 +132,7 @@ export const inMemoryCheckpointer = (): Checkpointer => {
 };
 ```
 
-- `createAgent` 不传 checkpointer 时默认用它
-- 进程退出 = 状态丢失，但接口完整，**保证 framework 行为统一**
-- 适合：单进程一次性任务、测试
+`createAgent` 不传 checkpointer 时默认用它。进程退出 = 状态丢失，但接口完整，**保证 framework 行为统一**。适合单进程一次性任务、测试。
 
 ### `fileCheckpointer`
 
@@ -173,15 +153,22 @@ ${dir}/
 - `load` / `consumeInterrupt`：读对应 json 文件
 - `appendEvent`：直接 append 一行 JSONL（丢一行事件可接受，不需要原子写）
 
-适合：CLI、单机服务、本地开发。
+**threadId 安全契约**：threadId 直接拼进文件路径，必须防止路径穿越（`../`、绝对路径、`\0`）和文件名非法字符。`fileCheckpointer` 在每次操作前对 threadId 校验：
 
-### `redisCheckpointer`（M5+，独立包）
+- 允许字符：`[A-Za-z0-9_\-.]`，长度 1–128
+- 不通过校验 → `throw new Error('Invalid threadId: ${id}')`，**不做静默替换**（静默替换会让两个不同 threadId 落到同一文件）
+
+调用方负责提供合法的 threadId。如果上层有自由格式的 session id（UUID / 邮箱），应在交给 framework 前自行 hash（`sha256(rawId)`）。
+
+适合 CLI、单机服务、本地开发。
+
+### `redisCheckpointer`（独立适配包）
 
 - `save` → `SET state:${id}`
 - `appendEvent` → `XADD events:${id} *`（Redis Stream）
 - `saveInterrupt` → `SET interrupt:${id}`
 
-适合：多进程 Web 服务、分布式 worker。
+适合多进程 Web 服务、分布式 worker。
 
 ---
 
@@ -198,102 +185,108 @@ ${dir}/
 | `checkpointer.consumeInterrupt(...)` | `agent.resume()` 调用时 | 读出 pending tool 信息 |
 | `checkpointer.appendEvent?(...)` | 每个关键事件发生时（model_start / tool_end / ...） | 可选记录 |
 
-**关键纪律**：save 时机只在 **messages 处于合法 API 输入态** 时触发。即 messages 末尾必须是：
+**关键纪律**：`save` 时机只在 messages 处于**合法 API 输入态**时触发。即 messages 末尾必须是：
 
-- `user(text)` —— 首次输入
-- `assistant(text only)` —— 完成的轮次
-- `user(tool_result)` —— tool 执行完成
+- `user(text)` — 首次输入
+- `assistant(text only)` — 完成的轮次
+- `user(tool_result)` — tool 执行完成
 
 **Interrupt 时的特殊处理**：tool 抛 `InterruptSignal` 时，messages 末尾是 `assistant(tool_use)`——严格说是非法 API 状态。但中断时**不做回退**——保存当前完整 messages。`agent.resume()` 时 framework 会先补上 `tool_result`，让 messages 恢复合法后再继续 loop。这样不丢失 model 已产出的 tool_use，也避免了重新调 LLM。
 
-### Agent API 暴露
+### Agent API
 
-```ts
-interface Agent {
-  readonly thread: Thread;
-  run(input: string, options?: RunOptions): AsyncIterable<AgentMessage>;
-  /** 从 interrupt 恢复。ResumeCommand 告知 framework 如何处理挂起的 tool */
-  resume(command: ResumeCommand, options?: RunOptions): AsyncIterable<AgentMessage>;
-  fork(messages?: Message[], id?: string): Agent;
-}
+详见 [Framework#Agent](./02-framework.md#agent)。`ResumeCommand` 表达"用户同意/拒绝"语义，比 LangChain Command 简单——没有 goto/update。framework 内部映射规则：
 
-/** 比 LangChain Command 简单——没有 goto/update */
-interface ResumeCommand {
-  /** 填入 tool_result.content */
-  content: string;
-  /** 用户拒绝时设 true */
-  isError?: boolean;
-}
-
-type AgentMessage =
-  | Message
-  | { type: 'interrupted'; pendingTool: ToolUseBlock; reason: string; meta?: unknown };
+```
+tool_result.is_error = !command.approved
+tool_result.content  = command.message ?? (command.approved ? 'approved' : 'denied by user')
 ```
 
 ---
 
-## Interrupt & Resume 完整流程
+## Interrupt & Resume 流程
 
 ### 第一次执行 → 中断
 
-```
-User code:
-  agent.run("clean up node_modules")
+```mermaid
+sequenceDiagram
+  participant U as 调用方
+  participant A as Agent
+  participant T as Tool
+  participant CP as Checkpointer
 
-Framework:
-  ↓ checkpointer.appendEvent({ type: 'user_input', ... })
-  ↓ thread.messages.push(user_msg)
-  ↓ checkpointer.save(threadId, messages)
-  ↓ loop:
-    ↓ model.stream(...) → assistant with tool_use
-    ↓ thread.messages.push(assistant_msg)
-    ↓ checkpointer.appendEvent({ type: 'model_end', ... })
-    ↓ for each tool_use:
-      ↓ tool.execute(input) ──→ throws InterruptSignal('permission_required')
-      ↓ checkpointer.save(threadId, messages)       # 保存到 tool_use 之前的安全态
-      ↓ checkpointer.saveInterrupt(threadId, {
-           pendingTool: { call, reason: 'permission_required' },
-           ts: Date.now(),
-        })
-      ↓ checkpointer.appendEvent({ type: 'interrupt', ... })
-      ↓ yield { type: 'interrupted', pendingTool, reason }
-      ↓ return  # generator 退出
+  U->>A: run("clean up node_modules")
+  A->>CP: appendEvent(user_input)
+  A->>A: messages.push(user)
+  A->>CP: save(messages)
 
-User code:
-  收到 { type: 'interrupted' }
-  process.exit(0)
+  loop step
+    A->>A: model.stream → assistant(tool_use)
+    A->>A: messages.push(assistant)
+    A->>CP: appendEvent(model_end)
+
+    A->>T: execute(input, signal)
+    T-->>A: throw InterruptSignal('permission_required', meta)
+
+    A->>CP: save(messages)               %% 保存到 tool_use 之前的安全态
+    A->>CP: saveInterrupt({pendingTool, reason, ts})
+    A->>CP: appendEvent(interrupt)
+    A-->>U: yield {type:'interrupted', pendingTool, reason}
+    A-->>U: generator return
+  end
+
+  U->>U: process.exit(0)
 ```
 
 ### 新进程 → 恢复
 
+```mermaid
+sequenceDiagram
+  participant U as 调用方
+  participant A as Agent
+  participant CP as Checkpointer
+  participant M as ChatModel
+
+  U->>A: createAgent({threadId:'s-1', checkpointer:fileCheckpointer(...)})
+  A->>CP: load('s-1')
+  CP-->>A: messages (含未消化的 tool_use)
+
+  U->>U: const cmd = await getUserDecision()
+  U->>A: resume(cmd)
+
+  A->>CP: consumeInterrupt('s-1')
+  CP-->>A: {pendingTool, reason}
+  A->>CP: appendEvent(resume)
+
+  A->>A: messages.push(tool_result mapped from cmd)
+  A->>CP: save(messages)
+
+  A->>M: stream(messages)                %% 回到正常 loop
+  M-->>A: assistant ...
 ```
-User code:
-  const agent = createAgent({
-    model, tools,
-    threadId: 'session-1',
-    checkpointer: fileCheckpointer({ dir: './state' }),
+
+伪代码补充（resume 关键部分）：
+
+```ts
+async function* resume(command: ResumeCommand) {
+  const it = await checkpointer.consumeInterrupt?.(threadId);
+  if (!it) throw new Error('No pending interrupt for this thread');
+
+  await checkpointer.appendEvent?.(threadId, { type: 'resume', ts: Date.now() });
+
+  messages.push({
+    role: 'user',
+    content: [{
+      type: 'tool_result',
+      tool_use_id: it.pendingTool.call.id,
+      content: command.message ?? (command.approved ? 'approved' : 'denied by user'),
+      is_error: !command.approved,
+    }],
   });
-  # createAgent 内部：load → messages 恢复
+  await checkpointer.save(threadId, messages);
 
-  const decision = await getUserDecision();
-  for await (const msg of agent.resume(decision)) { ... }
-
-Framework (agent.resume):
-  ↓ checkpointer.consumeInterrupt('session-1') → { pendingTool: { call, reason } }
-  ↓ checkpointer.appendEvent({ type: 'resume', ts: ... })
-  ↓ thread.messages.push({
-       role: 'user',
-       content: [{
-         type: 'tool_result',
-         tool_use_id: call.id,
-         content: decision.approved
-           ? (decision.message ?? 'approved')
-           : (decision.message ?? 'denied by user'),
-         is_error: !decision.approved,
-       }],
-    })
-  ↓ checkpointer.save(threadId, messages)
-  ↓ 继续进入 loop，调 model.stream()...
+  yield* runLoop();  // 复用主 loop
+}
 ```
 
 ---
@@ -320,35 +313,44 @@ export const bashTool: Tool = {
         prompt: `Allow running: ${cmd}?`,
       });
     }
-
     return runShell(cmd, signal);
   },
 };
 ```
 
-**约定**：
+约定：
 
 - `InterruptSignal` 是 framework 导出的特殊错误类，framework 识别它并走 interrupt 流程。其他错误正常 push `is_error: true` 的 tool_result
 - `meta` 字段由 Tool 自由定义，**透传到 UX 层**给前端做权限询问 UI
-- Tool 不知道有没有 checkpointer 支持 interrupt —— 它只管抛；framework 检查能力，不支持时 throw 降级
+- Tool 不知道有没有 checkpointer 支持 interrupt——它只管抛；framework 检查能力，不支持时 throw 降级
+
+**识别边界（严格）**：framework 只在 **`tool.execute()` 抛出**的 `InterruptSignal` 上走中断流程。其他位置抛 `InterruptSignal` 一律按普通错误处理：
+
+- ✗ Plugin `beforeTool` / `afterTool` 里抛 → 视作 plugin 故障（`before*` abort 整轮 / `after*` 吞掉 warn）
+- ✗ `ContextManager.shape` 里抛 → 视作 shape 失败，整轮 abort
+- ✗ `ChatModel.stream` 里抛 → 视作 model 故障
+- ✓ 仅 `tool.execute(input, signal)` 直接抛出 → 走 `saveInterrupt` + yield `interrupted` + 退出 generator
+
+理由：中断的语义是"tool 想要外部决策"。允许其他位置抛会让控制流分裂—— plugin 可以伪造中断、context manager 可以打断未开始的 turn——丧失"中断点 = 当前 tool_use"这个清晰锚点。
 
 ---
 
 ## 与 Plugin 的协作边界
 
-Checkpointer **不是** plugin —— 它是 framework 内化。但 plugin 仍可观察事件：
+Checkpointer **不是** plugin——它是 framework 内化。但 plugin 通过 [HookContext](./03-plugin.md#hookcontext--plugin-拿到的能力) 可以读 checkpointer 的事件流（`readEvents`），做审计 UI / metrics 派生。**不要双写 `save()`**。
 
-| 场景 | 用 Checkpointer 还是 Plugin |
+| 场景 | Checkpointer 还是 Plugin |
 |---|---|
 | 持久化 messages 用于崩溃恢复 | **Checkpointer**（framework 自动调） |
 | 持久化事件流给 UX 回放 | **Checkpointer**（`appendEvent`，framework 自动调） |
 | 把每次 tool 调用上报到 metrics 系统 | **Plugin**（observer 模式） |
-| 调 LLM 前裁剪 messages | **Plugin**（`beforeModel`） |
-| 调 tool 前请求权限 | **Tool 抛 InterruptSignal**（不是 plugin） |
+| 调 LLM 前裁剪 messages | **[ContextManager](./05-context-manager.md)** |
+| 调 LLM 前修饰 messages（脱敏、注入信息） | **Plugin**（`beforeModel`） |
+| 调 tool 前请求权限 | **Tool 抛 `InterruptSignal`**（不是 plugin） |
 
-**核心区分**：
+核心区分：
 
 - **改变 agent 控制流**（暂停 / 恢复 / 状态持久化）→ Checkpointer
-- **观察或 transform 数据**（log / metrics / 裁剪）→ Plugin
+- **观察或 transform 数据**（log / metrics / 裁剪修饰）→ Plugin / ContextManager
 
-Permission 这类需求**从 plugin 中迁出** —— 它本质上是控制流操作（暂停 loop、等待外部输入、恢复），不是数据 transform。
+Permission 这类需求**从 plugin 中迁出**——它本质上是控制流操作（暂停 loop、等待外部输入、恢复），不是数据 transform。

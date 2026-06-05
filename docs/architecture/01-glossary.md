@@ -86,7 +86,7 @@
 | `fork()` | Agent 的方法。`agent.fork(messages?, id?)`。复用 model/tools/plugins，创建新 thread。默认 `messages ?? structuredClone(thread.messages)`。用于分支对话、A/B 对比 | `packages/framework/src/create-agent.ts` |
 | `Plugin` | `{ name, hooks }` — 一组事件钩子的封装。Framework 的唯一扩展点。非 middleware、非 decorator、非 event bus | `packages/framework/src/plugin.ts` |
 | `PluginHooks` | `{ beforeModel?, afterModel?, beforeTool?, afterTool? }` — 4 个生命周期钩子 | 同上 |
-| `HookContext` | `{ threadId, signal?, logger, checkpointer, contextManager }` — 每个钩子的执行上下文。ctx 永远是第一个参数 | 同上 |
+| `HookContext` | `{ threadId, signal?, logger, checkpointer, contextManager }` — 每个钩子的执行上下文，暴露 framework 三大内化能力供 plugin 使用（可读、不可越权重写）。ctx 永远是第一个参数 | 同上 |
 | `definePlugin()` | 类型安全的 plugin 构造函数。`definePlugin({ name, hooks }) → Plugin` | 同上 |
 | **Transformer** | 一类 plugin 钩子（before*）：返回值有语义，改变数据流。`beforeModel` 返回裁剪后的 messages；`beforeTool` 返回 `{ skip?, input?, result? }` | — |
 | **Observer** | 一类 plugin 钩子（after*）：副作用收集，返回值被忽略。失败必须吞掉 + `console.warn` | — |

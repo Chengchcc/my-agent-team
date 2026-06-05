@@ -1,177 +1,213 @@
-# Plugin 是什么
+# Plugin
 
-## 一句话定义
-
-**Plugin 是一组事件钩子的封装，让外部代码在 agent 执行的关键时刻插入逻辑，而不需要修改 framework 或 agent 本身。**
-
-—— 它是 framework 提供的**唯一扩展点**。
+Framework 的**唯一扩展点**。一组事件钩子的封装——让外部代码在 agent loop 的关键时刻插入横切逻辑，不需要改 framework，也不需要改 agent。
 
 ---
 
-## 从第一性原理推导：为什么需要 Plugin
+## 为什么需要这个抽象
 
-L2 `run()` 是一个 async generator：
+L2 的 [`run()`](./00-overview.md#runtime-契约) 是一条线性流水线：push user → loop（model → tool → tool_result）→ until done。真实场景里，你想在流水线的特定节点插横切逻辑：
 
-```
-push user message
-  loop:
-    call model.stream()
-    push assistant message
-    for each tool_use:
-      execute tool
-      push tool_result
-    if no tool_use: break
-```
-
-这是一条**线性流水线**。但真实场景里，你会想在流水线的**特定节点**插入横切逻辑：
-
-| 场景 | 想在哪插？ |
+| 场景 | 想插在哪 |
 |---|---|
-| PII 脱敏/注入元信息 | 调 model 之前 |
-| 调试日志 | 每一步之后 |
-| 调 tool 前请求权限 | tool 执行之前 |
-| 统计 token 用量 | model 返回之后 |
+| PII 脱敏、注入元信息 | 调 model 之前 |
+| token 用量上报 | model 返回之后 |
+| 工具调用前请求 metrics 上下文 | tool 执行之前 |
+| 任意 observer 类副作用 | 每一步之后 |
 
-> **注意：** 上下文裁剪和落盘持久化已分别迁移到 ContextManager 和 Checkpointer，不再通过 plugin 实现。
+不引入 plugin 的替代方案只有三种，都不够：
 
-**没有 plugin 的话**，这些逻辑只有 3 个去处：
+1. **改 L2 `run()` 源码** — 每个需求一个 fork，不可复用
+2. **包装 model / tool** — 看不到跨步骤的状态。比如"tool 执行后落盘整个 thread"，单个 tool 看不到 thread
+3. **调用方在外面循环** — 等于放弃 framework，回到手写 L2
 
-1. **改 L2 `run()` 源码** —— 框架不可扩展，每加一个需求改一次源码
-2. **包装 model / tool** —— 能解决一部分（model 包一层裁剪 messages），但跨步骤的逻辑（如"tool 执行后落盘整个 thread"）包不住，因为单个 tool 看不到整个 messages
-3. **调用方在外面循环** —— 那等于放弃了 framework，回到手写 L2
-
-所以 plugin 的存在性来自**第一性事实**：**有些扩展逻辑必须看到 agent 内部的执行节点，且必须能跨多个节点**。这是包装函数解决不了的。
+所以 plugin 的存在性来自一个第一性事实：**有些扩展逻辑必须看到 agent 内部的执行节点，且必须跨多个节点**。包装函数解决不了。
 
 ---
 
-## Plugin 不是什么
+## 四个时机
 
-容易和 plugin 混淆的 4 个概念，必须先撇清：
+plugin 只能在这 4 个时刻插入：
 
-| 概念 | 区别 |
-|---|---|
-| **Middleware** | 洋葱模型，有 `next()`，调用方要主动决定何时让流程继续。Plugin 没有 next，框架自动推进 |
-| **Decorator / Wrapper** | 包装单个对象（一个 model、一个 tool）。Plugin 看的是 agent 整体执行流 |
-| **Tool** | Tool 是 LLM 主动调的能力。Plugin 是 framework 在固定时机被动调的钩子 |
-| **Event Listener** | 事件监听只能"知道发生了"，不能改流程。Plugin 的 `before*` 钩子可以 transform messages、skip tool |
-
----
-
-## Plugin 的能力边界
-
-按 `02-framework.md` 的设计，plugin 能做的事**仅限以下 4 个时刻**：
-
-```
-beforeModel  → 调 LLM 之前，可改 messages
-afterModel   → LLM 返回后，纯观察
-beforeTool   → 执行 tool 之前，可改 input、可 skip
-afterTool    → tool 完成后，纯观察
+```mermaid
+flowchart LR
+  BeforeM[beforeModel] --> Model[model.stream]
+  Model --> AfterM[afterModel]
+  AfterM --> ToolCall[tool_use 出现?]
+  ToolCall -->|yes| BeforeT[beforeTool]
+  BeforeT --> Exec[tool.execute]
+  Exec --> AfterT[afterTool]
+  AfterT --> BeforeM
+  ToolCall -->|no| Done([loop end])
 ```
 
-**plugin 不能做的事**（这是设计纪律，不是技术限制）：
+成对出现，**类型即语义**：
 
-- 不能拿到 `model` 对象本身（不能 token 计数？自己引 tiktoken）
-- 不能拿到 `tool` 列表（不能动态加 tool？那是 framework 的事）
-- 不能 emit 自定义事件给其他 plugin（要通信？合成一个 plugin）
-- 不能阻止 agent loop 退出（要强制再跑一轮？这是 agent 行为，不是钩子的事）
-- 不能持有跨 agent 的全局状态（要全局状态？plugin 实例自己 closure 里存）
+- **`before*` → Transformer**：返回值有语义，影响数据流。坏了 = 整轮 abort
+- **`after*` → Observer**：返回值忽略，纯副作用。坏了 = 吞掉 + warn
 
----
+完整接口和钩子签名见 [Framework#Plugin](./02-framework.md#plugin)。
 
-## Plugin 的两类用途
-
-按返回值类型，plugin 钩子天然分两类：
-
-### 1. Transformer（before*）—— 改变数据流
+### Transformer (before*)
 
 ```ts
-beforeModel(ctx, messages) → 新的 messages
+beforeModel(ctx, messages) → 新 messages
 beforeTool(ctx, call, messages) → { skip?, input?, result? }
 ```
 
-- `redactor` —— 调 LLM 前打码 PII
-- `injectMetadata` —— 给每条 user message 拼接当前时间/项目信息
+典型用例：
 
-> **注意：** 上下文裁剪（原 `slidingWindow` plugin）已迁移到 ContextManager。plugin 不负责空间塑形，只做内容修饰。
+- `redactor` — 调 LLM 前给 PII 打码
+- `injectMetadata` — 给每条 user 消息拼接时间戳、项目信息
+- `permissionGate` — `beforeTool` 检查是否需要中断（实际中断由 [InterruptSignal](./04-checkpointer.md#tool-端interruptsignal-用法) 表达，plugin 只做"判定+提示"）
 
-**返回值有语义**，framework 会用它。
-
-### 2. Observer（after*）—— 副作用收集
+### Observer (after*)
 
 ```ts
 afterModel(ctx, messages) → void
 afterTool(ctx, call, result, messages) → void
 ```
 
-- `metricsPlugin` —— 上报 token 用量到监控系统
+典型用例：
 
-> **注意：** 打日志是 framework 内化能力（`console.log`/`console.warn`），落盘是 Checkpointer 内化能力，上下文裁剪是 ContextManager 内化能力。三者都不是 plugin。
+- `metricsPlugin` — 上报 token 用量到监控系统
+- `traceExporter` — 把每步事件发给 OTel/Sentry
+- `auditLog` — 把 tool 执行写到合规日志（与 [Checkpointer](./04-checkpointer.md) 内置事件流互补：plugin 出独立 sink）
 
-**返回值被忽略**。失败应被吞掉不影响主流程。
-
----
-
-## Plugin 在四层架构里的位置
-
-```
-L4 Harness         ← 选用一组 plugin 组装成产品（如 coding agent 选 redactor + permissions）
-   ↓
-L3 Framework       ← 定义 Plugin 接口。插件全由用户/harness 提供，framework 零内置 plugin
-   ↓
-L2 Runtime         ← 不知道 plugin 存在，只跑 run() 循环
-   ↓
-L1 Protocols       ← 不知道 plugin 存在
-```
-
-**关键**：
-
-- **L2 不感知 plugin** —— L2 `run()` 永远是裸 async generator，纯净。Plugin 是 L3 在调 L2 之前/之后插入的
-- **L3 定义协议 + 提供通用 plugin** —— 通用 = 领域无关。`slidingWindow` 任何场景都需要，所以归 L3
-- **L4 编排具体 plugin 组合** —— `permissionPlugin` 假设了 CLI 交互，归 harness
+> 上下文裁剪不是 plugin —— 那是 [ContextManager](./05-context-manager.md) 的事。落盘不是 plugin —— 那是 [Checkpointer](./04-checkpointer.md) 的事。日志不是 plugin —— 那是 framework 内化 [Logger](./02-framework.md#logger) 的事。三件事都从 plugin 中迁出了。
 
 ---
 
-## Plugin vs 其他扩展方式的取舍
+## HookContext — Plugin 拿到的能力
 
-为什么不用其他方式？
+```ts
+interface HookContext {
+  threadId: string;
+  signal?: AbortSignal;
+  logger: Logger;                  // framework 内化
+  checkpointer: Checkpointer;      // framework 内化
+  contextManager: ContextManager;  // framework 内化
+}
+```
 
-| 方案 | 为什么不选 |
+`ctx` 永远是第一个参数，事件特定 data 跟在后面。
+
+`logger` / `checkpointer` / `contextManager` 三个内化能力直接暴露给 plugin。plugin 可以：
+
+- 用 `ctx.logger.debug(...)` 打日志，level 受 framework 控制
+- 用 `await ctx.checkpointer.readEvents(threadId)` 异步读事件流做审计 UI
+- 用 `await ctx.contextManager.shape(ctx, messages)` 派生"实际送给 LLM 的视图"，做精确 token 统计
+
+**但不能反客为主**：
+
+| ✗ 错用 | ✓ 正用 |
 |---|---|
-| 改 `run()` 源码 | 不可复用，每个需求一个 fork |
-| 包装 `model` | 只能改 messages，看不到 tool 执行结果 |
-| 包装 `tool` | 只能改单个 tool 行为，看不到 model 调用 |
-| 事件总线 EventBus | 多了一个心智模型；且事件无法 transform 数据 |
-| Middleware with `next()` | 多了一层调用栈控制；调用方要懂洋葱模型；before/after 已够用 |
-| Subclass `Agent` | OOP 继承爆炸；多个扩展无法组合 |
-| Plugin（当前方案） | 唯一同时满足：跨步骤、可组合、可 transform、心智模型最小 |
+| `ctx.checkpointer.save(...)` | framework 自动 save，plugin 只读不写 |
+| `ctx.checkpointer.saveInterrupt(...)` | 通过 `tool.execute` 抛 `InterruptSignal` 表达中断 |
+| 用 `shape` 改动后塞回 messages | shape 是只读派生；要改 messages 用 `beforeModel` 返回值 |
+
+这是"能力暴露 vs 职责越界"的区别：plugin 能**读** framework 的内化能力，但不能**重写** framework 自己负责的事。
 
 ---
 
-## 一个判断 plugin 是否设计对的 checklist
+## 能力边界
+
+plugin 只能做以下事：
+
+1. 在 4 个固定时机被 framework 同步调用
+2. 通过 `before*` 返回值修改数据流
+3. 通过 `after*` 触发副作用
+4. 读 `HookContext` 暴露的 framework 内化能力
+
+plugin **不能做**的事（设计纪律）：
+
+| 不能做 | 因为 |
+|---|---|
+| 拿到 `model` 对象本身 | plugin 不需要内省 LLM。要 token 计数自己引 tiktoken |
+| 拿到 `tools` 列表 | 动态加 tool 是 framework 的事 |
+| emit 自定义事件给其他 plugin | 要通信 → 合并成一个 plugin。不给 framework 加 emit/pub-sub |
+| 阻止 agent loop 退出 | 那是 agent 行为不是钩子的事 |
+| 持有跨 agent 的全局状态 | 用 closure 自己存 |
+
+---
+
+## Plugin 不是什么
+
+| 概念 | 与 Plugin 的区别 |
+|---|---|
+| **Middleware** | 洋葱模型，要 `next()`；plugin 没有 next，framework 自动推进 |
+| **Decorator / Wrapper** | 包装单个对象（一个 model、一个 tool）；plugin 看的是 agent 整体执行流 |
+| **Tool** | tool 是 LLM 主动调；plugin 是 framework 被动调 |
+| **Event Listener** | listener 只能"知道发生了"；plugin 的 `before*` 可以 transform 数据流 |
+| **Checkpointer** | checkpointer 是 framework 内化（持久化 + 中断），plugin 只是观察。详见 [Checkpointer vs Plugin 边界](./04-checkpointer.md#与-plugin-的协作边界) |
+| **ContextManager** | context manager 决定"送给 LLM 的视图"；plugin 在那个视图上做最后修饰。详见 [边界](./05-context-manager.md#八contextmanager-vs-pluginbeforemodel-的边界) |
+
+---
+
+## 管道链与错误隔离
+
+多个 plugin 挂同一个 `before*` 时，按 `plugins` 数组顺序依次调用，上一个的返回值作为下一个的输入：
+
+```ts
+async function fireBeforeModel(plugins, ctx, msgs) {
+  for (const p of plugins) {
+    if (p.hooks.beforeModel) {
+      msgs = (await p.hooks.beforeModel(ctx, msgs)) ?? msgs;
+    }
+  }
+  return msgs;
+}
+```
+
+`beforeTool` 同理：前一个 plugin 改写后的 `{ input }` 传给下一个。
+
+错误隔离规则：
+
+```
+before*  抛错 → 整轮 abort，传给调用方
+after*   抛错 → 吞掉 + logger.warn(pluginName, err)
+```
+
+不引入"plugin 优先级"枚举——`plugins` 数组顺序就是调用顺序。
+
+---
+
+## definePlugin — 类型推导
+
+```ts
+export const myPlugin = definePlugin({
+  name: 'redactor',
+  hooks: {
+    beforeModel(ctx, messages) {
+      ctx.logger.debug('redacting', messages.length);
+      return messages.map(redact);
+    },
+  },
+});
+```
+
+只写关心的钩子，其余字段类型自动推导。不需要手动 `import type { Plugin }`。
+
+---
+
+## 设计自检 checklist
 
 设计或评审一个 plugin 时问：
 
-1. **它是不是真的需要看 agent 内部执行节点？**
-   - 不需要 → 写成 model/tool 的包装函数，不要做成 plugin
-2. **它的逻辑能不能用 4 个钩子表达？**
-   - 不能 → 要么需求超出 framework 能力（去 harness 层做），要么是想偷塞中间件
-3. **它依赖什么？**
-   - 只依赖 `core` 的类型 → 可以放 framework 包
-   - 依赖具体 model / 具体 tool / system prompt / CLI / fs 之外的环境 → 放 harness
-4. **多个实例之间是否需要通信？**
-   - 需要 → 合并成一个 plugin，**不要**给 framework 加 emit/state
-5. **失败时是阻断主流程还是吞掉？**
-   - before* 抛错 = 阻断 agent（符合 transformer 语义）
-   - after* 抛错 = 必须吞掉 + warn（符合 observer 语义）
+1. **它真的需要看 agent 内部执行节点吗？** 不需要 → 写成 model/tool 的包装函数，不要做成 plugin
+2. **它的逻辑能用 4 个钩子表达吗？** 不能 → 要么逻辑越界（去 [Harness](./06-harness.md) 层做），要么想偷塞中间件
+3. **依赖什么？** 只依赖 `core` 类型 → 可入 framework 包；依赖具体 model / tool / fs / CLI → 入 harness
+4. **多个实例需要互相通信吗？** 需要 → 合并成一个 plugin
+5. **失败该不该阻塞？** before* 阻塞、after* 不阻塞，与类型语义一致
 
 ---
 
 ## 总结
 
-**Plugin = framework 的扩展点 = 在 4 个固定时机插入横切逻辑的能力**。
+Plugin = **framework 的扩展点** = **在 4 个固定时机插入横切逻辑的能力**。
 
 - 存在性来自第一性事实：横切扩展无法用纯函数包装解决
-- 能力边界严格收窄到 4 个钩子，**故意不给更多**
+- 能力边界严格收窄到 4 个钩子，故意不给更多
 - 两类（transformer / observer）语义不同，类型层面隔离
-- framework 内化能力分层：Plugin 做修饰和观察（零内置），ContextManager 做空间塑形，Checkpointer 做持久化，Logger 做日志。四个概念正交，各司其职
-- 不是 middleware、不是 decorator、不是 event bus —— **是 framework 唯一的扩展点，没有第二种**
+- HookContext 暴露 framework 三大内化能力（logger / checkpointer / contextManager），plugin 可读不可越权
+- 不是 middleware、不是 decorator、不是 event bus —— 是 framework 唯一的扩展点，没有第二种

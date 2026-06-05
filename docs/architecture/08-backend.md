@@ -98,6 +98,29 @@ data: {"reason":"complete"}
 - `resume` 场景下 client 再次 POST，重新建立 SSE 流
 - WebSocket 留给未来双向实时场景（用户在 agent 运行中追加指令）
 
+**SSE 事件与 framework 内部 AgentEvent 的关系**：
+
+Backend SSE 事件 ≠ Checkpointer `AgentEvent`，但**一一对应**：
+
+| 来源 | 类型 | 谁产生 |
+|---|---|---|
+| Framework 内部 | `AgentEvent`（见 04-checkpointer.md） | framework 在关键时机调 `checkpointer.appendEvent` |
+| Backend over the wire | SSE `event:` + JSON `data:` | backend 把 `agent.run()` 流式 yield 的 `AgentMessage` + framework 内部 event 转译 |
+
+Backend **不直接**订阅 `checkpointer.appendEvent`——那是 framework 内部能力。Backend 的事件源是 `agent.run()` 返回的 `AsyncIterable<AgentMessage>`，加上自己在调 `agent.run()` 前后注入的边界事件（`run_end` 等）。
+
+转译规则（backend `sse.ts` 实现）：
+
+| AgentMessage / 时机 | SSE event |
+|---|---|
+| `Message{role:'assistant'}` | `model_end` |
+| `Message{role:'user', content:tool_result}` | `tool_end` |
+| `{type:'interrupted', ...}` | `interrupted` |
+| stream 自然结束 | `run_end{reason:'complete'}` |
+| 中途异常 / abort | `run_end{reason:'aborted'}` |
+
+**模型增量（`model_delta`）**：M1 的 `model.stream()` 已经按 block 粒度 yield 快照；backend 若要做 token 级 delta 推送，需要再包一层 diff（M5+ 再做，M3/M4 不强求）。
+
 ---
 
 ## 内部架构
@@ -154,25 +177,30 @@ interface AgentPool {
 
 ## 请求生命周期
 
+```mermaid
+sequenceDiagram
+  participant C as Client
+  participant S as server.ts
+  participant P as agent-pool
+  participant CP as Checkpointer
+  participant A as Agent
+  participant SSE as sse.ts
+
+  C->>S: POST /agents/thread-42/run {input}
+  S->>P: getOrCreate("thread-42")
+  P->>CP: load("thread-42")
+  CP-->>P: messages | null
+  P-->>S: Agent 实例
+
+  S->>A: run(input)
+  A-->>SSE: AsyncIterable<AgentMessage>
+  loop each yield
+    SSE-->>C: event: model_end | tool_end | interrupted ...
+  end
+  SSE-->>C: event: run_end
+  SSE-->>C: connection close
 ```
-POST /agents/thread-42/run  { "input": "hello" }
-  ↓
-server.ts: 解析 threadId + input
-  ↓
-agent-pool.ts: getOrCreate("thread-42")
-  ↓  (checkpointer.load → 恢复 messages 或新建空 thread)
-  ↓
-agent.run(input)
-  ↓ AsyncIterable<AgentMessage>
-  ↓
-sse.ts: 每个 yield 转为一个 SSE event
-  ↓
-Response: text/event-stream (chunked)
-  ↓
-客户端收到实时流
-  ↓
-run_end 事件后连接关闭
-```
+
 
 ---
 
@@ -196,18 +224,15 @@ interface BackendConfig {
 
 ## 优雅关闭
 
-```
-SIGTERM / SIGINT
-  ↓
-server.close() — 停止接受新请求
-  ↓
-agentPool.shutdown()
-  ├── 遍历所有活跃的 agent.run()
-  ├── 等待当前 turn 完成（不中断正在执行的 tool）
-  ├── checkpointer.save() 最后的 messages
-  └── 清理内存
-  ↓
-process.exit(0)
+```mermaid
+flowchart TD
+  S[SIGTERM / SIGINT] --> CL[server.close 停止接受新请求]
+  CL --> SD[agentPool.shutdown]
+  SD --> IT[遍历活跃 agent.run]
+  IT --> W[等待当前 turn 完成<br/>不中断正在执行的 tool]
+  W --> SV[checkpointer.save 最后的 messages]
+  SV --> M[清理内存]
+  M --> EX[process.exit 0]
 ```
 
 不强行 abort——让正在跑的 agent 安全落盘。
@@ -223,14 +248,3 @@ process.exit(0)
 | **不是 CLI** | CLI 是单用户临时脚本，Backend 是多用户常驻服务 |
 | **不是 load balancer** | 不负责多实例分发。需要横向扩展时，前面加 nginx/HAProxy |
 | **不是 auth service** | 最简单的 API key 验证。OAuth/JWT 等复杂鉴权交给 API Gateway |
-
----
-
-## 不做的
-
-- ❌ 不做 WebSocket（单向流 SSE 够用，双向需求出现时再加）
-- ❌ 不做多 harness 动态切换（一个 Backend 实例跑一种 harness）
-- ❌ 不做 agent 间通信 / 编排（那是 M5+ 的事）
-- ❌ 不做前端（Backend 只暴露 API，前端是独立项目）
-- ❌ 不做 gRPC（HTTP + SSE 最简，gRPC 等 3 个真实需求出现再加）
-- ❌ 不引入 Bun 之外的 HTTP server 依赖（用 `Bun.serve()`，零外部依赖）

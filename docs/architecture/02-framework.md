@@ -1,133 +1,239 @@
-# L3 Framework — 设计
+# Framework
 
-## 定位
+The装配层。把 L2 [`run()`](./00-overview.md#runtime-契约) 这个裸的 async generator 包成一个可复用、可观测、可中断的 `Agent` 对象。
 
-L2 `run()` 是裸的 async generator — 调用方每次都要手动管理 messages、绑定 model 和 tools。L3 Framework 把这一组配置封装成可复用的 `Agent` 实例，提供 thread、plugin、checkpointer 三个正交能力。
+L2 的契约简单到只剩一个 generator——你每次都要自己提供 `model`、`tools`、`messages`，自己接住 yield 出来的 `Message`。这对单脚本能用，对长期对话/多用户/可恢复场景就不够了。Framework 把"装配"这件事抽出来，正交地补上三件事：
 
-**不引入新的心智模型** — Agent 内部还是 while 循环调 L2 `run()`，没有图、没有状态机、没有中间件链。
+- **Thread** — 把 messages 装进一个有 id 的容器，方便 fork / 持久化 / 引用
+- **Plugin** — 在 agent loop 的 4 个固定时刻插入横切逻辑（见 [Plugin](./03-plugin.md)）
+- **Framework 内化能力** — Logger、[Checkpointer](./04-checkpointer.md)、[ContextManager](./05-context-manager.md)。三者是 framework 自身的一等组件，永远存在（不传 = 默认实现），不是 plugin
 
----
-
-## 模块边界
-
-| 模块 | 职责 | 归属 |
-|---|---|---|
-| `Thread` | `{ id, messages }` 纯数据 | framework |
-| `Plugin` | 4 个生命周期钩子的集合，通过 `definePlugin()` 创建 | framework |
-| `Checkpointer` | `load`/`save` — 持久化后端，独立于 plugin | framework |
-| `HookContext` | `{ threadId, signal }` — 每个钩子的执行上下文 | framework |
-| `Agent` | 组合 model + tools + plugins + checkpointer + thread，执行 loop | framework |
-| `createAgent()` | 装配 Agent；如果有 threadId + checkpointer，异步恢复历史 | framework |
-| `definePlugin()` | 类型安全的 plugin 构造函数 | framework |
-| 内置 plugins | 无 — Plugin 全是用户/harness 定义 | framework |
-| 内置 checkpointer | inMemoryCheckpointer（默认）、fileCheckpointer | framework |
-| 内置 contextManager | passthroughContextManager（默认）| framework |
-| 内置 logger | consoleLogger（默认），包装 `console` | framework |
-
-依赖方向：framework → core。框架不依赖 adapter-anthropic 或 tools-common。
+不引入新的心智模型。`agent.run()` 内部还是 while 循环调 L2 `run()`，没有图、没有状态机、没有 middleware 链。
 
 ---
 
 ## Agent
 
 ```ts
-type AgentMessage =
-  | Message
-  | { type: 'interrupted'; pendingTool: ToolUseBlock; reason: string; meta?: unknown };
-
 interface Agent {
   readonly thread: Thread;
   run(input: string, options?: RunOptions): AsyncIterable<AgentMessage>;
-  /** 从 interrupt 恢复，传入 ResumeCommand 告知 framework 如何处理挂起的 tool */
   resume(command: ResumeCommand, options?: RunOptions): AsyncIterable<AgentMessage>;
   fork(messages?: Message[], id?: string): Agent;
 }
 
-/** 调用方控制中断后如何恢复。比 LangChain Command 简单——没有 goto/update */
+type AgentMessage =
+  | Message
+  | { type: 'interrupted'; pendingTool: ToolUseBlock; reason: string; meta?: unknown };
+
+/** 调用方告诉 framework 怎么处理挂起的 tool —— 同意/拒绝二态。 */
 interface ResumeCommand {
-  /** 填入 tool_result.content 的内容 */
-  content: string;
-  /** 用户拒绝时设 true */
-  isError?: boolean;
+  approved: boolean;
+  message?: string;          // 拒绝时给 LLM 的说明，或同意时附带的预先结果
 }
 ```
 
-- `agent.thread.messages` — 调用方可随时读写、fork、序列化。状态归调用方
-- `agent.run(input)` — 把 input 推成 user 消息 → 执行 agent loop → 流式 yield
-- `agent.resume(decision)` — 从 interrupt 恢复，补充 tool_result 后继续 loop
-- `agent.fork(messages, id)` — 复用 model/tools/plugins/checkpointer/contextManager，创建新 thread
+`agent.thread.messages` 是真相，**状态归调用方**：调用方可以随时读、写、序列化、`fork`。framework 只 push（append-only），不 mutate 历史。
 
-**并发保护：** 同一 Agent 同时只能有一个 `run()`/`resume()` 在执行。第二个调用抛错 —— `"Agent is already running. Use fork() for concurrent conversations."`。
+`resume()` 是配合 [Checkpointer](./04-checkpointer.md) 的 interrupt 通道使用的。framework 内部把 `ResumeCommand` 映射成一条 `tool_result`：
 
-**Abort 行为：** signal 在入口处检查（已 abort 不 push user 消息）。中途 abort 保留已完成内容，不 rollback。
+```
+tool_result.is_error = !command.approved
+tool_result.content  = command.message ?? (command.approved ? 'approved' : 'denied by user')
+```
+
+**单 agent 单 run**：同一 Agent 同时只能有一个 `run()` / `resume()` 在跑。第二次调用立刻抛 `Agent is already running. Use fork() for concurrent conversations.`——这是 fail-fast。要并发就 `fork()`，不要让 framework 替你做隐式队列。
+
+**Abort**：signal 在 `run()` 入口先检查（已 abort 则不 push user 消息）。中途 abort 不 rollback——framework 不知道调用方意图是"重试"还是"撤销"，所以保留现场，由调用方决定 `messages.pop()` 还是再次 `run()`。
 
 ---
 
 ## Plugin
 
-```ts
-interface Plugin {
-  name: string;
-  hooks: PluginHooks;
-}
+完整设计在 [Plugin](./03-plugin.md)，这里只摆接口：
 
-interface HookContext {
-  threadId: string;
-  signal?: AbortSignal;
-  logger: Logger;
-  checkpointer: Checkpointer;
-  contextManager: ContextManager;
-}
+```ts
+interface Plugin { name: string; hooks: PluginHooks; }
 
 interface PluginHooks {
   beforeModel?(ctx: HookContext, messages: readonly Message[]): Message[] | Promise<Message[]>;
   afterModel?(ctx: HookContext, messages: readonly Message[]): void | Promise<void>;
-  beforeTool?(ctx: HookContext, call: ToolUseBlock, messages: readonly Message[]):
-    | { skip?: boolean; input?: unknown; result?: string }
-    | void
-    | Promise<...>;
-  afterTool?(ctx: HookContext, call: ToolUseBlock, result: ToolResultBlock, messages: readonly Message[]):
-    | void
-    | Promise<void>;
+  beforeTool?(
+    ctx: HookContext, call: ToolUseBlock, messages: readonly Message[],
+  ): { skip?: boolean; input?: unknown; result?: string } | void | Promise<...>;
+  afterTool?(
+    ctx: HookContext, call: ToolUseBlock, result: ToolResultBlock, messages: readonly Message[],
+  ): void | Promise<void>;
 }
 ```
 
-**区分两类钩子：**
+两类钩子，**类型即语义**：
 
-- `before*` — 数据流，返回值有语义：`beforeModel` 返回裁剪后的 messages，`beforeTool` 返回 `{ skip }` 或 `{ input }` 改写参数
-- `after*` — 副作用，返回值被忽略，用于落盘/日志/上报
+- `before*` — transformer。返回值会被 framework 当作下一步输入。坏了 = 整轮 abort
+- `after*` — observer。返回值忽略。坏了 = 吞掉 + warn
 
-**ctx 永远是第一个参数**，后面才是事件特定的 data。
+`ctx` 永远是第一个参数。`model` 不进 ctx——插件不需要内省 LLM，要 token 计数自己引 `tiktoken`。
 
-**不传 `model`** — 插件不需要内省 LLM。需要 token 计数的插件自行引库。
-
----
-
-## Checkpointer
-
-Framework 内化能力（不是 plugin）。承担状态持久化、human-in-the-loop、UX 回放。详见 **[04-checkpointer.md](./04-checkpointer.md)**。
-
----
-
-## ContextManager
-
-Framework 内化能力（不是 plugin）。在每次调 LLM 前决定"实际送进去的 messages 是什么"的策略层。默认 `passthroughContextManager`（原样传）。详见 **[05-context-manager.md](./05-context-manager.md)**。
-
----
-
-## definePlugin
+### HookContext — Framework 给 plugin 的能力面板
 
 ```ts
-definePlugin({ name, hooks }): Plugin
+interface HookContext {
+  threadId: string;
+  signal?: AbortSignal;
+
+  // ↓ Framework 三大内化能力，plugin 直接用
+  logger: Logger;
+  checkpointer: Checkpointer;
+  contextManager: ContextManager;
+}
 ```
 
-只写关心的钩子类型，其余自动推导。不需要手动 import `Plugin` 类型。
+这三个字段不是"传出去看看"，是 plugin 真实要用的：
+
+- `logger` — plugin 输出日志走 framework 的 logger 而不是直接 `console.log`，level 统一受控
+- `checkpointer` — plugin 可以读 `appendEvent` / `readEvents` 做审计 UI 回放，也可以**只读**当前 thread 的 interrupt 状态。**不要双写 `save()`**——framework 已经在 tool 边界自动 save，plugin 再调一次就是冗余写
+- `contextManager` — plugin 可以在 `beforeTool` 等位置主动调 `shape(ctx, msgs)` 看"如果现在送给 LLM 会是什么样"。例如 token 监控类 plugin 想统计"实际 LLM 看到的 token"而不是"thread 完整 token"
+
+> 边界纪律：plugin 拿到这三个能力**不代表可以滥用**。`checkpointer.save()` / `saveInterrupt()` 是 framework 的职责，plugin 调 = 控制流双写。能力暴露是为了**读**和**派生**，不是为了**重写 framework 自己负责的事**。
+
+---
+
+## 执行流程
+
+```mermaid
+sequenceDiagram
+  participant U as 调用方
+  participant A as Agent
+  participant CM as ContextManager
+  participant PG as Plugins
+  participant M as ChatModel
+  participant T as Tool
+  participant CP as Checkpointer
+
+  U->>A: run(input)
+  A->>A: signal.throwIfAborted()
+  A->>A: messages.push(user)
+  A->>CP: save(messages)
+  loop until no tool_use or maxSteps
+    A->>CM: shape(messages)
+    CM-->>A: shapedMessages
+    A->>PG: beforeModel(ctx, shapedMessages)
+    PG-->>A: shapedMessages'
+    A->>M: stream(shapedMessages')
+    M-->>A: assistant chunks
+    A->>A: messages.push(assistant)
+    A->>PG: afterModel(ctx, messages)
+    loop each tool_use
+      A->>PG: beforeTool(ctx, call, messages)
+      alt skip
+        A->>A: push tool_result (skipped)
+      else execute
+        A->>T: execute(input, signal)
+        T-->>A: result | InterruptSignal
+        A->>A: messages.push(tool_result)
+        A->>PG: afterTool(ctx, call, result, messages)
+      end
+      A->>CP: save(messages)
+    end
+  end
+```
+
+伪代码版本（去掉序列图细节，留下 framework 的循环骨架）：
+
+```ts
+async function* runAgent(input: string) {
+  signal?.throwIfAborted();
+  messages.push({ role: 'user', content: input });
+  await checkpointer.save(threadId, messages);
+
+  for (let step = 0; step < maxSteps; step++) {
+    const shaped = await contextManager.shape(ctx, messages);
+    const pluginShaped = await firePipeline('beforeModel', shaped);
+    const assistant = await collectStream(model.stream(pluginShaped));
+    messages.push(assistant);
+    await fireObservers('afterModel', messages);
+    yield assistant;
+
+    const toolUses = assistant.content.filter(b => b.type === 'tool_use');
+    if (toolUses.length === 0) break;
+
+    for (const call of toolUses) {
+      const decision = await firePipeline('beforeTool', call);
+      const result = decision?.skip
+        ? makeToolResult(call, decision.result ?? 'Tool skipped')
+        : await tryExecute(tool, decision?.input ?? call.input);
+      messages.push(wrapToolResult(result));
+      await fireObservers('afterTool', call, result, messages);
+      await checkpointer.save(threadId, messages);
+      yield wrapToolResult(result);
+    }
+  }
+}
+```
+
+---
+
+## 语义细节
+
+### beforeModel 每个 loop step 调一次
+
+不是每个 chunk 调一次。`beforeModel` 看到的是 `ContextManager.shape()` 之后的 messages；plugin 在这个 shaped view 上做最后修饰（脱敏、注入时间戳……）。
+
+### Checkpointer save 时机
+
+在 `afterTool` 之后由 framework 调用，**不是** plugin 钩子。理由：那一刻 messages 末尾是 `user(tool_result)`，是合法 API 输入态。崩在这之后直接可恢复，不需要修复 messages。详见 [Checkpointer#时机契约](./04-checkpointer.md#时机契约强制写死不可配置)。
+
+### before\* 管道链
+
+多个 plugin 挂同一个 `before*` 时，按 plugins 数组顺序依次调用，上一个的返回值作为下一个的输入：
+
+```ts
+async function fireBeforeModel(plugins, ctx, msgs) {
+  for (const p of plugins) {
+    if (p.hooks.beforeModel) {
+      msgs = (await p.hooks.beforeModel(ctx, msgs)) ?? msgs;
+    }
+  }
+  return msgs;
+}
+```
+
+`beforeTool` 同理，上一个 plugin 改写后的 `{ input }` 传给下一个。
+
+### beforeTool skip 语义
+
+| 返回值 | Framework 行为 |
+|---|---|
+| `{ skip: true }` | push `{ type: 'tool_result', tool_use_id, content: 'Tool skipped' }` |
+| `{ skip: true, result: '权限被拒' }` | push `{ tool_use_id, content: '权限被拒', is_error: true }` |
+| `{ skip: true, result: '后续再说' }` | push `{ tool_use_id, content: '后续再说' }` |
+| `{ input: x }` | 用改写后的 input 执行 tool |
+| `undefined` | 原样执行 |
+
+`afterTool` **不在 skip 路径触发**——`afterTool` 语义是"tool 真的跑完了"，skip 时没跑，metrics/日志类 observer 不应当真。需要统计 skip 的话，从 Checkpointer 的事件流读 `tool_end{skipped: true}` 即可。framework 在 skip 路径仍 `appendEvent({ type: 'tool_end', durationMs: 0, meta: { skipped: true, reason } })` 保持事件流完整。
+
+### 错误隔离
+
+| 抛错位置 | Framework 处理 |
+|---|---|
+| `before*` | 整轮 abort，传播给调用方（transformer 返回的是关键数据，坏了无法继续） |
+| `after*` | 吞掉 + `logger.warn`，带 plugin name |
+| `checkpointer.save` | 吞掉 + `logger.warn`（一个坏的磁盘不该让 agent 不可用） |
+| `ContextManager.shape` | 整轮 abort（与 `before*` 同性质，结果非法不能继续） |
+| `tool.execute` 抛 `InterruptSignal` | 走 interrupt 流程，见 [Checkpointer](./04-checkpointer.md) |
+| `tool.execute` 抛其他错 | 包成 `tool_result{is_error: true}`，让 LLM 看到 |
+
+### Abort 的 messages 状态
+
+入口 abort = user 消息不 push，thread 不受影响。中途 abort = 已 push 的内容保留，framework 不 rollback。调用方契约：
+
+- 重试：messages 不变，再次 `run()` 同样 input
+- 撤销：`thread.messages.pop()` 手动移除
+- 不管：下次 `run()` 追一条新 user，API 会自然消化
 
 ---
 
 ## Logger
-
-Framework 内化能力。可注入，默认 `consoleLogger`。
 
 ```ts
 type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
@@ -141,156 +247,53 @@ interface Logger {
 }
 ```
 
-- `createAgent` 不传 `logger` → 用 `consoleLogger`（level=`info`，包装 `console`）
-- framework 内部调用前检查 `level`：低于当前 level 的方法不执行（如 level=`warn` 时 `debug`/`info` 为空操作）
-- 错误隔离（`after*` / `checkpointer.save` 抛错）→ `logger.warn`
-- Interrupt 触发 / Resume 恢复 → `logger.info`
-- 内部调试信息（hook fire、loop step）→ `logger.debug`
-- 用户可替换（`pino`、`winston`）或禁用（`noopLogger`，level=`silent`）
+默认 `consoleLogger`（level=`info`，包装 `console`）。framework 内部用法：
+
+- `logger.debug` — hook fire、loop step、shape 前后的 message 数
+- `logger.info` — interrupt 触发 / resume 恢复
+- `logger.warn` — `after*` 失败、`checkpointer.save` 失败
+- `logger.error` — 整轮 abort 之前的最后一条信息
+
+可注入替换（pino / winston）或禁用（`noopLogger`，level=`silent`）。
 
 ---
 
-## 内置 Checkpointer
-
-`inMemoryCheckpointer` 是默认实现（进程内 Map）。`fileCheckpointer({ dir })` 提供文件持久化（state.json + events.jsonl + interrupt.json）。详见 **[04-checkpointer.md](./04-checkpointer.md)**。
-
----
-
-## 内置 ContextManager
-
-`passthroughContextManager` 是默认实现（原样传）。`slidingWindowContextManager`、`tokenBudgetContextManager`、`toolResultTruncator`、`summarizingContextManager` 提供可组合的裁剪策略。详见 **[05-context-manager.md](./05-context-manager.md)**。
-
----
-
-## 执行流程
-
-```
-agent.run(input)
-  signal.throwIfAborted()                      // 早抛,thread 不污染
-  messages.push({ role: "user", content: input })
-  checkpointer.save(...)                       // 持久化完整版
-  ↓
-  loop:
-    shapedMessages = contextManager.shape(...)  // 空间塑形
-    beforeModel(ctx, shapedMessages)            // plugin: 修饰
-    ↓
-    model.stream(shapedMessages)               // yield 快照
-    ↓
-    messages.push(assistant msg)                // push 到完整版
-    afterModel(ctx, messages)                  // plugin: consoleLogger
-    ↓
-    [for each tool_use:]
-      beforeTool(ctx, call, messages)           // plugin: 鉴权/跳过
-      execute tool
-      messages.push(tool result)
-      afterTool(ctx, call, result, messages)   // plugin: consoleLogger
-      checkpointer.save(...)                   // 持久化完整版
-    ↓
-    loop until no tool_use or maxSteps
-```
-
----
-
-## 语义细节
-
-### 1. `beforeModel` 执行时机
-
-**每个 loop step 调一次，在 `model.stream()` 之前执行。** 不是每个 chunk 调一次。
-
-```
-for step in 0..maxSteps:
-  messages = await fireBeforeModel(ctx, messages)  // ← 一次
-  for await chunk in model.stream(messages):
-    yield
-```
-
-多轮 tool 调用场景（step 1 调 tool，step 2 回文本）——每轮都调 `beforeModel`。
-
-### 2. Checkpointer save 时机
-
-Checkpointer 的 `save()` 在每次 `afterTool` 之后由 framework 调用，不是 plugin 钩子。
-
-选择此时机的理由：`afterTool` 时刻，tool_result 已经 push 进 messages，末尾是 user 角色。如果进程崩在这之后，**恢复后直接可入 Anthropic API，不需要修复**。
-
-反之如果 save 在 `afterModel` 时刻，末尾可能是带 tool_use 的 assistant 消息——Anthropic API 要求 assistant 消息末尾有 tool_use 时必须紧跟 user 提供 tool_result。崩在这点恢复后 API 直接报 400。
-
-如果未来需要"纯文本对话不调 tool 也要落盘"，在 loop 结束（无 tool_use）之后加一次 `save()`。
-
-### 3. `before*` 管道链
-
-多个插件挂同一个 `before*` 钩子时，**按 plugins 数组顺序依次调用，上一个的返回值作为下一个的输入**：
+## Thread
 
 ```ts
-async function fireBeforeModel(plugins: Plugin[], ctx: HookContext, msgs: Message[]): Message[] {
-  for (const p of plugins) {
-    if (p.hooks.beforeModel) {
-      msgs = (await p.hooks.beforeModel(ctx, msgs)) ?? msgs;
-    }
-  }
-  return msgs;
+interface Thread {
+  id: string;
+  messages: Message[];
 }
 ```
 
-`beforeTool` 同理：上一个插件改写后的 `{ input }` 传给下一个。
+纯数据，没有方法。Thread 是 messages 的命名容器，**id 是 Checkpointer 的存储 key**，也是 fork 的引用锚点。调用方可以直接读写 `thread.messages`——framework 不藏。
 
-### 4. `beforeTool` skip 语义
+`agent.fork(messages?, id?)` 复用 model / tools / plugins / checkpointer / contextManager / logger，创建一个新 thread：
 
-`{ skip: true }` 时，tool 不执行。Framework 自动 push 一条 `tool_result` 进 messages，以跳过语义告知 LLM：
-
-| 返回值 | Framework 行为 |
-|---|---|
-| `{ skip: true }` | push `{ type: "tool_result", tool_use_id: call.id, content: "Tool skipped" }` |
-| `{ skip: true, result: "权限被拒" }` | push `{ tool_use_id: call.id, content: "权限被拒", is_error: true }` |
-| `{ skip: true, result: "后续再说" }` | push `{ tool_use_id: call.id, content: "后续再说" }` |
-| `{ input: x }` (无 skip) | 以改写后的 input 执行 tool |
-| `undefined` (无返回) | 原样执行 |
-
-`result` 字段让权限拒绝、请求暂缓、用户取消等场景可以干净表达。
-
-### 5. Plugin 错误隔离
-
-- **`before*` 抛错 → 整轮 abort。** `beforeModel`/`beforeTool` 返回的是关键数据，坏了无法继续。错误抛出到 `agent.run()` 的调用方
-- **`after*` 抛错 → 吞掉 + `console.warn`。** logger 等副作用失败不应拖死 agent。framework 在 warn 中带上 plugin name 和错误信息
-- **Checkpointer save 抛错 → 吞掉 + `console.warn`。** 一个坏的磁盘不应让 agent 不可用
-
-### 6. 并发 `run()` — fail-fast 抛错
-
-同一 Agent 同时只能有一个 `run()` 在执行。第二个调用直接抛错，不排队、不 silent-overwrite：
-
-```
-Error: Agent is already running. Use fork() for concurrent conversations.
+```ts
+agent.fork()                              // 默认深拷贝当前 messages，新 id
+agent.fork([], 'fresh-thread')            // 空白历史，指定 id
+agent.fork(structuredClone(snapshot))    // 从快照恢复
 ```
 
-选择抛错而非队列的理由：
-
-- 队列意味着第二个 input 在未来执行，但执行时 messages 状态已变（第一个 run 还在追加消息）——隐式状态污染，比抛错更难调试
-- `fork()` 正是为并发场景设计的：拷贝 thread，创建独立 agent
-- fail-fast 让开发期就能发现调用方滥用
-
-### 7. Abort 的 messages 状态
-
-signal 在 `run()` 入口处先检查 —— 已 abort 时 user 消息不 push，thread 不受影响。
-
-中途 abort：L2 `run()` 中断，但已完成的 assistant turn（M1 行为：abort 时不 push 部分 block）和已 push 的 user input 保留在 messages 中。framework 不 rollback —— 无法判断调用方意图是重试还是撤销。
-
-调用方契约：
-- 重试：`messages` 不变，再次 `run()` 同样 input
-- 撤销：`thread.messages.pop()` 手动移除多余 user 消息
-- 不管：messages 末尾多一条 user，下次 `run()` 追一条新 user —— API 接受，自动合并理解
+适合：A/B 比较、并发对话、试探性分支。
 
 ---
 
-## M3 明确不做
+## 内置实现一览
 
-- ❌ 不做图/状态机/checkpoint 协议
-- ❌ 不做 plugin 间通信优先级/order 控制（plugins 数组顺序即调用顺序）
-- ❌ 不做 middleware 链式 invoke（`next()` 模式）
-- ❌ 不做 subagent / multi-agent
-- ❌ 不做 session / user 管理层
-- ❌ 不做 prompt template / 多 system prompt 组合
+| 组件 | 默认 | 其他内置 | 详见 |
+|---|---|---|---|
+| Checkpointer | `inMemoryCheckpointer` | `fileCheckpointer({ dir })` | [04-checkpointer.md](./04-checkpointer.md) |
+| ContextManager | `passthroughContextManager` | `slidingWindow` / `tokenBudget` / `toolResultTruncator` / `summarizing` / `pipeContextManagers` | [05-context-manager.md](./05-context-manager.md) |
+| Logger | `consoleLogger` | `noopLogger` | 本页 §Logger |
+| Plugin | 无 | 无内置——全由用户/harness 提供 | [03-plugin.md](./03-plugin.md) |
+
+依赖方向：framework → core。framework 不依赖 adapter 或 tools。
 
 ---
 
 ## 与 L2 的关系
 
-L2 `run(model, tools, messages)` 保持不变。L3 是对 L2 的装配层——每次 `agent.run()` 内部调一次 L2 `run()`。上层（L4 Harness）可以替换 L3 或直接调 L2，二者独立。
+L2 `run(model, tools, messages)` 保持不变。L3 是对 L2 的装配层——每次 `agent.run()` 内部调一次 L2 `run()`。上层 ([Harness](./06-harness.md)) 可以替换 L3 或直接调 L2，两者独立。
