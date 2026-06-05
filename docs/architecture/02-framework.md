@@ -61,7 +61,11 @@ tool_result.content  = command.message ?? (command.approved ? 'approved' : 'deni
 完整设计在 [Plugin](./03-plugin.md)，这里只摆接口：
 
 ```ts
-interface Plugin { name: string; hooks: PluginHooks; }
+interface Plugin {
+  name: string;
+  hooks: PluginHooks;
+  tools?: readonly Tool[];   // 静态声明配套 tool，createAgent 启动时合并
+}
 
 interface PluginHooks {
   beforeModel?(ctx: HookContext, messages: readonly Message[]): Message[] | Promise<Message[]>;
@@ -81,6 +85,32 @@ interface PluginHooks {
 - `after*` — observer。返回值忽略。坏了 = 吞掉 + warn
 
 `ctx` 永远是第一个参数。`model` 不进 ctx——插件不需要内省 LLM，要 token 计数自己引 `tiktoken`。
+
+### Plugin.tools 合并语义
+
+某些 plugin 与一组 tool 强耦合（[fsMemoryPlugin](./09-plugin-fs-memory.md) 必带 memory tools、[progressiveSkillPlugin](./10-plugin-progressive-skill.md) 必带 `skill_load`）。framework 在 `createAgent` 入口收集所有 `plugin.tools` 并与 `config.tools` 合并：
+
+```ts
+const allTools = [
+  ...(config.tools ?? []),
+  ...plugins.flatMap(p => p.tools ?? []),
+];
+
+// 重名 fail-fast，不静默覆盖
+const names = new Map<string, string>();  // name → source
+for (const t of (config.tools ?? [])) names.set(t.name, 'config.tools');
+for (const p of plugins) {
+  for (const t of (p.tools ?? [])) {
+    const prev = names.get(t.name);
+    if (prev) throw new Error(
+      `Tool name collision: '${t.name}' declared by both '${prev}' and plugin '${p.name}'`
+    );
+    names.set(t.name, `plugin:${p.name}`);
+  }
+}
+```
+
+合并发生在**构造期一次**，运行时不变——LLM 看到的 tool 集对调用方完全可预测。这与"plugin 不能动态加 tool"的纪律一致：静态声明 OK，运行时变更不行。
 
 ### HookContext — Framework 给 plugin 的能力面板
 
@@ -471,7 +501,7 @@ agent.fork(msgs, parentId)                // ❌ throw！同 id 不可 fork
 | Checkpointer | `inMemoryCheckpointer`（全 6 方法） | `fileCheckpointer({ dir })` | [04-checkpointer.md](./04-checkpointer.md) |
 | ContextManager | `passthroughContextManager` | `slidingWindow` / `tokenBudget` / `toolResultTruncator` / `summarizing` / `pipeContextManagers` | [05-context-manager.md](./05-context-manager.md) |
 | Logger | `consoleLogger` (level=`info`) | `noopLogger` (level=`silent`) | 本页 §Logger |
-| Plugin | 无 | 无内置——全由用户/harness 提供。framework 零内置 plugin | [03-plugin.md](./03-plugin.md) |
+| Plugin | 无 | [fsMemoryPlugin](./09-plugin-fs-memory.md) / [progressiveSkillPlugin](./10-plugin-progressive-skill.md) | [03-plugin.md](./03-plugin.md) |
 
 依赖方向：framework → core。framework 不依赖 adapter 或 tools。
 

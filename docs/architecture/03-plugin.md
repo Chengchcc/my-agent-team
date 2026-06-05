@@ -59,15 +59,7 @@ beforeTool(ctx, call, messages) → { skip?, input?, result? }
 
 - `redactor` — 调 LLM 前给 PII 打码
 - `injectMetadata` — 给每条 user 消息拼接时间戳、项目信息
-- `permissionGate` — `beforeTool` 想阻止 tool 执行时，三种方式：
-
-| 意图 | 机制 |
-|------|------|
-| 直接拒绝，告诉 LLM 失败原因 | `return { skip: true, result: 'Permission denied' }` |
-| 改 input 后执行 | `return { input: newInput }` |
-| 停下来等人决定（human-in-the-loop） | 用 [`withPermission(tool, gating, reason)`](./04-checkpointer.md#tool-端interruptsignal-用法) 包装器，在 `tool.execute` 内部抛 `InterruptSignal` |
-
-`beforeTool` 抛 `InterruptSignal` **不会被识别为中断**——按 before* 错误规则整轮 abort。要做 permission 用 `withPermission` 包装 tool，让中断信号从正确位置（`tool.execute`）发出。
+- `permissionGate` — `beforeTool` 检查是否需要中断（实际中断由 [InterruptSignal](./04-checkpointer.md#tool-端interruptsignal-用法) 表达，plugin 只做"判定+提示"）
 
 ### Observer (after*)
 
@@ -126,16 +118,49 @@ plugin 只能做以下事：
 2. 通过 `before*` 返回值修改数据流
 3. 通过 `after*` 触发副作用
 4. 读 `HookContext` 暴露的 framework 内化能力
+5. **静态声明** 配套 tool（`Plugin.tools?: readonly Tool[]`），由 framework 在 `createAgent` 启动时一次性合并
 
 plugin **不能做**的事（设计纪律）：
 
 | 不能做 | 因为 |
 |---|---|
 | 拿到 `model` 对象本身 | plugin 不需要内省 LLM。要 token 计数自己引 tiktoken |
-| 拿到 `tools` 列表 | 动态加 tool 是 framework 的事 |
+| **运行时动态注册/卸载 tool** | tool 集对 LLM 必须可预测；静态声明 OK，运行时变更不行 |
 | emit 自定义事件给其他 plugin | 要通信 → 合并成一个 plugin。不给 framework 加 emit/pub-sub |
 | 阻止 agent loop 退出 | 那是 agent 行为不是钩子的事 |
 | 持有跨 agent 的全局状态 | 用 closure 自己存 |
+
+### 静态 tool 声明
+
+某些 plugin 与一组 tool 是**强耦合**的（[fsMemoryPlugin](./09-plugin-fs-memory.md) 必带 `memory_read/write/search`、[progressiveSkillPlugin](./10-plugin-progressive-skill.md) 必带 `skill_load`）。让调用方手动 spread 这些 tool 是把 plumbing 甩给用户：
+
+```ts
+// ✗ 产品化差
+createAgent({
+  tools: [...baseTool, ...memoryTools, ...skillTools],
+  plugins: [memoryPlugin, skillPlugin],
+});
+
+// ✓ plugin 自带
+createAgent({
+  tools: [...baseTool],
+  plugins: [fsMemoryPlugin({ dir }), progressiveSkillPlugin({ dir })],
+});
+```
+
+接口：
+
+```ts
+interface Plugin {
+  name: string;
+  hooks: PluginHooks;
+  tools?: readonly Tool[];   // ← 静态声明
+}
+```
+
+合并语义见 [Framework#Plugin](./02-framework.md#plugin)：framework 在 `createAgent` 入口把所有 `plugins[i].tools` 与 `config.tools` 合并，**重名 fail-fast** 不静默覆盖。
+
+**这与"plugin 不能动态加 tool"不冲突**——静态字段在 agent 构造时一次性确定，运行时不变；LLM 看到的 tool 集对调用方完全可预测。
 
 ---
 
@@ -148,38 +173,7 @@ plugin **不能做**的事（设计纪律）：
 | **Tool** | tool 是 LLM 主动调；plugin 是 framework 被动调 |
 | **Event Listener** | listener 只能"知道发生了"；plugin 的 `before*` 可以 transform 数据流 |
 | **Checkpointer** | checkpointer 是 framework 内化（持久化 + 中断），plugin 只是观察。详见 [Checkpointer vs Plugin 边界](./04-checkpointer.md#与-plugin-的协作边界) |
-| **ContextManager** | context manager 决定"送给 LLM 的视图"（集合选择：哪些 message）；plugin 在那个视图上做最后修饰（元素修饰：message 长什么样）。详见 [边界](./05-context-manager.md#八contextmanager-vs-pluginbeforemodel-的边界) |
-
----
-
-## 变形职责分层（与 ContextManager 的协作）
-
-```
-thread.messages (真实状态)
-  → ContextManager.shape(...)   ← 答"哪些 message 进 LLM"（集合选择）
-    → plugin.beforeModel(...)   ← 答"message 长什么样"（元素修饰）
-      → model.stream(...)
-```
-
-两层正交，顺序写死。详见 [05-context-manager.md#八contextmanager-vs-pluginbeforemodel-的边界](./05-context-manager.md#八contextmanager-vs-pluginbeforemodel-的边界)。
-
-典型协作示例：
-
-```ts
-createAgent({
-  model, tools,
-  contextManager: pipeContextManagers(
-    toolResultTruncator({ maxCharsPerResult: 8000 }),
-    tokenBudgetContextManager({ maxTokens: 180_000 }),
-  ),
-  plugins: [
-    injectMetadata({ projectName: 'my-agent', cwd: process.cwd() }),
-    redactor({ patterns: [/AKIA[0-9A-Z]{16}/g] }),
-  ],
-});
-```
-
-执行顺序：ContextManager 裁剪集合 → `injectMetadata` 修饰元素 → `redactor` 修饰元素 → 送 LLM。
+| **ContextManager** | context manager 决定"送给 LLM 的视图"；plugin 在那个视图上做最后修饰。详见 [边界](./05-context-manager.md#八contextmanager-vs-pluginbeforemodel-的边界) |
 
 ---
 
@@ -202,16 +196,12 @@ async function fireBeforeModel(plugins, ctx, msgs) {
 
 错误隔离规则：
 
-| 钩子类型 | 抛错行为 |
-|----------|----------|
-| `before*` | **短路**：第 N 个抛 → 第 N+1 起不调；整轮 abort，异常传给调用方 |
-| `after*` | **继续**：第 N 个抛 → `logger.warn(pluginName, err)`；第 N+1 起继续调 |
+```
+before*  抛错 → 整轮 abort，传给调用方
+after*   抛错 → 吞掉 + logger.warn(pluginName, err)
+```
 
-**为什么 before* 短路**：before* 是 transformer——前一个的输出 = 后一个的输入。第 N 个抛了 = 没产生有效输出 = 第 N+1 个的输入定义不出来。只能短路。
-
-**为什么 after* 继续**：after* 是 observer——各自独立的副作用，没有"上一个输出是下一个输入"的依赖。一个上报失败不该影响其他 plugin。
-
-不引入"可配置错误策略"——规则由 hook 类型（transformer vs observer）决定，这是 hook 设计根本。不引入"plugin 优先级"枚举——`plugins` 数组顺序就是调用顺序。
+不引入"plugin 优先级"枚举——`plugins` 数组顺序就是调用顺序。
 
 ---
 
@@ -227,9 +217,18 @@ export const myPlugin = definePlugin({
     },
   },
 });
+
+// 带静态 tool 声明的形态：
+export const fsMemoryPlugin = definePlugin({
+  name: 'fs-memory',
+  tools: [memoryReadTool, memoryWriteTool, memorySearchTool],
+  hooks: {
+    async beforeModel(ctx, messages) { /* 注入 MEMORY.md */ },
+  },
+});
 ```
 
-只写关心的钩子，其余字段类型自动推导。不需要手动 `import type { Plugin }`。
+只写关心的钩子和字段，其余类型自动推导。不需要手动 `import type { Plugin }`。
 
 ---
 
@@ -247,10 +246,20 @@ export const myPlugin = definePlugin({
 
 ## 总结
 
-Plugin = **framework 的扩展点** = **在 4 个固定时机插入横切逻辑的能力**。
+Plugin = **framework 的扩展点** = **在 4 个固定时机插入横切逻辑的能力 + 静态声明配套 tool**。
 
 - 存在性来自第一性事实：横切扩展无法用纯函数包装解决
-- 能力边界严格收窄到 4 个钩子，故意不给更多
-- 两类（transformer / observer）语义不同，类型层面隔离
+- 能力边界严格收窄到 4 个钩子 + 1 个静态 tool 字段，故意不给更多
+- 两类钩子（transformer / observer）语义不同，类型层面隔离
+- 配套 tool 用静态字段声明（`Plugin.tools?`），framework 启动时合并，重名 fail-fast
 - HookContext 暴露 framework 三大内化能力（logger / checkpointer / contextManager），plugin 可读不可越权
 - 不是 middleware、不是 decorator、不是 event bus —— 是 framework 唯一的扩展点，没有第二种
+
+---
+
+## 已实现的 plugin
+
+| Plugin | 包 | 用途 |
+|---|---|---|
+| [fsMemoryPlugin](./09-plugin-fs-memory.md) | `@my-agent-team/plugin-fs-memory` | 文件系统持久化记忆，自动注入 MEMORY.md 到 system 末尾 |
+| [progressiveSkillPlugin](./10-plugin-progressive-skill.md) | `@my-agent-team/plugin-progressive-skill` | Skill 渐进式加载，注入索引 + `skill_load` 按需 fetch 正文 |

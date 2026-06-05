@@ -23,6 +23,7 @@ L1 Protocols   类型契约：Message / ChatModel / Tool
 | M3 | `@my-agent-team/framework`（L3） |
 | M4 | `@my-agent-team/harness-coding`（L4） |
 | M5 | `apps/backend`（L5） |
+| M6 | `@my-agent-team/plugin-fs-memory` + `@my-agent-team/plugin-progressive-skill` |
 
 ## 架构文档
 
@@ -34,6 +35,8 @@ L1 Protocols   类型契约：Message / ChatModel / Tool
 - [06-harness.md](./06-harness.md) — Harness 的定义
 - [07-harness-vs-framework.md](./07-harness-vs-framework.md) — Framework vs Harness 边界
 - [08-backend.md](./08-backend.md) — Backend Agent 托管服务
+- [09-plugin-fs-memory.md](./09-plugin-fs-memory.md) — Plugin: FS Memory（文件系统持久化记忆）
+- [10-plugin-progressive-skill.md](./10-plugin-progressive-skill.md) — Plugin: Progressive Skill（技能渐进式加载）
 
 ## 设计原则
 
