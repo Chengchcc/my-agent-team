@@ -1,19 +1,20 @@
+import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
+import { type AgentSpec, AgentSpecV1 } from "@my-agent-team/agent-spec";
+import type { AgentEvent } from "@my-agent-team/framework";
+import { createGenericAgent } from "@my-agent-team/harness";
 import { loadConfig } from "./config.js";
-import { openDb } from "./infra/sqlite/db.js";
 import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
-import { createAgentService, agentRoutes } from "./features/agent/index.js";
+import { agentRoutes, createAgentService } from "./features/agent/index.js";
+import { sqliteCheckpointReadAdapter } from "./features/checkpoint/adapter-sqlite.js";
+import { checkpointRoutes, createCheckpointService } from "./features/checkpoint/index.js";
+import { createRunService, runRoutes } from "./features/run/index.js";
 import { sqliteThreadAdapter } from "./features/thread/adapter-sqlite.js";
 import { createThreadService, threadRoutes } from "./features/thread/index.js";
-import { createRunService, runRoutes } from "./features/run/index.js";
-import { sqliteCheckpointReadAdapter } from "./features/checkpoint/adapter-sqlite.js";
-import { createCheckpointService, checkpointRoutes } from "./features/checkpoint/index.js";
-import { createServer } from "./server.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
+import { openDb } from "./infra/sqlite/db.js";
 import { materializeWorkspace } from "./infra/workspace.js";
-import { type AgentEvent } from "@my-agent-team/framework";
-import { runEntry } from "@my-agent-team/runner-stdio";
-import { AgentSpecV1, type AgentSpec } from "@my-agent-team/agent-spec";
+import { createServer } from "./server.js";
 
 const config = loadConfig();
 const db = openDb(`${config.dataDir}/backend.db`);
@@ -43,7 +44,12 @@ const threadSvc = createThreadService({
   port: threadPort,
   idGen: ulid,
   agentExists: async (id) => {
-    try { await agentSvc.getById(id); return true; } catch { return false; }
+    try {
+      await agentSvc.getById(id);
+      return true;
+    } catch {
+      return false;
+    }
   },
   cleanupCheckpoint: async (threadId) => {
     db.run("DELETE FROM checkpoint_messages WHERE thread_id = ?", [threadId]);
@@ -56,40 +62,65 @@ const threadSvc = createThreadService({
 const runSvc = createRunService({
   port: {
     create(input) {
-      db.run(
-        "INSERT INTO runs (id, thread_id, input, status, started_at) VALUES (?, ?, ?, ?, ?)",
-        [input.id, input.threadId, input.input, input.status, input.startedAt],
-      );
-      return { ...input, errorMessage: null, endedAt: null };
+      const status = input.status as "running";
+      db.run("INSERT INTO runs (id, thread_id, input, status, started_at) VALUES (?, ?, ?, ?, ?)", [
+        input.id,
+        input.threadId,
+        input.input,
+        status,
+        input.startedAt,
+      ]);
+      return { ...input, errorMessage: null, endedAt: null, status };
     },
     findById(id) {
-      const row = db.query("SELECT * FROM runs WHERE id = ?").get(id) as Record<string, unknown> | undefined;
-      return row ? {
-        id: row.id as string, threadId: row.thread_id as string,
-        input: row.input as string, status: row.status as "running" | "completed" | "aborted" | "error",
+      const row = db.query("SELECT * FROM runs WHERE id = ?").get(id) as
+        | Record<string, unknown>
+        | undefined;
+      if (!row) return null;
+      const rawStatus = row.status as string;
+      return {
+        id: row.id as string,
+        threadId: row.thread_id as string,
+        input: row.input as string,
+        status: (rawStatus === "running" ||
+        rawStatus === "completed" ||
+        rawStatus === "aborted" ||
+        rawStatus === "error"
+          ? rawStatus
+          : "error") as "running" | "completed" | "aborted" | "error",
         errorMessage: (row.error_message ?? null) as string | null,
-        startedAt: row.started_at as number, endedAt: (row.ended_at ?? null) as number | null,
-      } : null;
+        startedAt: row.started_at as number,
+        endedAt: (row.ended_at ?? null) as number | null,
+      };
     },
     updateStatus(id, status, errorMessage, endedAt) {
-      db.run(
-        "UPDATE runs SET status = ?, error_message = ?, ended_at = ? WHERE id = ?",
-        [status, errorMessage ?? null, endedAt ?? Date.now(), id],
-      );
+      db.run("UPDATE runs SET status = ?, error_message = ?, ended_at = ? WHERE id = ?", [
+        status,
+        errorMessage ?? null,
+        endedAt ?? Date.now(),
+        id,
+      ]);
       return null;
     },
   },
   idGen: ulid,
-  runner: (spec, signal) => {
-    return runEntry({
-      specJson: JSON.stringify(spec),
-      writeEvent: () => {},
-      writeStderr: () => {},
-      signal,
+  runner: async function* (spec, signal): AsyncIterable<AgentEvent> {
+    const s = spec as AgentSpec;
+    const model = new AnthropicChatModel({
+      apiKey: config.anthropicApiKey,
+      model: s.model.model,
+      baseUrl: s.model.baseURL,
+    });
+    const agent = await createGenericAgent({
+      workspace: s.workspace,
+      model,
+      threadId: s.threadId,
+      permissionMode: s.permissionMode,
       checkpointerDb: db,
-    }) as unknown as AsyncIterable<AgentEvent>;
-    // Note: runEntry returns Promise<number>, but in-proc mode wraps differently.
-    // For MVP we use a simplified runner that calls the harness directly.
+    });
+    for await (const ev of agent.run(s.input, { signal, maxSteps: s.maxSteps })) {
+      yield ev;
+    }
   },
   threads,
   abortMap,

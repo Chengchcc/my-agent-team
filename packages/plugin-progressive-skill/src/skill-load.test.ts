@@ -1,7 +1,7 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { skillLoadTool } from "./skill-load.js";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { invalidateSkillCache } from "./cache.js";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { skillLoadTool } from "./skill-load.js";
 
 describe("skill_load", () => {
   let dir: string;
@@ -60,7 +60,7 @@ describe("skill_load", () => {
     const match = r1.content.match(/offset=(\d+)/);
     expect(match).toBeTruthy();
 
-    const r2 = await tool.execute({ name: "test-skill", offset: parseInt(match![1]!, 10) });
+    const r2 = await tool.execute({ name: "test-skill", offset: parseInt(match?.[1] ?? "0", 10) });
     expect(r2.content).not.toContain("Skill not found");
   });
 

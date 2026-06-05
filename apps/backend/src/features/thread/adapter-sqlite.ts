@@ -1,17 +1,26 @@
 import type { Database } from "bun:sqlite";
-import type { ThreadPort } from "./ports.js";
 import type { ThreadRow } from "./domain.js";
+import type { ThreadPort } from "./ports.js";
 
 interface DbThreadRow {
-  id: string; agent_id: string; title: string | null;
-  kind: string; created_at: number; updated_at: number; last_run_at: number | null;
+  id: string;
+  agent_id: string;
+  title: string | null;
+  kind: string;
+  created_at: number;
+  updated_at: number;
+  last_run_at: number | null;
 }
 
 function toRow(db: DbThreadRow): ThreadRow {
   return {
-    id: db.id, agentId: db.agent_id, title: db.title,
+    id: db.id,
+    agentId: db.agent_id,
+    title: db.title,
     kind: db.kind as "conversation",
-    createdAt: db.created_at, updatedAt: db.updated_at, lastRunAt: db.last_run_at,
+    createdAt: db.created_at,
+    updatedAt: db.updated_at,
+    lastRunAt: db.last_run_at,
   };
 }
 
@@ -30,12 +39,24 @@ export function sqliteThreadAdapter(db: Database): ThreadPort {
       return row ? toRow(row) : null;
     },
     listByAgent(agentId): ThreadRow[] {
-      return (db.query("SELECT * FROM threads WHERE agent_id = ? ORDER BY updated_at DESC").all(agentId) as DbThreadRow[]).map(toRow);
+      return (
+        db
+          .query("SELECT * FROM threads WHERE agent_id = ? ORDER BY updated_at DESC")
+          .all(agentId) as DbThreadRow[]
+      ).map(toRow);
     },
     update(id, input): ThreadRow | null {
-      const sets: string[] = ["updated_at = ?"]; const vals: any[] = [input.now];
-      if (input.title !== undefined) { sets.push("title = ?"); vals.push(input.title); }
-      if (input.lastRunAt !== undefined) { sets.push("last_run_at = ?"); vals.push(input.lastRunAt); }
+      const sets: string[] = ["updated_at = ?"];
+      // biome-ignore lint/suspicious/noExplicitAny: SQL mixed types
+      const vals: any[] = [input.now];
+      if (input.title !== undefined) {
+        sets.push("title = ?");
+        vals.push(input.title);
+      }
+      if (input.lastRunAt !== undefined) {
+        sets.push("last_run_at = ?");
+        vals.push(input.lastRunAt);
+      }
       vals.push(id);
       const r = db.run(`UPDATE threads SET ${sets.join(", ")} WHERE id = ?`, vals);
       if (r.changes === 0) return null;

@@ -2,21 +2,26 @@ import { z } from "zod";
 import { ThreadNotFoundError } from "./service.js";
 
 const createSchema = z.object({ title: z.string().optional() });
-const updateSchema = z.object({ title: z.string().optional() });
+const _updateSchema = z.object({ title: z.string().optional() });
 
 function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 export function threadRoutes(svc: ReturnType<typeof import("./service.js").createThreadService>) {
   return {
     async create(req: Request, agentId: string): Promise<Response> {
       const parsed = createSchema.safeParse(await req.json().catch(() => ({})));
-      if (!parsed.success) return json({ error: "Validation failed", details: parsed.error.issues }, 400);
+      if (!parsed.success)
+        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       try {
         return json(await svc.create(agentId, parsed.data), 201);
-      } catch (err: any) {
-        if (err.name === "AgentNotFoundForThreadError") return json({ error: err.message }, 404);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AgentNotFoundForThreadError")
+          return json({ error: err.message }, 404);
         throw err;
       }
     },
@@ -24,12 +29,21 @@ export function threadRoutes(svc: ReturnType<typeof import("./service.js").creat
       return json(await svc.listByAgent(agentId));
     },
     async getById(_req: Request, id: string): Promise<Response> {
-      try { return json(await svc.getById(id)); }
-      catch (err) { if (err instanceof ThreadNotFoundError) return json({ error: err.message }, 404); throw err; }
+      try {
+        return json(await svc.getById(id));
+      } catch (err) {
+        if (err instanceof ThreadNotFoundError) return json({ error: err.message }, 404);
+        throw err;
+      }
     },
     async delete(_req: Request, id: string): Promise<Response> {
-      try { await svc.delete(id); return new Response(null, { status: 204 }); }
-      catch (err) { if (err instanceof ThreadNotFoundError) return json({ error: err.message }, 404); throw err; }
+      try {
+        await svc.delete(id);
+        return new Response(null, { status: 204 });
+      } catch (err) {
+        if (err instanceof ThreadNotFoundError) return json({ error: err.message }, 404);
+        throw err;
+      }
     },
   };
 }

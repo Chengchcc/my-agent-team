@@ -1,5 +1,4 @@
-import { Database } from "bun:sqlite";
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { openDb } from "./db.js";
 
 // ─── Test 1: openDb creates file and runs migrations ────────────
@@ -22,7 +21,9 @@ test("openDb creates database file and runs migrations", () => {
   expect(names).toContain("checkpoint_events");
 
   db.close();
-  try { require("node:fs").unlinkSync(tmpPath); } catch {}
+  try {
+    require("node:fs").unlinkSync(tmpPath);
+  } catch {}
 });
 
 // ─── Test 2: migrations are idempotent ──────────────────────────
@@ -31,17 +32,27 @@ test("migrations are idempotent (calling openDb twice is safe)", () => {
   const tmpPath = `/tmp/test-backend-db-idem-${Date.now()}.db`;
 
   const db1 = openDb(tmpPath);
-  const tables1 = (db1.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
+  const tables1 = (
+    db1.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as {
+      name: string;
+    }[]
+  ).map((t) => t.name);
   db1.close();
 
   // Second open should not error
   const db2 = openDb(tmpPath);
-  const tables2 = (db2.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
+  const tables2 = (
+    db2.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as {
+      name: string;
+    }[]
+  ).map((t) => t.name);
   db2.close();
 
   expect(tables2).toEqual(tables1);
 
-  try { require("node:fs").unlinkSync(tmpPath); } catch {}
+  try {
+    require("node:fs").unlinkSync(tmpPath);
+  } catch {}
 });
 
 // ─── Test 3: user_version tracks migration progress ─────────────
@@ -54,7 +65,9 @@ test("user_version tracks migration count", () => {
   expect(row.user_version).toBeGreaterThan(0);
 
   db.close();
-  try { require("node:fs").unlinkSync(tmpPath); } catch {}
+  try {
+    require("node:fs").unlinkSync(tmpPath);
+  } catch {}
 });
 
 // ─── Test 4: WAL mode is enabled ────────────────────────────────
@@ -67,5 +80,7 @@ test("WAL journal mode is enabled", () => {
   expect(row.journal_mode).toBe("wal");
 
   db.close();
-  try { require("node:fs").unlinkSync(tmpPath); } catch {}
+  try {
+    require("node:fs").unlinkSync(tmpPath);
+  } catch {}
 });

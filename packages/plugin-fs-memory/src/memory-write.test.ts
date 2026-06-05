@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { loadAllFactsWithMtimeCache, invalidateFactsCache } from "./cache.js";
+import { invalidateFactsCache, loadAllFactsWithMtimeCache } from "./cache.js";
 import { memoryWriteTool } from "./memory-write.js";
 
 describe("memory_write", () => {

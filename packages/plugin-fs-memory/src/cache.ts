@@ -1,6 +1,6 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { readFact, type Fact } from "./frontmatter.js";
+import { type Fact, readFact } from "./frontmatter.js";
 
 const memCaches = new Map<string, { content: string; mtime: number }>();
 

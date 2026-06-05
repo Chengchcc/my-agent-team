@@ -1,14 +1,14 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import type { Message } from "@my-agent-team/core";
 import {
-  type HookContext,
   consoleLogger,
+  type HookContext,
   inMemoryCheckpointer,
   passthroughContextManager,
 } from "@my-agent-team/framework";
-import { progressiveSkillPlugin } from "./progressive-skill.js";
 import { invalidateSkillCache } from "./cache.js";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { progressiveSkillPlugin } from "./progressive-skill.js";
 
 function testCtx(): HookContext {
   return {

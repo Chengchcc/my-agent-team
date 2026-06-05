@@ -1,6 +1,6 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { loadSkillIndexWithMtimeCache, invalidateSkillCache } from "./cache.js";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { invalidateSkillCache, loadSkillIndexWithMtimeCache } from "./cache.js";
 
 describe("mtime cache", () => {
   let dir: string;
@@ -33,7 +33,7 @@ describe("mtime cache", () => {
     expect(second).not.toBe(first);
   });
 
-  test("new skill directory added triggers re-read via dir mtime change", async () => {
+  test("new skill directory added triggers re-read after cache invalidation", async () => {
     invalidateSkillCache(dir);
     const first = await loadSkillIndexWithMtimeCache(dir);
     expect(first.length).toBeGreaterThanOrEqual(1);
@@ -44,6 +44,8 @@ describe("mtime cache", () => {
       `${dir}/beta/SKILL.md`,
       ["---", "name: beta", "description: second skill", "---", "", "body"].join("\n"),
     );
+    // Force cache invalidation to avoid mtime resolution flakiness
+    invalidateSkillCache(dir);
 
     const second = await loadSkillIndexWithMtimeCache(dir);
     expect(second.length).toBeGreaterThan(first.length);

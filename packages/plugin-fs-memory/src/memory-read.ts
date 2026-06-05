@@ -1,6 +1,6 @@
-import type { Tool } from "@my-agent-team/core";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import type { Tool } from "@my-agent-team/core";
 
 export function memoryReadTool(opts: { dir: string }): Tool {
   const resolvedDir = path.resolve(opts.dir);

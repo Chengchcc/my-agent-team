@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { Message } from "@my-agent-team/core";
 import {
-  type HookContext,
   consoleLogger,
+  type HookContext,
   inMemoryCheckpointer,
   passthroughContextManager,
 } from "@my-agent-team/framework";

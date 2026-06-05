@@ -1,5 +1,5 @@
-import type { Checkpointer, CheckpointEvent, InterruptState } from "@my-agent-team/framework";
 import { Database } from "bun:sqlite";
+import type { CheckpointEvent, Checkpointer, InterruptState } from "@my-agent-team/framework";
 
 export interface SqliteCheckpointerOptions {
   db: Database | string;
@@ -8,7 +8,7 @@ export interface SqliteCheckpointerOptions {
 
 export const SQLITE_CHECKPOINTER_MIGRATIONS: readonly { id: number; up: string }[] = [
   {
-    id: 1,
+    id: 1000,
     up: `CREATE TABLE IF NOT EXISTS checkpoint_messages (
   thread_id  TEXT PRIMARY KEY,
   messages   TEXT NOT NULL,
@@ -16,7 +16,7 @@ export const SQLITE_CHECKPOINTER_MIGRATIONS: readonly { id: number; up: string }
 )`,
   },
   {
-    id: 2,
+    id: 1001,
     up: `CREATE TABLE IF NOT EXISTS checkpoint_interrupts (
   thread_id  TEXT PRIMARY KEY,
   state      TEXT NOT NULL,
@@ -24,7 +24,7 @@ export const SQLITE_CHECKPOINTER_MIGRATIONS: readonly { id: number; up: string }
 )`,
   },
   {
-    id: 3,
+    id: 1002,
     up: `CREATE TABLE IF NOT EXISTS checkpoint_events (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   thread_id  TEXT NOT NULL,
@@ -33,12 +33,14 @@ export const SQLITE_CHECKPOINTER_MIGRATIONS: readonly { id: number; up: string }
 )`,
   },
   {
-    id: 4,
+    id: 1003,
     up: `CREATE INDEX IF NOT EXISTS idx_checkpoint_events_thread ON checkpoint_events(thread_id, id)`,
   },
 ];
 
 function runMigrations(db: Database, prefix: string): void {
+  // I2: tablePrefix not yet supported in migration SQL — reject to avoid silent failure
+  if (prefix) throw new Error("tablePrefix is not yet supported");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   for (const m of SQLITE_CHECKPOINTER_MIGRATIONS) {
@@ -71,11 +73,15 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): Checkpointe
     },
 
     async load(threadId) {
-      const row = db
-        .query(`SELECT messages FROM ${msgTable} WHERE thread_id = ?`)
-        .get(threadId) as { messages: string } | undefined;
+      const row = db.query(`SELECT messages FROM ${msgTable} WHERE thread_id = ?`).get(threadId) as
+        | { messages: string }
+        | undefined;
       if (!row) return null;
-      return JSON.parse(row.messages);
+      try {
+        return JSON.parse(row.messages);
+      } catch {
+        return null;
+      }
     },
 
     async saveInterrupt(threadId: string, state: InterruptState): Promise<void> {
@@ -88,18 +94,26 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): Checkpointe
     },
 
     async consumeInterrupt(threadId: string): Promise<InterruptState | null> {
-      const row = db
-        .query(`SELECT state FROM ${intTable} WHERE thread_id = ?`)
-        .get(threadId) as { state: string } | undefined;
+      const row = db.query(`SELECT state FROM ${intTable} WHERE thread_id = ?`).get(threadId) as
+        | { state: string }
+        | undefined;
       if (!row) return null;
       db.run(`DELETE FROM ${intTable} WHERE thread_id = ?`, [threadId]);
-      return JSON.parse(row.state) as InterruptState;
+      try {
+        return JSON.parse(row.state) as InterruptState;
+      } catch {
+        return null;
+      }
     },
 
     async appendEvent(threadId: string, event: CheckpointEvent): Promise<void> {
       const json = JSON.stringify(event);
       const ts = "ts" in event ? (event as { ts: number }).ts : Date.now();
-      db.run(`INSERT INTO ${evTable} (thread_id, event, ts) VALUES (?, ?, ?)`, [threadId, json, ts]);
+      db.run(`INSERT INTO ${evTable} (thread_id, event, ts) VALUES (?, ?, ?)`, [
+        threadId,
+        json,
+        ts,
+      ]);
     },
 
     async *readEvents(threadId: string): AsyncIterable<CheckpointEvent> {
@@ -107,7 +121,11 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): Checkpointe
         .query(`SELECT event FROM ${evTable} WHERE thread_id = ? ORDER BY id ASC`)
         .all(threadId) as { event: string }[];
       for (const row of rows) {
-        yield JSON.parse(row.event) as CheckpointEvent;
+        try {
+          yield JSON.parse(row.event) as CheckpointEvent;
+        } catch {
+          /* skip corrupted rows */
+        }
       }
     },
   };

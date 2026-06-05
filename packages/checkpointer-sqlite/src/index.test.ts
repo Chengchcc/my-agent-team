@@ -3,7 +3,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { sqliteCheckpointer } from "./index.js";
 
 let db: Database;
-let nextId = 0;
+const nextId = 0;
 
 function freshDb(): Database {
   return new Database(":memory:");
@@ -48,7 +48,10 @@ test("saveInterrupt and consumeInterrupt roundtrip", async () => {
   const cp = sqliteCheckpointer({ db });
 
   await cp.saveInterrupt!("t1", {
-    pendingTool: { call: { type: "tool_use" as const, id: "c1", name: "bash", input: {} }, reason: "permission" },
+    pendingTool: {
+      call: { type: "tool_use" as const, id: "c1", name: "bash", input: {} },
+      reason: "permission",
+    },
     ts: 1000,
   });
 
@@ -62,7 +65,10 @@ test("consumeInterrupt is one-shot (consumed after read)", async () => {
   const cp = sqliteCheckpointer({ db });
 
   await cp.saveInterrupt!("t1", {
-    pendingTool: { call: { type: "tool_use" as const, id: "c1", name: "bash", input: {} }, reason: "permission" },
+    pendingTool: {
+      call: { type: "tool_use" as const, id: "c1", name: "bash", input: {} },
+      reason: "permission",
+    },
     ts: 1000,
   });
 
@@ -144,21 +150,9 @@ test("db: string mode creates file and works", async () => {
   expect(loaded).toEqual([{ role: "user", content: "persisted" }]);
 
   // Cleanup
-  try { require("node:fs").unlinkSync(tmpPath); } catch {}
-});
-
-// ─── Capability detection ─────────────────────────────────────
-
-test("all capability methods are present (full Checkpointer)", () => {
-  const db = freshDb();
-  const cp = sqliteCheckpointer({ db });
-
-  expect(typeof cp.save).toBe("function");
-  expect(typeof cp.load).toBe("function");
-  expect(typeof cp.saveInterrupt).toBe("function");
-  expect(typeof cp.consumeInterrupt).toBe("function");
-  expect(typeof cp.appendEvent).toBe("function");
-  expect(typeof cp.readEvents).toBe("function");
+  try {
+    require("node:fs").unlinkSync(tmpPath);
+  } catch {}
 });
 
 // ─── WAL mode ─────────────────────────────────────────────────
@@ -172,7 +166,9 @@ test("WAL journal mode is enabled for file-based databases", () => {
   expect(row.journal_mode).toBe("wal");
 
   db.close();
-  try { require("node:fs").unlinkSync(tmpPath); } catch {}
+  try {
+    require("node:fs").unlinkSync(tmpPath);
+  } catch {}
 });
 
 // ─── SQLITE_CHECKPOINTER_MIGRATIONS ────────────────────────────

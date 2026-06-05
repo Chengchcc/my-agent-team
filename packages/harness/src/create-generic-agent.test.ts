@@ -1,8 +1,8 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AIMessageChunk, ChatModel, Message, Tool } from "@my-agent-team/core";
-import { Database } from "bun:sqlite";
 import { createGenericAgent } from "./create-generic-agent.js";
 
 async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
@@ -225,7 +225,7 @@ describe("createGenericAgent", () => {
 
       // No .checkpoints/db.sqlite should be created
       const dbPath = path.join(ws, ".checkpoints", "db.sqlite");
-      await expect(stat(dbPath)).rejects.toBeDefined();
+      await expect(stat(dbPath)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(ws, { recursive: true, force: true });
     }

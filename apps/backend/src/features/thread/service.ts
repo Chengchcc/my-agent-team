@@ -1,12 +1,18 @@
-import type { ThreadPort } from "./ports.js";
 import type { CreateThreadInput, ThreadRow } from "./domain.js";
+import type { ThreadPort } from "./ports.js";
 
 export class ThreadNotFoundError extends Error {
-  constructor(id: string) { super(`Thread not found: ${id}`); this.name = "ThreadNotFoundError"; }
+  constructor(id: string) {
+    super(`Thread not found: ${id}`);
+    this.name = "ThreadNotFoundError";
+  }
 }
 
 export class AgentNotFoundForThreadError extends Error {
-  constructor(id: string) { super(`Agent not found: ${id}`); this.name = "AgentNotFoundForThreadError"; }
+  constructor(id: string) {
+    super(`Agent not found: ${id}`);
+    this.name = "AgentNotFoundForThreadError";
+  }
 }
 
 export function createThreadService(opts: {
@@ -42,7 +48,12 @@ export function createThreadService(opts: {
 
     async delete(id: string): Promise<void> {
       if (!port.delete(id)) throw new ThreadNotFoundError(id);
-      await cleanupCheckpoint(id);
+      // N3: cleanup checkpoint data after thread deletion; failure logged but not fatal
+      try {
+        await cleanupCheckpoint(id);
+      } catch {
+        /* checkpoint cleanup is best-effort */
+      }
     },
 
     touchLastRun(id: string): void {

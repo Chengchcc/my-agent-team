@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { memoryReadTool } from "./memory-read.js";
 import { writeFact } from "./frontmatter.js";
+import { memoryReadTool } from "./memory-read.js";
 
 describe("memory_read", () => {
   test("reads MEMORY.md when no path given", async () => {

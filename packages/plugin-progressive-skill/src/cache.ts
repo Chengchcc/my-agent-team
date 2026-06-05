@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 
@@ -50,7 +50,7 @@ export async function loadSkillIndexWithMtimeCache(
     if (r.status === "fulfilled" && r.value) {
       skills.push(r.value);
     } else if (r.status === "rejected") {
-      logger?.warn(`skill '${dirs[i]!.name}' load failed`, r.reason);
+      logger?.warn(`skill '${dirs[i]?.name}' load failed`, r.reason);
     }
   }
 

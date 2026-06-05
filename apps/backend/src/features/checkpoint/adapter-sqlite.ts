@@ -8,7 +8,11 @@ export function sqliteCheckpointReadAdapter(db: Database): CheckpointReadPort {
         .query("SELECT messages FROM checkpoint_messages WHERE thread_id = ?")
         .get(threadId) as { messages: string } | undefined;
       if (!row) return null;
-      return JSON.parse(row.messages);
+      try {
+        return JSON.parse(row.messages);
+      } catch {
+        return null;
+      }
     },
   };
 }

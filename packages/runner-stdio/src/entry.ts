@@ -56,16 +56,15 @@ export async function runEntry(io: EntryIO): Promise<number> {
     return 1;
   }
 
-  // 3. Construct ChatModel
-  const model = new AnthropicChatModel({
-    apiKey,
-    model: spec.model.model,
-    baseUrl: spec.model.baseURL,
-  });
-
-  // 4+5. Construct agent + run (both inside try/catch — M7 N1 fix)
+  // 3+4+5. Construct model + agent + run (all inside try/catch — M7 N1 fix + H6)
   try {
     writeStderr(`[runner-stdio] spec parsed, threadId=${spec.threadId}`);
+
+    const model = new AnthropicChatModel({
+      apiKey,
+      model: spec.model.model,
+      baseUrl: spec.model.baseURL,
+    });
 
     const factory = createAgent ?? (await import("@my-agent-team/harness")).createGenericAgent;
     const agent = await factory({

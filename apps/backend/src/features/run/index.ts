@@ -1,3 +1,3 @@
-export { type RunRow } from "./domain.js";
-export { createRunService, ThreadBusyError, RunNotFoundError } from "./service.js";
+export type { RunRow } from "./domain.js";
 export { runRoutes } from "./http.js";
+export { createRunService, RunNotFoundError, ThreadBusyError } from "./service.js";

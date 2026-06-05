@@ -1,7 +1,8 @@
+import type { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import type { Tool } from "@my-agent-team/core";
 import { sqliteCheckpointer } from "@my-agent-team/checkpointer-sqlite";
+import type { Tool } from "@my-agent-team/core";
 import {
   type Agent,
   type Checkpointer,
@@ -22,7 +23,6 @@ import {
   writeTool,
 } from "@my-agent-team/tools-common";
 import { bootstrap } from "./bootstrap.js";
-import type { Database } from "bun:sqlite";
 
 function checkDuplicateNames(
   kind: string,

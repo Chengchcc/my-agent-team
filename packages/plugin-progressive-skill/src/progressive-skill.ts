@@ -1,6 +1,6 @@
+import { stat } from "node:fs/promises";
 import type { Message } from "@my-agent-team/core";
 import type { Plugin } from "@my-agent-team/framework";
-import { stat } from "node:fs/promises";
 import { loadSkillIndexWithMtimeCache, type SkillMeta } from "./cache.js";
 import { skillLoadTool } from "./skill-load.js";
 
@@ -48,7 +48,8 @@ export function progressiveSkillPlugin(options: ProgressiveSkillOptions): Plugin
         }
 
         const indexBlock = renderIndex(skills);
-        const sys = messages[systemIdx]!;
+        const sys = messages[systemIdx];
+        if (!sys) return messages as Message[];
         const newSys = {
           ...sys,
           content: `${sys.content}\n\n${indexBlock}`,

@@ -1,4 +1,3 @@
-import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteAgentAdapter } from "./adapter-sqlite.js";
@@ -9,19 +8,27 @@ const adapter = sqliteAgentAdapter(db);
 
 afterAll(() => {
   db.close();
-  try { require("node:fs").unlinkSync(tmpPath); } catch {}
+  try {
+    require("node:fs").unlinkSync(tmpPath);
+  } catch {}
 });
 
 describe("sqliteAgentAdapter", () => {
   test("create and findById roundtrip", async () => {
-    const agent = await adapter.create({ name: "test", model: { provider: "anthropic", model: "claude" }, id: "a1", workspacePath: "/ws/a1", now: 1000 });
+    const agent = await adapter.create({
+      name: "test",
+      model: { provider: "anthropic", model: "claude" },
+      id: "a1",
+      workspacePath: "/ws/a1",
+      now: 1000,
+    });
     expect(agent.id).toBe("a1");
     expect(agent.name).toBe("test");
     expect(agent.permissionMode).toBe("ask");
 
     const found = await adapter.findById("a1");
     expect(found).not.toBeNull();
-    expect(found!.workspacePath).toBe("/ws/a1");
+    expect(found?.workspacePath).toBe("/ws/a1");
   });
 
   test("findById returns null for unknown id", async () => {
@@ -29,7 +36,13 @@ describe("sqliteAgentAdapter", () => {
   });
 
   test("list returns created agents", async () => {
-    await adapter.create({ name: "b1", model: { provider: "a", model: "m" }, id: "b1", workspacePath: "/ws/b1", now: 2000 });
+    await adapter.create({
+      name: "b1",
+      model: { provider: "a", model: "m" },
+      id: "b1",
+      workspacePath: "/ws/b1",
+      now: 2000,
+    });
     const list = await adapter.list();
     expect(list.length).toBeGreaterThanOrEqual(2);
     expect(list.some((a) => a.id === "b1")).toBe(true);
@@ -44,6 +57,6 @@ describe("sqliteAgentAdapter", () => {
   test("update modifies fields", async () => {
     const updated = await adapter.update("a1", { name: "renamed", now: 4000 });
     expect(updated).not.toBeNull();
-    expect(updated!.name).toBe("renamed");
+    expect(updated?.name).toBe("renamed");
   });
 });

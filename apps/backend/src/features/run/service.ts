@@ -2,18 +2,35 @@ import type { AgentEvent } from "@my-agent-team/framework";
 import type { RunRow } from "./domain.js";
 
 export class ThreadBusyError extends Error {
-  constructor(threadId: string) { super(`Thread busy: ${threadId}`); this.name = "ThreadBusyError"; }
+  constructor(threadId: string) {
+    super(`Thread busy: ${threadId}`);
+    this.name = "ThreadBusyError";
+  }
 }
 
 export class RunNotFoundError extends Error {
-  constructor(id: string) { super(`Run not found or not running: ${id}`); this.name = "RunNotFoundError"; }
+  constructor(id: string) {
+    super(`Run not found or not running: ${id}`);
+    this.name = "RunNotFoundError";
+  }
 }
 
 export interface RunServiceDeps {
   port: {
-    create(input: { id: string; threadId: string; input: string; status: string; startedAt: number }): RunRow;
+    create(input: {
+      id: string;
+      threadId: string;
+      input: string;
+      status: string;
+      startedAt: number;
+    }): RunRow;
     findById(id: string): RunRow | null;
-    updateStatus(id: string, status: string, errorMessage?: string, endedAt?: number): RunRow | null;
+    updateStatus(
+      id: string,
+      status: string,
+      errorMessage?: string,
+      endedAt?: number,
+    ): RunRow | null;
   };
   idGen: () => string;
   runner: (spec: unknown, signal: AbortSignal) => AsyncIterable<AgentEvent>;
@@ -34,7 +51,13 @@ export function createRunService(deps: RunServiceDeps) {
       const ac = new AbortController();
       abortMap.set(runId, ac);
 
-      port.create({ id: runId, threadId, input, status: "running", startedAt: Date.now() });
+      try {
+        port.create({ id: runId, threadId, input, status: "running", startedAt: Date.now() });
+      } catch (err) {
+        threads.delete(threadId);
+        abortMap.delete(runId);
+        throw err;
+      }
 
       return startRunInner(runId, threadId, spec, ac);
     },
@@ -65,6 +88,8 @@ export function createRunService(deps: RunServiceDeps) {
             errorMessage = ev.payload.message;
           }
         }
+        // H3: runner completed without throwing, but might have been aborted via signal
+        if (ac.signal.aborted) status = "aborted";
       } catch (err) {
         status = ac.signal.aborted ? "aborted" : "error";
         errorMessage = err instanceof Error ? err.message : String(err);

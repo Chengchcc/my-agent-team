@@ -38,9 +38,11 @@ export const editTool: Tool = {
       // Count total occurrences for the error message
       let count = 2;
       let pos = second + oldString.length;
-      while ((pos = content.indexOf(oldString, pos)) !== -1) {
+      let found = content.indexOf(oldString, pos);
+      while (found !== -1) {
         count++;
-        pos += oldString.length;
+        pos = found + oldString.length;
+        found = content.indexOf(oldString, pos);
       }
       return {
         content: `oldString matches ${count} times in ${path}; narrow the match`,

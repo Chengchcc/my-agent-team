@@ -1,5 +1,5 @@
-import type { AgentPort } from "./ports.js";
 import type { AgentRow, CreateAgentInput, UpdateAgentInput } from "./domain.js";
+import type { AgentPort } from "./ports.js";
 
 export interface AgentService {
   create(input: CreateAgentInput): Promise<AgentRow>;
@@ -15,7 +15,7 @@ export function createAgentService(opts: {
   workspaceRoot: string;
   materializeWorkspace: (agentId: string, template?: string) => Promise<string>;
 }): AgentService {
-  const { port, idGen, workspaceRoot, materializeWorkspace } = opts;
+  const { port, idGen, materializeWorkspace } = opts;
 
   return {
     async create(input: CreateAgentInput): Promise<AgentRow> {

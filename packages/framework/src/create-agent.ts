@@ -101,8 +101,13 @@ function createAgentInternal(
     let current = msgs;
     for (const p of plugins) {
       if (p.hooks.beforeModel) {
-        const result = await p.hooks.beforeModel(ctx, current);
-        current = result ?? current;
+        // M2: isolate plugin errors so one bad plugin doesn't break the chain
+        try {
+          const result = await p.hooks.beforeModel(ctx, current);
+          current = result ?? current;
+        } catch (err) {
+          logger.warn(`beforeModel ${p.name}`, err);
+        }
       }
     }
     return current;
@@ -129,10 +134,16 @@ function createAgentInternal(
       | undefined;
     for (const p of plugins) {
       if (p.hooks.beforeTool) {
-        const d = await p.hooks.beforeTool(ctx, call, msgs);
-        if (d) {
-          if (d.skip) decision = { ...decision, skip: true, result: d.result, isError: d.isError };
-          if (d.input !== undefined) decision = { ...decision, input: d.input };
+        // M2: isolate plugin errors
+        try {
+          const d = await p.hooks.beforeTool(ctx, call, msgs);
+          if (d) {
+            if (d.skip)
+              decision = { ...decision, skip: true, result: d.result, isError: d.isError };
+            if (d.input !== undefined) decision = { ...decision, input: d.input };
+          }
+        } catch (err) {
+          logger.warn(`beforeTool ${p.name}`, err);
         }
       }
     }
@@ -322,9 +333,21 @@ function createAgentInternal(
         return;
       }
 
-      for (const call of toolUses) {
+      for (let i = 0; i < toolUses.length; i++) {
+        const call = toolUses[i]!;
         const interrupted = yield* executeOne(call, opts);
-        if (interrupted) return;
+        if (interrupted) {
+          // H1: Add placeholder tool_results for remaining unexecuted tool_use blocks
+          for (let j = i + 1; j < toolUses.length; j++) {
+            const remaining = toolUses[j]!;
+            thread.messages.push({
+              role: "user",
+              content: [wrapToolResult(remaining, { content: "Interrupted", isError: true })],
+            } as Message);
+          }
+          await save(thread.messages);
+          return;
+        }
       }
     }
 

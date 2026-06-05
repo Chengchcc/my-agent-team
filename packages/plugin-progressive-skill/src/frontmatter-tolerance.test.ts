@@ -1,6 +1,6 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { loadSkillIndexWithMtimeCache, invalidateSkillCache } from "./cache.js";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { invalidateSkillCache, loadSkillIndexWithMtimeCache } from "./cache.js";
 
 describe("frontmatter tolerance", () => {
   let dir: string;
@@ -31,7 +31,7 @@ describe("frontmatter tolerance", () => {
 
     const skills = await loadSkillIndexWithMtimeCache(dir, logger);
     expect(skills).toHaveLength(1);
-    expect(skills[0]!.name).toBe("good-skill");
+    expect(skills[0]?.name).toBe("good-skill");
     expect(warnings.some((w) => w.msg.includes("bad-skill"))).toBe(true);
   });
 

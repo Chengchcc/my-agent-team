@@ -1,5 +1,5 @@
-export { type ThreadRow, type CreateThreadInput } from "./domain.js";
-export { type ThreadPort } from "./ports.js";
 export { sqliteThreadAdapter } from "./adapter-sqlite.js";
-export { createThreadService, ThreadNotFoundError } from "./service.js";
+export type { CreateThreadInput, ThreadRow } from "./domain.js";
 export { threadRoutes } from "./http.js";
+export type { ThreadPort } from "./ports.js";
+export { createThreadService, ThreadNotFoundError } from "./service.js";

@@ -1,6 +1,6 @@
-import type { Tool } from "@my-agent-team/core";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import type { Tool } from "@my-agent-team/core";
 import { loadSkillIndexWithMtimeCache, type SkillMeta } from "./cache.js";
 import { truncateAtParagraph } from "./truncation.js";
 

@@ -1,10 +1,14 @@
 import { z } from "zod";
-import { ThreadBusyError, RunNotFoundError } from "./service.js";
+import { writeSseDone, writeSseEvent } from "../../infra/sse.js";
+import { RunNotFoundError, ThreadBusyError } from "./service.js";
 
 const runSchema = z.object({ input: z.string().min(1) });
 
 function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 export function runRoutes(
@@ -14,7 +18,8 @@ export function runRoutes(
   return {
     async run(req: Request, threadId: string): Promise<Response> {
       const parsed = runSchema.safeParse(await req.json().catch(() => ({})));
-      if (!parsed.success) return json({ error: "Validation failed", details: parsed.error.issues }, 400);
+      if (!parsed.success)
+        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
 
       try {
         const spec = await buildSpec(threadId, parsed.data.input);
@@ -25,12 +30,10 @@ export function runRoutes(
             async start(controller) {
               try {
                 for await (const ev of stream) {
-                  if (ev.payload && typeof ev.payload === "object" && "message" in ev.payload && ev.payload.message === "done") {
-                    controller.enqueue("event: done\ndata: {}\n\n");
-                    break;
-                  }
-                  controller.enqueue(`event: ${ev.type}\ndata: ${JSON.stringify(ev.payload)}\n\n`);
+                  writeSseEvent(controller, ev);
                 }
+                // N1: done is synthesized after stream ends, not detected in-band
+                writeSseDone(controller);
                 controller.close();
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
@@ -39,15 +42,21 @@ export function runRoutes(
               }
             },
           }),
-          { headers: { "content-type": "text/event-stream", "cache-control": "no-cache", "connection": "keep-alive" } },
+          {
+            headers: {
+              "content-type": "text/event-stream",
+              "cache-control": "no-cache",
+              connection: "keep-alive",
+            },
+          },
         );
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (err instanceof ThreadBusyError) return json({ error: err.message }, 409);
         throw err;
       }
     },
 
-    cancel(_req: Request, runId: string): Response {
+    async cancel(_req: Request, runId: string): Promise<Response> {
       try {
         svc.cancel(runId);
         return new Response(null, { status: 204 });

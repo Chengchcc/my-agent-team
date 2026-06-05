@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { invalidateFactsCache } from "./cache.js";
 import { memorySearchTool } from "./memory-search.js";
 import { memoryWriteTool } from "./memory-write.js";
-import { invalidateFactsCache } from "./cache.js";
 
 describe("memory_search", () => {
   test("returns empty array when no match", async () => {

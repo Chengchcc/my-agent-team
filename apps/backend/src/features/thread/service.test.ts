@@ -1,39 +1,63 @@
 import { describe, expect, test } from "bun:test";
-import type { ThreadPort } from "./ports.js";
 import type { ThreadRow } from "./domain.js";
-import { createThreadService, ThreadNotFoundError, AgentNotFoundForThreadError } from "./service.js";
+import type { ThreadPort } from "./ports.js";
+import {
+  AgentNotFoundForThreadError,
+  createThreadService,
+  ThreadNotFoundError,
+} from "./service.js";
 
 function makePort(): ThreadPort {
   const rows = new Map<string, ThreadRow>();
   return {
     create(input) {
       const row: ThreadRow = {
-        id: input.id, agentId: input.agentId, title: input.title ?? null,
-        kind: "conversation", createdAt: input.now, updatedAt: input.now, lastRunAt: null,
+        id: input.id,
+        agentId: input.agentId,
+        title: input.title ?? null,
+        kind: "conversation",
+        createdAt: input.now,
+        updatedAt: input.now,
+        lastRunAt: null,
       };
-      rows.set(input.id, row); return row;
+      rows.set(input.id, row);
+      return row;
     },
-    findById(id) { return rows.get(id) ?? null; },
-    listByAgent(agentId) { return [...rows.values()].filter((r) => r.agentId === agentId); },
+    findById(id) {
+      return rows.get(id) ?? null;
+    },
+    listByAgent(agentId) {
+      return [...rows.values()].filter((r) => r.agentId === agentId);
+    },
     update(id, input) {
-      const r = rows.get(id); if (!r) return null;
+      const r = rows.get(id);
+      if (!r) return null;
       if (input.title !== undefined) r.title = input.title;
       if (input.lastRunAt !== undefined) r.lastRunAt = input.lastRunAt;
-      r.updatedAt = input.now; return r;
+      r.updatedAt = input.now;
+      return r;
     },
-    delete(id) { return rows.delete(id); },
+    delete(id) {
+      return rows.delete(id);
+    },
   };
 }
 
 function makeSvc() {
-  let n = 1; let cleanedUp: string[] = [];
+  let n = 1;
+  const cleanedUp: string[] = [];
   return {
     svc: createThreadService({
-      port: makePort(), idGen: () => `th-${n++}`,
+      port: makePort(),
+      idGen: () => `th-${n++}`,
       agentExists: async (id) => id === "agent-1",
-      cleanupCheckpoint: async (tid) => { cleanedUp.push(tid); },
+      cleanupCheckpoint: async (tid) => {
+        cleanedUp.push(tid);
+      },
     }),
-    get cleanedUp() { return cleanedUp; },
+    get cleanedUp() {
+      return cleanedUp;
+    },
   };
 }
 
@@ -60,7 +84,7 @@ describe("ThreadService", () => {
     await svc.create("agent-1", {});
     const list = await svc.listByAgent("agent-1");
     expect(list.length).toBe(1);
-    expect(list[0]!.agentId).toBe("agent-1");
+    expect(list[0]?.agentId).toBe("agent-1");
   });
 
   test("delete removes thread and cleans up checkpoint", async () => {

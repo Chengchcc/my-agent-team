@@ -28,14 +28,19 @@ function json(body: unknown, status = 200): Response {
 }
 
 async function readBody(req: Request): Promise<unknown> {
-  try { return await req.json(); } catch { return {}; }
+  try {
+    return await req.json();
+  } catch {
+    return {};
+  }
 }
 
 export function agentRoutes(svc: AgentService) {
   return {
     async create(req: Request): Promise<Response> {
       const parsed = createSchema.safeParse(await readBody(req));
-      if (!parsed.success) return json({ error: "Validation failed", details: parsed.error.issues }, 400);
+      if (!parsed.success)
+        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       const row = await svc.create(parsed.data);
       return json(row, 201);
     },
@@ -56,7 +61,8 @@ export function agentRoutes(svc: AgentService) {
 
     async update(req: Request, id: string): Promise<Response> {
       const parsed = updateSchema.safeParse(await readBody(req));
-      if (!parsed.success) return json({ error: "Validation failed", details: parsed.error.issues }, 400);
+      if (!parsed.success)
+        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       try {
         return json(await svc.update(id, parsed.data));
       } catch (err) {

@@ -7,18 +7,23 @@ export function openDb(path: string): Database {
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
 
-  const currentVersion = (
-    db.query("PRAGMA user_version").get() as { user_version: number }
-  ).user_version;
+  db.exec("BEGIN");
+  try {
+    let currentVersion = (db.query("PRAGMA user_version").get() as { user_version: number })
+      .user_version;
 
-  for (const m of ALL_MIGRATIONS) {
-    if (m.id > currentVersion) {
-      db.exec(m.up);
+    for (const m of ALL_MIGRATIONS) {
+      if (m.id > currentVersion) {
+        db.exec(m.up);
+        db.exec(`PRAGMA user_version = ${m.id}`);
+        currentVersion = m.id;
+      }
     }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
   }
-
-  const maxId = ALL_MIGRATIONS.length > 0 ? ALL_MIGRATIONS[ALL_MIGRATIONS.length - 1]!.id : 0;
-  db.exec(`PRAGMA user_version = ${maxId}`);
 
   return db;
 }

@@ -10,13 +10,6 @@ export interface BackendConfig {
   shutdownTimeoutMs: number;
 }
 
-const DEFAULTS: Partial<BackendConfig> = {
-  port: 3000,
-  host: "127.0.0.1",
-  maxConcurrentRuns: 8,
-  shutdownTimeoutMs: 30_000,
-};
-
 export function loadConfig(env: typeof process.env = process.env): BackendConfig {
   const dataDir = env.BACKEND_DATA_DIR ?? "./.backend-data";
 
@@ -27,15 +20,14 @@ export function loadConfig(env: typeof process.env = process.env): BackendConfig
   if (!anthropicApiKey) throw new Error("ANTHROPIC_API_KEY is required");
 
   return {
-    port: Number(env.BACKEND_PORT) || DEFAULTS.port!,
-    host: env.BACKEND_HOST ?? DEFAULTS.host!,
+    port: Number(env.BACKEND_PORT) || 3000,
+    host: env.BACKEND_HOST ?? "127.0.0.1",
     dataDir,
     workspaceRoot: env.BACKEND_WORKSPACE_ROOT ?? `${dataDir}/workspaces`,
     templateDir: env.BACKEND_TEMPLATE_DIR ?? `${dataDir}/templates`,
     authToken,
-    maxConcurrentRuns: Number(env.BACKEND_MAX_CONCURRENT) || DEFAULTS.maxConcurrentRuns!,
+    maxConcurrentRuns: Number(env.BACKEND_MAX_CONCURRENT) || 8,
     anthropicApiKey,
-    shutdownTimeoutMs:
-      Number(env.BACKEND_SHUTDOWN_TIMEOUT_MS) || DEFAULTS.shutdownTimeoutMs!,
+    shutdownTimeoutMs: Number(env.BACKEND_SHUTDOWN_TIMEOUT_MS) || 30_000,
   };
 }

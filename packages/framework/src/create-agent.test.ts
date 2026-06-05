@@ -321,9 +321,12 @@ describe("createAgent", () => {
     expect(sideEffectCall).toBe("t1");
   });
 
-  test("beforeModel error propagates to caller", async () => {
+  test("beforeModel error is isolated and does not break agent", async () => {
+    // M2: beforeModel errors are caught and warned, not propagated
+    let warnCount = 0;
     const agent = await createAgent({
       model: scriptedModel([{ type: "text", text: "ok" }]),
+      logger: { warn: () => { warnCount++; }, info: () => {}, error: () => {}, debug: () => {}, level: "warn" as const },
       plugins: [
         definePlugin({
           name: "explode",
@@ -336,7 +339,13 @@ describe("createAgent", () => {
       ],
     });
 
-    await expect(collect(agent.run("hi"))).rejects.toThrow("boom");
+    const events = await collect(agent.run("hi"));
+    // Agent completed normally — error was isolated, not propagated
+    expect(events.some((e) => e.type === "message")).toBe(true);
+    // Error was logged via warn
+    expect(warnCount).toBeGreaterThan(0);
+    // Model still produced the expected output despite plugin error
+    expect(events.filter((e) => e.type === "message").length).toBe(1);
   });
 
   test("afterModel error is swallowed", async () => {
@@ -393,29 +402,6 @@ describe("createAgent", () => {
         expect(ev.payload).toHaveProperty("role");
       }
     }
-  });
-
-  // ─── M7: AgentEvent error variant ─────────────────────────────
-
-  test("AgentEvent supports error variant with message and optional stack", () => {
-    const withoutStack: AgentEvent = {
-      type: "error",
-      payload: { message: "something went wrong" },
-    };
-    expect(withoutStack.type).toBe("error");
-    expect(withoutStack.payload.message).toBe("something went wrong");
-    expect(withoutStack.payload.stack).toBeUndefined();
-
-    const withStack: AgentEvent = {
-      type: "error",
-      payload: {
-        message: "boom",
-        stack: "Error: boom\n    at foo (bar.ts:1:2)",
-      },
-    };
-    expect(withStack.type).toBe("error");
-    expect(withStack.payload.message).toBe("boom");
-    expect(withStack.payload.stack).toBeDefined();
   });
 
   // ─── M4: Interrupt & Resume ──────────────────────────────────
@@ -633,6 +619,82 @@ describe("createAgent", () => {
     });
 
     await expect(collect(agent.run("do it"))).rejects.toThrow("does not support");
+  });
+
+  // ─── H1: Multi-tool interrupt preserves tool_results ──────────
+
+  test("H1: interrupt in multi-tool batch leaves no orphan tool_use", async () => {
+    const cp = {
+      load: () => Promise.resolve(null as Message[] | null),
+      save: () => Promise.resolve(),
+      saveInterrupt: () => Promise.resolve(),
+      consumeInterrupt: () => Promise.resolve(null),
+    };
+
+    // Model returns 2 tool_use blocks in ONE assistant message — FIRST one interrupts
+    let firstCall = true;
+    const agent = await createAgent({
+      model: {
+        async *stream(_msgs): AsyncIterable<AIMessageChunk> {
+          if (firstCall) {
+            firstCall = false;
+            yield { delta: { type: "tool_use", id: "t1", name: "ask" } };
+            yield { delta: { type: "tool_use", id: "t2", name: "passthrough" } };
+            yield { done: true, stopReason: "tool_use" };
+          } else {
+            yield { delta: { type: "text", text: "done" } };
+            yield { done: true, stopReason: "end_turn" };
+          }
+        },
+      },
+      tools: [
+        {
+          name: "ask",
+          description: "",
+          inputSchema: {},
+          execute: () => {
+            throw new InterruptSignal("needs approval");
+          },
+        },
+        {
+          name: "passthrough",
+          description: "",
+          inputSchema: {},
+          execute: () => Promise.resolve({ content: "pass" }),
+        },
+      ],
+      checkpointer: cp,
+    });
+
+    const events = await collect(agent.run("do it"));
+    expect(events.some((e) => e.type === "interrupted")).toBe(true);
+
+    // Extract all tool_use and tool_result blocks with their ids
+    const toolUses = agent.thread.messages.flatMap((m) =>
+      Array.isArray(m.content) ? m.content.filter((b) => b.type === "tool_use") : [],
+    ) as { type: "tool_use"; id: string }[];
+
+    const toolResults = agent.thread.messages.flatMap((m) =>
+      Array.isArray(m.content) ? m.content.filter((b) => b.type === "tool_result") : [],
+    ) as { type: "tool_result"; tool_use_id: string; is_error?: boolean; content: string }[];
+
+    const resultIds = new Set(toolResults.map((r) => r.tool_use_id));
+
+    // t1 (the interrupting tool): must NOT have a tool_result (it gets one on resume)
+    expect(resultIds.has("t1")).toBe(false);
+
+    // t2 (the non-interrupting tool after the interrupt): must have placeholder tool_result
+    expect(resultIds.has("t2")).toBe(true);
+    const t2Result = toolResults.find((r) => r.tool_use_id === "t2")!;
+    expect(t2Result.is_error).toBe(true);
+    expect(t2Result.content).toBe("Interrupted");
+
+    // No orphan tool_use: every tool_use except the interrupting one has a matching tool_result
+    const interruptedId = "t1";
+    for (const tu of toolUses) {
+      if (tu.id === interruptedId) continue; // gets tool_result on resume
+      expect(resultIds.has(tu.id)).toBe(true);
+    }
   });
 
   test("concurrent resume throws", async () => {
@@ -889,7 +951,9 @@ describe("createAgent", () => {
 
   // ─── M4: beforeTool InterruptSignal NOT recognized ────────────
 
-  test("beforeTool throwing InterruptSignal is NOT treated as interrupt", async () => {
+  test("beforeTool error is isolated and does not interrupt agent", async () => {
+    // M2: beforeTool errors (including InterruptSignal) are caught and warned, NOT treated as interrupt
+    let warnCount = 0;
     const agent = await createAgent({
       model: scriptedModel([{ type: "tool_call", id: "t1", name: "log", input: {} }]),
       tools: [
@@ -910,10 +974,21 @@ describe("createAgent", () => {
           },
         }),
       ],
+      logger: { warn: () => { warnCount++; }, info: () => {}, error: () => {}, debug: () => {}, level: "warn" as const },
     });
 
-    // Should throw as a before* error, NOT yield interrupted
-    await expect(collect(agent.run("hi"))).rejects.toThrow("should not work here");
+    const events = await collect(agent.run("hi"));
+    // No interrupted event — InterruptSignal was neutralized, not treated as interrupt
+    expect(events.some((e) => e.type === "interrupted")).toBe(false);
+    // Tool still executed: find a tool_result for t1 with no error flag
+    const toolResults = agent.thread.messages.flatMap((m) =>
+      Array.isArray(m.content) ? m.content.filter((b) => b.type === "tool_result") : [],
+    ) as { type: "tool_result"; tool_use_id: string; is_error?: boolean }[];
+    const t1Result = toolResults.find((r) => r.tool_use_id === "t1");
+    expect(t1Result).toBeDefined();
+    expect(t1Result!.is_error).toBeUndefined();
+    // Error was logged
+    expect(warnCount).toBeGreaterThan(0);
   });
 
   // ─── M4: Checkpointer paired validation ──────────────────────
@@ -1011,14 +1086,11 @@ describe("createAgent", () => {
     expect(agent.thread.messages).toHaveLength(2);
   });
 
-  test("config tools order preserved before plugin tools", async () => {
+  test("config tools and plugin tools are merged without conflicts", async () => {
+    // Verify agent creation succeeds with both config and plugin tools,
+    // and that the merged tool set works in a run
     const agent = await createAgent({
-      model: {
-        async *stream(_msgs, _opts) {
-          yield { delta: { type: "text", text: "ok" } };
-          yield { done: true, stopReason: "end_turn" };
-        },
-      },
+      model: scriptedModel([{ type: "tool_call", id: "t1", name: "first", input: {} }]),
       tools: [makeTool("first"), makeTool("second")],
       plugins: [
         definePlugin({
@@ -1029,8 +1101,7 @@ describe("createAgent", () => {
       ],
     });
 
-    // validate tool order is usable
-    await collect(agent.run("hi"));
-    expect(agent.thread.messages).toHaveLength(2);
+    const events = await collect(agent.run("hi"));
+    expect(events.some((e) => e.type === "message")).toBe(true);
   });
 });

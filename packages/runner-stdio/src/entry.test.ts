@@ -421,33 +421,36 @@ test("factory throws → error event (M7 N1 fix)", async () => {
 
 test("checkpointerDb passed through to createAgent", async () => {
   const events: AgentEvent[] = [msgEvent("ok")];
-  let receivedDb: unknown = undefined;
+  let receivedDb: unknown;
 
   const written: AgentEvent[] = [];
   const stderr: string[] = [];
 
-  const mockDb = {}; // Stand-in for Database — runner doesn't import bun:sqlite
+  const mockDb = { __brand: "test-database", name: "test-db" } as const;
 
   const result = await runEntry({
     specJson: makeValidSpec(),
     writeEvent: (ev) => written.push(ev),
     writeStderr: (line) => stderr.push(line),
     signal: new AbortController().signal,
-    checkpointerDb: mockDb as any,
+    checkpointerDb: mockDb as unknown as Record<string, unknown>,
     createAgent: (opts) => {
-      receivedDb = (opts as any).checkpointerDb;
+      receivedDb = (opts as unknown as Record<string, unknown>).checkpointerDb;
       return Promise.resolve(makeMockAgent(events));
     },
   });
 
   expect(result).toBe(0);
+  // Verify the same distinctive object was passed through (not a copy or different object)
   expect(receivedDb).toBe(mockDb);
+  expect((receivedDb as typeof mockDb)?.__brand).toBe("test-database");
 });
 
 // ─── M8: backward compat — no checkpointerDb still works ──────
 
 test("old EntryIO without checkpointerDb still works", async () => {
   const events: AgentEvent[] = [msgEvent("hello")];
+  let receivedDb: unknown = "not-set";
 
   const written: AgentEvent[] = [];
   const stderr: string[] = [];
@@ -458,9 +461,14 @@ test("old EntryIO without checkpointerDb still works", async () => {
     writeEvent: (ev) => written.push(ev),
     writeStderr: (line) => stderr.push(line),
     signal: new AbortController().signal,
-    createAgent: () => Promise.resolve(makeMockAgent(events)),
+    createAgent: (opts) => {
+      receivedDb = (opts as unknown as Record<string, unknown>).checkpointerDb;
+      return Promise.resolve(makeMockAgent(events));
+    },
   });
 
   expect(result).toBe(0);
   expect(written.length).toBe(1);
+  // verify checkpointerDb is undefined when omitted
+  expect(receivedDb).toBeUndefined();
 });

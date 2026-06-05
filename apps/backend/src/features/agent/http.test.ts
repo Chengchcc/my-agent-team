@@ -1,42 +1,60 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentPort } from "./ports.js";
 import type { AgentRow } from "./domain.js";
-import { createAgentService } from "./service.js";
 import { agentRoutes } from "./http.js";
+import type { AgentPort } from "./ports.js";
+import { createAgentService } from "./service.js";
 
 function makeSvc() {
   const rows = new Map<string, AgentRow>();
   const port: AgentPort = {
     async create(input) {
       const row: AgentRow = {
-        id: input.id, name: input.name, template: input.template ?? null,
+        id: input.id,
+        name: input.name,
+        template: input.template ?? null,
         workspacePath: input.workspacePath,
-        modelProvider: input.model.provider, modelName: input.model.model,
+        modelProvider: input.model.provider,
+        modelName: input.model.model,
         modelBaseUrl: input.model.baseURL ?? null,
-        permissionMode: input.permissionMode ?? "ask", maxSteps: input.maxSteps ?? null,
-        createdAt: input.now, updatedAt: input.now, archivedAt: null,
+        permissionMode: input.permissionMode ?? "ask",
+        maxSteps: input.maxSteps ?? null,
+        createdAt: input.now,
+        updatedAt: input.now,
+        archivedAt: null,
       };
       rows.set(input.id, row);
       return row;
     },
-    async findById(id) { return rows.get(id) ?? null; },
-    async list() { return [...rows.values()].filter((r) => r.archivedAt === null); },
+    async findById(id) {
+      return rows.get(id) ?? null;
+    },
+    async list() {
+      return [...rows.values()].filter((r) => r.archivedAt === null);
+    },
     async update(id, input) {
-      const r = rows.get(id); if (!r || r.archivedAt) return null;
+      const r = rows.get(id);
+      if (!r || r.archivedAt) return null;
       if (input.name !== undefined) r.name = input.name;
       if (input.permissionMode !== undefined) r.permissionMode = input.permissionMode;
       r.updatedAt = input.now;
       return r;
     },
     async archive(id, now) {
-      const r = rows.get(id); if (!r || r.archivedAt) return null;
-      r.archivedAt = now; r.updatedAt = now; return r;
+      const r = rows.get(id);
+      if (!r || r.archivedAt) return null;
+      r.archivedAt = now;
+      r.updatedAt = now;
+      return r;
     },
   };
-  return agentRoutes(createAgentService({
-    port, idGen: () => crypto.randomUUID().slice(0, 8), workspaceRoot: "/tmp",
-    materializeWorkspace: async (id) => `/tmp/ws/${id}`,
-  }));
+  return agentRoutes(
+    createAgentService({
+      port,
+      idGen: () => crypto.randomUUID().slice(0, 8),
+      workspaceRoot: "/tmp",
+      materializeWorkspace: async (id) => `/tmp/ws/${id}`,
+    }),
+  );
 }
 
 async function readJson(resp: Response): Promise<unknown> {
@@ -70,10 +88,13 @@ describe("agent HTTP routes", () => {
 
   test("GET /api/agents returns list", async () => {
     const routes = makeSvc();
-    await routes.create(new Request("http://localhost/api/agents", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "a1", model: { provider: "a", model: "m" } }),
-    }));
+    await routes.create(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "a1", model: { provider: "a", model: "m" } }),
+      }),
+    );
     const resp = await routes.list(new Request("http://localhost/api/agents"));
     expect(resp.status).toBe(200);
     const body = (await readJson(resp)) as unknown[];
@@ -88,13 +109,17 @@ describe("agent HTTP routes", () => {
 
   test("PATCH /api/agents/:id updates agent", async () => {
     const routes = makeSvc();
-    const createResp = await routes.create(new Request("http://localhost/api/agents", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "old", model: { provider: "a", model: "m" } }),
-    }));
+    const createResp = await routes.create(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "old", model: { provider: "a", model: "m" } }),
+      }),
+    );
     const created = (await readJson(createResp)) as { id: string };
     const req = new Request(`http://localhost/api/agents/${created.id}`, {
-      method: "PATCH", headers: { "content-type": "application/json" },
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "new" }),
     });
     const resp = await routes.update(req, created.id);
@@ -105,12 +130,18 @@ describe("agent HTTP routes", () => {
 
   test("DELETE /api/agents/:id archives agent", async () => {
     const routes = makeSvc();
-    const createResp = await routes.create(new Request("http://localhost/api/agents", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "a", model: { provider: "a", model: "m" } }),
-    }));
+    const createResp = await routes.create(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "a", model: { provider: "a", model: "m" } }),
+      }),
+    );
     const created = (await readJson(createResp)) as { id: string };
-    const resp = await routes.archive(new Request(`http://localhost/api/agents/${created.id}`), created.id);
+    const resp = await routes.archive(
+      new Request(`http://localhost/api/agents/${created.id}`),
+      created.id,
+    );
     expect(resp.status).toBe(200);
   });
 });

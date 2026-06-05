@@ -1,1 +1,1 @@
-export { fsMemoryPlugin, type FsMemoryOptions } from "./fs-memory.js";
+export { type FsMemoryOptions, fsMemoryPlugin } from "./fs-memory.js";
