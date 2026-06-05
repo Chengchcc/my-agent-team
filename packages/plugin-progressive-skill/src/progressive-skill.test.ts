@@ -137,4 +137,29 @@ describe("progressiveSkillPlugin", () => {
     expect(result.content).toContain("/extract.py");
     expect(result.content).not.toContain("${SKILL_DIR}");
   });
+
+  test("other placeholders like ${HOME} are preserved as-is", async () => {
+    const tmpDir = `${import.meta.dir}/test-psk-other-${crypto.randomUUID()}`;
+    await mkdir(`${tmpDir}/other-skill`, { recursive: true });
+    try {
+      await writeFile(
+        `${tmpDir}/other-skill/SKILL.md`,
+        [
+          "---",
+          "name: other-skill",
+          "description: Tests placeholder preservation",
+          "---",
+          "",
+          "Home dir is ${HOME}, memory is at ${MEMORY_DIR}.",
+        ].join("\n"),
+      );
+      invalidateSkillCache();
+      const plugin = progressiveSkillPlugin({ dir: tmpDir });
+      const result = await plugin.tools![0]!.execute({ name: "other-skill" });
+      expect(result.content).toContain("${HOME}");
+      expect(result.content).toContain("${MEMORY_DIR}");
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  });
 });

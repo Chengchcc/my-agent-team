@@ -1,7 +1,7 @@
 import type { Message } from "@my-agent-team/core";
 import type { Plugin } from "@my-agent-team/framework";
 import { stat } from "node:fs/promises";
-import { loadSkillIndexWithMtimeCache } from "./cache.js";
+import { loadSkillIndexWithMtimeCache, type SkillMeta } from "./cache.js";
 import { skillLoadTool } from "./skill-load.js";
 
 export interface ProgressiveSkillOptions {
@@ -31,7 +31,7 @@ export function progressiveSkillPlugin(options: ProgressiveSkillOptions): Plugin
           }
         }
 
-        let skills;
+        let skills: SkillMeta[];
         try {
           skills = await loadSkillIndexWithMtimeCache(dir, ctx.logger);
         } catch (err) {
