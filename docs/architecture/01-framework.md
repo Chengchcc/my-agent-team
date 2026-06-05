@@ -57,7 +57,7 @@ interface PluginHooks {
   beforeModel?(ctx: HookContext, messages: readonly Message[]): Message[] | Promise<Message[]>;
   afterModel?(ctx: HookContext, messages: readonly Message[]): void | Promise<void>;
   beforeTool?(ctx: HookContext, call: ToolUseBlock, messages: readonly Message[]):
-    | { skip?: boolean; input?: unknown }
+    | { skip?: boolean; input?: unknown; result?: string }
     | void
     | Promise<...>;
   afterTool?(ctx: HookContext, call: ToolUseBlock, result: ToolResultBlock, messages: readonly Message[]):
@@ -118,6 +118,67 @@ agent.run(input)
   ↓
   loop until no tool_use or maxSteps
 ```
+
+---
+
+## 语义细节
+
+### 1. `beforeModel` 执行时机
+
+**每个 loop step 调一次，在 `model.stream()` 之前执行。** 不是每个 chunk 调一次。
+
+```
+for step in 0..maxSteps:
+  messages = await fireBeforeModel(ctx, messages)  // ← 一次
+  for await chunk in model.stream(messages):
+    yield
+```
+
+多轮 tool 调用场景（step 1 调 tool，step 2 回文本）——每轮都调 `beforeModel`。
+
+### 2. Checkpointer 应挂 `afterTool`，非 `afterModel`
+
+`afterModel` 时刻，messages 末尾是带 `tool_use` 的 assistant 消息。如果进程在这里崩、恢复后再调 API，Anthropic 会拒绝（assistant 消息末尾有 tool_use 时，必须紧跟 user 消息提供 tool_result）。
+
+`afterTool` 时刻，tool_result 已经 push 进 messages，末尾是 user 角色。**恢复后直接可入 API，不需要额外修复**。
+
+checkpointer 必须挂 `afterTool`。如果未来需要"纯文本对话不调 tool 也要落盘"，加 `afterModel` 支持——此时没有 tool_use，末尾是 text，恢复安全。
+
+### 3. `before*` 管道链
+
+多个插件挂同一个 `before*` 钩子时，**按 plugins 数组顺序依次调用，上一个的返回值作为下一个的输入**：
+
+```ts
+async function fireBeforeModel(plugins: Plugin[], ctx: HookContext, msgs: Message[]): Message[] {
+  for (const p of plugins) {
+    if (p.hooks.beforeModel) {
+      msgs = (await p.hooks.beforeModel(ctx, msgs)) ?? msgs;
+    }
+  }
+  return msgs;
+}
+```
+
+`beforeTool` 同理：上一个插件改写后的 `{ input }` 传给下一个。
+
+### 4. `beforeTool` skip 语义
+
+`{ skip: true }` 时，tool 不执行。Framework 自动 push 一条 `tool_result` 进 messages，以跳过语义告知 LLM：
+
+| 返回值 | Framework 行为 |
+|---|---|
+| `{ skip: true }` | push `{ type: "tool_result", tool_use_id: call.id, content: "Tool skipped" }` |
+| `{ skip: true, result: "权限被拒" }` | push `{ tool_use_id: call.id, content: "权限被拒", is_error: true }` |
+| `{ skip: true, result: "后续再说" }` | push `{ tool_use_id: call.id, content: "后续再说" }` |
+| `{ input: x }` (无 skip) | 以改写后的 input 执行 tool |
+| `undefined` (无返回) | 原样执行 |
+
+`result` 字段让权限拒绝、请求暂缓、用户取消等场景可以干净表达。
+
+### 5. Plugin 错误隔离
+
+- **`before*` 抛错 → 整轮 abort。** `beforeModel`/`beforeTool` 返回的是关键数据，坏了无法继续。错误抛出到 `agent.run()` 的调用方
+- **`after*` 抛错 → 吞掉 + `console.warn`。** logger 或 checkpointer 的副作用失败不应拖死 agent。但 framework 会在 warn 中带上 plugin name 和错误信息，方便排查
 
 ---
 
