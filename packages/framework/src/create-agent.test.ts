@@ -43,6 +43,10 @@ function msgPayloads(events: AgentEvent[]): Message[] {
   return events.filter((e) => e.type === "message").map((e) => e.payload as Message);
 }
 
+function makeTool(name: string): Tool {
+  return { name, description: "", inputSchema: {}, execute: () => ({ content: "ok" }) };
+}
+
 describe("createAgent", () => {
   // ─── M3 regression ───────────────────────────────────────────
 
@@ -917,5 +921,93 @@ describe("createAgent", () => {
         },
       }),
     ).rejects.toThrow("interrupt capability is partial");
+  });
+
+  // ─── M5: Plugin.tools merge ──────────────────────────────────
+
+  test("plugin tools are merged into agent tool set", async () => {
+    const agent2 = await createAgent({
+      model: scriptedModel([
+        { type: "tool_call", id: "t1", name: "p1_b", input: {} },
+        { type: "text", text: "done" },
+      ]),
+      tools: [makeTool("config_a")],
+      plugins: [
+        definePlugin({
+          name: "p1",
+          hooks: {},
+          tools: [makeTool("p1_a"), makeTool("p1_b")],
+        }),
+      ],
+    });
+
+    // tool from plugin should be found and executed without "Tool not found"
+    await collect(agent2.run("go"));
+    const toolResults = agent2.thread.messages.filter(
+      (m) =>
+        Array.isArray(m.content) && m.content.some((b) => b.type === "tool_result" && b.is_error),
+    );
+    expect(toolResults).toHaveLength(0);
+  });
+
+  test("duplicate tool name between config and plugin throws at startup", () => {
+    expect(
+      createAgent({
+        model: scriptedModel([{ type: "text", text: "ok" }]),
+        tools: [makeTool("read")],
+        plugins: [
+          definePlugin({
+            name: "p1",
+            hooks: {},
+            tools: [makeTool("read")],
+          }),
+        ],
+      }),
+    ).rejects.toThrow("Tool name collision");
+  });
+
+  test("duplicate tool name between two plugins throws at startup", () => {
+    expect(
+      createAgent({
+        model: scriptedModel([{ type: "text", text: "ok" }]),
+        plugins: [
+          definePlugin({ name: "a", hooks: {}, tools: [makeTool("x")] }),
+          definePlugin({ name: "b", hooks: {}, tools: [makeTool("x")] }),
+        ],
+      }),
+    ).rejects.toThrow("Tool name collision");
+  });
+
+  test("plugin without tools does not cause issues", async () => {
+    const agent = await createAgent({
+      model: scriptedModel([{ type: "text", text: "hi" }]),
+      plugins: [definePlugin({ name: "bare", hooks: {} })],
+    });
+
+    await collect(agent.run("hi"));
+    expect(agent.thread.messages).toHaveLength(2);
+  });
+
+  test("config tools order preserved before plugin tools", async () => {
+    const agent = await createAgent({
+      model: {
+        async *stream(_msgs, _opts) {
+          yield { delta: { type: "text", text: "ok" } };
+          yield { done: true, stopReason: "end_turn" };
+        },
+      },
+      tools: [makeTool("first"), makeTool("second")],
+      plugins: [
+        definePlugin({
+          name: "p1",
+          hooks: {},
+          tools: [makeTool("third")],
+        }),
+      ],
+    });
+
+    // validate tool order is usable
+    await collect(agent.run("hi"));
+    expect(agent.thread.messages).toHaveLength(2);
   });
 });

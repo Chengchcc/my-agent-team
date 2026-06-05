@@ -6,6 +6,7 @@ import type { ContextManager } from "./context-manager.js";
 import { passthroughContextManager } from "./context-managers/passthrough.js";
 import { consoleLogger, type Logger } from "./logger.js";
 import type { HookContext, Plugin } from "./plugin.js";
+import { validatePlugins } from "./plugin.js";
 import { createThread, type Thread } from "./thread.js";
 
 export interface Interrupt {
@@ -69,9 +70,9 @@ function createAgentInternal(
   },
 ): Agent {
   const thread = createThread(config._initialMessages, config.threadId);
-  const tools = config.tools ?? [];
-  const toolMap = new Map(tools.map((t) => [t.name, t]));
   const plugins = [...(config.plugins ?? [])];
+  const tools = validatePlugins(plugins, config.tools);
+  const toolMap = new Map(tools.map((t) => [t.name, t]));
   const systemPrompt = config.systemPrompt;
   const checkpointer = config.checkpointer;
   const contextManager = config.contextManager ?? passthroughContextManager();

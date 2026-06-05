@@ -22,5 +22,11 @@ export {
   type ResumeCommand,
 } from "./create-agent.js";
 export { consoleLogger, type Logger, type LogLevel, noopLogger } from "./logger.js";
-export { definePlugin, type HookContext, type Plugin, type PluginHooks } from "./plugin.js";
+export {
+  definePlugin,
+  type HookContext,
+  type Plugin,
+  type PluginHooks,
+  validatePlugins,
+} from "./plugin.js";
 export type { Thread } from "./thread.js";

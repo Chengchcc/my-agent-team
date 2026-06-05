@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { Message, ToolUseBlock } from "@my-agent-team/core";
+import type { Message, Tool, ToolUseBlock } from "@my-agent-team/core";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 import { passthroughContextManager } from "./context-managers/passthrough.js";
 import { consoleLogger } from "./logger.js";
-import { definePlugin, type HookContext } from "./plugin.js";
+import { definePlugin, type HookContext, validatePlugins } from "./plugin.js";
 
 function testCtx(overrides?: Partial<HookContext>): HookContext {
   return {
@@ -101,5 +101,94 @@ describe("definePlugin", () => {
     const result = await plugin.hooks.beforeTool?.(testCtx(), call, []);
 
     expect(result).toEqual({ skip: true, result: "not allowed" });
+  });
+
+  test("definePlugin preserves tools field", () => {
+    const tools: readonly Tool[] = [
+      { name: "t1", description: "", inputSchema: {}, execute: () => ({ content: "ok" }) },
+    ];
+
+    const plugin = definePlugin({
+      name: "with-tools",
+      hooks: {},
+      tools,
+    });
+
+    expect(plugin.tools).toBe(tools);
+    expect(plugin.tools).toHaveLength(1);
+  });
+
+  test("definePlugin without tools has undefined tools", () => {
+    const plugin = definePlugin({ name: "no-tools", hooks: {} });
+    expect(plugin.tools).toBeUndefined();
+  });
+});
+
+function makeTool(name: string): Tool {
+  return { name, description: "", inputSchema: {}, execute: () => ({ content: "ok" }) };
+}
+
+describe("validatePlugins", () => {
+  test("returns merged tools from config and plugins", () => {
+    const configTools: readonly Tool[] = [makeTool("config_a")];
+    const plugins = [
+      definePlugin({ name: "p1", hooks: {}, tools: [makeTool("p1_a")] }),
+      definePlugin({ name: "p2", hooks: {}, tools: [makeTool("p2_a")] }),
+    ];
+
+    const merged = validatePlugins(plugins, configTools);
+    expect(merged.map((t) => t.name)).toEqual(["config_a", "p1_a", "p2_a"]);
+  });
+
+  test("works with only config tools", () => {
+    const merged = validatePlugins([], [makeTool("a"), makeTool("b")]);
+    expect(merged.map((t) => t.name)).toEqual(["a", "b"]);
+  });
+
+  test("works with only plugin tools", () => {
+    const plugins = [definePlugin({ name: "p1", hooks: {}, tools: [makeTool("x")] })];
+    const merged = validatePlugins(plugins);
+    expect(merged.map((t) => t.name)).toEqual(["x"]);
+  });
+
+  test("works with empty plugins and empty config", () => {
+    const merged = validatePlugins([]);
+    expect(merged).toEqual([]);
+  });
+
+  test("plugin without tools field is ignored", () => {
+    const plugins = [
+      definePlugin({ name: "no-tools", hooks: {} }),
+      definePlugin({ name: "with-tools", hooks: {}, tools: [makeTool("good")] }),
+    ];
+    const merged = validatePlugins(plugins, []);
+    expect(merged.map((t) => t.name)).toEqual(["good"]);
+  });
+
+  test("throws on collision between config and plugin tool", () => {
+    const plugins = [definePlugin({ name: "my-plugin", hooks: {}, tools: [makeTool("read")] })];
+
+    expect(() => validatePlugins(plugins, [makeTool("read")])).toThrow(
+      "Tool name collision: 'read' declared by both 'config.tools' and plugin 'my-plugin'",
+    );
+  });
+
+  test("throws on collision between two plugins", () => {
+    const plugins = [
+      definePlugin({ name: "alpha", hooks: {}, tools: [makeTool("shared")] }),
+      definePlugin({ name: "beta", hooks: {}, tools: [makeTool("shared")] }),
+    ];
+
+    expect(() => validatePlugins(plugins, [])).toThrow(
+      "Tool name collision: 'shared' declared by both 'plugin:alpha' and plugin 'beta'",
+    );
+  });
+
+  test("error message names both collision sources", () => {
+    const plugins = [definePlugin({ name: "collider", hooks: {}, tools: [makeTool("boom")] })];
+
+    expect(() => validatePlugins(plugins, [makeTool("boom")])).toThrow("boom");
+    expect(() => validatePlugins(plugins, [makeTool("boom")])).toThrow("config.tools");
+    expect(() => validatePlugins(plugins, [makeTool("boom")])).toThrow("collider");
   });
 });
