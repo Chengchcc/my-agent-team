@@ -63,8 +63,12 @@ async function runGenericHarnessLoop(agent: Agent): Promise<void> {
   while (true) {
     const line = await rl.question("> ");
     if (line === "") continue;
-    for await (const event of agent.run(line)) {
-      renderEvent(event);
+    try {
+      for await (const event of agent.run(line)) {
+        renderEvent(event);
+      }
+    } catch (err) {
+      console.error("Error:", err instanceof Error ? err.message : String(err));
     }
     console.log();
   }
