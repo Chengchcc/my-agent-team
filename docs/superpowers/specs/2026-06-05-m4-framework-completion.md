@@ -143,7 +143,21 @@ function consoleLogger(options?: { level?: LogLevel }): Logger;
 
 **删除** `packages/framework/src/plugins/` 整个目录——framework 零内置 plugin。consoleLogger 和 slidingWindow 源码保留但迁移到正确位置。
 
-### 3.7 `createAgent` 集成
+### 3.7 HookContext 扩展
+
+`HookContext` 加入三大内化能力，plugin 可访问 Logger / Checkpointer / ContextManager：
+
+```ts
+interface HookContext {
+  threadId: string;
+  signal?: AbortSignal;
+  logger: Logger;
+  checkpointer: Checkpointer;
+  contextManager: ContextManager;
+}
+```
+
+### 3.8 `createAgent` 集成
 
 **AgentConfig 新增字段：**
 

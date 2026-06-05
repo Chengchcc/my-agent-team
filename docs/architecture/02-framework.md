@@ -74,6 +74,9 @@ interface Plugin {
 interface HookContext {
   threadId: string;
   signal?: AbortSignal;
+  logger: Logger;
+  checkpointer: Checkpointer;
+  contextManager: ContextManager;
 }
 
 interface PluginHooks {
