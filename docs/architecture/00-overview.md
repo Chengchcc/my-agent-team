@@ -16,17 +16,17 @@ L1 Protocols   类型契约：Message / ChatModel / Tool
 
 ## Milestone 交付
 
-| Milestone | 交付 |
-|---|---|
-| M1 | `@my-agent-team/core`（L1+L2）+ `@my-agent-team/test-helpers` |
-| M2 | `@my-agent-team/adapter-anthropic` + `@my-agent-team/tools-common` + `@my-agent-team/cli` |
-| M3 | `@my-agent-team/framework`（L3 骨架） |
-| M4 | framework 补齐（resume / Interrupt / ContextManager / Logger / Checkpointer 6 法） |
-| M5 | `@my-agent-team/plugin-fs-memory` + `@my-agent-team/plugin-progressive-skill` + framework `Plugin.tools` 静态字段 |
-| M6 | `@my-agent-team/agent-spec`（zod wire schema）|
-| M7 | `@my-agent-team/harness-generic`（L4，file-driven harness） |
-| M8 | `apps/backend`（L5）+ `@my-agent-team/runner-stdio`（首个 runner 形态） |
-| M9+ | `@my-agent-team/runner-http`、`templates/*`（领域模板）、sandbox 集成 |
+| Milestone | 交付 | 状态 |
+|---|---|---|
+| M1 | `@my-agent-team/core`（L1+L2）+ `@my-agent-team/test-helpers` | ✅ |
+| M2 | `@my-agent-team/adapter-anthropic` + `@my-agent-team/tools-common` + `@my-agent-team/cli` | ✅ |
+| M3 | `@my-agent-team/framework`（L3 骨架） | ✅ |
+| M4 | framework 补齐（resume / Interrupt / ContextManager / Logger / Checkpointer 6 法） | ✅ |
+| M5 | plugin-fs-memory + plugin-progressive-skill + framework `Plugin.tools` | ✅ |
+| **M6** | **`@my-agent-team/harness` + tools-common 4 tool + cli `--workspace`** | ✅ |
+| M7 | `@my-agent-team/agent-spec` + `runner-core` + `runner-stdio` + cli `runner` 子命令 | 待定 |
+| M8 | `apps/backend`（L5）+ `@my-agent-team/plugin-permission` | 待定 |
+| M9+ | `runner-http`、`templates/*`、sandbox 集成 | 待定 |
 
 ## 架构文档
 
