@@ -121,13 +121,15 @@ function createAgentInternal(
   async function fireBeforeTool(
     call: ToolUseBlock,
     msgs: readonly Message[],
-  ): Promise<{ skip?: boolean; input?: unknown; result?: string } | undefined> {
-    let decision: { skip?: boolean; input?: unknown; result?: string } | undefined;
+  ): Promise<{ skip?: boolean; input?: unknown; result?: string; isError?: boolean } | undefined> {
+    let decision:
+      | { skip?: boolean; input?: unknown; result?: string; isError?: boolean }
+      | undefined;
     for (const p of plugins) {
       if (p.hooks.beforeTool) {
         const d = await p.hooks.beforeTool(ctx, call, msgs);
         if (d) {
-          if (d.skip) decision = { ...decision, skip: true, result: d.result };
+          if (d.skip) decision = { ...decision, skip: true, result: d.result, isError: d.isError };
           if (d.input !== undefined) decision = { ...decision, input: d.input };
         }
       }
@@ -179,7 +181,7 @@ function createAgentInternal(
     if (decision?.skip) {
       const r = wrapToolResult(call, {
         content: decision.result ?? "Tool skipped",
-        isError: decision.result ? true : undefined,
+        isError: decision.isError ?? (decision.result ? true : undefined),
       });
       thread.messages.push({ role: "user", content: [r] } as Message);
       await save(thread.messages);

@@ -81,6 +81,7 @@ describe("fileCheckpointer", () => {
 
     expect(cp.save("../../etc/passwd", [])).rejects.toThrow("Invalid threadId");
     expect(cp.save("..", [])).rejects.toThrow("Invalid threadId");
+    expect(cp.save("....", [])).rejects.toThrow("Invalid threadId");
     expect(cp.save(".hidden", [])).rejects.toThrow("Invalid threadId");
     expect(cp.save("ok-id", [])).resolves.toBeUndefined();
   });

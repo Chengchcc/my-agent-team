@@ -19,9 +19,9 @@ export interface PluginHooks {
     call: ToolUseBlock,
     messages: readonly Message[],
   ):
-    | { skip?: boolean; input?: unknown; result?: string }
+    | { skip?: boolean; input?: unknown; result?: string; isError?: boolean }
     | undefined
-    | Promise<{ skip?: boolean; input?: unknown; result?: string } | undefined>;
+    | Promise<{ skip?: boolean; input?: unknown; result?: string; isError?: boolean } | undefined>;
   afterTool?(
     ctx: HookContext,
     call: ToolUseBlock,

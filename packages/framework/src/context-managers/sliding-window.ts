@@ -57,12 +57,7 @@ function findTurnEnd(messages: readonly Message[], userIdx: number): number {
   const userMsg = messages[userIdx];
   if (!userMsg || userMsg.role !== "user") return userIdx + 1;
 
-  const content = Array.isArray(userMsg.content) ? userMsg.content : [];
-  const _toolResultIds = new Set(
-    content.filter((b) => b.type === "tool_result").map((b) => b.tool_use_id),
-  );
-
-  // If this is a tool_result user message, find the preceding assistant
+  // Scan for the next standalone user message (not a tool_result continuation)
   let nextUser = messages.length;
   for (let j = userIdx + 1; j < messages.length; j++) {
     if (messages[j]?.role === "user") {

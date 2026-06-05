@@ -61,4 +61,48 @@ describe("summarizingContextManager", () => {
     // keepRecent=10 covers all messages, old is empty → passthrough
     expect(result).toEqual(messages);
   });
+
+  test("tier 2: uses summarizerModel with built-in prompt", async () => {
+    const messages = msgs(20);
+    const modelUsed: { streamCalled: boolean } = { streamCalled: false };
+
+    const customModel = {
+      stream: async function* () {
+        modelUsed.streamCalled = true;
+        yield { done: true, stopReason: "end_turn" as const };
+      },
+    };
+
+    await summarizingContextManager({
+      triggerAt: 10,
+      keepRecent: 2,
+      summarizerModel: customModel,
+      countTokens: () => 1000,
+    }).shape(ctx, messages);
+
+    expect(modelUsed.streamCalled).toBe(true);
+  });
+
+  test("tier 3: uses ctx.model when no summarizer or summarizerModel", async () => {
+    const messages = msgs(20);
+    const called = { value: false };
+
+    const ctxWithModel = {
+      ...ctx,
+      model: {
+        stream: async function* () {
+          called.value = true;
+          yield { done: true, stopReason: "end_turn" as const };
+        },
+      },
+    };
+
+    await summarizingContextManager({
+      triggerAt: 10,
+      keepRecent: 2,
+      countTokens: () => 1000,
+    }).shape(ctxWithModel, messages);
+
+    expect(called.value).toBe(true);
+  });
 });

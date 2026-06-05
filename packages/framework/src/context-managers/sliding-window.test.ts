@@ -75,4 +75,28 @@ describe("slidingWindowContextManager", () => {
     const result = await slidingWindowContextManager({ maxTurns: 1 }).shape(ctx, []);
     expect(result).toEqual([]);
   });
+
+  test("pairing-aware: dropping a turn with tool_use drops associated tool_result", async () => {
+    const msgs: Message[] = [
+      { role: "user", content: "u1" },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "t1", name: "read", input: {} }],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "t1", content: "file content" }],
+      },
+      { role: "user", content: "u2" },
+      { role: "assistant", content: "a2" },
+    ];
+
+    const result = await slidingWindowContextManager({ maxTurns: 1 }).shape(ctx, msgs);
+
+    // Only u2 + a2 should remain; u1 + tool_use + tool_result should be dropped together
+    expect(result).toEqual([
+      { role: "user", content: "u2" },
+      { role: "assistant", content: "a2" },
+    ]);
+  });
 });

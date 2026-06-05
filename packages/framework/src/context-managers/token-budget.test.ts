@@ -87,4 +87,19 @@ describe("tokenBudgetContextManager", () => {
     expect(customCalled.length).toBeGreaterThan(0);
     expect(modelCountCalled.length).toBe(0);
   });
+
+  test("async countTokens works correctly", async () => {
+    const messages = msgs(10);
+    const result = await tokenBudgetContextManager({
+      maxTokens: 1000,
+      reserveForOutput: 500,
+      countTokens: async (m) => m.length * 100,
+    }).shape(ctx, messages);
+
+    expect(result.length).toBeLessThan(messages.length);
+    expect(result.length).toBeGreaterThan(0);
+    // last message preserved (from tail)
+    const last = result.at(-1);
+    expect(last).toEqual(messages.at(-1));
+  });
 });
