@@ -2,43 +2,44 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { readFact, type Fact } from "./frontmatter.js";
 
-let memCache: { content: string; mtime: number } | null = null;
+const memCaches = new Map<string, { content: string; mtime: number }>();
 
 export async function readMemoryWithMtimeCache(dir: string): Promise<string> {
   const memPath = path.join(dir, "MEMORY.md");
   try {
     const s = await stat(memPath);
-    if (!memCache || memCache.mtime !== s.mtimeMs) {
-      memCache = {
-        content: await readFile(memPath, "utf-8"),
-        mtime: s.mtimeMs,
-      };
+    const cached = memCaches.get(dir);
+    if (!cached || cached.mtime !== s.mtimeMs) {
+      const entry = { content: await readFile(memPath, "utf-8"), mtime: s.mtimeMs };
+      memCaches.set(dir, entry);
+      return entry.content;
     }
-    return memCache.content;
+    return cached.content;
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return "";
     throw err;
   }
 }
 
-let factsCache: { facts: Fact[]; mtime: number } | null = null;
+const factsCaches = new Map<string, { facts: Fact[]; mtime: number }>();
 
 export async function loadAllFactsWithMtimeCache(dir: string): Promise<Fact[]> {
   const factsDir = path.join(dir, "facts");
   const dirStat = await stat(factsDir);
-  if (factsCache && factsCache.mtime === dirStat.mtimeMs) return factsCache.facts;
+  const cached = factsCaches.get(dir);
+  if (cached && cached.mtime === dirStat.mtimeMs) return cached.facts;
 
   const files = await readdir(factsDir);
   const mdFiles = files.filter((f) => f.endsWith(".md"));
   const facts = await Promise.all(mdFiles.map((f) => readFact(path.join(factsDir, f))));
-  factsCache = { facts, mtime: dirStat.mtimeMs };
+  factsCaches.set(dir, { facts, mtime: dirStat.mtimeMs });
   return facts;
 }
 
-export function invalidateFactsCache(): void {
-  factsCache = null;
+export function invalidateFactsCache(dir: string): void {
+  factsCaches.delete(dir);
 }
 
-export function invalidateMemCache(): void {
-  memCache = null;
+export function invalidateMemCache(dir: string): void {
+  memCaches.delete(dir);
 }

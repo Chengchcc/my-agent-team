@@ -21,7 +21,7 @@ export function memoryWriteTool(opts: { dir: string }): Tool {
     async execute(input: unknown) {
       const { content, tags } = input as { content: string; tags?: string[] };
       const path = await writeFact(opts.dir, { content, tags });
-      invalidateFactsCache();
+      invalidateFactsCache(opts.dir);
       return { content: JSON.stringify({ path }) };
     },
   };

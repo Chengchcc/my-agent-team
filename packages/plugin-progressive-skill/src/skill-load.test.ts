@@ -34,7 +34,7 @@ describe("skill_load", () => {
   });
 
   test("loads skill body without frontmatter", async () => {
-    invalidateSkillCache();
+    invalidateSkillCache(dir);
     const tool = skillLoadTool({ dir });
     const result = await tool.execute({ name: "test-skill" });
     expect(result.content).toContain("This is the body of the test skill.");
@@ -43,7 +43,7 @@ describe("skill_load", () => {
   });
 
   test("returns isError when skill not found", async () => {
-    invalidateSkillCache();
+    invalidateSkillCache(dir);
     const tool = skillLoadTool({ dir });
     const result = await tool.execute({ name: "nonexistent" });
     expect(result.isError).toBe(true);
@@ -51,7 +51,7 @@ describe("skill_load", () => {
   });
 
   test("offset paging for long body", async () => {
-    invalidateSkillCache();
+    invalidateSkillCache(dir);
     const tool = skillLoadTool({ dir, maxCharsPerLoad: 30 });
     const r1 = await tool.execute({ name: "test-skill" });
     expect(r1.content).toContain("[Truncated");
@@ -65,7 +65,7 @@ describe("skill_load", () => {
   });
 
   test("fully loaded when offset exceeds body", async () => {
-    invalidateSkillCache();
+    invalidateSkillCache(dir);
     const tool = skillLoadTool({ dir });
     const result = await tool.execute({ name: "test-skill", offset: 99999 });
     expect(result.content).toContain("fully loaded");

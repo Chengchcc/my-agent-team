@@ -7,7 +7,7 @@ describe("memory_search", () => {
   test("returns empty array when no match", async () => {
     const dir = `${import.meta.dir}/test-search-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}/facts`.quiet();
-    invalidateFactsCache();
+    invalidateFactsCache(dir);
     try {
       const result = await memorySearchTool({ dir, searchLimit: 5 }).execute({ query: "nothing" });
       const parsed = JSON.parse(result.content as string);
@@ -20,7 +20,7 @@ describe("memory_search", () => {
   test("finds fact by tag (score 3), title (score 2), body (score 1)", async () => {
     const dir = `${import.meta.dir}/test-search-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}/facts`.quiet();
-    invalidateFactsCache();
+    invalidateFactsCache(dir);
     try {
       // Body-only match (score 1) — "match" only in body, not in title or tags
       await memoryWriteTool({ dir }).execute({
@@ -48,7 +48,7 @@ describe("memory_search", () => {
   test("title match scores higher than body match", async () => {
     const dir = `${import.meta.dir}/test-search-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}/facts`.quiet();
-    invalidateFactsCache();
+    invalidateFactsCache(dir);
     try {
       // Title contains "priority" (score 2 if title includes query)
       await memoryWriteTool({ dir }).execute({ content: "## priority task\nThe body.", tags: [] });
@@ -72,7 +72,7 @@ describe("memory_search", () => {
   test("respects limit", async () => {
     const dir = `${import.meta.dir}/test-search-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}/facts`.quiet();
-    invalidateFactsCache();
+    invalidateFactsCache(dir);
     try {
       await memoryWriteTool({ dir }).execute({ content: "a1", tags: ["word"] });
       await memoryWriteTool({ dir }).execute({ content: "a2", tags: ["word"] });
@@ -89,7 +89,7 @@ describe("memory_search", () => {
   test("Chinese substring search works", async () => {
     const dir = `${import.meta.dir}/test-search-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}/facts`.quiet();
-    invalidateFactsCache();
+    invalidateFactsCache(dir);
     try {
       await memoryWriteTool({ dir }).execute({ content: "用户喜欢简洁回答", tags: ["偏好"] });
 
@@ -104,7 +104,7 @@ describe("memory_search", () => {
   test("case-insensitive search", async () => {
     const dir = `${import.meta.dir}/test-search-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}/facts`.quiet();
-    invalidateFactsCache();
+    invalidateFactsCache(dir);
     try {
       await memoryWriteTool({ dir }).execute({ content: "UPPERCASE FACT", tags: [] });
 

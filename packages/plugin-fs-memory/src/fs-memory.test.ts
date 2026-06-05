@@ -23,7 +23,7 @@ describe("fsMemoryPlugin", () => {
     const dir = `${import.meta.dir}/test-fsmem-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}`.quiet();
     try {
-      invalidateMemCache();
+      invalidateMemCache(dir);
       await Bun.write(`${dir}/MEMORY.md`, "my memory content");
 
       const plugin = fsMemoryPlugin({ dir });
@@ -45,7 +45,7 @@ describe("fsMemoryPlugin", () => {
     const dir = `${import.meta.dir}/test-fsmem-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}`.quiet();
     try {
-      invalidateMemCache();
+      invalidateMemCache(dir);
       await Bun.write(`${dir}/MEMORY.md`, "");
 
       const plugin = fsMemoryPlugin({ dir });
@@ -66,7 +66,7 @@ describe("fsMemoryPlugin", () => {
     const dir = `${import.meta.dir}/test-fsmem-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}`.quiet();
     try {
-      invalidateMemCache();
+      invalidateMemCache(dir);
       const plugin = fsMemoryPlugin({ dir });
       const msgs: Message[] = [
         { role: "system", content: "sys" },
@@ -84,7 +84,7 @@ describe("fsMemoryPlugin", () => {
     const dir = `${import.meta.dir}/test-fsmem-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}`.quiet();
     try {
-      invalidateMemCache();
+      invalidateMemCache(dir);
       await Bun.write(`${dir}/MEMORY.md`, "memory");
 
       const warnings: string[] = [];
@@ -114,7 +114,7 @@ describe("fsMemoryPlugin", () => {
     const dir = `${import.meta.dir}/test-fsmem-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}`.quiet();
     try {
-      invalidateMemCache();
+      invalidateMemCache(dir);
       // Create MEMORY.md as a directory (stat works but readFile will fail)
       await Bun.$`mkdir ${dir}/MEMORY.md`.quiet();
 

@@ -46,7 +46,7 @@ describe("progressiveSkillPlugin", () => {
   });
 
   test("injects skill index into system message", async () => {
-    invalidateSkillCache();
+    invalidateSkillCache(dir);
     const plugin = progressiveSkillPlugin({ dir });
     const msgs: Message[] = [
       { role: "system", content: "You are helpful." },
@@ -65,7 +65,7 @@ describe("progressiveSkillPlugin", () => {
     const emptyDir = `${import.meta.dir}/test-psk-empty-${crypto.randomUUID()}`;
     await mkdir(emptyDir, { recursive: true });
     try {
-      invalidateSkillCache();
+      invalidateSkillCache(emptyDir);
       const plugin = progressiveSkillPlugin({ dir: emptyDir });
       const msgs: Message[] = [
         { role: "system", content: "sys" },
@@ -115,7 +115,7 @@ describe("progressiveSkillPlugin", () => {
       },
     };
 
-    invalidateSkillCache();
+    invalidateSkillCache(dir);
     const plugin = progressiveSkillPlugin({ dir });
     const msgs: Message[] = [{ role: "user", content: "hi" }];
 
@@ -131,7 +131,7 @@ describe("progressiveSkillPlugin", () => {
   });
 
   test("${SKILL_DIR} replaced in body", async () => {
-    invalidateSkillCache();
+    invalidateSkillCache(dir);
     const tool = progressiveSkillPlugin({ dir }).tools![0]!;
     const result = await tool.execute({ name: "pdf-extract" });
     expect(result.content).toContain("/extract.py");
@@ -153,7 +153,7 @@ describe("progressiveSkillPlugin", () => {
           "Home dir is ${HOME}, memory is at ${MEMORY_DIR}.",
         ].join("\n"),
       );
-      invalidateSkillCache();
+      invalidateSkillCache(tmpDir);
       const plugin = progressiveSkillPlugin({ dir: tmpDir });
       const result = await plugin.tools![0]!.execute({ name: "other-skill" });
       expect(result.content).toContain("${HOME}");

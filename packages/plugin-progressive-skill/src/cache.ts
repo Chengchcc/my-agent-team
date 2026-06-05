@@ -26,15 +26,16 @@ async function loadOneSkillFrontmatter(dir: string): Promise<SkillMeta | null> {
   };
 }
 
-let skillIndexCache: { skills: SkillMeta[]; mtime: number } | null = null;
+const skillIndexCaches = new Map<string, { skills: SkillMeta[]; mtime: number }>();
 
 export async function loadSkillIndexWithMtimeCache(
   dir: string,
   logger?: { warn: (msg: string, err?: unknown) => void },
 ): Promise<SkillMeta[]> {
   const dirStat = await stat(dir);
-  if (skillIndexCache && skillIndexCache.mtime === dirStat.mtimeMs) {
-    return skillIndexCache.skills;
+  const cached = skillIndexCaches.get(dir);
+  if (cached && cached.mtime === dirStat.mtimeMs) {
+    return cached.skills;
   }
 
   const entries = await readdir(dir, { withFileTypes: true });
@@ -53,10 +54,10 @@ export async function loadSkillIndexWithMtimeCache(
     }
   }
 
-  skillIndexCache = { skills, mtime: dirStat.mtimeMs };
+  skillIndexCaches.set(dir, { skills, mtime: dirStat.mtimeMs });
   return skills;
 }
 
-export function invalidateSkillCache(): void {
-  skillIndexCache = null;
+export function invalidateSkillCache(dir: string): void {
+  skillIndexCaches.delete(dir);
 }

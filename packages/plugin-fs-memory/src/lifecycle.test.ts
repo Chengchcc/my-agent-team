@@ -8,8 +8,8 @@ describe("lifecycle", () => {
     const dir = `${import.meta.dir}/test-lifecycle-${crypto.randomUUID()}`;
     // dir does not exist initially
     try {
-      invalidateMemCache();
-      invalidateFactsCache();
+      invalidateMemCache(dir);
+      invalidateFactsCache(dir);
       const plugin = fsMemoryPlugin({ dir });
       await plugin.hooks.beforeModel!(
         {
@@ -42,7 +42,7 @@ describe("lifecycle", () => {
     const dir = `${import.meta.dir}/test-lifecycle-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}/facts`.quiet();
     try {
-      invalidateMemCache();
+      invalidateMemCache(dir);
       const plugin = fsMemoryPlugin({ dir });
       await plugin.hooks.beforeModel!(
         {

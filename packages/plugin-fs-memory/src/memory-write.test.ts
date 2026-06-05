@@ -44,7 +44,7 @@ describe("memory_write", () => {
   test("write then invalidates cache so search can find it", async () => {
     const dir = `${import.meta.dir}/test-write-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}/facts`.quiet();
-    invalidateFactsCache();
+    invalidateFactsCache(dir);
     try {
       await memoryWriteTool({ dir }).execute({ content: "cache test", tags: [] });
       // After write, cache should be invalidated — load should re-read

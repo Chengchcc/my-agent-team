@@ -21,7 +21,7 @@ describe("frontmatter tolerance", () => {
   });
 
   test("single SKILL.md parse failure → skipped with warn, others continue", async () => {
-    invalidateSkillCache();
+    invalidateSkillCache(dir);
     const warnings: { msg: string; err?: unknown }[] = [];
     const logger = {
       warn: (msg: string, err?: unknown) => {
@@ -43,7 +43,7 @@ describe("frontmatter tolerance", () => {
         `${tmpDir}/no-name/SKILL.md`,
         ["---", "description: no name field", "---", "", "body"].join("\n"),
       );
-      invalidateSkillCache();
+      invalidateSkillCache(tmpDir);
       const logger = { warn: () => {} };
       const skills = await loadSkillIndexWithMtimeCache(tmpDir, logger);
       expect(skills).toHaveLength(0);

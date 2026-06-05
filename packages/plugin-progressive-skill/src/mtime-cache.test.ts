@@ -19,22 +19,22 @@ describe("mtime cache", () => {
   });
 
   test("second call serves from cache", async () => {
-    invalidateSkillCache();
+    invalidateSkillCache(dir);
     const first = await loadSkillIndexWithMtimeCache(dir);
     const second = await loadSkillIndexWithMtimeCache(dir);
     expect(second).toBe(first); // same array reference
   });
 
   test("invalidate forces re-read", async () => {
-    invalidateSkillCache();
+    invalidateSkillCache(dir);
     const first = await loadSkillIndexWithMtimeCache(dir);
-    invalidateSkillCache();
+    invalidateSkillCache(dir);
     const second = await loadSkillIndexWithMtimeCache(dir);
     expect(second).not.toBe(first);
   });
 
   test("new skill directory added triggers re-read via dir mtime change", async () => {
-    invalidateSkillCache();
+    invalidateSkillCache(dir);
     const first = await loadSkillIndexWithMtimeCache(dir);
     expect(first.length).toBeGreaterThanOrEqual(1);
 

@@ -12,7 +12,7 @@ describe("mtime cache", () => {
     const dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}`.quiet();
     try {
-      invalidateMemCache();
+      invalidateMemCache(dir);
       const content = await readMemoryWithMtimeCache(dir);
       expect(content).toBe("");
     } finally {
@@ -24,7 +24,7 @@ describe("mtime cache", () => {
     const dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}`.quiet();
     try {
-      invalidateMemCache();
+      invalidateMemCache(dir);
       await Bun.write(`${dir}/MEMORY.md`, "remember me");
       const content = await readMemoryWithMtimeCache(dir);
       expect(content).toBe("remember me");
@@ -37,7 +37,7 @@ describe("mtime cache", () => {
     const dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}`.quiet();
     try {
-      invalidateMemCache();
+      invalidateMemCache(dir);
       await Bun.write(`${dir}/MEMORY.md`, "original");
 
       const c1 = await readMemoryWithMtimeCache(dir);
@@ -61,7 +61,7 @@ describe("mtime cache", () => {
     const dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}/facts`.quiet();
     try {
-      invalidateFactsCache();
+      invalidateFactsCache(dir);
       await writeFact(dir, { content: "fact one", tags: ["a"] });
       await writeFact(dir, { content: "fact two", tags: ["b"] });
 
@@ -78,7 +78,7 @@ describe("mtime cache", () => {
     const dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}/facts`.quiet();
     try {
-      invalidateFactsCache();
+      invalidateFactsCache(dir);
       const first = await loadAllFactsWithMtimeCache(dir);
       const second = await loadAllFactsWithMtimeCache(dir);
       expect(second).toBe(first); // same array reference = cache hit
@@ -91,9 +91,9 @@ describe("mtime cache", () => {
     const dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
     await Bun.$`mkdir -p ${dir}/facts`.quiet();
     try {
-      invalidateFactsCache();
+      invalidateFactsCache(dir);
       const first = await loadAllFactsWithMtimeCache(dir);
-      invalidateFactsCache();
+      invalidateFactsCache(dir);
       const second = await loadAllFactsWithMtimeCache(dir);
       expect(second).not.toBe(first); // different array ref = re-read
     } finally {
