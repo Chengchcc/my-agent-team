@@ -6,7 +6,7 @@ Framework 的**唯一扩展点**。一组事件钩子的封装——让外部代
 
 ## 为什么需要这个抽象
 
-L2 的 [`run()`](./00-overview.md#runtime-契约) 是一条线性流水线：push user → loop（model → tool → tool_result）→ until done。真实场景里，你想在流水线的特定节点插横切逻辑：
+L2 的 [`run()`](./00-vision.md#七runtime-契约保留) 是一条线性流水线：push user → loop（model → tool → tool_result）→ until done。真实场景里，你想在流水线的特定节点插横切逻辑：
 
 | 场景 | 想插在哪 |
 |---|---|

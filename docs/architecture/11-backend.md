@@ -1,22 +1,28 @@
-# Backend — Agent 托管服务
+# Backend — Team Runtime（HTTP Server）
 
 ## 定位
 
-Backend 是 agent 栈的**最顶层**——一个常驻进程，管理多个 agent 实例、维护 agentId 元数据、物化 workspace、把 [Harness](./08-harness.md) 通过 runner 装到任意部署形态（同进程 / 沙箱 / 远端）里跑，对前端暴露 HTTP/SSE。它是从"库"到"产品"的最后一步。
+Backend 是 agent 栈的 **L5 团队运行时**——一个常驻 HTTP 进程，管理多个 agent 实例、维护 agentId 元数据、持久化 thread、把 [Harness](./08-harness.md) 通过 runner 装到任意部署形态（同进程 / 子进程 / 远端）里跑，对上层 [L6 Surfaces](./00-vision.md#四当前分层架构)（frontend / IM bot / CLI）暴露 HTTP/SSE。
+
+它是从"库"到"可被前端/bot 调用的服务"的关键一跳，但**不再是栈的最顶层**——上面还有 surface 层。
 
 ```
-L5 Backend         ← 常驻服务。agentId 管理 + workspace 物化 + runner + HTTP/SSE
+L6 Surfaces       ← frontend / IM bot / CLI（M13+）
+   ↑ HTTP / SSE / webhook
+L5 Backend        ← 常驻 HTTP 进程。agent CRUD + thread 管理 + runner pool + SSE
+   ↑ in-proc 或 spawn runner
+L4 Harness        ← 装配成品。createGenericAgent(workspace, model, ...)
    ↑ 依赖
-L4 Harness         ← 装配成品。createGenericAgent(workspace, model, ...)
+L3 Framework      ← 装配套件
    ↑ 依赖
-L3 Framework       ← 装配套件
+L2 Runtime        ← 裸 run() 循环
    ↑ 依赖
-L2 Runtime         ← 裸 run() 循环
-   ↑ 依赖
-L1 Protocols       ← 类型契约
+L1 Protocols      ← 类型契约
 ```
 
-**Backend 的独特性**：下面四层都是**库**，只有 Backend 是**进程**。它是整个栈的运行时载体。
+**Backend 的角色**：L1–L4 是库，L6 是用户接触面，Backend 是把库装成可被多 surface 共用的常驻服务的中间层。
+
+> **命名说明**：项目最终愿景是 my-agent-team（agent team 管理服务），其中真人与 agent 同为 first-class member。当 M10 引入 `Member` / `Conversation` 抽象后，本层在概念上演进为 "team runtime"，但**进程名与代码包名继续叫 backend**——因为相对于 L6 frontend，它就是后端。
 
 ---
 
@@ -380,7 +386,8 @@ flowchart TD
 | **不是 framework** | Backend 是进程，framework 是库 |
 | **不是 harness** | harness 装配单个 agent，Backend 管多 agent 生命周期 + 部署 |
 | **不是 runner** | Runner 是 backend 启动的进程入口；backend 选择/调度 runner |
-| **不是 CLI** | CLI 是单用户临时脚本，Backend 是多用户常驻服务 |
+| **不是 frontend / IM bot / CLI** | 这些是 L6 Surfaces，调 backend 的 HTTP API；Backend 自己不渲染 UI、不接 IM webhook 业务逻辑 |
 | **不是 load balancer** | 不负责多实例分发；前面加 nginx/HAProxy |
 | **不是 auth service** | 最简 API key；复杂鉴权交给 API Gateway |
 | **不是 sandbox provider** | Backend 选择/调度 sandbox，不实现 sandbox |
+| **不是 team 语义层（暂时）** | M10 引入 Member/Conversation 抽象前，backend 只管 agent 维度；多方协作语义在后续 milestone 加入 |

@@ -26,15 +26,18 @@ Filter to a single test file or pattern:
 cd packages/framework && bun test --test-name-pattern="createAgent"
 ```
 
-## Architecture (5-layer agent stack)
+## Architecture (6-layer agent stack)
 
 ```
-L5 Backend      Multi-agent service (HTTP/SSE, auth, tenancy) — planned M8
+L6 Surfaces     Frontend web / IM bot / CLI — talk HTTP/SSE to backend (planned M13+)
+L5 Backend      Multi-agent service (HTTP/SSE, auth, tenancy, runner pool) — planned M8
 L4 Harness      Opinionated product layer: built-in tools + system prompt + policy
 L3 Framework    createAgent() — composes model + tools + plugins + checkpointer + contextManager
 L2 Runtime      run() async generator — messages → model stream → tool execute → loop
 L1 Protocols    Type contracts: Message / ChatModel / Tool / ContentBlock
 ```
+
+Vision and milestone roadmap: see `docs/architecture/00-vision.md`.
 
 Package map:
 
@@ -43,7 +46,9 @@ Package map:
 | `@my-agent-team/core` | L1+L2 | `Message`, `ChatModel`, `Tool`, `run()`, `collectStream()` |
 | `@my-agent-team/framework` | L3 | `createAgent()`, `definePlugin()`, `pipeContextManagers()`, `InterruptSignal`, checkpointer impls |
 | `@my-agent-team/adapter-anthropic` | adapter | `AnthropicChatModel` (implements `ChatModel`) |
-| `@my-agent-team/tools-common` | tools | `readTool`, `writeTool`, `webFetchTool`, `createWebSearchTool`, `createMemorySaveTool`, `createMemoryRecallTool` |
+| `@my-agent-team/agent-spec` | wire | `AgentSpecV1`, `AgentSpec`, `CURRENT_SCHEMA_VERSION` — backend ↔ runner contract |
+| `@my-agent-team/runner-stdio` | wire | `runEntry()`, `my-agent-runner` bin — stdio subprocess runner entry |
+| `@my-agent-team/tools-common` | tools | `readTool`, `writeTool`, `editTool`, `bashTool`, `grepTool`, `globTool`, `webFetchTool`, `createWebSearchTool`, `createMemorySaveTool`, `createMemoryRecallTool` |
 | `@my-agent-team/test-helpers` | test | `echoModel()` — deterministic test double for `ChatModel` |
 | `@my-agent-team/plugin-fs-memory` | plugin | `fsMemoryPlugin()` — file-backed memory with beforeModel bootstrap injection |
 | `@my-agent-team/plugin-progressive-skill` | plugin | `progressiveSkillPlugin()` — SKILL.md index injected into system prompt, full body loaded on demand via tool |

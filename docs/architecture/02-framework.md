@@ -1,6 +1,6 @@
 # Framework
 
-装配层。把 L2 [`run()`](./00-overview.md#runtime-契约) 这个裸的 async generator 包成一个可复用、可观测、可中断的 `Agent` 对象。
+装配层。把 L2 [`run()`](./00-vision.md#七runtime-契约保留) 这个裸的 async generator 包成一个可复用、可观测、可中断的 `Agent` 对象。
 
 L2 的契约简单到只剩一个 generator——你每次都要自己提供 `model`、`tools`、`messages`，自己接住 yield 出来的 `Message`。这对单脚本能用，对长期对话/多用户/可恢复场景就不够了。Framework 把"装配"这件事抽出来，正交地补上三件事：
 
