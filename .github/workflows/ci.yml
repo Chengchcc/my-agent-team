@@ -23,33 +23,46 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Build
+        run: bun run build
+
       - name: Typecheck
         run: bun run typecheck
 
       - name: Test
         run: bun run test
 
-      - name: Build
-        run: bun run build
-
-      - name: Verify dist exists for all packages
+      - name: Verify dist fresh for all packages
         run: |
           missing=""
+          stale=""
           for pkg in packages/*/ apps/*/; do
             pkg_name=$(basename "$pkg")
-            # Skip if no package.json (not a real package)
             [ -f "$pkg/package.json" ] || continue
-            # Check dist/index.js exists (every package must produce this)
             if [ ! -f "$pkg/dist/index.js" ]; then
               missing="$missing  $pkg_name (dist/index.js not found)\n"
+              continue
+            fi
+            # Check dist freshness: any src file newer than dist/index.js = stale
+            newest_src=$(find "$pkg/src" -type f -name '*.ts' -newer "$pkg/dist/index.js" 2>/dev/null | head -1)
+            if [ -n "$newest_src" ]; then
+              stale="$stale  $pkg_name ($newest_src newer than dist/index.js)\n"
             fi
           done
+          err=0
           if [ -n "$missing" ]; then
             echo "ERROR: Some packages are missing dist/ after build:"
             printf "$missing"
-            echo ""
-            echo "This means a package's tsconfig or build script is broken,"
-            echo "or a new package was added without proper build configuration."
-            exit 1
+            err=1
           fi
-          echo "All package dists present"
+          if [ -n "$stale" ]; then
+            echo "ERROR: Some packages have stale dist/ (src newer than build output):"
+            printf "$stale"
+            echo ""
+            echo "Run 'bun run build' locally to regenerate."
+            err=1
+          fi
+          if [ $err -eq 0 ]; then
+            echo "All package dists present and fresh"
+          fi
+          exit $err
