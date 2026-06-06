@@ -72,7 +72,7 @@ export class RunSupervisor {
   #active = new Map<string, ActiveRun>();
   #opts: RunSupervisorOptions;
   #db: Database;
-  #onRunComplete?: (threadId: string, runId: string) => void;
+  #onRunComplete: Array<(threadId: string, runId: string) => void> = [];
 
   constructor(opts: RunSupervisorOptions) {
     this.#opts = opts;
@@ -83,9 +83,9 @@ export class RunSupervisor {
     runEventsDbMigrations(this.#db);
   }
 
-  /** Register callback invoked when any run completes (success/error/abort). */
+  /** Register callback invoked when any run completes (success/error/abort). Supports multiple listeners. */
   onRunComplete(fn: (threadId: string, runId: string) => void): void {
-    this.#onRunComplete = fn;
+    this.#onRunComplete.push(fn);
   }
 
   get activeCount(): number {
@@ -166,9 +166,9 @@ export class RunSupervisor {
         this.#db.run("UPDATE run SET status = 'error', ended_at = ? WHERE run_id = ?", [exitNow, runId]);
       }
 
-      // Fix B: Notify service to release thread lock
-      if (this.#onRunComplete) {
-        this.#onRunComplete(threadId, runId);
+      // Fix B: Notify all listeners to release locks
+      for (const fn of this.#onRunComplete) {
+        fn(threadId, runId);
       }
     });
 

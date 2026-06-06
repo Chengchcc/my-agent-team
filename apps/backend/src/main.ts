@@ -110,21 +110,121 @@ const checkpointSvc = createCheckpointService({ port: checkpointPort });
 // M10: Conversation feature
 const convPort = sqliteConversationAdapter(db);
 const activeConversations = new Set<string>();
+
 const convSvc = createConversationService({
   port: convPort,
   checkpointRead: checkpointPort,
   checkpointWrite: checkpointWritePort,
   activeConversations,
   maxConsecutiveAgentHops: 8,
-  forkRun: (runId, threadId, _specJson) => {
-    // Build spec JSON for the agent run — use the threadId as both thread and run identifier
-    const specJson = _specJson;
+
+  // C1 fix: build real AgentSpec JSON for forked agent runs
+  forkRun: (runId, threadId, _specJson, ctx) => {
+    // Ensure thread row exists (lazy at first fork — D17)
+    const existing = db.query("SELECT id FROM threads WHERE id = ?").get(threadId) as { id: string } | undefined;
+    if (!existing) {
+      db.run(
+        "INSERT INTO threads (id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        [threadId, ctx.agentId, `Conversation ${ctx.conversationId}`, Date.now(), Date.now()],
+      );
+    }
+
+    // Build full spec JSON (C1 fix)
+    const agentRow = db.query(
+      "SELECT workspace_path, model_provider, model_name, model_base_url, permission_mode, max_steps FROM agents WHERE id = ?",
+    ).get(ctx.agentId) as {
+      workspace_path: string;
+      model_provider: string;
+      model_name: string;
+      model_base_url: string | null;
+      permission_mode: string;
+      max_steps: number | null;
+    } | undefined;
+    if (!agentRow) throw new Error(`Agent not found: ${ctx.agentId}`);
+
+    const spec = AgentSpecV1.parse({
+      schemaVersion: "1",
+      workspace: agentRow.workspace_path,
+      threadId,
+      conversationId: ctx.conversationId,
+      senderMemberId: ctx.agentMemberId,
+      model: {
+        provider: agentRow.model_provider as "anthropic",
+        model: agentRow.model_name,
+        ...(agentRow.model_base_url ? { baseURL: agentRow.model_base_url } : {}),
+      },
+      apiKey: config.anthropicApiKey,
+      permissionMode: agentRow.permission_mode as "ask" | "auto" | "deny" | undefined,
+      maxSteps: agentRow.max_steps ?? undefined,
+      input: "", // input is in the thread.messages already (via broadcast projection)
+      runId,
+      storage: {
+        eventLog: { kind: "sqlite" as const, path: `${config.dataDir}/events.db` },
+        checkpointer: { kind: "sqlite" as const, path: `${config.dataDir}/backend.db` },
+      },
+    });
+    const specJson = JSON.stringify(spec);
     return supervisor.fork(runId, threadId, specJson);
   },
+
 });
 
 // Run legacy backfill (idempotent)
 backfillLegacyThreads(db, convPort);
+
+// C2 + D19 fix: register conversation-level onRunComplete (multi-listener supervisor)
+supervisor.onRunComplete((threadId, runId) => {
+  // Scan active conversations for a matching threadId (deriveThreadId = cid:memberId)
+  for (const cid of activeConversations) {
+    if (threadId.startsWith(`${cid}:`)) {
+      // C2: Release the conversation lock
+      convSvc.completeRun(cid, threadId, runId);
+
+      // D19: Fire-and-forget — read agent output from event_log, append to ledger, broadcast
+      void (async () => {
+        try {
+          const events = eventLog.subscribe({ runId, afterSeq: 0 }, {});
+          const msgs: Array<{ role: string; content: unknown }> = [];
+          for await (const rec of events) {
+            if (rec.event.type === "message") {
+              msgs.push({ role: rec.event.payload.role, content: rec.event.payload.content });
+            }
+          }
+          const lastAssistant = msgs.filter((m) => m.role === "assistant").pop();
+          if (lastAssistant) {
+            const text = typeof lastAssistant.content === "string"
+              ? lastAssistant.content
+              : Array.isArray(lastAssistant.content)
+                ? lastAssistant.content.filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("")
+                : String(lastAssistant.content);
+
+            const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+            const seq = convPort.appendLedgerEntry({
+              conversationId: cid,
+              senderMemberId,
+              addressedTo: [],
+              kind: "message",
+              content: JSON.stringify({ text }),
+              ts: Date.now(),
+            });
+            await convSvc.broadcastMessage({
+              seq,
+              conversationId: cid,
+              senderMemberId,
+              addressedTo: [],
+              kind: "message",
+              content: JSON.stringify({ text }),
+              ts: Date.now(),
+            });
+          }
+        } catch (err) {
+          console.error(`[conversation] D19 error for ${runId}:`, err instanceof Error ? err.message : String(err));
+        }
+      })();
+      break;
+    }
+  }
+});
 
 // HTTP router
 const router = createRouter(config.authToken, {

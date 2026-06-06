@@ -90,3 +90,40 @@ test("WAL journal mode is enabled", () => {
     require("node:fs").unlinkSync(tmpPath);
   } catch {}
 });
+
+// ─── Test 5: M10 conversation tables exist ─────────────────────
+
+test("M10 conversation/member/conversation_ledger tables exist after migration", () => {
+  const tmpPath = `/tmp/test-backend-db-m10-${Date.now()}.db`;
+  const db = openDb(tmpPath);
+
+  const tables = db
+    .query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+    .all() as { name: string }[];
+
+  const names = tables.map((t) => t.name);
+  expect(names).toContain("conversation");
+  expect(names).toContain("member");
+  expect(names).toContain("conversation_ledger");
+
+  // Verify conversation table shape
+  const convCols = db.query("PRAGMA table_info('conversation')").all() as { name: string }[];
+  expect(convCols.map((c) => c.name)).toContain("trigger_mode");
+  expect(convCols.map((c) => c.name)).toContain("hop_count");
+
+  // Verify member table shape
+  const memCols = db.query("PRAGMA table_info('member')").all() as { name: string }[];
+  expect(memCols.map((c) => c.name)).toContain("conversation_id");
+  expect(memCols.map((c) => c.name)).toContain("kind");
+
+  // Verify conversation_ledger shape
+  const ledgerCols = db.query("PRAGMA table_info('conversation_ledger')").all() as { name: string }[];
+  expect(ledgerCols.map((c) => c.name)).toContain("seq");
+  expect(ledgerCols.map((c) => c.name)).toContain("sender_member_id");
+  expect(ledgerCols.map((c) => c.name)).toContain("kind");
+
+  db.close();
+  try {
+    require("node:fs").unlinkSync(tmpPath);
+  } catch {}
+});
