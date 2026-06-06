@@ -640,3 +640,61 @@ test("spec without conversationId still works (fallback to threadId)", async () 
   expect(result).toBe(0);
   expect(written.length).toBe(1);
 });
+
+// ─── P0-1 regression: self-build checkpointer from spec.storage ──
+
+test("P0-1: self-builds checkpointer from spec.storage.checkpointer.path when not injected", async () => {
+  const tmpDbPath = `/tmp/test-cp-selfbuild-${Date.now()}.db`;
+
+  // Pre-write a message into checkpoint_messages (simulating broadcast projection)
+  {
+    const { Database } = await import("bun:sqlite");
+    const setupDb = new Database(tmpDbPath);
+    setupDb.exec("CREATE TABLE IF NOT EXISTS checkpoint_messages (thread_id TEXT PRIMARY KEY, messages TEXT NOT NULL, updated_at INTEGER NOT NULL)");
+    setupDb.run("INSERT INTO checkpoint_messages (thread_id, messages, updated_at) VALUES (?, ?, ?)", [
+      "t1",
+      JSON.stringify([{ role: "user", content: "[Alice]: hello from broadcast" }]),
+      Date.now(),
+    ]);
+    setupDb.close();
+  }
+
+  const events: AgentEvent[] = [msgEvent("ok")];
+  const written: AgentEvent[] = [];
+  let capturedCheckpointerDb: unknown = undefined;
+
+  const spec = {
+    schemaVersion: "1",
+    workspace: "/tmp/ws",
+    threadId: "t1",
+    model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    apiKey: "sk-test",
+    input: "hello",
+    conversationId: "conv-1",
+    senderMemberId: "mem-x1",
+    storage: {
+      checkpointer: { kind: "sqlite", path: tmpDbPath },
+    },
+  };
+
+  const result = await runEntry({
+    specJson: JSON.stringify(spec),
+    writeEvent: (ev) => written.push(ev),
+    writeStderr: () => {},
+    signal: new AbortController().signal,
+    // Deliberately OMIT checkpointerDb — production path, must self-build
+    createAgent: (opts) => {
+      capturedCheckpointerDb = (opts as { checkpointerDb?: unknown }).checkpointerDb;
+      return Promise.resolve(makeMockAgent(events));
+    },
+  });
+
+  expect(result).toBe(0);
+  // P0-1: checkpointerDb must be self-built from spec.storage.checkpointer.path
+  expect(capturedCheckpointerDb).toBeDefined();
+  expect(capturedCheckpointerDb).not.toBeNull();
+  // Must be a bun:sqlite Database (has .close method)
+  expect(typeof (capturedCheckpointerDb as { close?: unknown }).close).toBe("function");
+
+  try { require("node:fs").unlinkSync(tmpDbPath); } catch {}
+});

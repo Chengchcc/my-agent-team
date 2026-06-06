@@ -378,3 +378,39 @@ describe("subscribeConversation", () => {
     expect(entries).toHaveLength(0);
   });
 });
+
+// ─── P0-2 regression: lock release + postMessage unblocks ──
+
+describe("P0-2: lock lifecycle", () => {
+  test("completeRun releases conversation lock so next postMessage succeeds", async () => {
+    activeConversations.clear();
+    forkLog.length = 0;
+    const { id } = setupConv("conv-lock1");
+
+    // First post triggers a fork → conversation locked
+    const r1 = await svc.postMessage({
+      conversationId: id,
+      senderMemberId: `mem-h1-${id}`,
+      addressedTo: [`mem-x1-${id}`],
+      content: { text: "first" },
+    });
+    expect(r1.triggeredRuns).toHaveLength(1);
+    expect(activeConversations.has(id)).toBe(true);
+
+    // Simulate run completion (P0-2: this must NOT hang)
+    const start = Date.now();
+    svc.completeRun(id, `${id}:mem-x1-${id}`, r1.triggeredRuns[0]!.runId);
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(1000); // must complete near-instantly, not hang
+    expect(activeConversations.has(id)).toBe(false);
+
+    // Second post should succeed (lock released)
+    const r2 = await svc.postMessage({
+      conversationId: id,
+      senderMemberId: `mem-h1-${id}`,
+      addressedTo: [`mem-x1-${id}`],
+      content: { text: "second" },
+    });
+    expect(r2.triggeredRuns).toHaveLength(1);
+  });
+});
