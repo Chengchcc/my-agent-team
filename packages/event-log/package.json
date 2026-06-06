@@ -1,0 +1,18 @@
+{
+  "name": "@my-agent-team/event-log",
+  "version": "0.1.0",
+  "description": "EventLog port — durable append-only event store with subscribe/tail (SQLite + in-memory)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check . && eslint .",
+    "test": "bun test --pass-with-no-tests",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "@my-agent-team/framework": "workspace:*"
+  }
+}
