@@ -29,51 +29,11 @@ export class AnthropicChatModel implements ChatModel {
     messages: readonly Message[],
     options?: ChatModelOptions,
   ): AsyncIterable<AIMessageChunk> {
-    const systemMessages = messages.filter((msg) => msg.role === "system");
-    const systemBlock = systemMessages.at(-1);
-    let system: string | undefined;
-    if (systemBlock) {
-      if (typeof systemBlock.content === "string") {
-        system = systemBlock.content;
-      } else {
-        const firstText = systemBlock.content.find((b) => b.type === "text");
-        system = firstText?.text;
-      }
-    }
+    // Merge ALL system messages (not just last)
+    const system = mergeSystemMessages(messages);
 
-    const apiMessages: Anthropic.Messages.MessageParam[] = [];
-    for (const msg of messages) {
-      if (msg.role === "system") continue;
-
-      if (typeof msg.content === "string") {
-        apiMessages.push({ role: msg.role, content: msg.content });
-      } else {
-        const blocks: Anthropic.Messages.ContentBlockParam[] = [];
-        for (const block of msg.content) {
-          if (block.type === "text") {
-            blocks.push({ type: "text", text: block.text });
-          } else if (block.type === "tool_use") {
-            blocks.push({
-              type: "tool_use",
-              id: block.id,
-              name: block.name,
-              input: block.input as Record<string, unknown>,
-            });
-          } else if (block.type === "tool_result") {
-            const tr: Anthropic.Messages.ToolResultBlockParam = {
-              type: "tool_result",
-              tool_use_id: block.tool_use_id,
-              content: block.content,
-            };
-            if (block.is_error !== undefined) {
-              tr.is_error = block.is_error;
-            }
-            blocks.push(tr);
-          }
-        }
-        apiMessages.push({ role: msg.role as "user" | "assistant", content: blocks });
-      }
-    }
+    // Build API messages: filter empty, merge adjacent same-role, convert to Anthropic params
+    const apiMessages = buildApiMessages(messages);
 
     const tools = options?.tools ? toAnthropicTools(options.tools) : undefined;
 
@@ -105,6 +65,12 @@ export class AnthropicChatModel implements ChatModel {
               name: event.content_block.name,
             },
           };
+        } else if (
+          event.content_block.type === "thinking" ||
+          event.content_block.type === "redacted_thinking"
+        ) {
+          // Explicitly skip thinking blocks — not surfaced to user
+          continue;
         }
       } else if (event.type === "content_block_delta") {
         if (event.delta.type === "text_delta") {
@@ -118,6 +84,9 @@ export class AnthropicChatModel implements ChatModel {
               partial_json: event.delta.partial_json,
             },
           };
+        } else if (event.delta.type === "thinking_delta") {
+          // Explicitly skip thinking deltas — not surfaced to user
+          continue;
         }
       }
     }
@@ -131,4 +100,86 @@ export class AnthropicChatModel implements ChatModel {
         : undefined,
     };
   }
+}
+
+// -- Helpers --
+
+function textOf(msg: Message): string {
+  if (typeof msg.content === "string") return msg.content;
+  return msg.content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+}
+
+/** Merge all system messages into a single string. */
+function mergeSystemMessages(messages: readonly Message[]): string | undefined {
+  const systemMessages = messages.filter((m) => m.role === "system");
+  if (systemMessages.length === 0) return undefined;
+  return systemMessages
+    .map(textOf)
+    .filter((s) => s.trim().length > 0)
+    .join("\n\n");
+}
+
+function isEmptyMessage(msg: Message): boolean {
+  if (typeof msg.content === "string") return msg.content.trim().length === 0;
+  if (Array.isArray(msg.content)) return msg.content.length === 0;
+  return false;
+}
+
+/** Filter empty messages, merge adjacent same-role, convert to Anthropic params. */
+function buildApiMessages(messages: readonly Message[]): Anthropic.Messages.MessageParam[] {
+  const result: Anthropic.Messages.MessageParam[] = [];
+
+  for (const msg of messages) {
+    if (msg.role === "system") continue;
+    if (isEmptyMessage(msg)) continue;
+
+    const converted = convertMessage(msg);
+    const prev = result[result.length - 1];
+
+    if (prev && prev.role === converted.role) {
+      // Merge adjacent same-role: concatenate content
+      const prevContent = Array.isArray(prev.content) ? prev.content : [{ type: "text" as const, text: String(prev.content) }];
+      const newContent = Array.isArray(converted.content) ? converted.content : [{ type: "text" as const, text: String(converted.content) }];
+      prev.content = [...prevContent, ...newContent] as Anthropic.Messages.ContentBlockParam[];
+    } else {
+      result.push(converted);
+    }
+  }
+
+  return result;
+}
+
+function convertMessage(msg: Message): Anthropic.Messages.MessageParam {
+  if (typeof msg.content === "string") {
+    return { role: msg.role as "user" | "assistant", content: msg.content };
+  }
+
+  const blocks: Anthropic.Messages.ContentBlockParam[] = [];
+  for (const block of msg.content) {
+    if (block.type === "text") {
+      blocks.push({ type: "text", text: block.text });
+    } else if (block.type === "tool_use") {
+      blocks.push({
+        type: "tool_use",
+        id: block.id,
+        name: block.name,
+        input: block.input as Record<string, unknown>,
+      });
+    } else if (block.type === "tool_result") {
+      const tr: Anthropic.Messages.ToolResultBlockParam = {
+        type: "tool_result",
+        tool_use_id: block.tool_use_id,
+        content: block.content,
+      };
+      if (block.is_error !== undefined) {
+        tr.is_error = block.is_error;
+      }
+      blocks.push(tr);
+    }
+  }
+
+  return { role: msg.role as "user" | "assistant", content: blocks };
 }

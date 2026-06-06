@@ -136,6 +136,156 @@ describe("AnthropicChatModel", () => {
     expect(capturedSystem).toBe("You are helpful.");
   });
 
+  test("merges ALL system messages into one, not just last", async () => {
+    let capturedSystem: unknown;
+
+    mock.module("@anthropic-ai/sdk", () => ({
+      Anthropic: class {
+        messages = {
+          stream: (params: Record<string, unknown>) => {
+            capturedSystem = params.system;
+            return {
+              [Symbol.asyncIterator]() {
+                return { next: () => ({ done: true, value: undefined }) };
+              },
+              finalMessage: () =>
+                Promise.resolve({
+                  stop_reason: "end_turn",
+                  usage: { input_tokens: 1, output_tokens: 0 },
+                }),
+            };
+          },
+        };
+      },
+    }));
+
+    const model = new AnthropicChatModel({ apiKey: "test-key" });
+    await collect(
+      model.stream([
+        { role: "system", content: "Rule A." },
+        { role: "system", content: "Rule B." },
+        { role: "user", content: "hi" },
+      ]),
+    );
+
+    expect(capturedSystem).toContain("Rule A.");
+    expect(capturedSystem).toContain("Rule B.");
+  });
+
+  test("merges adjacent same-role messages into one", async () => {
+    let capturedMessages: unknown;
+
+    mock.module("@anthropic-ai/sdk", () => ({
+      Anthropic: class {
+        messages = {
+          stream: (params: Record<string, unknown>) => {
+            capturedMessages = params.messages;
+            return {
+              [Symbol.asyncIterator]() {
+                return { next: () => ({ done: true, value: undefined }) };
+              },
+              finalMessage: () =>
+                Promise.resolve({
+                  stop_reason: "end_turn",
+                  usage: { input_tokens: 1, output_tokens: 0 },
+                }),
+            };
+          },
+        };
+      },
+    }));
+
+    const model = new AnthropicChatModel({ apiKey: "test-key" });
+    await collect(
+      model.stream([
+        { role: "user", content: "first question" },
+        { role: "user", content: "second question" },
+        { role: "assistant", content: "response" },
+      ]),
+    );
+
+    const msgs = capturedMessages as Array<{ role: string }>;
+    expect(msgs.length).toBe(2); // user merged + assistant
+    expect(msgs[0]!.role).toBe("user");
+  });
+
+  test("filters empty content messages", async () => {
+    let capturedMessages: unknown;
+
+    mock.module("@anthropic-ai/sdk", () => ({
+      Anthropic: class {
+        messages = {
+          stream: (params: Record<string, unknown>) => {
+            capturedMessages = params.messages;
+            return {
+              [Symbol.asyncIterator]() {
+                return { next: () => ({ done: true, value: undefined }) };
+              },
+              finalMessage: () =>
+                Promise.resolve({
+                  stop_reason: "end_turn",
+                  usage: { input_tokens: 1, output_tokens: 0 },
+                }),
+            };
+          },
+        };
+      },
+    }));
+
+    const model = new AnthropicChatModel({ apiKey: "test-key" });
+    await collect(
+      model.stream([
+        { role: "system", content: "sys" },
+        { role: "user", content: "" },
+        { role: "assistant", content: "valid" },
+      ]),
+    );
+
+    const msgs = capturedMessages as Array<{ role: string; content: unknown }>;
+    expect(msgs.length).toBe(1); // only assistant (user "" filtered)
+    expect(msgs[0]!.role).toBe("assistant");
+  });
+
+  test("explicitly skips thinking and redacted_thinking blocks", async () => {
+    mock.module("@anthropic-ai/sdk", () => ({
+      Anthropic: class {
+        messages = {
+          stream: () => ({
+            [Symbol.asyncIterator]() {
+              let i = 0;
+              const events = [
+                { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "..." } },
+                { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "more" } },
+                { type: "content_block_start", index: 1, content_block: { type: "redacted_thinking", data: "..." } },
+                { type: "content_block_start", index: 2, content_block: { type: "text", text: "actual output" } },
+              ];
+              return {
+                next: () => {
+                  if (i >= events.length) return { done: true, value: undefined };
+                  return { done: false, value: events[i++] };
+                },
+              };
+            },
+            finalMessage: () =>
+              Promise.resolve({
+                stop_reason: "end_turn",
+                usage: { input_tokens: 10, output_tokens: 5 },
+              }),
+          }),
+        };
+      },
+    }));
+
+    const model = new AnthropicChatModel({ apiKey: "test-key" });
+    const chunks = await collect(model.stream([{ role: "user", content: "hi" }]));
+
+    // Only "actual output" text + done should pass through
+    const textChunks = chunks.filter((c) => "delta" in c && c.delta?.type === "text");
+    expect(textChunks.length).toBe(1);
+    // @ts-expect-error text property on text delta
+    expect(textChunks[0]!.delta.text).toBe("actual output");
+  });
+
   test("passes tools to API when provided in options", async () => {
     let capturedTools: unknown;
 
