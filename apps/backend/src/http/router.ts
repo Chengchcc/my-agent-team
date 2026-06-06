@@ -1,5 +1,6 @@
 import type { agentRoutes } from "../features/agent/http.js";
 import type { checkpointRoutes } from "../features/checkpoint/http.js";
+import type { conversationRoutes } from "../features/conversation/http.js";
 import type { runRoutes } from "../features/run/http.js";
 import type { threadRoutes } from "../features/thread/http.js";
 import { HttpError } from "../infra/errors.js";
@@ -10,6 +11,7 @@ interface FeatureSet {
   threads: ReturnType<typeof threadRoutes>;
   runs: ReturnType<typeof runRoutes>;
   checkpoints: ReturnType<typeof checkpointRoutes>;
+  conversations?: ReturnType<typeof conversationRoutes>;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -38,7 +40,7 @@ export function createRouter(token: string, features?: FeatureSet) {
     };
   }
 
-  const { agents, threads, runs, checkpoints } = features;
+  const { agents, threads, runs, checkpoints, conversations } = features;
 
   const agentList = withAuth((req) => agents.list(req), token);
   const agentCreate = withAuth((req) => agents.create(req), token);
@@ -121,6 +123,33 @@ export function createRouter(token: string, features?: FeatureSet) {
         return withAuth((r) => runs.getById(r, runMatch[1]!), token)(req);
       if (runMatch)
         return json({ error: "Method not allowed" }, 405);
+
+      // Conversations — M10
+      if (conversations) {
+        const convListMatch = path === "/api/conversations";
+        const convMsgMatch = path.match(/^\/api\/conversations\/([^/]+)\/messages$/);
+        const convMemberMatch = path.match(/^\/api\/conversations\/([^/]+)\/members$/);
+        const convEventsMatch = path.match(/^\/api\/conversations\/([^/]+)\/events$/);
+
+        if (convListMatch && method === "POST")
+          return withAuth((r) => conversations.create(r), token)(req);
+        if (convListMatch)
+          return json({ error: "Method not allowed" }, 405);
+        if (convMsgMatch && method === "POST")
+          return withAuth((r) => conversations.postMessage(r, convMsgMatch[1]!), token)(req);
+        if (convMsgMatch)
+          return json({ error: "Method not allowed" }, 405);
+        if (convMemberMatch && method === "POST")
+          return withAuth((r) => conversations.addMember(r, convMemberMatch[1]!), token)(req);
+        if (convMemberMatch && method === "DELETE")
+          return withAuth((r) => conversations.removeMember(r, convMemberMatch[1]!), token)(req);
+        if (convMemberMatch)
+          return json({ error: "Method not allowed" }, 405);
+        if (convEventsMatch && method === "GET")
+          return withAuth((r) => conversations.events(r, convEventsMatch[1]!), token)(req);
+        if (convEventsMatch)
+          return json({ error: "Method not allowed" }, 405);
+      }
 
       return withAuth(async () => notFound(req), token)(req);
     } catch (err) {

@@ -35,9 +35,9 @@ export interface CreateMemberInput {
   memberId: string;
   conversationId: string;
   kind: "agent" | "human";
-  agentId?: string;
-  userRef?: string;
-  displayName?: string;
+  agentId?: string | null;
+  userRef?: string | null;
+  displayName?: string | null;
   joinedAt: number;
 }
 

@@ -3,8 +3,9 @@ import { sqliteEventLog } from "@my-agent-team/event-log";
 import { loadConfig } from "./config.js";
 import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
 import { agentRoutes, createAgentService } from "./features/agent/index.js";
-import { sqliteCheckpointReadAdapter } from "./features/checkpoint/adapter-sqlite.js";
+import { sqliteCheckpointReadAdapter, sqliteCheckpointWriteAdapter } from "./features/checkpoint/adapter-sqlite.js";
 import { checkpointRoutes, createCheckpointService } from "./features/checkpoint/index.js";
+import { backfillLegacyThreads, conversationRoutes, createConversationService, sqliteConversationAdapter } from "./features/conversation/index.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
 import { sqliteThreadAdapter } from "./features/thread/adapter-sqlite.js";
@@ -103,7 +104,27 @@ async function buildSpecJson(
 
 // Checkpoint feature
 const checkpointPort = sqliteCheckpointReadAdapter(db);
+const checkpointWritePort = sqliteCheckpointWriteAdapter(db);
 const checkpointSvc = createCheckpointService({ port: checkpointPort });
+
+// M10: Conversation feature
+const convPort = sqliteConversationAdapter(db);
+const activeConversations = new Set<string>();
+const convSvc = createConversationService({
+  port: convPort,
+  checkpointRead: checkpointPort,
+  checkpointWrite: checkpointWritePort,
+  activeConversations,
+  maxConsecutiveAgentHops: 8,
+  forkRun: (runId, threadId, _specJson) => {
+    // Build spec JSON for the agent run — use the threadId as both thread and run identifier
+    const specJson = _specJson;
+    return supervisor.fork(runId, threadId, specJson);
+  },
+});
+
+// Run legacy backfill (idempotent)
+backfillLegacyThreads(db, convPort);
 
 // HTTP router
 const router = createRouter(config.authToken, {
@@ -116,6 +137,7 @@ const router = createRouter(config.authToken, {
     return row.thread_id;
   }),
   checkpoints: checkpointRoutes(checkpointSvc),
+  conversations: conversationRoutes(convSvc, ulid),
 });
 
 // Server
