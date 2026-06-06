@@ -1,4 +1,4 @@
-import { type AgentSpec, AgentSpecV1 } from "@my-agent-team/agent-spec";
+import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import { loadConfig } from "./config.js";
 import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
@@ -77,26 +77,30 @@ const runSvc = createRunService({
 });
 
 // Build spec helper — returns JSON string for subprocess env
-async function buildSpecJson(threadId: string, input: string): Promise<string> {
+async function buildSpecJson(
+  threadId: string,
+  input: string,
+  overrides?: { runId?: string; mode?: "run" | "resume"; resumeCommand?: { approved: boolean; message?: string } },
+): Promise<string> {
   const thread = await threadSvc.getById(threadId);
   const agent = await agentSvc.getById(thread.agentId);
-  const spec: AgentSpec = {
+
+  // Fix F: Use Zod parse for runtime validation (catches DB corruption / bad data)
+  const spec = AgentSpecV1.parse({
     schemaVersion: "1",
     workspace: agent.workspacePath,
     threadId,
     model: {
-      provider: agent.modelProvider as "anthropic",
+      provider: agent.modelProvider,
       model: agent.modelName,
       ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}),
     },
     apiKey: config.anthropicApiKey,
-    permissionMode: agent.permissionMode as "ask" | "auto" | "deny" | undefined,
+    permissionMode: agent.permissionMode ?? "ask",
     maxSteps: agent.maxSteps ?? undefined,
     input,
-    runId: undefined,
-    attemptId: undefined,
-    mode: "run" as const,
-  };
+    ...overrides,
+  });
   return JSON.stringify(spec);
 }
 
@@ -108,7 +112,12 @@ const checkpointSvc = createCheckpointService({ port: checkpointPort });
 const router = createRouter(config.authToken, {
   agents: agentRoutes(agentSvc),
   threads: threadRoutes(threadSvc),
-  runs: runRoutes(runSvc, buildSpecJson),
+  runs: runRoutes(runSvc, buildSpecJson, async (runId: string) => {
+    // Look up threadId for a given runId (needed for resume)
+    const row = db.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as { thread_id: string } | undefined;
+    if (!row) throw new Error(`Run not found: ${runId}`);
+    return row.thread_id;
+  }),
   checkpoints: checkpointRoutes(checkpointSvc),
 });
 
@@ -122,15 +131,21 @@ server.start();
 console.log(`[backend] listening on ${config.host}:${config.port}`);
 
 // Graceful shutdown
-process.on("SIGTERM", async () => {
-  console.log("[backend] SIGTERM received, shutting down...");
+const shutdown = async (signal: string) => {
+  console.log(`[backend] ${signal} received, shutting down...`);
   server.stop();
-  db.close();
-  process.exit(0);
-});
 
-process.on("SIGINT", async () => {
-  server.stop();
+  // Fix G: terminate all active subprocesses
+  for (const runId of threads) {
+    supervisor.cancel(runId);
+  }
+  // Give subprocesses time to exit gracefully
+  await new Promise((r) => setTimeout(r, config.cancelGraceMs));
+
+  supervisor.dispose();
   db.close();
   process.exit(0);
-});
+};
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

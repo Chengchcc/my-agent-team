@@ -13,7 +13,8 @@ function json(body: unknown, status = 200): Response {
 
 export function runRoutes(
   svc: ReturnType<typeof import("./service.js").createRunService>,
-  buildSpecJson: (threadId: string, input: string) => Promise<string>,
+  buildSpecJson: (threadId: string, input: string, overrides?: { runId?: string; mode?: "run" | "resume"; resumeCommand?: { approved: boolean; message?: string } }) => Promise<string>,
+  getThreadIdForRun?: (runId: string) => Promise<string>,
 ) {
   return {
     /** POST /api/threads/:id/runs → 202 { runId, attemptId } */
@@ -85,8 +86,23 @@ export function runRoutes(
       const parsed = resumeSchema.safeParse(await req.json().catch(() => ({})));
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
-      // Resume: the HTTP handler will build a new spec and re-fork
-      return json({ runId, message: "resume endpoint — full impl in main.ts composition" }, 202);
+
+      if (!getThreadIdForRun) return json({ error: "Resume not configured" }, 500);
+
+      try {
+        const threadId = await getThreadIdForRun(runId);
+        const specJson = await buildSpecJson(threadId, "", {
+          runId,
+          mode: "resume",
+          resumeCommand: parsed.data,
+        });
+        const { attemptId } = svc.resume(runId, threadId, specJson);
+        return json({ runId, attemptId }, 202);
+      } catch (err) {
+        if (err instanceof RunNotFoundError) return json({ error: (err as Error).message }, 404);
+        if (err instanceof TooManyRunsError) return json({ error: (err as Error).message }, 429);
+        throw err;
+      }
     },
 
     /** GET /api/runs/:id → run metadata */

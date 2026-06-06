@@ -82,15 +82,15 @@ export async function runEntry(io: EntryIO): Promise<number> {
 
     // M9: heartbeat timer (runner entry directly writes attempt.heartbeat_at)
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    let hbDb: import("bun:sqlite").Database | undefined;
     const heartbeatInterval = io.heartbeatIntervalMs ?? 5000;
     if (spec.attemptId && spec.storage?.eventLog) {
-      // Load bun:sqlite lazily (not needed for in-memory tests)
       const attemptId = spec.attemptId; // narrow for closure
       const { Database } = await import("bun:sqlite");
-      const hbDb = new Database(spec.storage.eventLog.path);
+      hbDb = new Database(spec.storage.eventLog.path);
       heartbeatTimer = setInterval(() => {
         try {
-          hbDb.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [
+          hbDb!.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [
             Date.now(),
             attemptId,
           ]);
@@ -115,6 +115,7 @@ export async function runEntry(io: EntryIO): Promise<number> {
       }
     } finally {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (hbDb) hbDb.close();
     }
     writeStderr(`[runner-stdio] agent.${spec.mode} finished cleanly`);
     return 0;

@@ -9,6 +9,9 @@ function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
     fork: () => ({ runId: "run-1", attemptId: "att-1", pid: 12345 }),
     cancel: () => true,
     rediscover: async () => {},
+    onRunComplete: () => {},
+    dispose: () => {},
+    cancelByPid: () => true,
     ...overrides,
   } as unknown as RunSupervisor;
 }
