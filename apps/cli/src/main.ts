@@ -25,6 +25,7 @@ const modelArg = args.find((a) => a.startsWith("--model="))?.split("=")[1] ?? "c
 const maxStepsArg = args.find((a) => a.startsWith("--max-steps="))?.split("=")[1] ?? "32";
 const systemArg = args.find((a) => a.startsWith("--system="))?.split("=")[1];
 const workspaceArg = args.find((a) => a.startsWith("--workspace="))?.split("=")[1];
+const backendUrl = args.find((a) => a.startsWith("--backend="))?.split("=")[1];
 
 const model = new AnthropicChatModel({ apiKey: ANTHROPIC_API_KEY, model: modelArg });
 
@@ -142,10 +143,89 @@ async function runLegacyRepl(): Promise<void> {
   }
 }
 
+// ─── M9: Remote mode (--backend <url>) ─────────────────────────────
+
+async function runRemoteMode(baseUrl: string): Promise<void> {
+  const threadId = crypto.randomUUID();
+  let lastEventId = 0;
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  console.log(`Backend: ${baseUrl}  Model: ${modelArg}`);
+
+  while (true) {
+    const line = await rl.question("> ");
+    if (line === "") continue;
+
+    try {
+      // POST /api/threads/:id/runs → 202 { runId }
+      const postRes = await fetch(`${baseUrl}/api/threads/${threadId}/runs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: line }),
+      });
+      if (!postRes.ok) {
+        const err = await postRes.json().catch(() => ({}));
+        console.error(`Error: ${postRes.status} ${JSON.stringify(err)}`);
+        continue;
+      }
+      const { runId } = await postRes.json() as { runId: string };
+
+      // GET /api/runs/:id/events (SSE, with Last-Event-ID reconnect)
+      const eventsRes = await fetch(`${baseUrl}/api/runs/${runId}/events`, {
+        headers: lastEventId > 0 ? { "Last-Event-ID": String(lastEventId) } : {},
+      });
+
+      if (!eventsRes.ok || !eventsRes.body) {
+        console.error(`Error: events stream failed (${eventsRes.status})`);
+        continue;
+      }
+
+      const reader = eventsRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+
+        for (const rawLine of lines) {
+          const sseLine = rawLine.trim();
+          if (!sseLine) continue;
+
+          if (sseLine.startsWith("id: ")) {
+            lastEventId = parseInt(sseLine.slice(4), 10) || lastEventId;
+          } else if (sseLine.startsWith("data: ")) {
+            try {
+              const ev = JSON.parse(sseLine.slice(6));
+              if (ev.type === "message") {
+                renderEvent({ type: "message", payload: ev.message ?? ev.payload });
+              } else if (ev.type !== "done") {
+                console.log(`\n[${ev.type}]`);
+              }
+            } catch {
+              // skip unparseable lines
+            }
+          }
+        }
+      }
+      console.log();
+    } catch (err) {
+      console.error("Error:", err instanceof Error ? err.message : String(err));
+    }
+  }
+}
+
 // --- Main ---
 
-if (workspaceArg) {
-  // Generic harness mode
+if (backendUrl) {
+  // M9: Remote mode — POST 202 + GET /events SSE
+  await runRemoteMode(backendUrl);
+} else if (workspaceArg) {
+  // Generic harness mode (local)
   const { createGenericAgent } = await import("@my-agent-team/harness");
   const agent = await createGenericAgent({
     workspace: path.resolve(workspaceArg),
