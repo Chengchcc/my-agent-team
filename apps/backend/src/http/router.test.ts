@@ -2,12 +2,18 @@ import type { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sqliteAgentAdapter } from "../features/agent/adapter-sqlite.js";
 import { agentRoutes, createAgentService } from "../features/agent/index.js";
+import { sqliteCheckpointReadAdapter, sqliteCheckpointWriteAdapter } from "../features/checkpoint/adapter-sqlite.js";
+import {
+  conversationRoutes,
+  createConversationService,
+  sqliteConversationAdapter,
+} from "../features/conversation/index.js";
 import { openDb } from "../infra/sqlite/db.js";
 import { createRouter } from "./router.js";
 
 const TOKEN = "test-token";
 
-// Set up real agent feature for router testing
+// Set up real features for router testing
 const dbPath = `/tmp/test-router-${Date.now()}.db`;
 let db: Database;
 let router: (req: Request) => Promise<Response>;
@@ -27,11 +33,23 @@ beforeAll(async () => {
     },
   });
 
+  // M10: Real conversation feature for production path testing
+  const convPort = sqliteConversationAdapter(db);
+  const convSvc = createConversationService({
+    port: convPort,
+    checkpointRead: sqliteCheckpointReadAdapter(db),
+    checkpointWrite: sqliteCheckpointWriteAdapter(db),
+    activeConversations: new Set<string>(),
+    maxConsecutiveAgentHops: 8,
+    forkRun: (runId) => ({ runId, attemptId: `att-${runId}` }),
+  });
+
   router = createRouter(TOKEN, {
     agents: agentRoutes(agentSvc),
     threads: undefined!,
     runs: undefined!,
     checkpoints: undefined!,
+    conversations: conversationRoutes(convSvc, () => crypto.randomUUID().slice(0, 8)),
   });
 });
 
@@ -92,5 +110,97 @@ describe("Router with real features", () => {
       }),
     );
     expect(resp.status).toBe(404);
+  });
+
+  // ─── M10: Conversation routes ─────────────────────────────
+
+  test("POST /api/conversations creates conversation with members", async () => {
+    const resp = await router(
+      new Request("http://localhost/api/conversations", {
+        method: "POST",
+        headers: { "x-auth-token": TOKEN, "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            { kind: "human", userRef: "u-1", displayName: "Alice" },
+            { kind: "agent", agentId: "ag-x", displayName: "XAgent" },
+          ],
+        }),
+      }),
+    );
+    expect(resp.status).toBe(201);
+    const body = (await resp.json()) as { conversationId: string; members: unknown[] };
+    expect(body.conversationId).toBeTruthy();
+    expect(body.members).toHaveLength(2);
+  });
+
+  test("POST /api/conversations/:id/messages appends message and triggers agent", async () => {
+    // Create conversation first
+    const cResp = await router(
+      new Request("http://localhost/api/conversations", {
+        method: "POST",
+        headers: { "x-auth-token": TOKEN, "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            { kind: "human", memberId: "alice", userRef: "u-1" },
+            { kind: "agent", memberId: "x-agent", agentId: "ag-x" },
+          ],
+        }),
+      }),
+    );
+    const { conversationId } = (await cResp.json()) as { conversationId: string };
+
+    const resp = await router(
+      new Request(`http://localhost/api/conversations/${conversationId}/messages`, {
+        method: "POST",
+        headers: { "x-auth-token": TOKEN, "content-type": "application/json" },
+        body: JSON.stringify({
+          senderMemberId: "alice",
+          addressedTo: ["x-agent"],
+          content: { text: "hello" },
+        }),
+      }),
+    );
+    expect(resp.status).toBe(202);
+    const body = (await resp.json()) as { seq: number; triggeredRuns: unknown[] };
+    expect(body.seq).toBeGreaterThan(0);
+  });
+
+  test("POST /api/conversations/:id/members adds member", async () => {
+    const cResp = await router(
+      new Request("http://localhost/api/conversations", {
+        method: "POST",
+        headers: { "x-auth-token": TOKEN, "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            { kind: "human", memberId: "bob", userRef: "u-2" },
+          ],
+        }),
+      }),
+    );
+    const { conversationId } = (await cResp.json()) as { conversationId: string };
+
+    const resp = await router(
+      new Request(`http://localhost/api/conversations/${conversationId}/members`, {
+        method: "POST",
+        headers: { "x-auth-token": TOKEN, "content-type": "application/json" },
+        body: JSON.stringify({
+          kind: "agent",
+          agentId: "ag-y",
+          displayName: "YAgent",
+        }),
+      }),
+    );
+    expect(resp.status).toBe(200);
+    const body = (await resp.json()) as { members: unknown[] };
+    expect(body.members).toHaveLength(2);
+  });
+
+  test("GET /api/conversations returns 405 (only POST allowed)", async () => {
+    const resp = await router(
+      new Request("http://localhost/api/conversations", {
+        headers: { "x-auth-token": TOKEN },
+      }),
+    );
+    expect(resp.status).toBe(405);
   });
 });
