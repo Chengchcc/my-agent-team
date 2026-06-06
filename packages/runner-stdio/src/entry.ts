@@ -63,7 +63,10 @@ export async function runEntry(io: EntryIO): Promise<number> {
 
   // 3+4+5. Construct model + agent + run (all inside try/catch — M7 N1 fix + H6)
   try {
-    writeStderr(`[runner-stdio] spec parsed, threadId=${spec.threadId}`);
+    writeStderr(`[runner-stdio] spec parsed, threadId=${spec.threadId}${spec.conversationId ? `, conversationId=${spec.conversationId}` : ""}`);
+
+    // M10: conversationId is the aggregate dimension; falls back to threadId for legacy single-thread mode
+    const conversationId = spec.conversationId ?? spec.threadId;
 
     const model = new AnthropicChatModel({
       apiKey,

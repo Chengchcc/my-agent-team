@@ -595,3 +595,48 @@ test("heartbeat timer starts when attemptId and storage available", async () => 
   expect(result).toBe(0);
   // heartbeat timer started and cleaned up without error
 });
+
+// ─── M10: conversationId fallback ────────────────────────────
+
+test("spec with conversationId and senderMemberId parsed successfully", async () => {
+  const events: AgentEvent[] = [msgEvent("ok")];
+  const written: AgentEvent[] = [];
+
+  const spec = {
+    schemaVersion: "1",
+    workspace: "/tmp/ws",
+    threadId: "t1",
+    model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    apiKey: "sk-test",
+    input: "hello",
+    conversationId: "conv-1",
+    senderMemberId: "mem-x1",
+  };
+
+  const result = await runEntry({
+    specJson: JSON.stringify(spec),
+    writeEvent: (ev) => written.push(ev),
+    writeStderr: () => {},
+    signal: new AbortController().signal,
+    createAgent: () => Promise.resolve(makeMockAgent(events)),
+  });
+
+  expect(result).toBe(0);
+  expect(written.length).toBe(1);
+});
+
+test("spec without conversationId still works (fallback to threadId)", async () => {
+  const events: AgentEvent[] = [msgEvent("hello")];
+  const written: AgentEvent[] = [];
+
+  const result = await runEntry({
+    specJson: makeValidSpec(),
+    writeEvent: (ev) => written.push(ev),
+    writeStderr: () => {},
+    signal: new AbortController().signal,
+    createAgent: () => Promise.resolve(makeMockAgent(events)),
+  });
+
+  expect(result).toBe(0);
+  expect(written.length).toBe(1);
+});
