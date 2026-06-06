@@ -60,6 +60,30 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
     id: 6,
     up: `CREATE INDEX IF NOT EXISTS idx_runs_thread ON runs(thread_id, started_at DESC)`,
   },
+  {
+    name: "backend_v7_run_attempt_split",
+    id: 7,
+    up: `
+      DROP TABLE IF EXISTS runs;
+      CREATE TABLE run (
+        run_id     TEXT PRIMARY KEY,
+        thread_id  TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+        status     TEXT NOT NULL DEFAULT 'running',
+        started_at INTEGER NOT NULL,
+        ended_at   INTEGER
+      );
+      CREATE TABLE attempt (
+        attempt_id   TEXT PRIMARY KEY,
+        run_id       TEXT NOT NULL REFERENCES run(run_id) ON DELETE CASCADE,
+        pid          INTEGER,
+        heartbeat_at INTEGER,
+        started_at   INTEGER NOT NULL,
+        ended_at     INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_attempt_run ON attempt(run_id, started_at);
+      CREATE INDEX IF NOT EXISTS idx_run_thread ON run(thread_id, started_at DESC);
+    `,
+  },
 ];
 
 /** Combined migrations: backend own + checkpointer tables. Sorted by id. */

@@ -8,6 +8,12 @@ export interface BackendConfig {
   maxConcurrentRuns: number;
   anthropicApiKey: string;
   shutdownTimeoutMs: number;
+  /** M9: heartbeat write interval in ms (runner entry) */
+  heartbeatIntervalMs: number;
+  /** M9: heartbeat timeout in ms (backend marks interrupted) */
+  heartbeatTimeoutMs: number;
+  /** M9: grace period after SIGTERM before SIGKILL */
+  cancelGraceMs: number;
 }
 
 export function loadConfig(env: typeof process.env = process.env): BackendConfig {
@@ -29,5 +35,8 @@ export function loadConfig(env: typeof process.env = process.env): BackendConfig
     maxConcurrentRuns: Number(env.BACKEND_MAX_CONCURRENT) || 8,
     anthropicApiKey,
     shutdownTimeoutMs: Number(env.BACKEND_SHUTDOWN_TIMEOUT_MS) || 30_000,
+    heartbeatIntervalMs: Number(env.BACKEND_HEARTBEAT_INTERVAL_MS) || 5_000,
+    heartbeatTimeoutMs: Number(env.BACKEND_HEARTBEAT_TIMEOUT_MS) || 20_000,
+    cancelGraceMs: Number(env.BACKEND_CANCEL_GRACE_MS) || 5_000,
   };
 }
