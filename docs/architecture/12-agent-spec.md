@@ -50,8 +50,46 @@ export const AgentSpecV1 = z.object({
   /** 权限模式。默认 'ask' */
   permissionMode: z.enum(['ask', 'auto', 'deny']).optional(),
 
-  /** 本次 run 的用户输入 */
+  /** 本次 run 的用户输入（mode='run' 时必需；mode='resume' 时忽略） */
   input: z.string(),
+
+  /** 逻辑 run 标识。一个 run 跨多次 interrupt/resume，所有 attempt 共享同一 runId */
+  runId: z.string().optional(),
+
+  /**
+   * 执行模式。
+   * - 'run'（默认）：agent.run(input) 起新执行
+   * - 'resume'：agent.resume(resumeCommand) 续跑被中断的 run。
+   *   backend 不 resume，而是 fork 一个新 attempt 子进程并标 mode='resume'；
+   *   子进程内 checkpointer.consumeInterrupt 取回 pending interrupt（backend 不碰 checkpointer）。
+   */
+  mode: z.enum(['run', 'resume']).optional(),
+
+  /** mode='resume' 时携带用户决策（framework 的 ResumeCommand） */
+  resumeCommand: z.object({
+    approved: z.boolean(),
+    message: z.string().optional(),
+  }).optional(),
+
+  /**
+   * 持久层连接配置。run 子进程据此**自行构造** EventLog / Checkpointer
+   * adapter —— 跨进程传不了 handle,只能传连接配置(铁律:存储细节封死在 adapter)。
+   * - eventLog:子进程 append 事件的事实源。**由 backend 下发并收敛**到 backend
+   *   也能连的同一后端存储(不变量),否则 backend 投影端 subscribe 找不到事件。
+   * - checkpointer:子进程 agent-resume 专用快照层。**可由 runner 异构选择**,backend
+   *   既不持有也不读其内容(对 checkpointer 介质永久无感)。
+   */
+  storage: z.object({
+    eventLog: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('postgres'), url: z.string() }),
+      z.object({ kind: z.literal('sqlite'), path: z.string() }),
+    ]),
+    checkpointer: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('sqlite'), path: z.string() }),
+      z.object({ kind: z.literal('file'), dir: z.string() }),
+      z.object({ kind: z.literal('memory') }),
+    ]),
+  }).optional(),
 });
 
 export type AgentSpec = z.infer<typeof AgentSpecV1>;
@@ -94,6 +132,14 @@ const agent = createGenericAgent({
 ```
 
 **双向 validate** = schema 变化要么编译失败（type drift），要么运行时立即报错（version 错配），**没有 silent drift**。
+
+> **`storage` / `mode` / `resumeCommand` 字段**:durable runs 要求 run 子进程**独立于 backend 存活并直写持久层**。但进程间传不了已打开的 DB handle,所以 AgentSpec 携带**连接配置**(`postgres url` / `sqlite path`),子进程收到后**自行构造** EventLog / Checkpointer adapter——存储细节封死在 adapter,wire schema 只传"怎么连",不传"连好的对象"。
+>
+> 两条不变量:
+> - **EventLog 收敛**:`storage.eventLog` 由 **backend 下发**,所有 runner 收敛到 backend 也能连的同一存储——否则 backend 投影端 `subscribe` 找不到事件。
+> - **Checkpointer 可异构**:`storage.checkpointer` 由 runner 策略自由选择,backend 不持有、不读其内容。
+>
+> **resume 经 re-fork**:backend 不调 `agent.resume()`(它不持有 checkpointer)。它 fork 一个**新 attempt 子进程**,spec 带 `mode='resume'` + `resumeCommand` + 原 run 的 `runId` 与 `storage.checkpointer`;子进程内 `agent.resume()` 调 `checkpointer.consumeInterrupt` 取回 pending interrupt 续跑,事件继续 `append` 到同 `runId` 的 EventLog——前端 SSE 流无缝连续。详见 [11-backend §Resume](./11-backend.md#resumebackend-不-resume而是重新-fork-一个-attempt)。
 
 ---
 
@@ -181,7 +227,7 @@ harness-generic ✗→ agent-spec       (NOT depends)
 - 各语言用 `quicktype` / `datamodel-code-generator` 等工具 codegen
 - 或换 Protobuf（更严格，但要重写 schema）
 
-**M7-M9 暂时不需要** — 所有 runner 都跑在 Node/Bun。YAGNI。等真出现外部 runner 再升级。
+**当前暂时不需要** — 所有 runner 都跑在 Node/Bun。YAGNI。等真出现外部 runner 再升级。
 
 ---
 

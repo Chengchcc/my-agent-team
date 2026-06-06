@@ -6,8 +6,10 @@ Backend 是 agent 栈的 **L5 团队运行时**——一个常驻 HTTP 进程，
 
 它是从"库"到"可被前端/bot 调用的服务"的关键一跳，但**不再是栈的最顶层**——上面还有 surface 层。
 
+> **Durable Runs**:Backend 把 run 执行从"绑死在 HTTP SSE 流上的进程内 generator"重构为**独立子进程执行 + 事件落 [EventLog](./13-event-log.md) + SSE 只读投影**。三件事正交:**执行**(run 子进程)、**投影**(SSE)、**HTTP 连接生命周期**。客户端断连、backend 重启都不再中断执行。详见下文 [§ Durable Runs](#durable-runs)。
+
 ```
-L6 Surfaces       ← frontend / IM bot / CLI（M13+）
+L6 Surfaces       ← frontend / IM bot / CLI
    ↑ HTTP / SSE / webhook
 L5 Backend        ← 常驻 HTTP 进程。agent CRUD + thread 管理 + runner pool + SSE
    ↑ in-proc 或 spawn runner
@@ -22,7 +24,7 @@ L1 Protocols      ← 类型契约
 
 **Backend 的角色**：L1–L4 是库，L6 是用户接触面，Backend 是把库装成可被多 surface 共用的常驻服务的中间层。
 
-> **命名说明**：项目最终愿景是 my-agent-team（agent team 管理服务），其中真人与 agent 同为 first-class member。当 M10 引入 `Member` / `Conversation` 抽象后，本层在概念上演进为 "team runtime"，但**进程名与代码包名继续叫 backend**——因为相对于 L6 frontend，它就是后端。
+> **命名说明**：项目最终愿景是 my-agent-team（agent team 管理服务），其中真人与 agent 同为 first-class member。引入 `Member` / `Conversation` 抽象后，本层在概念上演进为 "team runtime"，但**进程名与代码包名继续叫 backend**——因为相对于 L6 frontend，它就是后端。
 
 ---
 
@@ -160,6 +162,16 @@ DELETE /agents/:id            — 销毁 agent + 归档 workspace
 GET    /health                — 健康检查
 ```
 
+> **破坏性 API 变更(Durable Runs)**:`POST .../run` 不再"返回 SSE 流",改为**启动 run 子进程后立即返回 `202 { runId }`**;事件改由独立的 **`GET /api/runs/:id/events`** SSE 投影端点消费(支持 `Last-Event-ID` 续读)。客户端从"POST 拿流"改为"POST 拿 runId → GET events 订阅"。实际 run 端点形态:
+
+```
+POST /api/threads/:id/runs    — 启动 run 子进程,返回 202 { runId }(不再绑 SSE)
+GET  /api/runs/:id/events     — SSE 投影,支持 Last-Event-ID 续读/重连/冷读
+POST /api/runs/:id/cancel     — 204,真正 SIGTERM 子进程 + AbortSignal 透传到模型 fetch
+POST /api/runs/:id/resume     — 接 ResumeCommand,fork 新 attempt 子进程续跑(同 runId)
+GET  /api/runs/:id            — (可选) run 元数据 status/时间 + 当前 attempt,供轮询
+```
+
 ### `POST /agents`
 
 ```
@@ -220,13 +232,14 @@ Framework 有两套事件体系，Backend SSE 转译的是 `AgentEvent`：
 | `AgentEvent` | `{ type: 'message' \| 'interrupted', payload }` | framework `agent.run()` / `agent.resume()` yield |
 | `CheckpointEvent` | `user_input` / `model_start` / `tool_end` / ... | framework 调 `checkpointer.appendEvent` |
 
-Backend **不直接**订阅 `checkpointer.appendEvent`。Backend 的事件源是 runner 输出的 event 流（runner 内部从 `agent.run()` 拿）。
+> **事件源(重要)**:run 在独立子进程执行,子进程把 `AgentEvent` **直接 `append` 进 [EventLog](./13-event-log.md)**(事实源);Backend 的 SSE 投影端通过 **`eventLog.subscribe({ runId, afterSeq })`** 读取——即 Backend **确实订阅 EventLog**,但**不碰 Checkpointer**(Checkpointer 是 runner 注入、agent-resume 专用)。stdout 仅为可选的低延迟通知通道,DB 才是事实源。这样客户端断连 / backend 重启都不丢事件。
 
-**SSE 转译规则**（机械操作，无 switch）：
+**SSE 转译规则**(机械操作,无 switch):
 
 ```ts
-for await (const ev of runnerStream) {
-  res.write(`event: ${ev.type}\ndata: ${JSON.stringify(ev.payload)}\n\n`);
+// 请求头 Last-Event-ID: <seq> → afterSeq;客户端断开 → req.signal 触发,只取消订阅不 abort run
+for await (const rec of eventLog.subscribe({ runId, afterSeq }, req.signal)) {
+  res.write(`id: ${rec.seq}\nevent: ${rec.event.type}\ndata: ${JSON.stringify(rec.event)}\n\n`);
 }
 ```
 
@@ -243,15 +256,15 @@ apps/backend/
 │   ├── runner/
 │   │   ├── in-proc.ts       # 同进程
 │   │   ├── stdio.ts         # 子进程 stdio
-│   │   └── http.ts          # 远端 HTTP（M9+）
+│   │   └── http.ts          # 远端 HTTP
 │   ├── sse.ts               # AgentEvent → SSE 序列化
 │   └── main.ts              # 入口
 └── package.json
 
 packages/
 ├── agent-spec/              # AgentSpec zod schema（backend + runner 共享）
-├── runner-stdio/            # 独立的 stdio runner entry（M8 起）
-└── runner-http/             # 独立的 http runner（M9+）
+├── runner-stdio/            # 独立的 stdio runner entry
+└── runner-http/             # 独立的 http runner
 ```
 
 **依赖**：
@@ -343,6 +356,94 @@ sequenceDiagram
 
 ---
 
+## Durable Runs
+
+run 执行从"绑死在 SSE 流上的进程内 generator"重构为**独立子进程执行 + 事件落 [EventLog](./13-event-log.md) + SSE 只读投影**。
+
+### 执行解耦
+
+```
+POST /api/threads/:id/runs
+   │
+   ├─ fork ──► runner-stdio 子进程(独立 PID)
+   │              │ 每个 AgentEvent: eventLog.append(threadId, runId, event)
+   │  写 runs 台账 │ (子进程自持 EventLog 句柄,直写 DB)
+   │  pid/running  ▼
+   │           RunSupervisor(进程内): 解析 stdout 作低延迟通知(可选优化)
+   ▼
+返回 202 { runId }       (不再绑 SSE)
+
+GET /api/runs/:id/events  ── eventLog.subscribe({ runId, afterSeq }) ──► 只读投影
+```
+
+- **执行者**(子进程)只 `append`,**投影者**(SSE)只 `subscribe`,两者互不认识,只经 EventLog 通信(EventLog 四铁律,见 [13 §二](./13-event-log.md#二解耦铁律))。
+- **写 EventLog 的是 runner entry,不是 harness**:`agent.run()` 只 yield 事件,entry 消费 yield 后 `append`(见 [13 §六](./13-event-log.md#六写入路径谁产生事件-vs-谁写-eventlog))。EventLog 概念绝不下沉到 framework/harness。
+- 客户端断连 → `subscribe` 的 `AbortSignal` 触发 → **只取消订阅,不 abort run**。长任务(数小时)继续跑完。
+
+### 数据模型:run（逻辑）/ attempt（物理执行）
+
+一个逻辑 run 经 interrupt→resume 会**跨越多个子进程**,所以把"逻辑 run"和"物理进程"拆成两张表(避免 pid 列语义漂移,详见 [13 §10.2](./13-event-log.md#102-实体拆分run逻辑--attempt物理执行)):
+
+```sql
+CREATE TABLE runs (        -- 逻辑 run:跨多次 interrupt/resume
+  run_id TEXT PRIMARY KEY, thread_id TEXT, status TEXT, started_at INTEGER, ended_at INTEGER
+);
+CREATE TABLE attempts (    -- 物理执行:单个子进程的一次执行
+  attempt_id TEXT PRIMARY KEY, run_id TEXT, pid INTEGER,
+  heartbeat_at INTEGER, started_at INTEGER, ended_at INTEGER
+);
+```
+
+- 一个 run 有 1..N 个 attempt;interrupt→resume = 同 run_id 起一个**新 attempt**。
+- EventLog 事件带 `run_id`(所有 attempt 共享)→ 前端按 run_id 订阅,看到的是**一条不断的流,哪怕中间换了子进程**。
+
+### Cancel 透传（真停）
+
+`POST /api/runs/:id/cancel` → RunSupervisor 对当前 attempt 子进程发 `SIGTERM` → 子进程 entry 捕获 → 调用注入 agent.run 的 `AbortSignal` → **adapter 把 signal 透传给底层 `fetch({ signal })`**,in-flight 模型调用即时取消。`cancelGraceMs` 后未退则 `SIGKILL`,写 `status='aborted'`。
+
+### 崩溃恢复（backend 重启重新发现）
+
+backend 启动时扫描 `runs.status='running'` 及其活跃 `attempts`。**存活判定单一真相源 = `attempts.heartbeat_at` 新鲜度,废弃 `kill(pid,0)`**(pid 跨重启不可靠,PID 复用;heartbeat 才是权威,详见 [13 §10.1](./13-event-log.md#101-存活判定单一真相源-heartbeat_at废弃-killpid0)):
+
+- 子进程 entry 定期 `UPDATE attempts SET heartbeat_at = now()`(它本就连着 DB)。
+- **heartbeat 新鲜** → **重新发现**:backend 不重连已断的 stdout 管道,而是认领该 run_id,通过 `eventLog.subscribe({ runId, afterSeq=高水位 })` 续读子进程仍在直写的事件。**子进程直写 EventLog(铁律 4)是这一招成立的前提**。
+- **heartbeat 过期** → 标记该 attempt `ended`、run `status='interrupted'`,发终态事件。
+- 子进程**不探测 backend 死活**;孤儿回收交给独立超时(`cancelGraceMs×N` 无人 cancel 即自杀),与 backend 解耦。
+
+### Resume：backend 不 resume，而是重新 fork 一个 attempt
+
+`agent.resume()` 必须在**持有 checkpointer 的子进程里**调用(要 `consumeInterrupt`);backend 不持有 checkpointer,所以 backend 的工作是**装配一个新 attempt 子进程并标注这是一次 resume**:
+
+```
+前端 POST /api/runs/:id/resume {approved, message}
+   │
+backend: 查该 run 的原 AgentSpec(含 storage.checkpointer 连接配置 + threadId)
+   │       fork 新 attempt 子进程,spec.mode="resume" + spec.resumeCommand
+   ▼
+runner entry: agent.resume(cmd)
+   └─ checkpointer.consumeInterrupt(threadId)   ← 在子进程内读,backend 不碰
+   └─ push tool_result → 续跑 loop
+   └─ 每个事件 append → EventLog(同 run_id)
+   ▼
+backend 投影端: subscribe({runId}) 无缝续推(同一条 SSE 流)
+```
+
+要点:
+
+1. **backend 只是装配器 + 转发器**:转发 `ResumeCommand`、原样转发原 spec 的 checkpointer 连接配置,**自己从不读 checkpointer 内容**(对 checkpointer 介质永久无感)。
+2. **checkpointer 是 resume 唯一权威源**:EventLog 因丢失 context 裁剪信息**不能**替代 resume(详见 [13 §5.1](./13-event-log.md#51-为什么-eventlog-不能取代-checkpointer-做-resume))。
+3. **复用原 run_id**:resume 是同一逻辑 run 的延续 → 同 run_id、新 attempt;前端 `subscribe({runId})` 不变,SSE 流连续。
+4. resume 端点用 `POST /api/runs/:id/resume`(对前端即"继续这个 run",backend 内部映射到 threadId)。
+
+### 并发控制
+
+- `maxConcurrentRuns` 在 fork 前检查活跃 attempt 数;超限 `POST /runs` 返回 **429**(不排队,队列暂不在范围内)。
+- 同 thread 单活跃 run 约束保留,超限 **409**。两维度独立。
+
+详见 [13-event-log.md](./13-event-log.md)。
+
+---
+
 ## 配置
 
 ```ts
@@ -353,12 +454,17 @@ interface BackendConfig {
   agentStore: AgentStore;                // DB/KV 实现
   defaultRunner: 'in-proc' | 'stdio' | 'http';
   sandbox?: SandboxConfig;               // stdio/http runner 的沙箱选择
+  eventLog: EventLog;                    // 事件投影事实源(composition root 唯一实例化)
+  maxConcurrentRuns?: number;            // 全局并发上限,超限 429
+  cancelGraceMs?: number;                // SIGTERM → SIGKILL 宽限
   logger?: Logger;
   auth?: { apiKeys: string[] };
 }
 ```
 
 **为什么 Backend 需要自己的 agentStore**：framework 的 checkpointer 是 agent 级别（per-thread messages）。Backend 需要 agent **元数据**层（agentId → spec），是不同维度。
+
+> **存储职责**:Backend 持有 **EventLog**(投影事实源),但**不持有 Checkpointer**(那是 runner 注入、agent-resume 专用)。这是解耦的关键——见 [13 §一](./13-event-log.md#一为什么从-checkpointer-里拆出来)。
 
 ---
 
@@ -390,4 +496,4 @@ flowchart TD
 | **不是 load balancer** | 不负责多实例分发；前面加 nginx/HAProxy |
 | **不是 auth service** | 最简 API key；复杂鉴权交给 API Gateway |
 | **不是 sandbox provider** | Backend 选择/调度 sandbox，不实现 sandbox |
-| **不是 team 语义层（暂时）** | M10 引入 Member/Conversation 抽象前，backend 只管 agent 维度；多方协作语义在后续 milestone 加入 |
+| **不是 team 语义层（暂时）** | 引入 Member/Conversation 抽象前，backend 只管 agent 维度；多方协作语义在后续阶段加入 |

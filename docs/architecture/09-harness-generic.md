@@ -179,7 +179,7 @@ LLM 调 write_file({ path: 'memory/2026-06-05.md', content: '今天...', append:
 
 **所有 tool 入参路径必须落在 workspace 内**（解析后 `resolve(p).startsWith(workspace)`）。越界请求转 `is_error: true` 的 tool_result，让 LLM 自己改正而非直接 throw。
 
-这条契约与 [fs-memory M2](./06-plugin-fs-memory.md) 一致——plugin 内 tool 同样禁止越界。
+这条契约与 [fs-memory](./06-plugin-fs-memory.md) 一致——plugin 内 tool 同样禁止越界。
 
 ---
 

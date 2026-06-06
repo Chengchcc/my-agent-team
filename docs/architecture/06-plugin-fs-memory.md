@@ -145,7 +145,7 @@ async function memoryWrite({ content, tags }) {
 
 | 组件 | 关系 |
 |---|---|
-| `ContextManager` | 不重叠。CM 处理"已有 messages 子集化"，fs-memory 处理"system 末尾追加内容"。注入顺序是 `CM.shape() → plugin.beforeModel`（[M4 已确认](./02-framework.md#agent)），意味着 memory 注入后不会被 CM 截掉——这是有意的，bootstrap 必须可见 |
+| `ContextManager` | 不重叠。CM 处理"已有 messages 子集化"，fs-memory 处理"system 末尾追加内容"。注入顺序是 `CM.shape() → plugin.beforeModel`（[见 framework](./02-framework.md#agent)），意味着 memory 注入后不会被 CM 截掉——这是有意的，bootstrap 必须可见 |
 | `Checkpointer` | memory 注入的内容**不进 thread.messages**（只在 beforeModel 派生），不会被 save。resume / fork 时不会重复带——磁盘上的 MEMORY.md 是 single source of truth |
 | `Logger` | plugin 用 `ctx.logger.debug/warn` 输出注入/跳过日志 |
 | `InterruptSignal` | `memory_write` 是只读追加，**不需要中断**。若 harness 想加权限，用 [`withPermission(memoryWriteTool, ...)` 包一层](./04-checkpointer.md#tool-端interruptsignal-用法) |
