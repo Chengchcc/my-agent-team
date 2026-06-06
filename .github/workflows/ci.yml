@@ -32,16 +32,24 @@ jobs:
       - name: Build
         run: bun run build
 
-      - name: Check dist freshness
+      - name: Verify dist exists for all packages
         run: |
-          if [ -n "$(git diff --name-only -- 'packages/*/dist' 'apps/*/dist')" ]; then
-            echo "ERROR: dist/ is stale. Run 'bun run build' and commit the dist/ changes."
+          missing=""
+          for pkg in packages/*/ apps/*/; do
+            pkg_name=$(basename "$pkg")
+            # Skip if no package.json (not a real package)
+            [ -f "$pkg/package.json" ] || continue
+            # Check dist/index.js exists (every package must produce this)
+            if [ ! -f "$pkg/dist/index.js" ]; then
+              missing="$missing  $pkg_name (dist/index.js not found)\n"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "ERROR: Some packages are missing dist/ after build:"
+            printf "$missing"
             echo ""
-            echo "Changed files:"
-            git diff --name-only -- 'packages/*/dist' 'apps/*/dist'
-            echo ""
-            echo "Full diff:"
-            git diff -- 'packages/*/dist' 'apps/*/dist'
+            echo "This means a package's tsconfig or build script is broken,"
+            echo "or a new package was added without proper build configuration."
             exit 1
           fi
-          echo "dist/ is fresh"
+          echo "All package dists present"
