@@ -60,12 +60,27 @@ export const AgentSpecV1 = z.object({
       path: z.string().optional(),
     }).optional(),
   }).optional(),
+
+  // ─── M10 conversation fields ────────────────────────────────────
+
+  /** Conversation identifier — the aggregate dimension. Absent = legacy single-thread mode. */
+  conversationId: z.string().min(1).optional(),
+
+  /** Member identifier of the agent member this run belongs to (= the agent that was @-ed). */
+  senderMemberId: z.string().min(1).optional(),
 }).superRefine((v, ctx) => {
   if (v.mode === "resume" && !v.resumeCommand) {
     ctx.addIssue({
       code: "custom",
       message: "resumeCommand is required when mode is 'resume'",
       path: ["resumeCommand"],
+    });
+  }
+  if (v.senderMemberId && !v.conversationId) {
+    ctx.addIssue({
+      code: "custom",
+      message: "conversationId is required when senderMemberId is present",
+      path: ["conversationId"],
     });
   }
 });

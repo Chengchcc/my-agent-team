@@ -164,4 +164,43 @@ describe("AgentSpecV1", () => {
   test("fails when mode is invalid", () => {
     expect(() => AgentSpecV1.parse({ ...validSpec, mode: "restart" })).toThrow();
   });
+
+  // ─── M10 conversation fields ──────────────────────────────────
+
+  test("parses spec with conversationId and senderMemberId", () => {
+    const spec = {
+      ...validSpec,
+      conversationId: "conv-1",
+      senderMemberId: "mem-x1",
+    };
+    const parsed = AgentSpecV1.parse(spec);
+    expect(parsed.conversationId).toBe("conv-1");
+    expect(parsed.senderMemberId).toBe("mem-x1");
+  });
+
+  test("conversationId and senderMemberId are optional (old specs still valid)", () => {
+    const parsed = AgentSpecV1.parse(validSpec);
+    expect(parsed.conversationId).toBeUndefined();
+    expect(parsed.senderMemberId).toBeUndefined();
+  });
+
+  test("fails when senderMemberId present but conversationId missing", () => {
+    const spec = { ...validSpec, senderMemberId: "mem-x1" };
+    expect(() => AgentSpecV1.parse(spec)).toThrow();
+  });
+
+  test("conversationId without senderMemberId is fine", () => {
+    const spec = { ...validSpec, conversationId: "conv-1" };
+    const parsed = AgentSpecV1.parse(spec);
+    expect(parsed.conversationId).toBe("conv-1");
+    expect(parsed.senderMemberId).toBeUndefined();
+  });
+
+  test("fails when conversationId is empty string", () => {
+    expect(() => AgentSpecV1.parse({ ...validSpec, conversationId: "" })).toThrow();
+  });
+
+  test("fails when senderMemberId is empty string", () => {
+    expect(() => AgentSpecV1.parse({ ...validSpec, senderMemberId: "", conversationId: "conv-1" })).toThrow();
+  });
 });
