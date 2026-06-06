@@ -43,7 +43,14 @@ export interface Checkpointer {
   saveInterrupt?(threadId: string, state: InterruptState): Promise<void>;
   consumeInterrupt?(threadId: string): Promise<InterruptState | null>;
 
+  /**
+   * @deprecated 内部审计用途，UX 投影一律走 EventLog。
+   * 保留调用点不动；新部署可跳过 Tier 3。
+   */
   appendEvent?(threadId: string, event: CheckpointEvent): Promise<void>;
+  /**
+   * @deprecated 内部审计用途，UX 投影一律走 EventLog。
+   */
   readEvents?(threadId: string): AsyncIterable<CheckpointEvent>;
 }
 

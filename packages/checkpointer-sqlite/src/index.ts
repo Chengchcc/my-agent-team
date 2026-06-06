@@ -42,13 +42,34 @@ export const SQLITE_CHECKPOINTER_MIGRATIONS: readonly { name: string; id: number
   },
 ];
 
-function runMigrations(db: Database, prefix: string): void {
-  // I2: tablePrefix not yet supported in migration SQL — reject to avoid silent failure
-  if (prefix) throw new Error("tablePrefix is not yet supported");
+/** Ensure the checkpointer tables exist. For standalone harness use. Uses a ledger to avoid re-running. */
+export function ensureCheckpointerSchema(db: Database): void {
+  runMigrations(db, SQLITE_CHECKPOINTER_MIGRATIONS);
+}
+
+function runMigrations(db: Database, migrations: readonly { name: string; id: number; up: string }[]): void {
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
-  for (const m of SQLITE_CHECKPOINTER_MIGRATIONS) {
+
+  // Create migration tracking table (idempotent)
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, id INTEGER NOT NULL, ran_at INTEGER NOT NULL)",
+  );
+
+  const ran = new Set(
+    (db.query("SELECT name FROM _migrations").all() as { name: string }[]).map((r) => r.name),
+  );
+
+  // Legacy backfill: if _migrations is empty but user_version > 0, register all migrations
+  // (tables already exist via IF NOT EXISTS, we just need the ledger entry)
+  for (const m of migrations) {
+    if (ran.has(m.name)) continue;
     db.exec(m.up);
+    db.run("INSERT INTO _migrations (name, id, ran_at) VALUES (?, ?, ?)", [
+      m.name,
+      m.id,
+      Date.now(),
+    ]);
   }
 }
 
@@ -60,7 +81,10 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): Checkpointe
   const db: Database = typeof opts.db === "string" ? new Database(opts.db) : opts.db;
   const prefix = opts.tablePrefix ?? "";
 
-  runMigrations(db, prefix);
+  if (prefix) throw new Error("tablePrefix is not yet supported");
+
+  // Run migrations with ledger tracking (idempotent)
+  runMigrations(db, SQLITE_CHECKPOINTER_MIGRATIONS);
 
   const msgTable = table(prefix, "checkpoint_messages");
   const intTable = table(prefix, "checkpoint_interrupts");
