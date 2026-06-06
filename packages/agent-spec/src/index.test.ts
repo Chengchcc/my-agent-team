@@ -95,4 +95,75 @@ describe("AgentSpecV1", () => {
   test("CURRENT_SCHEMA_VERSION equals '1'", () => {
     expect(CURRENT_SCHEMA_VERSION).toBe("1");
   });
+
+  // ─── M9 durable run fields ─────────────────────────────────────
+
+  test("parses spec with M9 durable fields (runId, attemptId, mode, storage)", () => {
+    const spec = {
+      ...validSpec,
+      runId: "run-1",
+      attemptId: "att-1",
+      mode: "run" as const,
+      storage: {
+        eventLog: { kind: "sqlite" as const, path: "/tmp/events.db" },
+        checkpointer: { kind: "sqlite" as const, path: "/tmp/check.db" },
+      },
+    };
+    const parsed = AgentSpecV1.parse(spec);
+    expect(parsed.runId).toBe("run-1");
+    expect(parsed.attemptId).toBe("att-1");
+    expect(parsed.mode).toBe("run");
+    expect(parsed.storage?.eventLog?.kind).toBe("sqlite");
+    expect(parsed.storage?.eventLog?.path).toBe("/tmp/events.db");
+    expect(parsed.storage?.checkpointer?.kind).toBe("sqlite");
+  });
+
+  test("mode defaults to 'run' when omitted", () => {
+    const parsed = AgentSpecV1.parse(validSpec);
+    expect(parsed.mode).toBe("run");
+  });
+
+  test("parses resume mode with resumeCommand", () => {
+    const spec = {
+      ...validSpec,
+      mode: "resume" as const,
+      resumeCommand: { approved: true, message: "go ahead" },
+    };
+    const parsed = AgentSpecV1.parse(spec);
+    expect(parsed.mode).toBe("resume");
+    expect(parsed.resumeCommand?.approved).toBe(true);
+    expect(parsed.resumeCommand?.message).toBe("go ahead");
+  });
+
+  test("resumeCommand is optional even in resume mode (no validation coupling)", () => {
+    const spec = { ...validSpec, mode: "resume" as const };
+    const parsed = AgentSpecV1.parse(spec);
+    expect(parsed.mode).toBe("resume");
+    expect(parsed.resumeCommand).toBeUndefined();
+  });
+
+  test("storage is optional (old specs still valid)", () => {
+    const parsed = AgentSpecV1.parse(validSpec);
+    expect(parsed.storage).toBeUndefined();
+  });
+
+  test("storage.checkpointer accepts memory kind without path", () => {
+    const spec = {
+      ...validSpec,
+      storage: {
+        checkpointer: { kind: "memory" as const },
+      },
+    };
+    const parsed = AgentSpecV1.parse(spec);
+    expect(parsed.storage?.checkpointer?.kind).toBe("memory");
+    expect(parsed.storage?.checkpointer?.path).toBeUndefined();
+  });
+
+  test("fails when runId is empty string", () => {
+    expect(() => AgentSpecV1.parse({ ...validSpec, runId: "" })).toThrow();
+  });
+
+  test("fails when mode is invalid", () => {
+    expect(() => AgentSpecV1.parse({ ...validSpec, mode: "restart" })).toThrow();
+  });
 });

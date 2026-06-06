@@ -64,6 +64,13 @@
       "name": "@my-agent-team/core",
       "version": "0.1.0",
     },
+    "packages/event-log": {
+      "name": "@my-agent-team/event-log",
+      "version": "0.1.0",
+      "dependencies": {
+        "@my-agent-team/framework": "workspace:*",
+      },
+    },
     "packages/framework": {
       "name": "@my-agent-team/framework",
       "version": "0.1.0",
@@ -220,6 +227,8 @@
     "@my-agent-team/cli": ["@my-agent-team/cli@workspace:apps/cli"],
 
     "@my-agent-team/core": ["@my-agent-team/core@workspace:packages/core"],
+
+    "@my-agent-team/event-log": ["@my-agent-team/event-log@workspace:packages/event-log"],
 
     "@my-agent-team/framework": ["@my-agent-team/framework@workspace:packages/framework"],
 

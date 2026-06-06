@@ -31,6 +31,35 @@ export const AgentSpecV1 = z.object({
 
   /** Single-shot user input for this run. */
   input: z.string(),
+
+  // ─── M9 durable run fields ──────────────────────────────────────
+
+  /** Logical run identifier, issued by backend, shared across interrupt/resume attempts. */
+  runId: z.string().min(1).optional(),
+
+  /** Physical attempt identifier, issued by backend, for heartbeat row targeting. */
+  attemptId: z.string().min(1).optional(),
+
+  /** Execution mode. Defaults to 'run'. */
+  mode: z.enum(["run", "resume"]).default("run"),
+
+  /** Resume payload. Required when mode='resume' (validated at call site, not by zod). */
+  resumeCommand: z.object({
+    approved: z.boolean(),
+    message: z.string().optional(),
+  }).optional(),
+
+  /** Storage connection configuration. eventLog is backend-issued (converged); checkpointer can be heterogeneous. */
+  storage: z.object({
+    eventLog: z.object({
+      kind: z.literal("sqlite"),
+      path: z.string().min(1),
+    }).optional(),
+    checkpointer: z.object({
+      kind: z.enum(["sqlite", "memory"]),
+      path: z.string().optional(),
+    }).optional(),
+  }).optional(),
 });
 
 export type AgentSpec = z.infer<typeof AgentSpecV1>;
