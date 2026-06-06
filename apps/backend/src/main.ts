@@ -180,12 +180,12 @@ supervisor.onRunComplete((threadId, runId) => {
       // C2: Release the conversation lock
       convSvc.completeRun(cid, threadId, runId);
 
-      // D19: Fire-and-forget — read agent output from event_log, append to ledger, broadcast
+      // D19: Fire-and-forget — read agent output from event_log (one-shot, run has exited), append to ledger, broadcast
       void (async () => {
         try {
-          const events = eventLog.subscribe({ runId, afterSeq: 0 }, {});
+          const events = await eventLog.read({ runId });
           const msgs: Array<{ role: string; content: unknown }> = [];
-          for await (const rec of events) {
+          for (const rec of events) {
             if (rec.event.type === "message") {
               msgs.push({ role: rec.event.payload.role, content: rec.event.payload.content });
             }

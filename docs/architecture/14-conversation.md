@@ -87,6 +87,8 @@ type Member = AgentMember | HumanMember;   // discriminatedUnion("kind")
                      → ② 广播给 X/Y 的 thread → ③ 触发 X 起 loop
 agent X 输出里 @Y  = X 的 assistant 消息 { sender: X, addressedTo: [Y] }
                      → ② 广播给 X/Y 的 thread → ③ 触发 Y 起 loop（mention）
+                     **M10 limitation: addressedTo 来自 surface 显式传入；agent 输出中的 @mention
+                     自由文本解析留 M12。M10 内 agent→agent 的 addressedTo 由调用方（CLI/surface）提供。**
 成员变化           = ledger 系统事件 { sender: __system__, kind: 'member.joined', memberId: Y }
                      → ② 广播投影成 system/user 消息注入所有在场 agent thread
                         （"成员变化：Y 加入。当前在场：H, X, Y"）
@@ -134,7 +136,7 @@ agent X 输出里 @Y  = X 的 assistant 消息 { sender: X, addressedTo: [Y] }
 | **粒度** | 一条 ledger entry = 一条会话消息/成员事件 | 一条 event_log record = 一个执行事件 |
 | **关系** | 一条 ledger 消息若 @ 了 agent → 触发一次 run → 该 run 产生多条 event_log 记录 | 反向：event_log 的 run 归属某 (conversationId, agentMemberId) thread |
 
-会话级 SSE 投影（`GET /conversations/:id/events`）把**两者按 ts 归并成一条流**：真人/系统的 ledger 事件 + 各 agent run 的 event_log 事件，用合成 cursor（`${source}:${rawSeq}`）做 `Last-Event-ID`，前端订阅一条流即见全貌。两个源各有独立 AUTOINCREMENT，无法共用统一 seq；ts 归并 + 合成 cursor 解决排序与断点续传。
+会话级 SSE 投影（`GET /conversations/:id/events`）**只投影 conversation_ledger**（它已是所有成员发言 + 成员事件的归并真相），用 ledger 自身的 seq 做 `Last-Event-ID`。run 级 token/工具细节仍走 `/runs/:id/events`（读 event_log），两条流分层不混排——ledger 覆盖会话语义（谁说了什么、谁进出），event_log 覆盖执行粒度（token/工具调用）。`event_log.seq`（events.db）与 `conversation_ledger.seq`（backend.db）是两个独立 AUTOINCREMENT，物理上无法共用统一 seq。
 
 ---
 

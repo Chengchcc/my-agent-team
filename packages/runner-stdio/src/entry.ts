@@ -61,6 +61,12 @@ export async function runEntry(io: EntryIO): Promise<number> {
     return 1;
   }
 
+  // P0-1: Self-build checkpointer from spec.storage.checkpointer.path when not injected (production path).
+  // This unifies the backend's broadcast projection writes with the runner's checkpointer reads.
+  // Declared at function scope so finally/catch blocks can close it.
+  let cpDb: unknown = checkpointerDb;
+  let cpDbSelfBuilt = false;
+
   // 3+4+5. Construct model + agent + run (all inside try/catch — M7 N1 fix + H6)
   try {
     writeStderr(`[runner-stdio] spec parsed, threadId=${spec.threadId}${spec.conversationId ? `, conversationId=${spec.conversationId}` : ""}`);
@@ -71,13 +77,19 @@ export async function runEntry(io: EntryIO): Promise<number> {
       baseUrl: spec.model.baseURL,
     });
 
+    if (!cpDb && spec.storage?.checkpointer?.kind === "sqlite" && spec.storage.checkpointer.path) {
+      const { Database } = await import("bun:sqlite");
+      cpDb = new Database(spec.storage.checkpointer.path);
+      cpDbSelfBuilt = true;
+    }
+
     const factory = createAgent ?? (await import("@my-agent-team/harness")).createGenericAgent;
     const agent = await factory({
       workspace: spec.workspace,
       model,
       threadId: spec.threadId,
       permissionMode: spec.permissionMode,
-      checkpointerDb: checkpointerDb as Parameters<typeof factory>[0]["checkpointerDb"],
+      checkpointerDb: cpDb as Parameters<typeof factory>[0]["checkpointerDb"],
     });
 
     // M9: heartbeat timer (runner entry directly writes attempt.heartbeat_at)
@@ -129,10 +141,12 @@ export async function runEntry(io: EntryIO): Promise<number> {
     } finally {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (hbDb) hbDb.close();
+      if (cpDbSelfBuilt && cpDb) (cpDb as import("bun:sqlite").Database).close();
     }
     writeStderr(`[runner-stdio] agent.${spec.mode} finished cleanly`);
     return 0;
   } catch (err) {
+    if (cpDbSelfBuilt && cpDb) (cpDb as import("bun:sqlite").Database).close();
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
     writeEvent({ type: "error", payload: { message, stack } });
