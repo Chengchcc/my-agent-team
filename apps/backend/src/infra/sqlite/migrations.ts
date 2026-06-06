@@ -84,6 +84,45 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
       CREATE INDEX IF NOT EXISTS idx_run_thread ON run(thread_id, started_at DESC);
     `,
   },
+  // ─── M10 conversation tables (id segment 4000) ────────────────
+  {
+    name: "backend_v10_conversation",
+    id: 4000,
+    up: `CREATE TABLE IF NOT EXISTS conversation (
+      conversation_id TEXT PRIMARY KEY,
+      trigger_mode    TEXT NOT NULL DEFAULT 'mention',
+      hop_count       INTEGER NOT NULL DEFAULT 0,
+      created_at      INTEGER NOT NULL
+    )`,
+  },
+  {
+    name: "backend_v10_member",
+    id: 4001,
+    up: `CREATE TABLE IF NOT EXISTS member (
+      member_id       TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversation(conversation_id) ON DELETE CASCADE,
+      kind            TEXT NOT NULL,
+      agent_id        TEXT,
+      user_ref        TEXT,
+      display_name    TEXT,
+      joined_at       INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_member_conv ON member(conversation_id)`,
+  },
+  {
+    name: "backend_v10_conversation_ledger",
+    id: 4002,
+    up: `CREATE TABLE IF NOT EXISTS conversation_ledger (
+      seq              INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id  TEXT NOT NULL REFERENCES conversation(conversation_id) ON DELETE CASCADE,
+      sender_member_id TEXT NOT NULL,
+      addressed_to     TEXT NOT NULL DEFAULT '[]',
+      kind             TEXT NOT NULL,
+      content          TEXT NOT NULL,
+      ts               INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ledger_conv ON conversation_ledger(conversation_id, seq)`,
+  },
 ];
 
 /** Combined migrations: backend own + checkpointer tables. Sorted by id. */
