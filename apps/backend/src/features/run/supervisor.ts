@@ -1,33 +1,60 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { Database } from "bun:sqlite";
 import type { EventLog, EventSource } from "@my-agent-team/event-log";
-import type { RunEventBus } from "./event-bus.js";
 import type { BackendConfig } from "../../config.js";
 
-// DDL that must exist in events.db (same file that stores event_log)
-const RUN_ATTEMPT_DDL = `
-CREATE TABLE IF NOT EXISTS run (
-  run_id     TEXT PRIMARY KEY,
-  thread_id  TEXT NOT NULL,
-  status     TEXT NOT NULL DEFAULT 'running',
-  started_at INTEGER NOT NULL,
-  ended_at   INTEGER
-);
-CREATE TABLE IF NOT EXISTS attempt (
-  attempt_id   TEXT PRIMARY KEY,
-  run_id       TEXT NOT NULL REFERENCES run(run_id) ON DELETE CASCADE,
-  pid          INTEGER,
-  heartbeat_at INTEGER,
-  started_at   INTEGER NOT NULL,
-  ended_at     INTEGER
-);
-CREATE INDEX IF NOT EXISTS idx_attempt_run ON attempt(run_id, started_at);
-CREATE INDEX IF NOT EXISTS idx_run_thread ON run(thread_id, started_at DESC);
-`;
+// Migrations for events.db — run/attempt tables (same file that stores event_log).
+// Uses the same _migrations ledger pattern as backend.db.
+const EVENTS_DB_MIGRATIONS = [
+  {
+    name: "events_v1_run",
+    id: 3000,
+    up: `CREATE TABLE IF NOT EXISTS run (
+      run_id     TEXT PRIMARY KEY,
+      thread_id  TEXT NOT NULL,
+      status     TEXT NOT NULL DEFAULT 'running',
+      started_at INTEGER NOT NULL,
+      ended_at   INTEGER
+    )`,
+  },
+  {
+    name: "events_v2_attempt",
+    id: 3001,
+    up: `CREATE TABLE IF NOT EXISTS attempt (
+      attempt_id   TEXT PRIMARY KEY,
+      run_id       TEXT NOT NULL REFERENCES run(run_id) ON DELETE CASCADE,
+      pid          INTEGER,
+      heartbeat_at INTEGER,
+      started_at   INTEGER NOT NULL,
+      ended_at     INTEGER
+    )`,
+  },
+  {
+    name: "events_v3_attempt_run_idx",
+    id: 3002,
+    up: `CREATE INDEX IF NOT EXISTS idx_attempt_run ON attempt(run_id, started_at)`,
+  },
+  {
+    name: "events_v4_run_thread_idx",
+    id: 3003,
+    up: `CREATE INDEX IF NOT EXISTS idx_run_thread ON run(thread_id, started_at DESC)`,
+  },
+];
+
+function runEventsDbMigrations(db: Database): void {
+  db.exec("CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, id INTEGER NOT NULL, ran_at INTEGER NOT NULL)");
+  const ran = new Set(
+    (db.query("SELECT name FROM _migrations").all() as { name: string }[]).map((r) => r.name),
+  );
+  for (const m of EVENTS_DB_MIGRATIONS) {
+    if (ran.has(m.name)) continue;
+    db.exec(m.up);
+    db.run("INSERT INTO _migrations (name, id, ran_at) VALUES (?, ?, ?)", [m.name, m.id, Date.now()]);
+  }
+}
 
 export interface RunSupervisorOptions {
   eventLog: EventLog;
-  eventBus: RunEventBus;
   config: BackendConfig;
   runnerBin: string;
 }
@@ -52,8 +79,8 @@ export class RunSupervisor {
     this.#db = new Database(`${opts.config.dataDir}/events.db`);
     this.#db.exec("PRAGMA journal_mode=WAL");
     this.#db.exec("PRAGMA busy_timeout=5000");
-    // Fix A: Ensure run/attempt tables exist in events.db
-    this.#db.exec(RUN_ATTEMPT_DDL);
+    // Fix A + FIX-6: Ensure run/attempt tables exist in events.db via unified migration ledger
+    runEventsDbMigrations(this.#db);
   }
 
   /** Register callback invoked when any run completes (success/error/abort). */
@@ -96,26 +123,19 @@ export class RunSupervisor {
     // Update attempt with actual pid
     this.#db.run("UPDATE attempt SET pid = ? WHERE attempt_id = ?", [pid, attemptId]);
 
-    // Parse stdout NDJSON for low-latency event notification
+    // Parse stdout NDJSON for optional low-latency notification.
+    // Events are durably persisted via EventSink.append in the subprocess;
+    // stdout is an acceleration channel — losing it never loses events (iron law 4).
     let buf = "";
     child.stdout!.on("data", (data: Buffer) => {
       buf += data.toString();
+      // NDJSON lines are parsed but no longer fanned out through a bus;
+      // the SSE endpoint polls EventLog directly (the durable source of truth).
+      // Future: restore an in-process bus here for <1ms latency if needed.
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const ev = JSON.parse(line);
-          this.#opts.eventBus.emit({
-            seq: -1,
-            threadId,
-            runId,
-            event: ev,
-            ts: Date.now(),
-          });
-        } catch {
-          /* skip corrupt lines */
-        }
+      for (const _line of lines) {
+        // stdout consumed to prevent backpressure; content intentionally unused
       }
     });
 

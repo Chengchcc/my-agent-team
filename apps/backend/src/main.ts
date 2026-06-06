@@ -5,7 +5,6 @@ import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
 import { agentRoutes, createAgentService } from "./features/agent/index.js";
 import { sqliteCheckpointReadAdapter } from "./features/checkpoint/adapter-sqlite.js";
 import { checkpointRoutes, createCheckpointService } from "./features/checkpoint/index.js";
-import { RunEventBus } from "./features/run/event-bus.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
 import { sqliteThreadAdapter } from "./features/thread/adapter-sqlite.js";
@@ -59,10 +58,8 @@ const threadSvc = createThreadService({
 
 // M9: EventLog + Supervisor
 const eventLog = sqliteEventLog({ db: `${config.dataDir}/events.db` });
-const eventBus = new RunEventBus();
 const supervisor = new RunSupervisor({
   eventLog,
-  eventBus,
   config,
   runnerBin: `${import.meta.dir}/../../packages/runner-stdio/src/bin.ts`,
 });
