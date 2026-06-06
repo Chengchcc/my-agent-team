@@ -31,3 +31,17 @@ jobs:
 
       - name: Build
         run: bun run build
+
+      - name: Check dist freshness
+        run: |
+          if [ -n "$(git diff --name-only -- 'packages/*/dist' 'apps/*/dist')" ]; then
+            echo "ERROR: dist/ is stale. Run 'bun run build' and commit the dist/ changes."
+            echo ""
+            echo "Changed files:"
+            git diff --name-only -- 'packages/*/dist' 'apps/*/dist'
+            echo ""
+            echo "Full diff:"
+            git diff -- 'packages/*/dist' 'apps/*/dist'
+            exit 1
+          fi
+          echo "dist/ is fresh"
