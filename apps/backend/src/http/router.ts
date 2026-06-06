@@ -99,11 +99,27 @@ export function createRouter(token: string, features?: FeatureSet) {
       if (threadRunsMatch)
         return json({ error: "Method not allowed" }, 405);
 
-      // Cancel
+      // Runs — cancel, events, resume, get
       const cancelMatch = path.match(/^\/api\/runs\/([^/]+)\/cancel$/);
+      const eventsMatch = path.match(/^\/api\/runs\/([^/]+)\/events$/);
+      const resumeMatch = path.match(/^\/api\/runs\/([^/]+)\/resume$/);
+      const runMatch = path.match(/^\/api\/runs\/([^/]+)$/);
+
       if (cancelMatch && method === "POST")
         return withAuth((r) => runs.cancel(r, cancelMatch[1]!), token)(req);
       if (cancelMatch)
+        return json({ error: "Method not allowed" }, 405);
+      if (eventsMatch && method === "GET")
+        return withAuth((r) => runs.events(r, eventsMatch[1]!), token)(req);
+      if (eventsMatch)
+        return json({ error: "Method not allowed" }, 405);
+      if (resumeMatch && method === "POST")
+        return withAuth((r) => runs.resume(r, resumeMatch[1]!), token)(req);
+      if (resumeMatch)
+        return json({ error: "Method not allowed" }, 405);
+      if (runMatch && method === "GET")
+        return withAuth((r) => runs.getById(r, runMatch[1]!), token)(req);
+      if (runMatch)
         return json({ error: "Method not allowed" }, 405);
 
       return withAuth(async () => notFound(req), token)(req);

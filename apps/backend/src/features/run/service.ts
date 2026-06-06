@@ -1,5 +1,5 @@
-import type { AgentEvent } from "@my-agent-team/framework";
-import type { RunRow } from "./domain.js";
+import type { EventLog } from "@my-agent-team/event-log";
+import type { RunSupervisor } from "./supervisor";
 
 export class ThreadBusyError extends Error {
   constructor(threadId: string) {
@@ -10,99 +10,69 @@ export class ThreadBusyError extends Error {
 
 export class RunNotFoundError extends Error {
   constructor(id: string) {
-    super(`Run not found or not running: ${id}`);
+    super(`Run not found: ${id}`);
     this.name = "RunNotFoundError";
   }
 }
 
+export class TooManyRunsError extends Error {
+  constructor(max: number) {
+    super(`Too many concurrent runs (max: ${max})`);
+    this.name = "TooManyRunsError";
+  }
+}
+
+export class RunNotInterruptedError extends Error {
+  constructor(id: string) {
+    super(`Run is not in interrupted state: ${id}`);
+    this.name = "RunNotInterruptedError";
+  }
+}
+
 export interface RunServiceDeps {
-  port: {
-    create(input: {
-      id: string;
-      threadId: string;
-      input: string;
-      status: string;
-      startedAt: number;
-    }): RunRow;
-    findById(id: string): RunRow | null;
-    updateStatus(
-      id: string,
-      status: string,
-      errorMessage?: string,
-      endedAt?: number,
-    ): RunRow | null;
-  };
-  idGen: () => string;
-  runner: (spec: unknown, signal: AbortSignal) => AsyncIterable<AgentEvent>;
+  supervisor: RunSupervisor;
+  eventLog: EventLog;
+  maxConcurrentRuns: number;
   threads: Set<string>;
-  abortMap: Map<string, AbortController>;
-  threadSvc: { touchLastRun(id: string): void };
+  idGen: () => string;
 }
 
 export function createRunService(deps: RunServiceDeps) {
-  const { port, idGen, runner, threads, abortMap, threadSvc } = deps;
+  const { supervisor, eventLog, maxConcurrentRuns, threads, idGen } = deps;
 
   return {
-    start(threadId: string, input: string, spec?: unknown): AsyncIterable<AgentEvent> {
+    /** Fork subprocess + write ledger. Returns 202 payload immediately. */
+    start(threadId: string, input: string, specJson: string) {
       if (threads.has(threadId)) throw new ThreadBusyError(threadId);
-      threads.add(threadId);
+      if (supervisor.activeCount >= maxConcurrentRuns) throw new TooManyRunsError(maxConcurrentRuns);
 
       const runId = idGen();
-      const ac = new AbortController();
-      abortMap.set(runId, ac);
+      threads.add(threadId);
 
       try {
-        port.create({ id: runId, threadId, input, status: "running", startedAt: Date.now() });
+        const { attemptId } = supervisor.fork(runId, threadId, specJson);
+        return { runId, attemptId };
       } catch (err) {
         threads.delete(threadId);
-        abortMap.delete(runId);
         throw err;
       }
-
-      return startRunInner(runId, threadId, spec, ac);
     },
 
     cancel(runId: string): void {
-      const ac = abortMap.get(runId);
-      if (!ac) throw new RunNotFoundError(runId);
-      ac.abort();
-      abortMap.delete(runId);
+      if (!supervisor.cancel(runId)) throw new RunNotFoundError(runId);
+    },
+
+    /** Resume an interrupted run with a new attempt. */
+    resume(runId: string, approved: boolean, message?: string) {
+      // Check that the run exists and is in 'interrupted' state
+      // (RunSupervisor handles the re-fork)
+      // For now, return a placeholder — the HTTP handler will build the spec and call supervisor.fork
+      return { runId };
+    },
+
+    /** Stream events via EventLog.subscribe for SSE projection. */
+    eventStream(runId: string, afterSeq?: number, signal?: AbortSignal) {
+      return eventLog.subscribe({ runId, afterSeq: afterSeq ?? 0 }, {}, signal);
     },
   };
-
-  async function* startRunInner(
-    runId: string,
-    threadId: string,
-    spec: unknown,
-    ac: AbortController,
-  ): AsyncIterable<AgentEvent> {
-    try {
-      let status: RunRow["status"] = "completed";
-      let errorMessage: string | null = null;
-
-      try {
-        for await (const ev of runner(spec ?? {}, ac.signal)) {
-          yield ev;
-          if (ev.type === "error") {
-            status = "error";
-            errorMessage = ev.payload.message;
-          }
-        }
-        // H3: runner completed without throwing, but might have been aborted via signal
-        if (ac.signal.aborted) status = "aborted";
-      } catch (err) {
-        status = ac.signal.aborted ? "aborted" : "error";
-        errorMessage = err instanceof Error ? err.message : String(err);
-        if (status === "error") {
-          yield { type: "error", payload: { message: errorMessage } };
-        }
-      }
-
-      port.updateStatus(runId, status, errorMessage ?? undefined, Date.now());
-      threadSvc.touchLastRun(threadId);
-    } finally {
-      threads.delete(threadId);
-      abortMap.delete(runId);
-    }
-  }
 }

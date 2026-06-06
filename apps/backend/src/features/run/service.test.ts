@@ -1,141 +1,113 @@
-import { describe, expect, test } from "bun:test";
-import type { AgentEvent } from "@my-agent-team/framework";
-import type { RunRow } from "./domain.js";
-import { createRunService, RunNotFoundError, ThreadBusyError } from "./service.js";
+import { describe, expect, mock, test } from "bun:test";
+import type { EventLog, EventSource } from "@my-agent-team/event-log";
+import type { RunSupervisor } from "./supervisor";
+import { createRunService, RunNotFoundError, ThreadBusyError, TooManyRunsError } from "./service";
 
-interface RunPort {
-  create(input: {
-    id: string;
-    threadId: string;
-    input: string;
-    status: string;
-    startedAt: number;
-  }): RunRow;
-  findById(id: string): RunRow | null;
-  updateStatus(id: string, status: string, errorMessage?: string, endedAt?: number): RunRow | null;
-  listByThread(threadId: string): RunRow[];
+function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
+  return {
+    activeCount: 0,
+    fork: () => ({ runId: "run-1", attemptId: "att-1", pid: 12345 }),
+    cancel: () => true,
+    rediscover: async () => {},
+    ...overrides,
+  } as unknown as RunSupervisor;
 }
 
-function makePort(): RunPort {
-  const rows = new Map<string, RunRow>();
+function makeMockEventLog(): EventLog {
   return {
-    create(input) {
-      const row = { ...input, errorMessage: null, endedAt: null } as RunRow;
-      rows.set(input.id, row);
-      return row;
-    },
-    updateStatus(id, status, errorMessage, endedAt) {
-      const r = rows.get(id);
-      if (!r) return null;
-      r.status = status as RunRow["status"];
-      if (errorMessage !== undefined) r.errorMessage = errorMessage;
-      if (endedAt !== undefined) r.endedAt = endedAt;
-      return r;
-    },
-    findById(id) {
-      return rows.get(id) ?? null;
-    },
-    listByThread(threadId) {
-      return [...rows.values()].filter((r) => r.threadId === threadId);
-    },
+    append: async () => 1,
+    read: async () => [],
+    subscribe: () => (async function* () {})() as AsyncIterable<any>,
   };
 }
 
-async function* makeRunner(): AsyncIterable<AgentEvent> {
-  yield { type: "message", payload: { role: "assistant", content: "ok" } } as AgentEvent;
-}
-
 describe("RunService", () => {
-  test("start creates run record and returns SSE stream", async () => {
+  test("start returns { runId, attemptId }", () => {
     const svc = createRunService({
-      port: makePort(),
-      idGen: () => "run-1",
-      runner: () => makeRunner(),
+      supervisor: makeMockSupervisor(),
+      eventLog: makeMockEventLog(),
+      maxConcurrentRuns: 8,
       threads: new Set(),
-      abortMap: new Map(),
-      threadSvc: { touchLastRun: () => {} } as { touchLastRun(id: string): void },
+      idGen: () => "run-1",
     });
 
-    const events: AgentEvent[] = [];
-    for await (const ev of svc.start("th-1", "hello")) {
-      events.push(ev);
-    }
-
-    expect(events.length).toBe(1);
-    expect(events[0]?.type).toBe("message");
+    const result = svc.start("th-1", "hello", "{}");
+    expect(result.runId).toBe("run-1");
+    expect(result.attemptId).toBe("att-1");
   });
 
   test("start throws ThreadBusyError when thread already running", () => {
     const threads = new Set<string>(["th-1"]);
     const svc = createRunService({
-      port: makePort(),
-      idGen: () => "run-1",
-      runner: () => makeRunner(),
+      supervisor: makeMockSupervisor(),
+      eventLog: makeMockEventLog(),
+      maxConcurrentRuns: 8,
       threads,
-      abortMap: new Map(),
-      threadSvc: { touchLastRun: () => {} } as { touchLastRun(id: string): void },
+      idGen: () => "run-1",
     });
 
-    // Async generator throws synchronously when function runs
-    expect(() => svc.start("th-1", "hi")).toThrow(ThreadBusyError);
+    expect(() => svc.start("th-1", "hi", "{}")).toThrow(ThreadBusyError);
   });
 
-  test("cancel aborts a running run and updates status to aborted", async () => {
-    const threads = new Set<string>();
-    const abortMap = new Map<string, AbortController>();
-    let lastStatus: string | undefined;
-    let lastRunId: string | undefined;
-
-    const basePort = makePort();
-    const trackPort = {
-      ...basePort,
-      updateStatus(id: string, status: string, errorMessage?: string, endedAt?: number) {
-        lastRunId = id;
-        lastStatus = status;
-        return basePort.updateStatus(id, status, errorMessage, endedAt);
-      },
-    };
-
-    // Runner that never yields — only stops on abort
-    async function* hangingRunner(_spec: unknown, signal: AbortSignal): AsyncIterable<AgentEvent> {
-      await new Promise<void>((resolve) => {
-        signal.addEventListener("abort", () => resolve());
-      });
-    }
-
+  test("start throws TooManyRunsError when at capacity", () => {
     const svc = createRunService({
-      port: trackPort,
+      supervisor: makeMockSupervisor({ activeCount: 8 }),
+      eventLog: makeMockEventLog(),
+      maxConcurrentRuns: 8,
+      threads: new Set(),
       idGen: () => "run-1",
-      runner: hangingRunner,
-      threads,
-      abortMap,
-      threadSvc: { touchLastRun: () => {} } as { touchLastRun(id: string): void },
     });
 
-    const done = (async () => {
-      for await (const _ of svc.start("th-1", "hi")) {
-      }
-    })();
+    expect(() => svc.start("th-1", "hi", "{}")).toThrow(TooManyRunsError);
+  });
 
-    await new Promise((r) => setTimeout(r, 10));
+  test("cancel delegates to supervisor", () => {
+    let cancelled = false;
+    const svc = createRunService({
+      supervisor: makeMockSupervisor({ cancel: () => { cancelled = true; return true; } }),
+      eventLog: makeMockEventLog(),
+      maxConcurrentRuns: 8,
+      threads: new Set(),
+      idGen: () => "run-1",
+    });
+
     svc.cancel("run-1");
-    await done;
-
-    expect(lastStatus).toBe("aborted");
-    expect(lastRunId).toBe("run-1");
-    expect(threads.has("th-1")).toBe(false);
+    expect(cancelled).toBe(true);
   });
 
   test("cancel throws RunNotFoundError for unknown runId", () => {
     const svc = createRunService({
-      port: makePort(),
-      idGen: () => "run-1",
-      runner: () => makeRunner(),
+      supervisor: makeMockSupervisor({ cancel: () => false }),
+      eventLog: makeMockEventLog(),
+      maxConcurrentRuns: 8,
       threads: new Set(),
-      abortMap: new Map(),
-      threadSvc: { touchLastRun: () => {} } as { touchLastRun(id: string): void },
+      idGen: () => "run-1",
     });
 
     expect(() => svc.cancel("nonexistent")).toThrow(RunNotFoundError);
+  });
+
+  test("eventStream delegates to EventLog.subscribe", async () => {
+    const mockLog = {
+      ...makeMockEventLog(),
+      subscribe: async function* () {
+        yield { seq: 1, threadId: "t1", runId: "r1", event: { type: "message", message: { role: "assistant", content: "hi" } }, ts: 1 };
+      },
+    } as EventLog;
+
+    const svc = createRunService({
+      supervisor: makeMockSupervisor(),
+      eventLog: mockLog,
+      maxConcurrentRuns: 8,
+      threads: new Set(),
+      idGen: () => "run-1",
+    });
+
+    const collected: any[] = [];
+    for await (const rec of svc.eventStream("r1")) {
+      collected.push(rec);
+    }
+    expect(collected.length).toBe(1);
+    expect(collected[0]!.seq).toBe(1);
   });
 });
