@@ -43,7 +43,7 @@ export const AgentSpecV1 = z.object({
   /** Execution mode. Defaults to 'run'. */
   mode: z.enum(["run", "resume"]).default("run"),
 
-  /** Resume payload. Required when mode='resume' (validated at call site, not by zod). */
+  /** Resume payload. Required when mode='resume'. */
   resumeCommand: z.object({
     approved: z.boolean(),
     message: z.string().optional(),
@@ -60,6 +60,14 @@ export const AgentSpecV1 = z.object({
       path: z.string().optional(),
     }).optional(),
   }).optional(),
+}).superRefine((v, ctx) => {
+  if (v.mode === "resume" && !v.resumeCommand) {
+    ctx.addIssue({
+      code: "custom",
+      message: "resumeCommand is required when mode is 'resume'",
+      path: ["resumeCommand"],
+    });
+  }
 });
 
 export type AgentSpec = z.infer<typeof AgentSpecV1>;

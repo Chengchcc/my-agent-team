@@ -100,11 +100,24 @@ export async function runEntry(io: EntryIO): Promise<number> {
       }, heartbeatInterval);
     }
 
+    // M9: EventSink — test injects in-memory, production self-builds from spec.storage.eventLog
+    let sink = io.eventSink;
+    if (!sink && spec.storage?.eventLog) {
+      const { sqliteEventLog } = await import("@my-agent-team/event-log");
+      sink = sqliteEventLog({ db: spec.storage.eventLog.path });
+    }
+    // Fail fast if durable mode is configured but no sink is available
+    if (!sink && spec.storage?.eventLog) {
+      const err = new Error("EventLog configured but failed to construct EventSink");
+      writeEvent({ type: "error", payload: { message: err.message, stack: err.stack } });
+      writeStderr(`[runner-stdio] ${err.message}`);
+      return 1;
+    }
+
     // M9: mode branch — run vs resume
-    const sink = io.eventSink;
     const stream =
       spec.mode === "resume"
-        ? agent.resume(spec.resumeCommand ?? { approved: true }, { signal, maxSteps: spec.maxSteps })
+        ? agent.resume(spec.resumeCommand!, { signal, maxSteps: spec.maxSteps })
         : agent.run(spec.input, { signal, maxSteps: spec.maxSteps });
 
     writeStderr(`[runner-stdio] agent.${spec.mode} started`);

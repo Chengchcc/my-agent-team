@@ -36,7 +36,8 @@ interface ActiveRun {
   runId: string;
   attemptId: string;
   threadId: string;
-  child: ChildProcess;
+  pid: number;
+  child: ChildProcess | null; // null after restart (no live handle)
   abortController: AbortController;
 }
 
@@ -146,7 +147,7 @@ export class RunSupervisor {
       }
     });
 
-    this.#active.set(runId, { runId, attemptId, threadId, child, abortController: ac });
+    this.#active.set(runId, { runId, attemptId, threadId, pid, child, abortController: ac });
 
     return { runId, attemptId, pid };
   }
@@ -159,12 +160,26 @@ export class RunSupervisor {
     // Fix D: Signal abort so exit handler classifies correctly
     run.abortController.abort("cancelled");
 
-    run.child.kill("SIGTERM");
-    setTimeout(() => {
-      if (run.child.exitCode === null) {
-        run.child.kill("SIGKILL");
+    // Fix FIX-3: handle post-restart (child is null, cancel by pid)
+    if (run.child) {
+      run.child.kill("SIGTERM");
+      setTimeout(() => {
+        if (run.child && run.child.exitCode === null) {
+          run.child.kill("SIGKILL");
+        }
+      }, this.#opts.config.cancelGraceMs);
+    } else {
+      // post-restart: no ChildProcess handle, use process.kill with stored pid
+      try {
+        process.kill(run.pid, "SIGTERM");
+      } catch {
+        // Process already dead — mark aborted immediately
+        const now = Date.now();
+        this.#db.run("UPDATE run SET status = 'aborted', ended_at = ? WHERE run_id = ?", [now, runId]);
+        this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, run.attemptId]);
+        this.#active.delete(runId);
       }
-    }, this.#opts.config.cancelGraceMs);
+    }
     return true;
   }
 
@@ -185,7 +200,8 @@ export class RunSupervisor {
           runId: row.run_id,
           attemptId: row.attempt_id,
           threadId: row.thread_id ?? "",
-          child: null as unknown as ChildProcess, // no live handle; cancel works via pid
+          pid: row.pid ?? 0,
+          child: null, // no live handle after restart; cancel works via process.kill(pid)
           abortController: ac,
         });
         console.log(`[supervisor] re-discovered live run: ${row.run_id} (attempt ${row.attempt_id}, age ${age}ms)`);

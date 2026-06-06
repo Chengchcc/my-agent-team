@@ -135,11 +135,9 @@ describe("AgentSpecV1", () => {
     expect(parsed.resumeCommand?.message).toBe("go ahead");
   });
 
-  test("resumeCommand is optional even in resume mode (no validation coupling)", () => {
+  test("fails when mode=resume but resumeCommand is missing", () => {
     const spec = { ...validSpec, mode: "resume" as const };
-    const parsed = AgentSpecV1.parse(spec);
-    expect(parsed.mode).toBe("resume");
-    expect(parsed.resumeCommand).toBeUndefined();
+    expect(() => AgentSpecV1.parse(spec)).toThrow();
   });
 
   test("storage is optional (old specs still valid)", () => {
