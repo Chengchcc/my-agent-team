@@ -22,6 +22,7 @@ export {
   type ResumeCommand,
 } from "./create-agent.js";
 export { consoleLogger, type Logger, type LogLevel, noopLogger } from "./logger.js";
+export { repairToolPairs } from "./repair-tool-pairs.js";
 export {
   definePlugin,
   type HookContext,

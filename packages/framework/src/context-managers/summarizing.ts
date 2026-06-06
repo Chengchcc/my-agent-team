@@ -1,6 +1,7 @@
 import type { ChatModel, Message } from "@my-agent-team/core";
 import { collectStream } from "@my-agent-team/core";
 import type { ContextManager } from "../context-manager.js";
+import { repairToolPairs } from "../repair-tool-pairs.js";
 
 export interface SummarizingOptions {
   triggerAt: number;
@@ -59,7 +60,7 @@ export function summarizingContextManager(opts: SummarizingOptions): ContextMana
         ? await opts.summarizer(old, model)
         : await defaultSummarize(old, model, ctx.signal);
 
-      return [summary, ...recent];
+      return repairToolPairs([summary, ...recent]);
     },
   };
 }

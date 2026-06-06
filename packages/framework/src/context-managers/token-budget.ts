@@ -1,5 +1,6 @@
 import type { Message } from "@my-agent-team/core";
 import type { ContextManager } from "../context-manager.js";
+import { repairToolPairs } from "../repair-tool-pairs.js";
 
 export interface TokenBudgetOptions {
   maxTokens: number;
@@ -38,7 +39,7 @@ export function tokenBudgetContextManager(opts: TokenBudgetOptions): ContextMana
         }
       }
 
-      return kept;
+      return repairToolPairs(kept);
     },
   };
 }

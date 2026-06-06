@@ -1,5 +1,6 @@
 import type { Message } from "@my-agent-team/core";
 import type { ContextManager } from "../context-manager.js";
+import { repairToolPairs } from "../repair-tool-pairs.js";
 
 export interface SlidingWindowOptions {
   maxTurns: number;
@@ -22,7 +23,7 @@ export function slidingWindowContextManager(opts: SlidingWindowOptions): Context
       const recentTurns = turns.slice(-maxTurns);
       const recent = recentTurns.flatMap((t) => t.messages);
 
-      return [...kept, ...recent];
+      return repairToolPairs([...kept, ...recent]);
     },
   };
 }
