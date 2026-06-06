@@ -12,13 +12,12 @@ export function backfillLegacyThreads(
   db: Database,
   port: ConversationPort,
 ): void {
-  const threads = db
-    .query(
-      "SELECT t.id, t.agent_id, t.title FROM threads t WHERE NOT EXISTS (SELECT 1 FROM conversation c WHERE c.conversation_id = t.id)",
-    )
-    .all() as { id: string; agent_id: string; title: string | null }[];
+  // L5: Use cursor-based iteration instead of loading all threads into memory
+  const query = db.query(
+    "SELECT t.id, t.agent_id, t.title FROM threads t WHERE NOT EXISTS (SELECT 1 FROM conversation c WHERE c.conversation_id = t.id)",
+  );
 
-  for (const thread of threads) {
+  for (const thread of query.iterate() as Iterable<{ id: string; agent_id: string; title: string | null }>) {
     const now = Date.now();
 
     // Create degenerate conversation (id = threadId)

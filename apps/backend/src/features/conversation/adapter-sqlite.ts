@@ -143,15 +143,23 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         content: string;
         ts: number;
       }[];
-      return rows.map((r) => ({
-        seq: r.seq,
-        conversationId: r.conversation_id,
-        senderMemberId: r.sender_member_id,
-        addressedTo: JSON.parse(r.addressed_to) as string[],
-        kind: r.kind,
-        content: r.content,
-        ts: r.ts,
-      }));
+      return rows.map((r) => {
+        let addressedTo: string[] = [];
+        try {
+          addressedTo = JSON.parse(r.addressed_to) as string[];
+        } catch {
+          addressedTo = [];
+        }
+        return {
+          seq: r.seq,
+          conversationId: r.conversation_id,
+          senderMemberId: r.sender_member_id,
+          addressedTo,
+          kind: r.kind,
+          content: r.content,
+          ts: r.ts,
+        };
+      });
     },
   };
 }

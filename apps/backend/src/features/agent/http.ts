@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AgentService } from "./service.js";
 import { AgentNotFoundError } from "./service.js";
+import { json } from "../../http/response.js";
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -19,13 +20,6 @@ const updateSchema = z.object({
   permissionMode: z.enum(["ask", "auto", "deny"]).optional(),
   maxSteps: z.number().int().positive().optional(),
 });
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
 
 async function readBody(req: Request): Promise<unknown> {
   try {

@@ -4,6 +4,7 @@ import type { conversationRoutes } from "../features/conversation/http.js";
 import type { runRoutes } from "../features/run/http.js";
 import type { threadRoutes } from "../features/thread/http.js";
 import { HttpError } from "../infra/errors.js";
+import { json } from "./response.js";
 import { withAuth } from "./middleware.js";
 
 interface FeatureSet {
@@ -16,13 +17,6 @@ interface FeatureSet {
   resolveLegacyThreadRun?: (threadId: string) => Promise<
     { action: "forward"; conversationId: string; agentMemberId: string } | { action: "reject"; reason: string } | null
   >;
-}
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
 }
 
 export function createRouter(token: string, features?: FeatureSet) {

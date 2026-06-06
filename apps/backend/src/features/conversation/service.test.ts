@@ -339,7 +339,7 @@ describe("subscribeConversation", () => {
     });
     activeConversations.delete(id);
 
-    const stream = svc.subscribeConversation(id, { afterSeq: 0 });
+    const stream = svc.subscribeConversation(id, { afterSeq: 0, pollMs: 0 });
     const entries: unknown[] = [];
     for await (const entry of stream) {
       entries.push(entry);
@@ -368,7 +368,7 @@ describe("subscribeConversation", () => {
     });
     activeConversations.delete(id);
 
-    const stream = svc.subscribeConversation(id, { afterSeq: result2.seq });
+    const stream = svc.subscribeConversation(id, { afterSeq: result2.seq, pollMs: 0 });
     const entries: unknown[] = [];
     for await (const entry of stream) {
       entries.push(entry);

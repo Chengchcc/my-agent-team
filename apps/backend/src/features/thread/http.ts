@@ -1,15 +1,9 @@
 import { z } from "zod";
 import { ThreadNotFoundError } from "./service.js";
+import { json } from "../../http/response.js";
 
 const createSchema = z.object({ title: z.string().optional() });
 const _updateSchema = z.object({ title: z.string().optional() });
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
 
 export function threadRoutes(svc: ReturnType<typeof import("./service.js").createThreadService>) {
   return {

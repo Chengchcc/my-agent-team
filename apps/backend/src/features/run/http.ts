@@ -1,15 +1,9 @@
 import { z } from "zod";
 import { RunNotFoundError, ThreadBusyError, TooManyRunsError } from "./service.js";
+import { json, sseResponse } from "../../http/response.js";
 
 const runSchema = z.object({ input: z.string().min(1) });
 const resumeSchema = z.object({ approved: z.boolean(), message: z.string().optional() });
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
 
 export function runRoutes(
   svc: ReturnType<typeof import("./service.js").createRunService>,
@@ -54,35 +48,11 @@ export function runRoutes(
         : parseInt(req.headers.get("Last-Event-ID") ?? "0", 10) || 0;
       const stream = svc.eventStream(runId, afterSeq, req.signal);
 
-      return new Response(
-        new ReadableStream({
-          async start(controller) {
-            try {
-              for await (const rec of stream) {
-                const line = `id: ${rec.seq}\nevent: ${rec.event.type}\ndata: ${JSON.stringify(rec.event)}\n\n`;
-                controller.enqueue(new TextEncoder().encode(line));
-              }
-              controller.enqueue(new TextEncoder().encode("event: done\ndata: {}\n\n"));
-              controller.close();
-            } catch (err) {
-              if ((err as Error)?.name === "AbortError") {
-                controller.close();
-              } else {
-                const msg = err instanceof Error ? err.message : String(err);
-                controller.enqueue(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ message: msg })}\n\n`));
-                controller.close();
-              }
-            }
-          },
-        }),
-        {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-          },
-        },
-      );
+      return sseResponse(stream, (rec) => ({
+        id: String(rec.seq),
+        event: rec.event.type,
+        data: rec.event,
+      }), req.signal);
     },
 
     /** POST /api/runs/:id/resume → 202 { runId, attemptId } */

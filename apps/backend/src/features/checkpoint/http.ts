@@ -1,9 +1,4 @@
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
+import { json } from "../../http/response.js";
 
 export function checkpointRoutes(
   svc: ReturnType<typeof import("./service.js").createCheckpointService>,

@@ -143,13 +143,16 @@ export function createConversationService(deps: ConversationServiceDeps) {
       const targets = resolveTriggerTargets(conv, input.addressedTo);
       const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
 
-      // ── Hop count: reset on human/external, increment on agent ──
+      // ── Hop count: reset on human/external, increment only for known agent members ──
       const convRow = port.getConversation(input.conversationId);
+      const senderIsAgent = members.some((m) => m.memberId === input.senderMemberId && m.kind === "agent");
       if (isHumanMember(members, input.senderMemberId) || isSystemSender(input.senderMemberId)) {
         port.updateHopCount(input.conversationId, 0);
-      } else {
+      } else if (senderIsAgent) {
+        // L4: only increment for known agent members (not unknown senders)
         port.updateHopCount(input.conversationId, (convRow?.hopCount ?? 0) + 1);
       }
+      // Unknown senders: unchanged hop count
 
       // ── Guards: check BEFORE writing (C3 fix) ──
 
@@ -264,11 +267,22 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
     async *subscribeConversation(
       conversationId: string,
-      opts?: { afterSeq?: number; signal?: AbortSignal },
+      opts?: { afterSeq?: number; signal?: AbortSignal; pollMs?: number },
     ): AsyncIterable<LedgerRow> {
       const since = opts?.afterSeq ?? 0;
+      const pollMs = opts?.pollMs ?? 500;
       let lastSeq = since;
+      let emptyPolls = 0;
+      const maxEmptyPolls = 120; // ~60s at 500ms
 
+      // First, yield all existing entries (catch up)
+      const initial = port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
+      for (const entry of initial) {
+        yield entry;
+        lastSeq = entry.seq;
+      }
+
+      // Then long-poll for new entries
       while (true) {
         if (opts?.signal?.aborted) break;
 
@@ -276,10 +290,15 @@ export function createConversationService(deps: ConversationServiceDeps) {
         for (const entry of entries) {
           yield entry;
           lastSeq = entry.seq;
+          emptyPolls = 0; // reset on data
         }
 
-        // If nothing new, done (non-blocking — caller polls or uses EventSource reconnect)
-        break;
+        if (entries.length === 0) {
+          if (pollMs === 0) break; // no polling — exit immediately
+          emptyPolls++;
+          if (emptyPolls >= maxEmptyPolls) break; // timeout — client reconnects
+          await new Promise((r) => setTimeout(r, pollMs));
+        }
       }
     },
     /** Release the conversation lock on run completion. */

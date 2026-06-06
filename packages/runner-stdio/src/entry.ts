@@ -65,9 +65,6 @@ export async function runEntry(io: EntryIO): Promise<number> {
   try {
     writeStderr(`[runner-stdio] spec parsed, threadId=${spec.threadId}${spec.conversationId ? `, conversationId=${spec.conversationId}` : ""}`);
 
-    // M10: conversationId is the aggregate dimension; falls back to threadId for legacy single-thread mode
-    const conversationId = spec.conversationId ?? spec.threadId;
-
     const model = new AnthropicChatModel({
       apiKey,
       model: spec.model.model,

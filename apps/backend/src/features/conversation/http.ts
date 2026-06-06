@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ConversationBusyError } from "./service.js";
+import { json, sseResponse } from "../../http/response.js";
 
 const createSchema = z.object({
   conversationId: z.string().min(1).optional(),
@@ -14,7 +15,7 @@ const createSchema = z.object({
       }),
     )
     .optional(),
-  triggerMode: z.enum(["mention", "all"]).optional(),
+  triggerMode: z.enum(["mention"]).optional(), // L3: 'all' rejected until M12 implements
 });
 
 const addMemberSchema = z.object({
@@ -34,13 +35,6 @@ const messageSchema = z.object({
   addressedTo: z.array(z.string()).default([]),
   content: z.unknown(),
 });
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
 
 export function conversationRoutes(
   svc: ReturnType<typeof import("./service.js").createConversationService>,
@@ -144,37 +138,11 @@ export function conversationRoutes(
         signal: req.signal,
       });
 
-      return new Response(
-        new ReadableStream({
-          async start(controller) {
-            try {
-              for await (const entry of stream) {
-                const line = `id: ${entry.seq}\nevent: ${entry.kind}\ndata: ${JSON.stringify(entry)}\n\n`;
-                controller.enqueue(new TextEncoder().encode(line));
-              }
-              controller.enqueue(new TextEncoder().encode("event: done\ndata: {}\n\n"));
-              controller.close();
-            } catch (err) {
-              if ((err as Error)?.name === "AbortError") {
-                controller.close();
-              } else {
-                const msg = err instanceof Error ? err.message : String(err);
-                controller.enqueue(
-                  new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ message: msg })}\n\n`),
-                );
-                controller.close();
-              }
-            }
-          },
-        }),
-        {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-          },
-        },
-      );
+      return sseResponse(stream, (entry) => ({
+        id: String(entry.seq),
+        event: entry.kind,
+        data: entry,
+      }), req.signal);
     },
   };
 }
