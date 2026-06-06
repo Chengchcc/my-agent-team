@@ -2,6 +2,7 @@ import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import type { AgentEvent } from "@my-agent-team/framework";
 import type { createGenericAgent } from "@my-agent-team/harness";
+import type { EventSink } from "@my-agent-team/event-log";
 
 export interface EntryIO {
   /** Raw spec JSON string (from process.env.AGENT_SPEC by default) */
@@ -18,6 +19,10 @@ export interface EntryIO {
   createAgent?: typeof createGenericAgent;
   /** Inject a backend-owned Database instance for the sqlite checkpointer. */
   checkpointerDb?: unknown;
+  /** M9: EventSink for durable event persistence. Test injects in-memory; production self-builds from spec. */
+  eventSink?: EventSink;
+  /** M9: Heartbeat interval in ms. Default 5000. */
+  heartbeatIntervalMs?: number;
 }
 
 /** Returns exit code: 0 = clean, 1 = any failure. */
@@ -75,20 +80,48 @@ export async function runEntry(io: EntryIO): Promise<number> {
       checkpointerDb: checkpointerDb as Parameters<typeof factory>[0]["checkpointerDb"],
     });
 
-    writeStderr("[runner-stdio] agent.run started");
-    for await (const ev of agent.run(spec.input, {
-      signal,
-      maxSteps: spec.maxSteps,
-    })) {
-      writeEvent(ev);
+    // M9: heartbeat timer (runner entry directly writes attempt.heartbeat_at)
+    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    const heartbeatInterval = io.heartbeatIntervalMs ?? 5000;
+    if (spec.attemptId && spec.storage?.eventLog) {
+      // Load bun:sqlite lazily (not needed for in-memory tests)
+      const { Database } = await import("bun:sqlite");
+      const hbDb = new Database(spec.storage.eventLog.path);
+      heartbeatTimer = setInterval(() => {
+        try {
+          hbDb.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [
+            Date.now(),
+            spec.attemptId,
+          ]);
+        } catch {
+          // heartbeat is best-effort; don't crash the run
+        }
+      }, heartbeatInterval);
     }
-    writeStderr("[runner-stdio] agent.run finished cleanly");
+
+    // M9: mode branch — run vs resume
+    const sink = io.eventSink;
+    const stream =
+      spec.mode === "resume"
+        ? agent.resume(spec.resumeCommand ?? { approved: true }, { signal, maxSteps: spec.maxSteps })
+        : agent.run(spec.input, { signal, maxSteps: spec.maxSteps });
+
+    writeStderr(`[runner-stdio] agent.${spec.mode} started`);
+    try {
+      for await (const ev of stream) {
+        if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
+        writeEvent(ev);
+      }
+    } finally {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+    }
+    writeStderr(`[runner-stdio] agent.${spec.mode} finished cleanly`);
     return 0;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
     writeEvent({ type: "error", payload: { message, stack } });
-    writeStderr(`[runner-stdio] agent.run failed: ${message}`);
+    writeStderr(`[runner-stdio] agent.${spec.mode ?? "run"} failed: ${message}`);
     return 1;
   }
 }

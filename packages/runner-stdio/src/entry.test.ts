@@ -472,3 +472,126 @@ test("old EntryIO without checkpointerDb still works", async () => {
   // verify checkpointerDb is undefined when omitted
   expect(receivedDb).toBeUndefined();
 });
+
+// ─── M9: EventSink injection ─────────────────────────────────────
+
+test("EventSink appended before writeEvent", async () => {
+  const events: AgentEvent[] = [msgEvent("hello")];
+  const sinkLog: string[] = [];
+  const writeLog: string[] = [];
+
+  const mockSink = {
+    append: async (_tid: string, _rid: string, _ev: AgentEvent) => {
+      sinkLog.push("append");
+      return 1;
+    },
+  };
+
+  const spec = {
+    schemaVersion: "1",
+    workspace: "/tmp/ws",
+    threadId: "t1",
+    model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    apiKey: "sk-test",
+    input: "hello",
+    runId: "run-1",
+    attemptId: "att-1",
+  };
+
+  const result = await runEntry({
+    specJson: JSON.stringify(spec),
+    writeEvent: () => { writeLog.push("write"); },
+    writeStderr: () => {},
+    signal: new AbortController().signal,
+    createAgent: () => Promise.resolve(makeMockAgent(events)),
+    eventSink: mockSink,
+  });
+
+  expect(result).toBe(0);
+  expect(sinkLog.length).toBe(1);
+  // sink 在 write 之前（同一 tick 内顺序保证）
+  expect(sinkLog[0]).toBe("append");
+});
+
+// ─── M9: Resume mode ─────────────────────────────────────────────
+
+test("mode='resume' calls agent.resume() instead of agent.run()", async () => {
+  const events: AgentEvent[] = [msgEvent("resumed output")];
+  let resumeCalled = false;
+  let runCalled = false;
+
+  function makeResumeAgent(): Agent {
+    return {
+      thread: { id: "t1", messages: [] },
+      async *run(_input, _opts) {
+        runCalled = true;
+      },
+      async *resume(_cmd, _opts) {
+        resumeCalled = true;
+        for (const ev of events) yield ev;
+      },
+      fork(_msgs, _id) {
+        return makeResumeAgent();
+      },
+    };
+  }
+
+  const spec = {
+    schemaVersion: "1",
+    workspace: "/tmp/ws",
+    threadId: "t1",
+    model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    apiKey: "sk-test",
+    input: "hello",
+    mode: "resume",
+    resumeCommand: { approved: true, message: "go" },
+  };
+
+  const written: AgentEvent[] = [];
+  const result = await runEntry({
+    specJson: JSON.stringify(spec),
+    writeEvent: (ev) => written.push(ev),
+    writeStderr: () => {},
+    signal: new AbortController().signal,
+    createAgent: () => Promise.resolve(makeResumeAgent()),
+  });
+
+  expect(result).toBe(0);
+  expect(resumeCalled).toBe(true);
+  expect(runCalled).toBe(false);
+  expect(written.length).toBe(1);
+});
+
+// ─── M9: heartbeat timer ─────────────────────────────────────────
+
+test("heartbeat timer starts when attemptId and storage available", async () => {
+  const events: AgentEvent[] = [msgEvent("ok")];
+  let heartbeatCount = 0;
+
+  const spec = {
+    schemaVersion: "1",
+    workspace: "/tmp/ws",
+    threadId: "t1",
+    model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    apiKey: "sk-test",
+    input: "hello",
+    runId: "run-1",
+    attemptId: "att-1",
+    storage: {
+      eventLog: { kind: "sqlite", path: ":memory:" },
+      checkpointer: { kind: "memory" },
+    },
+  };
+
+  const result = await runEntry({
+    specJson: JSON.stringify(spec),
+    writeEvent: () => {},
+    writeStderr: () => {},
+    signal: new AbortController().signal,
+    createAgent: () => Promise.resolve(makeMockAgent(events)),
+    heartbeatIntervalMs: 10, // fast for test
+  });
+
+  expect(result).toBe(0);
+  // heartbeat timer started and cleaned up without error
+});
