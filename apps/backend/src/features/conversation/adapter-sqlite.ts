@@ -103,8 +103,8 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       return this.getMembers(conversationId).filter((m) => m.kind === "agent");
     },
 
-    removeMember(memberId: string): boolean {
-      const result = db.run("DELETE FROM member WHERE member_id = ?", [memberId]);
+    removeMember(conversationId: string, memberId: string): boolean {
+      const result = db.run("DELETE FROM member WHERE member_id = ? AND conversation_id = ?", [memberId, conversationId]);
       return result.changes > 0;
     },
 

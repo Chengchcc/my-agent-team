@@ -238,6 +238,18 @@ const router = createRouter(config.authToken, {
   }),
   checkpoints: checkpointRoutes(checkpointSvc),
   conversations: conversationRoutes(convSvc, ulid),
+
+  // H4: Legacy thread→conversation forwarding for POST /threads/:id/runs
+  resolveLegacyThreadRun: async (threadId: string) => {
+    const conv = convPort.getConversation(threadId);
+    if (!conv) return null; // Not a conversation — use legacy path
+    const agentMembers = convPort.getAgentMembers(threadId);
+    if (agentMembers.length === 0) return null; // No agent members yet — use legacy path
+    if (agentMembers.length === 1) {
+      return { action: "forward" as const, conversationId: threadId, agentMemberId: agentMembers[0]!.memberId };
+    }
+    return { action: "reject" as const, reason: "Thread is part of a multi-member conversation; use POST /api/conversations/:id/messages" };
+  },
 });
 
 // Server

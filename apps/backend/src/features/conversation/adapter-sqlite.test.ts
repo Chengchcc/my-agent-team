@@ -87,14 +87,14 @@ describe("Member CRUD", () => {
   });
 
   test("removeMember deletes member", () => {
-    const ok = adapter.removeMember("mem-h1");
+    const ok = adapter.removeMember("conv-1", "mem-h1");
     expect(ok).toBe(true);
     const members = adapter.getMembers("conv-1");
     expect(members).toHaveLength(1);
   });
 
   test("removeMember returns false for nonexistent", () => {
-    expect(adapter.removeMember("nope")).toBe(false);
+    expect(adapter.removeMember("conv-1", "nope")).toBe(false);
   });
 
   test("getAgentMember returns only agent members", () => {

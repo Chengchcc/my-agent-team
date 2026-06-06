@@ -180,9 +180,6 @@ export function createConversationService(deps: ConversationServiceDeps) {
         const runId = crypto.randomUUID();
         const threadId = deriveThreadId(input.conversationId, target.memberId);
 
-        // Ensure thread row exists (lazy at first fork — D17)
-        ensureThread(input.conversationId, target);
-
         activeConversations.add(input.conversationId);
         const { runId: rId } = forkRun(runId, threadId, "",
           { conversationId: input.conversationId, agentMemberId: target.memberId, agentId: target.agentId });
@@ -243,7 +240,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
     async removeMember(conversationId: string, memberId: string): Promise<void> {
       const members = port.getMembers(conversationId);
-      port.removeMember(memberId);
+      port.removeMember(conversationId, memberId);
 
       await appendAndBroadcast({
         conversationId,
@@ -292,14 +289,3 @@ export function createConversationService(deps: ConversationServiceDeps) {
   };
 }
 
-/** Ensure a thread row exists for the agent member (lazy at first fork — D17). */
-function ensureThread(
-  conversationId: string,
-  target: { memberId: string; agentId: string; displayName?: string },
-): void {
-  const threadId = deriveThreadId(conversationId, target.memberId);
-  // Thread creation is handled by the caller (main.ts forkRun callback)
-  // which has access to ThreadService. This is a logical placeholder.
-  void threadId;
-  void target;
-}

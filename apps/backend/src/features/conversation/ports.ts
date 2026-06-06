@@ -58,7 +58,7 @@ export interface ConversationPort {
   addMember(input: CreateMemberInput): MemberRow;
   getMembers(conversationId: string): MemberRow[];
   getAgentMembers(conversationId: string): MemberRow[];
-  removeMember(memberId: string): boolean;
+  removeMember(conversationId: string, memberId: string): boolean;
 
   appendLedgerEntry(input: AppendLedgerInput): number; // returns seq
   getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerRow[];

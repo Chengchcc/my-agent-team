@@ -12,6 +12,10 @@ interface FeatureSet {
   runs: ReturnType<typeof runRoutes>;
   checkpoints: ReturnType<typeof checkpointRoutes>;
   conversations?: ReturnType<typeof conversationRoutes>;
+  /** H4: Legacy thread→conversation forwarding for POST /threads/:id/runs */
+  resolveLegacyThreadRun?: (threadId: string) => Promise<
+    { action: "forward"; conversationId: string; agentMemberId: string } | { action: "reject"; reason: string } | null
+  >;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -40,7 +44,7 @@ export function createRouter(token: string, features?: FeatureSet) {
     };
   }
 
-  const { agents, threads, runs, checkpoints, conversations } = features;
+  const { agents, threads, runs, checkpoints, conversations, resolveLegacyThreadRun } = features;
 
   const agentList = withAuth((req) => agents.list(req), token);
   const agentCreate = withAuth((req) => agents.create(req), token);
@@ -96,8 +100,35 @@ export function createRouter(token: string, features?: FeatureSet) {
         return withAuth((r) => checkpoints.getMessages(r, threadMsgsMatch[1]!), token)(req);
       if (threadMsgsMatch)
         return json({ error: "Method not allowed" }, 405);
-      if (threadRunsMatch && method === "POST")
+      if (threadRunsMatch && method === "POST") {
+        // H4: Legacy thread→conversation forwarding
+        if (resolveLegacyThreadRun) {
+          const resolution = await resolveLegacyThreadRun(threadRunsMatch[1]!);
+          if (resolution) {
+            if (resolution.action === "forward" && conversations) {
+              // Forward to POST /conversations/:id/messages
+              const body = await req.json().catch(() => ({})) as { input?: string };
+              const msgReq = new Request(
+                `http://localhost/api/conversations/${resolution.conversationId}/messages`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    senderMemberId: "legacy-user",
+                    addressedTo: [resolution.agentMemberId],
+                    content: { text: body.input ?? "" },
+                  }),
+                },
+              );
+              return withAuth((r) => conversations!.postMessage(r, resolution.conversationId), token)(msgReq);
+            }
+            if (resolution.action === "reject") {
+              return json({ error: resolution.reason }, 400);
+            }
+          }
+        }
         return withAuth((r) => runs.run(r, threadRunsMatch[1]!), token)(req);
+      }
       if (threadRunsMatch)
         return json({ error: "Method not allowed" }, 405);
 
