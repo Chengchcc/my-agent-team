@@ -60,8 +60,8 @@ function runMigrations(db: Database, migrations: readonly { name: string; id: nu
     (db.query("SELECT name FROM _migrations").all() as { name: string }[]).map((r) => r.name),
   );
 
-  // Legacy backfill: if _migrations is empty but user_version > 0, register all migrations
-  // (tables already exist via IF NOT EXISTS, we just need the ledger entry)
+  // Backfill: if _migrations is empty, register all migrations as applied.
+  // Tables created by prior runs via IF NOT EXISTS are already present.
   for (const m of migrations) {
     if (ran.has(m.name)) continue;
     db.exec(m.up);

@@ -92,6 +92,11 @@ export class RunSupervisor {
     return this.#active.size;
   }
 
+  /** Expose DB for read queries (GET /runs/:id metadata). */
+  getDb(): Database {
+    return this.#db;
+  }
+
   /** Dispose the supervisor's DB connection. */
   dispose(): void {
     this.#db.close();

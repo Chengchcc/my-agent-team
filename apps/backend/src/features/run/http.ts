@@ -45,9 +45,13 @@ export function runRoutes(
       }
     },
 
-    /** GET /api/runs/:id/events → SSE (Last-Event-ID supported) */
+    /** GET /api/runs/:id/events → SSE (Last-Event-ID or ?afterSeq= query param) */
     async events(req: Request, runId: string): Promise<Response> {
-      const afterSeq = parseInt(req.headers.get("Last-Event-ID") ?? "0", 10) || 0;
+      // Support both standard Last-Event-ID header and ?afterSeq= query param (browser EventSource compat)
+      const qsAfterSeq = new URL(req.url).searchParams.get("afterSeq");
+      const afterSeq = qsAfterSeq
+        ? parseInt(qsAfterSeq, 10) || 0
+        : parseInt(req.headers.get("Last-Event-ID") ?? "0", 10) || 0;
       const stream = svc.eventStream(runId, afterSeq, req.signal);
 
       return new Response(
@@ -107,7 +111,9 @@ export function runRoutes(
 
     /** GET /api/runs/:id → run metadata */
     async getById(_req: Request, runId: string): Promise<Response> {
-      return json({ runId, status: "see event stream for details" });
+      const meta = svc.getRunById(runId);
+      if (!meta) return json({ error: "Run not found" }, 404);
+      return json(meta);
     },
   };
 }

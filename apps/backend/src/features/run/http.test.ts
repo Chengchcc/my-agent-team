@@ -18,6 +18,7 @@ function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
     onRunComplete: () => {},
     dispose: () => {},
     cancelByPid: () => true,
+    getDb: () => ({} as any),
     ...overrides,
   } as unknown as RunSupervisor;
 }
@@ -267,8 +268,13 @@ describe("Run HTTP", () => {
   // ── GET /:id ────────────────────────────────────────────────────
 
   test("GET /:id returns run metadata", async () => {
+    const mockDb = {
+      query: () => ({
+        get: (id: string) => id === "r1" ? { run_id: "r1", status: "running", started_at: 1, ended_at: null } : undefined,
+      }),
+    };
     const svc = createRunService({
-      supervisor: makeMockSupervisor(),
+      supervisor: makeMockSupervisor({ getDb: () => mockDb as any }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
       threads: new Set(),
@@ -278,5 +284,8 @@ describe("Run HTTP", () => {
 
     const res = await routes.getById(makeRequest("/api/runs/r1"), "r1");
     expect(res.status).toBe(200);
+    const body = await res.json() as { runId: string; status: string };
+    expect(body.runId).toBe("r1");
+    expect(body.status).toBe("running");
   });
 });
