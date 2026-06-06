@@ -85,13 +85,14 @@ export async function runEntry(io: EntryIO): Promise<number> {
     const heartbeatInterval = io.heartbeatIntervalMs ?? 5000;
     if (spec.attemptId && spec.storage?.eventLog) {
       // Load bun:sqlite lazily (not needed for in-memory tests)
+      const attemptId = spec.attemptId; // narrow for closure
       const { Database } = await import("bun:sqlite");
       const hbDb = new Database(spec.storage.eventLog.path);
       heartbeatTimer = setInterval(() => {
         try {
           hbDb.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [
             Date.now(),
-            spec.attemptId,
+            attemptId,
           ]);
         } catch {
           // heartbeat is best-effort; don't crash the run

@@ -93,6 +93,9 @@ async function buildSpecJson(threadId: string, input: string): Promise<string> {
     permissionMode: agent.permissionMode as "ask" | "auto" | "deny" | undefined,
     maxSteps: agent.maxSteps ?? undefined,
     input,
+    runId: undefined,
+    attemptId: undefined,
+    mode: "run" as const,
   };
   return JSON.stringify(spec);
 }

@@ -123,7 +123,7 @@ export function sqliteEventLog(opts: { db: SqliteDatabase | string }): EventLog 
           .query(
             `SELECT seq, thread_id, run_id, event, ts FROM event_log ${clause} ORDER BY seq ASC ${limit}`,
           )
-          .all(...params) as { seq: number; thread_id: string; run_id: string; event: string; ts: number }[]
+          .all(...(params as import("bun:sqlite").SQLQueryBindings[])) as { seq: number; thread_id: string; run_id: string; event: string; ts: number }[]
       ).map(mapRow);
     },
 
@@ -183,7 +183,7 @@ export function inMemoryEventLog(): EventLog {
       let result = [...records];
       if (query.runId) result = result.filter((r) => r.runId === query.runId);
       if (query.threadId) result = result.filter((r) => r.threadId === query.threadId);
-      if (query.afterSeq !== undefined) result = result.filter((r) => r.seq > query.afterSeq);
+      if (query.afterSeq !== undefined) result = result.filter((r) => r.seq > query.afterSeq!);
       if (query.limit) result = result.slice(0, query.limit);
       return result;
     },

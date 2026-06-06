@@ -20,6 +20,7 @@
   "dependencies": {
     "@my-agent-team/adapter-anthropic": "workspace:*",
     "@my-agent-team/agent-spec": "workspace:*",
+    "@my-agent-team/event-log": "workspace:*",
     "@my-agent-team/framework": "workspace:*",
     "@my-agent-team/harness": "workspace:*"
   },

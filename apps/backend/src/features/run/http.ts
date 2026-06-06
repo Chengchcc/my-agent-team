@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { RunNotFoundError, ThreadBusyError, TooManyRunsError, RunNotInterruptedError } from "./service";
+import { RunNotFoundError, ThreadBusyError, TooManyRunsError } from "./service.js";
 
 const runSchema = z.object({ input: z.string().min(1) });
 const resumeSchema = z.object({ approved: z.boolean(), message: z.string().optional() });
@@ -27,8 +27,8 @@ export function runRoutes(
         const { runId, attemptId } = svc.start(threadId, parsed.data.input, specJson);
         return json({ runId, attemptId }, 202);
       } catch (err) {
-        if (err instanceof ThreadBusyError) return json({ error: err.message }, 409);
-        if (err instanceof TooManyRunsError) return json({ error: err.message }, 429);
+        if (err instanceof ThreadBusyError) return json({ error: (err as Error).message }, 409);
+        if (err instanceof TooManyRunsError) return json({ error: (err as Error).message }, 429);
         throw err;
       }
     },
@@ -39,7 +39,7 @@ export function runRoutes(
         svc.cancel(runId);
         return new Response(null, { status: 204 });
       } catch (err) {
-        if (err instanceof RunNotFoundError) return json({ error: err.message }, 404);
+        if (err instanceof RunNotFoundError) return json({ error: (err as Error).message }, 404);
         throw err;
       }
     },

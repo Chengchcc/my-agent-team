@@ -15,6 +15,7 @@
     "@my-agent-team/adapter-anthropic": "workspace:*",
     "@my-agent-team/agent-spec": "workspace:*",
     "@my-agent-team/checkpointer-sqlite": "workspace:*",
+    "@my-agent-team/event-log": "workspace:*",
     "@my-agent-team/framework": "workspace:*",
     "@my-agent-team/harness": "workspace:*",
     "@my-agent-team/runner-stdio": "workspace:*",

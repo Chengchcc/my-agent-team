@@ -1,8 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { Database } from "bun:sqlite";
 import type { EventLog, EventSource } from "@my-agent-team/event-log";
-import type { RunEventBus } from "./event-bus";
-import type { BackendConfig } from "../../config";
+import type { RunEventBus } from "./event-bus.js";
+import type { BackendConfig } from "../../config.js";
 
 export interface RunSupervisorOptions {
   eventLog: EventLog;

@@ -1,5 +1,5 @@
 import type { EventLog } from "@my-agent-team/event-log";
-import type { RunSupervisor } from "./supervisor";
+import type { RunSupervisor } from "./supervisor.js";
 
 export class ThreadBusyError extends Error {
   constructor(threadId: string) {
