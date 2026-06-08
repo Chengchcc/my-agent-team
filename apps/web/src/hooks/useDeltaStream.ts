@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   createStreamAst,
   appendDelta,
-  finalizeBlock,
+  finalizeBlocks,
   type StreamAst,
 } from "@/lib/stream-ast";
 
@@ -13,7 +13,7 @@ export type DeltaConnection = "idle" | "connected" | "degraded";
 export interface DeltaStreamState {
   ast: StreamAst;
   connection: DeltaConnection;
-  finalize: (authoritativeText: string) => void;
+  finalize: (authoritativeBlocks: Array<{ type: string; text?: string }>) => void;
 }
 
 export function useDeltaStream(runId: string | null): DeltaStreamState {
@@ -101,9 +101,12 @@ export function useDeltaStream(runId: string | null): DeltaStreamState {
     };
   }, [runId, flushPending]);
 
-  const finalize = useCallback((authoritativeText: string) => {
-    setAst((prev) => finalizeBlock(prev, authoritativeText));
-  }, []);
+  const finalize = useCallback(
+    (authoritativeBlocks: Array<{ type: string; text?: string }>) => {
+      setAst((prev) => finalizeBlocks(prev, authoritativeBlocks));
+    },
+    [],
+  );
 
   return { ast, connection, finalize };
 }

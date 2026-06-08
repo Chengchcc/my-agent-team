@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useTimeline } from "@/hooks/useTimeline";
 import { useDeltaStream } from "@/hooks/useDeltaStream";
@@ -23,6 +24,7 @@ export function ConversationCanvas({
   threadId,
   initialCurrentRun,
 }: ConversationCanvasProps) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [runId, setRunId] = useState<string | null>(
     initialCurrentRun?.runId ?? null,
@@ -81,21 +83,26 @@ export function ConversationCanvas({
   // M13: Delta stream for real-time text rendering
   const delta = useDeltaStream(runId);
 
-  // Align delta AST when /events delivers complete messages
+  // Align delta AST when /events delivers the latest assistant message.
+  // Only finalize the LAST assistant message (it's the one being streamed).
   useEffect(() => {
-    for (const rec of liveMessages) {
-      if (rec.event.type !== "message") continue;
-      const payload = rec.event.payload as { role?: string; content?: unknown };
-      if (payload.role !== "assistant") continue;
-      const text =
-        typeof payload.content === "string"
-          ? payload.content
-          : extractText(payload.content as string | unknown[]);
-      if (text && text.length > 0) {
-        delta.finalize(text);
-      }
+    const lastAssistant = liveMessages.findLast(
+      (r) =>
+        r.event.type === "message" &&
+        (r.event.payload as { role?: string })?.role === "assistant",
+    );
+    if (!lastAssistant) return;
+    const payload = lastAssistant.event.payload as {
+      role: string;
+      content: string | Array<{ type: string; text?: string }>;
+    };
+    const blocks = Array.isArray(payload.content)
+      ? payload.content
+      : [{ type: "text", text: payload.content }];
+    if (blocks.length > 0) {
+      delta.finalize(blocks);
     }
-  }, [liveMessages, delta.finalize]);
+  }, [liveMessages.length, delta.finalize]);
 
   // Split items into conversation stream vs heavy output.
   // When streaming, hide the last assistant heavy item — it's being rendered
@@ -178,12 +185,8 @@ export function ConversationCanvas({
   const deleteThread = useMutation({
     mutationFn: () => api.deleteThread(threadId),
     onSuccess: () => {
-      // Navigate back to agent detail or agents list
-      if (thread?.agentId) {
-        window.location.href = `/agents/${thread.agentId}`;
-      } else {
-        window.location.href = "/agents";
-      }
+      queryClient.invalidateQueries({ queryKey: ["threads"] });
+      router.replace(thread?.agentId ? `/agents/${thread.agentId}` : "/agents");
     },
   });
 
@@ -405,9 +408,9 @@ export function ConversationCanvas({
       {/* Error alerts */}
       {liveMessages
         .filter((r) => r.event.type === "error")
-        .map((r, i) => (
+        .map((r) => (
           <div
-            key={i}
+            key={r.seq ?? (r.event.payload as { message?: string })?.message?.slice(0, 20)}
             className="border-b border-[var(--hairline)] bg-[var(--canvas-soft)] px-6 py-2 shrink-0 flex items-center justify-between"
           >
             <div className="flex items-center gap-2">
@@ -484,7 +487,7 @@ export function ConversationCanvas({
             <div className="flex items-center justify-center py-16">
               <div className="space-y-4 w-full">
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className="animate-pulse">
+                  <div key={`sk-${i}`} className="animate-pulse">
                     <div className="h-2 w-8 bg-[var(--canvas-soft)] mb-2" />
                     <div className="h-3 w-3/4 bg-[var(--canvas-soft)]" />
                   </div>

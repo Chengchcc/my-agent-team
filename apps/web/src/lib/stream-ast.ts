@@ -92,25 +92,59 @@ export function appendDelta(
 }
 
 /**
- * Finalize a block with authoritative text from /events.
- * Simplification: always operates on the latest block (open or last sealed).
+ * Finalize with authoritative content from /events.
+ * Takes the full ContentBlock[] from the message payload, aligns AST blocks
+ * by position against the authoritative text blocks, and seals everything.
  */
+export function finalizeBlocks(
+  ast: StreamAst,
+  authoritativeBlocks: Array<{ type: string; text?: string }>,
+): StreamAst {
+  const textBlocks = authoritativeBlocks.filter(
+    (b): b is { type: string; text: string } =>
+      b.type === "text" && typeof b.text === "string",
+  );
+
+  const blocks = [...ast.blocks];
+
+  // Seal open block if present
+  if (ast.openBlock) {
+    blocks.push(ast.openBlock);
+  }
+
+  // Align blocks by position: replace delta-built text with authoritative text
+  for (let i = 0; i < textBlocks.length && i < blocks.length; i++) {
+    const authoritative = textBlocks[i]!;
+    const existing = blocks[i]!;
+    if (existing.text !== authoritative.text) {
+      blocks[i] = { ...existing, text: authoritative.text };
+    }
+  }
+
+  // If authoritative has more text blocks than we have, add them
+  for (let i = blocks.length; i < textBlocks.length; i++) {
+    const authoritative = textBlocks[i]!;
+    blocks.push({
+      index: 0,
+      type: "paragraph",
+      text: authoritative.text,
+      localSeq: ast.nextLocalSeq + i,
+    });
+  }
+
+  return {
+    ...ast,
+    blocks,
+    openBlock: null,
+    buffer: "",
+    nextLocalSeq: ast.nextLocalSeq + Math.max(0, textBlocks.length - blocks.length),
+  };
+}
+
+/** @deprecated Use finalizeBlocks for multi-block support. */
 export function finalizeBlock(
   ast: StreamAst,
   authoritativeText: string,
 ): StreamAst {
-  const blocks = [...ast.blocks];
-
-  if (ast.openBlock) {
-    const finalized = { ...ast.openBlock, text: authoritativeText };
-    blocks.push(finalized);
-    return { ...ast, blocks, openBlock: null, buffer: "" };
-  }
-
-  if (blocks.length > 0) {
-    const last = { ...blocks[blocks.length - 1]!, text: authoritativeText };
-    blocks[blocks.length - 1] = last;
-  }
-
-  return { ...ast, blocks, buffer: "" };
+  return finalizeBlocks(ast, [{ type: "text", text: authoritativeText }]);
 }
