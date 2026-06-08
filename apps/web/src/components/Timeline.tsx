@@ -102,6 +102,8 @@ export function Timeline({
         {items.map((item, idx) => {
           const isLastAssistant =
             item.role === "assistant" && idx === (liveAssistantIndex ?? -1);
+          // Use seq (stable live-event key) when available; index for history items
+          const key = item.seq ?? idx;
           // D13: CSS virtual scroll for long conversations
           const virtStyle = {
             contentVisibility: "auto" as const,
@@ -111,7 +113,7 @@ export function Timeline({
           if (typeof item.content === "string") {
             if (isLastAssistant && !isStreamingDone) {
               return (
-                <div key={idx} style={virtStyle}>
+                <div key={key} style={virtStyle}>
                   <StreamingMessage
                     fullText={item.content}
                     done={false}
@@ -120,7 +122,7 @@ export function Timeline({
               );
             }
             return (
-              <div key={idx} style={virtStyle}>
+              <div key={key} style={virtStyle}>
                 <MessageBubble
                   role={item.role}
                   content={item.content}
@@ -132,7 +134,7 @@ export function Timeline({
           const textContent = extractText(item.content);
 
           return (
-            <div key={idx} style={virtStyle}>
+            <div key={key} style={virtStyle}>
               {textContent &&
                 (isLastAssistant && !isStreamingDone ? (
                   <StreamingMessage fullText={textContent} done={false} />

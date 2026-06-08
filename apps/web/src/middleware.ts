@@ -15,8 +15,7 @@ export function middleware(req: NextRequest) {
   // Allow static assets and Next.js internals
   if (
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon") ||
-    pathname.includes(".")
+    pathname.startsWith("/favicon")
   ) {
     return NextResponse.next();
   }
@@ -30,3 +29,15 @@ export function middleware(req: NextRequest) {
 
   return NextResponse.next();
 }
+
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except:
+     * - /login, /api/auth/* (public, handled in-code)
+     * - /_next/* (Next.js internals)
+     * - Static files (fonts, images, etc.)
+     */
+    "/((?!_next|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|css|js|map|woff2?|ttf|eot)$).*)",
+  ],
+};

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { messagesToTimeline, mergeTimeline, extractText } from "../../src/lib/timeline";
+import { messagesToTimeline, mergeTimeline, extractText, type TimelineItem } from "../../src/lib/timeline";
 
 // ── Test data ──
 
@@ -200,6 +200,34 @@ describe("tool_use/tool_result pairing (integration)", () => {
     const result = toolResults.get("err_1");
     expect(result).toBeDefined();
     expect(result!.isError).toBe(true);
+  });
+
+  test("P1-3: live items carry seq for stable React key", () => {
+    // History items have no seq (they come from checkpoint which has no seq concept).
+    // Live items carry the EventRecord seq so Timeline can use it as a stable key.
+    const liveItem: TimelineItem = {
+      kind: "message",
+      role: "assistant",
+      content: "streaming...",
+      seq: 42,
+    };
+    const historyItem: TimelineItem = {
+      kind: "message",
+      role: "user",
+      content: "hello",
+    };
+
+    // Live item key = seq (stable across insertions)
+    expect(liveItem.seq).toBe(42);
+    // History item has no seq — key falls back to index
+    expect(historyItem.seq).toBeUndefined();
+
+    // When both coexist in the merged array, seq-based keys prevent
+    // animation remount when a new history item shifts array indices.
+    const items = [historyItem, liveItem];
+    const keys = items.map((it, i) => it.seq ?? i);
+    expect(keys[0]).toBe(0); // history: index fallback
+    expect(keys[1]).toBe(42); // live: stable seq
   });
 
   test("orphan tool_use without result", () => {

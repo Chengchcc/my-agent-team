@@ -6,6 +6,8 @@ export interface TimelineItem {
   // Content from SSE may be unknown shape; runtime checks handle it
   content: string | unknown[];
   ts?: number;
+  /** Stable seq from EventLog — used as React key for live items. Undefined for history items. */
+  seq?: number;
 }
 
 export function messagesToTimeline(msgs: Message[]): TimelineItem[] {

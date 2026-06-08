@@ -61,11 +61,12 @@ export function useTimeline(
           kind: "message" as const,
           role: payload.role as "user" | "assistant",
           content: payload.content as string | unknown[],
+          seq: rec.seq,
         });
       }
     }
 
-    return [...historyItems, ...liveItems, ...lead];
+    return [...historyItems, ...lead, ...liveItems];
   }, [history.data, live.messages, optimistic]);
 
   const liveAssistantIndex = useMemo(() => {

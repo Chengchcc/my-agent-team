@@ -67,9 +67,11 @@ export function useLiveEvents(runId: string | null) {
           type: eventType as AgentEvent["type"],
           payload,
         };
-        const seq = e.lastEventId ? parseInt(e.lastEventId, 10) : 0;
-        if (seenRef.current.has(seq)) return;
-        seenRef.current.add(seq);
+        const seq = e.lastEventId ? parseInt(e.lastEventId, 10) : null;
+        if (seq !== null && seenRef.current.has(seq)) return;
+        if (seq !== null) seenRef.current.add(seq);
+        // Events without an id (non-durable, or from legacy backends)
+        // are never deduplicated.
         setMessages((prev) => [...prev, { seq, event }]);
         setStatus("streaming");
       } catch {

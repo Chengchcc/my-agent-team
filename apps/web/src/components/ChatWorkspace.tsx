@@ -49,9 +49,15 @@ export function ChatWorkspace({
     historyLoading,
   } = useTimeline(threadId, runId, optimistic);
 
-  // Clear optimistic when live events confirm our message
+  // Clear optimistic only when user echo appears in live stream
   useEffect(() => {
-    if (liveMessages.length > 0 && optimistic) setOptimistic(null);
+    if (!optimistic) return;
+    const hasUserEcho = liveMessages.some(
+      (r) =>
+        r.event.type === "message" &&
+        (r.event.payload as { role?: string })?.role === "user",
+    );
+    if (hasUserEcho) setOptimistic(null);
   }, [liveMessages, optimistic]);
 
   const interruptRecord = liveMessages
@@ -187,7 +193,7 @@ export function ChatWorkspace({
             className="border-b border-[var(--rust)]/30 bg-[var(--rust)]/5 px-6 py-3"
           >
             <p className="font-[family-name:var(--font-mono)] text-xs text-[var(--rust)]">
-              {(r.event.payload as { error?: string })?.error ??
+              {(r.event.payload as { message?: string })?.message ??
                 "An error occurred"}
             </p>
           </div>
