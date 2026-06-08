@@ -25,9 +25,13 @@ function msgEvent(text: string): AgentEvent {
 }
 
 function makeMockAgent(events: AgentEvent[]): Agent {
+  let runCalls = 0;
   return {
     thread: { id: "t1", messages: [] },
     async *run(_input, _opts) {
+      runCalls++;
+      // M11: second call is reflect turn — yield nothing by default
+      if (runCalls > 1) return;
       for (const ev of events) yield ev;
     },
     async *resume(_cmd, _opts) { yield* [] as AgentEvent[]; },

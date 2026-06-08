@@ -1,7 +1,10 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import type { AgentEvent } from "@my-agent-team/framework";
 import type { createGenericAgent } from "@my-agent-team/harness";
+import { reflectionGuidance } from "@my-agent-team/harness";
 import type { EventSink } from "@my-agent-team/event-log";
 
 export interface EntryIO {
@@ -21,7 +24,7 @@ export interface EntryIO {
   checkpointerDb?: unknown;
   /** M9: EventSink for durable event persistence. Test injects in-memory; production self-builds from spec. */
   eventSink?: EventSink;
-  /** M9: Heartbeat interval in ms. Default 5000. */
+  /** M11: Heartbeat throttle interval in ms. Heartbeat writes at most once per this interval. Default 5000. */
   heartbeatIntervalMs?: number;
 }
 
@@ -62,8 +65,6 @@ export async function runEntry(io: EntryIO): Promise<number> {
   }
 
   // P0-1: Self-build checkpointer from spec.storage.checkpointer.path when not injected (production path).
-  // This unifies the backend's broadcast projection writes with the runner's checkpointer reads.
-  // Declared at function scope so finally/catch blocks can close it.
   let cpDb: unknown = checkpointerDb;
   let cpDbSelfBuilt = false;
 
@@ -92,24 +93,31 @@ export async function runEntry(io: EntryIO): Promise<number> {
       checkpointerDb: cpDb as Parameters<typeof factory>[0]["checkpointerDb"],
     });
 
-    // M9: heartbeat timer (runner entry directly writes attempt.heartbeat_at)
-    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    // M11: Snapshot BOOTSTRAP.md existence BEFORE first run (genesis guard for reflect)
+    const bootPath = path.join(spec.workspace, "BOOTSTRAP.md");
+    const isGenesis = existsSync(bootPath);
+
+    // M11: Progress heartbeat — open DB connection for throttled heartbeat writes
     let hbDb: import("bun:sqlite").Database | undefined;
     const heartbeatInterval = io.heartbeatIntervalMs ?? 5000;
+    let lastHeartbeat = 0;
     if (spec.attemptId && spec.storage?.eventLog) {
       const attemptId = spec.attemptId; // narrow for closure
       const { Database } = await import("bun:sqlite");
       hbDb = new Database(spec.storage.eventLog.path);
-      heartbeatTimer = setInterval(() => {
-        try {
-          hbDb!.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [
-            Date.now(),
-            attemptId,
-          ]);
-        } catch {
-          // heartbeat is best-effort; don't crash the run
-        }
-      }, heartbeatInterval);
+      lastHeartbeat = 0;
+    }
+
+    async function tryHeartbeat(): Promise<void> {
+      if (!hbDb || !spec.attemptId) return;
+      const now = Date.now();
+      if (now - lastHeartbeat < heartbeatInterval) return;
+      lastHeartbeat = now;
+      try {
+        hbDb.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [now, spec.attemptId]);
+      } catch {
+        // heartbeat is best-effort; don't crash the run
+      }
     }
 
     // M9: EventSink — test injects in-memory, production self-builds from spec.storage.eventLog
@@ -132,18 +140,36 @@ export async function runEntry(io: EntryIO): Promise<number> {
         ? agent.resume(spec.resumeCommand!, { signal, maxSteps: spec.maxSteps })
         : agent.run(spec.input, { signal, maxSteps: spec.maxSteps });
 
-    writeStderr(`[runner-stdio] agent.${spec.mode} started`);
+    writeStderr(`[runner-stdio] agent.${spec.mode ?? "run"} started`);
     try {
       for await (const ev of stream) {
         if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
         writeEvent(ev);
+        // M11: progress heartbeat after each event
+        await tryHeartbeat();
       }
     } finally {
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
-      if (hbDb) hbDb.close();
-      if (cpDbSelfBuilt && cpDb) (cpDb as import("bun:sqlite").Database).close();
+      // M11: close heartbeat DB before reflection or exit
+      if (hbDb) { hbDb.close(); hbDb = undefined; }
     }
-    writeStderr(`[runner-stdio] agent.${spec.mode} finished cleanly`);
+
+    // M11 Growth: reflect after normal run (non-genesis, non-resume)
+    if (!isGenesis && spec.mode !== "resume") {
+      writeStderr("[runner-stdio] running reflection turn");
+      const reflectStream = agent.run(reflectionGuidance(), { signal, maxSteps: spec.maxSteps });
+      try {
+        for await (const ev of reflectStream) {
+          if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
+          writeEvent(ev);
+        }
+      } catch {
+        // Reflection is best-effort; don't fail the run
+        writeStderr("[runner-stdio] reflection turn failed (non-fatal)");
+      }
+    }
+
+    if (cpDbSelfBuilt && cpDb) (cpDb as import("bun:sqlite").Database).close();
+    writeStderr(`[runner-stdio] agent.${spec.mode ?? "run"} finished cleanly`);
     return 0;
   } catch (err) {
     if (cpDbSelfBuilt && cpDb) (cpDb as import("bun:sqlite").Database).close();

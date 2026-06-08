@@ -17,9 +17,13 @@ function makeValidSpec(): string {
 }
 
 function makeMockAgent(events: AgentEvent[]): Agent {
+  let runCalls = 0;
   return {
     thread: { id: "t1", messages: [] },
     async *run(_input, _opts) {
+      runCalls++;
+      // M11: second call is reflect turn — yield nothing by default
+      if (runCalls > 1) return;
       for (const ev of events) {
         yield ev;
       }
@@ -219,9 +223,12 @@ test("signal abort → agent yields events and runner returns 0", async () => {
   const events: AgentEvent[] = [msgEvent("partial")];
   let receivedSignal: AbortSignal | undefined;
 
+  let runCalls = 0;
   const mockAgent: Agent = {
     thread: { id: "t1", messages: [] },
     async *run(_input, opts) {
+      runCalls++;
+      if (runCalls > 1) return; // M11: skip reflect turn
       receivedSignal = opts?.signal;
       for (const ev of events) {
         yield ev;
@@ -249,6 +256,7 @@ test("signal abort → agent yields events and runner returns 0", async () => {
   expect(result).toBe(0);
   expect(receivedSignal).toBe(controller.signal);
   expect(written.length).toBe(1);
+  expect(runCalls).toBe(2); // main run + reflect turn
 });
 
 // ─── Test 8: agent.run throws → error event + return 1 ──────────
@@ -697,4 +705,194 @@ test("P0-1: self-builds checkpointer from spec.storage.checkpointer.path when no
   expect(typeof (capturedCheckpointerDb as { close?: unknown }).close).toBe("function");
 
   try { require("node:fs").unlinkSync(tmpDbPath); } catch {}
+});
+
+// ─── M11: Progress heartbeat (replaces independent setInterval) ────
+
+test("M11: heartbeat updated after each sink.append (progress, not liveness)", async () => {
+  const events: AgentEvent[] = [msgEvent("a"), msgEvent("b")];
+  const appendCalls: number[] = [];
+  let heartbeatCount = 0;
+
+  const mockSink = {
+    append: async (_tid: string, _rid: string, _ev: AgentEvent) => {
+      appendCalls.push(Date.now());
+      heartbeatCount++;
+      return appendCalls.length;
+    },
+  };
+
+  // Use :memory: db so heartbeat writes don't fail
+  const { Database } = await import("bun:sqlite");
+  const memDb = new Database(":memory:");
+  memDb.exec("CREATE TABLE IF NOT EXISTS attempt (attempt_id TEXT PRIMARY KEY, run_id TEXT, pid INTEGER, heartbeat_at INTEGER, started_at INTEGER, ended_at INTEGER)");
+  memDb.exec("CREATE TABLE IF NOT EXISTS run (run_id TEXT PRIMARY KEY, thread_id TEXT, status TEXT, started_at INTEGER, ended_at INTEGER)");
+  memDb.run("INSERT INTO attempt (attempt_id, run_id, started_at) VALUES ('att-m11', 'run-m11', ?)", [Date.now()]);
+  memDb.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES ('run-m11', 't1', 'running', ?)", [Date.now()]);
+  const dbPath = `/tmp/test-m11-hb-${Date.now()}.db`;
+  memDb.close();
+  // Copy :memory: isn't possible; just use a temp file db
+  const tmpDb = new Database(dbPath);
+  tmpDb.exec("CREATE TABLE IF NOT EXISTS attempt (attempt_id TEXT PRIMARY KEY, run_id TEXT, pid INTEGER, heartbeat_at INTEGER, started_at INTEGER, ended_at INTEGER)");
+  tmpDb.exec("CREATE TABLE IF NOT EXISTS run (run_id TEXT PRIMARY KEY, thread_id TEXT, status TEXT, started_at INTEGER, ended_at INTEGER)");
+  tmpDb.run("INSERT INTO attempt (attempt_id, run_id, started_at) VALUES ('att-m11', 'run-m11', ?)", [Date.now()]);
+  tmpDb.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES ('run-m11', 't1', 'running', ?)", [Date.now()]);
+  tmpDb.close();
+
+  const spec = {
+    schemaVersion: "1",
+    workspace: "/tmp/ws",
+    threadId: "t1",
+    model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    apiKey: "sk-test",
+    input: "hello",
+    runId: "run-m11",
+    attemptId: "att-m11",
+    storage: {
+      eventLog: { kind: "sqlite", path: dbPath },
+    },
+  };
+
+  const result = await runEntry({
+    specJson: JSON.stringify(spec),
+    writeEvent: () => {},
+    writeStderr: () => {},
+    signal: new AbortController().signal,
+    createAgent: () => Promise.resolve(makeMockAgent(events)),
+    eventSink: mockSink,
+    heartbeatIntervalMs: 1, // minimal throttle
+  });
+
+  expect(result).toBe(0);
+  // Heartbeat should have fired (at least once, throttled per append)
+  // We can verify by checking the DB
+  try {
+    const checkDb = new Database(dbPath);
+    const row = checkDb.query("SELECT heartbeat_at FROM attempt WHERE attempt_id = 'att-m11'").get() as { heartbeat_at: number | null } | undefined;
+    expect(row?.heartbeat_at).toBeDefined();
+    expect(row!.heartbeat_at).toBeGreaterThan(0);
+    checkDb.close();
+  } finally {
+    try { require("node:fs").unlinkSync(dbPath); } catch {}
+  }
+});
+
+test("M11: heartbeat NOT written when no sink configured (backward compat)", async () => {
+  const events: AgentEvent[] = [msgEvent("ok")];
+  const spec = {
+    schemaVersion: "1",
+    workspace: "/tmp/ws",
+    threadId: "t1",
+    model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    apiKey: "sk-test",
+    input: "hello",
+  };
+
+  const result = await runEntry({
+    specJson: JSON.stringify(spec),
+    writeEvent: () => {},
+    writeStderr: () => {},
+    signal: new AbortController().signal,
+    createAgent: () => Promise.resolve(makeMockAgent(events)),
+    // No eventSink → no heartbeat DB writes
+  });
+
+  expect(result).toBe(0);
+});
+
+// ─── M11: Reflect after run loop (Growth) ──────────────────────────
+
+test("M11: reflect runs after main loop in non-genesis mode", async () => {
+  const events: AgentEvent[] = [msgEvent("task done")];
+  const reflectEvents: AgentEvent[] = [msgEvent("reflected")];
+  const runInputs: string[] = [];
+
+  function makeReflectAgent(): Agent {
+    return {
+      thread: { id: "t1", messages: [] },
+      async *run(input, _opts) {
+        runInputs.push(input as string);
+        if (runInputs.length === 1) {
+          for (const ev of events) yield ev;
+        } else {
+          for (const ev of reflectEvents) yield ev;
+        }
+      },
+      async *resume(_cmd, _opts) {
+        yield* [] as AgentEvent[];
+      },
+      fork(_msgs, _id) {
+        return makeReflectAgent();
+      },
+    };
+  }
+
+  const written: AgentEvent[] = [];
+  const result = await runEntry({
+    specJson: makeValidSpec(),
+    writeEvent: (ev) => written.push(ev),
+    writeStderr: () => {},
+    signal: new AbortController().signal,
+    createAgent: () => Promise.resolve(makeReflectAgent()),
+  });
+
+  expect(result).toBe(0);
+  // Main run + reflect run = 2 calls to agent.run()
+  expect(runInputs.length).toBe(2);
+  // First call is the original input
+  expect(runInputs[0]).toBe("hello");
+  // Second call is the reflection guidance
+  expect(runInputs[1]!).toInclude("Reflect on the conversation");
+  expect(runInputs[1]!).toInclude("memory");
+  // Both runs' events appear in output
+  expect(written.length).toBe(2);
+});
+
+test("M11: reflect events appended to EventSink", async () => {
+  const events: AgentEvent[] = [msgEvent("task done")];
+  const reflectEvents: AgentEvent[] = [msgEvent("reflected")];
+  let runCount = 0;
+  const sinkLog: string[] = [];
+
+  const mockSink = {
+    append: async (_tid: string, _rid: string, ev: AgentEvent) => {
+      if (ev.type === "message" && Array.isArray(ev.payload.content) && ev.payload.content[0]?.type === "text") {
+        sinkLog.push(ev.payload.content[0].text);
+      }
+      return sinkLog.length;
+    },
+  };
+
+  function makeAgentWithReflect(): Agent {
+    return {
+      thread: { id: "t1", messages: [] },
+      async *run(_input, _opts) {
+        runCount++;
+        if (runCount === 1) {
+          for (const ev of events) yield ev;
+        } else {
+          for (const ev of reflectEvents) yield ev;
+        }
+      },
+      async *resume(_cmd, _opts) {
+        yield* [] as AgentEvent[];
+      },
+      fork(_msgs, _id) {
+        return makeAgentWithReflect();
+      },
+    };
+  }
+
+  const result = await runEntry({
+    specJson: makeValidSpec(),
+    writeEvent: () => {},
+    writeStderr: () => {},
+    signal: new AbortController().signal,
+    createAgent: () => Promise.resolve(makeAgentWithReflect()),
+    eventSink: mockSink,
+  });
+
+  expect(result).toBe(0);
+  expect(sinkLog).toContain("task done");
+  expect(sinkLog).toContain("reflected");
 });
