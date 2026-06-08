@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useTimeline } from "@/hooks/useTimeline";
@@ -8,8 +8,10 @@ import { Timeline } from "./Timeline";
 import { Composer } from "./Composer";
 import { ToolApprovalCard } from "./ToolApprovalCard";
 import { MainCanvas } from "./MainCanvas";
+import { MessageBubble } from "./MessageBubble";
 import { useShell } from "./ShellProvider";
 import { AgentDrawer } from "./AgentDrawer";
+import { routeItem, extractText } from "@/lib/timeline";
 
 interface ThreadWorkspaceProps {
   threadId: string;
@@ -44,12 +46,26 @@ export function ThreadWorkspace({
 
   const {
     items,
-    liveAssistantIndex,
     isStreamingDone,
     liveStatus,
     liveMessages,
     historyLoading,
   } = useTimeline(threadId, runId, optimistic);
+
+  // Split items into drawer (conversation stream) and main (heavy output)
+  const { drawerItems, mainItems } = useMemo(() => {
+    const d = items.filter((it) => routeItem(it) === "drawer");
+    const m = items.filter((it) => routeItem(it) === "main");
+    return { drawerItems: d, mainItems: m };
+  }, [items]);
+
+  // Find the last assistant index within drawer items (for streaming indicator)
+  const drawerAssistantIdx = useMemo(() => {
+    for (let i = drawerItems.length - 1; i >= 0; i--) {
+      if (drawerItems[i]!.role === "assistant") return i;
+    }
+    return -1;
+  }, [drawerItems]);
 
   // Clear optimistic only when user echo appears in live stream
   useEffect(() => {
@@ -207,8 +223,8 @@ export function ThreadWorkspace({
         ) : (
           <div className="flex-1 overflow-y-auto">
             <Timeline
-              items={items}
-              liveAssistantIndex={liveAssistantIndex}
+              items={drawerItems}
+              liveAssistantIndex={drawerAssistantIdx}
               isStreamingDone={isStreamingDone}
             />
           </div>
@@ -242,8 +258,50 @@ export function ThreadWorkspace({
   }, [drawerContent, setDrawerContent]);
 
   return (
-    <MainCanvas statusLine={statusLine}>
-      {/* Empty state for now — heavy content routing comes in C3 */}
+    <MainCanvas
+      statusLine={statusLine}
+      emptyState={
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="w-16 h-16 mb-6 rounded-full bg-[var(--warm-gray)] flex items-center justify-center">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1"
+              className="text-[var(--warm-gray-dark)]"
+            >
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+            </svg>
+          </div>
+          <p className="font-[family-name:var(--font-heading)] text-sm text-[var(--warm-gray-dark)] mb-2">
+            Output will appear here
+          </p>
+          <p className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--warm-gray-dark)] max-w-xs">
+            Structured outputs — code, tables, documents — surface in this area
+            while you monitor the process on the right.
+          </p>
+        </div>
+      }
+    >
+      {mainItems.length > 0 && (
+        <div className="space-y-4">
+          {mainItems.map((item, i) => {
+            const text = extractText(item.content);
+            const key = item.seq ?? `main-${i}`;
+            if (!text) return null;
+            return (
+              <div key={key} className="animate-fade-in">
+                <MessageBubble role={item.role} content={text} />
+              </div>
+            );
+          })}
+        </div>
+      )}
     </MainCanvas>
   );
 }
