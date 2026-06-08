@@ -27,6 +27,8 @@ const systemArg = args.find((a) => a.startsWith("--system="))?.split("=")[1];
 const workspaceArg = args.find((a) => a.startsWith("--workspace="))?.split("=")[1];
 const backendUrl = args.find((a) => a.startsWith("--backend="))?.split("=")[1];
 const conversationId = args.find((a) => a.startsWith("--conversation="))?.split("=")[1];
+const rmAgentId = args.find((a) => a.startsWith("--rm="))?.split("=")[1];
+const hardFlag = args.includes("--hard");
 
 const model = new AnthropicChatModel({ apiKey: ANTHROPIC_API_KEY, model: modelArg });
 
@@ -356,6 +358,49 @@ async function runConversationMode(baseUrl: string, convId: string): Promise<voi
     }
     console.log();
   }
+}
+
+// ─── M11: agent rm ──────────────────────────────────────────────
+
+if (rmAgentId) {
+  if (!backendUrl) {
+    console.error("Error: --backend=<url> is required for --rm");
+    process.exit(1);
+  }
+
+  const method = hardFlag ? "hard delete (irreversible!)" : "archive";
+  console.log(`This will ${method} agent '${rmAgentId}'.`);
+  if (hardFlag) {
+    console.log("Workspace and all history will be permanently deleted.");
+  }
+  process.stdout.write("Continue? (y/N): ");
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question("");
+  rl.close();
+
+  if (answer.toLowerCase() !== "y") {
+    console.log("Cancelled.");
+    process.exit(0);
+  }
+
+  try {
+    const url = hardFlag
+      ? `${backendUrl}/api/agents/${rmAgentId}?hard=true`
+      : `${backendUrl}/api/agents/${rmAgentId}`;
+    const res = await fetch(url, { method: "DELETE" });
+    if (res.ok) {
+      console.log(`Agent '${rmAgentId}' ${hardFlag ? "permanently deleted" : "archived"}.`);
+    } else {
+      const body = await res.json().catch(() => ({}));
+      console.error(`Error: ${res.status} ${(body as { error?: string }).error ?? ""}`);
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error("Error:", err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+  process.exit(0);
 }
 
 // --- Main ---
