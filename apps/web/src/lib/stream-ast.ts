@@ -6,7 +6,6 @@
 export type AstBlockType = "paragraph" | "code" | "table";
 
 export interface AstBlock {
-  index: number;
   type: AstBlockType;
   text: string;
   /** Monotonic local sequence — stable React key across markdown splits. */
@@ -36,11 +35,7 @@ function classifyBlock(firstLine: string): AstBlockType {
 /**
  * Append text from a text_delta. Returns a NEW StreamAst (never mutates input).
  */
-export function appendDelta(
-  ast: StreamAst,
-  blockIndex: number,
-  text: string,
-): StreamAst {
+export function appendDelta(ast: StreamAst, text: string): StreamAst {
   const blocks = [...ast.blocks];
   let openBlock: AstBlock | null = ast.openBlock
     ? { ...ast.openBlock, text: ast.openBlock.text }
@@ -56,11 +51,11 @@ export function appendDelta(
       const blockType = classifyBlock(firstLine);
       const initText = blockType === "code" ? firstLine + "\n" + rest : firstLine;
       const localSeq = nextLocalSeq++;
-      openBlock = { index: blockIndex, type: blockType, text: initText, localSeq };
+      openBlock = { type: blockType, text: initText, localSeq };
       buffer = "";
     } else if (buffer.length >= 40) {
       const localSeq = nextLocalSeq++;
-      openBlock = { index: blockIndex, type: "paragraph", text: buffer, localSeq };
+      openBlock = { type: "paragraph", text: buffer, localSeq };
       buffer = "";
     }
     return { blocks, openBlock, buffer, nextLocalSeq };
@@ -125,7 +120,6 @@ export function finalizeBlocks(
   for (let i = blocks.length; i < textBlocks.length; i++) {
     const authoritative = textBlocks[i]!;
     blocks.push({
-      index: 0,
       type: "paragraph",
       text: authoritative.text,
       localSeq: ast.nextLocalSeq + i,
@@ -139,12 +133,4 @@ export function finalizeBlocks(
     buffer: "",
     nextLocalSeq: ast.nextLocalSeq + Math.max(0, textBlocks.length - blocks.length),
   };
-}
-
-/** @deprecated Use finalizeBlocks for multi-block support. */
-export function finalizeBlock(
-  ast: StreamAst,
-  authoritativeText: string,
-): StreamAst {
-  return finalizeBlocks(ast, [{ type: "text", text: authoritativeText }]);
 }

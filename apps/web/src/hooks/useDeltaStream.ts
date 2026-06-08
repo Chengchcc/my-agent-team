@@ -31,7 +31,7 @@ export function useDeltaStream(runId: string | null): DeltaStreamState {
     setAst((prev) => {
       let cur = prev;
       for (const d of pending) {
-        cur = appendDelta(cur, d.blockIndex, d.text);
+        cur = appendDelta(cur, d.text);
       }
       return cur;
     });
