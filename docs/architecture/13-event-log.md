@@ -336,6 +336,15 @@ run 子进程比 backend 活得久(backend 重启子进程还在)。若让 backe
 
 > 收益:所有存活判定**降维到 DB 一列 `heartbeat_at`**(单一真相源),消除进程间互探。
 
+#### 10.1.1 心跳消费时机:重启发现 + 运行期收割（reaper）
+
+仅在 backend 重启时读一次 `heartbeat_at` 有个洞:**进程没死但任务卡死**(模型 fetch 永久挂起、工具不返回、死循环)既不触发 `child.on("exit")`、又(若心跳是独立定时器)照常打卡 → backend 永远以为它在干活,长任务的 [M10 单活跃 run 锁](./14-conversation.md#四防失控两道安全阀)永不释放。修正分两层,都不新增协议:
+
+- **运行期收割(reaper)**:backend 把"读 `heartbeat_at` 判活"的逻辑从"仅重启触发"提升为**运行期周期扫描**(周期约 `heartbeatTimeoutMs/2`);`age > heartbeatTimeoutMs` → 标 `attempt.ended` + `run.status='interrupted'` + 发终态事件 + 触发 `onRunComplete`(联动释放 M10 会话锁)。落地见 [11-backend §运行期 Liveness Reaper](./11-backend.md#运行期-liveness-reaper主动收割卡死的-run)。
+- **心跳 = 进度信号,而非存活信号**:`heartbeat_at` 的更新从独立 `setInterval` **移到 agent loop 每步推进**(每产出一个 `AgentEvent` / 每完成一次 `sink.append()` 打一次),**不保留兜底定时器**(无条件兜底会把 progress 退化成 liveness 假阳性)。这样 `heartbeat_at` 真正代表"任务在推进"(progress),而非"进程没死"(liveness);独立 `setInterval` 的假阳性(卡死但事件循环仍转)被消除。`stepStallTimeoutMs`(默认 300s)作为 backend reaper 判死的**二次校验窗口**(reaper 发现 heartbeat 过期后不立即判死,`kill(pid,0)` 探进程 + 等待 stepStallTimeoutMs 确认),**仅存 BackendConfig,不进 AgentSpec**(runner 子进程不感知它,卡死时天然不打心跳即被动配合)。
+
+> 关键:动的仍是 `heartbeat_at` **同一列**,不加新字段/通道(奥卡姆:同一根管子换驱动源 + 把读取时机从"重启一次"扩到"运行期周期")。reaper 是 backend 侧**纯读 + 状态收敛**,绝不向 runner 发指令——单一真相源与"无进程间互探"两条原则继续成立。
+
 ### 10.2 实体拆分:`run`(逻辑) / `attempt`(物理执行)
 
 一个逻辑 run 经历 interrupt→resume 会**跨越多个子进程**(原子进程死、resume 时起新子进程)。若把"逻辑 run"和"物理进程"混在一张 `runs` 表里,`pid` 列语义就漂移(只剩最后一个 pid,历史丢失,重启可能 attach 到已死旧 pid)。修正:拆两层实体。

@@ -10,7 +10,7 @@ import { validatePlugins } from "./plugin.js";
 import { createThread, type Thread } from "./thread.js";
 
 export interface Interrupt {
-  pendingTool: ToolUseBlock;
+  pendingTool?: ToolUseBlock; // absent for liveness interrupts (M11)
   reason: string;
   meta?: Record<string, unknown>;
 }
