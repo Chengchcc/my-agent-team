@@ -64,11 +64,13 @@ export async function runEntry(io: EntryIO): Promise<number> {
     return 1;
   }
 
-  // P0-1: Self-build checkpointer from spec.storage.checkpointer.path when not injected (production path).
+  // Self-build checkpointer from spec.storage.checkpointer.path when not injected.
   let cpDb: unknown = checkpointerDb;
   let cpDbSelfBuilt = false;
+  // M11: heartbeat DB (opened later, closed uniformly at end)
+  let hbDb: import("bun:sqlite").Database | undefined;
 
-  // 3+4+5. Construct model + agent + run (all inside try/catch — M7 N1 fix + H6)
+  // 3+4+5. Construct model + agent + run
   try {
     writeStderr(`[runner-stdio] spec parsed, threadId=${spec.threadId}${spec.conversationId ? `, conversationId=${spec.conversationId}` : ""}`);
 
@@ -98,14 +100,11 @@ export async function runEntry(io: EntryIO): Promise<number> {
     const isGenesis = existsSync(bootPath);
 
     // M11: Progress heartbeat — open DB connection for throttled heartbeat writes
-    let hbDb: import("bun:sqlite").Database | undefined;
     const heartbeatInterval = io.heartbeatIntervalMs ?? 5000;
     let lastHeartbeat = 0;
     if (spec.attemptId && spec.storage?.eventLog) {
-      const attemptId = spec.attemptId; // narrow for closure
       const { Database } = await import("bun:sqlite");
       hbDb = new Database(spec.storage.eventLog.path);
-      lastHeartbeat = 0;
     }
 
     async function tryHeartbeat(): Promise<void> {
@@ -131,6 +130,9 @@ export async function runEntry(io: EntryIO): Promise<number> {
       const err = new Error("EventLog configured but failed to construct EventSink");
       writeEvent({ type: "error", payload: { message: err.message, stack: err.stack } });
       writeStderr(`[runner-stdio] ${err.message}`);
+      // FIX: close resources before early return
+      if (cpDbSelfBuilt && cpDb) (cpDb as import("bun:sqlite").Database).close();
+      if (hbDb) hbDb.close();
       return 1;
     }
 
@@ -149,8 +151,7 @@ export async function runEntry(io: EntryIO): Promise<number> {
         await tryHeartbeat();
       }
     } finally {
-      // M11: close heartbeat DB before reflection or exit
-      if (hbDb) { hbDb.close(); hbDb = undefined; }
+      // M11: keep hbDb open through reflection (close happens after)
     }
 
     // M11 Growth: reflect after normal run (non-genesis, non-resume)
@@ -161,6 +162,8 @@ export async function runEntry(io: EntryIO): Promise<number> {
         for await (const ev of reflectStream) {
           if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
           writeEvent(ev);
+          // M11: heartbeat during reflection too
+          await tryHeartbeat();
         }
       } catch {
         // Reflection is best-effort; don't fail the run
@@ -168,15 +171,17 @@ export async function runEntry(io: EntryIO): Promise<number> {
       }
     }
 
-    if (cpDbSelfBuilt && cpDb) (cpDb as import("bun:sqlite").Database).close();
     writeStderr(`[runner-stdio] agent.${spec.mode ?? "run"} finished cleanly`);
     return 0;
   } catch (err) {
-    if (cpDbSelfBuilt && cpDb) (cpDb as import("bun:sqlite").Database).close();
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
     writeEvent({ type: "error", payload: { message, stack } });
     writeStderr(`[runner-stdio] agent.${spec.mode ?? "run"} failed: ${message}`);
     return 1;
+  } finally {
+    // M11: Always close DB connections (covers success, error, and early-return paths)
+    if (hbDb) { hbDb.close(); hbDb = undefined; }
+    if (cpDbSelfBuilt && cpDb) (cpDb as import("bun:sqlite").Database).close();
   }
 }

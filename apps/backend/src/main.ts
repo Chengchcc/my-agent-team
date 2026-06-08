@@ -273,7 +273,7 @@ const shutdown = async (signal: string) => {
   // Give subprocesses time to exit gracefully
   await new Promise((r) => setTimeout(r, config.cancelGraceMs));
 
-  supervisor.dispose();
+  await supervisor.dispose();
   db.close();
   process.exit(0);
 };

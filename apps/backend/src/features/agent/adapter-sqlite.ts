@@ -121,9 +121,10 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
       return toRow(raw);
     },
 
-    // M11: Permanent hard delete — all in single backend.db transaction
+    // M11: Permanent hard delete — all in single backend.db transaction.
+    // Enable foreign_keys for CASCADE, then restore original value to avoid side effects.
     async hardDelete(id: string): Promise<{ deletedAgent: boolean; deletedThreads: number; deletedMembers: number }> {
-      // SQLite foreign_keys defaults to OFF; must enable for CASCADE to work
+      const prevFK = (db.query("PRAGMA foreign_keys").get() as { foreign_keys: number }).foreign_keys;
       db.exec("PRAGMA foreign_keys = ON");
 
       const delAgent = db.transaction(() => {
@@ -153,7 +154,12 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
         return { deletedAgent, deletedThreads, deletedMembers };
       });
 
-      return delAgent();
+      const result = delAgent();
+
+      // Restore previous foreign_keys setting (avoid side effect on shared connection)
+      if (!prevFK) db.exec("PRAGMA foreign_keys = OFF");
+
+      return result;
     },
   };
 }

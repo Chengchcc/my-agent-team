@@ -74,6 +74,7 @@ export class RunSupervisor {
   #db: Database;
   #onRunComplete: Array<(threadId: string, runId: string) => void> = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
+  #reaping = false; // M11 fix: concurrency guard for async reaper
 
   constructor(opts: RunSupervisorOptions) {
     this.#opts = opts;
@@ -89,9 +90,13 @@ export class RunSupervisor {
 
   /** M11: Start periodic reaper to harvest stale runs. */
   #startReaper(): void {
-    const interval = this.#opts.config.reaperIntervalMs ?? Math.min(this.#opts.config.heartbeatTimeoutMs / 2, 30_000);
+    const interval = this.#opts.config.reaperIntervalMs > 0
+      ? this.#opts.config.reaperIntervalMs
+      : Math.min(this.#opts.config.heartbeatTimeoutMs / 2, 30_000);
     this.#reaperTimer = setInterval(() => {
-      void this.#reapStaleRuns();
+      if (this.#reaping) return; // concurrency guard: skip if previous tick still running
+      this.#reaping = true;
+      void this.#reapStaleRuns().finally(() => { this.#reaping = false; });
     }, interval);
   }
 
@@ -129,8 +134,11 @@ export class RunSupervisor {
       }
 
       const now = Date.now();
-      this.#db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ?", [now, row.run_id]);
-      this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, row.attempt_id]);
+      // FIX: transactional write — run + attempt status update is atomic
+      this.#db.transaction(() => {
+        this.#db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ?", [now, row.run_id]);
+        this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, row.attempt_id]);
+      })();
 
       // Append terminal event to EventLog
       try {
@@ -168,11 +176,15 @@ export class RunSupervisor {
   }
 
   /** Dispose the supervisor's DB connection and stop reaper. */
-  dispose(): void {
-    // M11: Stop reaper first, then close DB
+  async dispose(): Promise<void> {
+    // M11: Stop reaper first, then wait for in-flight tick, then close DB
     if (this.#reaperTimer) {
       clearInterval(this.#reaperTimer);
       this.#reaperTimer = undefined;
+    }
+    // Wait for any in-flight #reapStaleRuns to complete before closing DB
+    while (this.#reaping) {
+      await new Promise((r) => setTimeout(r, 10));
     }
     this.#db.close();
   }
@@ -276,36 +288,32 @@ export class RunSupervisor {
     return true;
   }
 
-  /** On restart: discover live runs by heartbeat, mark stale ones interrupted.
-   *  Live runs are re-registered in #active for cancel support. */
-  async rediscover(eventSource: EventSource): Promise<void> {
+  /** On restart: discover live runs by heartbeat, re-register them for cancel support.
+   *  Stale runs are handled by the shared #reapStaleRuns() method. */
+  async rediscover(_eventSource: EventSource): Promise<void> {
     const rows = this.#db
       .query("SELECT * FROM attempt WHERE ended_at IS NULL")
       .all() as { attempt_id: string; run_id: string; thread_id?: string; pid: number | null; heartbeat_at: number | null }[];
 
+    // Phase 1: re-register live runs in #active for post-restart cancel support
     for (const row of rows) {
       const age = row.heartbeat_at ? Date.now() - row.heartbeat_at : Infinity;
       if (age < this.#opts.config.heartbeatTimeoutMs) {
-        // Fix E: Re-register in #active so cancel() works post-restart
-        // We don't have the ChildProcess object, but cancel can send SIGTERM by pid
         const ac = new AbortController();
         this.#active.set(row.run_id, {
           runId: row.run_id,
           attemptId: row.attempt_id,
           threadId: row.thread_id ?? "",
           pid: row.pid ?? 0,
-          child: null, // no live handle after restart; cancel works via process.kill(pid)
+          child: null,
           abortController: ac,
         });
         console.log(`[supervisor] re-discovered live run: ${row.run_id} (attempt ${row.attempt_id}, age ${age}ms)`);
-      } else {
-        // Stale — delegate to reap logic
-        const now = Date.now();
-        this.#db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ?", [now, row.run_id]);
-        this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, row.attempt_id]);
-        console.log(`[supervisor] marked interrupted: ${row.run_id} (heartbeat age ${age}ms > timeout ${this.#opts.config.heartbeatTimeoutMs}ms)`);
       }
     }
+
+    // Phase 2: delegate stale runs to shared reap logic (includes EventLog append + onRunComplete)
+    await this.#reapStaleRuns();
   }
 
   /** Cancel by pid (used post-restart when ChildProcess handle is unavailable). */

@@ -24,20 +24,41 @@ describe("bootstrap", () => {
     }
   });
 
-  test("BOOTSTRAP.md present → skips reading SOUL/USER/TOOLS/AGENTS/memory", async () => {
+  test("BOOTSTRAP.md + SOUL.md → BOOTSTRAP.md is stale, deleted, normal compose", async () => {
     const ws = `/tmp/test-bootstrap-boot2-${Date.now()}`;
     await mkdir(ws, { recursive: true });
     await mkdir(path.join(ws, "memory"), { recursive: true });
 
     try {
       await writeFile(path.join(ws, "BOOTSTRAP.md"), "boot content");
-      // Also write SOUL.md — should be ignored when BOOTSTRAP.md exists
-      await writeFile(path.join(ws, "SOUL.md"), "should be ignored");
+      // SOUL.md exists → BOOTSTRAP.md is stale leftover, should be cleaned up
+      await writeFile(path.join(ws, "SOUL.md"), "i am an agent");
 
       const prompt = await bootstrap(ws, logger);
 
-      expect(prompt).toBe("boot content");
-      expect(prompt).not.toInclude("should be ignored");
+      // Should NOT return boot content (BOOTSTRAP.md was cleaned up)
+      expect(prompt).not.toBe("boot content");
+      // Should use SOUL.md content in normal compose
+      expect(prompt).toInclude("i am an agent");
+      // BOOTSTRAP.md should be deleted
+      const { existsSync } = await import("node:fs");
+      expect(existsSync(path.join(ws, "BOOTSTRAP.md"))).toBe(false);
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("BOOTSTRAP.md present alone (no SOUL.md) → birth mode", async () => {
+    const ws = `/tmp/test-bootstrap-boot3-${Date.now()}`;
+    await mkdir(ws, { recursive: true });
+
+    try {
+      await writeFile(path.join(ws, "BOOTSTRAP.md"), "genesis prompt");
+
+      const prompt = await bootstrap(ws, logger);
+
+      // No SOUL.md → genuine birth mode, return BOOTSTRAP.md content
+      expect(prompt).toBe("genesis prompt");
     } finally {
       await rm(ws, { recursive: true, force: true });
     }

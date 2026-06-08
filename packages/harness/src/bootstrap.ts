@@ -1,3 +1,4 @@
+import { unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Logger } from "@my-agent-team/framework";
 import { todayAndYesterday } from "./daily-log.js";
@@ -79,9 +80,21 @@ export const BOOTSTRAP_TEMPLATE = [
 ].join("\n");
 
 export async function bootstrap(workspace: string, logger: Logger): Promise<string> {
-  // M11 genesis: BOOTSTRAP.md exists → birth mode, use it directly as systemPrompt
-  const boot = await readOrEmpty(path.join(workspace, "BOOTSTRAP.md"), logger);
-  if (boot.trim()) return boot;
+  // M11 genesis: BOOTSTRAP.md exists → birth mode.
+  // But if SOUL.md also has content, BOOTSTRAP.md is stale (leftover from interrupted
+  // genesis) — clean it up and proceed with normal compose.
+  const bootPath = path.join(workspace, "BOOTSTRAP.md");
+  const boot = await readOrEmpty(bootPath, logger);
+  if (boot.trim()) {
+    const soul = await readOrEmpty(path.join(workspace, "SOUL.md"), logger);
+    if (soul.trim()) {
+      // SOUL.md already exists — BOOTSTRAP.md is stale. Delete it and fall through.
+      try { await unlink(bootPath); } catch { /* best-effort cleanup */ }
+    } else {
+      // Genuine birth mode: no identity yet, use BOOTSTRAP.md as systemPrompt
+      return boot;
+    }
+  }
 
   const { today, yesterday } = todayAndYesterday();
 

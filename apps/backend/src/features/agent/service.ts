@@ -20,10 +20,6 @@ export function createAgentService(opts: {
   purgeWorkspace?: (agentId: string) => Promise<void>;
   /** M11: Check if agent has active runs (events.db query). Returns true if active runs exist. */
   hasActiveRuns?: (agentId: string) => Promise<boolean>;
-  /** M11: In-memory set of active conversation IDs (M10). */
-  activeConversations?: Set<string>;
-  /** M11: Get member IDs for a conversation (checks if agent is a member). */
-  getConversationMembers?: (conversationId: string) => string[];
 }): AgentService {
   const { port, idGen, materializeWorkspace } = opts;
 
@@ -57,26 +53,12 @@ export function createAgentService(opts: {
       return row;
     },
 
-    // M11: Hard delete with two-layer active guard
+    // M11: Hard delete with active-guard check immediately before deletion
     async hardDelete(id: string): Promise<void> {
-      // Layer 1 (persistent): check events.db for active attempts
+      // Guard: check events.db for active attempts right before delete (minimize TOCTOU window)
       if (opts.hasActiveRuns) {
         const active = await opts.hasActiveRuns(id);
         if (active) throw new AgentBusyError(id);
-      }
-
-      // Layer 2 (in-memory): check active conversations for this agent
-      if (opts.activeConversations && opts.getConversationMembers) {
-        for (const cid of opts.activeConversations) {
-          const memberIds = opts.getConversationMembers(cid);
-          if (memberIds.some((mid) => {
-            // memberId format: conversationId:memberId... need to check if agent is referenced
-            // This is a lightweight check — for precise check we rely on Layer 1
-            return false; // placeholder; Layer 1 is the authoritative guard
-          })) {
-            throw new AgentBusyError(id);
-          }
-        }
       }
 
       // Delete from backend.db (transactional)
