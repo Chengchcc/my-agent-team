@@ -2,10 +2,70 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { consoleLogger } from "@my-agent-team/framework";
-import { bootstrap } from "./bootstrap.js";
+import { bootstrap, BOOTSTRAP_TEMPLATE } from "./bootstrap.js";
 
 describe("bootstrap", () => {
   const logger = consoleLogger({ level: "silent" });
+
+  // ─── BOOTSTRAP.md tests (M11 genesis) ──────────────────────────
+
+  test("BOOTSTRAP.md present → returns its content directly as systemPrompt", async () => {
+    const ws = `/tmp/test-bootstrap-boot-${Date.now()}`;
+    await mkdir(ws, { recursive: true });
+
+    try {
+      await writeFile(path.join(ws, "BOOTSTRAP.md"), "You just woke up. Talk to the user.");
+
+      const prompt = await bootstrap(ws, logger);
+
+      expect(prompt).toBe("You just woke up. Talk to the user.");
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("BOOTSTRAP.md present → skips reading SOUL/USER/TOOLS/AGENTS/memory", async () => {
+    const ws = `/tmp/test-bootstrap-boot2-${Date.now()}`;
+    await mkdir(ws, { recursive: true });
+    await mkdir(path.join(ws, "memory"), { recursive: true });
+
+    try {
+      await writeFile(path.join(ws, "BOOTSTRAP.md"), "boot content");
+      // Also write SOUL.md — should be ignored when BOOTSTRAP.md exists
+      await writeFile(path.join(ws, "SOUL.md"), "should be ignored");
+
+      const prompt = await bootstrap(ws, logger);
+
+      expect(prompt).toBe("boot content");
+      expect(prompt).not.toInclude("should be ignored");
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("empty workspace + no BOOTSTRAP.md → returns BOOTSTRAP_TEMPLATE (genesis fallback)", async () => {
+    const ws = `/tmp/test-bootstrap-empty-${Date.now()}`;
+    await mkdir(ws, { recursive: true });
+
+    try {
+      const prompt = await bootstrap(ws, logger);
+
+      // Should be the genesis template, not the old fallback
+      expect(prompt).toInclude("You just woke up");
+      expect(prompt).toInclude("BOOTSTRAP.md");
+      expect(prompt).not.toInclude("generic agent");
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("BOOTSTRAP_TEMPLATE is a non-empty string", () => {
+    expect(BOOTSTRAP_TEMPLATE.length).toBeGreaterThan(100);
+    expect(BOOTSTRAP_TEMPLATE).toInclude("SOUL.md");
+    expect(BOOTSTRAP_TEMPLATE).toInclude("BOOTSTRAP.md");
+  });
+
+  // ─── Regression: existing bootstrap behavior untouched ─────────
 
   test("full workspace: all 6 files compose correctly", async () => {
     const ws = `/tmp/test-bootstrap-${Date.now()}`;
@@ -61,31 +121,16 @@ describe("bootstrap", () => {
     }
   });
 
-  test("completely empty workspace returns fallback prompt", async () => {
-    const ws = `/tmp/test-bootstrap-${Date.now()}`;
-    await mkdir(ws, { recursive: true });
-
-    try {
-      const prompt = await bootstrap(ws, logger);
-
-      expect(prompt).toInclude("generic agent");
-      expect(prompt).toInclude(ws);
-      // Should NOT contain the XML tags since it's a fallback
-      expect(prompt).not.toInclude("<soul>");
-    } finally {
-      await rm(ws, { recursive: true, force: true });
-    }
-  });
-
-  test("IO error degrades to empty with warning", async () => {
-    // Points to a non-existent workspace root for one specific file
-    // All files missing → fallback prompt
+  test("IO error degrades to genesis template", async () => {
+    // Points to a non-existent workspace root
+    // All files missing → BOOTSTRAP_TEMPLATE fallback
     const ws = `/tmp/test-bootstrap-nonexistent-${Date.now()}`;
 
     const prompt = await bootstrap(ws, logger);
 
-    // Should fall back since no files exist
-    expect(prompt).toInclude("generic agent");
+    // Should return genesis template, not old "generic agent" fallback
+    expect(prompt).toInclude("You just woke up");
+    expect(prompt).not.toInclude("generic agent");
   });
 });
 
