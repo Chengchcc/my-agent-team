@@ -3,7 +3,7 @@ import { messagesToTimeline, mergeTimeline, extractText, type TimelineItem } fro
 
 // ── Test data ──
 
-function msg(role: "user" | "assistant" | "system", content: string | unknown[]) {
+function msg(role: "user" | "assistant" | "system", content: string) {
   return { role, content };
 }
 
@@ -226,8 +226,8 @@ describe("tool_use/tool_result pairing (integration)", () => {
     // animation remount when a new history item shifts array indices.
     const items = [historyItem, liveItem];
     const keys = items.map((it, i) => it.seq ?? i);
-    expect(keys[0]).toBe(0); // history: index fallback
-    expect(keys[1]).toBe(42); // live: stable seq
+    expect(keys[0] as number).toBe(0); // history: index fallback
+    expect(keys[1] as number).toBe(42); // live: stable seq
   });
 
   test("orphan tool_use without result", () => {
@@ -242,8 +242,8 @@ describe("tool_use/tool_result pairing (integration)", () => {
 
     const toolResults = new Map<string, unknown>();
     for (const b of blocks) {
-      if (b.type === "tool_result" && "tool_use_id" in b) {
-        toolResults.set(b.tool_use_id, b);
+      if (b.type === "tool_result" && "tool_use_id" in b && typeof (b as { tool_use_id?: unknown }).tool_use_id === "string") {
+        toolResults.set((b as { tool_use_id: string }).tool_use_id, b);
       }
     }
 

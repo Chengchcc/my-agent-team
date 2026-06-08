@@ -16,7 +16,7 @@ export type LiveStatus =
 
 export function useLiveEvents(runId: string | null) {
   const [messages, setMessages] = useState<
-    Array<{ seq: number; event: AgentEvent }>
+    Array<{ seq: number | null; event: AgentEvent }>
   >([]);
   const [status, setStatus] = useState<LiveStatus>("idle");
   const [error, setError] = useState<string | null>(null);

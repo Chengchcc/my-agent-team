@@ -61,7 +61,7 @@ export function useTimeline(
           kind: "message" as const,
           role: payload.role as "user" | "assistant",
           content: payload.content as string | unknown[],
-          seq: rec.seq,
+          seq: rec.seq ?? undefined,
         });
       }
     }
