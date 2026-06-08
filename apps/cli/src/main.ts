@@ -11,6 +11,7 @@ import {
   webFetchTool,
   writeTool,
 } from "@my-agent-team/tools-common";
+import { hasHardFlag, parseFlag, resolveRmAgentId } from "./args.js";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
@@ -21,14 +22,14 @@ if (!ANTHROPIC_API_KEY) {
 }
 
 const args = process.argv.slice(2);
-const modelArg = args.find((a) => a.startsWith("--model="))?.split("=")[1] ?? "claude-opus-4-7";
-const maxStepsArg = args.find((a) => a.startsWith("--max-steps="))?.split("=")[1] ?? "32";
-const systemArg = args.find((a) => a.startsWith("--system="))?.split("=")[1];
-const workspaceArg = args.find((a) => a.startsWith("--workspace="))?.split("=")[1];
-const backendUrl = args.find((a) => a.startsWith("--backend="))?.split("=")[1];
-const conversationId = args.find((a) => a.startsWith("--conversation="))?.split("=")[1];
-const rmAgentId = args.find((a) => a.startsWith("--rm="))?.split("=")[1];
-const hardFlag = args.includes("--hard");
+const modelArg = parseFlag(args, "model") ?? "claude-opus-4-7";
+const maxStepsArg = parseFlag(args, "max-steps") ?? "32";
+const systemArg = parseFlag(args, "system");
+const workspaceArg = parseFlag(args, "workspace");
+const backendUrl = parseFlag(args, "backend");
+const conversationId = parseFlag(args, "conversation");
+const rmAgentId = resolveRmAgentId(args);
+const hardFlag = hasHardFlag(args);
 
 const model = new AnthropicChatModel({ apiKey: ANTHROPIC_API_KEY, model: modelArg });
 

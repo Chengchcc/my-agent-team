@@ -1,6 +1,7 @@
 import { describe, expect, test, afterEach, beforeAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
 import { inMemoryEventLog } from "@my-agent-team/event-log";
 import type { EventLog } from "@my-agent-team/event-log";
 import { RunSupervisor } from "./supervisor.js";
@@ -182,6 +183,49 @@ describe("RunSupervisor reaper (M11)", () => {
     expect(terminal).toBeDefined();
 
     await sup.dispose();
+  });
+
+  // P1: alive-but-stalled — uses real child process PID to exercise
+  // the "process alive, check stepStallTimeout" branch in #reapStaleRuns
+  test("P1: alive process with stale heartbeat NOT reaped within stall window", async () => {
+    // Spawn a real child that stays alive
+    const child: ChildProcess = spawn("sleep", ["10"], { stdio: "ignore" });
+    const realPid = child.pid!;
+
+    const config = makeConfig({ heartbeatTimeoutMs: 100, stepStallTimeoutMs: 500 });
+    const eventLog = makeEventLog();
+    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+
+    const db = sup.getDb();
+    // Heartbeat is 300ms old: > heartbeatTimeout(100) but < heartbeatTimeout+stepStallTimeout(600)
+    const stallHb = Date.now() - 300;
+    db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
+      "run-stall", "thread-stall", Date.now() - 5000,
+    ]);
+    db.run("INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)", [
+      "att-stall", "run-stall", realPid, stallHb, Date.now() - 5000,
+    ]);
+
+    // Trigger reaper via rediscover (which delegates to #reapStaleRuns)
+    await sup.rediscover(eventLog);
+
+    // Process is alive + age(300) < heartbeatTimeout(100) + stepStallTimeout(500) = 600
+    // → must NOT be reaped
+    const runRow = db.query("SELECT status FROM run WHERE run_id = ?").get("run-stall") as { status: string } | undefined;
+    expect(runRow?.status).toBe("running");
+
+    // Now make heartbeat older than stall window
+    const beyondStallHb = Date.now() - 700; // age 700 > 100+500
+    db.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [beyondStallHb, "att-stall"]);
+
+    // Run reaper again — process still alive but age now exceeds stall window → must reap
+    await sup.rediscover(eventLog);
+
+    const runRow2 = db.query("SELECT status FROM run WHERE run_id = ?").get("run-stall") as { status: string } | undefined;
+    expect(runRow2?.status).toBe("interrupted");
+
+    await sup.dispose();
+    child.kill("SIGKILL");
   });
 
   test("rediscover still works after reaper extraction", async () => {

@@ -5,7 +5,6 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import { inMemoryEventLog } from "@my-agent-team/event-log";
-import type { AgentEvent, Agent } from "@my-agent-team/framework";
 import { loadConfig } from "../../src/config.js";
 import { sqliteAgentAdapter } from "../../src/features/agent/adapter-sqlite.js";
 import { agentRoutes, createAgentService } from "../../src/features/agent/index.js";
@@ -26,36 +25,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await rm(TEST_DIR, { recursive: true, force: true });
 });
-
-function msgEvent(text: string): AgentEvent {
-  return { type: "message", payload: { role: "assistant", content: [{ type: "text", text }] } };
-}
-
-function makeGenesisAgent(): Agent {
-  let runCalls = 0;
-  return {
-    thread: { id: "t1", messages: [] },
-    async *run(input, _opts) {
-      runCalls++;
-      const inp = input as string;
-      if (runCalls === 1) {
-        // Genesis conversation: agent asks questions, then writes SOUL.md + deletes BOOTSTRAP.md
-        if (inp.includes("Reflect on the conversation")) {
-          // This is the reflect call — skip in genesis
-          return;
-        }
-        // Yield genesis messages: agent introduces itself, writes SOUL, deletes bootstrap
-        yield msgEvent("Hello! I'm brand new. What should I help you with?");
-        yield msgEvent("Got it — I'll write my identity now.");
-        // Simulate writing SOUL.md (the test will create the file)
-        yield msgEvent("I've written SOUL.md and USER.md. Deleting BOOTSTRAP.md now.");
-        yield msgEvent("I'm ready to work!");
-      }
-    },
-    async *resume(_cmd, _opts) { yield* [] as AgentEvent[]; },
-    fork(_msgs, _id) { return makeGenesisAgent(); },
-  };
-}
 
 describe("M11 Genesis e2e", () => {
   test("empty workspace creation includes BOOTSTRAP.md", async () => {
