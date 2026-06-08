@@ -1,0 +1,87 @@
+function getBackendUrl(): string {
+  const url = process.env.BACKEND_URL;
+  if (!url) throw new Error("BACKEND_URL env is required");
+  return url;
+}
+
+function getBackendToken(): string {
+  const token = process.env.BACKEND_TOKEN;
+  if (!token) throw new Error("BACKEND_TOKEN env is required");
+  return token;
+}
+
+const HOP_BY_HOP = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailers",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+const PASSTHROUGH_RESPONSE = new Set([
+  "content-type",
+  "content-length",
+  "content-encoding",
+  "cache-control",
+  "etag",
+  "last-modified",
+  "location",
+]);
+
+function hasBody(method: string): boolean {
+  return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+}
+
+export function stripHopByHop(headers: Headers): Headers {
+  const out = new Headers();
+  for (const [k, v] of headers) {
+    if (!HOP_BY_HOP.has(k.toLowerCase())) out.set(k, v);
+  }
+  return out;
+}
+
+export function passthroughHeaders(headers: Headers): Headers {
+  const out = new Headers();
+  for (const [k, v] of headers) {
+    if (PASSTHROUGH_RESPONSE.has(k.toLowerCase())) out.set(k, v);
+  }
+  return out;
+}
+
+export async function proxyRequest(
+  req: Request,
+  pathSegments: string[],
+  userId: string,
+): Promise<Response> {
+  const BACKEND_URL = getBackendUrl();
+  const BACKEND_TOKEN = getBackendToken();
+
+  const url = new URL(req.url);
+  const upstreamUrl = `${BACKEND_URL}/api/${pathSegments.join("/")}${url.search}`;
+
+  const upstreamHeaders = stripHopByHop(req.headers);
+  upstreamHeaders.set("x-auth-token", BACKEND_TOKEN);
+  upstreamHeaders.set("x-user-id", userId);
+  // Remove host header for upstream
+  upstreamHeaders.delete("host");
+
+  const upstream = await fetch(upstreamUrl, {
+    method: req.method,
+    headers: upstreamHeaders,
+    body: hasBody(req.method) ? await req.arrayBuffer() : undefined,
+    signal: req.signal,
+  });
+
+  const responseHeaders = passthroughHeaders(upstream.headers);
+  // Prevent buffering proxies from breaking SSE
+  responseHeaders.set("Cache-Control", "no-transform");
+  responseHeaders.set("X-Accel-Buffering", "no");
+
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: responseHeaders,
+  });
+}
