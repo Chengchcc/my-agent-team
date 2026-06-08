@@ -73,6 +73,7 @@ export class RunSupervisor {
   #opts: RunSupervisorOptions;
   #db: Database;
   #onRunComplete: Array<(threadId: string, runId: string) => void> = [];
+  #reaperTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(opts: RunSupervisorOptions) {
     this.#opts = opts;
@@ -81,6 +82,75 @@ export class RunSupervisor {
     this.#db.exec("PRAGMA busy_timeout=5000");
     // Fix A + FIX-6: Ensure run/attempt tables exist in events.db via unified migration ledger
     runEventsDbMigrations(this.#db);
+
+    // M11: Start running reaper
+    this.#startReaper();
+  }
+
+  /** M11: Start periodic reaper to harvest stale runs. */
+  #startReaper(): void {
+    const interval = this.#opts.config.reaperIntervalMs ?? Math.min(this.#opts.config.heartbeatTimeoutMs / 2, 30_000);
+    this.#reaperTimer = setInterval(() => {
+      void this.#reapStaleRuns();
+    }, interval);
+  }
+
+  /** M11: Shared stale-run detection. Used by both reaper (periodic) and rediscover (startup).
+   *  Returns true if any runs were reaped. */
+  async #reapStaleRuns(): Promise<boolean> {
+    // JOIN attempt with run to get thread_id for EventLog append
+    const rows = this.#db
+      .query(
+        `SELECT a.attempt_id, a.run_id, a.pid, a.heartbeat_at, r.thread_id
+         FROM attempt a JOIN run r ON a.run_id = r.run_id
+         WHERE a.ended_at IS NULL`,
+      )
+      .all() as {
+        attempt_id: string; run_id: string; pid: number | null;
+        heartbeat_at: number | null; thread_id: string;
+      }[];
+
+    let reaped = false;
+    for (const row of rows) {
+      const age = row.heartbeat_at ? Date.now() - row.heartbeat_at : Infinity;
+      if (age < this.#opts.config.heartbeatTimeoutMs) continue; // fresh
+
+      // M11: Secondary check — probe process before final verdict
+      if (row.pid) {
+        try {
+          process.kill(row.pid, 0);
+          // Process still alive — might be stall, check stepStallTimeout
+          if (age < this.#opts.config.heartbeatTimeoutMs + this.#opts.config.stepStallTimeoutMs) {
+            continue; // within stall grace window, don't reap yet
+          }
+        } catch {
+          // Process dead — immediately reap
+        }
+      }
+
+      const now = Date.now();
+      this.#db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ?", [now, row.run_id]);
+      this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, row.attempt_id]);
+
+      // Append terminal event to EventLog
+      try {
+        await this.#opts.eventLog.append(row.thread_id, row.run_id, {
+          type: "interrupted",
+          payload: { reason: "heartbeat_timeout" },
+        });
+      } catch {
+        // EventLog append is best-effort for reaper
+      }
+
+      // Trigger onRunComplete listeners (releases M10 locks, notifies Growth)
+      for (const fn of this.#onRunComplete) {
+        fn(row.thread_id, row.run_id);
+      }
+
+      console.log(`[supervisor] reaped stale run: ${row.run_id} (heartbeat age ${age}ms > timeout ${this.#opts.config.heartbeatTimeoutMs}ms)`);
+      reaped = true;
+    }
+    return reaped;
   }
 
   /** Register callback invoked when any run completes (success/error/abort). Supports multiple listeners. */
@@ -97,8 +167,13 @@ export class RunSupervisor {
     return this.#db;
   }
 
-  /** Dispose the supervisor's DB connection. */
+  /** Dispose the supervisor's DB connection and stop reaper. */
   dispose(): void {
+    // M11: Stop reaper first, then close DB
+    if (this.#reaperTimer) {
+      clearInterval(this.#reaperTimer);
+      this.#reaperTimer = undefined;
+    }
     this.#db.close();
   }
 
@@ -134,9 +209,6 @@ export class RunSupervisor {
     let buf = "";
     child.stdout!.on("data", (data: Buffer) => {
       buf += data.toString();
-      // NDJSON lines are parsed but no longer fanned out through a bus;
-      // the SSE endpoint polls EventLog directly (the durable source of truth).
-      // Future: restore an in-process bus here for <1ms latency if needed.
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       for (const _line of lines) {
@@ -154,10 +226,6 @@ export class RunSupervisor {
       this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [exitNow, attemptId]);
 
       // Fix D: Determine status correctly
-      // - User cancel: abortController.signal.aborted is true
-      // - Signal death (SIGTERM/SIGKILL from cancel): signal is non-null
-      // - Clean exit 0: succeeded
-      // - Clean exit non-zero / crash: error
       if (ac.signal.aborted || signal !== null) {
         this.#db.run("UPDATE run SET status = 'aborted', ended_at = ? WHERE run_id = ?", [exitNow, runId]);
       } else if (code === 0) {
@@ -231,6 +299,7 @@ export class RunSupervisor {
         });
         console.log(`[supervisor] re-discovered live run: ${row.run_id} (attempt ${row.attempt_id}, age ${age}ms)`);
       } else {
+        // Stale — delegate to reap logic
         const now = Date.now();
         this.#db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ?", [now, row.run_id]);
         this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, row.attempt_id]);
