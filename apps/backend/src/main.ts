@@ -27,7 +27,7 @@ const eventLog = sqliteEventLog({ db: `${config.dataDir}/events.db` });
 const supervisor = new RunSupervisor({
   eventLog,
   config,
-  runnerBin: `${import.meta.dir}/../../packages/runner-stdio/src/bin.ts`,
+  runnerBin: `${import.meta.dir}/../../../packages/runner-stdio/src/bin.ts`,
 });
 
 // Agent feature
@@ -125,6 +125,10 @@ async function buildSpecJson(
     permissionMode: agent.permissionMode ?? "ask",
     maxSteps: agent.maxSteps ?? undefined,
     input,
+    storage: {
+      eventLog: { kind: "sqlite" as const, path: `${config.dataDir}/events.db` },
+      checkpointer: { kind: "sqlite" as const, path: `${config.dataDir}/backend.db` },
+    },
     ...overrides,
   });
   return JSON.stringify(spec);
@@ -271,6 +275,10 @@ const router = createRouter(config.authToken, {
 
   // H4: Legacy thread→conversation forwarding for POST /threads/:id/runs
   resolveLegacyThreadRun: async (threadId: string) => {
+    // Only forward if this is actually a conversation thread, not an agent_thread
+    // (backfillLegacyThreads creates conversation entries for all threads)
+    const thread = threadPort.findById(threadId);
+    if (thread?.kind === "agent_thread") return null;
     const conv = convPort.getConversation(threadId);
     if (!conv) return null; // Not a conversation — use legacy path
     const agentMembers = convPort.getAgentMembers(threadId);

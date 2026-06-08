@@ -1,8 +1,14 @@
 import { Database } from "bun:sqlite";
+import { mkdirSync } from "node:fs";
+import path from "node:path";
 import { ALL_MIGRATIONS } from "./migrations.js";
 
-export function openDb(path: string): Database {
-  const db = new Database(path);
+export function openDb(dbPath: string): Database {
+  // Ensure parent directory exists (SQLite doesn't create it)
+  const dir = path.dirname(dbPath);
+  mkdirSync(dir, { recursive: true });
+
+  const db = new Database(dbPath);
 
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");

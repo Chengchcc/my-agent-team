@@ -77,7 +77,7 @@ export async function runEntry(io: EntryIO): Promise<number> {
     const model = new AnthropicChatModel({
       apiKey,
       model: spec.model.model,
-      baseUrl: spec.model.baseURL,
+      baseUrl: spec.model.baseURL || process.env.ANTHROPIC_BASE_URL,
     });
 
     if (!cpDb && spec.storage?.checkpointer?.kind === "sqlite" && spec.storage.checkpointer.path) {

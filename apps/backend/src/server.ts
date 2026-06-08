@@ -9,6 +9,7 @@ export function createServer(config: BackendConfig, router: ReturnType<typeof cr
       server = Bun.serve({
         port: config.port,
         hostname: config.host,
+        idleTimeout: 0, // disable — SSE connections are long-lived
         fetch: (req) => router(req),
       });
       console.log(`[backend] listening on http://${config.host}:${config.port}`);

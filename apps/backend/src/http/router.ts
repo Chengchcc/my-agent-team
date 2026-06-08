@@ -108,33 +108,36 @@ export function createRouter(token: string, features?: FeatureSet) {
       if (threadCurrentRunMatch)
         return json({ error: "Method not allowed" }, 405);
       if (threadRunsMatch && method === "POST") {
-        // H4: Legacy thread→conversation forwarding
-        if (resolveLegacyThreadRun) {
-          const resolution = await resolveLegacyThreadRun(threadRunsMatch[1]!);
-          if (resolution) {
-            if (resolution.action === "forward" && conversations) {
-              // Forward to POST /conversations/:id/messages
-              const body = await req.json().catch(() => ({})) as { input?: string };
-              const msgReq = new Request(
-                `http://localhost/api/conversations/${resolution.conversationId}/messages`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    senderMemberId: "legacy-user",
-                    addressedTo: [resolution.agentMemberId],
-                    content: { text: body.input ?? "" },
+        // H4: Legacy thread→conversation forwarding.
+        // withAuth must wrap THE ENTIRE handler to prevent Bun from dropping
+        // request headers on async calls that precede the auth check.
+        return withAuth(async (req2: Request) => {
+          if (resolveLegacyThreadRun) {
+            const resolution = await resolveLegacyThreadRun(threadRunsMatch[1]!);
+            if (resolution) {
+              if (resolution.action === "forward" && conversations) {
+                const body = await req2.json().catch(() => ({})) as { input?: string };
+                // Already authenticated; conversations handler also checks auth
+                return conversations.postMessage(
+                  new Request(`http://localhost/api/conversations/${resolution.conversationId}/messages`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      senderMemberId: "legacy-user",
+                      addressedTo: [resolution.agentMemberId],
+                      content: { text: body.input ?? "" },
+                    }),
                   }),
-                },
-              );
-              return withAuth((r) => conversations!.postMessage(r, resolution.conversationId), token)(msgReq);
-            }
-            if (resolution.action === "reject") {
-              return json({ error: resolution.reason }, 400);
+                  resolution.conversationId,
+                );
+              }
+              if (resolution.action === "reject") {
+                return json({ error: resolution.reason }, 400);
+              }
             }
           }
-        }
-        return withAuth((r) => runs.run(r, threadRunsMatch[1]!), token)(req);
+          return runs.run(req2, threadRunsMatch[1]!);
+        }, token)(req);
       }
       if (threadRunsMatch)
         return json({ error: "Method not allowed" }, 405);

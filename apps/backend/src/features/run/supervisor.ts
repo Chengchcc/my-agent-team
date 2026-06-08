@@ -223,8 +223,17 @@ export class RunSupervisor {
       buf += data.toString();
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
-      for (const _line of lines) {
-        // stdout consumed to prevent backpressure; content intentionally unused
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          // JSON.parse is untyped but runner always writes valid AgentEvent
+          const ev = JSON.parse(line) as unknown;
+          void this.#opts.eventLog.append(threadId, runId, ev as Parameters<EventLog["append"]>[2]).catch(() => {
+            // best-effort; runner's direct DB write is primary
+          });
+        } catch {
+          // skip malformed lines
+        }
       }
     });
 

@@ -8,11 +8,12 @@ export function json(body: unknown, status = 200): Response {
   });
 }
 
-/** Parse JSON body, returning 400 on syntax error. */
+/** Parse JSON body, returning 400 on syntax error. Empty body → {}. */
 export async function parseJsonBody(req: Request): Promise<{ data: unknown } | { error: Response }> {
+  const text = await req.text().catch(() => "");
+  if (text.trim() === "") return { data: {} };
   try {
-    const data = await req.json();
-    return { data };
+    return { data: JSON.parse(text) };
   } catch {
     return { error: json({ error: "Invalid JSON" }, 400) };
   }

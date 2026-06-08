@@ -26,8 +26,8 @@ export function loadConfig(env: typeof process.env = process.env): BackendConfig
   const authToken = env.BACKEND_AUTH_TOKEN;
   if (!authToken) throw new Error("BACKEND_AUTH_TOKEN is required");
 
-  const anthropicApiKey = env.ANTHROPIC_API_KEY;
-  if (!anthropicApiKey) throw new Error("ANTHROPIC_API_KEY is required");
+  const anthropicApiKey = env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN;
+  if (!anthropicApiKey) throw new Error("ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is required");
 
   return {
     port: Number(env.BACKEND_PORT) || 3000,
