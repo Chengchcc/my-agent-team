@@ -4,11 +4,13 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useTimeline } from "@/hooks/useTimeline";
+import { useDeltaStream } from "@/hooks/useDeltaStream";
 import { Timeline } from "./Timeline";
 import { Composer } from "./Composer";
 import { ToolApprovalCard } from "./ToolApprovalCard";
 import { MainCanvas } from "./MainCanvas";
 import { MessageBubble } from "./MessageBubble";
+import { StreamingBlocks } from "./StreamingBlocks";
 import { useShell } from "./ShellProvider";
 import { AgentDrawer } from "./AgentDrawer";
 import { routeItem, extractText } from "@/lib/timeline";
@@ -51,6 +53,27 @@ export function ThreadWorkspace({
     liveMessages,
     historyLoading,
   } = useTimeline(threadId, runId, optimistic);
+
+  // M13: Delta stream for real-time text rendering in MainCanvas
+  const delta = useDeltaStream(runId);
+
+  // Align delta AST when /events delivers complete messages
+  useEffect(() => {
+    for (const rec of liveMessages) {
+      if (rec.event.type !== "message") continue;
+      const payload = rec.event.payload as { role?: string; content?: unknown };
+      if (payload.role !== "assistant") continue;
+      const text =
+        typeof payload.content === "string"
+          ? payload.content
+          : extractText(payload.content as string | unknown[]);
+      // Finalize all blocks with the authoritative text
+      // (simple approach: finalize block 0; multi-block alignment is future work)
+      if (text && text.length > 0) {
+        delta.finalize(0, text);
+      }
+    }
+  }, [liveMessages, delta.finalize]);
 
   // Split items into drawer (conversation stream) and main (heavy output)
   const { drawerItems, mainItems } = useMemo(() => {
@@ -288,6 +311,12 @@ export function ThreadWorkspace({
         </div>
       }
     >
+      {/* M13: Streaming delta AST — real-time incremental rendering */}
+      {delta.connected && !delta.degraded && (
+        <StreamingBlocks ast={delta.ast} />
+      )}
+
+      {/* Fallback: static heavy content from /events (already complete) */}
       {mainItems.length > 0 && (
         <div className="space-y-4">
           {mainItems.map((item, i) => {
