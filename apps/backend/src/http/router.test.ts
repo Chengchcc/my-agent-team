@@ -31,6 +31,10 @@ beforeAll(async () => {
       await mkdir(p, { recursive: true });
       return p;
     },
+    purgeWorkspace: async () => {},
+    purgeEventsForThreads: () => {},
+    listThreadIds: async () => [],
+    assertNoActiveRun: () => {},
   });
 
   // M10: Real conversation feature for production path testing

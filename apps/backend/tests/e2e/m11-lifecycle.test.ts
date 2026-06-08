@@ -71,6 +71,10 @@ describe("M11 Genesis e2e", () => {
       workspaceRoot: WS_ROOT,
       materializeWorkspace: (agentId, template) =>
         materializeWorkspace({ workspaceRoot: WS_ROOT, agentId, template, templateDir: TEMPLATE_DIR }),
+      purgeWorkspace: async () => {},
+      purgeEventsForThreads: () => {},
+      listThreadIds: async () => [],
+      assertNoActiveRun: () => {},
     });
 
     const agent = await svc.create({

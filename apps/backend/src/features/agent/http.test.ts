@@ -57,6 +57,10 @@ function makeSvc() {
       idGen: () => crypto.randomUUID().slice(0, 8),
       workspaceRoot: "/tmp",
       materializeWorkspace: async (id) => `/tmp/ws/${id}`,
+      purgeWorkspace: async () => {},
+      purgeEventsForThreads: () => {},
+      listThreadIds: async () => [],
+      assertNoActiveRun: () => {},
     }),
   );
 }

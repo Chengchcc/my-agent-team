@@ -35,7 +35,7 @@ function makeMockAgent(events: AgentEvent[]): Agent {
       for (const ev of events) yield ev;
     },
     async *resume(_cmd, _opts) { yield* [] as AgentEvent[]; },
-    fork(_msgs, _id) { return makeMockAgent(events); },
+    fork(_msgs, _id) { return makeMockAgent([]); }, // M11: fork yields nothing by default
   };
 }
 

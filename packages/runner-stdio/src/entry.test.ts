@@ -32,7 +32,8 @@ function makeMockAgent(events: AgentEvent[]): Agent {
       yield* [] as AgentEvent[];
     },
     fork(_msgs, _id) {
-      return makeMockAgent(events);
+      // M11: fork yields nothing by default (reflection mock)
+      return makeMockAgent([]);
     },
   };
 }
@@ -802,26 +803,31 @@ test("M11: heartbeat NOT written when no sink configured (backward compat)", asy
 
 // ─── M11: Reflect after run loop (Growth) ──────────────────────────
 
-test("M11: reflect runs after main loop in non-genesis mode", async () => {
+test("M11: reflect uses fork() to avoid polluting main checkpoint", async () => {
   const events: AgentEvent[] = [msgEvent("task done")];
   const reflectEvents: AgentEvent[] = [msgEvent("reflected")];
-  const runInputs: string[] = [];
+  let forkCalled = false;
+  let mainRunCalled = false;
+  let reflectRunCalled = false;
 
   function makeReflectAgent(): Agent {
     return {
       thread: { id: "t1", messages: [] },
       async *run(input, _opts) {
-        runInputs.push(input as string);
-        if (runInputs.length === 1) {
-          for (const ev of events) yield ev;
-        } else {
+        const inp = input as string;
+        if (inp.includes("Reflect")) {
+          reflectRunCalled = true;
           for (const ev of reflectEvents) yield ev;
+        } else {
+          mainRunCalled = true;
+          for (const ev of events) yield ev;
         }
       },
       async *resume(_cmd, _opts) {
         yield* [] as AgentEvent[];
       },
       fork(_msgs, _id) {
+        forkCalled = true;
         return makeReflectAgent();
       },
     };
@@ -837,21 +843,17 @@ test("M11: reflect runs after main loop in non-genesis mode", async () => {
   });
 
   expect(result).toBe(0);
-  // Main run + reflect run = 2 calls to agent.run()
-  expect(runInputs.length).toBe(2);
-  // First call is the original input
-  expect(runInputs[0]).toBe("hello");
-  // Second call is the reflection guidance
-  expect(runInputs[1]!).toInclude("Reflect on the conversation");
-  expect(runInputs[1]!).toInclude("memory");
+  // fork() must have been called for reflection
+  expect(forkCalled).toBe(true);
+  expect(mainRunCalled).toBe(true);
+  expect(reflectRunCalled).toBe(true);
   // Both runs' events appear in output
   expect(written.length).toBe(2);
 });
 
-test("M11: reflect events appended to EventSink", async () => {
+test("M11: reflect events appended to EventSink via fork", async () => {
   const events: AgentEvent[] = [msgEvent("task done")];
   const reflectEvents: AgentEvent[] = [msgEvent("reflected")];
-  let runCount = 0;
   const sinkLog: string[] = [];
 
   const mockSink = {
@@ -866,12 +868,12 @@ test("M11: reflect events appended to EventSink", async () => {
   function makeAgentWithReflect(): Agent {
     return {
       thread: { id: "t1", messages: [] },
-      async *run(_input, _opts) {
-        runCount++;
-        if (runCount === 1) {
-          for (const ev of events) yield ev;
-        } else {
+      async *run(input, _opts) {
+        const inp = input as string;
+        if (inp.includes("Reflect")) {
           for (const ev of reflectEvents) yield ev;
+        } else {
+          for (const ev of events) yield ev;
         }
       },
       async *resume(_cmd, _opts) {

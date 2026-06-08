@@ -2,7 +2,7 @@ import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import { loadConfig } from "./config.js";
 import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
-import { agentRoutes, createAgentService } from "./features/agent/index.js";
+import { AgentBusyError, agentRoutes, createAgentService } from "./features/agent/index.js";
 import { sqliteCheckpointReadAdapter, sqliteCheckpointWriteAdapter } from "./features/checkpoint/adapter-sqlite.js";
 import { checkpointRoutes, createCheckpointService } from "./features/checkpoint/index.js";
 import { backfillLegacyThreads, conversationRoutes, createConversationService, sqliteConversationAdapter } from "./features/conversation/index.js";
@@ -13,7 +13,7 @@ import { createThreadService, threadRoutes } from "./features/thread/index.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
 import { openDb } from "./infra/sqlite/db.js";
-import { materializeWorkspace } from "./infra/workspace.js";
+import { materializeWorkspace, purgeWorkspace } from "./infra/workspace.js";
 import { createServer } from "./server.js";
 
 const config = loadConfig();
@@ -21,6 +21,14 @@ const db = openDb(`${config.dataDir}/backend.db`);
 
 // Infrastructure
 const threads = new Set<string>();
+
+// M9: EventLog + Supervisor (created before agentSvc to inject getDb() into hardDelete)
+const eventLog = sqliteEventLog({ db: `${config.dataDir}/events.db` });
+const supervisor = new RunSupervisor({
+  eventLog,
+  config,
+  runnerBin: `${import.meta.dir}/../../packages/runner-stdio/src/bin.ts`,
+});
 
 // Agent feature
 const agentPort = sqliteAgentAdapter(db);
@@ -35,6 +43,34 @@ const agentSvc = createAgentService({
       template,
       templateDir: config.templateDir,
     }),
+
+  // M11 hardDelete dependencies — all closures from composition root
+  purgeWorkspace: (agentId) => purgeWorkspace({ workspaceRoot: config.workspaceRoot, agentId }),
+
+  purgeEventsForThreads: (threadIds) => {
+    const edb = supervisor.getDb();
+    const tx = edb.transaction((ids: string[]) => {
+      for (const tid of ids) {
+        edb.run("DELETE FROM event_log WHERE thread_id = ?", [tid]);
+        edb.run("DELETE FROM attempt WHERE run_id IN (SELECT run_id FROM run WHERE thread_id = ?)", [tid]);
+        edb.run("DELETE FROM run WHERE thread_id = ?", [tid]);
+      }
+    });
+    tx(threadIds);
+  },
+
+  listThreadIds: async (agentId) =>
+    (db.query("SELECT id FROM threads WHERE agent_id = ?").all(agentId) as { id: string }[]).map((r) => r.id),
+
+  assertNoActiveRun: (agentId) => {
+    const edb = supervisor.getDb();
+    const busy = edb.query(
+      `SELECT 1 FROM attempt WHERE ended_at IS NULL
+         AND run_id IN (SELECT run_id FROM run WHERE thread_id IN
+           (SELECT id FROM threads WHERE agent_id = ?)) LIMIT 1`,
+    ).get(agentId);
+    if (busy) throw new AgentBusyError(agentId);
+  },
 });
 
 // Thread feature
@@ -55,14 +91,6 @@ const threadSvc = createThreadService({
     db.run("DELETE FROM checkpoint_interrupts WHERE thread_id = ?", [threadId]);
     db.run("DELETE FROM checkpoint_events WHERE thread_id = ?", [threadId]);
   },
-});
-
-// M9: EventLog + Supervisor
-const eventLog = sqliteEventLog({ db: `${config.dataDir}/events.db` });
-const supervisor = new RunSupervisor({
-  eventLog,
-  config,
-  runnerBin: `${import.meta.dir}/../../packages/runner-stdio/src/bin.ts`,
 });
 
 // Run feature — M9 subprocess model

@@ -154,15 +154,16 @@ export async function runEntry(io: EntryIO): Promise<number> {
       // M11: keep hbDb open through reflection (close happens after)
     }
 
-    // M11 Growth: reflect after normal run (non-genesis, non-resume)
+    // M11 Growth: reflect after normal run (non-genesis, non-resume).
+    // Use fork() so reflection messages land in a temporary thread — never
+    // pollute the main thread's checkpoint_messages.
     if (!isGenesis && spec.mode !== "resume") {
       writeStderr("[runner-stdio] running reflection turn");
-      const reflectStream = agent.run(reflectionGuidance(), { signal, maxSteps: spec.maxSteps });
+      const reflectAgent = agent.fork();
       try {
-        for await (const ev of reflectStream) {
+        for await (const ev of reflectAgent.run(reflectionGuidance(), { signal, maxSteps: spec.maxSteps })) {
           if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
           writeEvent(ev);
-          // M11: heartbeat during reflection too
           await tryHeartbeat();
         }
       } catch {

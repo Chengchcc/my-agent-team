@@ -16,10 +16,11 @@ export function createAgentService(opts: {
   idGen: () => string;
   workspaceRoot: string;
   materializeWorkspace: (agentId: string, template?: string) => Promise<string>;
-  /** M11: Purge workspace directory. Injected to keep service testable. */
-  purgeWorkspace?: (agentId: string) => Promise<void>;
-  /** M11: Check if agent has active runs (events.db query). Returns true if active runs exist. */
-  hasActiveRuns?: (agentId: string) => Promise<boolean>;
+  // M11 hardDelete dependencies — all closures from composition root (main.ts)
+  purgeWorkspace: (agentId: string) => Promise<void>;
+  purgeEventsForThreads: (threadIds: string[]) => void;
+  listThreadIds: (agentId: string) => Promise<string[]>;
+  assertNoActiveRun: (agentId: string) => void;
 }): AgentService {
   const { port, idGen, materializeWorkspace } = opts;
 
@@ -53,21 +54,25 @@ export function createAgentService(opts: {
       return row;
     },
 
-    // M11: Hard delete with active-guard check immediately before deletion
+    // M11: Hard delete across three stores — backend.db (transactional), events.db, workspace
     async hardDelete(id: string): Promise<void> {
-      // Guard: check events.db for active attempts right before delete (minimize TOCTOU window)
-      if (opts.hasActiveRuns) {
-        const active = await opts.hasActiveRuns(id);
-        if (active) throw new AgentBusyError(id);
-      }
+      // 0. Verify agent exists (throws AgentNotFoundError if not)
+      await this.getById(id);
 
-      // Delete from backend.db (transactional)
+      // 1. Guard: assert no active runs (throws AgentBusyError if busy)
+      opts.assertNoActiveRun(id);
+
+      // 2. Collect thread IDs for events.db cleanup
+      const threadIds = await opts.listThreadIds(id);
+
+      // 3. backend.db: single transaction — agent + threads + checkpoint + member
       await port.hardDelete(id);
 
-      // Purge workspace (physical, idempotent)
-      if (opts.purgeWorkspace) {
-        await opts.purgeWorkspace(id);
-      }
+      // 4. events.db: purge run/attempt/event_log for this agent's threads
+      opts.purgeEventsForThreads(threadIds);
+
+      // 5. workspace: physical rm -rf (idempotent)
+      await opts.purgeWorkspace(id);
     },
   };
 }
