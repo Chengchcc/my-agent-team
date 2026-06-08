@@ -4,13 +4,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Message } from "@/lib/api";
 import { useLiveEvents } from "./useLiveEvents";
 import { messagesToTimeline, type TimelineItem } from "@/lib/timeline";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 export function useTimeline(
   threadId: string,
   currentRunId: string | null,
+  optimistic?: string | null,
 ) {
   const queryClient = useQueryClient();
+  const prevStatusRef = useRef<string | null>(null);
 
   const history = useQuery({
     queryKey: ["history", threadId],
@@ -20,17 +22,33 @@ export function useTimeline(
 
   const live = useLiveEvents(currentRunId);
 
-  // Run done → invalidate history → refetch checkpoint
+  // Run done → invalidate history. Don't reset live until history refetches.
   useEffect(() => {
-    if (live.status === "done") {
+    const wasStreaming = prevStatusRef.current === "streaming";
+    prevStatusRef.current = live.status;
+
+    if (live.status === "done" && wasStreaming) {
       queryClient.invalidateQueries({ queryKey: ["history", threadId] });
-      live.reset();
     }
-  }, [live.status, threadId, queryClient, live.reset]);
+  }, [live.status, threadId, queryClient]);
+
+  // When history finishes loading after a done event, clear live messages
+  useEffect(() => {
+    if (live.status === "done" && !history.isLoading && history.isSuccess) {
+      // Small delay so the user sees the final streaming state
+      const t = setTimeout(() => live.reset(), 300);
+      return () => clearTimeout(t);
+    }
+  }, [live.status, history.isLoading, history.isSuccess, live.reset]);
 
   const items = useMemo(() => {
     const historyMsgs = (history.data?.messages as Message[]) ?? [];
     const historyItems = messagesToTimeline(historyMsgs);
+
+    // Optimistic user message (shown immediately before SSE confirms it)
+    const lead: TimelineItem[] = optimistic
+      ? [{ kind: "message" as const, role: "user" as const, content: optimistic }]
+      : [];
 
     const liveItems: TimelineItem[] = [];
     for (const rec of live.messages) {
@@ -47,8 +65,8 @@ export function useTimeline(
       }
     }
 
-    return [...historyItems, ...liveItems];
-  }, [history.data, live.messages]);
+    return [...historyItems, ...liveItems, ...lead];
+  }, [history.data, live.messages, optimistic]);
 
   const liveAssistantIndex = useMemo(() => {
     for (let i = items.length - 1; i >= 0; i--) {

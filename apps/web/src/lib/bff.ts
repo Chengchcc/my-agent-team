@@ -65,7 +65,6 @@ export async function proxyRequest(
   const upstreamHeaders = stripHopByHop(req.headers);
   upstreamHeaders.set("x-auth-token", BACKEND_TOKEN);
   upstreamHeaders.set("x-user-id", userId);
-  // Remove host header for upstream
   upstreamHeaders.delete("host");
 
   const upstream = await fetch(upstreamUrl, {
@@ -76,7 +75,6 @@ export async function proxyRequest(
   });
 
   const responseHeaders = passthroughHeaders(upstream.headers);
-  // Prevent buffering proxies from breaking SSE
   responseHeaders.set("Cache-Control", "no-transform");
   responseHeaders.set("X-Accel-Buffering", "no");
 

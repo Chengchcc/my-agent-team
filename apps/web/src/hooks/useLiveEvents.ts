@@ -35,13 +35,34 @@ export function useLiveEvents(runId: string | null) {
       return;
     }
 
+    // New run → clear previous run's messages
+    setMessages([]);
+    setError(null);
+    seenRef.current = new Set();
     setStatus("connecting");
-    const url = `/bff/api/runs/${runId}/events`;
+    const url = `/api/bff/runs/${runId}/events`;
     const es = new EventSource(url);
 
-    const handleEvent = (eventType: string) => (e: MessageEvent) => {
+    es.onopen = () => {
+      console.log("[useLiveEvents] EventSource connected");
+    };
+
+    es.onerror = (e: Event) => {
+      // Only log connection-level errors (not SSE data errors which are MessageEvents)
+      if (!(e instanceof MessageEvent)) {
+        console.error("[useLiveEvents] EventSource connection error, readyState:", es.readyState);
+      }
+      if (es.readyState === EventSource.CLOSED) {
+        setStatus("error");
+        setError("Stream connection lost");
+      }
+    };
+
+    const handleSSEEvent = (eventType: string) => (e: Event) => {
+      if (!(e instanceof MessageEvent)) return;
       try {
-        const payload: unknown = JSON.parse(e.data);
+        const payload: unknown = JSON.parse(e.data as string);
+        console.log("[useLiveEvents] event:", eventType, "seq:", e.lastEventId);
         const event: AgentEvent = {
           type: eventType as AgentEvent["type"],
           payload,
@@ -56,23 +77,18 @@ export function useLiveEvents(runId: string | null) {
       }
     };
 
-    es.addEventListener("message", handleEvent("message"));
-    es.addEventListener("interrupted", handleEvent("interrupted"));
-    es.addEventListener("error", handleEvent("error"));
-
-    es.addEventListener("error", () => {
-      if (es.readyState === EventSource.CLOSED) {
-        setStatus("error");
-        setError("Stream connection lost");
-      }
-    });
+    es.addEventListener("message", handleSSEEvent("message"));
+    es.addEventListener("interrupted", handleSSEEvent("interrupted"));
+    es.addEventListener("error", handleSSEEvent("error"));
 
     es.addEventListener("done", () => {
+      console.log("[useLiveEvents] received done, closing");
       setStatus("done");
       es.close();
     });
 
     return () => {
+      console.log("[useLiveEvents] cleanup, closing EventSource");
       es.close();
     };
   }, [runId]);

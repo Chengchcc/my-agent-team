@@ -12,14 +12,19 @@ export async function apiFetch<T = unknown>(
   path: string,
   opts?: { method?: string; body?: unknown; signal?: AbortSignal },
 ): Promise<T> {
-  const url = `/bff/${path}`;
+  const url = `/api/bff/${path}`;
   const res = await fetch(url, {
     method: opts?.method ?? "GET",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: opts?.body ? JSON.stringify(opts.body) : undefined,
+    body: opts?.method && opts.method !== "GET" ? JSON.stringify(opts.body ?? {}) : undefined,
     signal: opts?.signal,
   });
 
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new ApiError(401, "Session expired");
+  }
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({ error: res.statusText }));
     throw new ApiError(res.status, errorBody.error ?? res.statusText);
@@ -89,49 +94,49 @@ export interface Message {
 
 export const api = {
   // Agents
-  listAgents: () => apiFetch<AgentRow[]>("api/agents"),
-  getAgent: (id: string) => apiFetch<AgentRow>(`api/agents/${id}`),
+  listAgents: () => apiFetch<AgentRow[]>("agents"),
+  getAgent: (id: string) => apiFetch<AgentRow>(`agents/${id}`),
   createAgent: (body: unknown) =>
-    apiFetch<AgentRow>("api/agents", { method: "POST", body }),
+    apiFetch<AgentRow>("agents", { method: "POST", body }),
   updateAgent: (id: string, body: unknown) =>
-    apiFetch<AgentRow>(`api/agents/${id}`, { method: "PATCH", body }),
+    apiFetch<AgentRow>(`agents/${id}`, { method: "PATCH", body }),
   archiveAgent: (id: string) =>
-    apiFetch<void>(`api/agents/${id}`, { method: "DELETE" }),
+    apiFetch<void>(`agents/${id}`, { method: "DELETE" }),
   getIdentity: (id: string) =>
-    apiFetch<IdentityData>(`api/agents/${id}/identity`),
+    apiFetch<IdentityData>(`agents/${id}/identity`),
 
   // Threads
   listThreads: (agentId: string) =>
-    apiFetch<ThreadRow[]>(`api/agents/${agentId}/threads`),
-  getThread: (id: string) => apiFetch<ThreadRow>(`api/threads/${id}`),
+    apiFetch<ThreadRow[]>(`agents/${agentId}/threads`),
+  getThread: (id: string) => apiFetch<ThreadRow>(`threads/${id}`),
   createThread: (agentId: string, body?: { title?: string }) =>
-    apiFetch<ThreadRow>(`api/agents/${agentId}/threads`, {
+    apiFetch<ThreadRow>(`agents/${agentId}/threads`, {
       method: "POST",
       body,
     }),
   updateThread: (id: string, body: { title?: string }) =>
-    apiFetch<ThreadRow>(`api/threads/${id}`, { method: "PATCH", body }),
+    apiFetch<ThreadRow>(`threads/${id}`, { method: "PATCH", body }),
   deleteThread: (id: string) =>
-    apiFetch<void>(`api/threads/${id}`, { method: "DELETE" }),
+    apiFetch<void>(`threads/${id}`, { method: "DELETE" }),
   getMessages: (threadId: string) =>
     apiFetch<{ threadId: string; messages: Message[] | null }>(
-      `api/threads/${threadId}/messages`,
+      `threads/${threadId}/messages`,
     ),
 
   // Runs
   getCurrentRun: (threadId: string) =>
-    apiFetch<RunMeta | null>(`api/threads/${threadId}/current-run`),
+    apiFetch<RunMeta | null>(`threads/${threadId}/current-run`),
   startRun: (threadId: string, input: string) =>
     apiFetch<{ runId: string; attemptId: string }>(
-      `api/threads/${threadId}/runs`,
+      `threads/${threadId}/runs`,
       { method: "POST", body: { input } },
     ),
-  getRun: (runId: string) => apiFetch<RunMeta>(`api/runs/${runId}`),
+  getRun: (runId: string) => apiFetch<RunMeta>(`runs/${runId}`),
   cancelRun: (runId: string) =>
-    apiFetch<void>(`api/runs/${runId}/cancel`, { method: "POST" }),
+    apiFetch<void>(`runs/${runId}/cancel`, { method: "POST" }),
   resumeRun: (runId: string, approved: boolean, message?: string) =>
     apiFetch<{ runId: string; attemptId: string }>(
-      `api/runs/${runId}/resume`,
+      `runs/${runId}/resume`,
       { method: "POST", body: { approved, message } },
     ),
 };

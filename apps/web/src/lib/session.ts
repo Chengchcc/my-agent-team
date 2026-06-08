@@ -80,13 +80,20 @@ export async function readSession(cookieHeader: string | null): Promise<SessionP
   return payload;
 }
 
+function isSecureEnv(): boolean {
+  // Skip Secure flag in dev (localhost HTTP). In production behind HTTPS, enable it.
+  return process.env.NODE_ENV === "production";
+}
+
 export function sessionCookieHeader(
   value: string,
   maxAge: number = MAX_AGE_MS / 1000,
 ): string {
-  return `${COOKIE_NAME}=${value}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+  const secure = isSecureEnv() ? "; Secure" : "";
+  return `${COOKIE_NAME}=${value}; HttpOnly${secure}; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
 }
 
 export function clearCookieHeader(): string {
-  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+  const secure = isSecureEnv() ? "; Secure" : "";
+  return `${COOKIE_NAME}=; HttpOnly${secure}; SameSite=Lax; Path=/; Max-Age=0`;
 }

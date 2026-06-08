@@ -2,48 +2,29 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 
-function MarkdownSection({
+function Section({
   title,
   content,
 }: {
   title: string;
   content: string | null;
 }) {
-  if (content === null) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{title}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Alert>
-            <AlertDescription>Not yet configured</AlertDescription>
-          </Alert>
-        </CardContent>
-      </Card>
-    );
-  }
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <pre className="whitespace-pre-wrap font-sans text-sm">
+    <div className="border border-[var(--border-color)] p-8">
+      <h3 className="font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)] mb-4">
+        {title}
+      </h3>
+      {content === null ? (
+        <p className="font-[family-name:var(--font-heading)] text-sm text-[var(--warm-gray-dark)]">
+          Not yet configured
+        </p>
+      ) : (
+        <pre className="font-[family-name:var(--font-heading)] text-[15px] leading-relaxed text-[var(--charcoal)] whitespace-pre-wrap">
           {content}
         </pre>
-      </CardContent>
-    </Card>
+      )}
+    </div>
   );
 }
 
@@ -55,53 +36,53 @@ export function IdentityPanel({ agentId }: { agentId: string }) {
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-40 w-full" />
-        <Skeleton className="h-40 w-full" />
-        <Skeleton className="h-20 w-full" />
+      <div className="space-y-3 animate-pulse">
+        <div className="h-32 bg-[var(--warm-gray)]" />
+        <div className="h-32 bg-[var(--warm-gray)]" />
+        <div className="h-20 bg-[var(--warm-gray)]" />
       </div>
     );
   }
 
   if (!data) {
-    return <p className="text-muted-foreground">Failed to load identity</p>;
+    return (
+      <p className="font-[family-name:var(--font-heading)] text-[var(--warm-gray-dark)]">
+        Failed to load identity
+      </p>
+    );
   }
 
   return (
-    <div className="space-y-4">
-      <MarkdownSection title="SOUL" content={data.soul} />
-      <MarkdownSection title="USER" content={data.user} />
+    <div className="space-y-4 max-w-2xl">
+      <Section title="SOUL" content={data.soul} />
+      <Section title="USER" content={data.user} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            Memory ({data.memories.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {data.memories.length === 0 ? (
-            <Alert>
-              <AlertDescription>No memories recorded</AlertDescription>
-            </Alert>
-          ) : (
-            <div className="space-y-3">
-              {data.memories.map((mem, i) => (
-                <div key={i}>
-                  <p className="text-xs text-muted-foreground mb-1">
-                    {mem.date}
-                  </p>
-                  <pre className="whitespace-pre-wrap font-sans text-sm">
-                    {mem.content}
-                  </pre>
-                  {i < data.memories.length - 1 && (
-                    <Separator className="mt-3" />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <div className="border border-[var(--border-color)] p-8">
+        <h3 className="font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)] mb-4">
+          Memory ({data.memories.length})
+        </h3>
+        {data.memories.length === 0 ? (
+          <p className="font-[family-name:var(--font-heading)] text-sm text-[var(--warm-gray-dark)]">
+            No memories recorded
+          </p>
+        ) : (
+          <div className="space-y-5">
+            {data.memories.map((mem, i) => (
+              <div key={i}>
+                <p className="font-[family-name:var(--font-mono)] text-[9px] tracking-[0.15em] text-[var(--warm-gray-dark)] mb-2">
+                  {mem.date}
+                </p>
+                <pre className="font-[family-name:var(--font-heading)] text-[14px] leading-relaxed text-[var(--charcoal)] whitespace-pre-wrap">
+                  {mem.content}
+                </pre>
+                {i < data.memories.length - 1 && (
+                  <div className="mt-5 border-t border-[var(--border-color)]" />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

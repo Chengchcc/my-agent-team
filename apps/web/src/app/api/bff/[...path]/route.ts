@@ -4,7 +4,7 @@ import { readSession } from "@/lib/session";
 
 async function handler(
   req: NextRequest,
-  params: Promise<{ path: string[] }>,
+  { params }: { params: Promise<{ path: string[] }> },
 ): Promise<Response> {
   const { path } = await params;
   const session = await readSession(req.headers.get("cookie"));

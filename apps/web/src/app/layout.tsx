@@ -1,14 +1,18 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { DM_Mono } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { QueryProvider } from "@/providers/QueryProvider";
 import "./globals.css";
 
-const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
+const dmMono = DM_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  weight: ["400", "500"],
+});
 
 export const metadata: Metadata = {
-  title: "My Agent Team",
-  description: "Agent workspace",
+  title: "Agent Workspace",
+  description: "Multi-agent collaboration workspace",
 };
 
 export default function RootLayout({
@@ -17,8 +21,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="zh-CN" className={cn("font-sans", geist.variable)}>
-      <body className="min-h-screen bg-background text-foreground antialiased">
+    <html
+      lang="zh-CN"
+      className={cn("font-sans", dmMono.variable)}
+      suppressHydrationWarning
+    >
+      <body className="min-h-screen bg-background text-foreground">
         <QueryProvider>{children}</QueryProvider>
       </body>
     </html>

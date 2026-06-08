@@ -3,22 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 export function AgentForm() {
   const router = useRouter();
@@ -59,108 +43,159 @@ export function AgentForm() {
     }
   }
 
+  const fieldClass =
+    "w-full bg-[var(--cream)] border-0 border-b border-[var(--border-color)] px-0 py-2.5 font-[family-name:var(--font-heading)] text-[var(--charcoal)] placeholder:text-[var(--border-color)] focus:outline-none focus:border-[var(--brass)] transition-colors duration-300";
+  const labelClass =
+    "font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)] block mb-1.5";
+  const hintClass = "font-[family-name:var(--font-mono)] text-[9px] text-[var(--warm-gray-dark)] mt-1";
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-        Create Agent
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[480px]">
-        <DialogHeader>
-          <DialogTitle>Create Agent</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="text-sm font-medium">Name *</label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Agent name"
-              required
-              minLength={1}
-            />
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="border border-[var(--charcoal)] bg-[var(--charcoal)] text-[var(--cream)]
+                   px-5 py-2 font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase
+                   hover:bg-[var(--brass)] hover:border-[var(--brass)] transition-colors duration-300"
+      >
+        + New Agent
+      </button>
+
+      {/* Modal overlay */}
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
+          role="dialog"
+        >
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-[var(--charcoal)]/20 backdrop-blur-sm"
+            onClick={() => setOpen(false)}
+          />
+
+          {/* Panel */}
+          <div className="relative w-full max-w-lg bg-[var(--cream)] border border-[var(--border-color)] animate-reveal">
+            {/* Header */}
+            <div className="border-b border-[var(--border-color)] px-8 py-5 flex items-center justify-between">
+              <h2 className="font-[family-name:var(--font-heading)] text-lg font-medium text-[var(--charcoal)]">
+                Create Agent
+              </h2>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="font-[family-name:var(--font-mono)] text-xs text-[var(--warm-gray-dark)] hover:text-[var(--charcoal)] transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="px-8 py-6 space-y-6">
+              <div>
+                <label className={labelClass}>Name *</label>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Archivist"
+                  className={fieldClass}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label className={labelClass}>Provider</label>
+                  <input
+                    value="Anthropic"
+                    disabled
+                    className={`${fieldClass} opacity-50 cursor-not-allowed`}
+                  />
+                  <p className={hintClass}>Sole provider</p>
+                </div>
+                <div>
+                  <label className={labelClass}>Model *</label>
+                  <input
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="claude-sonnet-4-6"
+                    className={fieldClass}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Base URL</label>
+                <input
+                  value={baseURL}
+                  onChange={(e) => setBaseURL(e.target.value)}
+                  placeholder="https://api.anthropic.com/v1"
+                  className={fieldClass}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label className={labelClass}>Permission Mode</label>
+                  <select
+                    value={permissionMode}
+                    onChange={(e) =>
+                      setPermissionMode(e.target.value as "ask" | "auto" | "deny")
+                    }
+                    className={fieldClass}
+                  >
+                    <option value="ask">Ask (approval)</option>
+                    <option value="auto">Auto</option>
+                    <option value="deny">Deny</option>
+                  </select>
+                  <p className={hintClass}>M8.5 required for enforcement</p>
+                </div>
+                <div>
+                  <label className={labelClass}>Max Steps</label>
+                  <input
+                    type="number"
+                    value={maxSteps}
+                    onChange={(e) => setMaxSteps(e.target.value)}
+                    placeholder="Unlimited"
+                    min={1}
+                    className={fieldClass}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Template</label>
+                <input
+                  value={template}
+                  onChange={(e) => setTemplate(e.target.value)}
+                  placeholder="Optional template name"
+                  className={fieldClass}
+                />
+              </div>
+
+              {error && (
+                <p className="font-[family-name:var(--font-mono)] text-xs text-[var(--rust)]">
+                  {error}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={submitting || !name.trim()}
+                className="w-full border border-[var(--charcoal)] bg-[var(--charcoal)]
+                           text-[var(--cream)] py-3 font-[family-name:var(--font-mono)]
+                           text-[10px] tracking-[0.15em] uppercase
+                           hover:bg-[var(--brass)] hover:border-[var(--brass)]
+                           disabled:opacity-40 disabled:cursor-not-allowed
+                           transition-colors duration-300"
+              >
+                {submitting ? "Creating..." : "Create Agent →"}
+              </button>
+            </form>
           </div>
-          <div>
-            <label className="text-sm font-medium">Provider</label>
-            <Select value="anthropic" disabled>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="anthropic">Anthropic</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Only Anthropic supported currently
-            </p>
-          </div>
-          <div>
-            <label className="text-sm font-medium">Model *</label>
-            <Input
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="claude-sonnet-4-6"
-              required
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Base URL</label>
-            <Input
-              value={baseURL}
-              onChange={(e) => setBaseURL(e.target.value)}
-              placeholder="https://api.anthropic.com/v1"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Permission Mode</label>
-            <Select
-              value={permissionMode}
-              onValueChange={(v) =>
-                setPermissionMode(v as "ask" | "auto" | "deny")
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ask">
-                  Ask (approval required — M8.5)
-                </SelectItem>
-                <SelectItem value="auto">Auto (always approve)</SelectItem>
-                <SelectItem value="deny">Deny (always deny)</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Approval enforcement coming in M8.5; currently decorative
-            </p>
-          </div>
-          <div>
-            <label className="text-sm font-medium">Max Steps</label>
-            <Input
-              type="number"
-              value={maxSteps}
-              onChange={(e) => setMaxSteps(e.target.value)}
-              placeholder="Unlimited"
-              min={1}
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Template</label>
-            <Input
-              value={template}
-              onChange={(e) => setTemplate(e.target.value)}
-              placeholder="Template name (optional)"
-            />
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button
-            type="submit"
-            disabled={submitting || !name.trim()}
-            className="w-full"
-          >
-            {submitting ? "Creating..." : "Create Agent"}
-          </Button>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </div>
+      )}
+    </>
   );
 }

@@ -18,10 +18,10 @@ interface BlockLike {
   text?: string;
 }
 
-function renderContentBlocks(blocks: unknown[]) {
+function renderContentBlocks(blocks: unknown[] | undefined) {
+  if (!Array.isArray(blocks)) return null;
   const typed = blocks as BlockLike[];
 
-  // Collect tool_results for pairing
   const toolResults = new Map<
     string,
     { content: string; isError?: boolean }
@@ -62,8 +62,9 @@ function renderContentBlocks(blocks: unknown[]) {
   });
 }
 
-function extractText(content: string | unknown[]): string {
+function extractText(content: string | unknown[] | undefined): string {
   if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
   return (content as BlockLike[])
     .filter((b) => b.type === "text" && typeof b.text === "string")
     .map((b) => b.text!)
@@ -88,51 +89,62 @@ export function Timeline({
   }, [items.length]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-2">
-      {items.length === 0 && (
-        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-          Send a message to start the conversation.
-        </div>
-      )}
-      {items.map((item, idx) => {
-        const isLastAssistant =
-          item.role === "assistant" && idx === (liveAssistantIndex ?? -1);
+    <div className="flex-1 overflow-y-auto">
+      <div className="max-w-3xl mx-auto px-6 py-6">
+        {items.length === 0 && (
+          <div className="flex items-center justify-center py-24">
+            <p className="font-[family-name:var(--font-heading)] text-sm text-[var(--warm-gray-dark)]">
+              Send a message to begin.
+            </p>
+          </div>
+        )}
 
-        if (typeof item.content === "string") {
-          if (isLastAssistant && !isStreamingDone) {
+        {items.map((item, idx) => {
+          const isLastAssistant =
+            item.role === "assistant" && idx === (liveAssistantIndex ?? -1);
+          // D13: CSS virtual scroll for long conversations
+          const virtStyle = {
+            contentVisibility: "auto" as const,
+            containIntrinsicSize: "auto 80px" as const,
+          };
+
+          if (typeof item.content === "string") {
+            if (isLastAssistant && !isStreamingDone) {
+              return (
+                <div key={idx} style={virtStyle}>
+                  <StreamingMessage
+                    fullText={item.content}
+                    done={false}
+                  />
+                </div>
+              );
+            }
             return (
-              <StreamingMessage
-                key={idx}
-                fullText={item.content}
-                done={false}
-              />
+              <div key={idx} style={virtStyle}>
+                <MessageBubble
+                  role={item.role}
+                  content={item.content}
+                />
+              </div>
             );
           }
+
+          const textContent = extractText(item.content);
+
           return (
-            <MessageBubble
-              key={idx}
-              role={item.role}
-              content={item.content}
-            />
+            <div key={idx} style={virtStyle}>
+              {textContent &&
+                (isLastAssistant && !isStreamingDone ? (
+                  <StreamingMessage fullText={textContent} done={false} />
+                ) : (
+                  <MessageBubble role={item.role} content={textContent} />
+                ))}
+              {renderContentBlocks(item.content)}
+            </div>
           );
-        }
-
-        // ContentBlock[] — separate text from tool blocks
-        const textContent = extractText(item.content);
-
-        return (
-          <div key={idx}>
-            {textContent &&
-              (isLastAssistant && !isStreamingDone ? (
-                <StreamingMessage fullText={textContent} done={false} />
-              ) : (
-                <MessageBubble role={item.role} content={textContent} />
-              ))}
-            {renderContentBlocks(item.content)}
-          </div>
-        );
-      })}
-      <div ref={bottomRef} />
+        })}
+        <div ref={bottomRef} />
+      </div>
     </div>
   );
 }
