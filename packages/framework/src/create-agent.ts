@@ -1,5 +1,5 @@
-import type { ChatModel, Message, Tool, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
-import { collectStream } from "@my-agent-team/core";
+import type { AIMessageChunk, ChatModel, ContentBlock, Message, Tool, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
+import { collectStream, mergeChunkIntoBlocks, finalizeToolUseInputs } from "@my-agent-team/core";
 import { type Checkpointer, InterruptSignal, validateCheckpointer } from "./checkpointer.js";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 import type { ContextManager } from "./context-manager.js";
@@ -18,19 +18,27 @@ export interface Interrupt {
 export type AgentEvent =
   | { type: "message"; payload: Message }
   | { type: "interrupted"; payload: Interrupt }
-  | { type: "error"; payload: { message: string; stack?: string } };
+  | { type: "error"; payload: { message: string; stack?: string } }
+  | { type: "text_delta"; payload: { blockIndex: number; text: string } };
 
 export interface ResumeCommand {
   approved: boolean;
   message?: string;
 }
 
+export interface AgentRunOptions {
+  signal?: AbortSignal;
+  maxSteps?: number;
+  /** When true, text_delta events are yielded for each text chunk before the full message. Default false. */
+  stream?: boolean;
+}
+
 export interface Agent {
   readonly thread: Thread;
-  run(input: string, opts?: { signal?: AbortSignal; maxSteps?: number }): AsyncIterable<AgentEvent>;
+  run(input: string, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
   resume(
     command: ResumeCommand,
-    opts?: { signal?: AbortSignal; maxSteps?: number },
+    opts?: AgentRunOptions,
   ): AsyncIterable<AgentEvent>;
   fork(messages?: Message[], id?: string): Agent;
 }
@@ -269,6 +277,7 @@ function createAgentInternal(
   async function* runLoop(opts: {
     signal?: AbortSignal;
     maxSteps: number;
+    stream?: boolean;
   }): AsyncGenerator<AgentEvent> {
     for (let step = 0; step < opts.maxSteps; step++) {
       if (opts.signal?.aborted) {
@@ -295,8 +304,33 @@ function createAgentInternal(
         ts: Date.now(),
       });
 
-      const collected = await collectStream(model.stream(finalMsgs, { signal: opts.signal }));
-      const { blocks, usage } = collected;
+      // Stream-aware model call: when opts.stream is true, yield text_delta
+      // events for preview before assembling the full message.
+      const modelStream = model.stream(finalMsgs, { signal: opts.signal });
+      let blocks: ContentBlock[];
+      let usage: AIMessageChunk["usage"];
+
+      if (opts.stream) {
+        // Manual accumulation — yield text_delta for text chunks, then final message
+        blocks = [];
+        const partialJson = new Map<string, string>();
+        let blockIndex = 0;
+        for await (const chunk of modelStream) {
+          if (chunk.delta?.type === "text") {
+            yield { type: "text_delta", payload: { blockIndex, text: chunk.delta.text } };
+          }
+          mergeChunkIntoBlocks(blocks, partialJson, chunk);
+          if (chunk.stopReason !== undefined) { /* captured below for checkpointer event */ }
+          if (chunk.usage !== undefined) usage = chunk.usage;
+          if (chunk.done) break;
+        }
+        finalizeToolUseInputs(blocks, partialJson);
+      } else {
+        const collected = await collectStream(modelStream);
+        const result = collected;
+        blocks = result.blocks;
+        usage = result.usage;
+      }
 
       await checkpointer.appendEvent?.(thread.id, {
         type: "model_end",
@@ -378,7 +412,7 @@ function createAgentInternal(
       });
     },
 
-    async *run(input: string, opts: { signal?: AbortSignal; maxSteps?: number } = {}) {
+    async *run(input: string, opts: AgentRunOptions = {}) {
       if (running) {
         throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       }
@@ -398,14 +432,14 @@ function createAgentInternal(
           ts: Date.now(),
         });
 
-        yield* runLoop({ signal: opts.signal, maxSteps: opts.maxSteps ?? 32 });
+        yield* runLoop({ signal: opts.signal, maxSteps: opts.maxSteps ?? 32, stream: opts.stream });
       } finally {
         running = false;
         ctx.signal = undefined;
       }
     },
 
-    async *resume(command: ResumeCommand, opts: { signal?: AbortSignal; maxSteps?: number } = {}) {
+    async *resume(command: ResumeCommand, opts: AgentRunOptions = {}) {
       if (running) {
         throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       }
@@ -441,7 +475,7 @@ function createAgentInternal(
         }
         await save(thread.messages);
 
-        yield* runLoop({ signal: opts.signal, maxSteps: opts.maxSteps ?? 32 });
+        yield* runLoop({ signal: opts.signal, maxSteps: opts.maxSteps ?? 32, stream: opts.stream });
       } finally {
         running = false;
         ctx.signal = undefined;

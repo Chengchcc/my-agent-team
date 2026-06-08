@@ -8,5 +8,5 @@ export type {
   ToolUseBlock,
 } from "./message.js";
 export { type RunOptions, run } from "./run.js";
-export { collectStream } from "./stream-utils.js";
+export { collectStream, finalizeToolUseInputs, mergeChunkIntoBlocks } from "./stream-utils.js";
 export type { Tool, ToolExecuteResult } from "./tool.js";

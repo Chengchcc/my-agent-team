@@ -28,7 +28,7 @@ export async function collectStream(stream: AsyncIterable<AIMessageChunk>): Prom
   return { blocks, stopReason, usage };
 }
 
-function mergeChunkIntoBlocks(
+export function mergeChunkIntoBlocks(
   blocks: ContentBlock[],
   partialJson: Map<string, string>,
   chunk: AIMessageChunk,
@@ -58,7 +58,7 @@ function mergeChunkIntoBlocks(
   );
 }
 
-function finalizeToolUseInputs(blocks: ContentBlock[], partialJson: Map<string, string>): void {
+export function finalizeToolUseInputs(blocks: ContentBlock[], partialJson: Map<string, string>): void {
   for (const block of blocks) {
     if (block.type !== "tool_use") {
       continue;

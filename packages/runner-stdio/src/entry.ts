@@ -10,8 +10,10 @@ import type { EventSink } from "@my-agent-team/event-log";
 export interface EntryIO {
   /** Raw spec JSON string (from process.env.AGENT_SPEC by default) */
   specJson: string;
-  /** Write one NDJSON line (event + '\n') */
+  /** Write one NDJSON line (event + '\n'). Durable events go to EventLog via sink. */
   writeEvent: (event: AgentEvent) => void;
+  /** Write a text_delta line to stdout only — never persisted to EventLog. */
+  writeDelta?: (delta: { blockIndex: number; text: string }) => void;
   /** Write a human-readable trace line to stderr */
   writeStderr: (line: string) => void;
   /** AbortSignal that fires on SIGTERM. Pass-through to agent.run. */
@@ -139,16 +141,21 @@ export async function runEntry(io: EntryIO): Promise<number> {
     // M9: mode branch — run vs resume
     const stream =
       spec.mode === "resume"
-        ? agent.resume(spec.resumeCommand!, { signal, maxSteps: spec.maxSteps })
-        : agent.run(spec.input, { signal, maxSteps: spec.maxSteps });
+        ? agent.resume(spec.resumeCommand!, { signal, maxSteps: spec.maxSteps, stream: true })
+        : agent.run(spec.input, { signal, maxSteps: spec.maxSteps, stream: true });
 
     writeStderr(`[runner-stdio] agent.${spec.mode ?? "run"} started`);
     try {
       for await (const ev of stream) {
-        if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
-        writeEvent(ev);
-        // M11: progress heartbeat after each event
-        await tryHeartbeat();
+        // text_delta events are ephemeral — stdout only, NEVER to EventLog
+        if (ev.type === "text_delta") {
+          io.writeDelta?.({ blockIndex: ev.payload.blockIndex, text: ev.payload.text });
+        } else {
+          if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
+          writeEvent(ev);
+          // M11: progress heartbeat after each event
+          await tryHeartbeat();
+        }
       }
     } finally {
       // M11: keep hbDb open through reflection (close happens after)

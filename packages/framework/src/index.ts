@@ -17,6 +17,7 @@ export {
   type Agent,
   type AgentConfig,
   type AgentEvent,
+  type AgentRunOptions,
   createAgent,
   type Interrupt,
   type ResumeCommand,

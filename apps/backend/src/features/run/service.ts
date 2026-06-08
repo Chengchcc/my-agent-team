@@ -80,6 +80,11 @@ export function createRunService(deps: RunServiceDeps) {
       return eventLog.subscribe({ runId, afterSeq: afterSeq ?? 0 }, {}, signal);
     },
 
+    /** M13: Stream ephemeral text_delta events via supervisor fan-out. Never hits EventLog. */
+    deltaStream(runId: string): ReadableStream {
+      return supervisor.subscribeDelta(runId);
+    },
+
     /** D12: Get active run for a thread, or null. */
     getCurrentRun(threadId: string): { runId: string; status: string } | null {
       const db = supervisor.getDb();

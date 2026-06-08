@@ -75,6 +75,8 @@ export class RunSupervisor {
   #onRunComplete: Array<(threadId: string, runId: string) => void> = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
   #reaping = false; // M11 fix: concurrency guard for async reaper
+  // M13: In-memory delta fan-out for /stream SSE. text_delta events never hit EventLog.
+  #deltaSubs = new Map<string, Set<ReadableStreamDefaultController>>();
 
   constructor(opts: RunSupervisorOptions) {
     this.#opts = opts;
@@ -175,6 +177,55 @@ export class RunSupervisor {
     return this.#db;
   }
 
+  /** M13: Subscribe to ephemeral text_delta events for a run. Returns a ReadableStream
+   *  of SSE-ready strings. Deltas are in-memory only — never touch EventLog. */
+  subscribeDelta(runId: string): ReadableStream {
+    let controllers = this.#deltaSubs.get(runId);
+    if (!controllers) {
+      controllers = new Set();
+      this.#deltaSubs.set(runId, controllers);
+    }
+
+    let ctrl: ReadableStreamDefaultController | null = null;
+    return new ReadableStream({
+      start: (controller) => {
+        ctrl = controller;
+        controllers!.add(controller);
+      },
+      cancel: () => {
+        if (ctrl) {
+          controllers!.delete(ctrl);
+          if (controllers!.size === 0) this.#deltaSubs.delete(runId);
+        }
+      },
+    });
+  }
+
+  /** M13: Push a text_delta to all subscribers for this run. */
+  #pushDelta(runId: string, delta: { blockIndex: number; text: string }): void {
+    const controllers = this.#deltaSubs.get(runId);
+    if (!controllers || controllers.size === 0) return;
+    const line = `event: text_delta\ndata: ${JSON.stringify(delta)}\n\n`;
+    for (const ctrl of controllers) {
+      try {
+        ctrl.enqueue(new TextEncoder().encode(line));
+      } catch {
+        controllers.delete(ctrl);
+      }
+    }
+    if (controllers.size === 0) this.#deltaSubs.delete(runId);
+  }
+
+  /** M13: Close all delta subscribers for a run and clean up. */
+  #closeDeltaSubs(runId: string): void {
+    const controllers = this.#deltaSubs.get(runId);
+    if (!controllers) return;
+    for (const ctrl of controllers) {
+      try { ctrl.close(); } catch { /* already closed */ }
+    }
+    this.#deltaSubs.delete(runId);
+  }
+
   /** Dispose the supervisor's DB connection and stop reaper. */
   async dispose(): Promise<void> {
     // M11: Stop reaper first, then wait for in-flight tick, then close DB
@@ -185,6 +236,10 @@ export class RunSupervisor {
     // Wait for any in-flight #reapStaleRuns to complete before closing DB
     while (this.#reaping) {
       await new Promise((r) => setTimeout(r, 10));
+    }
+    // M13: close all delta subscribers
+    for (const runId of this.#deltaSubs.keys()) {
+      this.#closeDeltaSubs(runId);
     }
     this.#db.close();
   }
@@ -227,10 +282,15 @@ export class RunSupervisor {
         if (!line.trim()) continue;
         try {
           // JSON.parse is untyped but runner always writes valid AgentEvent
-          const ev = JSON.parse(line) as unknown;
-          void this.#opts.eventLog.append(threadId, runId, ev as Parameters<EventLog["append"]>[2]).catch(() => {
-            // best-effort; runner's direct DB write is primary
-          });
+          const ev = JSON.parse(line) as { type?: string; payload?: unknown };
+          // M13: text_delta events go to in-memory fan-out ONLY — never EventLog
+          if (ev.type === "text_delta" && ev.payload) {
+            this.#pushDelta(runId, ev.payload as { blockIndex: number; text: string });
+          } else {
+            void this.#opts.eventLog.append(threadId, runId, ev as Parameters<EventLog["append"]>[2]).catch(() => {
+              // best-effort; runner's direct DB write is primary
+            });
+          }
         } catch {
           // skip malformed lines
         }
@@ -254,6 +314,9 @@ export class RunSupervisor {
       } else {
         this.#db.run("UPDATE run SET status = 'error', ended_at = ? WHERE run_id = ?", [exitNow, runId]);
       }
+
+      // M13: Close delta subscribers (run is done — no more deltas)
+      this.#closeDeltaSubs(runId);
 
       // Fix B: Notify all listeners to release locks
       for (const fn of this.#onRunComplete) {

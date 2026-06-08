@@ -93,5 +93,17 @@ export function runRoutes(
       const run = svc.getCurrentRun(threadId);
       return json(run);
     },
+
+    /** M13: GET /api/runs/:id/stream → SSE text_delta stream (ephemeral, not EventLog) */
+    async stream(_req: Request, runId: string): Promise<Response> {
+      const deltaStream = svc.deltaStream(runId);
+      return new Response(deltaStream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    },
   };
 }

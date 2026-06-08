@@ -10,6 +10,10 @@ const specJson = process.env.AGENT_SPEC ?? "";
 const code = await runEntry({
   specJson,
   writeEvent: (ev) => process.stdout.write(`${JSON.stringify(ev)}\n`),
+  writeDelta: (delta) =>
+    process.stdout.write(
+      `${JSON.stringify({ type: "text_delta", payload: delta })}\n`,
+    ),
   writeStderr: (line) => process.stderr.write(`${line}\n`),
   signal: ac.signal,
 });
