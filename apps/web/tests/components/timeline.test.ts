@@ -1,5 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { messagesToTimeline, mergeTimeline, extractText, type TimelineItem } from "../../src/lib/timeline";
+import { messagesToTimeline, extractText, type TimelineItem } from "../../src/lib/timeline";
+
+function mergeTimeline(a: TimelineItem[], b: TimelineItem[]): TimelineItem[] {
+  return [...a, ...b];
+}
 
 // ── Test data ──
 

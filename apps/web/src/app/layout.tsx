@@ -1,17 +1,23 @@
 import type { Metadata } from "next";
-import { DM_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { QueryProvider } from "@/providers/QueryProvider";
 import "./globals.css";
 
-const dmMono = DM_Mono({
+const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-mono",
+  variable: "--font-inter",
+  weight: ["400", "500", "600", "700"],
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono-sf",
   weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
-  title: "Agent Workspace",
+  title: "Observatory — Agent Workspace",
   description: "Multi-agent collaboration workspace",
 };
 
@@ -23,7 +29,7 @@ export default function RootLayout({
   return (
     <html
       lang="zh-CN"
-      className={cn("font-sans", dmMono.variable)}
+      className={cn("font-sans", inter.variable, jetbrainsMono.variable)}
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-background text-foreground">

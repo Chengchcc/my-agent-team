@@ -1,171 +1,116 @@
 // ── Streaming Markdown AST ──
 // Incrementally builds a flat block sequence from text_delta events.
 // Blocks are sealed on boundaries (double newline, code fence, table row).
-// The renderer consumes Patch[] to incrementally mount DOM, never full re-render.
+// All functions are IMMUTABLE — they return new StreamAst, never mutate arguments.
 
-export type AstBlockType = "paragraph" | "heading" | "code" | "list" | "table";
+export type AstBlockType = "paragraph" | "code" | "table";
 
 export interface AstBlock {
-  index: number; // stable blockIndex from /stream
+  index: number;
   type: AstBlockType;
-  text: string; // accumulated text (may be partial for openBlock)
+  text: string;
+  /** Monotonic local sequence — stable React key across markdown splits. */
+  localSeq: number;
 }
-
-export type Patch =
-  | { type: "open"; blockIndex: number; blockType: AstBlockType }
-  | { type: "append"; blockIndex: number; text: string }
-  | { type: "seal"; blockIndex: number }
-  | { type: "replace"; blockIndex: number; fullText: string };
 
 export interface StreamAst {
   blocks: AstBlock[];
   openBlock: AstBlock | null;
   buffer: string;
+  nextLocalSeq: number;
 }
 
 export function createStreamAst(): StreamAst {
-  return { blocks: [], openBlock: null, buffer: "" };
+  return { blocks: [], openBlock: null, buffer: "", nextLocalSeq: 0 };
 }
 
 const CODE_FENCE_RE = /^```/;
 const TABLE_ROW_RE = /^\|.*\|/;
-const HEADING_RE = /^#{1,6}\s/;
-const LIST_ITEM_RE = /^[-*+]\s|^\d+\.\s/;
 
 function classifyBlock(firstLine: string): AstBlockType {
   if (CODE_FENCE_RE.test(firstLine)) return "code";
   if (TABLE_ROW_RE.test(firstLine)) return "table";
-  if (HEADING_RE.test(firstLine)) return "heading";
-  if (LIST_ITEM_RE.test(firstLine)) return "list";
   return "paragraph";
 }
 
 /**
- * Append text from a text_delta to the AST.
- * Returns minimal patches for the renderer to apply incrementally.
+ * Append text from a text_delta. Returns a NEW StreamAst (never mutates input).
  */
 export function appendDelta(
   ast: StreamAst,
   blockIndex: number,
   text: string,
-): Patch[] {
-  const patches: Patch[] = [];
-  ast.buffer += text;
+): StreamAst {
+  const blocks = [...ast.blocks];
+  let openBlock: AstBlock | null = ast.openBlock
+    ? { ...ast.openBlock, text: ast.openBlock.text }
+    : null;
+  let buffer = ast.buffer + text;
+  let nextLocalSeq = ast.nextLocalSeq;
 
-  // If no open block yet, start one
-  if (!ast.openBlock) {
-    // Wait for enough content to classify (first newline or 40 chars)
-    const nl = ast.buffer.indexOf("\n");
+  if (!openBlock) {
+    const nl = buffer.indexOf("\n");
     if (nl >= 0 && nl < 80) {
-      const firstLine = ast.buffer.slice(0, nl);
-      const rest = ast.buffer.slice(nl + 1);
+      const firstLine = buffer.slice(0, nl);
+      const rest = buffer.slice(nl + 1);
       const blockType = classifyBlock(firstLine);
-      // Special: code fences need the opening fence as part of the block
-      const initText =
-        blockType === "code" ? firstLine + "\n" + rest : firstLine;
-      ast.openBlock = { index: blockIndex, type: blockType, text: "" };
-      patches.push({ type: "open", blockIndex, blockType });
-      // Only append if there's content after classification
-      if (initText.length > 0) {
-        ast.openBlock.text = initText;
-        patches.push({ type: "append", blockIndex, text: initText });
-      }
-      ast.buffer = "";
-    } else if (ast.buffer.length >= 40) {
-      // No newline found — assume paragraph
-      ast.openBlock = { index: blockIndex, type: "paragraph", text: "" };
-      patches.push({ type: "open", blockIndex, blockType: "paragraph" });
-      ast.openBlock.text = ast.buffer;
-      patches.push({ type: "append", blockIndex, text: ast.buffer });
-      ast.buffer = "";
+      const initText = blockType === "code" ? firstLine + "\n" + rest : firstLine;
+      const localSeq = nextLocalSeq++;
+      openBlock = { index: blockIndex, type: blockType, text: initText, localSeq };
+      buffer = "";
+    } else if (buffer.length >= 40) {
+      const localSeq = nextLocalSeq++;
+      openBlock = { index: blockIndex, type: "paragraph", text: buffer, localSeq };
+      buffer = "";
     }
-    return patches;
+    return { blocks, openBlock, buffer, nextLocalSeq };
   }
 
-  // Open block exists — append inline or seal on boundaries
-  // Check for code fence closure
-  if (
-    ast.openBlock.type === "code" &&
-    ast.buffer.includes("\n```")
-  ) {
-    const idx = ast.buffer.indexOf("\n```");
-    const before = ast.buffer.slice(0, idx + 1); // include the newline
-    const fence = ast.buffer.slice(idx + 1); // ``` plus rest
-    if (before.length > 0) {
-      ast.openBlock.text += before;
-      patches.push({ type: "append", blockIndex, text: before });
-    }
-    // Include closing fence in the code block
-    ast.openBlock.text += fence;
-    patches.push({ type: "append", blockIndex, text: fence });
-    patches.push({ type: "seal", blockIndex });
-    ast.blocks.push(ast.openBlock);
-    ast.openBlock = null;
-    ast.buffer = "";
-    return patches;
+  // Code fence closure
+  if (openBlock.type === "code" && buffer.includes("\n```")) {
+    const idx = buffer.indexOf("\n```");
+    const before = buffer.slice(0, idx + 1);
+    const fence = buffer.slice(idx + 1);
+    openBlock = { ...openBlock, text: openBlock.text + before + fence };
+    blocks.push(openBlock);
+    return { blocks, openBlock: null, buffer: "", nextLocalSeq };
   }
 
-  // Check for paragraph seal: double newline
-  if (ast.openBlock.type !== "code" && ast.buffer.includes("\n\n")) {
-    const idx = ast.buffer.indexOf("\n\n");
-    const before = ast.buffer.slice(0, idx);
-    const after = ast.buffer.slice(idx + 2);
-    if (before.length > 0) {
-      ast.openBlock.text += before;
-      patches.push({ type: "append", blockIndex, text: before });
-    }
-    patches.push({ type: "seal", blockIndex });
-    ast.blocks.push(ast.openBlock);
-    ast.openBlock = null;
-    ast.buffer = after; // keep remaining for next block
-    return patches;
+  // Paragraph seal
+  if (openBlock.type !== "code" && buffer.includes("\n\n")) {
+    const idx = buffer.indexOf("\n\n");
+    const before = buffer.slice(0, idx);
+    const after = buffer.slice(idx + 2);
+    openBlock = { ...openBlock, text: openBlock.text + before };
+    blocks.push(openBlock);
+    return { blocks, openBlock: null, buffer: after, nextLocalSeq };
   }
 
-  // Inline append — no boundary hit
-  ast.openBlock.text += text;
-  patches.push({ type: "append", blockIndex, text });
-  return patches;
+  // Inline append
+  openBlock = { ...openBlock, text: openBlock.text + text };
+  return { blocks, openBlock, buffer, nextLocalSeq };
 }
 
 /**
- * Finalize a block by replacing its delta-built text with authoritative
- * content from the /events full message. Called when /events delivers
- * the complete assistant message.
+ * Finalize a block with authoritative text from /events.
+ * Simplification: always operates on the latest block (open or last sealed).
  */
 export function finalizeBlock(
   ast: StreamAst,
-  blockIndex: number,
   authoritativeText: string,
-): Patch[] {
-  const patches: Patch[] = [];
+): StreamAst {
+  const blocks = [...ast.blocks];
 
-  // Find the block — it could be sealed or still open
-  const existing = ast.blocks.find((b) => b.index === blockIndex);
-  if (existing) {
-    if (existing.text !== authoritativeText) {
-      existing.text = authoritativeText;
-      patches.push({
-        type: "replace",
-        blockIndex,
-        fullText: authoritativeText,
-      });
-    }
-  } else if (
-    ast.openBlock &&
-    ast.openBlock.index === blockIndex
-  ) {
-    ast.openBlock.text = authoritativeText;
-    patches.push({
-      type: "replace",
-      blockIndex,
-      fullText: authoritativeText,
-    });
-    // Seal it — authoritative means the block is complete
-    patches.push({ type: "seal", blockIndex });
-    ast.blocks.push(ast.openBlock);
-    ast.openBlock = null;
-    ast.buffer = "";
+  if (ast.openBlock) {
+    const finalized = { ...ast.openBlock, text: authoritativeText };
+    blocks.push(finalized);
+    return { ...ast, blocks, openBlock: null, buffer: "" };
   }
 
-  return patches;
+  if (blocks.length > 0) {
+    const last = { ...blocks[blocks.length - 1]!, text: authoritativeText };
+    blocks[blocks.length - 1] = last;
+  }
+
+  return { ...ast, blocks, buffer: "" };
 }

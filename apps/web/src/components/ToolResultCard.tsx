@@ -1,6 +1,3 @@
-import { Card, CardContent } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
-
 export function ToolResultCard({
   content,
   isError,
@@ -10,23 +7,23 @@ export function ToolResultCard({
   isError?: boolean;
 }) {
   return (
-    <Card
-      className={cn(
-        "border-l-4 my-2 bg-muted/30",
-        isError ? "border-l-destructive" : "border-l-green-500",
-      )}
+    <div
+      className={`border rounded-lg bg-[var(--canvas)] my-2 overflow-hidden ${
+        isError ? "border-[var(--primary)]/30" : "border-[var(--hairline)]"
+      }`}
     >
-      <CardContent className="p-3">
-        <p className="text-xs text-muted-foreground mb-1">Result</p>
+      <div className="p-3">
+        <p className="text-[10px] tracking-[0.15em] uppercase font-[family-name:var(--font-sans)] font-semibold text-[var(--mute)] mb-1">
+          Result
+        </p>
         <pre
-          className={cn(
-            "text-xs whitespace-pre-wrap max-h-40 overflow-y-auto",
-            isError && "text-destructive",
-          )}
+          className={`text-[13px] whitespace-pre-wrap max-h-40 overflow-y-auto font-[family-name:var(--font-mono)] ${
+            isError ? "text-[var(--body)]" : "text-[var(--canvas-text-soft)]"
+          }`}
         >
           {content}
         </pre>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

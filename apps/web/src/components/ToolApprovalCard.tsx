@@ -18,24 +18,24 @@ export function ToolApprovalCard({
   const [message, setMessage] = useState("");
 
   return (
-    <div className="border-t-2 border-[var(--brass-light)] bg-[var(--paper)]">
-      <div className="px-6 py-5 max-w-2xl">
+    <div className="border-t-2 border-[var(--primary)] bg-[var(--canvas)]">
+      <div className="px-6 py-5 mx-auto" style={{ maxWidth: "72ch" }}>
         {/* Header */}
         <div className="flex items-center gap-3 mb-3">
-          <span className="w-2 h-2 rounded-full bg-[var(--brass)]" />
-          <p className="font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase text-[var(--brass)]">
+          <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
+          <p className="text-[10px] tracking-[0.15em] uppercase font-[family-name:var(--font-sans)] font-semibold text-[var(--primary)]">
             Approval Required
           </p>
         </div>
 
-        <p className="font-[family-name:var(--font-heading)] text-sm text-[var(--charcoal)] mb-2">
+        <p className="text-sm text-[var(--ink)] mb-2">
           Agent requests to use{" "}
-          <span className="font-[family-name:var(--font-mono)] text-[10px] tracking-[0.1em] not-italic bg-[var(--cream)] px-1.5 py-0.5 border border-[var(--border-color)]">
+          <span className="text-[13px] font-[family-name:var(--font-mono)] bg-[var(--canvas-soft)] px-1.5 py-0.5 border border-[var(--hairline)] rounded text-[var(--canvas-text-soft)]">
             {tool.name}
           </span>
         </p>
 
-        <pre className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--charcoal)]/60 mb-4 max-h-20 overflow-y-auto leading-relaxed">
+        <pre className="text-[13px] text-[var(--mute)] mb-4 max-h-20 overflow-y-auto leading-relaxed font-[family-name:var(--font-mono)] bg-[var(--canvas-soft)] rounded p-3">
           {JSON.stringify(tool.input, null, 2)}
         </pre>
 
@@ -43,11 +43,11 @@ export function ToolApprovalCard({
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Optional feedback..."
-          className="w-full bg-transparent border-0 border-b border-[var(--border-color)]
-                     px-0 py-2 mb-4 font-[family-name:var(--font-heading)] text-sm
-                     text-[var(--charcoal)] placeholder:text-[var(--border-color)]
-                     focus:outline-none focus:border-[var(--brass)]
-                     transition-colors duration-300"
+          className="w-full bg-[var(--canvas-soft)] border border-[var(--hairline)] rounded-md
+                     px-3 py-2 mb-4 text-sm text-[var(--ink)]
+                     placeholder:text-[var(--mute)]
+                     focus:outline-none focus:border-[var(--primary)]
+                     transition-colors duration-200"
         />
 
         <div className="flex gap-3">
@@ -55,11 +55,11 @@ export function ToolApprovalCard({
             type="button"
             onClick={() => onApprove(message || undefined)}
             disabled={disabled}
-            className="border border-[var(--teal)] bg-[var(--teal)] text-[var(--cream)]
-                       px-5 py-2 font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase
-                       hover:bg-[var(--teal-light)] hover:border-[var(--teal-light)]
+            className="bg-[var(--primary)] text-[var(--on-primary)]
+                       rounded-md px-5 py-2 text-sm font-semibold
+                       hover:opacity-90
                        disabled:opacity-40 disabled:cursor-not-allowed
-                       transition-colors duration-300"
+                       transition-opacity duration-200"
           >
             Approve
           </button>
@@ -67,11 +67,11 @@ export function ToolApprovalCard({
             type="button"
             onClick={() => onDeny(message || undefined)}
             disabled={disabled}
-            className="border border-[var(--rust)] text-[var(--rust)]
-                       px-5 py-2 font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase
-                       hover:bg-[var(--rust)] hover:text-[var(--cream)]
+            className="border border-[var(--hairline)] text-[var(--body)]
+                       rounded-md px-5 py-2 text-sm font-semibold
+                       hover:border-[var(--ink)] hover:text-[var(--ink)]
                        disabled:opacity-40 disabled:cursor-not-allowed
-                       transition-colors duration-300"
+                       transition-colors duration-200"
           >
             Deny
           </button>

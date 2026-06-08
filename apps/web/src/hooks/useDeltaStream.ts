@@ -8,25 +8,20 @@ import {
   type StreamAst,
 } from "@/lib/stream-ast";
 
+export type DeltaConnection = "idle" | "connected" | "degraded";
+
 export interface DeltaStreamState {
   ast: StreamAst;
-  /** Whether /stream is connected and receiving data. */
-  connected: boolean;
-  /** Whether /stream is unavailable (degraded to typewriter fallback). */
-  degraded: boolean;
-  /** Call when /events delivers a complete message to align the AST. */
-  finalize: (blockIndex: number, authoritativeText: string) => void;
+  connection: DeltaConnection;
+  finalize: (authoritativeText: string) => void;
 }
 
 export function useDeltaStream(runId: string | null): DeltaStreamState {
   const [ast, setAst] = useState<StreamAst>(createStreamAst);
-  const [connected, setConnected] = useState(false);
-  const [degraded, setDegraded] = useState(false);
-  const esRef = useRef<EventSource | null>(null);
+  const [connection, setConnection] = useState<DeltaConnection>("idle");
   const pendingRef = useRef<Array<{ blockIndex: number; text: string }>>([]);
   const rafRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
-  const astRef = useRef<StreamAst>(ast);
-  astRef.current = ast;
+  const connectedRef = useRef(false);
 
   // rAF batch processor — merges pending deltas into one AST update per frame
   const flushPending = useCallback(() => {
@@ -34,47 +29,43 @@ export function useDeltaStream(runId: string | null): DeltaStreamState {
     if (pending.length === 0) return;
     pendingRef.current = [];
     setAst((prev) => {
-      const next = prev;
+      let cur = prev;
       for (const d of pending) {
-        appendDelta(next, d.blockIndex, d.text);
+        cur = appendDelta(cur, d.blockIndex, d.text);
       }
-      return { ...next, blocks: [...next.blocks] };
+      return cur;
     });
   }, []);
 
   useEffect(() => {
     if (!runId) {
-      setConnected(false);
+      setConnection("idle");
       return;
     }
 
-    // Reset state for new run
-    const freshAst = createStreamAst();
-    setAst(freshAst);
-    astRef.current = freshAst;
-    setConnected(false);
-    setDegraded(false);
+    setAst(createStreamAst());
+    connectedRef.current = false;
+    setConnection("idle");
     pendingRef.current = [];
 
-    const url = `/api/bff/runs/${runId}/stream`;
-    const es = new EventSource(url);
-    esRef.current = es;
+    const es = new EventSource(`/api/bff/runs/${runId}/stream`);
 
     es.onopen = () => {
-      setConnected(true);
-      setDegraded(false);
+      connectedRef.current = true;
+      setConnection("connected");
     };
 
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) {
-        setConnected(false);
-        // If we never connected, degrade to typewriter fallback
-        if (!connected) {
-          console.warn(
-            "[useDeltaStream] /stream unavailable, falling back to typewriter",
-          );
-          setDegraded(true);
+        if (connectedRef.current) {
+          connectedRef.current = false;
+          setConnection("idle");
+          return;
         }
+        console.warn(
+          "[useDeltaStream] /stream unavailable, falling back to typewriter",
+        );
+        setConnection("degraded");
       }
     };
 
@@ -90,7 +81,6 @@ export function useDeltaStream(runId: string | null): DeltaStreamState {
 
         pendingRef.current.push({ blockIndex, text });
 
-        // rAF throttle — only one flush per animation frame
         if (!rafRef.current) {
           rafRef.current = requestAnimationFrame(() => {
             rafRef.current = null;
@@ -108,20 +98,12 @@ export function useDeltaStream(runId: string | null): DeltaStreamState {
         rafRef.current = null;
       }
       es.close();
-      esRef.current = null;
     };
   }, [runId, flushPending]);
 
-  const finalize = useCallback(
-    (blockIndex: number, authoritativeText: string) => {
-      setAst((prev) => {
-        const patches = finalizeBlock(prev, blockIndex, authoritativeText);
-        if (patches.length === 0) return prev;
-        return { ...prev, blocks: [...prev.blocks] };
-      });
-    },
-    [],
-  );
+  const finalize = useCallback((authoritativeText: string) => {
+    setAst((prev) => finalizeBlock(prev, authoritativeText));
+  }, []);
 
-  return { ast, connected, degraded, finalize };
+  return { ast, connection, finalize };
 }

@@ -1,26 +1,29 @@
 export default function LoginPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--cream)]">
-      <div className="fixed top-0 left-0 right-0 h-0.5 bg-[var(--brass)]" />
+    <div className="flex min-h-screen items-center justify-center bg-[var(--canvas)]">
+      <div className="fixed top-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
 
       <div className="w-full max-w-sm px-8 animate-fade-in">
-        <p className="font-[family-name:var(--font-mono)] text-xs tracking-[0.2em] uppercase text-[var(--warm-gray-dark)] mb-8">
+        <p className="text-xs tracking-[2.52px] uppercase text-[var(--mute)] mb-8 font-[family-name:var(--font-sans)] font-semibold">
           Observatory
         </p>
 
-        <h1 className="font-[family-name:var(--font-heading)] text-3xl font-medium text-[var(--charcoal)] leading-tight mb-2">
+        <h1
+          className="text-3xl font-normal text-[var(--ink-strong)] leading-tight mb-2 font-[family-name:var(--font-sans)]"
+          style={{ letterSpacing: "-0.65px" }}
+        >
           Agent
           <br />
           Workspace
         </h1>
 
-        <p className="font-[family-name:var(--font-heading)] text-sm text-[var(--warm-gray-dark)] mb-8">
-          A quiet place to work with agents
+        <p className="text-sm text-[var(--body)] mb-8">
+          A terminal for working with agents
         </p>
 
         <form action="/api/auth/login" method="POST" className="space-y-5">
           <div>
-            <label className="font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)] block mb-2">
+            <label className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] block mb-2 font-[family-name:var(--font-sans)] font-semibold">
               Password
             </label>
             <input
@@ -28,29 +31,27 @@ export default function LoginPage() {
               type="password"
               placeholder="••••••••"
               autoFocus
-              className="w-full bg-transparent border-0 border-b border-[var(--border-color)]
-                         px-0 py-3 text-[var(--charcoal)] font-[family-name:var(--font-heading)]
-                         text-lg placeholder:text-[var(--border-color)]
-                         focus:outline-none focus:border-[var(--brass)]
-                         transition-colors duration-300"
+              className="w-full bg-transparent border-0 border-b border-[var(--hairline)]
+                         px-0 py-3 text-[var(--ink)] text-lg
+                         placeholder:text-[var(--mute)]
+                         focus:outline-none focus:border-[var(--primary)]
+                         transition-colors duration-200"
             />
           </div>
 
           <button
             type="submit"
-            className="w-full border border-[var(--charcoal)] bg-[var(--charcoal)]
-                       text-[var(--cream)] py-3 font-[family-name:var(--font-mono)]
-                       text-xs tracking-[0.15em] uppercase
-                       hover:bg-[var(--brass)] hover:border-[var(--brass)]
-                       transition-colors duration-300"
+            className="w-full bg-[var(--primary)] text-[var(--on-primary)]
+                       rounded-md py-3 text-sm font-semibold
+                       hover:opacity-90 transition-opacity duration-200"
           >
-            Enter →
+            Enter &rarr;
           </button>
         </form>
 
-        <div className="mt-12 pt-6 border-t border-[var(--border-color)]">
-          <p className="font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] text-[var(--warm-gray-dark)]">
-            Mid-Century Observatory &copy; {new Date().getFullYear()}
+        <div className="mt-12 pt-6 border-t border-[var(--hairline)]">
+          <p className="text-[10px] tracking-[0.15em] text-[var(--mute)]">
+            VoltAgent Terminal &copy; {new Date().getFullYear()}
           </p>
         </div>
       </div>

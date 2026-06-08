@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { ThreadList } from "@/components/ThreadList";
 import { IdentityPanel } from "@/components/IdentityPanel";
+import { AgentForm } from "@/components/AgentForm";
 
 type Tab = "threads" | "identity";
 
@@ -21,8 +22,8 @@ export default function AgentDetailPage() {
     return (
       <div className="container mx-auto px-8 py-10">
         <div className="animate-pulse space-y-3">
-          <div className="h-6 w-48 bg-[var(--warm-gray)]" />
-          <div className="h-4 w-32 bg-[var(--warm-gray)]" />
+          <div className="h-6 w-48 bg-[var(--canvas-soft)]" />
+          <div className="h-4 w-32 bg-[var(--canvas-soft)]" />
         </div>
       </div>
     );
@@ -31,36 +32,37 @@ export default function AgentDetailPage() {
   if (!agent) {
     return (
       <div className="container mx-auto px-8 py-10">
-        <p className="font-[family-name:var(--font-heading)] text-[var(--warm-gray-dark)]">
-          Agent not found
-        </p>
+        <p className="text-sm text-[var(--mute)]">Agent not found</p>
       </div>
     );
   }
 
   const tabClass = (t: Tab) =>
-    `pb-3 font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase border-b transition-colors duration-300 ${
+    `pb-3 text-[10px] tracking-[2.52px] uppercase border-b transition-colors duration-300 font-[family-name:var(--font-sans)] font-semibold ${
       tab === t
-        ? "border-[var(--brass)] text-[var(--charcoal)]"
-        : "border-transparent text-[var(--warm-gray-dark)] hover:text-[var(--charcoal)]"
+        ? "border-[var(--primary)] text-[var(--ink)]"
+        : "border-transparent text-[var(--mute)] hover:text-[var(--body)]"
     }`;
 
   return (
-    <div className="h-full bg-[var(--cream)]">
+    <div className="h-full bg-[var(--canvas)]">
       {/* Header */}
-      <div className="border-b border-[var(--border-color)]">
+      <div className="border-b border-[var(--hairline)]">
         <div className="container mx-auto px-8 py-5">
           <div className="flex items-center gap-4">
-            {/* Status dot */}
-            <span className="w-2 h-2 rounded-full bg-[var(--teal)]" />
-
-            <h1 className="font-[family-name:var(--font-heading)] text-2xl font-medium text-[var(--charcoal)]">
+            <h1 className="text-2xl font-normal text-[var(--ink-strong)] font-[family-name:var(--font-sans)]"
+              style={{ letterSpacing: "-0.65px" }}>
               {agent.name}
             </h1>
 
-            <span className="font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)] border border-[var(--border-color)] px-2 py-0.5">
+            <span className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] border border-[var(--hairline)] rounded px-2 py-0.5 font-[family-name:var(--font-sans)] font-semibold">
               {agent.modelProvider}/{agent.modelName}
             </span>
+
+            <AgentForm
+              editAgent={agent}
+              triggerLabel="Edit"
+            />
           </div>
 
           {/* Tabs */}

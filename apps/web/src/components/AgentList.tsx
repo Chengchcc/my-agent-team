@@ -16,10 +16,10 @@ export function AgentList() {
         {[1, 2, 3].map((i) => (
           <div
             key={i}
-            className="border border-[var(--border-color)] bg-[var(--paper)] p-8 animate-pulse"
+            className="border border-[var(--hairline)] rounded-lg bg-[var(--canvas)] p-8 animate-pulse"
           >
-            <div className="h-5 w-32 bg-[var(--warm-gray)] mb-3" />
-            <div className="h-4 w-24 bg-[var(--warm-gray)]" />
+            <div className="h-5 w-32 bg-[var(--canvas-soft)] mb-3" />
+            <div className="h-4 w-24 bg-[var(--canvas-soft)]" />
           </div>
         ))}
       </div>
@@ -31,10 +31,10 @@ export function AgentList() {
   if (active.length === 0) {
     return (
       <div className="py-24 text-center">
-        <p className="font-[family-name:var(--font-heading)] text-lg text-[var(--warm-gray-dark)] mb-2">
+        <p className="text-lg text-[var(--mute)] mb-2 font-[family-name:var(--font-sans)]">
           No agents yet
         </p>
-        <p className="text-sm text-[var(--warm-gray-dark)]">
+        <p className="text-sm text-[var(--mute)]">
           Create your first agent to begin.
         </p>
       </div>
@@ -47,36 +47,37 @@ export function AgentList() {
         <Link
           key={agent.id}
           href={`/agents/${agent.id}`}
-          className="group block border border-[var(--border-color)] bg-[var(--cream)] p-8
-                     hover:border-[var(--brass)] transition-colors duration-300
+          className="group block border border-[var(--hairline)] rounded-lg bg-[var(--canvas)] p-8
+                     hover:border-[var(--primary)] transition-colors duration-300
                      animate-fade-in"
           style={{
             animationDelay: `${i * 0.08}s`,
             animationFillMode: "both",
           }}
         >
-          {/* Left accent line — appears on hover */}
-          <div
-            className="w-0.5 h-0 group-hover:h-8 bg-[var(--brass)] mb-3
-                        transition-all duration-300 ease-out"
-          />
-
-          <h3 className="font-[family-name:var(--font-heading)] text-xl font-medium text-[var(--charcoal)] tracking-tight">
+          <h3 className="text-xl font-normal text-[var(--ink-strong)] tracking-tight font-[family-name:var(--font-sans)]"
+            style={{ letterSpacing: "-0.65px" }}>
             {agent.name}
           </h3>
 
           <div className="mt-3 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-[var(--teal)] opacity-60" />
-            <span className="font-[family-name:var(--font-mono)] text-xs text-[var(--warm-gray-dark)] tracking-wider uppercase">
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)] opacity-60" />
+            <span className="text-xs text-[var(--mute)] tracking-wider uppercase font-[family-name:var(--font-sans)] font-semibold"
+              style={{ letterSpacing: "2.52px" }}>
               {agent.modelProvider}/{agent.modelName}
             </span>
           </div>
 
-          {/* Status dot row — decorative */}
-          <div className="mt-4 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-            <span className="w-1 h-1 rounded-full bg-[var(--border-color)]" />
-            <span className="w-1 h-1 rounded-full bg-[var(--border-color)]" />
-            <span className="w-1 h-1 rounded-full bg-[var(--border-color)]" />
+          <div className="mt-4 flex items-center gap-3 text-[10px] text-[var(--mute)]">
+            <span className="border border-[var(--hairline)] rounded-sm px-1.5 py-0.5 uppercase tracking-[0.15em] font-[family-name:var(--font-sans)] font-semibold">
+              {agent.permissionMode}
+            </span>
+            <span>
+              {new Date(agent.createdAt).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })}
+            </span>
           </div>
         </Link>
       ))}

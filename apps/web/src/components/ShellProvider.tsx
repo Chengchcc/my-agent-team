@@ -1,14 +1,10 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from "react";
 
 interface ShellContextValue {
   railCollapsed: boolean;
   toggleRail: () => void;
-  drawerCollapsed: boolean;
-  toggleDrawer: () => void;
-  drawerContent: ReactNode | null;
-  setDrawerContent: (content: ReactNode | null) => void;
 }
 
 const ShellContext = createContext<ShellContextValue | null>(null);
@@ -35,10 +31,6 @@ export function ShellProvider({ children }: { children: ReactNode }) {
   const [railCollapsed, setRailCollapsed] = useState(() =>
     loadCollapseState("maw_rail_collapsed", false),
   );
-  const [drawerCollapsed, setDrawerCollapsed] = useState(() =>
-    loadCollapseState("maw_drawer_collapsed", false),
-  );
-  const [drawerContent, setDrawerContent] = useState<ReactNode | null>(null);
 
   const toggleRail = useCallback(() => {
     setRailCollapsed((prev) => {
@@ -47,24 +39,13 @@ export function ShellProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const toggleDrawer = useCallback(() => {
-    setDrawerCollapsed((prev) => {
-      saveCollapseState("maw_drawer_collapsed", !prev);
-      return !prev;
-    });
-  }, []);
+  const value = useMemo<ShellContextValue>(
+    () => ({ railCollapsed, toggleRail }),
+    [railCollapsed, toggleRail],
+  );
 
   return (
-    <ShellContext.Provider
-      value={{
-        railCollapsed,
-        toggleRail,
-        drawerCollapsed,
-        toggleDrawer,
-        drawerContent,
-        setDrawerContent,
-      }}
-    >
+    <ShellContext.Provider value={value}>
       {children}
     </ShellContext.Provider>
   );

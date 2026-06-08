@@ -316,6 +316,14 @@ function createAgentInternal(
         const partialJson = new Map<string, string>();
         let blockIndex = 0;
         for await (const chunk of modelStream) {
+          // Increment blockIndex when a new text block starts (text after non-text)
+          if (
+            chunk.delta?.type === "text" &&
+            blocks.length > 0 &&
+            blocks[blocks.length - 1]?.type !== "text"
+          ) {
+            blockIndex++;
+          }
           if (chunk.delta?.type === "text") {
             yield { type: "text_delta", payload: { blockIndex, text: chunk.delta.text } };
           }

@@ -16,50 +16,62 @@ export function Composer({
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const autoGrow = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "44px";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, []);
+
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
     onSend(trimmed);
     setValue("");
-    textareaRef.current?.focus();
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "44px";
+      textareaRef.current.focus();
+    }
   }, [value, disabled, onSend]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if ((e.key === "Enter" && !e.shiftKey) || (e.key === "Enter" && e.ctrlKey)) {
       e.preventDefault();
       handleSend();
     }
   };
 
   return (
-    <div className="border-t border-[var(--border-color)] bg-[var(--cream)] px-6 py-4">
-      <div className="flex gap-3 items-end max-w-3xl mx-auto">
+    <div className="bg-[var(--canvas)] px-6 py-4">
+      <div className="flex gap-3 items-end mx-auto" style={{ maxWidth: "72ch" }}>
         <textarea
           ref={textareaRef}
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => {
+            setValue(e.target.value);
+            autoGrow();
+          }}
           onKeyDown={handleKeyDown}
-          placeholder={placeholder}
+          placeholder={disabled ? "Agent is responding…" : placeholder}
           rows={1}
           disabled={disabled}
-          className="flex-1 resize-none bg-transparent border-0 border-b border-[var(--border-color)]
-                     px-0 py-3 font-[family-name:var(--font-heading)] text-[15px] text-[var(--charcoal)]
-                     placeholder:text-[var(--border-color)]
-                     focus:outline-none focus:border-[var(--brass)]
+          className="flex-1 resize-none bg-[var(--canvas-soft)] border border-[var(--hairline)]
+                     rounded-md px-3 py-3 text-sm text-[var(--ink)]
+                     placeholder:text-[var(--mute)]
+                     focus:outline-none focus:border-[var(--primary)]
                      disabled:opacity-40 disabled:cursor-not-allowed
-                     transition-colors duration-300"
-          style={{ minHeight: "44px", maxHeight: "128px" }}
+                     transition-colors duration-200"
+          style={{ minHeight: "44px", maxHeight: "200px" }}
         />
         <button
           type="button"
           onClick={handleSend}
           disabled={disabled || !value.trim()}
-          className="shrink-0 border border-[var(--charcoal)] bg-[var(--charcoal)]
-                     text-[var(--cream)] px-5 py-3 font-[family-name:var(--font-mono)]
-                     text-[10px] tracking-[0.15em] uppercase
-                     hover:bg-[var(--brass)] hover:border-[var(--brass)]
+          className="shrink-0 bg-[var(--primary)] text-[var(--on-primary)]
+                     rounded-md px-5 py-3 text-sm font-semibold
+                     hover:opacity-90
                      disabled:opacity-30 disabled:cursor-not-allowed
-                     transition-colors duration-300"
+                     transition-opacity duration-200"
         >
           Send
         </button>

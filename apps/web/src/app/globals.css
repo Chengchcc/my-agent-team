@@ -1,101 +1,85 @@
 @import "tailwindcss";
 
-/* ── Mid-Century Observatory Theme ── */
-/* Cream paper + brass + charcoal. 1960s scientific instrument aesthetic. */
+/* ── VoltAgent Terminal-Native Dark ── */
+/* Single dark-canvas surface + electric-green accent. Hairline borders, no shadows. */
 
 @theme inline {
-  --font-heading: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --font-sans: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --font-mono: var(--font-dm-mono), 'SF Mono', 'Cascadia Code', monospace;
+  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-mono-sf), "SF Mono", "JetBrains Mono", "Geist Mono", "Menlo", "Consolas", monospace;
 
-  --color-background: var(--cream);
-  --color-foreground: var(--charcoal);
+  --color-background: var(--canvas);
+  --color-foreground: var(--ink);
 
-  --color-card: var(--cream);
-  --color-card-foreground: var(--charcoal);
+  --color-card: var(--canvas);
+  --color-card-foreground: var(--ink);
 
-  --color-popover: var(--cream);
-  --color-popover-foreground: var(--charcoal);
+  --color-popover: var(--canvas-soft);
+  --color-popover-foreground: var(--ink);
 
-  /* Brass / warm gold for primary actions */
-  --color-primary: var(--brass);
-  --color-primary-foreground: var(--cream);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--on-primary);
 
-  /* Muted warm gray for secondary surfaces */
-  --color-secondary: var(--warm-gray);
-  --color-secondary-foreground: var(--charcoal);
+  --color-secondary: var(--canvas-soft);
+  --color-secondary-foreground: var(--body);
 
-  /* Subtle paper tone for muted backgrounds */
-  --color-muted: var(--paper);
-  --color-muted-foreground: var(--warm-gray-dark);
+  --color-muted: var(--canvas-soft);
+  --color-muted-foreground: var(--mute);
 
-  /* Teal for interactive / accent */
-  --color-accent: var(--teal);
-  --color-accent-foreground: var(--cream);
+  --color-accent: var(--primary-soft);
+  --color-accent-foreground: var(--canvas);
 
-  /* Rust for destructive actions */
-  --color-destructive: var(--rust);
-  --color-destructive-foreground: var(--cream);
+  --color-destructive: var(--hairline);
+  --color-destructive-foreground: var(--ink);
 
-  /* Fine line borders */
-  --color-border: var(--border-color);
-  --color-input: var(--border-color);
-  --color-ring: var(--brass);
+  --color-border: var(--hairline);
+  --color-input: var(--hairline);
+  --color-ring: var(--primary);
 
-  --radius-sm: 0px;
-  --radius-md: 0px;
-  --radius-lg: 0px;
-  --radius-xl: 0px;
-  --radius-2xl: 0px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 8px;
+  --radius-2xl: 8px;
 
   --animate-fade-in: fade-in 0.6s ease-out both;
   --animate-slide-up: slide-up 0.5s ease-out both;
   --animate-reveal: reveal 0.4s ease-out both;
+  --animate-block-in: block-in 220ms ease-out-expo both;
 }
 
-/* ── Raw color tokens ── */
+/* ── Raw color tokens (VoltAgent DESIGN.md authority) ── */
 :root {
-  --cream: #FBF7F0;
-  --charcoal: #2D2A26;
-  --brass: #9B7B3A;
-  --brass-light: #C4A24E;
-  --teal: #2F6B6B;
-  --teal-light: #4A8B8B;
-  --rust: #C4563A;
-  --paper: #F3EFE6;
-  --warm-gray: #E8E3D9;
-  --warm-gray-dark: #8A857B;
-  --border-color: #D9D3C7;
-  --dot-color: #E0DBD0;
+  --canvas: #101010;
+  --canvas-soft: #1a1a1a;
+  --primary: #00d992;
+  --primary-soft: #2fd6a1;
+  --primary-deep: #10b981;
+  --on-primary: #101010;
+  --ink: #f2f2f2;
+  --ink-strong: #ffffff;
+  --body: #bdbdbd;
+  --mute: #8b949e;
+  --hairline: #3d3a39;
+  --hairline-soft: #b8b3b0;
+  --canvas-text-soft: #f5f6f7;
 }
 
 /* ── Base layer ── */
 @layer base {
   * {
-    border-color: var(--border-color);
+    border-color: var(--hairline);
   }
 
   body {
-    background-color: var(--cream);
-    color: var(--charcoal);
+    background-color: var(--canvas);
+    color: var(--ink);
     font-feature-settings: "kern" 1, "liga" 1;
+    -webkit-font-smoothing: antialiased;
   }
 
-  /* Subtle paper texture on body */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    pointer-events: none;
-    opacity: 0.03;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  }
-
-  /* Selection styling */
   ::selection {
-    background-color: var(--brass-light);
-    color: var(--cream);
+    background-color: var(--primary);
+    color: var(--on-primary);
   }
 }
 
@@ -115,6 +99,11 @@
   to { opacity: 1; transform: scale(1); }
 }
 
+@keyframes block-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
@@ -125,6 +114,11 @@
   50% { opacity: 1; }
 }
 
+@keyframes green-cursor-blink {
+  0%, 100% { opacity: 1; background-color: var(--primary); }
+  50% { opacity: 0; background-color: transparent; }
+}
+
 /* ── Utility layers ── */
 @utility animate-stagger-1 { animation-delay: 0.05s; }
 @utility animate-stagger-2 { animation-delay: 0.1s; }
@@ -132,3 +126,26 @@
 @utility animate-stagger-4 { animation-delay: 0.2s; }
 @utility animate-stagger-5 { animation-delay: 0.25s; }
 @utility animate-stagger-6 { animation-delay: 0.3s; }
+
+/* Animation classes — use these instead of inline style={{animation}} so
+   prefers-reduced-motion can gate them via CSS */
+@utility animate-dot-pulse {
+  animation: dot-pulse 1.5s ease-in-out infinite;
+}
+@utility animate-cursor-blink {
+  animation: green-cursor-blink 0.8s step-end infinite;
+}
+@utility animate-block-in {
+  animation: block-in 220ms ease-out both;
+}
+
+/* ── Accessibility ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

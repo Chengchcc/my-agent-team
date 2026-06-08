@@ -3,24 +3,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
-function Section({
-  title,
-  content,
-}: {
-  title: string;
-  content: string | null;
-}) {
+function Section({ title, content }: { title: string; content: string | null }) {
   return (
-    <div className="border border-[var(--border-color)] p-8">
-      <h3 className="font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)] mb-4">
+    <div className="border border-[var(--hairline)] rounded-lg p-8 bg-[var(--canvas)]">
+      <h3 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] mb-4 font-[family-name:var(--font-sans)] font-semibold">
         {title}
       </h3>
       {content === null ? (
-        <p className="font-[family-name:var(--font-heading)] text-sm text-[var(--warm-gray-dark)]">
-          Not yet configured
-        </p>
+        <p className="text-sm text-[var(--mute)]">Not yet configured</p>
       ) : (
-        <pre className="font-[family-name:var(--font-heading)] text-[15px] leading-relaxed text-[var(--charcoal)] whitespace-pre-wrap">
+        <pre className="text-sm leading-relaxed text-[var(--ink)] whitespace-pre-wrap font-[family-name:var(--font-sans)]">
           {content}
         </pre>
       )}
@@ -37,19 +29,15 @@ export function IdentityPanel({ agentId }: { agentId: string }) {
   if (isLoading) {
     return (
       <div className="space-y-3 animate-pulse">
-        <div className="h-32 bg-[var(--warm-gray)]" />
-        <div className="h-32 bg-[var(--warm-gray)]" />
-        <div className="h-20 bg-[var(--warm-gray)]" />
+        <div className="h-32 bg-[var(--canvas-soft)] rounded-lg" />
+        <div className="h-32 bg-[var(--canvas-soft)] rounded-lg" />
+        <div className="h-20 bg-[var(--canvas-soft)] rounded-lg" />
       </div>
     );
   }
 
   if (!data) {
-    return (
-      <p className="font-[family-name:var(--font-heading)] text-[var(--warm-gray-dark)]">
-        Failed to load identity
-      </p>
-    );
+    return <p className="text-sm text-[var(--mute)]">Failed to load identity</p>;
   }
 
   return (
@@ -57,26 +45,24 @@ export function IdentityPanel({ agentId }: { agentId: string }) {
       <Section title="SOUL" content={data.soul} />
       <Section title="USER" content={data.user} />
 
-      <div className="border border-[var(--border-color)] p-8">
-        <h3 className="font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)] mb-4">
+      <div className="border border-[var(--hairline)] rounded-lg p-8 bg-[var(--canvas)]">
+        <h3 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] mb-4 font-[family-name:var(--font-sans)] font-semibold">
           Memory ({data.memories.length})
         </h3>
         {data.memories.length === 0 ? (
-          <p className="font-[family-name:var(--font-heading)] text-sm text-[var(--warm-gray-dark)]">
-            No memories recorded
-          </p>
+          <p className="text-sm text-[var(--mute)]">No memories recorded</p>
         ) : (
           <div className="space-y-5">
             {data.memories.map((mem, i) => (
               <div key={i}>
-                <p className="font-[family-name:var(--font-mono)] text-[9px] tracking-[0.15em] text-[var(--warm-gray-dark)] mb-2">
+                <p className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] mb-2 font-[family-name:var(--font-sans)] font-semibold">
                   {mem.date}
                 </p>
-                <pre className="font-[family-name:var(--font-heading)] text-[14px] leading-relaxed text-[var(--charcoal)] whitespace-pre-wrap">
+                <pre className="text-sm leading-relaxed text-[var(--ink)] whitespace-pre-wrap font-[family-name:var(--font-sans)]">
                   {mem.content}
                 </pre>
                 {i < data.memories.length - 1 && (
-                  <div className="mt-5 border-t border-[var(--border-color)]" />
+                  <div className="mt-5 border-t border-[var(--hairline)]" />
                 )}
               </div>
             ))}

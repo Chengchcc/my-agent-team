@@ -4,6 +4,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
+function isRecent(ts: number | null): boolean {
+  if (!ts) return false;
+  return Date.now() - ts < 5 * 60 * 1000; // 5 min
+}
+
 export function ThreadList({ agentId }: { agentId: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -29,9 +34,9 @@ export function ThreadList({ agentId }: { agentId: string }) {
     return (
       <div className="space-y-3">
         {[1, 2].map((i) => (
-          <div key={i} className="border border-[var(--border-color)] p-6 animate-pulse">
-            <div className="h-4 w-40 bg-[var(--warm-gray)] mb-2" />
-            <div className="h-3 w-24 bg-[var(--warm-gray)]" />
+          <div key={i} className="border border-[var(--hairline)] rounded-lg p-6 animate-pulse">
+            <div className="h-4 w-40 bg-[var(--canvas-soft)] mb-2" />
+            <div className="h-3 w-24 bg-[var(--canvas-soft)]" />
           </div>
         ))}
       </div>
@@ -41,31 +46,35 @@ export function ThreadList({ agentId }: { agentId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)]">
+        <p className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] font-[family-name:var(--font-sans)] font-semibold">
           {agentThreads.length} thread{agentThreads.length !== 1 ? "s" : ""}
         </p>
         <button
           type="button"
           onClick={() => createThread.mutate()}
           disabled={createThread.isPending}
-          className="border border-[var(--charcoal)] px-4 py-2 font-[family-name:var(--font-mono)]
-                     text-[10px] tracking-[0.15em] uppercase text-[var(--charcoal)]
-                     hover:bg-[var(--charcoal)] hover:text-[var(--cream)]
-                     disabled:opacity-40 disabled:cursor-not-allowed
-                     transition-colors duration-300"
+          className="bg-[var(--primary)] text-[var(--on-primary)]
+                     rounded-md px-4 py-2 text-sm font-semibold
+                     hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed
+                     transition-opacity duration-200"
         >
           + New Thread
         </button>
       </div>
 
       {agentThreads.length === 0 ? (
-        <div className="py-16 text-center border border-[var(--border-color)]">
-          <p className="font-[family-name:var(--font-heading)] text-sm text-[var(--warm-gray-dark)]">
+        <div className="py-16 text-center border border-[var(--hairline)] rounded-lg">
+          <p className="text-sm text-[var(--body)] mb-4">
             No threads yet
           </p>
-          <p className="font-[family-name:var(--font-mono)] text-[9px] text-[var(--warm-gray-dark)] mt-1">
-            Create one to start working with this agent
-          </p>
+          <button
+            type="button"
+            onClick={() => createThread.mutate()}
+            disabled={createThread.isPending}
+            className="text-sm text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors font-semibold"
+          >
+            Create your first thread →
+          </button>
         </div>
       ) : (
         <div className="space-y-0.5">
@@ -74,20 +83,25 @@ export function ThreadList({ agentId }: { agentId: string }) {
               key={thread.id}
               type="button"
               onClick={() => router.push(`/threads/${thread.id}`)}
-              className="w-full text-left border border-[var(--border-color)]
-                         hover:border-[var(--brass)] transition-colors duration-200
-                         animate-fade-in"
+              className="w-full text-left border border-[var(--hairline)] rounded-lg
+                         hover:border-[var(--primary)] transition-colors duration-200
+                         animate-fade-in bg-[var(--canvas)]"
               style={{
                 animationDelay: `${i * 0.06}s`,
                 animationFillMode: "both",
               }}
             >
               <div className="px-6 py-5 flex items-center justify-between">
-                <div>
-                  <h3 className="font-[family-name:var(--font-heading)] text-base font-medium text-[var(--charcoal)]">
-                    {thread.title ?? "Untitled Thread"}
-                  </h3>
-                  <p className="font-[family-name:var(--font-mono)] text-[9px] tracking-[0.15em] text-[var(--warm-gray-dark)] mt-1">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    {isRecent(thread.lastRunAt) && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)] shrink-0 animate-dot-pulse" />
+                    )}
+                    <h3 className="text-sm font-medium text-[var(--ink)] truncate">
+                      {thread.title ?? "Untitled Thread"}
+                    </h3>
+                  </div>
+                  <p className="text-[10px] text-[var(--mute)] mt-1 ml-4 font-[family-name:var(--font-mono)]">
                     {new Date(thread.createdAt).toLocaleDateString("en-US", {
                       year: "numeric",
                       month: "short",
@@ -100,7 +114,7 @@ export function ThreadList({ agentId }: { agentId: string }) {
                       })}`}
                   </p>
                 </div>
-                <span className="text-[var(--warm-gray-dark)] text-sm">→</span>
+                <span className="text-[var(--mute)] text-sm shrink-0 ml-4">→</span>
               </div>
             </button>
           ))}

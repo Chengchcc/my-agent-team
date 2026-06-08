@@ -17,11 +17,9 @@ export function NavRail() {
     staleTime: 30_000,
   });
 
-  // Determine selected agent from route
   const agentIdMatch = pathname.match(/\/agents\/([^/]+)/);
   const selectedAgentId = agentIdMatch?.[1] ?? null;
 
-  // Fetch threads for selected agent
   const { data: threads } = useQuery({
     queryKey: ["threads", selectedAgentId],
     queryFn: () => api.listThreads(selectedAgentId!),
@@ -43,15 +41,14 @@ export function NavRail() {
   if (railCollapsed) {
     return (
       <aside
-        className="h-full border-r border-[var(--border-color)] bg-[var(--paper)] flex flex-col items-center py-4 gap-3 shrink-0"
+        className="h-full border-r border-[var(--hairline)] bg-[var(--canvas)] flex flex-col items-center py-4 gap-3 shrink-0"
         style={{ width: "3rem" }}
       >
         <button
           type="button"
           onClick={toggleRail}
-          className="w-7 h-7 flex items-center justify-center text-[var(--warm-gray-dark)] hover:text-[var(--brass)] transition-colors"
+          className="w-7 h-7 flex items-center justify-center text-[var(--mute)] hover:text-[var(--primary)] transition-colors"
           aria-label="Expand sidebar"
-          title="Expand sidebar"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M6 4l4 4-4 4" />
@@ -59,7 +56,7 @@ export function NavRail() {
         </button>
         <Link
           href="/agents"
-          className="w-7 h-7 flex items-center justify-center rounded-full text-[var(--warm-gray-dark)] hover:bg-[var(--warm-gray)] hover:text-[var(--charcoal)] transition-colors"
+          className="w-7 h-7 flex items-center justify-center rounded-full text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
           aria-label="Agents"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -69,30 +66,29 @@ export function NavRail() {
             <path d="M10 13c0-2 2-3 4-3" />
           </svg>
         </Link>
-        <div className="flex-1 w-px bg-[var(--border-color)]" />
+        <div className="flex-1 w-px bg-[var(--hairline)]" />
       </aside>
     );
   }
 
   return (
     <aside
-      className="h-full border-r border-[var(--border-color)] bg-[var(--paper)] flex flex-col shrink-0 overflow-hidden"
+      className="h-full border-r border-[var(--hairline)] bg-[var(--canvas)] flex flex-col shrink-0 overflow-hidden"
       style={{ width: "240px" }}
     >
       {/* Header */}
-      <div className="px-4 py-4 border-b border-[var(--border-color)] flex items-center justify-between">
+      <div className="px-4 py-4 border-b border-[var(--hairline)] flex items-center justify-between">
         <Link
           href="/agents"
-          className="font-[family-name:var(--font-heading)] text-sm font-medium text-[var(--charcoal)] hover:text-[var(--brass)] transition-colors"
+          className="text-sm font-medium text-[var(--ink-strong)] hover:text-[var(--primary)] transition-colors"
         >
           Observatory
         </Link>
         <button
           type="button"
           onClick={toggleRail}
-          className="w-6 h-6 flex items-center justify-center text-[var(--warm-gray-dark)] hover:text-[var(--brass)] transition-colors"
+          className="w-6 h-6 flex items-center justify-center text-[var(--mute)] hover:text-[var(--primary)] transition-colors"
           aria-label="Collapse sidebar"
-          title="Collapse sidebar"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M10 4l-4 4 4 4" />
@@ -103,13 +99,11 @@ export function NavRail() {
       {/* Agents section */}
       <div className="flex-1 overflow-y-auto">
         <div className="px-4 pt-4 pb-2">
-          <h2 className="font-[family-name:var(--font-mono)] text-[9px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)] mb-2">
+          <h2 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] mb-2 font-[family-name:var(--font-sans)] font-semibold">
             Agents
           </h2>
           {activeAgents.length === 0 && (
-            <p className="text-xs text-[var(--warm-gray-dark)] italic">
-              No agents yet
-            </p>
+            <p className="text-xs text-[var(--mute)]">No agents yet</p>
           )}
           <ul className="space-y-0.5">
             {activeAgents.map((agent, i) => (
@@ -121,14 +115,14 @@ export function NavRail() {
                 <button
                   type="button"
                   onClick={() => router.push(`/agents/${agent.id}`)}
-                  className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors ${
+                  className={`w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors ${
                     isAgentActive(agent.id)
-                      ? "bg-[var(--warm-gray)] text-[var(--charcoal)] font-medium"
-                      : "text-[var(--charcoal)] hover:bg-[var(--warm-gray)]"
+                      ? "bg-[var(--canvas-soft)] text-[var(--ink)] border-l-2 border-[var(--primary)]"
+                      : "text-[var(--body)] hover:bg-[var(--canvas-soft)] hover:text-[var(--ink)]"
                   }`}
                 >
                   <div className="truncate">{agent.name}</div>
-                  <div className="font-[family-name:var(--font-mono)] text-[9px] text-[var(--warm-gray-dark)] truncate mt-0.5">
+                  <div className="text-[10px] text-[var(--mute)] truncate mt-0.5">
                     {agent.modelName}
                   </div>
                 </button>
@@ -137,11 +131,11 @@ export function NavRail() {
           </ul>
         </div>
 
-        {/* Threads section — only when an agent is selected */}
+        {/* Threads section */}
         {selectedAgentId && (
-          <div className="px-4 pt-2 pb-4 border-t border-[var(--border-color)]">
+          <div className="px-4 pt-2 pb-4 border-t border-[var(--hairline)]">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="font-[family-name:var(--font-mono)] text-[9px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)]">
+              <h2 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] font-[family-name:var(--font-sans)] font-semibold">
                 Threads
               </h2>
               <button
@@ -150,9 +144,8 @@ export function NavRail() {
                   const thread = await api.createThread(selectedAgentId);
                   router.push(`/threads/${thread.id}`);
                 }}
-                className="text-[var(--brass)] hover:text-[var(--brass-light)] transition-colors"
+                className="text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors"
                 aria-label="New thread"
-                title="New thread"
               >
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <path d="M8 3v10M3 8h10" />
@@ -160,9 +153,7 @@ export function NavRail() {
               </button>
             </div>
             {agentThreads.length === 0 && (
-              <p className="text-xs text-[var(--warm-gray-dark)] italic">
-                No threads yet
-              </p>
+              <p className="text-xs text-[var(--mute)]">No threads yet</p>
             )}
             <ul className="space-y-0.5">
               {agentThreads.map((thread, i) => (
@@ -174,13 +165,27 @@ export function NavRail() {
                   <button
                     type="button"
                     onClick={() => router.push(`/threads/${thread.id}`)}
-                    className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors truncate block ${
+                    className={`w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors truncate block ${
                       isThreadActive(thread.id)
-                        ? "bg-[var(--warm-gray)] text-[var(--charcoal)] font-medium"
-                        : "text-[var(--charcoal)] hover:bg-[var(--warm-gray)]"
+                        ? "bg-[var(--canvas-soft)] text-[var(--ink)] border-l-2 border-[var(--primary)]"
+                        : "text-[var(--body)] hover:bg-[var(--canvas-soft)] hover:text-[var(--ink)]"
                     }`}
                   >
-                    {thread.title ?? `Thread ${thread.id.slice(0, 6)}`}
+                    <span className="flex items-center gap-1.5 truncate">
+                      {thread.lastRunAt && (
+                        <span
+                          className="w-1 h-1 rounded-full shrink-0"
+                          style={{
+                            backgroundColor: isThreadActive(thread.id)
+                              ? "var(--primary)"
+                              : "var(--mute)",
+                          }}
+                        />
+                      )}
+                      <span className="truncate">
+                        {thread.title ?? `Thread ${thread.id.slice(0, 6)}`}
+                      </span>
+                    </span>
                   </button>
                 </li>
               ))}
@@ -190,10 +195,10 @@ export function NavRail() {
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-[var(--border-color)]">
+      <div className="px-4 py-3 border-t border-[var(--hairline)]">
         <Link
           href="/api/auth/logout"
-          className="font-[family-name:var(--font-mono)] text-[9px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)] hover:text-[var(--rust)] transition-colors"
+          className="text-[9px] tracking-[0.15em] uppercase text-[var(--mute)] hover:text-[var(--body)] transition-colors"
         >
           Sign Out
         </Link>

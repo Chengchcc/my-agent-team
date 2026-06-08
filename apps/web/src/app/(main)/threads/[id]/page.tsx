@@ -1,4 +1,4 @@
-import { ThreadWorkspace } from "@/components/ThreadWorkspace";
+import { ConversationCanvas } from "@/components/ConversationCanvas";
 
 // Server-side helper to fetch current run directly from backend
 async function fetchCurrentRun(
@@ -28,5 +28,5 @@ export default async function ThreadPage({
   const { id } = await params;
   const currentRun = await fetchCurrentRun(id);
 
-  return <ThreadWorkspace threadId={id} initialCurrentRun={currentRun} />;
+  return <ConversationCanvas threadId={id} initialCurrentRun={currentRun} />;
 }

@@ -1,3 +1,5 @@
+import { StreamingCursor } from "./StreamingCursor";
+
 export function MessageBubble({
   role,
   content,
@@ -10,31 +12,32 @@ export function MessageBubble({
   const isUser = role === "user";
 
   return (
-    <div className={`flex gap-4 py-2 ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[72%] ${isUser ? "order-2" : ""}`}
-      >
+    <div
+      className={`flex gap-4 py-2 ${
+        isUser ? "justify-end" : "justify-start"
+      }`}
+    >
+      <div className={`max-w-[85%] ${isUser ? "order-2" : ""}`}>
         {/* Role label */}
         <span
-          className={`font-[family-name:var(--font-mono)] text-[9px] tracking-[0.15em] uppercase mb-1.5 block
-            ${isUser ? "text-right text-[var(--warm-gray-dark)]" : "text-[var(--teal)]"}`}
+          className={`text-[10px] tracking-[0.15em] uppercase mb-1.5 block font-[family-name:var(--font-sans)] font-semibold ${
+            isUser ? "text-right text-[var(--mute)]" : "text-[var(--primary)]"
+          }`}
         >
           {isUser ? "You" : "Agent"}
         </span>
 
         {/* Content */}
         <div
-          className={`text-[15px] leading-relaxed text-[var(--charcoal)]
-            ${isStreaming ? "border-l-2 border-[var(--brass-light)] pl-4" : ""}`}
+          className={`text-sm leading-relaxed ${
+            isStreaming
+              ? "border-l-2 border-[var(--primary)] pl-4"
+              : ""
+          }`}
         >
-          <p className="whitespace-pre-wrap break-words font-[family-name:var(--font-heading)]">
+          <p className="whitespace-pre-wrap break-words text-[var(--ink)]">
             {content}
-            {isStreaming && (
-              <span
-                className="inline-block w-1.5 h-5 bg-[var(--brass)] ml-0.5 align-middle"
-                style={{ animation: "cursor-blink 0.8s step-end infinite" }}
-              />
-            )}
+            {isStreaming && <StreamingCursor />}
           </p>
         </div>
       </div>

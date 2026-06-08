@@ -1,95 +1,127 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, type AgentRow } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
 
-export function AgentForm() {
+interface AgentFormProps {
+  /** If provided, form is in edit mode (PATCH instead of POST). */
+  editAgent?: AgentRow;
+  /** Called after successful create/update. Default: navigate to agent page. */
+  onSuccess?: () => void;
+  /** Custom trigger button. If omitted, renders default "+ New Agent" button. */
+  triggerLabel?: string;
+}
+
+export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const isEdit = !!editAgent;
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [model, setModel] = useState("claude-sonnet-4-6");
-  const [baseURL, setBaseURL] = useState("");
-  const [permissionMode, setPermissionMode] = useState<
-    "ask" | "auto" | "deny"
-  >("ask");
-  const [maxSteps, setMaxSteps] = useState("");
-  const [template, setTemplate] = useState("");
+  const [name, setName] = useState(editAgent?.name ?? "");
+  const [model, setModel] = useState(editAgent?.modelName ?? "claude-sonnet-4-6");
+  const [baseURL, setBaseURL] = useState(editAgent?.modelBaseUrl ?? "");
+  const [permissionMode, setPermissionMode] = useState<"ask" | "auto" | "deny">(
+    editAgent?.permissionMode ?? "ask",
+  );
+  const [maxSteps, setMaxSteps] = useState(
+    editAgent?.maxSteps?.toString() ?? "",
+  );
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Reset form when editAgent changes
+  useEffect(() => {
+    if (editAgent) {
+      setName(editAgent.name);
+      setModel(editAgent.modelName);
+      setBaseURL(editAgent.modelBaseUrl ?? "");
+      setPermissionMode(editAgent.permissionMode);
+      setMaxSteps(editAgent.maxSteps?.toString() ?? "");
+    }
+  }, [editAgent]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setSubmitting(true);
     try {
-      const agent = await api.createAgent({
+      const body = {
         name,
         model: {
-          provider: "anthropic",
+          provider: "anthropic" as const,
           model,
           ...(baseURL ? { baseURL } : {}),
         },
         permissionMode,
         ...(maxSteps ? { maxSteps: parseInt(maxSteps, 10) } : {}),
-        ...(template ? { template } : {}),
-      });
+      };
+
+      if (isEdit) {
+        await api.updateAgent(editAgent!.id, body);
+        queryClient.invalidateQueries({ queryKey: ["agent", editAgent!.id] });
+        queryClient.invalidateQueries({ queryKey: ["agents"] });
+      } else {
+        const agent = await api.createAgent(body);
+        queryClient.invalidateQueries({ queryKey: ["agents"] });
+        setOpen(false);
+        router.push(`/agents/${agent.id}`);
+        return;
+      }
       setOpen(false);
-      router.push(`/agents/${agent.id}`);
+      onSuccess?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create agent");
+      setError(err instanceof Error ? err.message : "Failed to save agent");
     } finally {
       setSubmitting(false);
     }
   }
 
   const fieldClass =
-    "w-full bg-[var(--cream)] border-0 border-b border-[var(--border-color)] px-0 py-2.5 font-[family-name:var(--font-heading)] text-[var(--charcoal)] placeholder:text-[var(--border-color)] focus:outline-none focus:border-[var(--brass)] transition-colors duration-300";
+    "w-full bg-[var(--canvas-soft)] border border-[var(--hairline)] rounded-md px-3 py-2.5 text-sm text-[var(--ink)] placeholder:text-[var(--mute)] focus:outline-none focus:border-[var(--primary)] transition-colors duration-200";
   const labelClass =
-    "font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)] block mb-1.5";
-  const hintClass = "font-[family-name:var(--font-mono)] text-[9px] text-[var(--warm-gray-dark)] mt-1";
+    "text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] block mb-1.5 font-[family-name:var(--font-sans)] font-semibold";
+  const hintClass = "text-[10px] text-[var(--mute)] mt-1";
 
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="border border-[var(--charcoal)] bg-[var(--charcoal)] text-[var(--cream)]
-                   px-5 py-2 font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase
-                   hover:bg-[var(--brass)] hover:border-[var(--brass)] transition-colors duration-300"
+        className={
+          triggerLabel
+            ? "text-xs text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors"
+            : "bg-[var(--primary)] text-[var(--on-primary)] rounded-md px-5 py-2 text-sm font-semibold hover:opacity-90 transition-opacity duration-200"
+        }
       >
-        + New Agent
+        {triggerLabel ?? "+ New Agent"}
       </button>
 
-      {/* Modal overlay */}
       {open && (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
           role="dialog"
         >
-          {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-[var(--charcoal)]/20 backdrop-blur-sm"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
             onClick={() => setOpen(false)}
           />
 
-          {/* Panel */}
-          <div className="relative w-full max-w-lg bg-[var(--cream)] border border-[var(--border-color)] animate-reveal">
-            {/* Header */}
-            <div className="border-b border-[var(--border-color)] px-8 py-5 flex items-center justify-between">
-              <h2 className="font-[family-name:var(--font-heading)] text-lg font-medium text-[var(--charcoal)]">
-                Create Agent
+          <div className="relative w-full max-w-lg bg-[var(--canvas)] border border-[var(--hairline)] rounded-lg animate-reveal">
+            <div className="border-b border-[var(--hairline)] px-8 py-5 flex items-center justify-between">
+              <h2 className="text-lg font-normal text-[var(--ink-strong)] font-[family-name:var(--font-sans)]">
+                {isEdit ? "Edit Agent" : "Create Agent"}
               </h2>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="font-[family-name:var(--font-mono)] text-xs text-[var(--warm-gray-dark)] hover:text-[var(--charcoal)] transition-colors"
+                className="text-xs text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
               >
                 Cancel
               </button>
             </div>
 
-            {/* Form */}
             <form onSubmit={handleSubmit} className="px-8 py-6 space-y-6">
               <div>
                 <label className={labelClass}>Name *</label>
@@ -149,7 +181,6 @@ export function AgentForm() {
                     <option value="auto">Auto</option>
                     <option value="deny">Deny</option>
                   </select>
-                  <p className={hintClass}>M8.5 required for enforcement</p>
                 </div>
                 <div>
                   <label className={labelClass}>Max Steps</label>
@@ -164,33 +195,20 @@ export function AgentForm() {
                 </div>
               </div>
 
-              <div>
-                <label className={labelClass}>Template</label>
-                <input
-                  value={template}
-                  onChange={(e) => setTemplate(e.target.value)}
-                  placeholder="Optional template name"
-                  className={fieldClass}
-                />
-              </div>
-
               {error && (
-                <p className="font-[family-name:var(--font-mono)] text-xs text-[var(--rust)]">
-                  {error}
-                </p>
+                <p className="text-xs text-[var(--body)]">{error}</p>
               )}
 
               <button
                 type="submit"
                 disabled={submitting || !name.trim()}
-                className="w-full border border-[var(--charcoal)] bg-[var(--charcoal)]
-                           text-[var(--cream)] py-3 font-[family-name:var(--font-mono)]
-                           text-[10px] tracking-[0.15em] uppercase
-                           hover:bg-[var(--brass)] hover:border-[var(--brass)]
+                className="w-full bg-[var(--primary)] text-[var(--on-primary)]
+                           rounded-md py-3 text-sm font-semibold
+                           hover:opacity-90
                            disabled:opacity-40 disabled:cursor-not-allowed
-                           transition-colors duration-300"
+                           transition-opacity duration-200"
               >
-                {submitting ? "Creating..." : "Create Agent →"}
+                {submitting ? "Saving..." : isEdit ? "Save Changes →" : "Create Agent →"}
               </button>
             </form>
           </div>
