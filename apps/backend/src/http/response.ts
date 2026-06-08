@@ -1,9 +1,21 @@
+/** Shared utilities for HTTP feature files. */
+
 /** Shared JSON response helper — single source across all HTTP feature files. */
 export function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+/** Parse JSON body, returning 400 on syntax error. */
+export async function parseJsonBody(req: Request): Promise<{ data: unknown } | { error: Response }> {
+  try {
+    const data = await req.json();
+    return { data };
+  } catch {
+    return { error: json({ error: "Invalid JSON" }, 400) };
+  }
 }
 
 /** Shared SSE response constructor. */
@@ -28,9 +40,9 @@ export function sseResponse<T>(
           if ((err as Error)?.name === "AbortError") {
             controller.close();
           } else {
-            const msg = err instanceof Error ? err.message : String(err);
+            const errMsg = err instanceof Error ? err.message : String(err);
             controller.enqueue(
-              new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ message: msg })}\n\n`),
+              new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ error: errMsg })}\n\n`),
             );
             controller.close();
           }

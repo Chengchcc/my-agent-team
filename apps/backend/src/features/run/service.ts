@@ -80,6 +80,18 @@ export function createRunService(deps: RunServiceDeps) {
       return eventLog.subscribe({ runId, afterSeq: afterSeq ?? 0 }, {}, signal);
     },
 
+    /** D12: Get active run for a thread, or null. */
+    getCurrentRun(threadId: string): { runId: string; status: string } | null {
+      const db = supervisor.getDb();
+      const row = db
+        .query(
+          "SELECT run_id, status FROM run WHERE thread_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
+        )
+        .get(threadId) as { run_id: string; status: string } | undefined;
+      if (!row) return null;
+      return { runId: row.run_id, status: row.status };
+    },
+
     /** Get run metadata (status, timestamps). */
     getRunById(runId: string): { runId: string; status: string; startedAt: number | null; endedAt: number | null } | null {
       const db = supervisor.getDb();

@@ -152,7 +152,7 @@ const convSvc = createConversationService({
     const existing = db.query("SELECT id FROM threads WHERE id = ?").get(threadId) as { id: string } | undefined;
     if (!existing) {
       db.run(
-        "INSERT INTO threads (id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO threads (id, agent_id, title, kind, created_at, updated_at) VALUES (?, ?, ?, 'conversation', ?, ?)",
         [threadId, ctx.agentId, `Conversation ${ctx.conversationId}`, Date.now(), Date.now()],
       );
     }
@@ -255,15 +255,17 @@ supervisor.onRunComplete((threadId, runId) => {
 });
 
 // HTTP router
+// D14: startup assertion — resume support requires thread lookup
+const getThreadIdForRun = async (runId: string) => {
+  const row = db.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as { thread_id: string } | undefined;
+  if (!row) throw new Error(`Run not found: ${runId}`);
+  return row.thread_id;
+};
+
 const router = createRouter(config.authToken, {
   agents: agentRoutes(agentSvc),
   threads: threadRoutes(threadSvc),
-  runs: runRoutes(runSvc, buildSpecJson, async (runId: string) => {
-    // Look up threadId for a given runId (needed for resume)
-    const row = db.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as { thread_id: string } | undefined;
-    if (!row) throw new Error(`Run not found: ${runId}`);
-    return row.thread_id;
-  }),
+  runs: runRoutes(runSvc, buildSpecJson, getThreadIdForRun),
   checkpoints: checkpointRoutes(checkpointSvc),
   conversations: conversationRoutes(convSvc, ulid),
 

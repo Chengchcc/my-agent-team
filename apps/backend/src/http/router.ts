@@ -54,6 +54,7 @@ export function createRouter(token: string, features?: FeatureSet) {
 
       // Agents
       const agentMatch = path.match(/^\/api\/agents\/([^/]+)$/);
+      const agentIdentityMatch = path.match(/^\/api\/agents\/([^/]+)\/identity$/);
       const agentThreadsMatch = path.match(/^\/api\/agents\/([^/]+)\/threads$/);
 
       if (path === "/api/agents" && method === "GET") return agentList(req);
@@ -66,8 +67,12 @@ export function createRouter(token: string, features?: FeatureSet) {
         return withAuth((r) => agents.update(r, agentMatch?.[1] ?? ""), token)(req);
       if (agentMatch && method === "DELETE")
         return withAuth((r) => agents.archive(r, agentMatch?.[1] ?? ""), token)(req);
-      // M6: 405 for /api/agents/:id with wrong method
       if (agentMatch)
+        return json({ error: "Method not allowed" }, 405);
+      // D11: agent identity (SOUL/USER/memory)
+      if (agentIdentityMatch && method === "GET")
+        return withAuth((r) => agents.identity(r, agentIdentityMatch[1]!), token)(req);
+      if (agentIdentityMatch)
         return json({ error: "Method not allowed" }, 405);
 
       // Threads
@@ -81,10 +86,13 @@ export function createRouter(token: string, features?: FeatureSet) {
 
       const threadMatch = path.match(/^\/api\/threads\/([^/]+)$/);
       const threadMsgsMatch = path.match(/^\/api\/threads\/([^/]+)\/messages$/);
+      const threadCurrentRunMatch = path.match(/^\/api\/threads\/([^/]+)\/current-run$/);
       const threadRunsMatch = path.match(/^\/api\/threads\/([^/]+)\/runs$/);
 
       if (threadMatch && method === "GET")
         return withAuth((r) => threads.getById(r, threadMatch[1]!), token)(req);
+      if (threadMatch && method === "PATCH")
+        return withAuth((r) => threads.update(r, threadMatch[1]!), token)(req);
       if (threadMatch && method === "DELETE")
         return withAuth((r) => threads.delete(r, threadMatch[1]!), token)(req);
       // M6: 405 for /api/threads/:id with wrong method
@@ -93,6 +101,11 @@ export function createRouter(token: string, features?: FeatureSet) {
       if (threadMsgsMatch && method === "GET")
         return withAuth((r) => checkpoints.getMessages(r, threadMsgsMatch[1]!), token)(req);
       if (threadMsgsMatch)
+        return json({ error: "Method not allowed" }, 405);
+      // D12: query active run for a thread
+      if (threadCurrentRunMatch && method === "GET")
+        return withAuth((r) => runs.currentRun(r, threadCurrentRunMatch[1]!), token)(req);
+      if (threadCurrentRunMatch)
         return json({ error: "Method not allowed" }, 405);
       if (threadRunsMatch && method === "POST") {
         // H4: Legacy thread→conversation forwarding

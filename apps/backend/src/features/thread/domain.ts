@@ -2,7 +2,7 @@ export interface ThreadRow {
   id: string;
   agentId: string;
   title: string | null;
-  kind: "conversation";
+  kind: "agent_thread" | "conversation";
   createdAt: number;
   updatedAt: number;
   lastRunAt: number | null;
@@ -10,4 +10,5 @@ export interface ThreadRow {
 
 export interface CreateThreadInput {
   title?: string;
+  kind?: "agent_thread" | "conversation";
 }

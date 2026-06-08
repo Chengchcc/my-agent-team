@@ -13,11 +13,12 @@ interface DbThreadRow {
 }
 
 function toRow(db: DbThreadRow): ThreadRow {
+  const validKinds = new Set(["agent_thread", "conversation"]);
   return {
     id: db.id,
     agentId: db.agent_id,
     title: db.title,
-    kind: db.kind as "conversation",
+    kind: validKinds.has(db.kind) ? (db.kind as "agent_thread" | "conversation") : "conversation",
     createdAt: db.created_at,
     updatedAt: db.updated_at,
     lastRunAt: db.last_run_at,
@@ -27,10 +28,11 @@ function toRow(db: DbThreadRow): ThreadRow {
 export function sqliteThreadAdapter(db: Database): ThreadPort {
   return {
     create(input): ThreadRow {
+      const kind = input.kind ?? "agent_thread";
       db.run(
         `INSERT INTO threads (id, agent_id, title, kind, created_at, updated_at)
-         VALUES (?, ?, ?, 'conversation', ?, ?)`,
-        [input.id, input.agentId, input.title ?? null, input.now, input.now],
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [input.id, input.agentId, input.title ?? null, kind, input.now, input.now],
       );
       return toRow(db.query("SELECT * FROM threads WHERE id = ?").get(input.id) as DbThreadRow);
     },

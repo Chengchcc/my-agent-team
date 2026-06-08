@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { RunNotFoundError, ThreadBusyError, TooManyRunsError } from "./service.js";
-import { json, sseResponse } from "../../http/response.js";
+import { json, sseResponse, parseJsonBody } from "../../http/response.js";
 
 const runSchema = z.object({ input: z.string().min(1) });
 const resumeSchema = z.object({ approved: z.boolean(), message: z.string().optional() });
@@ -13,7 +13,9 @@ export function runRoutes(
   return {
     /** POST /api/threads/:id/runs → 202 { runId, attemptId } */
     async run(req: Request, threadId: string): Promise<Response> {
-      const parsed = runSchema.safeParse(await req.json().catch(() => ({})));
+      const body = await parseJsonBody(req);
+      if ("error" in body) return body.error;
+      const parsed = runSchema.safeParse(body.data);
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
 
@@ -57,14 +59,14 @@ export function runRoutes(
 
     /** POST /api/runs/:id/resume → 202 { runId, attemptId } */
     async resume(req: Request, runId: string): Promise<Response> {
-      const parsed = resumeSchema.safeParse(await req.json().catch(() => ({})));
+      const body = await parseJsonBody(req);
+      if ("error" in body) return body.error;
+      const parsed = resumeSchema.safeParse(body.data);
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
 
-      if (!getThreadIdForRun) return json({ error: "Resume not configured" }, 500);
-
+      const threadId = await getThreadIdForRun!(runId);
       try {
-        const threadId = await getThreadIdForRun(runId);
         const specJson = await buildSpecJson(threadId, "", {
           runId,
           mode: "resume",
@@ -84,6 +86,12 @@ export function runRoutes(
       const meta = svc.getRunById(runId);
       if (!meta) return json({ error: "Run not found" }, 404);
       return json(meta);
+    },
+
+    /** D12: GET /api/threads/:id/current-run → { runId, status } | null */
+    async currentRun(_req: Request, threadId: string): Promise<Response> {
+      const run = svc.getCurrentRun(threadId);
+      return json(run);
     },
   };
 }
