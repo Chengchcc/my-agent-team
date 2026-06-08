@@ -46,6 +46,10 @@ function makeSvc() {
       r.updatedAt = now;
       return r;
     },
+    async hardDelete(id) {
+      const existed = rows.delete(id);
+      return { deletedAgent: existed, deletedThreads: 0, deletedMembers: 0 };
+    },
   };
   return agentRoutes(
     createAgentService({

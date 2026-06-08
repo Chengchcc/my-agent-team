@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { AgentService } from "./service.js";
-import { AgentNotFoundError } from "./service.js";
+import { AgentBusyError, AgentNotFoundError } from "./service.js";
 import { json } from "../../http/response.js";
 
 const createSchema = z.object({
@@ -65,11 +65,18 @@ export function agentRoutes(svc: AgentService) {
       }
     },
 
-    async archive(_req: Request, id: string): Promise<Response> {
+    async archive(req: Request, id: string): Promise<Response> {
       try {
+        const url = new URL(req.url);
+        const hard = url.searchParams.get("hard");
+        if (hard === "true") {
+          await svc.hardDelete(id);
+          return json({ deleted: true, id });
+        }
         return json(await svc.archive(id));
       } catch (err) {
         if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
+        if (err instanceof AgentBusyError) return json({ error: err.message }, 409);
         throw err;
       }
     },

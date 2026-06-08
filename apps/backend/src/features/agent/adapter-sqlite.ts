@@ -120,5 +120,40 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
       const raw = db.query("SELECT * FROM agents WHERE id = ?").get(id) as DbAgentRow;
       return toRow(raw);
     },
+
+    // M11: Permanent hard delete — all in single backend.db transaction
+    async hardDelete(id: string): Promise<{ deletedAgent: boolean; deletedThreads: number; deletedMembers: number }> {
+      // SQLite foreign_keys defaults to OFF; must enable for CASCADE to work
+      db.exec("PRAGMA foreign_keys = ON");
+
+      const delAgent = db.transaction(() => {
+        // Collect thread IDs for checkpoint cleanup (no FK on checkpoint tables)
+        const threadRows = db.query("SELECT id FROM threads WHERE agent_id = ?").all(id) as { id: string }[];
+        const threadIds = threadRows.map((r) => r.id);
+
+        // Delete checkpoint rows by thread ID
+        let deletedThreads = threadIds.length;
+        for (const tid of threadIds) {
+          db.run("DELETE FROM checkpoint_messages WHERE thread_id = ?", [tid]);
+          db.run("DELETE FROM checkpoint_interrupts WHERE thread_id = ?", [tid]);
+          db.run("DELETE FROM checkpoint_events WHERE thread_id = ?", [tid]);
+        }
+
+        // Delete threads (CASCADE drops related rows if FK enabled)
+        db.run("DELETE FROM threads WHERE agent_id = ?", [id]);
+
+        // Delete member rows (no FK, must be explicit; ledger messages preserved)
+        const memberResult = db.run("DELETE FROM member WHERE agent_id = ?", [id]);
+        const deletedMembers = memberResult.changes;
+
+        // Delete the agent row
+        const agentResult = db.run("DELETE FROM agents WHERE id = ?", [id]);
+        const deletedAgent = agentResult.changes > 0;
+
+        return { deletedAgent, deletedThreads, deletedMembers };
+      });
+
+      return delAgent();
+    },
   };
 }

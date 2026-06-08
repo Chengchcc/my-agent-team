@@ -8,4 +8,6 @@ export interface AgentPort {
   list(includeArchived?: boolean): Promise<AgentRow[]>;
   update(id: string, input: UpdateAgentInput & { now: number }): Promise<AgentRow | null>;
   archive(id: string, now: number): Promise<AgentRow | null>;
+  /** M11: Permanently delete agent + threads + checkpoints + member rows from backend.db. */
+  hardDelete(id: string): Promise<{ deletedAgent: boolean; deletedThreads: number; deletedMembers: number }>;
 }

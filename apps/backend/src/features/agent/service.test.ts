@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentRow } from "./domain.js";
 import type { AgentPort } from "./ports.js";
-import { AgentNotFoundError, createAgentService } from "./service.js";
+import { AgentBusyError, AgentNotFoundError, createAgentService } from "./service.js";
 
 function makeInMemoryPort(): AgentPort {
   const rows = new Map<string, AgentRow>();
@@ -46,6 +46,10 @@ function makeInMemoryPort(): AgentPort {
       existing.archivedAt = now;
       existing.updatedAt = now;
       return existing;
+    },
+    async hardDelete(id) {
+      const existed = rows.delete(id);
+      return { deletedAgent: existed, deletedThreads: 0, deletedMembers: 0 };
     },
   };
 }
@@ -121,5 +125,53 @@ describe("AgentService", () => {
     const a = await svc.create({ name: "a", model: { provider: "anthropic", model: "x" } });
     const archived = await svc.archive(a.id);
     expect(archived.archivedAt).toBeDefined();
+  });
+
+  // ─── M11: hardDelete ─────────────────────────────────────────
+
+  test("hardDelete removes agent from port", async () => {
+    const purgeLog: string[] = [];
+    const svc = createAgentService({
+      port: makeInMemoryPort(),
+      idGen: () => "agent-hd",
+      workspaceRoot: "/tmp/ws",
+      materializeWorkspace: async () => "/tmp/ws/agent-hd",
+      purgeWorkspace: async (id) => { purgeLog.push(id); },
+    });
+
+    await svc.create({ name: "to-delete", model: { provider: "anthropic", model: "x" } });
+    await svc.hardDelete("agent-hd");
+
+    // Agent should be gone
+    await expect(svc.getById("agent-hd")).rejects.toThrow(AgentNotFoundError);
+    // Workspace should be purged
+    expect(purgeLog).toContain("agent-hd");
+  });
+
+  test("hardDelete throws AgentBusyError when hasActiveRuns returns true", async () => {
+    const svc = createAgentService({
+      port: makeInMemoryPort(),
+      idGen: () => "agent-busy",
+      workspaceRoot: "/tmp/ws",
+      materializeWorkspace: async () => "/tmp/ws/agent-busy",
+      hasActiveRuns: async () => true,
+    });
+
+    await svc.create({ name: "busy", model: { provider: "anthropic", model: "x" } });
+    await expect(svc.hardDelete("agent-busy")).rejects.toThrow(AgentBusyError);
+  });
+
+  test("hardDelete succeeds when hasActiveRuns returns false", async () => {
+    const svc = createAgentService({
+      port: makeInMemoryPort(),
+      idGen: () => "agent-free",
+      workspaceRoot: "/tmp/ws",
+      materializeWorkspace: async () => "/tmp/ws/agent-free",
+      hasActiveRuns: async () => false,
+    });
+
+    await svc.create({ name: "free", model: { provider: "anthropic", model: "x" } });
+    // Should not throw
+    await svc.hardDelete("agent-free");
   });
 });
