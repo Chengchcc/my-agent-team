@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useParams } from "next/navigation";
-import Link from "next/link";
 import { useState } from "react";
 import { ThreadList } from "@/components/ThreadList";
 import { IdentityPanel } from "@/components/IdentityPanel";
@@ -47,18 +46,11 @@ export default function AgentDetailPage() {
     }`;
 
   return (
-    <div className="min-h-screen bg-[var(--cream)]">
+    <div className="h-full bg-[var(--cream)]">
       {/* Header */}
       <div className="border-b border-[var(--border-color)]">
-        <div className="container mx-auto px-8 py-6">
-          <Link
-            href="/agents"
-            className="font-[family-name:var(--font-mono)] text-[10px] tracking-[0.15em] uppercase text-[var(--warm-gray-dark)] hover:text-[var(--charcoal)] transition-colors"
-          >
-            ← Agents
-          </Link>
-
-          <div className="mt-4 flex items-center gap-4">
+        <div className="container mx-auto px-8 py-5">
+          <div className="flex items-center gap-4">
             {/* Status dot */}
             <span className="w-2 h-2 rounded-full bg-[var(--teal)]" />
 
