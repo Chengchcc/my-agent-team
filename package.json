@@ -11,7 +11,10 @@
   "scripts": {
     "build": "turbo run build",
     "create": "bun run scripts/create-package.ts",
-    "dev": "bun run --cwd apps/backend dev",
+    "dev": "bash scripts/dev.sh",
+    "dev:backend": "bun run --cwd apps/backend dev",
+    "dev:web": "bun run --cwd apps/web dev",
+    "dev:turbo": "turbo run dev --parallel",
     "format": "biome format --write .",
     "lint": "biome check . && eslint .",
     "test": "turbo run test",
