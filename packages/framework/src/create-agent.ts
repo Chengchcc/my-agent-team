@@ -251,6 +251,15 @@ function createAgentInternal(
           reason: err.reason,
           ts: Date.now(),
         });
+        // M13.1: signal tool_end before interrupt so activeTools clears
+        yield {
+          type: "tool_end" as const,
+          payload: {
+            id: call.id,
+            name: call.name,
+            isError: true,
+          },
+        };
         yield {
           type: "interrupted",
           payload: {
