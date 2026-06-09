@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useRouter } from "next/navigation";
+import { Plus, ChevronRight, Trash2, ArrowRight } from "lucide-react";
 
 function isRecent(ts: number | null): boolean {
   if (!ts) return false;
@@ -63,9 +64,10 @@ export function ThreadList({ agentId }: { agentId: string }) {
           className="bg-[var(--primary)] text-[var(--on-primary)]
                      rounded-md px-4 py-2 text-sm font-semibold
                      hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed
-                     transition-opacity duration-200"
+                     transition-opacity duration-200 inline-flex items-center gap-1.5"
         >
-          + New Thread
+          <Plus size={14} className="-ml-0.5" />
+          New Thread
         </button>
       </div>
 
@@ -78,9 +80,9 @@ export function ThreadList({ agentId }: { agentId: string }) {
             type="button"
             onClick={() => createThread.mutate()}
             disabled={createThread.isPending}
-            className="text-sm text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors font-semibold"
+            className="text-sm text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors font-semibold inline-flex items-center gap-1"
           >
-            Create your first thread →
+            Create your first thread <ArrowRight size={14} />
           </button>
         </div>
       ) : (
@@ -130,12 +132,12 @@ export function ThreadList({ agentId }: { agentId: string }) {
                       deleteThread.mutate(thread.id);
                     }}
                     disabled={deleteThread.isPending}
-                    className="text-[var(--mute)] hover:text-red-500 text-xs px-2 py-1 rounded transition-colors"
+                    className="text-[var(--mute)] hover:text-red-500 p-1 rounded transition-colors"
                     title="Delete thread"
                   >
-                    ×
+                    <Trash2 size={14} />
                   </button>
-                  <span className="text-[var(--mute)] text-sm">→</span>
+                  <ChevronRight size={16} className="text-[var(--mute)]" />
                 </div>
               </div>
             </button>

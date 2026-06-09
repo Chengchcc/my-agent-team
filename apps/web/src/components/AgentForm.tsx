@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api, type AgentRow } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
+import { ArrowRight, X } from "lucide-react";
 
 interface AgentFormProps {
   /** If provided, form is in edit mode (PATCH instead of POST). */
@@ -116,9 +117,9 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="text-xs text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
+                className="text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
               >
-                Cancel
+                <X size={18} />
               </button>
             </div>
 
@@ -208,7 +209,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                            disabled:opacity-40 disabled:cursor-not-allowed
                            transition-opacity duration-200"
               >
-                {submitting ? "Saving..." : isEdit ? "Save Changes →" : "Create Agent →"}
+                {submitting ? "Saving..." : isEdit ? <span className="inline-flex items-center gap-1">Save Changes <ArrowRight size={14} /></span> : <span className="inline-flex items-center gap-1">Create Agent <ArrowRight size={14} /></span>}
               </button>
             </form>
           </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { ArrowUp } from "lucide-react";
 
 interface ComposerProps {
   onSend: (message: string) => void;
@@ -68,12 +69,12 @@ export function Composer({
           onClick={handleSend}
           disabled={disabled || !value.trim()}
           className="shrink-0 bg-[var(--primary)] text-[var(--on-primary)]
-                     rounded-md px-5 py-3 text-sm font-semibold
+                     rounded-md p-2.5
                      hover:opacity-90
                      disabled:opacity-30 disabled:cursor-not-allowed
-                     transition-opacity duration-200"
+                     transition-opacity duration-200 inline-flex items-center justify-center"
         >
-          Send
+          <ArrowUp size={16} className="shrink-0" />
         </button>
       </div>
     </div>

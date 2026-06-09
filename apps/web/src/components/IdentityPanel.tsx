@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { Pencil } from "lucide-react";
 
 interface SectionProps {
   title: string;
@@ -38,9 +39,10 @@ function Section({
           <button
             type="button"
             onClick={onEdit}
-            className="text-[10px] text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors"
+            className="text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors inline-flex items-center gap-1"
           >
-            Edit
+            <Pencil size={12} />
+            <span className="text-[10px]">Edit</span>
           </button>
         )}
       </div>
