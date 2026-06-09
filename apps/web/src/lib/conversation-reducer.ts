@@ -1,10 +1,16 @@
-import type { ContentBlock, Message } from "./api";
+import type { ContentBlock } from "./api";
 
 export type RunPhase = "idle" | "running" | "interrupted" | "done" | "error";
 
+export interface SenderRef {
+  memberId: string;
+  kind: "agent" | "human" | "system";
+  displayName?: string;
+}
+
 export interface UiMessage {
   id: string;
-  role: "user" | "assistant";
+  sender: SenderRef;
   content: string | ContentBlock[];
 }
 
@@ -15,89 +21,146 @@ export interface DraftTool {
 
 export interface Draft {
   runId: string;
+  agentMemberId: string;
+  sender: SenderRef;
   text: string;
   tools: DraftTool[];
 }
 
 export interface ConvState {
+  viewerMemberId: string;
+  roster: Record<string, SenderRef>;
   messages: UiMessage[];
   draft: Draft | null;
-  run: { id: string | null; phase: RunPhase };
+  run: { id: string | null; phase: RunPhase; agentMemberId: string | null };
   pendingInterrupt: { id: string; name: string; input: unknown } | null;
   error: string | null;
   optimisticSeq: number;
 }
 
 export type Action =
-  | { type: "history/loaded"; messages: Message[] }
-  | { type: "run/started"; runId: string }
-  | { type: "send"; text: string }
-  | { type: "stream/delta"; runId: string; blockIndex: number; text: string }
+  | { type: "bootstrap"; viewerMemberId: string; members: SenderRef[] }
+  | { type: "ledger/member"; seq: number; kind: "member.joined" | "member.left"; payload: unknown }
+  | { type: "ledger/message"; seq: number; senderMemberId: string; content: unknown }
+  | { type: "send"; text: string; viewer: SenderRef }
+  | { type: "run/started"; runId: string; agentMemberId: string }
+  | { type: "stream/delta"; runId: string; agentMemberId: string; blockIndex: number; text: string }
   | { type: "stream/toolStart"; id: string; name: string }
   | { type: "stream/toolEnd"; id: string }
-  | { type: "events/message"; seq: number | null; msg: { role: string; content: unknown } }
-  | { type: "events/interrupted"; payload: { pendingTool?: { id: string; name: string; input: unknown } } }
-  | { type: "events/error"; message: string }
-  | { type: "events/done" }
-  | { type: "run/completed" }
-  | { type: "run/error" };
+  | { type: "run/interrupted"; payload: { pendingTool?: { id: string; name: string; input: unknown } } }
+  | { type: "run/error"; message: string }
+  | { type: "run/done" }
+  | { type: "run/completed" };
 
 export function initialState(): ConvState {
   return {
+    viewerMemberId: "",
+    roster: {},
     messages: [],
     draft: null,
-    run: { id: null, phase: "idle" },
+    run: { id: null, phase: "idle", agentMemberId: null },
     pendingInterrupt: null,
     error: null,
     optimisticSeq: 0,
   };
 }
 
-function upsertAuthoritative(
-  list: UiMessage[],
-  id: string,
-  role: "user" | "assistant",
-  content: string | ContentBlock[],
-): UiMessage[] {
-  const idx = list.findIndex((m) => m.id === id);
-  if (idx >= 0) {
-    const next = [...list];
-    next[idx] = { id, role, content };
-    return next;
-  }
-  // User echo: replace optimistic user message
-  if (role === "user") {
-    const optIdx = [...list]
-      .reverse()
-      .findIndex((m) => m.id.startsWith("opt-") && m.role === "user");
-    if (optIdx >= 0) {
-      const real = list.length - 1 - optIdx;
-      const next = [...list];
-      next[real] = { id, role, content };
-      return next;
-    }
-  }
-  return [...list, { id, role, content }];
-}
-
 function norm(c: unknown): string | ContentBlock[] {
   return typeof c === "string" ? c : (c as ContentBlock[]);
 }
 
+function upsertAuthoritative(
+  list: UiMessage[],
+  id: string,
+  sender: SenderRef,
+  content: string | ContentBlock[],
+  viewerMemberId: string,
+): UiMessage[] {
+  const idx = list.findIndex((m) => m.id === id);
+  if (idx >= 0) {
+    const next = [...list];
+    next[idx] = { id, sender, content };
+    return next;
+  }
+  // Self echo: replace optimistic self message (was "role === user")
+  if (sender.memberId === viewerMemberId) {
+    const optIdx = [...list]
+      .reverse()
+      .findIndex(
+        (m) =>
+          m.id.startsWith("opt-") && m.sender.memberId === viewerMemberId,
+      );
+    if (optIdx >= 0) {
+      const real = list.length - 1 - optIdx;
+      const next = [...list];
+      next[real] = { id, sender, content };
+      return next;
+    }
+  }
+  return [...list, { id, sender, content }];
+}
+
 export function reducer(s: ConvState, a: Action): ConvState {
   switch (a.type) {
-    case "history/loaded": {
-      const messages = a.messages
-        .filter(
-          (m): m is Message & { role: "user" | "assistant" } =>
-            m.role !== "system",
-        )
-        .map((m, i) => ({ id: `h-${i}`, role: m.role, content: m.content }));
-      return { ...s, messages };
+    case "bootstrap": {
+      const roster: Record<string, SenderRef> = {
+        __system__: { memberId: "__system__", kind: "system" },
+      };
+      for (const m of a.members) roster[m.memberId] = m;
+      return { ...s, viewerMemberId: a.viewerMemberId, roster };
     }
 
-    case "run/started":
-      return { ...s, run: { id: a.runId, phase: "running" }, error: null };
+    case "ledger/member": {
+      const payload = a.payload as {
+        members?: Array<{
+          memberId: string;
+          kind: "agent" | "human";
+          displayName?: string;
+        }>;
+      };
+      const roster = { ...s.roster };
+      for (const m of payload.members ?? []) roster[m.memberId] = { ...m };
+      // Drop a system notice for the member event
+      const id = `s-${a.seq}`;
+      const sender: SenderRef = {
+        memberId: "__system__",
+        kind: "system",
+      };
+      const verb = a.kind === "member.joined" ? "加入" : "离开";
+      const present = (payload.members ?? [])
+        .map((m) => roster[m.memberId]?.displayName ?? m.memberId)
+        .join(", ");
+      const messages = upsertAuthoritative(
+        s.messages,
+        id,
+        sender,
+        `[系统] 成员变化：${verb}。当前在场：${present}`,
+        s.viewerMemberId,
+      );
+      return { ...s, roster, messages };
+    }
+
+    case "ledger/message": {
+      const id = `s-${a.seq}`;
+      const sender = s.roster[a.senderMemberId] ?? {
+        memberId: a.senderMemberId,
+        kind: "agent" as const,
+      };
+      const messages = upsertAuthoritative(
+        s.messages,
+        id,
+        sender,
+        norm(a.content),
+        s.viewerMemberId,
+      );
+      // Clear draft if: self message arrives, or current draft's agent message arrives
+      const clearsDraft =
+        sender.memberId === s.viewerMemberId ||
+        (s.draft !== null && a.senderMemberId === s.draft.agentMemberId);
+      return clearsDraft
+        ? { ...s, messages, draft: null }
+        : { ...s, messages };
+    }
 
     case "send": {
       const id = `opt-${s.optimisticSeq}`;
@@ -105,20 +168,34 @@ export function reducer(s: ConvState, a: Action): ConvState {
         ...s,
         optimisticSeq: s.optimisticSeq + 1,
         run: { ...s.run, phase: "running" },
-        messages: [...s.messages, { id, role: "user", content: a.text }],
+        messages: [
+          ...s.messages,
+          { id, sender: a.viewer, content: a.text },
+        ],
       };
     }
 
+    case "run/started":
+      return {
+        ...s,
+        run: { id: a.runId, phase: "running", agentMemberId: a.agentMemberId },
+        error: null,
+      };
+
     case "stream/delta": {
+      const sender = s.roster[a.agentMemberId] ?? {
+        memberId: a.agentMemberId,
+        kind: "agent" as const,
+      };
       const sameRun = a.runId === s.draft?.runId;
-      const carryText =
-        sameRun ? (s.draft?.text ?? "") : "";
-      const carryTools =
-        sameRun ? (s.draft?.tools ?? []) : [];
+      const carryText = sameRun ? (s.draft?.text ?? "") : "";
+      const carryTools = sameRun ? (s.draft?.tools ?? []) : [];
       return {
         ...s,
         draft: {
           runId: a.runId,
+          agentMemberId: a.agentMemberId,
+          sender,
           tools: carryTools,
           text: carryText + a.text,
         },
@@ -126,17 +203,18 @@ export function reducer(s: ConvState, a: Action): ConvState {
     }
 
     case "stream/toolStart":
-      return {
-        ...s,
-        draft: {
-          runId: s.draft?.runId ?? s.run.id ?? "",
-          text: s.draft?.text ?? "",
-          tools: [
-            ...(s.draft?.tools ?? []),
-            { id: a.id, name: a.name },
-          ],
-        },
-      };
+      return s.draft
+        ? {
+            ...s,
+            draft: {
+              ...s.draft,
+              tools: [
+                ...s.draft.tools,
+                { id: a.id, name: a.name },
+              ],
+            },
+          }
+        : s;
 
     case "stream/toolEnd":
       return s.draft
@@ -149,26 +227,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
           }
         : s;
 
-    case "events/message": {
-      const role = a.msg.role;
-      if (role !== "user" && role !== "assistant") return s;
-      const id =
-        a.seq !== null ? `s-${a.seq}` : `e-${s.optimisticSeq}`;
-      const messages = upsertAuthoritative(
-        s.messages,
-        id,
-        role,
-        norm(a.msg.content),
-      );
-      const next =
-        a.seq === null ? { ...s, optimisticSeq: s.optimisticSeq + 1 } : s;
-      // ★ Atomic: authoritative assistant arrival clears draft
-      return role === "assistant"
-        ? { ...next, messages, draft: null }
-        : { ...next, messages };
-    }
-
-    case "events/interrupted":
+    case "run/interrupted":
       return {
         ...s,
         pendingInterrupt: a.payload.pendingTool ?? null,
@@ -176,7 +235,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
         draft: null,
       };
 
-    case "events/error":
+    case "run/error":
       return {
         ...s,
         error: a.message,
@@ -184,15 +243,12 @@ export function reducer(s: ConvState, a: Action): ConvState {
         draft: null,
       };
 
-    case "events/done":
+    case "run/done":
     case "run/completed":
       if (s.run.phase === "interrupted" || s.run.phase === "error") {
         return { ...s, draft: null };
       }
       return { ...s, draft: null, run: { ...s.run, phase: "done" } };
-
-    case "run/error":
-      return { ...s, run: { ...s.run, phase: "error" }, draft: null };
 
     default:
       return s;
