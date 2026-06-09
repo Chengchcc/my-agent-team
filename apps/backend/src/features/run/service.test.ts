@@ -12,6 +12,10 @@ function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
     onRunComplete: () => {},
     dispose: () => {},
     cancelByPid: () => true,
+    getDb: () =>
+      ({
+        query: () => ({ get: () => null as unknown }),
+      }) as any,
     ...overrides,
   } as unknown as RunSupervisor;
 }

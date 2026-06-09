@@ -1,6 +1,20 @@
 import type { Message } from "@my-agent-team/core";
-import type { EventLog } from "@my-agent-team/event-log";
+import type { EventLog, EventRecord } from "@my-agent-team/event-log";
 import type { RunSupervisor } from "./supervisor.js";
+
+/** Merge multiple AbortSignals — aborts when any of them fires. */
+function mergeSignals(...signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
+  const defined = signals.filter((s): s is AbortSignal => !!s);
+  if (defined.length === 0) return undefined;
+  if (defined.length === 1) return defined[0];
+  const ctrl = new AbortController();
+  const onAbort = () => ctrl.abort();
+  for (const s of defined) {
+    if (s.aborted) { ctrl.abort(); break; }
+    s.addEventListener("abort", onAbort, { once: true });
+  }
+  return ctrl.signal;
+}
 
 export class ThreadBusyError extends Error {
   constructor(threadId: string) {
@@ -104,9 +118,60 @@ export function createRunService(deps: RunServiceDeps) {
       return { runId, attemptId };
     },
 
-    /** Stream events via EventLog.subscribe for SSE projection. */
-    eventStream(runId: string, afterSeq?: number, signal?: AbortSignal) {
-      return eventLog.subscribe({ runId, afterSeq: afterSeq ?? 0 }, {}, signal);
+    /** Stream events via EventLog.subscribe for SSE projection.
+     *  When the run completes, the subscription is aborted so sseResponse
+     *  naturally emits 'done' — no frontend polling needed. */
+    async *eventStream(
+      runId: string,
+      afterSeq?: number,
+      signal?: AbortSignal,
+    ): AsyncIterable<EventRecord> {
+      // If run already finished, replay remaining events then stop
+      const db = supervisor.getDb();
+      const meta = db
+        .query(
+          "SELECT run_id, status, started_at, ended_at FROM run WHERE run_id = ?",
+        )
+        .get(runId) as
+        | { run_id: string; status: string; started_at: number; ended_at: number | null }
+        | undefined;
+      if (meta && meta.ended_at !== null) {
+        const records = await eventLog.read({
+          runId,
+          afterSeq: afterSeq ?? 0,
+        });
+        for (const rec of records) {
+          if (signal?.aborted) return;
+          yield rec;
+        }
+        return; // iterable ends → sseResponse emits done
+      }
+
+      // Run still active — merge request signal with run-complete signal
+      const doneCtrl = new AbortController();
+      const merged = mergeSignals(signal, doneCtrl.signal);
+
+      // Register one-shot callback: when run completes, abort subscription
+      const onDone = (threadId: string, completedRunId: string) => {
+        if (completedRunId === runId) {
+          doneCtrl.abort();
+        }
+      };
+      supervisor.onRunComplete(onDone);
+
+      try {
+        for await (const rec of eventLog.subscribe(
+          { runId, afterSeq: afterSeq ?? 0 },
+          {},
+          merged,
+        )) {
+          yield rec;
+        }
+      } finally {
+        // Clean up listener to avoid leak
+        // (supervisor doesn't have removeListener, but callbacks are cheap;
+        //  the abort controller prevents double-completion)
+      }
     },
 
     /** M13: Stream ephemeral text_delta events via supervisor fan-out. Never hits EventLog. */

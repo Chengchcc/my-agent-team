@@ -2,7 +2,7 @@
 
 import { type TimelineItem, extractText } from "@/lib/timeline";
 import type { DeltaStreamState } from "@/hooks/useDeltaStream";
-import { renderContentBlocks, type BlockLike } from "@/lib/render-blocks";
+import { renderContentBlocks } from "@/lib/render-blocks";
 import { MessageBubble, MessageShell } from "./MessageBubble";
 import { StreamingMessage } from "./StreamingMessage";
 import { StreamingBlocks } from "./StreamingBlocks";
