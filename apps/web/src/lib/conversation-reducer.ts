@@ -203,16 +203,35 @@ export function reducer(s: ConvState, a: Action): ConvState {
       };
     }
 
-    case "stream/toolStart":
-      return s.draft
-        ? {
-            ...s,
-            draft: {
-              ...s.draft,
-              tools: [...s.draft.tools, { id: a.id, name: a.name }],
-            },
-          }
-        : s;
+    case "stream/toolStart": {
+      // When tool_start arrives before first text_delta, seed a minimal draft
+      if (s.draft) {
+        return {
+          ...s,
+          draft: {
+            ...s.draft,
+            tools: [...s.draft.tools, { id: a.id, name: a.name }],
+          },
+        };
+      }
+      const runId = s.run.id;
+      const agentMemberId = s.run.agentMemberId;
+      if (!runId || !agentMemberId) return s; // no active run context, drop
+      const sender = s.roster[agentMemberId] ?? {
+        memberId: agentMemberId,
+        kind: "agent" as const,
+      };
+      return {
+        ...s,
+        draft: {
+          runId,
+          agentMemberId,
+          sender,
+          text: "",
+          tools: [{ id: a.id, name: a.name }],
+        },
+      };
+    }
 
     case "stream/toolEnd":
       return s.draft

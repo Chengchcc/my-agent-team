@@ -345,6 +345,23 @@ describe("conversation-reducer", () => {
     expect(s.draft!.tools[0]!.name).toBe("read");
   });
 
+  test("toolStart before first text_delta creates a minimal draft", () => {
+    const s = runWithBootstrap(
+      {
+        type: "run/started",
+        runId: "r1",
+        agentMemberId: a1,
+      },
+      { type: "stream/toolStart", id: "t1", name: "bash" },
+    );
+    expect(s.draft).not.toBeNull();
+    expect(s.draft!.agentMemberId).toBe(a1);
+    expect(s.draft!.runId).toBe("r1");
+    expect(s.draft!.text).toBe("");
+    expect(s.draft!.tools).toHaveLength(1);
+    expect(s.draft!.tools[0]!.name).toBe("bash");
+  });
+
   // ─── run/error clears draft ─────────────────────────────
 
   test("run/error sets phase and clears draft", () => {

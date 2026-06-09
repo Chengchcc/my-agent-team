@@ -266,15 +266,9 @@ supervisor.onRunComplete((threadId, runId) => {
           }
           const lastAssistant = msgs.filter((m) => m.role === "assistant").pop();
           if (lastAssistant) {
-            const text =
-              typeof lastAssistant.content === "string"
-                ? lastAssistant.content
-                : Array.isArray(lastAssistant.content)
-                  ? lastAssistant.content
-                      .filter((b: { type: string }) => b.type === "text")
-                      .map((b: { text: string }) => b.text)
-                      .join("")
-                  : String(lastAssistant.content);
+            // Store full content (string or ContentBlock[]) so tool_use/tool_result
+            // blocks survive ledger round-trip, not just extracted text.
+            const content = lastAssistant.content;
 
             const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
             const seq = convPort.appendLedgerEntry({
@@ -282,7 +276,7 @@ supervisor.onRunComplete((threadId, runId) => {
               senderMemberId,
               addressedTo: [],
               kind: "message",
-              content: JSON.stringify(text),
+              content: JSON.stringify(content),
               ts: Date.now(),
             });
             await convSvc.broadcastMessage({
@@ -291,7 +285,7 @@ supervisor.onRunComplete((threadId, runId) => {
               senderMemberId,
               addressedTo: [],
               kind: "message",
-              content: JSON.stringify(text),
+              content: JSON.stringify(content),
               ts: Date.now(),
             });
           }
