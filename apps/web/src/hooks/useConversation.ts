@@ -2,7 +2,7 @@
 
 import { useReducer, useEffect, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, type ConversationSnapshot } from "@/lib/api";
 import { reducer, initialState, type ConvState, type SenderRef } from "@/lib/conversation-reducer";
 
 function safeParse(raw: string): unknown {
@@ -23,7 +23,10 @@ function resolveAddressedTo(s: ConvState): string[] {
   return agents.length === 1 ? [agents[0]!.memberId] : [];
 }
 
-export function useConversation(conversationId: string) {
+export function useConversation(
+  conversationId: string,
+  preFetchedSnapshot?: ConversationSnapshot | null,
+) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const qc = useQueryClient();
 
@@ -31,6 +34,7 @@ export function useConversation(conversationId: string) {
   const snap = useQuery({
     queryKey: ["conv", conversationId],
     queryFn: () => api.getConversation(conversationId),
+    initialData: preFetchedSnapshot ?? undefined,
   });
   useEffect(() => {
     if (!snap.data) return;
