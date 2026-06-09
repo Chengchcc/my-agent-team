@@ -10,7 +10,6 @@ import { useDeltaStream } from "@/hooks/useDeltaStream";
 import { Timeline } from "./Timeline";
 import { Composer } from "./Composer";
 import { ToolApprovalCard } from "./ToolApprovalCard";
-import { StreamingBlocks } from "./StreamingBlocks";
 import { routeItem, extractText } from "@/lib/timeline";
 import { statusLabel as computeStatus } from "@/lib/run-status";
 
@@ -460,7 +459,7 @@ export function ConversationCanvas({
                 ))}
               </div>
             </div>
-          ) : items.length === 0 ? (
+          ) : items.length === 0 && delta.connection !== "connected" ? (
             /* Empty state — agent identity card */
             <div className="flex flex-col items-start justify-center py-24">
               {agent && (
@@ -490,19 +489,11 @@ export function ConversationCanvas({
                 items={items}
                 lastLiveSeq={lastLiveSeq}
                 isStreamingDone={isStreamingDone}
+                delta={delta}
               />
             </div>
           )}
 
-          {/* Streaming delta — after Timeline, so live response appears
-              below history + user message. Gated: hide if /events already
-              delivered the finalized assistant (lastLiveSeq set) to prevent
-              dual-display during handoff. */}
-          {delta.connection === "connected" && lastLiveSeq === undefined && (
-            <div className="pb-4">
-              <StreamingBlocks ast={delta.ast} />
-            </div>
-          )}
         </div>
       </div>
 

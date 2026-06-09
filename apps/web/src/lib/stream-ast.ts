@@ -1,9 +1,11 @@
 // ── Streaming Markdown AST ──
 // Incrementally builds a flat block sequence from text_delta events.
-// Blocks are sealed on boundaries (double newline, code fence, table row).
+// Blocks are sealed on boundaries (double newline, code fence).
+// Markdown *semantics* are delegated to <Markdown> at render time — this
+// module only chunks text and assigns stable keys.
 // All functions are IMMUTABLE — they return new StreamAst, never mutate arguments.
 
-export type AstBlockType = "paragraph" | "code" | "table";
+export type AstBlockType = "paragraph" | "code";
 
 export interface AstBlock {
   type: AstBlockType;
@@ -24,11 +26,10 @@ export function createStreamAst(): StreamAst {
 }
 
 const CODE_FENCE_RE = /^```/;
-const TABLE_ROW_RE = /^\|.*\|/;
 
 function classifyBlock(firstLine: string): AstBlockType {
   if (CODE_FENCE_RE.test(firstLine)) return "code";
-  if (TABLE_ROW_RE.test(firstLine)) return "table";
+  // table / list / quote / heading all become "paragraph" — <Markdown> renders them.
   return "paragraph";
 }
 
@@ -88,8 +89,6 @@ export function appendDelta(ast: StreamAst, text: string): StreamAst {
 
 /**
  * Finalize with authoritative content from /events.
- * Takes the full ContentBlock[] from the message payload, aligns AST blocks
- * by position against the authoritative text blocks, and seals everything.
  */
 export function finalizeBlocks(
   ast: StreamAst,
@@ -102,12 +101,10 @@ export function finalizeBlocks(
 
   const blocks = [...ast.blocks];
 
-  // Seal open block if present
   if (ast.openBlock) {
     blocks.push(ast.openBlock);
   }
 
-  // Align blocks by position: replace delta-built text with authoritative text
   for (let i = 0; i < textBlocks.length && i < blocks.length; i++) {
     const authoritative = textBlocks[i]!;
     const existing = blocks[i]!;
@@ -116,7 +113,6 @@ export function finalizeBlocks(
     }
   }
 
-  // If authoritative has more text blocks than we have, add them
   for (let i = blocks.length; i < textBlocks.length; i++) {
     const authoritative = textBlocks[i]!;
     blocks.push({

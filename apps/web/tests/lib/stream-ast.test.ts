@@ -72,12 +72,13 @@ describe("appendDelta", () => {
     expect(ast.openBlock!.text).toBe(firstText + " more");
   });
 
-  test("detects table rows", () => {
+  test("table rows fall through to paragraph (Markdown renders them)", () => {
     const result = appendDelta(
       createStreamAst(),
       "| Name | Value |\n| A | 1 |",
     );
-    expect(result.openBlock?.type).toBe("table");
+    // Tables are now classified as paragraph; <Markdown> handles rendering
+    expect(result.openBlock?.type).toBe("paragraph");
   });
 
   test("localSeq is monotonic across sealed blocks", () => {

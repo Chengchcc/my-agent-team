@@ -2,8 +2,10 @@
 
 import { type TimelineItem, extractText } from "@/lib/timeline";
 import type { ContentBlock } from "@/lib/api";
-import { MessageBubble } from "./MessageBubble";
+import type { DeltaStreamState } from "@/hooks/useDeltaStream";
+import { MessageBubble, MessageShell } from "./MessageBubble";
 import { StreamingMessage } from "./StreamingMessage";
+import { StreamingBlocks } from "./StreamingBlocks";
 import { ToolCallCard } from "./ToolCallCard";
 import { ToolResultCard } from "./ToolResultCard";
 
@@ -32,10 +34,7 @@ function renderContentBlocks(blocks: unknown[] | undefined) {
         <div key={block.id}>
           <ToolCallCard name={block.name} input={block.input} />
           {result && (
-            <ToolResultCard
-              content={result.content}
-              isError={result.isError}
-            />
+            <ToolResultCard content={result.content} isError={result.isError} />
           )}
         </div>
       );
@@ -49,17 +48,22 @@ interface TimelineProps {
   /** seq of the actively-streaming assistant message, or undefined if none. */
   lastLiveSeq?: number;
   isStreamingDone?: boolean;
+  /** Delta stream state — when connected, render live tail via StreamingBlocks. */
+  delta?: DeltaStreamState;
 }
 
 export function Timeline({
   items,
   lastLiveSeq,
   isStreamingDone,
+  delta,
 }: TimelineProps) {
+  const streaming = delta?.connection === "connected";
+
   return (
     <div>
       <div className="max-w-3xl mx-auto">
-        {items.length === 0 && (
+        {items.length === 0 && !streaming && (
           <div className="flex items-center justify-center py-12">
             <p className="text-sm text-[var(--mute)]">
               Send a message to begin.
@@ -68,11 +72,26 @@ export function Timeline({
         )}
 
         {items.map((item, idx) => {
-          // Only streaming when: item has live seq, matches active streaming seq, run not done
+          // While delta stream is connected, the actively-streaming assistant
+          // message is rendered by the live tail below — hide its item form
+          // to avoid duplicate during the finalize→done window.
+          if (
+            streaming &&
+            item.role === "assistant" &&
+            item.seq !== undefined &&
+            item.seq === lastLiveSeq
+          ) {
+            return null;
+          }
+
+          // Typewriter fallback fires ONLY when delta stream is NOT connected
+          // (degraded / idle).
           const isStreaming =
+            !streaming &&
             item.seq !== undefined &&
             item.seq === lastLiveSeq &&
             !isStreamingDone;
+
           const key = item.seq ?? idx;
           const virtStyle = {
             contentVisibility: "auto" as const,
@@ -80,16 +99,13 @@ export function Timeline({
           };
 
           if (typeof item.content === "string") {
-            if (isStreaming) {
-              return (
-                <div key={key} style={virtStyle}>
-                  <StreamingMessage fullText={item.content} done={false} />
-                </div>
-              );
-            }
             return (
               <div key={key} style={virtStyle}>
-                <MessageBubble role={item.role} content={item.content} />
+                {isStreaming ? (
+                  <StreamingMessage fullText={item.content} done={false} />
+                ) : (
+                  <MessageBubble role={item.role} content={item.content} />
+                )}
               </div>
             );
           }
@@ -108,6 +124,13 @@ export function Timeline({
             </div>
           );
         })}
+
+        {/* Live streaming tail — unified assistant shell, after all items. */}
+        {streaming && (
+          <MessageShell role="assistant" isStreaming>
+            <StreamingBlocks ast={delta!.ast} />
+          </MessageShell>
+        )}
       </div>
     </div>
   );
