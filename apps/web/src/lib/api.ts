@@ -150,19 +150,8 @@ export const api = {
     apiFetch<ThreadRow>(`threads/${id}`, { method: "PATCH", body }),
   deleteThread: (id: string) =>
     apiFetch<void>(`threads/${id}`, { method: "DELETE" }),
-  getMessages: (threadId: string) =>
-    apiFetch<{ threadId: string; messages: Message[] | null }>(
-      `threads/${threadId}/messages`,
-    ),
 
   // Runs
-  getCurrentRun: (threadId: string) =>
-    apiFetch<RunMeta | null>(`threads/${threadId}/current-run`),
-  startRun: (threadId: string, input: string) =>
-    apiFetch<{ runId: string; attemptId: string }>(
-      `threads/${threadId}/runs`,
-      { method: "POST", body: { input } },
-    ),
   getRun: (runId: string) => apiFetch<RunMeta>(`runs/${runId}`),
   cancelRun: (runId: string) =>
     apiFetch<void>(`runs/${runId}/cancel`, { method: "POST" }),
