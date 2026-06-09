@@ -45,22 +45,36 @@ const PATH_KEYS = ["path", "filePath", "file_path", "cwd"];
 
 /**
  * Wrap a tool with workspace sandboxing.
- * Validates that all path-like fields in execute input are confined to workspace.
+ * - Validates all path-like fields in execute input are confined to workspace.
+ * - Injects default cwd=workspace for tools that accept a cwd but don't
+ *   receive one (bash, etc.) — prevents writes landing in backend CWD.
  */
 export function withWorkspace(tool: Tool, workspace: string): Tool {
   const originalExecute = tool.execute;
 
+  const hasCwdParam =
+    tool.inputSchema != null &&
+    typeof tool.inputSchema === "object" &&
+    "properties" in tool.inputSchema &&
+    typeof tool.inputSchema.properties === "object" &&
+    tool.inputSchema.properties !== null &&
+    "cwd" in tool.inputSchema.properties;
+
   return {
     ...tool,
     execute: async (input, signal) => {
-      const obj = input as Record<string, unknown>;
+      const obj = Object.assign({}, input) as Record<string, unknown>;
       for (const key of PATH_KEYS) {
         const val = obj[key];
         if (typeof val === "string" && val.length > 0) {
           resolveInWorkspace(workspace, val);
         }
       }
-      return originalExecute(input, signal);
+      // Default cwd to workspace when tool supports cwd but caller omitted it
+      if (hasCwdParam && obj["cwd"] === undefined) {
+        obj["cwd"] = workspace;
+      }
+      return originalExecute(obj, signal);
     },
   };
 }
