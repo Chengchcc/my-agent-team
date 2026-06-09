@@ -68,9 +68,7 @@ describe("conversation-reducer", () => {
         content: "hi",
       },
     );
-    const selfMsgs = s.messages.filter(
-      (m) => m.sender.memberId === viewer,
-    );
+    const selfMsgs = s.messages.filter((m) => m.sender.memberId === viewer);
     expect(selfMsgs).toHaveLength(1);
     expect(selfMsgs[0]!.id).toBe("s-2");
   });
@@ -123,9 +121,7 @@ describe("conversation-reducer", () => {
       },
     );
     expect(s.draft).toBeNull();
-    expect(
-      s.messages.filter((m) => m.sender.memberId === a1),
-    ).toHaveLength(1);
+    expect(s.messages.filter((m) => m.sender.memberId === a1)).toHaveLength(1);
     expect(s.messages.at(-1)!.content).toBe("Hello world, complete");
   });
 
@@ -217,24 +213,20 @@ describe("conversation-reducer", () => {
   // ─── member.joined / member.left ────────────────────────
 
   test("member.joined updates roster and drops system notice", () => {
-    const s = runWithBootstrap(
-      {
-        type: "ledger/member",
-        seq: 4,
-        kind: "member.joined",
-        payload: {
-          members: [
-            { memberId: viewer, kind: "human", displayName: "Me" },
-            { memberId: a1, kind: "agent", displayName: "AgentX" },
-            { memberId: a2, kind: "agent", displayName: "AgentY" },
-          ],
-        },
+    const s = runWithBootstrap({
+      type: "ledger/member",
+      seq: 4,
+      kind: "member.joined",
+      payload: {
+        members: [
+          { memberId: viewer, kind: "human", displayName: "Me" },
+          { memberId: a1, kind: "agent", displayName: "AgentX" },
+          { memberId: a2, kind: "agent", displayName: "AgentY" },
+        ],
       },
-    );
+    });
     expect(s.roster[a2]!.displayName).toBe("AgentY");
-    expect(
-      s.messages.filter((m) => m.sender.kind === "system"),
-    ).toHaveLength(1);
+    expect(s.messages.filter((m) => m.sender.kind === "system")).toHaveLength(1);
     const sysMsg = s.messages.find((m) => m.sender.kind === "system");
     expect(typeof sysMsg!.content).toBe("string");
     expect(sysMsg!.content as string).toContain("加入");
@@ -242,20 +234,17 @@ describe("conversation-reducer", () => {
   });
 
   test("member.left updates roster and drops system notice", () => {
-    const s = run(
-      bootstrap(viewer, [viewerRef, agentRef, agent2Ref]),
-      {
-        type: "ledger/member",
-        seq: 5,
-        kind: "member.left",
-        payload: {
-          members: [
-            { memberId: viewer, kind: "human", displayName: "Me" },
-            { memberId: a1, kind: "agent", displayName: "AgentX" },
-          ],
-        },
+    const s = run(bootstrap(viewer, [viewerRef, agentRef, agent2Ref]), {
+      type: "ledger/member",
+      seq: 5,
+      kind: "member.left",
+      payload: {
+        members: [
+          { memberId: viewer, kind: "human", displayName: "Me" },
+          { memberId: a1, kind: "agent", displayName: "AgentX" },
+        ],
       },
-    );
+    });
     const sysMsg = s.messages.find((m) => m.sender.kind === "system");
     expect(typeof sysMsg!.content).toBe("string");
     expect(sysMsg!.content as string).toContain("离开");
@@ -320,17 +309,13 @@ describe("conversation-reducer", () => {
   // ─── Unknown sender falls back to agent kind ────────────
 
   test("unknown senderMemberId falls back to agent kind, does not crash", () => {
-    const s = runWithBootstrap(
-      {
-        type: "ledger/message",
-        seq: 7,
-        senderMemberId: "ghost-unknown",
-        content: "mystery",
-      },
-    );
-    const msg = s.messages.find(
-      (m) => m.id === "s-7",
-    );
+    const s = runWithBootstrap({
+      type: "ledger/message",
+      seq: 7,
+      senderMemberId: "ghost-unknown",
+      content: "mystery",
+    });
+    const msg = s.messages.find((m) => m.id === "s-7");
     expect(msg).not.toBeNull();
     expect(msg!.sender.memberId).toBe("ghost-unknown");
     expect(msg!.sender.kind).toBe("agent");
@@ -386,9 +371,7 @@ describe("conversation-reducer", () => {
 
   test("resolveAddressedTo returns single agent memberId for single-agent roster", () => {
     function resolveAddressedTo(s: ConvState): string[] {
-      const agents = Object.values(s.roster).filter(
-        (m) => m.kind === "agent",
-      );
+      const agents = Object.values(s.roster).filter((m) => m.kind === "agent");
       return agents.length === 1 ? [agents[0]!.memberId] : [];
     }
     const s = run(bootstrap());
@@ -397,14 +380,10 @@ describe("conversation-reducer", () => {
 
   test("resolveAddressedTo returns empty for multi-agent roster", () => {
     function resolveAddressedTo(s: ConvState): string[] {
-      const agents = Object.values(s.roster).filter(
-        (m) => m.kind === "agent",
-      );
+      const agents = Object.values(s.roster).filter((m) => m.kind === "agent");
       return agents.length === 1 ? [agents[0]!.memberId] : [];
     }
-    const s = run(
-      bootstrap(viewer, [viewerRef, agentRef, agent2Ref]),
-    );
+    const s = run(bootstrap(viewer, [viewerRef, agentRef, agent2Ref]));
     // M14 single-agent degeneracy: only auto-resolve when exactly 1 agent
     const result = resolveAddressedTo(s);
     expect(result).toEqual([]);

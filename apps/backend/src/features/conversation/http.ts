@@ -151,11 +151,15 @@ export function conversationRoutes(
         signal: req.signal,
       });
 
-      return sseResponse(stream, (entry) => ({
-        id: String(entry.seq),
-        event: entry.kind,
-        data: entry,
-      }), req.signal);
+      return sseResponse(
+        stream,
+        (entry) => ({
+          id: String(entry.seq),
+          event: entry.kind,
+          data: entry,
+        }),
+        req.signal,
+      );
     },
   };
 }

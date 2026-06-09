@@ -33,9 +33,7 @@ describe("P1-1: error event payload extraction", () => {
 // Events without `lastEventId` collapsed to seq=0, causing all after
 // the first to be dropped. Fix: only dedup when `e.lastEventId` is non-empty.
 
-function dedupLiveEvents(
-  events: Array<{ lastEventId: string | null; data: string }>,
-): string[] {
+function dedupLiveEvents(events: Array<{ lastEventId: string | null; data: string }>): string[] {
   const seen = new Set<number>();
   const result: string[] = [];
 

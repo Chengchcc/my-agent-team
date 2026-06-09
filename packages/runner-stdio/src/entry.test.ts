@@ -509,7 +509,9 @@ test("EventSink appended before writeEvent", async () => {
 
   const result = await runEntry({
     specJson: JSON.stringify(spec),
-    writeEvent: () => { writeLog.push("write"); },
+    writeEvent: () => {
+      writeLog.push("write");
+    },
     writeStderr: () => {},
     signal: new AbortController().signal,
     createAgent: () => Promise.resolve(makeMockAgent(events)),
@@ -659,12 +661,17 @@ test("P0-1: self-builds checkpointer from spec.storage.checkpointer.path when no
   {
     const { Database } = await import("bun:sqlite");
     const setupDb = new Database(tmpDbPath);
-    setupDb.exec("CREATE TABLE IF NOT EXISTS checkpoint_messages (thread_id TEXT PRIMARY KEY, messages TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-    setupDb.run("INSERT INTO checkpoint_messages (thread_id, messages, updated_at) VALUES (?, ?, ?)", [
-      "t1",
-      JSON.stringify([{ role: "user", content: "[Alice]: hello from broadcast" }]),
-      Date.now(),
-    ]);
+    setupDb.exec(
+      "CREATE TABLE IF NOT EXISTS checkpoint_messages (thread_id TEXT PRIMARY KEY, messages TEXT NOT NULL, updated_at INTEGER NOT NULL)",
+    );
+    setupDb.run(
+      "INSERT INTO checkpoint_messages (thread_id, messages, updated_at) VALUES (?, ?, ?)",
+      [
+        "t1",
+        JSON.stringify([{ role: "user", content: "[Alice]: hello from broadcast" }]),
+        Date.now(),
+      ],
+    );
     setupDb.close();
   }
 
@@ -705,7 +712,9 @@ test("P0-1: self-builds checkpointer from spec.storage.checkpointer.path when no
   // Must be a bun:sqlite Database (has .close method)
   expect(typeof (capturedCheckpointerDb as { close?: unknown }).close).toBe("function");
 
-  try { require("node:fs").unlinkSync(tmpDbPath); } catch {}
+  try {
+    require("node:fs").unlinkSync(tmpDbPath);
+  } catch {}
 });
 
 // ─── M11: Progress heartbeat (replaces independent setInterval) ────
@@ -726,18 +735,38 @@ test("M11: heartbeat updated after each sink.append (progress, not liveness)", a
   // Use :memory: db so heartbeat writes don't fail
   const { Database } = await import("bun:sqlite");
   const memDb = new Database(":memory:");
-  memDb.exec("CREATE TABLE IF NOT EXISTS attempt (attempt_id TEXT PRIMARY KEY, run_id TEXT, pid INTEGER, heartbeat_at INTEGER, started_at INTEGER, ended_at INTEGER)");
-  memDb.exec("CREATE TABLE IF NOT EXISTS run (run_id TEXT PRIMARY KEY, thread_id TEXT, status TEXT, started_at INTEGER, ended_at INTEGER)");
-  memDb.run("INSERT INTO attempt (attempt_id, run_id, started_at) VALUES ('att-m11', 'run-m11', ?)", [Date.now()]);
-  memDb.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES ('run-m11', 't1', 'running', ?)", [Date.now()]);
+  memDb.exec(
+    "CREATE TABLE IF NOT EXISTS attempt (attempt_id TEXT PRIMARY KEY, run_id TEXT, pid INTEGER, heartbeat_at INTEGER, started_at INTEGER, ended_at INTEGER)",
+  );
+  memDb.exec(
+    "CREATE TABLE IF NOT EXISTS run (run_id TEXT PRIMARY KEY, thread_id TEXT, status TEXT, started_at INTEGER, ended_at INTEGER)",
+  );
+  memDb.run(
+    "INSERT INTO attempt (attempt_id, run_id, started_at) VALUES ('att-m11', 'run-m11', ?)",
+    [Date.now()],
+  );
+  memDb.run(
+    "INSERT INTO run (run_id, thread_id, status, started_at) VALUES ('run-m11', 't1', 'running', ?)",
+    [Date.now()],
+  );
   const dbPath = `/tmp/test-m11-hb-${Date.now()}.db`;
   memDb.close();
   // Copy :memory: isn't possible; just use a temp file db
   const tmpDb = new Database(dbPath);
-  tmpDb.exec("CREATE TABLE IF NOT EXISTS attempt (attempt_id TEXT PRIMARY KEY, run_id TEXT, pid INTEGER, heartbeat_at INTEGER, started_at INTEGER, ended_at INTEGER)");
-  tmpDb.exec("CREATE TABLE IF NOT EXISTS run (run_id TEXT PRIMARY KEY, thread_id TEXT, status TEXT, started_at INTEGER, ended_at INTEGER)");
-  tmpDb.run("INSERT INTO attempt (attempt_id, run_id, started_at) VALUES ('att-m11', 'run-m11', ?)", [Date.now()]);
-  tmpDb.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES ('run-m11', 't1', 'running', ?)", [Date.now()]);
+  tmpDb.exec(
+    "CREATE TABLE IF NOT EXISTS attempt (attempt_id TEXT PRIMARY KEY, run_id TEXT, pid INTEGER, heartbeat_at INTEGER, started_at INTEGER, ended_at INTEGER)",
+  );
+  tmpDb.exec(
+    "CREATE TABLE IF NOT EXISTS run (run_id TEXT PRIMARY KEY, thread_id TEXT, status TEXT, started_at INTEGER, ended_at INTEGER)",
+  );
+  tmpDb.run(
+    "INSERT INTO attempt (attempt_id, run_id, started_at) VALUES ('att-m11', 'run-m11', ?)",
+    [Date.now()],
+  );
+  tmpDb.run(
+    "INSERT INTO run (run_id, thread_id, status, started_at) VALUES ('run-m11', 't1', 'running', ?)",
+    [Date.now()],
+  );
   tmpDb.close();
 
   const spec = {
@@ -769,12 +798,16 @@ test("M11: heartbeat updated after each sink.append (progress, not liveness)", a
   // We can verify by checking the DB
   try {
     const checkDb = new Database(dbPath);
-    const row = checkDb.query("SELECT heartbeat_at FROM attempt WHERE attempt_id = 'att-m11'").get() as { heartbeat_at: number | null } | undefined;
+    const row = checkDb
+      .query("SELECT heartbeat_at FROM attempt WHERE attempt_id = 'att-m11'")
+      .get() as { heartbeat_at: number | null } | undefined;
     expect(row?.heartbeat_at).toBeDefined();
     expect(row!.heartbeat_at).toBeGreaterThan(0);
     checkDb.close();
   } finally {
-    try { require("node:fs").unlinkSync(dbPath); } catch {}
+    try {
+      require("node:fs").unlinkSync(dbPath);
+    } catch {}
   }
 });
 
@@ -858,7 +891,11 @@ test("M11: reflect events appended to EventSink via fork", async () => {
 
   const mockSink = {
     append: async (_tid: string, _rid: string, ev: AgentEvent) => {
-      if (ev.type === "message" && Array.isArray(ev.payload.content) && ev.payload.content[0]?.type === "text") {
+      if (
+        ev.type === "message" &&
+        Array.isArray(ev.payload.content) &&
+        ev.payload.content[0]?.type === "text"
+      ) {
         sinkLog.push(ev.payload.content[0].text);
       }
       return sinkLog.length;

@@ -86,7 +86,13 @@ function buildWhere(query: ReadQuery): { clause: string; params: unknown[] } {
   return { clause, params };
 }
 
-function mapRow(row: { seq: number; thread_id: string; run_id: string; event: string; ts: number }): EventRecord {
+function mapRow(row: {
+  seq: number;
+  thread_id: string;
+  run_id: string;
+  event: string;
+  ts: number;
+}): EventRecord {
   return {
     seq: row.seq,
     threadId: row.thread_id,
@@ -123,7 +129,13 @@ export function sqliteEventLog(opts: { db: SqliteDatabase | string }): EventLog 
           .query(
             `SELECT seq, thread_id, run_id, event, ts FROM event_log ${clause} ORDER BY seq ASC ${limit}`,
           )
-          .all(...(params as import("bun:sqlite").SQLQueryBindings[])) as { seq: number; thread_id: string; run_id: string; event: string; ts: number }[]
+          .all(...(params as import("bun:sqlite").SQLQueryBindings[])) as {
+          seq: number;
+          thread_id: string;
+          run_id: string;
+          event: string;
+          ts: number;
+        }[]
       ).map(mapRow);
     },
 

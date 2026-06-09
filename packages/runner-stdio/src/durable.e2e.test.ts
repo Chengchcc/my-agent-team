@@ -14,9 +14,15 @@ function tmpPath(): string {
 
 afterAll(() => {
   for (const p of tmpFiles) {
-    try { fs.unlinkSync(p); } catch {}
-    try { fs.unlinkSync(p + "-wal"); } catch {}
-    try { fs.unlinkSync(p + "-shm"); } catch {}
+    try {
+      fs.unlinkSync(p);
+    } catch {}
+    try {
+      fs.unlinkSync(p + "-wal");
+    } catch {}
+    try {
+      fs.unlinkSync(p + "-shm");
+    } catch {}
   }
 });
 
@@ -34,8 +40,12 @@ function makeMockAgent(events: AgentEvent[]): Agent {
       if (runCalls > 1) return;
       for (const ev of events) yield ev;
     },
-    async *resume(_cmd, _opts) { yield* [] as AgentEvent[]; },
-    fork(_msgs, _id) { return makeMockAgent([]); }, // M11: fork yields nothing by default
+    async *resume(_cmd, _opts) {
+      yield* [] as AgentEvent[];
+    },
+    fork(_msgs, _id) {
+      return makeMockAgent([]);
+    }, // M11: fork yields nothing by default
   };
 }
 
@@ -73,8 +83,14 @@ test("FIX-2: production path — self-built EventSink writes to event_log", asyn
 
   // Verify events landed in event_log
   using db = new Database(dbPath);
-  const rows = db.query("SELECT seq, thread_id, run_id, event, ts FROM event_log ORDER BY seq").all() as {
-    seq: number; thread_id: string; run_id: string; event: string; ts: number;
+  const rows = db
+    .query("SELECT seq, thread_id, run_id, event, ts FROM event_log ORDER BY seq")
+    .all() as {
+    seq: number;
+    thread_id: string;
+    run_id: string;
+    event: string;
+    ts: number;
   }[];
 
   expect(rows.length).toBe(3);
@@ -174,7 +190,9 @@ test("FIX-2: seq is monotonically increasing", async () => {
   });
 
   using db = new Database(dbPath);
-  const rows = db.query("SELECT seq FROM event_log WHERE run_id = ? ORDER BY seq").all("run-seq-1") as { seq: number }[];
+  const rows = db
+    .query("SELECT seq FROM event_log WHERE run_id = ? ORDER BY seq")
+    .all("run-seq-1") as { seq: number }[];
 
   expect(rows.length).toBe(10);
   for (let i = 0; i < rows.length; i++) {

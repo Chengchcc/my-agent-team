@@ -328,7 +328,15 @@ describe("createAgent", () => {
     let warnCount = 0;
     const agent = await createAgent({
       model: scriptedModel([{ type: "text", text: "ok" }]),
-      logger: { warn: () => { warnCount++; }, info: () => {}, error: () => {}, debug: () => {}, level: "warn" as const },
+      logger: {
+        warn: () => {
+          warnCount++;
+        },
+        info: () => {},
+        error: () => {},
+        debug: () => {},
+        level: "warn" as const,
+      },
       plugins: [
         definePlugin({
           name: "explode",
@@ -979,7 +987,15 @@ describe("createAgent", () => {
           },
         }),
       ],
-      logger: { warn: () => { warnCount++; }, info: () => {}, error: () => {}, debug: () => {}, level: "warn" as const },
+      logger: {
+        warn: () => {
+          warnCount++;
+        },
+        info: () => {},
+        error: () => {},
+        debug: () => {},
+        level: "warn" as const,
+      },
     });
 
     const events = await collect(agent.run("hi"));

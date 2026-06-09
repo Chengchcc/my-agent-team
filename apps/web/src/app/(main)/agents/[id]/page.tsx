@@ -50,8 +50,10 @@ export default function AgentDetailPage() {
       <div className="border-b border-[var(--hairline)] shrink-0">
         <div className="container mx-auto px-8 py-5">
           <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-normal text-[var(--ink-strong)] font-[family-name:var(--font-sans)]"
-              style={{ letterSpacing: "-0.65px" }}>
+            <h1
+              className="text-2xl font-normal text-[var(--ink-strong)] font-[family-name:var(--font-sans)]"
+              style={{ letterSpacing: "-0.65px" }}
+            >
               {agent.name}
             </h1>
 
@@ -59,10 +61,7 @@ export default function AgentDetailPage() {
               {agent.modelProvider}/{agent.modelName}
             </span>
 
-            <AgentForm
-              editAgent={agent}
-              triggerLabel="Edit"
-            />
+            <AgentForm editAgent={agent} triggerLabel="Edit" />
           </div>
 
           {/* Tabs */}
@@ -92,8 +91,8 @@ export default function AgentDetailPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="container mx-auto px-8 py-10">
-        {tab === "threads" && <ThreadList agentId={id} />}
-        {tab === "identity" && <IdentityPanel agentId={id} />}
+          {tab === "threads" && <ThreadList agentId={id} />}
+          {tab === "identity" && <IdentityPanel agentId={id} />}
         </div>
       </div>
     </div>

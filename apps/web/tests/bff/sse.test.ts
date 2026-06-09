@@ -62,9 +62,7 @@ describe("SSE parse", () => {
     const event = parseSSEEvent(lines);
     expect(event.id).toBe("1");
     expect(event.event).toBe("message");
-    expect(event.data).toBe(
-      '{"type":"message","payload":{"role":"assistant","content":"hi"}}',
-    );
+    expect(event.data).toBe('{"type":"message","payload":{"role":"assistant","content":"hi"}}');
   });
 
   test("deduplicates events by seq", () => {

@@ -1,6 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
-import { sqliteCheckpointReadAdapter, sqliteCheckpointWriteAdapter } from "../checkpoint/adapter-sqlite.js";
+import {
+  sqliteCheckpointReadAdapter,
+  sqliteCheckpointWriteAdapter,
+} from "../checkpoint/adapter-sqlite.js";
 import { sqliteConversationAdapter } from "./adapter-sqlite.js";
 import { createConversationService } from "./service.js";
 
@@ -42,7 +45,9 @@ function setupConv(id: string) {
       triggerMode: "mention",
       createdAt: Date.now(),
     });
-  } catch { /* already exists */ }
+  } catch {
+    /* already exists */
+  }
   try {
     port.addMember({
       memberId: `mem-h1-${id}`,
@@ -52,7 +57,9 @@ function setupConv(id: string) {
       displayName: "Alice",
       joinedAt: Date.now(),
     });
-  } catch { /* already exists */ }
+  } catch {
+    /* already exists */
+  }
   try {
     port.addMember({
       memberId: `mem-x1-${id}`,
@@ -62,7 +69,9 @@ function setupConv(id: string) {
       displayName: "XAgent",
       joinedAt: Date.now(),
     });
-  } catch { /* already exists */ }
+  } catch {
+    /* already exists */
+  }
   try {
     port.addMember({
       memberId: `mem-y1-${id}`,
@@ -72,14 +81,18 @@ function setupConv(id: string) {
       displayName: "YAgent",
       joinedAt: Date.now(),
     });
-  } catch { /* already exists */ }
+  } catch {
+    /* already exists */
+  }
   // Create thread rows for agent members
-  db.run("INSERT OR IGNORE INTO threads (id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", [
-    `${id}:mem-x1-${id}`, "ag-x", "X thread", Date.now(), Date.now(),
-  ]);
-  db.run("INSERT OR IGNORE INTO threads (id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", [
-    `${id}:mem-y1-${id}`, "ag-y", "Y thread", Date.now(), Date.now(),
-  ]);
+  db.run(
+    "INSERT OR IGNORE INTO threads (id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    [`${id}:mem-x1-${id}`, "ag-x", "X thread", Date.now(), Date.now()],
+  );
+  db.run(
+    "INSERT OR IGNORE INTO threads (id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    [`${id}:mem-y1-${id}`, "ag-y", "Y thread", Date.now(), Date.now()],
+  );
   return { id };
 }
 

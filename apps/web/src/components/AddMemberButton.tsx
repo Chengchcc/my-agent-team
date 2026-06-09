@@ -11,10 +11,7 @@ interface AddMemberButtonProps {
   roster: Record<string, SenderRef>;
 }
 
-export function AddMemberButton({
-  conversationId,
-  roster,
-}: AddMemberButtonProps) {
+export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps) {
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
 
@@ -44,9 +41,7 @@ export function AddMemberButton({
     },
   });
 
-  const available = (agents ?? []).filter(
-    (a) => !presentMemberIds.has(`agent-${a.id}`),
-  );
+  const available = (agents ?? []).filter((a) => !presentMemberIds.has(`agent-${a.id}`));
 
   return (
     <>
@@ -63,9 +58,7 @@ export function AddMemberButton({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
           <div className="bg-[var(--canvas)] rounded-lg border border-[var(--hairline)] shadow-xl w-80 max-h-96 flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--hairline)]">
-              <span className="text-sm font-semibold text-[var(--ink-strong)]">
-                Add Agent
-              </span>
+              <span className="text-sm font-semibold text-[var(--ink-strong)]">Add Agent</span>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -76,9 +69,7 @@ export function AddMemberButton({
             </div>
             <div className="flex-1 overflow-y-auto p-2">
               {available.length === 0 ? (
-                <p className="text-xs text-[var(--mute)] p-2">
-                  No available agents to add.
-                </p>
+                <p className="text-xs text-[var(--mute)] p-2">No available agents to add.</p>
               ) : (
                 <ul className="space-y-1">
                   {available.map((a) => (
@@ -90,9 +81,7 @@ export function AddMemberButton({
                         className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--canvas-soft)] transition-colors disabled:opacity-40 text-left"
                       >
                         <Bot size={14} className="text-[var(--primary)] shrink-0" />
-                        <span className="text-[var(--body)] truncate">
-                          {a.name}
-                        </span>
+                        <span className="text-[var(--body)] truncate">{a.name}</span>
                       </button>
                     </li>
                   ))}

@@ -24,7 +24,8 @@ function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
 }
 
 function makeMockEventLog(): EventLog {
-  const noopSubscribe: EventLog["subscribe"] = () => (async function* () {})() as AsyncIterable<EventRecord>;
+  const noopSubscribe: EventLog["subscribe"] = () =>
+    (async function* () {})() as AsyncIterable<EventRecord>;
   return {
     append: async () => 1,
     read: async () => [],
@@ -32,7 +33,10 @@ function makeMockEventLog(): EventLog {
   };
 }
 
-function makeRequest(path: string, opts?: { method?: string; body?: unknown; headers?: Record<string, string> }): Request {
+function makeRequest(
+  path: string,
+  opts?: { method?: string; body?: unknown; headers?: Record<string, string> },
+): Request {
   return new Request(`http://localhost${path}`, {
     method: opts?.method ?? "GET",
     headers: { "Content-Type": "application/json", ...opts?.headers },
@@ -68,9 +72,12 @@ describe("Run HTTP", () => {
     });
     const routes = runRoutes(svc, async () => "{}");
 
-    const res = await routes.run(makeRequest("/api/threads/t1/runs", { method: "POST", body: { input: "hello" } }), "t1");
+    const res = await routes.run(
+      makeRequest("/api/threads/t1/runs", { method: "POST", body: { input: "hello" } }),
+      "t1",
+    );
     expect(res.status).toBe(202);
-    const body = await res.json() as { runId: string; attemptId: string };
+    const body = (await res.json()) as { runId: string; attemptId: string };
     expect(body.runId).toBe("run-1");
     expect(body.attemptId).toBe("att-1");
   });
@@ -85,7 +92,10 @@ describe("Run HTTP", () => {
     });
     const routes = runRoutes(svc, async () => "{}");
 
-    const res = await routes.run(makeRequest("/api/threads/t1/runs", { method: "POST", body: { input: "hello" } }), "t1");
+    const res = await routes.run(
+      makeRequest("/api/threads/t1/runs", { method: "POST", body: { input: "hello" } }),
+      "t1",
+    );
     expect(res.status).toBe(409);
   });
 
@@ -99,7 +109,10 @@ describe("Run HTTP", () => {
     });
     const routes = runRoutes(svc, async () => "{}");
 
-    const res = await routes.run(makeRequest("/api/threads/t1/runs", { method: "POST", body: { input: "hello" } }), "t1");
+    const res = await routes.run(
+      makeRequest("/api/threads/t1/runs", { method: "POST", body: { input: "hello" } }),
+      "t1",
+    );
     expect(res.status).toBe(429);
   });
 
@@ -113,7 +126,10 @@ describe("Run HTTP", () => {
     });
     const routes = runRoutes(svc, async () => "{}");
 
-    const res = await routes.run(makeRequest("/api/threads/t1/runs", { method: "POST", body: {} }), "t1");
+    const res = await routes.run(
+      makeRequest("/api/threads/t1/runs", { method: "POST", body: {} }),
+      "t1",
+    );
     expect(res.status).toBe(400);
   });
 
@@ -153,8 +169,20 @@ describe("Run HTTP", () => {
     const mockLog: EventLog = {
       ...makeMockEventLog(),
       subscribe: async function* (this: any, _query?: any, _opts?: any, _signal?: any) {
-        yield { seq: 1, threadId: "t1", runId: "r1", event: { type: "message", message: { role: "assistant" as const, content: "hi" } }, ts: 1 } as EventRecord;
-        yield { seq: 2, threadId: "t1", runId: "r1", event: { type: "message", message: { role: "assistant" as const, content: "there" } }, ts: 2 } as EventRecord;
+        yield {
+          seq: 1,
+          threadId: "t1",
+          runId: "r1",
+          event: { type: "message", message: { role: "assistant" as const, content: "hi" } },
+          ts: 1,
+        } as EventRecord;
+        yield {
+          seq: 2,
+          threadId: "t1",
+          runId: "r1",
+          event: { type: "message", message: { role: "assistant" as const, content: "there" } },
+          ts: 2,
+        } as EventRecord;
       } as any,
     };
 
@@ -187,7 +215,13 @@ describe("Run HTTP", () => {
       ...makeMockEventLog(),
       subscribe: async function* (_query: any, _opts?: any, _signal?: any) {
         receivedAfterSeq = _query.afterSeq;
-        yield { seq: 6, threadId: "t1", runId: "r1", event: { type: "message", message: { role: "assistant" as const, content: "after5" } }, ts: 6 } as EventRecord;
+        yield {
+          seq: 6,
+          threadId: "t1",
+          runId: "r1",
+          event: { type: "message", message: { role: "assistant" as const, content: "after5" } },
+          ts: 6,
+        } as EventRecord;
       } as any,
     };
 
@@ -243,7 +277,12 @@ describe("Run HTTP", () => {
   test("POST /resume returns 202 with new attemptId", async () => {
     let forked = false;
     const svc = createRunService({
-      supervisor: makeMockSupervisor({ fork: () => { forked = true; return { runId: "r1", attemptId: "att-2", pid: 9999 }; } }),
+      supervisor: makeMockSupervisor({
+        fork: () => {
+          forked = true;
+          return { runId: "r1", attemptId: "att-2", pid: 9999 };
+        },
+      }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
       threads: new Set(),
@@ -260,7 +299,7 @@ describe("Run HTTP", () => {
       "r1",
     );
     expect(res.status).toBe(202);
-    const body = await res.json() as { runId: string; attemptId: string };
+    const body = (await res.json()) as { runId: string; attemptId: string };
     expect(body.runId).toBe("r1");
     expect(forked).toBe(true);
   });
@@ -270,7 +309,10 @@ describe("Run HTTP", () => {
   test("GET /:id returns run metadata", async () => {
     const mockDb = {
       query: () => ({
-        get: (id: string) => id === "r1" ? { run_id: "r1", status: "running", started_at: 1, ended_at: null } : undefined,
+        get: (id: string) =>
+          id === "r1"
+            ? { run_id: "r1", status: "running", started_at: 1, ended_at: null }
+            : undefined,
       }),
     };
     const svc = createRunService({
@@ -284,7 +326,7 @@ describe("Run HTTP", () => {
 
     const res = await routes.getById(makeRequest("/api/runs/r1"), "r1");
     expect(res.status).toBe(200);
-    const body = await res.json() as { runId: string; status: string };
+    const body = (await res.json()) as { runId: string; status: string };
     expect(body.runId).toBe("r1");
     expect(body.status).toBe("running");
   });

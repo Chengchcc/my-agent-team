@@ -20,10 +20,7 @@ interface ConversationCanvasProps {
   snapshot?: ConversationSnapshot | null;
 }
 
-export function ConversationCanvas({
-  conversationId,
-  snapshot,
-}: ConversationCanvasProps) {
+export function ConversationCanvas({ conversationId, snapshot }: ConversationCanvasProps) {
   const {
     viewerMemberId,
     roster,
@@ -47,8 +44,7 @@ export function ConversationCanvas({
 
   const lastUserMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]!.sender.memberId === viewerMemberId)
-        return extractText(messages[i]!.content);
+      if (messages[i]!.sender.memberId === viewerMemberId) return extractText(messages[i]!.content);
     }
     return null;
   }, [messages, viewerMemberId]);
@@ -70,8 +66,7 @@ export function ConversationCanvas({
 
   const qc = useQueryClient();
   const removeMember = useMutation({
-    mutationFn: (memberId: string) =>
-      api.removeConversationMember(conversationId, memberId),
+    mutationFn: (memberId: string) => api.removeConversationMember(conversationId, memberId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["conv", conversationId] });
     },
@@ -106,28 +101,20 @@ export function ConversationCanvas({
                     phase === "running" ? "animate-dot-pulse" : ""
                   }`}
                   style={{
-                    backgroundColor:
-                      phase === "running"
-                        ? "var(--primary)"
-                        : "var(--mute)",
+                    backgroundColor: phase === "running" ? "var(--primary)" : "var(--mute)",
                   }}
                 />
                 <span
                   className="text-xs tracking-[0.15em] uppercase font-semibold"
                   style={{
-                    color:
-                      phase === "running"
-                        ? "var(--primary)"
-                        : "var(--mute)",
+                    color: phase === "running" ? "var(--primary)" : "var(--mute)",
                   }}
                 >
                   {label}
                 </span>
               </>
             )}
-            {!label && (
-              <span className="text-xs text-[var(--mute)]">Idle</span>
-            )}
+            {!label && <span className="text-xs text-[var(--mute)]">Idle</span>}
             {runId && phase === "running" && (
               <button
                 type="button"
@@ -171,10 +158,7 @@ export function ConversationCanvas({
       <div className="flex-1 flex min-h-0">
         {/* Main scroll area */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
-          <div
-            className="mx-auto"
-            style={{ maxWidth: "72ch", padding: "0 1.5rem" }}
-          >
+          <div className="mx-auto" style={{ maxWidth: "72ch", padding: "0 1.5rem" }}>
             {loading ? (
               <div className="flex items-center justify-center py-16">
                 <div className="space-y-4 w-full">
@@ -196,9 +180,7 @@ export function ConversationCanvas({
                     {primaryAgent.displayName ?? primaryAgent.memberId}
                   </h1>
                 )}
-                <p className="text-sm text-[var(--mute)] mb-6">
-                  Send a message to begin.
-                </p>
+                <p className="text-sm text-[var(--mute)] mb-6">Send a message to begin.</p>
                 <p className="font-[family-name:var(--font-mono)] text-[13px] text-[var(--primary)]">
                   &#x25B8; type to start
                 </p>
@@ -218,27 +200,18 @@ export function ConversationCanvas({
             <span className="text-[10px] tracking-[0.15em] uppercase text-[var(--mute)] font-semibold">
               Members
             </span>
-            <AddMemberButton
-              conversationId={conversationId}
-              roster={roster}
-            />
+            <AddMemberButton conversationId={conversationId} roster={roster} />
           </div>
           <ul className="space-y-1">
             {Object.values(roster).map((m) => {
               if (m.kind === "system") return null;
               const isViewer = m.memberId === viewerMemberId;
               return (
-                <li
-                  key={m.memberId}
-                  className="flex items-center gap-2 text-xs py-1 group"
-                >
+                <li key={m.memberId} className="flex items-center gap-2 text-xs py-1 group">
                   {m.kind === "agent" ? (
                     <Bot size={14} className="text-[var(--primary)] shrink-0" />
                   ) : (
-                    <UserCircle
-                      size={14}
-                      className="text-[var(--mute)] shrink-0"
-                    />
+                    <UserCircle size={14} className="text-[var(--mute)] shrink-0" />
                   )}
                   <span className="truncate text-[var(--body)] flex-1">
                     {m.displayName ?? m.memberId}

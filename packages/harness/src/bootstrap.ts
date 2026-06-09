@@ -24,7 +24,7 @@ export const BOOTSTRAP_TEMPLATE = [
   "self-aware that you're brand new.",
   "",
   "**Lead with the use-case, not your config.** Don't ask \"what temperature do you",
-  "want\" or \"which tools should I load.\" Ask how they actually intend to use you:",
+  'want" or "which tools should I load." Ask how they actually intend to use you:',
   "",
   "- What do you want me to help you with — day to day?",
   "- When you hand me a task, what does a good result look like to you?",
@@ -89,7 +89,11 @@ export async function bootstrap(workspace: string, logger: Logger): Promise<stri
     const soul = await readOrEmpty(path.join(workspace, "SOUL.md"), logger);
     if (soul.trim()) {
       // SOUL.md already exists — BOOTSTRAP.md is stale. Delete it and fall through.
-      try { await unlink(bootPath); } catch { /* best-effort cleanup */ }
+      try {
+        await unlink(bootPath);
+      } catch {
+        /* best-effort cleanup */
+      }
     } else {
       // Genuine birth mode: no identity yet, use BOOTSTRAP.md as systemPrompt
       return boot;

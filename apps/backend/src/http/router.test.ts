@@ -2,7 +2,10 @@ import type { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sqliteAgentAdapter } from "../features/agent/adapter-sqlite.js";
 import { agentRoutes, createAgentService } from "../features/agent/index.js";
-import { sqliteCheckpointReadAdapter, sqliteCheckpointWriteAdapter } from "../features/checkpoint/adapter-sqlite.js";
+import {
+  sqliteCheckpointReadAdapter,
+  sqliteCheckpointWriteAdapter,
+} from "../features/checkpoint/adapter-sqlite.js";
 import {
   conversationRoutes,
   createConversationService,
@@ -175,9 +178,7 @@ describe("Router with real features", () => {
         method: "POST",
         headers: { "x-auth-token": TOKEN, "content-type": "application/json" },
         body: JSON.stringify({
-          members: [
-            { kind: "human", memberId: "bob", userRef: "u-2" },
-          ],
+          members: [{ kind: "human", memberId: "bob", userRef: "u-2" }],
         }),
       }),
     );

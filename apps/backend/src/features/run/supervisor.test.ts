@@ -27,7 +27,7 @@ function makeConfig(overrides?: Partial<BackendConfig>): BackendConfig {
     heartbeatIntervalMs: 5_000,
     heartbeatTimeoutMs: 100, // very short for testing
     cancelGraceMs: 5_000,
-    reaperIntervalMs: 50,  // fast reaper for tests
+    reaperIntervalMs: 50, // fast reaper for tests
     stepStallTimeoutMs: 200,
     ...overrides,
   };
@@ -60,22 +60,29 @@ describe("RunSupervisor reaper (M11)", () => {
     // Insert a run and attempt with old heartbeat
     const oldHeartbeat = Date.now() - 200; // older than heartbeatTimeoutMs=100
     db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
-      "run-stale", "thread-1", Date.now() - 5000,
+      "run-stale",
+      "thread-1",
+      Date.now() - 5000,
     ]);
-    db.run("INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)", [
-      "att-stale", "run-stale", 99999, oldHeartbeat, Date.now() - 5000,
-    ]);
+    db.run(
+      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)",
+      ["att-stale", "run-stale", 99999, oldHeartbeat, Date.now() - 5000],
+    );
 
     // Wait for reaper to fire (reaperIntervalMs=50ms)
     await new Promise((r) => setTimeout(r, 150));
 
     // Check run was marked interrupted
-    const runRow = db.query("SELECT status, ended_at FROM run WHERE run_id = ?").get("run-stale") as { status: string; ended_at: number | null } | undefined;
+    const runRow = db.query("SELECT status, ended_at FROM run WHERE run_id = ?").get("run-stale") as
+      | { status: string; ended_at: number | null }
+      | undefined;
     expect(runRow?.status).toBe("interrupted");
     expect(runRow?.ended_at).toBeGreaterThan(0);
 
     // Check attempt was ended
-    const attRow = db.query("SELECT ended_at FROM attempt WHERE attempt_id = ?").get("att-stale") as { ended_at: number | null } | undefined;
+    const attRow = db.query("SELECT ended_at FROM attempt WHERE attempt_id = ?").get("att-stale") as
+      | { ended_at: number | null }
+      | undefined;
     expect(attRow?.ended_at).toBeGreaterThan(0);
 
     await sup.dispose();
@@ -89,15 +96,20 @@ describe("RunSupervisor reaper (M11)", () => {
     const db = sup.getDb();
     const freshHeartbeat = Date.now(); // just now
     db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
-      "run-fresh", "thread-2", Date.now() - 1000,
+      "run-fresh",
+      "thread-2",
+      Date.now() - 1000,
     ]);
-    db.run("INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)", [
-      "att-fresh", "run-fresh", 88888, freshHeartbeat, Date.now() - 1000,
-    ]);
+    db.run(
+      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)",
+      ["att-fresh", "run-fresh", 88888, freshHeartbeat, Date.now() - 1000],
+    );
 
     await new Promise((r) => setTimeout(r, 200));
 
-    const runRow = db.query("SELECT status FROM run WHERE run_id = ?").get("run-fresh") as { status: string } | undefined;
+    const runRow = db.query("SELECT status FROM run WHERE run_id = ?").get("run-fresh") as
+      | { status: string }
+      | undefined;
     expect(runRow?.status).toBe("running");
 
     await sup.dispose();
@@ -117,11 +129,14 @@ describe("RunSupervisor reaper (M11)", () => {
     const oldHeartbeat = Date.now() - 200;
     const uniqueRunId = `run-cb-${Date.now()}`;
     db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
-      uniqueRunId, "thread-3", Date.now() - 5000,
+      uniqueRunId,
+      "thread-3",
+      Date.now() - 5000,
     ]);
-    db.run("INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)", [
-      `att-${uniqueRunId}`, uniqueRunId, 77777, oldHeartbeat, Date.now() - 5000,
-    ]);
+    db.run(
+      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)",
+      [`att-${uniqueRunId}`, uniqueRunId, 77777, oldHeartbeat, Date.now() - 5000],
+    );
 
     await new Promise((r) => setTimeout(r, 200));
 
@@ -141,14 +156,19 @@ describe("RunSupervisor reaper (M11)", () => {
     const db = sup.getDb();
     const oldHeartbeat = Date.now() - 200;
     db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
-      "run-dispose", "thread-4", Date.now() - 5000,
+      "run-dispose",
+      "thread-4",
+      Date.now() - 5000,
     ]);
-    db.run("INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)", [
-      "att-dispose", "run-dispose", 66666, oldHeartbeat, Date.now() - 5000,
-    ]);
+    db.run(
+      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)",
+      ["att-dispose", "run-dispose", 66666, oldHeartbeat, Date.now() - 5000],
+    );
 
     // Check run is still running before dispose (reaper had minimal cycles)
-    const beforeRow = db.query("SELECT status FROM run WHERE run_id = ?").get("run-dispose") as { status: string } | undefined;
+    const beforeRow = db.query("SELECT status FROM run WHERE run_id = ?").get("run-dispose") as
+      | { status: string }
+      | undefined;
     expect(beforeRow?.status).toBe("running");
 
     // Dispose — this stops the reaper and closes the DB
@@ -167,11 +187,14 @@ describe("RunSupervisor reaper (M11)", () => {
     const oldHeartbeat = Date.now() - 200;
     const uniqueRunId = `run-ev-${Date.now()}`;
     db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
-      uniqueRunId, "thread-5", Date.now() - 5000,
+      uniqueRunId,
+      "thread-5",
+      Date.now() - 5000,
     ]);
-    db.run("INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)", [
-      `att-${uniqueRunId}`, uniqueRunId, 55555, oldHeartbeat, Date.now() - 5000,
-    ]);
+    db.run(
+      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)",
+      [`att-${uniqueRunId}`, uniqueRunId, 55555, oldHeartbeat, Date.now() - 5000],
+    );
 
     // Wait for reaper to fire (async reaper needs time to complete append)
     await new Promise((r) => setTimeout(r, 250));
@@ -200,28 +223,38 @@ describe("RunSupervisor reaper (M11)", () => {
     // Heartbeat is 300ms old: > heartbeatTimeout(100) but < heartbeatTimeout+stepStallTimeout(600)
     const stallHb = Date.now() - 300;
     db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
-      "run-stall", "thread-stall", Date.now() - 5000,
+      "run-stall",
+      "thread-stall",
+      Date.now() - 5000,
     ]);
-    db.run("INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)", [
-      "att-stall", "run-stall", realPid, stallHb, Date.now() - 5000,
-    ]);
+    db.run(
+      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)",
+      ["att-stall", "run-stall", realPid, stallHb, Date.now() - 5000],
+    );
 
     // Trigger reaper via rediscover (which delegates to #reapStaleRuns)
     await sup.rediscover(eventLog);
 
     // Process is alive + age(300) < heartbeatTimeout(100) + stepStallTimeout(500) = 600
     // → must NOT be reaped
-    const runRow = db.query("SELECT status FROM run WHERE run_id = ?").get("run-stall") as { status: string } | undefined;
+    const runRow = db.query("SELECT status FROM run WHERE run_id = ?").get("run-stall") as
+      | { status: string }
+      | undefined;
     expect(runRow?.status).toBe("running");
 
     // Now make heartbeat older than stall window
     const beyondStallHb = Date.now() - 700; // age 700 > 100+500
-    db.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [beyondStallHb, "att-stall"]);
+    db.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [
+      beyondStallHb,
+      "att-stall",
+    ]);
 
     // Run reaper again — process still alive but age now exceeds stall window → must reap
     await sup.rediscover(eventLog);
 
-    const runRow2 = db.query("SELECT status FROM run WHERE run_id = ?").get("run-stall") as { status: string } | undefined;
+    const runRow2 = db.query("SELECT status FROM run WHERE run_id = ?").get("run-stall") as
+      | { status: string }
+      | undefined;
     expect(runRow2?.status).toBe("interrupted");
 
     await sup.dispose();
@@ -236,11 +269,14 @@ describe("RunSupervisor reaper (M11)", () => {
     const db = sup.getDb();
     const freshHeartbeat = Date.now();
     db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
-      "run-rediscover", "thread-6", Date.now() - 1000,
+      "run-rediscover",
+      "thread-6",
+      Date.now() - 1000,
     ]);
-    db.run("INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)", [
-      "att-rediscover", "run-rediscover", 44444, freshHeartbeat, Date.now() - 1000,
-    ]);
+    db.run(
+      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)",
+      ["att-rediscover", "run-rediscover", 44444, freshHeartbeat, Date.now() - 1000],
+    );
 
     await sup.rediscover(eventLog);
 

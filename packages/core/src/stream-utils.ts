@@ -58,7 +58,10 @@ export function mergeChunkIntoBlocks(
   );
 }
 
-export function finalizeToolUseInputs(blocks: ContentBlock[], partialJson: Map<string, string>): void {
+export function finalizeToolUseInputs(
+  blocks: ContentBlock[],
+  partialJson: Map<string, string>,
+): void {
   for (const block of blocks) {
     if (block.type !== "tool_use") {
       continue;

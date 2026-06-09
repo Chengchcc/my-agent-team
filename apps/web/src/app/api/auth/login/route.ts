@@ -5,8 +5,8 @@ export async function POST(req: NextRequest): Promise<Response> {
   // Accept both JSON (fetch) and form-urlencoded (native form)
   const contentType = req.headers.get("content-type") ?? "";
   const password = contentType.includes("application/json")
-    ? ((await req.json().catch(() => ({}))) as { password?: string })?.password ?? ""
-    : (await req.formData().catch(() => new FormData())).get("password")?.toString() ?? "";
+    ? (((await req.json().catch(() => ({}))) as { password?: string })?.password ?? "")
+    : ((await req.formData().catch(() => new FormData())).get("password")?.toString() ?? "");
 
   const result = await login(password);
   if ("error" in result) {

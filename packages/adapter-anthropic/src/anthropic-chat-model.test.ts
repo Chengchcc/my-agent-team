@@ -254,10 +254,26 @@ describe("AnthropicChatModel", () => {
             [Symbol.asyncIterator]() {
               let i = 0;
               const events = [
-                { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "..." } },
-                { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "more" } },
-                { type: "content_block_start", index: 1, content_block: { type: "redacted_thinking", data: "..." } },
-                { type: "content_block_start", index: 2, content_block: { type: "text", text: "actual output" } },
+                {
+                  type: "content_block_start",
+                  index: 0,
+                  content_block: { type: "thinking", thinking: "..." },
+                },
+                {
+                  type: "content_block_delta",
+                  index: 0,
+                  delta: { type: "thinking_delta", thinking: "more" },
+                },
+                {
+                  type: "content_block_start",
+                  index: 1,
+                  content_block: { type: "redacted_thinking", data: "..." },
+                },
+                {
+                  type: "content_block_start",
+                  index: 2,
+                  content_block: { type: "text", text: "actual output" },
+                },
               ];
               return {
                 next: () => {

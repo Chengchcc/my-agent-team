@@ -14,8 +14,12 @@ interface FeatureSet {
   checkpoints: ReturnType<typeof checkpointRoutes>;
   conversations?: ReturnType<typeof conversationRoutes>;
   /** H4: Legacy thread→conversation forwarding for POST /threads/:id/runs */
-  resolveLegacyThreadRun?: (threadId: string) => Promise<
-    { action: "forward"; conversationId: string; agentMemberId: string } | { action: "reject"; reason: string } | null
+  resolveLegacyThreadRun?: (
+    threadId: string,
+  ) => Promise<
+    | { action: "forward"; conversationId: string; agentMemberId: string }
+    | { action: "reject"; reason: string }
+    | null
   >;
 }
 
@@ -67,15 +71,13 @@ export function createRouter(token: string, features?: FeatureSet) {
         return withAuth((r) => agents.update(r, agentMatch?.[1] ?? ""), token)(req);
       if (agentMatch && method === "DELETE")
         return withAuth((r) => agents.archive(r, agentMatch?.[1] ?? ""), token)(req);
-      if (agentMatch)
-        return json({ error: "Method not allowed" }, 405);
+      if (agentMatch) return json({ error: "Method not allowed" }, 405);
       // D11: agent identity (SOUL/USER/memory)
       if (agentIdentityMatch && method === "GET")
         return withAuth((r) => agents.identity(r, agentIdentityMatch[1]!), token)(req);
       if (agentIdentityMatch && method === "PUT")
         return withAuth((r) => agents.updateIdentity(r, agentIdentityMatch[1]!), token)(req);
-      if (agentIdentityMatch)
-        return json({ error: "Method not allowed" }, 405);
+      if (agentIdentityMatch) return json({ error: "Method not allowed" }, 405);
 
       // Threads
       if (agentThreadsMatch && method === "POST")
@@ -83,8 +85,7 @@ export function createRouter(token: string, features?: FeatureSet) {
       if (agentThreadsMatch && method === "GET")
         return withAuth((r) => threads.list(r, agentThreadsMatch[1]!), token)(req);
       // M6: 405 for /api/agents/:id/threads with wrong method
-      if (agentThreadsMatch)
-        return json({ error: "Method not allowed" }, 405);
+      if (agentThreadsMatch) return json({ error: "Method not allowed" }, 405);
 
       const threadMatch = path.match(/^\/api\/threads\/([^/]+)$/);
       const threadMsgsMatch = path.match(/^\/api\/threads\/([^/]+)\/messages$/);
@@ -98,17 +99,14 @@ export function createRouter(token: string, features?: FeatureSet) {
       if (threadMatch && method === "DELETE")
         return withAuth((r) => threads.delete(r, threadMatch[1]!), token)(req);
       // M6: 405 for /api/threads/:id with wrong method
-      if (threadMatch)
-        return json({ error: "Method not allowed" }, 405);
+      if (threadMatch) return json({ error: "Method not allowed" }, 405);
       if (threadMsgsMatch && method === "GET")
         return withAuth((r) => checkpoints.getMessages(r, threadMsgsMatch[1]!), token)(req);
-      if (threadMsgsMatch)
-        return json({ error: "Method not allowed" }, 405);
+      if (threadMsgsMatch) return json({ error: "Method not allowed" }, 405);
       // D12: query active run for a thread
       if (threadCurrentRunMatch && method === "GET")
         return withAuth((r) => runs.currentRun(r, threadCurrentRunMatch[1]!), token)(req);
-      if (threadCurrentRunMatch)
-        return json({ error: "Method not allowed" }, 405);
+      if (threadCurrentRunMatch) return json({ error: "Method not allowed" }, 405);
       if (threadRunsMatch && method === "POST") {
         // H4: Legacy thread→conversation forwarding.
         // withAuth must wrap THE ENTIRE handler to prevent Bun from dropping
@@ -118,18 +116,21 @@ export function createRouter(token: string, features?: FeatureSet) {
             const resolution = await resolveLegacyThreadRun(threadRunsMatch[1]!);
             if (resolution) {
               if (resolution.action === "forward" && conversations) {
-                const body = await req2.json().catch(() => ({})) as { input?: string };
+                const body = (await req2.json().catch(() => ({}))) as { input?: string };
                 // Already authenticated; conversations handler also checks auth
                 return conversations.postMessage(
-                  new Request(`http://localhost/api/conversations/${resolution.conversationId}/messages`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      senderMemberId: "legacy-user",
-                      addressedTo: [resolution.agentMemberId],
-                      content: { text: body.input ?? "" },
-                    }),
-                  }),
+                  new Request(
+                    `http://localhost/api/conversations/${resolution.conversationId}/messages`,
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        senderMemberId: "legacy-user",
+                        addressedTo: [resolution.agentMemberId],
+                        content: { text: body.input ?? "" },
+                      }),
+                    },
+                  ),
                   resolution.conversationId,
                 );
               }
@@ -141,8 +142,7 @@ export function createRouter(token: string, features?: FeatureSet) {
           return runs.run(req2, threadRunsMatch[1]!);
         }, token)(req);
       }
-      if (threadRunsMatch)
-        return json({ error: "Method not allowed" }, 405);
+      if (threadRunsMatch) return json({ error: "Method not allowed" }, 405);
 
       // Runs — cancel, events, stream, resume, get
       const cancelMatch = path.match(/^\/api\/runs\/([^/]+)\/cancel$/);
@@ -153,25 +153,20 @@ export function createRouter(token: string, features?: FeatureSet) {
 
       if (cancelMatch && method === "POST")
         return withAuth((r) => runs.cancel(r, cancelMatch[1]!), token)(req);
-      if (cancelMatch)
-        return json({ error: "Method not allowed" }, 405);
+      if (cancelMatch) return json({ error: "Method not allowed" }, 405);
       if (eventsMatch && method === "GET")
         return withAuth((r) => runs.events(r, eventsMatch[1]!), token)(req);
-      if (eventsMatch)
-        return json({ error: "Method not allowed" }, 405);
+      if (eventsMatch) return json({ error: "Method not allowed" }, 405);
       // M13: /stream for ephemeral text_delta SSE
       if (streamMatch && method === "GET")
         return withAuth((r) => runs.stream(r, streamMatch[1]!), token)(req);
-      if (streamMatch)
-        return json({ error: "Method not allowed" }, 405);
+      if (streamMatch) return json({ error: "Method not allowed" }, 405);
       if (resumeMatch && method === "POST")
         return withAuth((r) => runs.resume(r, resumeMatch[1]!), token)(req);
-      if (resumeMatch)
-        return json({ error: "Method not allowed" }, 405);
+      if (resumeMatch) return json({ error: "Method not allowed" }, 405);
       if (runMatch && method === "GET")
         return withAuth((r) => runs.getById(r, runMatch[1]!), token)(req);
-      if (runMatch)
-        return json({ error: "Method not allowed" }, 405);
+      if (runMatch) return json({ error: "Method not allowed" }, 405);
 
       // Conversations — M10
       if (conversations) {
@@ -183,26 +178,21 @@ export function createRouter(token: string, features?: FeatureSet) {
 
         if (convListMatch && method === "POST")
           return withAuth((r) => conversations.create(r), token)(req);
-        if (convListMatch)
-          return json({ error: "Method not allowed" }, 405);
+        if (convListMatch) return json({ error: "Method not allowed" }, 405);
         if (convSnapMatch && method === "GET")
           return withAuth((r) => conversations.snapshot(r, convSnapMatch[1]!), token)(req);
-        if (convSnapMatch)
-          return json({ error: "Method not allowed" }, 405);
+        if (convSnapMatch) return json({ error: "Method not allowed" }, 405);
         if (convMsgMatch && method === "POST")
           return withAuth((r) => conversations.postMessage(r, convMsgMatch[1]!), token)(req);
-        if (convMsgMatch)
-          return json({ error: "Method not allowed" }, 405);
+        if (convMsgMatch) return json({ error: "Method not allowed" }, 405);
         if (convMemberMatch && method === "POST")
           return withAuth((r) => conversations.addMember(r, convMemberMatch[1]!), token)(req);
         if (convMemberMatch && method === "DELETE")
           return withAuth((r) => conversations.removeMember(r, convMemberMatch[1]!), token)(req);
-        if (convMemberMatch)
-          return json({ error: "Method not allowed" }, 405);
+        if (convMemberMatch) return json({ error: "Method not allowed" }, 405);
         if (convEventsMatch && method === "GET")
           return withAuth((r) => conversations.events(r, convEventsMatch[1]!), token)(req);
-        if (convEventsMatch)
-          return json({ error: "Method not allowed" }, 405);
+        if (convEventsMatch) return json({ error: "Method not allowed" }, 405);
       }
 
       return withAuth(async () => notFound(req), token)(req);

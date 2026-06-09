@@ -22,9 +22,15 @@ function tmpPath(): string {
 
 afterAll(() => {
   for (const p of tmpFiles) {
-    try { fs.unlinkSync(p); } catch {}
-    try { fs.unlinkSync(p + "-wal"); } catch {}
-    try { fs.unlinkSync(p + "-shm"); } catch {}
+    try {
+      fs.unlinkSync(p);
+    } catch {}
+    try {
+      fs.unlinkSync(p + "-wal");
+    } catch {}
+    try {
+      fs.unlinkSync(p + "-shm");
+    } catch {}
   }
 });
 
@@ -84,7 +90,10 @@ async function runReader(
   try {
     for await (const _rec of log.subscribe({ runId }, { pollMs }, ac.signal)) {
       count++;
-      if (count >= targetCount) { ac.abort(); break; }
+      if (count >= targetCount) {
+        ac.abort();
+        break;
+      }
     }
   } catch {
     // timeout or abort — expected
@@ -118,8 +127,9 @@ describe("EventLog concurrency benchmark", () => {
     const N = 10;
     const eventsPerWriter = 50;
 
-    const writers = Array.from({ length: N }, (_, i) =>
-      runWriter(dbPath, `r-writer-${i}`, "t-bench", eventsPerWriter, 1), // 1ms gap = ~500 append/s total
+    const writers = Array.from(
+      { length: N },
+      (_, i) => runWriter(dbPath, `r-writer-${i}`, "t-bench", eventsPerWriter, 1), // 1ms gap = ~500 append/s total
     );
 
     const results = await Promise.all(writers);
@@ -132,7 +142,9 @@ describe("EventLog concurrency benchmark", () => {
     const p99 = allDurations[Math.floor(allDurations.length * 0.99)]!;
     const p999 = allDurations[Math.floor(allDurations.length * 0.999)]!;
 
-    console.log(`  10-writers: total=${totalAppended} errors=${totalErrors} P50=${p50.toFixed(1)}ms P99=${p99.toFixed(1)}ms P99.9=${p999.toFixed(1)}ms`);
+    console.log(
+      `  10-writers: total=${totalAppended} errors=${totalErrors} P50=${p50.toFixed(1)}ms P99=${p99.toFixed(1)}ms P99.9=${p999.toFixed(1)}ms`,
+    );
 
     expect(totalErrors).toBe(0);
     expect(totalAppended).toBe(N * eventsPerWriter);
@@ -184,8 +196,14 @@ describe("EventLog concurrency benchmark", () => {
         ended_at INTEGER
       );
     `);
-    setupDb.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", ["r-hb", "t-hb", Date.now()]);
-    setupDb.run("INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)", ["att-hb", "r-hb", 12345, Date.now(), Date.now()]);
+    setupDb.run(
+      "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
+      ["r-hb", "t-hb", Date.now()],
+    );
+    setupDb.run(
+      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)",
+      ["att-hb", "r-hb", 12345, Date.now(), Date.now()],
+    );
     setupDb.close();
 
     const log = sqliteEventLog({ db: dbPath });
@@ -196,20 +214,29 @@ describe("EventLog concurrency benchmark", () => {
     const hbInterval = setInterval(() => {
       try {
         using hbDb = new Database(dbPath);
-        hbDb.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [Date.now(), "att-hb"]);
-      } catch { heartbeatErrors++; }
+        hbDb.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [
+          Date.now(),
+          "att-hb",
+        ]);
+      } catch {
+        heartbeatErrors++;
+      }
     }, 50);
 
     for (let i = 0; i < 100; i++) {
       try {
         await log.append("t-hb", "r-hb", makeEvent(`hb-${i}`));
-      } catch { appendErrors++; }
+      } catch {
+        appendErrors++;
+      }
       await new Promise((r) => setTimeout(r, 5));
     }
 
     clearInterval(hbInterval);
 
-    console.log(`  heartbeat+append: heartbeatErrors=${heartbeatErrors} appendErrors=${appendErrors}`);
+    console.log(
+      `  heartbeat+append: heartbeatErrors=${heartbeatErrors} appendErrors=${appendErrors}`,
+    );
 
     expect(appendErrors).toBe(0);
     // Heartbeat may fail occasionally (table lock) — that's acceptable
@@ -245,7 +272,9 @@ describe("EventLog concurrency benchmark", () => {
     const p99 = allDurations[Math.floor(allDurations.length * 0.99)]!;
     const max = allDurations[allDurations.length - 1]!;
 
-    console.log(`  stress: ${totalAppended} events in ${elapsed.toFixed(0)}ms (${rate}/s) errors=${totalErrors} P50=${p50.toFixed(1)}ms P99=${p99.toFixed(1)}ms max=${max.toFixed(1)}ms`);
+    console.log(
+      `  stress: ${totalAppended} events in ${elapsed.toFixed(0)}ms (${rate}/s) errors=${totalErrors} P50=${p50.toFixed(1)}ms P99=${p99.toFixed(1)}ms max=${max.toFixed(1)}ms`,
+    );
 
     expect(totalErrors).toBe(0);
     expect(totalAppended).toBe(N * eventsPerWriter);

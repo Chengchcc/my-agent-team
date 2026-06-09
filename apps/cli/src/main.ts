@@ -172,7 +172,7 @@ async function runRemoteMode(baseUrl: string): Promise<void> {
         console.error(`Error: ${postRes.status} ${JSON.stringify(err)}`);
         continue;
       }
-      const { runId } = await postRes.json() as { runId: string };
+      const { runId } = (await postRes.json()) as { runId: string };
 
       // GET /api/runs/:id/events (SSE, with Last-Event-ID reconnect)
       const eventsRes = await fetch(`${baseUrl}/api/runs/${runId}/events`, {
@@ -260,7 +260,10 @@ async function runConversationMode(baseUrl: string, convId: string): Promise<voi
       console.log(`Conversation created: ${body.conversationId} (${body.members.length} members)`);
     }
   } catch (err) {
-    console.error("Failed to create conversation:", err instanceof Error ? err.message : String(err));
+    console.error(
+      "Failed to create conversation:",
+      err instanceof Error ? err.message : String(err),
+    );
     return;
   }
 
@@ -275,9 +278,13 @@ async function runConversationMode(baseUrl: string, convId: string): Promise<voi
       // Ignore errors — might already exist
       const members = await membersRes.json().catch(() => ({}));
       if ((members as { members?: unknown[] }).members) {
-        console.log(`Members online: ${(members as { members: Array<{ displayName?: string }> }).members.map((m) => m.displayName ?? "?").join(", ")}`);
+        console.log(
+          `Members online: ${(members as { members: Array<{ displayName?: string }> }).members.map((m) => m.displayName ?? "?").join(", ")}`,
+        );
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
 
   console.log("Type @<member> <text> to address an agent, or just text to chat\n");
@@ -304,7 +311,10 @@ async function runConversationMode(baseUrl: string, convId: string): Promise<voi
         console.error(`Error: ${postRes.status} ${JSON.stringify(err)}`);
         continue;
       }
-      const { seq, triggeredRuns } = await postRes.json() as { seq: number; triggeredRuns: Array<{ agentMemberId: string; runId: string }> };
+      const { seq, triggeredRuns } = (await postRes.json()) as {
+        seq: number;
+        triggeredRuns: Array<{ agentMemberId: string; runId: string }>;
+      };
 
       if (addressedTo.length > 0 && triggeredRuns.length > 0) {
         const runId = triggeredRuns[0]!.runId;
@@ -338,15 +348,25 @@ async function runConversationMode(baseUrl: string, convId: string): Promise<voi
                 try {
                   const data = JSON.parse(sseLine.slice(6));
                   if (data.kind === "message") {
-                    const content = typeof data.content === "string"
-                      ? (() => { try { return JSON.parse(data.content); } catch { return data.content; } })()
-                      : data.content;
-                    const text = typeof content === "object" && content?.text ? content.text : String(content);
+                    const content =
+                      typeof data.content === "string"
+                        ? (() => {
+                            try {
+                              return JSON.parse(data.content);
+                            } catch {
+                              return data.content;
+                            }
+                          })()
+                        : data.content;
+                    const text =
+                      typeof content === "object" && content?.text ? content.text : String(content);
                     if (data.senderMemberId !== senderMemberId) {
                       process.stdout.write(`${text}\n`);
                     }
                   }
-                } catch { /* skip */ }
+                } catch {
+                  /* skip */
+                }
               }
             }
           }

@@ -8,16 +8,17 @@ import type { ConversationPort } from "./ports.js";
  *
  * Idempotent: skips threads that already have a conversation row.
  */
-export function backfillLegacyThreads(
-  db: Database,
-  port: ConversationPort,
-): void {
+export function backfillLegacyThreads(db: Database, port: ConversationPort): void {
   // L5: Use cursor-based iteration instead of loading all threads into memory
   const query = db.query(
     "SELECT t.id, t.agent_id, t.title FROM threads t WHERE NOT EXISTS (SELECT 1 FROM conversation c WHERE c.conversation_id = t.id)",
   );
 
-  for (const thread of query.iterate() as Iterable<{ id: string; agent_id: string; title: string | null }>) {
+  for (const thread of query.iterate() as Iterable<{
+    id: string;
+    agent_id: string;
+    title: string | null;
+  }>) {
     const now = Date.now();
 
     // Create degenerate conversation (id = threadId)

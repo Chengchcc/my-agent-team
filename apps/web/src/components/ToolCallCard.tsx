@@ -2,14 +2,7 @@
 
 import { useState } from "react";
 
-export function ToolCallCard({
-  name,
-  input,
-}: {
-  id?: string;
-  name: string;
-  input: unknown;
-}) {
+export function ToolCallCard({ name, input }: { id?: string; name: string; input: unknown }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -22,9 +15,7 @@ export function ToolCallCard({
         <span className="text-[10px] tracking-[0.15em] uppercase font-[family-name:var(--font-sans)] font-semibold text-[var(--primary)]">
           Tool: {name}
         </span>
-        <span className="text-[10px] text-[var(--mute)]">
-          {open ? "▲ collapse" : "▼ expand"}
-        </span>
+        <span className="text-[10px] text-[var(--mute)]">{open ? "▲ collapse" : "▼ expand"}</span>
       </button>
       <div
         className="grid transition-all duration-200 ease-out"

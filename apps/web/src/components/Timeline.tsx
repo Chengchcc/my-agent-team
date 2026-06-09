@@ -37,11 +37,7 @@ export function Timeline({ messages, viewerMemberId }: TimelineProps) {
             return (
               <div key={m.id} style={virt}>
                 <SystemNotice
-                  text={
-                    typeof m.content === "string"
-                      ? m.content
-                      : extractText(m.content)
-                  }
+                  text={typeof m.content === "string" ? m.content : extractText(m.content)}
                 />
               </div>
             );
@@ -52,11 +48,7 @@ export function Timeline({ messages, viewerMemberId }: TimelineProps) {
               <div key={m.id} style={virt}>
                 <MessageBubble
                   align={isSelf ? "right" : "left"}
-                  name={
-                    isSelf
-                      ? undefined
-                      : (m.sender.displayName ?? m.sender.memberId)
-                  }
+                  name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
                   kind={m.sender.kind === "system" ? undefined : m.sender.kind}
                   content={m.content}
                 />
@@ -70,11 +62,7 @@ export function Timeline({ messages, viewerMemberId }: TimelineProps) {
               {text && (
                 <MessageBubble
                   align={isSelf ? "right" : "left"}
-                  name={
-                    isSelf
-                      ? undefined
-                      : (m.sender.displayName ?? m.sender.memberId)
-                  }
+                  name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
                   kind={m.sender.kind === "system" ? undefined : m.sender.kind}
                   content={text}
                 />

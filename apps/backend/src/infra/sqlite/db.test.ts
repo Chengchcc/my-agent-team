@@ -117,7 +117,9 @@ test("M10 conversation/member/conversation_ledger tables exist after migration",
   expect(memCols.map((c) => c.name)).toContain("kind");
 
   // Verify conversation_ledger shape
-  const ledgerCols = db.query("PRAGMA table_info('conversation_ledger')").all() as { name: string }[];
+  const ledgerCols = db.query("PRAGMA table_info('conversation_ledger')").all() as {
+    name: string;
+  }[];
   expect(ledgerCols.map((c) => c.name)).toContain("seq");
   expect(ledgerCols.map((c) => c.name)).toContain("sender_member_id");
   expect(ledgerCols.map((c) => c.name)).toContain("kind");

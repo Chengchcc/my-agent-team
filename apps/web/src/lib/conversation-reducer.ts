@@ -47,7 +47,10 @@ export type Action =
   | { type: "stream/delta"; runId: string; agentMemberId: string; blockIndex: number; text: string }
   | { type: "stream/toolStart"; id: string; name: string }
   | { type: "stream/toolEnd"; id: string }
-  | { type: "run/interrupted"; payload: { pendingTool?: { id: string; name: string; input: unknown } } }
+  | {
+      type: "run/interrupted";
+      payload: { pendingTool?: { id: string; name: string; input: unknown } };
+    }
   | { type: "run/error"; message: string }
   | { type: "run/done" }
   | { type: "run/completed" };
@@ -86,10 +89,7 @@ function upsertAuthoritative(
   if (sender.memberId === viewerMemberId) {
     const optIdx = [...list]
       .reverse()
-      .findIndex(
-        (m) =>
-          m.id.startsWith("opt-") && m.sender.memberId === viewerMemberId,
-      );
+      .findIndex((m) => m.id.startsWith("opt-") && m.sender.memberId === viewerMemberId);
     if (optIdx >= 0) {
       const real = list.length - 1 - optIdx;
       const next = [...list];
@@ -157,9 +157,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
       const clearsDraft =
         sender.memberId === s.viewerMemberId ||
         (s.draft !== null && a.senderMemberId === s.draft.agentMemberId);
-      return clearsDraft
-        ? { ...s, messages, draft: null }
-        : { ...s, messages };
+      return clearsDraft ? { ...s, messages, draft: null } : { ...s, messages };
     }
 
     case "send": {
@@ -168,10 +166,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
         ...s,
         optimisticSeq: s.optimisticSeq + 1,
         run: { ...s.run, phase: "running" },
-        messages: [
-          ...s.messages,
-          { id, sender: a.viewer, content: a.text },
-        ],
+        messages: [...s.messages, { id, sender: a.viewer, content: a.text }],
       };
     }
 
@@ -208,10 +203,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
             ...s,
             draft: {
               ...s.draft,
-              tools: [
-                ...s.draft.tools,
-                { id: a.id, name: a.name },
-              ],
+              tools: [...s.draft.tools, { id: a.id, name: a.name }],
             },
           }
         : s;

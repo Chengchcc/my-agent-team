@@ -47,7 +47,10 @@ export function ensureCheckpointerSchema(db: Database): void {
   runMigrations(db, SQLITE_CHECKPOINTER_MIGRATIONS);
 }
 
-function runMigrations(db: Database, migrations: readonly { name: string; id: number; up: string }[]): void {
+function runMigrations(
+  db: Database,
+  migrations: readonly { name: string; id: number; up: string }[],
+): void {
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
 

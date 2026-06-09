@@ -11,8 +11,14 @@ describe("withWorkspace path rewriting", () => {
     const tool: Tool = {
       name: "write",
       description: "",
-      inputSchema: { type: "object", properties: { path: {} as Record<string,unknown>, content: {} as Record<string,unknown> } },
-      execute: (input) => { received = input; return { content: "" }; },
+      inputSchema: {
+        type: "object",
+        properties: { path: {} as Record<string, unknown>, content: {} as Record<string, unknown> },
+      },
+      execute: (input) => {
+        received = input;
+        return { content: "" };
+      },
     };
     await withWorkspace(tool, "/tmp").execute({ path: "SOUL.md", content: "hello" });
     expect((received as { path: string }).path).toBe("/tmp/SOUL.md");
@@ -23,8 +29,11 @@ describe("withWorkspace path rewriting", () => {
     const tool: Tool = {
       name: "read",
       description: "",
-      inputSchema: { type: "object", properties: { filePath: {} as Record<string,unknown> } },
-      execute: (input) => { received = input; return { content: "" }; },
+      inputSchema: { type: "object", properties: { filePath: {} as Record<string, unknown> } },
+      execute: (input) => {
+        received = input;
+        return { content: "" };
+      },
     };
     await withWorkspace(tool, "/tmp").execute({ filePath: "file.txt" });
     expect((received as { filePath: string }).filePath).toBe("/tmp/file.txt");
@@ -35,8 +44,11 @@ describe("withWorkspace path rewriting", () => {
     const tool: Tool = {
       name: "edit",
       description: "",
-      inputSchema: { type: "object", properties: { file_path: {} as Record<string,unknown> } },
-      execute: (input) => { received = input; return { content: "" }; },
+      inputSchema: { type: "object", properties: { file_path: {} as Record<string, unknown> } },
+      execute: (input) => {
+        received = input;
+        return { content: "" };
+      },
     };
     await withWorkspace(tool, "/tmp").execute({ file_path: "README.md" });
     expect((received as { file_path: string }).file_path).toBe("/tmp/README.md");
@@ -47,8 +59,11 @@ describe("withWorkspace path rewriting", () => {
     const tool: Tool = {
       name: "write",
       description: "",
-      inputSchema: { type: "object", properties: { path: {} as Record<string,unknown> } },
-      execute: (input) => { received = input; return { content: "" }; },
+      inputSchema: { type: "object", properties: { path: {} as Record<string, unknown> } },
+      execute: (input) => {
+        received = input;
+        return { content: "" };
+      },
     };
     await withWorkspace(tool, "/tmp").execute({ path: "/tmp/OTHER.md" });
     expect((received as { path: string }).path).toBe("/tmp/OTHER.md");
@@ -70,11 +85,13 @@ describe("withWorkspace path rewriting", () => {
     const tool: Tool = {
       name: "read",
       description: "",
-      inputSchema: { type: "object", properties: { filePath: {} as Record<string,unknown> } },
+      inputSchema: { type: "object", properties: { filePath: {} as Record<string, unknown> } },
       execute: () => ({ content: "" }),
     };
     const wrapped = withWorkspace(tool, ws);
-    await expect(wrapped.execute({ filePath: "../outside/passwd" })).rejects.toBeInstanceOf(SandboxError);
+    await expect(wrapped.execute({ filePath: "../outside/passwd" })).rejects.toBeInstanceOf(
+      SandboxError,
+    );
 
     await fs.rm(dir, { recursive: true, force: true });
   });
@@ -86,8 +103,14 @@ describe("withWorkspace cwd injection", () => {
     const tool: Tool = {
       name: "bash",
       description: "",
-      inputSchema: { type: "object", properties: { command: {} as Record<string,unknown>, cwd: {} as Record<string,unknown> } },
-      execute: (input) => { received = input; return { content: "" }; },
+      inputSchema: {
+        type: "object",
+        properties: { command: {} as Record<string, unknown>, cwd: {} as Record<string, unknown> },
+      },
+      execute: (input) => {
+        received = input;
+        return { content: "" };
+      },
     };
     await withWorkspace(tool, "/tmp").execute({ command: "ls" });
     expect((received as { cwd: string }).cwd).toBe("/tmp");
@@ -98,8 +121,14 @@ describe("withWorkspace cwd injection", () => {
     const tool: Tool = {
       name: "bash",
       description: "",
-      inputSchema: { type: "object", properties: { command: {} as Record<string,unknown>, cwd: {} as Record<string,unknown> } },
-      execute: (input) => { received = input; return { content: "" }; },
+      inputSchema: {
+        type: "object",
+        properties: { command: {} as Record<string, unknown>, cwd: {} as Record<string, unknown> },
+      },
+      execute: (input) => {
+        received = input;
+        return { content: "" };
+      },
     };
     await withWorkspace(tool, "/tmp").execute({ command: "ls", cwd: "/tmp" });
     expect((received as { cwd: string }).cwd).toBe("/tmp");
@@ -110,8 +139,14 @@ describe("withWorkspace cwd injection", () => {
     const tool: Tool = {
       name: "bash",
       description: "",
-      inputSchema: { type: "object", properties: { command: {} as Record<string,unknown>, cwd: {} as Record<string,unknown> } },
-      execute: (input) => { received = input; return { content: "" }; },
+      inputSchema: {
+        type: "object",
+        properties: { command: {} as Record<string, unknown>, cwd: {} as Record<string, unknown> },
+      },
+      execute: (input) => {
+        received = input;
+        return { content: "" };
+      },
     };
     await withWorkspace(tool, "/tmp").execute({ command: "ls", cwd: "" });
     expect((received as { cwd: string }).cwd).toBe("/tmp");

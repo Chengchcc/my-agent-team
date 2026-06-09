@@ -9,7 +9,9 @@ export function json(body: unknown, status = 200): Response {
 }
 
 /** Parse JSON body, returning 400 on syntax error. Empty body → {}. */
-export async function parseJsonBody(req: Request): Promise<{ data: unknown } | { error: Response }> {
+export async function parseJsonBody(
+  req: Request,
+): Promise<{ data: unknown } | { error: Response }> {
   const text = await req.text().catch(() => "");
   if (text.trim() === "") return { data: {} };
   try {
@@ -43,7 +45,9 @@ export function sseResponse<T>(
           } else {
             const errMsg = err instanceof Error ? err.message : String(err);
             controller.enqueue(
-              new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ error: errMsg })}\n\n`),
+              new TextEncoder().encode(
+                `event: error\ndata: ${JSON.stringify({ error: errMsg })}\n\n`,
+              ),
             );
             controller.close();
           }

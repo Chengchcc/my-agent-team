@@ -123,13 +123,18 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
 
     // M11: Permanent hard delete — all in single backend.db transaction.
     // Enable foreign_keys for CASCADE, then restore original value to avoid side effects.
-    async hardDelete(id: string): Promise<{ deletedAgent: boolean; deletedThreads: number; deletedMembers: number }> {
-      const prevFK = (db.query("PRAGMA foreign_keys").get() as { foreign_keys: number }).foreign_keys;
+    async hardDelete(
+      id: string,
+    ): Promise<{ deletedAgent: boolean; deletedThreads: number; deletedMembers: number }> {
+      const prevFK = (db.query("PRAGMA foreign_keys").get() as { foreign_keys: number })
+        .foreign_keys;
       db.exec("PRAGMA foreign_keys = ON");
 
       const delAgent = db.transaction(() => {
         // Collect thread IDs for checkpoint cleanup (no FK on checkpoint tables)
-        const threadRows = db.query("SELECT id FROM threads WHERE agent_id = ?").all(id) as { id: string }[];
+        const threadRows = db.query("SELECT id FROM threads WHERE agent_id = ?").all(id) as {
+          id: string;
+        }[];
         const threadIds = threadRows.map((r) => r.id);
 
         // Delete checkpoint rows by thread ID

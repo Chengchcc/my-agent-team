@@ -19,9 +19,7 @@ function buildComponents(): Components {
       <strong className="font-semibold text-[var(--ink-strong)]">{children}</strong>
     ),
     em: ({ children }) => <em className="italic">{children}</em>,
-    del: ({ children }) => (
-      <del className="text-[var(--mute)] line-through">{children}</del>
-    ),
+    del: ({ children }) => <del className="text-[var(--mute)] line-through">{children}</del>,
     a: ({ href, children }) => (
       <a
         href={href}

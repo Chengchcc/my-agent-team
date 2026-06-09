@@ -27,14 +27,11 @@ export function NavRail() {
     staleTime: 10_000,
   });
 
-  const agentThreads = (threads ?? []).filter(
-    (t) => t.kind === "agent_thread",
-  );
+  const agentThreads = (threads ?? []).filter((t) => t.kind === "agent_thread");
 
   const activeAgents = (agents ?? []).filter((a) => !a.archivedAt);
 
-  const isThreadActive = (threadId: string) =>
-    pathname === `/threads/${threadId}`;
+  const isThreadActive = (threadId: string) => pathname === `/threads/${threadId}`;
   const isAgentActive = (agentId: string) =>
     pathname === `/agents/${agentId}` || pathname.startsWith(`/agents/${agentId}`);
 
@@ -50,7 +47,14 @@ export function NavRail() {
           className="w-7 h-7 flex items-center justify-center text-[var(--mute)] hover:text-[var(--primary)] transition-colors"
           aria-label="Expand sidebar"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          >
             <path d="M6 4l4 4-4 4" />
           </svg>
         </button>
@@ -59,7 +63,14 @@ export function NavRail() {
           className="w-7 h-7 flex items-center justify-center rounded-full text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
           aria-label="Agents"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          >
             <circle cx="6" cy="5" r="2" />
             <circle cx="10" cy="5" r="2" />
             <path d="M2 13c0-2 1.8-3 4-3s4 1 4 3" />
@@ -90,7 +101,14 @@ export function NavRail() {
           className="w-6 h-6 flex items-center justify-center text-[var(--mute)] hover:text-[var(--primary)] transition-colors"
           aria-label="Collapse sidebar"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          >
             <path d="M10 4l-4 4 4 4" />
           </svg>
         </button>
@@ -102,9 +120,7 @@ export function NavRail() {
           <h2 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] mb-2 font-[family-name:var(--font-sans)] font-semibold">
             Agents
           </h2>
-          {activeAgents.length === 0 && (
-            <p className="text-xs text-[var(--mute)]">No agents yet</p>
-          )}
+          {activeAgents.length === 0 && <p className="text-xs text-[var(--mute)]">No agents yet</p>}
           <ul className="space-y-0.5">
             {activeAgents.map((agent, i) => (
               <li
@@ -147,7 +163,14 @@ export function NavRail() {
                 className="text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors"
                 aria-label="New thread"
               >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
                   <path d="M8 3v10M3 8h10" />
                 </svg>
               </button>

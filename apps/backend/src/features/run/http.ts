@@ -7,7 +7,15 @@ const resumeSchema = z.object({ approved: z.boolean(), message: z.string().optio
 
 export function runRoutes(
   svc: ReturnType<typeof import("./service.js").createRunService>,
-  buildSpecJson: (threadId: string, input: string, overrides?: { runId?: string; mode?: "run" | "resume"; resumeCommand?: { approved: boolean; message?: string } }) => Promise<string>,
+  buildSpecJson: (
+    threadId: string,
+    input: string,
+    overrides?: {
+      runId?: string;
+      mode?: "run" | "resume";
+      resumeCommand?: { approved: boolean; message?: string };
+    },
+  ) => Promise<string>,
   getThreadIdForRun?: (runId: string) => Promise<string>,
 ) {
   return {
@@ -50,11 +58,15 @@ export function runRoutes(
         : parseInt(req.headers.get("Last-Event-ID") ?? "0", 10) || 0;
       const stream = svc.eventStream(runId, afterSeq, req.signal);
 
-      return sseResponse(stream, (rec) => ({
-        id: String(rec.seq),
-        event: rec.event.type,
-        data: rec.event,
-      }), req.signal);
+      return sseResponse(
+        stream,
+        (rec) => ({
+          id: String(rec.seq),
+          event: rec.event.type,
+          data: rec.event,
+        }),
+        req.signal,
+      );
     },
 
     /** POST /api/runs/:id/resume → 202 { runId, attemptId } */

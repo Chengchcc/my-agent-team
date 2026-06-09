@@ -42,14 +42,20 @@ const EVENTS_DB_MIGRATIONS = [
 ];
 
 function runEventsDbMigrations(db: Database): void {
-  db.exec("CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, id INTEGER NOT NULL, ran_at INTEGER NOT NULL)");
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, id INTEGER NOT NULL, ran_at INTEGER NOT NULL)",
+  );
   const ran = new Set(
     (db.query("SELECT name FROM _migrations").all() as { name: string }[]).map((r) => r.name),
   );
   for (const m of EVENTS_DB_MIGRATIONS) {
     if (ran.has(m.name)) continue;
     db.exec(m.up);
-    db.run("INSERT INTO _migrations (name, id, ran_at) VALUES (?, ?, ?)", [m.name, m.id, Date.now()]);
+    db.run("INSERT INTO _migrations (name, id, ran_at) VALUES (?, ?, ?)", [
+      m.name,
+      m.id,
+      Date.now(),
+    ]);
   }
 }
 
@@ -92,13 +98,16 @@ export class RunSupervisor {
 
   /** M11: Start periodic reaper to harvest stale runs. */
   #startReaper(): void {
-    const interval = this.#opts.config.reaperIntervalMs > 0
-      ? this.#opts.config.reaperIntervalMs
-      : Math.min(this.#opts.config.heartbeatTimeoutMs / 2, 30_000);
+    const interval =
+      this.#opts.config.reaperIntervalMs > 0
+        ? this.#opts.config.reaperIntervalMs
+        : Math.min(this.#opts.config.heartbeatTimeoutMs / 2, 30_000);
     this.#reaperTimer = setInterval(() => {
       if (this.#reaping) return; // concurrency guard: skip if previous tick still running
       this.#reaping = true;
-      void this.#reapStaleRuns().finally(() => { this.#reaping = false; });
+      void this.#reapStaleRuns().finally(() => {
+        this.#reaping = false;
+      });
     }, interval);
   }
 
@@ -113,9 +122,12 @@ export class RunSupervisor {
          WHERE a.ended_at IS NULL`,
       )
       .all() as {
-        attempt_id: string; run_id: string; pid: number | null;
-        heartbeat_at: number | null; thread_id: string;
-      }[];
+      attempt_id: string;
+      run_id: string;
+      pid: number | null;
+      heartbeat_at: number | null;
+      thread_id: string;
+    }[];
 
     let reaped = false;
     for (const row of rows) {
@@ -138,7 +150,10 @@ export class RunSupervisor {
       const now = Date.now();
       // FIX: transactional write — run + attempt status update is atomic
       this.#db.transaction(() => {
-        this.#db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ?", [now, row.run_id]);
+        this.#db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ?", [
+          now,
+          row.run_id,
+        ]);
         this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, row.attempt_id]);
       })();
 
@@ -157,7 +172,9 @@ export class RunSupervisor {
         fn(row.thread_id, row.run_id);
       }
 
-      console.log(`[supervisor] reaped stale run: ${row.run_id} (heartbeat age ${age}ms > timeout ${this.#opts.config.heartbeatTimeoutMs}ms)`);
+      console.log(
+        `[supervisor] reaped stale run: ${row.run_id} (heartbeat age ${age}ms > timeout ${this.#opts.config.heartbeatTimeoutMs}ms)`,
+      );
       reaped = true;
     }
     return reaped;
@@ -226,7 +243,11 @@ export class RunSupervisor {
     const controllers = this.#deltaSubs.get(runId);
     if (!controllers) return;
     for (const ctrl of controllers) {
-      try { ctrl.close(); } catch { /* already closed */ }
+      try {
+        ctrl.close();
+      } catch {
+        /* already closed */
+      }
     }
     this.#deltaSubs.delete(runId);
   }
@@ -250,7 +271,11 @@ export class RunSupervisor {
   }
 
   /** Fork subprocess and return attemptId. Non-blocking. */
-  fork(runId: string, threadId: string, specJson: string): { runId: string; attemptId: string; pid: number } {
+  fork(
+    runId: string,
+    threadId: string,
+    specJson: string,
+  ): { runId: string; attemptId: string; pid: number } {
     const attemptId = crypto.randomUUID();
     const now = Date.now();
 
@@ -291,15 +316,14 @@ export class RunSupervisor {
           // Ephemeral events → in-memory fan-out ONLY, never EventLog
           if (ev.type === "text_delta" && ev.payload) {
             this.#pushEphemeral(runId, ev.type, ev.payload);
-          } else if (
-            (ev.type === "tool_start" || ev.type === "tool_end") &&
-            ev.payload
-          ) {
+          } else if ((ev.type === "tool_start" || ev.type === "tool_end") && ev.payload) {
             this.#pushEphemeral(runId, ev.type, ev.payload);
           } else {
-            void this.#opts.eventLog.append(threadId, runId, ev as Parameters<EventLog["append"]>[2]).catch(() => {
-              // best-effort; runner's direct DB write is primary
-            });
+            void this.#opts.eventLog
+              .append(threadId, runId, ev as Parameters<EventLog["append"]>[2])
+              .catch(() => {
+                // best-effort; runner's direct DB write is primary
+              });
           }
         } catch {
           // skip malformed lines
@@ -318,11 +342,20 @@ export class RunSupervisor {
 
       // Fix D: Determine status correctly
       if (ac.signal.aborted || signal !== null) {
-        this.#db.run("UPDATE run SET status = 'aborted', ended_at = ? WHERE run_id = ?", [exitNow, runId]);
+        this.#db.run("UPDATE run SET status = 'aborted', ended_at = ? WHERE run_id = ?", [
+          exitNow,
+          runId,
+        ]);
       } else if (code === 0) {
-        this.#db.run("UPDATE run SET status = 'succeeded', ended_at = ? WHERE run_id = ?", [exitNow, runId]);
+        this.#db.run("UPDATE run SET status = 'succeeded', ended_at = ? WHERE run_id = ?", [
+          exitNow,
+          runId,
+        ]);
       } else {
-        this.#db.run("UPDATE run SET status = 'error', ended_at = ? WHERE run_id = ?", [exitNow, runId]);
+        this.#db.run("UPDATE run SET status = 'error', ended_at = ? WHERE run_id = ?", [
+          exitNow,
+          runId,
+        ]);
       }
 
       // M13: Close delta subscribers (run is done — no more deltas)
@@ -362,7 +395,10 @@ export class RunSupervisor {
       } catch {
         // Process already dead — mark aborted immediately
         const now = Date.now();
-        this.#db.run("UPDATE run SET status = 'aborted', ended_at = ? WHERE run_id = ?", [now, runId]);
+        this.#db.run("UPDATE run SET status = 'aborted', ended_at = ? WHERE run_id = ?", [
+          now,
+          runId,
+        ]);
         this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, run.attemptId]);
         this.#active.delete(runId);
       }
@@ -373,9 +409,13 @@ export class RunSupervisor {
   /** On restart: discover live runs by heartbeat, re-register them for cancel support.
    *  Stale runs are handled by the shared #reapStaleRuns() method. */
   async rediscover(_eventSource: EventSource): Promise<void> {
-    const rows = this.#db
-      .query("SELECT * FROM attempt WHERE ended_at IS NULL")
-      .all() as { attempt_id: string; run_id: string; thread_id?: string; pid: number | null; heartbeat_at: number | null }[];
+    const rows = this.#db.query("SELECT * FROM attempt WHERE ended_at IS NULL").all() as {
+      attempt_id: string;
+      run_id: string;
+      thread_id?: string;
+      pid: number | null;
+      heartbeat_at: number | null;
+    }[];
 
     // Phase 1: re-register live runs in #active for post-restart cancel support
     for (const row of rows) {
@@ -390,7 +430,9 @@ export class RunSupervisor {
           child: null,
           abortController: ac,
         });
-        console.log(`[supervisor] re-discovered live run: ${row.run_id} (attempt ${row.attempt_id}, age ${age}ms)`);
+        console.log(
+          `[supervisor] re-discovered live run: ${row.run_id} (attempt ${row.attempt_id}, age ${age}ms)`,
+        );
       }
     }
 
@@ -408,7 +450,10 @@ export class RunSupervisor {
     } catch {
       // Process already dead — just update status
       const now = Date.now();
-      this.#db.run("UPDATE run SET status = 'aborted', ended_at = ? WHERE run_id = ?", [now, runId]);
+      this.#db.run("UPDATE run SET status = 'aborted', ended_at = ? WHERE run_id = ?", [
+        now,
+        runId,
+      ]);
       this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, run.attemptId]);
       this.#active.delete(runId);
       return false;

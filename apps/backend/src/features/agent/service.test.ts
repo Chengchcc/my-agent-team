@@ -144,7 +144,9 @@ describe("AgentService", () => {
       idGen: () => "agent-hd",
       workspaceRoot: "/tmp/ws",
       materializeWorkspace: async () => "/tmp/ws/agent-hd",
-      purgeWorkspace: async (id) => { purgeLog.push(id); },
+      purgeWorkspace: async (id) => {
+        purgeLog.push(id);
+      },
       purgeEventsForThreads: () => {},
       listThreadIds: async () => [],
       assertNoActiveRun: () => {},
@@ -168,7 +170,9 @@ describe("AgentService", () => {
       purgeWorkspace: async () => {},
       purgeEventsForThreads: () => {},
       listThreadIds: async () => [],
-      assertNoActiveRun: () => { throw new AgentBusyError("agent-busy"); },
+      assertNoActiveRun: () => {
+        throw new AgentBusyError("agent-busy");
+      },
     });
 
     await svc.create({ name: "busy", model: { provider: "anthropic", model: "x" } });

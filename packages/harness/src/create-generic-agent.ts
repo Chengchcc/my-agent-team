@@ -103,9 +103,9 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
 
   // 2. Default 6 built-in file tools (domain-neutral, needed by all workspace agents)
   // H7: wrap tools with workspace sandbox
-  const defaultTools: Tool[] = [
-    readTool, writeTool, editTool, bashTool, grepTool, globTool,
-  ].map((t) => withWorkspace(t, workspace));
+  const defaultTools: Tool[] = [readTool, writeTool, editTool, bashTool, grepTool, globTool].map(
+    (t) => withWorkspace(t, workspace),
+  );
 
   // 3. Default 2 plugins with conventional paths
   const defaultPlugins: Plugin[] = [

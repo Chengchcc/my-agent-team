@@ -3,9 +3,17 @@ import { sqliteEventLog } from "@my-agent-team/event-log";
 import { loadConfig } from "./config.js";
 import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
 import { AgentBusyError, agentRoutes, createAgentService } from "./features/agent/index.js";
-import { sqliteCheckpointReadAdapter, sqliteCheckpointWriteAdapter } from "./features/checkpoint/adapter-sqlite.js";
+import {
+  sqliteCheckpointReadAdapter,
+  sqliteCheckpointWriteAdapter,
+} from "./features/checkpoint/adapter-sqlite.js";
 import { checkpointRoutes, createCheckpointService } from "./features/checkpoint/index.js";
-import { backfillLegacyThreads, conversationRoutes, createConversationService, sqliteConversationAdapter } from "./features/conversation/index.js";
+import {
+  backfillLegacyThreads,
+  conversationRoutes,
+  createConversationService,
+  sqliteConversationAdapter,
+} from "./features/conversation/index.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
 import { sqliteThreadAdapter } from "./features/thread/adapter-sqlite.js";
@@ -52,7 +60,10 @@ const agentSvc = createAgentService({
     const tx = edb.transaction((ids: string[]) => {
       for (const tid of ids) {
         edb.run("DELETE FROM event_log WHERE thread_id = ?", [tid]);
-        edb.run("DELETE FROM attempt WHERE run_id IN (SELECT run_id FROM run WHERE thread_id = ?)", [tid]);
+        edb.run(
+          "DELETE FROM attempt WHERE run_id IN (SELECT run_id FROM run WHERE thread_id = ?)",
+          [tid],
+        );
         edb.run("DELETE FROM run WHERE thread_id = ?", [tid]);
       }
     });
@@ -60,15 +71,19 @@ const agentSvc = createAgentService({
   },
 
   listThreadIds: async (agentId) =>
-    (db.query("SELECT id FROM threads WHERE agent_id = ?").all(agentId) as { id: string }[]).map((r) => r.id),
+    (db.query("SELECT id FROM threads WHERE agent_id = ?").all(agentId) as { id: string }[]).map(
+      (r) => r.id,
+    ),
 
   assertNoActiveRun: (agentId) => {
     const edb = supervisor.getDb();
-    const busy = edb.query(
-      `SELECT 1 FROM attempt WHERE ended_at IS NULL
+    const busy = edb
+      .query(
+        `SELECT 1 FROM attempt WHERE ended_at IS NULL
          AND run_id IN (SELECT run_id FROM run WHERE thread_id IN
            (SELECT id FROM threads WHERE agent_id = ?)) LIMIT 1`,
-    ).get(agentId);
+      )
+      .get(agentId);
     if (busy) throw new AgentBusyError(agentId);
   },
 });
@@ -113,9 +128,7 @@ const runSvc = createRunService({
       }
     },
     getMessages: async (tid) =>
-      (await checkpointPort.getMessages(tid)) as
-        | import("@my-agent-team/core").Message[]
-        | null,
+      (await checkpointPort.getMessages(tid)) as import("@my-agent-team/core").Message[] | null,
     setTitle: async (tid, title) => {
       await threadSvc.update(tid, { title });
     },
@@ -127,7 +140,11 @@ const runSvc = createRunService({
 async function buildSpecJson(
   threadId: string,
   input: string,
-  overrides?: { runId?: string; mode?: "run" | "resume"; resumeCommand?: { approved: boolean; message?: string } },
+  overrides?: {
+    runId?: string;
+    mode?: "run" | "resume";
+    resumeCommand?: { approved: boolean; message?: string };
+  },
 ): Promise<string> {
   const thread = await threadSvc.getById(threadId);
   const agent = await agentSvc.getById(thread.agentId);
@@ -173,7 +190,9 @@ const convSvc = createConversationService({
   // C1 fix: build real AgentSpec JSON for forked agent runs
   forkRun: (runId, threadId, _specJson, ctx) => {
     // Ensure thread row exists (lazy at first fork — D17)
-    const existing = db.query("SELECT id FROM threads WHERE id = ?").get(threadId) as { id: string } | undefined;
+    const existing = db.query("SELECT id FROM threads WHERE id = ?").get(threadId) as
+      | { id: string }
+      | undefined;
     if (!existing) {
       db.run(
         "INSERT INTO threads (id, agent_id, title, kind, created_at, updated_at) VALUES (?, ?, ?, 'conversation', ?, ?)",
@@ -182,16 +201,20 @@ const convSvc = createConversationService({
     }
 
     // Build full spec JSON (C1 fix)
-    const agentRow = db.query(
-      "SELECT workspace_path, model_provider, model_name, model_base_url, permission_mode, max_steps FROM agents WHERE id = ?",
-    ).get(ctx.agentId) as {
-      workspace_path: string;
-      model_provider: string;
-      model_name: string;
-      model_base_url: string | null;
-      permission_mode: string;
-      max_steps: number | null;
-    } | undefined;
+    const agentRow = db
+      .query(
+        "SELECT workspace_path, model_provider, model_name, model_base_url, permission_mode, max_steps FROM agents WHERE id = ?",
+      )
+      .get(ctx.agentId) as
+      | {
+          workspace_path: string;
+          model_provider: string;
+          model_name: string;
+          model_base_url: string | null;
+          permission_mode: string;
+          max_steps: number | null;
+        }
+      | undefined;
     if (!agentRow) throw new Error(`Agent not found: ${ctx.agentId}`);
 
     const spec = AgentSpecV1.parse({
@@ -218,7 +241,6 @@ const convSvc = createConversationService({
     const specJson = JSON.stringify(spec);
     return supervisor.fork(runId, threadId, specJson);
   },
-
 });
 
 // Run legacy backfill (idempotent)
@@ -244,11 +266,15 @@ supervisor.onRunComplete((threadId, runId) => {
           }
           const lastAssistant = msgs.filter((m) => m.role === "assistant").pop();
           if (lastAssistant) {
-            const text = typeof lastAssistant.content === "string"
-              ? lastAssistant.content
-              : Array.isArray(lastAssistant.content)
-                ? lastAssistant.content.filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("")
-                : String(lastAssistant.content);
+            const text =
+              typeof lastAssistant.content === "string"
+                ? lastAssistant.content
+                : Array.isArray(lastAssistant.content)
+                  ? lastAssistant.content
+                      .filter((b: { type: string }) => b.type === "text")
+                      .map((b: { text: string }) => b.text)
+                      .join("")
+                  : String(lastAssistant.content);
 
             const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
             const seq = convPort.appendLedgerEntry({
@@ -270,7 +296,10 @@ supervisor.onRunComplete((threadId, runId) => {
             });
           }
         } catch (err) {
-          console.error(`[conversation] D19 error for ${runId}:`, err instanceof Error ? err.message : String(err));
+          console.error(
+            `[conversation] D19 error for ${runId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
         }
       })();
       break;
@@ -281,7 +310,9 @@ supervisor.onRunComplete((threadId, runId) => {
 // HTTP router
 // D14: startup assertion — resume support requires thread lookup
 const getThreadIdForRun = async (runId: string) => {
-  const row = db.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as { thread_id: string } | undefined;
+  const row = db.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as
+    | { thread_id: string }
+    | undefined;
   if (!row) throw new Error(`Run not found: ${runId}`);
   return row.thread_id;
 };
@@ -304,9 +335,17 @@ const router = createRouter(config.authToken, {
     const agentMembers = convPort.getAgentMembers(threadId);
     if (agentMembers.length === 0) return null; // No agent members yet — use legacy path
     if (agentMembers.length === 1) {
-      return { action: "forward" as const, conversationId: threadId, agentMemberId: agentMembers[0]!.memberId };
+      return {
+        action: "forward" as const,
+        conversationId: threadId,
+        agentMemberId: agentMembers[0]!.memberId,
+      };
     }
-    return { action: "reject" as const, reason: "Thread is part of a multi-member conversation; use POST /api/conversations/:id/messages" };
+    return {
+      action: "reject" as const,
+      reason:
+        "Thread is part of a multi-member conversation; use POST /api/conversations/:id/messages",
+    };
   },
 });
 

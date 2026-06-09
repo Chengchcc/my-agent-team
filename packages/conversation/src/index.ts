@@ -71,10 +71,7 @@ export function assertMember(conv: Conversation, memberId: string): Member {
   return m;
 }
 
-export function assertAgentMember(
-  conv: Conversation,
-  memberId: string,
-): AgentMember {
+export function assertAgentMember(conv: Conversation, memberId: string): AgentMember {
   const m = assertMember(conv, memberId);
   if (m.kind !== "agent") throw new NotAgentMemberError(memberId);
   return m;
@@ -114,10 +111,7 @@ export function projectForMember(
       const payload = entry.content as
         | { memberId?: string; members?: Array<{ displayName?: string; memberId: string }> }
         | undefined;
-      const who =
-        payload?.memberId
-          ? displayNameOf(conv, payload.memberId)
-          : "未知成员";
+      const who = payload?.memberId ? displayNameOf(conv, payload.memberId) : "未知成员";
       const present =
         payload?.members?.map((m) => displayNameOf(conv, m.memberId)).join(", ") ?? "";
       return {
@@ -135,10 +129,7 @@ export function projectForMember(
 
 // ─── resolveTriggerTargets ──────────────────────────────────
 
-export function resolveTriggerTargets(
-  conv: Conversation,
-  addressedTo: string[],
-): AgentMember[] {
+export function resolveTriggerTargets(conv: Conversation, addressedTo: string[]): AgentMember[] {
   const memberMap = new Map(conv.members.map((m) => [m.memberId, m]));
   return addressedTo
     .map((id) => memberMap.get(id))

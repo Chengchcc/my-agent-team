@@ -34,9 +34,7 @@ export function ThreadList({ agentId }: { agentId: string }) {
     },
   });
 
-  const agentThreads = (threads ?? []).filter(
-    (t) => t.kind === "agent_thread",
-  );
+  const agentThreads = (threads ?? []).filter((t) => t.kind === "agent_thread");
 
   if (isLoading) {
     return (
@@ -73,9 +71,7 @@ export function ThreadList({ agentId }: { agentId: string }) {
 
       {agentThreads.length === 0 ? (
         <div className="py-16 text-center border border-[var(--hairline)] rounded-lg">
-          <p className="text-sm text-[var(--body)] mb-4">
-            No threads yet
-          </p>
+          <p className="text-sm text-[var(--body)] mb-4">No threads yet</p>
           <button
             type="button"
             onClick={() => createThread.mutate()}

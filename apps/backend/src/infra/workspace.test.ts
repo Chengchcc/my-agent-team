@@ -86,14 +86,14 @@ describe("purgeWorkspace (M11)", () => {
   });
 
   test("rejects path traversal (../ attack)", async () => {
-    await expect(
-      purgeWorkspace({ workspaceRoot: ROOT, agentId: "../escape" }),
-    ).rejects.toThrow("path traversal");
+    await expect(purgeWorkspace({ workspaceRoot: ROOT, agentId: "../escape" })).rejects.toThrow(
+      "path traversal",
+    );
   });
 
   test("rejects path traversal via absolute path outside root", async () => {
-    await expect(
-      purgeWorkspace({ workspaceRoot: ROOT, agentId: "/etc/passwd" }),
-    ).rejects.toThrow("path traversal");
+    await expect(purgeWorkspace({ workspaceRoot: ROOT, agentId: "/etc/passwd" })).rejects.toThrow(
+      "path traversal",
+    );
   });
 });

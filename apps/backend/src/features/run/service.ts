@@ -10,7 +10,10 @@ function mergeSignals(...signals: Array<AbortSignal | undefined>): AbortSignal |
   const ctrl = new AbortController();
   const onAbort = () => ctrl.abort();
   for (const s of defined) {
-    if (s.aborted) { ctrl.abort(); break; }
+    if (s.aborted) {
+      ctrl.abort();
+      break;
+    }
     s.addEventListener("abort", onAbort, { once: true });
   }
   return ctrl.signal;
@@ -52,9 +55,7 @@ export interface RunServiceDeps {
   idGen: () => string;
   /** Optional: generate thread title via LLM after first run (when thread has no title). */
   autoTitle?: {
-    getThread: (
-      threadId: string,
-    ) => Promise<{ title: string | null } | null>;
+    getThread: (threadId: string) => Promise<{ title: string | null } | null>;
     getMessages: (threadId: string) => Promise<Message[] | null>;
     setTitle: (threadId: string, title: string) => Promise<void>;
     llm: { apiKey?: string; model?: string; baseUrl?: string };
@@ -62,8 +63,7 @@ export interface RunServiceDeps {
 }
 
 export function createRunService(deps: RunServiceDeps) {
-  const { supervisor, eventLog, maxConcurrentRuns, threads, idGen, autoTitle } =
-    deps;
+  const { supervisor, eventLog, maxConcurrentRuns, threads, idGen, autoTitle } = deps;
 
   // Fix B: Register cleanup callback so thread lock is released on run completion
   supervisor.onRunComplete((threadId, _runId) => {
@@ -76,8 +76,7 @@ export function createRunService(deps: RunServiceDeps) {
           if (!t || (t.title && t.title.trim().length > 0)) return;
           const msgs = await autoTitle.getMessages(threadId);
           if (!msgs) return;
-          const { buildTitleContext, generateTitle } =
-            await import("../thread/title.js");
+          const { buildTitleContext, generateTitle } = await import("../thread/title.js");
           const ctx = buildTitleContext(msgs);
           const title = await generateTitle(autoTitle.llm, ctx);
           if (title) await autoTitle.setTitle(threadId, title);
@@ -92,7 +91,8 @@ export function createRunService(deps: RunServiceDeps) {
     /** Fork subprocess + write ledger. Returns 202 payload immediately. */
     start(threadId: string, _input: string, specJson: string) {
       if (threads.has(threadId)) throw new ThreadBusyError(threadId);
-      if (supervisor.activeCount >= maxConcurrentRuns) throw new TooManyRunsError(maxConcurrentRuns);
+      if (supervisor.activeCount >= maxConcurrentRuns)
+        throw new TooManyRunsError(maxConcurrentRuns);
 
       const runId = idGen();
       threads.add(threadId);
@@ -112,7 +112,8 @@ export function createRunService(deps: RunServiceDeps) {
 
     /** Resume an interrupted run by re-forking a new attempt with mode='resume'. */
     resume(runId: string, threadId: string, specJson: string) {
-      if (supervisor.activeCount >= maxConcurrentRuns) throw new TooManyRunsError(maxConcurrentRuns);
+      if (supervisor.activeCount >= maxConcurrentRuns)
+        throw new TooManyRunsError(maxConcurrentRuns);
 
       const { attemptId } = supervisor.fork(runId, threadId, specJson);
       return { runId, attemptId };
@@ -129,9 +130,7 @@ export function createRunService(deps: RunServiceDeps) {
       // If run already finished, replay remaining events then stop
       const db = supervisor.getDb();
       const meta = db
-        .query(
-          "SELECT run_id, status, started_at, ended_at FROM run WHERE run_id = ?",
-        )
+        .query("SELECT run_id, status, started_at, ended_at FROM run WHERE run_id = ?")
         .get(runId) as
         | { run_id: string; status: string; started_at: number; ended_at: number | null }
         | undefined;
@@ -192,13 +191,22 @@ export function createRunService(deps: RunServiceDeps) {
     },
 
     /** Get run metadata (status, timestamps). */
-    getRunById(runId: string): { runId: string; status: string; startedAt: number | null; endedAt: number | null } | null {
+    getRunById(
+      runId: string,
+    ): { runId: string; status: string; startedAt: number | null; endedAt: number | null } | null {
       const db = supervisor.getDb();
-      const row = db.query("SELECT run_id, status, started_at, ended_at FROM run WHERE run_id = ?").get(runId) as
+      const row = db
+        .query("SELECT run_id, status, started_at, ended_at FROM run WHERE run_id = ?")
+        .get(runId) as
         | { run_id: string; status: string; started_at: number; ended_at: number | null }
         | undefined;
       if (!row) return null;
-      return { runId: row.run_id, status: row.status, startedAt: row.started_at, endedAt: row.ended_at };
+      return {
+        runId: row.run_id,
+        status: row.status,
+        startedAt: row.started_at,
+        endedAt: row.ended_at,
+      };
     },
   };
 }

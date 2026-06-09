@@ -1,4 +1,8 @@
-import { Conversation as ConversationSchema, projectForMember, resolveTriggerTargets } from "@my-agent-team/conversation";
+import {
+  Conversation as ConversationSchema,
+  projectForMember,
+  resolveTriggerTargets,
+} from "@my-agent-team/conversation";
 import type { CheckpointReadPort, CheckpointWritePort } from "../checkpoint/ports.js";
 import type { ConversationPort, LedgerRow, MemberRow } from "./ports.js";
 
@@ -36,7 +40,14 @@ export interface ConversationServiceDeps {
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
-  const { port, checkpointRead, checkpointWrite, activeConversations, maxConsecutiveAgentHops, forkRun } = deps;
+  const {
+    port,
+    checkpointRead,
+    checkpointWrite,
+    activeConversations,
+    maxConsecutiveAgentHops,
+    forkRun,
+  } = deps;
 
   /** Load members and build Conversation for pure helpers. */
   function buildConversation(conversationId: string) {
@@ -145,7 +156,9 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
       // ── Hop count: reset on human/external, increment only for known agent members ──
       const convRow = port.getConversation(input.conversationId);
-      const senderIsAgent = members.some((m) => m.memberId === input.senderMemberId && m.kind === "agent");
+      const senderIsAgent = members.some(
+        (m) => m.memberId === input.senderMemberId && m.kind === "agent",
+      );
       if (isHumanMember(members, input.senderMemberId) || isSystemSender(input.senderMemberId)) {
         port.updateHopCount(input.conversationId, 0);
       } else if (senderIsAgent) {
@@ -184,8 +197,11 @@ export function createConversationService(deps: ConversationServiceDeps) {
         const threadId = deriveThreadId(input.conversationId, target.memberId);
 
         activeConversations.add(input.conversationId);
-        const { runId: rId } = forkRun(runId, threadId, "",
-          { conversationId: input.conversationId, agentMemberId: target.memberId, agentId: target.agentId });
+        const { runId: rId } = forkRun(runId, threadId, "", {
+          conversationId: input.conversationId,
+          agentMemberId: target.memberId,
+          agentId: target.agentId,
+        });
         triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
       } else if (hopCapped) {
         // Broadcast system message about the cap (no fork)
@@ -307,4 +323,3 @@ export function createConversationService(deps: ConversationServiceDeps) {
     },
   };
 }
-

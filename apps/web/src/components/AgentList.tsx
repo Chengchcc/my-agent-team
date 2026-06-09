@@ -46,9 +46,7 @@ export function AgentList() {
         <p className="text-lg text-[var(--mute)] mb-2 font-[family-name:var(--font-sans)]">
           No agents yet
         </p>
-        <p className="text-sm text-[var(--mute)]">
-          Create your first agent to begin.
-        </p>
+        <p className="text-sm text-[var(--mute)]">Create your first agent to begin.</p>
       </div>
     );
   }
@@ -67,15 +65,19 @@ export function AgentList() {
               animationFillMode: "both",
             }}
           >
-            <h3 className="text-xl font-normal text-[var(--ink-strong)] tracking-tight font-[family-name:var(--font-sans)]"
-              style={{ letterSpacing: "-0.65px" }}>
+            <h3
+              className="text-xl font-normal text-[var(--ink-strong)] tracking-tight font-[family-name:var(--font-sans)]"
+              style={{ letterSpacing: "-0.65px" }}
+            >
               {agent.name}
             </h3>
 
             <div className="mt-3 flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)] opacity-60" />
-              <span className="text-xs text-[var(--mute)] tracking-wider uppercase font-[family-name:var(--font-sans)] font-semibold"
-                style={{ letterSpacing: "2.52px" }}>
+              <span
+                className="text-xs text-[var(--mute)] tracking-wider uppercase font-[family-name:var(--font-sans)] font-semibold"
+                style={{ letterSpacing: "2.52px" }}
+              >
                 {agent.modelProvider}/{agent.modelName}
               </span>
             </div>

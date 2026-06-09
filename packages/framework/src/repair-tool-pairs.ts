@@ -38,11 +38,8 @@ export function repairToolPairs(messages: Message[]): Message[] {
     });
 
     // 跳过空 content 的非 system 消息
-    const hasContent = blocks.some(
-      (b) =>
-        b.type === "text"
-          ? typeof b.text === "string" && b.text.trim().length > 0
-          : true,
+    const hasContent = blocks.some((b) =>
+      b.type === "text" ? typeof b.text === "string" && b.text.trim().length > 0 : true,
     );
     if (!hasContent && msg.role !== "system") continue;
 
@@ -60,9 +57,7 @@ export function repairToolPairs(messages: Message[]): Message[] {
 
 function contentAsBlocks(content: Message["content"]): ContentBlock[] {
   if (typeof content === "string") {
-    return content.trim().length > 0
-      ? [{ type: "text" as const, text: content }]
-      : [];
+    return content.trim().length > 0 ? [{ type: "text" as const, text: content }] : [];
   }
   return content;
 }

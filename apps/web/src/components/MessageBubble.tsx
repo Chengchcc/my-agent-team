@@ -18,16 +18,12 @@ export function MessageShell({
 }) {
   const isSelf = align === "right";
   return (
-    <div
-      className={`flex gap-4 py-2 ${isSelf ? "justify-end" : "justify-start"}`}
-    >
+    <div className={`flex gap-4 py-2 ${isSelf ? "justify-end" : "justify-start"}`}>
       <div className={`max-w-[85%] ${isSelf ? "order-2" : ""}`}>
         {!isSelf && name && (
           <span
             className={`text-[10px] tracking-[0.15em] uppercase mb-1.5 block font-[family-name:var(--font-sans)] font-semibold ${
-              kind === "human"
-                ? "text-[var(--mute)]"
-                : "text-[var(--primary)]"
+              kind === "human" ? "text-[var(--mute)]" : "text-[var(--primary)]"
             }`}
           >
             {name}
@@ -62,9 +58,7 @@ export function MessageBubble({
   return (
     <MessageShell align={align} name={name} kind={kind} isStreaming={isStreaming}>
       {isSelf ? (
-        <p className="whitespace-pre-wrap break-words text-[var(--ink)]">
-          {content}
-        </p>
+        <p className="whitespace-pre-wrap break-words text-[var(--ink)]">{content}</p>
       ) : (
         <>
           <Markdown text={content} />

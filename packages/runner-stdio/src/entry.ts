@@ -74,7 +74,9 @@ export async function runEntry(io: EntryIO): Promise<number> {
 
   // 3+4+5. Construct model + agent + run
   try {
-    writeStderr(`[runner-stdio] spec parsed, threadId=${spec.threadId}${spec.conversationId ? `, conversationId=${spec.conversationId}` : ""}`);
+    writeStderr(
+      `[runner-stdio] spec parsed, threadId=${spec.threadId}${spec.conversationId ? `, conversationId=${spec.conversationId}` : ""}`,
+    );
 
     const model = new AnthropicChatModel({
       apiKey,
@@ -170,7 +172,10 @@ export async function runEntry(io: EntryIO): Promise<number> {
       writeStderr("[runner-stdio] running reflection turn");
       const reflectAgent = agent.fork();
       try {
-        for await (const ev of reflectAgent.run(reflectionGuidance(), { signal, maxSteps: spec.maxSteps })) {
+        for await (const ev of reflectAgent.run(reflectionGuidance(), {
+          signal,
+          maxSteps: spec.maxSteps,
+        })) {
           if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
           writeEvent(ev);
           await tryHeartbeat();
@@ -191,7 +196,10 @@ export async function runEntry(io: EntryIO): Promise<number> {
     return 1;
   } finally {
     // M11: Always close DB connections (covers success, error, and early-return paths)
-    if (hbDb) { hbDb.close(); hbDb = undefined; }
+    if (hbDb) {
+      hbDb.close();
+      hbDb = undefined;
+    }
     if (cpDbSelfBuilt && cpDb) (cpDb as import("bun:sqlite").Database).close();
   }
 }

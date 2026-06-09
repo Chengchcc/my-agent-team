@@ -26,9 +26,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   const [permissionMode, setPermissionMode] = useState<"ask" | "auto" | "deny">(
     editAgent?.permissionMode ?? "ask",
   );
-  const [maxSteps, setMaxSteps] = useState(
-    editAgent?.maxSteps?.toString() ?? "",
-  );
+  const [maxSteps, setMaxSteps] = useState(editAgent?.maxSteps?.toString() ?? "");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -100,10 +98,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
       </button>
 
       {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
-          role="dialog"
-        >
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" role="dialog">
           <div
             className="fixed inset-0 bg-black/60 backdrop-blur-sm"
             onClick={() => setOpen(false)}
@@ -174,9 +169,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                   <label className={labelClass}>Permission Mode</label>
                   <select
                     value={permissionMode}
-                    onChange={(e) =>
-                      setPermissionMode(e.target.value as "ask" | "auto" | "deny")
-                    }
+                    onChange={(e) => setPermissionMode(e.target.value as "ask" | "auto" | "deny")}
                     className={fieldClass}
                   >
                     <option value="ask">Ask (approval)</option>
@@ -197,9 +190,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                 </div>
               </div>
 
-              {error && (
-                <p className="text-xs text-[var(--body)]">{error}</p>
-              )}
+              {error && <p className="text-xs text-[var(--body)]">{error}</p>}
 
               <button
                 type="submit"
@@ -210,7 +201,17 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                            disabled:opacity-40 disabled:cursor-not-allowed
                            transition-opacity duration-200"
               >
-                {submitting ? "Saving..." : isEdit ? <span className="inline-flex items-center gap-1">Save Changes <ArrowRight size={14} /></span> : <span className="inline-flex items-center gap-1">Create Agent <ArrowRight size={14} /></span>}
+                {submitting ? (
+                  "Saving..."
+                ) : isEdit ? (
+                  <span className="inline-flex items-center gap-1">
+                    Save Changes <ArrowRight size={14} />
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1">
+                    Create Agent <ArrowRight size={14} />
+                  </span>
+                )}
               </button>
             </form>
           </div>

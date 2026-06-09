@@ -71,7 +71,12 @@ describe("RunService", () => {
   test("cancel delegates to supervisor", () => {
     let cancelled = false;
     const svc = createRunService({
-      supervisor: makeMockSupervisor({ cancel: () => { cancelled = true; return true; } }),
+      supervisor: makeMockSupervisor({
+        cancel: () => {
+          cancelled = true;
+          return true;
+        },
+      }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
       threads: new Set(),
@@ -98,7 +103,13 @@ describe("RunService", () => {
     const mockLog = {
       ...makeMockEventLog(),
       subscribe: async function* () {
-        yield { seq: 1, threadId: "t1", runId: "r1", event: { type: "message", message: { role: "assistant", content: "hi" } }, ts: 1 };
+        yield {
+          seq: 1,
+          threadId: "t1",
+          runId: "r1",
+          event: { type: "message", message: { role: "assistant", content: "hi" } },
+          ts: 1,
+        };
       },
     } as EventLog;
 

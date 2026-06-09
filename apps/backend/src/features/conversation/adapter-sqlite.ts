@@ -28,7 +28,9 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
 
     getConversation(conversationId: string): ConversationRow | null {
       const row = db
-        .query("SELECT conversation_id, trigger_mode, hop_count, created_at FROM conversation WHERE conversation_id = ?")
+        .query(
+          "SELECT conversation_id, trigger_mode, hop_count, created_at FROM conversation WHERE conversation_id = ?",
+        )
         .get(conversationId) as
         | { conversation_id: string; trigger_mode: string; hop_count: number; created_at: number }
         | undefined;
@@ -104,7 +106,10 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     },
 
     removeMember(conversationId: string, memberId: string): boolean {
-      const result = db.run("DELETE FROM member WHERE member_id = ? AND conversation_id = ?", [memberId, conversationId]);
+      const result = db.run("DELETE FROM member WHERE member_id = ? AND conversation_id = ?", [
+        memberId,
+        conversationId,
+      ]);
       return result.changes > 0;
     },
 
@@ -125,10 +130,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       return Number(result.lastInsertRowid);
     },
 
-    getLedgerEntries(
-      conversationId: string,
-      opts?: { sinceSeq?: number },
-    ): LedgerRow[] {
+    getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerRow[] {
       const since = opts?.sinceSeq ?? 0;
       const rows = db
         .query(

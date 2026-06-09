@@ -9,12 +9,7 @@ interface ToolApprovalCardProps {
   disabled?: boolean;
 }
 
-export function ToolApprovalCard({
-  tool,
-  onApprove,
-  onDeny,
-  disabled,
-}: ToolApprovalCardProps) {
+export function ToolApprovalCard({ tool, onApprove, onDeny, disabled }: ToolApprovalCardProps) {
   const [message, setMessage] = useState("");
 
   return (

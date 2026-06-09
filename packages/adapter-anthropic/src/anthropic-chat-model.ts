@@ -141,8 +141,12 @@ function buildApiMessages(messages: readonly Message[]): Anthropic.Messages.Mess
 
     if (prev && prev.role === converted.role) {
       // Merge adjacent same-role: concatenate content
-      const prevContent = Array.isArray(prev.content) ? prev.content : [{ type: "text" as const, text: String(prev.content) }];
-      const newContent = Array.isArray(converted.content) ? converted.content : [{ type: "text" as const, text: String(converted.content) }];
+      const prevContent = Array.isArray(prev.content)
+        ? prev.content
+        : [{ type: "text" as const, text: String(prev.content) }];
+      const newContent = Array.isArray(converted.content)
+        ? converted.content
+        : [{ type: "text" as const, text: String(converted.content) }];
       prev.content = [...prevContent, ...newContent] as Anthropic.Messages.ContentBlockParam[];
     } else {
       result.push(converted);

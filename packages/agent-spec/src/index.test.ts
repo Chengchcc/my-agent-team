@@ -201,6 +201,8 @@ describe("AgentSpecV1", () => {
   });
 
   test("fails when senderMemberId is empty string", () => {
-    expect(() => AgentSpecV1.parse({ ...validSpec, senderMemberId: "", conversationId: "conv-1" })).toThrow();
+    expect(() =>
+      AgentSpecV1.parse({ ...validSpec, senderMemberId: "", conversationId: "conv-1" }),
+    ).toThrow();
   });
 });

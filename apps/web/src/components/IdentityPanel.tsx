@@ -94,8 +94,7 @@ export function IdentityPanel({ agentId }: { agentId: string }) {
   });
 
   const saveMutation = useMutation({
-    mutationFn: (body: { soul?: string; user?: string }) =>
-      api.setIdentity(agentId, body),
+    mutationFn: (body: { soul?: string; user?: string }) => api.setIdentity(agentId, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["identity", agentId] });
       setEditingField(null);

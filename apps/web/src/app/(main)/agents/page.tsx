@@ -7,8 +7,10 @@ export default function AgentsPage() {
       {/* Top bar */}
       <div className="border-b border-[var(--hairline)]">
         <div className="container mx-auto px-8 py-5 flex items-center justify-between">
-          <h1 className="text-lg font-normal text-[var(--ink-strong)] font-[family-name:var(--font-sans)]"
-            style={{ letterSpacing: "-0.9px" }}>
+          <h1
+            className="text-lg font-normal text-[var(--ink-strong)] font-[family-name:var(--font-sans)]"
+            style={{ letterSpacing: "-0.9px" }}
+          >
             Agents
           </h1>
           <AgentForm />

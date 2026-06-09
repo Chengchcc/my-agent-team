@@ -1,10 +1,5 @@
 import type { Tool } from "@my-agent-team/core";
-import {
-  assertSafeUrl,
-  FETCH_TIMEOUT_MS,
-  MAX_REDIRECTS,
-  MAX_RESPONSE_BYTES,
-} from "./url-guard.js";
+import { assertSafeUrl, FETCH_TIMEOUT_MS, MAX_REDIRECTS, MAX_RESPONSE_BYTES } from "./url-guard.js";
 
 export const webFetchTool: Tool = {
   name: "web_fetch",
@@ -61,7 +56,9 @@ export const webFetchTool: Tool = {
         }
 
         const truncated = text.length >= MAX_RESPONSE_BYTES;
-        const display = truncated ? `${text.slice(0, MAX_RESPONSE_BYTES)}\n\n... (truncated)` : text;
+        const display = truncated
+          ? `${text.slice(0, MAX_RESPONSE_BYTES)}\n\n... (truncated)`
+          : text;
         return { content: display };
       }
 

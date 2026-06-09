@@ -47,9 +47,7 @@ export function renderContentBlocks(blocks: unknown[] | undefined) {
       return (
         <div key={block.id}>
           <ToolCallCard name={block.name} input={block.input} />
-          {result && (
-            <ToolResultCard content={result.content} isError={result.isError} />
-          )}
+          {result && <ToolResultCard content={result.content} isError={result.isError} />}
         </div>
       );
     }

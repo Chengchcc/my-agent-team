@@ -50,9 +50,7 @@ export function useConversation(
   // 2) Conversation ledger SSE (messages + member events + system notices)
   useEffect(() => {
     if (!conversationId) return;
-    const es = new EventSource(
-      `/api/bff/conversations/${conversationId}/events`,
-    );
+    const es = new EventSource(`/api/bff/conversations/${conversationId}/events`);
     const seen = new Set<number>();
 
     const guard = (e: MessageEvent): number | null => {
@@ -75,9 +73,7 @@ export function useConversation(
           content: string;
         };
         const content =
-          typeof entry.content === "string"
-            ? safeParse(entry.content)
-            : entry.content;
+          typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
         if (entry.senderMemberId === "__system__") {
           dispatch({
             type: "ledger/member",
@@ -107,9 +103,7 @@ export function useConversation(
         try {
           const entry = JSON.parse(e.data) as { content: string };
           const payload =
-            typeof entry.content === "string"
-              ? safeParse(entry.content)
-              : entry.content;
+            typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
           dispatch({ type: "ledger/member", seq, kind, payload });
         } catch {
           // skip malformed
@@ -228,8 +222,7 @@ export function useConversation(
         });
       }
     },
-    onError: () =>
-      dispatch({ type: "run/error", message: "发送失败" }),
+    onError: () => dispatch({ type: "run/error", message: "发送失败" }),
   });
 
   const send = useCallback(
@@ -269,9 +262,7 @@ export function useConversation(
     messages: state.messages,
     draft: state.draft,
     phase: state.run.phase,
-    busy:
-      state.run.phase === "running" ||
-      (!!state.draft && state.run.phase !== "done"),
+    busy: state.run.phase === "running" || (!!state.draft && state.run.phase !== "done"),
     pendingInterrupt: state.pendingInterrupt,
     error: state.error,
     runId: state.run.id,

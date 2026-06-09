@@ -1,4 +1,12 @@
-import type { AIMessageChunk, ChatModel, ContentBlock, Message, Tool, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
+import type {
+  AIMessageChunk,
+  ChatModel,
+  ContentBlock,
+  Message,
+  Tool,
+  ToolResultBlock,
+  ToolUseBlock,
+} from "@my-agent-team/core";
 import { collectStream, mergeChunkIntoBlocks, finalizeToolUseInputs } from "@my-agent-team/core";
 import { type Checkpointer, InterruptSignal, validateCheckpointer } from "./checkpointer.js";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
@@ -38,10 +46,7 @@ export interface AgentRunOptions {
 export interface Agent {
   readonly thread: Thread;
   run(input: string, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
-  resume(
-    command: ResumeCommand,
-    opts?: AgentRunOptions,
-  ): AsyncIterable<AgentEvent>;
+  resume(command: ResumeCommand, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
   fork(messages?: Message[], id?: string): Agent;
 }
 
@@ -353,7 +358,9 @@ function createAgentInternal(
             yield { type: "text_delta", payload: { blockIndex, text: chunk.delta.text } };
           }
           mergeChunkIntoBlocks(blocks, partialJson, chunk);
-          if (chunk.stopReason !== undefined) { /* captured below for checkpointer event */ }
+          if (chunk.stopReason !== undefined) {
+            /* captured below for checkpointer event */
+          }
           if (chunk.usage !== undefined) usage = chunk.usage;
           if (chunk.done) break;
         }
@@ -488,11 +495,15 @@ function createAgentInternal(
         });
 
         // R4: Replace interrupt placeholder with real tool_result
-        const placeholderIdx = thread.messages.findLastIndex((m) =>
-          Array.isArray(m.content) &&
-          m.content.some(
-            (b) => b.type === "tool_result" && b.tool_use_id === it.pendingTool.call.id && b.is_error === true,
-          ),
+        const placeholderIdx = thread.messages.findLastIndex(
+          (m) =>
+            Array.isArray(m.content) &&
+            m.content.some(
+              (b) =>
+                b.type === "tool_result" &&
+                b.tool_use_id === it.pendingTool.call.id &&
+                b.is_error === true,
+            ),
         );
         const realResult = {
           type: "tool_result" as const,

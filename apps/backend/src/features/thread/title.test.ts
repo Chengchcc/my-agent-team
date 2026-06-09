@@ -1,10 +1,7 @@
 import { describe, test, expect } from "bun:test";
 
 // Inline copies of pure functions from title.ts (avoids workspace import issue in bun test)
-function buildTitleContext(
-  msgs: Array<{ role: string; content: unknown }>,
-  maxTurns = 4,
-): string {
+function buildTitleContext(msgs: Array<{ role: string; content: unknown }>, maxTurns = 4): string {
   function text(c: unknown): string {
     if (typeof c === "string") return c;
     if (Array.isArray(c)) {
@@ -63,7 +60,7 @@ test("buildTitleContext handles ContentBlock[] content", () => {
 });
 
 test("sanitizeTitle strips quotes and truncates", () => {
-  expect(sanitizeTitle('「登录修复」')).toBe("登录修复");
+  expect(sanitizeTitle("「登录修复」")).toBe("登录修复");
   expect(sanitizeTitle('"test"')).toBe("test");
   expect(sanitizeTitle("a".repeat(80)).length).toBe(60);
 });

@@ -153,7 +153,16 @@ describe("Legacy backfill", () => {
     // Insert a legacy thread and agent first
     db.run(
       "INSERT OR REPLACE INTO agents (id, name, workspace_path, model_provider, model_name, permission_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      ["ag-legacy", "LegacyAgent", "/ws/legacy", "anthropic", "claude-sonnet-4-6", "ask", Date.now(), Date.now()],
+      [
+        "ag-legacy",
+        "LegacyAgent",
+        "/ws/legacy",
+        "anthropic",
+        "claude-sonnet-4-6",
+        "ask",
+        Date.now(),
+        Date.now(),
+      ],
     );
     db.run(
       "INSERT OR REPLACE INTO threads (id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",

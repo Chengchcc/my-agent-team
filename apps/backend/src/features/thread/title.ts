@@ -23,10 +23,7 @@ export function buildTitleContext(msgs: Message[], maxTurns = 4): string {
   return msgs
     .filter((m) => m.role === "user" || m.role === "assistant")
     .slice(0, maxTurns * 2) // each turn = user + assistant
-    .map(
-      (m) =>
-        `${m.role === "user" ? "用户" : "助手"}: ${extractMsgText(m.content)}`,
-    )
+    .map((m) => `${m.role === "user" ? "用户" : "助手"}: ${extractMsgText(m.content)}`)
     .filter((line) => line.length > 3)
     .join("\n");
 }
@@ -61,9 +58,7 @@ export async function generateTitle(
     ),
   );
   const raw = blocks
-    .filter(
-      (b): b is { type: "text"; text: string } => b.type === "text",
-    )
+    .filter((b): b is { type: "text"; text: string } => b.type === "text")
     .map((b) => b.text)
     .join("");
   const title = sanitizeTitle(raw);

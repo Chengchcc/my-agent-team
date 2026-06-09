@@ -9,10 +9,7 @@ export type RunStatusLabel =
   | "Error"
   | null;
 
-export function computeStatus(
-  runId: string | null,
-  phase: RunPhase,
-): RunStatusLabel {
+export function computeStatus(runId: string | null, phase: RunPhase): RunStatusLabel {
   if (!runId) return null;
   switch (phase) {
     case "running":

@@ -47,13 +47,13 @@ describe("tool_use/tool_result pairing (integration)", () => {
       { type: "text", text: "Done" },
     ];
 
-    const toolUses = blocks.filter(
-      (b) => b.type === "tool_use",
-    ) as Array<{ type: "tool_use"; id: string; name: string; input: unknown }>;
-    const toolResults = new Map<
-      string,
-      { content: string; isError?: boolean }
-    >();
+    const toolUses = blocks.filter((b) => b.type === "tool_use") as Array<{
+      type: "tool_use";
+      id: string;
+      name: string;
+      input: unknown;
+    }>;
+    const toolResults = new Map<string, { content: string; isError?: boolean }>();
     for (const b of blocks) {
       if (
         b.type === "tool_result" &&
@@ -93,10 +93,7 @@ describe("tool_use/tool_result pairing (integration)", () => {
       },
     ];
 
-    const toolResults = new Map<
-      string,
-      { content: string; isError?: boolean }
-    >();
+    const toolResults = new Map<string, { content: string; isError?: boolean }>();
     for (const b of blocks) {
       if (
         b.type === "tool_result" &&
@@ -128,7 +125,11 @@ describe("tool_use/tool_result pairing (integration)", () => {
 
     const toolResults = new Map<string, unknown>();
     for (const b of blocks) {
-      if (b.type === "tool_result" && "tool_use_id" in b && typeof (b as { tool_use_id?: unknown }).tool_use_id === "string") {
+      if (
+        b.type === "tool_result" &&
+        "tool_use_id" in b &&
+        typeof (b as { tool_use_id?: unknown }).tool_use_id === "string"
+      ) {
         toolResults.set((b as { tool_use_id: string }).tool_use_id, b);
       }
     }

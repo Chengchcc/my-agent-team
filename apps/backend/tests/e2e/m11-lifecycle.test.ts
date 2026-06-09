@@ -39,7 +39,12 @@ describe("M11 Genesis e2e", () => {
       idGen: () => `agent-gen-${Date.now()}`,
       workspaceRoot: WS_ROOT,
       materializeWorkspace: (agentId, template) =>
-        materializeWorkspace({ workspaceRoot: WS_ROOT, agentId, template, templateDir: TEMPLATE_DIR }),
+        materializeWorkspace({
+          workspaceRoot: WS_ROOT,
+          agentId,
+          template,
+          templateDir: TEMPLATE_DIR,
+        }),
       purgeWorkspace: async () => {},
       purgeEventsForThreads: () => {},
       listThreadIds: async () => [],
@@ -112,7 +117,12 @@ describe("M11 Liveness e2e", () => {
     const sup = new RunSupervisor({
       eventLog,
       config: {
-        ...loadConfig({ ...process.env, BACKEND_DATA_DIR: DATA_DIR, BACKEND_AUTH_TOKEN: "test-token", ANTHROPIC_API_KEY: "sk-test" }),
+        ...loadConfig({
+          ...process.env,
+          BACKEND_DATA_DIR: DATA_DIR,
+          BACKEND_AUTH_TOKEN: "test-token",
+          ANTHROPIC_API_KEY: "sk-test",
+        }),
         heartbeatTimeoutMs: 60_000, // 1 min → our 2min-old heartbeat is stale
         heartbeatIntervalMs: 5_000,
         reaperIntervalMs: 10_000,
@@ -124,14 +134,23 @@ describe("M11 Liveness e2e", () => {
     // Insert a run with old heartbeat into the supervisor's DB
     const db = sup.getDb();
     const oldHb = Date.now() - 120_000; // 2 min old
-    db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", ["run-liveness-e2e", "thread-liveness-e2e", oldHb]);
-    db.run("INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)", ["att-liveness-e2e", "run-liveness-e2e", 12345, oldHb, oldHb]);
+    db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
+      "run-liveness-e2e",
+      "thread-liveness-e2e",
+      oldHb,
+    ]);
+    db.run(
+      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)",
+      ["att-liveness-e2e", "run-liveness-e2e", 12345, oldHb, oldHb],
+    );
 
     // Manually trigger rediscover (which uses reap logic)
     await sup.rediscover(eventLog);
 
     // Check run was marked interrupted
-    const runRow = db.query("SELECT status FROM run WHERE run_id = ?").get("run-liveness-e2e") as { status: string } | undefined;
+    const runRow = db.query("SELECT status FROM run WHERE run_id = ?").get("run-liveness-e2e") as
+      | { status: string }
+      | undefined;
     expect(runRow?.status).toBe("interrupted");
 
     sup.dispose();

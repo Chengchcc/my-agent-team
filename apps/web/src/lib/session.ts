@@ -85,10 +85,7 @@ function isSecureEnv(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
-export function sessionCookieHeader(
-  value: string,
-  maxAge: number = MAX_AGE_MS / 1000,
-): string {
+export function sessionCookieHeader(value: string, maxAge: number = MAX_AGE_MS / 1000): string {
   const secure = isSecureEnv() ? "; Secure" : "";
   return `${COOKIE_NAME}=${value}; HttpOnly${secure}; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
 }

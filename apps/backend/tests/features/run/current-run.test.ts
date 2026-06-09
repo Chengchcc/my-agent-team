@@ -28,10 +28,12 @@ describe("getCurrentRun query", () => {
     const now = Date.now();
 
     // Insert a running run
-    db.run(
-      "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, ?, ?)",
-      ["run-1", "thread-1", "running", now],
-    );
+    db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, ?, ?)", [
+      "run-1",
+      "thread-1",
+      "running",
+      now,
+    ]);
 
     const row = db
       .query(
@@ -82,10 +84,12 @@ describe("getCurrentRun query", () => {
       "INSERT INTO run (run_id, thread_id, status, started_at, ended_at) VALUES (?, ?, ?, ?, ?)",
       ["run-old", "thread-3", "succeeded", now - 20000, now - 10000],
     );
-    db.run(
-      "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, ?, ?)",
-      ["run-active", "thread-3", "interrupted", now - 5000],
-    );
+    db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, ?, ?)", [
+      "run-active",
+      "thread-3",
+      "interrupted",
+      now - 5000,
+    ]);
 
     const row = db
       .query(

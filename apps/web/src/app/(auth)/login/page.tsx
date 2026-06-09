@@ -17,9 +17,7 @@ export default function LoginPage() {
           Workspace
         </h1>
 
-        <p className="text-sm text-[var(--body)] mb-8">
-          A terminal for working with agents
-        </p>
+        <p className="text-sm text-[var(--body)] mb-8">A terminal for working with agents</p>
 
         <form action="/api/auth/login" method="POST" className="space-y-5">
           <div>

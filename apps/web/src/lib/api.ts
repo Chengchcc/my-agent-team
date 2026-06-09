@@ -123,14 +123,11 @@ export const api = {
   // Agents
   listAgents: () => apiFetch<AgentRow[]>("agents"),
   getAgent: (id: string) => apiFetch<AgentRow>(`agents/${id}`),
-  createAgent: (body: unknown) =>
-    apiFetch<AgentRow>("agents", { method: "POST", body }),
+  createAgent: (body: unknown) => apiFetch<AgentRow>("agents", { method: "POST", body }),
   updateAgent: (id: string, body: unknown) =>
     apiFetch<AgentRow>(`agents/${id}`, { method: "PATCH", body }),
-  archiveAgent: (id: string) =>
-    apiFetch<void>(`agents/${id}`, { method: "DELETE" }),
-  getIdentity: (id: string) =>
-    apiFetch<IdentityData>(`agents/${id}/identity`),
+  archiveAgent: (id: string) => apiFetch<void>(`agents/${id}`, { method: "DELETE" }),
+  getIdentity: (id: string) => apiFetch<IdentityData>(`agents/${id}/identity`),
   setIdentity: (id: string, body: { soul?: string; user?: string }) =>
     apiFetch<{ ok: boolean }>(`agents/${id}/identity`, {
       method: "PUT",
@@ -138,8 +135,7 @@ export const api = {
     }),
 
   // Threads
-  listThreads: (agentId: string) =>
-    apiFetch<ThreadRow[]>(`agents/${agentId}/threads`),
+  listThreads: (agentId: string) => apiFetch<ThreadRow[]>(`agents/${agentId}/threads`),
   getThread: (id: string) => apiFetch<ThreadRow>(`threads/${id}`),
   createThread: (agentId: string, body?: { title?: string }) =>
     apiFetch<ThreadRow>(`agents/${agentId}/threads`, {
@@ -148,22 +144,19 @@ export const api = {
     }),
   updateThread: (id: string, body: { title?: string }) =>
     apiFetch<ThreadRow>(`threads/${id}`, { method: "PATCH", body }),
-  deleteThread: (id: string) =>
-    apiFetch<void>(`threads/${id}`, { method: "DELETE" }),
+  deleteThread: (id: string) => apiFetch<void>(`threads/${id}`, { method: "DELETE" }),
 
   // Runs
   getRun: (runId: string) => apiFetch<RunMeta>(`runs/${runId}`),
-  cancelRun: (runId: string) =>
-    apiFetch<void>(`runs/${runId}/cancel`, { method: "POST" }),
+  cancelRun: (runId: string) => apiFetch<void>(`runs/${runId}/cancel`, { method: "POST" }),
   resumeRun: (runId: string, approved: boolean, message?: string) =>
-    apiFetch<{ runId: string; attemptId: string }>(
-      `runs/${runId}/resume`,
-      { method: "POST", body: { approved, message } },
-    ),
+    apiFetch<{ runId: string; attemptId: string }>(`runs/${runId}/resume`, {
+      method: "POST",
+      body: { approved, message },
+    }),
 
   // Conversations (M14)
-  getConversation: (id: string) =>
-    apiFetch<ConversationSnapshot>(`conversations/${id}`),
+  getConversation: (id: string) => apiFetch<ConversationSnapshot>(`conversations/${id}`),
   postConversationMessage: (
     id: string,
     body: { senderMemberId: string; addressedTo: string[]; content: unknown },

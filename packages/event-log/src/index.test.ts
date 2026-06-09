@@ -111,7 +111,9 @@ describe("sqliteEventLog", () => {
     const ac = new AbortController();
     setTimeout(() => ac.abort(), 300);
 
-    const records = await collect(log.subscribe({ runId: "r1", afterSeq }, { pollMs: 20 }, ac.signal));
+    const records = await collect(
+      log.subscribe({ runId: "r1", afterSeq }, { pollMs: 20 }, ac.signal),
+    );
     expect(records.length).toBeGreaterThanOrEqual(1);
     if (records.length > 0) {
       expect(records[0]!.event).toBeDefined();
@@ -147,7 +149,9 @@ describe("sqliteEventLog", () => {
     const rows = await log2.read({});
     expect(rows.length).toBe(1);
 
-    try { require("node:fs").unlinkSync(path); } catch {}
+    try {
+      require("node:fs").unlinkSync(path);
+    } catch {}
   });
 
   test("EVENT_LOG_MIGRATIONS is exported", async () => {
