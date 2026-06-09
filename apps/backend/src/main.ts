@@ -93,6 +93,9 @@ const threadSvc = createThreadService({
   },
 });
 
+// Checkpoint read adapter — needed early for autoTitle in runSvc
+const checkpointPort = sqliteCheckpointReadAdapter(db);
+
 // Run feature — M9 subprocess model
 const runSvc = createRunService({
   supervisor,
@@ -100,6 +103,24 @@ const runSvc = createRunService({
   maxConcurrentRuns: config.maxConcurrentRuns,
   threads,
   idGen: ulid,
+  autoTitle: {
+    getThread: async (tid) => {
+      try {
+        const r = await threadSvc.getById(tid);
+        return { title: r.title };
+      } catch {
+        return null;
+      }
+    },
+    getMessages: async (tid) =>
+      (await checkpointPort.getMessages(tid)) as
+        | import("@my-agent-team/core").Message[]
+        | null,
+    setTitle: async (tid, title) => {
+      await threadSvc.update(tid, { title });
+    },
+    llm: { apiKey: config.anthropicApiKey },
+  },
 });
 
 // Build spec helper — returns JSON string for subprocess env
@@ -135,7 +156,6 @@ async function buildSpecJson(
 }
 
 // Checkpoint feature
-const checkpointPort = sqliteCheckpointReadAdapter(db);
 const checkpointWritePort = sqliteCheckpointWriteAdapter(db);
 const checkpointSvc = createCheckpointService({ port: checkpointPort });
 

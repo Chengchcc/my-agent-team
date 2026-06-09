@@ -1,3 +1,4 @@
+import type { Message } from "@my-agent-team/core";
 import type { EventLog } from "@my-agent-team/event-log";
 import type { RunSupervisor } from "./supervisor.js";
 
@@ -35,14 +36,42 @@ export interface RunServiceDeps {
   maxConcurrentRuns: number;
   threads: Set<string>;
   idGen: () => string;
+  /** Optional: generate thread title via LLM after first run (when thread has no title). */
+  autoTitle?: {
+    getThread: (
+      threadId: string,
+    ) => Promise<{ title: string | null } | null>;
+    getMessages: (threadId: string) => Promise<Message[] | null>;
+    setTitle: (threadId: string, title: string) => Promise<void>;
+    llm: { apiKey?: string; model?: string; baseUrl?: string };
+  };
 }
 
 export function createRunService(deps: RunServiceDeps) {
-  const { supervisor, eventLog, maxConcurrentRuns, threads, idGen } = deps;
+  const { supervisor, eventLog, maxConcurrentRuns, threads, idGen, autoTitle } =
+    deps;
 
   // Fix B: Register cleanup callback so thread lock is released on run completion
   supervisor.onRunComplete((threadId, _runId) => {
     threads.delete(threadId);
+    if (autoTitle) {
+      // fire-and-forget: title generation failure is non-fatal
+      void (async () => {
+        try {
+          const t = await autoTitle.getThread(threadId);
+          if (!t || (t.title && t.title.trim().length > 0)) return;
+          const msgs = await autoTitle.getMessages(threadId);
+          if (!msgs) return;
+          const { buildTitleContext, generateTitle } =
+            await import("../thread/title.js");
+          const ctx = buildTitleContext(msgs);
+          const title = await generateTitle(autoTitle.llm, ctx);
+          if (title) await autoTitle.setTitle(threadId, title);
+        } catch {
+          /* best-effort */
+        }
+      })();
+    }
   });
 
   return {
