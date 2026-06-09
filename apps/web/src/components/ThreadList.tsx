@@ -26,6 +26,13 @@ export function ThreadList({ agentId }: { agentId: string }) {
     },
   });
 
+  const deleteThread = useMutation({
+    mutationFn: (threadId: string) => api.deleteThread(threadId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["threads", agentId] });
+    },
+  });
+
   const agentThreads = (threads ?? []).filter(
     (t) => t.kind === "agent_thread",
   );
@@ -92,7 +99,7 @@ export function ThreadList({ agentId }: { agentId: string }) {
               }}
             >
               <div className="px-6 py-5 flex items-center justify-between">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     {isRecent(thread.lastRunAt) && (
                       <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)] shrink-0 animate-dot-pulse" />
@@ -114,7 +121,22 @@ export function ThreadList({ agentId }: { agentId: string }) {
                       })}`}
                   </p>
                 </div>
-                <span className="text-[var(--mute)] text-sm shrink-0 ml-4">→</span>
+                <div className="flex items-center gap-1 shrink-0 ml-4">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!window.confirm("Delete this thread?")) return;
+                      deleteThread.mutate(thread.id);
+                    }}
+                    disabled={deleteThread.isPending}
+                    className="text-[var(--mute)] hover:text-red-500 text-xs px-2 py-1 rounded transition-colors"
+                    title="Delete thread"
+                  >
+                    ×
+                  </button>
+                  <span className="text-[var(--mute)] text-sm">→</span>
+                </div>
               </div>
             </button>
           ))}
