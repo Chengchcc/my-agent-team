@@ -2,29 +2,37 @@ import type { ReactNode } from "react";
 import { Markdown } from "./Markdown";
 import { StreamingCursor } from "./StreamingCursor";
 
-/** Shared assistant/user shell: role eyebrow + alignment + streaming border. */
+/** Shared message shell: alignment + optional name badge + streaming border. */
 export function MessageShell({
-  role,
+  align,
+  name,
+  kind,
   isStreaming,
   children,
 }: {
-  role: "user" | "assistant";
+  align: "left" | "right";
+  name?: string;
+  kind?: "agent" | "human";
   isStreaming?: boolean;
   children: ReactNode;
 }) {
-  const isUser = role === "user";
+  const isSelf = align === "right";
   return (
     <div
-      className={`flex gap-4 py-2 ${isUser ? "justify-end" : "justify-start"}`}
+      className={`flex gap-4 py-2 ${isSelf ? "justify-end" : "justify-start"}`}
     >
-      <div className={`max-w-[85%] ${isUser ? "order-2" : ""}`}>
-        <span
-          className={`text-[10px] tracking-[0.15em] uppercase mb-1.5 block font-[family-name:var(--font-sans)] font-semibold ${
-            isUser ? "text-right text-[var(--mute)]" : "text-[var(--primary)]"
-          }`}
-        >
-          {isUser ? "You" : "Agent"}
-        </span>
+      <div className={`max-w-[85%] ${isSelf ? "order-2" : ""}`}>
+        {!isSelf && name && (
+          <span
+            className={`text-[10px] tracking-[0.15em] uppercase mb-1.5 block font-[family-name:var(--font-sans)] font-semibold ${
+              kind === "human"
+                ? "text-[var(--mute)]"
+                : "text-[var(--primary)]"
+            }`}
+          >
+            {name}
+          </span>
+        )}
         <div
           className={`text-sm leading-relaxed ${
             isStreaming ? "border-l-2 border-[var(--primary)] pl-4" : ""
@@ -38,17 +46,22 @@ export function MessageShell({
 }
 
 export function MessageBubble({
-  role,
+  align,
+  name,
+  kind,
   content,
   isStreaming,
 }: {
-  role: "user" | "assistant";
+  align: "left" | "right";
+  name?: string;
+  kind?: "agent" | "human";
   content: string;
   isStreaming?: boolean;
 }) {
+  const isSelf = align === "right";
   return (
-    <MessageShell role={role} isStreaming={isStreaming}>
-      {role === "user" ? (
+    <MessageShell align={align} name={name} kind={kind} isStreaming={isStreaming}>
+      {isSelf ? (
         <p className="whitespace-pre-wrap break-words text-[var(--ink)]">
           {content}
         </p>
