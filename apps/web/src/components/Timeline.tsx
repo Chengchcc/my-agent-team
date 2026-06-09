@@ -72,14 +72,16 @@ export function Timeline({
         )}
 
         {items.map((item, idx) => {
-          // While delta stream is connected, the actively-streaming assistant
-          // message is rendered by the live tail below — hide its item form
-          // to avoid duplicate during the finalize→done window.
+          // While delta stream is connected, hide the live assistant's TEXT
+          // (rendered by the live tail below). But if the item has tool calls
+          // (content is ContentBlock[], not string), render them here — tool
+          // calls only exist in /events, never in /stream deltas.
           if (
             streaming &&
             item.role === "assistant" &&
             item.seq !== undefined &&
-            item.seq === lastLiveSeq
+            item.seq === lastLiveSeq &&
+            typeof item.content === "string"
           ) {
             return null;
           }
