@@ -147,9 +147,11 @@ export async function runEntry(io: EntryIO): Promise<number> {
     writeStderr(`[runner-stdio] agent.${spec.mode ?? "run"} started`);
     try {
       for await (const ev of stream) {
-        // text_delta events are ephemeral — stdout only, NEVER to EventLog
+        // ephemeral events — stdout only, NEVER to EventLog
         if (ev.type === "text_delta") {
           io.writeDelta?.({ blockIndex: ev.payload.blockIndex, text: ev.payload.text });
+        } else if (ev.type === "tool_start" || ev.type === "tool_end") {
+          writeEvent(ev); // full AgentEvent JSON on stdout; supervisor routes by type
         } else {
           if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
           writeEvent(ev);

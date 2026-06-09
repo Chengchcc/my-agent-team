@@ -201,11 +201,11 @@ export class RunSupervisor {
     });
   }
 
-  /** M13: Push a text_delta to all subscribers for this run. */
-  #pushDelta(runId: string, delta: { blockIndex: number; text: string }): void {
+  /** M13.1: Push any named SSE event to all delta subscribers for this run. */
+  #pushEphemeral(runId: string, event: string, data: unknown): void {
     const controllers = this.#deltaSubs.get(runId);
     if (!controllers || controllers.size === 0) return;
-    const line = `event: text_delta\ndata: ${JSON.stringify(delta)}\n\n`;
+    const line = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const ctrl of controllers) {
       try {
         ctrl.enqueue(new TextEncoder().encode(line));
@@ -214,6 +214,11 @@ export class RunSupervisor {
       }
     }
     if (controllers.size === 0) this.#deltaSubs.delete(runId);
+  }
+
+  /** M13: text_delta convenience wrapper. */
+  #pushDelta(runId: string, delta: { blockIndex: number; text: string }): void {
+    this.#pushEphemeral(runId, "text_delta", delta);
   }
 
   /** M13: Close all delta subscribers for a run and clean up. */
@@ -283,9 +288,14 @@ export class RunSupervisor {
         try {
           // JSON.parse is untyped but runner always writes valid AgentEvent
           const ev = JSON.parse(line) as { type?: string; payload?: unknown };
-          // M13: text_delta events go to in-memory fan-out ONLY — never EventLog
+          // Ephemeral events → in-memory fan-out ONLY, never EventLog
           if (ev.type === "text_delta" && ev.payload) {
-            this.#pushDelta(runId, ev.payload as { blockIndex: number; text: string });
+            this.#pushEphemeral(runId, ev.type, ev.payload);
+          } else if (
+            (ev.type === "tool_start" || ev.type === "tool_end") &&
+            ev.payload
+          ) {
+            this.#pushEphemeral(runId, ev.type, ev.payload);
           } else {
             void this.#opts.eventLog.append(threadId, runId, ev as Parameters<EventLog["append"]>[2]).catch(() => {
               // best-effort; runner's direct DB write is primary

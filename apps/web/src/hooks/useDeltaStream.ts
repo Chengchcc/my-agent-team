@@ -14,14 +14,18 @@ export interface DeltaStreamState {
   ast: StreamAst;
   connection: DeltaConnection;
   finalize: (authoritativeBlocks: Array<{ type: string; text?: string }>) => void;
+  /** Tools currently executing (tool_start without matching tool_end). */
+  activeTools: string[];
 }
 
 export function useDeltaStream(runId: string | null): DeltaStreamState {
   const [ast, setAst] = useState<StreamAst>(createStreamAst);
   const [connection, setConnection] = useState<DeltaConnection>("idle");
+  const [activeTools, setActiveTools] = useState<string[]>([]);
   const pendingRef = useRef<Array<{ blockIndex: number; text: string }>>([]);
   const rafRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
   const connectedRef = useRef(false);
+  const activeMapRef = useRef<Map<string, string>>(new Map()); // id → name
 
   // rAF batch processor — merges pending deltas into one AST update per frame
   const flushPending = useCallback(() => {
@@ -47,6 +51,8 @@ export function useDeltaStream(runId: string | null): DeltaStreamState {
     connectedRef.current = false;
     setConnection("idle");
     pendingRef.current = [];
+    activeMapRef.current = new Map();
+    setActiveTools([]);
 
     const es = new EventSource(`/api/bff/runs/${runId}/stream`);
 
@@ -92,6 +98,32 @@ export function useDeltaStream(runId: string | null): DeltaStreamState {
       }
     });
 
+    es.addEventListener("tool_start", (e: Event) => {
+      if (!(e instanceof MessageEvent)) return;
+      try {
+        const { id, name } = JSON.parse(e.data as string) as {
+          id: string;
+          name: string;
+        };
+        if (!id || !name) return;
+        activeMapRef.current.set(id, name);
+        setActiveTools([...activeMapRef.current.values()]);
+      } catch {
+        // skip
+      }
+    });
+
+    es.addEventListener("tool_end", (e: Event) => {
+      if (!(e instanceof MessageEvent)) return;
+      try {
+        const { id } = JSON.parse(e.data as string) as { id: string };
+        activeMapRef.current.delete(id);
+        setActiveTools([...activeMapRef.current.values()]);
+      } catch {
+        // skip
+      }
+    });
+
     return () => {
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
@@ -108,5 +140,5 @@ export function useDeltaStream(runId: string | null): DeltaStreamState {
     [],
   );
 
-  return { ast, connection, finalize };
+  return { ast, connection, finalize, activeTools };
 }

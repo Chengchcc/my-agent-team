@@ -436,23 +436,9 @@ export function ConversationCanvas({
 
           {/* Thinking / tool-status indicator */}
           {isBusy && !historyLoading && (() => {
-            // Detect unpaired tool_use blocks in the last live item
-            const lastItem = items[items.length - 1];
-            const liveTools: string[] = [];
-            if (lastItem && Array.isArray(lastItem.content)) {
-              const blocks = lastItem.content as Array<{ type?: string; name?: string; id?: string }>;
-              const resultIds = new Set(
-                blocks.filter((b) => b.type === "tool_result" && b.id).map((b) => b.id),
-              );
-              for (const b of blocks) {
-                if (b.type === "tool_use" && b.name && !resultIds.has(b.id)) {
-                  liveTools.push(b.name);
-                }
-              }
-            }
-            const showThinking = delta.connection !== "connected" && items.length === 0;
+            const liveTools = delta.activeTools; // authoritative from /stream
             const showTools = liveTools.length > 0;
-
+            const showThinking = delta.connection !== "connected" && items.length === 0;
             if (!showThinking && !showTools) return null;
             return (
               <div className="flex items-center gap-3 py-8">

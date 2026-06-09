@@ -19,7 +19,9 @@ export type AgentEvent =
   | { type: "message"; payload: Message }
   | { type: "interrupted"; payload: Interrupt }
   | { type: "error"; payload: { message: string; stack?: string } }
-  | { type: "text_delta"; payload: { blockIndex: number; text: string } };
+  | { type: "text_delta"; payload: { blockIndex: number; text: string } }
+  | { type: "tool_start"; payload: { id: string; name: string } }
+  | { type: "tool_end"; payload: { id: string; name: string; isError?: boolean } };
 
 export interface ResumeCommand {
   approved: boolean;
@@ -195,6 +197,8 @@ function createAgentInternal(
       call,
       ts: Date.now(),
     });
+    // M13.1: ephemeral fan-out for live tool status (never persisted to EventLog)
+    yield { type: "tool_start", payload: { id: call.id, name: call.name } };
 
     const toolStart = Date.now();
     const decision = await fireBeforeTool(call, thread.messages);
@@ -206,6 +210,10 @@ function createAgentInternal(
       });
       thread.messages.push({ role: "user", content: [r] } as Message);
       await save(thread.messages);
+      yield {
+        type: "tool_end" as const,
+        payload: { id: call.id, name: call.name, isError: r.is_error as boolean | undefined },
+      };
       return false;
     }
 
@@ -270,6 +278,14 @@ function createAgentInternal(
       durationMs: Date.now() - toolStart,
       ts: Date.now(),
     });
+    yield {
+      type: "tool_end" as const,
+      payload: {
+        id: call.id,
+        name: call.name,
+        isError: resultBlock.is_error as boolean | undefined,
+      },
+    };
     await save(thread.messages);
     return false;
   }
