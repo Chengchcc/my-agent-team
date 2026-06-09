@@ -8,3 +8,4 @@ coverage/
 .env
 .env.*
 .backend-data/
+apps/web/tsconfig.tsbuildinfo
