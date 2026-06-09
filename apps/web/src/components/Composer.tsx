@@ -11,7 +11,7 @@ interface ComposerProps {
 export function Composer({
   onSend,
   disabled,
-  placeholder = "Type a message...",
+  placeholder = "Type a message…  Ctrl+Enter to send",
 }: ComposerProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -35,7 +35,7 @@ export function Composer({
   }, [value, disabled, onSend]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.key === "Enter" && !e.shiftKey) || (e.key === "Enter" && e.ctrlKey)) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       handleSend();
     }
