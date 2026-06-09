@@ -176,6 +176,7 @@ export function createRouter(token: string, features?: FeatureSet) {
       // Conversations — M10
       if (conversations) {
         const convListMatch = path === "/api/conversations";
+        const convSnapMatch = path.match(/^\/api\/conversations\/([^/]+)$/);
         const convMsgMatch = path.match(/^\/api\/conversations\/([^/]+)\/messages$/);
         const convMemberMatch = path.match(/^\/api\/conversations\/([^/]+)\/members$/);
         const convEventsMatch = path.match(/^\/api\/conversations\/([^/]+)\/events$/);
@@ -183,6 +184,10 @@ export function createRouter(token: string, features?: FeatureSet) {
         if (convListMatch && method === "POST")
           return withAuth((r) => conversations.create(r), token)(req);
         if (convListMatch)
+          return json({ error: "Method not allowed" }, 405);
+        if (convSnapMatch && method === "GET")
+          return withAuth((r) => conversations.snapshot(r, convSnapMatch[1]!), token)(req);
+        if (convSnapMatch)
           return json({ error: "Method not allowed" }, 405);
         if (convMsgMatch && method === "POST")
           return withAuth((r) => conversations.postMessage(r, convMsgMatch[1]!), token)(req);

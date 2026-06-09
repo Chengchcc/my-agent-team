@@ -126,6 +126,19 @@ export function conversationRoutes(
       }
     },
 
+    /** GET /api/conversations/:id → 200 { conversationId, triggerMode, members } */
+    async snapshot(_req: Request, conversationId: string): Promise<Response> {
+      const conv = svc.port.getConversation(conversationId);
+      if (!conv) return json({ error: "Not found" }, 404);
+      const members = svc.port.getMembers(conversationId);
+      return json({
+        conversationId: conv.conversationId,
+        triggerMode: conv.triggerMode,
+        hopCount: conv.hopCount,
+        members,
+      });
+    },
+
     /** GET /api/conversations/:id/events → SSE */
     async events(req: Request, conversationId: string): Promise<Response> {
       const qsAfterSeq = new URL(req.url).searchParams.get("afterSeq");

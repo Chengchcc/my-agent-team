@@ -207,4 +207,48 @@ describe("Router with real features", () => {
     );
     expect(resp.status).toBe(405);
   });
+
+  test("GET /api/conversations/:id returns snapshot with members", async () => {
+    // Create conversation first
+    const cResp = await router(
+      new Request("http://localhost/api/conversations", {
+        method: "POST",
+        headers: { "x-auth-token": TOKEN, "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            { kind: "human", memberId: "eve", userRef: "u-3", displayName: "Eve" },
+            { kind: "agent", memberId: "z-agent", agentId: "ag-z", displayName: "ZAgent" },
+          ],
+        }),
+      }),
+    );
+    const { conversationId } = (await cResp.json()) as { conversationId: string };
+
+    const resp = await router(
+      new Request(`http://localhost/api/conversations/${conversationId}`, {
+        headers: { "x-auth-token": TOKEN },
+      }),
+    );
+    expect(resp.status).toBe(200);
+    const body = (await resp.json()) as {
+      conversationId: string;
+      triggerMode: string;
+      hopCount: number;
+      members: Array<{ memberId: string; kind: string; displayName: string | null }>;
+    };
+    expect(body.conversationId).toBe(conversationId);
+    expect(body.triggerMode).toBe("mention");
+    expect(body.hopCount).toBe(0);
+    expect(body.members).toHaveLength(2);
+    expect(body.members.map((m) => m.memberId).sort()).toEqual(["eve", "z-agent"]);
+  });
+
+  test("GET /api/conversations/:id returns 404 for unknown id", async () => {
+    const resp = await router(
+      new Request("http://localhost/api/conversations/nonexistent", {
+        headers: { "x-auth-token": TOKEN },
+      }),
+    );
+    expect(resp.status).toBe(404);
+  });
 });
