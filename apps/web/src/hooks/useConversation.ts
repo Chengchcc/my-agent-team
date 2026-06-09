@@ -241,6 +241,15 @@ export function useConversation(
   const resumeRun = useMutation({
     mutationFn: (v: { approved: boolean; message?: string }) =>
       api.resumeRun(state.run.id!, v.approved, v.message),
+    onSuccess: () => {
+      if (state.run.id && state.run.agentMemberId) {
+        dispatch({
+          type: "run/started",
+          runId: state.run.id,
+          agentMemberId: state.run.agentMemberId,
+        });
+      }
+    },
   });
   const cancelRun = useMutation({
     mutationFn: () => api.cancelRun(state.run.id!),

@@ -180,7 +180,7 @@ export const api = {
     }),
   removeConversationMember: (id: string, memberId: string) =>
     apiFetch<{ members: MemberInfo[] }>(`conversations/${id}/members`, {
-      method: "POST",
+      method: "DELETE",
       body: { memberId },
     }),
 };

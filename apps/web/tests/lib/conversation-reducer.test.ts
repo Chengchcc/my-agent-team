@@ -388,4 +388,21 @@ describe("conversation-reducer", () => {
     const result = resolveAddressedTo(s);
     expect(result).toEqual([]);
   });
+
+  // ─── { text } unwrap (ledger D19 backfill compat) ──────
+
+  test("agent message with { text } content is unwrapped to string", () => {
+    const s = runWithBootstrap(
+      {
+        type: "ledger/message",
+        seq: 3,
+        senderMemberId: a1,
+        content: { text: "hello from agent" },
+      },
+    );
+    const msg = s.messages.find((m) => m.sender.memberId === a1);
+    expect(msg).not.toBeNull();
+    expect(typeof msg!.content).toBe("string");
+    expect(msg!.content).toBe("hello from agent");
+  });
 });

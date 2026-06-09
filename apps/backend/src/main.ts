@@ -282,7 +282,7 @@ supervisor.onRunComplete((threadId, runId) => {
               senderMemberId,
               addressedTo: [],
               kind: "message",
-              content: JSON.stringify({ text }),
+              content: JSON.stringify(text),
               ts: Date.now(),
             });
             await convSvc.broadcastMessage({
@@ -291,7 +291,7 @@ supervisor.onRunComplete((threadId, runId) => {
               senderMemberId,
               addressedTo: [],
               kind: "message",
-              content: JSON.stringify({ text }),
+              content: JSON.stringify(text),
               ts: Date.now(),
             });
           }

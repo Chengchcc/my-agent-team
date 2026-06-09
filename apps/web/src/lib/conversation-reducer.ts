@@ -69,7 +69,13 @@ export function initialState(): ConvState {
 }
 
 function norm(c: unknown): string | ContentBlock[] {
-  return typeof c === "string" ? c : (c as ContentBlock[]);
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) return c as ContentBlock[];
+  // Defense-in-depth: unwrap { text: "..." } from legacy agent message payloads
+  if (typeof c === "object" && c !== null && "text" in c && typeof (c as { text: unknown }).text === "string") {
+    return (c as { text: string }).text;
+  }
+  return String(c);
 }
 
 function upsertAuthoritative(
