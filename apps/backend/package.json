@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "bun run src/main.ts",
+    "dev": "bun run --cwd ../.. build --filter=@my-agent-team/backend^... && bun run src/main.ts",
     "lint": "biome check . && eslint .",
     "test": "bun test --pass-with-no-tests",
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
