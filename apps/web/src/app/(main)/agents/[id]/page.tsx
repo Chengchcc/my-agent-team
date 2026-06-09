@@ -45,9 +45,9 @@ export default function AgentDetailPage() {
     }`;
 
   return (
-    <div className="h-full bg-[var(--canvas)]">
+    <div className="h-full bg-[var(--canvas)] flex flex-col">
       {/* Header */}
-      <div className="border-b border-[var(--hairline)]">
+      <div className="border-b border-[var(--hairline)] shrink-0">
         <div className="container mx-auto px-8 py-5">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-normal text-[var(--ink-strong)] font-[family-name:var(--font-sans)]"
@@ -90,9 +90,11 @@ export default function AgentDetailPage() {
       </div>
 
       {/* Content */}
-      <div className="container mx-auto px-8 py-10">
+      <div className="flex-1 overflow-y-auto">
+        <div className="container mx-auto px-8 py-10">
         {tab === "threads" && <ThreadList agentId={id} />}
         {tab === "identity" && <IdentityPanel agentId={id} />}
+        </div>
       </div>
     </div>
   );
