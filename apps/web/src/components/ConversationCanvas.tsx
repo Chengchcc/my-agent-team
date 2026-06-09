@@ -64,11 +64,22 @@ export function ConversationCanvas({
   });
 
   useEffect(() => {
-    if (currentRun && !runId) {
+    if (!currentRun) {
+      // Run completed (backend returns null when no active run)
+      if (runId && runStatus === "running") {
+        setRunStatus("succeeded");
+        setOptimistic(null);
+      }
+      return;
+    }
+    if (!runId) {
       setRunId(currentRun.runId);
       setRunStatus(currentRun.status);
+    } else if (currentRun.runId === runId && currentRun.status !== "running") {
+      // Status changed (e.g. interrupted, error, succeeded)
+      setRunStatus(currentRun.status);
     }
-  }, [currentRun, runId]);
+  }, [currentRun, runId, runStatus]);
 
   const {
     items,
