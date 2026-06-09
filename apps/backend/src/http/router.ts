@@ -72,6 +72,8 @@ export function createRouter(token: string, features?: FeatureSet) {
       // D11: agent identity (SOUL/USER/memory)
       if (agentIdentityMatch && method === "GET")
         return withAuth((r) => agents.identity(r, agentIdentityMatch[1]!), token)(req);
+      if (agentIdentityMatch && method === "PUT")
+        return withAuth((r) => agents.updateIdentity(r, agentIdentityMatch[1]!), token)(req);
       if (agentIdentityMatch)
         return json({ error: "Method not allowed" }, 405);
 

@@ -434,18 +434,37 @@ export function ConversationCanvas({
             </div>
           )}
 
-          {/* Thinking indicator — busy but no text output yet */}
-          {isBusy &&
-            delta.connection !== "connected" &&
-            items.length === 0 &&
-            !historyLoading && (
+          {/* Thinking / tool-status indicator */}
+          {isBusy && !historyLoading && (() => {
+            // Detect unpaired tool_use blocks in the last live item
+            const lastItem = items[items.length - 1];
+            const liveTools: string[] = [];
+            if (lastItem && Array.isArray(lastItem.content)) {
+              const blocks = lastItem.content as Array<{ type?: string; name?: string; id?: string }>;
+              const resultIds = new Set(
+                blocks.filter((b) => b.type === "tool_result" && b.id).map((b) => b.id),
+              );
+              for (const b of blocks) {
+                if (b.type === "tool_use" && b.name && !resultIds.has(b.id)) {
+                  liveTools.push(b.name);
+                }
+              }
+            }
+            const showThinking = delta.connection !== "connected" && items.length === 0;
+            const showTools = liveTools.length > 0;
+
+            if (!showThinking && !showTools) return null;
+            return (
               <div className="flex items-center gap-3 py-8">
                 <span className="w-1.5 h-1.5 rounded-full shrink-0 animate-dot-pulse bg-[var(--primary)]" />
                 <span className="text-sm text-[var(--mute)]">
-                  Agent is working…
+                  {showTools
+                    ? `Running ${liveTools.join(", ")}…`
+                    : "Agent is working…"}
                 </span>
               </div>
-            )}
+            );
+          })()}
 
           {/* Conversation timeline */}
           {historyLoading ? (

@@ -104,6 +104,11 @@ export const api = {
     apiFetch<void>(`agents/${id}`, { method: "DELETE" }),
   getIdentity: (id: string) =>
     apiFetch<IdentityData>(`agents/${id}/identity`),
+  setIdentity: (id: string, body: { soul?: string; user?: string }) =>
+    apiFetch<{ ok: boolean }>(`agents/${id}/identity`, {
+      method: "PUT",
+      body,
+    }),
 
   // Threads
   listThreads: (agentId: string) =>

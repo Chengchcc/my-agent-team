@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { AgentService } from "./service.js";
 import { AgentBusyError, AgentNotFoundError } from "./service.js";
 import { json, parseJsonBody } from "../../http/response.js";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const createSchema = z.object({
@@ -135,6 +135,34 @@ export function agentRoutes(svc: AgentService) {
         }
 
         return json({ soul, user, memories });
+      } catch (err) {
+        if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
+        throw err;
+      }
+    },
+
+    /** PUT /api/agents/:id/identity — write SOUL.md and/or USER.md */
+    async updateIdentity(req: Request, agentId: string): Promise<Response> {
+      try {
+        const agent = await svc.getById(agentId);
+        const wsPath = path.resolve(agent.workspacePath);
+        if (workspaceRoot) {
+          const resolvedRoot = path.resolve(workspaceRoot);
+          if (!wsPath.startsWith(resolvedRoot + path.sep) && wsPath !== resolvedRoot) {
+            return json({ error: "Invalid workspace path" }, 500);
+          }
+        }
+        const body = (await req.json().catch(() => ({}))) as {
+          soul?: string;
+          user?: string;
+        };
+        if (typeof body.soul === "string") {
+          await writeFile(path.join(wsPath, "SOUL.md"), body.soul, "utf-8");
+        }
+        if (typeof body.user === "string") {
+          await writeFile(path.join(wsPath, "USER.md"), body.user, "utf-8");
+        }
+        return json({ ok: true });
       } catch (err) {
         if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
         throw err;

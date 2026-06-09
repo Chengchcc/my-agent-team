@@ -1,15 +1,76 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
-function Section({ title, content }: { title: string; content: string | null }) {
+interface SectionProps {
+  title: string;
+  content: string | null;
+  field: "soul" | "user";
+  editing: boolean;
+  draft: string;
+  saving: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
+  onSave: () => void;
+  onChange: (value: string) => void;
+}
+
+function Section({
+  title,
+  content,
+  editing,
+  draft,
+  saving,
+  onEdit,
+  onCancel,
+  onSave,
+  onChange,
+}: SectionProps) {
   return (
     <div className="border border-[var(--hairline)] rounded-lg p-8 bg-[var(--canvas)]">
-      <h3 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] mb-4 font-[family-name:var(--font-sans)] font-semibold">
-        {title}
-      </h3>
-      {content === null ? (
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] font-[family-name:var(--font-sans)] font-semibold">
+          {title}
+        </h3>
+        {!editing && (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="text-[10px] text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors"
+          >
+            Edit
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <div className="space-y-3">
+          <textarea
+            value={draft}
+            onChange={(e) => onChange(e.target.value)}
+            className="w-full bg-[var(--canvas-soft)] border border-[var(--hairline)] rounded-md px-3 py-2 text-sm text-[var(--ink)] font-[family-name:var(--font-mono)] resize-y min-h-[200px] focus:outline-none focus:border-[var(--primary)] transition-colors"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={saving}
+              className="bg-[var(--primary)] text-[var(--on-primary)] rounded-md px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-40 transition-opacity"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={saving}
+              className="border border-[var(--hairline)] rounded-md px-3 py-1.5 text-xs text-[var(--body)] hover:text-[var(--ink)] disabled:opacity-40 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : content === null ? (
         <p className="text-sm text-[var(--mute)]">Not yet configured</p>
       ) : (
         <pre className="text-sm leading-relaxed text-[var(--ink)] whitespace-pre-wrap font-[family-name:var(--font-sans)]">
@@ -21,9 +82,22 @@ function Section({ title, content }: { title: string; content: string | null }) 
 }
 
 export function IdentityPanel({ agentId }: { agentId: string }) {
+  const queryClient = useQueryClient();
+  const [editingField, setEditingField] = useState<"soul" | "user" | null>(null);
+  const [draft, setDraft] = useState("");
+
   const { data, isLoading } = useQuery({
     queryKey: ["identity", agentId],
     queryFn: () => api.getIdentity(agentId),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (body: { soul?: string; user?: string }) =>
+      api.setIdentity(agentId, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["identity", agentId] });
+      setEditingField(null);
+    },
   });
 
   if (isLoading) {
@@ -40,10 +114,45 @@ export function IdentityPanel({ agentId }: { agentId: string }) {
     return <p className="text-sm text-[var(--mute)]">Failed to load identity</p>;
   }
 
+  const startEdit = (field: "soul" | "user") => {
+    setDraft(data[field] ?? "");
+    setEditingField(field);
+  };
+
+  const save = () => {
+    if (editingField) {
+      saveMutation.mutate({ [editingField]: draft });
+    }
+  };
+
+  const cancel = () => setEditingField(null);
+
   return (
     <div className="space-y-4 max-w-2xl">
-      <Section title="SOUL" content={data.soul} />
-      <Section title="USER" content={data.user} />
+      <Section
+        title="SOUL"
+        content={data.soul}
+        field="soul"
+        editing={editingField === "soul"}
+        draft={draft}
+        saving={saveMutation.isPending}
+        onEdit={() => startEdit("soul")}
+        onCancel={cancel}
+        onSave={save}
+        onChange={setDraft}
+      />
+      <Section
+        title="USER"
+        content={data.user}
+        field="user"
+        editing={editingField === "user"}
+        draft={draft}
+        saving={saveMutation.isPending}
+        onEdit={() => startEdit("user")}
+        onCancel={cancel}
+        onSave={save}
+        onChange={setDraft}
+      />
 
       <div className="border border-[var(--hairline)] rounded-lg p-8 bg-[var(--canvas)]">
         <h3 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] mb-4 font-[family-name:var(--font-sans)] font-semibold">
