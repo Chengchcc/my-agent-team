@@ -10,7 +10,6 @@ import { useDeltaStream } from "@/hooks/useDeltaStream";
 import { Timeline } from "./Timeline";
 import { Composer } from "./Composer";
 import { ToolApprovalCard } from "./ToolApprovalCard";
-import { MessageBubble } from "./MessageBubble";
 import { StreamingBlocks } from "./StreamingBlocks";
 import { routeItem, extractText } from "@/lib/timeline";
 import { statusLabel as computeStatus } from "@/lib/run-status";
@@ -104,29 +103,20 @@ export function ConversationCanvas({
     }
   }, [liveMessages.length, delta.finalize]);
 
-  // Split items into conversation stream vs heavy output.
-  // When streaming, hide the last assistant heavy item — it's being rendered
-  // in real-time by the delta stream, avoid duplicate display.
-  const { streamItems, heavyItems } = useMemo(() => {
-    const s = items.filter((it) => routeItem(it) === "drawer");
-    let h = items.filter((it) => routeItem(it) === "main");
-    // Remove the last assistant heavy item if delta is streaming it live
-    if (delta.connection === "connected" && h.length > 0) {
-      const lastHeavy = h[h.length - 1]!;
-      if (lastHeavy.role === "assistant") {
-        h = h.slice(0, -1);
-      }
-    }
-    return { streamItems: s, heavyItems: h };
-  }, [items, delta.connection === "connected", delta.connection === "degraded"]);
+  // Last live item seq — used to identify which assistant message is actively
+  // streaming (vs. completed history items that should render as static MessageBubble).
+  const lastLiveSeq = useMemo(() => {
+    const liveOnes = items.filter((it) => it.seq !== undefined);
+    if (liveOnes.length === 0) return undefined;
+    const last = liveOnes[liveOnes.length - 1]!;
+    return last.role === "assistant" && !isStreamingDone ? last.seq : undefined;
+  }, [items, isStreamingDone]);
 
-  // Last assistant index in stream items (for streaming indicator)
-  const streamAssistantIdx = useMemo(() => {
-    for (let i = streamItems.length - 1; i >= 0; i--) {
-      if (streamItems[i]!.role === "assistant") return i;
-    }
-    return -1;
-  }, [streamItems]);
+  // Count heavy items for the anchor indicator only (not for rendering order)
+  const heavyCount = useMemo(
+    () => items.filter((it) => routeItem(it) === "main").length,
+    [items],
+  );
 
   // Clear optimistic only when user echo appears in live stream
   useEffect(() => {
@@ -433,31 +423,15 @@ export function ConversationCanvas({
           </div>
         ))}
 
-      {/* Heavy content anchor */}
-      {heavyItems.length > 0 && (
-        <div className="shrink-0 px-6 py-1.5 border-b border-[var(--primary)]/20 bg-[var(--primary)]/[0.04]">
-          <p className="text-[10px] tracking-[0.1em] uppercase text-[var(--primary)] font-[family-name:var(--font-sans)] font-semibold">
-            &#8599; {heavyItems.length} block{heavyItems.length > 1 ? "s" : ""} surfaced
-          </p>
-        </div>
-      )}
-
-      {/* Main scrollable area: heavy blocks + conversation + interrupt */}
+      {/* Main scrollable area: unified timeline (chronological order) */}
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto relative">
         <div className="mx-auto" style={{ maxWidth: "72ch", padding: "0 1.5rem" }}>
-          {/* Heavy content — break-out cards */}
-          {heavyItems.length > 0 && (
-            <div className="space-y-4 pt-6 pb-4">
-              {heavyItems.map((item, i) => {
-                const text = extractText(item.content);
-                const key = item.seq ?? `heavy-${i}`;
-                if (!text) return null;
-                return (
-                  <div key={key}>
-                    <MessageBubble role={item.role} content={text} />
-                  </div>
-                );
-              })}
+          {/* Heavy count indicator (informational only, no segregation) */}
+          {heavyCount > 0 && (
+            <div className="pt-4 pb-1">
+              <p className="text-[10px] tracking-[0.1em] uppercase text-[var(--primary)]/60 font-[family-name:var(--font-sans)] font-semibold">
+                {heavyCount} heavy block{heavyCount > 1 ? "s" : ""}
+              </p>
             </div>
           )}
 
@@ -471,8 +445,7 @@ export function ConversationCanvas({
           {/* Thinking indicator — busy but no text output yet */}
           {isBusy &&
             delta.connection !== "connected" &&
-            streamItems.length === 0 &&
-            heavyItems.length === 0 &&
+            items.length === 0 &&
             !historyLoading && (
               <div className="flex items-center gap-3 py-8">
                 <span className="w-1.5 h-1.5 rounded-full shrink-0 animate-dot-pulse bg-[var(--primary)]" />
@@ -494,7 +467,7 @@ export function ConversationCanvas({
                 ))}
               </div>
             </div>
-          ) : streamItems.length === 0 && heavyItems.length === 0 ? (
+          ) : items.length === 0 ? (
             /* Empty state — agent identity card */
             <div className="flex flex-col items-start justify-center py-24">
               {agent && (
@@ -521,8 +494,8 @@ export function ConversationCanvas({
           ) : (
             <div className="py-4">
               <Timeline
-                items={streamItems}
-                liveAssistantIndex={streamAssistantIdx}
+                items={items}
+                lastLiveSeq={lastLiveSeq}
                 isStreamingDone={isStreamingDone}
               />
             </div>

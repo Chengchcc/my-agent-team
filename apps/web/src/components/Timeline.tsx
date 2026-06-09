@@ -46,13 +46,14 @@ function renderContentBlocks(blocks: unknown[] | undefined) {
 
 interface TimelineProps {
   items: TimelineItem[];
-  liveAssistantIndex?: number;
+  /** seq of the actively-streaming assistant message, or undefined if none. */
+  lastLiveSeq?: number;
   isStreamingDone?: boolean;
 }
 
 export function Timeline({
   items,
-  liveAssistantIndex,
+  lastLiveSeq,
   isStreamingDone,
 }: TimelineProps) {
   return (
@@ -67,8 +68,11 @@ export function Timeline({
         )}
 
         {items.map((item, idx) => {
-          const isLastAssistant =
-            item.role === "assistant" && idx === (liveAssistantIndex ?? -1);
+          // Only streaming when: item has live seq, matches active streaming seq, run not done
+          const isStreaming =
+            item.seq !== undefined &&
+            item.seq === lastLiveSeq &&
+            !isStreamingDone;
           const key = item.seq ?? idx;
           const virtStyle = {
             contentVisibility: "auto" as const,
@@ -76,7 +80,7 @@ export function Timeline({
           };
 
           if (typeof item.content === "string") {
-            if (isLastAssistant && !isStreamingDone) {
+            if (isStreaming) {
               return (
                 <div key={key} style={virtStyle}>
                   <StreamingMessage fullText={item.content} done={false} />
@@ -95,7 +99,7 @@ export function Timeline({
           return (
             <div key={key} style={virtStyle}>
               {textContent &&
-                (isLastAssistant && !isStreamingDone ? (
+                (isStreaming ? (
                   <StreamingMessage fullText={textContent} done={false} />
                 ) : (
                   <MessageBubble role={item.role} content={textContent} />
