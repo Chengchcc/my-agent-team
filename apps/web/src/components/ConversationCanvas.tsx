@@ -435,13 +435,6 @@ export function ConversationCanvas({
             </div>
           )}
 
-          {/* Streaming delta — real-time incremental rendering */}
-          {delta.connection === "connected" && (
-            <div className="pb-4">
-              <StreamingBlocks ast={delta.ast} />
-            </div>
-          )}
-
           {/* Thinking indicator — busy but no text output yet */}
           {isBusy &&
             delta.connection !== "connected" &&
@@ -498,6 +491,16 @@ export function ConversationCanvas({
                 lastLiveSeq={lastLiveSeq}
                 isStreamingDone={isStreamingDone}
               />
+            </div>
+          )}
+
+          {/* Streaming delta — after Timeline, so live response appears
+              below history + user message. Gated: hide if /events already
+              delivered the finalized assistant (lastLiveSeq set) to prevent
+              dual-display during handoff. */}
+          {delta.connection === "connected" && lastLiveSeq === undefined && (
+            <div className="pb-4">
+              <StreamingBlocks ast={delta.ast} />
             </div>
           )}
         </div>
