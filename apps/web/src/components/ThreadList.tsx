@@ -88,13 +88,20 @@ export function ThreadList({ agentId }: { agentId: string }) {
       ) : (
         <div className="space-y-0.5">
           {agentThreads.map((thread, i) => (
-            <button
+            <div
               key={thread.id}
-              type="button"
+              role="button"
+              tabIndex={0}
               onClick={() => router.push(`/threads/${thread.id}`)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  router.push(`/threads/${thread.id}`);
+                }
+              }}
               className="w-full text-left border border-[var(--hairline)] rounded-lg
                          hover:border-[var(--primary)] transition-colors duration-200
-                         animate-fade-in bg-[var(--canvas)]"
+                         animate-fade-in bg-[var(--canvas)] cursor-pointer"
               style={{
                 animationDelay: `${i * 0.06}s`,
                 animationFillMode: "both",
@@ -134,13 +141,14 @@ export function ThreadList({ agentId }: { agentId: string }) {
                     disabled={deleteThread.isPending}
                     className="text-[var(--mute)] hover:text-red-500 p-1 rounded transition-colors"
                     title="Delete thread"
+                    aria-label="Delete thread"
                   >
                     <Trash2 size={14} />
                   </button>
                   <ChevronRight size={16} className="text-[var(--mute)]" />
                 </div>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}

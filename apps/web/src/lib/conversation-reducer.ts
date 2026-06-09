@@ -109,15 +109,21 @@ export function reducer(s: ConvState, a: Action): ConvState {
       };
     }
 
-    case "stream/delta":
+    case "stream/delta": {
+      const sameRun = a.runId === s.draft?.runId;
+      const carryText =
+        sameRun ? (s.draft?.text ?? "") : "";
+      const carryTools =
+        sameRun ? (s.draft?.tools ?? []) : [];
       return {
         ...s,
         draft: {
           runId: a.runId,
-          tools: s.draft?.tools ?? [],
-          text: (s.draft?.text ?? "") + a.text,
+          tools: carryTools,
+          text: carryText + a.text,
         },
       };
+    }
 
     case "stream/toolStart":
       return {
@@ -147,17 +153,19 @@ export function reducer(s: ConvState, a: Action): ConvState {
       const role = a.msg.role;
       if (role !== "user" && role !== "assistant") return s;
       const id =
-        a.seq !== null ? `s-${a.seq}` : `s-${s.messages.length}`;
+        a.seq !== null ? `s-${a.seq}` : `e-${s.optimisticSeq}`;
       const messages = upsertAuthoritative(
         s.messages,
         id,
         role,
         norm(a.msg.content),
       );
+      const next =
+        a.seq === null ? { ...s, optimisticSeq: s.optimisticSeq + 1 } : s;
       // ★ Atomic: authoritative assistant arrival clears draft
       return role === "assistant"
-        ? { ...s, messages, draft: null }
-        : { ...s, messages };
+        ? { ...next, messages, draft: null }
+        : { ...next, messages };
     }
 
     case "events/interrupted":

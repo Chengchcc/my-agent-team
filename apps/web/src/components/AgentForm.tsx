@@ -118,6 +118,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                 type="button"
                 onClick={() => setOpen(false)}
                 className="text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
+                aria-label="Close"
               >
                 <X size={18} />
               </button>

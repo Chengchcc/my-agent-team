@@ -13,8 +13,6 @@ export function useConversation(
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const qc = useQueryClient();
   const runId = state.run.id ?? initialRun?.runId ?? null;
-  const runIdRef = useRef(runId);
-  runIdRef.current = runId;
 
   // 1) history
   const history = useQuery({
@@ -45,7 +43,6 @@ export function useConversation(
   // 2) /events (durable) — done is authoritative completion signal
   useEffect(() => {
     if (!runId) return;
-    if (runId === runIdRef.current && runIdRef.current !== runId) return;
 
     const es = new EventSource(`/api/bff/runs/${runId}/events`);
     const seen = new Set<number>();

@@ -74,7 +74,7 @@ export function Composer({
                      disabled:opacity-30 disabled:cursor-not-allowed
                      transition-opacity duration-200 inline-flex items-center justify-center"
         >
-          <ArrowUp size={16} className="shrink-0" />
+          <ArrowUp size={16} className="shrink-0" aria-label="Send" />
         </button>
       </div>
     </div>
