@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useEffect, useRef } from "react";
+import { useMemo, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { extractText } from "@/lib/timeline";
 import { computeStatus } from "@/lib/run-status";
 import { useConversation } from "@/hooks/useConversation";
@@ -10,7 +12,7 @@ import { Timeline } from "./Timeline";
 import { DraftMessage } from "./DraftMessage";
 import { Composer } from "./Composer";
 import { ToolApprovalCard } from "./ToolApprovalCard";
-import { Bot, UserCircle } from "lucide-react";
+import { Bot, UserCircle, X } from "lucide-react";
 import { AddMemberButton } from "./AddMemberButton";
 
 interface ConversationCanvasProps {
@@ -65,6 +67,15 @@ export function ConversationCanvas({
     const agent = Object.values(roster).find((m) => m.kind === "agent");
     return agent ?? null;
   }, [roster]);
+
+  const qc = useQueryClient();
+  const removeMember = useMutation({
+    mutationFn: (memberId: string) =>
+      api.removeConversationMember(conversationId, memberId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["conv", conversationId] });
+    },
+  });
 
   return (
     <div className="h-full flex flex-col bg-[var(--canvas)]">
@@ -219,7 +230,7 @@ export function ConversationCanvas({
               return (
                 <li
                   key={m.memberId}
-                  className="flex items-center gap-2 text-xs py-1"
+                  className="flex items-center gap-2 text-xs py-1 group"
                 >
                   {m.kind === "agent" ? (
                     <Bot size={14} className="text-[var(--primary)] shrink-0" />
@@ -229,10 +240,21 @@ export function ConversationCanvas({
                       className="text-[var(--mute)] shrink-0"
                     />
                   )}
-                  <span className="truncate text-[var(--body)]">
+                  <span className="truncate text-[var(--body)] flex-1">
                     {m.displayName ?? m.memberId}
                     {isViewer ? " (you)" : ""}
                   </span>
+                  {!isViewer && (
+                    <button
+                      type="button"
+                      onClick={() => removeMember.mutate(m.memberId)}
+                      disabled={removeMember.isPending}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[var(--canvas-soft)] transition-all disabled:opacity-0 shrink-0"
+                      title={`Remove ${m.displayName ?? m.memberId}`}
+                    >
+                      <X size={12} className="text-[var(--mute)]" />
+                    </button>
+                  )}
                 </li>
               );
             })}
