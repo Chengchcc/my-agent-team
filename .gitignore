@@ -9,3 +9,5 @@ coverage/
 .env.*
 .backend-data/
 apps/web/tsconfig.tsbuildinfo
+apps/backend/SOUL.md
+apps/backend/USER.md

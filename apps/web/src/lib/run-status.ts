@@ -1,3 +1,5 @@
+import type { RunPhase } from "./conversation-reducer";
+
 export type RunStatusLabel =
   | "Connecting"
   | "Running"
@@ -7,17 +9,21 @@ export type RunStatusLabel =
   | "Error"
   | null;
 
-export function statusLabel(
+export function computeStatus(
   runId: string | null,
-  runStatus: string | null,
-  liveStatus: string,
+  phase: RunPhase,
 ): RunStatusLabel {
   if (!runId) return null;
-  if (liveStatus === "connecting") return "Connecting";
-  if (liveStatus === "streaming" || runStatus === "running") return "Running";
-  if (runStatus === "interrupted") return "Awaiting Approval";
-  if (runStatus === "succeeded" || liveStatus === "done") return "Complete";
-  if (runStatus === "aborted") return "Aborted";
-  if (runStatus === "error" || liveStatus === "error") return "Error";
-  return runStatus as RunStatusLabel;
+  switch (phase) {
+    case "running":
+      return "Running";
+    case "interrupted":
+      return "Awaiting Approval";
+    case "done":
+      return "Complete";
+    case "error":
+      return "Error";
+    default:
+      return null;
+  }
 }
