@@ -90,6 +90,33 @@ export interface Message {
   content: string | ContentBlock[];
 }
 
+// ── Conversation types (M14) ──
+
+export interface MemberInfo {
+  memberId: string;
+  kind: "agent" | "human";
+  agentId?: string | null;
+  userRef?: string | null;
+  displayName?: string | null;
+}
+
+export interface ConversationSnapshot {
+  conversationId: string;
+  triggerMode: "mention";
+  hopCount: number;
+  members: MemberInfo[];
+}
+
+export interface LedgerEntry {
+  seq: number;
+  conversationId: string;
+  senderMemberId: string;
+  addressedTo: string[];
+  kind: "message" | "member.joined" | "member.left";
+  content: string;
+  ts: number;
+}
+
 // ── Typed API ──
 
 export const api = {
@@ -144,4 +171,34 @@ export const api = {
       `runs/${runId}/resume`,
       { method: "POST", body: { approved, message } },
     ),
+
+  // Conversations (M14)
+  getConversation: (id: string) =>
+    apiFetch<ConversationSnapshot>(`conversations/${id}`),
+  postConversationMessage: (
+    id: string,
+    body: { senderMemberId: string; addressedTo: string[]; content: unknown },
+  ) =>
+    apiFetch<{
+      seq: number;
+      triggeredRuns: Array<{ agentMemberId: string; runId: string }>;
+    }>(`conversations/${id}/messages`, { method: "POST", body }),
+  addConversationMember: (
+    id: string,
+    body: {
+      memberId: string;
+      kind: "agent" | "human";
+      agentId?: string;
+      displayName?: string;
+    },
+  ) =>
+    apiFetch<{ members: MemberInfo[] }>(`conversations/${id}/members`, {
+      method: "POST",
+      body,
+    }),
+  removeConversationMember: (id: string, memberId: string) =>
+    apiFetch<{ members: MemberInfo[] }>(`conversations/${id}/members`, {
+      method: "POST",
+      body: { memberId },
+    }),
 };

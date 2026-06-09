@@ -1,118 +1,144 @@
 "use client";
 
-import { useReducer, useEffect, useCallback, useRef } from "react";
+import { useReducer, useEffect, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Message } from "@/lib/api";
-import { reducer, initialState } from "@/lib/conversation-reducer";
+import { reducer, initialState, type ConvState, type SenderRef } from "@/lib/conversation-reducer";
 
-export function useConversation(
-  threadId: string,
-  initialRun: { runId: string; status: string } | null,
-) {
+function safeParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function resolveViewerMemberId(members: SenderRef[]): string {
+  const humans = members.filter((m) => m.kind === "human");
+  return humans[0]?.memberId ?? "";
+}
+
+function resolveAddressedTo(s: ConvState): string[] {
+  const agents = Object.values(s.roster).filter((m) => m.kind === "agent");
+  return agents.length === 1 ? [agents[0]!.memberId] : [];
+}
+
+export function useConversation(conversationId: string) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const qc = useQueryClient();
-  const runId = state.run.id ?? initialRun?.runId ?? null;
 
-  // 1) history
-  const history = useQuery({
-    queryKey: ["history", threadId],
-    queryFn: () => api.getMessages(threadId),
-    staleTime: 0,
+  // 1) Snapshot bootstrap (roster + viewerMemberId)
+  const snap = useQuery({
+    queryKey: ["conv", conversationId],
+    queryFn: () => api.getConversation(conversationId),
   });
-  const prevHistoryData = useRef<typeof history.data>(undefined);
   useEffect(() => {
-    if (history.data && history.data !== prevHistoryData.current) {
-      prevHistoryData.current = history.data;
-      dispatch({
-        type: "history/loaded",
-        messages: (history.data.messages ?? []) as Message[],
-      });
-    }
-  }, [history.data]);
+    if (!snap.data) return;
+    const members: SenderRef[] = snap.data.members.map((m) => ({
+      memberId: m.memberId,
+      kind: m.kind,
+      displayName: m.displayName ?? undefined,
+    }));
+    const viewerMemberId = resolveViewerMemberId(members);
+    dispatch({ type: "bootstrap", viewerMemberId, members });
+  }, [snap.data]);
 
-  // 1b) restore running state on page load
-  const didInitRef = useRef(false);
+  // 2) Conversation ledger SSE (messages + member events + system notices)
   useEffect(() => {
-    if (!didInitRef.current && initialRun?.runId) {
-      didInitRef.current = true;
-      dispatch({ type: "run/started", runId: initialRun.runId });
-    }
-  }, [initialRun?.runId]);
-
-  // 2) /events (durable) — done is authoritative completion signal
-  useEffect(() => {
-    if (!runId) return;
-
-    const es = new EventSource(`/api/bff/runs/${runId}/events`);
+    if (!conversationId) return;
+    const es = new EventSource(
+      `/api/bff/conversations/${conversationId}/events`,
+    );
     const seen = new Set<number>();
 
-    const onEvent =
-      (type: "message" | "interrupted" | "error") => (e: Event) => {
+    const guard = (e: MessageEvent): number | null => {
+      const seq = parseInt(e.lastEventId, 10);
+      if (Number.isFinite(seq)) {
+        if (seen.has(seq)) return null;
+        seen.add(seq);
+      }
+      return seq;
+    };
+
+    // "message" event — regular chat messages
+    es.addEventListener("message", (e: Event) => {
+      if (!(e instanceof MessageEvent)) return;
+      const seq = guard(e);
+      if (seq === null) return;
+      try {
+        const entry = JSON.parse(e.data) as {
+          senderMemberId: string;
+          content: string;
+        };
+        const content =
+          typeof entry.content === "string"
+            ? safeParse(entry.content)
+            : entry.content;
+        if (entry.senderMemberId === "__system__") {
+          dispatch({
+            type: "ledger/member",
+            seq,
+            kind: "member.joined",
+            payload: content,
+          });
+        } else {
+          dispatch({
+            type: "ledger/message",
+            seq,
+            senderMemberId: entry.senderMemberId,
+            content,
+          });
+        }
+      } catch {
+        // skip malformed
+      }
+    });
+
+    // "member.joined" / "member.left" — dedicated event types
+    for (const kind of ["member.joined", "member.left"] as const) {
+      es.addEventListener(kind, (e: Event) => {
         if (!(e instanceof MessageEvent)) return;
+        const seq = guard(e);
+        if (seq === null) return;
         try {
-          const seq = e.lastEventId
-            ? parseInt(e.lastEventId, 10)
-            : null;
-          if (seq !== null) {
-            if (seen.has(seq)) return;
-            seen.add(seq);
-          }
-          const raw = JSON.parse(e.data as string) as {
-            type: string;
-            payload: unknown;
-          };
-          if (type === "message") {
-            dispatch({
-              type: "events/message",
-              seq,
-              msg: raw.payload as { role: string; content: unknown },
-            });
-          } else if (type === "interrupted") {
-            dispatch({ type: "events/interrupted", payload: raw.payload as { pendingTool?: { id: string; name: string; input: unknown } } });
-          } else {
-            dispatch({
-              type: "events/error",
-              message:
-                (raw.payload as { message?: string })?.message ?? "Unknown error",
-            });
-          }
+          const entry = JSON.parse(e.data) as { content: string };
+          const payload =
+            typeof entry.content === "string"
+              ? safeParse(entry.content)
+              : entry.content;
+          dispatch({ type: "ledger/member", seq, kind, payload });
         } catch {
           // skip malformed
         }
-      };
+      });
+    }
 
-    const handleDone = () => {
-      dispatch({ type: "events/done" });
-      es.close();
-      qc.invalidateQueries({ queryKey: ["history", threadId] });
-    };
+    return () => es.close();
+  }, [conversationId]);
 
-    es.addEventListener("message", onEvent("message") as EventListener);
-    es.addEventListener("interrupted", onEvent("interrupted") as EventListener);
-    es.addEventListener("error", onEvent("error") as EventListener);
-    es.addEventListener("done", handleDone);
-
-    return () => {
-      es.close();
-    };
-  }, [runId, threadId, qc]);
-
-  // 3) /stream (ephemeral)
+  // 3) Run-level token/tool stream: only when there's an active run
   useEffect(() => {
-    if (!runId) return;
+    const runId = state.run.id;
+    if (!runId || state.run.phase !== "running") return;
+    const agentMemberId = state.run.agentMemberId ?? "";
 
     const es = new EventSource(`/api/bff/runs/${runId}/stream`);
 
     es.addEventListener("text_delta", (e: Event) => {
       if (!(e instanceof MessageEvent)) return;
       try {
-        const { blockIndex, text } = JSON.parse(e.data as string) as {
+        const { blockIndex, text } = JSON.parse(e.data) as {
           blockIndex: number;
           text: string;
         };
         if (typeof text === "string") {
-          dispatch({ type: "stream/delta", runId, blockIndex, text });
+          dispatch({
+            type: "stream/delta",
+            runId,
+            agentMemberId,
+            blockIndex,
+            text,
+          });
         }
       } catch {
         // skip
@@ -122,7 +148,7 @@ export function useConversation(
     es.addEventListener("tool_start", (e: Event) => {
       if (!(e instanceof MessageEvent)) return;
       try {
-        const { id, name } = JSON.parse(e.data as string) as {
+        const { id, name } = JSON.parse(e.data) as {
           id: string;
           name: string;
         };
@@ -135,7 +161,7 @@ export function useConversation(
     es.addEventListener("tool_end", (e: Event) => {
       if (!(e instanceof MessageEvent)) return;
       try {
-        const { id } = JSON.parse(e.data as string) as { id: string };
+        const { id } = JSON.parse(e.data) as { id: string };
         if (id) dispatch({ type: "stream/toolEnd", id });
       } catch {
         // skip
@@ -143,46 +169,86 @@ export function useConversation(
     });
 
     return () => es.close();
-  }, [runId]);
+  }, [state.run.id, state.run.phase, state.run.agentMemberId]);
 
-  // 4) currentRun poll — fallback for backend done
-  const { data: currentRun } = useQuery({
-    queryKey: ["currentRun", threadId],
-    queryFn: () => api.getCurrentRun(threadId),
-    refetchInterval: () => (state.run.phase === "running" ? 2000 : false),
-  });
+  // 3b) /runs/:id/events (durable) — done/interrupted/error fallback
   useEffect(() => {
-    if (state.run.phase === "running" && currentRun === null) {
-      dispatch({ type: "run/completed" });
-      qc.invalidateQueries({ queryKey: ["history", threadId] });
-    }
-  }, [currentRun, state.run.phase, threadId, qc]);
+    const runId = state.run.id;
+    if (!runId || state.run.phase !== "running") return;
 
-  // mutations
-  const startRun = useMutation({
-    mutationFn: (text: string) => api.startRun(threadId, text),
+    const es = new EventSource(`/api/bff/runs/${runId}/events`);
+
+    const handleDone = () => {
+      dispatch({ type: "run/done" });
+      es.close();
+    };
+
+    es.addEventListener("done", handleDone);
+
+    es.addEventListener("interrupted", (e: Event) => {
+      if (!(e instanceof MessageEvent)) return;
+      try {
+        const raw = JSON.parse(e.data) as {
+          type: string;
+          payload: unknown;
+        };
+        dispatch({
+          type: "run/interrupted",
+          payload: raw.payload as {
+            pendingTool?: { id: string; name: string; input: unknown };
+          },
+        });
+      } catch {
+        // skip
+      }
+    });
+
+    return () => es.close();
+  }, [state.run.id, state.run.phase]);
+
+  // 4) Send: optimistic dispatch + POST /conversations/:id/messages
+  const sendMut = useMutation({
+    mutationFn: (text: string) =>
+      api.postConversationMessage(conversationId, {
+        senderMemberId: state.viewerMemberId,
+        addressedTo: resolveAddressedTo(state),
+        content: text,
+      }),
     onSuccess: (d) => {
-      dispatch({ type: "run/started", runId: d.runId });
-      qc.invalidateQueries({ queryKey: ["currentRun", threadId] });
+      const tr = d.triggeredRuns[0];
+      if (tr) {
+        dispatch({
+          type: "run/started",
+          runId: tr.runId,
+          agentMemberId: tr.agentMemberId,
+        });
+      }
     },
-    onError: () => dispatch({ type: "run/error" }),
-  });
-  const resumeRun = useMutation({
-    mutationFn: (v: { approved: boolean; message?: string }) =>
-      api.resumeRun(runId!, v.approved, v.message),
-    onSuccess: () => dispatch({ type: "run/started", runId: runId! }),
-  });
-  const cancelRun = useMutation({
-    mutationFn: () => api.cancelRun(runId!),
+    onError: () =>
+      dispatch({ type: "run/error", message: "发送失败" }),
   });
 
   const send = useCallback(
     (text: string) => {
-      dispatch({ type: "send", text });
-      startRun.mutate(text);
+      const viewer = state.roster[state.viewerMemberId] ?? {
+        memberId: state.viewerMemberId,
+        kind: "human" as const,
+      };
+      dispatch({ type: "send", text, viewer });
+      sendMut.mutate(text);
     },
-    [startRun],
+    [sendMut, state.roster, state.viewerMemberId],
   );
+
+  // Resume / cancel still per runId (run-level interrupt, ledger doesn't cover)
+  const resumeRun = useMutation({
+    mutationFn: (v: { approved: boolean; message?: string }) =>
+      api.resumeRun(state.run.id!, v.approved, v.message),
+  });
+  const cancelRun = useMutation({
+    mutationFn: () => api.cancelRun(state.run.id!),
+  });
+
   const approve = useCallback(
     (m?: string) => resumeRun.mutate({ approved: true, message: m }),
     [resumeRun],
@@ -194,14 +260,18 @@ export function useConversation(
   const cancel = useCallback(() => cancelRun.mutate(), [cancelRun]);
 
   return {
+    viewerMemberId: state.viewerMemberId,
+    roster: state.roster,
     messages: state.messages,
     draft: state.draft,
     phase: state.run.phase,
-    busy: state.run.phase === "running" || (!!state.draft && state.run.phase !== "done"),
+    busy:
+      state.run.phase === "running" ||
+      (!!state.draft && state.run.phase !== "done"),
     pendingInterrupt: state.pendingInterrupt,
     error: state.error,
-    runId,
-    historyLoading: history.isLoading,
+    runId: state.run.id,
+    loading: snap.isLoading,
     send,
     approve,
     deny,
