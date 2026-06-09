@@ -2,6 +2,7 @@
 title: "Summary: Checkpointer"
 type: summary
 created: 2026-06-05
+updated: 2026-06-09
 source: raw/articles/04-checkpointer.md
 tags: [checkpointer, persistence, interrupt]
 ---
@@ -10,6 +11,8 @@ tags: [checkpointer, persistence, interrupt]
 
 Framework internal capability for persistence and recoverability. 3-tier interface: mandatory save/load, paired saveInterrupt/consumeInterrupt, paired appendEvent/readEvents. Capability detection at construction — partial pairs throw immediately.
 
-**5 save points** at tool boundaries ensure messages are always in legal API state. Interrupt save is the exception (last message = assistant(tool_use)) — resume fills the gap.
+**M9 scope narrowing**: Tier 3 (`appendEvent`/`readEvents`) demoted to optional internal audit. UX event projection is now owned by [[EventLog]] — an independent port extracted from Checkpointer, owned by backend, with subscribe capability and `thread_id` field. Checkpointer remains the sole authority for agent resume (stores trimmed input state; EventLog stores raw uncut events).
 
-`InterruptSignal` is a special Error class. Recognition boundary is strict: only from `tool.execute()`. Plugin hooks throwing it → regular error handling. `withPermission()` is the recommended wrapper pattern for gating tools.
+**Sandbox isolation**: current in-process/file-based checkpointer implementations will break under sandboxed runners. Long-term direction: Checkpointer HTTP/RPC sub-service. Must complete before sandbox runners are enabled.
+
+**5 save points** at tool boundaries ensure messages are always in legal API state. `InterruptSignal` recognition is strict: only from `tool.execute()`.

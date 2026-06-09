@@ -4,7 +4,7 @@
 
 ## Scope
 
-This wiki covers the architecture of **my-agent-team** — a small agent stack built from first principles. 5 layers (L1–L5): Protocols → Runtime → Framework → Harness → Backend.
+This wiki covers the architecture of **my-agent-team** — a small agent stack built from first principles. 6 layers (L1–L6): Protocols → Runtime → Framework → Harness → Backend → Surfaces.
 
 What this wiki covers:
 - Layer design and responsibilities
@@ -43,13 +43,15 @@ Every operation appends an entry to `log/YYYYMMDD.md`.
 ### Concepts
 - [[Agent_Loop]] — The core while-loop: messages → model → tools → messages
 - [[Plugin_System]] — Framework's sole extension point: 4 hooks + static tool declarations
-- [[Checkpointer]] — Persistence & interrupt/resume capability
+- [[Checkpointer]] — Persistence & interrupt/resume; Tier 3 demoted to EventLog at M9
 - [[ContextManager]] — Message shaping before LLM calls
 - [[Harness]] — Domain-closed, zero-assembly, behavior-locked agent product
 - [[Harness_File_Driven]] — Workspace files (SOUL/AGENTS/USER/TOOLS) control agent behavior
-- [[Backend]] — Agent hosting service: agentId, workspace, runner, HTTP/SSE
+- [[Backend]] — Team Runtime: agentId, workspace, runner, HTTP/SSE, Durable Runs
 - [[AgentSpec]] — Wire schema for Backend ↔ Runner contract
-- [[Layer_Architecture]] — L1–L5: Protocols, Runtime, Framework, Harness, Backend
+- [[EventLog]] — Execution event fact source: append-only, projectable, subscribable (split from Checkpointer)
+- [[Conversation]] — Multi-agent thread container + ledger: broadcast visibility + @-triggered execution
+- [[Layer_Architecture]] — L1–L6: Protocols, Runtime, Framework, Harness, Backend, Surfaces
 - [[Design_Principles]] — 8 principles governing all design decisions
 - [[FS_Memory_Plugin]] — Filesystem persistent memory via MEMORY.md + facts/
 - [[Progressive_Skill_Plugin]] — Skill progressive loading via SKILL.md index + lazy fetch
@@ -65,25 +67,27 @@ Every operation appends an entry to `log/YYYYMMDD.md`.
 - [[my-agent-team_backend]] — `apps/backend` — L5 backend service
 - [[my-agent-team_runner-stdio]] — `@my-agent-team/runner-stdio` — stdio runner entry
 
-### Summaries (13 source docs ingested)
-- [[00-overview]] — Architecture overview, 4-layer model, milestones, design principles
+### Summaries (15 source docs ingested)
+- [[00-overview]] — Architecture overview, 6-layer model, milestones, design principles
 - [[01-glossary]] — Unified terminology across all layers
 - [[02-framework]] — L3 Framework: Agent, Plugin, Checkpointer, ContextManager, Logger
 - [[03-plugin]] — Plugin extension mechanism: 4 hooks, HookContext, static tools
-- [[04-checkpointer]] — Persistence, interrupt/resume, capability detection
+- [[04-checkpointer]] — Persistence, interrupt/resume, capability detection; Tier 3 demoted to EventLog at M9
 - [[05-context-manager]] — Message shaping, token budget, sliding window, summarization
 - [[06-plugin-fs-memory]] — FS memory plugin: MEMORY.md + facts/ + memory tools
 - [[07-plugin-progressive-skill]] — Progressive skill plugin: SKILL.md index + skill_load
 - [[08-harness]] — Harness concept: two forms, bootstrap protocol, backend boundary
 - [[09-harness-generic]] — File-driven harness: workspace spec, builtin tools, templates
 - [[10-harness-vs-framework]] — Framework vs Harness vs Backend: boundaries and anti-patterns
-- [[11-backend]] — Backend: agentId, workspace materialization, runner transport, agent pool
+- [[11-backend]] — Backend: Durable Runs, run/attempt, heartbeat/reaper, EventLog, re-fork resume
 - [[12-agent-spec]] — AgentSpec wire schema: zod, version evolution, cross-language future
+- [[13-event-log]] — EventLog: execution fact source, EventSink/EventSource, four iron laws, PG/SQLite/memory impl
+- [[14-conversation]] — Conversation/Member: broadcast + @ trigger, ledger vs thread, safety valves, IM surface mapping
 
 ## Open research questions
 
 - Will harness-generic need hot-reload for workspace files mid-session?
-- When does the project outgrow "small agent stack" and need distributed infra?
+- When does the project outgrow "small agent stack" and need distributed infrastructure?
 - Should AgentSpec switch to Protobuf for cross-language runners?
 
 ## Research gaps
