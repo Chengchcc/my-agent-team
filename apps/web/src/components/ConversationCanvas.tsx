@@ -61,25 +61,26 @@ export function ConversationCanvas({
     queryKey: ["currentRun", threadId],
     queryFn: () => api.getCurrentRun(threadId),
     refetchOnWindowFocus: true,
+    // Poll every 2s while run is active to detect completion
+    refetchInterval: () => (runId && runStatus === "running" ? 2000 : false),
   });
 
+  // Detect run completion via poll (SSE /events never sends done —
+  // EventLog.subscribe runs forever until signal.aborted)
   useEffect(() => {
-    if (!currentRun) {
-      // Run completed (backend returns null when no active run)
-      if (runId && runStatus === "running") {
-        setRunStatus("succeeded");
-        setOptimistic(null);
-      }
-      return;
+    if (runId && runStatus === "running" && currentRun === null) {
+      setRunStatus("succeeded");
+      setOptimistic(null);
+      queryClient.invalidateQueries({ queryKey: ["history", threadId] });
     }
-    if (!runId) {
+  }, [currentRun, runId, runStatus, threadId, queryClient]);
+
+  useEffect(() => {
+    if (currentRun && !runId) {
       setRunId(currentRun.runId);
       setRunStatus(currentRun.status);
-    } else if (currentRun.runId === runId && currentRun.status !== "running") {
-      // Status changed (e.g. interrupted, error, succeeded)
-      setRunStatus(currentRun.status);
     }
-  }, [currentRun, runId, runStatus]);
+  }, [currentRun, runId]);
 
   const {
     items,
@@ -197,10 +198,13 @@ export function ConversationCanvas({
     }
   }, [liveStatus]);
 
+  const runEnded =
+    runId !== null && runStatus !== "running" && currentRun === null;
   const isBusy =
-    runStatus === "running" ||
-    liveStatus === "streaming" ||
-    liveStatus === "connecting";
+    !runEnded &&
+    (runStatus === "running" ||
+      liveStatus === "streaming" ||
+      liveStatus === "connecting");
 
   const label = computeStatus(runId, runStatus, liveStatus);
 
