@@ -15,9 +15,11 @@ function scriptedModel(
   turns: Array<
     { type: "text"; text: string } | { type: "tool_call"; id: string; name: string; input: unknown }
   >,
+  spy?: { lastOptions?: import("@my-agent-team/core").ChatModelOptions },
 ): ChatModel {
   return {
-    async *stream(messages): AsyncIterable<AIMessageChunk> {
+    async *stream(messages, options): AsyncIterable<AIMessageChunk> {
+      if (spy) spy.lastOptions = options;
       const turn = messages.filter((m) => m.role === "assistant").length;
       const item = turns[Math.min(turn, turns.length - 1)];
       if (!item) return;
@@ -1106,5 +1108,15 @@ describe("createAgent", () => {
 
     const events = await collect(agent.run("hi"));
     expect(events.some((e) => e.type === "message")).toBe(true);
+  });
+
+  test("B1: tools are forwarded to model.stream options", async () => {
+    const spy: { lastOptions?: import("@my-agent-team/core").ChatModelOptions } = {};
+    const agent = await createAgent({
+      model: scriptedModel([{ type: "text", text: "ok" }], spy),
+      tools: [makeTool("bash")],
+    });
+    await collect(agent.run("hi"));
+    expect(spy.lastOptions?.tools?.map((t: Tool) => t.name)).toContain("bash");
   });
 });

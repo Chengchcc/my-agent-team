@@ -52,27 +52,29 @@ const PATH_KEYS = ["path", "filePath", "file_path", "cwd"];
 export function withWorkspace(tool: Tool, workspace: string): Tool {
   const originalExecute = tool.execute;
 
-  const hasCwdParam =
-    tool.inputSchema != null &&
-    typeof tool.inputSchema === "object" &&
-    "properties" in tool.inputSchema &&
-    typeof tool.inputSchema.properties === "object" &&
-    tool.inputSchema.properties !== null &&
-    "cwd" in tool.inputSchema.properties;
+  // Does this tool declare a `cwd` input? (e.g. bashTool)
+  const props = (tool.inputSchema as { properties?: Record<string, unknown> })?.properties;
+  const acceptsCwd = !!props && Object.prototype.hasOwnProperty.call(props, "cwd");
 
   return {
     ...tool,
     execute: async (input, signal) => {
-      const obj = Object.assign({}, input) as Record<string, unknown>;
+      // Work on a copy so we never mutate the caller's object
+      const obj = { ...(input as Record<string, unknown>) };
+      // Inject workspace as default cwd when the tool supports it but didn't get
+      // one. Do this BEFORE path validation so the caller's explicit cwd is
+      // validated, but our injected default (the workspace itself) is not
+      // re-validated against itself.
+      const hasExplicitCwd =
+        typeof obj["cwd"] === "string" && (obj["cwd"] as string).length > 0;
+      if (acceptsCwd && !hasExplicitCwd) {
+        obj["cwd"] = workspace;
+      }
       for (const key of PATH_KEYS) {
         const val = obj[key];
         if (typeof val === "string" && val.length > 0) {
           resolveInWorkspace(workspace, val);
         }
-      }
-      // Default cwd to workspace when tool supports cwd but caller omitted it
-      if (hasCwdParam && obj["cwd"] === undefined) {
-        obj["cwd"] = workspace;
       }
       return originalExecute(obj, signal);
     },

@@ -306,7 +306,7 @@ function createAgentInternal(
 
       // Stream-aware model call: when opts.stream is true, yield text_delta
       // events for preview before assembling the full message.
-      const modelStream = model.stream(finalMsgs, { signal: opts.signal });
+      const modelStream = model.stream(finalMsgs, { signal: opts.signal, tools });
       let blocks: ContentBlock[];
       let usage: AIMessageChunk["usage"];
 
