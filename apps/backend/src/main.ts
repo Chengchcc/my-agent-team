@@ -256,23 +256,18 @@ supervisor.onRunComplete((threadId, runId) => {
       convSvc.completeRun(cid, threadId, runId);
 
       // D19: Write all assistant messages from this run to the ledger.
-      // Multi-turn tool loops produce multiple messages — all are part of
-      // the conversation. The last assistant message is skipped (memory-save
-      // reflection, appended by plugin after model completion).
+      // Internal messages (memory-save reflections, etc.) are filtered by role.
       void (async () => {
         try {
           const events = await eventLog.read({ runId });
-          const assistantMsgs = events
+          const conversationMsgs = events
             .filter((rec) => rec.event.type === "message")
             .map((rec) => rec.event.payload as { role: string; content: unknown })
-            .filter((p) => p.role === "assistant");
+            .filter((p) => p.role === "assistant" || p.role === "user");
 
           const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
-          const toWrite = assistantMsgs.length > 1
-            ? assistantMsgs.slice(0, -1)   // skip reflection (last)
-            : assistantMsgs;                // single msg = real response
 
-          for (const msg of toWrite) {
+          for (const msg of conversationMsgs) {
             const content = msg.content;
             if (typeof content === "string" && content.trim().length === 0) continue;
             if (Array.isArray(content) && content.length === 0) continue;

@@ -183,13 +183,14 @@ function createAgentInternal(
 
   function wrapToolResult(
     call: ToolUseBlock,
-    result: { content: string; isError?: boolean },
+    result: { content: string; isError?: boolean; role?: "internal" },
   ): ToolResultBlock {
     return {
       type: "tool_result",
       tool_use_id: call.id,
       content: result.content,
       ...(result.isError !== undefined ? { is_error: result.isError } : {}),
+      ...(result.role ? { role: result.role } : {}),
     };
   }
 
@@ -309,6 +310,7 @@ function createAgentInternal(
     maxSteps: number;
     stream?: boolean;
   }): AsyncGenerator<AgentEvent> {
+    let nextRole: "assistant" | "internal" = "assistant";
     for (let step = 0; step < opts.maxSteps; step++) {
       if (opts.signal?.aborted) {
         await checkpointer.appendEvent?.(thread.id, {
@@ -389,9 +391,12 @@ function createAgentInternal(
       }
 
       const assistantMsg: Message = {
-        role: "assistant",
+        role: nextRole,
         content: blocks.slice(),
       };
+      // Reset for next iteration — default to assistant unless a tool_result
+      // with role:"internal" flags the next output
+      nextRole = "assistant";
       thread.messages.push(assistantMsg);
       await fireAfterModel(thread.messages);
       yield { type: "message", payload: assistantMsg };
@@ -410,6 +415,16 @@ function createAgentInternal(
       for (let i = 0; i < toolUses.length; i++) {
         const call = toolUses[i]!;
         const interrupted = yield* executeOne(call, opts);
+        if (!interrupted) {
+          // Check if the tool result flags the next output as internal
+          const lastMsg = thread.messages[thread.messages.length - 1];
+          if (lastMsg?.role === "user" && Array.isArray(lastMsg.content)) {
+            const tr = lastMsg.content[lastMsg.content.length - 1];
+            if (tr?.type === "tool_result" && tr.role === "internal") {
+              nextRole = "internal";
+            }
+          }
+        }
         if (interrupted) {
           // H1+R4: Add placeholder tool_results for ALL unexecuted tool_use blocks
           // (including the interrupting one — eliminates orphan window before resume)

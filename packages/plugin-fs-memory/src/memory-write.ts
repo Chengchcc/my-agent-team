@@ -22,7 +22,9 @@ export function memoryWriteTool(opts: { dir: string }): Tool {
       const { content, tags } = input as { content: string; tags?: string[] };
       const path = await writeFact(opts.dir, { content, tags });
       invalidateFactsCache(opts.dir);
-      return { content: JSON.stringify({ path }) };
+      // Mark as internal — the model's reflection after saving memory
+      // should not appear in the conversation
+      return { content: JSON.stringify({ path }), role: "internal" as const };
     },
   };
 }
