@@ -22,14 +22,7 @@ export function ThreadList({ agentId }: { agentId: string }) {
   const createThread = useMutation({
     mutationFn: async () => {
       const thread = await api.createThread(agentId);
-      // Ensure conversation exists (backfill is startup-only)
-      await api.createConversation({
-        conversationId: thread.id,
-        members: [
-          { memberId: thread.agentId, kind: "agent", agentId: thread.agentId },
-          { memberId: `human-${thread.id}`, kind: "human", userRef: "__legacy__", displayName: "User" },
-        ],
-      });
+      await api.ensureConversation(thread);
       return thread;
     },
     onSuccess: (thread) => {
