@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type AgentRow } from "@/lib/api";
-import { Plus, X, Bot } from "lucide-react";
+import { Plus, X, Bot, Check } from "lucide-react";
 import type { SenderRef } from "@/lib/conversation-reducer";
 
 interface AddMemberButtonProps {
@@ -21,11 +21,26 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
     staleTime: 60_000,
   });
 
-  const presentMemberIds = new Set(
-    Object.values(roster)
-      .filter((m) => m.kind === "agent")
-      .map((m) => m.memberId),
+  const presentMemberIds = useMemo(
+    () =>
+      new Set(
+        Object.values(roster)
+          .filter((m) => m.kind === "agent")
+          .map((m) => m.memberId),
+      ),
+    [roster],
   );
+
+  // Sort: available agents first, already-joined agents at bottom
+  const sorted = useMemo(() => {
+    const list = agents ?? [];
+    return [...list].sort((a, b) => {
+      const aPresent = presentMemberIds.has(a.id);
+      const bPresent = presentMemberIds.has(b.id);
+      if (aPresent === bPresent) return 0;
+      return aPresent ? 1 : -1;
+    });
+  }, [agents, presentMemberIds]);
 
   const add = useMutation({
     mutationFn: (a: AgentRow) =>
@@ -40,8 +55,6 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
       qc.invalidateQueries({ queryKey: ["conv", conversationId] });
     },
   });
-
-  const available = (agents ?? []).filter((a) => !presentMemberIds.has(a.id));
 
   return (
     <>
@@ -58,7 +71,9 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
           <div className="bg-[var(--canvas)] rounded-lg border border-[var(--hairline)] shadow-xl w-80 max-h-96 flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--hairline)]">
-              <span className="text-sm font-semibold text-[var(--ink-strong)]">Add Agent</span>
+              <span className="text-sm font-semibold text-[var(--ink-strong)]">
+                Add Agent
+              </span>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -68,23 +83,34 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-2">
-              {available.length === 0 ? (
-                <p className="text-xs text-[var(--mute)] p-2">No available agents to add.</p>
+              {sorted.length === 0 ? (
+                <p className="text-xs text-[var(--mute)] p-2">
+                  No agents available.
+                </p>
               ) : (
                 <ul className="space-y-1">
-                  {available.map((a) => (
-                    <li key={a.id}>
-                      <button
-                        type="button"
-                        onClick={() => add.mutate(a)}
-                        disabled={add.isPending}
-                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--canvas-soft)] transition-colors disabled:opacity-40 text-left"
-                      >
-                        <Bot size={14} className="text-[var(--primary)] shrink-0" />
-                        <span className="text-[var(--body)] truncate">{a.name}</span>
-                      </button>
-                    </li>
-                  ))}
+                  {sorted.map((a) => {
+                    const isPresent = presentMemberIds.has(a.id);
+                    return (
+                      <li key={a.id}>
+                        <button
+                          type="button"
+                          onClick={() => add.mutate(a)}
+                          disabled={isPresent || add.isPending}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--canvas-soft)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-left"
+                          title={isPresent ? "Already in this conversation" : undefined}
+                        >
+                          <Bot size={14} className="text-[var(--primary)] shrink-0" />
+                          <span className="text-[var(--body)] truncate flex-1">
+                            {a.name}
+                          </span>
+                          {isPresent && (
+                            <Check size={12} className="text-[var(--mute)] shrink-0" />
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
