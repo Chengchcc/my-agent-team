@@ -217,7 +217,7 @@ const convSvc = createConversationService({
     if (!agentRow) throw new Error(`Agent not found: ${ctx.agentId}`);
 
     // M14.3: Record genesis snapshot for post-run reflection gating
-    const isGenesis = !existsSync(`${agentRow.workspace_path}/BOOTSTRAP.md`);
+    const isGenesis = existsSync(`${agentRow.workspace_path}/BOOTSTRAP.md`);
     runMeta.set(runId, { isGenesis, agentId: ctx.agentId, agentMemberId: ctx.agentMemberId });
 
     const spec = AgentSpecV1.parse({
@@ -329,7 +329,11 @@ supervisor.onRunComplete((threadId, runId) => {
         }
       })();
 
-      // M14.3: post-run reflection — fire-and-forget, lock already released, independent run
+      // M14.3: post-run reflection — fire-and-forget, lock already released, independent run.
+      // P1-a: resume runs don't populate runMeta (they bypass forkRun), so meta is undefined
+      // here and reflection is skipped. This matches the old runner behavior (spec.mode !== "resume"
+      // gating) — the resume leg is the tail of a main turn whose reflection already ran or wasn't
+      // needed. Known trade-off, not a bug.
       const meta = runMeta.get(runId);
       if (meta && !meta.isGenesis) {
         void (async () => {

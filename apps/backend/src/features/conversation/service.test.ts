@@ -418,3 +418,84 @@ describe("P0-2: lock lifecycle", () => {
     expect(r2.triggeredRuns).toHaveLength(1);
   });
 });
+
+// ─── M14.4: agent-to-agent @mention triggering ────────────
+
+describe("M14.4: triggerMentionedAgents", () => {
+  test("triggers @-mentioned agent via forkRun", () => {
+    activeConversations.clear();
+    forkLog.length = 0;
+    const { id } = setupConv("conv-at1");
+
+    const result = svc.triggerMentionedAgents({
+      conversationId: id,
+      senderMemberId: `mem-x1-${id}`,
+      addressedTo: [`mem-y1-${id}`],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.agentMemberId).toBe(`mem-y1-${id}`);
+    expect(forkLog).toHaveLength(1);
+    expect(forkLog[0]!.threadId).toBe(`${id}:mem-y1-${id}`);
+  });
+
+  test("skips when conversation is busy", () => {
+    forkLog.length = 0;
+    const { id } = setupConv("conv-at2");
+    activeConversations.add(id);
+
+    const result = svc.triggerMentionedAgents({
+      conversationId: id,
+      senderMemberId: `mem-x1-${id}`,
+      addressedTo: [`mem-y1-${id}`],
+    });
+
+    expect(result).toHaveLength(0);
+    expect(forkLog).toHaveLength(0);
+
+    activeConversations.delete(id);
+  });
+
+  test("returns empty for empty addressedTo", () => {
+    forkLog.length = 0;
+    const { id } = setupConv("conv-at3");
+
+    const result = svc.triggerMentionedAgents({
+      conversationId: id,
+      senderMemberId: `mem-x1-${id}`,
+      addressedTo: [],
+    });
+
+    expect(result).toHaveLength(0);
+    expect(forkLog).toHaveLength(0);
+  });
+
+  test("rejects when hop count exceeds max", () => {
+    forkLog.length = 0;
+    const { id } = setupConv("conv-at4");
+    port.updateHopCount(id, 3); // at limit — next agent→agent would exceed
+
+    const result = svc.triggerMentionedAgents({
+      conversationId: id,
+      senderMemberId: `mem-x1-${id}`,
+      addressedTo: [`mem-y1-${id}`],
+    });
+
+    expect(result).toHaveLength(0);
+    expect(forkLog).toHaveLength(0);
+  });
+
+  test("increments hop count for agent sender", () => {
+    forkLog.length = 0;
+    const { id } = setupConv("conv-at5");
+
+    svc.triggerMentionedAgents({
+      conversationId: id,
+      senderMemberId: `mem-x1-${id}`,
+      addressedTo: [`mem-y1-${id}`],
+    });
+
+    const conv = port.getConversation(id);
+    expect(conv!.hopCount).toBe(1);
+  });
+});
