@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import path from "node:path";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import type { AgentEvent } from "@my-agent-team/framework";
@@ -99,10 +97,6 @@ export async function runEntry(io: EntryIO): Promise<number> {
       checkpointerDb: cpDb as Parameters<typeof factory>[0]["checkpointerDb"],
     });
 
-    // M11: Snapshot BOOTSTRAP.md existence BEFORE first run (genesis guard for reflect)
-    const bootPath = path.join(spec.workspace, "BOOTSTRAP.md");
-    const isGenesis = existsSync(bootPath);
-
     // M11: Progress heartbeat — open DB connection for throttled heartbeat writes
     const heartbeatInterval = io.heartbeatIntervalMs ?? 5000;
     let lastHeartbeat = 0;
@@ -140,49 +134,32 @@ export async function runEntry(io: EntryIO): Promise<number> {
       return 1;
     }
 
-    // M9: mode branch — run vs resume
+    // M14.3: Three-way mode branch — run / resume / reflect.
+    // Reflect loads main-thread history then forks to a temp thread so
+    // reflection output is checkpoint-isolated from the main conversation.
+    let runAgent = agent;
+    let runInput = spec.input;
+    if (spec.mode === "reflect") {
+      runAgent = agent.fork(undefined, `reflect:${spec.threadId}`);
+      runInput = reflectionGuidance();
+    }
     const stream =
       spec.mode === "resume"
         ? agent.resume(spec.resumeCommand!, { signal, maxSteps: spec.maxSteps, stream: true })
-        : agent.run(spec.input, { signal, maxSteps: spec.maxSteps, stream: true });
+        : runAgent.run(runInput, { signal, maxSteps: spec.maxSteps, stream: true });
 
     writeStderr(`[runner-stdio] agent.${spec.mode ?? "run"} started`);
-    try {
-      for await (const ev of stream) {
-        // ephemeral events — stdout only, NEVER to EventLog
-        if (ev.type === "text_delta") {
-          io.writeDelta?.({ blockIndex: ev.payload.blockIndex, text: ev.payload.text });
-        } else if (ev.type === "tool_start" || ev.type === "tool_end") {
-          writeEvent(ev); // full AgentEvent JSON on stdout; supervisor routes by type
-        } else {
-          if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
-          writeEvent(ev);
-          // M11: progress heartbeat after each event
-          await tryHeartbeat();
-        }
-      }
-    } finally {
-      // M11: keep hbDb open through reflection (close happens after)
-    }
-
-    // M11 Growth: reflect after normal run (non-genesis, non-resume).
-    // Use fork() so reflection messages land in a temporary thread — never
-    // pollute the main thread's checkpoint_messages.
-    if (!isGenesis && spec.mode !== "resume") {
-      writeStderr("[runner-stdio] running reflection turn");
-      const reflectAgent = agent.fork();
-      try {
-        for await (const ev of reflectAgent.run(reflectionGuidance(), {
-          signal,
-          maxSteps: spec.maxSteps,
-        })) {
-          if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
-          writeEvent(ev);
-          await tryHeartbeat();
-        }
-      } catch {
-        // Reflection is best-effort; don't fail the run
-        writeStderr("[runner-stdio] reflection turn failed (non-fatal)");
+    for await (const ev of stream) {
+      // ephemeral events — stdout only, NEVER to EventLog
+      if (ev.type === "text_delta") {
+        io.writeDelta?.({ blockIndex: ev.payload.blockIndex, text: ev.payload.text });
+      } else if (ev.type === "tool_start" || ev.type === "tool_end") {
+        writeEvent(ev); // full AgentEvent JSON on stdout; supervisor routes by type
+      } else {
+        if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
+        writeEvent(ev);
+        // M11: progress heartbeat after each event
+        await tryHeartbeat();
       }
     }
 

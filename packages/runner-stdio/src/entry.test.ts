@@ -257,7 +257,7 @@ test("signal abort → agent yields events and runner returns 0", async () => {
   expect(result).toBe(0);
   expect(receivedSignal).toBe(controller.signal);
   expect(written.length).toBe(1);
-  expect(runCalls).toBe(2); // main run + reflect turn
+  expect(runCalls).toBe(1); // M14.3: only main run (reflect moved to backend post-run job)
 });
 
 // ─── Test 8: agent.run throws → error event + return 1 ──────────
@@ -834,41 +834,53 @@ test("M11: heartbeat NOT written when no sink configured (backward compat)", asy
   expect(result).toBe(0);
 });
 
-// ─── M11: Reflect after run loop (Growth) ──────────────────────────
+// ─── M14.3: Reflect mode (post-run job, not inline) ──────────────────
 
-test("M11: reflect uses fork() to avoid polluting main checkpoint", async () => {
-  const events: AgentEvent[] = [msgEvent("task done")];
-  const reflectEvents: AgentEvent[] = [msgEvent("reflected")];
+test("M14.3: mode='reflect' uses fork() to isolate checkpoint and runs reflectionGuidance", async () => {
+  const events: AgentEvent[] = [msgEvent("remembered key facts")];
   let forkCalled = false;
-  let mainRunCalled = false;
+  let forkThreadId: string | undefined;
   let reflectRunCalled = false;
+  let mainRunCalled = false;
 
   function makeReflectAgent(): Agent {
     return {
       thread: { id: "t1", messages: [] },
       async *run(input, _opts) {
         const inp = input as string;
-        if (inp.includes("Reflect")) {
+        if (inp.includes("Reflect on the conversation")) {
           reflectRunCalled = true;
-          for (const ev of reflectEvents) yield ev;
+          for (const ev of events) yield ev;
         } else {
           mainRunCalled = true;
-          for (const ev of events) yield ev;
+          yield* [] as AgentEvent[];
         }
       },
       async *resume(_cmd, _opts) {
         yield* [] as AgentEvent[];
       },
-      fork(_msgs, _id) {
+      fork(_msgs, id) {
         forkCalled = true;
+        forkThreadId = id;
         return makeReflectAgent();
       },
     };
   }
 
+  const spec = {
+    schemaVersion: "1",
+    workspace: "/tmp/ws",
+    threadId: "t1",
+    model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    apiKey: "sk-test",
+    input: "", // reflect mode ignores input, uses reflectionGuidance()
+    mode: "reflect",
+    runId: "reflect-run-1",
+  };
+
   const written: AgentEvent[] = [];
   const result = await runEntry({
-    specJson: makeValidSpec(),
+    specJson: JSON.stringify(spec),
     writeEvent: (ev) => written.push(ev),
     writeStderr: () => {},
     signal: new AbortController().signal,
@@ -876,27 +888,28 @@ test("M11: reflect uses fork() to avoid polluting main checkpoint", async () => 
   });
 
   expect(result).toBe(0);
-  // fork() must have been called for reflection
+  // fork() must have been called to isolate checkpoint
   expect(forkCalled).toBe(true);
-  expect(mainRunCalled).toBe(true);
+  expect(forkThreadId).toBe("reflect:t1");
+  // Only reflect run called (not main run)
   expect(reflectRunCalled).toBe(true);
-  // Both runs' events appear in output
-  expect(written.length).toBe(2);
+  expect(mainRunCalled).toBe(false);
+  // Reflect events appear in output
+  expect(written.length).toBe(1);
 });
 
-test("M11: reflect events appended to EventSink via fork", async () => {
-  const events: AgentEvent[] = [msgEvent("task done")];
-  const reflectEvents: AgentEvent[] = [msgEvent("reflected")];
-  const sinkLog: string[] = [];
+test("M14.3: mode='reflect' events appended to EventSink with reflect runId", async () => {
+  const events: AgentEvent[] = [msgEvent("reflected insight")];
+  const sinkLog: Array<{ text: string; runId: string }> = [];
 
   const mockSink = {
-    append: async (_tid: string, _rid: string, ev: AgentEvent) => {
+    append: async (_tid: string, rid: string, ev: AgentEvent) => {
       if (
         ev.type === "message" &&
         Array.isArray(ev.payload.content) &&
         ev.payload.content[0]?.type === "text"
       ) {
-        sinkLog.push(ev.payload.content[0].text);
+        sinkLog.push({ text: ev.payload.content[0].text, runId: rid });
       }
       return sinkLog.length;
     },
@@ -908,9 +921,9 @@ test("M11: reflect events appended to EventSink via fork", async () => {
       async *run(input, _opts) {
         const inp = input as string;
         if (inp.includes("Reflect")) {
-          for (const ev of reflectEvents) yield ev;
-        } else {
           for (const ev of events) yield ev;
+        } else {
+          yield* [] as AgentEvent[];
         }
       },
       async *resume(_cmd, _opts) {
@@ -922,8 +935,19 @@ test("M11: reflect events appended to EventSink via fork", async () => {
     };
   }
 
+  const spec = {
+    schemaVersion: "1",
+    workspace: "/tmp/ws",
+    threadId: "t1",
+    model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    apiKey: "sk-test",
+    input: "",
+    mode: "reflect",
+    runId: "reflect-run-2",
+  };
+
   const result = await runEntry({
-    specJson: makeValidSpec(),
+    specJson: JSON.stringify(spec),
     writeEvent: () => {},
     writeStderr: () => {},
     signal: new AbortController().signal,
@@ -932,6 +956,42 @@ test("M11: reflect events appended to EventSink via fork", async () => {
   });
 
   expect(result).toBe(0);
-  expect(sinkLog).toContain("task done");
-  expect(sinkLog).toContain("reflected");
+  expect(sinkLog.length).toBe(1);
+  expect(sinkLog[0]!.text).toBe("reflected insight");
+  expect(sinkLog[0]!.runId).toBe("reflect-run-2");
+});
+
+test("M14.3: mode='run' does NOT call fork (reflect is backend's job now)", async () => {
+  const events: AgentEvent[] = [msgEvent("task done")];
+  let forkCalled = false;
+
+  function makeAgent(): Agent {
+    return {
+      thread: { id: "t1", messages: [] },
+      async *run(_input, _opts) {
+        for (const ev of events) yield ev;
+      },
+      async *resume(_cmd, _opts) {
+        yield* [] as AgentEvent[];
+      },
+      fork(_msgs, _id) {
+        forkCalled = true;
+        return makeAgent();
+      },
+    };
+  }
+
+  const written: AgentEvent[] = [];
+  const result = await runEntry({
+    specJson: makeValidSpec(),
+    writeEvent: (ev) => written.push(ev),
+    writeStderr: () => {},
+    signal: new AbortController().signal,
+    createAgent: () => Promise.resolve(makeAgent()),
+  });
+
+  expect(result).toBe(0);
+  // M14.3: fork() must NOT be called for normal run (reflect is a separate backend job)
+  expect(forkCalled).toBe(false);
+  expect(written.length).toBe(1);
 });
