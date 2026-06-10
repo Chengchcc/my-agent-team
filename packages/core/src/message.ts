@@ -1,4 +1,4 @@
-export type Role = "user" | "assistant" | "system" | "internal";
+export type Role = "user" | "assistant" | "system";
 
 export interface TextBlock {
   type: "text";
@@ -17,9 +17,6 @@ export interface ToolResultBlock {
   tool_use_id: string;
   content: string;
   is_error?: boolean;
-  /** If "internal", the model output following this tool result
-   *  is labeled "internal" instead of "assistant". */
-  role?: "internal";
 }
 
 export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock;
