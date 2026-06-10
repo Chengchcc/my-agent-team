@@ -31,7 +31,7 @@ export function NavRail() {
 
   const activeAgents = (agents ?? []).filter((a) => !a.archivedAt);
 
-  const isThreadActive = (threadId: string) => pathname === `/threads/${threadId}`;
+  const isThreadActive = (threadId: string) => pathname === `/conversations/${threadId}`;
   const isAgentActive = (agentId: string) =>
     pathname === `/agents/${agentId}` || pathname.startsWith(`/agents/${agentId}`);
 
@@ -158,7 +158,7 @@ export function NavRail() {
                 type="button"
                 onClick={async () => {
                   const thread = await api.createThread(selectedAgentId);
-                  router.push(`/threads/${thread.id}`);
+                  router.push(`/conversations/${thread.id}`);
                 }}
                 className="text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors"
                 aria-label="New thread"
@@ -187,7 +187,7 @@ export function NavRail() {
                 >
                   <button
                     type="button"
-                    onClick={() => router.push(`/threads/${thread.id}`)}
+                    onClick={() => router.push(`/conversations/${thread.id}`)}
                     className={`w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors truncate block ${
                       isThreadActive(thread.id)
                         ? "bg-[var(--canvas-soft)] text-[var(--ink)] border-l-2 border-[var(--primary)]"

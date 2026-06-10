@@ -23,7 +23,7 @@ export function ThreadList({ agentId }: { agentId: string }) {
     mutationFn: () => api.createThread(agentId),
     onSuccess: (thread) => {
       queryClient.invalidateQueries({ queryKey: ["threads", agentId] });
-      router.push(`/threads/${thread.id}`);
+      router.push(`/conversations/${thread.id}`);
     },
   });
 
@@ -88,11 +88,11 @@ export function ThreadList({ agentId }: { agentId: string }) {
               key={thread.id}
               role="button"
               tabIndex={0}
-              onClick={() => router.push(`/threads/${thread.id}`)}
+              onClick={() => router.push(`/conversations/${thread.id}`)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  router.push(`/threads/${thread.id}`);
+                  router.push(`/conversations/${thread.id}`);
                 }
               }}
               className="w-full text-left border border-[var(--hairline)] rounded-lg
