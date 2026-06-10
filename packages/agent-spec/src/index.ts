@@ -41,8 +41,11 @@ export const AgentSpecV1 = z
     /** Physical attempt identifier, issued by backend, for heartbeat row targeting. */
     attemptId: z.string().min(1).optional(),
 
-    /** Execution mode. Defaults to 'run'. */
-    mode: z.enum(["run", "resume"]).default("run"),
+    /** Execution mode. 'reflect' = post-run reflection run (input filled by runner via reflectionGuidance()). */
+    mode: z.enum(["run", "resume", "reflect"]).default("run"),
+
+    /** Snapshot: BOOTSTRAP.md existed BEFORE the main run started. Set by backend; runner no longer self-detects. */
+    isGenesis: z.boolean().optional(),
 
     /** Resume payload. Required when mode='resume'. */
     resumeCommand: z
