@@ -255,31 +255,28 @@ supervisor.onRunComplete((threadId, runId) => {
       // C2: Release the conversation lock
       convSvc.completeRun(cid, threadId, runId);
 
-      // D19: Fire-and-forget — read agent output from event_log (one-shot, run has exited), append to ledger, broadcast
+      // D19: Write all assistant messages from this run to the ledger.
+      // Multi-turn tool loops produce multiple messages — all are part of
+      // the conversation. The last assistant message is skipped (memory-save
+      // reflection, appended by plugin after model completion).
       void (async () => {
         try {
           const events = await eventLog.read({ runId });
-          const msgs: Array<{ role: string; content: unknown }> = [];
-          for (const rec of events) {
-            if (rec.event.type === "message") {
-              msgs.push({ role: rec.event.payload.role, content: rec.event.payload.content });
-            }
-          }
-          // Pick the first assistant message with text content.
-          // Memory-save reflections always appear after the real response
-          // (plugin fires after model), so the first text-bearing assistant
-          // message is the conversation reply.
-          const assistantMsgs = msgs.filter((m) => m.role === "assistant");
-          const hasText = (c: unknown): boolean => {
-            if (typeof c === "string") return c.trim().length > 0;
-            if (Array.isArray(c)) return c.some((b: { type?: string; text?: string }) => b.type === "text" && (b.text ?? "").trim().length > 0);
-            return false;
-          };
-          const best = assistantMsgs.find((m) => hasText(m.content));
-          if (best) {
-            const content = best.content;
+          const assistantMsgs = events
+            .filter((rec) => rec.event.type === "message")
+            .map((rec) => rec.event.payload as { role: string; content: unknown })
+            .filter((p) => p.role === "assistant");
 
-            const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+          const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+          const toWrite = assistantMsgs.length > 1
+            ? assistantMsgs.slice(0, -1)   // skip reflection (last)
+            : assistantMsgs;                // single msg = real response
+
+          for (const msg of toWrite) {
+            const content = msg.content;
+            if (typeof content === "string" && content.trim().length === 0) continue;
+            if (Array.isArray(content) && content.length === 0) continue;
+
             const seq = convPort.appendLedgerEntry({
               conversationId: cid,
               senderMemberId,
