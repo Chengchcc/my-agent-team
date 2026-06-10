@@ -30,6 +30,7 @@ function SystemNotice({ text }: { text: string }) {
 
 function extractAnchors(messages: UiMessage[]): TurnAnchor[] {
   const anchors: TurnAnchor[] = [];
+  let turnNum = 0;
   for (let i = 1; i < messages.length; i++) {
     const prev = messages[i - 1]!;
     const cur = messages[i]!;
@@ -38,14 +39,12 @@ function extractAnchors(messages: UiMessage[]): TurnAnchor[] {
       cur.sender.kind !== "system" &&
       prev.sender.kind !== "system"
     ) {
-      const seqMatch = prev.id.match(/^s-(\d+)$/);
-      if (seqMatch) {
-        anchors.push({
-          id: `turn-${prev.id}`,
-          seq: parseInt(seqMatch[1]!, 10),
-          elementId: `turn-${prev.id}`,
-        });
-      }
+      turnNum++;
+      anchors.push({
+        id: `turn-${prev.id}`,
+        seq: turnNum,
+        elementId: `turn-${prev.id}`,
+      });
     }
   }
   return anchors;
@@ -53,6 +52,14 @@ function extractAnchors(messages: UiMessage[]): TurnAnchor[] {
 
 export function Timeline({ messages, viewerMemberId, scrollContainerRef }: TimelineProps) {
   const anchors = useMemo(() => extractAnchors(messages), [messages]);
+  // Map message id → per-conversation turn number (1-based)
+  const turnNumByMsgId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const a of anchors) {
+      map.set(a.id.replace("turn-", ""), a.seq);
+    }
+    return map;
+  }, [anchors]);
   const [activeAnchor, setActiveAnchor] = useState<string | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
@@ -135,14 +142,15 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
               !isSystem &&
               prev.sender.kind !== "system";
             const anchorId = `turn-${prev?.id ?? ""}`;
+            const turnNum = prev ? turnNumByMsgId.get(prev.id) : undefined;
 
             return (
               <div key={m.id}>
-                {showAnchor && prev && (
+                {showAnchor && prev && turnNum !== undefined && (
                   <div id={anchorId} className="flex items-center gap-3 py-3">
                     <div className="flex-1 h-px bg-[var(--hairline)]" />
                     <div className="flex items-center gap-1 text-[10px] text-[var(--mute)] shrink-0">
-                      <span>#{anchorId.replace("turn-s-", "")}</span>
+                      <span>#{turnNum}</span>
                     </div>
                     <div className="flex-1 h-px bg-[var(--hairline)]" />
                   </div>
