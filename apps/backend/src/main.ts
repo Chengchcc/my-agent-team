@@ -265,11 +265,19 @@ supervisor.onRunComplete((threadId, runId) => {
               msgs.push({ role: rec.event.payload.role, content: rec.event.payload.content });
             }
           }
-          // Use the first assistant message (actual response), not the last
-          // (last is typically memory-save reflection, not conversation content)
-          const firstAssistant = msgs.find((m) => m.role === "assistant");
-          if (firstAssistant) {
-            const content = firstAssistant.content;
+          // Pick the first assistant message with text content.
+          // Memory-save reflections always appear after the real response
+          // (plugin fires after model), so the first text-bearing assistant
+          // message is the conversation reply.
+          const assistantMsgs = msgs.filter((m) => m.role === "assistant");
+          const hasText = (c: unknown): boolean => {
+            if (typeof c === "string") return c.trim().length > 0;
+            if (Array.isArray(c)) return c.some((b: { type?: string; text?: string }) => b.type === "text" && (b.text ?? "").trim().length > 0);
+            return false;
+          };
+          const best = assistantMsgs.find((m) => hasText(m.content));
+          if (best) {
+            const content = best.content;
 
             const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
             const seq = convPort.appendLedgerEntry({
