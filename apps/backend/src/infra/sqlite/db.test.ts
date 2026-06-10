@@ -14,9 +14,9 @@ test("openDb creates database file and runs migrations", () => {
 
   const names = tables.map((t) => t.name);
   expect(names).toContain("agents");
-  expect(names).toContain("threads");
-  expect(names).toContain("run");
-  expect(names).toContain("attempt");
+  expect(names).not.toContain("threads");
+  expect(names).not.toContain("run");
+  expect(names).not.toContain("attempt");
   expect(names).toContain("checkpoint_messages");
   expect(names).toContain("checkpoint_interrupts");
   expect(names).toContain("checkpoint_events");

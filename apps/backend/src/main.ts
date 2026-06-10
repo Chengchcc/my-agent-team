@@ -9,7 +9,6 @@ import {
 } from "./features/checkpoint/adapter-sqlite.js";
 import { checkpointRoutes, createCheckpointService } from "./features/checkpoint/index.js";
 import {
-  backfillLegacyThreads,
   conversationRoutes,
   createConversationService,
   sqliteConversationAdapter,
@@ -68,28 +67,16 @@ const agentSvc = createAgentService({
     tx(threadIds);
   },
 
-  listThreadIds: async (agentId) => {
-    // Conversation threads: cid:memberId (derived, not stored in threads table)
-    const convIds = (db.query(
+  listThreadIds: async (agentId) =>
+    (db.query(
       "SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?",
-    ).all(agentId) as { id: string }[]).map((r) => r.id);
-    // Legacy agent_thread entries (pre-M14, still in threads table)
-    const legacyIds = (db.query(
-      "SELECT id FROM threads WHERE agent_id = ? AND id NOT LIKE '%:%'",
-    ).all(agentId) as { id: string }[]).map((r) => r.id);
-    return [...convIds, ...legacyIds];
-  },
+    ).all(agentId) as { id: string }[]).map((r) => r.id),
 
   assertNoActiveRun: (agentId) => {
     const edb = supervisor.getDb();
-    const threadIds = [
-      ...(db.query(
-        "SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?",
-      ).all(agentId) as { id: string }[]).map((r) => r.id),
-      ...(db.query(
-        "SELECT id FROM threads WHERE agent_id = ? AND id NOT LIKE '%:%'",
-      ).all(agentId) as { id: string }[]).map((r) => r.id),
-    ];
+    const threadIds = (db.query(
+      "SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?",
+    ).all(agentId) as { id: string }[]).map((r) => r.id);
     if (threadIds.length === 0) return;
     const placeholders = threadIds.map(() => "?").join(",");
     const busy = edb
@@ -98,7 +85,7 @@ const agentSvc = createAgentService({
          AND run_id IN (SELECT run_id FROM run WHERE thread_id IN (${placeholders})) LIMIT 1`,
       )
       .all(...threadIds);
-    if (busy) throw new AgentBusyError(agentId);
+    if (busy.length > 0) throw new AgentBusyError(agentId);
   },
 });
 
@@ -141,23 +128,13 @@ async function buildSpecJson(
   },
 ): Promise<string> {
   // Resolve agent from threadId: for conversation threads (cid:memberId),
-  // look up the member; for legacy threads, query the threads table directly.
-  let agentId: string;
-  if (threadId.includes(":")) {
-    const cid = threadId.split(":")[0]!;
-    const memberId = threadId.split(":").slice(1).join(":");
-    const member = db
-      .query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
-      .get(cid, memberId) as { agent_id: string } | undefined;
-    agentId = member?.agent_id ?? memberId;
-  } else {
-    // Legacy agent_thread: agent_id is on the threads table row
-    const row = db
-      .query("SELECT agent_id FROM threads WHERE id = ?")
-      .get(threadId) as { agent_id: string } | undefined;
-    if (!row) throw new Error(`Thread not found: ${threadId}`);
-    agentId = row.agent_id;
-  }
+  // ThreadId = cid:memberId — resolve agent via member row.
+  const cid = threadId.split(":")[0]!;
+  const memberId = threadId.split(":").slice(1).join(":");
+  const member = db
+    .query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
+    .get(cid, memberId) as { agent_id: string } | undefined;
+  const agentId = member?.agent_id ?? memberId;
   const agent = await agentSvc.getById(agentId);
 
   // Fix F: Use Zod parse for runtime validation (catches DB corruption / bad data)
@@ -243,9 +220,6 @@ const convSvc = createConversationService({
     return supervisor.fork(runId, threadId, specJson);
   },
 });
-
-// Run legacy backfill (idempotent)
-backfillLegacyThreads(db, convPort);
 
 // C2 + D19 fix: register conversation-level onRunComplete (multi-listener supervisor)
 supervisor.onRunComplete((threadId, runId) => {

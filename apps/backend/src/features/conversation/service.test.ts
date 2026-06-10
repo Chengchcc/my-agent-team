@@ -84,15 +84,6 @@ function setupConv(id: string) {
   } catch {
     /* already exists */
   }
-  // Create thread rows for agent members
-  db.run(
-    "INSERT OR IGNORE INTO threads (id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-    [`${id}:mem-x1-${id}`, "ag-x", "X thread", Date.now(), Date.now()],
-  );
-  db.run(
-    "INSERT OR IGNORE INTO threads (id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-    [`${id}:mem-y1-${id}`, "ag-y", "Y thread", Date.now(), Date.now()],
-  );
   return { id };
 }
 

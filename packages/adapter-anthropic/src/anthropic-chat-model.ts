@@ -134,6 +134,7 @@ function buildApiMessages(messages: readonly Message[]): Anthropic.Messages.Mess
 
   for (const msg of messages) {
     if (msg.role === "system") continue;
+    if (msg.role === "internal") continue; // internal reflections never enter model context
     if (isEmptyMessage(msg)) continue;
 
     const converted = convertMessage(msg);

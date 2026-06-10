@@ -1,7 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteConversationAdapter } from "./adapter-sqlite.js";
-import { backfillLegacyThreads } from "./backfill.js";
 
 const dbPath = `/tmp/test-conv-adapter-${Date.now()}.db`;
 const db = openDb(dbPath);
@@ -143,53 +142,5 @@ describe("Ledger CRUD", () => {
     const entries = adapter.getLedgerEntries("conv-1", { sinceSeq: 1 });
     expect(entries).toHaveLength(1);
     expect(entries[0]!.seq).toBe(2);
-  });
-});
-
-// ─── Legacy backfill ──────────────────────────────────────
-
-describe("Legacy backfill", () => {
-  test("backfills old thread into conversation with human + agent members", () => {
-    // Insert a legacy thread and agent first
-    db.run(
-      "INSERT OR REPLACE INTO agents (id, name, workspace_path, model_provider, model_name, permission_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [
-        "ag-legacy",
-        "LegacyAgent",
-        "/ws/legacy",
-        "anthropic",
-        "claude-sonnet-4-6",
-        "ask",
-        Date.now(),
-        Date.now(),
-      ],
-    );
-    db.run(
-      "INSERT OR REPLACE INTO threads (id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-      ["th-legacy-1", "ag-legacy", "Old thread", Date.now(), Date.now()],
-    );
-
-    backfillLegacyThreads(db, adapter);
-
-    const conv = adapter.getConversation("th-legacy-1");
-    expect(conv).not.toBeNull();
-    expect(conv!.triggerMode).toBe("mention");
-    expect(conv!.hopCount).toBe(0);
-
-    const members = adapter.getMembers("th-legacy-1");
-    expect(members).toHaveLength(2);
-    const kinds = members.map((m) => m.kind).sort();
-    expect(kinds).toEqual(["agent", "human"]);
-
-    const ledger = adapter.getLedgerEntries("th-legacy-1");
-    expect(ledger).toHaveLength(1);
-    expect(ledger[0]!.kind).toBe("member.joined");
-  });
-
-  test("backfill is idempotent (calling twice is safe)", () => {
-    backfillLegacyThreads(db, adapter);
-    // Should not throw or duplicate
-    const members = adapter.getMembers("th-legacy-1");
-    expect(members).toHaveLength(2);
   });
 });

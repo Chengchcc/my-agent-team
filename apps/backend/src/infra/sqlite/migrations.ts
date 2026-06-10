@@ -1,5 +1,17 @@
 import { SQLITE_CHECKPOINTER_MIGRATIONS } from "@my-agent-team/checkpointer-sqlite";
 
+/**
+ * Migration naming/id convention (applies to NEW migrations only — existing
+ * `name` values are the dedup key and MUST NOT be renamed):
+ *   - name: `backend_v<seq>_<slug>`, seq strictly increasing by append order.
+ *   - id:   strictly increasing, segment-allocated:
+ *             1–999     core (agents/threads/runs)
+ *             4000–4999 conversation/member/ledger
+ *             5000–5999 schema alterations & repairs
+ *   - Append new entries at the ARRAY END; the runner sorts by id, so array
+ *     position no longer affects execution order (see db.ts).
+ */
+
 export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string }[] = [
   {
     name: "backend_v1_agents",
@@ -149,6 +161,31 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
       ts               INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_ledger_conv ON conversation_ledger(conversation_id, seq)`,
+  },
+  {
+    name: "backend_v16_drop_orphan_conversations",
+    id: 5002,
+    up: `
+      -- Repair debt from v14 composite-PK migration: some conversations lost
+      -- their agent member via INSERT OR IGNORE collision. 0-member conversations
+      -- are unrecoverable → delete (ledger rows cascade automatically).
+      DELETE FROM conversation
+      WHERE NOT EXISTS (
+        SELECT 1 FROM member m WHERE m.conversation_id = conversation.conversation_id
+      );
+    `,
+  },
+  {
+    name: "backend_v17_drop_threads_legacy",
+    id: 5003,
+    up: `
+      -- M14 complete: conversation is the only user-facing concept; no live threads remain.
+      -- Drop legacy backend.db run/attempt (dead tables, never queried at runtime —
+      -- live run/attempt live in events.db) FIRST to clear FK to threads, then drop threads.
+      DROP TABLE IF EXISTS attempt;
+      DROP TABLE IF EXISTS run;
+      DROP TABLE IF EXISTS threads;
+    `,
   },
 ];
 

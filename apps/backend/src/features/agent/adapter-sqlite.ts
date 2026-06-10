@@ -131,10 +131,13 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
       db.exec("PRAGMA foreign_keys = ON");
 
       const delAgent = db.transaction(() => {
-        // Collect thread IDs for checkpoint cleanup (no FK on checkpoint tables)
-        const threadRows = db.query("SELECT id FROM threads WHERE agent_id = ?").all(id) as {
-          id: string;
-        }[];
+        // Collect derived thread IDs (cid:memberId) for checkpoint cleanup.
+        // Threads table is gone (M14) — conversation membership is the source of truth.
+        const threadRows = db
+          .query(
+            "SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?",
+          )
+          .all(id) as { id: string }[];
         const threadIds = threadRows.map((r) => r.id);
 
         // Delete checkpoint rows by thread ID
@@ -144,9 +147,6 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
           db.run("DELETE FROM checkpoint_interrupts WHERE thread_id = ?", [tid]);
           db.run("DELETE FROM checkpoint_events WHERE thread_id = ?", [tid]);
         }
-
-        // Delete threads (CASCADE drops related rows if FK enabled)
-        db.run("DELETE FROM threads WHERE agent_id = ?", [id]);
 
         // Delete member rows (no FK, must be explicit; ledger messages preserved)
         const memberResult = db.run("DELETE FROM member WHERE agent_id = ?", [id]);

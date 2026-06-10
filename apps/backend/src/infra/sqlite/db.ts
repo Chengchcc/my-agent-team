@@ -22,7 +22,8 @@ export function openDb(dbPath: string): Database {
     (db.query("SELECT name FROM _migrations").all() as { name: string }[]).map((r) => r.name),
   );
 
-  for (const m of ALL_MIGRATIONS) {
+  const ordered = [...ALL_MIGRATIONS].sort((a, b) => a.id - b.id);
+  for (const m of ordered) {
     if (ran.has(m.name)) continue;
     db.exec(m.up);
     db.run("INSERT INTO _migrations (name, id, ran_at) VALUES (?, ?, ?)", [

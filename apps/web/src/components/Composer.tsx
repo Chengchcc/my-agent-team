@@ -4,6 +4,10 @@ import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { ArrowUp, AtSign, Bot, CornerDownLeft } from "lucide-react";
 import type { SenderRef } from "@/lib/conversation-reducer";
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 interface ComposerProps {
   onSend: (message: string, addressedTo: string[]) => void;
   disabled?: boolean;
@@ -55,18 +59,13 @@ export function Composer({
       if (!roster || agentMembers.length === 0) return [];
       if (agentMembers.length === 1) return [agentMembers[0]!.memberId];
       const mentioned = new Set<string>();
-      const re = /@(\S+)/g;
-      let match: RegExpExecArray | null;
-      while ((match = re.exec(text)) !== null) {
-        const token = match[1]!;
-        for (const m of agentMembers) {
-          if (
-            m.displayName === token ||
-            m.memberId === token ||
-            m.memberId.endsWith(token)
-          ) {
-            mentioned.add(m.memberId);
-          }
+      for (const m of agentMembers) {
+        const label = m.displayName ?? m.memberId;
+        // @label must be followed by whitespace/punctuation/EOS —
+        // avoids prefix false-matches (e.g. token "1" hitting agent-11)
+        const re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`);
+        if (re.test(text) || text.includes(`@${m.memberId}`)) {
+          mentioned.add(m.memberId);
         }
       }
       return [...mentioned];

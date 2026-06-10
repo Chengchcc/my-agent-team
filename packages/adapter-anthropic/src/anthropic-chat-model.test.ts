@@ -246,6 +246,40 @@ describe("AnthropicChatModel", () => {
     expect(msgs[0]!.role).toBe("assistant");
   });
 
+  test("filters internal-role messages out of model context", async () => {
+    let capturedMessages: unknown;
+    mock.module("@anthropic-ai/sdk", () => ({
+      Anthropic: class {
+        messages = {
+          stream: (params: Record<string, unknown>) => {
+            capturedMessages = params.messages;
+            return {
+              [Symbol.asyncIterator]() {
+                return { next: () => ({ done: true, value: undefined }) };
+              },
+              finalMessage: () =>
+                Promise.resolve({ stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 0 } }),
+            };
+          },
+        };
+      },
+    }));
+
+    const model = new AnthropicChatModel({ apiKey: "test-key" });
+    await collect(
+      model.stream([
+        { role: "user", content: "save this" },
+        { role: "assistant", content: "saved" },
+        { role: "internal", content: "memory written to /notes/x" },
+        { role: "assistant", content: "anything else?" },
+      ]),
+    );
+
+    const msgs = capturedMessages as Array<{ role: string }>;
+    expect(msgs.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(msgs.some((m) => m.role === "internal")).toBe(false);
+  });
+
   test("explicitly skips thinking and redacted_thinking blocks", async () => {
     mock.module("@anthropic-ai/sdk", () => ({
       Anthropic: class {
