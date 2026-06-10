@@ -135,6 +135,7 @@ export function conversationRoutes(
         conversationId: conv.conversationId,
         triggerMode: conv.triggerMode,
         hopCount: conv.hopCount,
+        title: conv.title,
         members,
       });
     },

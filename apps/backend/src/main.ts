@@ -122,6 +122,14 @@ const runSvc = createRunService({
     getThread: async (tid) => {
       try {
         const r = await threadSvc.getById(tid);
+        // Conversation threads have existing title on the conversation, not thread
+        if (r.title && r.title.trim().length > 0) return { title: r.title };
+        // Check conversation title for conversation threads
+        if (tid.includes(":")) {
+          const cid = tid.split(":")[0]!;
+          const conv = convPort.getConversation(cid);
+          if (conv?.title) return { title: conv.title };
+        }
         return { title: r.title };
       } catch {
         return null;
@@ -130,6 +138,12 @@ const runSvc = createRunService({
     getMessages: async (tid) =>
       (await checkpointPort.getMessages(tid)) as import("@my-agent-team/core").Message[] | null,
     setTitle: async (tid, title) => {
+      // Conversation threads: update conversation title, not thread
+      if (tid.includes(":")) {
+        const cid = tid.split(":")[0]!;
+        convPort.setConversationTitle(cid, title);
+        return;
+      }
       await threadSvc.update(tid, { title });
     },
     llm: { apiKey: config.anthropicApiKey },

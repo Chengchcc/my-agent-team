@@ -3,6 +3,7 @@ export interface ConversationRow {
   triggerMode: string;
   hopCount: number;
   createdAt: number;
+  title: string | null;
 }
 
 export interface MemberRow {
@@ -53,6 +54,7 @@ export interface AppendLedgerInput {
 export interface ConversationPort {
   createConversation(input: CreateConversationInput): ConversationRow;
   getConversation(conversationId: string): ConversationRow | null;
+  setConversationTitle(conversationId: string, title: string): void;
   updateHopCount(conversationId: string, count: number): void;
 
   addMember(input: CreateMemberInput): MemberRow;

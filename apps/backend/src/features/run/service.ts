@@ -76,6 +76,10 @@ export function createRunService(deps: RunServiceDeps) {
           if (!t || (t.title && t.title.trim().length > 0)) return;
           const msgs = await autoTitle.getMessages(threadId);
           if (!msgs) return;
+          // Require at least 2 user + 2 assistant messages (4 total) for
+          // accurate title summarization. Fewer rounds = not enough context.
+          const userAssist = msgs.filter((m) => m.role === "user" || m.role === "assistant");
+          if (userAssist.length < 4) return;
           const { buildTitleContext, generateTitle } = await import("../thread/title.js");
           const ctx = buildTitleContext(msgs);
           const title = await generateTitle(autoTitle.llm, ctx);

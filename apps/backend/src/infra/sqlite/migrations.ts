@@ -110,6 +110,11 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
     CREATE INDEX IF NOT EXISTS idx_member_conv ON member(conversation_id)`,
   },
   {
+    name: "backend_v15_conversation_title",
+    id: 5001,
+    up: `ALTER TABLE conversation ADD COLUMN title TEXT`,
+  },
+  {
     name: "backend_v14_member_composite_pk",
     id: 5000,
     up: `

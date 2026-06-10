@@ -23,16 +23,17 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         triggerMode: input.triggerMode ?? "mention",
         hopCount: 0,
         createdAt: input.createdAt,
+        title: null,
       };
     },
 
     getConversation(conversationId: string): ConversationRow | null {
       const row = db
         .query(
-          "SELECT conversation_id, trigger_mode, hop_count, created_at FROM conversation WHERE conversation_id = ?",
+          "SELECT conversation_id, trigger_mode, hop_count, created_at, title FROM conversation WHERE conversation_id = ?",
         )
         .get(conversationId) as
-        | { conversation_id: string; trigger_mode: string; hop_count: number; created_at: number }
+        | { conversation_id: string; trigger_mode: string; hop_count: number; created_at: number; title: string | null }
         | undefined;
       if (!row) return null;
       return {
@@ -40,7 +41,12 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         triggerMode: row.trigger_mode,
         hopCount: row.hop_count,
         createdAt: row.created_at,
+        title: row.title,
       };
+    },
+
+    setConversationTitle(conversationId: string, title: string): void {
+      db.run("UPDATE conversation SET title = ? WHERE conversation_id = ?", [title, conversationId]);
     },
 
     updateHopCount(conversationId: string, count: number): void {

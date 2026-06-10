@@ -104,6 +104,7 @@ export interface ConversationSnapshot {
   conversationId: string;
   triggerMode: "mention";
   hopCount: number;
+  title: string | null;
   members: MemberInfo[];
 }
 
