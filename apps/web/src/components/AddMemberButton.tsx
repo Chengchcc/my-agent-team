@@ -30,7 +30,7 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
   const add = useMutation({
     mutationFn: (a: AgentRow) =>
       api.addConversationMember(conversationId, {
-        memberId: `agent-${a.id}`,
+        memberId: a.id,
         kind: "agent",
         agentId: a.id,
         displayName: a.name,
@@ -41,7 +41,7 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
     },
   });
 
-  const available = (agents ?? []).filter((a) => !presentMemberIds.has(`agent-${a.id}`));
+  const available = (agents ?? []).filter((a) => !presentMemberIds.has(a.id));
 
   return (
     <>

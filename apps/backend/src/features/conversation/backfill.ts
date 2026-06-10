@@ -38,9 +38,9 @@ export function backfillLegacyThreads(db: Database, port: ConversationPort): voi
       joinedAt: now,
     });
 
-    // Add agent member (from the thread's agent_id)
+    // Add agent member — memberId equals agentId (invariant: one agent = one memberId)
     port.addMember({
-      memberId: `agent-${thread.id}`,
+      memberId: thread.agent_id,
       conversationId: thread.id,
       kind: "agent",
       agentId: thread.agent_id,

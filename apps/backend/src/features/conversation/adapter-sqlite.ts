@@ -53,8 +53,10 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     // ─── Member ────────────────────────────────────
 
     addMember(input: CreateMemberInput): MemberRow {
+      // INSERT OR IGNORE: if the same agent is already a member, silently no-op
+      // (invariant: agent memberId equals agentId, so duplicates are naturally prevented)
       db.run(
-        "INSERT INTO member (member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO member (member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         [
           input.memberId,
           input.conversationId,
