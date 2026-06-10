@@ -160,13 +160,14 @@ export function NavRail() {
                   const thread = await api.createThread(selectedAgentId);
                   // Ensure conversation exists for the new thread (backfill is
                   // startup-only, so threads created at runtime need this).
-                  await api.createConversation({
+                  const conv = await api.createConversation({
                     conversationId: thread.id,
                     members: [
                       { memberId: thread.agentId, kind: "agent", agentId: thread.agentId },
                       { memberId: `human-${thread.id}`, kind: "human", userRef: "__legacy__", displayName: "User" },
                     ],
-                  }).catch(() => {}); // conversation may already exist
+                  });
+                  console.log("[NavRail] created conversation", conv);
                   router.push(`/conversations/${thread.id}`);
                 }}
                 className="text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors"
