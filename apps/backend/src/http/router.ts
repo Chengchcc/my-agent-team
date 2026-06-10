@@ -176,6 +176,8 @@ export function createRouter(token: string, features?: FeatureSet) {
         const convMemberMatch = path.match(/^\/api\/conversations\/([^/]+)\/members$/);
         const convEventsMatch = path.match(/^\/api\/conversations\/([^/]+)\/events$/);
 
+        if (convListMatch && method === "GET")
+          return withAuth((r) => conversations.list(r), token)(req);
         if (convListMatch && method === "POST")
           return withAuth((r) => conversations.create(r), token)(req);
         if (convListMatch) return json({ error: "Method not allowed" }, 405);

@@ -20,18 +20,16 @@ export function NavRail() {
   const agentIdMatch = pathname.match(/\/agents\/([^/]+)/);
   const selectedAgentId = agentIdMatch?.[1] ?? null;
 
-  const { data: threads } = useQuery({
-    queryKey: ["threads", selectedAgentId],
-    queryFn: () => api.listThreads(selectedAgentId!),
+  const { data: conversations } = useQuery({
+    queryKey: ["conversations", selectedAgentId],
+    queryFn: () => api.listConversations(selectedAgentId!),
     enabled: !!selectedAgentId,
     staleTime: 10_000,
   });
 
-  const agentThreads = (threads ?? []).filter((t) => t.kind === "agent_thread");
-
   const activeAgents = (agents ?? []).filter((a) => !a.archivedAt);
 
-  const isThreadActive = (threadId: string) => pathname === `/conversations/${threadId}`;
+  const isConvActive = (convId: string) => pathname === `/conversations/${convId}`;
   const isAgentActive = (agentId: string) =>
     pathname === `/agents/${agentId}` || pathname.startsWith(`/agents/${agentId}`);
 
@@ -147,69 +145,55 @@ export function NavRail() {
           </ul>
         </div>
 
-        {/* Threads section */}
+        {/* Conversations section */}
         {selectedAgentId && (
           <div className="px-4 pt-2 pb-4 border-t border-[var(--hairline)]">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] font-[family-name:var(--font-sans)] font-semibold">
-                Threads
+                Conversations
               </h2>
               <button
                 type="button"
                 onClick={async () => {
-                  const thread = await api.createThread(selectedAgentId);
                   const agent = (agents ?? []).find((a) => a.id === selectedAgentId);
-                  await api.ensureConversation(thread, { agentDisplayName: agent?.name });
-                  router.push(`/conversations/${thread.id}`);
+                  const humanId = `human-${crypto.randomUUID().slice(0, 8)}`;
+                  const conv = await api.createConversation({
+                    members: [
+                      { memberId: selectedAgentId, kind: "agent", agentId: selectedAgentId, displayName: agent?.name },
+                      { memberId: humanId, kind: "human", userRef: "__legacy__", displayName: "User" },
+                    ],
+                  });
+                  router.push(`/conversations/${conv.conversationId}`);
                 }}
                 className="text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors"
-                aria-label="New thread"
+                aria-label="New conversation"
               >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <path d="M8 3v10M3 8h10" />
                 </svg>
               </button>
             </div>
-            {agentThreads.length === 0 && (
-              <p className="text-xs text-[var(--mute)]">No threads yet</p>
+            {(conversations ?? []).length === 0 && (
+              <p className="text-xs text-[var(--mute)]">No conversations yet</p>
             )}
             <ul className="space-y-0.5">
-              {agentThreads.map((thread, i) => (
+              {(conversations ?? []).map((conv, i) => (
                 <li
-                  key={thread.id}
+                  key={conv.conversationId}
                   className="animate-fade-in"
                   style={{ animationDelay: `${i * 0.04}s` }}
                 >
                   <button
                     type="button"
-                    onClick={() => router.push(`/conversations/${thread.id}`)}
+                    onClick={() => router.push(`/conversations/${conv.conversationId}`)}
                     className={`w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors truncate block ${
-                      isThreadActive(thread.id)
+                      isConvActive(conv.conversationId)
                         ? "bg-[var(--canvas-soft)] text-[var(--ink)] border-l-2 border-[var(--primary)]"
                         : "text-[var(--body)] hover:bg-[var(--canvas-soft)] hover:text-[var(--ink)]"
                     }`}
                   >
-                    <span className="flex items-center gap-1.5 truncate">
-                      {thread.lastRunAt && (
-                        <span
-                          className="w-1 h-1 rounded-full shrink-0"
-                          style={{
-                            backgroundColor: isThreadActive(thread.id)
-                              ? "var(--primary)"
-                              : "var(--mute)",
-                          }}
-                        />
-                      )}
-                      <span className="truncate">
-                        {thread.title ?? `Thread ${thread.id.slice(0, 6)}`}
-                      </span>
+                    <span className="truncate">
+                      {conv.title ?? `Conversation ${conv.conversationId.slice(0, 6)}`}
                     </span>
                   </button>
                 </li>

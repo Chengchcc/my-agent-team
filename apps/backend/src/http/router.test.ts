@@ -200,9 +200,28 @@ describe("Router with real features", () => {
     expect(body.members).toHaveLength(2);
   });
 
-  test("GET /api/conversations returns 405 (only POST allowed)", async () => {
+  test("GET /api/conversations lists all conversations", async () => {
     const resp = await router(
       new Request("http://localhost/api/conversations", {
+        headers: { "x-auth-token": TOKEN },
+      }),
+    );
+    expect(resp.status).toBe(200);
+  });
+
+  test("GET /api/conversations?agentId= filters by agent", async () => {
+    const resp = await router(
+      new Request("http://localhost/api/conversations?agentId=ag-x", {
+        headers: { "x-auth-token": TOKEN },
+      }),
+    );
+    expect(resp.status).toBe(200);
+  });
+
+  test("DELETE /api/conversations returns 405", async () => {
+    const resp = await router(
+      new Request("http://localhost/api/conversations", {
+        method: "DELETE",
         headers: { "x-auth-token": TOKEN },
       }),
     );

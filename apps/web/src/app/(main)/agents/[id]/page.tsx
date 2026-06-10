@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { ThreadList } from "@/components/ThreadList";
+import { ConversationList } from "@/components/ConversationList";
 import { IdentityPanel } from "@/components/IdentityPanel";
 import { AgentForm } from "@/components/AgentForm";
 
@@ -91,7 +91,7 @@ export default function AgentDetailPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="container mx-auto px-8 py-10">
-          {tab === "threads" && <ThreadList agentId={id} agentName={agent?.name} />}
+          {tab === "threads" && <ConversationList agentId={id} agentName={agent?.name} />}
           {tab === "identity" && <IdentityPanel agentId={id} />}
         </div>
       </div>

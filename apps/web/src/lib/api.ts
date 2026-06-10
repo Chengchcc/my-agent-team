@@ -135,16 +135,7 @@ export const api = {
       body,
     }),
 
-  // Threads
-  listThreads: (agentId: string) => apiFetch<ThreadRow[]>(`agents/${agentId}/threads`),
-  getThread: (id: string) => apiFetch<ThreadRow>(`threads/${id}`),
-  createThread: (agentId: string, body?: { title?: string }) =>
-    apiFetch<ThreadRow>(`agents/${agentId}/threads`, {
-      method: "POST",
-      body,
-    }),
-  updateThread: (id: string, body: { title?: string }) =>
-    apiFetch<ThreadRow>(`threads/${id}`, { method: "PATCH", body }),
+  // Threads (legacy — conversation is the user-facing concept)
   deleteThread: (id: string) => apiFetch<void>(`threads/${id}`, { method: "DELETE" }),
 
   // Runs
@@ -157,6 +148,10 @@ export const api = {
     }),
 
   // Conversations (M14)
+  listConversations: (agentId?: string) =>
+    apiFetch<ConversationSnapshot[]>(
+      `conversations${agentId ? `?agentId=${agentId}` : ""}`,
+    ),
   createConversation: (body: {
     conversationId?: string;
     members: Array<{
@@ -198,20 +193,4 @@ export const api = {
       method: "DELETE",
       body: { memberId },
     }),
-
-  /** Create a conversation + members for a newly created thread.
-   *  Idempotent — safe to call even if conversation already exists. */
-  ensureConversation: (
-    thread: { id: string; agentId: string },
-    opts?: { agentDisplayName?: string },
-  ) =>
-    api
-      .createConversation({
-        conversationId: thread.id,
-        members: [
-          { memberId: thread.agentId, kind: "agent" as const, agentId: thread.agentId, displayName: opts?.agentDisplayName },
-          { memberId: `human-${thread.id}`, kind: "human" as const, userRef: "__legacy__", displayName: "User" },
-        ],
-      })
-      .catch(() => {}), // idempotent — ignore if already exists
 };

@@ -51,11 +51,22 @@ export interface AppendLedgerInput {
   ts: number;
 }
 
+export interface ConversationWithMembers {
+  conversationId: string;
+  triggerMode: string;
+  hopCount: number;
+  createdAt: number;
+  title: string | null;
+  members: MemberRow[];
+}
+
 export interface ConversationPort {
   createConversation(input: CreateConversationInput): ConversationRow;
   getConversation(conversationId: string): ConversationRow | null;
   setConversationTitle(conversationId: string, title: string): void;
   updateHopCount(conversationId: string, count: number): void;
+  listConversations(): ConversationWithMembers[];
+  listConversationsByAgent(agentId: string): ConversationWithMembers[];
 
   addMember(input: CreateMemberInput): MemberRow;
   getMembers(conversationId: string): MemberRow[];

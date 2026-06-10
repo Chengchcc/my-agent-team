@@ -41,6 +41,16 @@ export function conversationRoutes(
   idGen: () => string,
 ) {
   return {
+    /** GET /api/conversations?agentId= → 200 [{ conversationId, members }] */
+    list(req: Request): Response {
+      const url = new URL(req.url);
+      const agentId = url.searchParams.get("agentId");
+      const conversations = agentId
+        ? svc.port.listConversationsByAgent(agentId)
+        : svc.port.listConversations();
+      return json(conversations);
+    },
+
     /** POST /api/conversations → 201 */
     async create(req: Request): Promise<Response> {
       const parsed = createSchema.safeParse(await req.json().catch(() => ({})));

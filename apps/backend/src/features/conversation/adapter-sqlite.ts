@@ -56,6 +56,48 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       ]);
     },
 
+    listConversations(): ConversationWithMembers[] {
+      const convs = db.query(
+        "SELECT conversation_id, trigger_mode, hop_count, created_at, title FROM conversation ORDER BY created_at DESC",
+      ).all() as Array<{ conversation_id: string; trigger_mode: string; hop_count: number; created_at: number; title: string | null }>;
+      return convs.map((c) => ({
+        conversationId: c.conversation_id,
+        triggerMode: c.trigger_mode,
+        hopCount: c.hop_count,
+        createdAt: c.created_at,
+        title: c.title,
+        members: db.query(
+          "SELECT member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at FROM member WHERE conversation_id = ?",
+        ).all(c.conversation_id) as MemberRow[],
+      }));
+    },
+
+    listConversationsByAgent(agentId: string): ConversationWithMembers[] {
+      const convIds = db.query(
+        "SELECT DISTINCT conversation_id FROM member WHERE agent_id = ?",
+      ).all(agentId) as Array<{ conversation_id: string }>;
+      return convIds
+        .map((r) => {
+          const c = db.query(
+            "SELECT conversation_id, trigger_mode, hop_count, created_at, title FROM conversation WHERE conversation_id = ?",
+          ).get(r.conversation_id) as
+            | { conversation_id: string; trigger_mode: string; hop_count: number; created_at: number; title: string | null }
+            | undefined;
+          if (!c) return null;
+          return {
+            conversationId: c.conversation_id,
+            triggerMode: c.trigger_mode,
+            hopCount: c.hop_count,
+            createdAt: c.created_at,
+            title: c.title,
+            members: db.query(
+              "SELECT member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at FROM member WHERE conversation_id = ?",
+            ).all(c.conversation_id) as MemberRow[],
+          };
+        })
+        .filter(Boolean) as ConversationWithMembers[];
+    },
+
     // ─── Member ────────────────────────────────────
 
     addMember(input: CreateMemberInput): MemberRow {
