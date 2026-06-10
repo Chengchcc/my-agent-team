@@ -156,8 +156,14 @@ export async function runEntry(io: EntryIO): Promise<number> {
       } else if (ev.type === "tool_start" || ev.type === "tool_end") {
         writeEvent(ev); // full AgentEvent JSON on stdout; supervisor routes by type
       } else {
-        if (sink) await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
-        writeEvent(ev);
+        // Durable events (message, error, interrupted):
+        // EventSink is the primary path. Do NOT writeEvent to stdout —
+        // the supervisor would duplicate the write to event_log.
+        if (sink) {
+          await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
+        } else {
+          writeEvent(ev); // No EventSink configured — fallback via supervisor
+        }
         // M11: progress heartbeat after each event
         await tryHeartbeat();
       }

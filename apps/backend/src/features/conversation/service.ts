@@ -349,5 +349,74 @@ export function createConversationService(deps: ConversationServiceDeps) {
         pendingRuns.set(conversationId, remaining);
       }
     },
+
+    /** M14.4: Trigger agent runs from agent-to-agent @mentions.
+     *  Only forks runs — does NOT append ledger entries (caller already did).
+     *  Best-effort: silently skips if conversation busy or hop-capped. */
+    triggerMentionedAgents(input: {
+      conversationId: string;
+      senderMemberId: string;
+      addressedTo: string[];
+    }): Array<{ agentMemberId: string; runId: string }> {
+      const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
+      if (input.addressedTo.length === 0) return triggeredRuns;
+
+      const members = port.getMembers(input.conversationId);
+      const convRow = port.getConversation(input.conversationId);
+      if (!convRow) return triggeredRuns;
+
+      // Build conv for resolveTriggerTargets
+      const conv = buildConversation(input.conversationId);
+      if (!conv) return triggeredRuns;
+
+      const targets = resolveTriggerTargets(conv, input.addressedTo);
+      if (targets.length === 0) return triggeredRuns;
+
+      // Increment hop count for agent sender
+      const senderIsAgent = members.some(
+        (m) => m.memberId === input.senderMemberId && m.kind === "agent",
+      );
+      if (senderIsAgent) {
+        port.updateHopCount(input.conversationId, (convRow.hopCount ?? 0) + 1);
+      }
+
+      // Hop hard-cap check
+      const currentHop = port.getConversation(input.conversationId)?.hopCount ?? 0;
+      if (currentHop > maxConsecutiveAgentHops) return triggeredRuns;
+
+      // Conversation busy guard (best-effort: skip, don't throw)
+      if (activeConversations.has(input.conversationId)) return triggeredRuns;
+
+      // Fork runs
+      activeConversations.add(input.conversationId);
+      pendingRuns.set(input.conversationId, targets.length);
+      try {
+        for (const target of targets) {
+          try {
+            const runId = crypto.randomUUID();
+            const threadId = deriveThreadId(input.conversationId, target.memberId);
+            const { runId: rId } = forkRun(runId, threadId, "", {
+              conversationId: input.conversationId,
+              agentMemberId: target.memberId,
+              agentId: target.agentId,
+            });
+            triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
+          } catch (err) {
+            console.error(`[conversation] triggerMentionedAgents forkRun failed for ${target.memberId}:`,
+              err instanceof Error ? err.message : String(err));
+            pendingRuns.set(input.conversationId,
+              (pendingRuns.get(input.conversationId) ?? 1) - 1);
+          }
+        }
+      } finally {
+        const remaining = pendingRuns.get(input.conversationId) ?? 0;
+        if (remaining <= 0) {
+          activeConversations.delete(input.conversationId);
+          pendingRuns.delete(input.conversationId);
+        }
+      }
+
+      return triggeredRuns;
+    },
   };
 }

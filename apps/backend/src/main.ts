@@ -163,6 +163,22 @@ async function buildSpecJson(
   return JSON.stringify(spec);
 }
 
+
+// M14.4: @mention parsing helpers for agent-to-agent triggering
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[]\\/]/g, "\\&");
+}
+
+function extractText(content: unknown): string | null {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((b): b is { type: "text"; text: string } => (b as { type: string }).type === "text")
+      .map((b) => b.text)
+      .join(" ");
+  }
+  return null;
+}
 // Checkpoint feature
 const checkpointWritePort = sqliteCheckpointWriteAdapter(db);
 const checkpointSvc = createCheckpointService({ port: checkpointPort });
@@ -254,15 +270,34 @@ supervisor.onRunComplete((threadId, runId) => {
 
           const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
 
+          // M14.4: Pre-fetch roster for @mention resolution
+          const roster = convPort.getMembers(cid);
+          const mentionedMemberIds = new Set<string>();
+
           for (const msg of conversationMsgs) {
             const content = msg.content;
             if (typeof content === "string" && content.trim().length === 0) continue;
             if (Array.isArray(content) && content.length === 0) continue;
 
+            // M14.4: Parse @mentions from agent output for agent-to-agent triggering
+            if (msg.role === "assistant") {
+              const text = extractText(content);
+              if (text) {
+                for (const m of roster) {
+                  if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
+                  const label = m.displayName ?? m.memberId;
+                  const re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
+                  if (re.test(text) || text.includes(`@${m.memberId}`)) {
+                    mentionedMemberIds.add(m.memberId);
+                  }
+                }
+              }
+            }
+
             const seq = convPort.appendLedgerEntry({
               conversationId: cid,
               senderMemberId,
-              addressedTo: [],
+              addressedTo: [...mentionedMemberIds],
               kind: "message",
               content: JSON.stringify(content),
               ts: Date.now(),
@@ -271,10 +306,19 @@ supervisor.onRunComplete((threadId, runId) => {
               seq,
               conversationId: cid,
               senderMemberId,
-              addressedTo: [],
+              addressedTo: [...mentionedMemberIds],
               kind: "message",
               content: JSON.stringify(content),
               ts: Date.now(),
+            });
+          }
+
+          // M14.4: Trigger @-mentioned agents (agent-to-agent chain)
+          if (mentionedMemberIds.size > 0) {
+            convSvc.triggerMentionedAgents({
+              conversationId: cid,
+              senderMemberId,
+              addressedTo: [...mentionedMemberIds],
             });
           }
         } catch (err) {
