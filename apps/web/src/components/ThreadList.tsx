@@ -20,7 +20,18 @@ export function ThreadList({ agentId }: { agentId: string }) {
   });
 
   const createThread = useMutation({
-    mutationFn: () => api.createThread(agentId),
+    mutationFn: async () => {
+      const thread = await api.createThread(agentId);
+      // Ensure conversation exists (backfill is startup-only)
+      await api.createConversation({
+        conversationId: thread.id,
+        members: [
+          { memberId: thread.agentId, kind: "agent", agentId: thread.agentId },
+          { memberId: `human-${thread.id}`, kind: "human", userRef: "__legacy__", displayName: "User" },
+        ],
+      });
+      return thread;
+    },
     onSuccess: (thread) => {
       queryClient.invalidateQueries({ queryKey: ["threads", agentId] });
       router.push(`/conversations/${thread.id}`);
