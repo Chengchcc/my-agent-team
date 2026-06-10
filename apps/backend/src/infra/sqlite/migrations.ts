@@ -110,6 +110,28 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
     CREATE INDEX IF NOT EXISTS idx_member_conv ON member(conversation_id)`,
   },
   {
+    name: "backend_v14_member_composite_pk",
+    id: 5000,
+    up: `
+      -- member_id must be unique per-conversation, not globally.
+      -- An agent (member_id = agent_id) can belong to multiple conversations.
+      CREATE TABLE IF NOT EXISTS member_new (
+        member_id       TEXT NOT NULL,
+        conversation_id TEXT NOT NULL REFERENCES conversation(conversation_id) ON DELETE CASCADE,
+        kind            TEXT NOT NULL,
+        agent_id        TEXT,
+        user_ref        TEXT,
+        display_name    TEXT,
+        joined_at       INTEGER NOT NULL,
+        PRIMARY KEY (conversation_id, member_id)
+      );
+      INSERT OR IGNORE INTO member_new SELECT * FROM member;
+      DROP TABLE IF EXISTS member;
+      ALTER TABLE member_new RENAME TO member;
+      CREATE INDEX IF NOT EXISTS idx_member_conv ON member(conversation_id);
+    `,
+  },
+  {
     name: "backend_v10_conversation_ledger",
     id: 4002,
     up: `CREATE TABLE IF NOT EXISTS conversation_ledger (
