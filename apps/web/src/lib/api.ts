@@ -156,6 +156,20 @@ export const api = {
     }),
 
   // Conversations (M14)
+  createConversation: (body: {
+    conversationId?: string;
+    members: Array<{
+      memberId?: string;
+      kind: "agent" | "human";
+      agentId?: string;
+      userRef?: string;
+      displayName?: string;
+    }>;
+  }) =>
+    apiFetch<{ conversationId: string; members: MemberInfo[] }>(
+      "conversations",
+      { method: "POST", body },
+    ),
   getConversation: (id: string) => apiFetch<ConversationSnapshot>(`conversations/${id}`),
   postConversationMessage: (
     id: string,
