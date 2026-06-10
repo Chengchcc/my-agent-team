@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import { loadConfig } from "./config.js";
@@ -123,8 +124,10 @@ async function buildSpecJson(
   input: string,
   overrides?: {
     runId?: string;
-    mode?: "run" | "resume";
+    mode?: "run" | "resume" | "reflect";
     resumeCommand?: { approved: boolean; message?: string };
+    conversationId?: string;
+    senderMemberId?: string;
   },
 ): Promise<string> {
   // Resolve agent from threadId: for conversation threads (cid:memberId),
@@ -167,6 +170,8 @@ const checkpointSvc = createCheckpointService({ port: checkpointPort });
 // M10: Conversation feature
 const convPort = sqliteConversationAdapter(db);
 const activeConversations = new Set<string>();
+// M14.3: run metadata for post-run reflection decisions
+const runMeta = new Map<string, { isGenesis: boolean; agentId: string; agentMemberId: string }>();
 
 const convSvc = createConversationService({
   port: convPort,
@@ -195,6 +200,10 @@ const convSvc = createConversationService({
       | undefined;
     if (!agentRow) throw new Error(`Agent not found: ${ctx.agentId}`);
 
+    // M14.3: Record genesis snapshot for post-run reflection gating
+    const isGenesis = !existsSync(`${agentRow.workspace_path}/BOOTSTRAP.md`);
+    runMeta.set(runId, { isGenesis, agentId: ctx.agentId, agentMemberId: ctx.agentMemberId });
+
     const spec = AgentSpecV1.parse({
       schemaVersion: "1",
       workspace: agentRow.workspace_path,
@@ -211,6 +220,7 @@ const convSvc = createConversationService({
       maxSteps: agentRow.max_steps ?? undefined,
       input: "", // input is in the thread.messages already (via broadcast projection)
       runId,
+      isGenesis,
       storage: {
         eventLog: { kind: "sqlite" as const, path: `${config.dataDir}/events.db` },
         checkpointer: { kind: "sqlite" as const, path: `${config.dataDir}/backend.db` },
@@ -223,6 +233,8 @@ const convSvc = createConversationService({
 
 // C2 + D19 fix: register conversation-level onRunComplete (multi-listener supervisor)
 supervisor.onRunComplete((threadId, runId) => {
+  // M14.3: reflect run自身结束 — 不放会话锁、不D19、不递归
+  if (threadId.startsWith("reflect:")) return;
   // Scan active conversations for a matching threadId (deriveThreadId = cid:memberId)
   for (const cid of activeConversations) {
     if (threadId.startsWith(`${cid}:`)) {
@@ -230,7 +242,8 @@ supervisor.onRunComplete((threadId, runId) => {
       convSvc.completeRun(cid, threadId, runId);
 
       // D19: Write all assistant messages from this run to the ledger.
-      // Internal messages (memory-save reflections, etc.) are filtered by role.
+      // M14.3: Reflections run as independent post-run jobs with their own runId —
+      // D19 reads only the main runId, so reflection messages are physically isolated.
       void (async () => {
         try {
           const events = await eventLog.read({ runId });
@@ -271,6 +284,27 @@ supervisor.onRunComplete((threadId, runId) => {
           );
         }
       })();
+
+      // M14.3: post-run reflection — fire-and-forget, lock already released, independent run
+      const meta = runMeta.get(runId);
+      if (meta && !meta.isGenesis) {
+        void (async () => {
+          try {
+            const reflectRunId = ulid();
+            const reflectThreadId = `reflect:${threadId}`;
+            const specJson = await buildSpecJson(threadId, "", {
+              mode: "reflect",
+              runId: reflectRunId,
+              conversationId: cid,
+              senderMemberId: meta.agentMemberId,
+            });
+            supervisor.fork(reflectRunId, reflectThreadId, specJson);
+          } catch (err) {
+            console.error(`[reflect] failed for ${runId}:`, err instanceof Error ? err.message : String(err));
+          }
+        })();
+      }
+      runMeta.delete(runId);
       break;
     }
   }
