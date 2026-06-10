@@ -118,7 +118,8 @@ export function reducer(s: ConvState, a: Action): ConvState {
         __system__: { memberId: "__system__", kind: "system" },
       };
       for (const m of a.members) roster[m.memberId] = m;
-      return { ...s, viewerMemberId: a.viewerMemberId, roster };
+      const agentCount = Object.values(roster).filter((m) => m.kind === "agent").length;
+      return { ...s, viewerMemberId: a.viewerMemberId, roster, triggerMode: agentCount > 1 ? "mention" : "auto" };
     }
 
     case "ledger/member": {
