@@ -16,8 +16,6 @@ import {
 } from "./features/conversation/index.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
-import { sqliteThreadAdapter } from "./features/thread/adapter-sqlite.js";
-import { createThreadService, threadRoutes } from "./features/thread/index.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
 import { openDb } from "./infra/sqlite/db.js";
@@ -88,26 +86,6 @@ const agentSvc = createAgentService({
   },
 });
 
-// Thread feature
-const threadPort = sqliteThreadAdapter(db);
-const threadSvc = createThreadService({
-  port: threadPort,
-  idGen: ulid,
-  agentExists: async (id) => {
-    try {
-      await agentSvc.getById(id);
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  cleanupCheckpoint: async (threadId) => {
-    db.run("DELETE FROM checkpoint_messages WHERE thread_id = ?", [threadId]);
-    db.run("DELETE FROM checkpoint_interrupts WHERE thread_id = ?", [threadId]);
-    db.run("DELETE FROM checkpoint_events WHERE thread_id = ?", [threadId]);
-  },
-});
-
 // Checkpoint read adapter — needed early for autoTitle in runSvc
 const checkpointPort = sqliteCheckpointReadAdapter(db);
 
@@ -120,31 +98,17 @@ const runSvc = createRunService({
   idGen: ulid,
   autoTitle: {
     getThread: async (tid) => {
-      try {
-        const r = await threadSvc.getById(tid);
-        // Conversation threads have existing title on the conversation, not thread
-        if (r.title && r.title.trim().length > 0) return { title: r.title };
-        // Check conversation title for conversation threads
-        if (tid.includes(":")) {
-          const cid = tid.split(":")[0]!;
-          const conv = convPort.getConversation(cid);
-          if (conv?.title) return { title: conv.title };
-        }
-        return { title: r.title };
-      } catch {
-        return null;
-      }
+      // Check conversation title (covers both conversation threads and legacy)
+      const cid = tid.includes(":") ? tid.split(":")[0]! : tid;
+      const conv = convPort.getConversation(cid);
+      if (conv?.title) return { title: conv.title };
+      return conv ? { title: null } : null;
     },
     getMessages: async (tid) =>
       (await checkpointPort.getMessages(tid)) as import("@my-agent-team/core").Message[] | null,
     setTitle: async (tid, title) => {
-      // Conversation threads: update conversation title, not thread
-      if (tid.includes(":")) {
-        const cid = tid.split(":")[0]!;
-        convPort.setConversationTitle(cid, title);
-        return;
-      }
-      await threadSvc.update(tid, { title });
+      const cid = tid.includes(":") ? tid.split(":")[0]! : tid;
+      convPort.setConversationTitle(cid, title);
     },
     llm: { apiKey: config.anthropicApiKey },
   },
@@ -160,8 +124,25 @@ async function buildSpecJson(
     resumeCommand?: { approved: boolean; message?: string };
   },
 ): Promise<string> {
-  const thread = await threadSvc.getById(threadId);
-  const agent = await agentSvc.getById(thread.agentId);
+  // Resolve agent from threadId: for conversation threads (cid:memberId),
+  // look up the member; for legacy threads, query the threads table directly.
+  let agentId: string;
+  if (threadId.includes(":")) {
+    const cid = threadId.split(":")[0]!;
+    const memberId = threadId.split(":").slice(1).join(":");
+    const member = db
+      .query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
+      .get(cid, memberId) as { agent_id: string } | undefined;
+    agentId = member?.agent_id ?? memberId;
+  } else {
+    // Legacy agent_thread: agent_id is on the threads table row
+    const row = db
+      .query("SELECT agent_id FROM threads WHERE id = ?")
+      .get(threadId) as { agent_id: string } | undefined;
+    if (!row) throw new Error(`Thread not found: ${threadId}`);
+    agentId = row.agent_id;
+  }
+  const agent = await agentSvc.getById(agentId);
 
   // Fix F: Use Zod parse for runtime validation (catches DB corruption / bad data)
   const spec = AgentSpecV1.parse({
@@ -201,19 +182,9 @@ const convSvc = createConversationService({
   activeConversations,
   maxConsecutiveAgentHops: 8,
 
-  // C1 fix: build real AgentSpec JSON for forked agent runs
+  // ThreadId = conversationId:memberId (derived, not persisted).
+  // The threads table is legacy — runtime only needs the derived key.
   forkRun: (runId, threadId, _specJson, ctx) => {
-    // Ensure thread row exists (lazy at first fork — D17)
-    const existing = db.query("SELECT id FROM threads WHERE id = ?").get(threadId) as
-      | { id: string }
-      | undefined;
-    if (!existing) {
-      db.run(
-        "INSERT INTO threads (id, agent_id, title, kind, created_at, updated_at) VALUES (?, ?, ?, 'conversation', ?, ?)",
-        [threadId, ctx.agentId, `Conversation ${ctx.conversationId}`, Date.now(), Date.now()],
-      );
-    }
-
     // Build full spec JSON (C1 fix)
     const agentRow = db
       .query(
@@ -327,34 +298,10 @@ const getThreadIdForRun = async (runId: string) => {
 
 const router = createRouter(config.authToken, {
   agents: agentRoutes(agentSvc),
-  threads: threadRoutes(threadSvc),
+  // threads: removed — conversation is the user-facing concept
   runs: runRoutes(runSvc, buildSpecJson, getThreadIdForRun),
   checkpoints: checkpointRoutes(checkpointSvc),
   conversations: conversationRoutes(convSvc, ulid),
-
-  // H4: Legacy thread→conversation forwarding for POST /threads/:id/runs
-  resolveLegacyThreadRun: async (threadId: string) => {
-    // Only forward if this is actually a conversation thread, not an agent_thread
-    // (backfillLegacyThreads creates conversation entries for all threads)
-    const thread = threadPort.findById(threadId);
-    if (thread?.kind === "agent_thread") return null;
-    const conv = convPort.getConversation(threadId);
-    if (!conv) return null; // Not a conversation — use legacy path
-    const agentMembers = convPort.getAgentMembers(threadId);
-    if (agentMembers.length === 0) return null; // No agent members yet — use legacy path
-    if (agentMembers.length === 1) {
-      return {
-        action: "forward" as const,
-        conversationId: threadId,
-        agentMemberId: agentMembers[0]!.memberId,
-      };
-    }
-    return {
-      action: "reject" as const,
-      reason:
-        "Thread is part of a multi-member conversation; use POST /api/conversations/:id/messages",
-    };
-  },
 });
 
 // Server
