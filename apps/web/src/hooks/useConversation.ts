@@ -20,7 +20,11 @@ function resolveViewerMemberId(members: SenderRef[]): string {
 
 function resolveAddressedTo(s: ConvState): string[] {
   const agents = Object.values(s.roster).filter((m) => m.kind === "agent");
-  return agents.length === 1 ? [agents[0]!.memberId] : [];
+  if (agents.length === 0) return [];
+  // "auto" mode: broadcast to all agents (no @ needed)
+  // "mention" mode: must explicitly @mention
+  if (s.triggerMode === "auto") return agents.map((m) => m.memberId);
+  return [];
 }
 
 export function useConversation(
@@ -272,6 +276,11 @@ export function useConversation(
   );
   const cancel = useCallback(() => cancelRun.mutate(), [cancelRun]);
 
+  const toggleTriggerMode = useCallback(
+    () => dispatch({ type: "toggleTriggerMode" }),
+    [],
+  );
+
   return {
     viewerMemberId: state.viewerMemberId,
     roster: state.roster,
@@ -283,6 +292,8 @@ export function useConversation(
     error: state.error,
     runId: state.run.id,
     loading: snap.isLoading,
+    triggerMode: state.triggerMode,
+    toggleTriggerMode,
     send,
     approve,
     deny,

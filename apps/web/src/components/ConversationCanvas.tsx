@@ -38,6 +38,8 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
     cancel,
     canceling,
     resuming,
+    triggerMode,
+    toggleTriggerMode,
   } = useConversation(conversationId, snapshot);
 
   const label = computeStatus(runId, phase);
@@ -249,6 +251,20 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
 
       {/* Composer */}
       <div className="shrink-0 border-t border-[var(--hairline)]">
+        <div className="flex items-center gap-2 px-6 pt-3">
+          <button
+            type="button"
+            onClick={toggleTriggerMode}
+            className="text-[10px] tracking-[0.1em] uppercase px-2 py-0.5 rounded border border-[var(--hairline)] text-[var(--mute)] hover:text-[var(--body)] hover:border-[var(--primary)] transition-colors"
+            title={
+              triggerMode === "auto"
+                ? "Auto: messages sent to all agents"
+                : "Mention: use @ to address specific agents"
+            }
+          >
+            {triggerMode === "auto" ? "Auto" : "@ Mention"}
+          </button>
+        </div>
         <Composer
           onSend={send}
           disabled={busy}

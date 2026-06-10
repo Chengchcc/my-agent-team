@@ -27,6 +27,8 @@ export interface Draft {
   tools: DraftTool[];
 }
 
+export type TriggerMode = "auto" | "mention";
+
 export interface ConvState {
   viewerMemberId: string;
   roster: Record<string, SenderRef>;
@@ -36,6 +38,7 @@ export interface ConvState {
   pendingInterrupt: { id: string; name: string; input: unknown } | null;
   error: string | null;
   optimisticSeq: number;
+  triggerMode: TriggerMode;
 }
 
 export type Action =
@@ -53,7 +56,8 @@ export type Action =
     }
   | { type: "run/error"; message: string }
   | { type: "run/done" }
-  | { type: "run/completed" };
+  | { type: "run/completed" }
+  | { type: "toggleTriggerMode" };
 
 export function initialState(): ConvState {
   return {
@@ -65,6 +69,7 @@ export function initialState(): ConvState {
     pendingInterrupt: null,
     error: null,
     optimisticSeq: 0,
+    triggerMode: "auto",
   };
 }
 
@@ -266,6 +271,12 @@ export function reducer(s: ConvState, a: Action): ConvState {
         return { ...s, draft: null };
       }
       return { ...s, draft: null, run: { ...s.run, phase: "done" } };
+
+    case "toggleTriggerMode":
+      return {
+        ...s,
+        triggerMode: s.triggerMode === "auto" ? "mention" : "auto",
+      };
 
     default:
       return s;
