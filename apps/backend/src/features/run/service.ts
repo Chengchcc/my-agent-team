@@ -80,7 +80,7 @@ export function createRunService(deps: RunServiceDeps) {
           // accurate title summarization. Fewer rounds = not enough context.
           const userAssist = msgs.filter((m) => m.role === "user" || m.role === "assistant");
           if (userAssist.length < 4) return;
-          const { buildTitleContext, generateTitle } = await import("../thread/title.js");
+          const { buildTitleContext, generateTitle } = await import("../conversation/title.js");
           const ctx = buildTitleContext(msgs);
           const title = await generateTitle(autoTitle.llm, ctx);
           if (title) await autoTitle.setTitle(threadId, title);

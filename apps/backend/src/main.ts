@@ -68,20 +68,36 @@ const agentSvc = createAgentService({
     tx(threadIds);
   },
 
-  listThreadIds: async (agentId) =>
-    (db.query("SELECT id FROM threads WHERE agent_id = ?").all(agentId) as { id: string }[]).map(
-      (r) => r.id,
-    ),
+  listThreadIds: async (agentId) => {
+    // Conversation threads: cid:memberId (derived, not stored in threads table)
+    const convIds = (db.query(
+      "SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?",
+    ).all(agentId) as { id: string }[]).map((r) => r.id);
+    // Legacy agent_thread entries (pre-M14, still in threads table)
+    const legacyIds = (db.query(
+      "SELECT id FROM threads WHERE agent_id = ? AND id NOT LIKE '%:%'",
+    ).all(agentId) as { id: string }[]).map((r) => r.id);
+    return [...convIds, ...legacyIds];
+  },
 
   assertNoActiveRun: (agentId) => {
     const edb = supervisor.getDb();
+    const threadIds = [
+      ...(db.query(
+        "SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?",
+      ).all(agentId) as { id: string }[]).map((r) => r.id),
+      ...(db.query(
+        "SELECT id FROM threads WHERE agent_id = ? AND id NOT LIKE '%:%'",
+      ).all(agentId) as { id: string }[]).map((r) => r.id),
+    ];
+    if (threadIds.length === 0) return;
+    const placeholders = threadIds.map(() => "?").join(",");
     const busy = edb
       .query(
         `SELECT 1 FROM attempt WHERE ended_at IS NULL
-         AND run_id IN (SELECT run_id FROM run WHERE thread_id IN
-           (SELECT id FROM threads WHERE agent_id = ?)) LIMIT 1`,
+         AND run_id IN (SELECT run_id FROM run WHERE thread_id IN (${placeholders})) LIMIT 1`,
       )
-      .get(agentId);
+      .all(...threadIds);
     if (busy) throw new AgentBusyError(agentId);
   },
 });
