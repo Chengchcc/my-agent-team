@@ -72,6 +72,13 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       }));
     },
 
+    deleteConversation(conversationId: string): boolean {
+      // Clean up related thread rows first (conversation threads + agent_thread backfill)
+      db.run("DELETE FROM threads WHERE id LIKE ?", [`${conversationId}%`]);
+      const result = db.run("DELETE FROM conversation WHERE conversation_id = ?", [conversationId]);
+      return result.changes > 0;
+    },
+
     listConversationsByAgent(agentId: string): ConversationWithMembers[] {
       const convIds = db.query(
         "SELECT DISTINCT conversation_id FROM member WHERE agent_id = ?",

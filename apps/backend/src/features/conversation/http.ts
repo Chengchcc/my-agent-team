@@ -136,6 +136,13 @@ export function conversationRoutes(
       }
     },
 
+    /** DELETE /api/conversations/:id → 204 */
+    delete(_req: Request, conversationId: string): Response {
+      const deleted = svc.port.deleteConversation(conversationId);
+      if (!deleted) return json({ error: "Not found" }, 404);
+      return new Response(null, { status: 204 });
+    },
+
     /** GET /api/conversations/:id → 200 { conversationId, triggerMode, members } */
     async snapshot(_req: Request, conversationId: string): Promise<Response> {
       const conv = svc.port.getConversation(conversationId);

@@ -67,6 +67,7 @@ export interface ConversationPort {
   updateHopCount(conversationId: string, count: number): void;
   listConversations(): ConversationWithMembers[];
   listConversationsByAgent(agentId: string): ConversationWithMembers[];
+  deleteConversation(conversationId: string): boolean;
 
   addMember(input: CreateMemberInput): MemberRow;
   getMembers(conversationId: string): MemberRow[];

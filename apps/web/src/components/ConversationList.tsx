@@ -36,7 +36,7 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
   });
 
   const deleteConversation = useMutation({
-    mutationFn: (convId: string) => api.deleteThread(convId),
+    mutationFn: (convId: string) => api.deleteConversation(convId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["conversations", agentId] });
     },

@@ -51,16 +51,6 @@ export interface AgentRow {
   archivedAt?: number | null;
 }
 
-export interface ThreadRow {
-  id: string;
-  agentId: string;
-  title: string | null;
-  kind: "agent_thread" | "conversation";
-  createdAt: number;
-  updatedAt: number;
-  lastRunAt: number | null;
-}
-
 export interface IdentityData {
   soul: string | null;
   user: string | null;
@@ -135,9 +125,6 @@ export const api = {
       body,
     }),
 
-  // Threads (legacy — conversation is the user-facing concept)
-  deleteThread: (id: string) => apiFetch<void>(`threads/${id}`, { method: "DELETE" }),
-
   // Runs
   getRun: (runId: string) => apiFetch<RunMeta>(`runs/${runId}`),
   cancelRun: (runId: string) => apiFetch<void>(`runs/${runId}/cancel`, { method: "POST" }),
@@ -193,4 +180,6 @@ export const api = {
       method: "DELETE",
       body: { memberId },
     }),
+  deleteConversation: (id: string) =>
+    apiFetch<void>(`conversations/${id}`, { method: "DELETE" }),
 };

@@ -183,6 +183,8 @@ export function createRouter(token: string, features?: FeatureSet) {
         if (convListMatch) return json({ error: "Method not allowed" }, 405);
         if (convSnapMatch && method === "GET")
           return withAuth((r) => conversations.snapshot(r, convSnapMatch[1]!), token)(req);
+        if (convSnapMatch && method === "DELETE")
+          return withAuth((r) => conversations.delete(r, convSnapMatch[1]!), token)(req);
         if (convSnapMatch) return json({ error: "Method not allowed" }, 405);
         if (convMsgMatch && method === "POST")
           return withAuth((r) => conversations.postMessage(r, convMsgMatch[1]!), token)(req);
