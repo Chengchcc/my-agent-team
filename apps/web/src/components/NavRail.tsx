@@ -158,7 +158,8 @@ export function NavRail() {
                 type="button"
                 onClick={async () => {
                   const thread = await api.createThread(selectedAgentId);
-                  await api.ensureConversation(thread);
+                  const agent = (agents ?? []).find((a) => a.id === selectedAgentId);
+                  await api.ensureConversation(thread, { agentDisplayName: agent?.name });
                   router.push(`/conversations/${thread.id}`);
                 }}
                 className="text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors"

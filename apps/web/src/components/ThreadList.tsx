@@ -10,7 +10,7 @@ function isRecent(ts: number | null): boolean {
   return Date.now() - ts < 5 * 60 * 1000; // 5 min
 }
 
-export function ThreadList({ agentId }: { agentId: string }) {
+export function ThreadList({ agentId, agentName }: { agentId: string; agentName?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -22,7 +22,7 @@ export function ThreadList({ agentId }: { agentId: string }) {
   const createThread = useMutation({
     mutationFn: async () => {
       const thread = await api.createThread(agentId);
-      await api.ensureConversation(thread);
+      await api.ensureConversation(thread, { agentDisplayName: agentName });
       return thread;
     },
     onSuccess: (thread) => {

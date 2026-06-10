@@ -200,12 +200,15 @@ export const api = {
 
   /** Create a conversation + members for a newly created thread.
    *  Idempotent — safe to call even if conversation already exists. */
-  ensureConversation: (thread: { id: string; agentId: string }) =>
+  ensureConversation: (
+    thread: { id: string; agentId: string },
+    opts?: { agentDisplayName?: string },
+  ) =>
     api
       .createConversation({
         conversationId: thread.id,
         members: [
-          { memberId: thread.agentId, kind: "agent" as const, agentId: thread.agentId },
+          { memberId: thread.agentId, kind: "agent" as const, agentId: thread.agentId, displayName: opts?.agentDisplayName },
           { memberId: `human-${thread.id}`, kind: "human" as const, userRef: "__legacy__", displayName: "User" },
         ],
       })

@@ -91,7 +91,7 @@ export default function AgentDetailPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="container mx-auto px-8 py-10">
-          {tab === "threads" && <ThreadList agentId={id} />}
+          {tab === "threads" && <ThreadList agentId={id} agentName={agent?.name} />}
           {tab === "identity" && <IdentityPanel agentId={id} />}
         </div>
       </div>
