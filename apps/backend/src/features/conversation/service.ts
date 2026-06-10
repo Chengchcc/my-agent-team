@@ -190,19 +190,31 @@ export function createConversationService(deps: ConversationServiceDeps) {
         content: input.content,
       });
 
-      // ── @ trigger: fork agent run (skip if hop-capped) ──
+      // ── @ trigger: fork agent run for each target (skip if hop-capped) ──
       if (targets.length > 0 && !hopCapped) {
-        const target = targets[0]!;
-        const runId = crypto.randomUUID();
-        const threadId = deriveThreadId(input.conversationId, target.memberId);
-
         activeConversations.add(input.conversationId);
-        const { runId: rId } = forkRun(runId, threadId, "", {
-          conversationId: input.conversationId,
-          agentMemberId: target.memberId,
-          agentId: target.agentId,
-        });
-        triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
+        try {
+          for (const target of targets) {
+            try {
+              const runId = crypto.randomUUID();
+              const threadId = deriveThreadId(input.conversationId, target.memberId);
+              const { runId: rId } = forkRun(runId, threadId, "", {
+                conversationId: input.conversationId,
+                agentMemberId: target.memberId,
+                agentId: target.agentId,
+              });
+              triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
+            } catch (err) {
+              console.error(`[conversation] forkRun failed for ${target.memberId}:`,
+                err instanceof Error ? err.message : String(err));
+            }
+          }
+        } finally {
+          // Release lock if no runs were actually started
+          if (triggeredRuns.length === 0) {
+            activeConversations.delete(input.conversationId);
+          }
+        }
       } else if (hopCapped) {
         // Broadcast system message about the cap (no fork)
         await appendAndBroadcast({
