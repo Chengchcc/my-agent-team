@@ -172,9 +172,9 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
         </div>
       )}
 
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex min-h-0 relative">
         {/* Main scroll area */}
-        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto relative">
+        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
           <div className="mx-auto" style={{ maxWidth: "72ch", padding: "0 1.5rem" }}>
             {loading ? (
               <div className="flex items-center justify-center py-16">
@@ -204,24 +204,25 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
               </div>
             ) : (
               <div className="py-4">
-                <Timeline messages={messages} viewerMemberId={viewerMemberId} />
+                <Timeline messages={messages} viewerMemberId={viewerMemberId} scrollContainerRef={scrollRef} />
                 {draft && <DraftMessage draft={draft} />}
               </div>
             )}
 
-            {/* Scroll-to-bottom */}
-            {scrolledUp && (
-              <button
-                type="button"
-                onClick={scrollToBottom}
-                className="absolute bottom-4 right-4 z-20 bg-[var(--canvas)] border border-[var(--hairline)] rounded-full p-2 shadow-lg hover:border-[var(--primary)] transition-colors"
-                title="Scroll to bottom"
-              >
-                <ArrowDown size={14} className="text-[var(--body)]" />
-              </button>
-            )}
           </div>
         </div>
+
+        {/* Scroll-to-bottom — outside scroll container so it stays fixed */}
+        {scrolledUp && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            className="absolute bottom-4 right-4 z-20 bg-[var(--canvas)] border border-[var(--hairline)] rounded-full p-2 shadow-lg hover:border-[var(--primary)] transition-colors"
+            title="Scroll to bottom"
+          >
+            <ArrowDown size={14} className="text-[var(--body)]" />
+          </button>
+        )}
 
         {/* Roster sidebar */}
         <div className="shrink-0 w-56 border-l border-[var(--hairline)] overflow-y-auto p-3">

@@ -9,6 +9,7 @@ import type { UiMessage } from "@/lib/conversation-reducer";
 interface TimelineProps {
   messages: UiMessage[];
   viewerMemberId: string;
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 interface TurnAnchor {
@@ -50,7 +51,7 @@ function extractAnchors(messages: UiMessage[]): TurnAnchor[] {
   return anchors;
 }
 
-export function Timeline({ messages, viewerMemberId }: TimelineProps) {
+export function Timeline({ messages, viewerMemberId, scrollContainerRef }: TimelineProps) {
   const anchors = useMemo(() => extractAnchors(messages), [messages]);
   const [activeAnchor, setActiveAnchor] = useState<string | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -77,10 +78,18 @@ export function Timeline({ messages, viewerMemberId }: TimelineProps) {
     return () => obs.disconnect();
   }, [anchors]);
 
-  const scrollToAnchor = useCallback((elementId: string) => {
-    const el = document.getElementById(elementId);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, []);
+  const scrollToAnchor = useCallback(
+    (elementId: string) => {
+      const container = scrollContainerRef?.current;
+      const el = document.getElementById(elementId);
+      if (!container || !el) return;
+      const containerRect = container.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const offset = elRect.top - containerRect.top + container.scrollTop - 60;
+      container.scrollTo({ top: offset, behavior: "smooth" });
+    },
+    [scrollContainerRef],
+  );
 
   return (
     <div className="flex gap-0">
