@@ -249,7 +249,14 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
 
       {/* Composer */}
       <div className="shrink-0 border-t border-[var(--hairline)]">
-        <Composer onSend={send} disabled={busy} />
+        <Composer
+          onSend={send}
+          disabled={busy}
+          roster={roster}
+          autoAgentCount={
+            Object.values(roster).filter((m) => m.kind === "agent").length
+          }
+        />
       </div>
     </div>
   );

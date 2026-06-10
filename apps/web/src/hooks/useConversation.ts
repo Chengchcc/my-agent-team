@@ -206,10 +206,17 @@ export function useConversation(
 
   // 4) Send: optimistic dispatch + POST /conversations/:id/messages
   const sendMut = useMutation({
-    mutationFn: (text: string) =>
+    mutationFn: ({
+      text,
+      addressedTo,
+    }: {
+      text: string;
+      addressedTo: string[];
+    }) =>
       api.postConversationMessage(conversationId, {
         senderMemberId: state.viewerMemberId,
-        addressedTo: resolveAddressedTo(state),
+        addressedTo:
+          addressedTo.length > 0 ? addressedTo : resolveAddressedTo(state),
         content: text,
       }),
     onSuccess: (d) => {
@@ -226,13 +233,13 @@ export function useConversation(
   });
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, addressedTo?: string[]) => {
       const viewer = state.roster[state.viewerMemberId] ?? {
         memberId: state.viewerMemberId,
         kind: "human" as const,
       };
       dispatch({ type: "send", text, viewer });
-      sendMut.mutate(text);
+      sendMut.mutate({ text, addressedTo: addressedTo ?? [] });
     },
     [sendMut, state.roster, state.viewerMemberId],
   );
