@@ -48,6 +48,9 @@ export function createConversationService(deps: ConversationServiceDeps) {
     maxConsecutiveAgentHops,
     forkRun,
   } = deps;
+  // Track pending run count per conversation — lock released only when
+  // all triggered runs complete, not just the first one.
+  const pendingRuns = new Map<string, number>();
 
   /** Load members and build Conversation for pure helpers. */
   function buildConversation(conversationId: string) {
@@ -193,6 +196,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
       // ── @ trigger: fork agent run for each target (skip if hop-capped) ──
       if (targets.length > 0 && !hopCapped) {
         activeConversations.add(input.conversationId);
+        // Track pending count — lock released only when all complete
+        pendingRuns.set(input.conversationId, targets.length);
         try {
           for (const target of targets) {
             try {
@@ -207,12 +212,17 @@ export function createConversationService(deps: ConversationServiceDeps) {
             } catch (err) {
               console.error(`[conversation] forkRun failed for ${target.memberId}:`,
                 err instanceof Error ? err.message : String(err));
+              // Decrement counter for failed fork
+              pendingRuns.set(input.conversationId,
+                (pendingRuns.get(input.conversationId) ?? 1) - 1);
             }
           }
         } finally {
-          // Release lock if no runs were actually started
-          if (triggeredRuns.length === 0) {
+          // Release lock immediately if no runs were started at all
+          const remaining = pendingRuns.get(input.conversationId) ?? 0;
+          if (remaining <= 0) {
             activeConversations.delete(input.conversationId);
+            pendingRuns.delete(input.conversationId);
           }
         }
       } else if (hopCapped) {
@@ -329,9 +339,15 @@ export function createConversationService(deps: ConversationServiceDeps) {
         }
       }
     },
-    /** Release the conversation lock on run completion. */
+    /** Release the conversation lock when ALL triggered runs complete. */
     completeRun(conversationId: string, _threadId: string, _runId: string): void {
-      activeConversations.delete(conversationId);
+      const remaining = (pendingRuns.get(conversationId) ?? 1) - 1;
+      if (remaining <= 0) {
+        activeConversations.delete(conversationId);
+        pendingRuns.delete(conversationId);
+      } else {
+        pendingRuns.set(conversationId, remaining);
+      }
     },
   };
 }
