@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useEffect, useRef, useCallback } from "react";
+import { useMemo, useEffect, useRef, useCallback, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -12,7 +12,7 @@ import { Timeline } from "./Timeline";
 import { DraftMessage } from "./DraftMessage";
 import { Composer } from "./Composer";
 import { ToolApprovalCard } from "./ToolApprovalCard";
-import { Bot, UserCircle, X } from "lucide-react";
+import { Bot, UserCircle, X, ArrowDown } from "lucide-react";
 import { AddMemberButton } from "./AddMemberButton";
 
 interface ConversationCanvasProps {
@@ -53,12 +53,27 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevLen = useRef(messages.length);
+  const [scrolledUp, setScrolledUp] = useState(false);
+
   useEffect(() => {
     if (messages.length > prevLen.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
     prevLen.current = messages.length;
   }, [messages.length]);
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    }
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    setScrolledUp(!atBottom);
+  }, []);
 
   // Resolve the primary agent for header display (first agent in roster)
   const primaryAgent = useMemo(() => {
@@ -159,7 +174,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
 
       <div className="flex-1 flex min-h-0">
         {/* Main scroll area */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto relative">
           <div className="mx-auto" style={{ maxWidth: "72ch", padding: "0 1.5rem" }}>
             {loading ? (
               <div className="flex items-center justify-center py-16">
@@ -192,6 +207,18 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
                 <Timeline messages={messages} viewerMemberId={viewerMemberId} />
                 {draft && <DraftMessage draft={draft} />}
               </div>
+            )}
+
+            {/* Scroll-to-bottom */}
+            {scrolledUp && (
+              <button
+                type="button"
+                onClick={scrollToBottom}
+                className="absolute bottom-4 right-4 z-20 bg-[var(--canvas)] border border-[var(--hairline)] rounded-full p-2 shadow-lg hover:border-[var(--primary)] transition-colors"
+                title="Scroll to bottom"
+              >
+                <ArrowDown size={14} className="text-[var(--body)]" />
+              </button>
             )}
           </div>
         </div>

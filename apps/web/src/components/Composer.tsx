@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useCallback, useMemo } from "react";
-import { ArrowUp, AtSign } from "lucide-react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { ArrowUp, AtSign, Bot, CornerDownLeft } from "lucide-react";
 import type { SenderRef } from "@/lib/conversation-reducer";
 
 interface ComposerProps {
@@ -22,7 +22,9 @@ export function Composer({
   const [value, setValue] = useState("");
   const [showMentions, setShowMentions] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   const agentMembers = useMemo(() => {
     if (!roster) return [];
@@ -38,6 +40,9 @@ export function Composer({
     );
   }, [agentMembers, mentionFilter]);
 
+  // Reset selection when filter changes
+  useEffect(() => { setMentionIndex(0); }, [mentionFilter]);
+
   const autoGrow = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -45,13 +50,10 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, []);
 
-  // Parse @mentions from message text → addressedTo memberIds
   const resolveAddressedTo = useCallback(
     (text: string): string[] => {
       if (!roster || agentMembers.length === 0) return [];
-      // Single agent: always auto-addressed (no @ needed)
       if (agentMembers.length === 1) return [agentMembers[0]!.memberId];
-      // Multi-agent: parse @displayName or @memberId from text
       const mentioned = new Set<string>();
       const re = /@(\S+)/g;
       let match: RegExpExecArray | null;
@@ -78,7 +80,6 @@ export function Composer({
       if (!el) return;
       const name = member.displayName ?? member.memberId;
       const before = value.slice(0, el.selectionStart);
-      // Replace trailing '@' + partial filter with full @name
       const atPos = before.lastIndexOf("@");
       const after = value.slice(el.selectionEnd);
       const newText =
@@ -102,8 +103,6 @@ export function Composer({
       const text = e.target.value;
       setValue(text);
       autoGrow();
-
-      // Detect @ trigger: show mention popup when user types @ followed by partial text
       const el = textareaRef.current;
       if (el) {
         const before = text.slice(0, el.selectionStart);
@@ -132,6 +131,19 @@ export function Composer({
     }
   }, [value, disabled, onSend, resolveAddressedTo]);
 
+  const navigateMention = useCallback(
+    (dir: -1 | 1) => {
+      if (!showMentions || filteredMentions.length === 0) return;
+      setMentionIndex((prev) => {
+        const next = prev + dir;
+        if (next < 0) return filteredMentions.length - 1;
+        if (next >= filteredMentions.length) return 0;
+        return next;
+      });
+    },
+    [showMentions, filteredMentions.length],
+  );
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (showMentions && filteredMentions.length > 0) {
       if (e.key === "Escape") {
@@ -139,10 +151,16 @@ export function Composer({
         setShowMentions(false);
         return;
       }
-      // Tab or Enter on mention selects first match
-      if (e.key === "Tab" || e.key === "Enter") {
+      if (e.key === "ArrowDown") { e.preventDefault(); navigateMention(1); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); navigateMention(-1); return; }
+      if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        insertMention(filteredMentions[0]!);
+        insertMention(filteredMentions[mentionIndex]!);
+        return;
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        if (filteredMentions[mentionIndex]) insertMention(filteredMentions[mentionIndex]!);
         return;
       }
     }
@@ -156,82 +174,98 @@ export function Composer({
   const effectivePlaceholder =
     agentMembers.length === 1
       ? placeholder
-      : `@agent to address…  Ctrl+Enter to send`;
+      : "@agent to address…  Ctrl+Enter to send";
 
   return (
     <div className="bg-[var(--canvas)] px-6 py-4">
-      <div className="mx-auto" style={{ maxWidth: "72ch" }}>
-        <div className="flex gap-3 items-end relative">
-          <div className="flex-1 relative">
-            <textarea
-              ref={textareaRef}
-              value={value}
-              onChange={handleInput}
-              onKeyDown={handleKeyDown}
-              placeholder={disabled ? "Agent is responding…" : effectivePlaceholder}
-              rows={1}
-              disabled={disabled}
-              className="w-full resize-none bg-[var(--canvas-soft)] border border-[var(--hairline)]
-                         rounded-md px-3 py-3 text-sm text-[var(--ink)]
-                         placeholder:text-[var(--mute)]
-                         focus:outline-none focus:border-[var(--primary)]
-                         disabled:opacity-40 disabled:cursor-not-allowed
-                         transition-colors duration-200"
-              style={{ minHeight: "44px", maxHeight: "200px" }}
-            />
+      <div className="mx-auto flex gap-2 items-end relative" style={{ maxWidth: "72ch" }}>
+        <div className="flex-1 relative">
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            placeholder={disabled ? "Agent is responding…" : effectivePlaceholder}
+            rows={1}
+            disabled={disabled}
+            className="w-full resize-none bg-[var(--canvas-soft)] border border-[var(--hairline)]
+                       rounded-md px-3 py-3 text-sm text-[var(--ink)]
+                       placeholder:text-[var(--mute)]
+                       focus:outline-none focus:border-[var(--primary)]
+                       disabled:opacity-40 disabled:cursor-not-allowed
+                       transition-colors duration-200"
+            style={{ minHeight: "44px", maxHeight: "200px" }}
+          />
 
-            {/* @mention popup */}
-            {showMentions && (
-              <div className="absolute bottom-full left-0 mb-1 w-64 bg-[var(--canvas)] border border-[var(--hairline)] rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+          {/* @mention popover */}
+          {showMentions && (
+            <div
+              ref={popoverRef}
+              className="absolute bottom-full left-0 mb-1 w-72 bg-[var(--canvas)] border border-[var(--hairline)] rounded-lg shadow-xl z-50 overflow-hidden"
+            >
+              <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--hairline)] bg-[var(--canvas-soft)]">
+                <span className="text-[10px] tracking-[0.1em] uppercase text-[var(--mute)] font-semibold">
+                  Mention an agent
+                </span>
+                <span className="text-[10px] text-[var(--mute)] flex items-center gap-1">
+                  <CornerDownLeft size={10} /> to select
+                </span>
+              </div>
+              <div className="max-h-48 overflow-y-auto">
                 {filteredMentions.length === 0 ? (
-                  <p className="text-xs text-[var(--mute)] px-3 py-2">
-                    No matching agents
-                  </p>
+                  <p className="text-xs text-[var(--mute)] px-3 py-3">No matching agents</p>
                 ) : (
-                  filteredMentions.map((m) => (
+                  filteredMentions.map((m, i) => (
                     <button
                       key={m.memberId}
                       type="button"
                       onClick={() => insertMention(m)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-[var(--canvas-soft)] transition-colors"
+                      onMouseEnter={() => setMentionIndex(i)}
+                      className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
+                        i === mentionIndex
+                          ? "bg-[var(--primary)]/10"
+                          : "hover:bg-[var(--canvas-soft)]"
+                      }`}
                     >
-                      <span className="text-[var(--primary)] font-medium">
-                        @{m.displayName ?? m.memberId}
+                      <Bot size={15} className="text-[var(--primary)] shrink-0" />
+                      <span className="text-sm text-[var(--body)] truncate flex-1">
+                        {m.displayName ?? m.memberId}
                       </span>
+                      <span className="text-[10px] font-mono text-[var(--mute)] shrink-0">agent</span>
                     </button>
                   ))
                 )}
               </div>
-            )}
-          </div>
-
-          {showMentionButton && (
-            <button
-              type="button"
-              onClick={() => {
-                setShowMentions(!showMentions);
-                setMentionFilter("");
-              }}
-              className="shrink-0 p-2 text-[var(--mute)] hover:text-[var(--body)] transition-colors"
-              title="Mention an agent"
-            >
-              <AtSign size={16} />
-            </button>
+            </div>
           )}
+        </div>
 
+        {showMentionButton && (
           <button
             type="button"
-            onClick={handleSend}
-            disabled={disabled || !value.trim()}
-            className="shrink-0 bg-[var(--primary)] text-[var(--on-primary)]
-                       rounded-md p-2.5
-                       hover:opacity-90
-                       disabled:opacity-30 disabled:cursor-not-allowed
-                       transition-opacity duration-200 inline-flex items-center justify-center"
+            onClick={() => {
+              setShowMentions(!showMentions);
+              setMentionFilter("");
+              setMentionIndex(0);
+            }}
+            className="shrink-0 p-2 text-[var(--mute)] hover:text-[var(--body)] transition-colors mb-0.5"
+            title="Mention an agent"
           >
-            <ArrowUp size={16} className="shrink-0" aria-label="Send" />
+            <AtSign size={16} />
           </button>
-        </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handleSend}
+          disabled={disabled || !value.trim()}
+          className="shrink-0 bg-[var(--primary)] text-[var(--on-primary)]
+                     rounded-md p-2.5 hover:opacity-90
+                     disabled:opacity-30 disabled:cursor-not-allowed
+                     transition-opacity duration-200 inline-flex items-center justify-center mb-0.5"
+        >
+          <ArrowUp size={16} className="shrink-0" aria-label="Send" />
+        </button>
       </div>
     </div>
   );
