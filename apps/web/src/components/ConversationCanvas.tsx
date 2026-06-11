@@ -13,6 +13,7 @@ import { AddMemberButton } from "./AddMemberButton";
 import { Composer } from "./Composer";
 import { DraftMessage } from "./DraftMessage";
 import { Timeline } from "./Timeline";
+import { TodoPanel } from "./TodoPanel";
 import { ToolApprovalCard } from "./ToolApprovalCard";
 
 interface ConversationCanvasProps {
@@ -40,6 +41,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
     resuming,
     triggerMode,
     toggleTriggerMode,
+    todos,
   } = useConversation(conversationId, snapshot);
 
   const label = computeStatus(runId, phase);
@@ -152,6 +154,9 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
           </div>
         )}
       </div>
+
+      {/* M14.6: Todo progress — pinned above message stream */}
+      <TodoPanel todos={todos} />
 
       {/* Error bar */}
       {error && (

@@ -39,6 +39,8 @@ export interface ConvState {
   error: string | null;
   optimisticSeq: number;
   triggerMode: TriggerMode;
+  /** M14.6: Task todo progress — full snapshot from todo_update events. */
+  todos: Array<{ step: string; status: "pending" | "in_progress" | "done" }>;
 }
 
 export type Action =
@@ -57,7 +59,8 @@ export type Action =
   | { type: "run/error"; message: string }
   | { type: "run/done" }
   | { type: "run/completed" }
-  | { type: "toggleTriggerMode" };
+  | { type: "toggleTriggerMode" }
+  | { type: "todo/update"; todos: ConvState["todos"] };
 
 export function initialState(): ConvState {
   return {
@@ -70,6 +73,7 @@ export function initialState(): ConvState {
     error: null,
     optimisticSeq: 0,
     triggerMode: "auto",
+    todos: [],
   };
 }
 
@@ -350,6 +354,10 @@ export function reducer(s: ConvState, a: Action): ConvState {
         ...s,
         triggerMode: s.triggerMode === "auto" ? "mention" : "auto",
       };
+
+    case "todo/update":
+      // Full snapshot replacement — latest arrival is authoritative
+      return { ...s, todos: a.todos };
 
     default:
       return s;

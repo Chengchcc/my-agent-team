@@ -205,6 +205,21 @@ export function useConversation(
       }
     });
 
+    // M14.6: todo_update events — durable channel, survives refresh
+    es.addEventListener("todo_update", (e: Event) => {
+      if (!(e instanceof MessageEvent)) return;
+      try {
+        const raw = JSON.parse(e.data) as {
+          payload: { todos: ConvState["todos"] };
+        };
+        if (Array.isArray(raw.payload?.todos)) {
+          dispatch({ type: "todo/update", todos: raw.payload.todos });
+        }
+      } catch {
+        // skip
+      }
+    });
+
     return () => es.close();
   }, [state.run.id, state.run.phase]);
 
@@ -290,5 +305,6 @@ export function useConversation(
     cancel,
     canceling: cancelRun.isPending,
     resuming: resumeRun.isPending,
+    todos: state.todos,
   };
 }
