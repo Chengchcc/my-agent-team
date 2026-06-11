@@ -4,7 +4,7 @@ import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import type { EventSink } from "@my-agent-team/event-log";
 import type { AgentEvent } from "@my-agent-team/framework";
 import type { createGenericAgent } from "@my-agent-team/harness";
-import { reflectionGuidance } from "@my-agent-team/harness";
+import { reflectionGuidance, verificationGuidance } from "@my-agent-team/harness";
 
 export interface EntryIO {
   /** Raw spec JSON string (from process.env.AGENT_SPEC by default) */
@@ -140,37 +140,109 @@ export async function runEntry(io: EntryIO): Promise<number> {
     // reflection output is checkpoint-isolated from the main conversation.
     let runAgent = agent;
     let runInput = spec.input;
+    let isReflect = false;
     if (spec.mode === "reflect") {
       runAgent = agent.fork(undefined, `reflect:${spec.threadId}`);
       runInput = reflectionGuidance();
+      isReflect = true;
     }
+
+    // M14.6: Default maxForceContinues=3 for task runs, 0 for reflect/cold-review to exempt.
+    const maxForce = isReflect ? 0 : undefined; // undefined → framework default (3)
     const stream =
       spec.mode === "resume"
-        ? agent.resume(spec.resumeCommand!, { signal, maxSteps: spec.maxSteps, stream: true })
-        : runAgent.run(runInput, { signal, maxSteps: spec.maxSteps, stream: true });
+        ? agent.resume(spec.resumeCommand!, { signal, maxSteps: spec.maxSteps, stream: true, maxForceContinues: maxForce })
+        : runAgent.run(runInput, { signal, maxSteps: spec.maxSteps, stream: true, maxForceContinues: maxForce });
 
-    writeStderr(`[runner-stdio] agent.${spec.mode ?? "run"} started`);
-    for await (const ev of stream) {
-      // ephemeral events — stdout only, NEVER to EventLog
-      if (ev.type === "text_delta") {
-        io.writeDelta?.({ blockIndex: ev.payload.blockIndex, text: ev.payload.text });
-      } else if (ev.type === "tool_start" || ev.type === "tool_end") {
-        writeEvent(ev); // full AgentEvent JSON on stdout; supervisor routes by type
-      } else {
-        // Durable events (message, error, interrupted):
-        // EventSink is the primary path. Do NOT writeEvent to stdout —
-        // the supervisor would duplicate the write to event_log.
-        if (sink) {
-          await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
+    // Helper: route events from an agent stream (stdout + EventSink + heartbeat)
+    async function routeEvents(src: AsyncIterable<AgentEvent>): Promise<void> {
+      for await (const ev of src) {
+        if (ev.type === "text_delta") {
+          io.writeDelta?.({ blockIndex: ev.payload.blockIndex, text: ev.payload.text });
+        } else if (ev.type === "tool_start" || ev.type === "tool_end") {
+          writeEvent(ev);
         } else {
-          writeEvent(ev); // No EventSink configured — fallback via supervisor
+          if (sink) {
+            await sink.append(spec.threadId, spec.runId ?? spec.threadId, ev);
+          } else {
+            writeEvent(ev);
+          }
+          await tryHeartbeat();
         }
-        // M11: progress heartbeat after each event
-        await tryHeartbeat();
       }
     }
 
+    writeStderr(`[runner-stdio] agent.${spec.mode ?? "run"} started`);
+    await routeEvents(stream);
     writeStderr(`[runner-stdio] agent.${spec.mode ?? "run"} finished cleanly`);
+
+    // M14.6: Cold verification loop — only for normal runs (not reflect/resume)
+    if (!isReflect && spec.mode !== "resume" && spec.mode !== "reflect") {
+      const maxVerifyRounds = 2;
+      let rounds = 0;
+      while (rounds < maxVerifyRounds) {
+        const evalAgent = agent.fork(undefined, `verify:${spec.threadId}`);
+        let verdict: { complete: boolean; missing: string } | null = null;
+        try {
+          // Collect all events from the cold-review run, extract text from last message
+          let allText = "";
+          for await (const ev of evalAgent.run(verificationGuidance(), {
+            signal,
+            maxSteps: spec.maxSteps,
+            maxForceContinues: 0, // exempt cold review from stop gate
+          })) {
+            if (ev.type === "message") {
+              const content = ev.payload.content;
+              if (typeof content === "string") {
+                allText += content;
+              } else if (Array.isArray(content)) {
+                for (const block of content) {
+                  if (block.type === "text") {
+                    allText += (block as { text: string }).text;
+                  }
+                }
+              }
+            }
+          }
+          // Parse verdict JSON from the response
+          const jsonMatch = allText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (typeof parsed.complete === "boolean") {
+              verdict = parsed;
+            }
+          }
+        } catch {
+          // fail-open: break on any error
+          break;
+        }
+        if (!verdict || verdict.complete) break;
+        rounds++;
+        writeStderr(`[runner-stdio] cold verify round ${rounds}: incomplete, re-running`);
+        // Gap回流: re-run main agent with missing items
+        await routeEvents(
+          agent.run(verdict.missing, {
+            signal,
+            maxSteps: spec.maxSteps,
+            maxForceContinues: maxForce, // task run: enable stop gate
+          }),
+        );
+      }
+    }
+
+    // M14.3: Reflection (same fork pattern, exempt from stop gate)
+    // M14.6: Only run inline reflection for normal task runs (not resume/reflect)
+    if (!isReflect && spec.mode !== "resume" && spec.mode !== "reflect") {
+      const reflectAgent = agent.fork(undefined, `reflect:${spec.threadId}`);
+      await routeEvents(
+        reflectAgent.run(reflectionGuidance(), {
+          signal,
+          maxSteps: spec.maxSteps,
+          maxForceContinues: 0, // exempt reflection from stop gate
+        }),
+      );
+    }
+
     return 0;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
