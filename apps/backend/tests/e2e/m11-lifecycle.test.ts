@@ -1,15 +1,11 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { Database } from "bun:sqlite";
-import { mkdir, rm, writeFile, readFile } from "node:fs/promises";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import { inMemoryEventLog } from "@my-agent-team/event-log";
 import { loadConfig } from "../../src/config.js";
 import { sqliteAgentAdapter } from "../../src/features/agent/adapter-sqlite.js";
-import { agentRoutes, createAgentService } from "../../src/features/agent/index.js";
-import { createRouter } from "../../src/http/router.js";
-import { createServer } from "../../src/server.js";
+import { createAgentService } from "../../src/features/agent/index.js";
 
 const TEST_DIR = `/tmp/test-m11-e2e-${Date.now()}`;
 const DATA_DIR = `${TEST_DIR}/data`;
@@ -73,7 +69,7 @@ describe("M11 Genesis e2e", () => {
 
 describe("M11 Growth e2e", () => {
   test("bootstrap() reads BOOTSTRAP.md directly when present", async () => {
-    const { bootstrap, BOOTSTRAP_TEMPLATE } = await import("@my-agent-team/harness");
+    const { bootstrap } = await import("@my-agent-team/harness");
     const { consoleLogger } = await import("@my-agent-team/framework");
 
     const ws = `${TEST_DIR}/ws-growth`;

@@ -56,7 +56,7 @@ function splitTurns(messages: readonly Message[]): Turn[] {
 
 function findTurnEnd(messages: readonly Message[], userIdx: number): number {
   const userMsg = messages[userIdx];
-  if (!userMsg || userMsg.role !== "user") return userIdx + 1;
+  if (userMsg?.role !== "user") return userIdx + 1;
 
   // Scan for the next standalone user message (not a tool_result continuation)
   let nextUser = messages.length;

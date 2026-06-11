@@ -155,7 +155,7 @@ export function createRunService(deps: RunServiceDeps) {
       const merged = mergeSignals(signal, doneCtrl.signal);
 
       // Register one-shot callback: when run completes, abort subscription
-      const onDone = (threadId: string, completedRunId: string) => {
+      const onDone = (_threadId: string, completedRunId: string) => {
         if (completedRunId === runId) {
           doneCtrl.abort();
         }
@@ -214,3 +214,4 @@ export function createRunService(deps: RunServiceDeps) {
     },
   };
 }
+export type RunService = ReturnType<typeof createRunService>;

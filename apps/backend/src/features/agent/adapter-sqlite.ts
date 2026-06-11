@@ -87,7 +87,7 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
 
     async update(id: string, input: UpdateAgentInput & { now: number }): Promise<AgentRow | null> {
       const sets: string[] = ["updated_at = ?"];
-      // biome-ignore lint/suspicious/noExplicitAny: SQL mixed types\
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const vals: any[] = [input.now];
       if (input.name !== undefined) {
         sets.push("name = ?");
@@ -134,14 +134,12 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
         // Collect derived thread IDs (cid:memberId) for checkpoint cleanup.
         // Threads table is gone (M14) — conversation membership is the source of truth.
         const threadRows = db
-          .query(
-            "SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?",
-          )
+          .query("SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?")
           .all(id) as { id: string }[];
         const threadIds = threadRows.map((r) => r.id);
 
         // Delete checkpoint rows by thread ID
-        let deletedThreads = threadIds.length;
+        const deletedThreads = threadIds.length;
         for (const tid of threadIds) {
           db.run("DELETE FROM checkpoint_messages WHERE thread_id = ?", [tid]);
           db.run("DELETE FROM checkpoint_interrupts WHERE thread_id = ?", [tid]);

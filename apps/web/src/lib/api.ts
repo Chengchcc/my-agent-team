@@ -136,9 +136,7 @@ export const api = {
 
   // Conversations (M14)
   listConversations: (agentId?: string) =>
-    apiFetch<ConversationSnapshot[]>(
-      `conversations${agentId ? `?agentId=${agentId}` : ""}`,
-    ),
+    apiFetch<ConversationSnapshot[]>(`conversations${agentId ? `?agentId=${agentId}` : ""}`),
   createConversation: (body: {
     conversationId?: string;
     members: Array<{
@@ -149,10 +147,10 @@ export const api = {
       displayName?: string;
     }>;
   }) =>
-    apiFetch<{ conversationId: string; members: MemberInfo[] }>(
-      "conversations",
-      { method: "POST", body },
-    ),
+    apiFetch<{ conversationId: string; members: MemberInfo[] }>("conversations", {
+      method: "POST",
+      body,
+    }),
   getConversation: (id: string) => apiFetch<ConversationSnapshot>(`conversations/${id}`),
   postConversationMessage: (
     id: string,
@@ -180,6 +178,5 @@ export const api = {
       method: "DELETE",
       body: { memberId },
     }),
-  deleteConversation: (id: string) =>
-    apiFetch<void>(`conversations/${id}`, { method: "DELETE" }),
+  deleteConversation: (id: string) => apiFetch<void>(`conversations/${id}`, { method: "DELETE" }),
 };

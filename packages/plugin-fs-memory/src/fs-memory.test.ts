@@ -32,7 +32,7 @@ describe("fsMemoryPlugin", () => {
         { role: "user", content: "hi" },
       ];
 
-      const result = await plugin.hooks.beforeModel!(testCtx(), msgs);
+      const result = (await plugin.hooks.beforeModel?.(testCtx(), msgs))!;
       expect(result).toHaveLength(2);
       expect((result[0] as Message).content).toContain("my memory content");
       expect((result[0] as Message).content).toContain("<memory>");
@@ -54,7 +54,7 @@ describe("fsMemoryPlugin", () => {
         { role: "user", content: "hi" },
       ];
 
-      const result = await plugin.hooks.beforeModel!(testCtx(), msgs);
+      const result = (await plugin.hooks.beforeModel?.(testCtx(), msgs))!;
       // No injection, should be same
       expect((result[0] as Message).content).toBe("sys");
     } finally {
@@ -73,7 +73,7 @@ describe("fsMemoryPlugin", () => {
         { role: "user", content: "hi" },
       ];
 
-      const result = await plugin.hooks.beforeModel!(testCtx(), msgs);
+      const result = (await plugin.hooks.beforeModel?.(testCtx(), msgs))!;
       expect((result[0] as Message).content).toBe("sys");
     } finally {
       await Bun.$`rm -rf ${dir}`.quiet();
@@ -101,7 +101,7 @@ describe("fsMemoryPlugin", () => {
       const plugin = fsMemoryPlugin({ dir });
       const msgs: Message[] = [{ role: "user", content: "hi" }];
 
-      const result = await plugin.hooks.beforeModel!(ctx, msgs as Message[]);
+      const result = (await plugin.hooks.beforeModel?.(ctx, msgs as Message[]))!;
       expect(result).toHaveLength(1);
       expect(warnings.some((w) => w.includes("no system message"))).toBe(true);
     } finally {
@@ -135,7 +135,7 @@ describe("fsMemoryPlugin", () => {
         { role: "user", content: "hi" },
       ];
 
-      const result = await plugin.hooks.beforeModel!(ctx, msgs as Message[]);
+      const result = (await plugin.hooks.beforeModel?.(ctx, msgs as Message[]))!;
       expect(result).toHaveLength(2);
       expect(warnings.some((w) => w.includes("read failed"))).toBe(true);
       // should still pass through unchanged
@@ -148,7 +148,7 @@ describe("fsMemoryPlugin", () => {
   test("plugin exposes 3 tools", () => {
     const plugin = fsMemoryPlugin({ dir: "/tmp/test" });
     expect(plugin.tools).toHaveLength(3);
-    const names = plugin.tools!.map((t) => t.name);
+    const names = plugin.tools?.map((t) => t.name);
     expect(names).toContain("memory_read");
     expect(names).toContain("memory_write");
     expect(names).toContain("memory_search");

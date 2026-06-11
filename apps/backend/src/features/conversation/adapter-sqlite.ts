@@ -3,6 +3,7 @@ import type {
   AppendLedgerInput,
   ConversationPort,
   ConversationRow,
+  ConversationWithMembers,
   CreateConversationInput,
   CreateMemberInput,
   LedgerRow,
@@ -33,7 +34,13 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           "SELECT conversation_id, trigger_mode, hop_count, created_at, title FROM conversation WHERE conversation_id = ?",
         )
         .get(conversationId) as
-        | { conversation_id: string; trigger_mode: string; hop_count: number; created_at: number; title: string | null }
+        | {
+            conversation_id: string;
+            trigger_mode: string;
+            hop_count: number;
+            created_at: number;
+            title: string | null;
+          }
         | undefined;
       if (!row) return null;
       return {
@@ -46,7 +53,10 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     },
 
     setConversationTitle(conversationId: string, title: string): void {
-      db.run("UPDATE conversation SET title = ? WHERE conversation_id = ?", [title, conversationId]);
+      db.run("UPDATE conversation SET title = ? WHERE conversation_id = ?", [
+        title,
+        conversationId,
+      ]);
     },
 
     updateHopCount(conversationId: string, count: number): void {
@@ -57,18 +67,28 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     },
 
     listConversations(): ConversationWithMembers[] {
-      const convs = db.query(
-        "SELECT conversation_id, trigger_mode, hop_count, created_at, title FROM conversation ORDER BY created_at DESC",
-      ).all() as Array<{ conversation_id: string; trigger_mode: string; hop_count: number; created_at: number; title: string | null }>;
+      const convs = db
+        .query(
+          "SELECT conversation_id, trigger_mode, hop_count, created_at, title FROM conversation ORDER BY created_at DESC",
+        )
+        .all() as Array<{
+        conversation_id: string;
+        trigger_mode: string;
+        hop_count: number;
+        created_at: number;
+        title: string | null;
+      }>;
       return convs.map((c) => ({
         conversationId: c.conversation_id,
         triggerMode: c.trigger_mode,
         hopCount: c.hop_count,
         createdAt: c.created_at,
         title: c.title,
-        members: db.query(
-          "SELECT member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at FROM member WHERE conversation_id = ?",
-        ).all(c.conversation_id) as MemberRow[],
+        members: db
+          .query(
+            "SELECT member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at FROM member WHERE conversation_id = ?",
+          )
+          .all(c.conversation_id) as MemberRow[],
       }));
     },
 
@@ -80,15 +100,23 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     },
 
     listConversationsByAgent(agentId: string): ConversationWithMembers[] {
-      const convIds = db.query(
-        "SELECT DISTINCT conversation_id FROM member WHERE agent_id = ?",
-      ).all(agentId) as Array<{ conversation_id: string }>;
+      const convIds = db
+        .query("SELECT DISTINCT conversation_id FROM member WHERE agent_id = ?")
+        .all(agentId) as Array<{ conversation_id: string }>;
       return convIds
         .map((r) => {
-          const c = db.query(
-            "SELECT conversation_id, trigger_mode, hop_count, created_at, title FROM conversation WHERE conversation_id = ?",
-          ).get(r.conversation_id) as
-            | { conversation_id: string; trigger_mode: string; hop_count: number; created_at: number; title: string | null }
+          const c = db
+            .query(
+              "SELECT conversation_id, trigger_mode, hop_count, created_at, title FROM conversation WHERE conversation_id = ?",
+            )
+            .get(r.conversation_id) as
+            | {
+                conversation_id: string;
+                trigger_mode: string;
+                hop_count: number;
+                created_at: number;
+                title: string | null;
+              }
             | undefined;
           if (!c) return null;
           return {
@@ -97,9 +125,11 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
             hopCount: c.hop_count,
             createdAt: c.created_at,
             title: c.title,
-            members: db.query(
-              "SELECT member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at FROM member WHERE conversation_id = ?",
-            ).all(c.conversation_id) as MemberRow[],
+            members: db
+              .query(
+                "SELECT member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at FROM member WHERE conversation_id = ?",
+              )
+              .all(c.conversation_id) as MemberRow[],
           };
         })
         .filter(Boolean) as ConversationWithMembers[];
@@ -203,7 +233,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         ts: number;
       }[];
       return rows.map((r) => {
-        let addressedTo: string[] = [];
+        let addressedTo: string[];
         try {
           addressedTo = JSON.parse(r.addressed_to) as string[];
         } catch {

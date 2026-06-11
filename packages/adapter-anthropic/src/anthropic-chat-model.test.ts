@@ -206,7 +206,7 @@ describe("AnthropicChatModel", () => {
 
     const msgs = capturedMessages as Array<{ role: string }>;
     expect(msgs.length).toBe(2); // user merged + assistant
-    expect(msgs[0]!.role).toBe("user");
+    expect(msgs[0]?.role).toBe("user");
   });
 
   test("filters empty content messages", async () => {
@@ -243,7 +243,7 @@ describe("AnthropicChatModel", () => {
 
     const msgs = capturedMessages as Array<{ role: string; content: unknown }>;
     expect(msgs.length).toBe(1); // only assistant (user "" filtered)
-    expect(msgs[0]!.role).toBe("assistant");
+    expect(msgs[0]?.role).toBe("assistant");
   });
 
   test("explicitly skips thinking and redacted_thinking blocks", async () => {
@@ -299,7 +299,7 @@ describe("AnthropicChatModel", () => {
     const textChunks = chunks.filter((c) => "delta" in c && c.delta?.type === "text");
     expect(textChunks.length).toBe(1);
     // @ts-expect-error text property on text delta
-    expect(textChunks[0]!.delta.text).toBe("actual output");
+    expect(textChunks[0]?.delta.text).toBe("actual output");
   });
 
   test("passes tools to API when provided in options", async () => {

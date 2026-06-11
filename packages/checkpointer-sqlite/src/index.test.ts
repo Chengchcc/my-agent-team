@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { sqliteCheckpointer } from "./index.js";
 
-let db: Database;
-const nextId = 0;
+let _db: Database;
+const _nextId = 0;
 
 function freshDb(): Database {
   return new Database(":memory:");
@@ -47,7 +47,7 @@ test("saveInterrupt and consumeInterrupt roundtrip", async () => {
   const db = freshDb();
   const cp = sqliteCheckpointer({ db });
 
-  await cp.saveInterrupt!("t1", {
+  await cp.saveInterrupt?.("t1", {
     pendingTool: {
       call: { type: "tool_use" as const, id: "c1", name: "bash", input: {} },
       reason: "permission",
@@ -55,16 +55,16 @@ test("saveInterrupt and consumeInterrupt roundtrip", async () => {
     ts: 1000,
   });
 
-  const state = await cp.consumeInterrupt!("t1");
+  const state = await cp.consumeInterrupt?.("t1");
   expect(state).not.toBeNull();
-  expect(state!.pendingTool.reason).toBe("permission");
+  expect(state?.pendingTool.reason).toBe("permission");
 });
 
 test("consumeInterrupt is one-shot (consumed after read)", async () => {
   const db = freshDb();
   const cp = sqliteCheckpointer({ db });
 
-  await cp.saveInterrupt!("t1", {
+  await cp.saveInterrupt?.("t1", {
     pendingTool: {
       call: { type: "tool_use" as const, id: "c1", name: "bash", input: {} },
       reason: "permission",
@@ -72,8 +72,8 @@ test("consumeInterrupt is one-shot (consumed after read)", async () => {
     ts: 1000,
   });
 
-  await cp.consumeInterrupt!("t1");
-  const second = await cp.consumeInterrupt!("t1");
+  await cp.consumeInterrupt?.("t1");
+  const second = await cp.consumeInterrupt?.("t1");
   expect(second).toBeNull();
 });
 
@@ -81,7 +81,7 @@ test("consumeInterrupt returns null when no interrupt saved", async () => {
   const db = freshDb();
   const cp = sqliteCheckpointer({ db });
 
-  const state = await cp.consumeInterrupt!("t1");
+  const state = await cp.consumeInterrupt?.("t1");
   expect(state).toBeNull();
 });
 
@@ -91,11 +91,13 @@ test("appendEvent and readEvents roundtrip", async () => {
   const db = freshDb();
   const cp = sqliteCheckpointer({ db });
 
-  await cp.appendEvent!("t1", { type: "user_input", content: "hi", ts: 1 });
-  await cp.appendEvent!("t1", { type: "run_end", reason: "complete", ts: 2 });
+  await cp.appendEvent?.("t1", { type: "user_input", content: "hi", ts: 1 });
+  await cp.appendEvent?.("t1", { type: "run_end", reason: "complete", ts: 2 });
 
   const events: unknown[] = [];
-  for await (const ev of cp.readEvents!("t1")) {
+  for await (const ev of (cp as { readEvents: (tid: string) => AsyncIterable<unknown> }).readEvents(
+    "t1",
+  )) {
     events.push(ev);
   }
 
@@ -109,7 +111,9 @@ test("readEvents yields empty for unknown threadId", async () => {
   const cp = sqliteCheckpointer({ db });
 
   const events: unknown[] = [];
-  for await (const ev of cp.readEvents!("nonexistent")) {
+  for await (const ev of (cp as { readEvents: (tid: string) => AsyncIterable<unknown> }).readEvents(
+    "nonexistent",
+  )) {
     events.push(ev);
   }
 
@@ -121,18 +125,20 @@ test("events are returned in insertion order", async () => {
   const cp = sqliteCheckpointer({ db });
 
   for (let i = 0; i < 5; i++) {
-    await cp.appendEvent!("t1", { type: "user_input", content: `msg${i}`, ts: i });
+    await cp.appendEvent?.("t1", { type: "user_input", content: `msg${i}`, ts: i });
   }
 
   const events: unknown[] = [];
-  for await (const ev of cp.readEvents!("t1")) {
+  for await (const ev of (cp as { readEvents: (tid: string) => AsyncIterable<unknown> }).readEvents(
+    "t1",
+  )) {
     events.push(ev);
   }
 
   expect(events.length).toBe(5);
   // @ts-expect-error content is on the event payload
   expect(events[0]?.content).toBe("msg0");
-  // @ts-expect-error
+  // @ts-expect-error: content is on the event payload
   expect(events[4]?.content).toBe("msg4");
 });
 
@@ -151,8 +157,10 @@ test("db: string mode creates file and works", async () => {
 
   // Cleanup
   try {
-    require("node:fs").unlinkSync(tmpPath);
-  } catch {}
+    unlinkSync(tmpPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 // ─── WAL mode ─────────────────────────────────────────────────
@@ -167,11 +175,14 @@ test("WAL journal mode is enabled for file-based databases", () => {
 
   db.close();
   try {
-    require("node:fs").unlinkSync(tmpPath);
-  } catch {}
+    unlinkSync(tmpPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 // ─── SQLITE_CHECKPOINTER_MIGRATIONS ────────────────────────────
+import { unlinkSync } from "node:fs";
 
 test("migrations array is re-exported with id and up fields", async () => {
   const { SQLITE_CHECKPOINTER_MIGRATIONS } = await import("./index.js");

@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 // ── P1-1: Error event payload uses {message, stack?} not {error} ──
 // ChatWorkspace renders error alerts from AgentEvent error payloads.

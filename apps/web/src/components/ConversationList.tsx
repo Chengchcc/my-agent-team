@@ -1,14 +1,9 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Plus, ChevronRight, Trash2, ArrowRight } from "lucide-react";
-
-function isRecent(ts: number | null): boolean {
-  if (!ts) return false;
-  return Date.now() - ts < 5 * 60 * 1000;
-}
+import { api } from "@/lib/api";
 
 export function ConversationList({ agentId, agentName }: { agentId: string; agentName?: string }) {
   const router = useRouter();

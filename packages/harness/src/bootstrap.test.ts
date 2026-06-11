@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { consoleLogger } from "@my-agent-team/framework";
-import { bootstrap, BOOTSTRAP_TEMPLATE } from "./bootstrap.js";
+import { BOOTSTRAP_TEMPLATE, bootstrap } from "./bootstrap.js";
 
 describe("bootstrap", () => {
   const logger = consoleLogger({ level: "silent" });

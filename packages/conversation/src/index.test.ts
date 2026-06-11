@@ -1,40 +1,41 @@
 import { describe, expect, test } from "bun:test";
 import {
   AgentMember,
+  assertAgentMember,
+  assertMember,
   Conversation,
   HumanMember,
   LedgerEntry,
   Member,
-  assertAgentMember,
-  assertMember,
   projectForMember,
   resolveTriggerTargets,
 } from "./index.js";
 
 // ─── Helpers ──────────────────────────────────────────────
 
-const human: import("./index.js").HumanMember = {
+
+const human: HumanMember = {
   kind: "human",
   memberId: "h1",
   userRef: "user-1",
   displayName: "Alice",
 };
 
-const agentX: import("./index.js").AgentMember = {
+const agentX: AgentMember = {
   kind: "agent",
   memberId: "x1",
   agentId: "ag-x",
   displayName: "XAgent",
 };
 
-const agentY: import("./index.js").AgentMember = {
+const agentY: AgentMember = {
   kind: "agent",
   memberId: "y1",
   agentId: "ag-y",
   displayName: "YAgent",
 };
 
-function makeConv(members: import("./index.js").Member[] = [human, agentX, agentY]) {
+function makeConv(members: Member[] = [human, agentX, agentY]) {
   return Conversation.parse({
     conversationId: "conv-1",
     members,
@@ -269,21 +270,21 @@ describe("resolveTriggerTargets", () => {
     const conv = makeConv();
     const targets = resolveTriggerTargets(conv, ["x1"]);
     expect(targets).toHaveLength(1);
-    expect(targets[0]!.memberId).toBe("x1");
+    expect(targets[0]?.memberId).toBe("x1");
   });
 
   test("filters out human members from addressedTo", () => {
     const conv = makeConv();
     const targets = resolveTriggerTargets(conv, ["h1", "x1"]);
     expect(targets).toHaveLength(1);
-    expect(targets[0]!.memberId).toBe("x1");
+    expect(targets[0]?.memberId).toBe("x1");
   });
 
   test("filters out nonexistent memberIds", () => {
     const conv = makeConv();
     const targets = resolveTriggerTargets(conv, ["nope", "x1", "also-nope"]);
     expect(targets).toHaveLength(1);
-    expect(targets[0]!.memberId).toBe("x1");
+    expect(targets[0]?.memberId).toBe("x1");
   });
 
   test("returns empty array when no agents addressed", () => {

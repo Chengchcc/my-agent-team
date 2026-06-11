@@ -5,7 +5,8 @@
 
 @theme inline {
   --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: var(--font-mono-sf), "SF Mono", "JetBrains Mono", "Geist Mono", "Menlo", "Consolas", monospace;
+  --font-mono:
+    var(--font-mono-sf), "SF Mono", "JetBrains Mono", "Geist Mono", "Menlo", "Consolas", monospace;
 
   --color-background: var(--canvas);
   --color-foreground: var(--ink);
@@ -73,7 +74,9 @@
   body {
     background-color: var(--canvas);
     color: var(--ink);
-    font-feature-settings: "kern" 1, "liga" 1;
+    font-feature-settings:
+      "kern" 1,
+      "liga" 1;
     -webkit-font-smoothing: antialiased;
   }
 
@@ -85,47 +88,98 @@
 
 /* ── Animations ── */
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slide-up {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes reveal {
-  from { opacity: 0; transform: scale(0.97); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @keyframes block-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes cursor-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 @keyframes dot-pulse {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 @keyframes green-cursor-blink {
-  0%, 100% { opacity: 1; background-color: var(--primary); }
-  50% { opacity: 0; background-color: transparent; }
+  0%,
+  100% {
+    opacity: 1;
+    background-color: var(--primary);
+  }
+  50% {
+    opacity: 0;
+    background-color: transparent;
+  }
 }
 
 /* ── Utility layers ── */
-@utility animate-stagger-1 { animation-delay: 0.05s; }
-@utility animate-stagger-2 { animation-delay: 0.1s; }
-@utility animate-stagger-3 { animation-delay: 0.15s; }
-@utility animate-stagger-4 { animation-delay: 0.2s; }
-@utility animate-stagger-5 { animation-delay: 0.25s; }
-@utility animate-stagger-6 { animation-delay: 0.3s; }
+@utility animate-stagger-1 {
+  animation-delay: 0.05s;
+}
+@utility animate-stagger-2 {
+  animation-delay: 0.1s;
+}
+@utility animate-stagger-3 {
+  animation-delay: 0.15s;
+}
+@utility animate-stagger-4 {
+  animation-delay: 0.2s;
+}
+@utility animate-stagger-5 {
+  animation-delay: 0.25s;
+}
+@utility animate-stagger-6 {
+  animation-delay: 0.3s;
+}
 
 /* Animation classes — use these instead of inline style={{animation}} so
    prefers-reduced-motion can gate them via CSS */
@@ -144,8 +198,8 @@
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
   }
 }

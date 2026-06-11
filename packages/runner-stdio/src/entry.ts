@@ -1,9 +1,10 @@
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import { AgentSpecV1 } from "@my-agent-team/agent-spec";
+import type { EventSink } from "@my-agent-team/event-log";
 import type { AgentEvent } from "@my-agent-team/framework";
 import type { createGenericAgent } from "@my-agent-team/harness";
+import type { Database as SqliteDatabase } from "bun:sqlite";
 import { reflectionGuidance } from "@my-agent-team/harness";
-import type { EventSink } from "@my-agent-team/event-log";
 
 export interface EntryIO {
   /** Raw spec JSON string (from process.env.AGENT_SPEC by default) */
@@ -68,7 +69,7 @@ export async function runEntry(io: EntryIO): Promise<number> {
   let cpDb: unknown = checkpointerDb;
   let cpDbSelfBuilt = false;
   // M11: heartbeat DB (opened later, closed uniformly at end)
-  let hbDb: import("bun:sqlite").Database | undefined;
+  let hbDb: SqliteDatabase | undefined;
 
   // 3+4+5. Construct model + agent + run
   try {
@@ -129,7 +130,7 @@ export async function runEntry(io: EntryIO): Promise<number> {
       writeEvent({ type: "error", payload: { message: err.message, stack: err.stack } });
       writeStderr(`[runner-stdio] ${err.message}`);
       // FIX: close resources before early return
-      if (cpDbSelfBuilt && cpDb) (cpDb as import("bun:sqlite").Database).close();
+      if (cpDbSelfBuilt && cpDb) (cpDb as SqliteDatabase).close();
       if (hbDb) hbDb.close();
       return 1;
     }
@@ -183,6 +184,6 @@ export async function runEntry(io: EntryIO): Promise<number> {
       hbDb.close();
       hbDb = undefined;
     }
-    if (cpDbSelfBuilt && cpDb) (cpDb as import("bun:sqlite").Database).close();
+    if (cpDbSelfBuilt && cpDb) (cpDb as SqliteDatabase).close();
   }
 }

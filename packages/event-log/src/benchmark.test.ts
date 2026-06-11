@@ -9,8 +9,8 @@
  */
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { sqliteEventLog } from "./index";
 import * as fs from "node:fs";
+import { sqliteEventLog } from "./index.js";
 
 const tmpFiles: string[] = [];
 
@@ -24,29 +24,27 @@ afterAll(() => {
   for (const p of tmpFiles) {
     try {
       fs.unlinkSync(p);
-    } catch {}
+    } catch {
+      /* cleanup */
+    }
     try {
-      fs.unlinkSync(p + "-wal");
-    } catch {}
+      fs.unlinkSync(`${p}-wal`);
+    } catch {
+      /* cleanup */
+    }
     try {
-      fs.unlinkSync(p + "-shm");
-    } catch {}
+      fs.unlinkSync(`${p}-shm`);
+    } catch {
+      /* cleanup */
+    }
   }
 });
 
 function makeEvent(text: string) {
-  return { type: "message" as const, message: { role: "assistant" as const, content: text } };
+  return { type: "message" as const, payload: { role: "assistant" as const, content: text } };
 }
 
 // ── Benchmark helpers ──────────────────────────────────────────────
-
-interface BenchResult {
-  totalAppends: number;
-  busyErrors: number;
-  otherErrors: number;
-  durationsMs: number[];
-  finalEventCount: number;
-}
 
 async function runWriter(
   dbPath: string,
@@ -65,7 +63,7 @@ async function runWriter(
     try {
       await log.append(threadId, runId, makeEvent(`msg-${runId}-${i}`));
       appended++;
-    } catch (err) {
+    } catch {
       errors++;
     }
     durations.push(performance.now() - start);

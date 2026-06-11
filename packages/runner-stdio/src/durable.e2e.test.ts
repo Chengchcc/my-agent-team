@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { afterAll, expect, test } from "bun:test";
-import type { Agent, AgentEvent } from "@my-agent-team/framework";
-import { runEntry } from "./entry";
 import * as fs from "node:fs";
+import type { Agent, AgentEvent } from "@my-agent-team/framework";
+import { runEntry } from "./entry.js";
 
 const tmpFiles: string[] = [];
 
@@ -16,13 +16,19 @@ afterAll(() => {
   for (const p of tmpFiles) {
     try {
       fs.unlinkSync(p);
-    } catch {}
+    } catch {
+      /* cleanup */
+    }
     try {
-      fs.unlinkSync(p + "-wal");
-    } catch {}
+      fs.unlinkSync(`${p}-wal`);
+    } catch {
+      /* cleanup */
+    }
     try {
-      fs.unlinkSync(p + "-shm");
-    } catch {}
+      fs.unlinkSync(`${p}-shm`);
+    } catch {
+      /* cleanup */
+    }
   }
 });
 
@@ -94,11 +100,11 @@ test("FIX-2: production path — self-built EventSink writes to event_log", asyn
   }[];
 
   expect(rows.length).toBe(3);
-  expect(rows[0]!.seq).toBe(1);
-  expect(rows[1]!.seq).toBe(2);
-  expect(rows[2]!.seq).toBe(3);
-  expect(rows[0]!.run_id).toBe("run-e2e-1");
-  expect(rows[0]!.thread_id).toBe("t1");
+  expect(rows[0]?.seq).toBe(1);
+  expect(rows[1]?.seq).toBe(2);
+  expect(rows[2]?.seq).toBe(3);
+  expect(rows[0]?.run_id).toBe("run-e2e-1");
+  expect(rows[0]?.thread_id).toBe("t1");
 
   // Verify events are valid JSON AgentEvent
   for (const row of rows) {
@@ -155,9 +161,9 @@ test("FIX-2: cold read — EventLog.subscribe replays all events + completes", a
 
   expect(collected.length).toBe(2);
   // @ts-expect-error seq property
-  expect(collected[0]!.seq).toBe(1);
+  expect(collected[0]?.seq).toBe(1);
   // @ts-expect-error seq property
-  expect(collected[1]!.seq).toBe(2);
+  expect(collected[1]?.seq).toBe(2);
 });
 
 // ── seq monotonicity across multiple appends ──
@@ -196,7 +202,7 @@ test("FIX-2: seq is monotonically increasing", async () => {
 
   expect(rows.length).toBe(10);
   for (let i = 0; i < rows.length; i++) {
-    expect(rows[i]!.seq).toBe(i + 1);
+    expect(rows[i]?.seq).toBe(i + 1);
   }
 });
 

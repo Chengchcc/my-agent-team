@@ -1,5 +1,5 @@
-import { describe, test, expect } from "bun:test";
-import { stripHopByHop, passthroughHeaders } from "../../src/lib/bff";
+import { describe, expect, test } from "bun:test";
+import { passthroughHeaders, stripHopByHop } from "../../src/lib/bff";
 
 describe("stripHopByHop", () => {
   test("removes hop-by-hop headers", () => {

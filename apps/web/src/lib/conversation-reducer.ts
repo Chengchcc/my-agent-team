@@ -77,7 +77,12 @@ function norm(c: unknown): string | ContentBlock[] {
   if (typeof c === "string") return c;
   if (Array.isArray(c)) return c as ContentBlock[];
   // Defense-in-depth: unwrap { text: "..." } from legacy agent message payloads
-  if (typeof c === "object" && c !== null && "text" in c && typeof (c as { text: unknown }).text === "string") {
+  if (
+    typeof c === "object" &&
+    c !== null &&
+    "text" in c &&
+    typeof (c as { text: unknown }).text === "string"
+  ) {
     return (c as { text: string }).text;
   }
   return String(c);
@@ -115,7 +120,13 @@ function upsertAuthoritative(
 
 export type TurnSegment =
   | { kind: "single"; message: UiMessage }
-  | { kind: "turn"; id: string; sender: SenderRef; rounds: UiMessage[]; conclusion: UiMessage | null };
+  | {
+      kind: "turn";
+      id: string;
+      sender: SenderRef;
+      rounds: UiMessage[];
+      conclusion: UiMessage | null;
+    };
 
 /** A message is a "conclusion" if it has text content AND no tool_use blocks.
  *  Tool_result-only messages (has tool_result but no text) are NOT conclusions. */
@@ -124,7 +135,10 @@ export function isConclusionMessage(m: UiMessage): boolean {
   const blocks = m.content;
   const hasToolUse = blocks.some((b) => b.type === "tool_use");
   const hasText = blocks.some(
-    (b) => b.type === "text" && typeof (b as { text?: string }).text === "string" && (b as { text: string }).text.trim().length > 0,
+    (b) =>
+      b.type === "text" &&
+      typeof (b as { text?: string }).text === "string" &&
+      (b as { text: string }).text.trim().length > 0,
   );
   return !hasToolUse && hasText;
 }
@@ -144,8 +158,8 @@ export function groupTurns(messages: UiMessage[]): TurnSegment[] {
     const start = i;
     while (
       i < messages.length &&
-      messages[i]!.sender.kind === "agent" &&
-      messages[i]!.sender.memberId === m.sender.memberId
+      messages[i]?.sender.kind === "agent" &&
+      messages[i]?.sender.memberId === m.sender.memberId
     )
       i++;
     const block = messages.slice(start, i);
@@ -159,6 +173,7 @@ export function groupTurns(messages: UiMessage[]): TurnSegment[] {
     }
     const conclusion = lastConclusionIdx >= 0 ? block[lastConclusionIdx]! : null;
     const rounds = block.filter((_, k) => k !== lastConclusionIdx);
+    // biome-ignore lint/style/noNonNullAssertion: block is non-empty by construction
     out.push({ kind: "turn", id: block[0]!.id, sender: m.sender, rounds, conclusion });
   }
   return out;
@@ -172,7 +187,12 @@ export function reducer(s: ConvState, a: Action): ConvState {
       };
       for (const m of a.members) roster[m.memberId] = m;
       const agentCount = Object.values(roster).filter((m) => m.kind === "agent").length;
-      return { ...s, viewerMemberId: a.viewerMemberId, roster, triggerMode: agentCount > 1 ? "mention" : "auto" };
+      return {
+        ...s,
+        viewerMemberId: a.viewerMemberId,
+        roster,
+        triggerMode: agentCount > 1 ? "mention" : "auto",
+      };
     }
 
     case "ledger/member": {

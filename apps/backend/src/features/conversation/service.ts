@@ -40,14 +40,7 @@ export interface ConversationServiceDeps {
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
-  const {
-    port,
-    checkpointRead,
-    checkpointWrite,
-    activeConversations,
-    maxConsecutiveAgentHops,
-    forkRun,
-  } = deps;
+  const { port, checkpointWrite, activeConversations, maxConsecutiveAgentHops, forkRun } = deps;
   // Track pending run count per conversation — lock released only when
   // all triggered runs complete, not just the first one.
   const pendingRuns = new Map<string, number>();
@@ -210,11 +203,15 @@ export function createConversationService(deps: ConversationServiceDeps) {
               });
               triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
             } catch (err) {
-              console.error(`[conversation] forkRun failed for ${target.memberId}:`,
-                err instanceof Error ? err.message : String(err));
+              console.error(
+                `[conversation] forkRun failed for ${target.memberId}:`,
+                err instanceof Error ? err.message : String(err),
+              );
               // Decrement counter for failed fork
-              pendingRuns.set(input.conversationId,
-                (pendingRuns.get(input.conversationId) ?? 1) - 1);
+              pendingRuns.set(
+                input.conversationId,
+                (pendingRuns.get(input.conversationId) ?? 1) - 1,
+              );
             }
           }
         } finally {
@@ -402,10 +399,11 @@ export function createConversationService(deps: ConversationServiceDeps) {
             });
             triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
           } catch (err) {
-            console.error(`[conversation] triggerMentionedAgents forkRun failed for ${target.memberId}:`,
-              err instanceof Error ? err.message : String(err));
-            pendingRuns.set(input.conversationId,
-              (pendingRuns.get(input.conversationId) ?? 1) - 1);
+            console.error(
+              `[conversation] triggerMentionedAgents forkRun failed for ${target.memberId}:`,
+              err instanceof Error ? err.message : String(err),
+            );
+            pendingRuns.set(input.conversationId, (pendingRuns.get(input.conversationId) ?? 1) - 1);
           }
         }
       } finally {
@@ -420,3 +418,4 @@ export function createConversationService(deps: ConversationServiceDeps) {
     },
   };
 }
+export type ConversationService = ReturnType<typeof createConversationService>;

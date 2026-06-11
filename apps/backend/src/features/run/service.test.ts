@@ -1,7 +1,12 @@
-import { describe, expect, mock, test } from "bun:test";
-import type { EventLog, EventSource } from "@my-agent-team/event-log";
-import type { RunSupervisor } from "./supervisor";
-import { createRunService, RunNotFoundError, ThreadBusyError, TooManyRunsError } from "./service";
+import { describe, expect, test } from "bun:test";
+import type { EventLog } from "@my-agent-team/event-log";
+import {
+  createRunService,
+  RunNotFoundError,
+  ThreadBusyError,
+  TooManyRunsError,
+} from "./service.js";
+import type { RunSupervisor } from "./supervisor.js";
 
 function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
   return {
@@ -126,6 +131,6 @@ describe("RunService", () => {
       collected.push(rec);
     }
     expect(collected.length).toBe(1);
-    expect(collected[0]!.seq).toBe(1);
+    expect(collected[0]?.seq).toBe(1);
   });
 });

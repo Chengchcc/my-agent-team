@@ -1,12 +1,12 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import { useParams } from "next/navigation";
 import { useState } from "react";
+import { AgentForm } from "@/components/AgentForm";
 import { ConversationList } from "@/components/ConversationList";
 import { IdentityPanel } from "@/components/IdentityPanel";
-import { AgentForm } from "@/components/AgentForm";
+import { api } from "@/lib/api";
 
 type Tab = "threads" | "identity";
 

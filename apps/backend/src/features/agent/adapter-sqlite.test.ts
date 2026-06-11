@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { unlinkSync } from "node:fs";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteAgentAdapter } from "./adapter-sqlite.js";
 
@@ -9,8 +10,10 @@ const adapter = sqliteAgentAdapter(db);
 afterAll(() => {
   db.close();
   try {
-    require("node:fs").unlinkSync(tmpPath);
-  } catch {}
+    unlinkSync(tmpPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 describe("sqliteAgentAdapter", () => {

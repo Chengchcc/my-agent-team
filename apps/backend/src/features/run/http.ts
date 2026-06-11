@@ -1,12 +1,13 @@
 import { z } from "zod";
+import { json, parseJsonBody, sseResponse } from "../../http/response.js";
 import { RunNotFoundError, ThreadBusyError, TooManyRunsError } from "./service.js";
-import { json, sseResponse, parseJsonBody } from "../../http/response.js";
+import type { RunService } from "./service.js";
 
 const runSchema = z.object({ input: z.string().min(1) });
 const resumeSchema = z.object({ approved: z.boolean(), message: z.string().optional() });
 
 export function runRoutes(
-  svc: ReturnType<typeof import("./service.js").createRunService>,
+  svc: RunService,
   buildSpecJson: (
     threadId: string,
     input: string,
@@ -77,7 +78,8 @@ export function runRoutes(
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
 
-      const threadId = await getThreadIdForRun!(runId);
+      const threadId = await getThreadIdForRun?.(runId);
+      if (!threadId) return json({ error: "Run not found" }, 404);
       try {
         const specJson = await buildSpecJson(threadId, "", {
           runId,

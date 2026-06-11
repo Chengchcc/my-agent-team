@@ -8,3 +8,5 @@ export function createCheckpointService(opts: { port: CheckpointReadPort }) {
     },
   };
 }
+
+export type CheckpointService = ReturnType<typeof createCheckpointService>;

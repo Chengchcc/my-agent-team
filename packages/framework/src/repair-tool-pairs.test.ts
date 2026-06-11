@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { repairToolPairs } from "./repair-tool-pairs.js";
 
 describe("repairToolPairs", () => {
@@ -55,7 +55,7 @@ describe("repairToolPairs", () => {
     ];
     const result = repairToolPairs(msgs);
     expect(result.length).toBe(1);
-    expect(result[0]!.content).toBe("valid");
+    expect(result[0]?.content).toBe("valid");
   });
 
   test("preserves system messages even if content is empty", () => {
@@ -83,11 +83,11 @@ describe("repairToolPairs", () => {
     ];
     const result = repairToolPairs(msgs);
     expect(result.length).toBe(2);
-    const assistantBlocks = result[0]!.content;
+    const assistantBlocks = result[0]?.content;
     expect(Array.isArray(assistantBlocks)).toBe(true);
     const blocks = assistantBlocks as Array<{ id: string }>;
     expect(blocks.length).toBe(1);
-    expect(blocks[0]!.id).toBe("good");
+    expect(blocks[0]?.id).toBe("good");
   });
 
   test("string content messages pass through unchanged", () => {

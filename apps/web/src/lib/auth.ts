@@ -1,4 +1,4 @@
-import { createSession, readSession, sessionCookieHeader, clearCookieHeader } from "./session";
+import { clearCookieHeader, createSession, readSession, sessionCookieHeader } from "./session";
 
 const MOCK_USER_ID = process.env.MOCK_USER_ID ?? "user-001";
 const MOCK_PASSWORD = process.env.MOCK_PASSWORD ?? "admin";

@@ -1,5 +1,5 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import { Database } from "bun:sqlite";
+import { type ChildProcess, spawn } from "node:child_process";
 import type { EventLog, EventSource } from "@my-agent-team/event-log";
 import type { BackendConfig } from "../../config.js";
 
@@ -207,12 +207,12 @@ export class RunSupervisor {
     return new ReadableStream({
       start: (controller) => {
         ctrl = controller;
-        controllers!.add(controller);
+        controllers?.add(controller);
       },
       cancel: () => {
         if (ctrl) {
-          controllers!.delete(ctrl);
-          if (controllers!.size === 0) this.#deltaSubs.delete(runId);
+          controllers?.delete(ctrl);
+          if (controllers?.size === 0) this.#deltaSubs.delete(runId);
         }
       },
     });
@@ -231,11 +231,6 @@ export class RunSupervisor {
       }
     }
     if (controllers.size === 0) this.#deltaSubs.delete(runId);
-  }
-
-  /** M13: text_delta convenience wrapper. */
-  #pushDelta(runId: string, delta: { blockIndex: number; text: string }): void {
-    this.#pushEphemeral(runId, "text_delta", delta);
   }
 
   /** M13: Close all delta subscribers for a run and clean up. */
@@ -304,7 +299,7 @@ export class RunSupervisor {
     // Events are durably persisted via EventSink.append in the subprocess;
     // stdout is an acceleration channel — losing it never loses events (iron law 4).
     let buf = "";
-    child.stdout!.on("data", (data: Buffer) => {
+    child.stdout?.on("data", (data: Buffer) => {
       buf += data.toString();
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
@@ -331,7 +326,7 @@ export class RunSupervisor {
       }
     });
 
-    child.stderr!.on("data", (data: Buffer) => {
+    child.stderr?.on("data", (data: Buffer) => {
       process.stderr.write(`[supervisor:${runId}] ${data}`);
     });
 

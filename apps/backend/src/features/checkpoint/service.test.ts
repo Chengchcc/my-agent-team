@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { unlinkSync } from "node:fs";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteCheckpointReadAdapter } from "./adapter-sqlite.js";
 import { createCheckpointService } from "./service.js";
@@ -11,8 +12,10 @@ const svc = createCheckpointService({ port: adapter });
 afterAll(() => {
   db.close();
   try {
-    require("node:fs").unlinkSync(dbPath);
-  } catch {}
+    unlinkSync(dbPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 describe("CheckpointService with SQLite", () => {

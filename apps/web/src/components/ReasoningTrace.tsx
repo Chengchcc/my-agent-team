@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collapsible";
-import { ToolStep } from "./ToolStep";
-import { MessageBubble } from "./MessageBubble";
+import type { ContentBlock } from "@/lib/api";
+import type { TurnSegment } from "@/lib/conversation-reducer";
 import { collectToolResults } from "@/lib/render-blocks";
 import { extractText } from "@/lib/timeline";
-import type { TurnSegment } from "@/lib/conversation-reducer";
-import type { ContentBlock } from "@/lib/api";
+import { MessageBubble } from "./MessageBubble";
+import { ToolStep } from "./ToolStep";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 
 export function ReasoningTrace({
   segment,
@@ -27,10 +27,7 @@ export function ReasoningTrace({
 
   const stepCount = rounds.reduce(
     (n, m) =>
-      n +
-      (Array.isArray(m.content)
-        ? m.content.filter((b) => b.type === "tool_use").length
-        : 0),
+      n + (Array.isArray(m.content) ? m.content.filter((b) => b.type === "tool_use").length : 0),
     0,
   );
   const toolNames = [
@@ -56,8 +53,7 @@ export function ReasoningTrace({
           >
             <span className="text-[var(--primary)]">{open ? "▼" : "▶"}</span>
             <span>
-              推理轨迹 · {stepCount} 步
-              {toolNames.length ? ` · ${toolNames.join(", ")}` : ""}
+              推理轨迹 · {stepCount} 步{toolNames.length ? ` · ${toolNames.join(", ")}` : ""}
             </span>
           </CollapsibleTrigger>
           <CollapsibleContent>
@@ -67,9 +63,7 @@ export function ReasoningTrace({
                 const text = extractText(m.content);
                 return (
                   <div key={m.id} className="flex flex-col gap-1">
-                    {text && (
-                      <div className="text-[13px] text-[var(--body)]">{text}</div>
-                    )}
+                    {text && <div className="text-[13px] text-[var(--body)]">{text}</div>}
                     {(m.content as ContentBlock[]).map((b) =>
                       b.type === "tool_use" && b.id ? (
                         <ToolStep

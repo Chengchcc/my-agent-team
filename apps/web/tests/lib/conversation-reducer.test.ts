@@ -1,9 +1,9 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
-  reducer,
-  initialState,
   type Action,
   type ConvState,
+  initialState,
+  reducer,
   type SenderRef,
 } from "../../src/lib/conversation-reducer";
 
@@ -36,12 +36,12 @@ describe("conversation-reducer", () => {
   test("bootstrap sets viewerMemberId and roster (with __system__)", () => {
     const s = run(bootstrap());
     expect(s.viewerMemberId).toBe(viewer);
-    expect(s.roster["__system__"]).toEqual({
+    expect(s.roster.__system__).toEqual({
       memberId: "__system__",
       kind: "system",
     });
-    expect(s.roster[a1]!.displayName).toBe("AgentX");
-    expect(s.roster[viewer]!.kind).toBe("human");
+    expect(s.roster[a1]?.displayName).toBe("AgentX");
+    expect(s.roster[viewer]?.kind).toBe("human");
   });
 
   test("bootstrap picks first human as viewerMemberId", () => {
@@ -70,7 +70,7 @@ describe("conversation-reducer", () => {
     );
     const selfMsgs = s.messages.filter((m) => m.sender.memberId === viewer);
     expect(selfMsgs).toHaveLength(1);
-    expect(selfMsgs[0]!.id).toBe("s-2");
+    expect(selfMsgs[0]?.id).toBe("s-2");
   });
 
   // ─── Other (agent) message does not overwrite optimistic ───
@@ -87,7 +87,7 @@ describe("conversation-reducer", () => {
     );
     expect(s.messages.filter((m) => m.sender.memberId === viewer)).toHaveLength(1);
     expect(s.messages.filter((m) => m.sender.memberId === a1)).toHaveLength(1);
-    expect(s.messages[1]!.sender.kind).toBe("agent");
+    expect(s.messages[1]?.sender.kind).toBe("agent");
   });
 
   // ─── Draft cleared by authoritative ─────────────────────
@@ -122,7 +122,7 @@ describe("conversation-reducer", () => {
     );
     expect(s.draft).toBeNull();
     expect(s.messages.filter((m) => m.sender.memberId === a1)).toHaveLength(1);
-    expect(s.messages.at(-1)!.content).toBe("Hello world, complete");
+    expect(s.messages.at(-1)?.content).toBe("Hello world, complete");
   });
 
   test("self authoritative message clears draft", () => {
@@ -168,7 +168,7 @@ describe("conversation-reducer", () => {
       },
     );
     expect(init.draft).not.toBeNull();
-    expect(init.draft!.agentMemberId).toBe(a1);
+    expect(init.draft?.agentMemberId).toBe(a1);
 
     const s = reducer(init, {
       type: "ledger/message",
@@ -178,8 +178,8 @@ describe("conversation-reducer", () => {
     });
     // A1's draft should survive because the authoritative was from A2
     expect(s.draft).not.toBeNull();
-    expect(s.draft!.agentMemberId).toBe(a1);
-    expect(s.draft!.text).toBe("AgentX thinking...");
+    expect(s.draft?.agentMemberId).toBe(a1);
+    expect(s.draft?.text).toBe("AgentX thinking...");
     // Both messages present
     expect(s.messages.filter((m) => m.sender.memberId === a2)).toHaveLength(1);
   });
@@ -225,12 +225,12 @@ describe("conversation-reducer", () => {
         ],
       },
     });
-    expect(s.roster[a2]!.displayName).toBe("AgentY");
+    expect(s.roster[a2]?.displayName).toBe("AgentY");
     expect(s.messages.filter((m) => m.sender.kind === "system")).toHaveLength(1);
     const sysMsg = s.messages.find((m) => m.sender.kind === "system");
-    expect(typeof sysMsg!.content).toBe("string");
-    expect(sysMsg!.content as string).toContain("加入");
-    expect(sysMsg!.content as string).toContain("AgentY");
+    expect(typeof sysMsg?.content).toBe("string");
+    expect(sysMsg?.content as string).toContain("加入");
+    expect(sysMsg?.content as string).toContain("AgentY");
   });
 
   test("member.left updates roster and drops system notice", () => {
@@ -246,11 +246,11 @@ describe("conversation-reducer", () => {
       },
     });
     const sysMsg = s.messages.find((m) => m.sender.kind === "system");
-    expect(typeof sysMsg!.content).toBe("string");
-    expect(sysMsg!.content as string).toContain("离开");
+    expect(typeof sysMsg?.content).toBe("string");
+    expect(sysMsg?.content as string).toContain("离开");
     // A2 is no longer in roster payload, but we keep last-known roster
     // (ledger/member does full replace of payload members)
-    expect(s.roster[a1]!.displayName).toBe("AgentX");
+    expect(s.roster[a1]?.displayName).toBe("AgentX");
   });
 
   // ─── run/done + run/completed idempotent ────────────────
@@ -317,8 +317,8 @@ describe("conversation-reducer", () => {
     });
     const msg = s.messages.find((m) => m.id === "s-7");
     expect(msg).not.toBeNull();
-    expect(msg!.sender.memberId).toBe("ghost-unknown");
-    expect(msg!.sender.kind).toBe("agent");
+    expect(msg?.sender.memberId).toBe("ghost-unknown");
+    expect(msg?.sender.kind).toBe("agent");
   });
 
   // ─── Tool tracking ─────────────────────────────────────
@@ -341,8 +341,8 @@ describe("conversation-reducer", () => {
       { type: "stream/toolStart", id: "t2", name: "read" },
       { type: "stream/toolEnd", id: "t1" },
     );
-    expect(s.draft!.tools).toHaveLength(1);
-    expect(s.draft!.tools[0]!.name).toBe("read");
+    expect(s.draft?.tools).toHaveLength(1);
+    expect(s.draft?.tools[0]?.name).toBe("read");
   });
 
   test("toolStart before first text_delta creates a minimal draft", () => {
@@ -355,11 +355,11 @@ describe("conversation-reducer", () => {
       { type: "stream/toolStart", id: "t1", name: "bash" },
     );
     expect(s.draft).not.toBeNull();
-    expect(s.draft!.agentMemberId).toBe(a1);
-    expect(s.draft!.runId).toBe("r1");
-    expect(s.draft!.text).toBe("");
-    expect(s.draft!.tools).toHaveLength(1);
-    expect(s.draft!.tools[0]!.name).toBe("bash");
+    expect(s.draft?.agentMemberId).toBe(a1);
+    expect(s.draft?.runId).toBe("r1");
+    expect(s.draft?.text).toBe("");
+    expect(s.draft?.tools).toHaveLength(1);
+    expect(s.draft?.tools[0]?.name).toBe("bash");
   });
 
   // ─── run/error clears draft ─────────────────────────────
@@ -409,17 +409,15 @@ describe("conversation-reducer", () => {
   // ─── { text } unwrap (ledger D19 backfill compat) ──────
 
   test("agent message with { text } content is unwrapped to string", () => {
-    const s = runWithBootstrap(
-      {
-        type: "ledger/message",
-        seq: 3,
-        senderMemberId: a1,
-        content: { text: "hello from agent" },
-      },
-    );
+    const s = runWithBootstrap({
+      type: "ledger/message",
+      seq: 3,
+      senderMemberId: a1,
+      content: { text: "hello from agent" },
+    });
     const msg = s.messages.find((m) => m.sender.memberId === a1);
     expect(msg).not.toBeNull();
-    expect(typeof msg!.content).toBe("string");
-    expect(msg!.content).toBe("hello from agent");
+    expect(typeof msg?.content).toBe("string");
+    expect(msg?.content).toBe("hello from agent");
   });
 });

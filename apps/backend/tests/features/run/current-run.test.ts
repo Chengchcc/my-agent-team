@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { describe, expect, test } from "bun:test";
 
 function setupEventsDb() {
   const db = new Database(":memory:");
@@ -42,8 +42,8 @@ describe("getCurrentRun query", () => {
       .get("thread-1") as { run_id: string; status: string } | undefined;
 
     expect(row).not.toBeNull();
-    expect(row!.run_id).toBe("run-1");
-    expect(row!.status).toBe("running");
+    expect(row?.run_id).toBe("run-1");
+    expect(row?.status).toBe("running");
   });
 
   test("returns null when no active run exists", () => {
@@ -98,6 +98,6 @@ describe("getCurrentRun query", () => {
       .get("thread-3") as { run_id: string; status: string } | undefined;
 
     expect(row).not.toBeNull();
-    expect(row!.run_id).toBe("run-active");
+    expect(row?.run_id).toBe("run-active");
   });
 });

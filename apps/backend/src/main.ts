@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import type { Message } from "@my-agent-team/core";
 import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import { loadConfig } from "./config.js";
@@ -70,15 +71,19 @@ const agentSvc = createAgentService({
   },
 
   listThreadIds: async (agentId) =>
-    (db.query(
-      "SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?",
-    ).all(agentId) as { id: string }[]).map((r) => r.id),
+    (
+      db
+        .query("SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?")
+        .all(agentId) as { id: string }[]
+    ).map((r) => r.id),
 
   assertNoActiveRun: (agentId) => {
     const edb = supervisor.getDb();
-    const threadIds = (db.query(
-      "SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?",
-    ).all(agentId) as { id: string }[]).map((r) => r.id);
+    const threadIds = (
+      db
+        .query("SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?")
+        .all(agentId) as { id: string }[]
+    ).map((r) => r.id);
     if (threadIds.length === 0) return;
     const placeholders = threadIds.map(() => "?").join(",");
     const busy = edb
@@ -110,7 +115,7 @@ const runSvc = createRunService({
       return conv ? { title: null } : null;
     },
     getMessages: async (tid) =>
-      (await checkpointPort.getMessages(tid)) as import("@my-agent-team/core").Message[] | null,
+      (await checkpointPort.getMessages(tid)) as Message[] | null,
     setTitle: async (tid, title) => {
       const cid = tid.includes(":") ? tid.split(":")[0]! : tid;
       convPort.setConversationTitle(cid, title);
@@ -164,10 +169,9 @@ async function buildSpecJson(
   return JSON.stringify(spec);
 }
 
-
 // M14.4: @mention parsing helpers for agent-to-agent triggering
 function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[]\\/]/g, "\\&");
+  return s.replace(/[.*+?^${}()|[\]\\/]/g, "\\&");
 }
 
 function extractText(content: unknown): string | null {

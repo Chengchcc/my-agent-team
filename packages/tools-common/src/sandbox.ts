@@ -54,7 +54,7 @@ export function withWorkspace(tool: Tool, workspace: string): Tool {
 
   // Does this tool declare a `cwd` input? (e.g. bashTool)
   const props = (tool.inputSchema as { properties?: Record<string, unknown> })?.properties;
-  const acceptsCwd = !!props && Object.prototype.hasOwnProperty.call(props, "cwd");
+  const acceptsCwd = !!props && Object.hasOwn(props, "cwd");
 
   return {
     ...tool,
@@ -65,9 +65,9 @@ export function withWorkspace(tool: Tool, workspace: string): Tool {
       // one. Do this BEFORE path validation so the caller's explicit cwd is
       // validated, but our injected default (the workspace itself) is not
       // re-validated against itself.
-      const hasExplicitCwd = typeof obj["cwd"] === "string" && (obj["cwd"] as string).length > 0;
+      const hasExplicitCwd = typeof obj.cwd === "string" && (obj.cwd as string).length > 0;
       if (acceptsCwd && !hasExplicitCwd) {
-        obj["cwd"] = workspace;
+        obj.cwd = workspace;
       }
       for (const key of PATH_KEYS) {
         const val = obj[key];

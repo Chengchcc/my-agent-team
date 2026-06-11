@@ -1,8 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useShell } from "./ShellProvider";
 
@@ -159,8 +159,18 @@ export function NavRail() {
                   const humanId = `human-${crypto.randomUUID().slice(0, 8)}`;
                   const conv = await api.createConversation({
                     members: [
-                      { memberId: selectedAgentId, kind: "agent", agentId: selectedAgentId, displayName: agent?.name },
-                      { memberId: humanId, kind: "human", userRef: "__legacy__", displayName: "User" },
+                      {
+                        memberId: selectedAgentId,
+                        kind: "agent",
+                        agentId: selectedAgentId,
+                        displayName: agent?.name,
+                      },
+                      {
+                        memberId: humanId,
+                        kind: "human",
+                        userRef: "__legacy__",
+                        displayName: "User",
+                      },
                     ],
                   });
                   router.push(`/conversations/${conv.conversationId}`);
@@ -168,7 +178,14 @@ export function NavRail() {
                 className="text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors"
                 aria-label="New conversation"
               >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
                   <path d="M8 3v10M3 8h10" />
                 </svg>
               </button>

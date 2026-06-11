@@ -1,5 +1,5 @@
+import type { Database as SqliteDatabase, SQLQueryBindings } from "bun:sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
-import type { Database as SqliteDatabase } from "bun:sqlite";
 
 // -- Types --
 
@@ -129,7 +129,7 @@ export function sqliteEventLog(opts: { db: SqliteDatabase | string }): EventLog 
           .query(
             `SELECT seq, thread_id, run_id, event, ts FROM event_log ${clause} ORDER BY seq ASC ${limit}`,
           )
-          .all(...(params as import("bun:sqlite").SQLQueryBindings[])) as {
+          .all(...(params as SQLQueryBindings[])) as {
           seq: number;
           thread_id: string;
           run_id: string;
@@ -217,7 +217,7 @@ export function inMemoryEventLog(): EventLog {
 
       // Phase 2: listen for new events with polling fallback
       let woken = false;
-      const listener = (rec: EventRecord) => {
+      const listener = (_rec: EventRecord) => {
         woken = true;
       };
       listeners.push(listener);

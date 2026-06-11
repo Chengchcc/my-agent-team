@@ -1,8 +1,8 @@
 "use client";
-import { MessageShell } from "./MessageBubble";
-import { Markdown } from "./Markdown";
-import { StreamingCursor } from "./StreamingCursor";
 import type { Draft } from "@/lib/conversation-reducer";
+import { Markdown } from "./Markdown";
+import { MessageShell } from "./MessageBubble";
+import { StreamingCursor } from "./StreamingCursor";
 
 export function DraftMessage({ draft }: { draft: Draft }) {
   return (
@@ -16,8 +16,7 @@ export function DraftMessage({ draft }: { draft: Draft }) {
         <div className="mb-2 flex items-center gap-2 text-[11px] font-[family-name:var(--font-mono)] text-[var(--mute)] border border-[var(--hairline)] rounded-md px-3 py-1.5">
           <span className="text-[var(--primary)]">▼</span>
           <span>
-            推理轨迹（进行中）· Running{" "}
-            {draft.tools.map((t) => t.name).join(", ")}&hellip;
+            推理轨迹（进行中）· Running {draft.tools.map((t) => t.name).join(", ")}&hellip;
           </span>
         </div>
       )}

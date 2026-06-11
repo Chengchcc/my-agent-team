@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 
 // Inline copies of pure functions from title.ts (avoids workspace import issue in bun test)
 function buildTitleContext(msgs: Array<{ role: string; content: unknown }>, maxTurns = 4): string {

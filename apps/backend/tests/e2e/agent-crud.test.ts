@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { unlinkSync } from "node:fs";
 import { sqliteAgentAdapter } from "../../src/features/agent/adapter-sqlite.js";
 import { agentRoutes } from "../../src/features/agent/http.js";
 import { createAgentService } from "../../src/features/agent/service.js";
@@ -29,8 +30,10 @@ const routes = agentRoutes(svc);
 afterAll(() => {
   db.close();
   try {
-    require("node:fs").unlinkSync(dbPath);
-  } catch {}
+    unlinkSync(dbPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 describe("E2E Agent CRUD", () => {

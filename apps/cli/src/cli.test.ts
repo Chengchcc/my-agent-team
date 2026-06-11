@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { hasFlag, parseFlag, resolveRmAgentId, hasHardFlag } from "./args.js";
+import { hasFlag, hasHardFlag, parseFlag, resolveRmAgentId } from "./args.js";
 
 describe("CLI argument parsing", () => {
   test("--workspace flag is detected", () => {

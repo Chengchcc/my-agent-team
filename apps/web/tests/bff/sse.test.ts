@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 interface ParsedSSEField {
   event?: string;
@@ -86,8 +86,8 @@ describe("SSE parse", () => {
     }
 
     expect(results).toHaveLength(2);
-    expect(results[0]!.id).toBe("1");
-    expect(results[1]!.id).toBe("2");
+    expect(results[0]?.id).toBe("1");
+    expect(results[1]?.id).toBe("2");
   });
 
   test("parses done and error event types", () => {

@@ -1,12 +1,12 @@
 "use client";
 
-import { useMemo, useEffect, useRef, useState, useCallback } from "react";
-import { extractText } from "@/lib/timeline";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { UiMessage } from "@/lib/conversation-reducer";
+import { groupTurns, type TurnSegment } from "@/lib/conversation-reducer";
 import { renderContentBlocks } from "@/lib/render-blocks";
+import { extractText } from "@/lib/timeline";
 import { MessageBubble } from "./MessageBubble";
 import { ReasoningTrace } from "./ReasoningTrace";
-import { groupTurns, type TurnSegment } from "@/lib/conversation-reducer";
-import type { UiMessage } from "@/lib/conversation-reducer";
 
 interface TimelineProps {
   messages: UiMessage[];
@@ -36,8 +36,7 @@ function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {
   for (let i = 1; i < segments.length; i++) {
     const prev = segments[i - 1]!;
     const cur = segments[i]!;
-    const prevSender =
-      prev.kind === "turn" ? prev.sender : prev.message.sender;
+    const prevSender = prev.kind === "turn" ? prev.sender : prev.message.sender;
     const curSender = cur.kind === "turn" ? cur.sender : cur.message.sender;
     if (
       prevSender.memberId !== curSender.memberId &&
@@ -113,24 +112,17 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
     }> = [];
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]!;
-      const segId = seg.kind === "turn" ? seg.id : seg.message.id;
       if (i > 0) {
         const prev = segments[i - 1]!;
-        const prevSender =
-          prev.kind === "turn" ? prev.sender : prev.message.sender;
-        const curSender =
-          seg.kind === "turn" ? seg.sender : seg.message.sender;
+        const prevSender = prev.kind === "turn" ? prev.sender : prev.message.sender;
+        const curSender = seg.kind === "turn" ? seg.sender : seg.message.sender;
         if (
           prevSender.memberId !== curSender.memberId &&
           curSender.kind !== "system" &&
           prevSender.kind !== "system"
         ) {
-          const anchorId = `turn-${
-            prev.kind === "turn" ? prev.id : prev.message.id
-          }`;
-          const turnNum = turnNumBySegId.get(
-            prev.kind === "turn" ? prev.id : prev.message.id,
-          );
+          const anchorId = `turn-${prev.kind === "turn" ? prev.id : prev.message.id}`;
+          const turnNum = turnNumBySegId.get(prev.kind === "turn" ? prev.id : prev.message.id);
           items.push({ seg, anchorId, turnNum });
           continue;
         }
@@ -174,10 +166,7 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
               return (
                 <div key={seg.id}>
                   {anchorId && turnNum !== undefined && (
-                    <div
-                      id={anchorId}
-                      className="flex items-center gap-3 py-3"
-                    >
+                    <div id={anchorId} className="flex items-center gap-3 py-3">
                       <div className="flex-1 h-px bg-[var(--hairline)]" />
                       <div className="flex items-center gap-1 text-[10px] text-[var(--mute)] shrink-0">
                         <span>#{turnNum}</span>
@@ -185,10 +174,7 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                       <div className="flex-1 h-px bg-[var(--hairline)]" />
                     </div>
                   )}
-                  <ReasoningTrace
-                    segment={seg}
-                    defaultOpen={false}
-                  />
+                  <ReasoningTrace segment={seg} defaultOpen={false} />
                 </div>
               );
             }
@@ -216,11 +202,7 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                 {isSystem ? (
                   <div style={virt}>
                     <SystemNotice
-                      text={
-                        typeof m.content === "string"
-                          ? m.content
-                          : extractText(m.content)
-                      }
+                      text={typeof m.content === "string" ? m.content : extractText(m.content)}
                     />
                   </div>
                 ) : (
@@ -228,16 +210,8 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                     {typeof m.content === "string" ? (
                       <MessageBubble
                         align={isSelf ? "right" : "left"}
-                        name={
-                          isSelf
-                            ? undefined
-                            : (m.sender.displayName ?? m.sender.memberId)
-                        }
-                        kind={
-                          m.sender.kind === "system"
-                            ? undefined
-                            : m.sender.kind
-                        }
+                        name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
+                        kind={m.sender.kind === "system" ? undefined : m.sender.kind}
                         content={m.content}
                       />
                     ) : (
@@ -245,16 +219,8 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                         {extractText(m.content) && (
                           <MessageBubble
                             align={isSelf ? "right" : "left"}
-                            name={
-                              isSelf
-                                ? undefined
-                                : (m.sender.displayName ?? m.sender.memberId)
-                            }
-                            kind={
-                              m.sender.kind === "system"
-                                ? undefined
-                                : m.sender.kind
-                            }
+                            name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
+                            kind={m.sender.kind === "system" ? undefined : m.sender.kind}
                             content={extractText(m.content)}
                           />
                         )}

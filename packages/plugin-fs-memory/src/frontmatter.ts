@@ -79,7 +79,7 @@ function parseFrontmatter(raw: string): { title?: string; tags?: string[]; body:
     try {
       title = JSON.parse(titleMatch[1]!);
     } catch {
-      title = titleMatch[1]!.trim();
+      title = titleMatch[1]?.trim();
     }
   }
 

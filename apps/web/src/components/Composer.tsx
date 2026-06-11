@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { ArrowUp, AtSign, Bot, CornerDownLeft } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SenderRef } from "@/lib/conversation-reducer";
 
 function escapeRegExp(s: string): string {
@@ -21,7 +21,6 @@ export function Composer({
   disabled,
   placeholder = "Type a message…  Ctrl+Enter to send",
   roster,
-  autoAgentCount,
 }: ComposerProps) {
   const [value, setValue] = useState("");
   const [showMentions, setShowMentions] = useState(false);
@@ -45,7 +44,9 @@ export function Composer({
   }, [agentMembers, mentionFilter]);
 
   // Reset selection when filter changes
-  useEffect(() => { setMentionIndex(0); }, [mentionFilter]);
+  useEffect(() => {
+    setMentionIndex(0);
+  }, []);
 
   const autoGrow = useCallback(() => {
     const el = textareaRef.current;
@@ -82,9 +83,7 @@ export function Composer({
       const atPos = before.lastIndexOf("@");
       const after = value.slice(el.selectionEnd);
       const newText =
-        atPos >= 0
-          ? before.slice(0, atPos) + `@${name} ` + after
-          : `@${name} ` + value;
+        atPos >= 0 ? `${before.slice(0, atPos)}@${name} ${after}` : `@${name} ${value}`;
       setValue(newText);
       setShowMentions(false);
       setMentionFilter("");
@@ -150,8 +149,16 @@ export function Composer({
         setShowMentions(false);
         return;
       }
-      if (e.key === "ArrowDown") { e.preventDefault(); navigateMention(1); return; }
-      if (e.key === "ArrowUp") { e.preventDefault(); navigateMention(-1); return; }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        navigateMention(1);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        navigateMention(-1);
+        return;
+      }
       if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         insertMention(filteredMentions[mentionIndex]!);
@@ -171,9 +178,7 @@ export function Composer({
 
   const showMentionButton = agentMembers.length > 1;
   const effectivePlaceholder =
-    agentMembers.length === 1
-      ? placeholder
-      : "@agent to address…  Ctrl+Enter to send";
+    agentMembers.length === 1 ? placeholder : "@agent to address…  Ctrl+Enter to send";
 
   return (
     <div className="bg-[var(--canvas)] px-6 py-4">
@@ -230,7 +235,9 @@ export function Composer({
                       <span className="text-sm text-[var(--body)] truncate flex-1">
                         {m.displayName ?? m.memberId}
                       </span>
-                      <span className="text-[10px] font-mono text-[var(--mute)] shrink-0">agent</span>
+                      <span className="text-[10px] font-mono text-[var(--mute)] shrink-0">
+                        agent
+                      </span>
                     </button>
                   ))
                 )}

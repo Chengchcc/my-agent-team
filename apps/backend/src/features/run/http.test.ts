@@ -1,11 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { EventLog, EventRecord } from "@my-agent-team/event-log";
-import type { RunSupervisor } from "./supervisor";
-import { createRunService, RunNotFoundError, ThreadBusyError, TooManyRunsError } from "./service";
-import { runRoutes } from "./http";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyFn = (...args: any[]) => any;
+import type { EventLog, EventRecord, ReadQuery, SubscribeOptions } from "@my-agent-team/event-log";
+import { runRoutes } from "./http.js";
+import { createRunService } from "./service.js";
+import type { RunSupervisor } from "./supervisor.js";
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
@@ -18,7 +15,7 @@ function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
     onRunComplete: () => {},
     dispose: () => {},
     cancelByPid: () => true,
-    getDb: () => ({ query: () => ({ get: () => null as unknown }) }) as any,
+    getDb: () => ({ query: () => ({ get: () => null }) }) as unknown as RunSupervisor["getDb"],
     ...overrides,
   } as unknown as RunSupervisor;
 }
@@ -168,22 +165,26 @@ describe("Run HTTP", () => {
   test("GET /events returns SSE with id framing and done event", async () => {
     const mockLog: EventLog = {
       ...makeMockEventLog(),
-      subscribe: async function* (this: any, _query?: any, _opts?: any, _signal?: any) {
+      subscribe: async function* (
+        _query?: ReadQuery,
+        _opts?: SubscribeOptions,
+        _signal?: AbortSignal,
+      ) {
         yield {
           seq: 1,
           threadId: "t1",
           runId: "r1",
-          event: { type: "message", message: { role: "assistant" as const, content: "hi" } },
+          event: { type: "message", payload: { role: "assistant" as const, content: "hi" } },
           ts: 1,
         } as EventRecord;
         yield {
           seq: 2,
           threadId: "t1",
           runId: "r1",
-          event: { type: "message", message: { role: "assistant" as const, content: "there" } },
+          event: { type: "message", payload: { role: "assistant" as const, content: "there" } },
           ts: 2,
         } as EventRecord;
-      } as any,
+      },
     };
 
     const svc = createRunService({
@@ -213,16 +214,20 @@ describe("Run HTTP", () => {
     let receivedAfterSeq: number | undefined;
     const mockLog: EventLog = {
       ...makeMockEventLog(),
-      subscribe: async function* (_query: any, _opts?: any, _signal?: any) {
-        receivedAfterSeq = _query.afterSeq;
+      subscribe: async function* (
+        _query?: ReadQuery,
+        _opts?: SubscribeOptions,
+        _signal?: AbortSignal,
+      ) {
+        receivedAfterSeq = _query?.afterSeq;
         yield {
           seq: 6,
           threadId: "t1",
           runId: "r1",
-          event: { type: "message", message: { role: "assistant" as const, content: "after5" } },
+          event: { type: "message", payload: { role: "assistant" as const, content: "after5" } },
           ts: 6,
         } as EventRecord;
-      } as any,
+      },
     };
 
     const svc = createRunService({
@@ -246,10 +251,14 @@ describe("Run HTTP", () => {
   test("GET /events closes gracefully on AbortSignal", async () => {
     const mockLog: EventLog = {
       ...makeMockEventLog(),
-      subscribe: async function* (this: any, _query?: any, _opts?: any, _signal?: any) {
+      subscribe: async function* (  // eslint-disable-line require-yield
+        _query?: ReadQuery,
+        _opts?: SubscribeOptions,
+        _signal?: AbortSignal,
+      ) {
         // never yields — subscriber is aborted
         await new Promise(() => {});
-      } as any,
+      },
     };
 
     const svc = createRunService({

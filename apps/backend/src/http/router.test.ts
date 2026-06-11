@@ -17,6 +17,8 @@ import { createRouter } from "./router.js";
 const TOKEN = "test-token";
 
 // Set up real features for router testing
+import { unlinkSync } from "node:fs";
+
 const dbPath = `/tmp/test-router-${Date.now()}.db`;
 let db: Database;
 let router: (req: Request) => Promise<Response>;
@@ -62,8 +64,10 @@ beforeAll(async () => {
 afterAll(() => {
   db.close();
   try {
-    require("node:fs").unlinkSync(dbPath);
-  } catch {}
+    unlinkSync(dbPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 describe("Router with real features", () => {

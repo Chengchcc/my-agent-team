@@ -23,8 +23,10 @@ test("openDb creates database file and runs migrations", () => {
 
   db.close();
   try {
-    require("node:fs").unlinkSync(tmpPath);
-  } catch {}
+    unlinkSync(tmpPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 // ─── Test 2: migrations are idempotent ──────────────────────────
@@ -52,8 +54,10 @@ test("migrations are idempotent (calling openDb twice is safe)", () => {
   expect(tables2).toEqual(tables1);
 
   try {
-    require("node:fs").unlinkSync(tmpPath);
-  } catch {}
+    unlinkSync(tmpPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 // ─── Test 3: _migrations table tracks applied migrations ────────
@@ -72,8 +76,10 @@ test("_migrations table tracks applied migrations by name", () => {
 
   db.close();
   try {
-    require("node:fs").unlinkSync(tmpPath);
-  } catch {}
+    unlinkSync(tmpPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 // ─── Test 4: WAL mode is enabled ────────────────────────────────
@@ -87,11 +93,14 @@ test("WAL journal mode is enabled", () => {
 
   db.close();
   try {
-    require("node:fs").unlinkSync(tmpPath);
-  } catch {}
+    unlinkSync(tmpPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 // ─── Test 5: M10 conversation tables exist ─────────────────────
+import { unlinkSync } from "node:fs";
 
 test("M10 conversation/member/conversation_ledger tables exist after migration", () => {
   const tmpPath = `/tmp/test-backend-db-m10-${Date.now()}.db`;
@@ -126,6 +135,8 @@ test("M10 conversation/member/conversation_ledger tables exist after migration",
 
   db.close();
   try {
-    require("node:fs").unlinkSync(tmpPath);
-  } catch {}
+    unlinkSync(tmpPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });

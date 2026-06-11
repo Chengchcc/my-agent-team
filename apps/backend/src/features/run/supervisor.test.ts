@@ -1,11 +1,10 @@
-import { describe, expect, test, afterEach, beforeAll } from "bun:test";
-import { Database } from "bun:sqlite";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { type ChildProcess, spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { spawn, type ChildProcess } from "node:child_process";
-import { inMemoryEventLog } from "@my-agent-team/event-log";
 import type { EventLog } from "@my-agent-team/event-log";
-import { RunSupervisor } from "./supervisor.js";
+import { inMemoryEventLog } from "@my-agent-team/event-log";
 import type { BackendConfig } from "../../config.js";
+import { RunSupervisor } from "./supervisor.js";
 
 const TEST_DATA_DIR = `/tmp/test-reaper-${Date.now()}`;
 
@@ -143,7 +142,7 @@ describe("RunSupervisor reaper (M11)", () => {
     // Check our specific run triggered onRunComplete
     const ours = completed.filter((c) => c.runId === uniqueRunId);
     expect(ours.length).toBe(1);
-    expect(ours[0]!.threadId).toBe("thread-3");
+    expect(ours[0]?.threadId).toBe("thread-3");
 
     await sup.dispose();
   });

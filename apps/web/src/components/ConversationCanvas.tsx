@@ -1,19 +1,19 @@
 "use client";
 
-import { useMemo, useEffect, useRef, useCallback, useState } from "react";
-import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { extractText } from "@/lib/timeline";
-import { computeStatus } from "@/lib/run-status";
+import { ArrowDown, Bot, UserCircle, X } from "lucide-react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConversation } from "@/hooks/useConversation";
 import type { ConversationSnapshot } from "@/lib/api";
-import { Timeline } from "./Timeline";
-import { DraftMessage } from "./DraftMessage";
-import { Composer } from "./Composer";
-import { ToolApprovalCard } from "./ToolApprovalCard";
-import { Bot, UserCircle, X, ArrowDown } from "lucide-react";
+import { api } from "@/lib/api";
+import { computeStatus } from "@/lib/run-status";
+import { extractText } from "@/lib/timeline";
 import { AddMemberButton } from "./AddMemberButton";
+import { Composer } from "./Composer";
+import { DraftMessage } from "./DraftMessage";
+import { Timeline } from "./Timeline";
+import { ToolApprovalCard } from "./ToolApprovalCard";
 
 interface ConversationCanvasProps {
   conversationId: string;
@@ -204,11 +204,14 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
               </div>
             ) : (
               <div className="py-4">
-                <Timeline messages={messages} viewerMemberId={viewerMemberId} scrollContainerRef={scrollRef} />
+                <Timeline
+                  messages={messages}
+                  viewerMemberId={viewerMemberId}
+                  scrollContainerRef={scrollRef}
+                />
                 {draft && <DraftMessage draft={draft} />}
               </div>
             )}
-
           </div>
         </div>
 
@@ -297,9 +300,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
           onSend={send}
           disabled={busy}
           roster={roster}
-          autoAgentCount={
-            Object.values(roster).filter((m) => m.kind === "agent").length
-          }
+          autoAgentCount={Object.values(roster).filter((m) => m.kind === "agent").length}
         />
       </div>
     </div>

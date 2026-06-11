@@ -317,7 +317,7 @@ async function runConversationMode(baseUrl: string, convId: string): Promise<voi
       };
 
       if (addressedTo.length > 0 && triggeredRuns.length > 0) {
-        const runId = triggeredRuns[0]!.runId;
+        const runId = triggeredRuns[0]?.runId;
         console.log(`[@${addressedTo[0]}] run started: ${runId}`);
 
         // Subscribe to conversation events

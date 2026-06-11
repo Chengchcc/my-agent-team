@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { api, type AgentRow } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { type AgentRow, api } from "@/lib/api";
 
 interface AgentFormProps {
   /** If provided, form is in edit mode (PATCH instead of POST). */
@@ -58,8 +58,8 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
       };
 
       if (isEdit) {
-        await api.updateAgent(editAgent!.id, body);
-        queryClient.invalidateQueries({ queryKey: ["agent", editAgent!.id] });
+        await api.updateAgent(editAgent?.id, body);
+        queryClient.invalidateQueries({ queryKey: ["agent", editAgent?.id] });
         queryClient.invalidateQueries({ queryKey: ["agents"] });
       } else {
         const agent = await api.createAgent(body);
@@ -128,7 +128,6 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                   placeholder="e.g. Archivist"
                   className={fieldClass}
                   required
-                  autoFocus
                 />
               </div>
 

@@ -1,5 +1,5 @@
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BOOTSTRAP_TEMPLATE } from "@my-agent-team/harness";
 

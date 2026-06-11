@@ -9,8 +9,10 @@ const adapter = sqliteConversationAdapter(db);
 afterAll(() => {
   db.close();
   try {
-    require("node:fs").unlinkSync(dbPath);
-  } catch {}
+    unlinkSync(dbPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 // ─── Conversation ──────────────────────────────────────────
@@ -30,7 +32,7 @@ describe("Conversation CRUD", () => {
   test("getById returns conversation or null", () => {
     const conv = adapter.getConversation("conv-1");
     expect(conv).not.toBeNull();
-    expect(conv!.conversationId).toBe("conv-1");
+    expect(conv?.conversationId).toBe("conv-1");
   });
 
   test("getById returns null for nonexistent", () => {
@@ -40,13 +42,13 @@ describe("Conversation CRUD", () => {
   test("updateHopCount increments hop_count", () => {
     adapter.updateHopCount("conv-1", 3);
     const conv = adapter.getConversation("conv-1");
-    expect(conv!.hopCount).toBe(3);
+    expect(conv?.hopCount).toBe(3);
   });
 
   test("updateHopCount resets to 0", () => {
     adapter.updateHopCount("conv-1", 0);
     const conv = adapter.getConversation("conv-1");
-    expect(conv!.hopCount).toBe(0);
+    expect(conv?.hopCount).toBe(0);
   });
 });
 
@@ -99,11 +101,12 @@ describe("Member CRUD", () => {
   test("getAgentMember returns only agent members", () => {
     const agents = adapter.getAgentMembers("conv-1");
     expect(agents).toHaveLength(1);
-    expect(agents[0]!.memberId).toBe("mem-x1");
+    expect(agents[0]?.memberId).toBe("mem-x1");
   });
 });
 
 // ─── Ledger ────────────────────────────────────────────────
+import { unlinkSync } from "node:fs";
 
 describe("Ledger CRUD", () => {
   test("appendLedgerEntry inserts and returns seq", () => {
@@ -133,14 +136,14 @@ describe("Ledger CRUD", () => {
   test("getLedgerEntries returns entries for a conversation", () => {
     const entries = adapter.getLedgerEntries("conv-1");
     expect(entries).toHaveLength(2);
-    expect(entries[0]!.seq).toBe(1);
-    expect(entries[0]!.kind).toBe("message");
-    expect(entries[1]!.seq).toBe(2);
+    expect(entries[0]?.seq).toBe(1);
+    expect(entries[0]?.kind).toBe("message");
+    expect(entries[1]?.seq).toBe(2);
   });
 
   test("getLedgerEntries supports sinceSeq filter", () => {
     const entries = adapter.getLedgerEntries("conv-1", { sinceSeq: 1 });
     expect(entries).toHaveLength(1);
-    expect(entries[0]!.seq).toBe(2);
+    expect(entries[0]?.seq).toBe(2);
   });
 });

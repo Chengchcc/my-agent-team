@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { ShellProvider } from "@/components/ShellProvider";
 import { AppShell } from "@/components/AppShell";
+import { ShellProvider } from "@/components/ShellProvider";
 
 export const metadata: Metadata = {
   title: "Observatory — Agent Workspace",

@@ -1,9 +1,9 @@
 "use client";
 
-import { useReducer, useEffect, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useReducer } from "react";
 import { api, type ConversationSnapshot } from "@/lib/api";
-import { reducer, initialState, type ConvState, type SenderRef } from "@/lib/conversation-reducer";
+import { type ConvState, initialState, reducer, type SenderRef } from "@/lib/conversation-reducer";
 
 function safeParse(raw: string): unknown {
   try {
@@ -32,7 +32,7 @@ export function useConversation(
   preFetchedSnapshot?: ConversationSnapshot | null,
 ) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
-  const qc = useQueryClient();
+  const _qc = useQueryClient();
 
   // 1) Snapshot bootstrap (roster + viewerMemberId)
   const snap = useQuery({
@@ -210,17 +210,10 @@ export function useConversation(
 
   // 4) Send: optimistic dispatch + POST /conversations/:id/messages
   const sendMut = useMutation({
-    mutationFn: ({
-      text,
-      addressedTo,
-    }: {
-      text: string;
-      addressedTo: string[];
-    }) =>
+    mutationFn: ({ text, addressedTo }: { text: string; addressedTo: string[] }) =>
       api.postConversationMessage(conversationId, {
         senderMemberId: state.viewerMemberId,
-        addressedTo:
-          addressedTo.length > 0 ? addressedTo : resolveAddressedTo(state),
+        addressedTo: addressedTo.length > 0 ? addressedTo : resolveAddressedTo(state),
         content: text,
       }),
     onSuccess: (d) => {
@@ -276,10 +269,7 @@ export function useConversation(
   );
   const cancel = useCallback(() => cancelRun.mutate(), [cancelRun]);
 
-  const toggleTriggerMode = useCallback(
-    () => dispatch({ type: "toggleTriggerMode" }),
-    [],
-  );
+  const toggleTriggerMode = useCallback(() => dispatch({ type: "toggleTriggerMode" }), []);
 
   return {
     viewerMemberId: state.viewerMemberId,

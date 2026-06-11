@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AIMessageChunk, ChatModel, Message, Tool } from "@my-agent-team/core";
+import type { AIMessageChunk, ChatModel, ChatModelOptions, Message, Tool } from "@my-agent-team/core";
 import type { InterruptState } from "./checkpointer.js";
 import type { AgentEvent } from "./create-agent.js";
 import { createAgent, InterruptSignal } from "./index.js";
@@ -15,7 +15,7 @@ function scriptedModel(
   turns: Array<
     { type: "text"; text: string } | { type: "tool_call"; id: string; name: string; input: unknown }
   >,
-  spy?: { lastOptions?: import("@my-agent-team/core").ChatModelOptions },
+  spy?: { lastOptions?: ChatModelOptions },
 ): ChatModel {
   return {
     async *stream(messages, options): AsyncIterable<AIMessageChunk> {
@@ -1007,7 +1007,7 @@ describe("createAgent", () => {
     ) as { type: "tool_result"; tool_use_id: string; is_error?: boolean }[];
     const t1Result = toolResults.find((r) => r.tool_use_id === "t1");
     expect(t1Result).toBeDefined();
-    expect(t1Result!.is_error).toBeUndefined();
+    expect(t1Result?.is_error).toBeUndefined();
     // Error was logged
     expect(warnCount).toBeGreaterThan(0);
   });
@@ -1127,7 +1127,7 @@ describe("createAgent", () => {
   });
 
   test("B1: tools are forwarded to model.stream options", async () => {
-    const spy: { lastOptions?: import("@my-agent-team/core").ChatModelOptions } = {};
+    const spy: { lastOptions?: ChatModelOptions } = {};
     const agent = await createAgent({
       model: scriptedModel([{ type: "text", text: "ok" }], spy),
       tools: [makeTool("bash")],

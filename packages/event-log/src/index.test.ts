@@ -1,12 +1,12 @@
 import { Database } from "bun:sqlite";
-import { describe, test, expect } from "bun:test";
-import { inMemoryEventLog, sqliteEventLog } from "./index";
-import type { EventLog, EventRecord } from "./index";
+import { describe, expect, test } from "bun:test";
+import { unlinkSync } from "node:fs";
+import { inMemoryEventLog, sqliteEventLog } from "./index.js";
 
 function makeEvent(text: string) {
   return {
     type: "message" as const,
-    message: { role: "assistant" as const, content: text },
+    payload: { role: "assistant" as const, content: text },
   };
 }
 
@@ -32,7 +32,7 @@ describe("inMemoryEventLog", () => {
 
     const r1 = await log.read({ runId: "r1" });
     expect(r1.length).toBe(1);
-    expect((r1[0]!.event as { message: { content: string } }).message.content).toBe("a");
+    expect((r1[0]?.event as { payload: { content: string } }).payload.content).toBe("a");
   });
 
   test("read with afterSeq skips earlier events", async () => {
@@ -42,7 +42,7 @@ describe("inMemoryEventLog", () => {
 
     const rows = await log.read({ runId: "r1", afterSeq: s1 });
     expect(rows.length).toBe(1);
-    expect(rows[0]!.seq).toBeGreaterThan(s1);
+    expect(rows[0]?.seq).toBeGreaterThan(s1);
   });
 
   test("read respects limit", async () => {
@@ -61,7 +61,7 @@ describe("inMemoryEventLog", () => {
 
     const records = await collect(log.subscribe({ runId: "r1" }, {}, ac.signal));
     expect(records.length).toBeGreaterThanOrEqual(1); // at least the historical event
-    expect(records[0]!.event).toBeDefined();
+    expect(records[0]?.event).toBeDefined();
   });
 
   test("subscribe yields new events appended during subscription", async () => {
@@ -90,10 +90,10 @@ describe("sqliteEventLog", () => {
 
     const rows = await log.read({});
     expect(rows.length).toBe(1);
-    expect(rows[0]!.threadId).toBe("t1");
-    expect(rows[0]!.runId).toBe("r1");
-    expect(typeof rows[0]!.seq).toBe("number");
-    expect(typeof rows[0]!.ts).toBe("number");
+    expect(rows[0]?.threadId).toBe("t1");
+    expect(rows[0]?.runId).toBe("r1");
+    expect(typeof rows[0]?.seq).toBe("number");
+    expect(typeof rows[0]?.ts).toBe("number");
   });
 
   test("subscribe replays history then tails", async () => {
@@ -116,7 +116,7 @@ describe("sqliteEventLog", () => {
     );
     expect(records.length).toBeGreaterThanOrEqual(1);
     if (records.length > 0) {
-      expect(records[0]!.event).toBeDefined();
+      expect(records[0]?.event).toBeDefined();
     }
   });
 
@@ -150,12 +150,14 @@ describe("sqliteEventLog", () => {
     expect(rows.length).toBe(1);
 
     try {
-      require("node:fs").unlinkSync(path);
-    } catch {}
+      unlinkSync(path);
+    } catch {
+      /* best-effort cleanup */
+    }
   });
 
   test("EVENT_LOG_MIGRATIONS is exported", async () => {
-    const mod = await import("./index");
+    const mod = await import("./index.js");
     expect(Array.isArray(mod.EVENT_LOG_MIGRATIONS)).toBe(true);
     expect(mod.EVENT_LOG_MIGRATIONS.length).toBeGreaterThan(0);
     for (const m of mod.EVENT_LOG_MIGRATIONS) {

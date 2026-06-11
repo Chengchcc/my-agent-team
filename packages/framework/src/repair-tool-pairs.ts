@@ -45,7 +45,7 @@ export function repairToolPairs(messages: Message[]): Message[] {
 
     // 还原 content 格式：如果原始就是 string 且过滤后仍只有单 text 块，还原为 string
     const content: Message["content"] =
-      typeof msg.content === "string" && blocks.length === 1 && blocks[0]!.type === "text"
+      typeof msg.content === "string" && blocks.length === 1 && blocks[0]?.type === "text"
         ? (blocks[0] as { type: "text"; text: string }).text
         : (blocks as ContentBlock[]);
 

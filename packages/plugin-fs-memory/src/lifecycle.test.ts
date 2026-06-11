@@ -11,7 +11,7 @@ describe("lifecycle", () => {
       invalidateMemCache(dir);
       invalidateFactsCache(dir);
       const plugin = fsMemoryPlugin({ dir });
-      await plugin.hooks.beforeModel!(
+      await plugin.hooks.beforeModel?.(
         {
           threadId: "t1",
           logger: {
@@ -44,7 +44,7 @@ describe("lifecycle", () => {
     try {
       invalidateMemCache(dir);
       const plugin = fsMemoryPlugin({ dir });
-      await plugin.hooks.beforeModel!(
+      await plugin.hooks.beforeModel?.(
         {
           threadId: "t1",
           logger: {

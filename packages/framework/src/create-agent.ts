@@ -7,7 +7,7 @@ import type {
   ToolResultBlock,
   ToolUseBlock,
 } from "@my-agent-team/core";
-import { collectStream, mergeChunkIntoBlocks, finalizeToolUseInputs } from "@my-agent-team/core";
+import { collectStream, finalizeToolUseInputs, mergeChunkIntoBlocks } from "@my-agent-team/core";
 import { type Checkpointer, InterruptSignal, validateCheckpointer } from "./checkpointer.js";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 import type { ContextManager } from "./context-manager.js";

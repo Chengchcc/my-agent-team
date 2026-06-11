@@ -69,9 +69,7 @@ export class AnthropicChatModel implements ChatModel {
           event.content_block.type === "thinking" ||
           event.content_block.type === "redacted_thinking"
         ) {
-          // Explicitly skip thinking blocks — not surfaced to user
-          continue;
-        }
+        } // filtered out
       } else if (event.type === "content_block_delta") {
         if (event.delta.type === "text_delta") {
           yield { delta: { type: "text", text: event.delta.text } };
@@ -85,9 +83,7 @@ export class AnthropicChatModel implements ChatModel {
             },
           };
         } else if (event.delta.type === "thinking_delta") {
-          // Explicitly skip thinking deltas — not surfaced to user
-          continue;
-        }
+        } // filtered out
       }
     }
 

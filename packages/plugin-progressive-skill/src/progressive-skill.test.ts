@@ -53,7 +53,7 @@ describe("progressiveSkillPlugin", () => {
       { role: "user", content: "hi" },
     ];
 
-    const result = await plugin.hooks.beforeModel!(testCtx(), msgs);
+    const result = (await plugin.hooks.beforeModel?.(testCtx(), msgs)) as Message[];
     expect(result).toHaveLength(2);
     const sysContent = (result[0] as Message).content as string;
     expect(sysContent).toContain("pdf-extract");
@@ -72,7 +72,7 @@ describe("progressiveSkillPlugin", () => {
         { role: "user", content: "hi" },
       ];
 
-      const result = await plugin.hooks.beforeModel!(testCtx(), msgs);
+      const result = (await plugin.hooks.beforeModel?.(testCtx(), msgs)) as Message[];
       expect((result[0] as Message).content).toBe("sys");
     } finally {
       await rm(emptyDir, { recursive: true, force: true });
@@ -98,7 +98,7 @@ describe("progressiveSkillPlugin", () => {
       { role: "user", content: "hi" },
     ];
 
-    const result = await plugin.hooks.beforeModel!(ctx, msgs as Message[]);
+    const result = await plugin.hooks.beforeModel?.(ctx, msgs as Message[]);
     expect(result).toHaveLength(2);
     expect(warnings.some((w) => w.includes("dir not found"))).toBe(true);
   });
@@ -119,7 +119,7 @@ describe("progressiveSkillPlugin", () => {
     const plugin = progressiveSkillPlugin({ dir });
     const msgs: Message[] = [{ role: "user", content: "hi" }];
 
-    const result = await plugin.hooks.beforeModel!(ctx, msgs as Message[]);
+    const result = await plugin.hooks.beforeModel?.(ctx, msgs as Message[]);
     expect(result).toHaveLength(1);
     expect(warnings.some((w) => w.includes("no system message"))).toBe(true);
   });
@@ -127,7 +127,7 @@ describe("progressiveSkillPlugin", () => {
   test("plugin exposes skill_load tool", () => {
     const plugin = progressiveSkillPlugin({ dir: "/tmp/test" });
     expect(plugin.tools).toHaveLength(1);
-    expect(plugin.tools![0]!.name).toBe("skill_load");
+    expect(plugin.tools?.[0]?.name).toBe("skill_load");
   });
 
   test("${SKILL_DIR} replaced in body", async () => {
@@ -155,7 +155,9 @@ describe("progressiveSkillPlugin", () => {
       );
       invalidateSkillCache(tmpDir);
       const plugin = progressiveSkillPlugin({ dir: tmpDir });
-      const result = await plugin.tools![0]!.execute({ name: "other-skill" });
+      const result = (await plugin.tools?.[0]?.execute({ name: "other-skill" })) as {
+        content: string;
+      };
       expect(result.content).toContain("${HOME}");
       expect(result.content).toContain("${MEMORY_DIR}");
     } finally {

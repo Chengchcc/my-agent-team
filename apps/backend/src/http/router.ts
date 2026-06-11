@@ -3,8 +3,8 @@ import type { checkpointRoutes } from "../features/checkpoint/http.js";
 import type { conversationRoutes } from "../features/conversation/http.js";
 import type { runRoutes } from "../features/run/http.js";
 import { HttpError } from "../infra/errors.js";
-import { json } from "./response.js";
 import { withAuth } from "./middleware.js";
+import { json } from "./response.js";
 
 interface FeatureSet {
   agents: ReturnType<typeof agentRoutes>;
@@ -32,7 +32,7 @@ export function createRouter(token: string, features?: FeatureSet) {
     };
   }
 
-  const { agents, runs, checkpoints, conversations } = features;
+  const { agents, runs, conversations } = features;
 
   const agentList = withAuth((req) => agents.list(req), token);
   const agentCreate = withAuth((req) => agents.create(req), token);
@@ -100,14 +100,14 @@ export function createRouter(token: string, features?: FeatureSet) {
         const convEventsMatch = path.match(/^\/api\/conversations\/([^/]+)\/events$/);
 
         if (convListMatch && method === "GET")
-          return withAuth((r) => conversations.list(r), token)(req);
+          return withAuth(async (r) => conversations.list(r), token)(req);
         if (convListMatch && method === "POST")
           return withAuth((r) => conversations.create(r), token)(req);
         if (convListMatch) return json({ error: "Method not allowed" }, 405);
         if (convSnapMatch && method === "GET")
           return withAuth((r) => conversations.snapshot(r, convSnapMatch[1]!), token)(req);
         if (convSnapMatch && method === "DELETE")
-          return withAuth((r) => conversations.delete(r, convSnapMatch[1]!), token)(req);
+          return withAuth(async (r) => conversations.delete(r, convSnapMatch[1]!), token)(req);
         if (convSnapMatch) return json({ error: "Method not allowed" }, 405);
         if (convMsgMatch && method === "POST")
           return withAuth((r) => conversations.postMessage(r, convMsgMatch[1]!), token)(req);

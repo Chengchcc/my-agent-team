@@ -28,7 +28,6 @@ export default function LoginPage() {
               name="password"
               type="password"
               placeholder="••••••••"
-              autoFocus
               className="w-full bg-transparent border-0 border-b border-[var(--hairline)]
                          px-0 py-3 text-[var(--ink)] text-lg
                          placeholder:text-[var(--mute)]

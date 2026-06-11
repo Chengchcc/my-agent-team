@@ -539,7 +539,7 @@ test("mode='resume' calls agent.resume() instead of agent.run()", async () => {
       },
       async *resume(_cmd, _opts) {
         resumeCalled = true;
-        for (const ev of events) yield ev;
+        yield* events;
       },
       fork(_msgs, _id) {
         return makeResumeAgent();
@@ -577,7 +577,7 @@ test("mode='resume' calls agent.resume() instead of agent.run()", async () => {
 
 test("heartbeat timer starts when attemptId and storage available", async () => {
   const events: AgentEvent[] = [msgEvent("ok")];
-  let heartbeatCount = 0;
+  const _heartbeatCount = 0;
 
   const spec = {
     schemaVersion: "1",
@@ -677,7 +677,7 @@ test("P0-1: self-builds checkpointer from spec.storage.checkpointer.path when no
 
   const events: AgentEvent[] = [msgEvent("ok")];
   const written: AgentEvent[] = [];
-  let capturedCheckpointerDb: unknown = undefined;
+  let capturedCheckpointerDb: unknown;
 
   const spec = {
     schemaVersion: "1",
@@ -713,8 +713,10 @@ test("P0-1: self-builds checkpointer from spec.storage.checkpointer.path when no
   expect(typeof (capturedCheckpointerDb as { close?: unknown }).close).toBe("function");
 
   try {
-    require("node:fs").unlinkSync(tmpDbPath);
-  } catch {}
+    unlinkSync(tmpDbPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 // ─── M11: Progress heartbeat (replaces independent setInterval) ────
@@ -722,12 +724,12 @@ test("P0-1: self-builds checkpointer from spec.storage.checkpointer.path when no
 test("M11: heartbeat updated after each sink.append (progress, not liveness)", async () => {
   const events: AgentEvent[] = [msgEvent("a"), msgEvent("b")];
   const appendCalls: number[] = [];
-  let heartbeatCount = 0;
+  let _heartbeatCount = 0;
 
   const mockSink = {
     append: async (_tid: string, _rid: string, _ev: AgentEvent) => {
       appendCalls.push(Date.now());
-      heartbeatCount++;
+      _heartbeatCount++;
       return appendCalls.length;
     },
   };
@@ -802,12 +804,14 @@ test("M11: heartbeat updated after each sink.append (progress, not liveness)", a
       .query("SELECT heartbeat_at FROM attempt WHERE attempt_id = 'att-m11'")
       .get() as { heartbeat_at: number | null } | undefined;
     expect(row?.heartbeat_at).toBeDefined();
-    expect(row!.heartbeat_at).toBeGreaterThan(0);
+    expect(row?.heartbeat_at).toBeGreaterThan(0);
     checkDb.close();
   } finally {
     try {
-      require("node:fs").unlinkSync(dbPath);
-    } catch {}
+      unlinkSync(dbPath);
+    } catch {
+      /* best-effort cleanup */
+    }
   }
 });
 
@@ -835,6 +839,7 @@ test("M11: heartbeat NOT written when no sink configured (backward compat)", asy
 });
 
 // ─── M14.3: Reflect mode (post-run job, not inline) ──────────────────
+import { unlinkSync } from "node:fs";
 
 test("M14.3: mode='reflect' uses fork() to isolate checkpoint and runs reflectionGuidance", async () => {
   const events: AgentEvent[] = [msgEvent("remembered key facts")];
@@ -850,7 +855,7 @@ test("M14.3: mode='reflect' uses fork() to isolate checkpoint and runs reflectio
         const inp = input as string;
         if (inp.includes("Reflect on the conversation")) {
           reflectRunCalled = true;
-          for (const ev of events) yield ev;
+          yield* events;
         } else {
           mainRunCalled = true;
           yield* [] as AgentEvent[];
@@ -921,7 +926,7 @@ test("M14.3: mode='reflect' events appended to EventSink with reflect runId", as
       async *run(input, _opts) {
         const inp = input as string;
         if (inp.includes("Reflect")) {
-          for (const ev of events) yield ev;
+          yield* events;
         } else {
           yield* [] as AgentEvent[];
         }
@@ -957,8 +962,8 @@ test("M14.3: mode='reflect' events appended to EventSink with reflect runId", as
 
   expect(result).toBe(0);
   expect(sinkLog.length).toBe(1);
-  expect(sinkLog[0]!.text).toBe("reflected insight");
-  expect(sinkLog[0]!.runId).toBe("reflect-run-2");
+  expect(sinkLog[0]?.text).toBe("reflected insight");
+  expect(sinkLog[0]?.runId).toBe("reflect-run-2");
 });
 
 test("M14.3: mode='run' does NOT call fork (reflect is backend's job now)", async () => {
@@ -969,7 +974,7 @@ test("M14.3: mode='run' does NOT call fork (reflect is backend's job now)", asyn
     return {
       thread: { id: "t1", messages: [] },
       async *run(_input, _opts) {
-        for (const ev of events) yield ev;
+        yield* events;
       },
       async *resume(_cmd, _opts) {
         yield* [] as AgentEvent[];

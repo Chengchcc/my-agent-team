@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { extractText } from "../../src/lib/timeline";
 
 describe("extractText", () => {
@@ -69,12 +69,12 @@ describe("tool_use/tool_result pairing (integration)", () => {
     }
 
     expect(toolUses).toHaveLength(1);
-    expect(toolUses[0]!.id).toBe("tool_1");
+    expect(toolUses[0]?.id).toBe("tool_1");
 
     const result = toolResults.get("tool_1");
     expect(result).toBeDefined();
-    expect(result!.content).toBe("file contents");
-    expect(result!.isError).toBe(false);
+    expect(result?.content).toBe("file contents");
+    expect(result?.isError).toBe(false);
   });
 
   test("tool_result with is_error is flagged", () => {
@@ -110,7 +110,7 @@ describe("tool_use/tool_result pairing (integration)", () => {
 
     const result = toolResults.get("err_1");
     expect(result).toBeDefined();
-    expect(result!.isError).toBe(true);
+    expect(result?.isError).toBe(true);
   });
 
   test("orphan tool_use without result", () => {

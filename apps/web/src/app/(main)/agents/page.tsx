@@ -1,5 +1,5 @@
-import { AgentList } from "@/components/AgentList";
 import { AgentForm } from "@/components/AgentForm";
+import { AgentList } from "@/components/AgentList";
 
 export default function AgentsPage() {
   return (

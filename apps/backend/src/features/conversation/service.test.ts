@@ -15,7 +15,7 @@ const checkpointWrite = sqliteCheckpointWriteAdapter(db);
 
 // Track fork calls for @ trigger verification
 const forkLog: Array<{ runId: string; threadId: string }> = [];
-let nextRunId = 0;
+const _nextRunId = 0;
 const activeConversations = new Set<string>();
 
 const svc = createConversationService({
@@ -34,8 +34,10 @@ const svc = createConversationService({
 afterAll(() => {
   db.close();
   try {
-    require("node:fs").unlinkSync(dbPath);
-  } catch {}
+    unlinkSync(dbPath);
+  } catch {
+    /* best-effort cleanup */
+  }
 });
 
 function setupConv(id: string) {
@@ -106,13 +108,13 @@ describe("broadcastMessage", () => {
     // X should see the message as user with [Alice] prefix
     const xMsgs = await checkpointRead.getMessages(`${id}:mem-x1-${id}`);
     expect(xMsgs).toHaveLength(1);
-    expect((xMsgs![0] as { role: string; content: string }).role).toBe("user");
-    expect((xMsgs![0] as { role: string; content: string }).content).toContain("[Alice]");
+    expect((xMsgs?.[0] as { role: string; content: string }).role).toBe("user");
+    expect((xMsgs?.[0] as { role: string; content: string }).content).toContain("[Alice]");
 
     // Y should also see the message (broadcast visibility)
     const yMsgs = await checkpointRead.getMessages(`${id}:mem-y1-${id}`);
     expect(yMsgs).toHaveLength(1);
-    expect((yMsgs![0] as { role: string; content: string }).content).toContain("[Alice]");
+    expect((yMsgs?.[0] as { role: string; content: string }).content).toContain("[Alice]");
   });
 
   test("projects agent output as assistant to self, user to others", async () => {
@@ -131,13 +133,13 @@ describe("broadcastMessage", () => {
 
     // X sees its own message as assistant (no prefix)
     const xMsgs = await checkpointRead.getMessages(`${id}:mem-x1-${id}`);
-    const xLast = xMsgs![xMsgs!.length - 1] as { role: string; content: string };
+    const xLast = xMsgs?.[xMsgs?.length - 1] as { role: string; content: string };
     expect(xLast.role).toBe("assistant");
     expect(xLast.content).toBe("I handled it");
 
     // Y sees X's message as user with [XAgent] prefix
     const yMsgs = await checkpointRead.getMessages(`${id}:mem-y1-${id}`);
-    const yLast = yMsgs![yMsgs!.length - 1] as { role: string; content: string };
+    const yLast = yMsgs?.[yMsgs?.length - 1] as { role: string; content: string };
     expect(yLast.role).toBe("user");
     expect(yLast.content).toContain("[XAgent]");
   });
@@ -167,7 +169,7 @@ describe("postMessage", () => {
 
     // @ trigger: X's fork was called
     expect(forkLog).toHaveLength(1);
-    expect(forkLog[0]!.threadId).toBe(`${id}:mem-x1-${id}`);
+    expect(forkLog[0]?.threadId).toBe(`${id}:mem-x1-${id}`);
   });
 
   test("does NOT trigger agent not in addressedTo", async () => {
@@ -236,7 +238,7 @@ describe("hop count", () => {
     });
 
     const conv = port.getConversation(id);
-    expect(conv!.hopCount).toBe(0);
+    expect(conv?.hopCount).toBe(0);
   });
 
   test("increments hop_count on agent message", async () => {
@@ -251,7 +253,7 @@ describe("hop count", () => {
     });
 
     const conv = port.getConversation(id);
-    expect(conv!.hopCount).toBe(1);
+    expect(conv?.hopCount).toBe(1);
   });
 
   test("rejects trigger when hop_count exceeds max", async () => {
@@ -274,7 +276,7 @@ describe("hop count", () => {
 
     // System message about hop cap was broadcast
     const xMsgs = await checkpointRead.getMessages(`${id}:mem-x1-${id}`);
-    const last = xMsgs![xMsgs!.length - 1] as { role: string; content: string };
+    const last = xMsgs?.[xMsgs?.length - 1] as { role: string; content: string };
     expect(last.content).toContain("暂停");
   });
 });
@@ -299,7 +301,7 @@ describe("member join/leave", () => {
 
     // System message broadcast to other agents
     const xMsgs = await checkpointRead.getMessages(`${id}:mem-x1-${id}`);
-    const last = xMsgs![xMsgs!.length - 1] as { role: string; content: string };
+    const last = xMsgs?.[xMsgs?.length - 1] as { role: string; content: string };
     expect(last.content).toContain("系统");
     expect(last.content).toContain("加入");
   });
@@ -314,7 +316,7 @@ describe("member join/leave", () => {
 
     // System message broadcast
     const yMsgs = await checkpointRead.getMessages(`${id}:mem-y1-${id}`);
-    const last = yMsgs![yMsgs!.length - 1] as { role: string; content: string };
+    const last = yMsgs?.[yMsgs?.length - 1] as { role: string; content: string };
     expect(last.content).toContain("离开");
   });
 });
@@ -420,6 +422,7 @@ describe("P0-2: lock lifecycle", () => {
 });
 
 // ─── M14.4: agent-to-agent @mention triggering ────────────
+import { unlinkSync } from "node:fs";
 
 describe("M14.4: triggerMentionedAgents", () => {
   test("triggers @-mentioned agent via forkRun", () => {
@@ -434,9 +437,9 @@ describe("M14.4: triggerMentionedAgents", () => {
     });
 
     expect(result).toHaveLength(1);
-    expect(result[0]!.agentMemberId).toBe(`mem-y1-${id}`);
+    expect(result[0]?.agentMemberId).toBe(`mem-y1-${id}`);
     expect(forkLog).toHaveLength(1);
-    expect(forkLog[0]!.threadId).toBe(`${id}:mem-y1-${id}`);
+    expect(forkLog[0]?.threadId).toBe(`${id}:mem-y1-${id}`);
   });
 
   test("skips when conversation is busy", () => {
@@ -496,6 +499,6 @@ describe("M14.4: triggerMentionedAgents", () => {
     });
 
     const conv = port.getConversation(id);
-    expect(conv!.hopCount).toBe(1);
+    expect(conv?.hopCount).toBe(1);
   });
 });

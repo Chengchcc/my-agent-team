@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "../../src/components/Markdown";
 

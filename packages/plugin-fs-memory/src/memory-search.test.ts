@@ -39,7 +39,7 @@ describe("memory_search", () => {
 
       // Tag match should come first
       expect(parsed.length).toBe(2);
-      expect(parsed[0]!.tags).toContain("match");
+      expect(parsed[0]?.tags).toContain("match");
     } finally {
       await Bun.$`rm -rf ${dir}`.quiet();
     }
@@ -63,7 +63,7 @@ describe("memory_search", () => {
 
       expect(parsed.length).toBe(2);
       // Title match (score 2) should come before body-only (score 1)
-      expect(parsed[0]!.title).toBe("priority task");
+      expect(parsed[0]?.title).toBe("priority task");
     } finally {
       await Bun.$`rm -rf ${dir}`.quiet();
     }

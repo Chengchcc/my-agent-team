@@ -254,7 +254,8 @@ describe("createGenericAgent", () => {
         .query("SELECT messages FROM checkpoint_messages WHERE thread_id = ?")
         .get(agent.thread.id) as { messages: string } | undefined;
       expect(row).toBeDefined();
-      const msgs = JSON.parse(row!.messages);
+      if (!row) throw new Error("unreachable");
+      const msgs = JSON.parse(row.messages);
       expect(msgs.length).toBeGreaterThan(0);
     } finally {
       sharedDb.close();

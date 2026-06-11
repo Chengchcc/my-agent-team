@@ -31,12 +31,12 @@ describe("M14.3 P1-b: reflect orchestration", () => {
     const started = await orchestrateReflection("conv-a:mem-x1", "run-1", "conv-a", deps);
     expect(started).toBe(true);
     expect(forkLog).toHaveLength(1);
-    expect(forkLog[0]!.runId).toBe("reflect-rid-1");             // 独立 runId（≠ 主 run-1）
-    expect(forkLog[0]!.threadId).toBe("reflect:conv-a:mem-x1");  // reflect: 前缀隔离
+    expect(forkLog[0]?.runId).toBe("reflect-rid-1"); // 独立 runId（≠ 主 run-1）
+    expect(forkLog[0]?.threadId).toBe("reflect:conv-a:mem-x1"); // reflect: 前缀隔离
     const spec = JSON.parse(forkLog[0]!.specJson);
     expect(spec.mode).toBe("reflect");
     expect(spec.senderMemberId).toBe("mem-x1");
-    expect(runMeta.has("run-1")).toBe(false);                    // finally 清表
+    expect(runMeta.has("run-1")).toBe(false); // finally 清表
   });
 
   // P1-b-2: 防递归 —— reflect run 自身结束（reflect: 前缀）不再起反思
@@ -56,9 +56,9 @@ describe("M14.3 P1-b: reflect orchestration", () => {
   test("skips reflection for genesis runs and for runs without meta (resume)", async () => {
     // genesis：meta 存在但 isGenesis=true
     const g = harness({ runId: "run-genesis", isGenesis: true });
-    expect(
-      await orchestrateReflection("conv-a:mem-x1", "run-genesis", "conv-a", g.deps),
-    ).toBe(false);
+    expect(await orchestrateReflection("conv-a:mem-x1", "run-genesis", "conv-a", g.deps)).toBe(
+      false,
+    );
     expect(g.forkLog).toHaveLength(0);
     expect(g.runMeta.has("run-genesis")).toBe(false); // genesis 也清表
 
