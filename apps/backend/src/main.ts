@@ -15,6 +15,7 @@ import {
   sqliteConversationAdapter,
 } from "./features/conversation/index.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
+import { orchestrateReflection } from "./features/run/reflect-orchestrator.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
@@ -331,28 +332,20 @@ supervisor.onRunComplete((threadId, runId) => {
 
       // M14.3: post-run reflection — fire-and-forget, lock already released, independent run.
       // P1-a: resume runs don't populate runMeta (they bypass forkRun), so meta is undefined
-      // here and reflection is skipped. This matches the old runner behavior (spec.mode !== "resume"
-      // gating) — the resume leg is the tail of a main turn whose reflection already ran or wasn't
-      // needed. Known trade-off, not a bug.
-      const meta = runMeta.get(runId);
-      if (meta && !meta.isGenesis) {
-        void (async () => {
-          try {
-            const reflectRunId = ulid();
-            const reflectThreadId = `reflect:${threadId}`;
-            const specJson = await buildSpecJson(threadId, "", {
-              mode: "reflect",
-              runId: reflectRunId,
-              conversationId: cid,
-              senderMemberId: meta.agentMemberId,
-            });
-            supervisor.fork(reflectRunId, reflectThreadId, specJson);
-          } catch (err) {
-            console.error(`[reflect] failed for ${runId}:`, err instanceof Error ? err.message : String(err));
-          }
-        })();
-      }
-      runMeta.delete(runId);
+      // and orchestrateReflection skips them. This matches the old runner behavior
+      // (spec.mode !== "resume" gating) — the resume leg is the tail of a main turn whose
+      // reflection already ran or wasn't needed. Known trade-off, not a bug.
+      void orchestrateReflection(threadId, runId, cid, {
+        runMeta,
+        genId: ulid,
+        buildSpecJson: (tid, input, opts) => buildSpecJson(tid, input, opts),
+        fork: (rid, tid, json) => supervisor.fork(rid, tid, json),
+        onError: (rid, err) =>
+          console.error(
+            `[reflect] failed for ${rid}:`,
+            err instanceof Error ? err.message : String(err),
+          ),
+      });
       break;
     }
   }

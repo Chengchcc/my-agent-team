@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { repairToolPairs } from "./repair-tool-pairs";
+import { repairToolPairs } from "./repair-tool-pairs.js";
 
 describe("repairToolPairs", () => {
   test("passes through clean messages unchanged", () => {
