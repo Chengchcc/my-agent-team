@@ -14,6 +14,7 @@ import {
 } from "@my-agent-team/framework";
 import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
 import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
+import { taskGuardPlugin } from "@my-agent-team/plugin-task-guard";
 import {
   bashTool,
   editTool,
@@ -111,6 +112,7 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
   const defaultPlugins: Plugin[] = [
     fsMemoryPlugin({ dir: workspace }),
     progressiveSkillPlugin({ dir: path.join(workspace, "skills") }),
+    taskGuardPlugin({ model }),
   ];
 
   // 4. Merge extras (duplicate names fail-fast)
