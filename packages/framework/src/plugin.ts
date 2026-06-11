@@ -1,7 +1,13 @@
 import type { Message, Tool, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
+import type { AgentEvent } from "./create-agent.js";
 import type { Checkpointer } from "./checkpointer.js";
 import type { ContextManager } from "./context-manager.js";
 import type { Logger } from "./logger.js";
+
+/** M14.6: Stop-gate verdict. continue=true means "veto stop, keep running with reason as input". */
+export type StopDecision =
+  | { continue: true; reason: string }
+  | { continue: false };
 
 export interface HookContext {
   threadId: string;
@@ -9,9 +15,15 @@ export interface HookContext {
   logger: Logger;
   checkpointer: Checkpointer;
   contextManager: ContextManager;
+  /** M14.6: Optional event emitter for plugins to push AgentEvents (e.g. todo_update).
+   *  Only carries events — never exposes model. Set by framework before each hook fire. */
+  emit?(event: AgentEvent): void;
 }
 
 export interface PluginHooks {
+  /** M14.6: Pre-loop hook, fires once per run() after user message is pushed.
+   *  Transformer — returned messages replace thread.messages. Used for seeding todo plan. */
+  beforeRun?(ctx: HookContext, messages: readonly Message[]): Message[] | Promise<Message[]>;
   beforeModel?(ctx: HookContext, messages: readonly Message[]): Message[] | Promise<Message[]>;
   afterModel?(ctx: HookContext, messages: readonly Message[]): void | Promise<void>;
   beforeTool?(
@@ -28,6 +40,13 @@ export interface PluginHooks {
     result: ToolResultBlock,
     messages: readonly Message[],
   ): void | Promise<void>;
+  /** M14.6: Fires when model returns no tool_use and the loop is about to end.
+   *  Returns StopDecision to veto stop and force-continue, or undefined/{continue:false} to allow stop.
+   *  Plugin should only do deterministic checks here (no LLM calls). */
+  beforeStop?(
+    ctx: HookContext,
+    messages: readonly Message[],
+  ): StopDecision | undefined | Promise<StopDecision | undefined>;
 }
 
 export interface Plugin {

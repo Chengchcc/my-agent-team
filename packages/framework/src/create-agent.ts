@@ -13,7 +13,7 @@ import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 import type { ContextManager } from "./context-manager.js";
 import { passthroughContextManager } from "./context-managers/passthrough.js";
 import { consoleLogger, type Logger } from "./logger.js";
-import type { HookContext, Plugin } from "./plugin.js";
+import type { HookContext, Plugin, StopDecision } from "./plugin.js";
 import { validatePlugins } from "./plugin.js";
 import { createThread, type Thread } from "./thread.js";
 
@@ -29,7 +29,11 @@ export type AgentEvent =
   | { type: "error"; payload: { message: string; stack?: string } }
   | { type: "text_delta"; payload: { blockIndex: number; text: string } }
   | { type: "tool_start"; payload: { id: string; name: string } }
-  | { type: "tool_end"; payload: { id: string; name: string; isError?: boolean } };
+  | { type: "tool_end"; payload: { id: string; name: string; isError?: boolean } }
+  | {
+      type: "todo_update";
+      payload: { todos: Array<{ step: string; status: "pending" | "in_progress" | "done" }> };
+    };
 
 export interface ResumeCommand {
   approved: boolean;
@@ -41,6 +45,8 @@ export interface AgentRunOptions {
   maxSteps?: number;
   /** When true, text_delta events are yielded for each text chunk before the full message. Default false. */
   stream?: boolean;
+  /** M14.6: Max times beforeStop can force-continue per run. Default 3; 0 disables the stop gate. */
+  maxForceContinues?: number;
 }
 
 export interface Agent {
@@ -104,12 +110,18 @@ function createAgentInternal(
     }
   };
 
+  // M14.6: Plugin-emitted events (e.g. todo_update) collected here and drained in executeOne.
+  const pendingEvents: AgentEvent[] = [];
+
   const ctx: HookContext = {
     threadId: thread.id,
     signal: undefined,
     logger,
     checkpointer,
     contextManager,
+    emit: (event: AgentEvent) => {
+      pendingEvents.push(event);
+    },
   };
 
   async function fireBeforeModel(msgs: Message[]): Promise<Message[]> {
@@ -179,6 +191,43 @@ function createAgentInternal(
         }
       }
     }
+  }
+
+  // M14.6: beforeRun aggregator — transformer chain, fail-open
+  async function fireBeforeRun(msgs: readonly Message[]): Promise<readonly Message[]> {
+    let current = msgs;
+    for (const p of plugins) {
+      if (p.hooks.beforeRun) {
+        try {
+          const result = await p.hooks.beforeRun(ctx, current);
+          current = result ?? current;
+        } catch (err) {
+          logger.warn(`beforeRun ${p.name}`, err);
+        }
+      }
+    }
+    return current;
+  }
+
+  // M14.6: beforeStop aggregator — any plugin can veto stop
+  async function fireBeforeStop(
+    msgs: readonly Message[],
+  ): Promise<StopDecision | undefined> {
+    const reasons: string[] = [];
+    for (const p of plugins) {
+      if (p.hooks.beforeStop) {
+        try {
+          const d = await p.hooks.beforeStop(ctx, msgs);
+          if (d?.continue) reasons.push(d.reason);
+        } catch (err) {
+          logger.warn(`beforeStop ${p.name}`, err);
+        }
+      }
+    }
+    if (reasons.length > 0) {
+      return { continue: true, reason: reasons.join("\n\n") };
+    }
+    return undefined;
   }
 
   function wrapToolResult(
@@ -286,6 +335,8 @@ function createAgentInternal(
       content: [resultBlock],
     } as Message);
     await fireAfterTool(call, resultBlock, thread.messages);
+    // M14.6: Drain plugin-emitted events (e.g. todo_update after todo_write)
+    for (const ev of pendingEvents.splice(0)) yield ev;
     await checkpointer.appendEvent?.(thread.id, {
       type: "tool_end",
       result: resultBlock,
@@ -308,7 +359,11 @@ function createAgentInternal(
     signal?: AbortSignal;
     maxSteps: number;
     stream?: boolean;
+    /** M14.6: Max force-continue count. Default 3; 0 disables stop gate. */
+    maxForceContinues?: number;
   }): AsyncGenerator<AgentEvent> {
+    let forceContinues = 0;
+    const maxForce = opts.maxForceContinues ?? 3;
     for (let step = 0; step < opts.maxSteps; step++) {
       if (opts.signal?.aborted) {
         await checkpointer.appendEvent?.(thread.id, {
@@ -398,6 +453,24 @@ function createAgentInternal(
 
       const toolUses = blocks.filter((b): b is ToolUseBlock => b.type === "tool_use");
       if (toolUses.length === 0) {
+        // M14.6: Stop gate — only check when gate is open and under force-continue limit.
+        if (maxForce > 0 && forceContinues < maxForce) {
+          const verdict = await fireBeforeStop(thread.messages);
+          // M14.6: Drain events emitted during beforeStop (e.g. late-generated todo_update)
+          for (const ev of pendingEvents.splice(0)) yield ev;
+          if (verdict?.continue) {
+            forceContinues++;
+            thread.messages.push({ role: "user", content: verdict.reason } as Message);
+            await checkpointer.appendEvent?.(thread.id, {
+              type: "force_continue",
+              reason: verdict.reason,
+              attempt: forceContinues,
+              ts: Date.now(),
+            });
+            await save(thread.messages);
+            continue; // re-enter the loop with the veto reason as new user input
+          }
+        }
         await save(thread.messages);
         await checkpointer.appendEvent?.(thread.id, {
           type: "run_end",
@@ -472,7 +545,22 @@ function createAgentInternal(
           ts: Date.now(),
         });
 
-        yield* runLoop({ signal: opts.signal, maxSteps: opts.maxSteps ?? 32, stream: opts.stream });
+        // M14.6: Pre-loop hook — seed todo plan, inject guidance. Transformer replaces messages.
+        const seeded = await fireBeforeRun(thread.messages);
+        if (seeded !== thread.messages) {
+          thread.messages.length = 0;
+          thread.messages.push(...seeded);
+          await save(thread.messages);
+        }
+        // Drain any events emitted by beforeRun (e.g. initial todo_update)
+        for (const ev of pendingEvents.splice(0)) yield ev;
+
+        yield* runLoop({
+          signal: opts.signal,
+          maxSteps: opts.maxSteps ?? 32,
+          stream: opts.stream,
+          maxForceContinues: opts.maxForceContinues,
+        });
       } finally {
         running = false;
         ctx.signal = undefined;
@@ -519,7 +607,12 @@ function createAgentInternal(
         }
         await save(thread.messages);
 
-        yield* runLoop({ signal: opts.signal, maxSteps: opts.maxSteps ?? 32, stream: opts.stream });
+        yield* runLoop({
+          signal: opts.signal,
+          maxSteps: opts.maxSteps ?? 32,
+          stream: opts.stream,
+          maxForceContinues: opts.maxForceContinues,
+        });
       } finally {
         running = false;
         ctx.signal = undefined;

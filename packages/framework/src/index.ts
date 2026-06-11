@@ -28,6 +28,7 @@ export {
   type HookContext,
   type Plugin,
   type PluginHooks,
+  type StopDecision,
   validatePlugins,
 } from "./plugin.js";
 export { repairToolPairs } from "./repair-tool-pairs.js";

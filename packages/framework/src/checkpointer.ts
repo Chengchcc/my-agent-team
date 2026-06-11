@@ -34,7 +34,12 @@ export type CheckpointEvent =
     }
   | { type: "interrupt"; pendingTool: ToolUseBlock; reason: string; ts: number }
   | { type: "resume"; ts: number }
-  | { type: "run_end"; reason: "complete" | "aborted" | "maxSteps"; ts: number };
+  | { type: "run_end"; reason: "complete" | "aborted" | "maxSteps"; ts: number }
+  // M14.6: Stop-gate and verification audit events (internal, deprecated for UX projection)
+  | { type: "force_continue"; reason: string; attempt: number; ts: number }
+  | { type: "plan_injected"; steps: string[]; ts: number }
+  | { type: "verify_round"; round: number; complete: boolean; missing?: string; ts: number }
+  | { type: "verify_exhausted"; rounds: number; ts: number };
 
 export interface Checkpointer {
   load(threadId: string): Promise<Message[] | null>;
