@@ -111,6 +111,59 @@ function upsertAuthoritative(
   return [...list, { id, sender, content }];
 }
 
+// ─── M14.5: Turn grouping (pure render-layer selector) ───
+
+export type TurnSegment =
+  | { kind: "single"; message: UiMessage }
+  | { kind: "turn"; id: string; sender: SenderRef; rounds: UiMessage[]; conclusion: UiMessage | null };
+
+/** A message is a "conclusion" if it has text content AND no tool_use blocks.
+ *  Tool_result-only messages (has tool_result but no text) are NOT conclusions. */
+export function isConclusionMessage(m: UiMessage): boolean {
+  if (typeof m.content === "string") return m.content.trim().length > 0;
+  const blocks = m.content;
+  const hasToolUse = blocks.some((b) => b.type === "tool_use");
+  const hasText = blocks.some(
+    (b) => b.type === "text" && typeof (b as { text?: string }).text === "string" && (b as { text: string }).text.trim().length > 0,
+  );
+  return !hasToolUse && hasText;
+}
+
+/** Group flat messages into turn segments by continuous same-agent sender. */
+export function groupTurns(messages: UiMessage[]): TurnSegment[] {
+  const out: TurnSegment[] = [];
+  let i = 0;
+  while (i < messages.length) {
+    const m = messages[i]!;
+    if (m.sender.kind !== "agent") {
+      out.push({ kind: "single", message: m });
+      i++;
+      continue;
+    }
+    // Collect continuous same-agent block
+    const start = i;
+    while (
+      i < messages.length &&
+      messages[i]!.sender.kind === "agent" &&
+      messages[i]!.sender.memberId === m.sender.memberId
+    )
+      i++;
+    const block = messages.slice(start, i);
+    // Find last conclusion within the block
+    let lastConclusionIdx = -1;
+    for (let k = block.length - 1; k >= 0; k--) {
+      if (isConclusionMessage(block[k]!)) {
+        lastConclusionIdx = k;
+        break;
+      }
+    }
+    const conclusion = lastConclusionIdx >= 0 ? block[lastConclusionIdx]! : null;
+    const rounds = block.filter((_, k) => k !== lastConclusionIdx);
+    out.push({ kind: "turn", id: block[0]!.id, sender: m.sender, rounds, conclusion });
+  }
+  return out;
+}
+
 export function reducer(s: ConvState, a: Action): ConvState {
   switch (a.type) {
     case "bootstrap": {

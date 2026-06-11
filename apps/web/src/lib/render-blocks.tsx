@@ -27,19 +27,27 @@ export function normalizeToolResultContent(c: unknown): string {
   return c == null ? "" : JSON.stringify(c);
 }
 
-export function renderContentBlocks(blocks: unknown[] | undefined) {
-  if (!Array.isArray(blocks)) return null;
-  const typed = blocks as BlockLike[];
-
-  const toolResults = new Map<string, { content: string; isError?: boolean }>();
-  for (const b of typed) {
+/** Collect tool_result blocks into a lookup map (cross-message pairing). */
+export function collectToolResults(
+  blocks: BlockLike[],
+  into: Map<string, { content: string; isError?: boolean }> = new Map(),
+): Map<string, { content: string; isError?: boolean }> {
+  for (const b of blocks) {
     if (b.type === "tool_result" && b.tool_use_id) {
-      toolResults.set(b.tool_use_id, {
+      into.set(b.tool_use_id, {
         content: normalizeToolResultContent(b.content),
         isError: b.is_error,
       });
     }
   }
+  return into;
+}
+
+export function renderContentBlocks(blocks: unknown[] | undefined) {
+  if (!Array.isArray(blocks)) return null;
+  const typed = blocks as BlockLike[];
+
+  const toolResults = collectToolResults(typed);
 
   return typed.map((block) => {
     if (block.type === "tool_use" && block.id && typeof block.name === "string") {

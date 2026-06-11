@@ -4,6 +4,8 @@ import { useMemo, useEffect, useRef, useState, useCallback } from "react";
 import { extractText } from "@/lib/timeline";
 import { renderContentBlocks } from "@/lib/render-blocks";
 import { MessageBubble } from "./MessageBubble";
+import { ReasoningTrace } from "./ReasoningTrace";
+import { groupTurns, type TurnSegment } from "@/lib/conversation-reducer";
 import type { UiMessage } from "@/lib/conversation-reducer";
 
 interface TimelineProps {
@@ -28,22 +30,25 @@ function SystemNotice({ text }: { text: string }) {
   );
 }
 
-function extractAnchors(messages: UiMessage[]): TurnAnchor[] {
+function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {
   const anchors: TurnAnchor[] = [];
   let turnNum = 0;
-  for (let i = 1; i < messages.length; i++) {
-    const prev = messages[i - 1]!;
-    const cur = messages[i]!;
+  for (let i = 1; i < segments.length; i++) {
+    const prev = segments[i - 1]!;
+    const cur = segments[i]!;
+    const prevSender =
+      prev.kind === "turn" ? prev.sender : prev.message.sender;
+    const curSender = cur.kind === "turn" ? cur.sender : cur.message.sender;
     if (
-      prev.sender.memberId !== cur.sender.memberId &&
-      cur.sender.kind !== "system" &&
-      prev.sender.kind !== "system"
+      prevSender.memberId !== curSender.memberId &&
+      curSender.kind !== "system" &&
+      prevSender.kind !== "system"
     ) {
       turnNum++;
       anchors.push({
-        id: `turn-${prev.id}`,
+        id: `turn-${prev.kind === "turn" ? prev.id : prev.message.id}`,
         seq: turnNum,
-        elementId: `turn-${prev.id}`,
+        elementId: `turn-${prev.kind === "turn" ? prev.id : prev.message.id}`,
       });
     }
   }
@@ -51,9 +56,10 @@ function extractAnchors(messages: UiMessage[]): TurnAnchor[] {
 }
 
 export function Timeline({ messages, viewerMemberId, scrollContainerRef }: TimelineProps) {
-  const anchors = useMemo(() => extractAnchors(messages), [messages]);
-  // Map message id → per-conversation turn number (1-based)
-  const turnNumByMsgId = useMemo(() => {
+  const segments = useMemo(() => groupTurns(messages), [messages]);
+  const anchors = useMemo(() => extractAnchors(segments), [segments]);
+  // Map segment id → per-conversation turn number (1-based)
+  const turnNumBySegId = useMemo(() => {
     const map = new Map<string, number>();
     for (const a of anchors) {
       map.set(a.id.replace("turn-", ""), a.seq);
@@ -98,6 +104,42 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
     [scrollContainerRef],
   );
 
+  // Build a flat render list of {seg, anchorId?, turnNum?}
+  const renderItems = useMemo(() => {
+    const items: Array<{
+      seg: TurnSegment;
+      anchorId?: string;
+      turnNum?: number;
+    }> = [];
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i]!;
+      const segId = seg.kind === "turn" ? seg.id : seg.message.id;
+      if (i > 0) {
+        const prev = segments[i - 1]!;
+        const prevSender =
+          prev.kind === "turn" ? prev.sender : prev.message.sender;
+        const curSender =
+          seg.kind === "turn" ? seg.sender : seg.message.sender;
+        if (
+          prevSender.memberId !== curSender.memberId &&
+          curSender.kind !== "system" &&
+          prevSender.kind !== "system"
+        ) {
+          const anchorId = `turn-${
+            prev.kind === "turn" ? prev.id : prev.message.id
+          }`;
+          const turnNum = turnNumBySegId.get(
+            prev.kind === "turn" ? prev.id : prev.message.id,
+          );
+          items.push({ seg, anchorId, turnNum });
+          continue;
+        }
+      }
+      items.push({ seg });
+    }
+    return items;
+  }, [segments, turnNumBySegId]);
+
   return (
     <div className="flex gap-0">
       {/* Anchor nav — right side, subtle */}
@@ -110,9 +152,10 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                 type="button"
                 onClick={() => scrollToAnchor(a.elementId)}
                 className={`text-[10px] leading-none w-6 h-5 flex items-center justify-center rounded-sm transition-colors font-mono
-                  ${a.elementId === activeAnchor
-                    ? "text-[var(--primary)] bg-[var(--primary)]/8"
-                    : "text-[var(--hairline)] hover:text-[var(--mute)] hover:bg-[var(--canvas-soft)]"
+                  ${
+                    a.elementId === activeAnchor
+                      ? "text-[var(--primary)] bg-[var(--primary)]/8"
+                      : "text-[var(--hairline)] hover:text-[var(--mute)] hover:bg-[var(--canvas-soft)]"
                   }`}
                 title={`Turn ${a.seq}`}
               >
@@ -126,7 +169,32 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
       {/* Timeline content */}
       <div className="flex-1 min-w-0">
         <div className="max-w-3xl mx-auto">
-          {messages.map((m, i) => {
+          {renderItems.map(({ seg, anchorId, turnNum }) => {
+            if (seg.kind === "turn") {
+              return (
+                <div key={seg.id}>
+                  {anchorId && turnNum !== undefined && (
+                    <div
+                      id={anchorId}
+                      className="flex items-center gap-3 py-3"
+                    >
+                      <div className="flex-1 h-px bg-[var(--hairline)]" />
+                      <div className="flex items-center gap-1 text-[10px] text-[var(--mute)] shrink-0">
+                        <span>#{turnNum}</span>
+                      </div>
+                      <div className="flex-1 h-px bg-[var(--hairline)]" />
+                    </div>
+                  )}
+                  <ReasoningTrace
+                    segment={seg}
+                    defaultOpen={false}
+                  />
+                </div>
+              );
+            }
+
+            // single segment: human / system / standalone agent
+            const m = seg.message;
             const isSelf = m.sender.memberId === viewerMemberId;
             const isSystem = m.sender.kind === "system";
             const virt = {
@@ -134,19 +202,9 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
               containIntrinsicSize: "auto 80px" as const,
             };
 
-            // Show inline anchor marker when sender changes
-            const prev = i > 0 ? messages[i - 1] : null;
-            const showAnchor =
-              prev &&
-              prev.sender.memberId !== m.sender.memberId &&
-              !isSystem &&
-              prev.sender.kind !== "system";
-            const anchorId = `turn-${prev?.id ?? ""}`;
-            const turnNum = prev ? turnNumByMsgId.get(prev.id) : undefined;
-
             return (
               <div key={m.id}>
-                {showAnchor && prev && turnNum !== undefined && (
+                {anchorId && turnNum !== undefined && (
                   <div id={anchorId} className="flex items-center gap-3 py-3">
                     <div className="flex-1 h-px bg-[var(--hairline)]" />
                     <div className="flex items-center gap-1 text-[10px] text-[var(--mute)] shrink-0">
@@ -158,7 +216,11 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                 {isSystem ? (
                   <div style={virt}>
                     <SystemNotice
-                      text={typeof m.content === "string" ? m.content : extractText(m.content)}
+                      text={
+                        typeof m.content === "string"
+                          ? m.content
+                          : extractText(m.content)
+                      }
                     />
                   </div>
                 ) : (
@@ -166,8 +228,16 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                     {typeof m.content === "string" ? (
                       <MessageBubble
                         align={isSelf ? "right" : "left"}
-                        name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
-                        kind={m.sender.kind === "system" ? undefined : m.sender.kind}
+                        name={
+                          isSelf
+                            ? undefined
+                            : (m.sender.displayName ?? m.sender.memberId)
+                        }
+                        kind={
+                          m.sender.kind === "system"
+                            ? undefined
+                            : m.sender.kind
+                        }
                         content={m.content}
                       />
                     ) : (
@@ -175,8 +245,16 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                         {extractText(m.content) && (
                           <MessageBubble
                             align={isSelf ? "right" : "left"}
-                            name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
-                            kind={m.sender.kind === "system" ? undefined : m.sender.kind}
+                            name={
+                              isSelf
+                                ? undefined
+                                : (m.sender.displayName ?? m.sender.memberId)
+                            }
+                            kind={
+                              m.sender.kind === "system"
+                                ? undefined
+                                : m.sender.kind
+                            }
                             content={extractText(m.content)}
                           />
                         )}

@@ -13,9 +13,13 @@ export function DraftMessage({ draft }: { draft: Draft }) {
       isStreaming
     >
       {draft.tools.length > 0 && (
-        <p className="text-sm text-[var(--mute)] mb-2">
-          Running {draft.tools.map((t) => t.name).join(", ")}&hellip;
-        </p>
+        <div className="mb-2 flex items-center gap-2 text-[11px] font-[family-name:var(--font-mono)] text-[var(--mute)] border border-[var(--hairline)] rounded-md px-3 py-1.5">
+          <span className="text-[var(--primary)]">▼</span>
+          <span>
+            推理轨迹（进行中）· Running{" "}
+            {draft.tools.map((t) => t.name).join(", ")}&hellip;
+          </span>
+        </div>
       )}
       <Markdown text={draft.text} />
       <StreamingCursor />

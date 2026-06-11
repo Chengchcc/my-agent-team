@@ -1,0 +1,104 @@
+"use client";
+
+import { useState } from "react";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collapsible";
+import { ToolStep } from "./ToolStep";
+import { MessageBubble } from "./MessageBubble";
+import { collectToolResults } from "@/lib/render-blocks";
+import { extractText } from "@/lib/timeline";
+import type { TurnSegment } from "@/lib/conversation-reducer";
+import type { ContentBlock } from "@/lib/api";
+
+export function ReasoningTrace({
+  segment,
+  defaultOpen = false,
+}: {
+  segment: Extract<TurnSegment, { kind: "turn" }>;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const { rounds, conclusion, sender } = segment;
+
+  // Cross-message tool_result aggregation (fixes the "tool results disappear after completion" bug)
+  const resultMap = new Map<string, { content: string; isError?: boolean }>();
+  for (const m of rounds) {
+    if (Array.isArray(m.content)) collectToolResults(m.content as ContentBlock[], resultMap);
+  }
+
+  const stepCount = rounds.reduce(
+    (n, m) =>
+      n +
+      (Array.isArray(m.content)
+        ? m.content.filter((b) => b.type === "tool_use").length
+        : 0),
+    0,
+  );
+  const toolNames = [
+    ...new Set(
+      rounds.flatMap((m) =>
+        Array.isArray(m.content)
+          ? m.content
+              .filter((b) => b.type === "tool_use")
+              .map((b) => (b as { name?: string }).name ?? "")
+          : [],
+      ),
+    ),
+  ].filter(Boolean);
+
+  return (
+    <div className="my-1">
+      {rounds.length > 0 && (
+        <Collapsible open={open} onOpenChange={setOpen}>
+          <CollapsibleTrigger
+            className="w-full text-left flex items-center gap-2 px-3 py-1.5
+            border border-[var(--hairline)] rounded-md hover:bg-[var(--canvas-soft)] transition-colors
+            text-[11px] font-[family-name:var(--font-mono)] text-[var(--mute)]"
+          >
+            <span className="text-[var(--primary)]">{open ? "▼" : "▶"}</span>
+            <span>
+              推理轨迹 · {stepCount} 步
+              {toolNames.length ? ` · ${toolNames.join(", ")}` : ""}
+            </span>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="border-l-2 border-[var(--primary)]/30 ml-1.5 pl-3 py-1 my-1 flex flex-col gap-1.5">
+              {rounds.map((m) => {
+                if (!Array.isArray(m.content)) return null;
+                const text = extractText(m.content);
+                return (
+                  <div key={m.id} className="flex flex-col gap-1">
+                    {text && (
+                      <div className="text-[13px] text-[var(--body)]">{text}</div>
+                    )}
+                    {(m.content as ContentBlock[]).map((b) =>
+                      b.type === "tool_use" && b.id ? (
+                        <ToolStep
+                          key={b.id}
+                          name={b.name ?? ""}
+                          input={b.input}
+                          result={resultMap.get(b.id)}
+                        />
+                      ) : null,
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+      {/* Conclusion: always visible, full-width */}
+      {conclusion && (
+        <MessageBubble
+          align="left"
+          name={sender.displayName ?? sender.memberId}
+          kind="agent"
+          content={
+            extractText(conclusion.content) ||
+            (typeof conclusion.content === "string" ? conclusion.content : "")
+          }
+        />
+      )}
+    </div>
+  );
+}
