@@ -110,12 +110,12 @@
 
 | 术语 | 定义 |
 |---|---|
-| Backend | 常驻进程。管理多个 agent 实例（agentId 表 + workspace 物化），通过 HTTP + SSE 暴露能力给前端。详见 [11-backend.md](./11-backend.md) |
+| Backend | 常驻进程。管理多个 agent 实例（agentId 表 + workspace 物化），通过 HTTP + SSE 暴露能力给前端。详见 [12-backend.md](./12-backend.md) |
 | Agent Pool | `{ spawn(agentId, input, threadId), abort(agentId, threadId), shutdown() }`。Backend 内部的 agent 生命周期管理器，按 agentId 调度 runner |
 | AgentStore | `agentId → AgentSpec` 元数据持久化（DB/KV）。与 framework 的 checkpointer（per-thread messages）不同维度 |
 | Runner | Backend 提供的进程入口（≤ 50 行 entry script），把 harness + transport 包成具体部署形态（in-proc / stdio / HTTP / WebSocket） |
 | SSE（Server-Sent Events） | `AgentEvent` 流 → `text/event-stream` 的序列化。`ev.type` → `event:`，`ev.payload` → `data:`，机械转译零分支 |
-| AgentSpec | Backend ↔ Runner 的 wire 契约对象。zod schema 独立包，带 `schemaVersion` 字段防跨进程版本错配。详见 [12-agent-spec.md](./12-agent-spec.md) |
+| AgentSpec | Backend ↔ Runner 的 wire 契约对象。zod schema 独立包，带 `schemaVersion` 字段防跨进程版本错配。详见 [13-agent-spec.md](./13-agent-spec.md) |
 | Workspace 物化 | Backend 在 `POST /agents` 时 `mkdir` + 从 template 复制 SOUL/AGENTS/MEMORY 等初始文件。harness 不 mkdir |
 
 ---

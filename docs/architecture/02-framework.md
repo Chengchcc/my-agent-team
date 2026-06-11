@@ -509,4 +509,4 @@ agent.fork(msgs, parentId)                // ❌ throw！同 id 不可 fork
 
 ## 与 L2 的关系
 
-L2 `run(model, tools, messages)` 保持不变。L3 有自己的 loop（`#runLoop` / `#executeOne`），不调 L2 `run()`——L2 generator 太封闭，无法在中间 fire hooks。两者复用 `collectStream` 和 `ChatModel` / `Tool` 接口。上层 ([Harness](./08-harness.md)) 可以替换 L3 或直接调 L2，两者独立。
+L2 `run(model, tools, messages)` 保持不变。L3 有自己的 loop（`#runLoop` / `#executeOne`），不调 L2 `run()`——L2 generator 太封闭，无法在中间 fire hooks。两者复用 `collectStream` 和 `ChatModel` / `Tool` 接口。上层 ([Harness](./09-harness.md)) 可以替换 L3 或直接调 L2，两者独立。

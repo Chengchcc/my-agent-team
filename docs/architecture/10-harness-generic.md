@@ -2,13 +2,13 @@
 
 通用 agent harness——行为由 **workspace 目录里几个 markdown 文件**控制，而非硬编码在 npm 包里。同一份 `harness-generic` 配不同 workspace = 不同领域 agent。
 
-> 这是 [Harness 形态 B](./08-harness.md#两种形态) 的具体落地。Harness 三必要条件（domain-closed + zero-assembly + behavior-locked）全部成立，"领域"由 workspace 文件内容承载。
+> 这是 [Harness 形态 B](./09-harness.md#两种形态) 的具体落地。Harness 三必要条件（domain-closed + zero-assembly + behavior-locked）全部成立，"领域"由 workspace 文件内容承载。
 
 ---
 
 ## 一、为什么不做 `harness-coding` / `harness-research` 等领域包
 
-按 [Harness vs Framework §反模式](./10-harness-vs-framework.md#反模式) 的"≥70% 重叠 → 加参数"原则：
+按 [Harness vs Framework §反模式](./11-harness-vs-framework.md#反模式) 的"≥70% 重叠 → 加参数"原则：
 
 | 维度 | coding / research / writing 之间是否重叠 |
 |---|---|
@@ -157,7 +157,7 @@ ${todayLog}
 
 ### 为什么 daily-log 在 bootstrap 一次性注入，不做 plugin
 
-奥卡姆剃刀。详见 [08-harness.md §文件分工](./08-harness.md#文件分工) 的论证：daily-log 只在 session 启动时需要读一次，不需要 `beforeModel` hook，因此**不应**成为 plugin。LLM 写当天日志用通用 `write_file` tool 即可：
+奥卡姆剃刀。详见 [09-harness.md §文件分工](./09-harness.md#文件分工) 的论证：daily-log 只在 session 启动时需要读一次，不需要 `beforeModel` hook，因此**不应**成为 plugin。LLM 写当天日志用通用 `write_file` tool 即可：
 
 ```
 LLM 调 write_file({ path: 'memory/2026-06-05.md', content: '今天...', append: true })
@@ -198,7 +198,7 @@ templates/
 └── writing/
 ```
 
-由 [Backend §POST /agents](./11-backend.md#post-agents) 在创建 agent 时复制到新 workspace。harness 不感知模板的存在——它只看见用户给的 workspace。
+由 [Backend §POST /agents](./12-backend.md#post-agents) 在创建 agent 时复制到新 workspace。harness 不感知模板的存在——它只看见用户给的 workspace。
 
 ---
 
@@ -265,7 +265,7 @@ for await (const ev of agent.run(spec.input)) {
 }
 ```
 
-harness API 在两种调用场景下**完全相同**——这是 [§与 Backend 的边界](./08-harness.md#与-backend-的边界) 自然推论。
+harness API 在两种调用场景下**完全相同**——这是 [§与 Backend 的边界](./09-harness.md#与-backend-的边界) 自然推论。
 
 ---
 
@@ -284,7 +284,7 @@ harness API 在两种调用场景下**完全相同**——这是 [§与 Backend 
 
 ## 八、设计自检对照（Harness 5 条 checklist）
 
-按 [08-harness.md §判断 checklist](./08-harness.md#判断-checklist) 逐条对照：
+按 [09-harness.md §判断 checklist](./09-harness.md#判断-checklist) 逐条对照：
 
 1. README 写 "for users with a workspace" — ✅
 2. 工厂函数签名没有 `tools` / `plugins` / `contextManager` — ✅（只有 `workspace` / `model` / 注入式 logger）
@@ -317,4 +317,4 @@ harness API 在两种调用场景下**完全相同**——这是 [§与 Backend 
 
 ---
 
-**Harness Generic 文档结束。** 上游依赖：[Framework](./02-framework.md) / [fs-memory](./06-plugin-fs-memory.md) / [progressive-skill](./07-plugin-progressive-skill.md)。下游消费：[Backend](./11-backend.md)。
+**Harness Generic 文档结束。** 上游依赖：[Framework](./02-framework.md) / [fs-memory](./06-plugin-fs-memory.md) / [progressive-skill](./07-plugin-progressive-skill.md)。下游消费：[Backend](./12-backend.md)。

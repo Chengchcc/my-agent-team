@@ -2,11 +2,11 @@
 
 > Conversation 把 [Thread](./01-glossary.md)（一条 `{id, messages}` 对话线 = 隐式绑死一个 agent）**升维**为一个**汇总多个 agent thread 的容器 + 一份会话级 ledger（事实源）**；Member 把"谁在对话里"做成 first-class 名册（`AgentMember | HumanMember`）。这是把项目从 "agent runtime" 推进到 [vision §一](./00-vision.md) 的 "agent **team** runtime" 的抽象底座。
 >
-> 它解决的第一性问题：**一条会话里能挂多个成员（真人 + 多个 agent），它们彼此知道存在、能互相 @，真人在中间点名对话**——而**不**重写下层执行。每个 agent 仍持有一条完整的 [M9 thread](./11-backend.md#durable-runs)；Conversation 只在其**上方**加一层"会话级 ledger → 广播投影进各 thread"。
+> 它解决的第一性问题：**一条会话里能挂多个成员（真人 + 多个 agent），它们彼此知道存在、能互相 @，真人在中间点名对话**——而**不**重写下层执行。每个 agent 仍持有一条完整的 [M9 thread](./12-backend.md#durable-runs)；Conversation 只在其**上方**加一层"会话级 ledger → 广播投影进各 thread"。
 >
 > 核心机制一句话：**广播可见 + @ 触发执行**。
 >
-> 关联：[00-vision](./00-vision.md)（Member/Conversation 抽象出处） · [11-backend](./11-backend.md)（容器落地层） · [13-event-log](./13-event-log.md)（执行事实源，本层不触碰） · [12-agent-spec](./12-agent-spec.md)（run 注入契约）。
+> 关联：[00-vision](./00-vision.md)（Member/Conversation 抽象出处） · [12-backend](./12-backend.md)（容器落地层） · [14-event-log](./14-event-log.md)（执行事实源，本层不触碰） · [13-agent-spec](./13-agent-spec.md)（run 注入契约）。
 >
 > 实现里程碑见 [M10 spec](../superpowers/specs/2026-06-06-m10-member-conversation.md)。本文沉淀的是**持久架构**（模型与不变量），spec 是**某一期的落地切片**。
 
@@ -32,7 +32,7 @@
 |---|---|---|
 | **Conversation** | 汇总多个 agent thread 的容器 + 会话级 ledger（事实源）。有自己的 `id`（汇总维度） | 取代"一人对一 agent"的单 thread 模型；单 agent 会话退化成 M9 thread |
 | **Member** | team 的 first-class 成员名册项：`AgentMember`（指向 agentStore 的 agentId）或 `HumanMember`（外部 userRef） | vision §三 的 `type Member = AgentMember \| HumanMember` |
-| **Ledger（conversation ledger）** | 会话事件的唯一事实源：消息 + 成员系统事件，统一形状、单调 seq | 与 [EventLog](./13-event-log.md) 同精神（只追加、可投影），但维度不同：ledger 是**会话语义层**，event_log 是**run 执行层** |
+| **Ledger（conversation ledger）** | 会话事件的唯一事实源：消息 + 成员系统事件，统一形状、单调 seq | 与 [EventLog](./14-event-log.md) 同精神（只追加、可投影），但维度不同：ledger 是**会话语义层**，event_log 是**run 执行层** |
 | **thread.messages** | 每个 agent 的执行态消息序列 | **从 ledger 广播投影派生**的物化态，不是事实源（沿用 M9 "messages 是派生态" 的纪律） |
 | **addressedTo** | 一条消息的"点名集" | **同时编码可见性与执行性**（见 §三） |
 | **triggerMode** | 触发策略开关：`mention`（被 @ 才动）/ `all`（任何新消息都触发，留口子） | 当前只实现 `mention`；`all` 是 autonomous 协作（后续里程碑） |
@@ -115,7 +115,7 @@ agent X 输出里 @Y  = X 的 assistant 消息 { sender: X, addressedTo: [Y] }
 
 ## 五、Ledger vs thread.messages —— 事实源与派生态
 
-这是本层最关键的建模纪律，直接继承 [EventLog 的"一切真相沉到生命周期最长的层"](./13-event-log.md#二解耦铁律)：
+这是本层最关键的建模纪律，直接继承 [EventLog 的"一切真相沉到生命周期最长的层"](./14-event-log.md#二解耦铁律)：
 
 | | conversation ledger | thread.messages |
 |---|---|---|
@@ -130,7 +130,7 @@ agent X 输出里 @Y  = X 的 assistant 消息 { sender: X, addressedTo: [Y] }
 
 ### 与 EventLog 的关系（两条不同维度的"日志"）
 
-| | conversation ledger | [event_log](./13-event-log.md) |
+| | conversation ledger | [event_log](./14-event-log.md) |
 |---|---|---|
 | **维度** | 会话语义层（谁对谁说了什么、谁进谁出） | run 执行层（一次 agent loop 产生的 AgentEvent 流） |
 | **粒度** | 一条 ledger entry = 一条会话消息/成员事件 | 一条 event_log record = 一个执行事件 |

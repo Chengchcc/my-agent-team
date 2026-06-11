@@ -2,7 +2,7 @@
 
 Framework 的**内化能力**，负责 agent 执行状态的**持久化与可恢复性**。它不是可选 plugin——永远存在，只是实现可替换（内存 / 文件 / Redis / 数据库）。
 
-> **职责收窄**:Checkpointer **只服务 agent loop 自身的可恢复性**(快照续跑 + 中断恢复)。"UX 层读历史事件流做回放"这件事**已剥离到 [EventLog](./13-event-log.md)**——一个独立 port,带 `thread_id` 字段、可订阅、由 backend 持有。Checkpointer 由 **runner 注入(子进程内,backend 不碰)**;EventLog 由 **backend composition root 持有(投影端唯一数据源)**。两者职责正交、长期共存。下文的 Tier 3(`appendEvent`/`readEvents`)语义降级为"checkpointer 内部审计",**不再是 UX 投影的事实源**,详见 [13 §五](./13-event-log.md#五与-checkpointer-的职责切分对照表)。
+> **职责收窄**:Checkpointer **只服务 agent loop 自身的可恢复性**(快照续跑 + 中断恢复)。"UX 层读历史事件流做回放"这件事**已剥离到 [EventLog](./14-event-log.md)**——一个独立 port,带 `thread_id` 字段、可订阅、由 backend 持有。Checkpointer 由 **runner 注入(子进程内,backend 不碰)**;EventLog 由 **backend composition root 持有(投影端唯一数据源)**。两者职责正交、长期共存。下文的 Tier 3(`appendEvent`/`readEvents`)语义降级为"checkpointer 内部审计",**不再是 UX 投影的事实源**,详见 [14 §五](./14-event-log.md#五与-checkpointer-的职责切分对照表)。
 
 解决两个第一性问题(原"执行流可观测"已移交 EventLog):
 
@@ -10,8 +10,8 @@ Framework 的**内化能力**，负责 agent 执行状态的**持久化与可恢
 2. **可中断执行** — human-in-the-loop 场景下，agent loop 能暂停、退出进程、等待外部决策、新进程恢复
 
 > **Checkpointer 是 resume 的唯一权威源,且 backend 经 re-fork 触发 resume**:
-> - **唯一权威源**:`save` 存的是 agent loop **裁剪后的真实输入态**(token-budget / summarizing / sliding-window 之后)。[EventLog](./13-event-log.md) 记的是**未裁剪原始事件**,因丢失裁剪信息**不能**替代 checkpointer 做 resume(用它 replay 会与原始输入态分叉,触发 token 爆或 Anthropic 400)。详见 [13 §5.1](./13-event-log.md#51-为什么-eventlog-不能取代-checkpointer-做-resume)。
-> - **backend 不持有 checkpointer,不调 `agent.resume()`**:durable runs 下 backend 收到 `POST /api/runs/:id/resume` 后,**fork 一个新 attempt 子进程**(spec 带 `mode='resume'` + `resumeCommand` + 原 `storage.checkpointer` 配置);子进程内才调 `agent.resume()` → `consumeInterrupt`。backend 只**转发** checkpointer 连接配置,**从不读其内容**(对 checkpointer 介质永久无感)。链路见 [11-backend §Resume](./11-backend.md#resumebackend-不-resume而是重新-fork-一个-attempt)。
+> - **唯一权威源**:`save` 存的是 agent loop **裁剪后的真实输入态**(token-budget / summarizing / sliding-window 之后)。[EventLog](./14-event-log.md) 记的是**未裁剪原始事件**,因丢失裁剪信息**不能**替代 checkpointer 做 resume(用它 replay 会与原始输入态分叉,触发 token 爆或 Anthropic 400)。详见 [14 §5.1](./14-event-log.md#51-为什么-eventlog-不能取代-checkpointer-做-resume)。
+> - **backend 不持有 checkpointer,不调 `agent.resume()`**:durable runs 下 backend 收到 `POST /api/runs/:id/resume` 后,**fork 一个新 attempt 子进程**(spec 带 `mode='resume'` + `resumeCommand` + 原 `storage.checkpointer` 配置);子进程内才调 `agent.resume()` → `consumeInterrupt`。backend 只**转发** checkpointer 连接配置,**从不读其内容**(对 checkpointer 介质永久无感)。链路见 [12-backend §Resume](./12-backend.md#resumebackend-不-resume而是重新-fork-一个-attempt)。
 
 ---
 
@@ -88,7 +88,7 @@ class InterruptSignal extends Error {
 | 2 — Human-in-the-loop | `saveInterrupt` / `consumeInterrupt` | 必须成对 | Tool 抛 `InterruptSignal` 时 throw |
 | 3 — 内部审计 | `appendEvent` / `readEvents` | 必须成对 | 不记录内部审计流，但 agent 正常运行 |
 
-> **Tier 3 的定位**:UX 投影 / SSE 回放已由 [EventLog](./13-event-log.md) 承担。Tier 3 保留为"checkpointer 内部审计"可选能力,**backend 不再以它为数据源**。新部署可直接不实现 Tier 3,让 EventLog 独家负责事件流。
+> **Tier 3 的定位**:UX 投影 / SSE 回放已由 [EventLog](./14-event-log.md) 承担。Tier 3 保留为"checkpointer 内部审计"可选能力,**backend 不再以它为数据源**。新部署可直接不实现 Tier 3,让 EventLog 独家负责事件流。
 
 **`createAgent` 构造时校验成对契约**——fail fast：
 

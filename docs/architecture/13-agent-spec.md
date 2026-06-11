@@ -139,7 +139,7 @@ const agent = createGenericAgent({
 > - **EventLog 收敛**:`storage.eventLog` 由 **backend 下发**,所有 runner 收敛到 backend 也能连的同一存储——否则 backend 投影端 `subscribe` 找不到事件。
 > - **Checkpointer 可异构**:`storage.checkpointer` 由 runner 策略自由选择,backend 不持有、不读其内容。
 >
-> **resume 经 re-fork**:backend 不调 `agent.resume()`(它不持有 checkpointer)。它 fork 一个**新 attempt 子进程**,spec 带 `mode='resume'` + `resumeCommand` + 原 run 的 `runId` 与 `storage.checkpointer`;子进程内 `agent.resume()` 调 `checkpointer.consumeInterrupt` 取回 pending interrupt 续跑,事件继续 `append` 到同 `runId` 的 EventLog——前端 SSE 流无缝连续。详见 [11-backend §Resume](./11-backend.md#resumebackend-不-resume而是重新-fork-一个-attempt)。
+> **resume 经 re-fork**:backend 不调 `agent.resume()`(它不持有 checkpointer)。它 fork 一个**新 attempt 子进程**,spec 带 `mode='resume'` + `resumeCommand` + 原 run 的 `runId` 与 `storage.checkpointer`;子进程内 `agent.resume()` 调 `checkpointer.consumeInterrupt` 取回 pending interrupt 续跑,事件继续 `append` 到同 `runId` 的 EventLog——前端 SSE 流无缝连续。详见 [12-backend §Resume](./12-backend.md#resumebackend-不-resume而是重新-fork-一个-attempt)。
 
 ---
 
@@ -278,4 +278,4 @@ packages/agent-spec/
 
 ---
 
-**AgentSpec 文档结束。** 上游消费：[Backend](./11-backend.md) / Runner 包。
+**AgentSpec 文档结束。** 上游消费：[Backend](./12-backend.md) / Runner 包。

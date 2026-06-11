@@ -237,7 +237,7 @@ export const fsMemoryPlugin = definePlugin({
 设计或评审一个 plugin 时问：
 
 1. **它真的需要看 agent 内部执行节点吗？** 不需要 → 写成 model/tool 的包装函数，不要做成 plugin
-2. **它的逻辑能用 4 个钩子表达吗？** 不能 → 要么逻辑越界（去 [Harness](./08-harness.md) 层做），要么想偷塞中间件
+2. **它的逻辑能用 4 个钩子表达吗？** 不能 → 要么逻辑越界（去 [Harness](./09-harness.md) 层做），要么想偷塞中间件
 3. **依赖什么？** 只依赖 `core` 类型 → 可入 framework 包；依赖具体 model / tool / fs / CLI → 入 harness
 4. **多个实例需要互相通信吗？** 需要 → 合并成一个 plugin
 5. **失败该不该阻塞？** before* 阻塞、after* 不阻塞，与类型语义一致

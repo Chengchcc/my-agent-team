@@ -49,7 +49,7 @@
 | 不知道的事 | agentId、HTTP、沙箱、租户 | message 拼接、tool 调度、plugin hook |
 | 调用关系 | 被 backend 的 runner entry 装配 | 装配 harness 并对外暴露 HTTP/SSE |
 
-**切线**：**workspace 路径 + threadId** 是 backend ↔ harness 唯一的传递点。详见 [08-harness.md §与 Backend 的边界](./08-harness.md#与-backend-的边界)。
+**切线**：**workspace 路径 + threadId** 是 backend ↔ harness 唯一的传递点。详见 [09-harness.md §与 Backend 的边界](./09-harness.md#与-backend-的边界)。
 
 ---
 

@@ -4,7 +4,7 @@
 >
 > 它解决的第一性问题:**执行**(run 子进程推进)、**投影**(SSE 推给前端)、**HTTP 连接生命周期**三者必须正交。run 子进程把事件**写**进 EventLog;backend 的 SSE 端从 EventLog **读**;两者互不认识,只通过 EventLog 通信。客户端断连、backend 重启都不影响执行——因为执行者从不向"连接"写,只向 EventLog 写。
 >
-> 关联:[04-checkpointer](./04-checkpointer.md)(职责对照) · [11-backend](./11-backend.md)(投影端) · [12-agent-spec](./12-agent-spec.md)(注入契约)。
+> 关联:[04-checkpointer](./04-checkpointer.md)(职责对照) · [12-backend](./12-backend.md)(投影端) · [13-agent-spec](./13-agent-spec.md)(注入契约)。
 
 ---
 
@@ -186,7 +186,7 @@ CREATE INDEX idx_event_log_thread ON event_log(thread_id, seq);
 | **runner entry**(子进程边界层) | 消费 yield,`append` 落库 | ✅ **写侧 `EventSink`**(编译器只允许 `append`) |
 | backend 投影端 | `subscribe` 读、tail 推送 | ✅ **读侧 `EventSource`**(编译器只允许 `read`/`subscribe`) |
 
-这与 [11-backend §runner entry](./11-backend.md) 的"entry 只做反序列化 spec → 装配 agent → 序列化 event 三件事"原则一致——只是把第三件事从"序列化到 stdout"升级为"`append` 到 EventLog(+ 可选 stdout 通知)"。**EventLog 停在 entry 层,绝不下沉到 harness/framework**——下沉就是把投影耦合带回内核,正是 04-checkpointer Tier 3 当年的毛病。
+这与 [12-backend §runner entry](./12-backend.md) 的"entry 只做反序列化 spec → 装配 agent → 序列化 event 三件事"原则一致——只是把第三件事从"序列化到 stdout"升级为"`append` 到 EventLog(+ 可选 stdout 通知)"。**EventLog 停在 entry 层,绝不下沉到 harness/framework**——下沉就是把投影耦合带回内核,正是 04-checkpointer Tier 3 当年的毛病。
 
 durable runs 的核心要求是**"backend 死了,run 子进程还能继续写"**(铁律 4)。因此:
 
@@ -235,7 +235,7 @@ for await (const rec of eventLog.subscribe({ runId, afterSeq }, req.signal)) {
 - 客户端断开 → `subscribe` 的 `AbortSignal` 触发 → **只取消订阅,不 abort run**(执行者无感知,铁律 3)。
 - 冷读(run 已结束):`subscribe` 回放完历史后立即遇终态 → 合成 done → 关闭。等价于纯 `read`。
 
-详见 [11-backend.md](./11-backend.md)。
+详见 [12-backend.md](./12-backend.md)。
 
 ---
 
@@ -287,7 +287,7 @@ durable runs 下不同 runner 可以用**不同介质的 checkpointer**(Runner A
 
 > **不变量(EventLog 收敛)**:所有 runner 的 `storage.eventLog` 必须由 **backend 下发**、指向 **backend 也能连的同一后端存储**(同一 PG 实例 / 同一 SQLite 文件)。否则 backend 投影端 `subscribe({runId})` 找不到事件。
 >
-> 即:**`storage.eventLog` 由 backend 决定并收敛;`storage.checkpointer` 由 runner 策略自由选择**。backend 对 checkpointer 介质**永久无感**——连 resume 时也只是把原 spec 的 checkpointer 配置**原样转发**给新子进程,自己从不读其内容(见 [11-backend §resume](./11-backend.md))。
+> 即:**`storage.eventLog` 由 backend 决定并收敛;`storage.checkpointer` 由 runner 策略自由选择**。backend 对 checkpointer 介质**永久无感**——连 resume 时也只是把原 spec 的 checkpointer 配置**原样转发**给新子进程,自己从不读其内容(见 [12-backend §resume](./12-backend.md))。
 
 ---
 
@@ -338,9 +338,9 @@ run 子进程比 backend 活得久(backend 重启子进程还在)。若让 backe
 
 #### 10.1.1 心跳消费时机:重启发现 + 运行期收割（reaper）
 
-仅在 backend 重启时读一次 `heartbeat_at` 有个洞:**进程没死但任务卡死**(模型 fetch 永久挂起、工具不返回、死循环)既不触发 `child.on("exit")`、又(若心跳是独立定时器)照常打卡 → backend 永远以为它在干活,长任务的 [M10 单活跃 run 锁](./14-conversation.md#四防失控两道安全阀)永不释放。修正分两层,都不新增协议:
+仅在 backend 重启时读一次 `heartbeat_at` 有个洞:**进程没死但任务卡死**(模型 fetch 永久挂起、工具不返回、死循环)既不触发 `child.on("exit")`、又(若心跳是独立定时器)照常打卡 → backend 永远以为它在干活,长任务的 [M10 单活跃 run 锁](./15-conversation.md#四防失控两道安全阀)永不释放。修正分两层,都不新增协议:
 
-- **运行期收割(reaper)**:backend 把"读 `heartbeat_at` 判活"的逻辑从"仅重启触发"提升为**运行期周期扫描**(周期约 `heartbeatTimeoutMs/2`);`age > heartbeatTimeoutMs` → 标 `attempt.ended` + `run.status='interrupted'` + 发终态事件 + 触发 `onRunComplete`(联动释放 M10 会话锁)。落地见 [11-backend §运行期 Liveness Reaper](./11-backend.md#运行期-liveness-reaper主动收割卡死的-run)。
+- **运行期收割(reaper)**:backend 把"读 `heartbeat_at` 判活"的逻辑从"仅重启触发"提升为**运行期周期扫描**(周期约 `heartbeatTimeoutMs/2`);`age > heartbeatTimeoutMs` → 标 `attempt.ended` + `run.status='interrupted'` + 发终态事件 + 触发 `onRunComplete`(联动释放 M10 会话锁)。落地见 [12-backend §运行期 Liveness Reaper](./12-backend.md#运行期-liveness-reaper主动收割卡死的-run)。
 - **心跳 = 进度信号,而非存活信号**:`heartbeat_at` 的更新从独立 `setInterval` **移到 agent loop 每步推进**(每产出一个 `AgentEvent` / 每完成一次 `sink.append()` 打一次),**不保留兜底定时器**(无条件兜底会把 progress 退化成 liveness 假阳性)。这样 `heartbeat_at` 真正代表"任务在推进"(progress),而非"进程没死"(liveness);独立 `setInterval` 的假阳性(卡死但事件循环仍转)被消除。`stepStallTimeoutMs`(默认 300s)作为 backend reaper 判死的**二次校验窗口**(reaper 发现 heartbeat 过期后不立即判死,`kill(pid,0)` 探进程 + 等待 stepStallTimeoutMs 确认),**仅存 BackendConfig,不进 AgentSpec**(runner 子进程不感知它,卡死时天然不打心跳即被动配合)。
 
 > 关键:动的仍是 `heartbeat_at` **同一列**,不加新字段/通道(奥卡姆:同一根管子换驱动源 + 把读取时机从"重启一次"扩到"运行期周期")。reaper 是 backend 侧**纯读 + 状态收敛**,绝不向 runner 发指令——单一真相源与"无进程间互探"两条原则继续成立。
@@ -363,4 +363,4 @@ run 子进程比 backend 活得久(backend 重启子进程还在)。若让 backe
 
 ---
 
-**EventLog 文档结束。** 上游消费:[Backend](./11-backend.md)(投影端) / Runner 子进程(append 端)。职责对照见 [Checkpointer](./04-checkpointer.md)。
+**EventLog 文档结束。** 上游消费:[Backend](./12-backend.md)(投影端) / Runner 子进程(append 端)。职责对照见 [Checkpointer](./04-checkpointer.md)。
