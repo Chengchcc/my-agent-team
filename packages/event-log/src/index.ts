@@ -1,4 +1,4 @@
-import type { Database as SqliteDatabase, SQLQueryBindings } from "bun:sqlite";
+import type { SQLQueryBindings, Database as SqliteDatabase } from "bun:sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
 
 // -- Types --
@@ -62,6 +62,7 @@ export const EVENT_LOG_MIGRATIONS = [
 // -- SQLite --
 
 function openDatabase(db: SqliteDatabase | string): SqliteDatabase {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Database } = require("bun:sqlite") as { Database: typeof SqliteDatabase };
   if (typeof db === "string") return new Database(db);
   return db;
@@ -216,7 +217,7 @@ export function inMemoryEventLog(): EventLog {
       }
 
       // Phase 2: listen for new events with polling fallback
-      let woken = false;
+      let woken = false; // eslint-disable-line no-useless-assignment
       const listener = (_rec: EventRecord) => {
         woken = true;
       };

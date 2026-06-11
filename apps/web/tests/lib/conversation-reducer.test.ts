@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import type { ContentBlock } from "../../src/lib/api";
+import type { UiMessage } from "../../src/lib/conversation-reducer";
 import {
   type Action,
   type ConvState,
+  groupTurns,
   initialState,
+  isConclusionMessage,
   reducer,
   type SenderRef,
 } from "../../src/lib/conversation-reducer";
+import { type BlockLike, collectToolResults } from "../../src/lib/render-blocks";
 
 const a1 = "agent-1";
 const a2 = "agent-2";
@@ -419,5 +424,244 @@ describe("conversation-reducer", () => {
     expect(msg).not.toBeNull();
     expect(typeof msg?.content).toBe("string");
     expect(msg?.content).toBe("hello from agent");
+  });
+});
+
+// ─── M14.5: isConclusionMessage ──────────────────────────
+
+describe("M14.5 isConclusionMessage", () => {
+  function msg(content: UiMessage["content"]): UiMessage {
+    return { id: "m1", sender: { memberId: "a", kind: "agent" }, content };
+  }
+
+  test("string content with text → conclusion", () => {
+    expect(isConclusionMessage(msg("hello"))).toBe(true);
+  });
+
+  test("empty string → not conclusion", () => {
+    expect(isConclusionMessage(msg(""))).toBe(false);
+    expect(isConclusionMessage(msg("   "))).toBe(false);
+  });
+
+  test("text block without tool_use → conclusion", () => {
+    expect(
+      isConclusionMessage(msg([{ type: "text", text: "here is the result" }] as ContentBlock[])),
+    ).toBe(true);
+  });
+
+  test("text + tool_use in same message → NOT conclusion (side-talk then call)", () => {
+    expect(
+      isConclusionMessage(
+        msg([
+          { type: "text", text: "Let me check that" },
+          { type: "tool_use", id: "t1", name: "lookup", input: { q: "x" } },
+        ] as ContentBlock[]),
+      ),
+    ).toBe(false);
+  });
+
+  test("tool_use without text → NOT conclusion", () => {
+    expect(
+      isConclusionMessage(
+        msg([{ type: "tool_use", id: "t1", name: "bash", input: {} }] as ContentBlock[]),
+      ),
+    ).toBe(false);
+  });
+
+  test("tool_result-only → NOT conclusion", () => {
+    expect(
+      isConclusionMessage(
+        msg([{ type: "tool_result", tool_use_id: "t1", content: "ok" }] as ContentBlock[]),
+      ),
+    ).toBe(false);
+  });
+});
+
+// ─── M14.5: collectToolResults (cross-message pairing) ───
+
+describe("M14.5 collectToolResults", () => {
+  test("collects tool_result into map keyed by tool_use_id", () => {
+    const map = collectToolResults([
+      { type: "tool_result", tool_use_id: "t1", content: "result-a" },
+      { type: "tool_result", tool_use_id: "t2", content: "result-b", is_error: true },
+    ] as BlockLike[]);
+    expect(map.get("t1")?.content).toBe("result-a");
+    expect(map.get("t1")?.isError).toBeUndefined();
+    expect(map.get("t2")?.content).toBe("result-b");
+    expect(map.get("t2")?.isError).toBe(true);
+  });
+
+  test("appends to existing map (cross-message aggregation)", () => {
+    const map = new Map<string, { content: string; isError?: boolean }>();
+    collectToolResults(
+      [{ type: "tool_result", tool_use_id: "t1", content: "first" }] as BlockLike[],
+      map,
+    );
+    collectToolResults(
+      [{ type: "tool_result", tool_use_id: "t2", content: "second" }] as BlockLike[],
+      map,
+    );
+    expect(map.size).toBe(2);
+    expect(map.get("t1")?.content).toBe("first");
+    expect(map.get("t2")?.content).toBe("second");
+  });
+
+  test("skips blocks without tool_use_id", () => {
+    const map = collectToolResults([
+      { type: "text", text: "hello" },
+      { type: "tool_result" }, // missing tool_use_id
+      { type: "tool_result", tool_use_id: "t1", content: "ok" },
+    ] as BlockLike[]);
+    expect(map.size).toBe(1);
+  });
+});
+
+// ─── M14.5: groupTurns ───────────────────────────────────
+
+describe("M14.5 groupTurns", () => {
+  const sender: UiMessage["sender"] = { memberId: "ag-x", kind: "agent", displayName: "X" };
+  const human: UiMessage["sender"] = { memberId: "h1", kind: "human", displayName: "Me" };
+
+  function m(id: string, overrides?: Partial<Pick<UiMessage, "sender" | "content">>): UiMessage {
+    return {
+      id,
+      sender: overrides?.sender ?? sender,
+      content: overrides?.content ?? "text",
+    };
+  }
+
+  test("human + pure text agent → single + turn (no rounds, only conclusion)", () => {
+    const segs = groupTurns([
+      m("1", { sender: human, content: "query" }),
+      m("2", { content: "answer" }),
+    ]);
+    expect(segs).toHaveLength(2);
+    expect(segs[0]?.kind).toBe("single");
+    expect(segs[1]?.kind).toBe("turn");
+    const turn = segs[1] as Extract<(typeof segs)[number], { kind: "turn" }>;
+    expect(turn.rounds).toHaveLength(0);
+    expect(turn.conclusion?.id).toBe("2");
+  });
+
+  test("agent with 2 tool rounds + conclusion → rounds=4, conclusion=last text", () => {
+    const msgs: UiMessage[] = [
+      m("1", {
+        content: [{ type: "tool_use", id: "t1", name: "lookup", input: {} }] as ContentBlock[],
+      }),
+      m("2", {
+        content: [{ type: "tool_result", tool_use_id: "t1", content: "data" }] as ContentBlock[],
+      }),
+      m("3", {
+        content: [{ type: "tool_use", id: "t2", name: "summarize", input: {} }] as ContentBlock[],
+      }),
+      m("4", {
+        content: [{ type: "tool_result", tool_use_id: "t2", content: "summary" }] as ContentBlock[],
+      }),
+      m("5", { content: "All done" }),
+    ];
+    const segs = groupTurns(msgs);
+    expect(segs).toHaveLength(1);
+    const turn = segs[0] as Extract<(typeof segs)[number], { kind: "turn" }>;
+    expect(turn.kind).toBe("turn");
+    expect(turn.rounds).toHaveLength(4);
+    expect(turn.conclusion?.id).toBe("5");
+  });
+
+  test("text + tool_use same message → that message is a round, not conclusion", () => {
+    const msgs: UiMessage[] = [
+      m("1", {
+        content: [
+          { type: "text", text: "Let me check" },
+          { type: "tool_use", id: "t1", name: "lookup", input: {} },
+        ] as ContentBlock[],
+      }),
+      m("2", {
+        content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] as ContentBlock[],
+      }),
+      m("3", { content: "Done" }),
+    ];
+    const segs = groupTurns(msgs);
+    const turn = segs[0] as Extract<(typeof segs)[number], { kind: "turn" }>;
+    expect(turn.rounds).toHaveLength(2); // m1 (text+tool_use) + m2 (tool_result)
+    expect(turn.conclusion?.id).toBe("3");
+  });
+
+  test("interrupted turn (last msg still has tool_use) → conclusion=null", () => {
+    const msgs: UiMessage[] = [
+      m("1", {
+        content: [
+          { type: "text", text: "Let me check" },
+          { type: "tool_use", id: "t1", name: "lookup", input: {} },
+        ] as ContentBlock[],
+      }),
+      m("2", {
+        content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] as ContentBlock[],
+      }),
+      m("3", {
+        content: [{ type: "tool_use", id: "t2", name: "summarize", input: {} }] as ContentBlock[],
+      }),
+    ];
+    const segs = groupTurns(msgs);
+    const turn = segs[0] as Extract<(typeof segs)[number], { kind: "turn" }>;
+    expect(turn.rounds).toHaveLength(3);
+    expect(turn.conclusion).toBeNull();
+  });
+
+  test("two different agents → two separate turns", () => {
+    const x = { memberId: "ag-x", kind: "agent" as const };
+    const y = { memberId: "ag-y", kind: "agent" as const };
+    const msgs: UiMessage[] = [
+      m("1", { sender: x, content: "X done" }),
+      m("2", { sender: y, content: "Y done" }),
+    ];
+    const segs = groupTurns(msgs);
+    expect(segs).toHaveLength(2);
+    expect(segs[0]?.kind).toBe("turn");
+    expect(segs[1]?.kind).toBe("turn");
+    expect((segs[0] as Extract<(typeof segs)[number], { kind: "turn" }>).sender.memberId).toBe(
+      "ag-x",
+    );
+    expect((segs[1] as Extract<(typeof segs)[number], { kind: "turn" }>).sender.memberId).toBe(
+      "ag-y",
+    );
+  });
+
+  test("human interleaved between agent messages → breaks the turn", () => {
+    const msgs: UiMessage[] = [
+      m("1", { content: "A1" }),
+      m("2", { sender: human, content: "human says" }),
+      m("3", { content: "A2" }),
+    ];
+    const segs = groupTurns(msgs);
+    expect(segs).toHaveLength(3); // turn, single, turn
+    expect(segs[0]?.kind).toBe("turn");
+    expect(segs[1]?.kind).toBe("single");
+    expect(segs[2]?.kind).toBe("turn");
+  });
+
+  test("tool_result cross-message: collected from rounds (regression for completed tool_result rendering)", () => {
+    // Simulate what ReasoningTrace does: aggregate tool_results from all rounds
+    const msgs: UiMessage[] = [
+      m("1", {
+        content: [{ type: "tool_use", id: "t1", name: "lookup", input: {} }] as ContentBlock[],
+      }),
+      m("2", {
+        content: [
+          { type: "tool_result", tool_use_id: "t1", content: "result-data" },
+        ] as ContentBlock[],
+      }),
+      m("3", { content: "Conclusion" }),
+    ];
+    const segs = groupTurns(msgs);
+    const turn = segs[0] as Extract<(typeof segs)[number], { kind: "turn" }>;
+
+    // Cross-message collection (same as ReasoningTrace)
+    const resultMap = new Map<string, { content: string; isError?: boolean }>();
+    for (const round of turn.rounds) {
+      if (Array.isArray(round.content)) {
+        collectToolResults(round.content as BlockLike[], resultMap);
+      }
+    }
+    expect(resultMap.get("t1")?.content).toBe("result-data");
   });
 });

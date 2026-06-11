@@ -173,7 +173,6 @@ export function groupTurns(messages: UiMessage[]): TurnSegment[] {
     }
     const conclusion = lastConclusionIdx >= 0 ? block[lastConclusionIdx]! : null;
     const rounds = block.filter((_, k) => k !== lastConclusionIdx);
-    // biome-ignore lint/style/noNonNullAssertion: block is non-empty by construction
     out.push({ kind: "turn", id: block[0]!.id, sender: m.sender, rounds, conclusion });
   }
   return out;

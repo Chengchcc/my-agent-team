@@ -13,7 +13,6 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────
 
-
 const human: HumanMember = {
   kind: "human",
   memberId: "h1",

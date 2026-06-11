@@ -69,7 +69,8 @@ export class AnthropicChatModel implements ChatModel {
           event.content_block.type === "thinking" ||
           event.content_block.type === "redacted_thinking"
         ) {
-        } // filtered out
+          void 0; // filtered out
+        }
       } else if (event.type === "content_block_delta") {
         if (event.delta.type === "text_delta") {
           yield { delta: { type: "text", text: event.delta.text } };
@@ -83,7 +84,8 @@ export class AnthropicChatModel implements ChatModel {
             },
           };
         } else if (event.delta.type === "thinking_delta") {
-        } // filtered out
+          void 0; // filtered out
+        }
       }
     }
 

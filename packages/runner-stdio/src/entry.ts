@@ -1,9 +1,9 @@
+import type { Database as SqliteDatabase } from "bun:sqlite";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import type { EventSink } from "@my-agent-team/event-log";
 import type { AgentEvent } from "@my-agent-team/framework";
 import type { createGenericAgent } from "@my-agent-team/harness";
-import type { Database as SqliteDatabase } from "bun:sqlite";
 import { reflectionGuidance } from "@my-agent-team/harness";
 
 export interface EntryIO {

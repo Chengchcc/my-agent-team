@@ -20,7 +20,7 @@ function makeMockAgent(events: AgentEvent[]): Agent {
   let runCalls = 0;
   return {
     thread: { id: "t1", messages: [] },
-    async *run(_input, _opts) {
+    async *run(_input, _opts): AsyncIterable<AgentEvent> {
       runCalls++;
       // M11: second call is reflect turn — yield nothing by default
       if (runCalls > 1) return;
@@ -265,7 +265,7 @@ test("signal abort → agent yields events and runner returns 0", async () => {
 test("agent.run throws → error event with stack + return 1", async () => {
   const mockAgent: Agent = {
     thread: { id: "t1", messages: [] },
-    async *run(_input, _opts) {
+    async *run(_input, _opts): AsyncIterable<AgentEvent> {
       yield* [] as AgentEvent[];
       throw new Error("model timeout");
     },
@@ -534,7 +534,8 @@ test("mode='resume' calls agent.resume() instead of agent.run()", async () => {
   function makeResumeAgent(): Agent {
     return {
       thread: { id: "t1", messages: [] },
-      async *run(_input, _opts) {
+      // eslint-disable-next-line require-yield
+      async *run(_input, _opts): AsyncIterable<AgentEvent> {
         runCalled = true;
       },
       async *resume(_cmd, _opts) {
@@ -973,7 +974,7 @@ test("M14.3: mode='run' does NOT call fork (reflect is backend's job now)", asyn
   function makeAgent(): Agent {
     return {
       thread: { id: "t1", messages: [] },
-      async *run(_input, _opts) {
+      async *run(_input, _opts): AsyncIterable<AgentEvent> {
         yield* events;
       },
       async *resume(_cmd, _opts) {

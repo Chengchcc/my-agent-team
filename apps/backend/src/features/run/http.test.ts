@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import type { EventLog, EventRecord, ReadQuery, SubscribeOptions } from "@my-agent-team/event-log";
 import { runRoutes } from "./http.js";
@@ -251,7 +252,8 @@ describe("Run HTTP", () => {
   test("GET /events closes gracefully on AbortSignal", async () => {
     const mockLog: EventLog = {
       ...makeMockEventLog(),
-      subscribe: async function* (  // eslint-disable-line require-yield
+      // eslint-disable-next-line require-yield
+      subscribe: async function* (
         _query?: ReadQuery,
         _opts?: SubscribeOptions,
         _signal?: AbortSignal,
@@ -325,7 +327,7 @@ describe("Run HTTP", () => {
       }),
     };
     const svc = createRunService({
-      supervisor: makeMockSupervisor({ getDb: () => mockDb as any }),
+      supervisor: makeMockSupervisor({ getDb: () => mockDb as unknown as Database }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
       threads: new Set(),

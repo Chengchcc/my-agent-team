@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import type { Message } from "@my-agent-team/core";
 import { AgentSpecV1 } from "@my-agent-team/agent-spec";
+import type { Message } from "@my-agent-team/core";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import { loadConfig } from "./config.js";
 import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
@@ -114,8 +114,7 @@ const runSvc = createRunService({
       if (conv?.title) return { title: conv.title };
       return conv ? { title: null } : null;
     },
-    getMessages: async (tid) =>
-      (await checkpointPort.getMessages(tid)) as Message[] | null,
+    getMessages: async (tid) => (await checkpointPort.getMessages(tid)) as Message[] | null,
     setTitle: async (tid, title) => {
       const cid = tid.includes(":") ? tid.split(":")[0]! : tid;
       convPort.setConversationTitle(cid, title);

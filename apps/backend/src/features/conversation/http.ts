@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { json, sseResponse } from "../../http/response.js";
-import { ConversationBusyError } from "./service.js";
 import type { ConversationService } from "./service.js";
+import { ConversationBusyError } from "./service.js";
 
 const createSchema = z.object({
   conversationId: z.string().min(1).optional(),
@@ -37,10 +37,7 @@ const messageSchema = z.object({
   content: z.unknown(),
 });
 
-export function conversationRoutes(
-  svc: ConversationService,
-  idGen: () => string,
-) {
+export function conversationRoutes(svc: ConversationService, idGen: () => string) {
   return {
     /** GET /api/conversations?agentId= → 200 [{ conversationId, members }] */
     list(req: Request): Response {

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { AIMessageChunk, ChatModel, ChatModelOptions, Message, Tool } from "@my-agent-team/core";
+import type {
+  AIMessageChunk,
+  ChatModel,
+  ChatModelOptions,
+  Message,
+  Tool,
+} from "@my-agent-team/core";
 import type { InterruptState } from "./checkpointer.js";
 import type { AgentEvent } from "./create-agent.js";
 import { createAgent, InterruptSignal } from "./index.js";

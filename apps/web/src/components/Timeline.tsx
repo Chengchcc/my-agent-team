@@ -30,25 +30,34 @@ function SystemNotice({ text }: { text: string }) {
   );
 }
 
+// ── Segment helpers ──
+
+function segmentSender(seg: TurnSegment): UiMessage["sender"] {
+  return seg.kind === "turn" ? seg.sender : seg.message.sender;
+}
+
+function segmentId(seg: TurnSegment): string {
+  return seg.kind === "turn" ? seg.id : seg.message.id;
+}
+
+/** A turn boundary anchor is placed between two segments when both are
+ *  non-system and their sender identity changes. */
+function isSegmentBoundary(prev: TurnSegment, cur: TurnSegment): boolean {
+  const ps = segmentSender(prev);
+  const cs = segmentSender(cur);
+  return ps.memberId !== cs.memberId && cs.kind !== "system" && ps.kind !== "system";
+}
+
 function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {
   const anchors: TurnAnchor[] = [];
   let turnNum = 0;
   for (let i = 1; i < segments.length; i++) {
     const prev = segments[i - 1]!;
     const cur = segments[i]!;
-    const prevSender = prev.kind === "turn" ? prev.sender : prev.message.sender;
-    const curSender = cur.kind === "turn" ? cur.sender : cur.message.sender;
-    if (
-      prevSender.memberId !== curSender.memberId &&
-      curSender.kind !== "system" &&
-      prevSender.kind !== "system"
-    ) {
+    if (isSegmentBoundary(prev, cur)) {
       turnNum++;
-      anchors.push({
-        id: `turn-${prev.kind === "turn" ? prev.id : prev.message.id}`,
-        seq: turnNum,
-        elementId: `turn-${prev.kind === "turn" ? prev.id : prev.message.id}`,
-      });
+      const id = segmentId(prev);
+      anchors.push({ id: `turn-${id}`, seq: turnNum, elementId: `turn-${id}` });
     }
   }
   return anchors;
@@ -114,16 +123,13 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
       const seg = segments[i]!;
       if (i > 0) {
         const prev = segments[i - 1]!;
-        const prevSender = prev.kind === "turn" ? prev.sender : prev.message.sender;
-        const curSender = seg.kind === "turn" ? seg.sender : seg.message.sender;
-        if (
-          prevSender.memberId !== curSender.memberId &&
-          curSender.kind !== "system" &&
-          prevSender.kind !== "system"
-        ) {
-          const anchorId = `turn-${prev.kind === "turn" ? prev.id : prev.message.id}`;
-          const turnNum = turnNumBySegId.get(prev.kind === "turn" ? prev.id : prev.message.id);
-          items.push({ seg, anchorId, turnNum });
+        if (isSegmentBoundary(prev, seg)) {
+          const prevId = segmentId(prev);
+          items.push({
+            seg,
+            anchorId: `turn-${prevId}`,
+            turnNum: turnNumBySegId.get(prevId),
+          });
           continue;
         }
       }

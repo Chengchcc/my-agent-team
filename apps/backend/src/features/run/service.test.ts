@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { EventLog } from "@my-agent-team/event-log";
+import type { EventLog, EventRecord } from "@my-agent-team/event-log";
 import {
   createRunService,
   RunNotFoundError,
@@ -17,10 +17,9 @@ function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
     onRunComplete: () => {},
     dispose: () => {},
     cancelByPid: () => true,
-    getDb: () =>
-      ({
-        query: () => ({ get: () => null as unknown }),
-      }) as any,
+    getDb: () => ({
+      query: () => ({ get: () => null as unknown }),
+    }),
     ...overrides,
   } as unknown as RunSupervisor;
 }
@@ -29,7 +28,7 @@ function makeMockEventLog(): EventLog {
   return {
     append: async () => 1,
     read: async () => [],
-    subscribe: () => (async function* () {})() as AsyncIterable<any>,
+    subscribe: () => (async function* () {})() as AsyncIterable<EventRecord>,
   };
 }
 
@@ -126,7 +125,7 @@ describe("RunService", () => {
       idGen: () => "run-1",
     });
 
-    const collected: any[] = [];
+    const collected: EventRecord[] = [];
     for await (const rec of svc.eventStream("r1")) {
       collected.push(rec);
     }
