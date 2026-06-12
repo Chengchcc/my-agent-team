@@ -22,5 +22,7 @@
     "@my-agent-team/runner-protocol": "workspace:*",
     "zod": "^3.23.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@my-agent-team/agent-fs": "workspace:*"
+  }
 }

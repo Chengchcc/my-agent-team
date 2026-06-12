@@ -30,16 +30,19 @@
         "@my-agent-team/runner-protocol": "workspace:*",
         "zod": "^3.23.0",
       },
+      "devDependencies": {
+        "@my-agent-team/agent-fs": "workspace:*",
+      },
     },
     "apps/cli": {
       "name": "@my-agent-team/cli",
       "version": "0.1.0",
       "dependencies": {
         "@my-agent-team/adapter-anthropic": "workspace:*",
+        "@my-agent-team/agent-fs": "workspace:*",
         "@my-agent-team/core": "workspace:*",
         "@my-agent-team/harness": "workspace:*",
         "@my-agent-team/tools-common": "workspace:*",
-        "@my-agent-team/workspace-fs": "workspace:*",
       },
     },
     "apps/web": {
@@ -78,6 +81,10 @@
         "@my-agent-team/core": "workspace:*",
       },
     },
+    "packages/agent-fs": {
+      "name": "@my-agent-team/agent-fs",
+      "version": "0.1.0",
+    },
     "packages/agent-spec": {
       "name": "@my-agent-team/agent-spec",
       "version": "0.1.0",
@@ -114,13 +121,13 @@
       "name": "@my-agent-team/harness",
       "version": "0.1.0",
       "dependencies": {
+        "@my-agent-team/agent-fs": "workspace:*",
         "@my-agent-team/core": "workspace:*",
         "@my-agent-team/framework": "workspace:*",
         "@my-agent-team/plugin-fs-memory": "workspace:*",
         "@my-agent-team/plugin-progressive-skill": "workspace:*",
         "@my-agent-team/plugin-task-guard": "workspace:*",
         "@my-agent-team/tools-common": "workspace:*",
-        "@my-agent-team/workspace-fs": "workspace:*",
       },
     },
     "packages/plugin-fs-memory": {
@@ -132,7 +139,7 @@
         "@my-agent-team/tools-common": "workspace:*",
       },
       "devDependencies": {
-        "@my-agent-team/workspace-fs": "workspace:*",
+        "@my-agent-team/agent-fs": "workspace:*",
       },
     },
     "packages/plugin-progressive-skill": {
@@ -145,7 +152,7 @@
         "gray-matter": "^4.0.3",
       },
       "devDependencies": {
-        "@my-agent-team/workspace-fs": "workspace:*",
+        "@my-agent-team/agent-fs": "workspace:*",
       },
     },
     "packages/plugin-task-guard": {
@@ -161,12 +168,12 @@
       "version": "0.1.0",
       "dependencies": {
         "@my-agent-team/adapter-anthropic": "workspace:*",
+        "@my-agent-team/agent-fs": "workspace:*",
         "@my-agent-team/agent-spec": "workspace:*",
         "@my-agent-team/core": "workspace:*",
         "@my-agent-team/framework": "workspace:*",
         "@my-agent-team/harness": "workspace:*",
         "@my-agent-team/runner-protocol": "workspace:*",
-        "@my-agent-team/workspace-fs": "workspace:*",
       },
     },
     "packages/runner-protocol": {
@@ -190,10 +197,6 @@
       "dependencies": {
         "@my-agent-team/core": "workspace:*",
       },
-    },
-    "packages/workspace-fs": {
-      "name": "@my-agent-team/workspace-fs",
-      "version": "0.1.0",
     },
   },
   "packages": {
@@ -419,6 +422,8 @@
 
     "@my-agent-team/adapter-anthropic": ["@my-agent-team/adapter-anthropic@workspace:packages/adapter-anthropic"],
 
+    "@my-agent-team/agent-fs": ["@my-agent-team/agent-fs@workspace:packages/agent-fs"],
+
     "@my-agent-team/agent-spec": ["@my-agent-team/agent-spec@workspace:packages/agent-spec"],
 
     "@my-agent-team/backend": ["@my-agent-team/backend@workspace:apps/backend"],
@@ -450,8 +455,6 @@
     "@my-agent-team/tools-common": ["@my-agent-team/tools-common@workspace:packages/tools-common"],
 
     "@my-agent-team/web": ["@my-agent-team/web@workspace:apps/web"],
-
-    "@my-agent-team/workspace-fs": ["@my-agent-team/workspace-fs@workspace:packages/workspace-fs"],
 
     "@next/env": ["@next/env@15.5.19", "", {}, "sha512-sWWluFvcv5v3Fxznmf2ZfjyoVQt/64oCnYqS90inQWGzMPK1VjvekPiz3OPHKmFT30EnHrjlbyaHLt3M0vWabw=="],
 
