@@ -142,27 +142,28 @@ const runSvc = createRunService({
 });
 
 // Build spec helper — returns V2 spec object for daemon transport
-async function buildSpecV2(
+/** M14.7: Single spec builder for all run modes. Reads agent config for model/permission/maxSteps. */
+async function buildAgentSpecV2(
   threadId: string,
   input: string,
   overrides?: {
-    runId?: string;
-    mode?: "run" | "resume" | "reflect";
+    runId?: string; mode?: "run" | "resume" | "reflect";
     resumeCommand?: { approved: boolean; message?: string };
-    conversationId?: string;
-    senderMemberId?: string;
+    conversationId?: string; senderMemberId?: string; parentRunId?: string;
   },
 ): Promise<Record<string, unknown>> {
   const cid = threadId.split(":")[0]!;
   const memberId = threadId.split(":").slice(1).join(":");
-  const member = db
-    .query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
+  const member = db.query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
     .get(cid, memberId) as { agent_id: string } | undefined;
   const agentId = member?.agent_id ?? memberId;
+  const agent = await agentSvc.getById(agentId);
   return {
-    agentId,
-    threadId,
-    input,
+    schemaVersion: "2",
+    agentId, threadId, runId: overrides?.runId ?? crypto.randomUUID(), input,
+    model: { provider: agent.modelProvider, model: agent.modelName, ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}) },
+    permissionMode: agent.permissionMode ?? "ask",
+    maxSteps: agent.maxSteps ?? undefined,
     ...overrides,
   };
 }
@@ -348,7 +349,7 @@ const getThreadIdForRun = async (runId: string) => {
 const router = createRouter(config.authToken, {
   agents: agentRoutes(agentSvc),
   // threads: removed — conversation is the user-facing concept
-  runs: runRoutes(runSvc, buildSpecV2, getThreadIdForRun),
+  runs: runRoutes(runSvc, buildAgentSpecV2, getThreadIdForRun),
   checkpoints: checkpointRoutes(checkpointSvc),
   conversations: conversationRoutes(convSvc, ulid),
 });

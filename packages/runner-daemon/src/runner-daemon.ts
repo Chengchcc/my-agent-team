@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { AgentSpecV2 } from "@my-agent-team/agent-spec";
 import type { Agent, AgentEvent, Checkpointer } from "@my-agent-team/framework";
 import { sqliteCheckpointer } from "@my-agent-team/framework";
 import type { HostToRunner, RunnerTransport } from "@my-agent-team/runner-protocol";
@@ -30,6 +31,7 @@ interface RunHandle {
   spec: Record<string, unknown>;
   reflect: boolean;
   threadId: string;
+  runId: string;
 }
 
 // ─── Helpers ───
@@ -93,51 +95,33 @@ export class RunnerDaemon {
   // ─── Start ───
 
   async #onStart(msg: HostToRunner & { type: "start" }): Promise<void> {
-    const raw = msg.spec as {
-      agentId?: string; threadId?: string; input?: string;
-      maxSteps?: number; mode?: string;
-      model?: string | { model: string; provider?: string; baseURL?: string };
-      resumeCommand?: { approved: boolean; message?: string };
-    };
+    const parsed = AgentSpecV2.safeParse(msg.spec);
+    if (!parsed.success) {
+      await this.#transport.send({ type: "run_done", runId: msg.runId, status: "error", error: parsed.error.message });
+      return;
+    }
+    const spec = parsed.data;
 
-    // Validate required fields
-    if (!raw.agentId) {
-      await this.#transport.send({ type: "run_done", runId: msg.runId, status: "error", error: "missing agentId in spec" });
-      return;
-    }
-    if (raw.agentId !== this.#agentId) {
-      await this.#transport.send({
-        type: "run_done", runId: msg.runId, status: "error",
-        error: `agentId mismatch: daemon=${this.#agentId}, spec=${raw.agentId}`,
-      });
-      return;
-    }
-    if (raw.mode === "resume" && !raw.resumeCommand) {
-      await this.#transport.send({ type: "run_done", runId: msg.runId, status: "error", error: "resume mode requires resumeCommand" });
+    if (spec.agentId !== this.#agentId) {
+      await this.#transport.send({ type: "run_done", runId: msg.runId, status: "error", error: `agentId mismatch: daemon=${this.#agentId}, spec=${spec.agentId}` });
       return;
     }
 
-    const threadId = raw.threadId ?? msg.runId;
-    const mode = raw.mode ?? "run";
-
-    // Model can be a string (name) or object { provider, model, baseURL }
-    const modelSpec = typeof raw.model === "object" ? raw.model : { model: raw.model ?? "claude-sonnet-4-6" };
-    const model = this.#modelFactory.create(modelSpec);
-
+    const model = this.#modelFactory.create(spec.model);
     const { createGenericAgent } = await import("@my-agent-team/harness");
     const agent = await createGenericAgent({
       workspace: this.#workspace,
       model: model as Parameters<typeof createGenericAgent>[0]["model"],
-      threadId,
+      threadId: spec.threadId,
       checkpointer: this.#checkpointer,
     });
 
     this.#runs.set(msg.runId, {
-      agent,
-      abort: new AbortController(),
-      spec: raw,
-      reflect: mode !== "resume" && mode !== "reflect",
-      threadId,
+      agent, abort: new AbortController(),
+      spec: spec as unknown as Record<string, unknown>,
+      reflect: spec.mode === "run",
+      threadId: spec.threadId,
+      runId: msg.runId,
     });
     void this.#drive(msg.runId);
   }
@@ -145,20 +129,14 @@ export class RunnerDaemon {
   // ─── Drive ───
 
   #iteratorFor(run: RunHandle): AsyncIterable<AgentEvent> {
-    const spec = run.spec as {
-      input?: string;
-      maxSteps?: number;
-      mode?: string;
-      resumeCommand?: { approved: boolean; message?: string };
-    };
+    const parsed = AgentSpecV2.safeParse(run.spec);
+    if (!parsed.success) throw new Error(`invalid stored spec for run ${run.runId}`);
+    const spec = parsed.data;
     const opts = { signal: run.abort.signal, maxSteps: spec.maxSteps ?? 32 };
     switch (spec.mode) {
-      case "resume":
-        return run.agent.resume(spec.resumeCommand!, opts);
-      case "reflect":
-        return run.agent.run(spec.input ?? "", opts);
-      default:
-        return run.agent.run(spec.input ?? "", opts);
+      case "resume": return run.agent.resume(spec.resumeCommand, opts);
+      case "reflect": return run.agent.run(spec.input, opts);
+      default: return run.agent.run(spec.input, opts);
     }
   }
 
@@ -226,9 +204,10 @@ export class RunnerDaemon {
     this.#runs.set(reflectRunId, {
       agent: reflectAgent,
       abort: new AbortController(),
-      spec: { ...parent.spec, mode: "reflect", input: reflectionGuidance() },
+      spec: { ...parent.spec, mode: "reflect", input: reflectionGuidance(), runId: reflectRunId },
       reflect: false,
       threadId: `reflect:${parent.threadId}`,
+      runId: reflectRunId,
     });
     await this.#drive(reflectRunId);
   }
