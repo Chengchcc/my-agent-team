@@ -100,11 +100,20 @@ export class RunnerDaemon {
       resumeCommand?: { approved: boolean; message?: string };
     };
 
-    if (raw.agentId && raw.agentId !== this.#agentId) {
+    // Validate required fields
+    if (!raw.agentId) {
+      await this.#transport.send({ type: "run_done", runId: msg.runId, status: "error", error: "missing agentId in spec" });
+      return;
+    }
+    if (raw.agentId !== this.#agentId) {
       await this.#transport.send({
         type: "run_done", runId: msg.runId, status: "error",
         error: `agentId mismatch: daemon=${this.#agentId}, spec=${raw.agentId}`,
       });
+      return;
+    }
+    if (raw.mode === "resume" && !raw.resumeCommand) {
+      await this.#transport.send({ type: "run_done", runId: msg.runId, status: "error", error: "resume mode requires resumeCommand" });
       return;
     }
 

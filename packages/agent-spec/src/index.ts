@@ -1,7 +1,9 @@
 import { z } from "zod";
 
-/** Wire-format schema version. Bump only on breaking changes. */
-export const CURRENT_SCHEMA_VERSION = "1" as const;
+/** AgentSpec V1 schema version. */
+export const AGENT_SPEC_V1_VERSION = "1" as const;
+/** @deprecated Use AGENT_SPEC_V1_VERSION. */
+export const CURRENT_SCHEMA_VERSION = AGENT_SPEC_V1_VERSION;
 
 export const AgentSpecV1 = z
   .object({
