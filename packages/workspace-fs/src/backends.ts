@@ -1,25 +1,62 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import type { WritableBackend } from "./types.js";
+
+function isWithin(target: string, root: string, sep: string): boolean {
+  if (target === root) return true;
+  return target.startsWith(root.endsWith(sep) ? root : root + sep);
+}
 
 // ─── LocalBackend ───
 
 export class LocalBackend implements WritableBackend {
-  constructor(private root: string) {}
+  #root: string;
+
+  constructor(root: string) {
+    this.#root = path.resolve(root);
+  }
+
+  #rootReal(): string {
+    try { return realpathSync(this.#root); }
+    catch { return this.#root; }
+  }
 
   #resolve(relPath: string): string {
-    const p = path.join(this.root, relPath);
-    // Safety: ensure resolved path is within root
-    if (!p.startsWith(this.root + path.sep) && p !== this.root) {
-      throw new Error(`Path escapes backend root: ${relPath}`);
+    return path.join(this.#root, relPath);
+  }
+
+  /** Verify an existing target path doesn't escape root via symlinks. */
+  #check(p: string): void {
+    let real: string;
+    try { real = realpathSync(p); }
+    catch { return; } // doesn't exist — OK
+    if (!isWithin(real, this.#rootReal(), path.sep)) {
+      throw new Error(`Path escapes backend root: ${path.relative(this.#root, p)} → ${real}`);
     }
-    return p;
+  }
+
+  /** Verify parent of a target path doesn't escape root via symlinks. */
+  #checkParent(p: string): void {
+    let parent = path.dirname(p);
+    // Walk up until we find an existing ancestor
+    for (let i = 0; i < 32; i++) {
+      let real: string;
+      try { real = realpathSync(parent); }
+      catch { parent = path.dirname(parent); continue; }
+      if (!isWithin(real, this.#rootReal(), path.sep)) {
+        throw new Error(`Path escapes backend root via parent: ${path.relative(this.#root, parent)} → ${real}`);
+      }
+      return;
+    }
+    // No existing ancestor found — root doesn't exist yet (fresh workspace), OK
   }
 
   async read(relPath: string): Promise<string | null> {
-    try {
-      return await readFile(this.#resolve(relPath), "utf-8");
-    } catch (err: unknown) {
+    const p = this.#resolve(relPath);
+    this.#check(p);
+    try { return await readFile(p, "utf-8"); }
+    catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
       if ((err as NodeJS.ErrnoException).code === "EISDIR") return null;
       throw err;
@@ -27,17 +64,20 @@ export class LocalBackend implements WritableBackend {
   }
 
   async list(relPath: string): Promise<string[]> {
-    try {
-      return await readdir(this.#resolve(relPath));
-    } catch (err: unknown) {
+    const p = this.#resolve(relPath);
+    this.#check(p);
+    try { return await readdir(p); }
+    catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw err;
     }
   }
 
   async stat(relPath: string): Promise<{ mtimeMs: number; size: number } | null> {
+    const p = this.#resolve(relPath);
+    this.#check(p);
     try {
-      const s = await stat(this.#resolve(relPath));
+      const s = await stat(p);
       return { mtimeMs: s.mtimeMs, size: s.size };
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -46,10 +86,9 @@ export class LocalBackend implements WritableBackend {
   }
 
   async exists(relPath: string): Promise<boolean> {
-    try {
-      await stat(this.#resolve(relPath));
-      return true;
-    } catch (err: unknown) {
+    const p = this.#resolve(relPath);
+    try { await stat(p); return true; }
+    catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
       throw err;
     }
@@ -57,18 +96,22 @@ export class LocalBackend implements WritableBackend {
 
   async write(relPath: string, content: string): Promise<void> {
     const p = this.#resolve(relPath);
+    this.#checkParent(p);
     await mkdir(path.dirname(p), { recursive: true });
     await writeFile(p, content, "utf-8");
   }
 
   async mkdirp(relPath: string): Promise<void> {
-    await mkdir(this.#resolve(relPath), { recursive: true });
+    const p = this.#resolve(relPath);
+    this.#checkParent(p);
+    await mkdir(p, { recursive: true });
   }
 
   async remove(relPath: string): Promise<void> {
-    try {
-      await rm(this.#resolve(relPath), { recursive: true, force: true });
-    } catch (err: unknown) {
+    const p = this.#resolve(relPath);
+    this.#check(p);
+    try { await rm(p, { recursive: true, force: true }); }
+    catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
       throw err;
     }
@@ -81,9 +124,7 @@ export class MemoryBackend implements WritableBackend {
   #store = new Map<string, string>();
   #mtime = new Map<string, number>();
 
-  #key(relPath: string): string {
-    return relPath.replace(/\/+/g, "/");
-  }
+  #key(relPath: string): string { return relPath.replace(/\/+/g, "/"); }
 
   async read(relPath: string): Promise<string | null> {
     const v = this.#store.get(this.#key(relPath));
@@ -121,18 +162,12 @@ export class MemoryBackend implements WritableBackend {
     this.#mtime.set(k, Date.now());
   }
 
-  async mkdirp(_relPath: string): Promise<void> {
-    // no-op: directories are implicit in MemoryBackend
-  }
+  async mkdirp(_relPath: string): Promise<void> { /* no-op */ }
 
   async remove(relPath: string): Promise<void> {
     const k = this.#key(relPath);
-    // Remove exact key + any prefix matches (recursive)
     for (const key of [...this.#store.keys()]) {
-      if (key === k || key.startsWith(k + "/")) {
-        this.#store.delete(key);
-        this.#mtime.delete(key);
-      }
+      if (key === k || key.startsWith(k + "/")) { this.#store.delete(key); this.#mtime.delete(key); }
     }
   }
 }
