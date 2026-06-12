@@ -1,6 +1,6 @@
 # Agent File System — Agent 看到的虚拟文件树
 
-> AFS（Agent File System）不是一个目录，也不是某个 sandbox 的 mount 方案。它是 agent 面对文件世界时的**逻辑文件系统契约**：agent 只看一棵稳定的虚拟文件树，路径由 `WorkspaceFS` 解析到不同后端，是否能被 bash 看见由 mount entry 的 POSIX 能力决定。
+> AFS（Agent File System）不是一个目录，也不是某个 sandbox 的 mount 方案。它是 agent 面对文件世界时的**逻辑文件系统契约**：agent 只看一棵稳定的虚拟文件树，路径由 `AgentFS` 解析到不同后端，是否能被 bash 看见由 mount entry 的 POSIX 能力决定。
 >
 > 关联：[Harness](./09-harness.md)（file-driven agent 的文件语义）· [AgentSpec](./13-agent-spec.md)（runner 启动契约）· [Resident Runner](./16-resident-runner.md)（常驻 sandbox 执行体）· [plugin-fs-memory](./06-plugin-fs-memory.md)（workspace 级记忆）· [tools-common](./01-glossary.md#工具层)（read/write/bash/grep/glob 的调用侧）。
 
@@ -57,7 +57,7 @@ AFS 只接受**逻辑绝对路径**：
 
 1. 输入可以从 `foo.md` 规范化为 `/foo.md`，但内部只流转绝对路径。
 2. `..`、空 path、无法规范化的 path 一律拒绝。
-3. 路径解析只发生在 `WorkspaceFS`，消费者不得自己拼物理路径。
+3. 路径解析只发生在 `AgentFS`，消费者不得自己拼物理路径。
 4. 逻辑路径不承诺可被 POSIX 子进程访问；是否可见由 mount entry 的 `posixRoot` 决定。
 
 ### 三层路径模型（M14.7 根治）
@@ -85,7 +85,7 @@ backend relPath     后端相对路径（SOUL.md, tmp/a.txt）
 flowchart LR
   P[逻辑路径<br/>/memory/today.md] --> A[alias resolver<br/>DefaultWorkspaceAliases]
   A --> C[canonical path<br/>/shared/memory/today.md]
-  C --> W[WorkspaceFS.resolve]
+  C --> W[AgentFS.resolve]
   W --> M[MountEntry<br/>prefix=/shared/]
   M --> B[Backend<br/>LocalBackend]
   M -. 可选 .-> X[POSIX root<br/>bash/grep/glob 可见]
@@ -120,12 +120,12 @@ export interface PathAliasResolver {
 ### MountEntry（仅目录 prefix）
 
 ```ts
-export type WorkspaceDomain = "shared" | "private" | "external" | "runner_state";
+export type AgentFsDomain = "shared" | "private" | "external" | "runner_state";
 
 export interface MountEntry {
   prefix: string;                 // "/shared/", "/private/", "/mnt/drive/" — 必须是目录 prefix
   backend: ReadableBackend;
-  domain: WorkspaceDomain;
+  domain: AgentFsDomain;
   posixRoot?: string;
 }
 ```
@@ -174,12 +174,12 @@ AFS 用 domain 描述访问边界，而不是描述存储介质。
 
 ---
 
-## 六、WorkspaceFS
+## 六、AgentFS
 
-`WorkspaceFS` 是结构化 IO 门面。harness、plugin、read/write/edit 等结构化工具只依赖它，不直接依赖 `node:fs`、`Bun.file` 或宿主路径。
+`AgentFS` 是结构化 IO 门面。harness、plugin、read/write/edit 等结构化工具只依赖它，不直接依赖 `node:fs`、`Bun.file` 或宿主路径。
 
 ```ts
-export class WorkspaceFS {
+export class AgentFS {
   #mounts: MountEntry[];
 
   constructor(mounts: MountEntry[]) {
@@ -189,7 +189,7 @@ export class WorkspaceFS {
   #resolve(path: string): { mount: MountEntry; relPath: string } {
     const p = normalizeAbs(path);
     const mount = this.#mounts.find((m) => p === m.prefix.slice(0, -1) || p.startsWith(m.prefix));
-    if (!mount) throw new WorkspaceAccessError(`no mount for path: ${path}`);
+    if (!mount) throw new AgentFsAccessError(`no mount for path: ${path}`);
     return { mount, relPath: stripPrefix(p, mount.prefix) };
   }
 
@@ -201,7 +201,7 @@ export class WorkspaceFS {
   mkdirp(path: string)           { const r = this.#writable(path); return r.backend.mkdirp(r.relPath); }
   remove(path: string)           { const r = this.#writable(path); return r.backend.remove(r.relPath); }
 
-  mountsForDomain(domain: WorkspaceDomain): MountEntry[] {
+  mountsForDomain(domain: AgentFsDomain): MountEntry[] {
     return this.#mounts.filter((m) => m.domain === domain);
   }
 
@@ -216,20 +216,20 @@ export class WorkspaceFS {
 | 场景 | 语义 |
 |---|---|
 | mount 命中但文件不存在 | `read()` 返回 `null`，`exists()` 返回 `false` |
-| 无 mount 命中 | `WorkspaceAccessError("no mount")` |
-| 写只读 backend | `WorkspaceAccessError("read-only mount")` |
-| 非法路径 | `WorkspaceAccessError("invalid path")` |
+| 无 mount 命中 | `AgentFsAccessError("no mount")` |
+| 写只读 backend | `AgentFsAccessError("read-only mount")` |
+| 非法路径 | `AgentFsAccessError("invalid path")` |
 | backend 内部异常 | 原样上抛，由调用层转成 tool error 或 HTTP error |
 
 ---
 
-## 七、WorkspaceHandle
+## 七、AgentFsHandle
 
-`WorkspaceHandle` 把结构化 IO 和 POSIX 子进程桥接在一起。
+`AgentFsHandle` 把结构化 IO 和 POSIX 子进程桥接在一起。
 
 ```ts
-export interface WorkspaceHandle {
-  fs: WorkspaceFS;
+export interface AgentFsHandle {
+  fs: AgentFS;
   privateRoot: string;       // bash/grep/glob 默认 cwd
   posixRoots: string[];      // sandbox path allowlist
 }
@@ -241,7 +241,7 @@ export interface WorkspaceHandle {
 - `privateRoot`：给 bash 默认 cwd 使用，保证 agent 总有一个可写的 POSIX 工作目录。
 - `posixRoots`：给 sandbox path 校验使用，允许 bash/grep/glob 访问所有可 POSIX 化的 mount。
 
-这意味着**结构化 IO 能访问的路径集合**和**子进程能访问的路径集合**可以不同。对象存储或 SaaS provider 可以被 `WorkspaceFS.read()` 访问，但如果没有 `posixRoot`，bash 就看不见它。
+这意味着**结构化 IO 能访问的路径集合**和**子进程能访问的路径集合**可以不同。对象存储或 SaaS provider 可以被 `AgentFS.read()` 访问，但如果没有 `posixRoot`，bash 就看不见它。
 
 ---
 
@@ -302,13 +302,13 @@ bun packages/runner-daemon/src/bin.ts \
 ```ts
 class RunnerDaemon {
   #agentId: string;
-  #workspace: WorkspaceHandle;     // 单 agent，无 MultiMap
+  #workspace: AgentFsHandle;     // 单 agent，无 MultiMap
   #checkpointer: Checkpointer;     // 单 checkpointer
   #modelFactory: ModelFactory;
 
   constructor(opts: RunnerDaemonOptions) {
     this.#agentId = opts.agentId;
-    this.#workspace = makeWorkspaceHandle({ sharedRoot: opts.sharedRoot, privateRoot: opts.privateRoot });
+    this.#workspace = makeAgentFsHandle({ sharedRoot: opts.sharedRoot, privateRoot: opts.privateRoot });
     this.#checkpointer = sqliteCheckpointer({ db: path.join(opts.stateRoot, "checkpointer.sqlite") });
   }
 }
@@ -321,7 +321,7 @@ class RunnerDaemon {
       { prefix: "/mnt/drive/", domain: "external", backend: new MemoryBackend(), posixRoot: undefined },
     ];
 
-    const fs = new WorkspaceFS(mounts);
+    const fs = new AgentFS(mounts);
     handle = { fs, privateRoot, posixRoots: fs.posixRoots() };
     this.#handles.set(agentId, handle);
     return handle;
@@ -335,10 +335,10 @@ dev 可以一个 daemon 服务多个 agent；prod 可以一 agent 一个 sandbox
 
 ## 十、backend 的 shared-only view
 
-backend 不能再把 workspace 当宿主目录直接读写。需要访问 agent 身份、用户偏好、记忆文件时，backend 构造 shared-only `WorkspaceFS`：
+backend 不能再把 workspace 当宿主目录直接读写。需要访问 agent 身份、用户偏好、记忆文件时，backend 构造 shared-only `AgentFS`：
 
 ```ts
-const fs = new WorkspaceFS(makeSharedOnlyMounts({
+const fs = new AgentFS(makeSharedOnlyMounts({
   sharedRoot: join(sharedRoot, agentId),
   sharedPosix: false,
 }));
@@ -356,14 +356,14 @@ shared-only view 不注册 `/` 私有根，因此 backend 访问 `/tmp/out.json`
 
 AFS 不是兼容层。本项目迁移时应一次性删除旧契约：
 
-1. `createGenericAgent` 不再接受 `workspace: string`，只接受 `WorkspaceHandle`。
+1. `createGenericAgent` 不再接受 `workspace: string`，只接受 `AgentFsHandle`。
 2. harness bootstrap 用 `ws.fs.read("/SOUL.md")` 等逻辑路径读取静态文件。
 3. `plugin-fs-memory` 不再接受 `dir`，改为固定读写 `/memory/`。
 4. `plugin-progressive-skill` 不再接受 `dir`，默认技能目录为 `/skills/`。
-5. tools-common 的 `read/write/edit` 不再 `Bun.file(path)` 直读 workspace，统一走 `WorkspaceFS`。
+5. tools-common 的 `read/write/edit` 不再 `Bun.file(path)` 直读 workspace，统一走 `AgentFS`。
 6. tools-common 的 `bash/grep/glob` 使用 `privateRoot` 作为 cwd，并用 `posixRoots` 做 path allowlist。
-7. backend identity/memory HTTP handler 只使用 shared-only `WorkspaceFS`。
-8. CLI 和测试也必须显式构造 `WorkspaceHandle`，不保留 "传一个 root string" 的快捷入口。
+7. backend identity/memory HTTP handler 只使用 shared-only `AgentFS`。
+8. CLI 和测试也必须显式构造 `AgentFsHandle`，不保留 "传一个 root string" 的快捷入口。
 9. ephemeral runner entry（如 stdio 子进程模式）若不再承担真实部署形态，直接删除，不重命名成兼容适配层。
 
 ---
@@ -383,9 +383,9 @@ AFS 不是兼容层。本项目迁移时应一次性删除旧契约：
 
 | 文档 | AFS 如何影响它 |
 |---|---|
-| [09-harness](./09-harness.md) | file-driven harness 的 `workspace` 从物理目录升级为 `WorkspaceHandle`；领域文件仍是 harness 的输入，但读取方式改为 `WorkspaceFS` |
+| [09-harness](./09-harness.md) | file-driven harness 的 `workspace` 从物理目录升级为 `AgentFsHandle`；领域文件仍是 harness 的输入，但读取方式改为 `AgentFS` |
 | [13-agent-spec](./13-agent-spec.md) | AgentSpec v2 不再下发 `workspace`、`storage`、`apiKey`；runner 用 `agentId + daemon roots` 构造 AFS |
-| [16-resident-runner](./16-resident-runner.md) | Resident Runner 通过 AFS 获得跨 sandbox 的稳定 workspace 视图；daemon 按 agentId 缓存 `WorkspaceHandle` |
+| [16-resident-runner](./16-resident-runner.md) | Resident Runner 通过 AFS 获得跨 sandbox 的稳定 workspace 视图；daemon 按 agentId 缓存 `AgentFsHandle` |
 | [06-plugin-fs-memory](./06-plugin-fs-memory.md) | memory 是 `/memory/` mount 下的 shared domain，而不是插件私有目录 |
 | [01-glossary](./01-glossary.md) | `Workspace`、`Runner`、`tools-common` 等术语需要逐步从路径心智迁到 AFS 心智 |
 

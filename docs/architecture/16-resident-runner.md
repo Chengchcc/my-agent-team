@@ -205,9 +205,9 @@ M14.7 已落地（2026-06-12），核心交付：
 | 组件 | 落地形态 |
 |---|---|
 | **Transport** | `runner-protocol` 包 — `RunnerTransport` 接口 + lifecycle 消息（start/abort/run_finalized/event/delta/heartbeat/run_done），NDJSON codec，Memory/Socket transport。**无 checkpoint RPC** |
-| **Daemon** | `runner-daemon` 包 — agent-scoped（`--agent-id`），单 WorkspaceHandle + 单 SQLiteCheckpointer，ModelFactory，abort/resume/reflect 分派，reflection ACK 控制环 |
+| **Daemon** | `runner-daemon` 包 — agent-scoped（`--agent-id`），单 AgentFsHandle + 单 SQLiteCheckpointer，ModelFactory，abort/resume/reflect 分派，reflection ACK 控制环 |
 | **Checkpointer** | runner-local `SQLiteCheckpointer` 写 `state/checkpointer.sqlite`，不经 Transport，backend 不解析 |
-| **AFS** | `workspace-fs` 包 — canonical namespace + alias resolver，mount table 仅目录 prefix（`/shared/`, `/private/`），displayRoot |
+| **AFS** | `agent-fs` 包 — canonical namespace + alias resolver，mount table 仅目录 prefix（`/shared/`, `/private/`），displayRoot |
 | **Registry** | `DevRunnerRegistry` — dev lazy spawn + dispose；`ProdRunnerRegistry` — resolve endpoint only |
 | **Backend** | supervisor `start()` transport 路径，`#beginAttempt`，async `onRunComplete`（D19 完成后 ACK），runnerBin 删除，AgentSpecV1 从 main.ts 删除 |
 | **清理** | `runner-stdio` 删除，`checkpointer-sqlite` 迁入 framework，`orchestrateReflection` 删除，`workspace-reader` 删除 |
