@@ -143,14 +143,15 @@ plugin 通过 `Plugin.tools` 静态声明：
 skill body 可能很长（几千 tokens）。一次 tool_result 太大会污染 context。策略：
 
 ```ts
-const MAX_CHARS_PER_LOAD = 8000;  // ~2k tokens
+const maxCharsPerLoad = 8000;  // ~2k tokens
 
 async function loadSkillBody(skill, offset) {
-  const body = await fs.readFile(skill.path, 'utf-8').then(stripFrontmatter);
+  const raw = (await ws.read(skill.skillMdPath)) ?? '';
+  const body = raw.slice(skill.bodyOffset);
   if (offset >= body.length) {
     return { content: `Skill ${skill.name} fully loaded.`, isError: false };
   }
-  const chunk = body.slice(offset, offset + MAX_CHARS_PER_LOAD);
+  const chunk = body.slice(offset, offset + maxCharsPerLoad);
   const nextOffset = offset + chunk.length;
   const hasMore = nextOffset < body.length;
   const suffix = hasMore
@@ -209,10 +210,12 @@ For OCR: run `python ${SKILL_DIR}/ocr.py <input.pdf>`.
 plugin 在 `skill_load` 返回正文前做字符串替换：
 
 ```ts
-body = body.replaceAll('${SKILL_DIR}', path.resolve(skill.dir));
+// M14.7 AFS: replaced with logical path (e.g. /skills/pdf-extract)
+// bash reachability requires the /skills/ mount to have a posixRoot configured
+body = body.replaceAll('${SKILL_DIR}', skill.dir);
 ```
 
-这让 SKILL.md 与具体安装路径解耦——同一份 skill 可以放在 `/home/alice/skills/` 或 `/opt/skills/`，body 不用改。
+这让 SKILL.md 可以用逻辑路径引用自身目录（如 `python ${SKILL_DIR}/extract.py`），与具体宿主路径解耦。
 
 ---
 
@@ -222,8 +225,10 @@ body = body.replaceAll('${SKILL_DIR}', path.resolve(skill.dir));
 // @my-agent-team/plugin-progressive-skill
 
 export interface ProgressiveSkillOptions {
-  /** Skill 根目录。扫描 `${dir}/*/SKILL.md` */
-  dir: string;
+  /** AgentFS 实例，提供 read/list/stat */
+  ws: AgentFsLike;
+  /** Skill 逻辑根路径。默认 '/skills/' */
+  root?: string;
   /** 单次 skill_load 返回的最大字符数。默认 8000 */
   maxCharsPerLoad?: number;
 }
@@ -242,8 +247,8 @@ const agent = createAgent({
   model,
   systemPrompt: 'You are a helpful assistant.',
   plugins: [
-    fsMemoryPlugin({ dir: '~/.my-agent/memory' }),
-    progressiveSkillPlugin({ dir: '~/.my-agent/skills' }),
+    fsMemoryPlugin({ ws: '~/.my-agent/memory', root: '/memory/' }),
+    progressiveSkillPlugin({ ws: '~/.my-agent/skills', root: '/skills/' }),
   ],
 });
 ```
@@ -258,7 +263,7 @@ const agent = createAgent({
 
 1. **它真的需要看 agent 内部执行节点吗？** 是。index 注入必须命中 `beforeModel`
 2. **它的逻辑能用 4 个钩子表达吗？** 能。只用 `beforeModel`
-3. **依赖什么？** 依赖 `core` 类型 + `node:fs/promises` + 任一 yaml frontmatter 解析器
+3. **依赖什么？** 依赖 `core` 类型 + `@my-agent-team/agent-fs` + `@my-agent-team/tools-common`（`AgentFsLike`/`pjoin`）+ `gray-matter`
 4. **多个实例需要互相通信吗？** 不需要。一个 agent 一般只挂一个 skill 目录
 5. **失败该不该阻塞？** 不阻塞。降级 + warn
 

@@ -144,7 +144,7 @@ createAgent({
 // ✓ plugin 自带
 createAgent({
   tools: [...baseTool],
-  plugins: [fsMemoryPlugin({ dir }), progressiveSkillPlugin({ dir })],
+  plugins: [fsMemoryPlugin({ ws, root: '/memory/' }), progressiveSkillPlugin({ dir })],
 });
 ```
 

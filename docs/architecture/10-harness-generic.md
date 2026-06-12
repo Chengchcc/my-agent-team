@@ -104,8 +104,8 @@ async function createGenericAgent(opts: GenericAgentOptions): Promise<Agent> {
     systemPrompt,
     tools: builtinTools(ws),
     plugins: [
-      fsMemoryPlugin({ dir: ws }),
-      progressiveSkillPlugin({ dir: `${ws}/skills` }),
+      fsMemoryPlugin({ ws: ws, root: '/memory/' }),
+      progressiveSkillPlugin({ dir: `/skills/` }),
       permissionPlugin({ mode: opts.permissionMode ?? 'ask' }),
     ],
     checkpointer: opts.checkpointer ?? inMemoryCheckpointer(),
@@ -211,7 +211,7 @@ import type { Agent, ChatModel, Checkpointer, Logger } from '@my-agent-team/fram
 
 export interface GenericAgentOptions {
   /** Workspace 根目录（绝对路径推荐）。所有 tool / plugin 的相对基准 */
-  workspace: string;
+  workspace: AgentFsHandle;
 
   /** 已构造好的 ChatModel 实例（adapter 由调用方选） */
   model: ChatModel;
@@ -252,7 +252,7 @@ for await (const event of agent.run('add a unit test for utils.ts')) {
 ### 调用方（被 Backend Runner 装配）
 
 ```ts
-// runner-stdio entry.ts
+// runner-daemon entry.ts
 const spec = AgentSpecV1.parse(JSON.parse(process.env.AGENT_SPEC!));
 const agent = createGenericAgent({
   workspace: spec.workspace,

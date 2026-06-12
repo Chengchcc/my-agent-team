@@ -69,7 +69,7 @@
 | `web_fetch` | 取 URL 内容返回纯文本。>20K 字符截断 | `packages/tools-common/src/web-fetch.ts` |
 | `web_search` | Tavily 搜索 API。用工厂模式 `createWebSearchTool(apiKey)` | `packages/tools-common/src/web-search.ts` |
 | `memory_save` / `memory_recall` | 进程内 KV 存储。`Map<string, string>` 注入。会话级生命周期 | `packages/tools-common/src/memory-save.ts` |
-| `read` / `write` | 文件读写。用 `Bun.file()` / `Bun.write()` | `packages/tools-common/src/read.ts` |
+| `read` / `write` | 文件读写。用 `AgentFS.read()` / `AgentFS.write()` | `packages/tools-common/src/afs-tools.ts` |
 
 ---
 
@@ -111,7 +111,7 @@
 | 术语 | 定义 |
 |---|---|
 | Backend | 常驻进程。管理多个 agent 实例（agentId 表 + workspace 物化），通过 HTTP + SSE 暴露能力给前端。详见 [12-backend.md](./12-backend.md) |
-| Agent Pool | `{ spawn(agentId, input, threadId), abort(agentId, threadId), shutdown() }`。Backend 内部的 agent 生命周期管理器，按 agentId 调度 runner |
+|  `{ spawn(agentId, input, threadId), abort(agentId, threadId), shutdown() }`。Backend 内部的 agent 生命周期管理器，按 agentId 调度 runner | `{ spawn(agentId, input, threadId), abort(agentId, threadId), shutdown() }`。Backend 内部的 agent 生命周期管理器，按 agentId 调度 runner |
 | AgentStore | `agentId → AgentSpec` 元数据持久化（DB/KV）。与 framework 的 checkpointer（per-thread messages）不同维度 |
 | Runner | Backend 提供的进程入口（≤ 50 行 entry script），把 harness + transport 包成具体部署形态（in-proc / stdio / HTTP / WebSocket） |
 | SSE（Server-Sent Events） | `AgentEvent` 流 → `text/event-stream` 的序列化。`ev.type` → `event:`，`ev.payload` → `data:`，机械转译零分支 |
@@ -154,5 +154,5 @@
 | `@my-agent-team/*` | 所有包的 scope 前缀 |
 | `.js` extension imports | TS 源文件中相对导入必须写 `.js` 扩展名。`moduleResolution: "NodeNext"` 要求 |
 | barrel export | 包的 `index.ts` 导出全部公开 API。**不引入**子路径导出（`@my-agent-team/core/protocols/message`） |
-| `bun-types` | Bun 类型声明。需 `types: ["bun-types"]` 的 tsconfig 包括：测试文件、使用 `Bun.file()`/`Bun.write()`/`process.env` 的源码文件 |
+| `bun-types` | Bun 类型声明。需 `types: ["bun-types"]` 的 tsconfig 包括：测试文件、使用 `process.env` 的源码文件 |
 | `apps/cli` | 交互式 CLI。临时脚本，只为手工验证。harness 完成后会替换 |

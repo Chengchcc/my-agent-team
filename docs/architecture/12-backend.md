@@ -2,17 +2,17 @@
 
 ## 定位
 
-Backend 是 agent 栈的 **L5 团队运行时**——一个常驻 HTTP 进程，管理多个 agent 实例、维护 agentId 元数据、持久化 thread、把 [Harness](./09-harness.md) 通过 runner 装到任意部署形态（同进程 / 子进程 / 远端）里跑，对上层 [L6 Surfaces](./00-vision.md#四当前分层架构)（frontend / IM bot / CLI）暴露 HTTP/SSE。
+Backend 是 agent 栈的 **L5 团队运行时**——一个常驻 HTTP 进程，管理多个 agent 实例、维护 agentId 元数据、通过 [RunnerRegistry](./16-resident-runner.md) 寻址 agent-scoped daemon 并收发 transport 消息，对上层 [L6 Surfaces](./00-vision.md#四当前分层架构)（frontend / IM bot / CLI）暴露 HTTP/SSE。
 
 它是从"库"到"可被前端/bot 调用的服务"的关键一跳，但**不再是栈的最顶层**——上面还有 surface 层。
 
-> **Durable Runs**:Backend 把 run 执行从"绑死在 HTTP SSE 流上的进程内 generator"重构为**独立子进程执行 + 事件落 [EventLog](./14-event-log.md) + SSE 只读投影**。三件事正交:**执行**(run 子进程)、**投影**(SSE)、**HTTP 连接生命周期**。客户端断连、backend 重启都不再中断执行。详见下文 [§ Durable Runs](#durable-runs)。
+> **M14.7 Resident Runner**: run 执行已从 fork-per-run 子进程收敛为**常驻 daemon 进程 + Transport 协议**。三件事正交：**执行**（daemon agent loop）、**投影**（SSE 从 EventLog 读）、**生命周期**（RunSupervisor 编排 run/attempt/session）。详见 [16-resident-runner.md](./16-resident-runner.md)。
 
 ```
 L6 Surfaces       ← frontend / IM bot / CLI
    ↑ HTTP / SSE / webhook
 L5 Backend        ← 常驻 HTTP 进程。agent CRUD + thread 管理 + runner pool + SSE
-   ↑ in-proc 或 spawn runner
+   ↑ Transport 协议 (NDJSON over Unix Socket)
 L4 Harness        ← 装配成品。createGenericAgent(workspace, model, ...)
    ↑ 依赖
 L3 Framework      ← 装配套件
@@ -48,7 +48,7 @@ L1 Protocols      ← 类型契约
 | **agentId 表** | `agentId → AgentSpec` 映射的存储（DB / KV） |
 | **Workspace 物化** | 首次创建 agent 时 `mkdir` + 从 template 复制 SOUL/AGENTS/MEMORY |
 | **Agent 生命周期** | 创建、恢复、运行、中断、销毁、归档 workspace |
-| **Runner 调度** | 选择 transport（in-proc / stdio / HTTP）和 sandbox 形态 |
+| **Runner 调度** | 通过 `RunnerRegistry.transportFor(agentId)` 获取 transport |
 | **会话路由** | threadId → 哪个 runner instance 的映射 |
 | **流式传输** | 把 runner 输出的 `AgentEvent` 转 SSE/WebSocket，推给前端 |
 | **多租户隔离** | 不同租户的 workspace 独立、checkpointer 独立 |
@@ -76,77 +76,70 @@ backend 看到的下层 API 就是：`createGenericAgent(spec) → AsyncIterable
 
 ---
 
-## 跨进程隔离 = 通过 Runner 透明套上
+## M14.7 Resident Runner — 常驻 daemon + Transport 协议
 
-harness 不感知进程边界，但 backend 必须决定 agent 跑在哪。**Runner = backend 提供的进程入口 + transport 适配器**，把 harness 装进具体部署形态。
+harness 不感知进程边界，但 backend 必须决定 agent 跑在哪。M14.7 把 runner 从 fork-per-run 子进程收敛为**常驻 daemon 进程**——一个 agent 一个 daemon，多个 run 复用同一个进程。
 
-### 四种 Runner 形态
+### RunnerRegistry — backend → daemon 的唯一入口
 
-| Transport | 场景 | Runner 实现要点 | Backend 通信 |
-|---|---|---|---|
-| **in-proc** | 本地 dev、单体部署 | 同进程函数调用 | 直接 `for await` |
-| **stdio** | 本机沙箱（docker / firecracker） | 子进程 `bun entry.ts`，AgentSpec 通过 env / stdin 传 | 按行读 stdout |
-| **HTTP/SSE** | 远端常驻服务 | `Bun.serve` + `text/event-stream` | `fetch` + 消费 SSE |
-| **WebSocket** | 双向（中断、人工 approve） | `ws` server | 双向 send/onMessage |
+```
+backend (RunSupervisor)
+    → RunnerRegistry.transportFor(agentId)
+    → RunnerTransport (unix socket / NDJSON)
+    → runner-daemon (agent-scoped)
+```
 
-### Runner Entry 范例（stdio）
+| 实现 | 场景 | 行为 |
+|------|------|------|
+| `DevRunnerRegistry` | 本地开发 | lazy spawn daemon，pidfile 清理，dispose 杀进程 |
+| `ProdRunnerRegistry` | 生产部署 | resolve 已有 endpoint，不 spawn |
+
+### Transport 协议（NDJSON over Unix Socket）
+
+```
+Host → Runner:  start | abort | run_finalized
+Runner → Host:  run_started | event | delta | heartbeat | run_done
+```
+
+关键语义：
+- `start { runId, spec }` — daemon `safeParse(spec)` 后启动 run
+- `abort { runId }` — 透传 AbortSignal 到 agent loop
+- `run_done { runId, status }` — daemon 通知 backend run 结束
+- `run_finalized { runId }` — backend 确认所有副作用（D19/title/mention）完成后发送
+- daemon 收到 `run_finalized` 后才启动 reflect（如有）
+
+### Runner Daemon 入口
 
 ```ts
-// packages/runner-stdio/src/entry.ts
-import { createGenericAgent } from '@my-agent-team/harness-generic';
-import { AnthropicChatModel } from '@my-agent-team/adapter-anthropic';
-import { AgentSpecV1 } from '@my-agent-team/agent-spec';
-
-const raw = JSON.parse(process.env.AGENT_SPEC!);
-const spec = AgentSpecV1.parse(raw);    // runtime validate，防止版本错配
-
-const agent = createGenericAgent({
-  workspace: spec.workspace,
-  model: new AnthropicChatModel(spec.model),
-  threadId: spec.threadId,
-  permissionMode: spec.permissionMode,
+// packages/runner-daemon/src/runner-daemon.ts
+const daemon = new RunnerDaemon({
+  agentId: opts.agentId,
+  workspace: makeAgentFsHandle({ sharedRoot, privateRoot }),
+  checkpointer: sqliteCheckpointer({ db: openCheckpointerDb(stateRoot) }),
+  modelFactory: { create: (m) => new AnthropicChatModel(m) },
 });
-
-for await (const event of agent.run(spec.input)) {
-  process.stdout.write(JSON.stringify(event) + '\n');
-}
 ```
 
-Backend 侧：
+daemon 启动后绑定 unix socket，等待 backend `start` 消息。收到后：
+1. `AgentSpecV2.safeParse(spec)` 单点校验
+2. `spec.agentId === this.#agentId` 身份校验
+3. `createGenericAgent({ workspace, model, threadId, ... })` 装配 agent
+4. `agent.run()` / `agent.resume()` 执行
+5. event → transport.send 回传 backend
 
-```ts
-const proc = Bun.spawn(['bun', 'entry.ts'], { env: { AGENT_SPEC: JSON.stringify(spec) } });
-for await (const line of readLines(proc.stdout)) {
-  const event = JSON.parse(line);
-  sseEmit(client, event);
-}
-```
-
-**核心约束**：entry 文件只做"反序列化 spec → 装配 agent → 序列化 event"三件事，**不写业务逻辑**。
+详细设计见 [16-resident-runner.md](./16-resident-runner.md)。
 
 ---
 
-## AgentSpec — Backend ↔ Runner 的契约
+## AgentSpec V2
 
-详细 schema 与版本演进策略见 [13-agent-spec.md](./13-agent-spec.md)。要点：
+M14.7 引入 `AgentSpecV2` discriminated union。详细 schema 见 [13-agent-spec.md](./13-agent-spec.md)。要点：
 
-- 独立包 `@my-agent-team/agent-spec`，zod 定义 + type 导出
-- 必带 `schemaVersion` 字段，runner 收到后 hard fail 不匹配的版本
-- backend 和 runner 双向 validate
-- harness **不依赖**这个包，入参是解构后的字段
-
----
-
-## 沙箱透明套用
-
-harness 和 runner entry 都不引入 sandbox SDK。backend 选择部署形态时：
-
-1. 准备沙箱实例（firecracker / gvisor / 普通 docker）
-2. 把 workspace 目录 bind-mount 到沙箱内固定路径（如 `/workspace`）
-3. 在沙箱内 spawn `bun entry.ts`，把 `AgentSpec.workspace` 设为 `/workspace`
-4. 通过 stdio / HTTP 把 event 拉回 backend
-
-→ harness 进程里只看见"workspace = /workspace"这个普通路径。沙箱完全透明。换沙箱实现（wasm runtime / 远端 K8s pod）只改 backend 的 runner 选择逻辑，**harness 和 entry 都不改**。
+- `mode` 必填判别键（`"run"` | `"resume"` | `"reflect"`）
+- `agentId` 必填 — daemon 用其校验身份
+- `workspace` 字段删除 — daemon 自己持有 `AgentFsHandle`
+- `storage` 字段删除 — checkpointer 是 daemon-local SQLite
+- daemon 用 `safeParse` 单点校验，失败即回 `run_done error`
 
 ---
 
@@ -162,14 +155,14 @@ DELETE /agents/:id            — 销毁 agent + 归档 workspace
 GET    /health                — 健康检查
 ```
 
-> **破坏性 API 变更(Durable Runs)**:`POST .../run` 不再"返回 SSE 流",改为**启动 run 子进程后立即返回 `202 { runId }`**;事件改由独立的 **`GET /api/runs/:id/events`** SSE 投影端点消费(支持 `Last-Event-ID` 续读)。客户端从"POST 拿流"改为"POST 拿 runId → GET events 订阅"。实际 run 端点形态:
+> **M14.7 Durable Runs**: `POST .../run` 返回 `202 { runId }`；事件由独立的 `GET /api/runs/:id/events` SSE 投影端点消费（支持 `Last-Event-ID` 续读）。run 在常驻 daemon 中执行，backend 通过 `RunnerTransport` 收发 lifecycle 消息。
 
 ```
-POST /api/threads/:id/runs    — 启动 run 子进程,返回 202 { runId }(不再绑 SSE)
+POST /api/runs                — 启动 run,返回 202 { runId } (不绑 SSE)
 GET  /api/runs/:id/events     — SSE 投影,支持 Last-Event-ID 续读/重连/冷读
-POST /api/runs/:id/cancel     — 204,真正 SIGTERM 子进程 + AbortSignal 透传到模型 fetch
-POST /api/runs/:id/resume     — 接 ResumeCommand,fork 新 attempt 子进程续跑(同 runId)
-GET  /api/runs/:id            — (可选) run 元数据 status/时间 + 当前 attempt,供轮询
+POST /api/runs/:id/cancel     — 204,发送 abort 到 daemon transport
+POST /api/runs/:id/resume     — 接收 ResumeCommand,恢复中断的 run
+GET  /api/runs/:id            — run 元数据 status/时间,供轮询
 ```
 
 ### `POST /agents`
@@ -232,7 +225,7 @@ Framework 有两套事件体系，Backend SSE 转译的是 `AgentEvent`：
 | `AgentEvent` | `{ type: 'message' \| 'interrupted', payload }` | framework `agent.run()` / `agent.resume()` yield |
 | `CheckpointEvent` | `user_input` / `model_start` / `tool_end` / ... | framework 调 `checkpointer.appendEvent` |
 
-> **事件源(重要)**:run 在独立子进程执行,子进程把 `AgentEvent` **直接 `append` 进 [EventLog](./14-event-log.md)**(事实源);Backend 的 SSE 投影端通过 **`eventLog.subscribe({ runId, afterSeq })`** 读取——即 Backend **确实订阅 EventLog**,但**不碰 Checkpointer**(Checkpointer 是 runner 注入、agent-resume 专用)。stdout 仅为可选的低延迟通知通道,DB 才是事实源。这样客户端断连 / backend 重启都不丢事件。
+> **事件源**: daemon 通过 transport 发送 `event`/`delta` 消息；backend 在 `#handleRunnerMessage` 中 `append` 到 EventLog。SSE 投影端从 EventLog 读取，支持 `Last-Event-ID` 续读。Checkpointer 是 daemon-local SQLite，backend 不感知。
 
 **SSE 转译规则**(机械操作,无 switch):
 
@@ -250,21 +243,25 @@ for await (const rec of eventLog.subscribe({ runId, afterSeq }, req.signal)) {
 ```
 apps/backend/
 ├── src/
-│   ├── server.ts            # HTTP server 启动 + 路由
-│   ├── agent-store.ts       # agentId → AgentSpec 持久化（DB/KV）
-│   ├── workspace.ts         # workspace 物化 / 归档 / 模板复制
-│   ├── runner/
-│   │   ├── in-proc.ts       # 同进程
-│   │   ├── stdio.ts         # 子进程 stdio
-│   │   └── http.ts          # 远端 HTTP
-│   ├── sse.ts               # AgentEvent → SSE 序列化
-│   └── main.ts              # 入口
+│   ├── server.ts                     # HTTP server 启动 + 路由
+│   ├── features/
+│   │   ├── agent/                    # Agent CRUD + workspace 物化
+│   │   ├── run/
+│   │   │   ├── supervisor.ts         # RunSupervisor — run 生命周期编排
+│   │   │   ├── runner-registry.ts    # DevRunnerRegistry / ProdRunnerRegistry
+│   │   │   ├── service.ts            # RunService — start/resume + autoTitle
+│   │   │   └── http.ts               # run SSE + cancel + resume HTTP
+│   │   ├── conversation/             # Conversation + Member 抽象 (M10)
+│   │   └── checkpoint/               # Checkpoint read/write adapter
+│   ├── http/router.ts                # 路由装配
+│   └── main.ts                       # 入口 — 组装 registry/supervisor/services
 └── package.json
 
 packages/
-├── agent-spec/              # AgentSpec zod schema（backend + runner 共享）
-├── runner-stdio/            # 独立的 stdio runner entry
-└── runner-http/             # 独立的 http runner
+├── agent-spec/              # AgentSpecV2 zod schema（backend + daemon 共享）
+├── runner-protocol/         # Transport 契约 + socket/memory transport 实现
+├── runner-daemon/           # 常驻 daemon 进程入口
+└── agent-fs/                # AgentFS mount table + backend + AgentFsHandle
 ```
 
 **依赖**：
@@ -308,98 +305,112 @@ stateDiagram-v2
 
 ---
 
-## Agent Pool 设计
+## RunSupervisor — run 生命周期编排
 
 ```ts
-interface AgentPool {
-  spawn(agentId: string, input: string, threadId: string): AsyncIterable<AgentEvent>;
-  abort(agentId: string, threadId: string): Promise<void>;
-  shutdown(): Promise<void>;
+interface RunSupervisor {
+  startMainRun(runId, threadId, spec): Promise<RunHandle>;
+  resumeRun(runId, threadId, spec): Promise<RunHandle>;
+  beginReflectRun(runId, threadId, parentRunId, spec): Promise<RunHandle>;
+  cancel(runId): boolean;
+  cancelAll(): void;
+  onRunComplete(fn): void;
 }
 ```
 
-- `spawn`：查 agentId → spec，选 runner，启动/复用 runner instance，返回 event 流
-- `abort`：找到对应 runner instance，发送 abort signal（in-proc 用 AbortController，子进程发 SIGTERM，HTTP 走 abort 端点）
-- `shutdown`：等待所有活跃 runner 完成当前 turn，落盘，再退出
+- `startMainRun`：INSERT run + attempt → registry.transportFor(agentId) → send start
+- `resumeRun`：UPDATE run status + new attempt → send start
+- `beginReflectRun`：INSERT reflect run (kind='reflect', parentRunId) → send start
+- `cancel`：session.transport.send("abort") — 不杀进程，只发 abort 消息
+- `onRunComplete`：terminal hook — 所有状态（success/error/aborted/interrupted）都触发，释放 thread lock
 
 **并发模型**：
 
-- 每个 `agent.run()` 内部已有 `#running` 保护（framework 层 fail-fast）
-- 同 threadId 的并发请求由 framework 拦截
-- 多 agentId / 多 thread 天然并行（各自独立 runner instance）
+- 每个 daemon 内 `#running` 保护（framework 层）
+- `RunSupervisor.#active` Map 追踪活跃 run → Session
+- 多 agentId 天然并行（各自独立 daemon）
 
 ---
 
-## 请求生命周期
+## 请求生命周期（M14.7）
 
 ```mermaid
 sequenceDiagram
   participant C as Client
-  participant S as server.ts
-  participant ST as agent-store
-  participant P as agent-pool
-  participant R as Runner
-  participant SSE as sse.ts
+  participant S as HTTP handler
+  participant SV as RunService
+  participant SP as RunSupervisor
+  participant RG as RunnerRegistry
+  participant D as runner-daemon
 
-  C->>S: "POST /agents/abc/run {input, threadId}"
-  S->>ST: load(abc)
-  ST-->>S: AgentSpec
-  S->>P: spawn(abc, input, threadId)
-  P->>R: start runner with spec
-  R-->>P: "AsyncIterable<AgentEvent>"
-  loop each yield
-    P-->>SSE: AgentEvent
-    SSE-->>C: "event: <type> data: <JSON>"
+  C->>S: POST /api/runs { threadId, input }
+  S->>SV: start(threadId, input, spec)
+  SV->>SP: startMainRun(runId, threadId, spec)
+  SP->>RG: transportFor(agentId)
+  RG-->>SP: RunnerTransport (ready)
+  SP->>D: send { type:"start", runId, spec }
+  SP-->>SV: { runId, attemptId }
+  SV-->>C: 202 { runId }
+  loop daemon execution
+    D-->>SP: event / delta / heartbeat
+    SP-->>EventLog: append
   end
-  SSE-->>C: connection close
+  D-->>SP: run_done { status }
+  SP-->>SP: onRunComplete (D19/title/mention)
+  SP-->>D: run_finalized
 ```
 
 ---
 
-## Durable Runs
+## Durable Runs（M14.7）
 
-run 执行从"绑死在 SSE 流上的进程内 generator"重构为**独立子进程执行 + 事件落 [EventLog](./14-event-log.md) + SSE 只读投影**。
+run 执行收敛为**常驻 daemon + Transport 协议**：backend 不再 fork 子进程，而是通过 `RunnerRegistry` 获取 per-agent transport，经 NDJSON socket 收发 lifecycle 消息。
 
 ### 执行解耦
 
 ```
-POST /api/threads/:id/runs
+POST /api/runs
    │
-   ├─ fork ──► runner-stdio 子进程(独立 PID)
-   │              │ 每个 AgentEvent: eventLog.append(threadId, runId, event)
-   │  写 runs 台账 │ (子进程自持 EventLog 句柄,直写 DB)
-   │  pid/running  ▼
-   │           RunSupervisor(进程内): 解析 stdout 作低延迟通知(可选优化)
+   ├─ RunSupervisor.startMainRun(runId, threadId, spec)
+   │    ├─ registry.transportFor(agentId)  → RunnerTransport (ready)
+   │    ├─ INSERT run + attempt
+   │    └─ transport.send({ type:"start", runId, spec })
    ▼
-返回 202 { runId }       (不再绑 SSE)
+返回 202 { runId }
 
-GET /api/runs/:id/events  ── eventLog.subscribe({ runId, afterSeq }) ──► 只读投影
+daemon:  transport.onMessage → #onStart
+   ├─ AgentSpecV2.safeParse(spec)
+   ├─ createGenericAgent({ workspace, model, ... })
+   └─ agent.run() → transport.send(event/delta/heartbeat/run_done)
+
+GET /api/runs/:id/events  ── eventLog.subscribe({ runId, afterSeq }) ──► SSE 投影
 ```
 
-- **执行者**(子进程)只 `append`,**投影者**(SSE)只 `subscribe`,两者互不认识,只经 EventLog 通信(EventLog 四铁律,见 [14 §二](./14-event-log.md#二解耦铁律))。
-- **写 EventLog 的是 runner entry,不是 harness**:`agent.run()` 只 yield 事件,entry 消费 yield 后 `append`(见 [14 §六](./14-event-log.md#六写入路径谁产生事件-vs-谁写-eventlog))。EventLog 概念绝不下沉到 framework/harness。
-- 客户端断连 → `subscribe` 的 `AbortSignal` 触发 → **只取消订阅,不 abort run**。长任务(数小时)继续跑完。
+- **daemon 执行** agent loop，通过 transport 回传 event/delta/heartbeat
+- **backend 投影**：`#handleRunnerMessage` 收到 `event` → `eventLog.append`；SSE 端从 EventLog 订阅
+- 客户端断连 → 只取消 SSE 订阅，不 abort run
 
-### 数据模型:run（逻辑）/ attempt（物理执行）
-
-一个逻辑 run 经 interrupt→resume 会**跨越多个子进程**,所以把"逻辑 run"和"物理进程"拆成两张表(避免 pid 列语义漂移,详见 [14 §10.2](./14-event-log.md#102-实体拆分run逻辑--attempt物理执行)):
+### 数据模型：run（逻辑）/ attempt（物理执行）
 
 ```sql
-CREATE TABLE runs (        -- 逻辑 run:跨多次 interrupt/resume
-  run_id TEXT PRIMARY KEY, thread_id TEXT, status TEXT, started_at INTEGER, ended_at INTEGER
+CREATE TABLE run (
+  run_id     TEXT PRIMARY KEY, thread_id TEXT, agent_id TEXT,
+  kind       TEXT DEFAULT 'main', parent_run_id TEXT,
+  status     TEXT DEFAULT 'running', started_at INTEGER, ended_at INTEGER
 );
-CREATE TABLE attempts (    -- 物理执行:单个子进程的一次执行
-  attempt_id TEXT PRIMARY KEY, run_id TEXT, pid INTEGER,
+CREATE TABLE attempt (
+  attempt_id   TEXT PRIMARY KEY, run_id TEXT REFERENCES run(run_id),
   heartbeat_at INTEGER, started_at INTEGER, ended_at INTEGER
 );
 ```
 
-- 一个 run 有 1..N 个 attempt;interrupt→resume = 同 run_id 起一个**新 attempt**。
-- EventLog 事件带 `run_id`(所有 attempt 共享)→ 前端按 run_id 订阅,看到的是**一条不断的流,哪怕中间换了子进程**。
+- 一个 run 有 1..N 个 attempt；interrupt→resume = 同 run_id 新 attempt
+- `pid` 列仍存在（迁移兼容），但 daemon 路径不再写入
+- heartbeat 由 daemon 定期发送，reaper 按超时收割僵死 run
 
-### Cancel 透传（真停）
+### Cancel 透传
 
-`POST /api/runs/:id/cancel` → RunSupervisor 对当前 attempt 子进程发 `SIGTERM` → 子进程 entry 捕获 → 调用注入 agent.run 的 `AbortSignal` → **adapter 把 signal 透传给底层 `fetch({ signal })`**,in-flight 模型调用即时取消。`cancelGraceMs` 后未退则 `SIGKILL`,写 `status='aborted'`。
+`POST /api/runs/:id/cancel` → `session.transport.send({ type:"abort", runId })` → daemon 收到后 `AbortController.abort()` → adapter `fetch({ signal })` 即时取消 in-flight 模型调用。
 
 ### 崩溃恢复（backend 重启重新发现）
 

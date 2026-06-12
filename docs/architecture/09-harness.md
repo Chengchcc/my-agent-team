@@ -138,8 +138,8 @@ async function createGenericAgent(opts: GenericAgentOptions): Promise<Agent> {
     systemPrompt,
     tools: builtinTools(ws),                         // read/write/bash/grep/glob
     plugins: [
-      fsMemoryPlugin({ dir: ws }),                   // MEMORY.md + facts/
-      progressiveSkillPlugin({ dir: `${ws}/skills` }),
+      fsMemoryPlugin({ ws: ws, root: '/memory/' }),                   // MEMORY.md + facts/
+      progressiveSkillPlugin({ dir: `/skills/` }),
       permissionPlugin({ mode: opts.permissionMode ?? 'ask' }),
     ],
     checkpointer: opts.checkpointer ?? inMemoryCheckpointer(),
@@ -230,7 +230,7 @@ harness 包**永远不引入任何网络/transport 依赖**。详见 [12-backend
 
 export interface GenericAgentOptions {
   /** Workspace 根目录。所有文件读写的相对基准 */
-  workspace: string;
+  workspace: AgentFsHandle;
 
   /** 已构造好的 ChatModel 实例（adapter 由调用方选） */
   model: ChatModel;

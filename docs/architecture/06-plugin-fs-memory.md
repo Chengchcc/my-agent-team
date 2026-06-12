@@ -121,18 +121,18 @@ async function memoryWrite({ content, tags }) {
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const slug = slugify(content.slice(0, 40));
   let filename = `${ts}-${slug}.md`;
-  let filepath = path.join(dir, 'facts', filename);
+  let filepath = pjoin(root, 'facts', filename);
 
   // 毫秒 ts 仍撞 → 后缀 -2/-3/... 兜底
   let n = 2;
-  while (await exists(filepath)) {
+  while (await ws.exists(filepath)) {
     filename = `${ts}-${slug}-${n}.md`;
-    filepath = path.join(dir, 'facts', filename);
+    filepath = pjoin(root, 'facts', filename);
     n++;
   }
 
   const frontmatter = `---\nts: ${ts}\ntags: ${JSON.stringify(tags ?? [])}\n---\n`;
-  await fs.writeFile(filepath, frontmatter + content);   // 不 fsync
+  await ws.write(filepath, frontmatter + content);
   return { path: filepath };
 }
 ```
@@ -197,8 +197,10 @@ async beforeModel(ctx, messages) {
 // @my-agent-team/plugin-fs-memory
 
 export interface FsMemoryOptions {
-  /** 记忆根目录。MEMORY.md 和 facts/ 都在这里下面 */
-  dir: string;
+  /** AgentFS 实例，提供 read/write/exists/stat/list/mkdirp */
+  ws: AgentFsLike;
+  /** 记忆逻辑根路径。默认 '/memory/' */
+  root?: string;
   /** 是否启用 memory_write tool。默认 true */
   enableWrite?: boolean;
   /** memory_search 默认 top N。默认 5 */
@@ -218,7 +220,7 @@ const agent = createAgent({
   model,
   systemPrompt: 'You are a helpful coding assistant.',
   plugins: [
-    fsMemoryPlugin({ dir: '/home/user/.my-agent/memory' }),
+    fsMemoryPlugin({ ws: '/home/user/.my-agent/memory', root: '/memory/' }),
   ],
 });
 ```
@@ -233,7 +235,7 @@ const agent = createAgent({
 
 1. **它真的需要看 agent 内部执行节点吗？** 是。bootstrap 注入必须命中 `beforeModel`，不能用 tool 替代
 2. **它的逻辑能用 4 个钩子表达吗？** 能。只用 `beforeModel`
-3. **依赖什么？** 依赖 `core` 类型 + `node:fs/promises`。**不依赖**具体 model / adapter / harness
+3. **依赖什么？** 依赖 `core` 类型 + `@my-agent-team/agent-fs` 的 `AgentFS`。**不依赖**具体 model / adapter / harness
 4. **多个实例需要互相通信吗？** 不需要
 5. **失败该不该阻塞？** before* 钩子内 try/catch 降级；tools 抛错正常上报。增益不是契约
 

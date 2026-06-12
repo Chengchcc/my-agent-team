@@ -273,7 +273,7 @@ beforeStop: async (ctx, messages) => {
 framework 有"单 agent 单 run"硬约束——第二次 `run()`/`resume()` 撞上 `#running` 会立刻抛 `Agent is already running. Use fork() for concurrent conversations.`（见 [02-framework §Agent](./02-framework.md#agent)）。reflection 就是用 `fork()` 绕开它的：
 
 ```ts
-// runner-stdio entry.ts，reflection 现成模式（M11）
+// runner-daemon entry.ts，reflection 现成模式（M11）
 const reflectAgent = agent.fork();
 for await (const ev of reflectAgent.run(reflectionGuidance(), { signal, maxSteps })) { ... }
 ```
@@ -334,7 +334,7 @@ complete === false  → 把 missing 当新 input 重跑【主 agent】（不是 
 和 reflection 完全一致——`verificationGuidance()` 放 harness（verify.ts），fork + 回流循环放 runner（entry.ts），跑在 reflection **之前**（完成度先落定，再让 reflection 记"学到了什么"）：
 
 ```ts
-// runner-stdio entry.ts（在主 run 之后、reflection 之前）
+// runner-daemon entry.ts（在主 run 之后、reflection 之前）
 let rounds = 0;
 while (rounds < maxVerifyRounds) {
   const evalAgent = agent.fork();                       // 独立上下文，不占主锁
@@ -510,7 +510,7 @@ createGenericAgent({
 冷审编排（runner 层，跑在主 run 之后、reflection 之前；与 reflection 同款 fork）：
 
 ```ts
-// runner-stdio entry.ts
+// runner-daemon entry.ts
 let rounds = 0;
 while (rounds < maxVerifyRounds) {                 // maxVerifyRounds 默认 2
   const evalAgent = agent.fork();                  // 独立上下文 + 不占主锁
