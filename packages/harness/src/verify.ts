@@ -17,7 +17,12 @@ export function verificationGuidance(): string {
     "(read files, grep, re-run read-only checks) and verify each plan item",
     "is actually satisfied.",
     "",
-    "Reply with a single JSON object: { \"complete\": boolean, \"missing\": string }.",
-    "If complete=false, `missing` lists concretely what is still undone.",
+    "Reply with a single JSON object:",
+    '{ "complete": boolean, "missing": string }',
+    "",
+    '- If complete is true, set missing to "" (empty string).',
+    "- If complete is false, missing must be an actionable instruction",
+    '  the agent can execute directly, e.g. "Add unit tests for foo()"',
+    '  or "Fix the broken import in bar.ts".',
   ].join("\n");
 }

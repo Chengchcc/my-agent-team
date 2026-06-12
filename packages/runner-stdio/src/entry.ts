@@ -151,8 +151,18 @@ export async function runEntry(io: EntryIO): Promise<number> {
     const maxForce = isReflect ? 0 : undefined; // undefined → framework default (3)
     const stream =
       spec.mode === "resume"
-        ? agent.resume(spec.resumeCommand!, { signal, maxSteps: spec.maxSteps, stream: true, maxForceContinues: maxForce })
-        : runAgent.run(runInput, { signal, maxSteps: spec.maxSteps, stream: true, maxForceContinues: maxForce });
+        ? agent.resume(spec.resumeCommand!, {
+            signal,
+            maxSteps: spec.maxSteps,
+            stream: true,
+            maxForceContinues: maxForce,
+          })
+        : runAgent.run(runInput, {
+            signal,
+            maxSteps: spec.maxSteps,
+            stream: true,
+            maxForceContinues: maxForce,
+          });
 
     // Helper: route events from an agent stream (stdout + EventSink + heartbeat)
     async function routeEvents(src: AsyncIterable<AgentEvent>): Promise<void> {
@@ -217,6 +227,10 @@ export async function runEntry(io: EntryIO): Promise<number> {
           break;
         }
         if (!verdict || verdict.complete) break;
+        // Guard: missing must be a non-empty actionable string
+        if (!verdict.missing || typeof verdict.missing !== "string" || !verdict.missing.trim()) {
+          break; // good-enough — the model said incomplete but gave no actionable gap
+        }
         rounds++;
         writeStderr(`[runner-stdio] cold verify round ${rounds}: incomplete, re-running`);
         // Gap回流: re-run main agent with missing items

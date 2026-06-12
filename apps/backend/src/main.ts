@@ -267,12 +267,23 @@ supervisor.onRunComplete((threadId, runId) => {
       void (async () => {
         try {
           const events = await eventLog.read({ runId });
+
           const conversationMsgs = events
             .filter((rec) => rec.event.type === "message")
             .map((rec) => rec.event.payload as { role: string; content: unknown })
             .filter((p) => p.role === "assistant" || p.role === "user");
 
           const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+
+          // M14.6: Capture the last todo_update snapshot and persist to ledger.
+          // Only the final snapshot is stored — intermediate updates are live-only
+          // via the /runs/:id/events SSE channel. This avoids ledger spam while
+          // ensuring the post-refresh state shows the definitive todo outcome.
+          const lastTodoUpdate = events.filter((rec) => rec.event.type === "todo_update").pop();
+          if (lastTodoUpdate) {
+            const payload = (lastTodoUpdate.event as { payload: { todos: unknown } }).payload;
+            await convSvc.appendTodo(cid, senderMemberId, payload.todos);
+          }
 
           // M14.4: Pre-fetch roster for @mention resolution
           const roster = convPort.getMembers(cid);

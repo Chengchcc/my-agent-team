@@ -4,7 +4,7 @@ import {
   resolveTriggerTargets,
 } from "@my-agent-team/conversation";
 import type { CheckpointReadPort, CheckpointWritePort } from "../checkpoint/ports.js";
-import type { ConversationPort, LedgerRow, MemberRow } from "./ports.js";
+import type { ConversationPort, LedgerKind, LedgerRow, MemberRow } from "./ports.js";
 
 export class ConversationBusyError extends Error {
   constructor(conversationId: string) {
@@ -69,7 +69,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     conversationId: string;
     senderMemberId: string;
     addressedTo: string[];
-    kind: "message" | "member.joined" | "member.left";
+    kind: LedgerKind;
     content: unknown;
   }): Promise<number> {
     const ts = Date.now();
@@ -96,8 +96,12 @@ export function createConversationService(deps: ConversationServiceDeps) {
     return seq;
   }
 
-  /** Project a ledger entry into all agent member checkpoints. */
+  /** Project a ledger entry into all agent member checkpoints.
+   *  M14.6: "todo" entries are UI-only — never projected into agent checkpoints
+   *  (todo JSON would pollute the model's conversation context). */
   async function broadcastMessage(entry: LedgerRow): Promise<void> {
+    if (entry.kind === "todo") return; // UI-only, never projected
+
     const conv = buildConversation(entry.conversationId);
     if (!conv) return;
 
@@ -336,6 +340,21 @@ export function createConversationService(deps: ConversationServiceDeps) {
         }
       }
     },
+    /** M14.6: Append a todo snapshot to the conversation ledger (UI-only, not projected to agents). */
+    async appendTodo(
+      conversationId: string,
+      senderMemberId: string,
+      todos: unknown,
+    ): Promise<void> {
+      await appendAndBroadcast({
+        conversationId,
+        senderMemberId,
+        addressedTo: [],
+        kind: "todo",
+        content: { todos },
+      });
+    },
+
     /** Release the conversation lock when ALL triggered runs complete. */
     completeRun(conversationId: string, _threadId: string, _runId: string): void {
       const remaining = (pendingRuns.get(conversationId) ?? 1) - 1;

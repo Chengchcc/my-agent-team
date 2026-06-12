@@ -16,12 +16,14 @@ export interface MemberRow {
   joinedAt: number;
 }
 
+export type LedgerKind = "message" | "member.joined" | "member.left" | "todo";
+
 export interface LedgerRow {
   seq: number;
   conversationId: string;
   senderMemberId: string;
   addressedTo: string[];
-  kind: "message" | "member.joined" | "member.left";
+  kind: LedgerKind;
   content: string; // JSON-encoded
   ts: number;
 }
@@ -46,7 +48,7 @@ export interface AppendLedgerInput {
   conversationId: string;
   senderMemberId: string;
   addressedTo?: string[];
-  kind: "message" | "member.joined" | "member.left";
+  kind: LedgerKind;
   content: string; // JSON-encoded
   ts: number;
 }
