@@ -10,7 +10,7 @@ import type { RunSupervisor } from "./supervisor.js";
 function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
   return {
     activeCount: 0,
-    fork: () => ({ runId: "run-1", attemptId: "att-1", pid: 12345 }),
+    start: () => ({ runId: "run-1", attemptId: "att-1", pid: 12345 }),
     cancel: () => true,
     rediscover: async () => {},
     onRunComplete: () => {},
@@ -68,7 +68,7 @@ describe("Run HTTP", () => {
       threads: new Set(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => "{}");
+    const routes = runRoutes(svc, async () => ({}));
 
     const res = await routes.run(
       makeRequest("/api/threads/t1/runs", { method: "POST", body: { input: "hello" } }),
@@ -88,7 +88,7 @@ describe("Run HTTP", () => {
       threads: new Set(["t1"]),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => "{}");
+    const routes = runRoutes(svc, async () => ({}));
 
     const res = await routes.run(
       makeRequest("/api/threads/t1/runs", { method: "POST", body: { input: "hello" } }),
@@ -105,7 +105,7 @@ describe("Run HTTP", () => {
       threads: new Set(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => "{}");
+    const routes = runRoutes(svc, async () => ({}));
 
     const res = await routes.run(
       makeRequest("/api/threads/t1/runs", { method: "POST", body: { input: "hello" } }),
@@ -122,7 +122,7 @@ describe("Run HTTP", () => {
       threads: new Set(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => "{}");
+    const routes = runRoutes(svc, async () => ({}));
 
     const res = await routes.run(
       makeRequest("/api/threads/t1/runs", { method: "POST", body: {} }),
@@ -141,7 +141,7 @@ describe("Run HTTP", () => {
       threads: new Set(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => "{}");
+    const routes = runRoutes(svc, async () => ({}));
 
     const res = await routes.cancel(makeRequest("/api/runs/r1/cancel", { method: "POST" }), "r1");
     expect(res.status).toBe(204);
@@ -155,7 +155,7 @@ describe("Run HTTP", () => {
       threads: new Set(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => "{}");
+    const routes = runRoutes(svc, async () => ({}));
 
     const res = await routes.cancel(makeRequest("/api/runs/x/cancel", { method: "POST" }), "x");
     expect(res.status).toBe(404);
@@ -195,7 +195,7 @@ describe("Run HTTP", () => {
       threads: new Set(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => "{}");
+    const routes = runRoutes(svc, async () => ({}));
 
     const res = await routes.events(makeRequest("/api/runs/r1/events"), "r1");
     expect(res.status).toBe(200);
@@ -238,7 +238,7 @@ describe("Run HTTP", () => {
       threads: new Set(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => "{}");
+    const routes = runRoutes(svc, async () => ({}));
 
     const res = await routes.events(
       makeRequest("/api/runs/r1/events", { headers: { "Last-Event-ID": "5" } }),
@@ -270,7 +270,7 @@ describe("Run HTTP", () => {
       threads: new Set(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => "{}");
+    const routes = runRoutes(svc, async () => ({}));
 
     const ac = new AbortController();
     const req = new Request("http://localhost/api/runs/r1/events", { signal: ac.signal });
@@ -289,7 +289,7 @@ describe("Run HTTP", () => {
     let forked = false;
     const svc = createRunService({
       supervisor: makeMockSupervisor({
-        fork: () => {
+        start: () => {
           forked = true;
           return { runId: "r1", attemptId: "att-2", pid: 9999 };
         },
@@ -301,7 +301,7 @@ describe("Run HTTP", () => {
     });
     const routes = runRoutes(
       svc,
-      async () => "{}",
+      async () => ({}),
       async () => "t1",
     );
 
@@ -333,7 +333,7 @@ describe("Run HTTP", () => {
       threads: new Set(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => "{}");
+    const routes = runRoutes(svc, async () => ({}));
 
     const res = await routes.getById(makeRequest("/api/runs/r1"), "r1");
     expect(res.status).toBe(200);

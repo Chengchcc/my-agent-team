@@ -8,7 +8,7 @@ const resumeSchema = z.object({ approved: z.boolean(), message: z.string().optio
 
 export function runRoutes(
   svc: RunService,
-  buildSpecJson: (
+  buildSpec: (
     threadId: string,
     input: string,
     overrides?: {
@@ -16,7 +16,7 @@ export function runRoutes(
       mode?: "run" | "resume";
       resumeCommand?: { approved: boolean; message?: string };
     },
-  ) => Promise<string>,
+  ) => Promise<Record<string, unknown>>,
   getThreadIdForRun?: (runId: string) => Promise<string>,
 ) {
   return {
@@ -29,8 +29,8 @@ export function runRoutes(
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
 
       try {
-        const specJson = await buildSpecJson(threadId, parsed.data.input);
-        const { runId, attemptId } = svc.start(threadId, parsed.data.input, specJson);
+        const spec = await buildSpec(threadId, parsed.data.input);
+        const { runId, attemptId } = svc.start(threadId, parsed.data.input, spec);
         return json({ runId, attemptId }, 202);
       } catch (err) {
         if (err instanceof ThreadBusyError) return json({ error: (err as Error).message }, 409);
@@ -81,12 +81,12 @@ export function runRoutes(
       const threadId = await getThreadIdForRun?.(runId);
       if (!threadId) return json({ error: "Run not found" }, 404);
       try {
-        const specJson = await buildSpecJson(threadId, "", {
+        const spec = await buildSpec(threadId, "", {
           runId,
           mode: "resume",
           resumeCommand: parsed.data,
         });
-        const { attemptId } = svc.resume(runId, threadId, specJson);
+        const { attemptId } = svc.resume(runId, threadId, spec);
         return json({ runId, attemptId }, 202);
       } catch (err) {
         if (err instanceof RunNotFoundError) return json({ error: (err as Error).message }, 404);

@@ -1,4 +1,3 @@
-import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import type { Message } from "@my-agent-team/core";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import { createSocketClient } from "@my-agent-team/runner-protocol";
@@ -128,8 +127,8 @@ const runSvc = createRunService({
   },
 });
 
-// Build spec helper — returns JSON string for subprocess env
-async function buildSpecJson(
+// Build spec helper — returns V2 spec object for daemon transport
+async function buildSpecV2(
   threadId: string,
   input: string,
   overrides?: {
@@ -139,38 +138,19 @@ async function buildSpecJson(
     conversationId?: string;
     senderMemberId?: string;
   },
-): Promise<string> {
-  // Resolve agent from threadId: for conversation threads (cid:memberId),
-  // ThreadId = cid:memberId — resolve agent via member row.
+): Promise<Record<string, unknown>> {
   const cid = threadId.split(":")[0]!;
   const memberId = threadId.split(":").slice(1).join(":");
   const member = db
     .query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
     .get(cid, memberId) as { agent_id: string } | undefined;
   const agentId = member?.agent_id ?? memberId;
-  const agent = await agentSvc.getById(agentId);
-
-  // Fix F: Use Zod parse for runtime validation (catches DB corruption / bad data)
-  const spec = AgentSpecV1.parse({
-    schemaVersion: "1",
-    workspace: agent.workspacePath,
+  return {
+    agentId,
     threadId,
-    model: {
-      provider: agent.modelProvider,
-      model: agent.modelName,
-      ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}),
-    },
-    apiKey: config.anthropicApiKey,
-    permissionMode: agent.permissionMode ?? "ask",
-    maxSteps: agent.maxSteps ?? undefined,
     input,
-    storage: {
-      eventLog: { kind: "sqlite" as const, path: `${config.dataDir}/events.db` },
-      checkpointer: { kind: "sqlite" as const, path: `${config.dataDir}/backend.db` },
-    },
     ...overrides,
-  });
-  return JSON.stringify(spec);
+  };
 }
 
 // M14.4: @mention parsing helpers for agent-to-agent triggering
@@ -357,7 +337,7 @@ const getThreadIdForRun = async (runId: string) => {
 const router = createRouter(config.authToken, {
   agents: agentRoutes(agentSvc),
   // threads: removed — conversation is the user-facing concept
-  runs: runRoutes(runSvc, buildSpecJson, getThreadIdForRun),
+  runs: runRoutes(runSvc, buildSpecV2, getThreadIdForRun),
   checkpoints: checkpointRoutes(checkpointSvc),
   conversations: conversationRoutes(convSvc, ulid),
 });

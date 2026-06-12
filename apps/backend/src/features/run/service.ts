@@ -93,7 +93,7 @@ export function createRunService(deps: RunServiceDeps) {
 
   return {
     /** Fork subprocess + write ledger. Returns 202 payload immediately. */
-    start(threadId: string, _input: string, specJson: string) {
+    start(threadId: string, _input: string, spec: Record<string, unknown>) {
       if (threads.has(threadId)) throw new ThreadBusyError(threadId);
       if (supervisor.activeCount >= maxConcurrentRuns)
         throw new TooManyRunsError(maxConcurrentRuns);
@@ -102,7 +102,7 @@ export function createRunService(deps: RunServiceDeps) {
       threads.add(threadId);
 
       try {
-        const { attemptId } = supervisor.fork(runId, threadId, specJson);
+        const { attemptId } = supervisor.start(runId, threadId, spec);
         return { runId, attemptId };
       } catch (err) {
         threads.delete(threadId);
@@ -115,11 +115,11 @@ export function createRunService(deps: RunServiceDeps) {
     },
 
     /** Resume an interrupted run by re-forking a new attempt with mode='resume'. */
-    resume(runId: string, threadId: string, specJson: string) {
+    resume(runId: string, threadId: string, spec: Record<string, unknown>) {
       if (supervisor.activeCount >= maxConcurrentRuns)
         throw new TooManyRunsError(maxConcurrentRuns);
 
-      const { attemptId } = supervisor.fork(runId, threadId, specJson);
+      const { attemptId } = supervisor.start(runId, threadId, spec);
       return { runId, attemptId };
     },
 
