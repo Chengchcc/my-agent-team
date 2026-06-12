@@ -304,7 +304,7 @@ describe("RunSupervisor reaper (M11)", () => {
 
     const db = sup.getDb();
     const freshHeartbeat = Date.now();
-    // Insert with explicit agent_id and kind to verify JOIN reads them
+    // Insert with explicit agent_id and kind to verify JOIN reads them correctly
     db.run(
       "INSERT INTO run (run_id, thread_id, agent_id, kind, status, started_at) VALUES (?, ?, ?, ?, 'running', ?)",
       ["run-join", "thread-join", "agent-7", "reflect", Date.now() - 1000],
@@ -316,8 +316,12 @@ describe("RunSupervisor reaper (M11)", () => {
 
     await sup.rediscover(eventLog);
 
-    // rediscover should have re-registered the live run in #active
-    expect(sup.activeCount).toBeGreaterThanOrEqual(1);
+    // Verify JOIN actually read the correct values — not the old "default"/"main" fallback
+    const active = sup.getActive("run-join");
+    expect(active).toBeDefined();
+    expect(active!.agentId).toBe("agent-7");
+    expect(active!.kind).toBe("reflect");
+    expect(active!.threadId).toBe("thread-join");
 
     await sup.dispose();
   });

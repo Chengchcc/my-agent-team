@@ -177,6 +177,7 @@ export function createSocketClient(opts: SocketClientOptions): RunnerTransport {
     async close() {
       closed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (readyTimer) clearTimeout(readyTimer);
       if (sock) {
         sock.end();
         sock = undefined;

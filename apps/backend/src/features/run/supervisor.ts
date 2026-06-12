@@ -195,6 +195,11 @@ export class RunSupervisor {
     return this.#active.size;
   }
 
+  /** Expose active run session for test assertions (agentId/kind/threadId). */
+  getActive(runId: string): RunSession | undefined {
+    return this.#active.get(runId);
+  }
+
   /** Expose DB for read queries (GET /runs/:id metadata). */
   getDb(): Database {
     return this.#db;
