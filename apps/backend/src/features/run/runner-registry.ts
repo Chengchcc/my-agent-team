@@ -56,7 +56,7 @@ export class DevRunnerRegistry implements RunnerRegistry {
   ) {}
 
   async transportFor(agentId: string): Promise<RunnerTransport> {
-    const id = await safeAgentId(agentId);
+    const id = safeAgentId(agentId);
     const existing = this.#runners.get(id);
     if (existing) return existing.transport;
 

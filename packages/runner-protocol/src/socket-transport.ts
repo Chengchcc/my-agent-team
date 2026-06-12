@@ -88,6 +88,8 @@ export function createSocketClient(opts: SocketClientOptions): RunnerTransport {
   let closed = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let resolveReady!: () => void;
+  // NOTE: readyPromise has no built-in timeout — if daemon never connects,
+  // transportFor will hang indefinitely. Callers should set a deadline.
   const readyPromise = new Promise<void>((r) => { resolveReady = r; });
 
   const framer = createFramer(

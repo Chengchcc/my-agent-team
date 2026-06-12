@@ -120,7 +120,7 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
 
   // 3. Default plugins — AFS-native via AgentFsLike
   const defaultPlugins: Plugin[] = [
-    fsMemoryPlugin({ ws }),
+    fsMemoryPlugin({ ws, root: "/memory/" }),
     progressiveSkillPlugin({ ws, root: "/skills/" }),
     taskGuardPlugin({ model }),
   ];

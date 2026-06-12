@@ -480,6 +480,8 @@ export class RunSupervisor {
           threadId: row.thread_id ?? "",
           agentId: (row as { agent_id?: string }).agent_id ?? "default",
           kind: (row as { kind?: "main" | "reflect" }).kind ?? "main",
+          // Post-restart, the original daemon transport is gone. Use a no-op stub;
+          // these runs will be cancelled via reaper timeout, not active abort.
           transport: {
             send() {},
             onMessage() {},

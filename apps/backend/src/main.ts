@@ -172,6 +172,7 @@ async function buildAgentSpecV2(
     agentId,
     threadId,
     runId: overrides?.runId ?? crypto.randomUUID(),
+    mode: overrides?.mode ?? "run",
     input,
     model: {
       provider: agent.modelProvider,
@@ -217,41 +218,13 @@ const convSvc = createConversationService({
   // ThreadId = conversationId:memberId (derived, not persisted).
   // The threads table is legacy — runtime only needs the derived key.
   forkRun: async (runId, threadId, _specJson, ctx) => {
-    // Build full spec JSON (C1 fix)
-    const agentRow = db
-      .query(
-        "SELECT workspace_path, model_provider, model_name, model_base_url, permission_mode, max_steps FROM agents WHERE id = ?",
-      )
-      .get(ctx.agentId) as
-      | {
-          workspace_path: string;
-          model_provider: string;
-          model_name: string;
-          model_base_url: string | null;
-          permission_mode: string;
-          max_steps: number | null;
-        }
-      | undefined;
-    if (!agentRow) throw new Error(`Agent not found: ${ctx.agentId}`);
-
-    const spec = {
-      schemaVersion: "2" as const,
-      agentId: ctx.agentId,
-      threadId,
+    const spec = await buildAgentSpecV2(threadId, "", {
+      runId,
       conversationId: ctx.conversationId,
       senderMemberId: ctx.agentMemberId,
-      model: {
-        provider: agentRow.model_provider,
-        model: agentRow.model_name,
-        ...(agentRow.model_base_url ? { baseURL: agentRow.model_base_url } : {}),
-      },
-      permissionMode: agentRow.permission_mode,
-      maxSteps: agentRow.max_steps ?? undefined,
-      input: "", // input is in thread.messages via broadcast projection
-      runId,
-    };
+    });
     const { attemptId } = await supervisor.startMainRun(runId, threadId, spec);
-    return { runId, attemptId, pid: 0 };
+    return { runId, attemptId };
   },
 });
 

@@ -204,7 +204,7 @@ export class RunnerDaemon {
     this.#runs.set(reflectRunId, {
       agent: reflectAgent,
       abort: new AbortController(),
-      spec: { ...parent.spec, mode: "reflect", input: reflectionGuidance(), runId: reflectRunId },
+      spec: { ...parent.spec, mode: "reflect" as const, input: reflectionGuidance(), runId: reflectRunId, parentRunId },
       reflect: false,
       threadId: `reflect:${parent.threadId}`,
       runId: reflectRunId,

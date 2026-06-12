@@ -87,6 +87,7 @@ export class LocalBackend implements WritableBackend {
 
   async exists(relPath: string): Promise<boolean> {
     const p = this.#resolve(relPath);
+    this.#check(p);
     try { await stat(p); return true; }
     catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
