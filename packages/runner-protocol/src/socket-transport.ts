@@ -78,6 +78,8 @@ export function createSocketServer(opts: SocketServerOptions): {
 export interface SocketClientOptions {
   socketPath: string;
   onError?: (err: Error) => void;
+  /** Max ms to wait for first connection. Default 10_000. */
+  readyTimeoutMs?: number;
 }
 
 export function createSocketClient(opts: SocketClientOptions): RunnerTransport {
@@ -88,9 +90,8 @@ export function createSocketClient(opts: SocketClientOptions): RunnerTransport {
   let closed = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let resolveReady!: () => void;
-  // NOTE: readyPromise has no built-in timeout — if daemon never connects,
-  // transportFor will hang indefinitely. Callers should set a deadline.
   const readyPromise = new Promise<void>((r) => { resolveReady = r; });
+  const readyTimeoutMs = opts.readyTimeoutMs ?? 10_000;
 
   const framer = createFramer(
     (obj) => {
@@ -144,7 +145,17 @@ export function createSocketClient(opts: SocketClientOptions): RunnerTransport {
   void connect();
 
   return {
-    ready() { return readyPromise; },
+    ready() {
+      return Promise.race([
+        readyPromise,
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`transport ready timeout after ${readyTimeoutMs}ms`)),
+            readyTimeoutMs,
+          ),
+        ),
+      ]);
+    },
     send(msg) {
       const line = encode(msg);
       if (sock) {

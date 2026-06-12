@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createMemoryTransportPair } from "./memory-transport.js";
 import { createFramer, encode } from "./ndjson.js";
+import { createSocketClient } from "./socket-transport.js";
 
 // ─── NDJSON framer ───
 
@@ -202,4 +203,35 @@ describe("createMemoryTransportPair", () => {
 
   // Checkpointer RPC tests removed — checkpoint is now handled locally
   // by SQLiteCheckpointer via runner-state volume, not over Transport.
+});
+
+// ─── ready() timeout ───
+
+describe("SocketClient ready()", () => {
+  test("memory transport ready() resolves immediately", async () => {
+    const { host } = createMemoryTransportPair();
+    await expect(host.ready()).resolves.toBeUndefined();
+  });
+
+  test("socket client ready() rejects on timeout for non-existent socket", async () => {
+    const client = createSocketClient({
+      socketPath: `/tmp/no-such-socket-${crypto.randomUUID()}`,
+      readyTimeoutMs: 200,
+    });
+    await expect(client.ready()).rejects.toThrow("transport ready timeout");
+    client.close();
+  });
+
+  test("socket client ready() does not reject when connect succeeds", async () => {
+    // Use a real Bun.listen socket to test successful connection
+    const socketPath = `/tmp/test-ready-${crypto.randomUUID()}`;
+    const server = Bun.listen({ unix: socketPath, socket: { data() {} } });
+    try {
+      const client = createSocketClient({ socketPath, readyTimeoutMs: 5000 });
+      await expect(client.ready()).resolves.toBeUndefined();
+      client.close();
+    } finally {
+      server.stop();
+    }
+  });
 });

@@ -469,25 +469,34 @@ export class RunSupervisor {
       heartbeat_at: number | null;
     }[];
 
-    // Phase 1: re-register live runs in #active for post-restart cancel support
+    // Phase 1: re-register live runs in #active for post-restart cancel support.
+    // Try to reconnect to daemon transport via registry so cancel() works.
+    // Falls back to no-op stub if daemon is unreachable (then reaper timeout is the only cancel path).
     for (const row of rows) {
       const age = row.heartbeat_at ? Date.now() - row.heartbeat_at : Infinity;
       if (age < this.#opts.config.heartbeatTimeoutMs) {
+        const agentId = (row as { agent_id?: string }).agent_id ?? "default";
+        const kind = (row as { kind?: "main" | "reflect" }).kind ?? "main";
+        let transport: RunnerTransport;
+        try {
+          transport = await this.#opts.registry.transportFor(agentId);
+          this.#bindTransport(transport);
+        } catch {
+          transport = {
+            send() {},
+            onMessage() {},
+            onClose() {},
+            close() {},
+          } as unknown as RunnerTransport;
+        }
         const ac = new AbortController();
         this.#active.set(row.run_id, {
           runId: row.run_id,
           attemptId: row.attempt_id,
           threadId: row.thread_id ?? "",
-          agentId: (row as { agent_id?: string }).agent_id ?? "default",
-          kind: (row as { kind?: "main" | "reflect" }).kind ?? "main",
-          // Post-restart, the original daemon transport is gone. Use a no-op stub;
-          // these runs will be cancelled via reaper timeout, not active abort.
-          transport: {
-            send() {},
-            onMessage() {},
-            onClose() {},
-            close() {},
-          } as unknown as RunnerTransport,
+          agentId,
+          kind,
+          transport,
           abortController: ac,
         });
         console.log(
