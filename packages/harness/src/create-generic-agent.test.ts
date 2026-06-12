@@ -10,10 +10,12 @@ import { createGenericAgent } from "./create-generic-agent.js";
 function testHandle(root: string): WorkspaceHandle {
   const be = new LocalBackend(root);
   return {
-    fs: new WorkspaceFS({ mounts: [
-      { prefix: "/shared/", domain: "shared", backend: be },
-      { prefix: "/private/", domain: "private", backend: be, posixRoot: root },
-    ]}),
+    fs: new WorkspaceFS({
+      mounts: [
+        { prefix: "/shared/", domain: "shared", backend: be },
+        { prefix: "/private/", domain: "private", backend: be, posixRoot: root },
+      ],
+    }),
     privateRoot: root,
     posixRoots: [root],
     displayRoot: "/",

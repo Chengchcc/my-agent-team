@@ -10,6 +10,12 @@ export type RunnerToHost =
   | { type: "event"; runId: string; event: AgentEvent }
   | { type: "delta"; runId: string; event: AgentEvent }
   | { type: "heartbeat"; runId: string }
-  | { type: "run_done"; runId: string; status: "succeeded" | "error" | "aborted"; wantsReflect?: boolean; error?: string };
+  | {
+      type: "run_done";
+      runId: string;
+      status: "succeeded" | "error" | "aborted";
+      wantsReflect?: boolean;
+      error?: string;
+    };
 
 export type ProtocolMessage = HostToRunner | RunnerToHost;

@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
-import { type ChildProcess, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import type { EventLog, EventSource } from "@my-agent-team/event-log";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
-import type { RunnerRegistry } from "./runner-registry.js";
 import type { BackendConfig } from "../../config.js";
+import type { RunnerRegistry } from "./runner-registry.js";
 
 // Migrations for events.db — run/attempt tables (same file that stores event_log).
 // Uses the same _migrations ledger pattern as backend.db.
@@ -339,7 +339,12 @@ export class RunSupervisor {
   }
 
   /** Handle incoming daemon transport messages. Auto-wired in constructor. */
-  #beginAttempt(o: { runId: string; threadId: string; kind: "main" | "reflect"; parentRunId?: string }): void {
+  #beginAttempt(o: {
+    runId: string;
+    threadId: string;
+    kind: "main" | "reflect";
+    parentRunId?: string;
+  }): void {
     const attemptId = crypto.randomUUID();
     const now = Date.now();
     this.#db.run(
@@ -351,7 +356,12 @@ export class RunSupervisor {
       [attemptId, o.runId, now, now],
     );
     this.#active.set(o.runId, {
-      runId: o.runId, attemptId, threadId: o.threadId, pid: null, child: null, abortController: new AbortController(),
+      runId: o.runId,
+      attemptId,
+      threadId: o.threadId,
+      pid: null,
+      child: null,
+      abortController: new AbortController(),
     });
   }
 
@@ -359,7 +369,13 @@ export class RunSupervisor {
     const msg = raw as Record<string, unknown>;
     const runId = msg.runId as string;
     let transport: RunnerTransport | undefined;
-    try { transport = await this.#opts.registry?.transportFor((msg as { agentId?: string }).agentId ?? "default"); } catch { /* ignore */ }
+    try {
+      transport = await this.#opts.registry?.transportFor(
+        (msg as { agentId?: string }).agentId ?? "default",
+      );
+    } catch {
+      /* ignore */
+    }
     if (!transport) transport = this.#opts.transport;
     switch (msg.type) {
       case "run_started": {
@@ -384,15 +400,23 @@ export class RunSupervisor {
       }
       case "heartbeat": {
         this.#db.run("UPDATE attempt SET heartbeat_at = ? WHERE run_id = ? AND ended_at IS NULL", [
-          Date.now(), runId,
+          Date.now(),
+          runId,
         ]);
         break;
       }
       case "run_done": {
         const status = msg.status as string;
         const exitNow = Date.now();
-        this.#db.run("UPDATE attempt SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL", [exitNow, runId]);
-        this.#db.run("UPDATE run SET status = ?, ended_at = ? WHERE run_id = ?", [status, exitNow, runId]);
+        this.#db.run("UPDATE attempt SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL", [
+          exitNow,
+          runId,
+        ]);
+        this.#db.run("UPDATE run SET status = ?, ended_at = ? WHERE run_id = ?", [
+          status,
+          exitNow,
+          runId,
+        ]);
         this.#closeDeltaSubs(runId);
         this.#active.delete(runId);
         const threadId = this.#threadIdFor(runId);
@@ -410,7 +434,9 @@ export class RunSupervisor {
   #threadIdFor(runId: string): string {
     const active = this.#active.get(runId);
     if (active) return active.threadId;
-    const row = this.#db.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as { thread_id: string } | undefined;
+    const row = this.#db.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as
+      | { thread_id: string }
+      | undefined;
     if (!row) throw new Error(`unknown runId: ${runId}`);
     return row.thread_id;
   }

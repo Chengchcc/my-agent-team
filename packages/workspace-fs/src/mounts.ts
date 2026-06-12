@@ -11,8 +11,18 @@ export function makeDefaultMounts(o: {
   sharedPosix?: boolean;
 }): MountEntry[] {
   return [
-    { prefix: "/shared/", domain: "shared", backend: new LocalBackend(o.sharedRoot), posixRoot: o.sharedPosix ? o.sharedRoot : undefined },
-    { prefix: "/private/", domain: "private", backend: new LocalBackend(o.privateRoot), posixRoot: o.privateRoot },
+    {
+      prefix: "/shared/",
+      domain: "shared",
+      backend: new LocalBackend(o.sharedRoot),
+      posixRoot: o.sharedPosix ? o.sharedRoot : undefined,
+    },
+    {
+      prefix: "/private/",
+      domain: "private",
+      backend: new LocalBackend(o.privateRoot),
+      posixRoot: o.privateRoot,
+    },
   ];
 }
 
@@ -31,9 +41,17 @@ export function makeDevWorkspaceHandle(root: string): WorkspaceHandle {
   return makeWorkspaceHandle({ sharedRoot, privateRoot, sharedPosix: true });
 }
 
-export function makeSharedOnlyMounts(o: { sharedRoot: string; sharedPosix?: boolean }): MountEntry[] {
+export function makeSharedOnlyMounts(o: {
+  sharedRoot: string;
+  sharedPosix?: boolean;
+}): MountEntry[] {
   return [
-    { prefix: "/shared/", domain: "shared", backend: new LocalBackend(o.sharedRoot), posixRoot: o.sharedPosix ? o.sharedRoot : undefined },
+    {
+      prefix: "/shared/",
+      domain: "shared",
+      backend: new LocalBackend(o.sharedRoot),
+      posixRoot: o.sharedPosix ? o.sharedRoot : undefined,
+    },
   ];
 }
 

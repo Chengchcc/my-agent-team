@@ -7,10 +7,12 @@ import { BOOTSTRAP_TEMPLATE, bootstrap } from "./bootstrap.js";
 
 function testFS(root: string): WorkspaceFS {
   const be = new LocalBackend(root);
-  return new WorkspaceFS({ mounts: [
-    { prefix: "/shared/", domain: "shared", backend: be },
-    { prefix: "/private/", domain: "private", backend: be, posixRoot: root },
-  ]});
+  return new WorkspaceFS({
+    mounts: [
+      { prefix: "/shared/", domain: "shared", backend: be },
+      { prefix: "/private/", domain: "private", backend: be, posixRoot: root },
+    ],
+  });
 }
 
 describe("bootstrap", () => {

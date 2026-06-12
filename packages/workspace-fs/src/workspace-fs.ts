@@ -1,5 +1,11 @@
 import { DefaultWorkspaceAliases } from "./aliases.js";
-import type { MountEntry, PathAliasResolver, ReadableBackend, WritableBackend, WorkspaceDomain } from "./types.js";
+import type {
+  MountEntry,
+  PathAliasResolver,
+  ReadableBackend,
+  WorkspaceDomain,
+  WritableBackend,
+} from "./types.js";
 
 function normalizeAbs(raw: string): string {
   if (!raw || raw.includes("\0")) throw new WorkspaceAccessError("invalid path");
@@ -39,12 +45,18 @@ function normalizeMounts(mounts: MountEntry[]): MountEntry[] {
   }
   return mounts
     .map((m, i) => ({ m, i }))
-    .sort((a, b) => { const byLen = b.m.prefix.length - a.m.prefix.length; return byLen !== 0 ? byLen : a.i - b.i; })
+    .sort((a, b) => {
+      const byLen = b.m.prefix.length - a.m.prefix.length;
+      return byLen !== 0 ? byLen : a.i - b.i;
+    })
     .map((x) => x.m);
 }
 
 export class WorkspaceAccessError extends Error {
-  constructor(message: string) { super(message); this.name = "WorkspaceAccessError"; }
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkspaceAccessError";
+  }
 }
 
 export interface WorkspaceHandle {
@@ -74,7 +86,8 @@ export class WorkspaceFS {
   }
 
   #r(p: string): { backend: ReadableBackend; relPath: string } {
-    const x = this.#resolve(p); return { backend: x.mount.backend, relPath: x.relPath };
+    const x = this.#resolve(p);
+    return { backend: x.mount.backend, relPath: x.relPath };
   }
   #w(p: string): { backend: WritableBackend; relPath: string } {
     const x = this.#resolve(p);
@@ -82,20 +95,43 @@ export class WorkspaceFS {
     return { backend: x.mount.backend as WritableBackend, relPath: x.relPath };
   }
 
-  async read(p: string) { const r = this.#r(p); return r.backend.read(r.relPath); }
-  async list(p: string) { const r = this.#r(p); return r.backend.list(r.relPath); }
-  async stat(p: string) { const r = this.#r(p); return r.backend.stat(r.relPath); }
-  async exists(p: string) { const r = this.#r(p); return r.backend.exists(r.relPath); }
-  async write(p: string, c: string) { const r = this.#w(p); return r.backend.write(r.relPath, c); }
-  async mkdirp(p: string) { const r = this.#w(p); return r.backend.mkdirp(r.relPath); }
-  async remove(p: string) { const r = this.#w(p); return r.backend.remove(r.relPath); }
+  async read(p: string) {
+    const r = this.#r(p);
+    return r.backend.read(r.relPath);
+  }
+  async list(p: string) {
+    const r = this.#r(p);
+    return r.backend.list(r.relPath);
+  }
+  async stat(p: string) {
+    const r = this.#r(p);
+    return r.backend.stat(r.relPath);
+  }
+  async exists(p: string) {
+    const r = this.#r(p);
+    return r.backend.exists(r.relPath);
+  }
+  async write(p: string, c: string) {
+    const r = this.#w(p);
+    return r.backend.write(r.relPath, c);
+  }
+  async mkdirp(p: string) {
+    const r = this.#w(p);
+    return r.backend.mkdirp(r.relPath);
+  }
+  async remove(p: string) {
+    const r = this.#w(p);
+    return r.backend.remove(r.relPath);
+  }
 
   mountsForDomain(domain: WorkspaceDomain): MountEntry[] {
     return this.#mounts.filter((m) => m.domain === domain);
   }
   posixRoots(): string[] {
     const roots: string[] = [];
-    for (const m of this.#mounts) { if (m.posixRoot && !roots.includes(m.posixRoot)) roots.push(m.posixRoot); }
+    for (const m of this.#mounts) {
+      if (m.posixRoot && !roots.includes(m.posixRoot)) roots.push(m.posixRoot);
+    }
     return roots;
   }
 }

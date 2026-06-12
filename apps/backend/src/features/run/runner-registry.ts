@@ -23,26 +23,37 @@ function safeAgentId(id: string): string {
   return id.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
-async function terminateChild(child: ChildProcess, opts: { timeoutMs: number; label: string }): Promise<void> {
+async function terminateChild(
+  child: ChildProcess,
+  opts: { timeoutMs: number; label: string },
+): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   child.kill("SIGTERM");
   const exited = await new Promise<boolean>((resolve) => {
     const t = setTimeout(() => resolve(false), opts.timeoutMs);
-    child.on("exit", () => { clearTimeout(t); resolve(true); });
+    child.on("exit", () => {
+      clearTimeout(t);
+      resolve(true);
+    });
   });
   if (exited) return;
   child.kill("SIGKILL");
-  await new Promise<void>((resolve) => { child.on("exit", () => resolve()); setTimeout(() => resolve(), 1000); });
+  await new Promise<void>((resolve) => {
+    child.on("exit", () => resolve());
+    setTimeout(() => resolve(), 1000);
+  });
 }
 
 export class DevRunnerRegistry implements RunnerRegistry {
   #runners = new Map<string, DevRunner>();
 
-  constructor(private opts: {
-    dataDir: string;
-    daemonBin: string;
-    transportFactory: (socket: string) => RunnerTransport;
-  }) {}
+  constructor(
+    private opts: {
+      dataDir: string;
+      daemonBin: string;
+      transportFactory: (socket: string) => RunnerTransport;
+    },
+  ) {}
 
   async transportFor(agentId: string): Promise<RunnerTransport> {
     const id = await safeAgentId(agentId);
@@ -65,14 +76,23 @@ export class DevRunnerRegistry implements RunnerRegistry {
     await mkdir(dir, { recursive: true });
     await rm(socket, { force: true }).catch(() => {});
 
-    const child = spawn("bun", [
-      this.opts.daemonBin,
-      "--agent-id", agentId,
-      "--socket", socket,
-      "--shared-root", sharedRoot,
-      "--private-root", privateRoot,
-      "--state-root", stateRoot,
-    ], { stdio: "inherit", env: process.env });
+    const child = spawn(
+      "bun",
+      [
+        this.opts.daemonBin,
+        "--agent-id",
+        agentId,
+        "--socket",
+        socket,
+        "--shared-root",
+        sharedRoot,
+        "--private-root",
+        privateRoot,
+        "--state-root",
+        stateRoot,
+      ],
+      { stdio: "inherit", env: process.env },
+    );
 
     await writeFile(pidFile, String(child.pid));
 
@@ -88,7 +108,10 @@ export class DevRunnerRegistry implements RunnerRegistry {
 
   async #disposeRunner(runner: DevRunner): Promise<void> {
     await runner.transport.close().catch(() => {});
-    await terminateChild(runner.child, { timeoutMs: 3000, label: `runner-daemon(${runner.agentId})` });
+    await terminateChild(runner.child, {
+      timeoutMs: 3000,
+      label: `runner-daemon(${runner.agentId})`,
+    });
     await rm(runner.socket, { force: true }).catch(() => {});
     await rm(join(runner.dir, "runner.pid"), { force: true }).catch(() => {});
   }

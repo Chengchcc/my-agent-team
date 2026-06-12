@@ -1,11 +1,11 @@
+import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { Database } from "bun:sqlite";
 import type { Agent, AgentEvent, Checkpointer } from "@my-agent-team/framework";
 import { sqliteCheckpointer } from "@my-agent-team/framework";
 import type { HostToRunner, RunnerTransport } from "@my-agent-team/runner-protocol";
-import { makeWorkspaceHandle } from "@my-agent-team/workspace-fs";
 import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
+import { makeWorkspaceHandle } from "@my-agent-team/workspace-fs";
 
 // ─── Types ───
 
@@ -94,14 +94,21 @@ export class RunnerDaemon {
 
   async #onStart(msg: HostToRunner & { type: "start" }): Promise<void> {
     const spec = msg.spec as {
-      agentId?: string; threadId?: string; input?: string;
-      maxSteps?: number; mode?: string; model?: string; baseURL?: string;
+      agentId?: string;
+      threadId?: string;
+      input?: string;
+      maxSteps?: number;
+      mode?: string;
+      model?: string;
+      baseURL?: string;
       resumeCommand?: { approved: boolean; message?: string };
     };
 
     if (spec.agentId && spec.agentId !== this.#agentId) {
       await this.#transport.send({
-        type: "run_done", runId: msg.runId, status: "error",
+        type: "run_done",
+        runId: msg.runId,
+        status: "error",
         error: `agentId mismatch: daemon=${this.#agentId}, spec=${spec.agentId}`,
       });
       return;
@@ -109,7 +116,10 @@ export class RunnerDaemon {
 
     const threadId = spec.threadId ?? msg.runId;
     const mode = spec.mode ?? "run";
-    const model = this.#modelFactory.create({ model: spec.model ?? "claude-sonnet-4-6", baseURL: spec.baseURL });
+    const model = this.#modelFactory.create({
+      model: spec.model ?? "claude-sonnet-4-6",
+      baseURL: spec.baseURL,
+    });
 
     const { createGenericAgent } = await import("@my-agent-team/harness");
     const agent = await createGenericAgent({
@@ -119,7 +129,13 @@ export class RunnerDaemon {
       checkpointer: this.#checkpointer,
     });
 
-    this.#runs.set(msg.runId, { agent, abort: new AbortController(), spec, reflect: mode !== "resume" && mode !== "reflect", threadId });
+    this.#runs.set(msg.runId, {
+      agent,
+      abort: new AbortController(),
+      spec,
+      reflect: mode !== "resume" && mode !== "reflect",
+      threadId,
+    });
     void this.#drive(msg.runId);
   }
 
@@ -127,14 +143,19 @@ export class RunnerDaemon {
 
   #iteratorFor(run: RunHandle): AsyncIterable<AgentEvent> {
     const spec = run.spec as {
-      input?: string; maxSteps?: number; mode?: string;
+      input?: string;
+      maxSteps?: number;
+      mode?: string;
       resumeCommand?: { approved: boolean; message?: string };
     };
     const opts = { signal: run.abort.signal, maxSteps: spec.maxSteps ?? 32 };
     switch (spec.mode) {
-      case "resume": return run.agent.resume(spec.resumeCommand!, opts);
-      case "reflect": return run.agent.run(spec.input ?? "", opts);
-      default: return run.agent.run(spec.input ?? "", opts);
+      case "resume":
+        return run.agent.resume(spec.resumeCommand!, opts);
+      case "reflect":
+        return run.agent.run(spec.input ?? "", opts);
+      default:
+        return run.agent.run(spec.input ?? "", opts);
     }
   }
 
@@ -147,7 +168,10 @@ export class RunnerDaemon {
 
     try {
       for await (const ev of this.#iteratorFor(run)) {
-        if (run.abort.signal.aborted) { status = "aborted"; break; }
+        if (run.abort.signal.aborted) {
+          status = "aborted";
+          break;
+        }
         this.#routeEvent(runId, ev);
       }
     } catch (e) {
@@ -158,7 +182,13 @@ export class RunnerDaemon {
       const mode = (run.spec as { mode?: string }).mode ?? "run";
       const wantsReflect = status === "succeeded" && run.reflect && mode === "run";
       this.#runs.delete(runId);
-      await this.#transport.send({ type: "run_done", runId, status, wantsReflect, error: serializeError(error) });
+      await this.#transport.send({
+        type: "run_done",
+        runId,
+        status,
+        wantsReflect,
+        error: serializeError(error),
+      });
       if (wantsReflect) this.#finalized.set(runId, run);
     }
   }
@@ -182,14 +212,20 @@ export class RunnerDaemon {
     const reflectRunId = crypto.randomUUID();
     const parentRunId = (parent.spec as { runId?: string }).runId ?? "";
     await this.#transport.send({
-      type: "run_started", runId: reflectRunId, parentRunId, threadId: parent.threadId, kind: "reflect",
+      type: "run_started",
+      runId: reflectRunId,
+      parentRunId,
+      threadId: parent.threadId,
+      kind: "reflect",
     });
     const reflectAgent = parent.agent.fork(undefined, `reflect:${parent.threadId}`);
     const { reflectionGuidance } = await import("@my-agent-team/harness");
     this.#runs.set(reflectRunId, {
-      agent: reflectAgent, abort: new AbortController(),
+      agent: reflectAgent,
+      abort: new AbortController(),
       spec: { ...parent.spec, mode: "reflect", input: reflectionGuidance() },
-      reflect: false, threadId: `reflect:${parent.threadId}`,
+      reflect: false,
+      threadId: `reflect:${parent.threadId}`,
     });
     await this.#drive(reflectRunId);
   }

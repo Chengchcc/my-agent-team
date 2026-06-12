@@ -77,10 +77,12 @@ describe("M11 Growth e2e", () => {
     await mkdir(ws, { recursive: true });
 
     const be = new LocalBackend(ws);
-    const fs = new WorkspaceFS({ mounts: [
-      { prefix: "/shared/", domain: "shared", backend: be },
-      { prefix: "/private/", domain: "private", backend: be, posixRoot: ws },
-    ]});
+    const fs = new WorkspaceFS({
+      mounts: [
+        { prefix: "/shared/", domain: "shared", backend: be },
+        { prefix: "/private/", domain: "private", backend: be, posixRoot: ws },
+      ],
+    });
 
     // Write BOOTSTRAP.md → genesis mode
     await writeFile(path.join(ws, "BOOTSTRAP.md"), "GENESIS MODE PROMPT");

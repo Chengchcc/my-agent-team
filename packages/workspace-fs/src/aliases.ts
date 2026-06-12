@@ -2,7 +2,11 @@ import type { PathAliasResolver } from "./types.js";
 import { WorkspaceAccessError } from "./workspace-fs.js";
 
 const SHARED_ROOT_FILES = new Set([
-  "/SOUL.md", "/USER.md", "/BOOTSTRAP.md", "/TOOLS.md", "/AGENTS.md",
+  "/SOUL.md",
+  "/USER.md",
+  "/BOOTSTRAP.md",
+  "/TOOLS.md",
+  "/AGENTS.md",
 ]);
 
 export function isSharedLogicalPath(absPath: string): boolean {
