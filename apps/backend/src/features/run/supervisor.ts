@@ -64,8 +64,6 @@ function runEventsDbMigrations(db: Database): void {
 export interface RunSupervisorOptions {
   eventLog: EventLog;
   config: BackendConfig;
-  /** @deprecated Remove when daemon transport becomes the only path (M14.7 final). */
-  runnerBin?: string;
   /** M14.7: Daemon transport for resident runner. When set, start() is preferred over fork(). */
   transport?: RunnerTransport;
   /** M14.7: Runner registry for multi-agent daemon transport. */
@@ -290,102 +288,7 @@ export class RunSupervisor {
       const { attemptId } = this.start(runId, threadId, spec);
       return { runId, attemptId, pid: 0 };
     }
-    if (!this.#opts.runnerBin) throw new Error("runnerBin required when transport not configured");
-
-    const attemptId = crypto.randomUUID();
-    const now = Date.now();
-
-    // Fix H: Write ledger BEFORE spawn (DB is source of truth)
-    this.#db.run(
-      "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
-      [runId, threadId, now],
-    );
-    this.#db.run(
-      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)",
-      [attemptId, runId, null, now, now], // pid filled after spawn
-    );
-
-    const ac = new AbortController();
-    const child = spawn("bun", [this.#opts.runnerBin], {
-      env: { ...process.env, AGENT_SPEC: specJson },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    const pid = child.pid!;
-
-    // Update attempt with actual pid
-    this.#db.run("UPDATE attempt SET pid = ? WHERE attempt_id = ?", [pid, attemptId]);
-
-    // Parse stdout NDJSON for optional low-latency notification.
-    // Events are durably persisted via EventSink.append in the subprocess;
-    // stdout is an acceleration channel — losing it never loses events (iron law 4).
-    let buf = "";
-    child.stdout?.on("data", (data: Buffer) => {
-      buf += data.toString();
-      const lines = buf.split("\n");
-      buf = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          // JSON.parse is untyped but runner always writes valid AgentEvent
-          const ev = JSON.parse(line) as { type?: string; payload?: unknown };
-          // Ephemeral events → in-memory fan-out ONLY, never EventLog
-          if (ev.type === "text_delta" && ev.payload) {
-            this.#pushEphemeral(runId, ev.type, ev.payload);
-          } else if ((ev.type === "tool_start" || ev.type === "tool_end") && ev.payload) {
-            this.#pushEphemeral(runId, ev.type, ev.payload);
-          } else {
-            void this.#opts.eventLog
-              .append(threadId, runId, ev as Parameters<EventLog["append"]>[2])
-              .catch(() => {
-                // best-effort; runner's direct DB write is primary
-              });
-          }
-        } catch {
-          // skip malformed lines
-        }
-      }
-    });
-
-    child.stderr?.on("data", (data: Buffer) => {
-      process.stderr.write(`[supervisor:${runId}] ${data}`);
-    });
-
-    child.on("exit", (code, signal) => {
-      this.#active.delete(runId);
-      const exitNow = Date.now();
-      this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [exitNow, attemptId]);
-
-      // Fix D: Determine status correctly
-      if (ac.signal.aborted || signal !== null) {
-        this.#db.run("UPDATE run SET status = 'aborted', ended_at = ? WHERE run_id = ?", [
-          exitNow,
-          runId,
-        ]);
-      } else if (code === 0) {
-        this.#db.run("UPDATE run SET status = 'succeeded', ended_at = ? WHERE run_id = ?", [
-          exitNow,
-          runId,
-        ]);
-      } else {
-        this.#db.run("UPDATE run SET status = 'error', ended_at = ? WHERE run_id = ?", [
-          exitNow,
-          runId,
-        ]);
-      }
-
-      // M13: Close delta subscribers (run is done — no more deltas)
-      this.#closeDeltaSubs(runId);
-
-      // Fix B: Notify all listeners to release locks
-      for (const fn of this.#onRunComplete) {
-        fn(threadId, runId);
-      }
-    });
-
-    this.#active.set(runId, { runId, attemptId, threadId, pid, child, abortController: ac });
-
-    return { runId, attemptId, pid };
+    throw new Error("fork() is deprecated — use start() with daemon transport (M14.7)");
   }
 
   // ─── M14.7: Daemon transport path ───────────────────────────────

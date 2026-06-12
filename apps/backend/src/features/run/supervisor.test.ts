@@ -44,7 +44,7 @@ describe("RunSupervisor reaper (M11)", () => {
   test("reaper starts on construction", async () => {
     const config = makeConfig();
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({ eventLog, config, transport: undefined as never });
     // Reaper timer should be set
     expect(sup).toBeDefined();
     await sup.dispose();
@@ -53,7 +53,7 @@ describe("RunSupervisor reaper (M11)", () => {
   test("reaper marks stale attempt as interrupted", async () => {
     const config = makeConfig();
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({ eventLog, config, transport: undefined as never });
 
     const db = sup.getDb();
     // Insert a run and attempt with old heartbeat
@@ -90,7 +90,7 @@ describe("RunSupervisor reaper (M11)", () => {
   test("reaper does NOT mark fresh heartbeat as interrupted", async () => {
     const config = makeConfig({ heartbeatTimeoutMs: 500 }); // long timeout for this test
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({ eventLog, config, transport: undefined as never });
 
     const db = sup.getDb();
     const freshHeartbeat = Date.now(); // just now
@@ -117,7 +117,7 @@ describe("RunSupervisor reaper (M11)", () => {
   test("reaper triggers onRunComplete callback", async () => {
     const config = makeConfig();
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({ eventLog, config, transport: undefined as never });
 
     const completed: Array<{ threadId: string; runId: string }> = [];
     sup.onRunComplete((threadId, runId) => {
@@ -150,7 +150,7 @@ describe("RunSupervisor reaper (M11)", () => {
   test("dispose() stops the reaper timer", async () => {
     const config = makeConfig();
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({ eventLog, config, transport: undefined as never });
 
     const db = sup.getDb();
     const oldHeartbeat = Date.now() - 200;
@@ -180,7 +180,7 @@ describe("RunSupervisor reaper (M11)", () => {
   test("reaper appends terminal event to EventLog", async () => {
     const config = makeConfig();
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({ eventLog, config, transport: undefined as never });
 
     const db = sup.getDb();
     const oldHeartbeat = Date.now() - 200;
@@ -216,7 +216,7 @@ describe("RunSupervisor reaper (M11)", () => {
 
     const config = makeConfig({ heartbeatTimeoutMs: 100, stepStallTimeoutMs: 500 });
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({ eventLog, config, transport: undefined as never });
 
     const db = sup.getDb();
     // Heartbeat is 300ms old: > heartbeatTimeout(100) but < heartbeatTimeout+stepStallTimeout(600)
@@ -263,7 +263,7 @@ describe("RunSupervisor reaper (M11)", () => {
   test("rediscover still works after reaper extraction", async () => {
     const config = makeConfig({ heartbeatTimeoutMs: 10_000 }); // long timeout
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({ eventLog, config, transport: undefined as never });
 
     const db = sup.getDb();
     const freshHeartbeat = Date.now();

@@ -131,7 +131,7 @@ describe("M11 Liveness e2e", () => {
         reaperIntervalMs: 10_000,
         stepStallTimeoutMs: 300_000,
       },
-      runnerBin: "/fake/runner",
+      transport: undefined as never,
     });
 
     // Insert a run with old heartbeat into the supervisor's DB
