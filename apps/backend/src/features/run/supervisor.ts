@@ -85,6 +85,7 @@ interface ActiveRun {
   pid: number | null; // null for daemon runs
   child: ChildProcess | null; // null after restart or for daemon runs
   abortController: AbortController;
+  transport?: RunnerTransport; // M14.7: per-run transport for agent-scoped daemons
 }
 
 export class RunSupervisor {
@@ -372,7 +373,7 @@ export class RunSupervisor {
 
     const ac = new AbortController();
     this.#active.set(runId, {
-      runId, attemptId, threadId, pid: 0, child: null, abortController: ac,
+      runId, attemptId, threadId, pid: 0, child: null, abortController: ac, transport,
     });
 
     transport.send({
@@ -465,9 +466,9 @@ export class RunSupervisor {
     const run = this.#active.get(runId);
     if (!run) return false;
 
-    // M14.7: If transport is available, send abort message
-    if (this.#opts.transport && !run.child) {
-      this.#opts.transport.send({ type: "abort", runId });
+    // M14.7: Send abort via per-run transport (agent-scoped daemon)
+    if (run.transport && !run.child) {
+      run.transport.send({ type: "abort", runId });
       return true;
     }
 
