@@ -93,33 +93,27 @@ export class RunnerDaemon {
   // ─── Start ───
 
   async #onStart(msg: HostToRunner & { type: "start" }): Promise<void> {
-    const spec = msg.spec as {
-      agentId?: string;
-      threadId?: string;
-      input?: string;
-      maxSteps?: number;
-      mode?: string;
-      model?: string;
-      baseURL?: string;
+    const raw = msg.spec as {
+      agentId?: string; threadId?: string; input?: string;
+      maxSteps?: number; mode?: string;
+      model?: string | { model: string; provider?: string; baseURL?: string };
       resumeCommand?: { approved: boolean; message?: string };
     };
 
-    if (spec.agentId && spec.agentId !== this.#agentId) {
+    if (raw.agentId && raw.agentId !== this.#agentId) {
       await this.#transport.send({
-        type: "run_done",
-        runId: msg.runId,
-        status: "error",
-        error: `agentId mismatch: daemon=${this.#agentId}, spec=${spec.agentId}`,
+        type: "run_done", runId: msg.runId, status: "error",
+        error: `agentId mismatch: daemon=${this.#agentId}, spec=${raw.agentId}`,
       });
       return;
     }
 
-    const threadId = spec.threadId ?? msg.runId;
-    const mode = spec.mode ?? "run";
-    const model = this.#modelFactory.create({
-      model: spec.model ?? "claude-sonnet-4-6",
-      baseURL: spec.baseURL,
-    });
+    const threadId = raw.threadId ?? msg.runId;
+    const mode = raw.mode ?? "run";
+
+    // Model can be a string (name) or object { provider, model, baseURL }
+    const modelSpec = typeof raw.model === "object" ? raw.model : { model: raw.model ?? "claude-sonnet-4-6" };
+    const model = this.#modelFactory.create(modelSpec);
 
     const { createGenericAgent } = await import("@my-agent-team/harness");
     const agent = await createGenericAgent({
@@ -132,7 +126,7 @@ export class RunnerDaemon {
     this.#runs.set(msg.runId, {
       agent,
       abort: new AbortController(),
-      spec,
+      spec: raw,
       reflect: mode !== "resume" && mode !== "reflect",
       threadId,
     });

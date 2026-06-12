@@ -15,8 +15,9 @@ import {
   sqliteConversationAdapter,
 } from "./features/conversation/index.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
-// M14.7: Reflection is now orchestrated by the daemon control loop (run_finalized ACK).
-// Backend only owns run lifecycle — no more orchestrateReflection.
+import type { RunnerRegistry } from "./features/run/runner-registry.js";
+import { DevRunnerRegistry } from "./features/run/runner-registry.js";
+import { ProdRunnerRegistry } from "./features/run/runner-registry.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
@@ -30,16 +31,29 @@ const db = openDb(`${config.dataDir}/backend.db`);
 // Infrastructure
 const threads = new Set<string>();
 
-// M9: EventLog + Supervisor (created before agentSvc to inject getDb() into hardDelete)
+// M14.7: RunnerRegistry — dev spawns daemons, prod resolves endpoints
+const runnerEnv = process.env.RUNNER_ENV ?? "dev";
+const registry: RunnerRegistry = runnerEnv === "prod"
+  ? new ProdRunnerRegistry({
+      endpointResolver: {
+        resolve: async (agentId: string) => ({ kind: "unix" as const, socketPath: `/run/runners/${agentId}/runner.sock` }),
+      },
+      transportFactory: {
+        create: (endpoint: { kind: "unix"; socketPath: string }) => createSocketClient({ socketPath: endpoint.socketPath }),
+      },
+    })
+  : new DevRunnerRegistry({
+      dataDir: config.dataDir,
+      daemonBin: `${import.meta.dir}/../../../packages/runner-daemon/src/bin.ts`,
+      transportFactory: (socket) => createSocketClient({ socketPath: socket }),
+    });
+
+// M9: EventLog + Supervisor
 const eventLog = sqliteEventLog({ db: `${config.dataDir}/events.db` });
 const supervisor = new RunSupervisor({
   eventLog,
   config,
-  // M14.7: Daemon transport path. When RUNNER_SOCK is set, fork() auto-delegates
-  // to start() via transport. Supervisor auto-wires onMessage in constructor.
-  transport: process.env.RUNNER_SOCK
-    ? createSocketClient({ socketPath: process.env.RUNNER_SOCK })
-    : undefined,
+  registry,
 });
 
 // Agent feature
@@ -225,7 +239,7 @@ const convSvc = createConversationService({
 });
 
 // C2 + D19 fix: register conversation-level onRunComplete (multi-listener supervisor)
-supervisor.onRunComplete((threadId, runId) => {
+supervisor.onRunComplete(async (threadId, runId) => {
   // M14.3: reflect run自身结束 — 不放会话锁、不D19、不递归
   if (threadId.startsWith("reflect:")) return;
   // Scan active conversations for a matching threadId (deriveThreadId = cid:memberId)
@@ -235,11 +249,9 @@ supervisor.onRunComplete((threadId, runId) => {
       convSvc.completeRun(cid, threadId, runId);
 
       // D19: Write all assistant messages from this run to the ledger.
-      // M14.3: Reflections run as independent post-run jobs with their own runId —
-      // D19 reads only the main runId, so reflection messages are physically isolated.
-      void (async () => {
-        try {
-          const events = await eventLog.read({ runId });
+      // M14.7: Awaited before run_finalized ACK (no longer fire-and-forget).
+      try {
+        const events = await eventLog.read({ runId });
 
           const conversationMsgs = events
             .filter((rec) => rec.event.type === "message")
@@ -315,7 +327,6 @@ supervisor.onRunComplete((threadId, runId) => {
             err instanceof Error ? err.message : String(err),
           );
         }
-      })();
 
       // M14.7: Reflection is now orchestrated by the daemon control loop.
       // Backend only sends run_finalized ACK; daemon fires reflection after receiving it.
@@ -364,6 +375,8 @@ const shutdown = async (signal: string) => {
   await new Promise((r) => setTimeout(r, config.cancelGraceMs));
 
   await supervisor.dispose();
+  // M14.7: Dispose daemon registry (kills spawned daemon processes)
+  await registry.dispose?.();
   db.close();
   process.exit(0);
 };

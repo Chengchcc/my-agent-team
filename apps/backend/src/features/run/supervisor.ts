@@ -420,9 +420,9 @@ export class RunSupervisor {
         this.#closeDeltaSubs(runId);
         this.#active.delete(runId);
         const threadId = this.#threadIdFor(runId);
-        if (status === "succeeded") {
-          await Promise.all(this.#onRunComplete.map((fn) => fn(threadId, runId)));
-        }
+        // Always fire lifecycle hooks (lock release, cleanup)
+        await Promise.all(this.#onRunComplete.map((fn) => fn(threadId, runId)));
+        // Only send run_finalized after all listeners complete (D19, ledger, etc.)
         if (transport) transport.send({ type: "run_finalized", runId });
         break;
       }

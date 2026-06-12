@@ -116,3 +116,41 @@ export class DevRunnerRegistry implements RunnerRegistry {
     await rm(join(runner.dir, "runner.pid"), { force: true }).catch(() => {});
   }
 }
+
+// ─── Prod runner ───
+
+export interface RunnerEndpointResolver {
+  resolve(agentId: string): Promise<{ kind: "unix"; socketPath: string } | null>;
+}
+
+export interface RunnerTransportFactory {
+  create(endpoint: { kind: "unix"; socketPath: string }): RunnerTransport;
+}
+
+export class ProdRunnerRegistry implements RunnerRegistry {
+  #transports = new Map<string, RunnerTransport>();
+
+  constructor(private opts: {
+    endpointResolver: RunnerEndpointResolver;
+    transportFactory: RunnerTransportFactory;
+  }) {}
+
+  async transportFor(agentId: string): Promise<RunnerTransport> {
+    const existing = this.#transports.get(agentId);
+    if (existing) return existing;
+
+    const endpoint = await this.opts.endpointResolver.resolve(agentId);
+    if (!endpoint) throw new Error(`no runner endpoint for agent: ${agentId}`);
+
+    const transport = this.opts.transportFactory.create(endpoint);
+    this.#transports.set(agentId, transport);
+    return transport;
+  }
+
+  async dispose(): Promise<void> {
+    await Promise.allSettled(
+      [...this.#transports.values()].map((t) => t.close().catch(() => {})),
+    );
+    this.#transports.clear();
+  }
+}
