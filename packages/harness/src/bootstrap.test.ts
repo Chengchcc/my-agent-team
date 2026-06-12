@@ -6,9 +6,11 @@ import { LocalBackend, WorkspaceFS } from "@my-agent-team/workspace-fs";
 import { BOOTSTRAP_TEMPLATE, bootstrap } from "./bootstrap.js";
 
 function testFS(root: string): WorkspaceFS {
-  return new WorkspaceFS([
-    { prefix: "/", domain: "private", backend: new LocalBackend(root), posixRoot: root },
-  ]);
+  const be = new LocalBackend(root);
+  return new WorkspaceFS({ mounts: [
+    { prefix: "/shared/", domain: "shared", backend: be },
+    { prefix: "/private/", domain: "private", backend: be, posixRoot: root },
+  ]});
 }
 
 describe("bootstrap", () => {

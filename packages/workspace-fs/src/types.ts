@@ -1,8 +1,4 @@
-// ─── Domain ───
-
 export type WorkspaceDomain = "shared" | "private" | "external" | "runner_state";
-
-// ─── Backend interfaces ───
 
 export interface ReadableBackend {
   read(relPath: string): Promise<string | null>;
@@ -17,13 +13,14 @@ export interface WritableBackend extends ReadableBackend {
   remove(relPath: string): Promise<void>;
 }
 
-// ─── Mount table ───
+/** Maps user-facing logical paths to AFS internal canonical paths. */
+export interface PathAliasResolver {
+  toCanonical(path: string): string;
+}
 
 export interface MountEntry {
-  /** Absolute logical prefix, e.g. "/", "/memory/", "/.state/checkpoints/" */
   prefix: string;
   backend: ReadableBackend;
   domain: WorkspaceDomain;
-  /** If set, this mount is visible to POSIX subprocesses under this root. */
   posixRoot?: string;
 }

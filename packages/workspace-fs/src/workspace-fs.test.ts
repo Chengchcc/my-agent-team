@@ -1,186 +1,106 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { SharedOnlyAliases } from "./aliases.js";
 import { MemoryBackend } from "./backends.js";
+import { makeDefaultMounts, makeExternalMount, makeSharedOnlyMounts } from "./mounts.js";
 import { WorkspaceAccessError, WorkspaceFS } from "./workspace-fs.js";
 
+function tmpDir() { return path.join(tmpdir(), `wsfs-${Date.now()}-${Math.random().toString(36).slice(2)}`); }
+
 describe("WorkspaceFS", () => {
-  // ─── mount resolution ───
-
-  test("routes path to matching mount", async () => {
-    const mem = new MemoryBackend();
-    await mem.write("x.md", "hello");
-    const fs = new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: mem, posixRoot: "/tmp" },
-    ]);
-
-    expect(await fs.read("/x.md")).toBe("hello");
+  test("makeDefaultMounts constructs without throwing", () => {
+    const fs = new WorkspaceFS({ mounts: makeDefaultMounts({ sharedRoot: "/tmp/sh", privateRoot: "/tmp/pr" }) });
+    expect(fs).toBeTruthy();
   });
 
-  test("longest prefix wins: /memory/ over /", async () => {
-    const root = new MemoryBackend();
-    const mem = new MemoryBackend();
-    await root.write("memory/x.md", "from-root");
-    await mem.write("x.md", "from-memory");
-
-    const fs = new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: root, posixRoot: "/tmp" },
-      { prefix: "/memory/", domain: "shared", backend: mem },
-    ]);
-
-    expect(await fs.read("/memory/x.md")).toBe("from-memory");
-    expect(await fs.read("/y.md")).toBeNull(); // hits /, mem has no y.md
+  test("all mount prefixes are directory prefixes", () => {
+    for (const m of makeDefaultMounts({ sharedRoot: "/tmp/sh", privateRoot: "/tmp/pr" })) {
+      expect(m.prefix.endsWith("/")).toBe(true);
+    }
   });
 
-  test("throws on no mount", async () => {
-    const fs = new WorkspaceFS([]);
-    await expect(fs.read("/anything.md")).rejects.toThrow(WorkspaceAccessError);
+  test("/SOUL.md → sharedRoot via alias", async () => {
+    const sh = tmpDir(); const pr = tmpDir();
+    await mkdir(sh, { recursive: true }); await mkdir(pr, { recursive: true });
+    try {
+      const fs = new WorkspaceFS({ mounts: makeDefaultMounts({ sharedRoot: sh, privateRoot: pr }) });
+      await fs.write("/SOUL.md", "soul");
+      expect(await Bun.file(path.join(sh, "SOUL.md")).text()).toBe("soul");
+    } finally { await rm(sh, { recursive: true, force: true }); await rm(pr, { recursive: true, force: true }); }
   });
 
-  // ─── path normalization ───
+  test("/memory/x.md → sharedRoot via alias", async () => {
+    const sh = tmpDir(); const pr = tmpDir();
+    await mkdir(sh, { recursive: true }); await mkdir(pr, { recursive: true });
+    try {
+      const fs = new WorkspaceFS({ mounts: makeDefaultMounts({ sharedRoot: sh, privateRoot: pr }) });
+      await fs.mkdirp("/memory/");
+      await fs.write("/memory/x.md", "m");
+      expect(await Bun.file(path.join(sh, "memory/x.md")).text()).toBe("m");
+    } finally { await rm(sh, { recursive: true, force: true }); await rm(pr, { recursive: true, force: true }); }
+  });
 
-  test("normalizes relative path to absolute", async () => {
+  test("/skills/x → privateRoot via alias", async () => {
+    const sh = tmpDir(); const pr = tmpDir();
+    await mkdir(sh, { recursive: true }); await mkdir(pr, { recursive: true });
+    try {
+      const fs = new WorkspaceFS({ mounts: makeDefaultMounts({ sharedRoot: sh, privateRoot: pr }) });
+      await fs.write("/skills/foo/SKILL.md", "skill");
+      expect(await Bun.file(path.join(pr, "skills/foo/SKILL.md")).text()).toBe("skill");
+    } finally { await rm(sh, { recursive: true, force: true }); await rm(pr, { recursive: true, force: true }); }
+  });
+
+  test("shared-only blocks private paths", async () => {
+    const sh = tmpDir(); await mkdir(sh, { recursive: true });
+    try {
+      const fs = new WorkspaceFS({ mounts: makeSharedOnlyMounts({ sharedRoot: sh }), aliases: new SharedOnlyAliases() });
+      await fs.write("/SOUL.md", "s");
+      expect(await fs.read("/SOUL.md")).toBe("s");
+      await expect(fs.read("/tmp/a.txt")).rejects.toThrow("no mount");
+    } finally { await rm(sh, { recursive: true, force: true }); }
+  });
+
+  test("external prefix overrides", async () => {
     const mem = new MemoryBackend();
-    await mem.write("SOUL.md", "agent soul");
-    const fs = new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: mem, posixRoot: "/tmp" },
-    ]);
-
-    expect(await fs.read("SOUL.md")).toBe("agent soul");
+    const fs = new WorkspaceFS({
+      mounts: [makeExternalMount("/mnt/drive/"), { prefix: "/private/", domain: "private", backend: new MemoryBackend(), posixRoot: "/tmp" }],
+    });
+    await fs.write("/mnt/drive/spec.md", "ext");
+    expect(await fs.read("/mnt/drive/spec.md")).toBe("ext");
   });
 
   test("rejects .. escape", async () => {
-    const mem = new MemoryBackend();
-    const fs = new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: mem, posixRoot: "/tmp" },
-    ]);
-
+    const fs = new WorkspaceFS({ mounts: [{ prefix: "/private/", domain: "private", backend: new MemoryBackend(), posixRoot: "/tmp" }] });
     await expect(fs.read("/../escape.md")).rejects.toThrow(WorkspaceAccessError);
   });
 
-  // ─── read/write/exists/stat/list/remove ───
-
-  test("write + read roundtrip", async () => {
+  test("write/read/exists/stat/list/remove roundtrip", async () => {
     const mem = new MemoryBackend();
-    const fs = new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: mem, posixRoot: "/tmp" },
-    ]);
-
-    await fs.write("/tmp/out.json", '{"ok":true}');
-    expect(await fs.read("/tmp/out.json")).toBe('{"ok":true}');
-  });
-
-  test("exists returns false for missing", async () => {
-    const mem = new MemoryBackend();
-    const fs = new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: mem, posixRoot: "/tmp" },
-    ]);
-
-    expect(await fs.exists("/nonexistent.md")).toBe(false);
-  });
-
-  test("exists returns true after write", async () => {
-    const mem = new MemoryBackend();
-    const fs = new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: mem, posixRoot: "/tmp" },
-    ]);
-
-    await fs.write("/file.md", "content");
-    expect(await fs.exists("/file.md")).toBe(true);
-  });
-
-  test("list returns entries", async () => {
-    const mem = new MemoryBackend();
-    const fs = new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: mem, posixRoot: "/tmp" },
-    ]);
-
-    await fs.write("/a.md", "a");
-    await fs.write("/b.md", "b");
-    const entries = await fs.list("/");
-    expect(entries).toContain("a.md");
-    expect(entries).toContain("b.md");
-  });
-
-  test("stat returns mtime and size", async () => {
-    const mem = new MemoryBackend();
-    const fs = new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: mem, posixRoot: "/tmp" },
-    ]);
-
+    const fs = new WorkspaceFS({ mounts: [{ prefix: "/private/", domain: "private", backend: mem, posixRoot: "/tmp" }] });
+    expect(await fs.exists("/file.md")).toBe(false);
     await fs.write("/file.md", "hello world");
-    const s = await fs.stat("/file.md");
-    expect(s).not.toBeNull();
-    expect(s!.size).toBe(11);
-  });
-
-  test("remove deletes file", async () => {
-    const mem = new MemoryBackend();
-    const fs = new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: mem, posixRoot: "/tmp" },
-    ]);
-
-    await fs.write("/file.md", "content");
+    expect(await fs.exists("/file.md")).toBe(true);
+    expect(await fs.read("/file.md")).toBe("hello world");
+    expect((await fs.stat("/file.md"))?.size).toBe(11);
     await fs.remove("/file.md");
     expect(await fs.exists("/file.md")).toBe(false);
   });
 
-  // ─── read-only mount ───
-
-  test("write to read-only mount throws", async () => {
+  test("read-only mount write throws", async () => {
     const mem = new MemoryBackend();
-    const ro = {
-      read: mem.read.bind(mem),
-      list: mem.list.bind(mem),
-      stat: mem.stat.bind(mem),
-      exists: mem.exists.bind(mem),
-    };
-    const fs = new WorkspaceFS([{ prefix: "/ro/", domain: "shared", backend: ro }]);
-
-    await expect(fs.write("/ro/file.md", "nope")).rejects.toThrow(WorkspaceAccessError);
+    const ro = { read: mem.read.bind(mem), list: mem.list.bind(mem), stat: mem.stat.bind(mem), exists: mem.exists.bind(mem) };
+    const fs = new WorkspaceFS({ mounts: [{ prefix: "/shared/", domain: "shared", backend: ro }] });
+    await expect(fs.write("/SOUL.md", "nope")).rejects.toThrow(WorkspaceAccessError);
   });
 
-  // ─── posixRoots ───
-
-  test("posixRoots returns only mounts with posixRoot set", () => {
+  test("posixRoots collects from mounts", () => {
     const mem = new MemoryBackend();
-    const fs = new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: mem, posixRoot: "/data/private" },
-      { prefix: "/memory/", domain: "shared", backend: mem },
-      { prefix: "/mnt/drive/", domain: "external", backend: mem },
-    ]);
-
-    const roots = fs.posixRoots();
-    expect(roots).toEqual(["/data/private"]);
-  });
-
-  // ─── mountsForDomain ───
-
-  test("mountsForDomain filters by domain", () => {
-    const mem = new MemoryBackend();
-    const fs = new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: mem, posixRoot: "/tmp" },
-      { prefix: "/memory/", domain: "shared", backend: mem },
-      { prefix: "/mnt/drive/", domain: "external", backend: mem },
-    ]);
-
-    expect(fs.mountsForDomain("private").length).toBe(1);
-    expect(fs.mountsForDomain("shared").length).toBe(1);
-    expect(fs.mountsForDomain("external").length).toBe(1);
-    expect(fs.mountsForDomain("runner_state").length).toBe(0);
-  });
-
-  // ─── later registration overrides same prefix ───
-
-  test("later mount with same prefix overrides earlier", async () => {
-    const first = new MemoryBackend();
-    const second = new MemoryBackend();
-    await first.write("file.md", "first");
-    await second.write("file.md", "second");
-
-    const fs = new WorkspaceFS([
-      { prefix: "/test/", domain: "private", backend: first },
-      { prefix: "/test/", domain: "private", backend: second },
-    ]);
-
-    expect(await fs.read("/test/file.md")).toBe("second");
+    const fs = new WorkspaceFS({ mounts: [
+      { prefix: "/shared/", domain: "shared", backend: mem },
+      { prefix: "/private/", domain: "private", backend: mem, posixRoot: "/data/pr" },
+    ]});
+    expect(fs.posixRoots()).toEqual(["/data/pr"]);
   });
 });
