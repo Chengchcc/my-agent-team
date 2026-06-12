@@ -1,24 +1,27 @@
+import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { Database } from "bun:sqlite";
 import type { Agent, AgentEvent, Checkpointer } from "@my-agent-team/framework";
 import { sqliteCheckpointer } from "@my-agent-team/framework";
 import type { HostToRunner, RunnerTransport } from "@my-agent-team/runner-protocol";
-import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
 import { makeWorkspaceHandle } from "@my-agent-team/workspace-fs";
+import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
 
 // ─── Types ───
 
+export interface ModelFactory {
+  create(spec: { model: string; baseURL?: string }): {
+    stream(messages: unknown[], opts?: unknown): AsyncIterable<unknown>;
+  };
+}
+
 export interface RunnerDaemonOptions {
   transport: RunnerTransport;
-  privateRoot: string;
+  agentId: string;
   sharedRoot: string;
+  privateRoot: string;
   stateRoot: string;
-  /** Injectable agent factory for testing. Production path wired after harness WorkspaceHandle migration. */
-  createAgent?: (opts: {
-    workspace: unknown; // WorkspaceHandle after commit 9
-    model: unknown;
-    threadId: string;
-    checkpointer: Checkpointer;
-  }) => Promise<Agent>;
+  modelFactory: ModelFactory;
 }
 
 interface RunHandle {
@@ -26,70 +29,51 @@ interface RunHandle {
   abort: AbortController;
   spec: Record<string, unknown>;
   reflect: boolean;
+  threadId: string;
+}
+
+// ─── Helpers ───
+
+function openCheckpointerDb(dbPath: string): Database {
+  mkdirSync(path.dirname(dbPath), { recursive: true });
+  return new Database(dbPath);
+}
+
+function serializeError(e: unknown): string | undefined {
+  if (!e) return undefined;
+  return e instanceof Error ? e.message : String(e);
 }
 
 // ─── Daemon ───
 
 export class RunnerDaemon {
   #transport: RunnerTransport;
-  #privateRoot: string;
-  #sharedRoot: string;
-  #stateRoot: string;
-  #createAgent: NonNullable<RunnerDaemonOptions["createAgent"]>;
+  #agentId: string;
+  #workspace: WorkspaceHandle;
+  #checkpointer: Checkpointer;
+  #modelFactory: ModelFactory;
   #runs = new Map<string, RunHandle>();
   #finalized = new Map<string, RunHandle>();
-  #ws = new Map<string, WorkspaceHandle>();
-  #checkpointers = new Map<string, Checkpointer>();
-  #heartbeatInterval: ReturnType<typeof setInterval> | undefined;
+  #heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(opts: RunnerDaemonOptions) {
     this.#transport = opts.transport;
-    this.#privateRoot = opts.privateRoot;
-    this.#sharedRoot = opts.sharedRoot;
-    this.#stateRoot = opts.stateRoot;
-    this.#createAgent =
-      opts.createAgent ??
-      (async (o) => {
-        const { createGenericAgent } = await import("@my-agent-team/harness");
-        return createGenericAgent({
-          workspace: o.workspace as WorkspaceHandle,
-          model: o.model as Parameters<typeof createGenericAgent>[0]["model"],
-          threadId: o.threadId,
-          checkpointer: o.checkpointer,
-        });
-      });
-  }
-
-  // ─── Workspace + Checkpointer ───
-
-  #handleFor(agentId: string): WorkspaceHandle {
-    const existing = this.#ws.get(agentId);
-    if (existing) return existing;
-    const h = makeWorkspaceHandle({
-      sharedRoot: path.join(this.#sharedRoot, agentId),
-      privateRoot: path.join(this.#privateRoot, agentId),
-      sharedPosix: true,
+    this.#agentId = opts.agentId;
+    this.#workspace = makeWorkspaceHandle({
+      sharedRoot: opts.sharedRoot,
+      privateRoot: opts.privateRoot,
     });
-    this.#ws.set(agentId, h);
-    return h;
-  }
-
-  #checkpointerFor(agentId: string): Checkpointer {
-    const existing = this.#checkpointers.get(agentId);
-    if (existing) return existing;
-    const dbPath = path.join(this.#stateRoot, agentId, "checkpointer.sqlite");
-    const cp = sqliteCheckpointer({ db: dbPath });
-    this.#checkpointers.set(agentId, cp);
-    return cp;
+    this.#checkpointer = sqliteCheckpointer({
+      db: openCheckpointerDb(path.join(opts.stateRoot, "checkpointer.sqlite")),
+    });
+    this.#modelFactory = opts.modelFactory;
   }
 
   // ─── Lifecycle ───
 
   async start(): Promise<void> {
-    this.#heartbeatInterval = setInterval(() => {
-      for (const [runId] of this.#runs) {
-        this.#transport.send({ type: "heartbeat", runId });
-      }
+    this.#heartbeatTimer = setInterval(() => {
+      for (const [runId] of this.#runs) this.#transport.send({ type: "heartbeat", runId });
     }, 5000);
 
     this.#transport.onMessage((msg) => {
@@ -99,81 +83,115 @@ export class RunnerDaemon {
     });
   }
 
-  async stop(): Promise<void> {
-    if (this.#heartbeatInterval) clearInterval(this.#heartbeatInterval);
-    for (const [, run] of this.#runs) {
-      run.abort.abort("daemon shutting down");
-    }
+  async close(): Promise<void> {
+    if (this.#heartbeatTimer) clearInterval(this.#heartbeatTimer);
+    for (const [, run] of this.#runs) run.abort.abort("daemon shutting down");
     this.#runs.clear();
-    this.#checkpointers.clear();
     await this.#transport.close();
   }
 
-  // ─── Run lifecycle ───
+  // ─── Start ───
 
-  async #onStart(msg: Extract<HostToRunner, { type: "start" }>): Promise<void> {
+  async #onStart(msg: HostToRunner & { type: "start" }): Promise<void> {
     const spec = msg.spec as {
-      agentId?: string;
-      threadId?: string;
-      input?: string;
-      maxSteps?: number;
-      mode?: string;
+      agentId?: string; threadId?: string; input?: string;
+      maxSteps?: number; mode?: string; model?: string; baseURL?: string;
+      resumeCommand?: { approved: boolean; message?: string };
     };
-    const agentId = spec.agentId ?? "default";
+
+    if (spec.agentId && spec.agentId !== this.#agentId) {
+      await this.#transport.send({
+        type: "run_done", runId: msg.runId, status: "error",
+        error: `agentId mismatch: daemon=${this.#agentId}, spec=${spec.agentId}`,
+      });
+      return;
+    }
+
     const threadId = spec.threadId ?? msg.runId;
-    const input = spec.input ?? "";
+    const mode = spec.mode ?? "run";
+    const model = this.#modelFactory.create({ model: spec.model ?? "claude-sonnet-4-6", baseURL: spec.baseURL });
 
-    const ws = this.#handleFor(agentId);
-    const agent = await this.#createAgent({
-      workspace: ws,
-      model: {} as never, // wired after adapter-anthropic import
+    const { createGenericAgent } = await import("@my-agent-team/harness");
+    const agent = await createGenericAgent({
+      workspace: this.#workspace,
+      model: model as Parameters<typeof createGenericAgent>[0]["model"],
       threadId,
-      checkpointer: this.#checkpointerFor(agentId),
+      checkpointer: this.#checkpointer,
     });
 
-    const reflect = msg.reflect !== false && spec.mode !== "resume" && spec.mode !== "reflect";
-    this.#runs.set(msg.runId, {
-      agent,
-      abort: new AbortController(),
-      spec,
-      reflect,
-    });
-    void this.#drive(msg.runId, input, spec.maxSteps ?? 32);
+    this.#runs.set(msg.runId, { agent, abort: new AbortController(), spec, reflect: mode !== "resume" && mode !== "reflect", threadId });
+    void this.#drive(msg.runId);
   }
 
-  async #drive(runId: string, input: string, maxSteps: number): Promise<void> {
+  // ─── Drive ───
+
+  #iteratorFor(run: RunHandle): AsyncIterable<AgentEvent> {
+    const spec = run.spec as {
+      input?: string; maxSteps?: number; mode?: string;
+      resumeCommand?: { approved: boolean; message?: string };
+    };
+    const opts = { signal: run.abort.signal, maxSteps: spec.maxSteps ?? 32 };
+    switch (spec.mode) {
+      case "resume": return run.agent.resume(spec.resumeCommand!, opts);
+      case "reflect": return run.agent.run(spec.input ?? "", opts);
+      default: return run.agent.run(spec.input ?? "", opts);
+    }
+  }
+
+  async #drive(runId: string): Promise<void> {
     const run = this.#runs.get(runId);
     if (!run) return;
 
     let status: "succeeded" | "error" | "aborted" = "succeeded";
+    let error: unknown;
+
     try {
-      for await (const ev of run.agent.run(input, {
-        signal: run.abort.signal,
-        maxSteps,
-      })) {
+      for await (const ev of this.#iteratorFor(run)) {
+        if (run.abort.signal.aborted) { status = "aborted"; break; }
         this.#routeEvent(runId, ev);
       }
-    } catch {
+    } catch (e) {
+      error = e;
       status = run.abort.signal.aborted ? "aborted" : "error";
     } finally {
+      if (run.abort.signal.aborted) status = "aborted";
+      const mode = (run.spec as { mode?: string }).mode ?? "run";
+      const wantsReflect = status === "succeeded" && run.reflect && mode === "run";
       this.#runs.delete(runId);
-      const mode = (run.spec as { mode?: string }).mode;
-      const wantsReflect =
-        status === "succeeded" && run.reflect && mode !== "resume" && mode !== "reflect";
-      this.#transport.send({ type: "run_done", runId, status, wantsReflect });
+      await this.#transport.send({ type: "run_done", runId, status, wantsReflect, error: serializeError(error) });
       if (wantsReflect) this.#finalized.set(runId, run);
     }
   }
 
-  #onAbort(msg: Extract<HostToRunner, { type: "abort" }>): void {
+  // ─── Abort ───
+
+  #onAbort(msg: HostToRunner & { type: "abort" }): void {
     this.#runs.get(msg.runId)?.abort.abort("cancelled");
   }
 
-  async #onRunFinalized(msg: Extract<HostToRunner, { type: "run_finalized" }>): Promise<void> {
+  // ─── Reflection ───
+
+  async #onRunFinalized(msg: HostToRunner & { type: "run_finalized" }): Promise<void> {
     const parent = this.#finalized.get(msg.runId);
     if (!parent) return;
     this.#finalized.delete(msg.runId);
-    await this.#fireReflect(parent, msg.runId);
+    await this.#fireReflect(parent);
+  }
+
+  async #fireReflect(parent: RunHandle): Promise<void> {
+    const reflectRunId = crypto.randomUUID();
+    const parentRunId = (parent.spec as { runId?: string }).runId ?? "";
+    await this.#transport.send({
+      type: "run_started", runId: reflectRunId, parentRunId, threadId: parent.threadId, kind: "reflect",
+    });
+    const reflectAgent = parent.agent.fork(undefined, `reflect:${parent.threadId}`);
+    const { reflectionGuidance } = await import("@my-agent-team/harness");
+    this.#runs.set(reflectRunId, {
+      agent: reflectAgent, abort: new AbortController(),
+      spec: { ...parent.spec, mode: "reflect", input: reflectionGuidance() },
+      reflect: false, threadId: `reflect:${parent.threadId}`,
+    });
+    await this.#drive(reflectRunId);
   }
 
   // ─── Event routing ───
@@ -184,30 +202,5 @@ export class RunnerDaemon {
     } else {
       this.#transport.send({ type: "event", runId, event: ev });
     }
-  }
-
-  // ─── Reflection ───
-
-  async #fireReflect(parent: RunHandle, parentRunId: string): Promise<void> {
-    const reflectRunId = crypto.randomUUID();
-    const threadId = (parent.spec as { threadId?: string }).threadId ?? parentRunId;
-
-    this.#transport.send({
-      type: "run_started",
-      runId: reflectRunId,
-      parentRunId,
-      threadId,
-      kind: "reflect",
-    });
-
-    const reflectAgent = parent.agent.fork(undefined, `reflect:${threadId}`);
-    this.#runs.set(reflectRunId, {
-      agent: reflectAgent,
-      abort: new AbortController(),
-      spec: { ...parent.spec, mode: "reflect" },
-      reflect: false,
-    });
-    const { reflectionGuidance } = await import("@my-agent-team/harness");
-    await this.#drive(reflectRunId, reflectionGuidance(), 32);
   }
 }
