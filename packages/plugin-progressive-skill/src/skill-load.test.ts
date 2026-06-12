@@ -79,4 +79,46 @@ describe("skill_load", () => {
     const result = await tool.execute({ name: "test-skill", offset: 99999 });
     expect(result.content).toContain("fully loaded");
   });
+
+  test("${SKILL_DIR} resolves to posixRoot when provided", async () => {
+    const ws = testFS();
+    const root = "/skills/";
+    const posixSkillRoot = "/real/path/skills";
+    await ws.write(
+      "/skills/demo/SKILL.md",
+      [
+        "---",
+        "name: demo",
+        "description: Tests posixRoot mapping",
+        "---",
+        "",
+        "Run: python ${SKILL_DIR}/script.py",
+        "Also: bash ${SKILL_DIR}/tools/helper.sh",
+      ].join("\n"),
+    );
+    invalidateSkillCache(root);
+
+    const tool = skillLoadTool({ ws, root, posixSkillRoot });
+    const result = await tool.execute({ name: "demo" });
+    expect(result.content).toContain("python /real/path/skills/demo/script.py");
+    expect(result.content).toContain("bash /real/path/skills/demo/tools/helper.sh");
+    expect(result.content).not.toContain("${SKILL_DIR}");
+  });
+
+  test("${SKILL_DIR} falls back to logical path when posixSkillRoot is missing", async () => {
+    const ws = testFS();
+    const root = "/skills/";
+    await ws.write(
+      "/skills/demo/SKILL.md",
+      ["---", "name: demo", "description: Test fallback", "---", "", "Use: ${SKILL_DIR}/x"].join(
+        "\n",
+      ),
+    );
+    invalidateSkillCache(root);
+
+    const tool = skillLoadTool({ ws, root }); // no posixSkillRoot
+    const result = await tool.execute({ name: "demo" });
+    expect(result.content).toContain("Use: /skills/demo/x");
+    expect(result.content).not.toContain("${SKILL_DIR}");
+  });
 });

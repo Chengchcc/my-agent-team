@@ -8,16 +8,22 @@ export interface ProgressiveSkillOptions {
   ws: AgentFsLike;
   root?: string;
   maxCharsPerLoad?: number;
+  /** POSIX path prefix for the skill root. When set, ${SKILL_DIR} is replaced
+   *  with this prefix + relative path instead of the logical path.
+   *  e.g. posixSkillRoot="/var/agents/abc/private/skills", logical root="/skills/"
+   *  → "${SKILL_DIR}/extract.py" becomes "/var/agents/abc/private/skills/pdf-extract/extract.py" */
+  posixSkillRoot?: string;
 }
 
 export function progressiveSkillPlugin(options: ProgressiveSkillOptions): Plugin {
   const ws = options.ws;
   const root = options.root ?? "/skills/";
   const maxCharsPerLoad = options.maxCharsPerLoad ?? 8000;
+  const posixSkillRoot = options.posixSkillRoot;
 
   return {
     name: "progressive-skill",
-    tools: [skillLoadTool({ ws, root, maxCharsPerLoad })],
+    tools: [skillLoadTool({ ws, root, maxCharsPerLoad, posixSkillRoot })],
     hooks: {
       async beforeModel(ctx, messages: readonly Message[]) {
         let skills: SkillMeta[];

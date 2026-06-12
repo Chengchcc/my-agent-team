@@ -141,7 +141,7 @@ describe("progressiveSkillPlugin", () => {
     expect(plugin.tools?.[0]?.name).toBe("skill_load");
   });
 
-  test("${SKILL_DIR} replaced in body", async () => {
+  test("${SKILL_DIR} replaced with logical path when no posixSkillRoot", async () => {
     const ws = testFS();
     const root = "/skills/";
     await ws.write("/skills/pdf-extract/SKILL.md", pdfExtractSkillMd);
@@ -149,7 +149,24 @@ describe("progressiveSkillPlugin", () => {
 
     const tool = progressiveSkillPlugin({ ws, root }).tools![0]!;
     const result = await tool.execute({ name: "pdf-extract" });
-    expect(result.content).toContain("/extract.py");
+    // Falls back to logical path
+    expect(result.content).toContain("/skills/pdf-extract/extract.py");
+    expect(result.content).not.toContain("${SKILL_DIR}");
+  });
+
+  test("${SKILL_DIR} replaced with posixRoot when posixSkillRoot is set", async () => {
+    const ws = testFS();
+    const root = "/skills/";
+    await ws.write("/skills/pdf-extract/SKILL.md", pdfExtractSkillMd);
+    invalidateSkillCache(root);
+
+    const tool = progressiveSkillPlugin({
+      ws,
+      root,
+      posixSkillRoot: "/real/skills",
+    }).tools![0]!;
+    const result = await tool.execute({ name: "pdf-extract" });
+    expect(result.content).toContain("/real/skills/pdf-extract/extract.py");
     expect(result.content).not.toContain("${SKILL_DIR}");
   });
 

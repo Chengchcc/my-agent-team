@@ -7,13 +7,29 @@ export function skillLoadTool(opts: {
   ws: AgentFsLike;
   root: string;
   maxCharsPerLoad?: number;
+  /** POSIX path prefix for the skill root (see ProgressiveSkillOptions.posixSkillRoot). */
+  posixSkillRoot?: string;
 }): Tool {
-  const { ws, root, maxCharsPerLoad = 8000 } = opts;
+  const { ws, root, maxCharsPerLoad = 8000, posixSkillRoot } = opts;
   const lookahead = 500;
 
   async function findSkill(name: string): Promise<SkillMeta | null> {
     const skills = await loadSkillIndexWithMtimeCache(ws, root);
     return skills.find((s) => s.name === name) ?? null;
+  }
+
+  /** Resolve ${SKILL_DIR} to a path bash/grep can actually use.
+   *  If posixSkillRoot is set, map logical root → POSIX root.
+   *  Otherwise fall back to the logical path (read/write/edit still work). */
+  function resolveSkillDir(logicalDir: string): string {
+    if (posixSkillRoot) {
+      // root always ends with "/"; posixSkillRoot may not. Normalise.
+      const posixRoot = posixSkillRoot.endsWith("/")
+        ? posixSkillRoot.slice(0, -1)
+        : posixSkillRoot;
+      return logicalDir.replace(root.replace(/\/$/, ""), posixRoot);
+    }
+    return logicalDir;
   }
 
   return {
@@ -35,9 +51,7 @@ export function skillLoadTool(opts: {
 
       const raw = (await ws.read(skill.skillMdPath)) ?? "";
       const body = raw.slice(skill.bodyOffset);
-      // M14.7 AFS: `${SKILL_DIR}` replaced with logical path (e.g. /skills/my-skill).
-      // For bash reachability, the /skills/ mount must have a posixRoot configured.
-      const resolved = body.replaceAll("${SKILL_DIR}", skill.dir);
+      const resolved = body.replaceAll("${SKILL_DIR}", resolveSkillDir(skill.dir));
 
       if (offset >= resolved.length) {
         return { content: `Skill ${name} fully loaded.` };

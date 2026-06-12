@@ -121,7 +121,13 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
   // 3. Default plugins — AFS-native via AgentFsLike
   const defaultPlugins: Plugin[] = [
     fsMemoryPlugin({ ws, root: "/memory/" }),
-    progressiveSkillPlugin({ ws, root: "/skills/" }),
+    progressiveSkillPlugin({
+      ws,
+      root: "/skills/",
+      // Map ${SKILL_DIR} from logical path to bash-accessible POSIX path.
+      // /skills/* aliases to /private/skills/*, whose posixRoot is privateRoot.
+      posixSkillRoot: `${workspace.privateRoot}/skills`,
+    }),
     taskGuardPlugin({ model }),
   ];
 
