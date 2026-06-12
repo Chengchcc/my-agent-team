@@ -10,8 +10,8 @@ import type { RunSupervisor } from "./supervisor.js";
 function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
   return {
     activeCount: 0,
-    startMainRun: () => ({ runId: "run-1", attemptId: "att-1", pid: 12345 }),
-    resumeRun: () => ({ runId: "run-1", attemptId: "att-1", pid: 12345 }),
+    startMainRun: async () => ({ runId: "run-1", attemptId: "att-1" }),
+    resumeRun: async () => ({ runId: "run-1", attemptId: "att-1" }),
     cancel: () => true,
     rediscover: async () => {},
     onRunComplete: () => {},
@@ -290,9 +290,9 @@ describe("Run HTTP", () => {
     let forked = false;
     const svc = createRunService({
       supervisor: makeMockSupervisor({
-        resumeRun: () => {
+        resumeRun: async () => {
           forked = true;
-          return { runId: "r1", attemptId: "att-2", pid: 9999 };
+          return { runId: "r1", attemptId: "att-2" };
         },
       }),
       eventLog: makeMockEventLog(),

@@ -30,7 +30,7 @@ export function runRoutes(
 
       try {
         const spec = await buildSpec(threadId, parsed.data.input);
-        const { runId, attemptId } = svc.start(threadId, parsed.data.input, spec);
+        const { runId, attemptId } = await svc.start(threadId, parsed.data.input, spec);
         return json({ runId, attemptId }, 202);
       } catch (err) {
         if (err instanceof ThreadBusyError) return json({ error: (err as Error).message }, 409);
@@ -86,7 +86,7 @@ export function runRoutes(
           mode: "resume",
           resumeCommand: parsed.data,
         });
-        const { attemptId } = svc.resume(runId, threadId, spec);
+        const { attemptId } = await svc.resume(runId, threadId, spec);
         return json({ runId, attemptId }, 202);
       } catch (err) {
         if (err instanceof RunNotFoundError) return json({ error: (err as Error).message }, 404);

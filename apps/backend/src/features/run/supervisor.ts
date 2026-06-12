@@ -72,31 +72,29 @@ function runEventsDbMigrations(db: Database): void {
 export interface RunSupervisorOptions {
   eventLog: EventLog;
   config: BackendConfig;
-  /** M14.7: Daemon transport for resident runner. When set, start() is preferred over fork(). */
-  transport?: RunnerTransport;
-  /** M14.7: Runner registry for multi-agent daemon transport. */
-  registry?: RunnerRegistry;
+  /** M14.7: Runner registry — the only way to reach runner daemons. */
+  registry: RunnerRegistry;
 }
 
-interface ActiveRun {
+interface RunSession {
   runId: string;
   attemptId: string;
   threadId: string;
-  pid: number | null; // null for daemon runs
-  child: ChildProcess | null; // null after restart or for daemon runs
+  agentId: string;
+  kind: "main" | "reflect";
+  transport: RunnerTransport;
   abortController: AbortController;
-  transport?: RunnerTransport; // M14.7: per-run transport for agent-scoped daemons
 }
 
 export class RunSupervisor {
-  #active = new Map<string, ActiveRun>();
+  #active = new Map<string, RunSession>();
   #opts: RunSupervisorOptions;
   #db: Database;
   #onRunComplete: Array<(threadId: string, runId: string) => void | Promise<void>> = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
-  #reaping = false; // M11 fix: concurrency guard for async reaper
-  // M13: In-memory delta fan-out for /stream SSE. text_delta events never hit EventLog.
+  #reaping = false;
   #deltaSubs = new Map<string, Set<ReadableStreamDefaultController>>();
+  #boundTransports = new Set<RunnerTransport>();
 
   constructor(opts: RunSupervisorOptions) {
     this.#opts = opts;
@@ -105,11 +103,6 @@ export class RunSupervisor {
     this.#db.exec("PRAGMA busy_timeout=5000");
     // Fix A + FIX-6: Ensure run/attempt tables exist in events.db via unified migration ledger
     runEventsDbMigrations(this.#db);
-
-    // M14.7: Auto-wire daemon transport if configured
-    if (opts.transport) {
-      opts.transport.onMessage((msg) => this.#handleDaemonMessage(msg));
-    }
 
     // M11: Start running reaper
     this.#startReaper();
@@ -284,119 +277,82 @@ export class RunSupervisor {
     this.#db.close();
   }
 
-  /** Fork subprocess and return attemptId. Non-blocking.
-   *  @deprecated Use start() with daemon transport (M14.7). */
-  fork(
-    runId: string,
-    threadId: string,
-    specJson: string,
-  ): { runId: string; attemptId: string; pid: number } {
-    // M14.7: Delegate to daemon transport when available
-    if (this.#opts.transport) {
-      const spec = JSON.parse(specJson) as Record<string, unknown>;
-      const { attemptId } = this.startMainRun(runId, threadId, spec);
-      return { runId, attemptId, pid: 0 };
-    }
-    throw new Error("fork() is deprecated — use start() with daemon transport (M14.7)");
-  }
-
-  // ─── M14.7: Daemon transport path ───────────────────────────────
+  // ─── M14.7: Run lifecycle (registry-based) ──────────────────────
 
   /**
    * Start a NEW main run. Creates run + attempt rows.
    */
-  startMainRun(
-    runId: string,
-    threadId: string,
-    spec: Record<string, unknown>,
-  ): { runId: string; attemptId: string } {
-    return this.#beginAndSend(runId, threadId, spec, "main");
+  async startMainRun(
+    runId: string, threadId: string, spec: Record<string, unknown>,
+  ): Promise<{ runId: string; attemptId: string }> {
+    const agentId = (spec.agentId as string) ?? "default";
+    return this.#beginAndSend(runId, threadId, agentId, spec, "main");
   }
 
-  /**
-   * Resume an existing run. Creates new attempt only — run row already exists.
-   */
-  resumeRun(
-    runId: string,
-    threadId: string,
-    spec: Record<string, unknown>,
-  ): { runId: string; attemptId: string } {
-    // Update run status back to running
-    const now = Date.now();
+  async resumeRun(
+    runId: string, threadId: string, spec: Record<string, unknown>,
+  ): Promise<{ runId: string; attemptId: string }> {
+    const agentId = (spec.agentId as string) ?? "default";
+    const transport = await this.#opts.registry.transportFor(agentId);
+    this.#bindTransport(transport);
     this.#db.run("UPDATE run SET status = 'running' WHERE run_id = ?", [runId]);
-    return this.#beginAttempt(runId, threadId, spec, "main");
-  }
-
-  /**
-   * Start a reflect run. Creates reflect run + attempt rows with parent_run_id.
-   */
-  beginReflectRun(
-    runId: string,
-    threadId: string,
-    parentRunId: string,
-    spec: Record<string, unknown>,
-  ): { runId: string; attemptId: string } {
+    const attemptId = crypto.randomUUID();
     const now = Date.now();
-    this.#db.run(
-      "INSERT INTO run (run_id, thread_id, status, started_at, kind, parent_run_id) VALUES (?, ?, 'running', ?, 'reflect', ?)",
-      [runId, threadId, now, parentRunId],
-    );
-    return this.#beginAttempt(runId, threadId, spec, "reflect");
-  }
-
-  /** Internal: create run + attempt, add to active, send start. */
-  #beginAndSend(
-    runId: string, threadId: string, spec: Record<string, unknown>, kind: "main" | "reflect",
-  ): { runId: string; attemptId: string } {
-    const now = Date.now();
-    this.#db.run(
-      "INSERT INTO run (run_id, thread_id, status, started_at, kind) VALUES (?, ?, 'running', ?, ?)",
-      [runId, threadId, now, kind],
-    );
-    const { attemptId } = this.#beginAttempt(runId, threadId, spec, kind);
+    this.#db.run("INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)", [attemptId, runId, now, now]);
+    const ac = new AbortController();
+    this.#active.set(runId, { runId, attemptId, threadId, agentId, kind: "main", transport, abortController: ac });
+    transport.send({ type: "start", runId, spec });
     return { runId, attemptId };
   }
 
-  /** Internal: create attempt + active entry, send start to daemon. */
-  #beginAttempt(
-    runId: string, threadId: string, spec: Record<string, unknown>, _kind: "main" | "reflect",
-  ): { runId: string; attemptId: string } {
-    const transport = this.#opts.transport;
-    if (!transport) throw new Error("Daemon transport not configured");
-
-    const attemptId = crypto.randomUUID();
+  async beginReflectRun(
+    runId: string, threadId: string, parentRunId: string, spec: Record<string, unknown>,
+  ): Promise<{ runId: string; attemptId: string }> {
+    const agentId = (spec.agentId as string) ?? "default";
     const now = Date.now();
     this.#db.run(
-      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, NULL, ?, ?)",
+      "INSERT INTO run (run_id, thread_id, agent_id, status, started_at, kind, parent_run_id) VALUES (?, ?, ?, 'running', ?, 'reflect', ?)",
+      [runId, threadId, agentId, now, parentRunId],
+    );
+    return this.#beginAndSend(runId, threadId, agentId, spec, "reflect");
+  }
+
+  /** Internal: create run + attempt, add to active, send start via registry. */
+  async #beginAndSend(
+    runId: string, threadId: string, agentId: string, spec: Record<string, unknown>, kind: "main" | "reflect",
+  ): Promise<{ runId: string; attemptId: string }> {
+    const transport = await this.#opts.registry.transportFor(agentId);
+    this.#bindTransport(transport);
+
+    const now = Date.now();
+    this.#db.run(
+      "INSERT INTO run (run_id, thread_id, agent_id, status, started_at, kind) VALUES (?, ?, ?, 'running', ?, ?)",
+      [runId, threadId, agentId, now, kind],
+    );
+    const attemptId = crypto.randomUUID();
+    this.#db.run(
+      "INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)",
       [attemptId, runId, now, now],
     );
 
     const ac = new AbortController();
-    this.#active.set(runId, {
-      runId, attemptId, threadId, pid: 0, child: null, abortController: ac, transport,
-    });
+    this.#active.set(runId, { runId, attemptId, threadId, agentId, kind, transport, abortController: ac });
 
-    transport.send({
-      type: "start",
-      runId,
-      spec: spec as Record<string, unknown>,
-    });
-
+    transport.send({ type: "start", runId, spec });
     return { runId, attemptId };
   }
 
-  async #handleDaemonMessage(raw: unknown): Promise<void> {
+  #bindTransport(transport: RunnerTransport): void {
+    if (this.#boundTransports.has(transport)) return;
+    this.#boundTransports.add(transport);
+    transport.onMessage((msg) => { void this.#handleRunnerMessage(msg, transport); });
+  }
+
+  async #handleRunnerMessage(raw: unknown, sourceTransport: RunnerTransport): Promise<void> {
     const msg = raw as Record<string, unknown>;
     const runId = msg.runId as string;
-    let transport: RunnerTransport | undefined;
-    try {
-      transport = await this.#opts.registry?.transportFor(
-        (msg as { agentId?: string }).agentId ?? "default",
-      );
-    } catch {
-      /* ignore */
-    }
-    if (!transport) transport = this.#opts.transport;
+    const session = this.#active.get(runId);
+    const transport = session?.transport ?? sourceTransport;
     switch (msg.type) {
       case "run_started": {
         this.beginReflectRun(
@@ -463,43 +419,10 @@ export class RunSupervisor {
 
   /** Send SIGTERM to subprocess; cancelGraceMs fallback to SIGKILL. */
   cancel(runId: string): boolean {
-    const run = this.#active.get(runId);
-    if (!run) return false;
-
-    // M14.7: Send abort via per-run transport (agent-scoped daemon)
-    if (run.transport && !run.child) {
-      run.transport.send({ type: "abort", runId });
-      return true;
-    }
-
-    // Legacy: kill child process
-
-    // Fix D: Signal abort so exit handler classifies correctly
-    run.abortController.abort("cancelled");
-
-    // Fix FIX-3: handle post-restart (child is null, cancel by pid)
-    if (run.child) {
-      run.child.kill("SIGTERM");
-      setTimeout(() => {
-        if (run.child && run.child.exitCode === null) {
-          run.child.kill("SIGKILL");
-        }
-      }, this.#opts.config.cancelGraceMs);
-    } else if (run.pid !== null) {
-      // post-restart: no ChildProcess handle, use process.kill with stored pid
-      try {
-        process.kill(run.pid, "SIGTERM");
-      } catch {
-        // Process already dead — mark aborted immediately
-        const now = Date.now();
-        this.#db.run("UPDATE run SET status = 'aborted', ended_at = ? WHERE run_id = ?", [
-          now,
-          runId,
-        ]);
-        this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, run.attemptId]);
-        this.#active.delete(runId);
-      }
-    }
+    const session = this.#active.get(runId);
+    if (!session) return false;
+    session.abortController.abort("cancelled");
+    session.transport.send({ type: "abort", runId });
     return true;
   }
 
@@ -530,8 +453,9 @@ export class RunSupervisor {
           runId: row.run_id,
           attemptId: row.attempt_id,
           threadId: row.thread_id ?? "",
-          pid: row.pid ?? 0,
-          child: null,
+          agentId: (row as { agent_id?: string }).agent_id ?? "default",
+          kind: (row as { kind?: "main" | "reflect" }).kind ?? "main",
+          transport: { send() {}, onMessage() {}, onClose() {}, close() {} } as unknown as RunnerTransport,
           abortController: ac,
         });
         console.log(

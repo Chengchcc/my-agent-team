@@ -11,7 +11,7 @@ import type { RunSupervisor } from "./supervisor.js";
 function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
   return {
     activeCount: 0,
-    startMainRun: () => ({ runId: "run-1", attemptId: "att-1", pid: 12345 }),
+    startMainRun: async () => ({ runId: "run-1", attemptId: "att-1" }),
     cancel: () => true,
     rediscover: async () => {},
     onRunComplete: () => {},
@@ -33,7 +33,7 @@ function makeMockEventLog(): EventLog {
 }
 
 describe("RunService", () => {
-  test("start returns { runId, attemptId }", () => {
+  test("start returns { runId, attemptId }", async () => {
     const svc = createRunService({
       supervisor: makeMockSupervisor(),
       eventLog: makeMockEventLog(),
@@ -42,7 +42,7 @@ describe("RunService", () => {
       idGen: () => "run-1",
     });
 
-    const result = svc.start("th-1", "hello", {});
+    const result = await svc.start("th-1", "hello", {});
     expect(result.runId).toBe("run-1");
     expect(result.attemptId).toBe("att-1");
   });

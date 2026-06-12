@@ -36,7 +36,7 @@ export interface ConversationServiceDeps {
     threadId: string,
     specJson: string,
     ctx: { conversationId: string; agentMemberId: string; agentId: string },
-  ) => { runId: string; attemptId: string };
+  ) => Promise<{ runId: string; attemptId: string }>;
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
@@ -200,7 +200,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
             try {
               const runId = crypto.randomUUID();
               const threadId = deriveThreadId(input.conversationId, target.memberId);
-              const { runId: rId } = forkRun(runId, threadId, "", {
+              const { runId: rId } = await forkRun(runId, threadId, "", {
                 conversationId: input.conversationId,
                 agentMemberId: target.memberId,
                 agentId: target.agentId,
@@ -369,7 +369,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     /** M14.4: Trigger agent runs from agent-to-agent @mentions.
      *  Only forks runs — does NOT append ledger entries (caller already did).
      *  Best-effort: silently skips if conversation busy or hop-capped. */
-    triggerMentionedAgents(input: {
+    async triggerMentionedAgents(input: {
       conversationId: string;
       senderMemberId: string;
       addressedTo: string[];
@@ -411,7 +411,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
           try {
             const runId = crypto.randomUUID();
             const threadId = deriveThreadId(input.conversationId, target.memberId);
-            const { runId: rId } = forkRun(runId, threadId, "", {
+            const { runId: rId } = await forkRun(runId, threadId, "", {
               conversationId: input.conversationId,
               agentMemberId: target.memberId,
               agentId: target.agentId,

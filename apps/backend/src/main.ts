@@ -199,7 +199,7 @@ const convSvc = createConversationService({
 
   // ThreadId = conversationId:memberId (derived, not persisted).
   // The threads table is legacy — runtime only needs the derived key.
-  forkRun: (runId, threadId, _specJson, ctx) => {
+  forkRun: async (runId, threadId, _specJson, ctx) => {
     // Build full spec JSON (C1 fix)
     const agentRow = db
       .query(
@@ -233,7 +233,7 @@ const convSvc = createConversationService({
       input: "", // input is in thread.messages via broadcast projection
       runId,
     };
-    const { attemptId } = supervisor.startMainRun(runId, threadId, spec);
+    const { attemptId } = await supervisor.startMainRun(runId, threadId, spec);
     return { runId, attemptId, pid: 0 };
   },
 });
