@@ -373,7 +373,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
       conversationId: string;
       senderMemberId: string;
       addressedTo: string[];
-    }): Array<{ agentMemberId: string; runId: string }> {
+    }): Promise<Array<{ agentMemberId: string; runId: string }>> {
       const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
       if (input.addressedTo.length === 0) return triggeredRuns;
 

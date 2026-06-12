@@ -50,7 +50,7 @@ beforeAll(async () => {
     checkpointWrite: sqliteCheckpointWriteAdapter(db),
     activeConversations: new Set<string>(),
     maxConsecutiveAgentHops: 8,
-    forkRun: (runId) => ({ runId, attemptId: `att-${runId}` }),
+    forkRun: async (runId) => ({ runId, attemptId: `att-${runId}` }),
   });
 
   router = createRouter(TOKEN, {
