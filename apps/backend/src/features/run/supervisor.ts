@@ -49,6 +49,11 @@ const EVENTS_DB_MIGRATIONS = [
       ALTER TABLE run ADD COLUMN parent_run_id TEXT;
     `,
   },
+  {
+    name: "events_v6_run_agent_id",
+    id: 3005,
+    up: `ALTER TABLE run ADD COLUMN agent_id TEXT NOT NULL DEFAULT ''`,
+  },
 ];
 
 function runEventsDbMigrations(db: Database): void {

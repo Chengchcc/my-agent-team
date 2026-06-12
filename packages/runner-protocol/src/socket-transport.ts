@@ -56,6 +56,7 @@ export function createSocketServer(opts: SocketServerOptions): {
   });
 
   const transport: RunnerTransport = {
+    ready() { return Promise.resolve(); },
     send(msg) {
       const line = encode(msg);
       if (clientSocket) {
@@ -64,17 +65,9 @@ export function createSocketServer(opts: SocketServerOptions): {
         outbound.push(line);
       }
     },
-    onMessage(cb) {
-      messageCbs.push(cb);
-    },
-    onClose(cb) {
-      closeCbs.push(cb);
-    },
-    async close() {
-      server.stop();
-      clientSocket = undefined;
-      outbound.length = 0;
-    },
+    onMessage(cb) { messageCbs.push(cb); },
+    onClose(cb) { closeCbs.push(cb); },
+    async close() { server.stop(); clientSocket = undefined; outbound.length = 0; },
   };
 
   return { transport, server, close: transport.close };
@@ -94,6 +87,8 @@ export function createSocketClient(opts: SocketClientOptions): RunnerTransport {
   const closeCbs: Array<() => void> = [];
   let closed = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let resolveReady!: () => void;
+  const readyPromise = new Promise<void>((r) => { resolveReady = r; });
 
   const framer = createFramer(
     (obj) => {
@@ -133,6 +128,7 @@ export function createSocketClient(opts: SocketClientOptions): RunnerTransport {
           },
         });
         flushOutbound();
+        resolveReady(); // first connect succeeded — transport is ready
         return;
       } catch {
         if (closed) return;
@@ -146,6 +142,7 @@ export function createSocketClient(opts: SocketClientOptions): RunnerTransport {
   void connect();
 
   return {
+    ready() { return readyPromise; },
     send(msg) {
       const line = encode(msg);
       if (sock) {

@@ -106,6 +106,7 @@ export class DevRunnerRegistry implements RunnerRegistry {
     await writeFile(pidFile, String(child.pid));
 
     const transport = this.opts.transportFactory(socket);
+    await transport.ready();
     return { agentId, child, transport, socket, dir };
   }
 
@@ -152,6 +153,7 @@ export class ProdRunnerRegistry implements RunnerRegistry {
     if (!endpoint) throw new Error(`no runner endpoint for agent: ${agentId}`);
 
     const transport = this.opts.transportFactory.create(endpoint);
+    await transport.ready();
     this.#transports.set(agentId, transport);
     return transport;
   }
