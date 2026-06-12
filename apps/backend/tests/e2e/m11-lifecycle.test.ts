@@ -71,21 +71,26 @@ describe("M11 Growth e2e", () => {
   test("bootstrap() reads BOOTSTRAP.md directly when present", async () => {
     const { bootstrap } = await import("@my-agent-team/harness");
     const { consoleLogger } = await import("@my-agent-team/framework");
+    const { LocalBackend, WorkspaceFS } = await import("@my-agent-team/workspace-fs");
 
     const ws = `${TEST_DIR}/ws-growth`;
     await mkdir(ws, { recursive: true });
 
+    const fs = new WorkspaceFS([
+      { prefix: "/", domain: "private", backend: new LocalBackend(ws), posixRoot: ws },
+    ]);
+
     // Write BOOTSTRAP.md → genesis mode
     await writeFile(path.join(ws, "BOOTSTRAP.md"), "GENESIS MODE PROMPT");
 
-    const prompt = await bootstrap(ws, consoleLogger({ level: "silent" }));
+    const prompt = await bootstrap(fs, consoleLogger({ level: "silent" }), ws);
     expect(prompt).toBe("GENESIS MODE PROMPT");
 
     // Delete BOOTSTRAP.md + write SOUL.md → normal mode
     await rm(path.join(ws, "BOOTSTRAP.md"));
     await writeFile(path.join(ws, "SOUL.md"), "I am a helpful assistant");
 
-    const prompt2 = await bootstrap(ws, consoleLogger({ level: "silent" }));
+    const prompt2 = await bootstrap(fs, consoleLogger({ level: "silent" }), ws);
     expect(prompt2).toInclude("I am a helpful assistant");
     expect(prompt2).toInclude("<soul>");
   });

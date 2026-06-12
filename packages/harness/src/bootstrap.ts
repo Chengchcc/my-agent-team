@@ -1,10 +1,7 @@
-import { unlink } from "node:fs/promises";
-import path from "node:path";
 import type { Logger } from "@my-agent-team/framework";
 import type { WorkspaceFS } from "@my-agent-team/workspace-fs";
 import { todayAndYesterday } from "./daily-log.js";
 import { composeSystemPrompt } from "./system-prompt.js";
-import { readOrEmpty } from "./workspace-reader.js";
 
 // M11: Genesis bootstrap template. Inlined from templates/BOOTSTRAP.md at build time.
 // If you edit the .md file, update this constant to match.
@@ -80,30 +77,16 @@ export const BOOTSTRAP_TEMPLATE = [
   "alongside, and deciding who to be for them. Take it seriously, and enjoy it.",
 ].join("\n");
 
-export async function bootstrap(workspace: string | WorkspaceFS, logger: Logger): Promise<string> {
-  const wsStr = typeof workspace === "string" ? workspace : undefined;
-  const fs = typeof workspace === "object" ? workspace : undefined;
+export async function bootstrap(fs: WorkspaceFS, logger: Logger, workspaceLabel?: string): Promise<string> {
+  const read = async (p: string): Promise<string> => (await fs.read(p)) ?? "";
 
-  const read = async (logicalPath: string, physicalPath: string): Promise<string> => {
-    if (fs) {
-      const content = await fs.read(logicalPath);
-      return content ?? "";
-    }
-    return readOrEmpty(physicalPath, logger);
-  };
-
-  // M11 genesis: BOOTSTRAP.md exists → birth mode.
-  const bootPath = wsStr ? path.join(wsStr, "BOOTSTRAP.md") : "";
-  const boot = await read("/BOOTSTRAP.md", bootPath);
+  // M11 genesis: BOOTSTRAP.md exists → birth mode
+  const boot = await read("/BOOTSTRAP.md");
   if (boot.trim()) {
-    const soul = await read("/SOUL.md", wsStr ? path.join(wsStr, "SOUL.md") : "");
+    const soul = await read("/SOUL.md");
     if (soul.trim()) {
-      // SOUL.md already exists — BOOTSTRAP.md is stale. Delete it and fall through.
-      if (wsStr) {
-        try { await unlink(bootPath); } catch { /* best-effort */ }
-      } else if (fs) {
-        try { await fs.remove("/BOOTSTRAP.md"); } catch { /* best-effort */ }
-      }
+      // SOUL.md already exists — BOOTSTRAP.md is stale. Delete it.
+      try { await fs.remove("/BOOTSTRAP.md"); } catch { /* best-effort */ }
     } else {
       return boot;
     }
@@ -112,23 +95,16 @@ export async function bootstrap(workspace: string | WorkspaceFS, logger: Logger)
   const { today, yesterday } = todayAndYesterday();
 
   const [soul, user, tools, agents, todayLog, yestLog] = await Promise.all([
-    read("/SOUL.md", wsStr ? path.join(wsStr, "SOUL.md") : ""),
-    read("/USER.md", wsStr ? path.join(wsStr, "USER.md") : ""),
-    read("/TOOLS.md", wsStr ? path.join(wsStr, "TOOLS.md") : ""),
-    read("/AGENTS.md", wsStr ? path.join(wsStr, "AGENTS.md") : ""),
-    read("/memory/today.md", wsStr ? path.join(wsStr, "memory", `${today}.md`) : ""),
-    read("/memory/yesterday.md", wsStr ? path.join(wsStr, "memory", `${yesterday}.md`) : ""),
+    read("/SOUL.md"), read("/USER.md"), read("/TOOLS.md"), read("/AGENTS.md"),
+    read(`/memory/${today}.md`), read(`/memory/${yesterday}.md`),
   ]);
 
-  if (
-    !soul.trim() && !user.trim() && !tools.trim() &&
-    !agents.trim() && !todayLog.trim() && !yestLog.trim()
-  ) {
+  if (!soul.trim() && !user.trim() && !tools.trim() &&
+      !agents.trim() && !todayLog.trim() && !yestLog.trim()) {
     return BOOTSTRAP_TEMPLATE;
   }
 
   return composeSystemPrompt({
-    workspace: wsStr ?? "",
-    today, yesterday, soul, user, tools, agents, todayLog, yestLog,
+    workspace: workspaceLabel ?? "", today, yesterday, soul, user, tools, agents, todayLog, yestLog,
   });
 }

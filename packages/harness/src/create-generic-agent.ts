@@ -25,6 +25,7 @@ import {
   writeTool,
 } from "@my-agent-team/tools-common";
 import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
+import { LocalBackend, WorkspaceFS } from "@my-agent-team/workspace-fs";
 import type { WorkspaceRoots } from "@my-agent-team/tools-common";
 import { bootstrap } from "./bootstrap.js";
 
@@ -32,6 +33,16 @@ import { bootstrap } from "./bootstrap.js";
 function toWorkspaceRoots(ws: string | WorkspaceHandle): string | WorkspaceRoots {
   if (typeof ws === "string") return ws;
   return { privateRoot: ws.privateRoot, posixRoots: ws.posixRoots };
+}
+
+/** Resolve workspace to a WorkspaceFS for bootstrap. String→LocalBackend adapter. */
+function toFS(ws: string | WorkspaceHandle): WorkspaceFS {
+  if (typeof ws === "string") {
+    return new WorkspaceFS([
+      { prefix: "/", domain: "private", backend: new LocalBackend(ws), posixRoot: ws },
+    ]);
+  }
+  return ws.fs;
 }
 
 /** Resolve workspace to a concrete private-root string for backwards compat. */
@@ -114,10 +125,8 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
   const lg = _logger ?? consoleLogger();
   const root = resolvePrivateRoot(workspace);
 
-  // 1. Bootstrap: read workspace files → compose systemPrompt
-  // M14.7: Pass WorkspaceFS when using WorkspaceHandle, else legacy path string
-  const bootWs = typeof workspace === "string" ? root : workspace.fs;
-  const systemPrompt = await bootstrap(bootWs, lg);
+  // 1. Bootstrap: read workspace files via WorkspaceFS → compose systemPrompt
+  const systemPrompt = await bootstrap(toFS(workspace), lg, root);
 
   // 2. Default 6 built-in file tools (domain-neutral, needed by all workspace agents)
   // H7: wrap tools with workspace sandbox
