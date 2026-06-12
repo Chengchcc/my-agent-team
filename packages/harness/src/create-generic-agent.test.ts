@@ -3,7 +3,19 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AIMessageChunk, ChatModel, Message, Tool } from "@my-agent-team/core";
+import { LocalBackend, WorkspaceFS } from "@my-agent-team/workspace-fs";
 import { createGenericAgent } from "./create-generic-agent.js";
+import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
+
+function testHandle(root: string): WorkspaceHandle {
+  return {
+    fs: new WorkspaceFS([
+      { prefix: "/", domain: "private", backend: new LocalBackend(root), posixRoot: root },
+    ]),
+    privateRoot: root,
+    posixRoots: [root],
+  };
+}
 
 async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
   const items: T[] = [];
@@ -50,7 +62,7 @@ describe("createGenericAgent", () => {
       await writeFile(path.join(ws, "SOUL.md"), "You are a test agent.");
 
       const agent = await createGenericAgent({
-        workspace: ws,
+        workspace: testHandle(ws),
         model: scriptedModel([{ type: "text", text: "I received your message" }]),
       });
 
@@ -73,7 +85,7 @@ describe("createGenericAgent", () => {
       await writeFile(path.join(ws, "SOUL.md"), "You are a test agent.");
 
       const agent = await createGenericAgent({
-        workspace: ws,
+        workspace: testHandle(ws),
         model: scriptedModel([{ type: "text", text: "ok" }]),
       });
 
@@ -105,7 +117,7 @@ describe("createGenericAgent", () => {
       };
 
       const agent = await createGenericAgent({
-        workspace: ws,
+        workspace: testHandle(ws),
         model: scriptedModel([{ type: "text", text: "ok" }]),
         extraTools: [extraTool],
       });
@@ -132,7 +144,7 @@ describe("createGenericAgent", () => {
 
       await expect(
         createGenericAgent({
-          workspace: ws,
+          workspace: testHandle(ws),
           model: scriptedModel([{ type: "text", text: "ok" }]),
           extraTools: [dupTool],
         }),
@@ -155,7 +167,7 @@ describe("createGenericAgent", () => {
       };
 
       const agent = await createGenericAgent({
-        workspace: ws,
+        workspace: testHandle(ws),
         model: scriptedModel([{ type: "text", text: "ok" }]),
         extraPlugins: [extraPlugin],
       });
@@ -175,7 +187,7 @@ describe("createGenericAgent", () => {
 
       // Default: no permissionMode specified → should default to 'ask'
       const agent = await createGenericAgent({
-        workspace: ws,
+        workspace: testHandle(ws),
         model: scriptedModel([{ type: "text", text: "ok" }]),
       });
 
@@ -196,7 +208,7 @@ describe("createGenericAgent", () => {
       await writeFile(path.join(ws, "SOUL.md"), "You are a test agent.");
 
       await createGenericAgent({
-        workspace: ws,
+        workspace: testHandle(ws),
         model: scriptedModel([{ type: "text", text: "ok" }]),
       });
 
@@ -218,7 +230,7 @@ describe("createGenericAgent", () => {
       await writeFile(path.join(ws, "SOUL.md"), "You are a test agent.");
 
       await createGenericAgent({
-        workspace: ws,
+        workspace: testHandle(ws),
         model: scriptedModel([{ type: "text", text: "ok" }]),
         checkpointer: "memory",
       });
@@ -241,7 +253,7 @@ describe("createGenericAgent", () => {
       await writeFile(path.join(ws, "SOUL.md"), "You are a test agent.");
 
       const agent = await createGenericAgent({
-        workspace: ws,
+        workspace: testHandle(ws),
         model: scriptedModel([{ type: "text", text: "ok" }]),
         checkpointerDb: sharedDb,
       });

@@ -25,29 +25,11 @@ import {
   writeTool,
 } from "@my-agent-team/tools-common";
 import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
-import { LocalBackend, WorkspaceFS } from "@my-agent-team/workspace-fs";
 import type { WorkspaceRoots } from "@my-agent-team/tools-common";
 import { bootstrap } from "./bootstrap.js";
 
-/** Resolve workspace to sandbox roots. */
-function toWorkspaceRoots(ws: string | WorkspaceHandle): string | WorkspaceRoots {
-  if (typeof ws === "string") return ws;
+function toWorkspaceRoots(ws: WorkspaceHandle): WorkspaceRoots {
   return { privateRoot: ws.privateRoot, posixRoots: ws.posixRoots };
-}
-
-/** Resolve workspace to a WorkspaceFS for bootstrap. String→LocalBackend adapter. */
-function toFS(ws: string | WorkspaceHandle): WorkspaceFS {
-  if (typeof ws === "string") {
-    return new WorkspaceFS([
-      { prefix: "/", domain: "private", backend: new LocalBackend(ws), posixRoot: ws },
-    ]);
-  }
-  return ws.fs;
-}
-
-/** Resolve workspace to a concrete private-root string for backwards compat. */
-function resolvePrivateRoot(ws: string | WorkspaceHandle): string {
-  return typeof ws === "string" ? ws : ws.privateRoot;
 }
 
 function checkDuplicateNames(
@@ -67,9 +49,7 @@ function checkDuplicateNames(
 }
 
 export interface GenericAgentOptions {
-  /** Workspace root directory (absolute path) or WorkspaceHandle.
-   *  @deprecated string form will be removed once runner-stdio is deleted (M14.7). */
-  workspace: string | WorkspaceHandle;
+  workspace: WorkspaceHandle;
 
   /** Pre-constructed ChatModel instance (adapter chosen by caller). */
   model: Parameters<typeof createAgent>[0]["model"];
@@ -123,14 +103,12 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
     checkpointerDb,
   } = opts;
   const lg = _logger ?? consoleLogger();
-  const root = resolvePrivateRoot(workspace);
+  const root = workspace.privateRoot;
 
   // 1. Bootstrap: read workspace files via WorkspaceFS → compose systemPrompt
-  const systemPrompt = await bootstrap(toFS(workspace), lg);
+  const systemPrompt = await bootstrap(workspace.fs, lg);
 
-  // 2. Default 6 built-in file tools (domain-neutral, needed by all workspace agents)
-  // H7: wrap tools with workspace sandbox
-  // M14.7: Pass multi-root descriptor when WorkspaceHandle is available
+  // 2. Default 6 built-in file tools with multi-root sandbox
   const sandbox = toWorkspaceRoots(workspace);
   const defaultTools: Tool[] = [readTool, writeTool, editTool, bashTool, grepTool, globTool].map(
     (t) => withWorkspace(t, sandbox),
