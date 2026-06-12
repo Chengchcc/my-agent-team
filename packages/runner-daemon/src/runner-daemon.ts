@@ -47,15 +47,17 @@ export class RunnerDaemon {
     this.#privateRoot = opts.privateRoot;
     this.#sharedRoot = opts.sharedRoot;
     this.#stateRoot = opts.stateRoot;
-    this.#createAgent = opts.createAgent ?? (async (o) => {
-      const { createGenericAgent } = await import("@my-agent-team/harness");
-      return createGenericAgent({
-        workspace: o.workspace as WorkspaceHandle,
-        model: o.model as Parameters<typeof createGenericAgent>[0]["model"],
-        threadId: o.threadId,
-        checkpointer: o.checkpointer,
+    this.#createAgent =
+      opts.createAgent ??
+      (async (o) => {
+        const { createGenericAgent } = await import("@my-agent-team/harness");
+        return createGenericAgent({
+          workspace: o.workspace as WorkspaceHandle,
+          model: o.model as Parameters<typeof createGenericAgent>[0]["model"],
+          threadId: o.threadId,
+          checkpointer: o.checkpointer,
+        });
       });
-    });
   }
 
   // ─── Workspace + Checkpointer ───
@@ -111,8 +113,11 @@ export class RunnerDaemon {
 
   async #onStart(msg: Extract<HostToRunner, { type: "start" }>): Promise<void> {
     const spec = msg.spec as {
-      agentId?: string; threadId?: string; input?: string;
-      maxSteps?: number; mode?: string;
+      agentId?: string;
+      threadId?: string;
+      input?: string;
+      maxSteps?: number;
+      mode?: string;
     };
     const agentId = spec.agentId ?? "default";
     const threadId = spec.threadId ?? msg.runId;
@@ -128,7 +133,10 @@ export class RunnerDaemon {
 
     const reflect = msg.reflect !== false && spec.mode !== "resume" && spec.mode !== "reflect";
     this.#runs.set(msg.runId, {
-      agent, abort: new AbortController(), spec, reflect,
+      agent,
+      abort: new AbortController(),
+      spec,
+      reflect,
     });
     void this.#drive(msg.runId, input, spec.maxSteps ?? 32);
   }
@@ -140,7 +148,8 @@ export class RunnerDaemon {
     let status: "succeeded" | "error" | "aborted" = "succeeded";
     try {
       for await (const ev of run.agent.run(input, {
-        signal: run.abort.signal, maxSteps,
+        signal: run.abort.signal,
+        maxSteps,
       })) {
         this.#routeEvent(runId, ev);
       }
@@ -149,8 +158,8 @@ export class RunnerDaemon {
     } finally {
       this.#runs.delete(runId);
       const mode = (run.spec as { mode?: string }).mode;
-      const wantsReflect = status === "succeeded" && run.reflect
-        && mode !== "resume" && mode !== "reflect";
+      const wantsReflect =
+        status === "succeeded" && run.reflect && mode !== "resume" && mode !== "reflect";
       this.#transport.send({ type: "run_done", runId, status, wantsReflect });
       if (wantsReflect) this.#finalized.set(runId, run);
     }
@@ -184,13 +193,19 @@ export class RunnerDaemon {
     const threadId = (parent.spec as { threadId?: string }).threadId ?? parentRunId;
 
     this.#transport.send({
-      type: "run_started", runId: reflectRunId, parentRunId, threadId, kind: "reflect",
+      type: "run_started",
+      runId: reflectRunId,
+      parentRunId,
+      threadId,
+      kind: "reflect",
     });
 
     const reflectAgent = parent.agent.fork(undefined, `reflect:${threadId}`);
     this.#runs.set(reflectRunId, {
-      agent: reflectAgent, abort: new AbortController(),
-      spec: { ...parent.spec, mode: "reflect" }, reflect: false,
+      agent: reflectAgent,
+      abort: new AbortController(),
+      spec: { ...parent.spec, mode: "reflect" },
+      reflect: false,
     });
     const { reflectionGuidance } = await import("@my-agent-team/harness");
     await this.#drive(reflectRunId, reflectionGuidance(), 32);

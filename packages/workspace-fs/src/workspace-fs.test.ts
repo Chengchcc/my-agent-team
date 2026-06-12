@@ -127,10 +127,13 @@ describe("WorkspaceFS", () => {
 
   test("write to read-only mount throws", async () => {
     const mem = new MemoryBackend();
-    const ro = { read: mem.read.bind(mem), list: mem.list.bind(mem), stat: mem.stat.bind(mem), exists: mem.exists.bind(mem) };
-    const fs = new WorkspaceFS([
-      { prefix: "/ro/", domain: "shared", backend: ro },
-    ]);
+    const ro = {
+      read: mem.read.bind(mem),
+      list: mem.list.bind(mem),
+      stat: mem.stat.bind(mem),
+      exists: mem.exists.bind(mem),
+    };
+    const fs = new WorkspaceFS([{ prefix: "/ro/", domain: "shared", backend: ro }]);
 
     await expect(fs.write("/ro/file.md", "nope")).rejects.toThrow(WorkspaceAccessError);
   });

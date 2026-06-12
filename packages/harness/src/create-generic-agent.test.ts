@@ -3,9 +3,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AIMessageChunk, ChatModel, Message, Tool } from "@my-agent-team/core";
+import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
 import { LocalBackend, WorkspaceFS } from "@my-agent-team/workspace-fs";
 import { createGenericAgent } from "./create-generic-agent.js";
-import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
 
 function testHandle(root: string): WorkspaceHandle {
   return {

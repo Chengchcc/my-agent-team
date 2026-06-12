@@ -92,9 +92,7 @@ export function withWorkspace(tool: Tool, workspace: string | WorkspaceRoots): T
       for (const key of PATH_KEYS) {
         const val = obj[key];
         if (typeof val === "string" && val.length > 0) {
-          obj[key] = roots
-            ? resolveInWorkspace(roots, val)
-            : resolveInWorkspace(workspace, val);
+          obj[key] = roots ? resolveInWorkspace(roots, val) : resolveInWorkspace(workspace, val);
         }
       }
       return originalExecute(obj, signal);

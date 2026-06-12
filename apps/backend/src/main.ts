@@ -173,43 +173,6 @@ async function buildSpecJson(
   return JSON.stringify(spec);
 }
 
-// M14.7: V2 spec builder for daemon transport path (no storage/apiKey/workspace in payload)
-async function buildSpecV2(
-  threadId: string,
-  input: string,
-  overrides?: {
-    runId?: string;
-    mode?: "run" | "resume" | "reflect";
-    resumeCommand?: { approved: boolean; message?: string };
-    conversationId?: string;
-    senderMemberId?: string;
-  },
-): Promise<Record<string, unknown>> {
-  const cid = threadId.split(":")[0]!;
-  const memberId = threadId.split(":").slice(1).join(":");
-  const member = db
-    .query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
-    .get(cid, memberId) as { agent_id: string } | undefined;
-  const agentId = member?.agent_id ?? memberId;
-  const agent = await agentSvc.getById(agentId);
-
-  const spec = {
-    schemaVersion: "2" as const,
-    agentId,
-    threadId,
-    model: {
-      provider: agent.modelProvider,
-      model: agent.modelName,
-      ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}),
-    },
-    permissionMode: agent.permissionMode ?? "ask",
-    maxSteps: agent.maxSteps ?? undefined,
-    input,
-    ...overrides,
-  };
-  return spec as Record<string, unknown>;
-}
-
 // M14.4: @mention parsing helpers for agent-to-agent triggering
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\/]/g, "\\&");
@@ -260,29 +223,24 @@ const convSvc = createConversationService({
       | undefined;
     if (!agentRow) throw new Error(`Agent not found: ${ctx.agentId}`);
 
-    const spec = AgentSpecV1.parse({
-      schemaVersion: "1",
-      workspace: agentRow.workspace_path,
+    const spec = {
+      schemaVersion: "2" as const,
+      agentId: ctx.agentId,
       threadId,
       conversationId: ctx.conversationId,
       senderMemberId: ctx.agentMemberId,
       model: {
-        provider: agentRow.model_provider as "anthropic",
+        provider: agentRow.model_provider,
         model: agentRow.model_name,
         ...(agentRow.model_base_url ? { baseURL: agentRow.model_base_url } : {}),
       },
-      apiKey: config.anthropicApiKey,
-      permissionMode: agentRow.permission_mode as "ask" | "auto" | "deny" | undefined,
+      permissionMode: agentRow.permission_mode,
       maxSteps: agentRow.max_steps ?? undefined,
-      input: "", // input is in the thread.messages already (via broadcast projection)
+      input: "", // input is in thread.messages via broadcast projection
       runId,
-      storage: {
-        eventLog: { kind: "sqlite" as const, path: `${config.dataDir}/events.db` },
-        checkpointer: { kind: "sqlite" as const, path: `${config.dataDir}/backend.db` },
-      },
-    });
-    const specJson = JSON.stringify(spec);
-    return supervisor.fork(runId, threadId, specJson);
+    };
+    const { attemptId } = supervisor.start(runId, threadId, spec);
+    return { runId, attemptId, pid: 0 };
   },
 });
 

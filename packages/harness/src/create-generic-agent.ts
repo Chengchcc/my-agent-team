@@ -1,7 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { sqliteCheckpointer } from "@my-agent-team/framework";
 import type { Tool } from "@my-agent-team/core";
 import {
   type Agent,
@@ -11,10 +10,12 @@ import {
   inMemoryCheckpointer,
   type Logger,
   type Plugin,
+  sqliteCheckpointer,
 } from "@my-agent-team/framework";
 import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
 import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
 import { taskGuardPlugin } from "@my-agent-team/plugin-task-guard";
+import type { WorkspaceRoots } from "@my-agent-team/tools-common";
 import {
   bashTool,
   editTool,
@@ -25,7 +26,6 @@ import {
   writeTool,
 } from "@my-agent-team/tools-common";
 import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
-import type { WorkspaceRoots } from "@my-agent-team/tools-common";
 import { bootstrap } from "./bootstrap.js";
 
 function toWorkspaceRoots(ws: WorkspaceHandle): WorkspaceRoots {

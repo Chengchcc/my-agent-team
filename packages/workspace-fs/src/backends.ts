@@ -1,6 +1,6 @@
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ReadableBackend, WritableBackend } from "./types.js";
+import type { WritableBackend } from "./types.js";
 
 // ─── LocalBackend ───
 

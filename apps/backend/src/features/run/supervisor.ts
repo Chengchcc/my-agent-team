@@ -413,9 +413,21 @@ export class RunSupervisor {
     );
 
     const ac = new AbortController();
-    this.#active.set(runId, { runId, attemptId, threadId, pid: 0, child: null, abortController: ac });
+    this.#active.set(runId, {
+      runId,
+      attemptId,
+      threadId,
+      pid: 0,
+      child: null,
+      abortController: ac,
+    });
 
-    transport.send({ type: "start", runId, spec: spec as Record<string, unknown>, reflect: opts?.reflect });
+    transport.send({
+      type: "start",
+      runId,
+      spec: spec as Record<string, unknown>,
+      reflect: opts?.reflect,
+    });
 
     return { runId, attemptId };
   }

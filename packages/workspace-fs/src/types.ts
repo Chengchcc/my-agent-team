@@ -27,4 +27,3 @@ export interface MountEntry {
   /** If set, this mount is visible to POSIX subprocesses under this root. */
   posixRoot?: string;
 }
-

@@ -1,4 +1,4 @@
-import type { MountEntry, ReadableBackend, WritableBackend, WorkspaceDomain } from "./types.js";
+import type { MountEntry, ReadableBackend, WorkspaceDomain, WritableBackend } from "./types.js";
 
 // ─── Path helpers ───
 
@@ -79,9 +79,7 @@ export class WorkspaceFS {
   #resolve(path: string): { mount: MountEntry; relPath: string } {
     const p = normalizeAbs(path);
     // Find first mount whose prefix matches (sorted by longest prefix first)
-    const m = this.#mounts.find(
-      (x) => p === x.prefix.slice(0, -1) || p.startsWith(x.prefix),
-    );
+    const m = this.#mounts.find((x) => p === x.prefix.slice(0, -1) || p.startsWith(x.prefix));
     if (!m) throw new WorkspaceAccessError(`no mount for path: ${path}`);
     return { mount: m, relPath: stripPrefix(p, m.prefix) };
   }

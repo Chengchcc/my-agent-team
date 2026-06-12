@@ -3,9 +3,9 @@ export { InterruptSignal, validateCheckpointer } from "./checkpointer.js";
 export { fileCheckpointer } from "./checkpointers/file-checkpointer.js";
 export { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 export {
-  sqliteCheckpointer,
   SQLITE_CHECKPOINTER_MIGRATIONS,
   type SqliteCheckpointerOptions,
+  sqliteCheckpointer,
 } from "./checkpointers/sqlite-checkpointer.js";
 export type { ContextManager, ContextManagerContext } from "./context-manager.js";
 export { pipeContextManagers } from "./context-manager.js";

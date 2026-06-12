@@ -6,6 +6,6 @@ export {
   makeSharedOnlyMounts,
   makeWorkspaceHandle,
 } from "./mounts.js";
-export type { MountEntry, ReadableBackend, WritableBackend, WorkspaceDomain } from "./types.js";
-export { WorkspaceAccessError, WorkspaceFS } from "./workspace-fs.js";
+export type { MountEntry, ReadableBackend, WorkspaceDomain, WritableBackend } from "./types.js";
 export type { WorkspaceHandle } from "./workspace-fs.js";
+export { WorkspaceAccessError, WorkspaceFS } from "./workspace-fs.js";
