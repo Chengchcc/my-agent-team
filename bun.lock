@@ -154,6 +154,26 @@
         "@my-agent-team/framework": "workspace:*",
       },
     },
+    "packages/runner-daemon": {
+      "name": "@my-agent-team/runner-daemon",
+      "version": "0.1.0",
+      "dependencies": {
+        "@my-agent-team/adapter-anthropic": "workspace:*",
+        "@my-agent-team/core": "workspace:*",
+        "@my-agent-team/framework": "workspace:*",
+        "@my-agent-team/harness": "workspace:*",
+        "@my-agent-team/runner-protocol": "workspace:*",
+        "@my-agent-team/workspace-fs": "workspace:*",
+      },
+    },
+    "packages/runner-protocol": {
+      "name": "@my-agent-team/runner-protocol",
+      "version": "0.1.0",
+      "dependencies": {
+        "@my-agent-team/core": "workspace:*",
+        "@my-agent-team/framework": "workspace:*",
+      },
+    },
     "packages/runner-stdio": {
       "name": "@my-agent-team/runner-stdio",
       "version": "0.1.0",
@@ -181,6 +201,10 @@
       "dependencies": {
         "@my-agent-team/core": "workspace:*",
       },
+    },
+    "packages/workspace-fs": {
+      "name": "@my-agent-team/workspace-fs",
+      "version": "0.1.0",
     },
   },
   "packages": {
@@ -430,6 +454,10 @@
 
     "@my-agent-team/plugin-task-guard": ["@my-agent-team/plugin-task-guard@workspace:packages/plugin-task-guard"],
 
+    "@my-agent-team/runner-daemon": ["@my-agent-team/runner-daemon@workspace:packages/runner-daemon"],
+
+    "@my-agent-team/runner-protocol": ["@my-agent-team/runner-protocol@workspace:packages/runner-protocol"],
+
     "@my-agent-team/runner-stdio": ["@my-agent-team/runner-stdio@workspace:packages/runner-stdio"],
 
     "@my-agent-team/test-helpers": ["@my-agent-team/test-helpers@workspace:packages/test-helpers"],
@@ -437,6 +465,8 @@
     "@my-agent-team/tools-common": ["@my-agent-team/tools-common@workspace:packages/tools-common"],
 
     "@my-agent-team/web": ["@my-agent-team/web@workspace:apps/web"],
+
+    "@my-agent-team/workspace-fs": ["@my-agent-team/workspace-fs@workspace:packages/workspace-fs"],
 
     "@next/env": ["@next/env@15.5.19", "", {}, "sha512-sWWluFvcv5v3Fxznmf2ZfjyoVQt/64oCnYqS90inQWGzMPK1VjvekPiz3OPHKmFT30EnHrjlbyaHLt3M0vWabw=="],
 
