@@ -80,7 +80,7 @@ export interface RunSupervisorOptions {
   registry: RunnerRegistry;
 }
 
-interface RunSession {
+export interface RunSession {
   runId: string;
   attemptId: string;
   threadId: string;
