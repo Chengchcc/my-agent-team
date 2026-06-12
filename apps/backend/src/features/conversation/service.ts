@@ -72,26 +72,25 @@ export function createConversationService(deps: ConversationServiceDeps) {
     content: unknown;
   }): Promise<number> {
     const ts = Date.now();
+    const serialized = JSON.stringify(input.content);
     const seq = port.appendLedgerEntry({
       conversationId: input.conversationId,
       senderMemberId: input.senderMemberId,
       addressedTo: input.addressedTo,
       kind: input.kind,
-      content: JSON.stringify(input.content),
+      content: serialized,
       ts,
     });
 
-    const entry: LedgerRow = {
+    await broadcastMessage({
       seq,
       conversationId: input.conversationId,
       senderMemberId: input.senderMemberId,
       addressedTo: input.addressedTo,
       kind: input.kind,
-      content: JSON.stringify(input.content),
+      content: serialized,
       ts,
-    };
-
-    await broadcastMessage(entry);
+    });
     return seq;
   }
 
