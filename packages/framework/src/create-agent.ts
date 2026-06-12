@@ -18,7 +18,7 @@ import { validatePlugins } from "./plugin.js";
 import { createThread, type Thread } from "./thread.js";
 
 export interface Interrupt {
-  pendingTool?: ToolUseBlock; // absent for liveness interrupts (M11)
+  pendingTool?: ToolUseBlock;
   reason: string;
   meta?: Record<string, unknown>;
 }
@@ -43,9 +43,7 @@ export interface ResumeCommand {
 export interface AgentRunOptions {
   signal?: AbortSignal;
   maxSteps?: number;
-  /** When true, text_delta events are yielded for each text chunk before the full message. Default false. */
   stream?: boolean;
-  /** M14.6: Max times beforeStop can force-continue per run. Default 3; 0 disables the stop gate. */
   maxForceContinues?: number;
 }
 
@@ -66,6 +64,286 @@ export interface AgentConfig {
   logger?: Logger;
   threadId?: string;
 }
+
+// ─── Pure helpers ──────────────────────────────────────────────
+
+function wrapToolResult(
+  call: ToolUseBlock,
+  result: { content: string; isError?: boolean },
+): ToolResultBlock {
+  return {
+    type: "tool_result",
+    tool_use_id: call.id,
+    content: result.content,
+    ...(result.isError !== undefined ? { is_error: result.isError } : {}),
+  };
+}
+
+// ─── Plugin runner (extracted fire* helpers) ───────────────────
+
+interface PluginRunner {
+  fireBeforeModel(msgs: Message[]): Promise<Message[]>;
+  fireAfterModel(msgs: readonly Message[]): Promise<void>;
+  fireBeforeTool(call: ToolUseBlock, msgs: readonly Message[]): Promise<{ skip?: boolean; input?: unknown; result?: string; isError?: boolean } | undefined>;
+  fireAfterTool(call: ToolUseBlock, result: ToolResultBlock, msgs: readonly Message[]): Promise<void>;
+  fireBeforeRun(msgs: readonly Message[]): Promise<readonly Message[]>;
+  fireBeforeStop(msgs: readonly Message[]): Promise<StopDecision | undefined>;
+}
+
+function createPluginRunner(plugins: readonly Plugin[], ctx: HookContext, logger: Logger): PluginRunner {
+  async function eachPlugin(hookName: string, fn: (p: Plugin) => Promise<void>): Promise<void> {
+    for (const p of plugins) {
+      try { await fn(p); } catch (err) { logger.warn(`${hookName} ${p.name}`, err); }
+    }
+  }
+
+  return {
+    async fireBeforeModel(msgs: Message[]): Promise<Message[]> {
+      let current = msgs;
+      await eachPlugin("beforeModel", async (p) => {
+        if (p.hooks.beforeModel) {
+          const result = await p.hooks.beforeModel(ctx, current);
+          if (result !== undefined) current = result;
+        }
+      });
+      return current;
+    },
+
+    async fireAfterModel(msgs): Promise<void> {
+      await eachPlugin("afterModel", async (p) => {
+        if (p.hooks.afterModel) await p.hooks.afterModel(ctx, msgs);
+      });
+    },
+
+    async fireBeforeTool(call, msgs) {
+      let decision: { skip?: boolean; input?: unknown; result?: string; isError?: boolean } | undefined;
+      await eachPlugin("beforeTool", async (p) => {
+        if (p.hooks.beforeTool) {
+          const d = await p.hooks.beforeTool(ctx, call, msgs);
+          if (d) {
+            if (d.skip) decision = { ...decision, skip: true, result: d.result, isError: d.isError };
+            if (d.input !== undefined) decision = { ...decision, input: d.input };
+          }
+        }
+      });
+      return decision;
+    },
+
+    async fireAfterTool(call, result, msgs): Promise<void> {
+      await eachPlugin("afterTool", async (p) => {
+        if (p.hooks.afterTool) await p.hooks.afterTool(ctx, call, result, msgs);
+      });
+    },
+
+    async fireBeforeRun(msgs): Promise<readonly Message[]> {
+      let current = msgs;
+      await eachPlugin("beforeRun", async (p) => {
+        if (p.hooks.beforeRun) {
+          const result = await p.hooks.beforeRun(ctx, current);
+          if (result !== undefined) current = result;
+        }
+      });
+      return current;
+    },
+
+    async fireBeforeStop(msgs) {
+      const reasons: string[] = [];
+      await eachPlugin("beforeStop", async (p) => {
+        if (p.hooks.beforeStop) {
+          const d = await p.hooks.beforeStop(ctx, msgs);
+          if (d?.continue) reasons.push(d.reason);
+        }
+      });
+      return reasons.length > 0 ? { continue: true, reason: reasons.join("\n\n") } : undefined;
+    },
+  };
+}
+
+// ─── Agent runtime (bundles shared state for extracted functions) ──
+
+interface AgentRuntime {
+  thread: Thread;
+  plugins: PluginRunner;
+  toolMap: Map<string, Tool>;
+  checkpointer: Checkpointer;
+  contextManager: ContextManager;
+  logger: Logger;
+  model: ChatModel;
+  tools: readonly Tool[];
+  pendingEvents: AgentEvent[];
+  save: (msgs: Message[]) => Promise<void>;
+}
+
+// ─── executeOne (extracted from createAgentInternal) ────────────
+
+async function* executeOne(
+  rt: AgentRuntime,
+  call: ToolUseBlock,
+  opts: { signal?: AbortSignal },
+): AsyncGenerator<AgentEvent, boolean> {
+  await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "tool_start", call, ts: Date.now() });
+  yield { type: "tool_start", payload: { id: call.id, name: call.name } };
+
+  const toolStart = Date.now();
+  const decision = await rt.plugins.fireBeforeTool(call, rt.thread.messages);
+
+  if (decision?.skip) {
+    const r = wrapToolResult(call, {
+      content: decision.result ?? "Tool skipped",
+      isError: decision.isError ?? (decision.result ? true : undefined),
+    });
+    rt.thread.messages.push({ role: "user", content: [r] } as Message);
+    await rt.save(rt.thread.messages);
+    yield { type: "tool_end", payload: { id: call.id, name: call.name, isError: r.is_error as boolean | undefined } };
+    return false;
+  }
+
+  let resultBlock: ToolResultBlock;
+  try {
+    const input = decision?.input ?? call.input;
+    const tool = rt.toolMap.get(call.name);
+    if (!tool) {
+      resultBlock = wrapToolResult(call, { content: `Tool not found: ${call.name}`, isError: true });
+    } else {
+      resultBlock = wrapToolResult(call, await tool.execute(input, opts.signal));
+    }
+  } catch (err) {
+    if (err instanceof InterruptSignal) {
+      await rt.save(rt.thread.messages);
+      if (!rt.checkpointer.saveInterrupt) {
+        throw new Error(
+          "Tool requested interrupt but checkpointer does not support it. " +
+            "Use a checkpointer that implements saveInterrupt/consumeInterrupt.",
+          { cause: err },
+        );
+      }
+      await rt.checkpointer.saveInterrupt(rt.thread.id, {
+        pendingTool: { call, reason: err.reason }, ts: Date.now(), meta: err.meta,
+      });
+      await rt.checkpointer.appendEvent?.(rt.thread.id, {
+        type: "interrupt", pendingTool: call, reason: err.reason, ts: Date.now(),
+      });
+      yield { type: "tool_end", payload: { id: call.id, name: call.name, isError: true } };
+      yield { type: "interrupted", payload: { pendingTool: call, reason: err.reason, meta: err.meta } };
+      return true;
+    }
+    resultBlock = wrapToolResult(call, {
+      content: err instanceof Error ? err.message : String(err), isError: true,
+    });
+  }
+
+  rt.thread.messages.push({ role: "user", content: [resultBlock] } as Message);
+  await rt.plugins.fireAfterTool(call, resultBlock, rt.thread.messages);
+  for (const ev of rt.pendingEvents.splice(0)) yield ev;
+  await rt.checkpointer.appendEvent?.(rt.thread.id, {
+    type: "tool_end", result: resultBlock, durationMs: Date.now() - toolStart, ts: Date.now(),
+  });
+  yield { type: "tool_end", payload: { id: call.id, name: call.name, isError: resultBlock.is_error as boolean | undefined } };
+  await rt.save(rt.thread.messages);
+  return false;
+}
+
+// ─── runLoop (extracted from createAgentInternal) ───────────────
+
+async function* runLoop(
+  rt: AgentRuntime,
+  opts: { signal?: AbortSignal; maxSteps: number; stream?: boolean; maxForceContinues?: number },
+): AsyncGenerator<AgentEvent> {
+  let forceContinues = 0;
+  const maxForce = opts.maxForceContinues ?? 3;
+  for (let step = 0; step < opts.maxSteps; step++) {
+    if (opts.signal?.aborted) {
+      await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "run_end", reason: "aborted", ts: Date.now() });
+      return;
+    }
+
+    const shaped = await rt.contextManager.shape(
+      { threadId: rt.thread.id, signal: opts.signal, logger: rt.logger, model: rt.model },
+      rt.thread.messages,
+    );
+    const finalMsgs = await rt.plugins.fireBeforeModel(shaped);
+
+    await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "model_start", messageCount: finalMsgs.length, ts: Date.now() });
+
+    const modelStream = rt.model.stream(finalMsgs, { signal: opts.signal, tools: rt.tools });
+    let blocks: ContentBlock[];
+    let usage: AIMessageChunk["usage"];
+
+    if (opts.stream) {
+      blocks = [];
+      const partialJson = new Map<string, string>();
+      let blockIndex = 0;
+      for await (const chunk of modelStream) {
+        if (chunk.delta?.type === "text" && blocks.length > 0 && blocks[blocks.length - 1]?.type !== "text") {
+          blockIndex++;
+        }
+        if (chunk.delta?.type === "text") {
+          yield { type: "text_delta", payload: { blockIndex, text: chunk.delta.text } };
+        }
+        mergeChunkIntoBlocks(blocks, partialJson, chunk);
+        if (chunk.usage !== undefined) usage = chunk.usage;
+        if (chunk.done) break;
+      }
+      finalizeToolUseInputs(blocks, partialJson);
+    } else {
+      const collected = await collectStream(modelStream);
+      blocks = collected.blocks;
+      usage = collected.usage;
+    }
+
+    await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "model_end", blocks: blocks.slice(), usage, ts: Date.now() });
+
+    if (blocks.length === 0) {
+      await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "run_end", reason: "complete", ts: Date.now() });
+      return;
+    }
+
+    const assistantMsg: Message = { role: "assistant", content: blocks.slice() };
+    rt.thread.messages.push(assistantMsg);
+    await rt.plugins.fireAfterModel(rt.thread.messages);
+    yield { type: "message", payload: assistantMsg };
+
+    const toolUses = blocks.filter((b): b is ToolUseBlock => b.type === "tool_use");
+    if (toolUses.length === 0) {
+      if (maxForce > 0 && forceContinues < maxForce) {
+        const verdict = await rt.plugins.fireBeforeStop(rt.thread.messages);
+        for (const ev of rt.pendingEvents.splice(0)) yield ev;
+        if (verdict?.continue) {
+          forceContinues++;
+          rt.thread.messages.push({ role: "user", content: verdict.reason } as Message);
+          await rt.checkpointer.appendEvent?.(rt.thread.id, {
+            type: "force_continue", reason: verdict.reason, attempt: forceContinues, ts: Date.now(),
+          });
+          await rt.save(rt.thread.messages);
+          continue;
+        }
+      }
+      await rt.save(rt.thread.messages);
+      await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "run_end", reason: "complete", ts: Date.now() });
+      return;
+    }
+
+    for (let i = 0; i < toolUses.length; i++) {
+      const call = toolUses[i]!;
+      const interrupted = yield* executeOne(rt, call, opts);
+      if (interrupted) {
+        for (let j = i; j < toolUses.length; j++) {
+          const remaining = toolUses[j]!;
+          rt.thread.messages.push({
+            role: "user",
+            content: [wrapToolResult(remaining, { content: "Interrupted", isError: true })],
+          } as Message);
+        }
+        await rt.save(rt.thread.messages);
+        return;
+      }
+    }
+  }
+
+  await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "run_end", reason: "maxSteps", ts: Date.now() });
+}
+
+// ─── createAgent / createAgentInternal ──────────────────────────
 
 export async function createAgent(config: AgentConfig): Promise<Agent> {
   const threadId = config.threadId ?? crypto.randomUUID();
@@ -103,405 +381,30 @@ function createAgentInternal(
   let running = false;
 
   const save = async (msgs: Message[]) => {
-    try {
-      await checkpointer.save(thread.id, msgs);
-    } catch (err) {
-      logger.warn(`checkpointer.save ${thread.id}`, err);
-    }
+    try { await checkpointer.save(thread.id, msgs); }
+    catch (err) { logger.warn(`checkpointer.save ${thread.id}`, err); }
   };
 
-  // M14.6: Plugin-emitted events (e.g. todo_update) collected here and drained in executeOne.
   const pendingEvents: AgentEvent[] = [];
-
   const ctx: HookContext = {
-    threadId: thread.id,
-    signal: undefined,
-    logger,
-    checkpointer,
-    contextManager,
-    emit: (event: AgentEvent) => {
-      pendingEvents.push(event);
-    },
+    threadId: thread.id, signal: undefined, logger, checkpointer, contextManager,
+    emit: (event: AgentEvent) => { pendingEvents.push(event); },
   };
 
-  async function fireBeforeModel(msgs: Message[]): Promise<Message[]> {
-    let current = msgs;
-    for (const p of plugins) {
-      if (p.hooks.beforeModel) {
-        // M2: isolate plugin errors so one bad plugin doesn't break the chain
-        try {
-          const result = await p.hooks.beforeModel(ctx, current);
-          current = result ?? current;
-        } catch (err) {
-          logger.warn(`beforeModel ${p.name}`, err);
-        }
-      }
-    }
-    return current;
-  }
+  const pluginRunner = createPluginRunner(plugins, ctx, logger);
 
-  async function fireAfterModel(msgs: readonly Message[]): Promise<void> {
-    for (const p of plugins) {
-      if (p.hooks.afterModel) {
-        try {
-          await p.hooks.afterModel(ctx, msgs);
-        } catch (err) {
-          logger.warn(`afterModel ${p.name}`, err);
-        }
-      }
-    }
-  }
+  const rt: AgentRuntime = {
+    thread, plugins: pluginRunner, toolMap, checkpointer, contextManager,
+    logger, model, tools, pendingEvents, save,
+  };
 
-  async function fireBeforeTool(
-    call: ToolUseBlock,
-    msgs: readonly Message[],
-  ): Promise<{ skip?: boolean; input?: unknown; result?: string; isError?: boolean } | undefined> {
-    let decision:
-      | { skip?: boolean; input?: unknown; result?: string; isError?: boolean }
-      | undefined;
-    for (const p of plugins) {
-      if (p.hooks.beforeTool) {
-        // M2: isolate plugin errors
-        try {
-          const d = await p.hooks.beforeTool(ctx, call, msgs);
-          if (d) {
-            if (d.skip)
-              decision = { ...decision, skip: true, result: d.result, isError: d.isError };
-            if (d.input !== undefined) decision = { ...decision, input: d.input };
-          }
-        } catch (err) {
-          logger.warn(`beforeTool ${p.name}`, err);
-        }
-      }
-    }
-    return decision;
-  }
-
-  async function fireAfterTool(
-    call: ToolUseBlock,
-    result: ToolResultBlock,
-    msgs: readonly Message[],
-  ): Promise<void> {
-    for (const p of plugins) {
-      if (p.hooks.afterTool) {
-        try {
-          await p.hooks.afterTool(ctx, call, result, msgs);
-        } catch (err) {
-          logger.warn(`afterTool ${p.name}`, err);
-        }
-      }
-    }
-  }
-
-  // M14.6: beforeRun aggregator — transformer chain, fail-open
-  async function fireBeforeRun(msgs: readonly Message[]): Promise<readonly Message[]> {
-    let current = msgs;
-    for (const p of plugins) {
-      if (p.hooks.beforeRun) {
-        try {
-          const result = await p.hooks.beforeRun(ctx, current);
-          current = result ?? current;
-        } catch (err) {
-          logger.warn(`beforeRun ${p.name}`, err);
-        }
-      }
-    }
-    return current;
-  }
-
-  // M14.6: beforeStop aggregator — any plugin can veto stop
-  async function fireBeforeStop(msgs: readonly Message[]): Promise<StopDecision | undefined> {
-    const reasons: string[] = [];
-    for (const p of plugins) {
-      if (p.hooks.beforeStop) {
-        try {
-          const d = await p.hooks.beforeStop(ctx, msgs);
-          if (d?.continue) reasons.push(d.reason);
-        } catch (err) {
-          logger.warn(`beforeStop ${p.name}`, err);
-        }
-      }
-    }
-    if (reasons.length > 0) {
-      return { continue: true, reason: reasons.join("\n\n") };
-    }
-    return undefined;
-  }
-
-  function wrapToolResult(
-    call: ToolUseBlock,
-    result: { content: string; isError?: boolean },
-  ): ToolResultBlock {
+  function runLoopOpts(opts: AgentRunOptions) {
     return {
-      type: "tool_result",
-      tool_use_id: call.id,
-      content: result.content,
-      ...(result.isError !== undefined ? { is_error: result.isError } : {}),
+      signal: opts.signal,
+      maxSteps: opts.maxSteps ?? 32,
+      stream: opts.stream,
+      maxForceContinues: opts.maxForceContinues,
     };
-  }
-
-  async function* executeOne(
-    call: ToolUseBlock,
-    opts: { signal?: AbortSignal },
-  ): AsyncGenerator<AgentEvent, boolean> {
-    await checkpointer.appendEvent?.(thread.id, {
-      type: "tool_start",
-      call,
-      ts: Date.now(),
-    });
-    // M13.1: ephemeral fan-out for live tool status (never persisted to EventLog)
-    yield { type: "tool_start", payload: { id: call.id, name: call.name } };
-
-    const toolStart = Date.now();
-    const decision = await fireBeforeTool(call, thread.messages);
-
-    if (decision?.skip) {
-      const r = wrapToolResult(call, {
-        content: decision.result ?? "Tool skipped",
-        isError: decision.isError ?? (decision.result ? true : undefined),
-      });
-      thread.messages.push({ role: "user", content: [r] } as Message);
-      await save(thread.messages);
-      yield {
-        type: "tool_end" as const,
-        payload: { id: call.id, name: call.name, isError: r.is_error as boolean | undefined },
-      };
-      return false;
-    }
-
-    let resultBlock: ToolResultBlock;
-    try {
-      const input = decision?.input ?? call.input;
-      const tool = toolMap.get(call.name);
-      if (!tool) {
-        resultBlock = wrapToolResult(call, {
-          content: `Tool not found: ${call.name}`,
-          isError: true,
-        });
-      } else {
-        const out = await tool.execute(input, opts.signal);
-        resultBlock = wrapToolResult(call, out);
-      }
-    } catch (err) {
-      if (err instanceof InterruptSignal) {
-        await save(thread.messages);
-        if (!checkpointer.saveInterrupt) {
-          throw new Error(
-            "Tool requested interrupt but checkpointer does not support it. " +
-              "Use a checkpointer that implements saveInterrupt/consumeInterrupt.",
-            { cause: err },
-          );
-        }
-        await checkpointer.saveInterrupt(thread.id, {
-          pendingTool: { call, reason: err.reason },
-          ts: Date.now(),
-          meta: err.meta,
-        });
-        await checkpointer.appendEvent?.(thread.id, {
-          type: "interrupt",
-          pendingTool: call,
-          reason: err.reason,
-          ts: Date.now(),
-        });
-        // M13.1: signal tool_end before interrupt so activeTools clears
-        yield {
-          type: "tool_end" as const,
-          payload: {
-            id: call.id,
-            name: call.name,
-            isError: true,
-          },
-        };
-        yield {
-          type: "interrupted",
-          payload: {
-            pendingTool: call,
-            reason: err.reason,
-            meta: err.meta,
-          },
-        };
-        return true;
-      }
-      resultBlock = wrapToolResult(call, {
-        content: err instanceof Error ? err.message : String(err),
-        isError: true,
-      });
-    }
-
-    thread.messages.push({
-      role: "user",
-      content: [resultBlock],
-    } as Message);
-    await fireAfterTool(call, resultBlock, thread.messages);
-    // M14.6: Drain plugin-emitted events (e.g. todo_update after todo_write)
-    for (const ev of pendingEvents.splice(0)) yield ev;
-    await checkpointer.appendEvent?.(thread.id, {
-      type: "tool_end",
-      result: resultBlock,
-      durationMs: Date.now() - toolStart,
-      ts: Date.now(),
-    });
-    yield {
-      type: "tool_end" as const,
-      payload: {
-        id: call.id,
-        name: call.name,
-        isError: resultBlock.is_error as boolean | undefined,
-      },
-    };
-    await save(thread.messages);
-    return false;
-  }
-
-  async function* runLoop(opts: {
-    signal?: AbortSignal;
-    maxSteps: number;
-    stream?: boolean;
-    /** M14.6: Max force-continue count. Default 3; 0 disables stop gate. */
-    maxForceContinues?: number;
-  }): AsyncGenerator<AgentEvent> {
-    let forceContinues = 0;
-    const maxForce = opts.maxForceContinues ?? 3;
-    for (let step = 0; step < opts.maxSteps; step++) {
-      if (opts.signal?.aborted) {
-        await checkpointer.appendEvent?.(thread.id, {
-          type: "run_end",
-          reason: "aborted",
-          ts: Date.now(),
-        });
-        return;
-      }
-
-      const cmCtx = {
-        threadId: thread.id,
-        signal: opts.signal,
-        logger,
-        model,
-      };
-      const shaped = await contextManager.shape(cmCtx, thread.messages);
-      const finalMsgs = await fireBeforeModel(shaped);
-
-      await checkpointer.appendEvent?.(thread.id, {
-        type: "model_start",
-        messageCount: finalMsgs.length,
-        ts: Date.now(),
-      });
-
-      // Stream-aware model call: when opts.stream is true, yield text_delta
-      // events for preview before assembling the full message.
-      const modelStream = model.stream(finalMsgs, { signal: opts.signal, tools });
-      let blocks: ContentBlock[];
-      let usage: AIMessageChunk["usage"];
-
-      if (opts.stream) {
-        // Manual accumulation — yield text_delta for text chunks, then final message
-        blocks = [];
-        const partialJson = new Map<string, string>();
-        let blockIndex = 0;
-        for await (const chunk of modelStream) {
-          // Increment blockIndex when a new text block starts (text after non-text)
-          if (
-            chunk.delta?.type === "text" &&
-            blocks.length > 0 &&
-            blocks[blocks.length - 1]?.type !== "text"
-          ) {
-            blockIndex++;
-          }
-          if (chunk.delta?.type === "text") {
-            yield { type: "text_delta", payload: { blockIndex, text: chunk.delta.text } };
-          }
-          mergeChunkIntoBlocks(blocks, partialJson, chunk);
-          if (chunk.stopReason !== undefined) {
-            /* captured below for checkpointer event */
-          }
-          if (chunk.usage !== undefined) usage = chunk.usage;
-          if (chunk.done) break;
-        }
-        finalizeToolUseInputs(blocks, partialJson);
-      } else {
-        const collected = await collectStream(modelStream);
-        const result = collected;
-        blocks = result.blocks;
-        usage = result.usage;
-      }
-
-      await checkpointer.appendEvent?.(thread.id, {
-        type: "model_end",
-        blocks: blocks.slice(),
-        usage,
-        ts: Date.now(),
-      });
-
-      if (blocks.length === 0) {
-        await checkpointer.appendEvent?.(thread.id, {
-          type: "run_end",
-          reason: "complete",
-          ts: Date.now(),
-        });
-        return;
-      }
-
-      const assistantMsg: Message = {
-        role: "assistant",
-        content: blocks.slice(),
-      };
-      thread.messages.push(assistantMsg);
-      await fireAfterModel(thread.messages);
-      yield { type: "message", payload: assistantMsg };
-
-      const toolUses = blocks.filter((b): b is ToolUseBlock => b.type === "tool_use");
-      if (toolUses.length === 0) {
-        // M14.6: Stop gate — only check when gate is open and under force-continue limit.
-        if (maxForce > 0 && forceContinues < maxForce) {
-          const verdict = await fireBeforeStop(thread.messages);
-          // M14.6: Drain events emitted during beforeStop (e.g. late-generated todo_update)
-          for (const ev of pendingEvents.splice(0)) yield ev;
-          if (verdict?.continue) {
-            forceContinues++;
-            thread.messages.push({ role: "user", content: verdict.reason } as Message);
-            await checkpointer.appendEvent?.(thread.id, {
-              type: "force_continue",
-              reason: verdict.reason,
-              attempt: forceContinues,
-              ts: Date.now(),
-            });
-            await save(thread.messages);
-            continue; // re-enter the loop with the veto reason as new user input
-          }
-        }
-        await save(thread.messages);
-        await checkpointer.appendEvent?.(thread.id, {
-          type: "run_end",
-          reason: "complete",
-          ts: Date.now(),
-        });
-        return;
-      }
-
-      for (let i = 0; i < toolUses.length; i++) {
-        const call = toolUses[i]!;
-        const interrupted = yield* executeOne(call, opts);
-        if (interrupted) {
-          // H1+R4: Add placeholder tool_results for ALL unexecuted tool_use blocks
-          // (including the interrupting one — eliminates orphan window before resume)
-          for (let j = i; j < toolUses.length; j++) {
-            const remaining = toolUses[j]!;
-            thread.messages.push({
-              role: "user",
-              content: [wrapToolResult(remaining, { content: "Interrupted", isError: true })],
-            } as Message);
-          }
-          await save(thread.messages);
-          return;
-        }
-      }
-    }
-
-    await checkpointer.appendEvent?.(thread.id, {
-      type: "run_end",
-      reason: "maxSteps",
-      ts: Date.now(),
-    });
   }
 
   return {
@@ -510,55 +413,35 @@ function createAgentInternal(
     fork(msgs, id): Agent {
       const newId = id ?? crypto.randomUUID();
       if (id && id === thread.id) {
-        throw new Error(
-          "Cannot fork with the same threadId as the parent. Pass a new id or omit it.",
-        );
+        throw new Error("Cannot fork with the same threadId as the parent. Pass a new id or omit it.");
       }
       return createAgentInternal({
-        ...config,
-        plugins: [...plugins],
-        threadId: newId,
-        checkpointer,
+        ...config, plugins: [...plugins], threadId: newId, checkpointer,
         _initialMessages: msgs ?? structuredClone(thread.messages),
       });
     },
 
     async *run(input: string, opts: AgentRunOptions = {}) {
-      if (running) {
-        throw new Error("Agent is already running. Use fork() for concurrent conversations.");
-      }
+      if (running) throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       running = true;
       ctx.signal = opts.signal;
       try {
         opts.signal?.throwIfAborted();
-
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
           thread.messages.unshift({ role: "system", content: systemPrompt });
         }
         thread.messages.push({ role: "user", content: input });
         await save(thread.messages);
-        await checkpointer.appendEvent?.(thread.id, {
-          type: "user_input",
-          content: input,
-          ts: Date.now(),
-        });
+        await checkpointer.appendEvent?.(thread.id, { type: "user_input", content: input, ts: Date.now() });
 
-        // M14.6: Pre-loop hook — seed todo plan, inject guidance. Transformer replaces messages.
-        const seeded = await fireBeforeRun(thread.messages);
+        const seeded = await pluginRunner.fireBeforeRun(thread.messages);
         if (seeded !== thread.messages) {
           thread.messages.length = 0;
           thread.messages.push(...seeded);
           await save(thread.messages);
         }
-        // Drain any events emitted by beforeRun (e.g. initial todo_update)
         for (const ev of pendingEvents.splice(0)) yield ev;
-
-        yield* runLoop({
-          signal: opts.signal,
-          maxSteps: opts.maxSteps ?? 32,
-          stream: opts.stream,
-          maxForceContinues: opts.maxForceContinues,
-        });
+        yield* runLoop(rt, runLoopOpts(opts));
       } finally {
         running = false;
         ctx.signal = undefined;
@@ -566,30 +449,19 @@ function createAgentInternal(
     },
 
     async *resume(command: ResumeCommand, opts: AgentRunOptions = {}) {
-      if (running) {
-        throw new Error("Agent is already running. Use fork() for concurrent conversations.");
-      }
+      if (running) throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       running = true;
       ctx.signal = opts.signal;
       try {
         const it = await checkpointer.consumeInterrupt?.(thread.id);
         if (!it) throw new Error("No pending interrupt for this thread");
 
-        await checkpointer.appendEvent?.(thread.id, {
-          type: "resume",
-          ts: Date.now(),
-        });
+        await checkpointer.appendEvent?.(thread.id, { type: "resume", ts: Date.now() });
 
-        // R4: Replace interrupt placeholder with real tool_result
         const placeholderIdx = thread.messages.findLastIndex(
           (m) =>
             Array.isArray(m.content) &&
-            m.content.some(
-              (b) =>
-                b.type === "tool_result" &&
-                b.tool_use_id === it.pendingTool.call.id &&
-                b.is_error === true,
-            ),
+            m.content.some((b) => b.type === "tool_result" && b.tool_use_id === it.pendingTool.call.id && b.is_error === true),
         );
         const realResult = {
           type: "tool_result" as const,
@@ -598,19 +470,12 @@ function createAgentInternal(
           is_error: !command.approved,
         };
         if (placeholderIdx >= 0) {
-          // Replace the placeholder message in-place
           thread.messages[placeholderIdx] = { role: "user", content: [realResult] } as Message;
         } else {
           thread.messages.push({ role: "user", content: [realResult] } as Message);
         }
         await save(thread.messages);
-
-        yield* runLoop({
-          signal: opts.signal,
-          maxSteps: opts.maxSteps ?? 32,
-          stream: opts.stream,
-          maxForceContinues: opts.maxForceContinues,
-        });
+        yield* runLoop(rt, runLoopOpts(opts));
       } finally {
         running = false;
         ctx.signal = undefined;
