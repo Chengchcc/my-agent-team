@@ -83,14 +83,14 @@ describe("M11 Growth e2e", () => {
     // Write BOOTSTRAP.md → genesis mode
     await writeFile(path.join(ws, "BOOTSTRAP.md"), "GENESIS MODE PROMPT");
 
-    const prompt = await bootstrap(fs, consoleLogger({ level: "silent" }), ws);
+    const prompt = await bootstrap(fs, consoleLogger({ level: "silent" }));
     expect(prompt).toBe("GENESIS MODE PROMPT");
 
     // Delete BOOTSTRAP.md + write SOUL.md → normal mode
     await rm(path.join(ws, "BOOTSTRAP.md"));
     await writeFile(path.join(ws, "SOUL.md"), "I am a helpful assistant");
 
-    const prompt2 = await bootstrap(fs, consoleLogger({ level: "silent" }), ws);
+    const prompt2 = await bootstrap(fs, consoleLogger({ level: "silent" }));
     expect(prompt2).toInclude("I am a helpful assistant");
     expect(prompt2).toInclude("<soul>");
   });

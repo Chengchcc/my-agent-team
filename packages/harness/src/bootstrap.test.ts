@@ -23,7 +23,7 @@ describe("bootstrap", () => {
     try {
       await writeFile(path.join(ws, "BOOTSTRAP.md"), "You just woke up. Talk to the user.");
 
-      const prompt = await bootstrap(testFS(ws), logger, ws);
+      const prompt = await bootstrap(testFS(ws), logger);
 
       expect(prompt).toBe("You just woke up. Talk to the user.");
     } finally {
@@ -41,7 +41,7 @@ describe("bootstrap", () => {
       // SOUL.md exists → BOOTSTRAP.md is stale leftover, should be cleaned up
       await writeFile(path.join(ws, "SOUL.md"), "i am an agent");
 
-      const prompt = await bootstrap(testFS(ws), logger, ws);
+      const prompt = await bootstrap(testFS(ws), logger);
 
       // Should NOT return boot content (BOOTSTRAP.md was cleaned up)
       expect(prompt).not.toBe("boot content");
@@ -62,7 +62,7 @@ describe("bootstrap", () => {
     try {
       await writeFile(path.join(ws, "BOOTSTRAP.md"), "genesis prompt");
 
-      const prompt = await bootstrap(testFS(ws), logger, ws);
+      const prompt = await bootstrap(testFS(ws), logger);
 
       // No SOUL.md → genuine birth mode, return BOOTSTRAP.md content
       expect(prompt).toBe("genesis prompt");
@@ -76,7 +76,7 @@ describe("bootstrap", () => {
     await mkdir(ws, { recursive: true });
 
     try {
-      const prompt = await bootstrap(testFS(ws), logger, ws);
+      const prompt = await bootstrap(testFS(ws), logger);
 
       // Should be the genesis template, not the old fallback
       expect(prompt).toInclude("You just woke up");
@@ -109,10 +109,9 @@ describe("bootstrap", () => {
       const yesterday = isoStr(new Date(Date.now() - 86_400_000));
       await writeFile(path.join(ws, "memory", `${yesterday}.md`), "yesterday work");
 
-      const prompt = await bootstrap(testFS(ws), logger, ws);
+      const prompt = await bootstrap(testFS(ws), logger);
 
       expect(prompt).toInclude("<workspace>");
-      expect(prompt).toInclude(`Root: ${ws}`);
       expect(prompt).toInclude("<soul>");
       expect(prompt).toInclude("be helpful");
       expect(prompt).toInclude("<user>");
@@ -137,7 +136,7 @@ describe("bootstrap", () => {
       // Only SOUL.md exists
       await writeFile(path.join(ws, "SOUL.md"), "only soul");
 
-      const prompt = await bootstrap(testFS(ws), logger, ws);
+      const prompt = await bootstrap(testFS(ws), logger);
 
       expect(prompt).toInclude("only soul");
       // Other sections should still exist with empty shells
@@ -154,7 +153,7 @@ describe("bootstrap", () => {
     // All files missing → BOOTSTRAP_TEMPLATE fallback
     const ws = `/tmp/test-bootstrap-nonexistent-${Date.now()}`;
 
-    const prompt = await bootstrap(testFS(ws), logger, ws);
+    const prompt = await bootstrap(testFS(ws), logger);
 
     // Should return genesis template, not old "generic agent" fallback
     expect(prompt).toInclude("You just woke up");

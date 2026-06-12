@@ -77,7 +77,7 @@ export const BOOTSTRAP_TEMPLATE = [
   "alongside, and deciding who to be for them. Take it seriously, and enjoy it.",
 ].join("\n");
 
-export async function bootstrap(fs: WorkspaceFS, logger: Logger, workspaceLabel?: string): Promise<string> {
+export async function bootstrap(fs: WorkspaceFS, logger: Logger): Promise<string> {
   const read = async (p: string): Promise<string> => (await fs.read(p)) ?? "";
 
   // M11 genesis: BOOTSTRAP.md exists → birth mode
@@ -105,6 +105,6 @@ export async function bootstrap(fs: WorkspaceFS, logger: Logger, workspaceLabel?
   }
 
   return composeSystemPrompt({
-    workspace: workspaceLabel ?? "", today, yesterday, soul, user, tools, agents, todayLog, yestLog,
+    workspace: "", today, yesterday, soul, user, tools, agents, todayLog, yestLog,
   });
 }
