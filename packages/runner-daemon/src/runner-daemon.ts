@@ -2,6 +2,8 @@ import path from "node:path";
 import type { Agent, AgentEvent, Checkpointer } from "@my-agent-team/framework";
 import { sqliteCheckpointer } from "@my-agent-team/framework";
 import type { HostToRunner, RunnerTransport } from "@my-agent-team/runner-protocol";
+import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
+import { makeWorkspaceHandle } from "@my-agent-team/workspace-fs";
 
 // ─── Types ───
 
@@ -36,6 +38,7 @@ export class RunnerDaemon {
   #createAgent: NonNullable<RunnerDaemonOptions["createAgent"]>;
   #runs = new Map<string, RunHandle>();
   #finalized = new Map<string, RunHandle>();
+  #ws = new Map<string, WorkspaceHandle>();
   #checkpointers = new Map<string, Checkpointer>();
   #heartbeatInterval: ReturnType<typeof setInterval> | undefined;
 
@@ -44,12 +47,30 @@ export class RunnerDaemon {
     this.#privateRoot = opts.privateRoot;
     this.#sharedRoot = opts.sharedRoot;
     this.#stateRoot = opts.stateRoot;
-    this.#createAgent = opts.createAgent ?? (async () => {
-      throw new Error("Production agent factory not wired — inject createAgent in tests");
+    this.#createAgent = opts.createAgent ?? (async (o) => {
+      const { createGenericAgent } = await import("@my-agent-team/harness");
+      return createGenericAgent({
+        workspace: o.workspace as WorkspaceHandle,
+        model: o.model as Parameters<typeof createGenericAgent>[0]["model"],
+        threadId: o.threadId,
+        checkpointer: o.checkpointer,
+      });
     });
   }
 
-  // ─── Checkpointer ───
+  // ─── Workspace + Checkpointer ───
+
+  #handleFor(agentId: string): WorkspaceHandle {
+    const existing = this.#ws.get(agentId);
+    if (existing) return existing;
+    const h = makeWorkspaceHandle({
+      sharedRoot: path.join(this.#sharedRoot, agentId),
+      privateRoot: path.join(this.#privateRoot, agentId),
+      sharedPosix: true,
+    });
+    this.#ws.set(agentId, h);
+    return h;
+  }
 
   #checkpointerFor(agentId: string): Checkpointer {
     const existing = this.#checkpointers.get(agentId);
@@ -97,9 +118,10 @@ export class RunnerDaemon {
     const threadId = spec.threadId ?? msg.runId;
     const input = spec.input ?? "";
 
+    const ws = this.#handleFor(agentId);
     const agent = await this.#createAgent({
-      workspace: { agentId, privateRoot: this.#privateRoot, sharedRoot: this.#sharedRoot },
-      model: {}, // wired after harness migration
+      workspace: ws,
+      model: {} as never, // wired after adapter-anthropic import
       threadId,
       checkpointer: this.#checkpointerFor(agentId),
     });
@@ -170,7 +192,7 @@ export class RunnerDaemon {
       agent: reflectAgent, abort: new AbortController(),
       spec: { ...parent.spec, mode: "reflect" }, reflect: false,
     });
-    // FIXME: inject reflectionGuidance() after harness Wiring
-    await this.#drive(reflectRunId, "Reflect on the conversation you just had.", 32);
+    const { reflectionGuidance } = await import("@my-agent-team/harness");
+    await this.#drive(reflectRunId, reflectionGuidance(), 32);
   }
 }
