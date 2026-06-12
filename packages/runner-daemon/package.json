@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
+    "@my-agent-team/adapter-anthropic": "workspace:*",
     "@my-agent-team/agent-spec": "workspace:*",
     "@my-agent-team/core": "workspace:*",
     "@my-agent-team/framework": "workspace:*",
