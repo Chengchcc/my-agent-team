@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { sqliteCheckpointer } from "@my-agent-team/checkpointer-sqlite";
+import { sqliteCheckpointer } from "@my-agent-team/framework";
 import type { Tool } from "@my-agent-team/core";
 import {
   type Agent,

@@ -14,7 +14,6 @@
   "dependencies": {
     "@my-agent-team/adapter-anthropic": "workspace:*",
     "@my-agent-team/agent-spec": "workspace:*",
-    "@my-agent-team/checkpointer-sqlite": "workspace:*",
     "@my-agent-team/conversation": "workspace:*",
     "@my-agent-team/core": "workspace:*",
     "@my-agent-team/event-log": "workspace:*",
