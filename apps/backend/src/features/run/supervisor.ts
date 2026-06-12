@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { type ChildProcess, spawn } from "node:child_process";
 import type { EventLog, EventSource } from "@my-agent-team/event-log";
+import type { RunnerTransport } from "@my-agent-team/runner-protocol";
 import type { BackendConfig } from "../../config.js";
 
 // Migrations for events.db — run/attempt tables (same file that stores event_log).
@@ -62,15 +63,18 @@ function runEventsDbMigrations(db: Database): void {
 export interface RunSupervisorOptions {
   eventLog: EventLog;
   config: BackendConfig;
-  runnerBin: string;
+  /** @deprecated Remove when daemon transport becomes the only path (M14.7 final). */
+  runnerBin?: string;
+  /** M14.7: Daemon transport for resident runner. When set, start() is preferred over fork(). */
+  transport?: RunnerTransport;
 }
 
 interface ActiveRun {
   runId: string;
   attemptId: string;
   threadId: string;
-  pid: number;
-  child: ChildProcess | null; // null after restart (no live handle)
+  pid: number | null; // null for daemon runs
+  child: ChildProcess | null; // null after restart or for daemon runs
   abortController: AbortController;
 }
 
@@ -265,12 +269,21 @@ export class RunSupervisor {
     this.#db.close();
   }
 
-  /** Fork subprocess and return attemptId. Non-blocking. */
+  /** Fork subprocess and return attemptId. Non-blocking.
+   *  @deprecated Use start() with daemon transport (M14.7). */
   fork(
     runId: string,
     threadId: string,
     specJson: string,
   ): { runId: string; attemptId: string; pid: number } {
+    // M14.7: Delegate to daemon transport when available
+    if (this.#opts.transport) {
+      const spec = JSON.parse(specJson) as Record<string, unknown>;
+      const { attemptId } = this.start(runId, threadId, spec);
+      return { runId, attemptId, pid: 0 };
+    }
+    if (!this.#opts.runnerBin) throw new Error("runnerBin required when transport not configured");
+
     const attemptId = crypto.randomUUID();
     const now = Date.now();
 
@@ -367,10 +380,118 @@ export class RunSupervisor {
     return { runId, attemptId, pid };
   }
 
+  // ─── M14.7: Daemon transport path ───────────────────────────────
+
+  /**
+   * Start a run via the resident daemon transport instead of forking a child process.
+   * Only valid when transport is configured in RunSupervisorOptions.
+   */
+  start(
+    runId: string,
+    threadId: string,
+    spec: Record<string, unknown>,
+    opts?: { reflect?: boolean },
+  ): { runId: string; attemptId: string } {
+    const transport = this.#opts.transport;
+    if (!transport) throw new Error("Daemon transport not configured");
+
+    const attemptId = crypto.randomUUID();
+    const now = Date.now();
+
+    this.#db.run(
+      "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
+      [runId, threadId, now],
+    );
+    this.#db.run(
+      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, NULL, ?, ?)",
+      [attemptId, runId, now, now],
+    );
+
+    const ac = new AbortController();
+    this.#active.set(runId, { runId, attemptId, threadId, pid: 0, child: null, abortController: ac });
+
+    transport.send({ type: "start", runId, spec: spec as Record<string, unknown>, reflect: opts?.reflect });
+
+    return { runId, attemptId };
+  }
+
+  /** Wire daemon transport to handle incoming messages. Call once after construction. */
+  onDaemonConnected(daemonFor: (agentId: string) => { send(msg: Record<string, unknown>): void }): void {
+    const transport = this.#opts.transport;
+    if (!transport) return;
+
+    transport.onMessage((msg: Record<string, unknown>) => {
+      const runId = msg.runId as string;
+      switch (msg.type) {
+        case "run_started": {
+          const threadId = `reflect:${msg.threadId}`;
+          this.#db.run(
+            "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
+            [runId, threadId, Date.now()],
+          );
+          break;
+        }
+        case "event": {
+          void this.#opts.eventLog
+            .append(this.#threadIdFor(runId), runId, msg.event as Parameters<EventLog["append"]>[2])
+            .catch(() => {});
+          break;
+        }
+        case "delta": {
+          const ev = msg.event as { type?: string; payload?: unknown };
+          if (ev.type && ev.payload) this.#pushEphemeral(runId, ev.type, ev.payload);
+          break;
+        }
+        case "heartbeat": {
+          this.#db.run("UPDATE attempt SET heartbeat_at = ? WHERE run_id = ? AND ended_at IS NULL", [
+            Date.now(),
+            runId,
+          ]);
+          break;
+        }
+        case "run_done": {
+          const status = msg.status as string;
+          const exitNow = Date.now();
+          this.#db.run("UPDATE attempt SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL", [
+            exitNow,
+            runId,
+          ]);
+          this.#db.run("UPDATE run SET status = ?, ended_at = ? WHERE run_id = ?", [
+            status,
+            exitNow,
+            runId,
+          ]);
+          this.#closeDeltaSubs(runId);
+          this.#active.delete(runId);
+          const threadId = this.#threadIdFor(runId);
+          for (const fn of this.#onRunComplete) fn(threadId, runId);
+          // Send run_finalized ACK so daemon can fire reflection
+          transport.send({ type: "run_finalized", runId });
+          break;
+        }
+        default:
+          break;
+      }
+    });
+  }
+
+  #threadIdFor(runId: string): string {
+    const run = this.#active.get(runId);
+    return run?.threadId ?? runId;
+  }
+
   /** Send SIGTERM to subprocess; cancelGraceMs fallback to SIGKILL. */
   cancel(runId: string): boolean {
     const run = this.#active.get(runId);
     if (!run) return false;
+
+    // M14.7: If transport is available, send abort message
+    if (this.#opts.transport && !run.child) {
+      this.#opts.transport.send({ type: "abort", runId });
+      return true;
+    }
+
+    // Legacy: kill child process
 
     // Fix D: Signal abort so exit handler classifies correctly
     run.abortController.abort("cancelled");
@@ -383,7 +504,7 @@ export class RunSupervisor {
           run.child.kill("SIGKILL");
         }
       }, this.#opts.config.cancelGraceMs);
-    } else {
+    } else if (run.pid !== null) {
       // post-restart: no ChildProcess handle, use process.kill with stored pid
       try {
         process.kill(run.pid, "SIGTERM");

@@ -19,6 +19,7 @@
     "@my-agent-team/event-log": "workspace:*",
     "@my-agent-team/framework": "workspace:*",
     "@my-agent-team/harness": "workspace:*",
+    "@my-agent-team/runner-protocol": "workspace:*",
     "@my-agent-team/runner-stdio": "workspace:*",
     "zod": "^3.23.0"
   },
