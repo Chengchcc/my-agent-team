@@ -502,6 +502,13 @@ export class RunSupervisor {
     return true;
   }
 
+  /** M14.7: Cancel all active runs. Used during shutdown. */
+  cancelAll(): void {
+    for (const runId of this.#active.keys()) {
+      this.cancel(runId);
+    }
+  }
+
   /** On restart: discover live runs by heartbeat, re-register them for cancel support.
    *  Stale runs are handled by the shared #reapStaleRuns() method. */
   async rediscover(_eventSource: EventSource): Promise<void> {

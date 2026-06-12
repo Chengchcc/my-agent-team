@@ -1,6 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
 
@@ -74,7 +74,16 @@ export class DevRunnerRegistry implements RunnerRegistry {
     const pidFile = join(dir, "runner.pid");
 
     await mkdir(dir, { recursive: true });
+
+    // Clean up stale runner from previous run
+    try {
+      const oldPid = parseInt(await readFile(pidFile, "utf-8"), 10);
+      if (oldPid && Number.isFinite(oldPid)) {
+        try { process.kill(oldPid, 0); process.kill(oldPid, "SIGTERM"); } catch { /* already dead */ }
+      }
+    } catch { /* no stale pidfile */ }
     await rm(socket, { force: true }).catch(() => {});
+    await rm(pidFile, { force: true }).catch(() => {});
 
     const child = spawn(
       "bun",

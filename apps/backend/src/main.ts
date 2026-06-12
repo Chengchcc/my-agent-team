@@ -367,11 +367,9 @@ const shutdown = async (signal: string) => {
   console.log(`[backend] ${signal} received, shutting down...`);
   server.stop();
 
-  // Fix G: terminate all active subprocesses
-  for (const runId of threads) {
-    supervisor.cancel(runId);
-  }
-  // Give subprocesses time to exit gracefully
+  // M14.7: Cancel all active runs (daemon transport will handle abort)
+  supervisor.cancelAll();
+  // Give daemons time to process abort messages
   await new Promise((r) => setTimeout(r, config.cancelGraceMs));
 
   await supervisor.dispose();
