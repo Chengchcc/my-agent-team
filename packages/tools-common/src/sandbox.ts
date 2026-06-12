@@ -9,35 +9,61 @@ export class SandboxError extends Error {
   }
 }
 
-/**
- * Resolve a user-supplied path against a workspace root.
- * Throws SandboxError if the resolved path escapes the root.
- */
-export function resolveInWorkspace(root: string, userPath: string): string {
-  const resolved = path.resolve(root, userPath);
+// ─── M14.7: Multi-root workspace descriptor ───
 
-  let real: string;
+export interface WorkspaceRoots {
+  privateRoot: string;
+  posixRoots: string[];
+}
+
+function toRoots(ws: string | WorkspaceRoots): WorkspaceRoots {
+  return typeof ws === "string" ? { privateRoot: ws, posixRoots: [ws] } : ws;
+}
+
+/**
+ * Resolve a user-supplied path against allowed POSIX roots.
+ * Throws SandboxError if the resolved path escapes all roots.
+ */
+export function resolveInWorkspace(workspace: string | WorkspaceRoots, userPath: string): string {
+  const roots = toRoots(workspace);
+  const base = path.isAbsolute(userPath) ? userPath : path.join(roots.privateRoot, userPath);
+  const resolved = path.resolve("/", base);
+
+  // Try each root — first match wins
+  for (const root of roots.posixRoots) {
+    if (isWithinRoot(resolved, root)) return resolved;
+    // Also try the unresolved path
+    if (isWithinRoot(base, root)) return base;
+  }
+
+  throw new SandboxError(`Path escapes all workspace roots: ${userPath}`);
+}
+
+function isWithinRoot(target: string, root: string): boolean {
+  let targetReal: string;
   try {
-    real = realpathSync(resolved);
+    targetReal = realpathSync(target);
   } catch {
-    const parent = path.dirname(resolved);
+    // Target doesn't exist yet — check parent
+    const parent = path.dirname(target);
     try {
-      real = realpathSync(parent);
+      targetReal = realpathSync(parent);
     } catch {
-      throw new SandboxError(`Cannot resolve path: ${userPath}`);
+      return false;
     }
   }
 
-  const rootReal = realpathSync(root);
-  const sep = path.sep;
-  const normalizedReal = real.endsWith(sep) ? real : real + sep;
-  const normalizedRoot = rootReal.endsWith(sep) ? rootReal : rootReal + sep;
-
-  if (!normalizedReal.startsWith(normalizedRoot)) {
-    throw new SandboxError(`Path escapes workspace: ${userPath} → ${real}`);
+  let rootReal: string;
+  try {
+    rootReal = realpathSync(root);
+  } catch {
+    return false;
   }
 
-  return resolved;
+  const sep = path.sep;
+  const nTarget = targetReal.endsWith(sep) ? targetReal : targetReal + sep;
+  const nRoot = rootReal.endsWith(sep) ? rootReal : rootReal + sep;
+  return nTarget.startsWith(nRoot);
 }
 
 /** Path-like keys to validate in tool input */
@@ -45,34 +71,30 @@ const PATH_KEYS = ["path", "filePath", "file_path", "cwd"];
 
 /**
  * Wrap a tool with workspace sandboxing.
- * - Validates all path-like fields in execute input are confined to workspace.
- * - Injects default cwd=workspace for tools that accept a cwd but don't
- *   receive one (bash, etc.) — prevents writes landing in backend CWD.
+ * Accepts a single workspace root (legacy) or a multi-root WorkspaceRoots (M14.7).
  */
-export function withWorkspace(tool: Tool, workspace: string): Tool {
+export function withWorkspace(tool: Tool, workspace: string | WorkspaceRoots): Tool {
   const originalExecute = tool.execute;
+  const roots = typeof workspace === "string" ? undefined : workspace;
+  const defaultCwd = typeof workspace === "string" ? workspace : workspace.privateRoot;
 
-  // Does this tool declare a `cwd` input? (e.g. bashTool)
   const props = (tool.inputSchema as { properties?: Record<string, unknown> })?.properties;
   const acceptsCwd = !!props && Object.hasOwn(props, "cwd");
 
   return {
     ...tool,
     execute: async (input, signal) => {
-      // Work on a copy so we never mutate the caller's object
       const obj = { ...(input as Record<string, unknown>) };
-      // Inject workspace as default cwd when the tool supports it but didn't get
-      // one. Do this BEFORE path validation so the caller's explicit cwd is
-      // validated, but our injected default (the workspace itself) is not
-      // re-validated against itself.
       const hasExplicitCwd = typeof obj.cwd === "string" && (obj.cwd as string).length > 0;
       if (acceptsCwd && !hasExplicitCwd) {
-        obj.cwd = workspace;
+        obj.cwd = defaultCwd;
       }
       for (const key of PATH_KEYS) {
         const val = obj[key];
         if (typeof val === "string" && val.length > 0) {
-          obj[key] = resolveInWorkspace(workspace, val);
+          obj[key] = roots
+            ? resolveInWorkspace(roots, val)
+            : resolveInWorkspace(workspace, val);
         }
       }
       return originalExecute(obj, signal);

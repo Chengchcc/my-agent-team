@@ -1,6 +1,7 @@
 import { unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Logger } from "@my-agent-team/framework";
+import type { WorkspaceFS } from "@my-agent-team/workspace-fs";
 import { todayAndYesterday } from "./daily-log.js";
 import { composeSystemPrompt } from "./system-prompt.js";
 import { readOrEmpty } from "./workspace-reader.js";
@@ -79,60 +80,55 @@ export const BOOTSTRAP_TEMPLATE = [
   "alongside, and deciding who to be for them. Take it seriously, and enjoy it.",
 ].join("\n");
 
-export async function bootstrap(workspace: string, logger: Logger): Promise<string> {
+export async function bootstrap(workspace: string | WorkspaceFS, logger: Logger): Promise<string> {
+  const wsStr = typeof workspace === "string" ? workspace : undefined;
+  const fs = typeof workspace === "object" ? workspace : undefined;
+
+  const read = async (logicalPath: string, physicalPath: string): Promise<string> => {
+    if (fs) {
+      const content = await fs.read(logicalPath);
+      return content ?? "";
+    }
+    return readOrEmpty(physicalPath, logger);
+  };
+
   // M11 genesis: BOOTSTRAP.md exists → birth mode.
-  // But if SOUL.md also has content, BOOTSTRAP.md is stale (leftover from interrupted
-  // genesis) — clean it up and proceed with normal compose.
-  const bootPath = path.join(workspace, "BOOTSTRAP.md");
-  const boot = await readOrEmpty(bootPath, logger);
+  const bootPath = wsStr ? path.join(wsStr, "BOOTSTRAP.md") : "";
+  const boot = await read("/BOOTSTRAP.md", bootPath);
   if (boot.trim()) {
-    const soul = await readOrEmpty(path.join(workspace, "SOUL.md"), logger);
+    const soul = await read("/SOUL.md", wsStr ? path.join(wsStr, "SOUL.md") : "");
     if (soul.trim()) {
       // SOUL.md already exists — BOOTSTRAP.md is stale. Delete it and fall through.
-      try {
-        await unlink(bootPath);
-      } catch {
-        /* best-effort cleanup */
+      if (wsStr) {
+        try { await unlink(bootPath); } catch { /* best-effort */ }
+      } else if (fs) {
+        try { await fs.remove("/BOOTSTRAP.md"); } catch { /* best-effort */ }
       }
     } else {
-      // Genuine birth mode: no identity yet, use BOOTSTRAP.md as systemPrompt
       return boot;
     }
   }
 
   const { today, yesterday } = todayAndYesterday();
 
-  // Parallel read 6 files (Q14 = A)
   const [soul, user, tools, agents, todayLog, yestLog] = await Promise.all([
-    readOrEmpty(path.join(workspace, "SOUL.md"), logger),
-    readOrEmpty(path.join(workspace, "USER.md"), logger),
-    readOrEmpty(path.join(workspace, "TOOLS.md"), logger),
-    readOrEmpty(path.join(workspace, "AGENTS.md"), logger),
-    readOrEmpty(path.join(workspace, "memory", `${today}.md`), logger),
-    readOrEmpty(path.join(workspace, "memory", `${yesterday}.md`), logger),
+    read("/SOUL.md", wsStr ? path.join(wsStr, "SOUL.md") : ""),
+    read("/USER.md", wsStr ? path.join(wsStr, "USER.md") : ""),
+    read("/TOOLS.md", wsStr ? path.join(wsStr, "TOOLS.md") : ""),
+    read("/AGENTS.md", wsStr ? path.join(wsStr, "AGENTS.md") : ""),
+    read("/memory/today.md", wsStr ? path.join(wsStr, "memory", `${today}.md`) : ""),
+    read("/memory/yesterday.md", wsStr ? path.join(wsStr, "memory", `${yesterday}.md`) : ""),
   ]);
 
-  // All empty (or whitespace-only) → genesis template (M11: replaces old fallbackSystemPrompt)
   if (
-    !soul.trim() &&
-    !user.trim() &&
-    !tools.trim() &&
-    !agents.trim() &&
-    !todayLog.trim() &&
-    !yestLog.trim()
+    !soul.trim() && !user.trim() && !tools.trim() &&
+    !agents.trim() && !todayLog.trim() && !yestLog.trim()
   ) {
     return BOOTSTRAP_TEMPLATE;
   }
 
   return composeSystemPrompt({
-    workspace,
-    today,
-    yesterday,
-    soul,
-    user,
-    tools,
-    agents,
-    todayLog,
-    yestLog,
+    workspace: wsStr ?? "",
+    today, yesterday, soul, user, tools, agents, todayLog, yestLog,
   });
 }

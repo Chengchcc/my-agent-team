@@ -5,7 +5,7 @@ export { grepTool } from "./grep.js";
 export { createMemoryRecallTool } from "./memory-recall.js";
 export { createMemorySaveTool } from "./memory-save.js";
 export { readTool } from "./read.js";
-export { resolveInWorkspace, SandboxError, withWorkspace } from "./sandbox.js";
+export { resolveInWorkspace, SandboxError, withWorkspace, type WorkspaceRoots } from "./sandbox.js";
 export { webFetchTool } from "./web-fetch.js";
 export { createWebSearchTool } from "./web-search.js";
 export { writeTool } from "./write.js";

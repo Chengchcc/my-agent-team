@@ -25,7 +25,14 @@ import {
   writeTool,
 } from "@my-agent-team/tools-common";
 import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
+import type { WorkspaceRoots } from "@my-agent-team/tools-common";
 import { bootstrap } from "./bootstrap.js";
+
+/** Resolve workspace to sandbox roots. */
+function toWorkspaceRoots(ws: string | WorkspaceHandle): string | WorkspaceRoots {
+  if (typeof ws === "string") return ws;
+  return { privateRoot: ws.privateRoot, posixRoots: ws.posixRoots };
+}
 
 /** Resolve workspace to a concrete private-root string for backwards compat. */
 function resolvePrivateRoot(ws: string | WorkspaceHandle): string {
@@ -108,12 +115,16 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
   const root = resolvePrivateRoot(workspace);
 
   // 1. Bootstrap: read workspace files → compose systemPrompt
-  const systemPrompt = await bootstrap(root, lg);
+  // M14.7: Pass WorkspaceFS when using WorkspaceHandle, else legacy path string
+  const bootWs = typeof workspace === "string" ? root : workspace.fs;
+  const systemPrompt = await bootstrap(bootWs, lg);
 
   // 2. Default 6 built-in file tools (domain-neutral, needed by all workspace agents)
   // H7: wrap tools with workspace sandbox
+  // M14.7: Pass multi-root descriptor when WorkspaceHandle is available
+  const sandbox = toWorkspaceRoots(workspace);
   const defaultTools: Tool[] = [readTool, writeTool, editTool, bashTool, grepTool, globTool].map(
-    (t) => withWorkspace(t, root),
+    (t) => withWorkspace(t, sandbox),
   );
 
   // 3. Default 2 plugins with conventional paths
