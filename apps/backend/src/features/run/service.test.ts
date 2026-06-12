@@ -42,7 +42,7 @@ describe("RunService", () => {
       idGen: () => "run-1",
     });
 
-    const result = await svc.start("th-1", "hello", {});
+    const result = await svc.start("th-1", { agentId: "agent-1" });
     expect(result.runId).toBe("run-1");
     expect(result.attemptId).toBe("att-1");
   });
@@ -57,7 +57,7 @@ describe("RunService", () => {
       idGen: () => "run-1",
     });
 
-    expect(() => svc.start("th-1", "hi", {})).toThrow(ThreadBusyError);
+    expect(() => svc.start("th-1", {})).toThrow(ThreadBusyError);
   });
 
   test("start throws TooManyRunsError when at capacity", () => {
@@ -69,7 +69,7 @@ describe("RunService", () => {
       idGen: () => "run-1",
     });
 
-    expect(() => svc.start("th-1", "hi", {})).toThrow(TooManyRunsError);
+    expect(() => svc.start("th-1", {})).toThrow(TooManyRunsError);
   });
 
   test("cancel delegates to supervisor", () => {

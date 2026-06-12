@@ -34,7 +34,6 @@ export interface ConversationServiceDeps {
   forkRun: (
     runId: string,
     threadId: string,
-    specJson: string,
     ctx: { conversationId: string; agentMemberId: string; agentId: string },
   ) => Promise<{ runId: string; attemptId: string }>;
 }
@@ -149,7 +148,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
         try {
           const runId = crypto.randomUUID();
           const threadId = deriveThreadId(conversationId, target.memberId);
-          const { runId: rId } = await forkRun(runId, threadId, "", {
+          const { runId: rId } = await forkRun(runId, threadId, {
             conversationId,
             agentMemberId: target.memberId,
             agentId: target.agentId,

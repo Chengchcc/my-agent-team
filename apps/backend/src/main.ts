@@ -217,7 +217,7 @@ const convSvc = createConversationService({
 
   // ThreadId = conversationId:memberId (derived, not persisted).
   // The threads table is legacy — runtime only needs the derived key.
-  forkRun: async (runId, threadId, _specJson, ctx) => {
+  forkRun: async (runId, threadId, ctx) => {
     const spec = await buildAgentSpecV2(threadId, "", {
       runId,
       conversationId: ctx.conversationId,

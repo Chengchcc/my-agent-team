@@ -24,7 +24,7 @@ const svc = createConversationService({
   checkpointWrite,
   activeConversations,
   maxConsecutiveAgentHops: 3,
-  forkRun: async (runId, threadId, _specJson, _ctx) => {
+  forkRun: async (runId, threadId, _ctx) => {
     forkLog.push({ runId, threadId });
     activeConversations.add(""); // placeholder — caller owns lock management
     return { runId, attemptId: `att-${runId}` };

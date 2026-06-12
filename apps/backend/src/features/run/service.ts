@@ -95,7 +95,7 @@ export function createRunService(deps: RunServiceDeps) {
 
   return {
     /** Fork subprocess + write ledger. Returns 202 payload immediately. */
-    async start(threadId: string, _input: string, spec: Record<string, unknown>) {
+    async start(threadId: string, spec: Record<string, unknown>) {
       if (threads.has(threadId)) throw new ThreadBusyError(threadId);
       if (supervisor.activeCount >= maxConcurrentRuns)
         throw new TooManyRunsError(maxConcurrentRuns);

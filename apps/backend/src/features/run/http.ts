@@ -30,7 +30,7 @@ export function runRoutes(
 
       try {
         const spec = await buildSpec(threadId, parsed.data.input);
-        const { runId, attemptId } = await svc.start(threadId, parsed.data.input, spec);
+        const { runId, attemptId } = await svc.start(threadId, spec);
         return json({ runId, attemptId }, 202);
       } catch (err) {
         if (err instanceof ThreadBusyError) return json({ error: (err as Error).message }, 409);
