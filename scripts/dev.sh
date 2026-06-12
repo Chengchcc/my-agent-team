@@ -54,20 +54,26 @@ for port in 3000 3001; do
 done
 sleep 0.5
 
-# ── Cleanup handler: kill child PIDs and everything listening on dev ports ──
+# ── Cleanup handler ──
 cleanup() {
   echo ""
   echo "==> Shutting down..."
-  # Kill the direct children first
+
   [ -n "${BACKEND_PID:-}" ] && kill -TERM "$BACKEND_PID" 2>/dev/null || true
   [ -n "${WEB_PID:-}" ] && kill -TERM "$WEB_PID" 2>/dev/null || true
-  [ -n "${DAEMON_PID:-}" ] && kill -TERM "$DAEMON_PID" 2>/dev/null || true
-  wait 2>/dev/null || true
-  rm -f "${RUNNER_SOCK:-/tmp/nonexistent-runner.sock}"
-  # Belt-and-suspenders: kill anything left on our ports
+
+  # Give backend time to run DevRunnerRegistry.dispose()
+  wait "$BACKEND_PID" 2>/dev/null || true
+  wait "$WEB_PID" 2>/dev/null || true
+
+  # Only clean port residues — never pkill runner-daemon
   for port in 3000 3001; do
-    ss -tlnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K\d+' | sort -u | xargs kill -9 2>/dev/null || true
+    ss -tlnp "sport = :$port" 2>/dev/null \
+      | grep -oP 'pid=\K\d+' \
+      | sort -u \
+      | xargs kill -9 2>/dev/null || true
   done
+
   echo "   Done."
   exit 0
 }
@@ -78,28 +84,8 @@ echo "    Login at http://localhost:3001/login"
 echo "    Default password: admin"
 echo ""
 
-# ── M14.7: Optional resident daemon (RUNNER_DAEMON=1) ──
-BACKEND_DATA_DIR="${BACKEND_DATA_DIR:-$ROOT/apps/backend/.backend-data}"
-RUNNER_SOCK="${BACKEND_DATA_DIR}/runner.sock"
-export WS_PRIVATE_ROOT="${BACKEND_DATA_DIR}/private"
-export WS_SHARED_ROOT="${BACKEND_DATA_DIR}/shared"
-export RUNNER_STATE_ROOT="${BACKEND_DATA_DIR}/runner-state"
-export RUNNER_SOCK BAKEND_DATA_DIR
-
-if [ "${RUNNER_DAEMON:-0}" = "1" ]; then
-  echo "==> Starting runner daemon (sock=$RUNNER_SOCK)..."
-  rm -f "$RUNNER_SOCK"
-  mkdir -p "$WS_PRIVATE_ROOT" "$WS_SHARED_ROOT" "$RUNNER_STATE_ROOT"
-  bun run --cwd packages/runner-daemon src/bin.ts \
-    --socket "$RUNNER_SOCK" \
-    --private-root "$WS_PRIVATE_ROOT" \
-    --shared-root "$WS_SHARED_ROOT" \
-    --state-root "$RUNNER_STATE_ROOT" &
-  DAEMON_PID=$!
-  echo "   daemon PID=$DAEMON_PID"
-fi
-
-# Start as direct children of this script (no bun run wrapper)
+# Start as direct children of this script (no bun run wrapper).
+# Daemon lifecycle is managed by DevRunnerRegistry inside backend.
 cd "$ROOT"
 bun run --cwd apps/backend dev &
 BACKEND_PID=$!
