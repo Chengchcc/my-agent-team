@@ -233,7 +233,7 @@ const convSvc = createConversationService({
       input: "", // input is in thread.messages via broadcast projection
       runId,
     };
-    const { attemptId } = supervisor.start(runId, threadId, spec);
+    const { attemptId } = supervisor.startMainRun(runId, threadId, spec);
     return { runId, attemptId, pid: 0 };
   },
 });

@@ -102,7 +102,7 @@ export function createRunService(deps: RunServiceDeps) {
       threads.add(threadId);
 
       try {
-        const { attemptId } = supervisor.start(runId, threadId, spec);
+        const { attemptId } = supervisor.startMainRun(runId, threadId, spec);
         return { runId, attemptId };
       } catch (err) {
         threads.delete(threadId);
@@ -119,7 +119,7 @@ export function createRunService(deps: RunServiceDeps) {
       if (supervisor.activeCount >= maxConcurrentRuns)
         throw new TooManyRunsError(maxConcurrentRuns);
 
-      const { attemptId } = supervisor.start(runId, threadId, spec);
+      const { attemptId } = supervisor.resumeRun(runId, threadId, spec);
       return { runId, attemptId };
     },
 

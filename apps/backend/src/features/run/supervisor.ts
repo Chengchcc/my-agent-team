@@ -41,6 +41,14 @@ const EVENTS_DB_MIGRATIONS = [
     id: 3003,
     up: `CREATE INDEX IF NOT EXISTS idx_run_thread ON run(thread_id, started_at DESC)`,
   },
+  {
+    name: "events_v5_run_kind_parent",
+    id: 3004,
+    up: `
+      ALTER TABLE run ADD COLUMN kind TEXT NOT NULL DEFAULT 'main';
+      ALTER TABLE run ADD COLUMN parent_run_id TEXT;
+    `,
+  },
 ];
 
 function runEventsDbMigrations(db: Database): void {
@@ -285,7 +293,7 @@ export class RunSupervisor {
     // M14.7: Delegate to daemon transport when available
     if (this.#opts.transport) {
       const spec = JSON.parse(specJson) as Record<string, unknown>;
-      const { attemptId } = this.start(runId, threadId, spec);
+      const { attemptId } = this.startMainRun(runId, threadId, spec);
       return { runId, attemptId, pid: 0 };
     }
     throw new Error("fork() is deprecated — use start() with daemon transport (M14.7)");
@@ -294,25 +302,69 @@ export class RunSupervisor {
   // ─── M14.7: Daemon transport path ───────────────────────────────
 
   /**
-   * Start a run via the resident daemon transport instead of forking a child process.
-   * Only valid when transport is configured in RunSupervisorOptions.
+   * Start a NEW main run. Creates run + attempt rows.
    */
-  start(
+  startMainRun(
     runId: string,
     threadId: string,
     spec: Record<string, unknown>,
-    opts?: { reflect?: boolean },
+  ): { runId: string; attemptId: string } {
+    return this.#beginAndSend(runId, threadId, spec, "main");
+  }
+
+  /**
+   * Resume an existing run. Creates new attempt only — run row already exists.
+   */
+  resumeRun(
+    runId: string,
+    threadId: string,
+    spec: Record<string, unknown>,
+  ): { runId: string; attemptId: string } {
+    // Update run status back to running
+    const now = Date.now();
+    this.#db.run("UPDATE run SET status = 'running' WHERE run_id = ?", [runId]);
+    return this.#beginAttempt(runId, threadId, spec, "main");
+  }
+
+  /**
+   * Start a reflect run. Creates reflect run + attempt rows with parent_run_id.
+   */
+  beginReflectRun(
+    runId: string,
+    threadId: string,
+    parentRunId: string,
+    spec: Record<string, unknown>,
+  ): { runId: string; attemptId: string } {
+    const now = Date.now();
+    this.#db.run(
+      "INSERT INTO run (run_id, thread_id, status, started_at, kind, parent_run_id) VALUES (?, ?, 'running', ?, 'reflect', ?)",
+      [runId, threadId, now, parentRunId],
+    );
+    return this.#beginAttempt(runId, threadId, spec, "reflect");
+  }
+
+  /** Internal: create run + attempt, add to active, send start. */
+  #beginAndSend(
+    runId: string, threadId: string, spec: Record<string, unknown>, kind: "main" | "reflect",
+  ): { runId: string; attemptId: string } {
+    const now = Date.now();
+    this.#db.run(
+      "INSERT INTO run (run_id, thread_id, status, started_at, kind) VALUES (?, ?, 'running', ?, ?)",
+      [runId, threadId, now, kind],
+    );
+    const { attemptId } = this.#beginAttempt(runId, threadId, spec, kind);
+    return { runId, attemptId };
+  }
+
+  /** Internal: create attempt + active entry, send start to daemon. */
+  #beginAttempt(
+    runId: string, threadId: string, spec: Record<string, unknown>, _kind: "main" | "reflect",
   ): { runId: string; attemptId: string } {
     const transport = this.#opts.transport;
     if (!transport) throw new Error("Daemon transport not configured");
 
     const attemptId = crypto.randomUUID();
     const now = Date.now();
-
-    this.#db.run(
-      "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
-      [runId, threadId, now],
-    );
     this.#db.run(
       "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, NULL, ?, ?)",
       [attemptId, runId, now, now],
@@ -320,49 +372,16 @@ export class RunSupervisor {
 
     const ac = new AbortController();
     this.#active.set(runId, {
-      runId,
-      attemptId,
-      threadId,
-      pid: 0,
-      child: null,
-      abortController: ac,
+      runId, attemptId, threadId, pid: 0, child: null, abortController: ac,
     });
 
     transport.send({
       type: "start",
       runId,
       spec: spec as Record<string, unknown>,
-      reflect: opts?.reflect,
     });
 
     return { runId, attemptId };
-  }
-
-  /** Handle incoming daemon transport messages. Auto-wired in constructor. */
-  #beginAttempt(o: {
-    runId: string;
-    threadId: string;
-    kind: "main" | "reflect";
-    parentRunId?: string;
-  }): void {
-    const attemptId = crypto.randomUUID();
-    const now = Date.now();
-    this.#db.run(
-      "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
-      [o.runId, o.threadId, now],
-    );
-    this.#db.run(
-      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, NULL, ?, ?)",
-      [attemptId, o.runId, now, now],
-    );
-    this.#active.set(o.runId, {
-      runId: o.runId,
-      attemptId,
-      threadId: o.threadId,
-      pid: null,
-      child: null,
-      abortController: new AbortController(),
-    });
   }
 
   async #handleDaemonMessage(raw: unknown): Promise<void> {
@@ -379,12 +398,12 @@ export class RunSupervisor {
     if (!transport) transport = this.#opts.transport;
     switch (msg.type) {
       case "run_started": {
-        this.#beginAttempt({
+        this.beginReflectRun(
           runId,
-          threadId: msg.threadId as string,
-          kind: (msg.kind as "reflect") ?? "reflect",
-          parentRunId: msg.parentRunId as string | undefined,
-        });
+          msg.threadId as string,
+          (msg.parentRunId as string) ?? "",
+          msg.spec as Record<string, unknown> ?? {},
+        );
         break;
       }
       case "event": {
