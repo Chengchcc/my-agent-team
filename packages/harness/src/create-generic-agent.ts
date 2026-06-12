@@ -106,7 +106,7 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
   const root = workspace.privateRoot;
 
   // 1. Bootstrap: read workspace files via WorkspaceFS → compose systemPrompt
-  const systemPrompt = await bootstrap(workspace.fs, lg);
+  const systemPrompt = await bootstrap(workspace.fs, lg, workspace.displayRoot);
 
   // 2. Default 6 built-in file tools with multi-root sandbox
   const sandbox = toWorkspaceRoots(workspace);
