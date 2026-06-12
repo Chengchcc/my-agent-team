@@ -1,7 +1,7 @@
-import { existsSync } from "node:fs";
 import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import type { Message } from "@my-agent-team/core";
 import { sqliteEventLog } from "@my-agent-team/event-log";
+import { createSocketClient } from "@my-agent-team/runner-protocol";
 import { loadConfig } from "./config.js";
 import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
 import { AgentBusyError, agentRoutes, createAgentService } from "./features/agent/index.js";
@@ -16,7 +16,8 @@ import {
   sqliteConversationAdapter,
 } from "./features/conversation/index.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
-import { orchestrateReflection } from "./features/run/reflect-orchestrator.js";
+// M14.7: Reflection is now orchestrated by the daemon control loop (run_finalized ACK).
+// Backend only owns run lifecycle — no more orchestrateReflection.
 import { RunSupervisor } from "./features/run/supervisor.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
@@ -35,8 +36,11 @@ const eventLog = sqliteEventLog({ db: `${config.dataDir}/events.db` });
 const supervisor = new RunSupervisor({
   eventLog,
   config,
-  // M14.7: runnerBin removed — daemon transport path uses supervisor.start().
-  // fork() auto-delegates when transport is configured, throws otherwise.
+  // M14.7: Daemon transport path. When RUNNER_SOCK is set, fork() auto-delegates
+  // to start() via transport. Supervisor auto-wires onMessage in constructor.
+  transport: process.env.RUNNER_SOCK
+    ? createSocketClient({ socketPath: process.env.RUNNER_SOCK })
+    : undefined,
 });
 
 // Agent feature
@@ -228,8 +232,6 @@ const checkpointSvc = createCheckpointService({ port: checkpointPort });
 // M10: Conversation feature
 const convPort = sqliteConversationAdapter(db);
 const activeConversations = new Set<string>();
-// M14.3: run metadata for post-run reflection decisions
-const runMeta = new Map<string, { isGenesis: boolean; agentId: string; agentMemberId: string }>();
 
 const convSvc = createConversationService({
   port: convPort,
@@ -258,10 +260,6 @@ const convSvc = createConversationService({
       | undefined;
     if (!agentRow) throw new Error(`Agent not found: ${ctx.agentId}`);
 
-    // M14.3: Record genesis snapshot for post-run reflection gating
-    const isGenesis = existsSync(`${agentRow.workspace_path}/BOOTSTRAP.md`);
-    runMeta.set(runId, { isGenesis, agentId: ctx.agentId, agentMemberId: ctx.agentMemberId });
-
     const spec = AgentSpecV1.parse({
       schemaVersion: "1",
       workspace: agentRow.workspace_path,
@@ -278,7 +276,6 @@ const convSvc = createConversationService({
       maxSteps: agentRow.max_steps ?? undefined,
       input: "", // input is in the thread.messages already (via broadcast projection)
       runId,
-      isGenesis,
       storage: {
         eventLog: { kind: "sqlite" as const, path: `${config.dataDir}/events.db` },
         checkpointer: { kind: "sqlite" as const, path: `${config.dataDir}/backend.db` },
@@ -382,22 +379,8 @@ supervisor.onRunComplete((threadId, runId) => {
         }
       })();
 
-      // M14.3: post-run reflection — fire-and-forget, lock already released, independent run.
-      // P1-a: resume runs don't populate runMeta (they bypass forkRun), so meta is undefined
-      // and orchestrateReflection skips them. This matches the old runner behavior
-      // (spec.mode !== "resume" gating) — the resume leg is the tail of a main turn whose
-      // reflection already ran or wasn't needed. Known trade-off, not a bug.
-      void orchestrateReflection(threadId, runId, cid, {
-        runMeta,
-        genId: ulid,
-        buildSpecJson: (tid, input, opts) => buildSpecJson(tid, input, opts),
-        fork: (rid, tid, json) => supervisor.fork(rid, tid, json),
-        onError: (rid, err) =>
-          console.error(
-            `[reflect] failed for ${rid}:`,
-            err instanceof Error ? err.message : String(err),
-          ),
-      });
+      // M14.7: Reflection is now orchestrated by the daemon control loop.
+      // Backend only sends run_finalized ACK; daemon fires reflection after receiving it.
       break;
     }
   }

@@ -96,6 +96,11 @@ export class RunSupervisor {
     // Fix A + FIX-6: Ensure run/attempt tables exist in events.db via unified migration ledger
     runEventsDbMigrations(this.#db);
 
+    // M14.7: Auto-wire daemon transport if configured
+    if (opts.transport) {
+      opts.transport.onMessage((msg) => this.#handleDaemonMessage(msg));
+    }
+
     // M11: Start running reaper
     this.#startReaper();
   }
@@ -415,64 +420,60 @@ export class RunSupervisor {
     return { runId, attemptId };
   }
 
-  /** Wire daemon transport to handle incoming messages. Call once after construction. */
-  onDaemonConnected(daemonFor: (agentId: string) => { send(msg: Record<string, unknown>): void }): void {
+  /** Handle incoming daemon transport messages. Auto-wired in constructor. */
+  #handleDaemonMessage(raw: unknown): void {
+    const msg = raw as Record<string, unknown>;
     const transport = this.#opts.transport;
-    if (!transport) return;
-
-    transport.onMessage((msg: Record<string, unknown>) => {
-      const runId = msg.runId as string;
-      switch (msg.type) {
-        case "run_started": {
-          const threadId = `reflect:${msg.threadId}`;
-          this.#db.run(
-            "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
-            [runId, threadId, Date.now()],
-          );
-          break;
-        }
-        case "event": {
-          void this.#opts.eventLog
-            .append(this.#threadIdFor(runId), runId, msg.event as Parameters<EventLog["append"]>[2])
-            .catch(() => {});
-          break;
-        }
-        case "delta": {
-          const ev = msg.event as { type?: string; payload?: unknown };
-          if (ev.type && ev.payload) this.#pushEphemeral(runId, ev.type, ev.payload);
-          break;
-        }
-        case "heartbeat": {
-          this.#db.run("UPDATE attempt SET heartbeat_at = ? WHERE run_id = ? AND ended_at IS NULL", [
-            Date.now(),
-            runId,
-          ]);
-          break;
-        }
-        case "run_done": {
-          const status = msg.status as string;
-          const exitNow = Date.now();
-          this.#db.run("UPDATE attempt SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL", [
-            exitNow,
-            runId,
-          ]);
-          this.#db.run("UPDATE run SET status = ?, ended_at = ? WHERE run_id = ?", [
-            status,
-            exitNow,
-            runId,
-          ]);
-          this.#closeDeltaSubs(runId);
-          this.#active.delete(runId);
-          const threadId = this.#threadIdFor(runId);
-          for (const fn of this.#onRunComplete) fn(threadId, runId);
-          // Send run_finalized ACK so daemon can fire reflection
-          transport.send({ type: "run_finalized", runId });
-          break;
-        }
-        default:
-          break;
+    const runId = msg.runId as string;
+    switch (msg.type) {
+      case "run_started": {
+        const threadId = `reflect:${msg.threadId}`;
+        this.#db.run(
+          "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
+          [runId, threadId, Date.now()],
+        );
+        break;
       }
-    });
+      case "event": {
+        void this.#opts.eventLog
+          .append(this.#threadIdFor(runId), runId, msg.event as Parameters<EventLog["append"]>[2])
+          .catch(() => {});
+        break;
+      }
+      case "delta": {
+        const ev = msg.event as { type?: string; payload?: unknown };
+        if (ev.type && ev.payload) this.#pushEphemeral(runId, ev.type, ev.payload);
+        break;
+      }
+      case "heartbeat": {
+        this.#db.run("UPDATE attempt SET heartbeat_at = ? WHERE run_id = ? AND ended_at IS NULL", [
+          Date.now(),
+          runId,
+        ]);
+        break;
+      }
+      case "run_done": {
+        const status = msg.status as string;
+        const exitNow = Date.now();
+        this.#db.run("UPDATE attempt SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL", [
+          exitNow,
+          runId,
+        ]);
+        this.#db.run("UPDATE run SET status = ?, ended_at = ? WHERE run_id = ?", [
+          status,
+          exitNow,
+          runId,
+        ]);
+        this.#closeDeltaSubs(runId);
+        this.#active.delete(runId);
+        const threadId = this.#threadIdFor(runId);
+        for (const fn of this.#onRunComplete) fn(threadId, runId);
+        if (transport) transport.send({ type: "run_finalized", runId });
+        break;
+      }
+      default:
+        break;
+    }
   }
 
   #threadIdFor(runId: string): string {
