@@ -256,10 +256,10 @@ test("signal abort → agent yields events and runner returns 0", async () => {
 
   expect(result).toBe(0);
   expect(receivedSignal).toBe(controller.signal);
-  // M14.6: main run yields 1 event; fork runs skip via runCalls>1 guard
+  // M14.6: main run yields 1 event; cold-verify fork skips via runCalls>1 guard
   expect(written.length).toBe(1);
-  // M14.6: main + cold-verify fork + inline reflection fork
-  expect(runCalls).toBe(3);
+  // M14.6: main run + cold-verify fork (inline reflection removed)
+  expect(runCalls).toBe(2);
 });
 
 // ─── Test 8: agent.run throws → error event + return 1 ──────────
@@ -969,7 +969,7 @@ test("M14.3: mode='reflect' events appended to EventSink with reflect runId", as
   expect(sinkLog[0]?.runId).toBe("reflect-run-2");
 });
 
-test("M14.6: mode='run' calls fork for cold-verify + inline reflection", async () => {
+test("M14.6: mode='run' calls fork for cold-verify only", async () => {
   const events: AgentEvent[] = [msgEvent("task done")];
   let forkCalls = 0;
 
@@ -999,9 +999,10 @@ test("M14.6: mode='run' calls fork for cold-verify + inline reflection", async (
   });
 
   expect(result).toBe(0);
-  // M14.6: fork is called twice — once for cold-verify, once for inline reflection
-  expect(forkCalls).toBe(2);
-  // 2 written events: main run + inline reflection (cold-verify fork events are
-  // collected internally for verdict parsing, not routed through writeEvent)
-  expect(written.length).toBe(2);
+  // M14.6: fork is called once — cold-verify only (inline reflection removed;
+  // reflection now runs as an isolated post-run job via backend orchestrateReflection)
+  expect(forkCalls).toBe(1);
+  // 1 written event: main run only (cold-verify fork events are collected
+  // internally for verdict parsing, not routed through writeEvent)
+  expect(written.length).toBe(1);
 });

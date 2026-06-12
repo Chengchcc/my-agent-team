@@ -244,18 +244,13 @@ export async function runEntry(io: EntryIO): Promise<number> {
       }
     }
 
-    // M14.3: Reflection (same fork pattern, exempt from stop gate)
-    // M14.6: Only run inline reflection for normal task runs (not resume/reflect)
-    if (!isReflect && spec.mode !== "resume" && spec.mode !== "reflect") {
-      const reflectAgent = agent.fork(undefined, `reflect:${spec.threadId}`);
-      await routeEvents(
-        reflectAgent.run(reflectionGuidance(), {
-          signal,
-          maxSteps: spec.maxSteps,
-          maxForceContinues: 0, // exempt reflection from stop gate
-        }),
-      );
-    }
+    // M14.3: Reflection is handled by the backend as a separate fire-and-forget
+    // job (orchestrateReflection in main.ts). Running it inline here would:
+    // 1. Block the conversation lock until reflection completes.
+    // 2. Route reflection events under the main runId, polluting D19 and causing
+    //    the frontend to group reflection tool calls into the main agent's turn.
+    // The cold-verify loop above is self-contained (fork events are collected
+    // and parsed, not routed to EventLog) and does not have these issues.
 
     return 0;
   } catch (err) {
