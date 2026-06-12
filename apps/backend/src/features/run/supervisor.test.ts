@@ -291,8 +291,8 @@ describe("RunSupervisor reaper (M11)", () => {
     await sup.dispose();
   });
 
-  test("rediscover still works after reaper extraction", async () => {
-    const config = makeConfig({ heartbeatTimeoutMs: 10_000 }); // long timeout
+  test("rediscover JOINs run table to get agent_id, kind, thread_id", async () => {
+    const config = makeConfig({ heartbeatTimeoutMs: 10_000 });
     const eventLog = makeEventLog();
     const sup = new RunSupervisor({
       eventLog,
@@ -304,19 +304,55 @@ describe("RunSupervisor reaper (M11)", () => {
 
     const db = sup.getDb();
     const freshHeartbeat = Date.now();
-    db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
-      "run-rediscover",
-      "thread-6",
-      Date.now() - 1000,
-    ]);
+    // Insert with explicit agent_id and kind to verify JOIN reads them
     db.run(
-      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)",
-      ["att-rediscover", "run-rediscover", 44444, freshHeartbeat, Date.now() - 1000],
+      "INSERT INTO run (run_id, thread_id, agent_id, kind, status, started_at) VALUES (?, ?, ?, ?, 'running', ?)",
+      ["run-join", "thread-join", "agent-7", "reflect", Date.now() - 1000],
+    );
+    db.run(
+      "INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)",
+      ["att-join", "run-join", freshHeartbeat, Date.now() - 1000],
     );
 
     await sup.rediscover(eventLog);
 
     // rediscover should have re-registered the live run in #active
+    expect(sup.activeCount).toBeGreaterThanOrEqual(1);
+
+    await sup.dispose();
+  });
+
+  test("rediscover uses no-op transport (does not call registry.transportFor)", async () => {
+    const config = makeConfig({ heartbeatTimeoutMs: 10_000 });
+    const eventLog = makeEventLog();
+    let transportForCalled = false;
+    const sup = new RunSupervisor({
+      eventLog,
+      config,
+      registry: {
+        transportFor: async () => {
+          transportForCalled = true;
+          return { send() {}, onMessage() {}, onClose() {}, close() {} };
+        },
+      } as never,
+    });
+
+    const db = sup.getDb();
+    const freshHeartbeat = Date.now();
+    db.run(
+      "INSERT INTO run (run_id, thread_id, agent_id, kind, status, started_at) VALUES (?, ?, ?, ?, 'running', ?)",
+      ["run-notransport", "thread-nt", "agent-nt", "main", Date.now() - 1000],
+    );
+    db.run(
+      "INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)",
+      ["att-notransport", "run-notransport", freshHeartbeat, Date.now() - 1000],
+    );
+
+    await sup.rediscover(eventLog);
+
+    // rediscover must NOT call transportFor — dev mode would kill running daemon
+    expect(transportForCalled).toBe(false);
+    // Still registers the run with no-op stub
     expect(sup.activeCount).toBeGreaterThanOrEqual(1);
 
     await sup.dispose();

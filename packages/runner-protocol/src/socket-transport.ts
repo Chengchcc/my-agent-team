@@ -92,6 +92,7 @@ export function createSocketClient(opts: SocketClientOptions): RunnerTransport {
   let resolveReady!: () => void;
   const readyPromise = new Promise<void>((r) => { resolveReady = r; });
   const readyTimeoutMs = opts.readyTimeoutMs ?? 10_000;
+  let readyTimer: ReturnType<typeof setTimeout> | undefined;
 
   const framer = createFramer(
     (obj) => {
@@ -146,14 +147,17 @@ export function createSocketClient(opts: SocketClientOptions): RunnerTransport {
 
   return {
     ready() {
+      clearTimeout(readyTimer);
       return Promise.race([
         readyPromise,
-        new Promise<never>((_, reject) =>
-          setTimeout(
+        new Promise<never>((_, reject) => {
+          readyTimer = setTimeout(
             () => reject(new Error(`transport ready timeout after ${readyTimeoutMs}ms`)),
             readyTimeoutMs,
-          ),
-        ),
+          );
+          // Don't keep the event loop alive just for this timer
+          readyTimer.unref();
+        }),
       ]);
     },
     send(msg) {

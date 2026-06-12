@@ -462,41 +462,44 @@ export class RunSupervisor {
   /** On restart: discover live runs by heartbeat, re-register them for cancel support.
    *  Stale runs are handled by the shared #reapStaleRuns() method. */
   async rediscover(_eventSource: EventSource): Promise<void> {
-    const rows = this.#db.query("SELECT * FROM attempt WHERE ended_at IS NULL").all() as {
+    // JOIN run table — agent_id, kind, thread_id live on run, not attempt
+    const rows = this.#db
+      .query(
+        `SELECT a.attempt_id, a.run_id, a.heartbeat_at,
+                r.agent_id, r.kind, r.thread_id
+         FROM attempt a JOIN run r ON a.run_id = r.run_id
+         WHERE a.ended_at IS NULL`,
+      )
+      .all() as {
       attempt_id: string;
       run_id: string;
-      thread_id?: string;
       heartbeat_at: number | null;
+      agent_id: string;
+      kind: "main" | "reflect";
+      thread_id: string;
     }[];
 
     // Phase 1: re-register live runs in #active for post-restart cancel support.
-    // Try to reconnect to daemon transport via registry so cancel() works.
-    // Falls back to no-op stub if daemon is unreachable (then reaper timeout is the only cancel path).
+    // Use no-op transport stub — we do NOT call registry.transportFor here because
+    // DevRunnerRegistry.transportFor spawns a new daemon (which would kill the
+    // still-running daemon via stale pidfile cleanup). Post-restart cancel is
+    // handled by the reaper timeout; the no-op stub prevents crash on cancel().
     for (const row of rows) {
       const age = row.heartbeat_at ? Date.now() - row.heartbeat_at : Infinity;
       if (age < this.#opts.config.heartbeatTimeoutMs) {
-        const agentId = (row as { agent_id?: string }).agent_id ?? "default";
-        const kind = (row as { kind?: "main" | "reflect" }).kind ?? "main";
-        let transport: RunnerTransport;
-        try {
-          transport = await this.#opts.registry.transportFor(agentId);
-          this.#bindTransport(transport);
-        } catch {
-          transport = {
-            send() {},
-            onMessage() {},
-            onClose() {},
-            close() {},
-          } as unknown as RunnerTransport;
-        }
         const ac = new AbortController();
         this.#active.set(row.run_id, {
           runId: row.run_id,
           attemptId: row.attempt_id,
-          threadId: row.thread_id ?? "",
-          agentId,
-          kind,
-          transport,
+          threadId: row.thread_id,
+          agentId: row.agent_id,
+          kind: row.kind,
+          transport: {
+            send() {},
+            onMessage() {},
+            onClose() {},
+            close() {},
+          } as unknown as RunnerTransport,
           abortController: ac,
         });
         console.log(
