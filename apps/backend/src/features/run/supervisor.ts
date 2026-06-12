@@ -90,6 +90,16 @@ export interface RunSession {
   abortController: AbortController;
 }
 
+/** No-op transport stub — used when a real transport is unavailable
+ *  (post-restart rediscover, testing). Cancel degrades to reaper timeout. */
+export const NOOP_TRANSPORT: RunnerTransport = {
+  ready() { return Promise.resolve(); },
+  send() {},
+  onMessage() {},
+  onClose() {},
+  close() { return Promise.resolve(); },
+};
+
 export class RunSupervisor {
   #active = new Map<string, RunSession>();
   #opts: RunSupervisorOptions;
@@ -499,12 +509,7 @@ export class RunSupervisor {
           threadId: row.thread_id,
           agentId: row.agent_id,
           kind: row.kind,
-          transport: {
-            send() {},
-            onMessage() {},
-            onClose() {},
-            close() {},
-          } as unknown as RunnerTransport,
+          transport: NOOP_TRANSPORT,
           abortController: ac,
         });
         console.log(

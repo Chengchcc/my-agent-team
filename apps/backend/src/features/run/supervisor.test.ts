@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import type { EventLog } from "@my-agent-team/event-log";
 import { inMemoryEventLog } from "@my-agent-team/event-log";
 import type { BackendConfig } from "../../config.js";
-import { RunSupervisor } from "./supervisor.js";
+import { NOOP_TRANSPORT, RunSupervisor } from "./supervisor.js";
 
 const TEST_DATA_DIR = `/tmp/test-reaper-${Date.now()}`;
 
@@ -47,7 +47,7 @@ describe("RunSupervisor reaper (M11)", () => {
       eventLog,
       config,
       registry: {
-        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+        transportFor: async () => NOOP_TRANSPORT,
       } as never,
     });
     // Reaper timer should be set
@@ -62,7 +62,7 @@ describe("RunSupervisor reaper (M11)", () => {
       eventLog,
       config,
       registry: {
-        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+        transportFor: async () => NOOP_TRANSPORT,
       } as never,
     });
 
@@ -105,7 +105,7 @@ describe("RunSupervisor reaper (M11)", () => {
       eventLog,
       config,
       registry: {
-        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+        transportFor: async () => NOOP_TRANSPORT,
       } as never,
     });
 
@@ -138,12 +138,12 @@ describe("RunSupervisor reaper (M11)", () => {
       eventLog,
       config,
       registry: {
-        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+        transportFor: async () => NOOP_TRANSPORT,
       } as never,
     });
 
     const completed: Array<{ threadId: string; runId: string }> = [];
-    sup.onRunComplete((threadId, runId) => {
+    sup.onRunComplete((threadId, runId, _status) => {
       completed.push({ threadId, runId });
     });
 
@@ -177,7 +177,7 @@ describe("RunSupervisor reaper (M11)", () => {
       eventLog,
       config,
       registry: {
-        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+        transportFor: async () => NOOP_TRANSPORT,
       } as never,
     });
 
@@ -213,7 +213,7 @@ describe("RunSupervisor reaper (M11)", () => {
       eventLog,
       config,
       registry: {
-        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+        transportFor: async () => NOOP_TRANSPORT,
       } as never,
     });
 
@@ -251,7 +251,7 @@ describe("RunSupervisor reaper (M11)", () => {
       eventLog,
       config,
       registry: {
-        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+        transportFor: async () => NOOP_TRANSPORT,
       } as never,
     });
 
@@ -298,7 +298,7 @@ describe("RunSupervisor reaper (M11)", () => {
       eventLog,
       config,
       registry: {
-        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+        transportFor: async () => NOOP_TRANSPORT,
       } as never,
     });
 
@@ -336,7 +336,7 @@ describe("RunSupervisor reaper (M11)", () => {
       registry: {
         transportFor: async () => {
           transportForCalled = true;
-          return { send() {}, onMessage() {}, onClose() {}, close() {} };
+          return NOOP_TRANSPORT;
         },
       } as never,
     });
