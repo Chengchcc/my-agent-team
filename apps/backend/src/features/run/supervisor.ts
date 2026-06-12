@@ -80,6 +80,15 @@ export interface RunSupervisorOptions {
   registry: RunnerRegistry;
 }
 
+/** Data clump: parameters flowing through every run-start path. */
+interface RunRequest {
+  runId: string;
+  threadId: string;
+  agentId: string;
+  spec: Record<string, unknown>;
+  kind: "main" | "reflect";
+}
+
 export interface RunSession {
   runId: string;
   attemptId: string;
@@ -296,8 +305,8 @@ export class RunSupervisor {
     threadId: string,
     spec: Record<string, unknown>,
   ): Promise<{ runId: string; attemptId: string }> {
-    const agentId = (spec.agentId as string) ?? "default";
-    return this.#beginAndSend(runId, threadId, agentId, spec, "main");
+    const req: RunRequest = { runId, threadId, agentId: (spec.agentId as string) ?? "default", spec, kind: "main" };
+    return this.#beginAndSend(req);
   }
 
   async resumeRun(
@@ -305,9 +314,9 @@ export class RunSupervisor {
     threadId: string,
     spec: Record<string, unknown>,
   ): Promise<{ runId: string; attemptId: string }> {
-    const agentId = (spec.agentId as string) ?? "default";
+    const req: RunRequest = { runId, threadId, agentId: (spec.agentId as string) ?? "default", spec, kind: "main" };
     this.#db.run("UPDATE run SET status = 'running' WHERE run_id = ?", [runId]);
-    return this.#beginAttempt(runId, threadId, agentId, spec, "main");
+    return this.#beginAttempt(req);
   }
 
   async beginReflectRun(
@@ -316,62 +325,46 @@ export class RunSupervisor {
     parentRunId: string,
     spec: Record<string, unknown>,
   ): Promise<{ runId: string; attemptId: string }> {
-    const agentId = (spec.agentId as string) ?? "default";
+    const req: RunRequest = { runId, threadId, agentId: (spec.agentId as string) ?? "default", spec, kind: "reflect" };
     const now = Date.now();
     this.#db.run(
       "INSERT INTO run (run_id, thread_id, agent_id, status, started_at, kind, parent_run_id) VALUES (?, ?, ?, 'running', ?, 'reflect', ?)",
-      [runId, threadId, agentId, now, parentRunId],
+      [req.runId, req.threadId, req.agentId, now, parentRunId],
     );
-    return this.#beginAttempt(runId, threadId, agentId, spec, "reflect");
+    return this.#beginAttempt(req);
   }
 
   /** Internal: create run row (main only; reflect uses beginReflectRun), then delegate to #beginAttempt. */
-  async #beginAndSend(
-    runId: string,
-    threadId: string,
-    agentId: string,
-    spec: Record<string, unknown>,
-    kind: "main" | "reflect",
-  ): Promise<{ runId: string; attemptId: string }> {
+  async #beginAndSend(req: RunRequest): Promise<{ runId: string; attemptId: string }> {
     const now = Date.now();
     this.#db.run(
       "INSERT INTO run (run_id, thread_id, agent_id, status, started_at, kind) VALUES (?, ?, ?, 'running', ?, ?)",
-      [runId, threadId, agentId, now, kind],
+      [req.runId, req.threadId, req.agentId, now, req.kind],
     );
-    return this.#beginAttempt(runId, threadId, agentId, spec, kind);
+    return this.#beginAttempt(req);
   }
 
   /** Shared tail: get transport, create attempt, register in #active, send start. */
-  async #beginAttempt(
-    runId: string,
-    threadId: string,
-    agentId: string,
-    spec: Record<string, unknown>,
-    kind: "main" | "reflect",
-  ): Promise<{ runId: string; attemptId: string }> {
-    const transport = await this.#opts.registry.transportFor(agentId);
+  async #beginAttempt(req: RunRequest): Promise<{ runId: string; attemptId: string }> {
+    const transport = await this.#opts.registry.transportFor(req.agentId);
     this.#bindTransport(transport);
 
     const now = Date.now();
     const attemptId = crypto.randomUUID();
     this.#db.run(
       "INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)",
-      [attemptId, runId, now, now],
+      [attemptId, req.runId, now, now],
     );
 
-    const ac = new AbortController();
-    this.#active.set(runId, {
-      runId,
-      attemptId,
-      threadId,
-      agentId,
-      kind,
-      transport,
-      abortController: ac,
-    });
+    this.#registerSession({ runId: req.runId, attemptId, threadId: req.threadId, agentId: req.agentId, kind: req.kind, transport });
 
-    transport.send({ type: "start", runId, spec });
-    return { runId, attemptId };
+    transport.send({ type: "start", runId: req.runId, spec: req.spec });
+    return { runId: req.runId, attemptId };
+  }
+
+  /** Register an active session in #active (single source of truth for RunSession construction). */
+  #registerSession(o: { runId: string; attemptId: string; threadId: string; agentId: string; kind: "main" | "reflect"; transport: RunnerTransport }): void {
+    this.#active.set(o.runId, { ...o, abortController: new AbortController() });
   }
 
   #bindTransport(transport: RunnerTransport): void {
@@ -502,16 +495,7 @@ export class RunSupervisor {
     for (const row of rows) {
       const age = row.heartbeat_at ? Date.now() - row.heartbeat_at : Infinity;
       if (age < this.#opts.config.heartbeatTimeoutMs) {
-        const ac = new AbortController();
-        this.#active.set(row.run_id, {
-          runId: row.run_id,
-          attemptId: row.attempt_id,
-          threadId: row.thread_id,
-          agentId: row.agent_id,
-          kind: row.kind,
-          transport: NOOP_TRANSPORT,
-          abortController: ac,
-        });
+        this.#registerSession({ runId: row.run_id, attemptId: row.attempt_id, threadId: row.thread_id, agentId: row.agent_id, kind: row.kind, transport: NOOP_TRANSPORT });
         console.log(
           `[supervisor] re-discovered live run: ${row.run_id} (attempt ${row.attempt_id}, age ${age}ms)`,
         );
