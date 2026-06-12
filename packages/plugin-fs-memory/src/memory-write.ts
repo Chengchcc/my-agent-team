@@ -1,28 +1,30 @@
 import type { Tool } from "@my-agent-team/core";
+import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { invalidateFactsCache } from "./cache.js";
 import { writeFact } from "./frontmatter.js";
 
-export function memoryWriteTool(opts: { dir: string }): Tool {
+export function memoryWriteTool(opts: { ws: AgentFsLike; root: string }): Tool {
+  const { ws, root } = opts;
   return {
     name: "memory_write",
-    description: "Write a new fact to the memory. Creates a timestamped file in facts/.",
+    description: "Write a new memory fact.",
     inputSchema: {
       type: "object",
       properties: {
-        content: { type: "string", description: "The fact content." },
-        tags: {
-          type: "array",
-          items: { type: "string" },
-          description: "Optional tags for search weighting.",
-        },
+        content: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
       },
       required: ["content"],
     },
     async execute(input: unknown) {
       const { content, tags } = input as { content: string; tags?: string[] };
-      const path = await writeFact(opts.dir, { content, tags });
-      invalidateFactsCache(opts.dir);
-      return { content: JSON.stringify({ path }) };
+      try {
+        const fp = await writeFact(ws, root, { content, tags });
+        invalidateFactsCache(root);
+        return { content: `Memory saved to ${fp}` };
+      } catch (err) {
+        return { content: (err as Error).message, isError: true };
+      }
     },
   };
 }

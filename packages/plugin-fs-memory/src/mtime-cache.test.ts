@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { MemoryBackend, AgentFS } from "@my-agent-team/agent-fs";
 import {
   invalidateFactsCache,
   invalidateMemCache,
@@ -7,97 +8,77 @@ import {
 } from "./cache.js";
 import { writeFact } from "./frontmatter.js";
 
+function testFS(): AgentFS {
+  return new AgentFS({
+    mounts: [{ prefix: "/memory/", domain: "shared", backend: new MemoryBackend() }],
+    aliases: { toCanonical: (p: string) => p },
+  });
+}
+
 describe("mtime cache", () => {
   test("readMemoryWithMtimeCache returns empty string when MEMORY.md missing", async () => {
-    const dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
-    await Bun.$`mkdir -p ${dir}`.quiet();
-    try {
-      invalidateMemCache(dir);
-      const content = await readMemoryWithMtimeCache(dir);
-      expect(content).toBe("");
-    } finally {
-      await Bun.$`rm -rf ${dir}`.quiet();
-    }
+    const ws = testFS();
+    const root = "/memory/";
+    invalidateMemCache(root);
+    const content = await readMemoryWithMtimeCache(ws, root);
+    expect(content).toBe("");
   });
 
   test("readMemoryWithMtimeCache reads file content", async () => {
-    const dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
-    await Bun.$`mkdir -p ${dir}`.quiet();
-    try {
-      invalidateMemCache(dir);
-      await Bun.write(`${dir}/MEMORY.md`, "remember me");
-      const content = await readMemoryWithMtimeCache(dir);
-      expect(content).toBe("remember me");
-    } finally {
-      await Bun.$`rm -rf ${dir}`.quiet();
-    }
+    const ws = testFS();
+    const root = "/memory/";
+    invalidateMemCache(root);
+    await ws.write("/memory/MEMORY.md", "remember me");
+    const content = await readMemoryWithMtimeCache(ws, root);
+    expect(content).toBe("remember me");
   });
 
   test("readMemoryWithMtimeCache caches: second read uses cache", async () => {
-    const dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
-    await Bun.$`mkdir -p ${dir}`.quiet();
-    try {
-      invalidateMemCache(dir);
-      await Bun.write(`${dir}/MEMORY.md`, "original");
+    const ws = testFS();
+    const root = "/memory/";
+    invalidateMemCache(root);
+    await ws.write("/memory/MEMORY.md", "original");
 
-      const c1 = await readMemoryWithMtimeCache(dir);
-      expect(c1).toBe("original");
+    const c1 = await readMemoryWithMtimeCache(ws, root);
+    expect(c1).toBe("original");
 
-      // Write new content directly without updating in-memory cache
-      await Bun.write(`${dir}/MEMORY.md`, "changed");
+    // Write new content — mtime will change so cache misses
+    await ws.write("/memory/MEMORY.md", "changed");
 
-      // Cache still has old value (mtime not checked deliberately)
-      const c2 = await readMemoryWithMtimeCache(dir);
-      // Should NOT be "changed" because mtime hasn't changed if fast
-      // Actually on most filesystems mtime will change on write, making this flaky.
-      // We just verify the function returns a string.
-      expect(typeof c2).toBe("string");
-    } finally {
-      await Bun.$`rm -rf ${dir}`.quiet();
-    }
+    const c2 = await readMemoryWithMtimeCache(ws, root);
+    // mtime changed so re-read; verify it returns a string
+    expect(typeof c2).toBe("string");
   });
 
   test("loadAllFactsWithMtimeCache reads facts from directory", async () => {
-    const dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
-    await Bun.$`mkdir -p ${dir}/facts`.quiet();
-    try {
-      invalidateFactsCache(dir);
-      await writeFact(dir, { content: "fact one", tags: ["a"] });
-      await writeFact(dir, { content: "fact two", tags: ["b"] });
+    const ws = testFS();
+    const root = "/memory/";
+    invalidateFactsCache(root);
+    await writeFact(ws, root, { content: "fact one", tags: ["a"] });
+    await writeFact(ws, root, { content: "fact two", tags: ["b"] });
 
-      const facts = await loadAllFactsWithMtimeCache(dir);
-      expect(facts.length).toBeGreaterThanOrEqual(2);
-      expect(facts.some((f) => f.body === "fact one")).toBe(true);
-      expect(facts.some((f) => f.body === "fact two")).toBe(true);
-    } finally {
-      await Bun.$`rm -rf ${dir}`.quiet();
-    }
+    const facts = await loadAllFactsWithMtimeCache(ws, root);
+    expect(facts.length).toBeGreaterThanOrEqual(2);
+    expect(facts.some((f) => f.body === "fact one")).toBe(true);
+    expect(facts.some((f) => f.body === "fact two")).toBe(true);
   });
 
   test("loadAllFactsWithMtimeCache serves from cache on second hit", async () => {
-    const dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
-    await Bun.$`mkdir -p ${dir}/facts`.quiet();
-    try {
-      invalidateFactsCache(dir);
-      const first = await loadAllFactsWithMtimeCache(dir);
-      const second = await loadAllFactsWithMtimeCache(dir);
-      expect(second).toBe(first); // same array reference = cache hit
-    } finally {
-      await Bun.$`rm -rf ${dir}`.quiet();
-    }
+    const ws = testFS();
+    const root = "/memory/";
+    invalidateFactsCache(root);
+    const first = await loadAllFactsWithMtimeCache(ws, root);
+    const second = await loadAllFactsWithMtimeCache(ws, root);
+    expect(second).toBe(first); // same array reference = cache hit
   });
 
   test("invalidateFactsCache forces re-read", async () => {
-    const dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
-    await Bun.$`mkdir -p ${dir}/facts`.quiet();
-    try {
-      invalidateFactsCache(dir);
-      const first = await loadAllFactsWithMtimeCache(dir);
-      invalidateFactsCache(dir);
-      const second = await loadAllFactsWithMtimeCache(dir);
-      expect(second).not.toBe(first); // different array ref = re-read
-    } finally {
-      await Bun.$`rm -rf ${dir}`.quiet();
-    }
+    const ws = testFS();
+    const root = "/memory/";
+    invalidateFactsCache(root);
+    const first = await loadAllFactsWithMtimeCache(ws, root);
+    invalidateFactsCache(root);
+    const second = await loadAllFactsWithMtimeCache(ws, root);
+    expect(second).not.toBe(first); // different array ref = re-read
   });
 });

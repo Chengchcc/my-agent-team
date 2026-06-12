@@ -1,7 +1,6 @@
-import { existsSync } from "node:fs";
-import { AgentSpecV1 } from "@my-agent-team/agent-spec";
 import type { Message } from "@my-agent-team/core";
 import { sqliteEventLog } from "@my-agent-team/event-log";
+import { createSocketClient } from "@my-agent-team/runner-protocol";
 import { loadConfig } from "./config.js";
 import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
 import { AgentBusyError, agentRoutes, createAgentService } from "./features/agent/index.js";
@@ -16,7 +15,9 @@ import {
   sqliteConversationAdapter,
 } from "./features/conversation/index.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
-import { orchestrateReflection } from "./features/run/reflect-orchestrator.js";
+import type { RunnerRegistry } from "./features/run/runner-registry.js";
+import { DevRunnerRegistry } from "./features/run/runner-registry.js";
+import { ProdRunnerRegistry } from "./features/run/runner-registry.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
@@ -30,12 +31,34 @@ const db = openDb(`${config.dataDir}/backend.db`);
 // Infrastructure
 const threads = new Set<string>();
 
-// M9: EventLog + Supervisor (created before agentSvc to inject getDb() into hardDelete)
+// M14.7: RunnerRegistry — dev spawns daemons, prod resolves endpoints
+const runnerEnv = process.env.RUNNER_ENV ?? "dev";
+const registry: RunnerRegistry =
+  runnerEnv === "prod"
+    ? new ProdRunnerRegistry({
+        endpointResolver: {
+          resolve: async (agentId: string) => ({
+            kind: "unix" as const,
+            socketPath: `/run/runners/${agentId}/runner.sock`,
+          }),
+        },
+        transportFactory: {
+          create: (endpoint: { kind: "unix"; socketPath: string }) =>
+            createSocketClient({ socketPath: endpoint.socketPath }),
+        },
+      })
+    : new DevRunnerRegistry({
+        dataDir: config.dataDir,
+        daemonBin: `${import.meta.dir}/../../../packages/runner-daemon/src/bin.ts`,
+        transportFactory: (socket) => createSocketClient({ socketPath: socket }),
+      });
+
+// M9: EventLog + Supervisor
 const eventLog = sqliteEventLog({ db: `${config.dataDir}/events.db` });
 const supervisor = new RunSupervisor({
   eventLog,
   config,
-  runnerBin: `${import.meta.dir}/../../../packages/runner-stdio/src/bin.ts`,
+  registry,
 });
 
 // Agent feature
@@ -123,8 +146,9 @@ const runSvc = createRunService({
   },
 });
 
-// Build spec helper — returns JSON string for subprocess env
-async function buildSpecJson(
+// Build spec helper — returns V2 spec object for daemon transport
+/** M14.7: Single spec builder for all run modes. Reads agent config for model/permission/maxSteps. */
+async function buildAgentSpecV2(
   threadId: string,
   input: string,
   overrides?: {
@@ -133,10 +157,9 @@ async function buildSpecJson(
     resumeCommand?: { approved: boolean; message?: string };
     conversationId?: string;
     senderMemberId?: string;
+    parentRunId?: string;
   },
-): Promise<string> {
-  // Resolve agent from threadId: for conversation threads (cid:memberId),
-  // ThreadId = cid:memberId — resolve agent via member row.
+): Promise<Record<string, unknown>> {
   const cid = threadId.split(":")[0]!;
   const memberId = threadId.split(":").slice(1).join(":");
   const member = db
@@ -144,28 +167,21 @@ async function buildSpecJson(
     .get(cid, memberId) as { agent_id: string } | undefined;
   const agentId = member?.agent_id ?? memberId;
   const agent = await agentSvc.getById(agentId);
-
-  // Fix F: Use Zod parse for runtime validation (catches DB corruption / bad data)
-  const spec = AgentSpecV1.parse({
-    schemaVersion: "1",
-    workspace: agent.workspacePath,
+  return {
+    schemaVersion: "2",
+    agentId,
     threadId,
+    runId: overrides?.runId ?? crypto.randomUUID(),
+    input,
     model: {
       provider: agent.modelProvider,
       model: agent.modelName,
       ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}),
     },
-    apiKey: config.anthropicApiKey,
     permissionMode: agent.permissionMode ?? "ask",
     maxSteps: agent.maxSteps ?? undefined,
-    input,
-    storage: {
-      eventLog: { kind: "sqlite" as const, path: `${config.dataDir}/events.db` },
-      checkpointer: { kind: "sqlite" as const, path: `${config.dataDir}/backend.db` },
-    },
     ...overrides,
-  });
-  return JSON.stringify(spec);
+  };
 }
 
 // M14.4: @mention parsing helpers for agent-to-agent triggering
@@ -190,8 +206,6 @@ const checkpointSvc = createCheckpointService({ port: checkpointPort });
 // M10: Conversation feature
 const convPort = sqliteConversationAdapter(db);
 const activeConversations = new Set<string>();
-// M14.3: run metadata for post-run reflection decisions
-const runMeta = new Map<string, { isGenesis: boolean; agentId: string; agentMemberId: string }>();
 
 const convSvc = createConversationService({
   port: convPort,
@@ -202,7 +216,7 @@ const convSvc = createConversationService({
 
   // ThreadId = conversationId:memberId (derived, not persisted).
   // The threads table is legacy — runtime only needs the derived key.
-  forkRun: (runId, threadId, _specJson, ctx) => {
+  forkRun: async (runId, threadId, _specJson, ctx) => {
     // Build full spec JSON (C1 fix)
     const agentRow = db
       .query(
@@ -220,139 +234,121 @@ const convSvc = createConversationService({
       | undefined;
     if (!agentRow) throw new Error(`Agent not found: ${ctx.agentId}`);
 
-    // M14.3: Record genesis snapshot for post-run reflection gating
-    const isGenesis = existsSync(`${agentRow.workspace_path}/BOOTSTRAP.md`);
-    runMeta.set(runId, { isGenesis, agentId: ctx.agentId, agentMemberId: ctx.agentMemberId });
-
-    const spec = AgentSpecV1.parse({
-      schemaVersion: "1",
-      workspace: agentRow.workspace_path,
+    const spec = {
+      schemaVersion: "2" as const,
+      agentId: ctx.agentId,
       threadId,
       conversationId: ctx.conversationId,
       senderMemberId: ctx.agentMemberId,
       model: {
-        provider: agentRow.model_provider as "anthropic",
+        provider: agentRow.model_provider,
         model: agentRow.model_name,
         ...(agentRow.model_base_url ? { baseURL: agentRow.model_base_url } : {}),
       },
-      apiKey: config.anthropicApiKey,
-      permissionMode: agentRow.permission_mode as "ask" | "auto" | "deny" | undefined,
+      permissionMode: agentRow.permission_mode,
       maxSteps: agentRow.max_steps ?? undefined,
-      input: "", // input is in the thread.messages already (via broadcast projection)
+      input: "", // input is in thread.messages via broadcast projection
       runId,
-      isGenesis,
-      storage: {
-        eventLog: { kind: "sqlite" as const, path: `${config.dataDir}/events.db` },
-        checkpointer: { kind: "sqlite" as const, path: `${config.dataDir}/backend.db` },
-      },
-    });
-    const specJson = JSON.stringify(spec);
-    return supervisor.fork(runId, threadId, specJson);
+    };
+    const { attemptId } = await supervisor.startMainRun(runId, threadId, spec);
+    return { runId, attemptId, pid: 0 };
   },
 });
 
-// C2 + D19 fix: register conversation-level onRunComplete (multi-listener supervisor)
-supervisor.onRunComplete((threadId, runId) => {
+/** D19 handler: on run complete, project messages to conversation ledger
+ *  and trigger @-mentioned agents. Registered as supervisor.onRunComplete listener. */
+async function onRunComplete(threadId: string, runId: string): Promise<void> {
   // M14.3: reflect run自身结束 — 不放会话锁、不D19、不递归
   if (threadId.startsWith("reflect:")) return;
-  // Scan active conversations for a matching threadId (deriveThreadId = cid:memberId)
   for (const cid of activeConversations) {
     if (threadId.startsWith(`${cid}:`)) {
       // C2: Release the conversation lock
       convSvc.completeRun(cid, threadId, runId);
 
       // D19: Write all assistant messages from this run to the ledger.
-      // M14.3: Reflections run as independent post-run jobs with their own runId —
-      // D19 reads only the main runId, so reflection messages are physically isolated.
-      void (async () => {
-        try {
-          const events = await eventLog.read({ runId });
-          const conversationMsgs = events
-            .filter((rec) => rec.event.type === "message")
-            .map((rec) => rec.event.payload as { role: string; content: unknown })
-            .filter((p) => p.role === "assistant" || p.role === "user");
+      // M14.7: Awaited before run_finalized ACK (no longer fire-and-forget).
+      try {
+        const events = await eventLog.read({ runId });
 
-          const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+        const conversationMsgs = events
+          .filter((rec) => rec.event.type === "message")
+          .map((rec) => rec.event.payload as { role: string; content: unknown })
+          .filter((p) => p.role === "assistant" || p.role === "user");
 
-          // M14.4: Pre-fetch roster for @mention resolution
-          const roster = convPort.getMembers(cid);
-          const mentionedMemberIds = new Set<string>();
+        const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
 
-          for (const msg of conversationMsgs) {
-            const content = msg.content;
-            if (typeof content === "string" && content.trim().length === 0) continue;
-            if (Array.isArray(content) && content.length === 0) continue;
+        // M14.6: Capture last todo_update snapshot and persist to ledger.
+        const lastTodoUpdate = events.filter((rec) => rec.event.type === "todo_update").pop();
+        if (lastTodoUpdate) {
+          const payload = (lastTodoUpdate.event as { payload: { todos: unknown } }).payload;
+          await convSvc.appendTodo(cid, senderMemberId, payload.todos);
+        }
 
-            // M14.4: Parse @mentions from agent output for agent-to-agent triggering
-            if (msg.role === "assistant") {
-              const text = extractText(content);
-              if (text) {
-                for (const m of roster) {
-                  if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
-                  const label = m.displayName ?? m.memberId;
-                  const re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
-                  if (re.test(text) || text.includes(`@${m.memberId}`)) {
-                    mentionedMemberIds.add(m.memberId);
-                  }
+        // M14.4: Parse @mentions from agent output for agent-to-agent triggering
+        const roster = convPort.getMembers(cid);
+        const mentionedMemberIds = new Set<string>();
+
+        for (const msg of conversationMsgs) {
+          const content = msg.content;
+          if (typeof content === "string" && content.trim().length === 0) continue;
+          if (Array.isArray(content) && content.length === 0) continue;
+
+          if (msg.role === "assistant") {
+            const text = extractText(content);
+            if (text) {
+              for (const m of roster) {
+                if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
+                const label = m.displayName ?? m.memberId;
+                const re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
+                if (re.test(text) || text.includes(`@${m.memberId}`)) {
+                  mentionedMemberIds.add(m.memberId);
                 }
               }
             }
-
-            const seq = convPort.appendLedgerEntry({
-              conversationId: cid,
-              senderMemberId,
-              addressedTo: [...mentionedMemberIds],
-              kind: "message",
-              content: JSON.stringify(content),
-              ts: Date.now(),
-            });
-            await convSvc.broadcastMessage({
-              seq,
-              conversationId: cid,
-              senderMemberId,
-              addressedTo: [...mentionedMemberIds],
-              kind: "message",
-              content: JSON.stringify(content),
-              ts: Date.now(),
-            });
           }
 
-          // M14.4: Trigger @-mentioned agents (agent-to-agent chain)
-          if (mentionedMemberIds.size > 0) {
-            convSvc.triggerMentionedAgents({
-              conversationId: cid,
-              senderMemberId,
-              addressedTo: [...mentionedMemberIds],
-            });
-          }
-        } catch (err) {
-          console.error(
-            `[conversation] D19 error for ${runId}:`,
-            err instanceof Error ? err.message : String(err),
-          );
+          const seq = convPort.appendLedgerEntry({
+            conversationId: cid,
+            senderMemberId,
+            addressedTo: [...mentionedMemberIds],
+            kind: "message",
+            content: JSON.stringify(content),
+            ts: Date.now(),
+          });
+          await convSvc.broadcastMessage({
+            seq,
+            conversationId: cid,
+            senderMemberId,
+            addressedTo: [...mentionedMemberIds],
+            kind: "message",
+            content: JSON.stringify(content),
+            ts: Date.now(),
+          });
         }
-      })();
 
-      // M14.3: post-run reflection — fire-and-forget, lock already released, independent run.
-      // P1-a: resume runs don't populate runMeta (they bypass forkRun), so meta is undefined
-      // and orchestrateReflection skips them. This matches the old runner behavior
-      // (spec.mode !== "resume" gating) — the resume leg is the tail of a main turn whose
-      // reflection already ran or wasn't needed. Known trade-off, not a bug.
-      void orchestrateReflection(threadId, runId, cid, {
-        runMeta,
-        genId: ulid,
-        buildSpecJson: (tid, input, opts) => buildSpecJson(tid, input, opts),
-        fork: (rid, tid, json) => supervisor.fork(rid, tid, json),
-        onError: (rid, err) =>
-          console.error(
-            `[reflect] failed for ${rid}:`,
-            err instanceof Error ? err.message : String(err),
-          ),
-      });
+        // M14.4: Trigger @-mentioned agents (agent-to-agent chain)
+        if (mentionedMemberIds.size > 0) {
+          void convSvc.triggerMentionedAgents({
+            conversationId: cid,
+            senderMemberId,
+            addressedTo: [...mentionedMemberIds],
+          });
+        }
+      } catch (err) {
+        console.error(
+          `[conversation] D19 error for ${runId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+
+      // M14.7: Reflection is now orchestrated by the daemon control loop.
+      // Backend only sends run_finalized ACK; daemon fires reflection after receiving it.
       break;
     }
   }
-});
+}
+
+supervisor.onRunComplete(onRunComplete);
 
 // HTTP router
 // D14: startup assertion — resume support requires thread lookup
@@ -367,7 +363,7 @@ const getThreadIdForRun = async (runId: string) => {
 const router = createRouter(config.authToken, {
   agents: agentRoutes(agentSvc),
   // threads: removed — conversation is the user-facing concept
-  runs: runRoutes(runSvc, buildSpecJson, getThreadIdForRun),
+  runs: runRoutes(runSvc, buildAgentSpecV2, getThreadIdForRun),
   checkpoints: checkpointRoutes(checkpointSvc),
   conversations: conversationRoutes(convSvc, ulid),
 });
@@ -386,14 +382,14 @@ const shutdown = async (signal: string) => {
   console.log(`[backend] ${signal} received, shutting down...`);
   server.stop();
 
-  // Fix G: terminate all active subprocesses
-  for (const runId of threads) {
-    supervisor.cancel(runId);
-  }
-  // Give subprocesses time to exit gracefully
+  // M14.7: Cancel all active runs (daemon transport will handle abort)
+  supervisor.cancelAll();
+  // Give daemons time to process abort messages
   await new Promise((r) => setTimeout(r, config.cancelGraceMs));
 
   await supervisor.dispose();
+  // M14.7: Dispose daemon registry (kills spawned daemon processes)
+  await registry.dispose?.();
   db.close();
   process.exit(0);
 };

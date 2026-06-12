@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import type { CheckpointEvent, Checkpointer, InterruptState } from "@my-agent-team/framework";
+import type { CheckpointEvent, Checkpointer, InterruptState } from "../checkpointer.js";
 
 export interface SqliteCheckpointerOptions {
   db: Database | string;

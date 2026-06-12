@@ -4,7 +4,7 @@ import {
   resolveTriggerTargets,
 } from "@my-agent-team/conversation";
 import type { CheckpointReadPort, CheckpointWritePort } from "../checkpoint/ports.js";
-import type { ConversationPort, LedgerRow, MemberRow } from "./ports.js";
+import type { ConversationPort, LedgerKind, LedgerRow, MemberRow } from "./ports.js";
 
 export class ConversationBusyError extends Error {
   constructor(conversationId: string) {
@@ -36,7 +36,7 @@ export interface ConversationServiceDeps {
     threadId: string,
     specJson: string,
     ctx: { conversationId: string; agentMemberId: string; agentId: string },
-  ) => { runId: string; attemptId: string };
+  ) => Promise<{ runId: string; attemptId: string }>;
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
@@ -69,7 +69,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     conversationId: string;
     senderMemberId: string;
     addressedTo: string[];
-    kind: "message" | "member.joined" | "member.left";
+    kind: LedgerKind;
     content: unknown;
   }): Promise<number> {
     const ts = Date.now();
@@ -96,8 +96,12 @@ export function createConversationService(deps: ConversationServiceDeps) {
     return seq;
   }
 
-  /** Project a ledger entry into all agent member checkpoints. */
+  /** Project a ledger entry into all agent member checkpoints.
+   *  M14.6: "todo" entries are UI-only — never projected into agent checkpoints
+   *  (todo JSON would pollute the model's conversation context). */
   async function broadcastMessage(entry: LedgerRow): Promise<void> {
+    if (entry.kind === "todo") return; // UI-only, never projected
+
     const conv = buildConversation(entry.conversationId);
     if (!conv) return;
 
@@ -129,6 +133,44 @@ export function createConversationService(deps: ConversationServiceDeps) {
         { role: projected.role, content: projected.text },
       ]);
     }
+  }
+
+  /** Shared fork-run loop: lock conversation, fork runs for targets, release when all complete.
+   *  Returns triggered run IDs. Errors for individual targets are logged and skipped. */
+  async function forkAgentRuns(
+    conversationId: string,
+    targets: Array<{ memberId: string; agentId: string }>,
+  ): Promise<Array<{ agentMemberId: string; runId: string }>> {
+    const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
+    activeConversations.add(conversationId);
+    pendingRuns.set(conversationId, targets.length);
+    try {
+      for (const target of targets) {
+        try {
+          const runId = crypto.randomUUID();
+          const threadId = deriveThreadId(conversationId, target.memberId);
+          const { runId: rId } = await forkRun(runId, threadId, "", {
+            conversationId,
+            agentMemberId: target.memberId,
+            agentId: target.agentId,
+          });
+          triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
+        } catch (err) {
+          console.error(
+            `[conversation] forkRun failed for ${target.memberId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+          pendingRuns.set(conversationId, (pendingRuns.get(conversationId) ?? 1) - 1);
+        }
+      }
+    } finally {
+      const remaining = pendingRuns.get(conversationId) ?? 0;
+      if (remaining <= 0) {
+        activeConversations.delete(conversationId);
+        pendingRuns.delete(conversationId);
+      }
+    }
+    return triggeredRuns;
   }
 
   return {
@@ -188,40 +230,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
       // ── @ trigger: fork agent run for each target (skip if hop-capped) ──
       if (targets.length > 0 && !hopCapped) {
-        activeConversations.add(input.conversationId);
-        // Track pending count — lock released only when all complete
-        pendingRuns.set(input.conversationId, targets.length);
-        try {
-          for (const target of targets) {
-            try {
-              const runId = crypto.randomUUID();
-              const threadId = deriveThreadId(input.conversationId, target.memberId);
-              const { runId: rId } = forkRun(runId, threadId, "", {
-                conversationId: input.conversationId,
-                agentMemberId: target.memberId,
-                agentId: target.agentId,
-              });
-              triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
-            } catch (err) {
-              console.error(
-                `[conversation] forkRun failed for ${target.memberId}:`,
-                err instanceof Error ? err.message : String(err),
-              );
-              // Decrement counter for failed fork
-              pendingRuns.set(
-                input.conversationId,
-                (pendingRuns.get(input.conversationId) ?? 1) - 1,
-              );
-            }
-          }
-        } finally {
-          // Release lock immediately if no runs were started at all
-          const remaining = pendingRuns.get(input.conversationId) ?? 0;
-          if (remaining <= 0) {
-            activeConversations.delete(input.conversationId);
-            pendingRuns.delete(input.conversationId);
-          }
-        }
+        const runs = await forkAgentRuns(input.conversationId, targets);
+        triggeredRuns.push(...runs);
       } else if (hopCapped) {
         // Broadcast system message about the cap (no fork)
         await appendAndBroadcast({
@@ -336,6 +346,21 @@ export function createConversationService(deps: ConversationServiceDeps) {
         }
       }
     },
+    /** M14.6: Append a todo snapshot to the conversation ledger (UI-only, not projected to agents). */
+    async appendTodo(
+      conversationId: string,
+      senderMemberId: string,
+      todos: unknown,
+    ): Promise<void> {
+      await appendAndBroadcast({
+        conversationId,
+        senderMemberId,
+        addressedTo: [],
+        kind: "todo",
+        content: { todos },
+      });
+    },
+
     /** Release the conversation lock when ALL triggered runs complete. */
     completeRun(conversationId: string, _threadId: string, _runId: string): void {
       const remaining = (pendingRuns.get(conversationId) ?? 1) - 1;
@@ -350,11 +375,11 @@ export function createConversationService(deps: ConversationServiceDeps) {
     /** M14.4: Trigger agent runs from agent-to-agent @mentions.
      *  Only forks runs — does NOT append ledger entries (caller already did).
      *  Best-effort: silently skips if conversation busy or hop-capped. */
-    triggerMentionedAgents(input: {
+    async triggerMentionedAgents(input: {
       conversationId: string;
       senderMemberId: string;
       addressedTo: string[];
-    }): Array<{ agentMemberId: string; runId: string }> {
+    }): Promise<Array<{ agentMemberId: string; runId: string }>> {
       const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
       if (input.addressedTo.length === 0) return triggeredRuns;
 
@@ -384,37 +409,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
       // Conversation busy guard (best-effort: skip, don't throw)
       if (activeConversations.has(input.conversationId)) return triggeredRuns;
 
-      // Fork runs
-      activeConversations.add(input.conversationId);
-      pendingRuns.set(input.conversationId, targets.length);
-      try {
-        for (const target of targets) {
-          try {
-            const runId = crypto.randomUUID();
-            const threadId = deriveThreadId(input.conversationId, target.memberId);
-            const { runId: rId } = forkRun(runId, threadId, "", {
-              conversationId: input.conversationId,
-              agentMemberId: target.memberId,
-              agentId: target.agentId,
-            });
-            triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
-          } catch (err) {
-            console.error(
-              `[conversation] triggerMentionedAgents forkRun failed for ${target.memberId}:`,
-              err instanceof Error ? err.message : String(err),
-            );
-            pendingRuns.set(input.conversationId, (pendingRuns.get(input.conversationId) ?? 1) - 1);
-          }
-        }
-      } finally {
-        const remaining = pendingRuns.get(input.conversationId) ?? 0;
-        if (remaining <= 0) {
-          activeConversations.delete(input.conversationId);
-          pendingRuns.delete(input.conversationId);
-        }
-      }
-
-      return triggeredRuns;
+      // Fork runs (shared helper with postMessage)
+      return forkAgentRuns(input.conversationId, targets);
     },
   };
 }

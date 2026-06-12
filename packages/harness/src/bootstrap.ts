@@ -1,9 +1,7 @@
-import { unlink } from "node:fs/promises";
-import path from "node:path";
 import type { Logger } from "@my-agent-team/framework";
+import type { AgentFS } from "@my-agent-team/agent-fs";
 import { todayAndYesterday } from "./daily-log.js";
 import { composeSystemPrompt } from "./system-prompt.js";
-import { readOrEmpty } from "./workspace-reader.js";
 
 // M11: Genesis bootstrap template. Inlined from templates/BOOTSTRAP.md at build time.
 // If you edit the .md file, update this constant to match.
@@ -79,40 +77,40 @@ export const BOOTSTRAP_TEMPLATE = [
   "alongside, and deciding who to be for them. Take it seriously, and enjoy it.",
 ].join("\n");
 
-export async function bootstrap(workspace: string, logger: Logger): Promise<string> {
-  // M11 genesis: BOOTSTRAP.md exists → birth mode.
-  // But if SOUL.md also has content, BOOTSTRAP.md is stale (leftover from interrupted
-  // genesis) — clean it up and proceed with normal compose.
-  const bootPath = path.join(workspace, "BOOTSTRAP.md");
-  const boot = await readOrEmpty(bootPath, logger);
+export async function bootstrap(
+  fs: AgentFS,
+  _logger: Logger,
+  displayRoot?: string,
+): Promise<string> {
+  const read = async (p: string): Promise<string> => (await fs.read(p)) ?? "";
+
+  // M11 genesis: BOOTSTRAP.md exists → birth mode
+  const boot = await read("/BOOTSTRAP.md");
   if (boot.trim()) {
-    const soul = await readOrEmpty(path.join(workspace, "SOUL.md"), logger);
+    const soul = await read("/SOUL.md");
     if (soul.trim()) {
-      // SOUL.md already exists — BOOTSTRAP.md is stale. Delete it and fall through.
+      // SOUL.md already exists — BOOTSTRAP.md is stale. Delete it.
       try {
-        await unlink(bootPath);
+        await fs.remove("/BOOTSTRAP.md");
       } catch {
-        /* best-effort cleanup */
+        /* best-effort */
       }
     } else {
-      // Genuine birth mode: no identity yet, use BOOTSTRAP.md as systemPrompt
       return boot;
     }
   }
 
   const { today, yesterday } = todayAndYesterday();
 
-  // Parallel read 6 files (Q14 = A)
   const [soul, user, tools, agents, todayLog, yestLog] = await Promise.all([
-    readOrEmpty(path.join(workspace, "SOUL.md"), logger),
-    readOrEmpty(path.join(workspace, "USER.md"), logger),
-    readOrEmpty(path.join(workspace, "TOOLS.md"), logger),
-    readOrEmpty(path.join(workspace, "AGENTS.md"), logger),
-    readOrEmpty(path.join(workspace, "memory", `${today}.md`), logger),
-    readOrEmpty(path.join(workspace, "memory", `${yesterday}.md`), logger),
+    read("/SOUL.md"),
+    read("/USER.md"),
+    read("/TOOLS.md"),
+    read("/AGENTS.md"),
+    read(`/memory/${today}.md`),
+    read(`/memory/${yesterday}.md`),
   ]);
 
-  // All empty (or whitespace-only) → genesis template (M11: replaces old fallbackSystemPrompt)
   if (
     !soul.trim() &&
     !user.trim() &&
@@ -125,7 +123,7 @@ export async function bootstrap(workspace: string, logger: Logger): Promise<stri
   }
 
   return composeSystemPrompt({
-    workspace,
+    workspace: displayRoot ?? "/",
     today,
     yesterday,
     soul,

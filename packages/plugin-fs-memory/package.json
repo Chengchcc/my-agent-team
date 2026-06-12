@@ -21,7 +21,10 @@
   },
   "dependencies": {
     "@my-agent-team/core": "workspace:*",
-    "@my-agent-team/framework": "workspace:*"
+    "@my-agent-team/framework": "workspace:*",
+    "@my-agent-team/tools-common": "workspace:*"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@my-agent-team/agent-fs": "workspace:*"
+  }
 }

@@ -115,6 +115,25 @@ export function useConversation(
       });
     }
 
+    // M14.6: "todo" — plan progress snapshots, UI-only via ledger
+    es.addEventListener("todo", (e: Event) => {
+      if (!(e instanceof MessageEvent)) return;
+      try {
+        const entry = JSON.parse(e.data) as { content: string };
+        const payload =
+          typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
+        const todos =
+          payload && typeof payload === "object" && "todos" in payload
+            ? (payload as { todos: ConvState["todos"] }).todos
+            : null;
+        if (Array.isArray(todos)) {
+          dispatch({ type: "todo/update", todos });
+        }
+      } catch {
+        // skip
+      }
+    });
+
     return () => es.close();
   }, [conversationId]);
 

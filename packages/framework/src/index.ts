@@ -2,6 +2,11 @@ export type { CheckpointEvent, Checkpointer, InterruptState } from "./checkpoint
 export { InterruptSignal, validateCheckpointer } from "./checkpointer.js";
 export { fileCheckpointer } from "./checkpointers/file-checkpointer.js";
 export { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
+export {
+  SQLITE_CHECKPOINTER_MIGRATIONS,
+  type SqliteCheckpointerOptions,
+  sqliteCheckpointer,
+} from "./checkpointers/sqlite-checkpointer.js";
 export type { ContextManager, ContextManagerContext } from "./context-manager.js";
 export { pipeContextManagers } from "./context-manager.js";
 export { passthroughContextManager } from "./context-managers/passthrough.js";

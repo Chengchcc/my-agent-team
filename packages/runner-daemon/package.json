@@ -1,16 +1,11 @@
 {
-  "name": "@my-agent-team/runner-stdio",
+  "name": "@my-agent-team/runner-daemon",
   "version": "0.1.0",
-  "description": "Stdio runner entry for backend-to-agent subprocess isolation",
+  "description": "Resident runner daemon — long-lived sandbox process serving multiple runs per agent",
   "type": "module",
-  "main": "./dist/index.js",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
   "types": "./dist/index.d.ts",
-  "bin": {
-    "my-agent-runner": "./dist/bin.js"
-  },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "biome check . && eslint .",
@@ -20,9 +15,10 @@
   "dependencies": {
     "@my-agent-team/adapter-anthropic": "workspace:*",
     "@my-agent-team/agent-spec": "workspace:*",
-    "@my-agent-team/event-log": "workspace:*",
+    "@my-agent-team/core": "workspace:*",
     "@my-agent-team/framework": "workspace:*",
-    "@my-agent-team/harness": "workspace:*"
-  },
-  "devDependencies": {}
+    "@my-agent-team/harness": "workspace:*",
+    "@my-agent-team/runner-protocol": "workspace:*",
+    "@my-agent-team/agent-fs": "workspace:*"
+  }
 }

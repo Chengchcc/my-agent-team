@@ -1,13 +1,11 @@
 import type { Message, Tool, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
-import type { AgentEvent } from "./create-agent.js";
 import type { Checkpointer } from "./checkpointer.js";
 import type { ContextManager } from "./context-manager.js";
+import type { AgentEvent } from "./create-agent.js";
 import type { Logger } from "./logger.js";
 
 /** M14.6: Stop-gate verdict. continue=true means "veto stop, keep running with reason as input". */
-export type StopDecision =
-  | { continue: true; reason: string }
-  | { continue: false };
+export type StopDecision = { continue: true; reason: string } | { continue: false };
 
 export interface HookContext {
   threadId: string;

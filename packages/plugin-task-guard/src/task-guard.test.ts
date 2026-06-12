@@ -8,9 +8,7 @@ import { taskGuardPlugin, unresolvedToolErrors } from "./task-guard.js";
 /** Build a scripted ChatModel that yields predetermined blocks per turn.
  *  Uses loose types to keep test setup concise — this is the same pattern
  *  as echoModel() in @my-agent-team/test-helpers. */
-function scriptedModel(
-  turns: Array<Partial<AIMessageChunk>[]>,
-): ChatModel {
+function scriptedModel(turns: Array<Partial<AIMessageChunk>[]>): ChatModel {
   let call = 0;
   return {
     async *stream(
@@ -53,7 +51,9 @@ function todoPayloads(
 ): Array<{ step: string; status: string }>[] {
   return events
     .filter((e) => (e as { type: string }).type === "todo_update")
-    .map((e) => (e as { payload: { todos: Array<{ step: string; status: string }> } }).payload.todos);
+    .map(
+      (e) => (e as { payload: { todos: Array<{ step: string; status: string }> } }).payload.todos,
+    );
 }
 
 // ─── unresolvedToolErrors ───
@@ -81,9 +81,7 @@ describe("unresolvedToolErrors", () => {
     const msgs: Message[] = [
       {
         role: "user",
-        content: [
-          { type: "tool_result", tool_use_id: "1", content: "fail", is_error: true },
-        ],
+        content: [{ type: "tool_result", tool_use_id: "1", content: "fail", is_error: true }],
       },
     ] as unknown as Message[];
     const v = unresolvedToolErrors(msgs);

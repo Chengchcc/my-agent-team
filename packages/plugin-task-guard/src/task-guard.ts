@@ -1,11 +1,6 @@
-import type { Tool } from "@my-agent-team/core";
-import type { ChatModel, Message } from "@my-agent-team/core";
-import type {
-  HookContext,
-  Plugin,
-  StopDecision,
-} from "@my-agent-team/framework";
+import type { ChatModel, Message, Tool } from "@my-agent-team/core";
 import { collectStream } from "@my-agent-team/core";
+import type { Plugin, StopDecision } from "@my-agent-team/framework";
 
 // ─── Types ───
 
@@ -43,10 +38,7 @@ function renderTodo(list: readonly Todo[]): string {
     .join("\n");
 }
 
-function injectIntoSystem(
-  messages: readonly Message[],
-  block: string,
-): Message[] {
+function injectIntoSystem(messages: readonly Message[], block: string): Message[] {
   const systemIdx = messages.findIndex((m) => m.role === "system");
   if (systemIdx < 0) return [...messages];
   const sys = messages[systemIdx]!;
@@ -54,11 +46,7 @@ function injectIntoSystem(
     ...sys,
     content: `${sys.content}\n\n${block}`,
   };
-  return [
-    ...messages.slice(0, systemIdx),
-    newSys,
-    ...messages.slice(systemIdx + 1),
-  ];
+  return [...messages.slice(0, systemIdx), newSys, ...messages.slice(systemIdx + 1)];
 }
 
 // ─── Deterministic validators ───
@@ -68,9 +56,7 @@ function injectIntoSystem(
  * If any tool_result has is_error=true without a subsequent attempt to retry,
  * signal force-continue so the model must address the error first.
  */
-export function unresolvedToolErrors(
-  messages: readonly Message[],
-): StopDecision | undefined {
+export function unresolvedToolErrors(messages: readonly Message[]): StopDecision | undefined {
   // Walk backwards to find the last user message that contains tool_results
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]!;
@@ -80,9 +66,7 @@ export function unresolvedToolErrors(
 
     // If the very last tool_result-bearing message has errors, and no
     // subsequent assistant message addressed them, that's an early stop.
-    const hasError = results.some(
-      (b) => "is_error" in b && (b as { is_error?: boolean }).is_error,
-    );
+    const hasError = results.some((b) => "is_error" in b && (b as { is_error?: boolean }).is_error);
     if (hasError) {
       return {
         continue: true,
@@ -99,10 +83,7 @@ export function unresolvedToolErrors(
 
 // ─── Plan generation ───
 
-async function generatePlan(
-  model: ChatModel,
-  messages: readonly Message[],
-): Promise<string[]> {
+async function generatePlan(model: ChatModel, messages: readonly Message[]): Promise<string[]> {
   const planPrompt = [
     "You are about to work on a task. Before you start, break it down into",
     "an ordered list of steps. Each step should be a concrete, verifiable action",
@@ -121,12 +102,17 @@ async function generatePlan(
     'Example: ["Read the config file", "Update the port value", "Restart the service"]',
   ].join("\n");
 
-  const result = await collectStream(
-    model.stream(
-      [...messages, { role: "user", content: planPrompt }],
-      { tools: [] as const },
-    ),
-  );
+  // Only pass system + last user message to avoid token bloat and
+  // prevent old <todo> injection blocks from polluting plan context.
+  const systemMsg = messages.find((m) => m.role === "system");
+  const lastUser = messages.findLast((m) => m.role === "user");
+  const slim: Message[] = [
+    ...(systemMsg ? [systemMsg] : []),
+    ...(lastUser ? [lastUser] : []),
+    { role: "user" as const, content: planPrompt },
+  ];
+
+  const result = await collectStream(model.stream(slim, { tools: [] as const }));
   const text = result.blocks
     .filter((b) => b.type === "text")
     .map((b) => (b as { text: string }).text)
@@ -160,6 +146,7 @@ function planGuidance(steps: string[]): string {
     "",
     "The framework monitors your progress. If you try to stop before",
     "all steps are done, you will be asked to continue.",
+    "When all steps are done, give your final answer.",
     "",
     "Plan:",
     steps.map((s, i) => `${i + 1}. ${s}`).join("\n"),
@@ -277,10 +264,7 @@ export function taskGuardPlugin(opts: TaskGuardOptions): Plugin {
         // Emit initial snapshot
         onUpdate([...planList]);
 
-        return [
-          ...messages,
-          { role: "user" as const, content: planGuidance(steps) },
-        ];
+        return [...messages, { role: "user" as const, content: planGuidance(steps) }];
       },
 
       async beforeModel(ctx, messages) {
@@ -300,12 +284,7 @@ export function taskGuardPlugin(opts: TaskGuardOptions): Plugin {
 
         const view = list
           .map((t) => {
-            const mark =
-              t.status === "done"
-                ? "x"
-                : t.status === "in_progress"
-                  ? ">"
-                  : " ";
+            const mark = t.status === "done" ? "x" : t.status === "in_progress" ? ">" : " ";
             return `- [${mark}] ${t.step}`;
           })
           .join("\n");
@@ -327,27 +306,22 @@ export function taskGuardPlugin(opts: TaskGuardOptions): Plugin {
           }
         }
 
-        // 2) Todo gate: pending steps (deterministic)
-        let list = todos.get(ctx.threadId);
-        if (!list) {
-          // Resume or gate closed — generate on the fly and freeze
-          try {
-            const steps = await generatePlan(model, messages);
-            list = steps.map((s) => ({ step: s, status: "pending" as const }));
-            todos.set(ctx.threadId, list);
-            // Emit late-generated plan
-            onUpdate([...list]);
-          } catch {
-            return undefined; // fail-open
-          }
-        }
-        if (list.length === 0) return undefined; // trivial task
+        // 2) Todo gate: pending steps (deterministic).
+        // Only uses the plan frozen by this run's beforeRun. No frozen plan
+        // (e.g. resume, gate closed, or plan:false) → no opinion → pass through.
+        const list = todos.get(ctx.threadId);
+        if (!list || list.length === 0) return undefined; // trivial task or no plan
 
         const left = list.filter((t) => t.status !== "done");
         if (left.length > 0) {
           return {
             continue: true,
-            reason: `还有未完成的 todo：\n${left.map((t) => `- ${t.step}`).join("\n")}`,
+            reason: [
+              "The following todo steps are still pending. Complete them",
+              "before stopping, or mark them done via todo_write if already satisfied:",
+              "",
+              left.map((t) => `- ${t.step}`).join("\n"),
+            ].join("\n"),
           };
         }
 

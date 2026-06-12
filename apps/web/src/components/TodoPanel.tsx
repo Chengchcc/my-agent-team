@@ -18,14 +18,10 @@ export function TodoPanel({
         Plan &middot; {done}/{todos.length}
       </p>
       <ul className="space-y-0.5">
-        {todos.map((t) => (
-          <li key={t.step} className="flex items-center gap-2 text-xs">
+        {todos.map((t, i) => (
+          <li key={`${i}-${t.step}`} className="flex items-center gap-2 text-xs">
             <span className="shrink-0 w-4 text-center">
-              {t.status === "done"
-                ? "☑"
-                : t.status === "in_progress"
-                  ? "▸"
-                  : "☐"}
+              {t.status === "done" ? "☑" : t.status === "in_progress" ? "▸" : "☐"}
             </span>
             <span
               className={

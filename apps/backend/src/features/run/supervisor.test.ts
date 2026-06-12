@@ -1,5 +1,4 @@
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { type ChildProcess, spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import type { EventLog } from "@my-agent-team/event-log";
 import { inMemoryEventLog } from "@my-agent-team/event-log";
@@ -44,7 +43,13 @@ describe("RunSupervisor reaper (M11)", () => {
   test("reaper starts on construction", async () => {
     const config = makeConfig();
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({
+      eventLog,
+      config,
+      registry: {
+        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+      } as never,
+    });
     // Reaper timer should be set
     expect(sup).toBeDefined();
     await sup.dispose();
@@ -53,7 +58,13 @@ describe("RunSupervisor reaper (M11)", () => {
   test("reaper marks stale attempt as interrupted", async () => {
     const config = makeConfig();
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({
+      eventLog,
+      config,
+      registry: {
+        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+      } as never,
+    });
 
     const db = sup.getDb();
     // Insert a run and attempt with old heartbeat
@@ -90,7 +101,13 @@ describe("RunSupervisor reaper (M11)", () => {
   test("reaper does NOT mark fresh heartbeat as interrupted", async () => {
     const config = makeConfig({ heartbeatTimeoutMs: 500 }); // long timeout for this test
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({
+      eventLog,
+      config,
+      registry: {
+        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+      } as never,
+    });
 
     const db = sup.getDb();
     const freshHeartbeat = Date.now(); // just now
@@ -117,7 +134,13 @@ describe("RunSupervisor reaper (M11)", () => {
   test("reaper triggers onRunComplete callback", async () => {
     const config = makeConfig();
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({
+      eventLog,
+      config,
+      registry: {
+        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+      } as never,
+    });
 
     const completed: Array<{ threadId: string; runId: string }> = [];
     sup.onRunComplete((threadId, runId) => {
@@ -150,7 +173,13 @@ describe("RunSupervisor reaper (M11)", () => {
   test("dispose() stops the reaper timer", async () => {
     const config = makeConfig();
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({
+      eventLog,
+      config,
+      registry: {
+        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+      } as never,
+    });
 
     const db = sup.getDb();
     const oldHeartbeat = Date.now() - 200;
@@ -180,7 +209,13 @@ describe("RunSupervisor reaper (M11)", () => {
   test("reaper appends terminal event to EventLog", async () => {
     const config = makeConfig();
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({
+      eventLog,
+      config,
+      registry: {
+        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+      } as never,
+    });
 
     const db = sup.getDb();
     const oldHeartbeat = Date.now() - 200;
@@ -207,48 +242,45 @@ describe("RunSupervisor reaper (M11)", () => {
     await sup.dispose();
   });
 
-  // P1: alive-but-stalled — uses real child process PID to exercise
-  // the "process alive, check stepStallTimeout" branch in #reapStaleRuns
-  test("P1: alive process with stale heartbeat NOT reaped within stall window", async () => {
-    // Spawn a real child that stays alive
-    const child: ChildProcess = spawn("sleep", ["10"], { stdio: "ignore" });
-    const realPid = child.pid!;
-
+  // M14.7 daemon model: no backend-visible pid. Heartbeat timeout is the sole liveness signal.
+  // Within timeout → not reaped. Beyond timeout → reaped.
+  test("P1: stale heartbeat beyond timeout is reaped (daemon liveness model)", async () => {
     const config = makeConfig({ heartbeatTimeoutMs: 100, stepStallTimeoutMs: 500 });
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({
+      eventLog,
+      config,
+      registry: {
+        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+      } as never,
+    });
 
     const db = sup.getDb();
-    // Heartbeat is 300ms old: > heartbeatTimeout(100) but < heartbeatTimeout+stepStallTimeout(600)
-    const stallHb = Date.now() - 300;
+    // Heartbeat is 50ms old: within heartbeatTimeout(100) → NOT reaped
+    const freshHb = Date.now() - 50;
     db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
       "run-stall",
       "thread-stall",
       Date.now() - 5000,
     ]);
     db.run(
-      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, ?, ?, ?)",
-      ["att-stall", "run-stall", realPid, stallHb, Date.now() - 5000],
+      "INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)",
+      ["att-stall", "run-stall", freshHb, Date.now() - 5000],
     );
 
-    // Trigger reaper via rediscover (which delegates to #reapStaleRuns)
     await sup.rediscover(eventLog);
 
-    // Process is alive + age(300) < heartbeatTimeout(100) + stepStallTimeout(500) = 600
-    // → must NOT be reaped
+    // Within timeout → must NOT be reaped
     const runRow = db.query("SELECT status FROM run WHERE run_id = ?").get("run-stall") as
       | { status: string }
       | undefined;
     expect(runRow?.status).toBe("running");
 
-    // Now make heartbeat older than stall window
-    const beyondStallHb = Date.now() - 700; // age 700 > 100+500
-    db.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [
-      beyondStallHb,
-      "att-stall",
-    ]);
+    // Now make heartbeat older than timeout
+    const staleHb = Date.now() - 300; // age 300 > 100
+    db.run("UPDATE attempt SET heartbeat_at = ? WHERE attempt_id = ?", [staleHb, "att-stall"]);
 
-    // Run reaper again — process still alive but age now exceeds stall window → must reap
+    // Run reaper again — stale → must reap
     await sup.rediscover(eventLog);
 
     const runRow2 = db.query("SELECT status FROM run WHERE run_id = ?").get("run-stall") as
@@ -257,13 +289,18 @@ describe("RunSupervisor reaper (M11)", () => {
     expect(runRow2?.status).toBe("interrupted");
 
     await sup.dispose();
-    child.kill("SIGKILL");
   });
 
   test("rediscover still works after reaper extraction", async () => {
     const config = makeConfig({ heartbeatTimeoutMs: 10_000 }); // long timeout
     const eventLog = makeEventLog();
-    const sup = new RunSupervisor({ eventLog, config, runnerBin: "/fake/runner" });
+    const sup = new RunSupervisor({
+      eventLog,
+      config,
+      registry: {
+        transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
+      } as never,
+    });
 
     const db = sup.getDb();
     const freshHeartbeat = Date.now();

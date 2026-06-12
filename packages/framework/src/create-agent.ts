@@ -210,9 +210,7 @@ function createAgentInternal(
   }
 
   // M14.6: beforeStop aggregator — any plugin can veto stop
-  async function fireBeforeStop(
-    msgs: readonly Message[],
-  ): Promise<StopDecision | undefined> {
+  async function fireBeforeStop(msgs: readonly Message[]): Promise<StopDecision | undefined> {
     const reasons: string[] = [];
     for (const p of plugins) {
       if (p.hooks.beforeStop) {

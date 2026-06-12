@@ -66,8 +66,10 @@ export function createRunService(deps: RunServiceDeps) {
   const { supervisor, eventLog, maxConcurrentRuns, threads, idGen, autoTitle } = deps;
 
   // Fix B: Register cleanup callback so thread lock is released on run completion
-  supervisor.onRunComplete((threadId, _runId) => {
+  supervisor.onRunComplete((threadId, _runId, status) => {
     threads.delete(threadId);
+    // Only succeeded runs trigger downstream side effects (title, mention, etc.)
+    if (status !== "succeeded") return;
     if (autoTitle) {
       // fire-and-forget: title generation failure is non-fatal
       void (async () => {
@@ -93,7 +95,7 @@ export function createRunService(deps: RunServiceDeps) {
 
   return {
     /** Fork subprocess + write ledger. Returns 202 payload immediately. */
-    start(threadId: string, _input: string, specJson: string) {
+    async start(threadId: string, _input: string, spec: Record<string, unknown>) {
       if (threads.has(threadId)) throw new ThreadBusyError(threadId);
       if (supervisor.activeCount >= maxConcurrentRuns)
         throw new TooManyRunsError(maxConcurrentRuns);
@@ -102,7 +104,7 @@ export function createRunService(deps: RunServiceDeps) {
       threads.add(threadId);
 
       try {
-        const { attemptId } = supervisor.fork(runId, threadId, specJson);
+        const { attemptId } = await supervisor.startMainRun(runId, threadId, spec);
         return { runId, attemptId };
       } catch (err) {
         threads.delete(threadId);
@@ -115,11 +117,11 @@ export function createRunService(deps: RunServiceDeps) {
     },
 
     /** Resume an interrupted run by re-forking a new attempt with mode='resume'. */
-    resume(runId: string, threadId: string, specJson: string) {
+    async resume(runId: string, threadId: string, spec: Record<string, unknown>) {
       if (supervisor.activeCount >= maxConcurrentRuns)
         throw new TooManyRunsError(maxConcurrentRuns);
 
-      const { attemptId } = supervisor.fork(runId, threadId, specJson);
+      const { attemptId } = await supervisor.resumeRun(runId, threadId, spec);
       return { runId, attemptId };
     },
 

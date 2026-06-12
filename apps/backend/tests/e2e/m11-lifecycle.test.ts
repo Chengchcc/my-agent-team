@@ -71,21 +71,30 @@ describe("M11 Growth e2e", () => {
   test("bootstrap() reads BOOTSTRAP.md directly when present", async () => {
     const { bootstrap } = await import("@my-agent-team/harness");
     const { consoleLogger } = await import("@my-agent-team/framework");
+    const { LocalBackend, AgentFS } = await import("@my-agent-team/agent-fs");
 
     const ws = `${TEST_DIR}/ws-growth`;
     await mkdir(ws, { recursive: true });
 
+    const be = new LocalBackend(ws);
+    const fs = new AgentFS({
+      mounts: [
+        { prefix: "/shared/", domain: "shared", backend: be },
+        { prefix: "/private/", domain: "private", backend: be, posixRoot: ws },
+      ],
+    });
+
     // Write BOOTSTRAP.md → genesis mode
     await writeFile(path.join(ws, "BOOTSTRAP.md"), "GENESIS MODE PROMPT");
 
-    const prompt = await bootstrap(ws, consoleLogger({ level: "silent" }));
+    const prompt = await bootstrap(fs, consoleLogger({ level: "silent" }));
     expect(prompt).toBe("GENESIS MODE PROMPT");
 
     // Delete BOOTSTRAP.md + write SOUL.md → normal mode
     await rm(path.join(ws, "BOOTSTRAP.md"));
     await writeFile(path.join(ws, "SOUL.md"), "I am a helpful assistant");
 
-    const prompt2 = await bootstrap(ws, consoleLogger({ level: "silent" }));
+    const prompt2 = await bootstrap(fs, consoleLogger({ level: "silent" }));
     expect(prompt2).toInclude("I am a helpful assistant");
     expect(prompt2).toInclude("<soul>");
   });
@@ -124,7 +133,7 @@ describe("M11 Liveness e2e", () => {
         reaperIntervalMs: 10_000,
         stepStallTimeoutMs: 300_000,
       },
-      runnerBin: "/fake/runner",
+      registry: { transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }) } as never,
     });
 
     // Insert a run with old heartbeat into the supervisor's DB

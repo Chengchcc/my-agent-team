@@ -435,10 +435,9 @@ if (backendUrl && conversationId) {
 } else if (workspaceArg) {
   // Generic harness mode (local)
   const { createGenericAgent } = await import("@my-agent-team/harness");
-  const agent = await createGenericAgent({
-    workspace: path.resolve(workspaceArg),
-    model,
-  });
+  const { makeDevAgentFsHandle } = await import("@my-agent-team/agent-fs");
+  const ws = makeDevAgentFsHandle(path.resolve(workspaceArg));
+  const agent = await createGenericAgent({ workspace: ws, model });
 
   console.log(`Workspace: ${workspaceArg}  Model: ${modelArg}`);
   await runGenericHarnessLoop(agent);

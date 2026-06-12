@@ -1,4 +1,4 @@
-import { SQLITE_CHECKPOINTER_MIGRATIONS } from "@my-agent-team/checkpointer-sqlite";
+import { SQLITE_CHECKPOINTER_MIGRATIONS } from "@my-agent-team/framework";
 
 /**
  * Migration naming/id convention (applies to NEW migrations only — existing

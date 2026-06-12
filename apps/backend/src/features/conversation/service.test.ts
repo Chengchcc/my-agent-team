@@ -24,7 +24,7 @@ const svc = createConversationService({
   checkpointWrite,
   activeConversations,
   maxConsecutiveAgentHops: 3,
-  forkRun: (runId, threadId, _specJson) => {
+  forkRun: async (runId, threadId, _specJson, _ctx) => {
     forkLog.push({ runId, threadId });
     activeConversations.add(""); // placeholder — caller owns lock management
     return { runId, attemptId: `att-${runId}` };
@@ -425,12 +425,13 @@ describe("P0-2: lock lifecycle", () => {
 import { unlinkSync } from "node:fs";
 
 describe("M14.4: triggerMentionedAgents", () => {
-  test("triggers @-mentioned agent via forkRun", () => {
+  // eslint-disable-next-line
+  test("triggers @-mentioned agent via forkRun", async () => {
     activeConversations.clear();
     forkLog.length = 0;
     const { id } = setupConv("conv-at1");
 
-    const result = svc.triggerMentionedAgents({
+    const result = await svc.triggerMentionedAgents({
       conversationId: id,
       senderMemberId: `mem-x1-${id}`,
       addressedTo: [`mem-y1-${id}`],
@@ -442,12 +443,12 @@ describe("M14.4: triggerMentionedAgents", () => {
     expect(forkLog[0]?.threadId).toBe(`${id}:mem-y1-${id}`);
   });
 
-  test("skips when conversation is busy", () => {
+  test("skips when conversation is busy", async () => {
     forkLog.length = 0;
     const { id } = setupConv("conv-at2");
     activeConversations.add(id);
 
-    const result = svc.triggerMentionedAgents({
+    const result = await svc.triggerMentionedAgents({
       conversationId: id,
       senderMemberId: `mem-x1-${id}`,
       addressedTo: [`mem-y1-${id}`],
@@ -459,11 +460,11 @@ describe("M14.4: triggerMentionedAgents", () => {
     activeConversations.delete(id);
   });
 
-  test("returns empty for empty addressedTo", () => {
+  test("returns empty for empty addressedTo", async () => {
     forkLog.length = 0;
     const { id } = setupConv("conv-at3");
 
-    const result = svc.triggerMentionedAgents({
+    const result = await svc.triggerMentionedAgents({
       conversationId: id,
       senderMemberId: `mem-x1-${id}`,
       addressedTo: [],
@@ -473,12 +474,12 @@ describe("M14.4: triggerMentionedAgents", () => {
     expect(forkLog).toHaveLength(0);
   });
 
-  test("rejects when hop count exceeds max", () => {
+  test("rejects when hop count exceeds max", async () => {
     forkLog.length = 0;
     const { id } = setupConv("conv-at4");
     port.updateHopCount(id, 3); // at limit — next agent→agent would exceed
 
-    const result = svc.triggerMentionedAgents({
+    const result = await svc.triggerMentionedAgents({
       conversationId: id,
       senderMemberId: `mem-x1-${id}`,
       addressedTo: [`mem-y1-${id}`],
@@ -488,11 +489,11 @@ describe("M14.4: triggerMentionedAgents", () => {
     expect(forkLog).toHaveLength(0);
   });
 
-  test("increments hop count for agent sender", () => {
+  test("increments hop count for agent sender", async () => {
     forkLog.length = 0;
     const { id } = setupConv("conv-at5");
 
-    svc.triggerMentionedAgents({
+    await svc.triggerMentionedAgents({
       conversationId: id,
       senderMemberId: `mem-x1-${id}`,
       addressedTo: [`mem-y1-${id}`],

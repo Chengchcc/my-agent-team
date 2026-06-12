@@ -1,7 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { sqliteCheckpointer } from "@my-agent-team/checkpointer-sqlite";
 import type { Tool } from "@my-agent-team/core";
 import {
   type Agent,
@@ -11,20 +10,24 @@ import {
   inMemoryCheckpointer,
   type Logger,
   type Plugin,
+  sqliteCheckpointer,
 } from "@my-agent-team/framework";
 import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
 import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
 import { taskGuardPlugin } from "@my-agent-team/plugin-task-guard";
+import type { AgentFsRoots } from "@my-agent-team/tools-common";
 import {
   bashTool,
-  editTool,
   globTool,
   grepTool,
-  readTool,
   withWorkspace,
-  writeTool,
 } from "@my-agent-team/tools-common";
+import type { AgentFsHandle } from "@my-agent-team/agent-fs";
 import { bootstrap } from "./bootstrap.js";
+
+function toAgentFsRoots(ws: AgentFsHandle): AgentFsRoots {
+  return { privateRoot: ws.privateRoot, posixRoots: ws.posixRoots };
+}
 
 function checkDuplicateNames(
   kind: string,
@@ -43,8 +46,7 @@ function checkDuplicateNames(
 }
 
 export interface GenericAgentOptions {
-  /** Workspace root directory (absolute path recommended). Base for all built-in tools/plugins. */
-  workspace: string;
+  workspace: AgentFsHandle;
 
   /** Pre-constructed ChatModel instance (adapter chosen by caller). */
   model: Parameters<typeof createAgent>[0]["model"];
@@ -98,20 +100,28 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
     checkpointerDb,
   } = opts;
   const lg = _logger ?? consoleLogger();
+  const root = workspace.privateRoot;
 
-  // 1. Bootstrap: read workspace files → compose systemPrompt
-  const systemPrompt = await bootstrap(workspace, lg);
+  // 1. Bootstrap: read workspace files via AgentFS → compose systemPrompt
+  const systemPrompt = await bootstrap(workspace.fs, lg, workspace.displayRoot);
 
-  // 2. Default 6 built-in file tools (domain-neutral, needed by all workspace agents)
-  // H7: wrap tools with workspace sandbox
-  const defaultTools: Tool[] = [readTool, writeTool, editTool, bashTool, grepTool, globTool].map(
-    (t) => withWorkspace(t, workspace),
-  );
+  // 2. Default tools: structured IO via AgentFS, subprocess via POSIX sandbox
+  const ws = workspace.fs;
+  const sandbox = toAgentFsRoots(workspace);
+  const { createReadToolForWorkspace, createWriteToolForWorkspace, createEditToolForWorkspace } = await import("@my-agent-team/tools-common");
+  const defaultTools: Tool[] = [
+    createReadToolForWorkspace(ws),
+    createWriteToolForWorkspace(ws),
+    createEditToolForWorkspace(ws),
+    withWorkspace(bashTool, sandbox),
+    withWorkspace(grepTool, sandbox),
+    withWorkspace(globTool, sandbox),
+  ];
 
-  // 3. Default 2 plugins with conventional paths
+  // 3. Default plugins — AFS-native via AgentFsLike
   const defaultPlugins: Plugin[] = [
-    fsMemoryPlugin({ dir: workspace }),
-    progressiveSkillPlugin({ dir: path.join(workspace, "skills") }),
+    fsMemoryPlugin({ ws }),
+    progressiveSkillPlugin({ ws, root: "/skills/" }),
     taskGuardPlugin({ model }),
   ];
 
@@ -122,7 +132,7 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
   const plugins = [...defaultPlugins, ...(opts.extraPlugins ?? [])];
 
   // 5. Resolve checkpointer (default → sqlite with workspace file)
-  const checkpointer = resolveCheckpointer(workspace, _checkpointer, checkpointerDb);
+  const checkpointer = resolveCheckpointer(root, _checkpointer, checkpointerDb);
 
   // 6. Wire up framework
   return createAgent({
