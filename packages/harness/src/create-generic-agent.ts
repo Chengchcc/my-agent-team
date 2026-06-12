@@ -18,12 +18,9 @@ import { taskGuardPlugin } from "@my-agent-team/plugin-task-guard";
 import type { WorkspaceRoots } from "@my-agent-team/tools-common";
 import {
   bashTool,
-  editTool,
   globTool,
   grepTool,
-  readTool,
   withWorkspace,
-  writeTool,
 } from "@my-agent-team/tools-common";
 import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
 import { bootstrap } from "./bootstrap.js";
@@ -108,11 +105,18 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
   // 1. Bootstrap: read workspace files via WorkspaceFS → compose systemPrompt
   const systemPrompt = await bootstrap(workspace.fs, lg, workspace.displayRoot);
 
-  // 2. Default 6 built-in file tools with multi-root sandbox
+  // 2. Default tools: structured IO via WorkspaceFS, subprocess via POSIX sandbox
+  const ws = workspace.fs;
   const sandbox = toWorkspaceRoots(workspace);
-  const defaultTools: Tool[] = [readTool, writeTool, editTool, bashTool, grepTool, globTool].map(
-    (t) => withWorkspace(t, sandbox),
-  );
+  const { createReadToolForWorkspace, createWriteToolForWorkspace, createEditToolForWorkspace } = await import("@my-agent-team/tools-common");
+  const defaultTools: Tool[] = [
+    createReadToolForWorkspace(ws),
+    createWriteToolForWorkspace(ws),
+    createEditToolForWorkspace(ws),
+    withWorkspace(bashTool, sandbox),
+    withWorkspace(grepTool, sandbox),
+    withWorkspace(globTool, sandbox),
+  ];
 
   // 3. Default 2 plugins with conventional paths
   const defaultPlugins: Plugin[] = [

@@ -1,3 +1,8 @@
+export {
+  createEditToolForWorkspace,
+  createReadToolForWorkspace,
+  createWriteToolForWorkspace,
+} from "./afs-tools.js";
 export { bashTool } from "./bash.js";
 export { editTool } from "./edit.js";
 export { globTool } from "./glob.js";
@@ -9,3 +14,4 @@ export { resolveInWorkspace, SandboxError, type WorkspaceRoots, withWorkspace } 
 export { webFetchTool } from "./web-fetch.js";
 export { createWebSearchTool } from "./web-search.js";
 export { writeTool } from "./write.js";
+export { type WorkspaceLike, pjoin } from "./workspace-like.js";
