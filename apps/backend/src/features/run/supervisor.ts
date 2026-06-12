@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { type ChildProcess, spawn } from "node:child_process";
 import type { EventLog, EventSource } from "@my-agent-team/event-log";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
+import type { RunnerRegistry } from "./runner-registry.js";
 import type { BackendConfig } from "../../config.js";
 
 // Migrations for events.db — run/attempt tables (same file that stores event_log).
@@ -67,6 +68,8 @@ export interface RunSupervisorOptions {
   runnerBin?: string;
   /** M14.7: Daemon transport for resident runner. When set, start() is preferred over fork(). */
   transport?: RunnerTransport;
+  /** M14.7: Runner registry for multi-agent daemon transport. */
+  registry?: RunnerRegistry;
 }
 
 interface ActiveRun {
@@ -82,7 +85,7 @@ export class RunSupervisor {
   #active = new Map<string, ActiveRun>();
   #opts: RunSupervisorOptions;
   #db: Database;
-  #onRunComplete: Array<(threadId: string, runId: string) => void> = [];
+  #onRunComplete: Array<(threadId: string, runId: string) => void | Promise<void>> = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
   #reaping = false; // M11 fix: concurrency guard for async reaper
   // M13: In-memory delta fan-out for /stream SSE. text_delta events never hit EventLog.
@@ -190,7 +193,7 @@ export class RunSupervisor {
   }
 
   /** Register callback invoked when any run completes (success/error/abort). Supports multiple listeners. */
-  onRunComplete(fn: (threadId: string, runId: string) => void): void {
+  onRunComplete(fn: (threadId: string, runId: string) => void | Promise<void>): void {
     this.#onRunComplete.push(fn);
   }
 
@@ -433,17 +436,36 @@ export class RunSupervisor {
   }
 
   /** Handle incoming daemon transport messages. Auto-wired in constructor. */
-  #handleDaemonMessage(raw: unknown): void {
+  #beginAttempt(o: { runId: string; threadId: string; kind: "main" | "reflect"; parentRunId?: string }): void {
+    const attemptId = crypto.randomUUID();
+    const now = Date.now();
+    this.#db.run(
+      "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
+      [o.runId, o.threadId, now],
+    );
+    this.#db.run(
+      "INSERT INTO attempt (attempt_id, run_id, pid, heartbeat_at, started_at) VALUES (?, ?, NULL, ?, ?)",
+      [attemptId, o.runId, now, now],
+    );
+    this.#active.set(o.runId, {
+      runId: o.runId, attemptId, threadId: o.threadId, pid: null, child: null, abortController: new AbortController(),
+    });
+  }
+
+  async #handleDaemonMessage(raw: unknown): Promise<void> {
     const msg = raw as Record<string, unknown>;
-    const transport = this.#opts.transport;
     const runId = msg.runId as string;
+    let transport: RunnerTransport | undefined;
+    try { transport = await this.#opts.registry?.transportFor((msg as { agentId?: string }).agentId ?? "default"); } catch { /* ignore */ }
+    if (!transport) transport = this.#opts.transport;
     switch (msg.type) {
       case "run_started": {
-        const threadId = `reflect:${msg.threadId}`;
-        this.#db.run(
-          "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
-          [runId, threadId, Date.now()],
-        );
+        this.#beginAttempt({
+          runId,
+          threadId: msg.threadId as string,
+          kind: (msg.kind as "reflect") ?? "reflect",
+          parentRunId: msg.parentRunId as string | undefined,
+        });
         break;
       }
       case "event": {
@@ -459,27 +481,21 @@ export class RunSupervisor {
       }
       case "heartbeat": {
         this.#db.run("UPDATE attempt SET heartbeat_at = ? WHERE run_id = ? AND ended_at IS NULL", [
-          Date.now(),
-          runId,
+          Date.now(), runId,
         ]);
         break;
       }
       case "run_done": {
         const status = msg.status as string;
         const exitNow = Date.now();
-        this.#db.run("UPDATE attempt SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL", [
-          exitNow,
-          runId,
-        ]);
-        this.#db.run("UPDATE run SET status = ?, ended_at = ? WHERE run_id = ?", [
-          status,
-          exitNow,
-          runId,
-        ]);
+        this.#db.run("UPDATE attempt SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL", [exitNow, runId]);
+        this.#db.run("UPDATE run SET status = ?, ended_at = ? WHERE run_id = ?", [status, exitNow, runId]);
         this.#closeDeltaSubs(runId);
         this.#active.delete(runId);
         const threadId = this.#threadIdFor(runId);
-        for (const fn of this.#onRunComplete) fn(threadId, runId);
+        if (status === "succeeded") {
+          await Promise.all(this.#onRunComplete.map((fn) => fn(threadId, runId)));
+        }
         if (transport) transport.send({ type: "run_finalized", runId });
         break;
       }
@@ -489,8 +505,11 @@ export class RunSupervisor {
   }
 
   #threadIdFor(runId: string): string {
-    const run = this.#active.get(runId);
-    return run?.threadId ?? runId;
+    const active = this.#active.get(runId);
+    if (active) return active.threadId;
+    const row = this.#db.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as { thread_id: string } | undefined;
+    if (!row) throw new Error(`unknown runId: ${runId}`);
+    return row.thread_id;
   }
 
   /** Send SIGTERM to subprocess; cancelGraceMs fallback to SIGKILL. */
