@@ -60,35 +60,81 @@ AFS 只接受**逻辑绝对路径**：
 3. 路径解析只发生在 `WorkspaceFS`，消费者不得自己拼物理路径。
 4. 逻辑路径不承诺可被 POSIX 子进程访问；是否可见由 mount entry 的 `posixRoot` 决定。
 
+### 三层路径模型（M14.7 根治）
+
+AFS 内部分为三层：
+
+```text
+logical path        agent/tool 看到的路径（/SOUL.md, /memory/x.md）
+  ↓ alias resolver
+canonical path      AFS 内部 namespace（/shared/SOUL.md, /private/tmp/a.txt）
+  ↓ mount table
+backend relPath     后端相对路径（SOUL.md, tmp/a.txt）
+```
+
+每层职责单一：
+
+| 层 | 职责 | 不做什么 |
+|---|---|---|
+| logical path | 兼容 agent 心智，保留 `/SOUL.md`、`/memory/` | 不决定 backend |
+| alias resolver | 决定 shared/private/external namespace | 不访问存储 |
+| mount table | canonical prefix → backend | 不写业务 allowlist |
+| backend | read/write/list/stat | 不理解 agent 文件语义 |
+
 ```mermaid
 flowchart LR
-  P[逻辑路径<br/>/memory/today.md] --> W[WorkspaceFS.resolve]
-  W --> M[MountEntry<br/>prefix=/memory/]
-  M --> B[Backend<br/>Local/NAS/Object/SaaS]
+  P[逻辑路径<br/>/memory/today.md] --> A[alias resolver<br/>DefaultWorkspaceAliases]
+  A --> C[canonical path<br/>/shared/memory/today.md]
+  C --> W[WorkspaceFS.resolve]
+  W --> M[MountEntry<br/>prefix=/shared/]
+  M --> B[Backend<br/>LocalBackend]
   M -. 可选 .-> X[POSIX root<br/>bash/grep/glob 可见]
 ```
 
 ---
 
-## 四、Mount table
+## 四、Mount table + Alias resolver
 
-`WorkspaceFS` 的核心是一张 mount table。每个 entry 声明一段逻辑路径由谁实现。
+AFS 有两层路由：**alias resolver** 把逻辑路径映射到 canonical namespace，**mount table** 把 canonical prefix 映射到 backend。
+
+### PathAliasResolver
 
 ```ts
-export type WorkspaceDomain = "shared" | "private" | "external";
+export interface PathAliasResolver {
+  toCanonical(path: string): string;
+}
+```
+
+默认实现（`DefaultWorkspaceAliases`）：
+
+```text
+/SOUL.md       → /shared/SOUL.md
+/USER.md       → /shared/USER.md
+/memory/*      → /shared/memory/*
+/skills/*      → /private/skills/*
+/tmp/*         → /private/tmp/*
+/mnt/drive/*   → /mnt/drive/*（passthrough）
+其它根路径      → /private/<path>
+```
+
+### MountEntry（仅目录 prefix）
+
+```ts
+export type WorkspaceDomain = "shared" | "private" | "external" | "runner_state";
 
 export interface MountEntry {
-  prefix: string;                 // "/", "/memory/", "/skills/", "/mnt/drive/"
+  prefix: string;                 // "/shared/", "/private/", "/mnt/drive/" — 必须是目录 prefix
   backend: ReadableBackend;
   domain: WorkspaceDomain;
-  posixRoot?: string;             // 只有可被 POSIX 子进程访问时才填
+  posixRoot?: string;
 }
 ```
 
 解析规则：
 
-1. `prefix` 必须是规范化绝对前缀；根挂载是 `/`。
-2. 匹配采用**最长前缀优先**。`/memory/profile.md` 同时匹配 `/` 和 `/memory/` 时，必须命中 `/memory/`。
+1. `prefix` 必须是规范化绝对目录前缀，以 `/` 结尾（`/` 例外）。
+2. 匹配采用**最长前缀优先**；同 prefix 按注册顺序。
+3. 不允许 exact file mount（如 `/SOUL.md`）——文件归属由 alias resolver 负责。
 3. 同一个 `prefix` 重复注册时，后注册项覆盖前项，方便测试和租户级 override。
 4. 读写能力由 backend 类型决定，不额外写 `supportsWrite` 布尔开关。
 5. 无 mount 命中是访问边界错误，不是文件不存在。
@@ -201,7 +247,7 @@ export interface WorkspaceHandle {
 
 ## 八、默认挂载布局
 
-Resident Runner 的默认布局是 shared/private 两个 root，但它们只是 mount table 的初始项。
+Resident Runner 的默认布局使用 canonical namespace + alias resolver。mount table 只挂目录 prefix：
 
 ```ts
 export function makeDefaultMounts(o: {
@@ -210,45 +256,62 @@ export function makeDefaultMounts(o: {
   sharedPosix?: boolean;
 }): MountEntry[] {
   return [
-    { prefix: "/memory/", domain: "shared", backend: new LocalBackend(join(o.sharedRoot, "memory")), posixRoot: o.sharedPosix ? join(o.sharedRoot, "memory") : undefined },
-    ...["SOUL.md", "USER.md", "BOOTSTRAP.md", "TOOLS.md", "AGENTS.md"].map((name) =>
-      ({ prefix: `/${name}`, domain: "shared", backend: new FileBackend(join(o.sharedRoot, name)), posixRoot: o.sharedPosix ? o.sharedRoot : undefined }) satisfies MountEntry),
-    { prefix: "/", domain: "private", backend: new LocalBackend(o.privateRoot), posixRoot: o.privateRoot },
+    { prefix: "/shared/", domain: "shared", backend: new LocalBackend(o.sharedRoot), posixRoot: o.sharedPosix ? o.sharedRoot : undefined },
+    { prefix: "/private/", domain: "private", backend: new LocalBackend(o.privateRoot), posixRoot: o.privateRoot },
   ];
+}
+```
+
+alias resolver 负责逻辑路径到 canonical path 的映射：
+
+```ts
+class DefaultWorkspaceAliases implements PathAliasResolver {
+  toCanonical(path: string): string {
+    if (path.startsWith("/shared/") || path.startsWith("/private/") || path.startsWith("/mnt/")) return path;
+    if (isSharedLogicalPath(path)) return `/shared${path}`;
+    return `/private${path}`;
+  }
 }
 ```
 
 效果：
 
-| 逻辑路径 | 命中 mount | Domain |
-|---|---|---|
-| `/SOUL.md` | `/SOUL.md` | shared |
-| `/memory/today.md` | `/memory/` | shared |
-| `/skills/foo/SKILL.md` | `/` | private |
-| `/tmp/out.json` | `/` | private |
-| `/mnt/drive/spec.md` | `/mnt/drive/`（若注册） | external |
+| 逻辑路径 | canonical path | 命中 mount | Domain |
+|---|---|---|---|
+| `/SOUL.md` | `/shared/SOUL.md` | `/shared/` | shared |
+| `/memory/today.md` | `/shared/memory/today.md` | `/shared/` | shared |
+| `/skills/foo/SKILL.md` | `/private/skills/foo/SKILL.md` | `/private/` | private |
+| `/tmp/out.json` | `/private/tmp/out.json` | `/private/` | private |
+| `/mnt/drive/spec.md` | `/mnt/drive/spec.md` | `/mnt/drive/`（若注册） | external |
 
 ---
 
 ## 九、runner-daemon 如何挂载
 
-runner-daemon 不从 backend 接收 `workspace` 路径。它只接收 daemon 级 roots 和每次 `start` 消息里的 `agentId`。
+runner-daemon 是 agent-scoped（一个 agent 一个 daemon），不从 backend 接收 `workspace` 路径。
 
 ```bash
 bun packages/runner-daemon/src/bin.ts \
+  --agent-id "$AGENT_ID" \
   --socket "$RUNNER_SOCK" \
+  --shared-root "$WS_SHARED_ROOT" \
   --private-root "$WS_PRIVATE_ROOT" \
-  --shared-root "$WS_SHARED_ROOT"
+  --state-root "$RUNNER_STATE_ROOT"
 ```
 
 ```ts
 class RunnerDaemon {
-  #privateRoot: string;
-  #sharedRoot: string;
-  #handles = new Map<string, WorkspaceHandle>();
+  #agentId: string;
+  #workspace: WorkspaceHandle;     // 单 agent，无 MultiMap
+  #checkpointer: Checkpointer;     // 单 checkpointer
+  #modelFactory: ModelFactory;
 
-  #handleFor(agentId: string): WorkspaceHandle {
-    let handle = this.#handles.get(agentId);
+  constructor(opts: RunnerDaemonOptions) {
+    this.#agentId = opts.agentId;
+    this.#workspace = makeWorkspaceHandle({ sharedRoot: opts.sharedRoot, privateRoot: opts.privateRoot });
+    this.#checkpointer = sqliteCheckpointer({ db: path.join(opts.stateRoot, "checkpointer.sqlite") });
+  }
+}
     if (handle) return handle;
 
     const sharedRoot = join(this.#sharedRoot, agentId);
