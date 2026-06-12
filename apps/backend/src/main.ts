@@ -35,7 +35,8 @@ const eventLog = sqliteEventLog({ db: `${config.dataDir}/events.db` });
 const supervisor = new RunSupervisor({
   eventLog,
   config,
-  runnerBin: `${import.meta.dir}/../../../packages/runner-stdio/src/bin.ts`,
+  // M14.7: runnerBin removed — daemon transport path uses supervisor.start().
+  // fork() auto-delegates when transport is configured, throws otherwise.
 });
 
 // Agent feature
@@ -166,6 +167,43 @@ async function buildSpecJson(
     ...overrides,
   });
   return JSON.stringify(spec);
+}
+
+// M14.7: V2 spec builder for daemon transport path (no storage/apiKey/workspace in payload)
+async function buildSpecV2(
+  threadId: string,
+  input: string,
+  overrides?: {
+    runId?: string;
+    mode?: "run" | "resume" | "reflect";
+    resumeCommand?: { approved: boolean; message?: string };
+    conversationId?: string;
+    senderMemberId?: string;
+  },
+): Promise<Record<string, unknown>> {
+  const cid = threadId.split(":")[0]!;
+  const memberId = threadId.split(":").slice(1).join(":");
+  const member = db
+    .query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
+    .get(cid, memberId) as { agent_id: string } | undefined;
+  const agentId = member?.agent_id ?? memberId;
+  const agent = await agentSvc.getById(agentId);
+
+  const spec = {
+    schemaVersion: "2" as const,
+    agentId,
+    threadId,
+    model: {
+      provider: agent.modelProvider,
+      model: agent.modelName,
+      ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}),
+    },
+    permissionMode: agent.permissionMode ?? "ask",
+    maxSteps: agent.maxSteps ?? undefined,
+    input,
+    ...overrides,
+  };
+  return spec as Record<string, unknown>;
 }
 
 // M14.4: @mention parsing helpers for agent-to-agent triggering
