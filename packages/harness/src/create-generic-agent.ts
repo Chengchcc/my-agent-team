@@ -24,7 +24,13 @@ import {
   withWorkspace,
   writeTool,
 } from "@my-agent-team/tools-common";
+import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
 import { bootstrap } from "./bootstrap.js";
+
+/** Resolve workspace to a concrete private-root string for backwards compat. */
+function resolvePrivateRoot(ws: string | WorkspaceHandle): string {
+  return typeof ws === "string" ? ws : ws.privateRoot;
+}
 
 function checkDuplicateNames(
   kind: string,
@@ -43,8 +49,9 @@ function checkDuplicateNames(
 }
 
 export interface GenericAgentOptions {
-  /** Workspace root directory (absolute path recommended). Base for all built-in tools/plugins. */
-  workspace: string;
+  /** Workspace root directory (absolute path) or WorkspaceHandle.
+   *  @deprecated string form will be removed once runner-stdio is deleted (M14.7). */
+  workspace: string | WorkspaceHandle;
 
   /** Pre-constructed ChatModel instance (adapter chosen by caller). */
   model: Parameters<typeof createAgent>[0]["model"];
@@ -98,20 +105,21 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
     checkpointerDb,
   } = opts;
   const lg = _logger ?? consoleLogger();
+  const root = resolvePrivateRoot(workspace);
 
   // 1. Bootstrap: read workspace files → compose systemPrompt
-  const systemPrompt = await bootstrap(workspace, lg);
+  const systemPrompt = await bootstrap(root, lg);
 
   // 2. Default 6 built-in file tools (domain-neutral, needed by all workspace agents)
   // H7: wrap tools with workspace sandbox
   const defaultTools: Tool[] = [readTool, writeTool, editTool, bashTool, grepTool, globTool].map(
-    (t) => withWorkspace(t, workspace),
+    (t) => withWorkspace(t, root),
   );
 
   // 3. Default 2 plugins with conventional paths
   const defaultPlugins: Plugin[] = [
-    fsMemoryPlugin({ dir: workspace }),
-    progressiveSkillPlugin({ dir: path.join(workspace, "skills") }),
+    fsMemoryPlugin({ dir: root }),
+    progressiveSkillPlugin({ dir: path.join(root, "skills") }),
     taskGuardPlugin({ model }),
   ];
 
@@ -122,7 +130,7 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
   const plugins = [...defaultPlugins, ...(opts.extraPlugins ?? [])];
 
   // 5. Resolve checkpointer (default → sqlite with workspace file)
-  const checkpointer = resolveCheckpointer(workspace, _checkpointer, checkpointerDb);
+  const checkpointer = resolveCheckpointer(root, _checkpointer, checkpointerDb);
 
   // 6. Wire up framework
   return createAgent({
