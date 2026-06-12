@@ -1,5 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { describe, expect, test } from "bun:test";
 import type { Message } from "@my-agent-team/core";
 import {
   consoleLogger,
@@ -7,8 +6,25 @@ import {
   inMemoryCheckpointer,
   passthroughContextManager,
 } from "@my-agent-team/framework";
+import { MemoryBackend, AgentFS } from "@my-agent-team/agent-fs";
 import { invalidateSkillCache } from "./cache.js";
 import { progressiveSkillPlugin } from "./progressive-skill.js";
+
+/** Mount at "/" so all logical paths route to MemoryBackend */
+function testFS(): AgentFS {
+  return new AgentFS({
+    mounts: [{ prefix: "/", domain: "shared", backend: new MemoryBackend() }],
+    aliases: { toCanonical: (p: string) => p },
+  });
+}
+
+/** Mount ONLY at "/skills/" — other roots throw AgentFsAccessError */
+function narrowFS(): AgentFS {
+  return new AgentFS({
+    mounts: [{ prefix: "/skills/", domain: "shared", backend: new MemoryBackend() }],
+    aliases: { toCanonical: (p: string) => p },
+  });
+}
 
 function testCtx(): HookContext {
   return {
@@ -19,35 +35,26 @@ function testCtx(): HookContext {
   };
 }
 
+const pdfExtractSkillMd = [
+  "---",
+  "name: pdf-extract",
+  "description: Extract text from PDF files",
+  "---",
+  "",
+  "# PDF Extract",
+  "",
+  "To extract PDF content:",
+  "1. Run `python ${SKILL_DIR}/extract.py`",
+].join("\n");
+
 describe("progressiveSkillPlugin", () => {
-  let dir: string;
-
-  beforeAll(async () => {
-    dir = `${import.meta.dir}/test-psk-${crypto.randomUUID()}`;
-    await mkdir(`${dir}/pdf-extract`, { recursive: true });
-    await writeFile(
-      `${dir}/pdf-extract/SKILL.md`,
-      [
-        "---",
-        "name: pdf-extract",
-        "description: Extract text from PDF files",
-        "---",
-        "",
-        "# PDF Extract",
-        "",
-        "To extract PDF content:",
-        "1. Run `python ${SKILL_DIR}/extract.py`",
-      ].join("\n"),
-    );
-  });
-
-  afterAll(async () => {
-    await rm(dir, { recursive: true, force: true });
-  });
-
   test("injects skill index into system message", async () => {
-    invalidateSkillCache(dir);
-    const plugin = progressiveSkillPlugin({ dir });
+    const ws = testFS();
+    const root = "/skills/";
+    await ws.write("/skills/pdf-extract/SKILL.md", pdfExtractSkillMd);
+    invalidateSkillCache(root);
+
+    const plugin = progressiveSkillPlugin({ ws, root });
     const msgs: Message[] = [
       { role: "system", content: "You are helpful." },
       { role: "user", content: "hi" },
@@ -62,25 +69,24 @@ describe("progressiveSkillPlugin", () => {
   });
 
   test("empty dir → no injection, no error", async () => {
-    const emptyDir = `${import.meta.dir}/test-psk-empty-${crypto.randomUUID()}`;
-    await mkdir(emptyDir, { recursive: true });
-    try {
-      invalidateSkillCache(emptyDir);
-      const plugin = progressiveSkillPlugin({ dir: emptyDir });
-      const msgs: Message[] = [
-        { role: "system", content: "sys" },
-        { role: "user", content: "hi" },
-      ];
+    const ws = testFS();
+    const root = "/empty-root/";
+    invalidateSkillCache(root);
 
-      const result = (await plugin.hooks.beforeModel?.(testCtx(), msgs)) as Message[];
-      expect((result[0] as Message).content).toBe("sys");
-    } finally {
-      await rm(emptyDir, { recursive: true, force: true });
-    }
+    const plugin = progressiveSkillPlugin({ ws, root });
+    const msgs: Message[] = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "hi" },
+    ];
+
+    const result = (await plugin.hooks.beforeModel?.(testCtx(), msgs)) as Message[];
+    expect((result[0] as Message).content).toBe("sys");
   });
 
   test("dir does not exist → warn + pass through", async () => {
-    const badDir = `${import.meta.dir}/nonexistent-${crypto.randomUUID()}`;
+    // Use a narrow mount that only covers /skills/ — /nonexistent/ has no mount
+    const ws = narrowFS();
+    const root = "/nonexistent/";
     const warnings: string[] = [];
     const ctx = {
       ...testCtx(),
@@ -92,7 +98,7 @@ describe("progressiveSkillPlugin", () => {
       },
     };
 
-    const plugin = progressiveSkillPlugin({ dir: badDir });
+    const plugin = progressiveSkillPlugin({ ws, root });
     const msgs: Message[] = [
       { role: "system", content: "sys" },
       { role: "user", content: "hi" },
@@ -100,10 +106,15 @@ describe("progressiveSkillPlugin", () => {
 
     const result = await plugin.hooks.beforeModel?.(ctx, msgs as Message[]);
     expect(result).toHaveLength(2);
-    expect(warnings.some((w) => w.includes("dir not found"))).toBe(true);
+    expect(warnings.some((w) => w.includes("load failed"))).toBe(true);
   });
 
   test("no system message → warn + pass through", async () => {
+    const ws = testFS();
+    const root = "/skills/";
+    await ws.write("/skills/pdf-extract/SKILL.md", pdfExtractSkillMd);
+    invalidateSkillCache(root);
+
     const warnings: string[] = [];
     const ctx = {
       ...testCtx(),
@@ -115,8 +126,7 @@ describe("progressiveSkillPlugin", () => {
       },
     };
 
-    invalidateSkillCache(dir);
-    const plugin = progressiveSkillPlugin({ dir });
+    const plugin = progressiveSkillPlugin({ ws, root });
     const msgs: Message[] = [{ role: "user", content: "hi" }];
 
     const result = await plugin.hooks.beforeModel?.(ctx, msgs as Message[]);
@@ -125,43 +135,45 @@ describe("progressiveSkillPlugin", () => {
   });
 
   test("plugin exposes skill_load tool", () => {
-    const plugin = progressiveSkillPlugin({ dir: "/tmp/test" });
+    const ws = testFS();
+    const plugin = progressiveSkillPlugin({ ws });
     expect(plugin.tools).toHaveLength(1);
     expect(plugin.tools?.[0]?.name).toBe("skill_load");
   });
 
   test("${SKILL_DIR} replaced in body", async () => {
-    invalidateSkillCache(dir);
-    const tool = progressiveSkillPlugin({ dir }).tools![0]!;
+    const ws = testFS();
+    const root = "/skills/";
+    await ws.write("/skills/pdf-extract/SKILL.md", pdfExtractSkillMd);
+    invalidateSkillCache(root);
+
+    const tool = progressiveSkillPlugin({ ws, root }).tools![0]!;
     const result = await tool.execute({ name: "pdf-extract" });
     expect(result.content).toContain("/extract.py");
     expect(result.content).not.toContain("${SKILL_DIR}");
   });
 
   test("other placeholders like ${HOME} are preserved as-is", async () => {
-    const tmpDir = `${import.meta.dir}/test-psk-other-${crypto.randomUUID()}`;
-    await mkdir(`${tmpDir}/other-skill`, { recursive: true });
-    try {
-      await writeFile(
-        `${tmpDir}/other-skill/SKILL.md`,
-        [
-          "---",
-          "name: other-skill",
-          "description: Tests placeholder preservation",
-          "---",
-          "",
-          "Home dir is ${HOME}, memory is at ${MEMORY_DIR}.",
-        ].join("\n"),
-      );
-      invalidateSkillCache(tmpDir);
-      const plugin = progressiveSkillPlugin({ dir: tmpDir });
-      const result = (await plugin.tools?.[0]?.execute({ name: "other-skill" })) as {
-        content: string;
-      };
-      expect(result.content).toContain("${HOME}");
-      expect(result.content).toContain("${MEMORY_DIR}");
-    } finally {
-      await rm(tmpDir, { recursive: true, force: true });
-    }
+    const ws = testFS();
+    const root = "/skills/";
+    await ws.write(
+      "/skills/other-skill/SKILL.md",
+      [
+        "---",
+        "name: other-skill",
+        "description: Tests placeholder preservation",
+        "---",
+        "",
+        "Home dir is ${HOME}, memory is at ${MEMORY_DIR}.",
+      ].join("\n"),
+    );
+    invalidateSkillCache(root);
+
+    const plugin = progressiveSkillPlugin({ ws, root });
+    const result = (await plugin.tools?.[0]?.execute({ name: "other-skill" })) as {
+      content: string;
+    };
+    expect(result.content).toContain("${HOME}");
+    expect(result.content).toContain("${MEMORY_DIR}");
   });
 });

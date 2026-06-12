@@ -15,17 +15,17 @@ import {
 import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
 import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
 import { taskGuardPlugin } from "@my-agent-team/plugin-task-guard";
-import type { WorkspaceRoots } from "@my-agent-team/tools-common";
+import type { AgentFsRoots } from "@my-agent-team/tools-common";
 import {
   bashTool,
   globTool,
   grepTool,
   withWorkspace,
 } from "@my-agent-team/tools-common";
-import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
+import type { AgentFsHandle } from "@my-agent-team/agent-fs";
 import { bootstrap } from "./bootstrap.js";
 
-function toWorkspaceRoots(ws: WorkspaceHandle): WorkspaceRoots {
+function toAgentFsRoots(ws: AgentFsHandle): AgentFsRoots {
   return { privateRoot: ws.privateRoot, posixRoots: ws.posixRoots };
 }
 
@@ -46,7 +46,7 @@ function checkDuplicateNames(
 }
 
 export interface GenericAgentOptions {
-  workspace: WorkspaceHandle;
+  workspace: AgentFsHandle;
 
   /** Pre-constructed ChatModel instance (adapter chosen by caller). */
   model: Parameters<typeof createAgent>[0]["model"];
@@ -102,12 +102,12 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
   const lg = _logger ?? consoleLogger();
   const root = workspace.privateRoot;
 
-  // 1. Bootstrap: read workspace files via WorkspaceFS → compose systemPrompt
+  // 1. Bootstrap: read workspace files via AgentFS → compose systemPrompt
   const systemPrompt = await bootstrap(workspace.fs, lg, workspace.displayRoot);
 
-  // 2. Default tools: structured IO via WorkspaceFS, subprocess via POSIX sandbox
+  // 2. Default tools: structured IO via AgentFS, subprocess via POSIX sandbox
   const ws = workspace.fs;
-  const sandbox = toWorkspaceRoots(workspace);
+  const sandbox = toAgentFsRoots(workspace);
   const { createReadToolForWorkspace, createWriteToolForWorkspace, createEditToolForWorkspace } = await import("@my-agent-team/tools-common");
   const defaultTools: Tool[] = [
     createReadToolForWorkspace(ws),
@@ -118,10 +118,10 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
     withWorkspace(globTool, sandbox),
   ];
 
-  // 3. Default 2 plugins with conventional paths
+  // 3. Default plugins — AFS-native via AgentFsLike
   const defaultPlugins: Plugin[] = [
-    fsMemoryPlugin({ dir: root }),
-    progressiveSkillPlugin({ dir: path.join(root, "skills") }),
+    fsMemoryPlugin({ ws }),
+    progressiveSkillPlugin({ ws, root: "/skills/" }),
     taskGuardPlugin({ model }),
   ];
 

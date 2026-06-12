@@ -1,41 +1,39 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { describe, expect, test } from "bun:test";
+import { MemoryBackend, AgentFS } from "@my-agent-team/agent-fs";
 import { invalidateSkillCache } from "./cache.js";
 import { skillLoadTool } from "./skill-load.js";
 
+function testFS(): AgentFS {
+  return new AgentFS({
+    mounts: [{ prefix: "/", domain: "shared", backend: new MemoryBackend() }],
+    aliases: { toCanonical: (p: string) => p },
+  });
+}
+
+const testSkillMd = [
+  "---",
+  "name: test-skill",
+  "description: A test skill for unit tests",
+  "---",
+  "",
+  "# Test Skill",
+  "",
+  "This is the body of the test skill.",
+  "It has multiple paragraphs.",
+  "",
+  "## Section 2",
+  "",
+  "More content here.",
+].join("\n");
+
 describe("skill_load", () => {
-  let dir: string;
-
-  beforeAll(async () => {
-    dir = `${import.meta.dir}/test-skill-${crypto.randomUUID()}`;
-    await mkdir(`${dir}/test-skill`, { recursive: true });
-    await writeFile(
-      `${dir}/test-skill/SKILL.md`,
-      [
-        "---",
-        "name: test-skill",
-        "description: A test skill for unit tests",
-        "---",
-        "",
-        "# Test Skill",
-        "",
-        "This is the body of the test skill.",
-        "It has multiple paragraphs.",
-        "",
-        "## Section 2",
-        "",
-        "More content here.",
-      ].join("\n"),
-    );
-  });
-
-  afterAll(async () => {
-    await rm(dir, { recursive: true, force: true });
-  });
-
   test("loads skill body without frontmatter", async () => {
-    invalidateSkillCache(dir);
-    const tool = skillLoadTool({ dir });
+    const ws = testFS();
+    const root = "/skills/";
+    await ws.write("/skills/test-skill/SKILL.md", testSkillMd);
+    invalidateSkillCache(root);
+
+    const tool = skillLoadTool({ ws, root });
     const result = await tool.execute({ name: "test-skill" });
     expect(result.content).toContain("This is the body of the test skill.");
     expect(result.content).not.toContain("---");
@@ -43,16 +41,23 @@ describe("skill_load", () => {
   });
 
   test("returns isError when skill not found", async () => {
-    invalidateSkillCache(dir);
-    const tool = skillLoadTool({ dir });
+    const ws = testFS();
+    const root = "/skills/";
+    invalidateSkillCache(root);
+
+    const tool = skillLoadTool({ ws, root });
     const result = await tool.execute({ name: "nonexistent" });
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Skill not found");
   });
 
   test("offset paging for long body", async () => {
-    invalidateSkillCache(dir);
-    const tool = skillLoadTool({ dir, maxCharsPerLoad: 30 });
+    const ws = testFS();
+    const root = "/skills/";
+    await ws.write("/skills/test-skill/SKILL.md", testSkillMd);
+    invalidateSkillCache(root);
+
+    const tool = skillLoadTool({ ws, root, maxCharsPerLoad: 30 });
     const r1 = await tool.execute({ name: "test-skill" });
     expect(r1.content).toContain("[Truncated");
 
@@ -65,8 +70,12 @@ describe("skill_load", () => {
   });
 
   test("fully loaded when offset exceeds body", async () => {
-    invalidateSkillCache(dir);
-    const tool = skillLoadTool({ dir });
+    const ws = testFS();
+    const root = "/skills/";
+    await ws.write("/skills/test-skill/SKILL.md", testSkillMd);
+    invalidateSkillCache(root);
+
+    const tool = skillLoadTool({ ws, root });
     const result = await tool.execute({ name: "test-skill", offset: 99999 });
     expect(result.content).toContain("fully loaded");
   });

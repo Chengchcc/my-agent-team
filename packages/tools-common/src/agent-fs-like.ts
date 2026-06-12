@@ -1,6 +1,6 @@
 /** M14.7: Structured IO interface for logical-path file operations.
- *  WorkspaceFS implements this naturally via structural typing. */
-export interface WorkspaceLike {
+ *  AgentFS implements this naturally via structural typing. */
+export interface AgentFsLike {
   read(path: string): Promise<string | null>;
   write(path: string, content: string): Promise<void>;
   list(path: string): Promise<string[]>;

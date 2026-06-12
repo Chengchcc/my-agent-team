@@ -3,18 +3,18 @@ import type {
   MountEntry,
   PathAliasResolver,
   ReadableBackend,
-  WorkspaceDomain,
+  AgentFsDomain,
   WritableBackend,
 } from "./types.js";
 
 function normalizeAbs(raw: string): string {
-  if (!raw || raw.includes("\0")) throw new WorkspaceAccessError("invalid path");
+  if (!raw || raw.includes("\0")) throw new AgentFsAccessError("invalid path");
   let p = raw.replace(/\\/g, "/");
   const segs = p.split("/").filter(Boolean);
   const out: string[] = [];
   for (const s of segs) {
     if (s === "..") {
-      if (out.length === 0) throw new WorkspaceAccessError("invalid path: escapes root");
+      if (out.length === 0) throw new AgentFsAccessError("invalid path: escapes root");
       out.pop();
     } else if (s !== ".") {
       out.push(s);
@@ -40,7 +40,7 @@ function normalizeMounts(mounts: MountEntry[]): MountEntry[] {
   for (const m of mounts) {
     const p = normalizeAbs(m.prefix);
     if (p !== "/" && !p.endsWith("/")) {
-      throw new WorkspaceAccessError(`mount prefix must end with "/": ${m.prefix}`);
+      throw new AgentFsAccessError(`mount prefix must end with "/": ${m.prefix}`);
     }
   }
   return mounts
@@ -52,21 +52,21 @@ function normalizeMounts(mounts: MountEntry[]): MountEntry[] {
     .map((x) => x.m);
 }
 
-export class WorkspaceAccessError extends Error {
+export class AgentFsAccessError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "WorkspaceAccessError";
+    this.name = "AgentFsAccessError";
   }
 }
 
-export interface WorkspaceHandle {
-  fs: WorkspaceFS;
+export interface AgentFsHandle {
+  fs: AgentFS;
   privateRoot: string;
   posixRoots: string[];
   displayRoot: string;
 }
 
-export class WorkspaceFS {
+export class AgentFS {
   #mounts: MountEntry[];
   #aliases: PathAliasResolver;
 
@@ -82,7 +82,7 @@ export class WorkspaceFS {
       if (!matchesPrefix(canonicalPath, mount.prefix)) continue;
       return { mount, relPath: stripPrefix(canonicalPath, mount.prefix) };
     }
-    throw new WorkspaceAccessError(`no mount for path: ${path}`);
+    throw new AgentFsAccessError(`no mount for path: ${path}`);
   }
 
   #r(p: string): { backend: ReadableBackend; relPath: string } {
@@ -91,7 +91,7 @@ export class WorkspaceFS {
   }
   #w(p: string): { backend: WritableBackend; relPath: string } {
     const x = this.#resolve(p);
-    if (!("write" in x.mount.backend)) throw new WorkspaceAccessError(`read-only mount: ${p}`);
+    if (!("write" in x.mount.backend)) throw new AgentFsAccessError(`read-only mount: ${p}`);
     return { backend: x.mount.backend as WritableBackend, relPath: x.relPath };
   }
 
@@ -124,7 +124,7 @@ export class WorkspaceFS {
     return r.backend.remove(r.relPath);
   }
 
-  mountsForDomain(domain: WorkspaceDomain): MountEntry[] {
+  mountsForDomain(domain: AgentFsDomain): MountEntry[] {
     return this.#mounts.filter((m) => m.domain === domain);
   }
   posixRoots(): string[] {

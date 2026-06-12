@@ -2,18 +2,18 @@ export { DefaultWorkspaceAliases, isSharedLogicalPath, SharedOnlyAliases } from 
 export { LocalBackend, MemoryBackend } from "./backends.js";
 export {
   makeDefaultMounts,
-  makeDevWorkspaceHandle,
+  makeDevAgentFsHandle,
   makeExternalMount,
   makeSharedOnlyMounts,
-  makeSharedOnlyWorkspaceFS,
-  makeWorkspaceHandle,
+  makeSharedOnlyAgentFS,
+  makeAgentFsHandle,
 } from "./mounts.js";
 export type {
   MountEntry,
   PathAliasResolver,
   ReadableBackend,
-  WorkspaceDomain,
+  AgentFsDomain,
   WritableBackend,
 } from "./types.js";
-export type { WorkspaceHandle } from "./workspace-fs.js";
-export { WorkspaceAccessError, WorkspaceFS } from "./workspace-fs.js";
+export type { AgentFsHandle } from "./agent-fs.js";
+export { AgentFsAccessError, AgentFS } from "./agent-fs.js";

@@ -1,15 +1,18 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import type { Tool } from "@my-agent-team/core";
+import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { loadSkillIndexWithMtimeCache, type SkillMeta } from "./cache.js";
 import { truncateAtParagraph } from "./truncation.js";
 
-export function skillLoadTool(opts: { dir: string; maxCharsPerLoad?: number }): Tool {
-  const maxCharsPerLoad = opts.maxCharsPerLoad ?? 8000;
+export function skillLoadTool(opts: {
+  ws: AgentFsLike;
+  root: string;
+  maxCharsPerLoad?: number;
+}): Tool {
+  const { ws, root, maxCharsPerLoad = 8000 } = opts;
   const lookahead = 500;
 
   async function findSkill(name: string): Promise<SkillMeta | null> {
-    const skills = await loadSkillIndexWithMtimeCache(opts.dir);
+    const skills = await loadSkillIndexWithMtimeCache(ws, root);
     return skills.find((s) => s.name === name) ?? null;
   }
 
@@ -30,9 +33,11 @@ export function skillLoadTool(opts: { dir: string; maxCharsPerLoad?: number }): 
       const skill = await findSkill(name);
       if (!skill) return { content: `Skill not found: ${name}`, isError: true };
 
-      const raw = await readFile(path.join(skill.dir, "SKILL.md"), "utf-8");
+      const raw = (await ws.read(skill.skillMdPath)) ?? "";
       const body = raw.slice(skill.bodyOffset);
-      const resolved = body.replaceAll("${SKILL_DIR}", path.resolve(skill.dir));
+      // M14.7 AFS: `${SKILL_DIR}` replaced with logical path (e.g. /skills/my-skill).
+      // For bash reachability, the /skills/ mount must have a posixRoot configured.
+      const resolved = body.replaceAll("${SKILL_DIR}", skill.dir);
 
       if (offset >= resolved.length) {
         return { content: `Skill ${name} fully loaded.` };

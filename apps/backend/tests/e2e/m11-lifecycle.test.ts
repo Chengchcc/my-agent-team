@@ -71,13 +71,13 @@ describe("M11 Growth e2e", () => {
   test("bootstrap() reads BOOTSTRAP.md directly when present", async () => {
     const { bootstrap } = await import("@my-agent-team/harness");
     const { consoleLogger } = await import("@my-agent-team/framework");
-    const { LocalBackend, WorkspaceFS } = await import("@my-agent-team/workspace-fs");
+    const { LocalBackend, AgentFS } = await import("@my-agent-team/agent-fs");
 
     const ws = `${TEST_DIR}/ws-growth`;
     await mkdir(ws, { recursive: true });
 
     const be = new LocalBackend(ws);
-    const fs = new WorkspaceFS({
+    const fs = new AgentFS({
       mounts: [
         { prefix: "/shared/", domain: "shared", backend: be },
         { prefix: "/private/", domain: "private", backend: be, posixRoot: ws },

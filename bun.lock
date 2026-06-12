@@ -129,6 +129,10 @@
       "dependencies": {
         "@my-agent-team/core": "workspace:*",
         "@my-agent-team/framework": "workspace:*",
+        "@my-agent-team/tools-common": "workspace:*",
+      },
+      "devDependencies": {
+        "@my-agent-team/workspace-fs": "workspace:*",
       },
     },
     "packages/plugin-progressive-skill": {
@@ -137,7 +141,11 @@
       "dependencies": {
         "@my-agent-team/core": "workspace:*",
         "@my-agent-team/framework": "workspace:*",
+        "@my-agent-team/tools-common": "workspace:*",
         "gray-matter": "^4.0.3",
+      },
+      "devDependencies": {
+        "@my-agent-team/workspace-fs": "workspace:*",
       },
     },
     "packages/plugin-task-guard": {

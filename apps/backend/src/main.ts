@@ -33,20 +33,25 @@ const threads = new Set<string>();
 
 // M14.7: RunnerRegistry — dev spawns daemons, prod resolves endpoints
 const runnerEnv = process.env.RUNNER_ENV ?? "dev";
-const registry: RunnerRegistry = runnerEnv === "prod"
-  ? new ProdRunnerRegistry({
-      endpointResolver: {
-        resolve: async (agentId: string) => ({ kind: "unix" as const, socketPath: `/run/runners/${agentId}/runner.sock` }),
-      },
-      transportFactory: {
-        create: (endpoint: { kind: "unix"; socketPath: string }) => createSocketClient({ socketPath: endpoint.socketPath }),
-      },
-    })
-  : new DevRunnerRegistry({
-      dataDir: config.dataDir,
-      daemonBin: `${import.meta.dir}/../../../packages/runner-daemon/src/bin.ts`,
-      transportFactory: (socket) => createSocketClient({ socketPath: socket }),
-    });
+const registry: RunnerRegistry =
+  runnerEnv === "prod"
+    ? new ProdRunnerRegistry({
+        endpointResolver: {
+          resolve: async (agentId: string) => ({
+            kind: "unix" as const,
+            socketPath: `/run/runners/${agentId}/runner.sock`,
+          }),
+        },
+        transportFactory: {
+          create: (endpoint: { kind: "unix"; socketPath: string }) =>
+            createSocketClient({ socketPath: endpoint.socketPath }),
+        },
+      })
+    : new DevRunnerRegistry({
+        dataDir: config.dataDir,
+        daemonBin: `${import.meta.dir}/../../../packages/runner-daemon/src/bin.ts`,
+        transportFactory: (socket) => createSocketClient({ socketPath: socket }),
+      });
 
 // M9: EventLog + Supervisor
 const eventLog = sqliteEventLog({ db: `${config.dataDir}/events.db` });
@@ -147,21 +152,32 @@ async function buildAgentSpecV2(
   threadId: string,
   input: string,
   overrides?: {
-    runId?: string; mode?: "run" | "resume" | "reflect";
+    runId?: string;
+    mode?: "run" | "resume" | "reflect";
     resumeCommand?: { approved: boolean; message?: string };
-    conversationId?: string; senderMemberId?: string; parentRunId?: string;
+    conversationId?: string;
+    senderMemberId?: string;
+    parentRunId?: string;
   },
 ): Promise<Record<string, unknown>> {
   const cid = threadId.split(":")[0]!;
   const memberId = threadId.split(":").slice(1).join(":");
-  const member = db.query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
+  const member = db
+    .query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
     .get(cid, memberId) as { agent_id: string } | undefined;
   const agentId = member?.agent_id ?? memberId;
   const agent = await agentSvc.getById(agentId);
   return {
     schemaVersion: "2",
-    agentId, threadId, runId: overrides?.runId ?? crypto.randomUUID(), input,
-    model: { provider: agent.modelProvider, model: agent.modelName, ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}) },
+    agentId,
+    threadId,
+    runId: overrides?.runId ?? crypto.randomUUID(),
+    input,
+    model: {
+      provider: agent.modelProvider,
+      model: agent.modelName,
+      ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}),
+    },
     permissionMode: agent.permissionMode ?? "ask",
     maxSteps: agent.maxSteps ?? undefined,
     ...overrides,
@@ -239,11 +255,11 @@ const convSvc = createConversationService({
   },
 });
 
-// C2 + D19 fix: register conversation-level onRunComplete (multi-listener supervisor)
-supervisor.onRunComplete(async (threadId, runId) => {
+/** D19 handler: on run complete, project messages to conversation ledger
+ *  and trigger @-mentioned agents. Registered as supervisor.onRunComplete listener. */
+async function onRunComplete(threadId: string, runId: string): Promise<void> {
   // M14.3: reflect run自身结束 — 不放会话锁、不D19、不递归
   if (threadId.startsWith("reflect:")) return;
-  // Scan active conversations for a matching threadId (deriveThreadId = cid:memberId)
   for (const cid of activeConversations) {
     if (threadId.startsWith(`${cid}:`)) {
       // C2: Release the conversation lock
@@ -254,87 +270,85 @@ supervisor.onRunComplete(async (threadId, runId) => {
       try {
         const events = await eventLog.read({ runId });
 
-          const conversationMsgs = events
-            .filter((rec) => rec.event.type === "message")
-            .map((rec) => rec.event.payload as { role: string; content: unknown })
-            .filter((p) => p.role === "assistant" || p.role === "user");
+        const conversationMsgs = events
+          .filter((rec) => rec.event.type === "message")
+          .map((rec) => rec.event.payload as { role: string; content: unknown })
+          .filter((p) => p.role === "assistant" || p.role === "user");
 
-          const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+        const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
 
-          // M14.6: Capture the last todo_update snapshot and persist to ledger.
-          // Only the final snapshot is stored — intermediate updates are live-only
-          // via the /runs/:id/events SSE channel. This avoids ledger spam while
-          // ensuring the post-refresh state shows the definitive todo outcome.
-          const lastTodoUpdate = events.filter((rec) => rec.event.type === "todo_update").pop();
-          if (lastTodoUpdate) {
-            const payload = (lastTodoUpdate.event as { payload: { todos: unknown } }).payload;
-            await convSvc.appendTodo(cid, senderMemberId, payload.todos);
-          }
+        // M14.6: Capture last todo_update snapshot and persist to ledger.
+        const lastTodoUpdate = events.filter((rec) => rec.event.type === "todo_update").pop();
+        if (lastTodoUpdate) {
+          const payload = (lastTodoUpdate.event as { payload: { todos: unknown } }).payload;
+          await convSvc.appendTodo(cid, senderMemberId, payload.todos);
+        }
 
-          // M14.4: Pre-fetch roster for @mention resolution
-          const roster = convPort.getMembers(cid);
-          const mentionedMemberIds = new Set<string>();
+        // M14.4: Parse @mentions from agent output for agent-to-agent triggering
+        const roster = convPort.getMembers(cid);
+        const mentionedMemberIds = new Set<string>();
 
-          for (const msg of conversationMsgs) {
-            const content = msg.content;
-            if (typeof content === "string" && content.trim().length === 0) continue;
-            if (Array.isArray(content) && content.length === 0) continue;
+        for (const msg of conversationMsgs) {
+          const content = msg.content;
+          if (typeof content === "string" && content.trim().length === 0) continue;
+          if (Array.isArray(content) && content.length === 0) continue;
 
-            // M14.4: Parse @mentions from agent output for agent-to-agent triggering
-            if (msg.role === "assistant") {
-              const text = extractText(content);
-              if (text) {
-                for (const m of roster) {
-                  if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
-                  const label = m.displayName ?? m.memberId;
-                  const re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
-                  if (re.test(text) || text.includes(`@${m.memberId}`)) {
-                    mentionedMemberIds.add(m.memberId);
-                  }
+          if (msg.role === "assistant") {
+            const text = extractText(content);
+            if (text) {
+              for (const m of roster) {
+                if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
+                const label = m.displayName ?? m.memberId;
+                const re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
+                if (re.test(text) || text.includes(`@${m.memberId}`)) {
+                  mentionedMemberIds.add(m.memberId);
                 }
               }
             }
-
-            const seq = convPort.appendLedgerEntry({
-              conversationId: cid,
-              senderMemberId,
-              addressedTo: [...mentionedMemberIds],
-              kind: "message",
-              content: JSON.stringify(content),
-              ts: Date.now(),
-            });
-            await convSvc.broadcastMessage({
-              seq,
-              conversationId: cid,
-              senderMemberId,
-              addressedTo: [...mentionedMemberIds],
-              kind: "message",
-              content: JSON.stringify(content),
-              ts: Date.now(),
-            });
           }
 
-          // M14.4: Trigger @-mentioned agents (agent-to-agent chain)
-          if (mentionedMemberIds.size > 0) {
-            convSvc.triggerMentionedAgents({
-              conversationId: cid,
-              senderMemberId,
-              addressedTo: [...mentionedMemberIds],
-            });
-          }
-        } catch (err) {
-          console.error(
-            `[conversation] D19 error for ${runId}:`,
-            err instanceof Error ? err.message : String(err),
-          );
+          const seq = convPort.appendLedgerEntry({
+            conversationId: cid,
+            senderMemberId,
+            addressedTo: [...mentionedMemberIds],
+            kind: "message",
+            content: JSON.stringify(content),
+            ts: Date.now(),
+          });
+          await convSvc.broadcastMessage({
+            seq,
+            conversationId: cid,
+            senderMemberId,
+            addressedTo: [...mentionedMemberIds],
+            kind: "message",
+            content: JSON.stringify(content),
+            ts: Date.now(),
+          });
         }
+
+        // M14.4: Trigger @-mentioned agents (agent-to-agent chain)
+        if (mentionedMemberIds.size > 0) {
+          void convSvc.triggerMentionedAgents({
+            conversationId: cid,
+            senderMemberId,
+            addressedTo: [...mentionedMemberIds],
+          });
+        }
+      } catch (err) {
+        console.error(
+          `[conversation] D19 error for ${runId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
 
       // M14.7: Reflection is now orchestrated by the daemon control loop.
       // Backend only sends run_finalized ACK; daemon fires reflection after receiving it.
       break;
     }
   }
-});
+}
+
+supervisor.onRunComplete(onRunComplete);
 
 // HTTP router
 // D14: startup assertion — resume support requires thread lookup

@@ -5,15 +5,15 @@ import path from "node:path";
 import { SharedOnlyAliases } from "./aliases.js";
 import { MemoryBackend } from "./backends.js";
 import { makeDefaultMounts, makeExternalMount, makeSharedOnlyMounts } from "./mounts.js";
-import { WorkspaceAccessError, WorkspaceFS } from "./workspace-fs.js";
+import { AgentFsAccessError, AgentFS } from "./agent-fs.js";
 
 function tmpDir() {
   return path.join(tmpdir(), `wsfs-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 }
 
-describe("WorkspaceFS", () => {
+describe("AgentFS", () => {
   test("makeDefaultMounts constructs without throwing", () => {
-    const fs = new WorkspaceFS({
+    const fs = new AgentFS({
       mounts: makeDefaultMounts({ sharedRoot: "/tmp/sh", privateRoot: "/tmp/pr" }),
     });
     expect(fs).toBeTruthy();
@@ -31,7 +31,7 @@ describe("WorkspaceFS", () => {
     await mkdir(sh, { recursive: true });
     await mkdir(pr, { recursive: true });
     try {
-      const fs = new WorkspaceFS({
+      const fs = new AgentFS({
         mounts: makeDefaultMounts({ sharedRoot: sh, privateRoot: pr }),
       });
       await fs.write("/SOUL.md", "soul");
@@ -48,7 +48,7 @@ describe("WorkspaceFS", () => {
     await mkdir(sh, { recursive: true });
     await mkdir(pr, { recursive: true });
     try {
-      const fs = new WorkspaceFS({
+      const fs = new AgentFS({
         mounts: makeDefaultMounts({ sharedRoot: sh, privateRoot: pr }),
       });
       await fs.mkdirp("/memory/");
@@ -66,7 +66,7 @@ describe("WorkspaceFS", () => {
     await mkdir(sh, { recursive: true });
     await mkdir(pr, { recursive: true });
     try {
-      const fs = new WorkspaceFS({
+      const fs = new AgentFS({
         mounts: makeDefaultMounts({ sharedRoot: sh, privateRoot: pr }),
       });
       await fs.write("/skills/foo/SKILL.md", "skill");
@@ -81,7 +81,7 @@ describe("WorkspaceFS", () => {
     const sh = tmpDir();
     await mkdir(sh, { recursive: true });
     try {
-      const fs = new WorkspaceFS({
+      const fs = new AgentFS({
         mounts: makeSharedOnlyMounts({ sharedRoot: sh }),
         aliases: new SharedOnlyAliases(),
       });
@@ -94,7 +94,7 @@ describe("WorkspaceFS", () => {
   });
 
   test("external prefix overrides", async () => {
-    const fs = new WorkspaceFS({
+    const fs = new AgentFS({
       mounts: [
         makeExternalMount("/mnt/drive/"),
         { prefix: "/private/", domain: "private", backend: new MemoryBackend(), posixRoot: "/tmp" },
@@ -105,17 +105,17 @@ describe("WorkspaceFS", () => {
   });
 
   test("rejects .. escape", async () => {
-    const fs = new WorkspaceFS({
+    const fs = new AgentFS({
       mounts: [
         { prefix: "/private/", domain: "private", backend: new MemoryBackend(), posixRoot: "/tmp" },
       ],
     });
-    await expect(fs.read("/../escape.md")).rejects.toThrow(WorkspaceAccessError);
+    await expect(fs.read("/../escape.md")).rejects.toThrow(AgentFsAccessError);
   });
 
   test("write/read/exists/stat/list/remove roundtrip", async () => {
     const mem = new MemoryBackend();
-    const fs = new WorkspaceFS({
+    const fs = new AgentFS({
       mounts: [{ prefix: "/private/", domain: "private", backend: mem, posixRoot: "/tmp" }],
     });
     expect(await fs.exists("/file.md")).toBe(false);
@@ -135,13 +135,13 @@ describe("WorkspaceFS", () => {
       stat: mem.stat.bind(mem),
       exists: mem.exists.bind(mem),
     };
-    const fs = new WorkspaceFS({ mounts: [{ prefix: "/shared/", domain: "shared", backend: ro }] });
-    await expect(fs.write("/SOUL.md", "nope")).rejects.toThrow(WorkspaceAccessError);
+    const fs = new AgentFS({ mounts: [{ prefix: "/shared/", domain: "shared", backend: ro }] });
+    await expect(fs.write("/SOUL.md", "nope")).rejects.toThrow(AgentFsAccessError);
   });
 
   test("posixRoots collects from mounts", () => {
     const mem = new MemoryBackend();
-    const fs = new WorkspaceFS({
+    const fs = new AgentFS({
       mounts: [
         { prefix: "/shared/", domain: "shared", backend: mem },
         { prefix: "/private/", domain: "private", backend: mem, posixRoot: "/data/pr" },

@@ -3,14 +3,14 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AIMessageChunk, ChatModel, Message, Tool } from "@my-agent-team/core";
-import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
-import { LocalBackend, WorkspaceFS } from "@my-agent-team/workspace-fs";
+import type { AgentFsHandle } from "@my-agent-team/agent-fs";
+import { LocalBackend, AgentFS } from "@my-agent-team/agent-fs";
 import { createGenericAgent } from "./create-generic-agent.js";
 
-function testHandle(root: string): WorkspaceHandle {
+function testHandle(root: string): AgentFsHandle {
   const be = new LocalBackend(root);
   return {
-    fs: new WorkspaceFS({
+    fs: new AgentFS({
       mounts: [
         { prefix: "/shared/", domain: "shared", backend: be },
         { prefix: "/private/", domain: "private", backend: be, posixRoot: root },

@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { consoleLogger } from "@my-agent-team/framework";
-import { LocalBackend, WorkspaceFS } from "@my-agent-team/workspace-fs";
+import { LocalBackend, AgentFS } from "@my-agent-team/agent-fs";
 import { BOOTSTRAP_TEMPLATE, bootstrap } from "./bootstrap.js";
 
-function testFS(root: string): WorkspaceFS {
+function testFS(root: string): AgentFS {
   const be = new LocalBackend(root);
-  return new WorkspaceFS({
+  return new AgentFS({
     mounts: [
       { prefix: "/shared/", domain: "shared", backend: be },
       { prefix: "/private/", domain: "private", backend: be, posixRoot: root },

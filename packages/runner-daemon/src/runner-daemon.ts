@@ -5,8 +5,8 @@ import { AgentSpecV2 } from "@my-agent-team/agent-spec";
 import type { Agent, AgentEvent, Checkpointer } from "@my-agent-team/framework";
 import { sqliteCheckpointer } from "@my-agent-team/framework";
 import type { HostToRunner, RunnerTransport } from "@my-agent-team/runner-protocol";
-import type { WorkspaceHandle } from "@my-agent-team/workspace-fs";
-import { makeWorkspaceHandle } from "@my-agent-team/workspace-fs";
+import type { AgentFsHandle } from "@my-agent-team/agent-fs";
+import { makeAgentFsHandle } from "@my-agent-team/agent-fs";
 
 // ─── Types ───
 
@@ -51,7 +51,7 @@ function serializeError(e: unknown): string | undefined {
 export class RunnerDaemon {
   #transport: RunnerTransport;
   #agentId: string;
-  #workspace: WorkspaceHandle;
+  #workspace: AgentFsHandle;
   #checkpointer: Checkpointer;
   #modelFactory: ModelFactory;
   #runs = new Map<string, RunHandle>();
@@ -61,7 +61,7 @@ export class RunnerDaemon {
   constructor(opts: RunnerDaemonOptions) {
     this.#transport = opts.transport;
     this.#agentId = opts.agentId;
-    this.#workspace = makeWorkspaceHandle({
+    this.#workspace = makeAgentFsHandle({
       sharedRoot: opts.sharedRoot,
       privateRoot: opts.privateRoot,
     });

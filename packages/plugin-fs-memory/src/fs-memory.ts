@@ -1,72 +1,56 @@
-import { exists, mkdir } from "node:fs/promises";
 import type { Message } from "@my-agent-team/core";
 import type { Plugin } from "@my-agent-team/framework";
+import type { AgentFsLike } from "@my-agent-team/tools-common";
+import { pjoin } from "@my-agent-team/tools-common";
 import { readMemoryWithMtimeCache } from "./cache.js";
 import { memoryReadTool } from "./memory-read.js";
 import { memorySearchTool } from "./memory-search.js";
 import { memoryWriteTool } from "./memory-write.js";
 
 export interface FsMemoryOptions {
-  dir: string;
+  ws: AgentFsLike;
+  root?: string;
   enableWrite?: boolean;
   searchLimit?: number;
 }
 
 export function fsMemoryPlugin(options: FsMemoryOptions): Plugin {
-  const dir = options.dir;
+  const ws = options.ws;
+  const root = options.root ?? "/memory/";
   const enableWrite = options.enableWrite ?? true;
   const searchLimit = options.searchLimit ?? 5;
   let initialized = false;
 
-  const tools = [memoryReadTool({ dir }), memorySearchTool({ dir, searchLimit })];
-  if (enableWrite) {
-    tools.push(memoryWriteTool({ dir }));
-  }
+  const tools = [memoryReadTool({ ws, root }), memorySearchTool({ ws, root, searchLimit })];
+  if (enableWrite) tools.push(memoryWriteTool({ ws, root }));
 
   return {
     name: "fs-memory",
     tools,
     hooks: {
       async beforeModel(ctx, messages: readonly Message[]) {
-        // Lazy init: create directory structure on first use
         if (!initialized) {
-          if (!(await exists(dir))) {
-            await mkdir(dir, { recursive: true });
-          }
-          const factsDir = `${dir}/facts`;
-          if (!(await exists(factsDir))) {
-            await mkdir(factsDir, { recursive: true });
-          }
+          await ws.mkdirp(root);
+          await ws.mkdirp(pjoin(root, "facts"));
           initialized = true;
         }
-
         let memContent: string;
         try {
-          memContent = await readMemoryWithMtimeCache(dir);
+          memContent = await readMemoryWithMtimeCache(ws, root);
         } catch (err) {
           ctx.logger.warn("fs-memory: read failed, skipping injection", err);
           return [...messages];
         }
-
         if (!memContent) return [...messages];
-
         const systemIdx = messages.findIndex((m) => m.role === "system");
         if (systemIdx < 0) {
-          ctx.logger.warn(
-            "fs-memory: no system message found, skipping memory injection. " +
-              "Use createAgent({ systemPrompt }) to enable.",
-          );
+          ctx.logger.warn("fs-memory: no system message found");
           return [...messages];
         }
-
         const sys = messages[systemIdx]!;
-        const newSys = {
-          ...sys,
-          content: `${sys.content}\n\n<memory>\n${memContent}\n</memory>`,
-        };
         return [
           ...messages.slice(0, systemIdx),
-          newSys,
+          { ...sys, content: `${sys.content}\n\n<memory>\n${memContent}\n</memory>` },
           ...messages.slice(systemIdx + 1),
         ] as Message[];
       },

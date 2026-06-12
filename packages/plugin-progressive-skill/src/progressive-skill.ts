@@ -1,39 +1,28 @@
-import { stat } from "node:fs/promises";
 import type { Message } from "@my-agent-team/core";
 import type { Plugin } from "@my-agent-team/framework";
+import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { loadSkillIndexWithMtimeCache, type SkillMeta } from "./cache.js";
 import { skillLoadTool } from "./skill-load.js";
 
 export interface ProgressiveSkillOptions {
-  dir: string;
+  ws: AgentFsLike;
+  root?: string;
   maxCharsPerLoad?: number;
 }
 
 export function progressiveSkillPlugin(options: ProgressiveSkillOptions): Plugin {
-  const dir = options.dir;
+  const ws = options.ws;
+  const root = options.root ?? "/skills/";
   const maxCharsPerLoad = options.maxCharsPerLoad ?? 8000;
-
-  let dirExists = false;
 
   return {
     name: "progressive-skill",
-    tools: [skillLoadTool({ dir, maxCharsPerLoad })],
+    tools: [skillLoadTool({ ws, root, maxCharsPerLoad })],
     hooks: {
       async beforeModel(ctx, messages: readonly Message[]) {
-        // Check dir existence (only once — dir can't appear mid-session)
-        if (!dirExists) {
-          try {
-            await stat(dir);
-            dirExists = true;
-          } catch {
-            ctx.logger.warn("progressive-skill: dir not found, skipping injection");
-            return [...messages];
-          }
-        }
-
         let skills: SkillMeta[];
         try {
-          skills = await loadSkillIndexWithMtimeCache(dir, ctx.logger);
+          skills = await loadSkillIndexWithMtimeCache(ws, root, ctx.logger);
         } catch (err) {
           ctx.logger.warn("progressive-skill: load failed, skipping injection", err);
           return [...messages];

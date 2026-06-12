@@ -11,12 +11,12 @@ export class SandboxError extends Error {
 
 // ─── M14.7: Multi-root workspace descriptor ───
 
-export interface WorkspaceRoots {
+export interface AgentFsRoots {
   privateRoot: string;
   posixRoots: string[];
 }
 
-function toRoots(ws: string | WorkspaceRoots): WorkspaceRoots {
+function toRoots(ws: string | AgentFsRoots): AgentFsRoots {
   return typeof ws === "string" ? { privateRoot: ws, posixRoots: [ws] } : ws;
 }
 
@@ -24,7 +24,7 @@ function toRoots(ws: string | WorkspaceRoots): WorkspaceRoots {
  * Resolve a user-supplied path against allowed POSIX roots.
  * Throws SandboxError if the resolved path escapes all roots.
  */
-export function resolveInWorkspace(workspace: string | WorkspaceRoots, userPath: string): string {
+export function resolveInWorkspace(workspace: string | AgentFsRoots, userPath: string): string {
   const roots = toRoots(workspace);
   const base = path.isAbsolute(userPath) ? userPath : path.join(roots.privateRoot, userPath);
   const resolved = path.resolve("/", base);
@@ -71,9 +71,9 @@ const PATH_KEYS = ["path", "filePath", "file_path", "cwd"];
 
 /**
  * Wrap a tool with workspace sandboxing.
- * Accepts a single workspace root (legacy) or a multi-root WorkspaceRoots (M14.7).
+ * Accepts a single workspace root (legacy) or a multi-root AgentFsRoots (M14.7).
  */
-export function withWorkspace(tool: Tool, workspace: string | WorkspaceRoots): Tool {
+export function withWorkspace(tool: Tool, workspace: string | AgentFsRoots): Tool {
   const originalExecute = tool.execute;
   const roots = typeof workspace === "string" ? undefined : workspace;
   const defaultCwd = typeof workspace === "string" ? workspace : workspace.privateRoot;

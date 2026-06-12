@@ -26,7 +26,7 @@
     "@my-agent-team/plugin-progressive-skill": "workspace:*",
     "@my-agent-team/plugin-task-guard": "workspace:*",
     "@my-agent-team/tools-common": "workspace:*",
-    "@my-agent-team/workspace-fs": "workspace:*"
+    "@my-agent-team/agent-fs": "workspace:*"
   },
   "devDependencies": {}
 }

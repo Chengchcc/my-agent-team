@@ -19,6 +19,6 @@
     "@my-agent-team/framework": "workspace:*",
     "@my-agent-team/harness": "workspace:*",
     "@my-agent-team/runner-protocol": "workspace:*",
-    "@my-agent-team/workspace-fs": "workspace:*"
+    "@my-agent-team/agent-fs": "workspace:*"
   }
 }

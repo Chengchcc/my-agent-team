@@ -1,5 +1,5 @@
 import type { Logger } from "@my-agent-team/framework";
-import type { WorkspaceFS } from "@my-agent-team/workspace-fs";
+import type { AgentFS } from "@my-agent-team/agent-fs";
 import { todayAndYesterday } from "./daily-log.js";
 import { composeSystemPrompt } from "./system-prompt.js";
 
@@ -78,7 +78,7 @@ export const BOOTSTRAP_TEMPLATE = [
 ].join("\n");
 
 export async function bootstrap(
-  fs: WorkspaceFS,
+  fs: AgentFS,
   _logger: Logger,
   displayRoot?: string,
 ): Promise<string> {

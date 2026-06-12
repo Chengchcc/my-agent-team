@@ -1,5 +1,4 @@
 import { Database } from "bun:sqlite";
-import type { ChildProcess } from "node:child_process";
 import type { EventLog, EventSource } from "@my-agent-team/event-log";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
 import type { BackendConfig } from "../../config.js";
@@ -95,7 +94,8 @@ export class RunSupervisor {
   #active = new Map<string, RunSession>();
   #opts: RunSupervisorOptions;
   #db: Database;
-  #onRunComplete: Array<(threadId: string, runId: string) => void | Promise<void>> = [];
+  #onRunComplete: Array<(threadId: string, runId: string, status: string) => void | Promise<void>> =
+    [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
   #reaping = false;
   #deltaSubs = new Map<string, Set<ReadableStreamDefaultController>>();
@@ -134,14 +134,13 @@ export class RunSupervisor {
     // JOIN attempt with run to get thread_id for EventLog append
     const rows = this.#db
       .query(
-        `SELECT a.attempt_id, a.run_id, a.pid, a.heartbeat_at, r.thread_id
+        `SELECT a.attempt_id, a.run_id, a.heartbeat_at, r.thread_id
          FROM attempt a JOIN run r ON a.run_id = r.run_id
          WHERE a.ended_at IS NULL`,
       )
       .all() as {
       attempt_id: string;
       run_id: string;
-      pid: number | null;
       heartbeat_at: number | null;
       thread_id: string;
     }[];
@@ -151,19 +150,7 @@ export class RunSupervisor {
       const age = row.heartbeat_at ? Date.now() - row.heartbeat_at : Infinity;
       if (age < this.#opts.config.heartbeatTimeoutMs) continue; // fresh
 
-      // M11: Secondary check — probe process before final verdict
-      if (row.pid) {
-        try {
-          process.kill(row.pid, 0);
-          // Process still alive — might be stall, check stepStallTimeout
-          if (age < this.#opts.config.heartbeatTimeoutMs + this.#opts.config.stepStallTimeoutMs) {
-            continue; // within stall grace window, don't reap yet
-          }
-        } catch {
-          // Process dead — immediately reap
-        }
-      }
-
+      // M14.7: daemon runs have no backend-visible pid — heartbeat timeout is the sole liveness signal.
       const now = Date.now();
       // FIX: transactional write — run + attempt status update is atomic
       this.#db.transaction(() => {
@@ -186,7 +173,7 @@ export class RunSupervisor {
 
       // Trigger onRunComplete listeners (releases M10 locks, notifies Growth)
       for (const fn of this.#onRunComplete) {
-        fn(row.thread_id, row.run_id);
+        fn(row.thread_id, row.run_id, "interrupted");
       }
 
       console.log(
@@ -198,7 +185,9 @@ export class RunSupervisor {
   }
 
   /** Register callback invoked when any run completes (success/error/abort). Supports multiple listeners. */
-  onRunComplete(fn: (threadId: string, runId: string) => void | Promise<void>): void {
+  onRunComplete(
+    fn: (threadId: string, runId: string, status: string) => void | Promise<void>,
+  ): void {
     this.#onRunComplete.push(fn);
   }
 
@@ -288,30 +277,29 @@ export class RunSupervisor {
    * Start a NEW main run. Creates run + attempt rows.
    */
   async startMainRun(
-    runId: string, threadId: string, spec: Record<string, unknown>,
+    runId: string,
+    threadId: string,
+    spec: Record<string, unknown>,
   ): Promise<{ runId: string; attemptId: string }> {
     const agentId = (spec.agentId as string) ?? "default";
     return this.#beginAndSend(runId, threadId, agentId, spec, "main");
   }
 
   async resumeRun(
-    runId: string, threadId: string, spec: Record<string, unknown>,
+    runId: string,
+    threadId: string,
+    spec: Record<string, unknown>,
   ): Promise<{ runId: string; attemptId: string }> {
     const agentId = (spec.agentId as string) ?? "default";
-    const transport = await this.#opts.registry.transportFor(agentId);
-    this.#bindTransport(transport);
     this.#db.run("UPDATE run SET status = 'running' WHERE run_id = ?", [runId]);
-    const attemptId = crypto.randomUUID();
-    const now = Date.now();
-    this.#db.run("INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)", [attemptId, runId, now, now]);
-    const ac = new AbortController();
-    this.#active.set(runId, { runId, attemptId, threadId, agentId, kind: "main", transport, abortController: ac });
-    transport.send({ type: "start", runId, spec });
-    return { runId, attemptId };
+    return this.#beginAttempt(runId, threadId, agentId, spec, "main");
   }
 
   async beginReflectRun(
-    runId: string, threadId: string, parentRunId: string, spec: Record<string, unknown>,
+    runId: string,
+    threadId: string,
+    parentRunId: string,
+    spec: Record<string, unknown>,
   ): Promise<{ runId: string; attemptId: string }> {
     const agentId = (spec.agentId as string) ?? "default";
     const now = Date.now();
@@ -319,21 +307,37 @@ export class RunSupervisor {
       "INSERT INTO run (run_id, thread_id, agent_id, status, started_at, kind, parent_run_id) VALUES (?, ?, ?, 'running', ?, 'reflect', ?)",
       [runId, threadId, agentId, now, parentRunId],
     );
-    return this.#beginAndSend(runId, threadId, agentId, spec, "reflect");
+    return this.#beginAttempt(runId, threadId, agentId, spec, "reflect");
   }
 
-  /** Internal: create run + attempt, add to active, send start via registry. */
+  /** Internal: create run row (main only; reflect uses beginReflectRun), then delegate to #beginAttempt. */
   async #beginAndSend(
-    runId: string, threadId: string, agentId: string, spec: Record<string, unknown>, kind: "main" | "reflect",
+    runId: string,
+    threadId: string,
+    agentId: string,
+    spec: Record<string, unknown>,
+    kind: "main" | "reflect",
   ): Promise<{ runId: string; attemptId: string }> {
-    const transport = await this.#opts.registry.transportFor(agentId);
-    this.#bindTransport(transport);
-
     const now = Date.now();
     this.#db.run(
       "INSERT INTO run (run_id, thread_id, agent_id, status, started_at, kind) VALUES (?, ?, ?, 'running', ?, ?)",
       [runId, threadId, agentId, now, kind],
     );
+    return this.#beginAttempt(runId, threadId, agentId, spec, kind);
+  }
+
+  /** Shared tail: get transport, create attempt, register in #active, send start. */
+  async #beginAttempt(
+    runId: string,
+    threadId: string,
+    agentId: string,
+    spec: Record<string, unknown>,
+    kind: "main" | "reflect",
+  ): Promise<{ runId: string; attemptId: string }> {
+    const transport = await this.#opts.registry.transportFor(agentId);
+    this.#bindTransport(transport);
+
+    const now = Date.now();
     const attemptId = crypto.randomUUID();
     this.#db.run(
       "INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)",
@@ -341,7 +345,15 @@ export class RunSupervisor {
     );
 
     const ac = new AbortController();
-    this.#active.set(runId, { runId, attemptId, threadId, agentId, kind, transport, abortController: ac });
+    this.#active.set(runId, {
+      runId,
+      attemptId,
+      threadId,
+      agentId,
+      kind,
+      transport,
+      abortController: ac,
+    });
 
     transport.send({ type: "start", runId, spec });
     return { runId, attemptId };
@@ -350,7 +362,9 @@ export class RunSupervisor {
   #bindTransport(transport: RunnerTransport): void {
     if (this.#boundTransports.has(transport)) return;
     this.#boundTransports.add(transport);
-    transport.onMessage((msg) => { void this.#handleRunnerMessage(msg, transport); });
+    transport.onMessage((msg) => {
+      void this.#handleRunnerMessage(msg, transport);
+    });
   }
 
   async #handleRunnerMessage(raw: unknown, sourceTransport: RunnerTransport): Promise<void> {
@@ -360,12 +374,19 @@ export class RunSupervisor {
     const transport = session?.transport ?? sourceTransport;
     switch (msg.type) {
       case "run_started": {
-        this.beginReflectRun(
+        // Fire-and-forget: daemon notifies backend that reflection has started.
+        // Backend records the run row + attempt; daemon continues independently.
+        void this.beginReflectRun(
           runId,
           msg.threadId as string,
           (msg.parentRunId as string) ?? "",
-          msg.spec as Record<string, unknown> ?? {},
-        );
+          (msg.spec as Record<string, unknown>) ?? {},
+        ).catch((err: unknown) => {
+          console.error(
+            `[supervisor] beginReflectRun failed for ${runId}:`,
+            (err as Error).message,
+          );
+        });
         break;
       }
       case "event": {
@@ -402,7 +423,7 @@ export class RunSupervisor {
         this.#active.delete(runId);
         const threadId = this.#threadIdFor(runId);
         // Always fire lifecycle hooks (lock release, cleanup)
-        await Promise.all(this.#onRunComplete.map((fn) => fn(threadId, runId)));
+        await Promise.all(this.#onRunComplete.map((fn) => fn(threadId, runId, status)));
         // Only send run_finalized after all listeners complete (D19, ledger, etc.)
         if (transport) transport.send({ type: "run_finalized", runId });
         break;
@@ -445,7 +466,6 @@ export class RunSupervisor {
       attempt_id: string;
       run_id: string;
       thread_id?: string;
-      pid: number | null;
       heartbeat_at: number | null;
     }[];
 
@@ -460,7 +480,12 @@ export class RunSupervisor {
           threadId: row.thread_id ?? "",
           agentId: (row as { agent_id?: string }).agent_id ?? "default",
           kind: (row as { kind?: "main" | "reflect" }).kind ?? "main",
-          transport: { send() {}, onMessage() {}, onClose() {}, close() {} } as unknown as RunnerTransport,
+          transport: {
+            send() {},
+            onMessage() {},
+            onClose() {},
+            close() {},
+          } as unknown as RunnerTransport,
           abortController: ac,
         });
         console.log(
@@ -471,26 +496,5 @@ export class RunSupervisor {
 
     // Phase 2: delegate stale runs to shared reap logic (includes EventLog append + onRunComplete)
     await this.#reapStaleRuns();
-  }
-
-  /** Cancel by pid (used post-restart when ChildProcess handle is unavailable). */
-  cancelByPid(runId: string, pid: number): boolean {
-    const run = this.#active.get(runId);
-    if (!run) return false;
-    run.abortController.abort("cancelled");
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch {
-      // Process already dead — just update status
-      const now = Date.now();
-      this.#db.run("UPDATE run SET status = 'aborted', ended_at = ? WHERE run_id = ?", [
-        now,
-        runId,
-      ]);
-      this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, run.attemptId]);
-      this.#active.delete(runId);
-      return false;
-    }
-    return true;
   }
 }

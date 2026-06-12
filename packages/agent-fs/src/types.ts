@@ -1,4 +1,4 @@
-export type WorkspaceDomain = "shared" | "private" | "external" | "runner_state";
+export type AgentFsDomain = "shared" | "private" | "external" | "runner_state";
 
 export interface ReadableBackend {
   read(relPath: string): Promise<string | null>;
@@ -21,6 +21,6 @@ export interface PathAliasResolver {
 export interface MountEntry {
   prefix: string;
   backend: ReadableBackend;
-  domain: WorkspaceDomain;
+  domain: AgentFsDomain;
   posixRoot?: string;
 }

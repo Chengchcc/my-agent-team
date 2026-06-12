@@ -2,8 +2,8 @@ import path from "node:path";
 import { SharedOnlyAliases } from "./aliases.js";
 import { LocalBackend, MemoryBackend } from "./backends.js";
 import type { MountEntry } from "./types.js";
-import type { WorkspaceHandle } from "./workspace-fs.js";
-import { WorkspaceFS } from "./workspace-fs.js";
+import type { AgentFsHandle } from "./agent-fs.js";
+import { AgentFS } from "./agent-fs.js";
 
 export function makeDefaultMounts(o: {
   sharedRoot: string;
@@ -26,19 +26,19 @@ export function makeDefaultMounts(o: {
   ];
 }
 
-export function makeWorkspaceHandle(o: {
+export function makeAgentFsHandle(o: {
   sharedRoot: string;
   privateRoot: string;
   sharedPosix?: boolean;
-}): WorkspaceHandle {
-  const fs = new WorkspaceFS({ mounts: makeDefaultMounts(o) });
+}): AgentFsHandle {
+  const fs = new AgentFS({ mounts: makeDefaultMounts(o) });
   return { fs, privateRoot: o.privateRoot, posixRoots: fs.posixRoots(), displayRoot: "/" };
 }
 
-export function makeDevWorkspaceHandle(root: string): WorkspaceHandle {
+export function makeDevAgentFsHandle(root: string): AgentFsHandle {
   const sharedRoot = path.join(root, "shared");
   const privateRoot = path.join(root, "private");
-  return makeWorkspaceHandle({ sharedRoot, privateRoot, sharedPosix: true });
+  return makeAgentFsHandle({ sharedRoot, privateRoot, sharedPosix: true });
 }
 
 export function makeSharedOnlyMounts(o: {
@@ -55,8 +55,8 @@ export function makeSharedOnlyMounts(o: {
   ];
 }
 
-export function makeSharedOnlyWorkspaceFS(o: { sharedRoot: string }): WorkspaceFS {
-  return new WorkspaceFS({ mounts: makeSharedOnlyMounts(o), aliases: new SharedOnlyAliases() });
+export function makeSharedOnlyAgentFS(o: { sharedRoot: string }): AgentFS {
+  return new AgentFS({ mounts: makeSharedOnlyMounts(o), aliases: new SharedOnlyAliases() });
 }
 
 export function makeExternalMount(prefix: string): MountEntry {

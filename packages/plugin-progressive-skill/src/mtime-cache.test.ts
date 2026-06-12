@@ -1,53 +1,65 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { describe, expect, test } from "bun:test";
+import { MemoryBackend, AgentFS } from "@my-agent-team/agent-fs";
 import { invalidateSkillCache, loadSkillIndexWithMtimeCache } from "./cache.js";
 
-describe("mtime cache", () => {
-  let dir: string;
+function testFS(): AgentFS {
+  return new AgentFS({
+    mounts: [{ prefix: "/", domain: "shared", backend: new MemoryBackend() }],
+    aliases: { toCanonical: (p: string) => p },
+  });
+}
 
-  beforeAll(async () => {
-    dir = `${import.meta.dir}/test-cache-${crypto.randomUUID()}`;
-    await mkdir(`${dir}/alpha`, { recursive: true });
-    await writeFile(
-      `${dir}/alpha/SKILL.md`,
+describe("mtime cache", () => {
+  test("second call serves from cache", async () => {
+    const ws = testFS();
+    const root = "/skills/";
+    await ws.write(
+      "/skills/alpha/SKILL.md",
       ["---", "name: alpha", "description: first skill", "---", "", "body"].join("\n"),
     );
-  });
+    invalidateSkillCache(root);
 
-  afterAll(async () => {
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  test("second call serves from cache", async () => {
-    invalidateSkillCache(dir);
-    const first = await loadSkillIndexWithMtimeCache(dir);
-    const second = await loadSkillIndexWithMtimeCache(dir);
+    const first = await loadSkillIndexWithMtimeCache(ws, root);
+    const second = await loadSkillIndexWithMtimeCache(ws, root);
     expect(second).toBe(first); // same array reference
   });
 
   test("invalidate forces re-read", async () => {
-    invalidateSkillCache(dir);
-    const first = await loadSkillIndexWithMtimeCache(dir);
-    invalidateSkillCache(dir);
-    const second = await loadSkillIndexWithMtimeCache(dir);
+    const ws = testFS();
+    const root = "/skills/";
+    await ws.write(
+      "/skills/alpha/SKILL.md",
+      ["---", "name: alpha", "description: first skill", "---", "", "body"].join("\n"),
+    );
+    invalidateSkillCache(root);
+
+    const first = await loadSkillIndexWithMtimeCache(ws, root);
+    invalidateSkillCache(root);
+    const second = await loadSkillIndexWithMtimeCache(ws, root);
     expect(second).not.toBe(first);
   });
 
   test("new skill directory added triggers re-read after cache invalidation", async () => {
-    invalidateSkillCache(dir);
-    const first = await loadSkillIndexWithMtimeCache(dir);
+    const ws = testFS();
+    const root = "/skills/";
+    await ws.write(
+      "/skills/alpha/SKILL.md",
+      ["---", "name: alpha", "description: first skill", "---", "", "body"].join("\n"),
+    );
+    invalidateSkillCache(root);
+
+    const first = await loadSkillIndexWithMtimeCache(ws, root);
     expect(first.length).toBeGreaterThanOrEqual(1);
 
-    // Add a new skill directory — this changes dir mtime
-    await mkdir(`${dir}/beta`, { recursive: true });
-    await writeFile(
-      `${dir}/beta/SKILL.md`,
+    // Add a new skill directory
+    await ws.write(
+      "/skills/beta/SKILL.md",
       ["---", "name: beta", "description: second skill", "---", "", "body"].join("\n"),
     );
     // Force cache invalidation to avoid mtime resolution flakiness
-    invalidateSkillCache(dir);
+    invalidateSkillCache(root);
 
-    const second = await loadSkillIndexWithMtimeCache(dir);
+    const second = await loadSkillIndexWithMtimeCache(ws, root);
     expect(second.length).toBeGreaterThan(first.length);
     expect(second.some((s) => s.name === "beta")).toBe(true);
   });

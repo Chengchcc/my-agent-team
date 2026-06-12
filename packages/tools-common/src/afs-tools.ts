@@ -1,9 +1,9 @@
 import type { Tool } from "@my-agent-team/core";
-import type { WorkspaceLike } from "./workspace-like.js";
+import type { AgentFsLike } from "./agent-fs-like.js";
 
 // ─── AFS-native read tool ───
 
-export function createReadToolForWorkspace(ws: WorkspaceLike): Tool {
+export function createReadToolForWorkspace(ws: AgentFsLike): Tool {
   return {
     name: "read",
     description: "Read a file and return its content as text. Uses logical paths (e.g. /SOUL.md, /memory/today.md).",
@@ -25,7 +25,7 @@ export function createReadToolForWorkspace(ws: WorkspaceLike): Tool {
 
 // ─── AFS-native write tool ───
 
-export function createWriteToolForWorkspace(ws: WorkspaceLike): Tool {
+export function createWriteToolForWorkspace(ws: AgentFsLike): Tool {
   return {
     name: "write",
     description: "Write content to a file. Creates parent directories. Uses logical paths.",
@@ -47,7 +47,7 @@ export function createWriteToolForWorkspace(ws: WorkspaceLike): Tool {
 
 // ─── AFS-native edit tool ───
 
-export function createEditToolForWorkspace(ws: WorkspaceLike): Tool {
+export function createEditToolForWorkspace(ws: AgentFsLike): Tool {
   return {
     name: "edit",
     description: "Edit a file by replacing old_string with new_string. Uses logical paths.",

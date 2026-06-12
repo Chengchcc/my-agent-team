@@ -1,18 +1,24 @@
-import { readdir, readFile, stat } from "node:fs/promises";
-import path from "node:path";
+import type { AgentFsLike } from "@my-agent-team/tools-common";
+import { pjoin } from "@my-agent-team/tools-common";
 import matter from "gray-matter";
 
 export interface SkillMeta {
   name: string;
   description: string;
+  /** Logical path to the skill directory (e.g. /skills/my-skill) */
   dir: string;
+  /** Logical path to the SKILL.md file (e.g. /skills/my-skill/SKILL.md) */
   skillMdPath: string;
   bodyOffset: number;
 }
 
-async function loadOneSkillFrontmatter(dir: string): Promise<SkillMeta | null> {
-  const skillMdPath = path.join(dir, "SKILL.md");
-  const raw = await readFile(skillMdPath, "utf-8");
+async function loadOneSkillFrontmatter(
+  ws: AgentFsLike,
+  skillDir: string,
+): Promise<SkillMeta | null> {
+  const skillMdPath = pjoin(skillDir, "SKILL.md");
+  const raw = (await ws.read(skillMdPath)) ?? "";
+  if (!raw) return null;
   const parsed = matter(raw);
 
   if (!parsed.data.name) throw new Error("SKILL.md missing frontmatter.name");
@@ -20,7 +26,7 @@ async function loadOneSkillFrontmatter(dir: string): Promise<SkillMeta | null> {
   return {
     name: parsed.data.name as string,
     description: (parsed.data.description as string) ?? "",
-    dir,
+    dir: skillDir,
     skillMdPath,
     bodyOffset: raw.length - parsed.content.length,
   };
@@ -29,19 +35,20 @@ async function loadOneSkillFrontmatter(dir: string): Promise<SkillMeta | null> {
 const skillIndexCaches = new Map<string, { skills: SkillMeta[]; mtime: number }>();
 
 export async function loadSkillIndexWithMtimeCache(
-  dir: string,
+  ws: AgentFsLike,
+  root: string,
   logger?: { warn: (msg: string, err?: unknown) => void },
 ): Promise<SkillMeta[]> {
-  const dirStat = await stat(dir);
-  const cached = skillIndexCaches.get(dir);
-  if (cached && cached.mtime === dirStat.mtimeMs) {
-    return cached.skills;
+  const dirStat = await ws.stat(root);
+  const cached = skillIndexCaches.get(root);
+  if (cached) {
+    if (dirStat && cached.mtime === dirStat.mtimeMs) return cached.skills;
+    if (!dirStat) return cached.skills; // backend without directory mtime — rely on explicit invalidation
   }
 
-  const entries = await readdir(dir, { withFileTypes: true });
-  const dirs = entries.filter((e) => e.isDirectory());
+  const entries = await ws.list(root);
   const results = await Promise.allSettled(
-    dirs.map((d) => loadOneSkillFrontmatter(path.join(dir, d.name))),
+    entries.map((name) => loadOneSkillFrontmatter(ws, pjoin(root, name))),
   );
 
   const skills: SkillMeta[] = [];
@@ -50,14 +57,14 @@ export async function loadSkillIndexWithMtimeCache(
     if (r.status === "fulfilled" && r.value) {
       skills.push(r.value);
     } else if (r.status === "rejected") {
-      logger?.warn(`skill '${dirs[i]?.name}' load failed`, r.reason);
+      logger?.warn(`skill '${entries[i]}' load failed`, r.reason);
     }
   }
 
-  skillIndexCaches.set(dir, { skills, mtime: dirStat.mtimeMs });
+  skillIndexCaches.set(root, { skills, mtime: dirStat?.mtimeMs ?? 0 });
   return skills;
 }
 
-export function invalidateSkillCache(dir: string): void {
-  skillIndexCaches.delete(dir);
+export function invalidateSkillCache(root: string): void {
+  skillIndexCaches.delete(root);
 }

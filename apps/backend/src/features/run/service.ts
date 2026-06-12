@@ -66,8 +66,10 @@ export function createRunService(deps: RunServiceDeps) {
   const { supervisor, eventLog, maxConcurrentRuns, threads, idGen, autoTitle } = deps;
 
   // Fix B: Register cleanup callback so thread lock is released on run completion
-  supervisor.onRunComplete((threadId, _runId) => {
+  supervisor.onRunComplete((threadId, _runId, status) => {
     threads.delete(threadId);
+    // Only succeeded runs trigger downstream side effects (title, mention, etc.)
+    if (status !== "succeeded") return;
     if (autoTitle) {
       // fire-and-forget: title generation failure is non-fatal
       void (async () => {

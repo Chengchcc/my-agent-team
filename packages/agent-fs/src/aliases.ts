@@ -1,5 +1,5 @@
 import type { PathAliasResolver } from "./types.js";
-import { WorkspaceAccessError } from "./workspace-fs.js";
+import { AgentFsAccessError } from "./agent-fs.js";
 
 const SHARED_ROOT_FILES = new Set([
   "/SOUL.md",
@@ -29,6 +29,6 @@ export class SharedOnlyAliases implements PathAliasResolver {
   toCanonical(absPath: string): string {
     if (absPath.startsWith("/shared/")) return absPath;
     if (isSharedLogicalPath(absPath)) return `/shared${absPath}`;
-    throw new WorkspaceAccessError(`no mount for path: ${absPath}`);
+    throw new AgentFsAccessError(`no mount for path: ${absPath}`);
   }
 }
