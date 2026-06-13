@@ -6,7 +6,7 @@
 >
 > 核心机制一句话：**广播可见 + @ 触发执行**。
 >
-> 关联：[00-vision](./00-vision.md)（Member/Conversation 抽象出处） · [12-backend](./12-backend.md)（容器落地层） · [14-event-log](./14-event-log.md)（执行事实源，本层不触碰） · [13-agent-spec](./13-agent-spec.md)（run 注入契约）。
+> 关联：[00-vision](./00-vision.md)（Member/Conversation 抽象出处） · [12-backend](./12-backend.md)（容器落地层） · [14-event-log](./14-event-log.md)（执行事实源，本层不触碰） · [13-agent-spec](./13-agent-spec.md)（run 注入契约） · [18-im-adapter](./18-im-adapter.md)（L6 IM surface，本模型在 Lark 侧的投影落地）。
 >
 > 实现里程碑见 [M10 spec](../superpowers/specs/2026-06-06-m10-member-conversation.md)。本文沉淀的是**持久架构**（模型与不变量），spec 是**某一期的落地切片**。
 
@@ -177,7 +177,7 @@ Conversation/Member 是 **L5 backend** 的语义模型；它向上通过 HTTP/SS
 | **现成 IM 软件（飞书 / Slack 等）** | IM 群 ↔ conversation；群成员 ↔ Member（真人 = IM 用户，agent = bot）；IM 的 `@bot` ↔ `addressedTo`；IM webhook → backend `POST /messages`；backend SSE → IM 消息回推 | **复用 IM 现成的"群 + @ + 成员"语义**——这正是本模型与 IM 天然同构的原因：IM 早已是"多成员 + 广播可见 + @ 点名"的系统 |
 | **CLI** | 交互式 REPL：`@<memberId> <text>` 发消息触发 / 不带 @ 仅累积 | 调试与脚本化入口 |
 
-> **关键洞察**：本层"广播可见 + @ 触发"的机制，与主流 IM（群聊 + @ 提醒 + 成员进出系统消息）是**结构同构**的。这不是巧合——团队协作的交互范式本就收敛到了"群 + 成员 + 点名"。因此把 agent team 接到现成 IM 上，几乎是字段直映：IM 群即 conversation，群里的人和 bot 即 Member，@bot 即 addressedTo 触发，成员进出即 member.joined/left 系统消息。一个 IM bot adapter（webhook ↔ backend HTTP）即可让整个 agent team 在飞书/Slack 里运转，无需自建前端。
+> **关键洞察**：本层"广播可见 + @ 触发"的机制，与主流 IM（群聊 + @ 提醒 + 成员进出系统消息）是**结构同构**的。这不是巧合——团队协作的交互范式本就收敛到了"群 + 成员 + 点名"。因此把 agent team 接到现成 IM 上，几乎是字段直映：IM 群即 conversation，群里的人和 bot 即 Member，@bot 即 addressedTo 触发，成员进出即 member.joined/left 系统消息。一个 [IM bot adapter](./18-im-adapter.md)（webhook ↔ backend HTTP）即可让整个 agent team 在飞书/Slack 里运转，无需自建前端。
 
 **分层规则不变**：surface 只吃 backend 的 HTTP/SSE，不直接碰 L4 以下；backend 不接 IM 业务逻辑（那是 surface 层 adapter 的事）。换 surface = 换一个 L6 adapter，conversation 模型零改动。
 

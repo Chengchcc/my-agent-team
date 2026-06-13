@@ -2,7 +2,7 @@
 
 ## 定位
 
-Backend 是 agent 栈的 **L5 团队运行时**——一个常驻 HTTP 进程，管理多个 agent 实例、维护 agentId 元数据、通过 [RunnerRegistry](./16-resident-runner.md) 寻址 agent-scoped daemon 并收发 transport 消息，对上层 [L6 Surfaces](./00-vision.md#四当前分层架构)（frontend / IM bot / CLI）暴露 HTTP/SSE。
+Backend 是 agent 栈的 **L5 团队运行时**——一个常驻 HTTP 进程，管理多个 agent 实例、维护 agentId 元数据、通过 [RunnerRegistry](./16-resident-runner.md) 寻址 agent-scoped daemon 并收发 transport 消息，对上层 [L6 Surfaces](./00-vision.md#四当前分层架构)（[frontend](./00-vision.md#五milestone-路线) / [IM bot](./18-im-adapter.md) / CLI）暴露 HTTP/SSE。
 
 它是从"库"到"可被前端/bot 调用的服务"的关键一跳，但**不再是栈的最顶层**——上面还有 surface 层。
 
@@ -538,7 +538,7 @@ flowchart TD
 | **不是 framework** | Backend 是进程，framework 是库 |
 | **不是 harness** | harness 装配单个 agent，Backend 管多 agent 生命周期 + 部署 |
 | **不是 runner** | Runner 是 backend 启动的进程入口；backend 选择/调度 runner |
-| **不是 frontend / IM bot / CLI** | 这些是 L6 Surfaces，调 backend 的 HTTP API；Backend 自己不渲染 UI、不接 IM webhook 业务逻辑 |
+| **不是 frontend / IM bot / CLI** | 这些是 [L6 Surfaces](./18-im-adapter.md)，调 backend 的 HTTP API；Backend 自己不渲染 UI、不接 IM webhook 业务逻辑 |
 | **不是 load balancer** | 不负责多实例分发；前面加 nginx/HAProxy |
 | **不是 auth service** | 最简 API key；复杂鉴权交给 API Gateway |
 | **不是 sandbox provider** | Backend 选择/调度 sandbox，不实现 sandbox |
