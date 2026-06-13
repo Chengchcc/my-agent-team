@@ -102,12 +102,6 @@ export function runRoutes(
       return json(meta);
     },
 
-    /** D12: GET /api/threads/:id/current-run → { runId, status } | null */
-    async currentRun(_req: Request, threadId: string): Promise<Response> {
-      const run = svc.getCurrentRun(threadId);
-      return json(run);
-    },
-
     /** M13: GET /api/runs/:id/stream → SSE text_delta stream (ephemeral, not EventLog) */
     async stream(_req: Request, runId: string): Promise<Response> {
       const deltaStream = svc.deltaStream(runId);
