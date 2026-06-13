@@ -2,16 +2,44 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { parseArgs } from "./args.js";
 import { bootstrap } from "./bootstrap.js";
+import { getAllChatBindings, getChatBinding } from "./bindings-sqlite.js";
 import { ingest } from "./ingest.js";
 import { parseEvent } from "./event-parser.js";
 import { safeAgentId } from "./safe-agent-id.js";
+import { sendMessage } from "./sender.js";
+import { watchConversation } from "./sse-watcher.js";
+import type { WatcherHandle } from "./sse-watcher.js";
 
 const args = parseArgs(process.argv.slice(2));
 const state = await bootstrap(args);
 
 const profile = `agent:${safeAgentId(args.agentId)}`;
 
-// Ensure stdin stays open — lark-cli treats stdin EOF as graceful shutdown
+// ─── SSE watchers — one per bound conversation ───
+const watchers = new Map<string, WatcherHandle>();
+
+function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0) {
+  if (watchers.has(conversationId)) return;
+  const handle = watchConversation(conversationId, larkChatId, afterSeq, {
+    db: state.db,
+    backendUrl: args.backendUrl,
+    onSend: async (chatId, text, idempotencyKey) => {
+      const result = await sendMessage(args.agentId, chatId, text, idempotencyKey);
+      if (!result.ok) {
+        console.error(`[lark-bot] send failed for ${chatId}: ${result.error}`);
+      }
+    },
+  });
+  watchers.set(conversationId, handle);
+  console.log(`[lark-bot] SSE watcher started: ${conversationId} → ${larkChatId}`);
+}
+
+// Restore SSE watchers for existing bindings
+for (const binding of getAllChatBindings(state.db)) {
+  ensureWatcher(binding.conversationId, binding.larkChatId, binding.pushedSeq);
+}
+
+// ─── lark-cli event consume (inbound) ───
 const child = spawn("lark-cli", [
   "--profile", profile,
   "event", "consume",
@@ -21,20 +49,12 @@ const child = spawn("lark-cli", [
   stdio: ["pipe", "pipe", "pipe"],
 });
 
-// Track ready state
 let ready = false;
 
-// NDJSON line-by-line from child stdout
 const rl = createInterface({ input: child.stdout! });
 rl.on("line", async (line: string) => {
   const trimmed = line.trim();
   if (!trimmed) return;
-
-  // Check stderr ready marker
-  if (!ready) {
-    // Ready marker comes via stderr: "[event] ready event_key=<key>"
-    // We'll detect it from stderr handler below — for now, process lines normally
-  }
 
   const event = parseEvent(trimmed);
   if (!event) {
@@ -54,8 +74,11 @@ rl.on("line", async (line: string) => {
     botDisplayName: state.botDisplayName,
     backendUrl: args.backendUrl,
     onNewBinding: (convId) => {
-      console.log(`[lark-bot] new binding: ${event.chat_id} → ${convId}`);
-      // SSE watcher will be added in Task 6
+      // Start SSE watcher for the newly bound conversation
+      const binding = getChatBinding(state.db, event.chat_id);
+      if (binding) {
+        ensureWatcher(binding.conversationId, binding.larkChatId, binding.pushedSeq);
+      }
     },
   });
 
@@ -64,7 +87,7 @@ rl.on("line", async (line: string) => {
   }
 });
 
-// Listen for stderr ready marker
+// stderr ready marker
 child.stderr?.on("data", (d: Buffer) => {
   const text = d.toString();
   process.stderr.write(`[lark-cli] ${text}`);
@@ -73,7 +96,7 @@ child.stderr?.on("data", (d: Buffer) => {
   }
 });
 
-// Exit handler
+// Exit handler — SIGTERM only (not SIGKILL: skips lark-cli unsubscribe)
 child.on("exit", (code, signal) => {
   console.error(`[lark-bot] lark-cli exited code=${code} signal=${signal}`);
   if (code !== 0 && signal !== "SIGTERM") {
@@ -82,19 +105,16 @@ child.on("exit", (code, signal) => {
   process.exit(0);
 });
 
-// Forward SIGTERM to child (graceful — allows lark-cli to unsubscribe)
+// Forward SIGTERM gracefully
 process.on("SIGTERM", () => {
-  console.log("[lark-bot] SIGTERM — forwarding to lark-cli");
+  console.log("[lark-bot] SIGTERM — forwarding to lark-cli, closing watchers");
+  for (const [, w] of watchers) w.close();
   child.kill("SIGTERM");
 });
 process.on("SIGINT", () => {
+  for (const [, w] of watchers) w.close();
   child.kill("SIGTERM");
   process.exit(0);
 });
 
-// Restore SSE watchers for existing bindings
-for (const convId of state.restoredConversationIds) {
-  console.log(`[lark-bot] SSE watcher stub for ${convId} (Task 6)`);
-}
-
-console.log(`[lark-bot] started for agent=${args.agentId} profile=${profile}`);
+console.log(`[lark-bot] started for agent=${args.agentId} profile=${profile} conversations=${state.restoredConversationIds.length}`);

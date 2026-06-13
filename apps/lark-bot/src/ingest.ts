@@ -41,8 +41,8 @@ export async function ingest(
   // ─── Step 0: Idempotent reserve (local sqlite transaction) ───
   // Reserve before POST: if POST succeeds but confirm fails, the event won't re-POST.
   // Trade-off: "lose an inbound rather than duplicate a run trigger" (spec §5.3).
-  let memberId: string;
-  let conversationId: string;
+  let memberId = "";
+  let conversationId = "";
   let isNewBinding = false;
 
   // ─── Step 0: Idempotent reserve (local sqlite transaction) ───
