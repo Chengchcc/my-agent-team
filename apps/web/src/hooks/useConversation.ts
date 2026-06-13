@@ -198,8 +198,10 @@ export function useConversation(
     if (!runId || state.run.phase !== "running") return;
 
     const es = new EventSource(`/api/bff/runs/${runId}/events`);
+    let didComplete = false;
 
     const handleDone = () => {
+      didComplete = true;
       dispatch({ type: "run/done" });
       es.close();
     };
@@ -238,6 +240,26 @@ export function useConversation(
         // skip
       }
     });
+
+    // Fallback: if the SSE connection errors or closes without a "done"
+    // event (e.g. AbortError swallowed, BFF timeout, backend restart),
+    // fetch run metadata and dispatch the terminal state.
+    es.onerror = async () => {
+      if (didComplete) return;
+      try {
+        const meta = await api.getRun(runId).catch(() => null);
+        if (meta?.endedAt != null) {
+          didComplete = true;
+          if (meta.status === "interrupted") {
+            dispatch({ type: "run/interrupted", payload: {} });
+          } else {
+            dispatch({ type: "run/done" });
+          }
+        }
+      } catch {
+        // best-effort
+      }
+    };
 
     return () => es.close();
   }, [state.run.id, state.run.phase]);

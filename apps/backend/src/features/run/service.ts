@@ -2,23 +2,6 @@ import type { Message } from "@my-agent-team/core";
 import type { EventLog, EventRecord } from "@my-agent-team/event-log";
 import type { RunSupervisor } from "./supervisor.js";
 
-/** Merge multiple AbortSignals — aborts when any of them fires. */
-function mergeSignals(...signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
-  const defined = signals.filter((s): s is AbortSignal => !!s);
-  if (defined.length === 0) return undefined;
-  if (defined.length === 1) return defined[0];
-  const ctrl = new AbortController();
-  const onAbort = () => ctrl.abort();
-  for (const s of defined) {
-    if (s.aborted) {
-      ctrl.abort();
-      break;
-    }
-    s.addEventListener("abort", onAbort, { once: true });
-  }
-  return ctrl.signal;
-}
-
 export class ThreadBusyError extends Error {
   constructor(threadId: string) {
     super(`Thread busy: ${threadId}`);
@@ -126,8 +109,8 @@ export function createRunService(deps: RunServiceDeps) {
     },
 
     /** Stream events via EventLog.subscribe for SSE projection.
-     *  When the run completes, the subscription is aborted so sseResponse
-     *  naturally emits 'done' — no frontend polling needed. */
+     *  When the run completes, the iterator naturally returns so sseResponse
+     *  emits 'done' — no frontend polling needed. */
     async *eventStream(
       runId: string,
       afterSeq?: number,
@@ -152,30 +135,45 @@ export function createRunService(deps: RunServiceDeps) {
         return; // iterable ends → sseResponse emits done
       }
 
-      // Run still active — merge request signal with run-complete signal
-      const doneCtrl = new AbortController();
-      const merged = mergeSignals(signal, doneCtrl.signal);
+      // Run still active — subscribe with client signal only.
+      // Run completion is detected via a Promise that resolves when
+      // onRunComplete fires, raced against the next subscription yield.
+      // This avoids using AbortError for normal completion, so sseResponse
+      // reliably sends "event: done" instead of swallowing it.
+      let completed = false;
+      let resolveDone: () => void;
+      const done = new Promise<void>((resolve) => {
+        resolveDone = resolve;
+      });
 
-      // Register one-shot callback: when run completes, abort subscription
       const onDone = (_threadId: string, completedRunId: string) => {
         if (completedRunId === runId) {
-          doneCtrl.abort();
+          completed = true;
+          resolveDone();
         }
       };
       supervisor.onRunComplete(onDone);
 
       try {
-        for await (const rec of eventLog.subscribe(
+        const sub = eventLog.subscribe(
           { runId, afterSeq: afterSeq ?? 0 },
           {},
-          merged,
-        )) {
-          yield rec;
+          signal,
+        );
+        const iter = sub[Symbol.asyncIterator]();
+
+        while (!completed && !signal?.aborted) {
+          const next = await Promise.race([
+            iter.next(),
+            done.then((): { done: true; value: undefined } => ({ done: true, value: undefined })),
+          ]);
+          if (next.done) break;
+          yield next.value;
         }
+
+        await iter.return?.();
       } finally {
         // Clean up listener to avoid leak
-        // (supervisor doesn't have removeListener, but callbacks are cheap;
-        //  the abort controller prevents double-completion)
       }
     },
 
