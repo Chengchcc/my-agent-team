@@ -77,14 +77,24 @@ const agentSvc = createAgentService({
         templateDir: config.templateDir,
       });
       // Seed runner sharedRoot so identity API and runtime share one source
-      const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import('./infra/runner-workspace.js');
+      const { runnerWorkspacePaths, ensureRunnerWorkspace, migrateLegacyWorkspaceToShared } = await import("./infra/runner-workspace.js");
       const paths = runnerWorkspacePaths(config.dataDir, agentId);
       await ensureRunnerWorkspace(paths);
+      // Immediately seed identity files from legacy workspace. Don't wait for
+      // identity API lazy migration or first runner spawn — new agents need
+      // BOOTSTRAP.md available before their first run.
+      await migrateLegacyWorkspaceToShared(paths.sharedRoot, legacyPath);
       return legacyPath;
     },
 
   // M11 hardDelete dependencies — all closures from composition root
-  purgeWorkspace: (agentId) => purgeWorkspace({ workspaceRoot: config.workspaceRoot, agentId }),
+  purgeWorkspace: async (agentId) => {
+    // Legacy workspace
+    await purgeWorkspace({ workspaceRoot: config.workspaceRoot, agentId });
+    // Runner workspace (shared/private/state/socket/pid)
+    const { purgeRunnerWorkspace } = await import("./infra/runner-workspace.js");
+    await purgeRunnerWorkspace({ dataDir: config.dataDir, agentId });
+  },
 
   purgeEventsForThreads: (threadIds) => {
     const edb = supervisor.getDb();

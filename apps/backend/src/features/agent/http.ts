@@ -78,8 +78,9 @@ export function agentRoutes(svc: AgentService, identityStore?: AgentIdentityStor
       }
     },
 
-    /** D11: GET /api/agents/:id/identity — read SOUL.md, USER.md, memory/*.md
-     *  from runner sharedRoot (single source of truth after M14.7).
+    /** D11: GET /api/agents/:id/identity — read SOUL.md, USER.md,
+     *  memory/MEMORY.md and memory/facts/*.md from runner sharedRoot
+     *  (single source of truth after M14.7).
      *  Falls back to empty if identityStore is not configured. */
     async identity(_req: Request, agentId: string): Promise<Response> {
       if (!identityStore) return json({ soul: null, user: null, memories: [] });

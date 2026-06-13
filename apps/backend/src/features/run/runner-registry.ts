@@ -19,9 +19,7 @@ interface DevRunner {
   dir: string;
 }
 
-function safeAgentId(id: string): string {
-  return id.replace(/[^a-zA-Z0-9_-]/g, "_");
-}
+import { safeRunnerAgentId } from "../../infra/runner-workspace.js";
 
 async function terminateChild(
   child: ChildProcess,
@@ -56,7 +54,7 @@ export class DevRunnerRegistry implements RunnerRegistry {
   ) {}
 
   async transportFor(agentId: string): Promise<RunnerTransport> {
-    const id = safeAgentId(agentId);
+    const id = safeRunnerAgentId(agentId);
     const existing = this.#runners.get(id);
     if (existing) return existing.transport;
 

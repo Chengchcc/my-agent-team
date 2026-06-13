@@ -1,6 +1,10 @@
-import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { ensureRunnerWorkspace, runnerWorkspacePaths } from "../../infra/runner-workspace.js";
+import {
+  ensureRunnerWorkspace,
+  migrateLegacyWorkspaceToShared,
+  runnerWorkspacePaths,
+} from "../../infra/runner-workspace.js";
 
 export interface IdentityData {
   soul: string | null;
@@ -18,77 +22,80 @@ export interface AgentIdentityStore {
   updateIdentity(agentId: string, patch: IdentityPatch): Promise<void>;
 }
 
-/** Files that are candidates for lazy migration from legacy workspace. */
-const IDENTITY_FILES = [
-  "SOUL.md",
-  "USER.md",
-  "BOOTSTRAP.md",
-  "TOOLS.md",
-  "AGENTS.md",
-] as const;
+function isCode(err: unknown, code: string): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: string }).code === code
+  );
+}
 
-/** Copy `src` to `dst` only if dst doesn't exist. */
-async function copyIfMissing(src: string, dst: string): Promise<void> {
+/** Read a text file; return null when the file doesn't exist. */
+async function readTextOrNull(filePath: string): Promise<string | null> {
   try {
-    await cp(src, dst, { force: false, errorOnExist: false });
-  } catch {
-    // src doesn't exist or other fs error — non-fatal
+    return await readFile(filePath, "utf-8");
+  } catch (err) {
+    if (isCode(err, "ENOENT")) return null;
+    throw err;
   }
 }
 
-/** Lazy migration: copy identity files and memory from legacy workspace
- *  to runner sharedRoot. Only copies files that don't already exist in
- *  sharedRoot — never overwrites. */
-async function migrateLegacyWorkspaceToShared(sharedRoot: string, legacyWorkspacePath: string): Promise<void> {
-  // Identity files
-  for (const file of IDENTITY_FILES) {
-    await copyIfMissing(
-      path.join(legacyWorkspacePath, file),
-      path.join(sharedRoot, file),
-    );
-  }
-
-  // Memory directory — merge per-file so we don't overwrite
-  const legacyMemDir = path.join(legacyWorkspacePath, "memory");
-  const sharedMemDir = path.join(sharedRoot, "memory");
-  try {
-    await mkdir(sharedMemDir, { recursive: true });
-    const entries = await readdir(legacyMemDir);
-    for (const entry of entries) {
-      if (!entry.endsWith(".md")) continue;
-      if (entry.includes("..") || entry.includes("/") || entry.includes("\\")) continue;
-      await copyIfMissing(
-        path.join(legacyMemDir, entry),
-        path.join(sharedMemDir, entry),
-      );
-    }
-  } catch {
-    // legacy memory dir doesn't exist — nothing to migrate
-  }
-}
-
+/** Read memory facts from the runner sharedRoot.
+ *
+ *  Layout (M14.7 post-fix):
+ *    shared/memory/MEMORY.md          — summary / dated memory
+ *    shared/memory/facts/*.md         — agent-written facts
+ *
+ *  Also reads flat shared/memory/*.md for backward compat (legacy agents). */
 async function readMemoryFacts(sharedRoot: string): Promise<Array<{ date: string; content: string }>> {
   const memories: Array<{ date: string; content: string }> = [];
-  const memDir = path.join(sharedRoot, "memory");
+  const memoryRoot = path.join(sharedRoot, "memory");
 
+  // 1) MEMORY.md — dated summary
+  const summary = await readTextOrNull(path.join(memoryRoot, "MEMORY.md"));
+  if (summary?.trim()) {
+    memories.push({ date: "summary", content: summary });
+  }
+
+  // 2) memory/facts/*.md — agent-written facts
+  const factsDir = path.join(memoryRoot, "facts");
   try {
-    const entries = await readdir(memDir);
+    const entries = await readdir(factsDir);
     for (const entry of entries) {
       if (!entry.endsWith(".md")) continue;
       if (entry.includes("..") || entry.includes("/") || entry.includes("\\")) continue;
-      try {
-        const content = await readFile(path.join(memDir, entry), "utf-8");
+      const content = await readTextOrNull(path.join(factsDir, entry));
+      if (content?.trim()) {
         const dateMatch = entry.match(/^(\d{4}-\d{2}-\d{2})/);
-        memories.push({
-          date: dateMatch?.[1] ?? "unknown",
-          content,
-        });
-      } catch {
-        // Skip unreadable files
+        memories.push({ date: dateMatch?.[1] ?? "fact", content });
       }
     }
-  } catch {
-    // Memory directory doesn't exist — leave []
+  } catch (err) {
+    if (!isCode(err, "ENOENT")) throw err;
+  }
+
+  // 3) Flat shared/memory/*.md (legacy compat) — skip MEMORY.md
+  try {
+    const entries = await readdir(memoryRoot);
+    for (const entry of entries) {
+      if (!entry.endsWith(".md")) continue;
+      if (entry === "MEMORY.md") continue;
+      if (entry.includes("..") || entry.includes("/") || entry.includes("\\")) continue;
+      // Skip if also exists in facts/ (dedup)
+      try {
+        await readFile(path.join(factsDir, entry), "utf-8");
+        continue; // already read in step 2
+      } catch {
+        // not in facts — read from flat
+      }
+      const content = await readTextOrNull(path.join(memoryRoot, entry));
+      if (content?.trim()) {
+        const dateMatch = entry.match(/^(\d{4}-\d{2}-\d{2})/);
+        memories.push({ date: dateMatch?.[1] ?? "legacy", content });
+      }
+    }
+  } catch (err) {
+    if (!isCode(err, "ENOENT")) throw err;
   }
 
   return memories;
@@ -109,18 +116,11 @@ export function createAgentIdentityStore(opts: {
         await migrateLegacyWorkspaceToShared(paths.sharedRoot, agent.workspacePath);
       }
 
-      let soul: string | null = null;
-      let user: string | null = null;
-
-      try {
-        soul = await readFile(path.join(paths.sharedRoot, "SOUL.md"), "utf-8");
-      } catch { /* leave null */ }
-
-      try {
-        user = await readFile(path.join(paths.sharedRoot, "USER.md"), "utf-8");
-      } catch { /* leave null */ }
-
-      const memories = await readMemoryFacts(paths.sharedRoot);
+      const [soul, user, memories] = await Promise.all([
+        readTextOrNull(path.join(paths.sharedRoot, "SOUL.md")),
+        readTextOrNull(path.join(paths.sharedRoot, "USER.md")),
+        readMemoryFacts(paths.sharedRoot),
+      ]);
 
       return { soul, user, memories };
     },
@@ -133,6 +133,9 @@ export function createAgentIdentityStore(opts: {
       if (agent.workspacePath) {
         await migrateLegacyWorkspaceToShared(paths.sharedRoot, agent.workspacePath);
       }
+
+      // Ensure memory/facts/ directory exists so the agent can write
+      await mkdir(path.join(paths.sharedRoot, "memory", "facts"), { recursive: true });
 
       if (typeof patch.soul === "string") {
         await writeFile(path.join(paths.sharedRoot, "SOUL.md"), patch.soul, "utf-8");
