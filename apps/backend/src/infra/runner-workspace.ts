@@ -10,11 +10,17 @@ export interface RunnerWorkspacePaths {
   pidFile: string;
 }
 
-/** Sanitize an agentId for use in filesystem paths. All runner path
- *  consumers MUST use this so special characters don't cause divergence
- *  between registry, identity store, and daemon. */
+/** Sanitize an agentId for use in filesystem paths. Current agentId
+ *  format is ULID (alphanumeric), so this is a no-op in practice.
+ *  Throws on characters that would cause path collisions (e.g. '/'
+ *  could map two different IDs to the same sanitized name). */
 export function safeRunnerAgentId(id: string): string {
-  return id.replace(/[^a-zA-Z0-9_-]/g, "_");
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    throw new Error(
+      `invalid runner agentId: "${id}" — contains characters outside [a-zA-Z0-9_-]`,
+    );
+  }
+  return id;
 }
 
 /** Single source of truth for all runner directory layout. */
@@ -52,11 +58,12 @@ function isCode(err: unknown, code: string): boolean {
   );
 }
 
-/** Copy src→dst only if dst doesn't already exist. Silently skips when
- *  src is missing (ENOENT) or dst already exists (EEXIST). Other errors
- *  (permissions, disk) are thrown so they don't mask real problems. */
+/** Copy src→dst only if dst doesn't already exist. Creates the
+ *  destination parent directory first, so the remaining ENOENT from
+ *  cp() reliably means "source doesn't exist" — never "parent missing". */
 async function copyIfMissing(src: string, dst: string): Promise<void> {
   try {
+    await mkdir(path.dirname(dst), { recursive: true });
     await cp(src, dst, { force: false, errorOnExist: true });
   } catch (err) {
     if (isCode(err, "ENOENT") || isCode(err, "EEXIST")) return;
@@ -130,10 +137,13 @@ export async function migrateLegacyWorkspaceToShared(
     );
   }
 
-  // Memory
+  // Memory — create target dirs first so copyIfMissing's mkdir doesn't
+  // need to race, and MEMORY.md can land in a dir that exists.
   const legacyMemDir = path.join(legacyWorkspacePath, "memory");
   const sharedMemDir = path.join(sharedRoot, "memory");
   const sharedFactsDir = path.join(sharedMemDir, "facts");
+  await mkdir(sharedMemDir, { recursive: true });
+  await mkdir(sharedFactsDir, { recursive: true });
 
   // MEMORY.md → shared/memory/MEMORY.md
   await copyIfMissing(
@@ -166,23 +176,27 @@ export async function migrateLegacyWorkspaceToShared(
 /**
  * Physically remove a runner's entire workspace directory. Used during
  * hardDelete so no runner data (shared, private, state, socket, pid)
- * is left behind. Idempotent (ENOENT = no-op). Rejects paths that
- * escape the runners root.
+ * is left behind. Idempotent (ENOENT = no-op).
+ *
+ * Rejects:
+ *  - empty or invalid agentId
+ *  - paths that resolve to the runners root itself
+ *  - paths that escape the runners root
  */
 export async function purgeRunnerWorkspace(opts: {
   dataDir: string;
   agentId: string;
 }): Promise<void> {
-  const runnersRoot = path.resolve(opts.dataDir, "runners");
-  const runnerRoot = path.resolve(
-    runnersRoot,
-    safeRunnerAgentId(opts.agentId),
-  );
+  const safeId = safeRunnerAgentId(opts.agentId);
+  if (!safeId) throw new Error(`invalid agentId: "${opts.agentId}"`);
 
-  // Path traversal guard
+  const runnersRoot = path.resolve(opts.dataDir, "runners");
+  const runnerRoot = path.resolve(runnersRoot, safeId);
+
+  // Must be a strict subdirectory of runnersRoot — never runnersRoot itself
   if (
-    !runnerRoot.startsWith(runnersRoot + path.sep) &&
-    runnerRoot !== runnersRoot
+    runnerRoot === runnersRoot ||
+    !runnerRoot.startsWith(runnersRoot + path.sep)
   ) {
     throw new Error(`path traversal rejected: ${opts.agentId}`);
   }

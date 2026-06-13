@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
+import { safeRunnerAgentId } from "../../infra/runner-workspace.js";
 
 export interface RunnerRegistry {
   transportFor(agentId: string): Promise<RunnerTransport>;
@@ -18,8 +19,6 @@ interface DevRunner {
   socket: string;
   dir: string;
 }
-
-import { safeRunnerAgentId } from "../../infra/runner-workspace.js";
 
 async function terminateChild(
   child: ChildProcess,
@@ -54,12 +53,14 @@ export class DevRunnerRegistry implements RunnerRegistry {
   ) {}
 
   async transportFor(agentId: string): Promise<RunnerTransport> {
-    const id = safeRunnerAgentId(agentId);
-    const existing = this.#runners.get(id);
+    // Map key uses safe ID (no special chars), but daemon receives raw agentId
+    // so spec.agentId identity check passes.
+    const key = safeRunnerAgentId(agentId);
+    const existing = this.#runners.get(key);
     if (existing) return existing.transport;
 
-    const runner = await this.#spawn(id);
-    this.#runners.set(id, runner);
+    const runner = await this.#spawn(agentId);
+    this.#runners.set(key, runner);
     return runner.transport;
   }
 

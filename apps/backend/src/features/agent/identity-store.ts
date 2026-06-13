@@ -85,7 +85,8 @@ async function readMemoryFacts(sharedRoot: string): Promise<Array<{ date: string
       try {
         await readFile(path.join(factsDir, entry), "utf-8");
         continue; // already read in step 2
-      } catch {
+      } catch (err) {
+        if (!isCode(err, "ENOENT")) throw err;
         // not in facts — read from flat
       }
       const content = await readTextOrNull(path.join(memoryRoot, entry));
