@@ -21,6 +21,7 @@ function makeSvc() {
         larkEnabled: input.larkEnabled ?? false,
         larkAppId: input.larkAppId ?? null,
         larkProfileRef: input.larkProfileRef ?? null,
+        larkBotDisplayName: input.larkBotDisplayName ?? null,
         createdAt: input.now,
         updatedAt: input.now,
         archivedAt: null,

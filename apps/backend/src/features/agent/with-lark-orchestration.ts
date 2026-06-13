@@ -4,7 +4,7 @@ import type { AgentService } from "./service.js";
 export interface LarkOrchestrationDeps {
   service: AgentService;
   profileInit: (profileRef: string, appId: string, appSecret: string) => Promise<void>;
-  ensureBot: (agentId: string) => Promise<void>;
+  ensureBot: (agentId: string, botDisplayName?: string | null) => Promise<void>;
   stopBot: (agentId: string) => Promise<void>;
 }
 
@@ -23,7 +23,7 @@ export function withLarkOrchestration(deps: LarkOrchestrationDeps): AgentService
       if (input.lark?.enabled && row.larkProfileRef && input.lark.appId && input.lark.appSecret) {
         try {
           await profileInit(row.larkProfileRef, input.lark.appId, input.lark.appSecret);
-          await ensureBot(row.id);
+          await ensureBot(row.id, input.lark.botDisplayName);
         } catch (err) {
           console.error(`[lark] profile/ensure failed for ${row.id}:`, err);
           // Agent created successfully — lark.status will show 'error' or 'configured'
@@ -38,7 +38,7 @@ export function withLarkOrchestration(deps: LarkOrchestrationDeps): AgentService
         if (input.lark.enabled === true && row.larkProfileRef && input.lark.appId && input.lark.appSecret) {
           try {
             await profileInit(row.larkProfileRef, input.lark.appId, input.lark.appSecret);
-            await ensureBot(id);
+            await ensureBot(id, row.larkBotDisplayName);
           } catch (err) {
             console.error(`[lark] profile/ensure failed for ${id}:`, err);
           }

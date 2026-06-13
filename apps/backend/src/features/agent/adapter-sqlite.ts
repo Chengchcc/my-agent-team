@@ -15,6 +15,7 @@ interface DbAgentRow {
   lark_enabled: number;
   lark_app_id: string | null;
   lark_profile_ref: string | null;
+  lark_bot_display_name: string | null;
   created_at: number;
   updated_at: number;
   archived_at: number | null;
@@ -33,6 +34,7 @@ function toRow(db: {
   lark_enabled: number;
   lark_app_id: string | null;
   lark_profile_ref: string | null;
+  lark_bot_display_name: string | null;
   created_at: number;
   updated_at: number;
   archived_at: number | null;
@@ -50,6 +52,7 @@ function toRow(db: {
     larkEnabled: db.lark_enabled === 1,
     larkAppId: db.lark_app_id,
     larkProfileRef: db.lark_profile_ref,
+    larkBotDisplayName: db.lark_bot_display_name,
     createdAt: db.created_at,
     updatedAt: db.updated_at,
     archivedAt: db.archived_at,
@@ -61,12 +64,12 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
     async create(
       input: CreateAgentInput & {
         id: string; workspacePath: string; now: number;
-        larkEnabled: boolean; larkAppId: string | null; larkProfileRef: string | null;
+        larkEnabled: boolean; larkAppId: string | null; larkProfileRef: string | null; larkBotDisplayName: string | null;
       },
     ): Promise<AgentRow> {
       db.run(
-        `INSERT INTO agents (id, name, template, workspace_path, model_provider, model_name, model_base_url, permission_mode, max_steps, lark_enabled, lark_app_id, lark_profile_ref, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO agents (id, name, template, workspace_path, model_provider, model_name, model_base_url, permission_mode, max_steps, lark_enabled, lark_app_id, lark_profile_ref, lark_bot_display_name, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           input.id,
           input.name,
@@ -80,6 +83,7 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
           input.larkEnabled ? 1 : 0,
           input.larkAppId ?? null,
           input.larkProfileRef ?? null,
+          input.larkBotDisplayName ?? null,
           input.now,
           input.now,
         ],
@@ -123,6 +127,10 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
       if (input.lark?.appId !== undefined) {
         sets.push("lark_app_id = ?");
         vals.push(input.lark.appId);
+      }
+      if (input.lark?.botDisplayName !== undefined) {
+        sets.push("lark_bot_display_name = ?");
+        vals.push(input.lark.botDisplayName);
       }
       vals.push(id);
       const result = db.run(

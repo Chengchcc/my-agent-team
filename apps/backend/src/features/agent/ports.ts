@@ -9,6 +9,7 @@ export interface AgentPort {
       larkEnabled: boolean;
       larkAppId: string | null;
       larkProfileRef: string | null;
+      larkBotDisplayName: string | null;
     },
   ): Promise<AgentRow>;
   findById(id: string): Promise<AgentRow | null>;

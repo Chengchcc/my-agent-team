@@ -27,6 +27,10 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
     editAgent?.permissionMode ?? "ask",
   );
   const [maxSteps, setMaxSteps] = useState(editAgent?.maxSteps?.toString() ?? "");
+  const [enableLark, setEnableLark] = useState(editAgent?.lark?.enabled ?? false);
+  const [larkAppId, setLarkAppId] = useState(editAgent?.lark?.appId ?? "");
+  const [larkAppSecret, setLarkAppSecret] = useState("");
+  const [botDisplayName, setBotDisplayName] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -38,6 +42,9 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
       setBaseURL(editAgent.modelBaseUrl ?? "");
       setPermissionMode(editAgent.permissionMode);
       setMaxSteps(editAgent.maxSteps?.toString() ?? "");
+      setEnableLark(editAgent.lark?.enabled ?? false);
+      setLarkAppId(editAgent.lark?.appId ?? "");
+      setLarkAppSecret(""); // never pre-filled — write-only
     }
   }, [editAgent]);
 
@@ -46,7 +53,8 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
     setError("");
     setSubmitting(true);
     try {
-      const body = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body: Record<string, any> = {
         name,
         model: {
           provider: "anthropic" as const,
@@ -56,6 +64,21 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
         permissionMode,
         ...(maxSteps ? { maxSteps: parseInt(maxSteps, 10) } : {}),
       };
+
+      // Lark bot configuration
+      if (enableLark) {
+        body.lark = {
+          enabled: true,
+          appId: larkAppId || undefined,
+          ...(larkAppSecret ? { appSecret: larkAppSecret } : {}),
+        };
+        if (botDisplayName) {
+          body.lark.botDisplayName = botDisplayName;
+        }
+      } else if (isEdit && editAgent?.lark?.enabled) {
+        // Explicitly disabling
+        body.lark = { enabled: false };
+      }
 
       if (isEdit) {
         await api.updateAgent(editAgent?.id, body);
@@ -187,6 +210,68 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                     className={fieldClass}
                   />
                 </div>
+              </div>
+
+              {/* ─── Lark Bot ─── */}
+              <div className="border-t border-[var(--hairline)] pt-5">
+                <label className="flex items-center gap-2 cursor-pointer mb-4">
+                  <input
+                    type="checkbox"
+                    checked={enableLark}
+                    onChange={(e) => setEnableLark(e.target.checked)}
+                    className="w-4 h-4 rounded border-[var(--hairline)] accent-[var(--primary)]"
+                  />
+                  <span className={labelClass + " mb-0"}>Enable Lark Bot</span>
+                  {editAgent?.lark?.status && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      editAgent.lark.status === "running" ? "bg-green-100 text-green-700" :
+                      editAgent.lark.status === "error" ? "bg-red-100 text-red-700" :
+                      editAgent.lark.status === "degraded" ? "bg-amber-100 text-amber-700" :
+                      "bg-gray-100 text-gray-500"
+                    }`}>
+                      {editAgent.lark.status}
+                    </span>
+                  )}
+                </label>
+
+                {enableLark && (
+                  <div className="space-y-4 pl-6 border-l-2 border-[var(--hairline)]">
+                    <div>
+                      <label className={labelClass}>App ID</label>
+                      <input
+                        value={larkAppId}
+                        onChange={(e) => setLarkAppId(e.target.value)}
+                        placeholder="cli_xxx"
+                        className={fieldClass}
+                        required={enableLark}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>
+                        App Secret {isEdit && editAgent?.lark?.enabled ? "(leave blank to keep current)" : "*"}
+                      </label>
+                      <input
+                        type="password"
+                        value={larkAppSecret}
+                        onChange={(e) => setLarkAppSecret(e.target.value)}
+                        placeholder={isEdit && editAgent?.lark?.enabled ? "••••••••" : ""}
+                        className={fieldClass}
+                        required={enableLark && !(isEdit && editAgent?.lark?.enabled)}
+                      />
+                      <p className={hintClass}>Write-only — never stored or displayed</p>
+                    </div>
+                    <div>
+                      <label className={labelClass}>Bot Display Name</label>
+                      <input
+                        value={botDisplayName}
+                        onChange={(e) => setBotDisplayName(e.target.value)}
+                        placeholder="Must match Lark app settings"
+                        className={fieldClass}
+                      />
+                      <p className={hintClass}>Required for group @mention detection</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {error && <p className="text-xs text-[var(--body)]">{error}</p>}

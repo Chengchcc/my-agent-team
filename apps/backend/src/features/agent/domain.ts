@@ -14,6 +14,7 @@ export interface AgentRow {
   larkEnabled: boolean;
   larkAppId: string | null;
   larkProfileRef: string | null;
+  larkBotDisplayName: string | null;
 }
 
 export interface CreateAgentInput {
@@ -26,6 +27,7 @@ export interface CreateAgentInput {
     enabled: boolean;
     appId?: string;
     appSecret?: string;
+    botDisplayName?: string;
   };
 }
 
@@ -37,5 +39,6 @@ export interface UpdateAgentInput {
     enabled?: boolean;
     appId?: string;
     appSecret?: string;
+    botDisplayName?: string;
   };
 }

@@ -5,7 +5,7 @@ import { safeRunnerAgentId } from "../../infra/runner-workspace.js";
 export type LarkBotStatus = "not_configured" | "configured" | "running" | "degraded" | "error";
 
 export interface LarkBotRegistry {
-  ensureLarkBot(agentId: string): Promise<void>;
+  ensureLarkBot(agentId: string, botDisplayName?: string | null): Promise<void>;
   stopLarkBot(agentId: string): Promise<void>;
   statusOf(agentId: string): LarkBotStatus;
   dispose(): Promise<void>;
@@ -51,7 +51,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
     },
   ) {}
 
-  async ensureLarkBot(agentId: string): Promise<void> {
+  async ensureLarkBot(agentId: string, botDisplayName?: string | null): Promise<void> {
     const key = safeRunnerAgentId(agentId);
     const existing = this.#bots.get(key);
     if (existing && existing.child.exitCode === null) return; // already running
@@ -65,6 +65,9 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
       "--state-root",
       this.opts.dataDir,
     ];
+    if (botDisplayName) {
+      args.push("--bot-display-name", botDisplayName);
+    }
 
     const child = spawn("bun", args, {
       stdio: ["pipe", "pipe", "pipe"],
@@ -127,7 +130,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
 // ─── Prod registry (resolve only, no spawn) ───
 
 export class ProdLarkBotRegistry implements LarkBotRegistry {
-  async ensureLarkBot(_agentId: string): Promise<void> {
+  async ensureLarkBot(_agentId: string, _botDisplayName?: string | null): Promise<void> {
     /* external orchestration */
   }
   async stopLarkBot(_agentId: string): Promise<void> {

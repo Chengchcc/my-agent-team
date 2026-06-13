@@ -36,6 +36,13 @@ export async function apiFetch<T = unknown>(
 
 // ── Types ──
 
+export interface LarkConfig {
+  enabled: boolean;
+  appId: string | null;
+  profileRef: string | null;
+  status: "not_configured" | "configured" | "running" | "degraded" | "error";
+}
+
 export interface AgentRow {
   id: string;
   name: string;
@@ -49,6 +56,7 @@ export interface AgentRow {
   createdAt: number;
   updatedAt: number;
   archivedAt?: number | null;
+  lark?: LarkConfig;
 }
 
 export interface IdentityData {

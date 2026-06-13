@@ -32,9 +32,10 @@ export function createAgentService(opts: {
       const larkEnabled = input.lark?.enabled ?? false;
       const larkAppId = input.lark?.appId ?? null;
       const larkProfileRef = larkEnabled ? `agent:${id}` : null;
+      const larkBotDisplayName = input.lark?.botDisplayName ?? null;
       return port.create({
         ...input, id, workspacePath, now,
-        larkEnabled, larkAppId, larkProfileRef,
+        larkEnabled, larkAppId, larkProfileRef, larkBotDisplayName,
       });
     },
 

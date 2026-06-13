@@ -9,6 +9,7 @@ const larkCreateSchema = z.object({
   enabled: z.boolean(),
   appId: z.string().min(1),
   appSecret: z.string().min(1),
+  botDisplayName: z.string().optional(),
 }).optional().refine(
   (data) => {
     if (!data) return true;
@@ -22,6 +23,7 @@ const larkUpdateSchema = z.object({
   enabled: z.boolean().optional(),
   appId: z.string().min(1).optional(),
   appSecret: z.string().min(1).optional(),
+  botDisplayName: z.string().optional(),
 }).optional();
 
 const createSchema = z.object({
@@ -67,6 +69,7 @@ export function agentRoutes(svc: AgentService, identityStore?: AgentIdentityStor
           enabled: row.larkEnabled,
           appId: row.larkAppId,
           profileRef: row.larkProfileRef,
+          botDisplayName: row.larkBotDisplayName,
           status: deriveLarkStatus(row),
         },
       }, 201);
@@ -80,6 +83,7 @@ export function agentRoutes(svc: AgentService, identityStore?: AgentIdentityStor
           enabled: row.larkEnabled,
           appId: row.larkAppId,
           profileRef: row.larkProfileRef,
+          botDisplayName: row.larkBotDisplayName,
           status: deriveLarkStatus(row),
         },
       })));

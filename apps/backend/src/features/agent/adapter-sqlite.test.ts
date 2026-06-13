@@ -27,6 +27,7 @@ describe("sqliteAgentAdapter", () => {
       larkEnabled: false,
       larkAppId: null,
       larkProfileRef: null,
+      larkBotDisplayName: null,
     });
     expect(agent.id).toBe("a1");
     expect(agent.name).toBe("test");
@@ -51,6 +52,7 @@ describe("sqliteAgentAdapter", () => {
       larkEnabled: false,
       larkAppId: null,
       larkProfileRef: null,
+      larkBotDisplayName: null,
     });
     const list = await adapter.list();
     expect(list.length).toBeGreaterThanOrEqual(2);

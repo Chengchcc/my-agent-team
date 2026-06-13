@@ -203,6 +203,11 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
     id: 5006,
     up: `ALTER TABLE agents ADD COLUMN lark_profile_ref TEXT`,
   },
+  {
+    name: "backend_v21_agents_lark_bot_display_name",
+    id: 5007,
+    up: `ALTER TABLE agents ADD COLUMN lark_bot_display_name TEXT`,
+  },
 ];
 
 /** Combined migrations: backend own + checkpointer tables. Sorted by id. */
