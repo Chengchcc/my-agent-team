@@ -1,8 +1,28 @@
 import { z } from "zod";
 import { json, parseJsonBody } from "../../http/response.js";
+import type { AgentRow } from "./domain.js";
 import type { AgentIdentityStore } from "./identity-store.js";
 import type { AgentService } from "./service.js";
 import { AgentBusyError, AgentNotFoundError } from "./service.js";
+
+const larkCreateSchema = z.object({
+  enabled: z.boolean(),
+  appId: z.string().min(1),
+  appSecret: z.string().min(1),
+}).optional().refine(
+  (data) => {
+    if (!data) return true;
+    if (data.enabled) return !!data.appId && !!data.appSecret;
+    return true;
+  },
+  { message: "lark.enabled=true requires lark.appId and lark.appSecret" },
+);
+
+const larkUpdateSchema = z.object({
+  enabled: z.boolean().optional(),
+  appId: z.string().min(1).optional(),
+  appSecret: z.string().min(1).optional(),
+}).optional();
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -14,13 +34,23 @@ const createSchema = z.object({
   }),
   permissionMode: z.enum(["ask", "auto", "deny"]).optional(),
   maxSteps: z.number().int().positive().optional(),
+  lark: larkCreateSchema,
 });
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
   permissionMode: z.enum(["ask", "auto", "deny"]).optional(),
   maxSteps: z.number().int().positive().optional(),
+  lark: larkUpdateSchema,
 });
+
+function deriveLarkStatus(row: AgentRow, registryStatus?: string): string {
+  if (!row.larkEnabled || !row.larkProfileRef) return "not_configured";
+  if (registryStatus === "running") return "running";
+  if (registryStatus === "degraded") return "degraded";
+  if (registryStatus === "error") return "error";
+  return "configured";
+}
 
 export function agentRoutes(svc: AgentService, identityStore?: AgentIdentityStore) {
   return {
@@ -31,17 +61,42 @@ export function agentRoutes(svc: AgentService, identityStore?: AgentIdentityStor
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       const row = await svc.create(parsed.data);
-      return json(row, 201);
+      return json({
+        ...row,
+        lark: {
+          enabled: row.larkEnabled,
+          appId: row.larkAppId,
+          profileRef: row.larkProfileRef,
+          status: deriveLarkStatus(row),
+        },
+      }, 201);
     },
 
     async list(_req: Request): Promise<Response> {
       const rows = await svc.list();
-      return json(rows);
+      return json(rows.map((row) => ({
+        ...row,
+        lark: {
+          enabled: row.larkEnabled,
+          appId: row.larkAppId,
+          profileRef: row.larkProfileRef,
+          status: deriveLarkStatus(row),
+        },
+      })));
     },
 
     async getById(_req: Request, id: string): Promise<Response> {
       try {
-        return json(await svc.getById(id));
+        const row = await svc.getById(id);
+        return json({
+          ...row,
+          lark: {
+            enabled: row.larkEnabled,
+            appId: row.larkAppId,
+            profileRef: row.larkProfileRef,
+            status: deriveLarkStatus(row),
+          },
+        });
       } catch (err) {
         if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
         throw err;
@@ -55,7 +110,16 @@ export function agentRoutes(svc: AgentService, identityStore?: AgentIdentityStor
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       try {
-        return json(await svc.update(id, parsed.data));
+        const row = await svc.update(id, parsed.data);
+        return json({
+          ...row,
+          lark: {
+            enabled: row.larkEnabled,
+            appId: row.larkAppId,
+            profileRef: row.larkProfileRef,
+            status: deriveLarkStatus(row),
+          },
+        });
       } catch (err) {
         if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
         throw err;

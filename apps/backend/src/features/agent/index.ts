@@ -14,3 +14,4 @@ export {
   type AgentService,
   createAgentService,
 } from "./service.js";
+export { withLarkOrchestration } from "./with-lark-orchestration.js";

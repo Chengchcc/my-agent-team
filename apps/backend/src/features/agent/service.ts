@@ -29,7 +29,13 @@ export function createAgentService(opts: {
       const id = idGen();
       const workspacePath = await materializeWorkspace(id, input.template);
       const now = Date.now();
-      return port.create({ ...input, id, workspacePath, now });
+      const larkEnabled = input.lark?.enabled ?? false;
+      const larkAppId = input.lark?.appId ?? null;
+      const larkProfileRef = larkEnabled ? `agent:${id}` : null;
+      return port.create({
+        ...input, id, workspacePath, now,
+        larkEnabled, larkAppId, larkProfileRef,
+      });
     },
 
     async getById(id: string): Promise<AgentRow> {

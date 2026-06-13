@@ -24,6 +24,9 @@ describe("sqliteAgentAdapter", () => {
       id: "a1",
       workspacePath: "/ws/a1",
       now: 1000,
+      larkEnabled: false,
+      larkAppId: null,
+      larkProfileRef: null,
     });
     expect(agent.id).toBe("a1");
     expect(agent.name).toBe("test");
@@ -45,6 +48,9 @@ describe("sqliteAgentAdapter", () => {
       id: "b1",
       workspacePath: "/ws/b1",
       now: 2000,
+      larkEnabled: false,
+      larkAppId: null,
+      larkProfileRef: null,
     });
     const list = await adapter.list();
     expect(list.length).toBeGreaterThanOrEqual(2);

@@ -11,6 +11,9 @@ export interface AgentRow {
   createdAt: number;
   updatedAt: number;
   archivedAt: number | null;
+  larkEnabled: boolean;
+  larkAppId: string | null;
+  larkProfileRef: string | null;
 }
 
 export interface CreateAgentInput {
@@ -19,10 +22,20 @@ export interface CreateAgentInput {
   model: { provider: string; model: string; baseURL?: string };
   permissionMode?: "ask" | "auto" | "deny";
   maxSteps?: number;
+  lark?: {
+    enabled: boolean;
+    appId?: string;
+    appSecret?: string;
+  };
 }
 
 export interface UpdateAgentInput {
   name?: string;
   permissionMode?: "ask" | "auto" | "deny";
   maxSteps?: number;
+  lark?: {
+    enabled?: boolean;
+    appId?: string;
+    appSecret?: string;
+  };
 }

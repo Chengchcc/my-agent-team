@@ -187,6 +187,22 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
       DROP TABLE IF EXISTS threads;
     `,
   },
+  // ─── M15 lark-bot agent columns (id segment 5000) ──────────
+  {
+    name: "backend_v18_agents_lark_enabled",
+    id: 5004,
+    up: `ALTER TABLE agents ADD COLUMN lark_enabled INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    name: "backend_v19_agents_lark_app_id",
+    id: 5005,
+    up: `ALTER TABLE agents ADD COLUMN lark_app_id TEXT`,
+  },
+  {
+    name: "backend_v20_agents_lark_profile_ref",
+    id: 5006,
+    up: `ALTER TABLE agents ADD COLUMN lark_profile_ref TEXT`,
+  },
 ];
 
 /** Combined migrations: backend own + checkpointer tables. Sorted by id. */
