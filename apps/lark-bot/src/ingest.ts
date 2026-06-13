@@ -109,7 +109,7 @@ export async function ingest(
 
     try {
       // Add the human member via API (idempotent per §7.3)
-      await fetch(`${backendUrl}/api/conversations/${conversationId}/members`, {
+      const memberResp = await fetch(`${backendUrl}/api/conversations/${conversationId}/members`, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -119,9 +119,13 @@ export async function ingest(
           displayName: event.senderDisplayName ?? event.sender_id,
         }),
       });
+      if (!memberResp.ok) {
+        console.error(`[ingest] add member failed: HTTP ${memberResp.status}`);
+        return { action: "error", conversationId, triggered: false };
+      }
     } catch (err) {
-      console.error(`[ingest] add member failed:`, err);
-      // Non-fatal — member will be re-created on next message if needed
+      console.error(`[ingest] add member network error:`, err);
+      return { action: "error", conversationId, triggered: false };
     }
 
     onNewBinding?.(conversationId);

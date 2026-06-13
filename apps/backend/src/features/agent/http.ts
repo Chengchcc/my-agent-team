@@ -25,7 +25,17 @@ const larkUpdateSchema = z.object({
   appSecret: z.string().min(1).optional(),
   botDisplayName: z.string().optional(),
   profileRef: z.string().optional(),
-}).optional();
+}).optional().refine(
+  (data) => {
+    if (!data) return true;
+    if (data.enabled === true) {
+      // Either fresh credentials or existing profile must be present
+      return (!!data.appId && !!data.appSecret) || !!data.profileRef;
+    }
+    return true;
+  },
+  { message: "lark.enabled=true requires appId+appSecret or profileRef" },
+);
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -55,7 +65,11 @@ function deriveLarkStatus(row: AgentRow, registryStatus?: string): string {
   return "configured";
 }
 
-export function agentRoutes(svc: AgentService, identityStore?: AgentIdentityStore) {
+export function agentRoutes(
+  svc: AgentService,
+  identityStore?: AgentIdentityStore,
+  larkStatusOf?: (agentId: string) => string,
+) {
   return {
     async create(req: Request): Promise<Response> {
       const body = await parseJsonBody(req);
@@ -99,7 +113,8 @@ export function agentRoutes(svc: AgentService, identityStore?: AgentIdentityStor
             enabled: row.larkEnabled,
             appId: row.larkAppId,
             profileRef: row.larkProfileRef,
-            status: deriveLarkStatus(row),
+            botDisplayName: row.larkBotDisplayName,
+            status: deriveLarkStatus(row, larkStatusOf?.(row.id)),
           },
         });
       } catch (err) {
@@ -122,7 +137,8 @@ export function agentRoutes(svc: AgentService, identityStore?: AgentIdentityStor
             enabled: row.larkEnabled,
             appId: row.larkAppId,
             profileRef: row.larkProfileRef,
-            status: deriveLarkStatus(row),
+            botDisplayName: row.larkBotDisplayName,
+            status: deriveLarkStatus(row, larkStatusOf?.(row.id)),
           },
         });
       } catch (err) {

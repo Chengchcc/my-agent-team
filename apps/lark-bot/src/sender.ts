@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { safeAgentId } from "./safe-agent-id.js";
 
 /**
  * Send a message to a Lark chat via lark-cli.

@@ -154,7 +154,8 @@ const agentSvcRaw = createAgentService({
 const agentSvc = withLarkOrchestration({
   service: agentSvcRaw,
   profileInit: larkProfileInit,
-  ensureBot: (id) => larkBotRegistry.ensureLarkBot(id),
+  ensureBot: (id, botDisplayName, larkProfile) =>
+    larkBotRegistry.ensureLarkBot(id, botDisplayName, larkProfile),
   stopBot: (id) => larkBotRegistry.stopLarkBot(id),
 });
 
@@ -383,7 +384,7 @@ const identityStore = createAgentIdentityStore({
 });
 
 const router = createRouter(config.authToken, {
-  agents: agentRoutes(agentSvc, identityStore),
+  agents: agentRoutes(agentSvc, identityStore, (agentId) => larkBotRegistry.statusOf(agentId)),
   // threads: removed — conversation is the user-facing concept
   runs: runRoutes(runSvc, buildAgentSpecV2, getThreadIdForRun),
   threadProjections: threadProjectionRoutes(threadProjectionSvc),

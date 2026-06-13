@@ -56,6 +56,8 @@ export function watchConversation(
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      // Persist across chunks — SSE messages may span multiple reader.read() calls
+      let currentData = "";
 
       while (!aborted) {
         const { done, value } = await reader.read();
@@ -65,17 +67,10 @@ export function watchConversation(
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
 
-        let currentId: string | null = null;
-        let currentEvent: string | null = null;
-        let currentData: string | null = null;
-
         for (const line of lines) {
-          if (line.startsWith("id: ")) {
-            currentId = line.slice(4);
-          } else if (line.startsWith("event: ")) {
-            currentEvent = line.slice(7);
-          } else if (line.startsWith("data: ")) {
-            currentData = line.slice(6);
+          if (line.startsWith("data: ")) {
+            // Multi-line data: append with newline per SSE spec
+            currentData += currentData ? "\n" + line.slice(6) : line.slice(6);
           } else if (line === "" && currentData) {
             // Complete SSE message
             try {
@@ -85,10 +80,9 @@ export function watchConversation(
             } catch {
               // skip malformed entries
             }
-            currentId = null;
-            currentEvent = null;
-            currentData = null;
+            currentData = "";
           }
+          // id: and event: lines are informational — MVP doesn't use them
         }
       }
     } catch (err) {
@@ -121,10 +115,17 @@ async function processEntry(
   if (entry.seq <= currentSeq) return;
 
   // Skip non-message kinds (member events, todos — MVP doesn't push to Lark)
-  if (entry.kind !== "message") return;
+  // Still advance pushed_seq to avoid re-scanning on restart
+  if (entry.kind !== "message") {
+    updatePushedSeq(db, larkChatId, entry.seq);
+    return;
+  }
 
-  // Skip system messages
-  if (entry.senderMemberId === "__system__") return;
+  // Skip system messages (still advance pushed_seq)
+  if (entry.senderMemberId === "__system__") {
+    updatePushedSeq(db, larkChatId, entry.seq);
+    return;
+  }
 
   // Skip human messages from this chat (echo filter)
   const isHumanOfThisChat = getMemberBindingsForChat(db, larkChatId).some(

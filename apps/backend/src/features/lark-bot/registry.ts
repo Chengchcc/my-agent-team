@@ -15,6 +15,8 @@ export interface LarkBotRegistry {
 
 interface DevBot {
   agentId: string;
+  botDisplayName?: string | null;
+  larkProfile?: string | null;
   child: ChildProcess;
 }
 
@@ -39,9 +41,16 @@ async function terminateChild(child: ChildProcess, timeoutMs = 5000): Promise<vo
 
 // ─── Dev registry (spawns lark-bot processes) ───
 
+interface DesiredConfig {
+  agentId: string;
+  botDisplayName?: string | null;
+  larkProfile?: string | null;
+}
+
 export class DevLarkBotRegistry implements LarkBotRegistry {
   #bots = new Map<string, DevBot>();
   #backoff = new Map<string, number>();
+  #desired = new Map<string, DesiredConfig>();
 
   constructor(
     private opts: {
@@ -53,6 +62,10 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
 
   async ensureLarkBot(agentId: string, botDisplayName?: string | null, larkProfile?: string | null): Promise<void> {
     const key = safeRunnerAgentId(agentId);
+
+    // Always save desired config so restarts and updates don't lose args
+    this.#desired.set(key, { agentId, botDisplayName, larkProfile });
+
     const existing = this.#bots.get(key);
     if (existing && existing.child.exitCode === null) return; // already running
 
@@ -89,6 +102,16 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
 
     child.on("exit", (code, signal) => {
       if (!this.#bots.has(key)) return; // intentional stop
+
+      if (code === 0) {
+        // Clean exit — lark-bot chose to stop (agent disabled/archived/not found)
+        this.#bots.delete(key);
+        this.#backoff.delete(key);
+        this.#desired.delete(key);
+        console.log(`[lark-bot:${key}] exited cleanly code=0, not restarting`);
+        return;
+      }
+
       const backoff = this.#backoff.get(key) ?? 0;
       const next = Math.min((backoff + 1) * 2000, 30000);
       this.#backoff.set(key, next);
@@ -97,14 +120,17 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
       );
       setTimeout(() => {
         if (this.#bots.has(key)) {
-          this.ensureLarkBot(agentId).catch(() => {
-            /* backoff loop continues */
-          });
+          const desired = this.#desired.get(key);
+          if (desired) {
+            this.ensureLarkBot(desired.agentId, desired.botDisplayName, desired.larkProfile).catch(() => {
+              /* backoff loop continues */
+            });
+          }
         }
       }, next);
     });
 
-    this.#bots.set(key, { agentId, child });
+    this.#bots.set(key, { agentId, botDisplayName, larkProfile, child });
     this.#backoff.set(key, 0); // reset backoff on successful start
   }
 
@@ -114,6 +140,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
     if (!bot) return;
     this.#bots.delete(key); // mark intentional — prevents restart
     this.#backoff.delete(key);
+    this.#desired.delete(key);
     await terminateChild(bot.child);
   }
 
@@ -128,6 +155,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
     const entries = [...this.#bots.entries()];
     this.#bots.clear();
     this.#backoff.clear();
+    this.#desired.clear();
     for (const [, bot] of entries) {
       await terminateChild(bot.child);
     }

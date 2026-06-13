@@ -1,5 +1,15 @@
 import { spawn } from "node:child_process";
 
+function sanitizeLarkCliError(stderr: string): string {
+  const trimmed = stderr.trim();
+  if (!trimmed) return "";
+  return trimmed
+    .replace(/app[_-]?secret\s*[:=]\s*\S+/gi, "appSecret=[redacted]")
+    .replace(/secret\s*[:=]\s*\S+/gi, "secret=[redacted]")
+    .replace(/token\s*[:=]\s*\S+/gi, "token=[redacted]")
+    .slice(0, 500);
+}
+
 /**
  * Initialize a per-agent lark-cli profile.
  * appSecret is passed via stdin (never via argv) to avoid secret exposure.
@@ -36,7 +46,7 @@ export async function larkProfileInit(
 
     child.on("exit", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`lark-cli config init exited ${code}: ${stderr.trim()}`));
+      else reject(new Error(`lark-cli config init exited ${code}: ${sanitizeLarkCliError(stderr)}`));
     });
 
     // Write secret via stdin, then close for non-interactive init
