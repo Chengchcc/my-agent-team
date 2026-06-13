@@ -5,7 +5,11 @@ import { safeRunnerAgentId } from "../../infra/runner-workspace.js";
 export type LarkBotStatus = "not_configured" | "configured" | "running" | "degraded" | "error";
 
 export interface LarkBotRegistry {
-  ensureLarkBot(agentId: string, botDisplayName?: string | null, larkProfile?: string | null): Promise<void>;
+  ensureLarkBot(
+    agentId: string,
+    botDisplayName?: string | null,
+    larkProfile?: string | null,
+  ): Promise<void>;
   stopLarkBot(agentId: string): Promise<void>;
   statusOf(agentId: string): LarkBotStatus;
   dispose(): Promise<void>;
@@ -60,7 +64,11 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
     },
   ) {}
 
-  async ensureLarkBot(agentId: string, botDisplayName?: string | null, larkProfile?: string | null): Promise<void> {
+  async ensureLarkBot(
+    agentId: string,
+    botDisplayName?: string | null,
+    larkProfile?: string | null,
+  ): Promise<void> {
     const key = safeRunnerAgentId(agentId);
 
     // Always save desired config so restarts and updates don't lose args
@@ -115,16 +123,16 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
       const backoff = this.#backoff.get(key) ?? 0;
       const next = Math.min((backoff + 1) * 2000, 30000);
       this.#backoff.set(key, next);
-      console.error(
-        `[lark-bot:${key}] exited code=${code} signal=${signal}, restart in ${next}ms`,
-      );
+      console.error(`[lark-bot:${key}] exited code=${code} signal=${signal}, restart in ${next}ms`);
       setTimeout(() => {
         if (this.#bots.has(key)) {
           const desired = this.#desired.get(key);
           if (desired) {
-            this.ensureLarkBot(desired.agentId, desired.botDisplayName, desired.larkProfile).catch(() => {
-              /* backoff loop continues */
-            });
+            this.ensureLarkBot(desired.agentId, desired.botDisplayName, desired.larkProfile).catch(
+              () => {
+                /* backoff loop continues */
+              },
+            );
           }
         }
       }, next);
@@ -165,7 +173,11 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
 // ─── Prod registry (resolve only, no spawn) ───
 
 export class ProdLarkBotRegistry implements LarkBotRegistry {
-  async ensureLarkBot(_agentId: string, _botDisplayName?: string | null, _larkProfile?: string | null): Promise<void> {
+  async ensureLarkBot(
+    _agentId: string,
+    _botDisplayName?: string | null,
+    _larkProfile?: string | null,
+  ): Promise<void> {
     /* external orchestration */
   }
   async stopLarkBot(_agentId: string): Promise<void> {

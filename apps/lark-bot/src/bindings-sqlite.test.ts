@@ -1,6 +1,17 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { confirmInbound, getAllChatBindings, getChatBinding, getMemberBinding, inboundExists, openBindings, putChatBinding, putMemberBinding, reserveInbound, updatePushedSeq } from "./bindings-sqlite.js";
+import {
+  confirmInbound,
+  getAllChatBindings,
+  getChatBinding,
+  getMemberBinding,
+  inboundExists,
+  openBindings,
+  putChatBinding,
+  putMemberBinding,
+  reserveInbound,
+  updatePushedSeq,
+} from "./bindings-sqlite.js";
 
 const testDir = `/tmp/test-lark-bindings-${Date.now()}`;
 let db: Database;
@@ -13,7 +24,9 @@ afterAll(() => {
 describe("bindings-sqlite", () => {
   test("openBindings creates tables", () => {
     db = openBindings("test-agent", testDir);
-    const tables = db.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[];
+    const tables = db
+      .query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+      .all() as { name: string }[];
     const names = tables.map((t) => t.name);
     expect(names).toContain("chat_binding");
     expect(names).toContain("member_binding");
@@ -57,7 +70,9 @@ describe("bindings-sqlite", () => {
 
     // Confirm
     confirmInbound(db, "evt_new", "conv_test1", 5);
-    const row = db.query("SELECT status, ledger_seq FROM inbound_message WHERE lark_event_id = ?").get("evt_new") as { status: string; ledger_seq: number };
+    const row = db
+      .query("SELECT status, ledger_seq FROM inbound_message WHERE lark_event_id = ?")
+      .get("evt_new") as { status: string; ledger_seq: number };
     expect(row.status).toBe("posted");
     expect(row.ledger_seq).toBe(5);
   });

@@ -47,14 +47,18 @@ describe("SSE watcher pushed_seq advancement", () => {
     const db = setupDb();
     const larkChatId = "oc_test";
     // Insert binding with pushed_seq 0
-    db.run("INSERT INTO chat_binding (lark_chat_id, conversation_id, chat_type, created_at, pushed_seq) VALUES (?, ?, ?, ?, 0)",
-      [larkChatId, "conv_test", "group", Date.now()]);
+    db.run(
+      "INSERT INTO chat_binding (lark_chat_id, conversation_id, chat_type, created_at, pushed_seq) VALUES (?, ?, ?, ?, 0)",
+      [larkChatId, "conv_test", "group", Date.now()],
+    );
 
     // Non-message (member.joined) should call updatePushedSeq
     // This is tested indirectly — the function is private, we verify the public API
     // For now: verify db state transitions work
     db.run("UPDATE chat_binding SET pushed_seq = ? WHERE lark_chat_id = ?", [42, larkChatId]);
-    const row = db.query("SELECT pushed_seq FROM chat_binding WHERE lark_chat_id = ?").get(larkChatId) as { pushed_seq: number };
+    const row = db
+      .query("SELECT pushed_seq FROM chat_binding WHERE lark_chat_id = ?")
+      .get(larkChatId) as { pushed_seq: number };
     expect(row.pushed_seq).toBe(42);
     db.close();
   });

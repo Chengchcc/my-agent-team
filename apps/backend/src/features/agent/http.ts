@@ -5,37 +5,43 @@ import type { AgentIdentityStore } from "./identity-store.js";
 import type { AgentService } from "./service.js";
 import { AgentBusyError, AgentNotFoundError } from "./service.js";
 
-const larkCreateSchema = z.object({
-  enabled: z.boolean(),
-  appId: z.string().min(1),
-  appSecret: z.string().min(1),
-  botDisplayName: z.string().optional(),
-}).optional().refine(
-  (data) => {
-    if (!data) return true;
-    if (data.enabled) return !!data.appId && !!data.appSecret;
-    return true;
-  },
-  { message: "lark.enabled=true requires lark.appId and lark.appSecret" },
-);
+const larkCreateSchema = z
+  .object({
+    enabled: z.boolean(),
+    appId: z.string().min(1),
+    appSecret: z.string().min(1),
+    botDisplayName: z.string().optional(),
+  })
+  .optional()
+  .refine(
+    (data) => {
+      if (!data) return true;
+      if (data.enabled) return !!data.appId && !!data.appSecret;
+      return true;
+    },
+    { message: "lark.enabled=true requires lark.appId and lark.appSecret" },
+  );
 
-const larkUpdateSchema = z.object({
-  enabled: z.boolean().optional(),
-  appId: z.string().min(1).optional(),
-  appSecret: z.string().min(1).optional(),
-  botDisplayName: z.string().optional(),
-  profileRef: z.string().optional(),
-}).optional().refine(
-  (data) => {
-    if (!data) return true;
-    if (data.enabled === true) {
-      // Either fresh credentials or existing profile must be present
-      return (!!data.appId && !!data.appSecret) || !!data.profileRef;
-    }
-    return true;
-  },
-  { message: "lark.enabled=true requires appId+appSecret or profileRef" },
-);
+const larkUpdateSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    appId: z.string().min(1).optional(),
+    appSecret: z.string().min(1).optional(),
+    botDisplayName: z.string().optional(),
+    profileRef: z.string().optional(),
+  })
+  .optional()
+  .refine(
+    (data) => {
+      if (!data) return true;
+      if (data.enabled === true) {
+        // Either fresh credentials or existing profile must be present
+        return (!!data.appId && !!data.appSecret) || !!data.profileRef;
+      }
+      return true;
+    },
+    { message: "lark.enabled=true requires appId+appSecret or profileRef" },
+  );
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -78,30 +84,35 @@ export function agentRoutes(
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       const row = await svc.create(parsed.data);
-      return json({
-        ...row,
-        lark: {
-          enabled: row.larkEnabled,
-          appId: row.larkAppId,
-          profileRef: row.larkProfileRef,
-          botDisplayName: row.larkBotDisplayName,
-          status: deriveLarkStatus(row),
+      return json(
+        {
+          ...row,
+          lark: {
+            enabled: row.larkEnabled,
+            appId: row.larkAppId,
+            profileRef: row.larkProfileRef,
+            botDisplayName: row.larkBotDisplayName,
+            status: deriveLarkStatus(row),
+          },
         },
-      }, 201);
+        201,
+      );
     },
 
     async list(_req: Request): Promise<Response> {
       const rows = await svc.list();
-      return json(rows.map((row) => ({
-        ...row,
-        lark: {
-          enabled: row.larkEnabled,
-          appId: row.larkAppId,
-          profileRef: row.larkProfileRef,
-          botDisplayName: row.larkBotDisplayName,
-          status: deriveLarkStatus(row),
-        },
-      })));
+      return json(
+        rows.map((row) => ({
+          ...row,
+          lark: {
+            enabled: row.larkEnabled,
+            appId: row.larkAppId,
+            profileRef: row.larkProfileRef,
+            botDisplayName: row.larkBotDisplayName,
+            status: deriveLarkStatus(row),
+          },
+        })),
+      );
     },
 
     async getById(_req: Request, id: string): Promise<Response> {

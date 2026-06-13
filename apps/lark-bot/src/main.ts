@@ -41,14 +41,13 @@ for (const binding of getAllChatBindings(state.db)) {
 }
 
 // ─── lark-cli event consume (inbound) ───
-const child = spawn("lark-cli", [
-  "--profile", profile,
-  "event", "consume",
-  "im.message.receive_v1",
-  "--as", "bot",
-], {
-  stdio: ["pipe", "pipe", "pipe"],
-});
+const child = spawn(
+  "lark-cli",
+  ["--profile", profile, "event", "consume", "im.message.receive_v1", "--as", "bot"],
+  {
+    stdio: ["pipe", "pipe", "pipe"],
+  },
+);
 
 let ready = false;
 
@@ -85,7 +84,9 @@ rl.on("line", async (line: string) => {
   });
 
   if (result.action === "consumed") {
-    console.log(`[lark-bot] ingested: ${event.chat_type} seq=${result.ledgerSeq} triggered=${result.triggered}`);
+    console.log(
+      `[lark-bot] ingested: ${event.chat_type} seq=${result.ledgerSeq} triggered=${result.triggered}`,
+    );
   }
 });
 
@@ -119,4 +120,6 @@ process.on("SIGINT", () => {
   process.exit(0);
 });
 
-console.log(`[lark-bot] started for agent=${args.agentId} profile=${profile} conversations=${state.restoredConversationIds.length}`);
+console.log(
+  `[lark-bot] started for agent=${args.agentId} profile=${profile} conversations=${state.restoredConversationIds.length}`,
+);

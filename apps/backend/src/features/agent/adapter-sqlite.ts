@@ -63,8 +63,13 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
   return {
     async create(
       input: CreateAgentInput & {
-        id: string; workspacePath: string; now: number;
-        larkEnabled: boolean; larkAppId: string | null; larkProfileRef: string | null; larkBotDisplayName: string | null;
+        id: string;
+        workspacePath: string;
+        now: number;
+        larkEnabled: boolean;
+        larkAppId: string | null;
+        larkProfileRef: string | null;
+        larkBotDisplayName: string | null;
       },
     ): Promise<AgentRow> {
       db.run(

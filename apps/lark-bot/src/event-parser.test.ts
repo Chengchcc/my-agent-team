@@ -52,22 +52,42 @@ describe("parseEvent", () => {
   });
 
   test("returns null for empty event_id string", () => {
-    expect(parseEvent('{"event_id":"","message_id":"om_1","chat_id":"oc_1","sender_id":"ou_1","chat_type":"p2p","content":"hi"}')).toBeNull();
+    expect(
+      parseEvent(
+        '{"event_id":"","message_id":"om_1","chat_id":"oc_1","sender_id":"ou_1","chat_type":"p2p","content":"hi"}',
+      ),
+    ).toBeNull();
   });
 
   test("returns null for missing message_id", () => {
-    expect(parseEvent('{"event_id":"evt_1","chat_id":"oc_1","sender_id":"ou_1","chat_type":"p2p","content":"hi"}')).toBeNull();
+    expect(
+      parseEvent(
+        '{"event_id":"evt_1","chat_id":"oc_1","sender_id":"ou_1","chat_type":"p2p","content":"hi"}',
+      ),
+    ).toBeNull();
   });
 
   test("returns null for invalid chat_type", () => {
-    expect(parseEvent('{"event_id":"evt_1","message_id":"om_1","chat_id":"oc_1","sender_id":"ou_1","chat_type":"channel","content":"hi"}')).toBeNull();
+    expect(
+      parseEvent(
+        '{"event_id":"evt_1","message_id":"om_1","chat_id":"oc_1","sender_id":"ou_1","chat_type":"channel","content":"hi"}',
+      ),
+    ).toBeNull();
   });
 
   test("returns null when content is non-string", () => {
-    expect(parseEvent('{"event_id":"evt_1","message_id":"om_1","chat_id":"oc_1","sender_id":"ou_1","chat_type":"p2p","content":123}')).toBeNull();
+    expect(
+      parseEvent(
+        '{"event_id":"evt_1","message_id":"om_1","chat_id":"oc_1","sender_id":"ou_1","chat_type":"p2p","content":123}',
+      ),
+    ).toBeNull();
   });
 
   test("returns null when sender_id is empty string", () => {
-    expect(parseEvent('{"event_id":"evt_1","message_id":"om_1","chat_id":"oc_1","sender_id":"","chat_type":"p2p","content":"hi"}')).toBeNull();
+    expect(
+      parseEvent(
+        '{"event_id":"evt_1","message_id":"om_1","chat_id":"oc_1","sender_id":"","chat_type":"p2p","content":"hi"}',
+      ),
+    ).toBeNull();
   });
 });

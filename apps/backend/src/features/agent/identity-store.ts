@@ -23,11 +23,7 @@ export interface AgentIdentityStore {
 }
 
 function isCode(err: unknown, code: string): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { code?: string }).code === code
-  );
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === code;
 }
 
 /** Read a text file; return null when the file doesn't exist. */
@@ -47,7 +43,9 @@ async function readTextOrNull(filePath: string): Promise<string | null> {
  *    shared/memory/facts/*.md         — agent-written facts
  *
  *  Also reads flat shared/memory/*.md for backward compat (legacy agents). */
-async function readMemoryFacts(sharedRoot: string): Promise<Array<{ date: string; content: string }>> {
+async function readMemoryFacts(
+  sharedRoot: string,
+): Promise<Array<{ date: string; content: string }>> {
   const memories: Array<{ date: string; content: string }> = [];
   const memoryRoot = path.join(sharedRoot, "memory");
 

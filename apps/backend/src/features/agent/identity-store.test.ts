@@ -8,7 +8,9 @@ const tmpBase = `/tmp/identity-store-test-${Date.now()}`;
 const dataDir = path.join(tmpBase, "data");
 
 function clean() {
-  try { rmSync(tmpBase, { recursive: true, force: true }); } catch {}
+  try {
+    rmSync(tmpBase, { recursive: true, force: true });
+  } catch {}
 }
 
 afterAll(() => clean());
@@ -38,7 +40,9 @@ describe("AgentIdentityStore", () => {
   test("getIdentity reads SOUL.md and USER.md from sharedRoot", async () => {
     const agentId = `soul-test-${Date.now()}`;
     // Manually seed sharedRoot (simulating create flow or agent writing)
-    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import("../../infra/runner-workspace.js");
+    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import(
+      "../../infra/runner-workspace.js"
+    );
     const paths = runnerWorkspacePaths(dataDir, agentId);
     await ensureRunnerWorkspace(paths);
     await writeFile(path.join(paths.sharedRoot, "SOUL.md"), "I am a tester", "utf-8");
@@ -52,11 +56,17 @@ describe("AgentIdentityStore", () => {
 
   test("getIdentity reads memory/MEMORY.md as summary", async () => {
     const agentId = `mem-summary-${Date.now()}`;
-    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import("../../infra/runner-workspace.js");
+    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import(
+      "../../infra/runner-workspace.js"
+    );
     const paths = runnerWorkspacePaths(dataDir, agentId);
     await ensureRunnerWorkspace(paths);
     await mkdir(path.join(paths.sharedRoot, "memory"), { recursive: true });
-    await writeFile(path.join(paths.sharedRoot, "memory", "MEMORY.md"), "dated summary text", "utf-8");
+    await writeFile(
+      path.join(paths.sharedRoot, "memory", "MEMORY.md"),
+      "dated summary text",
+      "utf-8",
+    );
 
     const store = makeStore();
     const identity = await store.getIdentity(agentId);
@@ -66,12 +76,22 @@ describe("AgentIdentityStore", () => {
 
   test("getIdentity reads memory/facts/*.md as facts", async () => {
     const agentId = `mem-facts-${Date.now()}`;
-    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import("../../infra/runner-workspace.js");
+    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import(
+      "../../infra/runner-workspace.js"
+    );
     const paths = runnerWorkspacePaths(dataDir, agentId);
     await ensureRunnerWorkspace(paths);
     await mkdir(path.join(paths.sharedRoot, "memory", "facts"), { recursive: true });
-    await writeFile(path.join(paths.sharedRoot, "memory", "facts", "2025-06-01.md"), "Today I learned X", "utf-8");
-    await writeFile(path.join(paths.sharedRoot, "memory", "facts", "2025-06-02.md"), "Today I fixed Y", "utf-8");
+    await writeFile(
+      path.join(paths.sharedRoot, "memory", "facts", "2025-06-01.md"),
+      "Today I learned X",
+      "utf-8",
+    );
+    await writeFile(
+      path.join(paths.sharedRoot, "memory", "facts", "2025-06-02.md"),
+      "Today I fixed Y",
+      "utf-8",
+    );
 
     const store = makeStore();
     const identity = await store.getIdentity(agentId);
@@ -99,7 +119,9 @@ describe("AgentIdentityStore", () => {
   test("lazy migration does not overwrite existing sharedRoot files", async () => {
     const agentId = `lazy-nowrite-${Date.now()}`;
     // Pre-seed sharedRoot
-    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import("../../infra/runner-workspace.js");
+    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import(
+      "../../infra/runner-workspace.js"
+    );
     const paths = runnerWorkspacePaths(dataDir, agentId);
     await ensureRunnerWorkspace(paths);
     await writeFile(path.join(paths.sharedRoot, "SOUL.md"), "existing soul", "utf-8");

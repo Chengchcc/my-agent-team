@@ -106,13 +106,23 @@ export class RunnerDaemon {
   async #onStart(msg: HostToRunner & { type: "start" }): Promise<void> {
     const parsed = AgentSpecV2.safeParse(msg.spec);
     if (!parsed.success) {
-      await this.#transport.send({ type: "run_done", runId: msg.runId, status: "error", error: parsed.error.message });
+      await this.#transport.send({
+        type: "run_done",
+        runId: msg.runId,
+        status: "error",
+        error: parsed.error.message,
+      });
       return;
     }
     const spec = parsed.data;
 
     if (spec.agentId !== this.#agentId) {
-      await this.#transport.send({ type: "run_done", runId: msg.runId, status: "error", error: `agentId mismatch: daemon=${this.#agentId}, spec=${spec.agentId}` });
+      await this.#transport.send({
+        type: "run_done",
+        runId: msg.runId,
+        status: "error",
+        error: `agentId mismatch: daemon=${this.#agentId}, spec=${spec.agentId}`,
+      });
       return;
     }
 
@@ -133,7 +143,8 @@ export class RunnerDaemon {
     });
 
     this.#runs.set(msg.runId, {
-      agent, abort: new AbortController(),
+      agent,
+      abort: new AbortController(),
       spec: spec as unknown as Record<string, unknown>,
       reflect: spec.mode === "run",
       threadId: spec.threadId,
@@ -151,12 +162,12 @@ export class RunnerDaemon {
     const spec = parsed.data;
     const opts = { signal: run.abort.signal, maxSteps: spec.maxSteps ?? 32 };
     switch (spec.mode) {
-      case "resume": return run.agent.resume(spec.resumeCommand, opts);
-      case "reflect": return run.agent.run(spec.input, opts);
+      case "resume":
+        return run.agent.resume(spec.resumeCommand, opts);
+      case "reflect":
+        return run.agent.run(spec.input, opts);
       default:
-        return run.hasPreloaded
-          ? run.agent.continue(opts)
-          : run.agent.run(spec.input, opts);
+        return run.hasPreloaded ? run.agent.continue(opts) : run.agent.run(spec.input, opts);
     }
   }
 
@@ -224,7 +235,13 @@ export class RunnerDaemon {
     this.#runs.set(reflectRunId, {
       agent: reflectAgent,
       abort: new AbortController(),
-      spec: { ...parent.spec, mode: "reflect" as const, input: reflectionGuidance(), runId: reflectRunId, parentRunId },
+      spec: {
+        ...parent.spec,
+        mode: "reflect" as const,
+        input: reflectionGuidance(),
+        runId: reflectRunId,
+        parentRunId,
+      },
       reflect: false,
       threadId: `reflect:${parent.threadId}`,
       runId: reflectRunId,

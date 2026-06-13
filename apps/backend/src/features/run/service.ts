@@ -155,11 +155,7 @@ export function createRunService(deps: RunServiceDeps) {
       supervisor.onRunComplete(onDone);
 
       try {
-        const sub = eventLog.subscribe(
-          { runId, afterSeq: afterSeq ?? 0 },
-          {},
-          signal,
-        );
+        const sub = eventLog.subscribe({ runId, afterSeq: afterSeq ?? 0 }, {}, signal);
         const iter = sub[Symbol.asyncIterator]();
 
         while (!completed && !signal?.aborted) {

@@ -9,7 +9,10 @@ import {
   sqliteThreadProjectionReadAdapter,
   sqliteThreadProjectionWriteAdapter,
 } from "./features/thread-projection/adapter-sqlite.js";
-import { threadProjectionRoutes, createThreadProjectionService } from "./features/thread-projection/index.js";
+import {
+  threadProjectionRoutes,
+  createThreadProjectionService,
+} from "./features/thread-projection/index.js";
 import {
   conversationRoutes,
   createConversationService,
@@ -20,7 +23,11 @@ import type { RunnerRegistry } from "./features/run/runner-registry.js";
 import { DevRunnerRegistry } from "./features/run/runner-registry.js";
 import { ProdRunnerRegistry } from "./features/run/runner-registry.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
-import { DevLarkBotRegistry, ProdLarkBotRegistry, larkProfileInit } from "./features/lark-bot/index.js";
+import {
+  DevLarkBotRegistry,
+  ProdLarkBotRegistry,
+  larkProfileInit,
+} from "./features/lark-bot/index.js";
 import type { LarkBotRegistry } from "./features/lark-bot/index.js";
 import { withLarkOrchestration } from "./features/agent/with-lark-orchestration.js";
 import { createRouter } from "./http/router.js";
@@ -82,23 +89,24 @@ const agentSvcRaw = createAgentService({
   idGen: ulid,
   workspaceRoot: config.workspaceRoot,
   materializeWorkspace: async (agentId, template) => {
-      // Legacy workspace (kept for backward compat)
-      const legacyPath = await materializeWorkspace({
-        workspaceRoot: config.workspaceRoot,
-        agentId,
-        template,
-        templateDir: config.templateDir,
-      });
-      // Seed runner sharedRoot so identity API and runtime share one source
-      const { runnerWorkspacePaths, ensureRunnerWorkspace, migrateLegacyWorkspaceToShared } = await import("./infra/runner-workspace.js");
-      const paths = runnerWorkspacePaths(config.dataDir, agentId);
-      await ensureRunnerWorkspace(paths);
-      // Immediately seed identity files from legacy workspace. Don't wait for
-      // identity API lazy migration or first runner spawn — new agents need
-      // BOOTSTRAP.md available before their first run.
-      await migrateLegacyWorkspaceToShared(paths.sharedRoot, legacyPath);
-      return legacyPath;
-    },
+    // Legacy workspace (kept for backward compat)
+    const legacyPath = await materializeWorkspace({
+      workspaceRoot: config.workspaceRoot,
+      agentId,
+      template,
+      templateDir: config.templateDir,
+    });
+    // Seed runner sharedRoot so identity API and runtime share one source
+    const { runnerWorkspacePaths, ensureRunnerWorkspace, migrateLegacyWorkspaceToShared } =
+      await import("./infra/runner-workspace.js");
+    const paths = runnerWorkspacePaths(config.dataDir, agentId);
+    await ensureRunnerWorkspace(paths);
+    // Immediately seed identity files from legacy workspace. Don't wait for
+    // identity API lazy migration or first runner spawn — new agents need
+    // BOOTSTRAP.md available before their first run.
+    await migrateLegacyWorkspaceToShared(paths.sharedRoot, legacyPath);
+    return legacyPath;
+  },
 
   // M11 hardDelete dependencies — all closures from composition root
   purgeWorkspace: async (agentId) => {
@@ -405,9 +413,11 @@ console.log(`[backend] listening on ${config.host}:${config.port}`);
   const allAgents = await agentSvc.list(true);
   for (const agent of allAgents) {
     if (agent.larkEnabled && agent.larkProfileRef) {
-      larkBotRegistry.ensureLarkBot(agent.id, agent.larkBotDisplayName, agent.larkProfileRef).catch((err) => {
-        console.error(`[lark] failed to start bot for ${agent.id}:`, err);
-      });
+      larkBotRegistry
+        .ensureLarkBot(agent.id, agent.larkBotDisplayName, agent.larkProfileRef)
+        .catch((err) => {
+          console.error(`[lark] failed to start bot for ${agent.id}:`, err);
+        });
     }
   }
 })();

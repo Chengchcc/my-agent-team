@@ -3,7 +3,10 @@ import {
   projectForMember,
   resolveTriggerTargets,
 } from "@my-agent-team/conversation";
-import type { ThreadProjectionReadPort, ThreadProjectionWritePort } from "../thread-projection/ports.js";
+import type {
+  ThreadProjectionReadPort,
+  ThreadProjectionWritePort,
+} from "../thread-projection/ports.js";
 import type { ConversationPort, LedgerKind, LedgerRow, MemberRow } from "./ports.js";
 
 export class ConversationBusyError extends Error {
@@ -39,7 +42,8 @@ export interface ConversationServiceDeps {
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
-  const { port, threadProjectionWrite, activeConversations, maxConsecutiveAgentHops, forkRun } = deps;
+  const { port, threadProjectionWrite, activeConversations, maxConsecutiveAgentHops, forkRun } =
+    deps;
   // Track pending run count per conversation — lock released only when
   // all triggered runs complete, not just the first one.
   const pendingRuns = new Map<string, number>();

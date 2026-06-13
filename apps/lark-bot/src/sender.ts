@@ -12,22 +12,26 @@ export function sendMessage(
   idempotencyKey: string,
 ): Promise<{ ok: boolean; error?: string }> {
   return new Promise((resolve) => {
-    const child = spawn("lark-cli", [
-      "--profile",
-      profile,
-      "im",
-      "+messages-send",
-      "--chat-id",
-      larkChatId,
-      "--text",
-      text,
-      "--as",
-      "bot",
-      "--idempotency-key",
-      idempotencyKey,
-    ], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const child = spawn(
+      "lark-cli",
+      [
+        "--profile",
+        profile,
+        "im",
+        "+messages-send",
+        "--chat-id",
+        larkChatId,
+        "--text",
+        text,
+        "--as",
+        "bot",
+        "--idempotency-key",
+        idempotencyKey,
+      ],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
 
     let stderr = "";
     child.stderr?.on("data", (d: Buffer) => {

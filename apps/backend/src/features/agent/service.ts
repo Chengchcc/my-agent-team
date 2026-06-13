@@ -34,8 +34,14 @@ export function createAgentService(opts: {
       const larkProfileRef = larkEnabled ? `agent:${id}` : null;
       const larkBotDisplayName = input.lark?.botDisplayName ?? null;
       return port.create({
-        ...input, id, workspacePath, now,
-        larkEnabled, larkAppId, larkProfileRef, larkBotDisplayName,
+        ...input,
+        id,
+        workspacePath,
+        now,
+        larkEnabled,
+        larkAppId,
+        larkProfileRef,
+        larkBotDisplayName,
       });
     },
 
@@ -54,7 +60,10 @@ export function createAgentService(opts: {
       if (input.lark?.enabled) {
         const existing = await port.findById(id);
         if (existing && !existing.larkProfileRef) {
-          const updateWithProfile = { ...input, lark: { ...input.lark, profileRef: `agent:${id}` } };
+          const updateWithProfile = {
+            ...input,
+            lark: { ...input.lark, profileRef: `agent:${id}` },
+          };
           const row = await port.update(id, { ...updateWithProfile, now: Date.now() });
           if (!row) throw new AgentNotFoundError(id);
           return row;

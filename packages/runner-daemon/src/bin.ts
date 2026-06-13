@@ -33,7 +33,11 @@ if (!apiKey) {
 
 const modelFactory: ModelFactory = {
   create(spec) {
-    return new AnthropicChatModel({ apiKey, model: spec.model, baseUrl: spec.baseURL }) as unknown as ReturnType<ModelFactory["create"]>;
+    return new AnthropicChatModel({
+      apiKey,
+      model: spec.model,
+      baseUrl: spec.baseURL,
+    }) as unknown as ReturnType<ModelFactory["create"]>;
   },
 };
 

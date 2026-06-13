@@ -223,12 +223,17 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                   />
                   <span className={labelClass + " mb-0"}>Enable Lark Bot</span>
                   {editAgent?.lark?.status && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                      editAgent.lark.status === "running" ? "bg-green-100 text-green-700" :
-                      editAgent.lark.status === "error" ? "bg-red-100 text-red-700" :
-                      editAgent.lark.status === "degraded" ? "bg-amber-100 text-amber-700" :
-                      "bg-gray-100 text-gray-500"
-                    }`}>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                        editAgent.lark.status === "running"
+                          ? "bg-green-100 text-green-700"
+                          : editAgent.lark.status === "error"
+                            ? "bg-red-100 text-red-700"
+                            : editAgent.lark.status === "degraded"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-gray-100 text-gray-500"
+                      }`}
+                    >
                       {editAgent.lark.status}
                     </span>
                   )}
@@ -248,7 +253,8 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                     </div>
                     <div>
                       <label className={labelClass}>
-                        App Secret {isEdit && editAgent?.lark?.enabled ? "(leave blank to keep current)" : "*"}
+                        App Secret{" "}
+                        {isEdit && editAgent?.lark?.enabled ? "(leave blank to keep current)" : "*"}
                       </label>
                       <input
                         type="password"

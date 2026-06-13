@@ -43,11 +43,15 @@ export interface RunSession {
 /** No-op transport stub — used when a real transport is unavailable
  *  (post-restart rediscover, testing). Cancel degrades to reaper timeout. */
 export const NOOP_TRANSPORT: RunnerTransport = {
-  ready() { return Promise.resolve(); },
+  ready() {
+    return Promise.resolve();
+  },
   send() {},
   onMessage() {},
   onClose() {},
-  close() { return Promise.resolve(); },
+  close() {
+    return Promise.resolve();
+  },
 };
 
 export class RunSupervisor {
@@ -247,7 +251,14 @@ export class RunSupervisor {
     spec: Record<string, unknown>,
     opts: RunRequestOptions = {},
   ): Promise<{ runId: string; attemptId: string }> {
-    const req: RunRequest = { runId, threadId, agentId: (spec.agentId as string) ?? "default", spec, kind: "main", options: opts };
+    const req: RunRequest = {
+      runId,
+      threadId,
+      agentId: (spec.agentId as string) ?? "default",
+      spec,
+      kind: "main",
+      options: opts,
+    };
     return this.#beginAndSend(req);
   }
 
@@ -256,7 +267,13 @@ export class RunSupervisor {
     threadId: string,
     spec: Record<string, unknown>,
   ): Promise<{ runId: string; attemptId: string }> {
-    const req: RunRequest = { runId, threadId, agentId: (spec.agentId as string) ?? "default", spec, kind: "main" };
+    const req: RunRequest = {
+      runId,
+      threadId,
+      agentId: (spec.agentId as string) ?? "default",
+      spec,
+      kind: "main",
+    };
     this.#db.run("UPDATE run SET status = 'running' WHERE run_id = ?", [runId]);
     return this.#beginAttempt(req);
   }
@@ -267,7 +284,13 @@ export class RunSupervisor {
     parentRunId: string,
     spec: Record<string, unknown>,
   ): Promise<{ runId: string; attemptId: string }> {
-    const req: RunRequest = { runId, threadId, agentId: (spec.agentId as string) ?? "default", spec, kind: "reflect" };
+    const req: RunRequest = {
+      runId,
+      threadId,
+      agentId: (spec.agentId as string) ?? "default",
+      spec,
+      kind: "reflect",
+    };
     const now = Date.now();
     this.#db.run(
       "INSERT INTO run (run_id, thread_id, agent_id, status, started_at, kind, parent_run_id) VALUES (?, ?, ?, 'running', ?, 'reflect', ?)",
@@ -298,14 +321,33 @@ export class RunSupervisor {
       [attemptId, req.runId, now, now],
     );
 
-    this.#registerSession({ runId: req.runId, attemptId, threadId: req.threadId, agentId: req.agentId, kind: req.kind, transport });
+    this.#registerSession({
+      runId: req.runId,
+      attemptId,
+      threadId: req.threadId,
+      agentId: req.agentId,
+      kind: req.kind,
+      transport,
+    });
 
-    transport.send({ type: "start", runId: req.runId, spec: req.spec, preloadedMessages: req.options?.preloadedMessages });
+    transport.send({
+      type: "start",
+      runId: req.runId,
+      spec: req.spec,
+      preloadedMessages: req.options?.preloadedMessages,
+    });
     return { runId: req.runId, attemptId };
   }
 
   /** Register an active session in #active (single source of truth for RunSession construction). */
-  #registerSession(o: { runId: string; attemptId: string; threadId: string; agentId: string; kind: "main" | "reflect"; transport: RunnerTransport }): void {
+  #registerSession(o: {
+    runId: string;
+    attemptId: string;
+    threadId: string;
+    agentId: string;
+    kind: "main" | "reflect";
+    transport: RunnerTransport;
+  }): void {
     this.#active.set(o.runId, { ...o, abortController: new AbortController() });
   }
 
@@ -437,7 +479,14 @@ export class RunSupervisor {
     for (const row of rows) {
       const age = row.heartbeat_at ? Date.now() - row.heartbeat_at : Infinity;
       if (age < this.#opts.config.heartbeatTimeoutMs) {
-        this.#registerSession({ runId: row.run_id, attemptId: row.attempt_id, threadId: row.thread_id, agentId: row.agent_id, kind: row.kind, transport: NOOP_TRANSPORT });
+        this.#registerSession({
+          runId: row.run_id,
+          attemptId: row.attempt_id,
+          threadId: row.thread_id,
+          agentId: row.agent_id,
+          kind: row.kind,
+          transport: NOOP_TRANSPORT,
+        });
         console.log(
           `[supervisor] re-discovered live run: ${row.run_id} (attempt ${row.attempt_id}, age ${age}ms)`,
         );

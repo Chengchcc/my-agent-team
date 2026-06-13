@@ -16,12 +16,7 @@ import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
 import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
 import { taskGuardPlugin } from "@my-agent-team/plugin-task-guard";
 import type { AgentFsRoots } from "@my-agent-team/tools-common";
-import {
-  bashTool,
-  globTool,
-  grepTool,
-  withWorkspace,
-} from "@my-agent-team/tools-common";
+import { bashTool, globTool, grepTool, withWorkspace } from "@my-agent-team/tools-common";
 import type { AgentFsHandle } from "@my-agent-team/agent-fs";
 import { bootstrap } from "./bootstrap.js";
 
@@ -108,7 +103,8 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
   // 2. Default tools: structured IO via AgentFS, subprocess via POSIX sandbox
   const ws = workspace.fs;
   const sandbox = toAgentFsRoots(workspace);
-  const { createReadToolForWorkspace, createWriteToolForWorkspace, createEditToolForWorkspace } = await import("@my-agent-team/tools-common");
+  const { createReadToolForWorkspace, createWriteToolForWorkspace, createEditToolForWorkspace } =
+    await import("@my-agent-team/tools-common");
   const defaultTools: Tool[] = [
     createReadToolForWorkspace(ws),
     createWriteToolForWorkspace(ws),

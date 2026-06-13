@@ -19,7 +19,9 @@ const dataDir = path.join(tmpBase, "data");
 const templateDir = path.join(tmpBase, "templates");
 
 function clean() {
-  try { rmSync(tmpBase, { recursive: true, force: true }); } catch {}
+  try {
+    rmSync(tmpBase, { recursive: true, force: true });
+  } catch {}
 }
 
 afterAll(() => clean());

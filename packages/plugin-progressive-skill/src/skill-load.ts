@@ -24,9 +24,7 @@ export function skillLoadTool(opts: {
   function resolveSkillDir(logicalDir: string): string {
     if (posixSkillRoot) {
       // root always ends with "/"; posixSkillRoot may not. Normalise.
-      const posixRoot = posixSkillRoot.endsWith("/")
-        ? posixSkillRoot.slice(0, -1)
-        : posixSkillRoot;
+      const posixRoot = posixSkillRoot.endsWith("/") ? posixSkillRoot.slice(0, -1) : posixSkillRoot;
       return logicalDir.replace(root.replace(/\/$/, ""), posixRoot);
     }
     return logicalDir;

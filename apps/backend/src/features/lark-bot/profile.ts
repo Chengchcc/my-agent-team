@@ -21,19 +21,23 @@ export async function larkProfileInit(
   appSecret: string,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn("lark-cli", [
-      "config",
-      "init",
-      "--name",
-      profileRef,
-      "--app-id",
-      appId,
-      "--app-secret-stdin",
-      "--brand",
-      "feishu",
-    ], {
-      stdio: ["pipe", "ignore", "pipe"],
-    });
+    const child = spawn(
+      "lark-cli",
+      [
+        "config",
+        "init",
+        "--name",
+        profileRef,
+        "--app-id",
+        appId,
+        "--app-secret-stdin",
+        "--brand",
+        "feishu",
+      ],
+      {
+        stdio: ["pipe", "ignore", "pipe"],
+      },
+    );
 
     let stderr = "";
     child.stderr?.on("data", (d: Buffer) => {
@@ -46,7 +50,8 @@ export async function larkProfileInit(
 
     child.on("exit", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`lark-cli config init exited ${code}: ${sanitizeLarkCliError(stderr)}`));
+      else
+        reject(new Error(`lark-cli config init exited ${code}: ${sanitizeLarkCliError(stderr)}`));
     });
 
     // Write secret via stdin, then close for non-interactive init

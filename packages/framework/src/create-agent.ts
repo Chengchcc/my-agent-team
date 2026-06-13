@@ -89,16 +89,31 @@ function wrapToolResult(
 interface PluginRunner {
   fireBeforeModel(msgs: Message[]): Promise<Message[]>;
   fireAfterModel(msgs: readonly Message[]): Promise<void>;
-  fireBeforeTool(call: ToolUseBlock, msgs: readonly Message[]): Promise<{ skip?: boolean; input?: unknown; result?: string; isError?: boolean } | undefined>;
-  fireAfterTool(call: ToolUseBlock, result: ToolResultBlock, msgs: readonly Message[]): Promise<void>;
+  fireBeforeTool(
+    call: ToolUseBlock,
+    msgs: readonly Message[],
+  ): Promise<{ skip?: boolean; input?: unknown; result?: string; isError?: boolean } | undefined>;
+  fireAfterTool(
+    call: ToolUseBlock,
+    result: ToolResultBlock,
+    msgs: readonly Message[],
+  ): Promise<void>;
   fireBeforeRun(msgs: readonly Message[]): Promise<readonly Message[]>;
   fireBeforeStop(msgs: readonly Message[]): Promise<StopDecision | undefined>;
 }
 
-function createPluginRunner(plugins: readonly Plugin[], ctx: HookContext, logger: Logger): PluginRunner {
+function createPluginRunner(
+  plugins: readonly Plugin[],
+  ctx: HookContext,
+  logger: Logger,
+): PluginRunner {
   async function eachPlugin(hookName: string, fn: (p: Plugin) => Promise<void>): Promise<void> {
     for (const p of plugins) {
-      try { await fn(p); } catch (err) { logger.warn(`${hookName} ${p.name}`, err); }
+      try {
+        await fn(p);
+      } catch (err) {
+        logger.warn(`${hookName} ${p.name}`, err);
+      }
     }
   }
 
@@ -121,12 +136,15 @@ function createPluginRunner(plugins: readonly Plugin[], ctx: HookContext, logger
     },
 
     async fireBeforeTool(call, msgs) {
-      let decision: { skip?: boolean; input?: unknown; result?: string; isError?: boolean } | undefined;
+      let decision:
+        | { skip?: boolean; input?: unknown; result?: string; isError?: boolean }
+        | undefined;
       await eachPlugin("beforeTool", async (p) => {
         if (p.hooks.beforeTool) {
           const d = await p.hooks.beforeTool(ctx, call, msgs);
           if (d) {
-            if (d.skip) decision = { ...decision, skip: true, result: d.result, isError: d.isError };
+            if (d.skip)
+              decision = { ...decision, skip: true, result: d.result, isError: d.isError };
             if (d.input !== undefined) decision = { ...decision, input: d.input };
           }
         }
@@ -199,7 +217,10 @@ async function* executeOne(
     });
     rt.thread.messages.push({ role: "user", content: [r] } as Message);
     await rt.save(rt.thread.messages);
-    yield { type: "tool_end", payload: { id: call.id, name: call.name, isError: r.is_error as boolean | undefined } };
+    yield {
+      type: "tool_end",
+      payload: { id: call.id, name: call.name, isError: r.is_error as boolean | undefined },
+    };
     return false;
   }
 
@@ -208,7 +229,10 @@ async function* executeOne(
     const input = decision?.input ?? call.input;
     const tool = rt.toolMap.get(call.name);
     if (!tool) {
-      resultBlock = wrapToolResult(call, { content: `Tool not found: ${call.name}`, isError: true });
+      resultBlock = wrapToolResult(call, {
+        content: `Tool not found: ${call.name}`,
+        isError: true,
+      });
     } else {
       resultBlock = wrapToolResult(call, await tool.execute(input, opts.signal));
     }
@@ -223,17 +247,26 @@ async function* executeOne(
         );
       }
       await rt.checkpointer.saveInterrupt(rt.thread.id, {
-        pendingTool: { call, reason: err.reason }, ts: Date.now(), meta: err.meta,
+        pendingTool: { call, reason: err.reason },
+        ts: Date.now(),
+        meta: err.meta,
       });
       await rt.checkpointer.appendEvent?.(rt.thread.id, {
-        type: "interrupt", pendingTool: call, reason: err.reason, ts: Date.now(),
+        type: "interrupt",
+        pendingTool: call,
+        reason: err.reason,
+        ts: Date.now(),
       });
       yield { type: "tool_end", payload: { id: call.id, name: call.name, isError: true } };
-      yield { type: "interrupted", payload: { pendingTool: call, reason: err.reason, meta: err.meta } };
+      yield {
+        type: "interrupted",
+        payload: { pendingTool: call, reason: err.reason, meta: err.meta },
+      };
       return true;
     }
     resultBlock = wrapToolResult(call, {
-      content: err instanceof Error ? err.message : String(err), isError: true,
+      content: err instanceof Error ? err.message : String(err),
+      isError: true,
     });
   }
 
@@ -241,9 +274,15 @@ async function* executeOne(
   await rt.plugins.fireAfterTool(call, resultBlock, rt.thread.messages);
   for (const ev of rt.pendingEvents.splice(0)) yield ev;
   await rt.checkpointer.appendEvent?.(rt.thread.id, {
-    type: "tool_end", result: resultBlock, durationMs: Date.now() - toolStart, ts: Date.now(),
+    type: "tool_end",
+    result: resultBlock,
+    durationMs: Date.now() - toolStart,
+    ts: Date.now(),
   });
-  yield { type: "tool_end", payload: { id: call.id, name: call.name, isError: resultBlock.is_error as boolean | undefined } };
+  yield {
+    type: "tool_end",
+    payload: { id: call.id, name: call.name, isError: resultBlock.is_error as boolean | undefined },
+  };
   await rt.save(rt.thread.messages);
   return false;
 }
@@ -258,7 +297,11 @@ async function* runLoop(
   const maxForce = opts.maxForceContinues ?? 3;
   for (let step = 0; step < opts.maxSteps; step++) {
     if (opts.signal?.aborted) {
-      await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "run_end", reason: "aborted", ts: Date.now() });
+      await rt.checkpointer.appendEvent?.(rt.thread.id, {
+        type: "run_end",
+        reason: "aborted",
+        ts: Date.now(),
+      });
       return;
     }
 
@@ -268,7 +311,11 @@ async function* runLoop(
     );
     const finalMsgs = await rt.plugins.fireBeforeModel(shaped);
 
-    await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "model_start", messageCount: finalMsgs.length, ts: Date.now() });
+    await rt.checkpointer.appendEvent?.(rt.thread.id, {
+      type: "model_start",
+      messageCount: finalMsgs.length,
+      ts: Date.now(),
+    });
 
     const modelStream = rt.model.stream(finalMsgs, { signal: opts.signal, tools: rt.tools });
     let blocks: ContentBlock[];
@@ -279,7 +326,11 @@ async function* runLoop(
       const partialJson = new Map<string, string>();
       let blockIndex = 0;
       for await (const chunk of modelStream) {
-        if (chunk.delta?.type === "text" && blocks.length > 0 && blocks[blocks.length - 1]?.type !== "text") {
+        if (
+          chunk.delta?.type === "text" &&
+          blocks.length > 0 &&
+          blocks[blocks.length - 1]?.type !== "text"
+        ) {
           blockIndex++;
         }
         if (chunk.delta?.type === "text") {
@@ -296,10 +347,19 @@ async function* runLoop(
       usage = collected.usage;
     }
 
-    await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "model_end", blocks: blocks.slice(), usage, ts: Date.now() });
+    await rt.checkpointer.appendEvent?.(rt.thread.id, {
+      type: "model_end",
+      blocks: blocks.slice(),
+      usage,
+      ts: Date.now(),
+    });
 
     if (blocks.length === 0) {
-      await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "run_end", reason: "complete", ts: Date.now() });
+      await rt.checkpointer.appendEvent?.(rt.thread.id, {
+        type: "run_end",
+        reason: "complete",
+        ts: Date.now(),
+      });
       return;
     }
 
@@ -317,14 +377,21 @@ async function* runLoop(
           forceContinues++;
           rt.thread.messages.push({ role: "user", content: verdict.reason } as Message);
           await rt.checkpointer.appendEvent?.(rt.thread.id, {
-            type: "force_continue", reason: verdict.reason, attempt: forceContinues, ts: Date.now(),
+            type: "force_continue",
+            reason: verdict.reason,
+            attempt: forceContinues,
+            ts: Date.now(),
           });
           await rt.save(rt.thread.messages);
           continue;
         }
       }
       await rt.save(rt.thread.messages);
-      await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "run_end", reason: "complete", ts: Date.now() });
+      await rt.checkpointer.appendEvent?.(rt.thread.id, {
+        type: "run_end",
+        reason: "complete",
+        ts: Date.now(),
+      });
       return;
     }
 
@@ -345,7 +412,11 @@ async function* runLoop(
     }
   }
 
-  await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "run_end", reason: "maxSteps", ts: Date.now() });
+  await rt.checkpointer.appendEvent?.(rt.thread.id, {
+    type: "run_end",
+    reason: "maxSteps",
+    ts: Date.now(),
+  });
 }
 
 // ─── createAgent / createAgentInternal ──────────────────────────
@@ -386,21 +457,38 @@ function createAgentInternal(
   let running = false;
 
   const save = async (msgs: Message[]) => {
-    try { await checkpointer.save(thread.id, msgs); }
-    catch (err) { logger.warn(`checkpointer.save ${thread.id}`, err); }
+    try {
+      await checkpointer.save(thread.id, msgs);
+    } catch (err) {
+      logger.warn(`checkpointer.save ${thread.id}`, err);
+    }
   };
 
   const pendingEvents: AgentEvent[] = [];
   const ctx: HookContext = {
-    threadId: thread.id, signal: undefined, logger, checkpointer, contextManager,
-    emit: (event: AgentEvent) => { pendingEvents.push(event); },
+    threadId: thread.id,
+    signal: undefined,
+    logger,
+    checkpointer,
+    contextManager,
+    emit: (event: AgentEvent) => {
+      pendingEvents.push(event);
+    },
   };
 
   const pluginRunner = createPluginRunner(plugins, ctx, logger);
 
   const rt: AgentRuntime = {
-    thread, plugins: pluginRunner, toolMap, checkpointer, contextManager,
-    logger, model, tools, pendingEvents, save,
+    thread,
+    plugins: pluginRunner,
+    toolMap,
+    checkpointer,
+    contextManager,
+    logger,
+    model,
+    tools,
+    pendingEvents,
+    save,
   };
 
   function runLoopOpts(opts: AgentRunOptions) {
@@ -418,16 +506,22 @@ function createAgentInternal(
     fork(msgs, id): Agent {
       const newId = id ?? crypto.randomUUID();
       if (id && id === thread.id) {
-        throw new Error("Cannot fork with the same threadId as the parent. Pass a new id or omit it.");
+        throw new Error(
+          "Cannot fork with the same threadId as the parent. Pass a new id or omit it.",
+        );
       }
       return createAgentInternal({
-        ...config, plugins: [...plugins], threadId: newId, checkpointer,
+        ...config,
+        plugins: [...plugins],
+        threadId: newId,
+        checkpointer,
         _initialMessages: msgs ?? structuredClone(thread.messages),
       });
     },
 
     async *run(input: string, opts: AgentRunOptions = {}) {
-      if (running) throw new Error("Agent is already running. Use fork() for concurrent conversations.");
+      if (running)
+        throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       running = true;
       ctx.signal = opts.signal;
       try {
@@ -437,7 +531,11 @@ function createAgentInternal(
         }
         thread.messages.push({ role: "user", content: input });
         await save(thread.messages);
-        await checkpointer.appendEvent?.(thread.id, { type: "user_input", content: input, ts: Date.now() });
+        await checkpointer.appendEvent?.(thread.id, {
+          type: "user_input",
+          content: input,
+          ts: Date.now(),
+        });
 
         const seeded = await pluginRunner.fireBeforeRun(thread.messages);
         if (seeded !== thread.messages) {
@@ -454,9 +552,12 @@ function createAgentInternal(
     },
 
     async *continue(opts: AgentRunOptions = {}) {
-      if (running) throw new Error("Agent is already running. Use fork() for concurrent conversations.");
+      if (running)
+        throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       if (!thread.messages.some((m) => m.role === "user")) {
-        throw new Error("Cannot continue without a user message in checkpoint. Use run() for fresh input.");
+        throw new Error(
+          "Cannot continue without a user message in checkpoint. Use run() for fresh input.",
+        );
       }
       running = true;
       ctx.signal = opts.signal;
@@ -482,7 +583,8 @@ function createAgentInternal(
     },
 
     async *resume(command: ResumeCommand, opts: AgentRunOptions = {}) {
-      if (running) throw new Error("Agent is already running. Use fork() for concurrent conversations.");
+      if (running)
+        throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       running = true;
       ctx.signal = opts.signal;
       try {
@@ -494,7 +596,12 @@ function createAgentInternal(
         const placeholderIdx = thread.messages.findLastIndex(
           (m) =>
             Array.isArray(m.content) &&
-            m.content.some((b) => b.type === "tool_result" && b.tool_use_id === it.pendingTool.call.id && b.is_error === true),
+            m.content.some(
+              (b) =>
+                b.type === "tool_result" &&
+                b.tool_use_id === it.pendingTool.call.id &&
+                b.is_error === true,
+            ),
         );
         const realResult = {
           type: "tool_result" as const,

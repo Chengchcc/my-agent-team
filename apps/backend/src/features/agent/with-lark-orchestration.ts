@@ -4,7 +4,11 @@ import type { AgentService } from "./service.js";
 export interface LarkOrchestrationDeps {
   service: AgentService;
   profileInit: (profileRef: string, appId: string, appSecret: string) => Promise<void>;
-  ensureBot: (agentId: string, botDisplayName?: string | null, larkProfile?: string | null) => Promise<void>;
+  ensureBot: (
+    agentId: string,
+    botDisplayName?: string | null,
+    larkProfile?: string | null,
+  ) => Promise<void>;
   stopBot: (agentId: string) => Promise<void>;
 }
 
@@ -35,7 +39,12 @@ export function withLarkOrchestration(deps: LarkOrchestrationDeps): AgentService
     async update(id: string, input: UpdateAgentInput): Promise<AgentRow> {
       const row = await service.update(id, input);
       if (input.lark) {
-        if (input.lark.enabled === true && row.larkProfileRef && input.lark.appId && input.lark.appSecret) {
+        if (
+          input.lark.enabled === true &&
+          row.larkProfileRef &&
+          input.lark.appId &&
+          input.lark.appSecret
+        ) {
           try {
             await profileInit(row.larkProfileRef, input.lark.appId, input.lark.appSecret);
             await ensureBot(id, row.larkBotDisplayName, row.larkProfileRef);

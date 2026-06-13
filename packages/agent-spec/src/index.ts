@@ -124,8 +124,17 @@ const V2Common = {
 
 export const AgentSpecV2 = z.discriminatedUnion("mode", [
   z.object({ ...V2Common, mode: z.literal("run"), input: z.string() }),
-  z.object({ ...V2Common, mode: z.literal("resume"), resumeCommand: z.object({ approved: z.boolean(), message: z.string().optional() }) }),
-  z.object({ ...V2Common, mode: z.literal("reflect"), input: z.string(), parentRunId: z.string().min(1) }),
+  z.object({
+    ...V2Common,
+    mode: z.literal("resume"),
+    resumeCommand: z.object({ approved: z.boolean(), message: z.string().optional() }),
+  }),
+  z.object({
+    ...V2Common,
+    mode: z.literal("reflect"),
+    input: z.string(),
+    parentRunId: z.string().min(1),
+  }),
 ]);
 
 export type AgentSpecV2 = z.infer<typeof AgentSpecV2>;

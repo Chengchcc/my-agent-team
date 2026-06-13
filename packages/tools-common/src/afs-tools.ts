@@ -6,7 +6,8 @@ import type { AgentFsLike } from "./agent-fs-like.js";
 export function createReadToolForWorkspace(ws: AgentFsLike): Tool {
   return {
     name: "read",
-    description: "Read a file and return its content as text. Uses logical paths (e.g. /SOUL.md, /memory/today.md).",
+    description:
+      "Read a file and return its content as text. Uses logical paths (e.g. /SOUL.md, /memory/today.md).",
     inputSchema: {
       type: "object",
       properties: {
@@ -61,10 +62,15 @@ export function createEditToolForWorkspace(ws: AgentFsLike): Tool {
       required: ["path", "old_string", "new_string"],
     },
     async execute(input) {
-      const { path: p, old_string, new_string } = input as { path: string; old_string: string; new_string: string };
+      const {
+        path: p,
+        old_string,
+        new_string,
+      } = input as { path: string; old_string: string; new_string: string };
       const content = await ws.read(p);
       if (content === null) return { content: `File not found: ${p}`, isError: true };
-      if (!content.includes(old_string)) return { content: `old_string not found in ${p}`, isError: true };
+      if (!content.includes(old_string))
+        return { content: `old_string not found in ${p}`, isError: true };
       const replacement = content.replace(old_string, new_string);
       await ws.write(p, replacement);
       return { content: `Edited ${p}: replaced 1 occurrence` };

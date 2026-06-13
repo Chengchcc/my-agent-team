@@ -13,11 +13,16 @@ describe("parseArgs", () => {
 
   test("parses all optional args", () => {
     const args = parseArgs([
-      "--agent-id", "agent_456",
-      "--backend-url", "http://example.com:8080",
-      "--state-root", "/var/data",
-      "--bot-display-name", "MyBot",
-      "--agent-name", "CustomAgent",
+      "--agent-id",
+      "agent_456",
+      "--backend-url",
+      "http://example.com:8080",
+      "--state-root",
+      "/var/data",
+      "--bot-display-name",
+      "MyBot",
+      "--agent-name",
+      "CustomAgent",
     ]);
     expect(args.agentId).toBe("agent_456");
     expect(args.backendUrl).toBe("http://example.com:8080");

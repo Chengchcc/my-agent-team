@@ -33,11 +33,16 @@ export interface IngestResult {
  * Process one Lark message event through the reserve→POST→confirm pipeline.
  * See spec §4.3 for the full pseudocode and rationale.
  */
-export async function ingest(
-  event: LarkMessageEvent,
-  ctx: IngestContext,
-): Promise<IngestResult> {
-  const { db, selfAgentId, selfAgentName, botDisplayName, backendUrl, backendAuthToken, onNewBinding } = ctx;
+export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promise<IngestResult> {
+  const {
+    db,
+    selfAgentId,
+    selfAgentName,
+    botDisplayName,
+    backendUrl,
+    backendAuthToken,
+    onNewBinding,
+  } = ctx;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (backendAuthToken) headers["x-auth-token"] = backendAuthToken;
 
@@ -51,14 +56,22 @@ export async function ingest(
   // ─── Step 0: Idempotent reserve (local sqlite transaction) ───
   const reserveResult = db.transaction(() => {
     if (inboundExists(db, event.event_id, event.message_id)) {
-      return { ok: false as const, needCreateConv: false as const, conversationId: null as string | null };
+      return {
+        ok: false as const,
+        needCreateConv: false as const,
+        conversationId: null as string | null,
+      };
     }
     reserveInbound(db, event.event_id, event.message_id, event.chat_id);
 
     // Resolve or create chat binding
     const binding = getChatBinding(db, event.chat_id);
     if (!binding) {
-      return { ok: true as const, needCreateConv: true as const, conversationId: null as string | null };
+      return {
+        ok: true as const,
+        needCreateConv: true as const,
+        conversationId: null as string | null,
+      };
     }
     const cid = binding.conversationId;
 

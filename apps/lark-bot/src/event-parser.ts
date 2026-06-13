@@ -39,8 +39,7 @@ export function parseEvent(line: string): LarkMessageEvent | null {
       message_type: typeof raw.message_type === "string" ? raw.message_type : "text",
       sender_id: raw.sender_id,
       content: raw.content,
-      senderDisplayName:
-        typeof raw.senderDisplayName === "string" ? raw.senderDisplayName : null,
+      senderDisplayName: typeof raw.senderDisplayName === "string" ? raw.senderDisplayName : null,
     };
   } catch {
     return null;

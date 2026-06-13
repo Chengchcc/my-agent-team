@@ -15,7 +15,9 @@ const tmpBase = `/tmp/runner-workspace-test-${Date.now()}`;
 const dataDir = path.join(tmpBase, "data");
 
 function clean() {
-  try { rmSync(tmpBase, { recursive: true, force: true }); } catch {}
+  try {
+    rmSync(tmpBase, { recursive: true, force: true });
+  } catch {}
 }
 
 beforeAll(() => clean());
@@ -130,7 +132,11 @@ describe("migrateLegacyWorkspaceToShared", () => {
     const legacyWs = path.join(tmpBase, "legacy", agentId);
     const sharedRoot = path.join(tmpBase, "shared", agentId);
     await mkdir(path.join(legacyWs, "memory", "facts"), { recursive: true });
-    await writeFile(path.join(legacyWs, "memory", "facts", "2025-03-20.md"), "fact from facts dir", "utf-8");
+    await writeFile(
+      path.join(legacyWs, "memory", "facts", "2025-03-20.md"),
+      "fact from facts dir",
+      "utf-8",
+    );
 
     await migrateLegacyWorkspaceToShared(sharedRoot, legacyWs);
 
@@ -193,10 +199,14 @@ describe("purgeRunnerWorkspace", () => {
   });
 
   test("rejects empty agentId", async () => {
-    await expect(purgeRunnerWorkspace({ dataDir, agentId: "" })).rejects.toThrow("invalid runner agentId");
+    await expect(purgeRunnerWorkspace({ dataDir, agentId: "" })).rejects.toThrow(
+      "invalid runner agentId",
+    );
   });
 
   test("rejects path traversal", async () => {
-    await expect(purgeRunnerWorkspace({ dataDir, agentId: "../escape" })).rejects.toThrow("invalid runner agentId");
+    await expect(purgeRunnerWorkspace({ dataDir, agentId: "../escape" })).rejects.toThrow(
+      "invalid runner agentId",
+    );
   });
 });

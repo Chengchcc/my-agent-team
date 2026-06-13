@@ -65,7 +65,9 @@ export class DevRunnerRegistry implements RunnerRegistry {
   }
 
   async #spawn(agentId: string): Promise<DevRunner> {
-    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import("../../infra/runner-workspace.js");
+    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import(
+      "../../infra/runner-workspace.js"
+    );
     const paths = runnerWorkspacePaths(this.opts.dataDir, agentId);
     const { sharedRoot, privateRoot, stateRoot, socketPath: socket, pidFile } = paths;
 
@@ -76,9 +78,16 @@ export class DevRunnerRegistry implements RunnerRegistry {
     try {
       const oldPid = parseInt(await readFile(pidFile, "utf-8"), 10);
       if (oldPid && Number.isFinite(oldPid)) {
-        try { process.kill(oldPid, 0); process.kill(oldPid, "SIGTERM"); } catch { /* already dead */ }
+        try {
+          process.kill(oldPid, 0);
+          process.kill(oldPid, "SIGTERM");
+        } catch {
+          /* already dead */
+        }
       }
-    } catch { /* no stale pidfile */ }
+    } catch {
+      /* no stale pidfile */
+    }
     await rm(socket, { force: true }).catch(() => {});
     await rm(pidFile, { force: true }).catch(() => {});
 
@@ -137,10 +146,12 @@ export interface RunnerTransportFactory {
 export class ProdRunnerRegistry implements RunnerRegistry {
   #transports = new Map<string, RunnerTransport>();
 
-  constructor(private opts: {
-    endpointResolver: RunnerEndpointResolver;
-    transportFactory: RunnerTransportFactory;
-  }) {}
+  constructor(
+    private opts: {
+      endpointResolver: RunnerEndpointResolver;
+      transportFactory: RunnerTransportFactory;
+    },
+  ) {}
 
   async transportFor(agentId: string): Promise<RunnerTransport> {
     const existing = this.#transports.get(agentId);
@@ -156,9 +167,7 @@ export class ProdRunnerRegistry implements RunnerRegistry {
   }
 
   async dispose(): Promise<void> {
-    await Promise.allSettled(
-      [...this.#transports.values()].map((t) => t.close().catch(() => {})),
-    );
+    await Promise.allSettled([...this.#transports.values()].map((t) => t.close().catch(() => {})));
     this.#transports.clear();
   }
 }

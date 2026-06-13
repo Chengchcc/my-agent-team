@@ -72,9 +72,9 @@ describe("ingest", () => {
     const db = makeDb();
 
     mockFetch([
-      { body: { conversationId: "conv_new" } },       // create conversation
-      { body: { members: [] } },                      // add member
-      { body: { seq: 1 } },                           // post message
+      { body: { conversationId: "conv_new" } }, // create conversation
+      { body: { members: [] } }, // add member
+      { body: { seq: 1 } }, // post message
     ]);
 
     const result = await ingest(baseEvent, {
@@ -98,13 +98,16 @@ describe("ingest", () => {
     // Pre-reserve to simulate already-consumed event
     reserveInbound(db, "evt_dup", "om_dup", "oc_dup");
 
-    const result = await ingest({ ...baseEvent, event_id: "evt_dup", message_id: "om_dup" }, {
-      db,
-      selfAgentId: "agent_123",
-      selfAgentName: "TestBot",
-      botDisplayName: "TestBot",
-      backendUrl: "http://localhost",
-    });
+    const result = await ingest(
+      { ...baseEvent, event_id: "evt_dup", message_id: "om_dup" },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+      },
+    );
 
     expect(result.action).toBe("skipped");
     expect(result.triggered).toBe(false);
@@ -121,20 +124,23 @@ describe("ingest", () => {
       { body: { seq: 2 } },
     ]);
 
-    const result = await ingest({
-      ...baseEvent,
-      event_id: "evt_grp",
-      message_id: "om_grp",
-      chat_id: "oc_grp",
-      chat_type: "group",
-      content: "just chatting",
-    }, {
-      db,
-      selfAgentId: "agent_123",
-      selfAgentName: "TestBot",
-      botDisplayName: "TestBot",
-      backendUrl: "http://localhost",
-    });
+    const result = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_grp",
+        message_id: "om_grp",
+        chat_id: "oc_grp",
+        chat_type: "group",
+        content: "just chatting",
+      },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+      },
+    );
 
     expect(result.action).toBe("consumed");
     expect(result.triggered).toBe(false); // no @mention
@@ -151,20 +157,23 @@ describe("ingest", () => {
       { body: { seq: 3 } },
     ]);
 
-    const result = await ingest({
-      ...baseEvent,
-      event_id: "evt_grp2",
-      message_id: "om_grp2",
-      chat_id: "oc_grp2",
-      chat_type: "group",
-      content: "@TestBot help me",
-    }, {
-      db,
-      selfAgentId: "agent_123",
-      selfAgentName: "TestBot",
-      botDisplayName: "TestBot",
-      backendUrl: "http://localhost",
-    });
+    const result = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_grp2",
+        message_id: "om_grp2",
+        chat_id: "oc_grp2",
+        chat_type: "group",
+        content: "@TestBot help me",
+      },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+      },
+    );
 
     expect(result.action).toBe("consumed");
     expect(result.triggered).toBe(true);

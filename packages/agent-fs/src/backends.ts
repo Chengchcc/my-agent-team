@@ -18,8 +18,11 @@ export class LocalBackend implements WritableBackend {
   }
 
   #rootReal(): string {
-    try { return realpathSync(this.#root); }
-    catch { return this.#root; }
+    try {
+      return realpathSync(this.#root);
+    } catch {
+      return this.#root;
+    }
   }
 
   #resolve(relPath: string): string {
@@ -29,8 +32,11 @@ export class LocalBackend implements WritableBackend {
   /** Verify an existing target path doesn't escape root via symlinks. */
   #check(p: string): void {
     let real: string;
-    try { real = realpathSync(p); }
-    catch { return; } // doesn't exist — OK
+    try {
+      real = realpathSync(p);
+    } catch {
+      return;
+    } // doesn't exist — OK
     if (!isWithin(real, this.#rootReal(), path.sep)) {
       throw new Error(`Path escapes backend root: ${path.relative(this.#root, p)} → ${real}`);
     }
@@ -42,10 +48,16 @@ export class LocalBackend implements WritableBackend {
     // Walk up until we find an existing ancestor
     for (let i = 0; i < 32; i++) {
       let real: string;
-      try { real = realpathSync(parent); }
-      catch { parent = path.dirname(parent); continue; }
+      try {
+        real = realpathSync(parent);
+      } catch {
+        parent = path.dirname(parent);
+        continue;
+      }
       if (!isWithin(real, this.#rootReal(), path.sep)) {
-        throw new Error(`Path escapes backend root via parent: ${path.relative(this.#root, parent)} → ${real}`);
+        throw new Error(
+          `Path escapes backend root via parent: ${path.relative(this.#root, parent)} → ${real}`,
+        );
       }
       return;
     }
@@ -55,8 +67,9 @@ export class LocalBackend implements WritableBackend {
   async read(relPath: string): Promise<string | null> {
     const p = this.#resolve(relPath);
     this.#check(p);
-    try { return await readFile(p, "utf-8"); }
-    catch (err: unknown) {
+    try {
+      return await readFile(p, "utf-8");
+    } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
       if ((err as NodeJS.ErrnoException).code === "EISDIR") return null;
       throw err;
@@ -66,8 +79,9 @@ export class LocalBackend implements WritableBackend {
   async list(relPath: string): Promise<string[]> {
     const p = this.#resolve(relPath);
     this.#check(p);
-    try { return await readdir(p); }
-    catch (err: unknown) {
+    try {
+      return await readdir(p);
+    } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw err;
     }
@@ -88,8 +102,10 @@ export class LocalBackend implements WritableBackend {
   async exists(relPath: string): Promise<boolean> {
     const p = this.#resolve(relPath);
     this.#check(p);
-    try { await stat(p); return true; }
-    catch (err: unknown) {
+    try {
+      await stat(p);
+      return true;
+    } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
       throw err;
     }
@@ -111,8 +127,9 @@ export class LocalBackend implements WritableBackend {
   async remove(relPath: string): Promise<void> {
     const p = this.#resolve(relPath);
     this.#check(p);
-    try { await rm(p, { recursive: true, force: true }); }
-    catch (err: unknown) {
+    try {
+      await rm(p, { recursive: true, force: true });
+    } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
       throw err;
     }
@@ -125,7 +142,9 @@ export class MemoryBackend implements WritableBackend {
   #store = new Map<string, string>();
   #mtime = new Map<string, number>();
 
-  #key(relPath: string): string { return relPath.replace(/\/+/g, "/"); }
+  #key(relPath: string): string {
+    return relPath.replace(/\/+/g, "/");
+  }
 
   async read(relPath: string): Promise<string | null> {
     const v = this.#store.get(this.#key(relPath));
@@ -163,12 +182,17 @@ export class MemoryBackend implements WritableBackend {
     this.#mtime.set(k, Date.now());
   }
 
-  async mkdirp(_relPath: string): Promise<void> { /* no-op */ }
+  async mkdirp(_relPath: string): Promise<void> {
+    /* no-op */
+  }
 
   async remove(relPath: string): Promise<void> {
     const k = this.#key(relPath);
     for (const key of [...this.#store.keys()]) {
-      if (key === k || key.startsWith(k + "/")) { this.#store.delete(key); this.#mtime.delete(key); }
+      if (key === k || key.startsWith(k + "/")) {
+        this.#store.delete(key);
+        this.#mtime.delete(key);
+      }
     }
   }
 }

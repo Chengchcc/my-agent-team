@@ -66,8 +66,18 @@ function ensureSchema(db: Database) {
 
 export function getChatBinding(db: Database, larkChatId: string): ChatBinding | null {
   const row = db
-    .query("SELECT lark_chat_id, conversation_id, chat_type, created_at, pushed_seq FROM chat_binding WHERE lark_chat_id = ?")
-    .get(larkChatId) as { lark_chat_id: string; conversation_id: string; chat_type: string; created_at: number; pushed_seq: number } | undefined;
+    .query(
+      "SELECT lark_chat_id, conversation_id, chat_type, created_at, pushed_seq FROM chat_binding WHERE lark_chat_id = ?",
+    )
+    .get(larkChatId) as
+    | {
+        lark_chat_id: string;
+        conversation_id: string;
+        chat_type: string;
+        created_at: number;
+        pushed_seq: number;
+      }
+    | undefined;
   if (!row) return null;
   return {
     larkChatId: row.lark_chat_id,
@@ -80,8 +90,16 @@ export function getChatBinding(db: Database, larkChatId: string): ChatBinding | 
 
 export function getAllChatBindings(db: Database): ChatBinding[] {
   const rows = db
-    .query("SELECT lark_chat_id, conversation_id, chat_type, created_at, pushed_seq FROM chat_binding")
-    .all() as { lark_chat_id: string; conversation_id: string; chat_type: string; created_at: number; pushed_seq: number }[];
+    .query(
+      "SELECT lark_chat_id, conversation_id, chat_type, created_at, pushed_seq FROM chat_binding",
+    )
+    .all() as {
+    lark_chat_id: string;
+    conversation_id: string;
+    chat_type: string;
+    created_at: number;
+    pushed_seq: number;
+  }[];
   return rows.map((row) => ({
     larkChatId: row.lark_chat_id,
     conversationId: row.conversation_id,
@@ -108,7 +126,11 @@ export function updatePushedSeq(db: Database, larkChatId: string, seq: number): 
   db.run("UPDATE chat_binding SET pushed_seq = ? WHERE lark_chat_id = ?", [seq, larkChatId]);
 }
 
-export function getMemberBinding(db: Database, larkChatId: string, larkOpenId: string): string | null {
+export function getMemberBinding(
+  db: Database,
+  larkChatId: string,
+  larkOpenId: string,
+): string | null {
   const row = db
     .query("SELECT member_id FROM member_binding WHERE lark_chat_id = ? AND lark_open_id = ?")
     .get(larkChatId, larkOpenId) as { member_id: string } | undefined;
@@ -129,7 +151,9 @@ export function putMemberBinding(
 
 export function getMemberBindingsForChat(db: Database, larkChatId: string): MemberBinding[] {
   const rows = db
-    .query("SELECT lark_chat_id, lark_open_id, member_id FROM member_binding WHERE lark_chat_id = ?")
+    .query(
+      "SELECT lark_chat_id, lark_open_id, member_id FROM member_binding WHERE lark_chat_id = ?",
+    )
     .all(larkChatId) as { lark_chat_id: string; lark_open_id: string; member_id: string }[];
   return rows.map((row) => ({
     larkChatId: row.lark_chat_id,
@@ -159,7 +183,12 @@ export function reserveInbound(
   );
 }
 
-export function confirmInbound(db: Database, eventId: string, conversationId: string, ledgerSeq: number): void {
+export function confirmInbound(
+  db: Database,
+  eventId: string,
+  conversationId: string,
+  ledgerSeq: number,
+): void {
   db.run(
     "UPDATE inbound_message SET conversation_id = ?, ledger_seq = ?, status = 'posted' WHERE lark_event_id = ?",
     [conversationId, ledgerSeq, eventId],
