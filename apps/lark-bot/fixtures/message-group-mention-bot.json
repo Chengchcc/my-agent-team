@@ -1,1 +1,1 @@
-{"type":"im.message.receive_v1","event_id":"evt_grp001","timestamp":"1700000001000","id":"msg_grp001","message_id":"om_grp001","create_time":"1700000001000","chat_id":"oc_grp001","chat_type":"group","message_type":"text","sender_id":"ou_user001","content":"@CodingBot help me"}
+{"type":"im.message.receive_v1","event_id":"evt_grp001","timestamp":"1700000001000","id":"msg_grp001","message_id":"om_grp001","create_time":"1700000001000","chat_id":"oc_grp001","chat_type":"group","message_type":"text","sender_id":"ou_user001","content":"@小开 测试群聊 @"}

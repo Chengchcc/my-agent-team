@@ -17,7 +17,7 @@ describe("parseEvent", () => {
     expect(event!.chat_type).toBe("p2p");
     expect(event!.chat_id).toBe("oc_p2p001");
     expect(event!.sender_id).toBe("ou_user001");
-    expect(event!.content).toContain("hello");
+    expect(event!.content).toContain("测试");
   });
 
   test("parses group @bot message", () => {
@@ -25,14 +25,14 @@ describe("parseEvent", () => {
     const event = parseEvent(line);
     expect(event).not.toBeNull();
     expect(event!.chat_type).toBe("group");
-    expect(isBotMentioned(event!.content, "CodingBot")).toBe(true);
+    expect(isBotMentioned(event!.content, "小开")).toBe(true);
   });
 
   test("parses group no-mention message", () => {
     const line = loadFixture("message-group-no-mention.json");
     const event = parseEvent(line);
     expect(event).not.toBeNull();
-    expect(isBotMentioned(event!.content, "CodingBot")).toBe(false);
+    expect(isBotMentioned(event!.content, "小开")).toBe(false);
   });
 
   test("parses interactive card (raw JSON content)", () => {
