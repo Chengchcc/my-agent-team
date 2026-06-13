@@ -1,0 +1,1 @@
+{"type":"im.message.receive_v1","event_id":"evt_card001","timestamp":"1700000003000","id":"msg_card001","message_id":"om_card001","create_time":"1700000003000","chat_id":"oc_grp001","chat_type":"group","message_type":"interactive","sender_id":"ou_user001","content":"{\"elements\":[{\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"Approve\"}}]}"}

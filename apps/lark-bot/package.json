@@ -1,0 +1,12 @@
+{
+  "name": "@my-agent-team/lark-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "test": "bun test",
+    "lint": "bun check"
+  }
+}

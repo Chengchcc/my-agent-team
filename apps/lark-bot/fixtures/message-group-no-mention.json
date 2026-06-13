@@ -1,0 +1,1 @@
+{"type":"im.message.receive_v1","event_id":"evt_grp002","timestamp":"1700000002000","id":"msg_grp002","message_id":"om_grp002","create_time":"1700000002000","chat_id":"oc_grp001","chat_type":"group","message_type":"text","sender_id":"ou_user002","content":"just chatting"}

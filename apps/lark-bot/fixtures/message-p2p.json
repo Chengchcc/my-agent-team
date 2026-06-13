@@ -1,0 +1,1 @@
+{"type":"im.message.receive_v1","event_id":"evt_p2p001","timestamp":"1700000000000","id":"msg_p2p001","message_id":"om_p2p001","create_time":"1700000000000","chat_id":"oc_p2p001","chat_type":"p2p","message_type":"text","sender_id":"ou_user001","content":"hello bot"}
