@@ -20,6 +20,9 @@ import type { RunnerRegistry } from "./features/run/runner-registry.js";
 import { DevRunnerRegistry } from "./features/run/runner-registry.js";
 import { ProdRunnerRegistry } from "./features/run/runner-registry.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
+import { DevLarkBotRegistry, ProdLarkBotRegistry, larkProfileInit } from "./features/lark-bot/index.js";
+import type { LarkBotRegistry } from "./features/lark-bot/index.js";
+import { withLarkOrchestration } from "./features/agent/with-lark-orchestration.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
 import { openDb } from "./infra/sqlite/db.js";
@@ -62,9 +65,19 @@ const supervisor = new RunSupervisor({
   registry,
 });
 
+// M15: Lark-bot registry (spawns per-agent lark-bot processes)
+const larkBotRegistry: LarkBotRegistry =
+  runnerEnv === "prod"
+    ? new ProdLarkBotRegistry()
+    : new DevLarkBotRegistry({
+        dataDir: config.dataDir,
+        larkBotBin: `${import.meta.dir}/../../lark-bot/src/main.ts`,
+        backendUrl: `http://${config.host}:${config.port}`,
+      });
+
 // Agent feature
 const agentPort = sqliteAgentAdapter(db);
-const agentSvc = createAgentService({
+const agentSvcRaw = createAgentService({
   port: agentPort,
   idGen: ulid,
   workspaceRoot: config.workspaceRoot,
@@ -135,6 +148,14 @@ const agentSvc = createAgentService({
       .all(...threadIds);
     if (busy.length > 0) throw new AgentBusyError(agentId);
   },
+});
+
+// M15: Wrap agent service with lark-bot orchestration (profile init + registry lifecycle)
+const agentSvc = withLarkOrchestration({
+  service: agentSvcRaw,
+  profileInit: larkProfileInit,
+  ensureBot: (id) => larkBotRegistry.ensureLarkBot(id),
+  stopBot: (id) => larkBotRegistry.stopLarkBot(id),
 });
 
 // Checkpoint read adapter — needed early for autoTitle in runSvc
@@ -378,6 +399,18 @@ await supervisor.rediscover(eventLog);
 server.start();
 console.log(`[backend] listening on ${config.host}:${config.port}`);
 
+// M15: Launch lark-bots for enabled agents on startup
+(async () => {
+  const allAgents = await agentSvc.list(true);
+  for (const agent of allAgents) {
+    if (agent.larkEnabled && agent.larkProfileRef) {
+      larkBotRegistry.ensureLarkBot(agent.id).catch((err) => {
+        console.error(`[lark] failed to start bot for ${agent.id}:`, err);
+      });
+    }
+  }
+})();
+
 // Graceful shutdown
 const shutdown = async (signal: string) => {
   console.log(`[backend] ${signal} received, shutting down...`);
@@ -391,6 +424,8 @@ const shutdown = async (signal: string) => {
   await supervisor.dispose();
   // M14.7: Dispose daemon registry (kills spawned daemon processes)
   await registry.dispose?.();
+  // M15: Dispose lark-bot registry (SIGTERM all bot processes)
+  await larkBotRegistry.dispose();
   db.close();
   process.exit(0);
 };
