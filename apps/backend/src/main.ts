@@ -5,10 +5,10 @@ import { loadConfig } from "./config.js";
 import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
 import { AgentBusyError, agentRoutes, createAgentService } from "./features/agent/index.js";
 import {
-  sqliteCheckpointReadAdapter,
-  sqliteCheckpointWriteAdapter,
-} from "./features/checkpoint/adapter-sqlite.js";
-import { checkpointRoutes, createCheckpointService } from "./features/checkpoint/index.js";
+  sqliteThreadProjectionReadAdapter,
+  sqliteThreadProjectionWriteAdapter,
+} from "./features/thread-projection/adapter-sqlite.js";
+import { threadProjectionRoutes, createThreadProjectionService } from "./features/thread-projection/index.js";
 import {
   conversationRoutes,
   createConversationService,
@@ -120,7 +120,7 @@ const agentSvc = createAgentService({
 });
 
 // Checkpoint read adapter — needed early for autoTitle in runSvc
-const checkpointPort = sqliteCheckpointReadAdapter(db);
+const threadProjectionPort = sqliteThreadProjectionReadAdapter(db);
 
 // Run feature — M9 subprocess model
 const runSvc = createRunService({
@@ -137,7 +137,7 @@ const runSvc = createRunService({
       if (conv?.title) return { title: conv.title };
       return conv ? { title: null } : null;
     },
-    getMessages: async (tid) => (await checkpointPort.getMessages(tid)) as Message[] | null,
+    getMessages: async (tid) => (await threadProjectionPort.getMessages(tid)) as Message[] | null,
     setTitle: async (tid, title) => {
       const cid = tid.includes(":") ? tid.split(":")[0]! : tid;
       convPort.setConversationTitle(cid, title);
@@ -201,8 +201,8 @@ function extractText(content: unknown): string | null {
   return null;
 }
 // Checkpoint feature
-const checkpointWritePort = sqliteCheckpointWriteAdapter(db);
-const checkpointSvc = createCheckpointService({ port: checkpointPort });
+const threadProjectionWritePort = sqliteThreadProjectionWriteAdapter(db);
+const threadProjectionSvc = createThreadProjectionService({ port: threadProjectionPort });
 
 // M10: Conversation feature
 const convPort = sqliteConversationAdapter(db);
@@ -210,8 +210,8 @@ const activeConversations = new Set<string>();
 
 const convSvc = createConversationService({
   port: convPort,
-  checkpointRead: checkpointPort,
-  checkpointWrite: checkpointWritePort,
+  threadProjectionRead: threadProjectionPort,
+  threadProjectionWrite: threadProjectionWritePort,
   activeConversations,
   maxConsecutiveAgentHops: 8,
 
@@ -223,7 +223,12 @@ const convSvc = createConversationService({
       conversationId: ctx.conversationId,
       senderMemberId: ctx.agentMemberId,
     });
-    const { attemptId } = await supervisor.startMainRun(runId, threadId, spec);
+    const preloadedMessages = (await threadProjectionPort.getMessages(threadId)) as
+      | readonly Message[]
+      | undefined;
+    const { attemptId } = await supervisor.startMainRun(runId, threadId, spec, {
+      preloadedMessages,
+    });
     return { runId, attemptId };
   },
 });
@@ -337,7 +342,7 @@ const router = createRouter(config.authToken, {
   agents: agentRoutes(agentSvc),
   // threads: removed — conversation is the user-facing concept
   runs: runRoutes(runSvc, buildAgentSpecV2, getThreadIdForRun),
-  checkpoints: checkpointRoutes(checkpointSvc),
+  threadProjections: threadProjectionRoutes(threadProjectionSvc),
   conversations: conversationRoutes(convSvc, ulid),
 });
 

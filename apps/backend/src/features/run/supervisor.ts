@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { EventLog, EventSource } from "@my-agent-team/event-log";
+import type { Message } from "@my-agent-team/core";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
 import type { BackendConfig } from "../../config.js";
 import type { RunnerRegistry } from "./runner-registry.js";
@@ -19,6 +20,14 @@ interface RunRequest {
   agentId: string;
   spec: Record<string, unknown>;
   kind: "main" | "reflect";
+  /** Extra options that are threaded to transport.send({ type: "start" }). */
+  options?: RunRequestOptions;
+}
+
+export interface RunRequestOptions {
+  /** Messages already projected into the thread-projection store by broadcastMessage().
+   *  The daemon pre-seeds its own runtime checkpointer with these before createGenericAgent(). */
+  preloadedMessages?: readonly Message[];
 }
 
 export interface RunSession {
@@ -236,8 +245,9 @@ export class RunSupervisor {
     runId: string,
     threadId: string,
     spec: Record<string, unknown>,
+    opts: RunRequestOptions = {},
   ): Promise<{ runId: string; attemptId: string }> {
-    const req: RunRequest = { runId, threadId, agentId: (spec.agentId as string) ?? "default", spec, kind: "main" };
+    const req: RunRequest = { runId, threadId, agentId: (spec.agentId as string) ?? "default", spec, kind: "main", options: opts };
     return this.#beginAndSend(req);
   }
 
@@ -290,7 +300,7 @@ export class RunSupervisor {
 
     this.#registerSession({ runId: req.runId, attemptId, threadId: req.threadId, agentId: req.agentId, kind: req.kind, transport });
 
-    transport.send({ type: "start", runId: req.runId, spec: req.spec });
+    transport.send({ type: "start", runId: req.runId, spec: req.spec, preloadedMessages: req.options?.preloadedMessages });
     return { runId: req.runId, attemptId };
   }
 

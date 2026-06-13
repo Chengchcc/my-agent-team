@@ -3,9 +3,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sqliteAgentAdapter } from "../features/agent/adapter-sqlite.js";
 import { agentRoutes, createAgentService } from "../features/agent/index.js";
 import {
-  sqliteCheckpointReadAdapter,
-  sqliteCheckpointWriteAdapter,
-} from "../features/checkpoint/adapter-sqlite.js";
+  sqliteThreadProjectionReadAdapter,
+  sqliteThreadProjectionWriteAdapter,
+} from "../features/thread-projection/adapter-sqlite.js";
 import {
   conversationRoutes,
   createConversationService,
@@ -46,8 +46,8 @@ beforeAll(async () => {
   const convPort = sqliteConversationAdapter(db);
   const convSvc = createConversationService({
     port: convPort,
-    checkpointRead: sqliteCheckpointReadAdapter(db),
-    checkpointWrite: sqliteCheckpointWriteAdapter(db),
+    threadProjectionRead: sqliteThreadProjectionReadAdapter(db),
+    threadProjectionWrite: sqliteThreadProjectionWriteAdapter(db),
     activeConversations: new Set<string>(),
     maxConsecutiveAgentHops: 8,
     forkRun: async (runId) => ({ runId, attemptId: `att-${runId}` }),
@@ -56,7 +56,7 @@ beforeAll(async () => {
   router = createRouter(TOKEN, {
     agents: agentRoutes(agentSvc),
     runs: undefined!,
-    checkpoints: undefined!,
+    threadProjections: undefined!,
     conversations: conversationRoutes(convSvc, () => crypto.randomUUID().slice(0, 8)),
   });
 });

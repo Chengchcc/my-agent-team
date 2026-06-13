@@ -1,8 +1,8 @@
 import { json } from "../../http/response.js";
 
-import type { CheckpointService } from "./service.js";
+import type { ThreadProjectionService } from "./service.js";
 
-export function checkpointRoutes(svc: CheckpointService) {
+export function threadProjectionRoutes(svc: ThreadProjectionService) {
   return {
     async getMessages(_req: Request, threadId: string): Promise<Response> {
       const messages = await svc.getMessages(threadId);

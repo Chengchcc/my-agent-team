@@ -3,7 +3,7 @@ import {
   projectForMember,
   resolveTriggerTargets,
 } from "@my-agent-team/conversation";
-import type { CheckpointReadPort, CheckpointWritePort } from "../checkpoint/ports.js";
+import type { ThreadProjectionReadPort, ThreadProjectionWritePort } from "../thread-projection/ports.js";
 import type { ConversationPort, LedgerKind, LedgerRow, MemberRow } from "./ports.js";
 
 export class ConversationBusyError extends Error {
@@ -27,8 +27,8 @@ function isSystemSender(memberId: string): boolean {
 
 export interface ConversationServiceDeps {
   port: ConversationPort;
-  checkpointRead: CheckpointReadPort;
-  checkpointWrite: CheckpointWritePort;
+  threadProjectionRead: ThreadProjectionReadPort;
+  threadProjectionWrite: ThreadProjectionWritePort;
   activeConversations: Set<string>;
   maxConsecutiveAgentHops: number;
   forkRun: (
@@ -39,7 +39,7 @@ export interface ConversationServiceDeps {
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
-  const { port, checkpointWrite, activeConversations, maxConsecutiveAgentHops, forkRun } = deps;
+  const { port, threadProjectionWrite, activeConversations, maxConsecutiveAgentHops, forkRun } = deps;
   // Track pending run count per conversation — lock released only when
   // all triggered runs complete, not just the first one.
   const pendingRuns = new Map<string, number>();
@@ -127,7 +127,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
         conv,
       );
 
-      await checkpointWrite.appendMessages(threadId, [
+      await threadProjectionWrite.appendMessages(threadId, [
         { role: projected.role, content: projected.text },
       ]);
     }

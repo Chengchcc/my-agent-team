@@ -32,6 +32,10 @@ interface RunHandle {
   reflect: boolean;
   threadId: string;
   runId: string;
+  /** True when conversation context was preloaded into the checkpointer.
+   *  The agent will use continue() instead of run("") to avoid appending
+   *  an empty user message. */
+  hasPreloaded: boolean;
 }
 
 // ─── Helpers ───
@@ -107,6 +111,13 @@ export class RunnerDaemon {
       return;
     }
 
+    // Pre-seed the daemon's checkpointer with conversation context from the
+    // backend. Messages travel through the transport layer — no DB coupling.
+    const hasPreloaded = !!(msg.preloadedMessages && msg.preloadedMessages.length > 0);
+    if (hasPreloaded && msg.preloadedMessages) {
+      await this.#checkpointer.save(spec.threadId, msg.preloadedMessages);
+    }
+
     const model = this.#modelFactory.create(spec.model);
     const { createGenericAgent } = await import("@my-agent-team/harness");
     const agent = await createGenericAgent({
@@ -122,6 +133,7 @@ export class RunnerDaemon {
       reflect: spec.mode === "run",
       threadId: spec.threadId,
       runId: msg.runId,
+      hasPreloaded,
     });
     void this.#drive(msg.runId);
   }
@@ -136,7 +148,10 @@ export class RunnerDaemon {
     switch (spec.mode) {
       case "resume": return run.agent.resume(spec.resumeCommand, opts);
       case "reflect": return run.agent.run(spec.input, opts);
-      default: return run.agent.run(spec.input, opts);
+      default:
+        return run.hasPreloaded
+          ? run.agent.continue(opts)
+          : run.agent.run(spec.input, opts);
     }
   }
 
@@ -208,6 +223,7 @@ export class RunnerDaemon {
       reflect: false,
       threadId: `reflect:${parent.threadId}`,
       runId: reflectRunId,
+      hasPreloaded: false,
     });
     await this.#drive(reflectRunId);
   }

@@ -102,11 +102,12 @@ Runner → Host:  run_started | event | delta | heartbeat | run_done
 ```
 
 关键语义：
-- `start { runId, spec }` — daemon `safeParse(spec)` 后启动 run
+- `start { runId, spec, preloadedMessages? }` — daemon `safeParse(spec)` + 预埋 preloadedMessages 到本地 checkpointer + 启动 run
 - `abort { runId }` — 透传 AbortSignal 到 agent loop
 - `run_done { runId, status }` — daemon 通知 backend run 结束
 - `run_finalized { runId }` — backend 确认所有副作用（D19/title/mention）完成后发送
 - daemon 收到 `run_finalized` 后才启动 reflect（如有）
+- `preloadedMessages` — 上下文 hydration 快照：conversation-triggered run 时 backend 从 ThreadProjection 读取已投影的 agent 消息，随 start 传给 daemon，daemon 预埋到自己的 checkpointer 后再 `agent.continue()`
 
 ### Runner Daemon 入口
 
@@ -123,9 +124,10 @@ const daemon = new RunnerDaemon({
 daemon 启动后绑定 unix socket，等待 backend `start` 消息。收到后：
 1. `AgentSpecV2.safeParse(spec)` 单点校验
 2. `spec.agentId === this.#agentId` 身份校验
-3. `createGenericAgent({ workspace, model, threadId, ... })` 装配 agent
-4. `agent.run()` / `agent.resume()` 执行
-5. event → transport.send 回传 backend
+3. 若有 `preloadedMessages`，`checkpointer.save(threadId, msgs)` 预埋到本地 checkpointer
+4. `createGenericAgent({ workspace, model, threadId, checkpointer })` 装配 agent
+5. 有预埋消息时 `agent.continue()`（不追加空 user），否则 `agent.run(input)` / `agent.resume()`
+6. event → transport.send 回传 backend
 
 详细设计见 [16-resident-runner.md](./16-resident-runner.md)。
 
@@ -252,7 +254,7 @@ apps/backend/
 │   │   │   ├── service.ts            # RunService — start/resume + autoTitle
 │   │   │   └── http.ts               # run SSE + cancel + resume HTTP
 │   │   ├── conversation/             # Conversation + Member 抽象 (M10)
-│   │   └── checkpoint/               # Checkpoint read/write adapter
+│   │   └── thread-projection/          # ThreadProjection read/write adapter (conversation → agent thread)
 │   ├── http/router.ts                # 路由装配
 │   └── main.ts                       # 入口 — 组装 registry/supervisor/services
 └── package.json
@@ -277,6 +279,40 @@ packages/
 ```
 
 Backend 不直接依赖 `framework` — 通过 harness 间接消费。
+
+### ThreadProjection vs Checkpointer — 两个概念，两种所有权
+
+M14.7 拆出 runner daemon 后，`checkpointer` 一词被两个职责复用，现已在命名上拆开：
+
+| 概念 | 所在包/层 | 所有权 | 职责 |
+|------|----------|--------|------|
+| **`ThreadProjection`** | `apps/backend/features/thread-projection/` | Backend | 把 conversation ledger 投影成 agent thread 的模型消息（`[User]: 你好`）。`broadcastMessage()` 在每次 ledger append 后调用 `threadProjectionWrite.appendMessages()` |
+| **`Checkpointer`** | `@my-agent-team/framework` | Runner daemon | Agent 运行时 checkpoint（执行态持久化）：`save/load` messages、`saveInterrupt/consumeInterrupt`、`appendEvent`。daemon-local SQLite，backend 不读不写 |
+
+**为什么 backend 要有自己的投影存储**：
+
+1. Backend 拥有 conversation ledger 和 members — 只有它知道如何把中立 ledger entry 投影为 agent 视角的模型消息
+2. 投影必须在 runner 启动前完成 — 用户消息进入 conversation 后可能马上触发 run
+3. Runner daemon 不应该理解 conversation schema（members、addressedTo、displayName、projectForMember）
+
+**为什么 runner daemon 要有自己的 checkpointer**：
+
+1. Agent loop 的 `save/load` 是运行时热路径 — 不应该过网络
+2. Interrupt/resume 状态是 runner-local — backend 不应感知
+3. Runner 的 checkpoint events（tool_start、model_end）是审计级，不是投影级
+
+**上下文 hydration 协议**（M14.7 修复）：
+
+```
+forkRun()
+  → threadProjectionRead.getMessages(threadId)   // backend 读取投影
+  → transport.send({ type:"start", preloadedMessages })  // 走 transport 传快照
+  → daemon.#checkpointer.save(threadId, msgs)     // daemon 预埋到自己 checkpointer
+  → createGenericAgent({ checkpointer })           // agent.load() 读到完整上下文
+  → agent.continue()                               // 不追加空 user，直接进入 runLoop
+```
+
+两个 DB 文件保持不变（`backend.db` + `runners/<id>/state/checkpointer.sqlite`），但消息通过 transport 层在 run 启动时 hydrate。
 
 ---
 
@@ -380,8 +416,10 @@ POST /api/runs
 
 daemon:  transport.onMessage → #onStart
    ├─ AgentSpecV2.safeParse(spec)
-   ├─ createGenericAgent({ workspace, model, ... })
-   └─ agent.run() → transport.send(event/delta/heartbeat/run_done)
+   ├─ preloadedMessages → checkpointer.save(threadId, msgs)   // hydrate 本地 checkpointer
+   ├─ createGenericAgent({ workspace, model, checkpointer, ... })
+   └─ hasPreloaded ? agent.continue() : agent.run(input)
+      → transport.send(event/delta/heartbeat/run_done)
 
 GET /api/runs/:id/events  ── eventLog.subscribe({ runId, afterSeq }) ──► SSE 投影
 ```
@@ -510,7 +548,7 @@ interface BackendConfig {
 
 **为什么 Backend 需要自己的 agentStore**：framework 的 checkpointer 是 agent 级别（per-thread messages）。Backend 需要 agent **元数据**层（agentId → spec），是不同维度。
 
-> **存储职责**:Backend 持有 **EventLog**(投影事实源),但**不持有 Checkpointer**(那是 runner 注入、agent-resume 专用)。这是解耦的关键——见 [14 §一](./14-event-log.md#一为什么从-checkpointer-里拆出来)。
+> **存储职责**:Backend 持有 **EventLog**（投影事实源）和 **ThreadProjection**（conversation → agent thread 的上下文投影缓存），但**不持有 Checkpointer**（那是 runner daemon 本地 SQLite、agent-resume 专用）。ThreadProjection 和 Checkpointer 是两个独立存储，通过 transport `preloadedMessages` 在 run 启动时 hydrate。详见 [Checkpointer 文档 §已知限制](./04-checkpointer.md#已知限制sandbox-隔离)。
 
 ---
 

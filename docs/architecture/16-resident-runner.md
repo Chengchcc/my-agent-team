@@ -104,7 +104,7 @@ sequenceDiagram
 | 资源 | DB / 缓存进程级开关 | daemon 启动建一次，run 之间共享（连接池） |
 | 崩溃隔离 | OS 进程边界免费给 | daemon 内 supervision：一个 run 的未捕获异常不能拖垮整个 daemon |
 | 并发 | `#running` 单 run | run registry，多 run / 多 thread 并发治理 |
-| **Checkpointer** | runner 开 backend.db 读写 | runner-local `SQLiteCheckpointer` 写 `state/checkpointer.sqlite`；**checkpoint 不跨 Transport，backend 不解析 checkpoint payload** |
+| **Checkpointer** | runner 开 backend.db 读写 | **两份独立存储**：backend 侧 `ThreadProjection`（conversation ledger → agent thread 投影）写 `backend.db`，daemon 侧 `SQLiteCheckpointer`（runtime 执行态）写 `state/checkpointer.sqlite`。上下文经 transport `preloadedMessages` 在 run 启动时 hydrate，两 DB 不互通 |
 
 **两个最难、今天 OS 免费给、常驻后必须自建的**：
 
@@ -205,10 +205,12 @@ M14.7 已落地（2026-06-12），核心交付：
 
 | 组件 | 落地形态 |
 |---|---|
-| **Transport** | `runner-protocol` 包 — `RunnerTransport` 接口 + lifecycle 消息（start/abort/run_finalized/event/delta/heartbeat/run_done），NDJSON codec，Memory/Socket transport。**无 checkpoint RPC** |
-| **Daemon** | `runner-daemon` 包 — agent-scoped（`--agent-id`），单 AgentFsHandle + 单 SQLiteCheckpointer，ModelFactory，abort/resume/reflect 分派，reflection ACK 控制环 |
-| **Checkpointer** | runner-local `SQLiteCheckpointer` 写 `state/checkpointer.sqlite`，不经 Transport，backend 不解析 |
+| **Transport** | `runner-protocol` 包 — `RunnerTransport` 接口 + lifecycle 消息（start/abort/run_finalized/event/delta/heartbeat/run_done），NDJSON codec，Memory/Socket transport。`start` 含 `preloadedMessages?: readonly Message[]` 用于上下文 hydration |
+| **Daemon** | `runner-daemon` 包 — agent-scoped（`--agent-id`），单 AgentFsHandle + 单 SQLiteCheckpointer，ModelFactory，abort/resume/reflect 分派，reflection ACK 控制环。`#onStart` 先 `checkpointer.save(threadId, preloadedMessages)` 预埋，后 `createGenericAgent()` |
+| **ThreadProjection** (backend) | `apps/backend/features/thread-projection/` — `ThreadProjectionReadPort` / `ThreadProjectionWritePort`。Backend 负责 conversation ledger → agent thread 的模型消息投影 |
+| **Checkpointer** (runner) | runner-local `SQLiteCheckpointer` 写 `state/checkpointer.sqlite`，不经 Transport 同步，backend 不解析。Run 启动时通过 transport `preloadedMessages` 从 backend ThreadProjection hydrate |
+| **Agent API** | 新增 `agent.continue()` — 不追加空 user，直接从 checkpointer 已有消息进入 runLoop。Conversation-triggered run 用 continue，HTTP `POST /api/runs` 仍用 `agent.run(input)` |
 | **AFS** | `agent-fs` 包 — canonical namespace + alias resolver，mount table 仅目录 prefix（`/shared/`, `/private/`），displayRoot |
 | **Registry** | `DevRunnerRegistry` — dev lazy spawn + dispose；`ProdRunnerRegistry` — resolve endpoint only |
-| **Backend** | supervisor `start()` transport 路径，`#beginAttempt`，async `onRunComplete`（D19 完成后 ACK），runnerBin 删除，AgentSpecV1 从 main.ts 删除 |
+| **Backend** | supervisor `startMainRun(runId, threadId, spec, { preloadedMessages })`，`#beginAttempt` 透传，async `onRunComplete`（D19 完成后 ACK），runnerBin 删除，AgentSpecV1 从 main.ts 删除。`forkRun` 从 ThreadProjection 读取消息传入 |
 | **清理** | `runner-stdio` 删除，`checkpointer-sqlite` 迁入 framework，`orchestrateReflection` 删除，`workspace-reader` 删除 |

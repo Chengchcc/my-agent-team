@@ -467,26 +467,32 @@ Permission 这类需求**从 plugin 中迁出**——它本质上是控制流操
 
 ---
 
-## 已知限制：sandbox 隔离
+## 与 Backend ThreadProjection 的关系
 
-当前所有内置 checkpointer 实现（`inMemoryCheckpointer` / `fileCheckpointer` / 计划中的 `sqliteCheckpointer`）都是**进程内对象 + 本地文件系统**。这在两种部署形态下成立：
+M14.7 拆出 resident runner daemon 后，原「checkpointer」职责被拆成两个独立概念：
 
-1. **CLI / 单进程**：harness 直接持有 checkpointer，进程结束 = 自洽
-2. **Backend in-proc runner**：backend 与 runner 同进程，共享同一个文件路径 / 同一个 SQLite handle
+| 概念 | 所有权 | 存储 | 职责 |
+|------|--------|------|------|
+| **`ThreadProjection`** | Backend (`apps/backend/features/thread-projection/`) | `backend.db` | Conversation ledger → agent thread 的模型消息投影（`[User]: 你好`）。`broadcastMessage()` 在每次 ledger append 后写入 |
+| **`Checkpointer`** | Runner daemon (`@my-agent-team/framework`) | `runners/<id>/state/checkpointer.sqlite` | Agent 运行时 checkpoint：save/load messages、saveInterrupt/consumeInterrupt、appendEvent。backend 不读不写 |
 
-但**沙箱化 runner 落地后这套必然崩溃**：
+### 上下文 hydration 协议
 
-| 场景 | 现状 | 沙箱化后的问题 |
-|---|---|---|
-| `fileCheckpointer({ dir: '/workspace/.checkpoints' })` | 直接 read/write 主机文件系统 | sandbox 容器无法访问主机路径；workspace 是只读挂载或 overlay；checkpoint 写入沙箱内即丢 |
-| `sqliteCheckpointer({ db })` | 共享 `bun:sqlite` Database handle | sandbox 与 backend 不共享内存，handle 无法跨进程传 |
-| `inMemoryCheckpointer` | 进程内 Map | sandbox 进程退出 = 全丢，连不上 backend 的 thread 历史 |
+Conversation-triggered run 启动时，通过 transport `preloadedMessages` hydrate runner 本地 checkpointer：
 
-**根本矛盾**：checkpointer 的契约要求"任何 runner 进程都能读写同一 thread 的状态"，但 sandbox 的契约要求"runner 进程隔离、不共享主机资源"。
+```text
+forkRun() → threadProjectionRead.getMessages(threadId)
+          → transport.send({ type:"start", preloadedMessages })
+          → daemon.#checkpointer.save(threadId, msgs)
+          → createGenericAgent() → checkpointer.load() 读到完整上下文
+          → agent.continue()  （不追加空 user，直接用 checkpoint 消息进入 runLoop）
+```
 
-### 长期方向：checkpointer 子服务化
+两 DB 文件保持独立，消息只在 run 启动时走 transport 层传递一次快照。
 
-未来必须升级为 **backend 内部 HTTP/RPC 子服务**：
+### 未来方向：checkpointer 子服务化
+
+长期看 runner daemon 的 checkpointer 可能升级为 backend 内部 HTTP/RPC 子服务：
 
 ```text
 sandbox runner ──HTTP/Unix-socket──> backend checkpointer service ──> SQLite/PG
@@ -494,15 +500,6 @@ sandbox runner ──HTTP/Unix-socket──> backend checkpointer service ──
 
 - backend 自己持有 SQLite/Postgres 连接（不暴露给 runner）
 - runner 通过狭窄的 HTTP 接口调 `save` / `load` / `appendEvent` / `saveInterrupt` / `consumeInterrupt`
-- 鉴权用 spec 里的 short-lived token；threadId 范围由 backend 校验，runner 无法越权写其他 thread
-- 网络往返额外开销可控（save 频率 ≈ tool 次数 + 2，单 thread 一轮通常 < 20 次调用）
+- 鉴权用 spec 里的 short-lived token；threadId 范围由 backend 校验
 
-### MVP 阶段的权宜
-
-当前暂用 `sqliteCheckpointer` + 共享文件方案。理由：
-
-- sandbox 尚未落地，现阶段无隔离需求
-- 共享 SQLite handle 实现简单（一个 `Database` 对象注入到 harness）
-- 升级路径清晰：把直接调用 `checkpointer.save(...)` 换成 HTTP client，contract 不变
-
-**升级触发器（永久 invariant）**：**sandbox runner 启用前**必须完成 checkpointer HTTP/RPC 化，否则 sandbox 默认会破坏 thread 历史完整性。落地节奏见 [00-vision.md](./00-vision.md) 路线表。
+**升级触发器（永久 invariant）**：**sandbox runner 启用前**需评估是否需要 checkpointer HTTP/RPC 化。当前 transport `preloadedMessages` hydration 协议已解决上下文传播问题，runner-local SQLite 适合单机部署。

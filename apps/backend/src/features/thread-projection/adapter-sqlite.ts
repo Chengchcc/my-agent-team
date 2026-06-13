@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
-import type { CheckpointReadPort, CheckpointWritePort } from "./ports.js";
+import type { ThreadProjectionReadPort, ThreadProjectionWritePort } from "./ports.js";
 
-export function sqliteCheckpointReadAdapter(db: Database): CheckpointReadPort {
+export function sqliteThreadProjectionReadAdapter(db: Database): ThreadProjectionReadPort {
   return {
     async getMessages(threadId: string): Promise<unknown[] | null> {
       const row = db
@@ -17,8 +17,10 @@ export function sqliteCheckpointReadAdapter(db: Database): CheckpointReadPort {
   };
 }
 
-/** M10: Write adapter for broadcast projection — load→merge→save. */
-export function sqliteCheckpointWriteAdapter(db: Database): CheckpointWritePort {
+/** Write adapter for broadcast projection — load→merge→save.
+ *  Writes to the same checkpoint_messages table that the runner daemon's
+ *  sqliteCheckpointer reads (via preloadedMessages hydration). */
+export function sqliteThreadProjectionWriteAdapter(db: Database): ThreadProjectionWritePort {
   return {
     async appendMessages(threadId: string, msgs: unknown[]): Promise<void> {
       // M4: Wrap read-write in transaction to prevent silent message loss

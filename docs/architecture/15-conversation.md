@@ -120,13 +120,13 @@ agent X 输出里 @Y  = X 的 assistant 消息 { sender: X, addressedTo: [Y] }
 | | conversation ledger | thread.messages |
 |---|---|---|
 | **定位** | 会话事件**唯一事实源** | 每个 agent 的执行态**派生物化** |
-| **写入** | 真人消息、agent 输出、成员事件统一 append | 由 ledger **广播投影**写入（经 checkpointer） |
+| **写入** | 真人消息、agent 输出、成员事件统一 append | 由 ledger **广播投影**写入（经 `ThreadProjectionWrite.appendMessages`） |
 | **形状** | `{ seq, sender, addressedTo, kind, content, ts }` 统一 | M9 `Message[]`（role + content） |
 | **服务对象** | 会话级回放 / 审计 / SSE 汇总投影 | agent.run 从 checkpointer 恢复执行 |
 | **可重建性** | 不可重建（是源） | 可从 ledger 重新投影得到 |
 
 > **为什么物化进 thread.messages，而不是每次 run 现读 ledger 重算？**
-> M9 的 `agent.run()` 从 **checkpointer** 恢复 messages。把 ledger 消息物化进各 agent 的 thread.messages（经 checkpointer.save），让 **M9 恢复路径零改动**——agent 子进程仍只认 checkpointer，完全不知道上层有 ledger。这是"叠加而非侵入"原则的具体落点：协作语义停在 backend 层，**绝不下沉到 framework/harness/runner**。
+> M9 的 `agent.run()` / `agent.continue()` 从 **checkpointer** 恢复 messages。把 ledger 消息物化进各 agent 的 thread.messages（经 `ThreadProjectionWrite.appendMessages` 写入，run 启动时由 transport `preloadedMessages` hydrate 到 runner checkpointer），让 **M9 恢复路径零改动**——agent daemon 仍只认 checkpointer，完全不知道上层有 ledger。这是"叠加而非侵入"原则的具体落点：协作语义停在 backend 层，**绝不下沉到 framework/harness/runner**。
 
 ### 与 EventLog 的关系（两条不同维度的"日志"）
 
@@ -159,7 +159,7 @@ conversation 只挂 [H（真人）, X（一个 agent）]，真人始终 @X：
 - **Conversation 是 thread 汇总容器，绝不破坏退化形态** — "1 human + 1 agent" 会话 = 旧 thread。
 - **执行层（M9）零侵入** — EventLog 四铁律 / run-attempt / SSE 投影 / cancel / resume / heartbeat / checkpointer / event_log schema 一行不改。
 - **可见性广播 + 执行靠 @** — ② 对所有在场 agent 广播，③ 仅触发 addressedTo；不回应靠机制不靠 prompt。
-- **ledger 是会话事件唯一事实源** — thread.messages 是广播派生态（物化进 checkpointer）。
+- **ledger 是会话事件唯一事实源** — thread.messages 是广播派生态（backend `ThreadProjection` 存储投影，run 启动时 hydrate 到 runner checkpointer）。
 - **真人 / agent / 系统发言同构** — 同一条 ledger 记录走同一链路，无特例分支。
 - **同 conversation 单活跃 run + `maxConsecutiveAgentHops`** — 两道机械安全阀，保证可终止不爆炸。
 - **协作语义停在 backend 层** — 绝不下沉到 framework/harness/runner；agent 子进程只认 checkpointer，不认识 ledger/conversation。

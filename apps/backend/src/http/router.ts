@@ -1,5 +1,5 @@
 import type { agentRoutes } from "../features/agent/http.js";
-import type { checkpointRoutes } from "../features/checkpoint/http.js";
+import type { threadProjectionRoutes } from "../features/thread-projection/http.js";
 import type { conversationRoutes } from "../features/conversation/http.js";
 import type { runRoutes } from "../features/run/http.js";
 import { HttpError } from "../infra/errors.js";
@@ -9,7 +9,7 @@ import { json } from "./response.js";
 interface FeatureSet {
   agents: ReturnType<typeof agentRoutes>;
   runs: ReturnType<typeof runRoutes>;
-  checkpoints: ReturnType<typeof checkpointRoutes>;
+  threadProjections: ReturnType<typeof threadProjectionRoutes>;
   conversations?: ReturnType<typeof conversationRoutes>;
 }
 

@@ -1,17 +1,17 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import {
-  sqliteCheckpointReadAdapter,
-  sqliteCheckpointWriteAdapter,
-} from "../checkpoint/adapter-sqlite.js";
+  sqliteThreadProjectionReadAdapter,
+  sqliteThreadProjectionWriteAdapter,
+} from "../thread-projection/adapter-sqlite.js";
 import { sqliteConversationAdapter } from "./adapter-sqlite.js";
 import { createConversationService } from "./service.js";
 
 const dbPath = `/tmp/test-conv-svc-${Date.now()}.db`;
 const db = openDb(dbPath);
 const port = sqliteConversationAdapter(db);
-const checkpointRead = sqliteCheckpointReadAdapter(db);
-const checkpointWrite = sqliteCheckpointWriteAdapter(db);
+const threadProjectionRead = sqliteThreadProjectionReadAdapter(db);
+const threadProjectionWrite = sqliteThreadProjectionWriteAdapter(db);
 
 // Track fork calls for @ trigger verification
 const forkLog: Array<{ runId: string; threadId: string }> = [];
@@ -20,8 +20,8 @@ const activeConversations = new Set<string>();
 
 const svc = createConversationService({
   port,
-  checkpointRead,
-  checkpointWrite,
+  threadProjectionRead,
+  threadProjectionWrite,
   activeConversations,
   maxConsecutiveAgentHops: 3,
   forkRun: async (runId, threadId, _ctx) => {
@@ -106,13 +106,13 @@ describe("broadcastMessage", () => {
     });
 
     // X should see the message as user with [Alice] prefix
-    const xMsgs = await checkpointRead.getMessages(`${id}:mem-x1-${id}`);
+    const xMsgs = await threadProjectionRead.getMessages(`${id}:mem-x1-${id}`);
     expect(xMsgs).toHaveLength(1);
     expect((xMsgs?.[0] as { role: string; content: string }).role).toBe("user");
     expect((xMsgs?.[0] as { role: string; content: string }).content).toContain("[Alice]");
 
     // Y should also see the message (broadcast visibility)
-    const yMsgs = await checkpointRead.getMessages(`${id}:mem-y1-${id}`);
+    const yMsgs = await threadProjectionRead.getMessages(`${id}:mem-y1-${id}`);
     expect(yMsgs).toHaveLength(1);
     expect((yMsgs?.[0] as { role: string; content: string }).content).toContain("[Alice]");
   });
@@ -132,13 +132,13 @@ describe("broadcastMessage", () => {
     });
 
     // X sees its own message as assistant (no prefix)
-    const xMsgs = await checkpointRead.getMessages(`${id}:mem-x1-${id}`);
+    const xMsgs = await threadProjectionRead.getMessages(`${id}:mem-x1-${id}`);
     const xLast = xMsgs?.[xMsgs?.length - 1] as { role: string; content: string };
     expect(xLast.role).toBe("assistant");
     expect(xLast.content).toBe("I handled it");
 
     // Y sees X's message as user with [XAgent] prefix
-    const yMsgs = await checkpointRead.getMessages(`${id}:mem-y1-${id}`);
+    const yMsgs = await threadProjectionRead.getMessages(`${id}:mem-y1-${id}`);
     const yLast = yMsgs?.[yMsgs?.length - 1] as { role: string; content: string };
     expect(yLast.role).toBe("user");
     expect(yLast.content).toContain("[XAgent]");
@@ -164,7 +164,7 @@ describe("postMessage", () => {
     expect(result.seq).toBeGreaterThan(0);
 
     // Broadcast: X sees the message
-    const xMsgs = await checkpointRead.getMessages(`${id}:mem-x1-${id}`);
+    const xMsgs = await threadProjectionRead.getMessages(`${id}:mem-x1-${id}`);
     expect(xMsgs?.length).toBeGreaterThan(0);
 
     // @ trigger: X's fork was called
@@ -275,7 +275,7 @@ describe("hop count", () => {
     expect(forkLog).toHaveLength(0);
 
     // System message about hop cap was broadcast
-    const xMsgs = await checkpointRead.getMessages(`${id}:mem-x1-${id}`);
+    const xMsgs = await threadProjectionRead.getMessages(`${id}:mem-x1-${id}`);
     const last = xMsgs?.[xMsgs?.length - 1] as { role: string; content: string };
     expect(last.content).toContain("暂停");
   });
@@ -300,7 +300,7 @@ describe("member join/leave", () => {
     expect(members.some((m) => m.memberId === `mem-z1-${id}`)).toBe(true);
 
     // System message broadcast to other agents
-    const xMsgs = await checkpointRead.getMessages(`${id}:mem-x1-${id}`);
+    const xMsgs = await threadProjectionRead.getMessages(`${id}:mem-x1-${id}`);
     const last = xMsgs?.[xMsgs?.length - 1] as { role: string; content: string };
     expect(last.content).toContain("系统");
     expect(last.content).toContain("加入");
@@ -315,7 +315,7 @@ describe("member join/leave", () => {
     expect(members.some((m) => m.memberId === `mem-x1-${id}`)).toBe(false);
 
     // System message broadcast
-    const yMsgs = await checkpointRead.getMessages(`${id}:mem-y1-${id}`);
+    const yMsgs = await threadProjectionRead.getMessages(`${id}:mem-y1-${id}`);
     const last = yMsgs?.[yMsgs?.length - 1] as { role: string; content: string };
     expect(last.content).toContain("离开");
   });

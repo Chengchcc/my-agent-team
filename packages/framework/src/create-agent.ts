@@ -50,6 +50,11 @@ export interface AgentRunOptions {
 export interface Agent {
   readonly thread: Thread;
   run(input: string, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
+  /** Continue from existing checkpoint messages without appending a new user
+   *  message. Use when the conversation context has already been written to the
+   *  checkpointer (e.g. conversation-triggered runs where broadcastMessage()
+   *  pre-projected the user's message). Fails if no user message exists. */
+  continue(opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
   resume(command: ResumeCommand, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
   fork(messages?: Message[], id?: string): Agent;
 }
@@ -433,6 +438,34 @@ function createAgentInternal(
         thread.messages.push({ role: "user", content: input });
         await save(thread.messages);
         await checkpointer.appendEvent?.(thread.id, { type: "user_input", content: input, ts: Date.now() });
+
+        const seeded = await pluginRunner.fireBeforeRun(thread.messages);
+        if (seeded !== thread.messages) {
+          thread.messages.length = 0;
+          thread.messages.push(...seeded);
+          await save(thread.messages);
+        }
+        for (const ev of pendingEvents.splice(0)) yield ev;
+        yield* runLoop(rt, runLoopOpts(opts));
+      } finally {
+        running = false;
+        ctx.signal = undefined;
+      }
+    },
+
+    async *continue(opts: AgentRunOptions = {}) {
+      if (running) throw new Error("Agent is already running. Use fork() for concurrent conversations.");
+      if (!thread.messages.some((m) => m.role === "user")) {
+        throw new Error("Cannot continue without a user message in checkpoint. Use run() for fresh input.");
+      }
+      running = true;
+      ctx.signal = opts.signal;
+      try {
+        opts.signal?.throwIfAborted();
+        if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
+          thread.messages.unshift({ role: "system", content: systemPrompt });
+          await save(thread.messages);
+        }
 
         const seeded = await pluginRunner.fireBeforeRun(thread.messages);
         if (seeded !== thread.messages) {

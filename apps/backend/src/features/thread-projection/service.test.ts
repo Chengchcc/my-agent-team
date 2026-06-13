@@ -1,13 +1,13 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { unlinkSync } from "node:fs";
 import { openDb } from "../../infra/sqlite/db.js";
-import { sqliteCheckpointReadAdapter } from "./adapter-sqlite.js";
-import { createCheckpointService } from "./service.js";
+import { sqliteThreadProjectionReadAdapter } from "./adapter-sqlite.js";
+import { createThreadProjectionService } from "./service.js";
 
-const dbPath = `/tmp/test-checkpoint-svc-${Date.now()}.db`;
+const dbPath = `/tmp/test-thread-projection-svc-${Date.now()}.db`;
 const db = openDb(dbPath);
-const adapter = sqliteCheckpointReadAdapter(db);
-const svc = createCheckpointService({ port: adapter });
+const adapter = sqliteThreadProjectionReadAdapter(db);
+const svc = createThreadProjectionService({ port: adapter });
 
 afterAll(() => {
   db.close();
@@ -18,7 +18,7 @@ afterAll(() => {
   }
 });
 
-describe("CheckpointService with SQLite", () => {
+describe("ThreadProjectionService with SQLite", () => {
   test("getMessages returns persisted messages from real checkpointer", async () => {
     // Insert via raw SQL (simulating what harness checkpointer would do)
     const msgs = [{ role: "user" as const, content: "hello world" }];

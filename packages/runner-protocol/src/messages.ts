@@ -1,7 +1,12 @@
+import type { Message } from "@my-agent-team/core";
 import type { AgentEvent } from "@my-agent-team/framework";
 
 export type HostToRunner =
-  | { type: "start"; runId: string; spec: Record<string, unknown>; reflect?: boolean }
+  | { type: "start"; runId: string; spec: Record<string, unknown>; reflect?: boolean;
+      /** Messages already projected into the backend checkpointer by broadcastMessage().
+       *  The daemon seeds its own checkpointer with these before creating the agent,
+       *  so conversation context is visible to checkpointer.load(). */
+      preloadedMessages?: readonly Message[] }
   | { type: "abort"; runId: string }
   | { type: "run_finalized"; runId: string };
 
