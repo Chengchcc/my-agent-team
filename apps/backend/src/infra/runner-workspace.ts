@@ -188,7 +188,6 @@ export async function purgeRunnerWorkspace(opts: {
   agentId: string;
 }): Promise<void> {
   const safeId = safeRunnerAgentId(opts.agentId);
-  if (!safeId) throw new Error(`invalid agentId: "${opts.agentId}"`);
 
   const runnersRoot = path.resolve(opts.dataDir, "runners");
   const runnerRoot = path.resolve(runnersRoot, safeId);
