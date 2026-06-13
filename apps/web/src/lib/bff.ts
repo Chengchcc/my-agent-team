@@ -51,6 +51,17 @@ export function passthroughHeaders(headers: Headers): Headers {
   return out;
 }
 
+function isAbortLike(err: unknown): boolean {
+  const name = err instanceof Error ? err.name : "";
+  const message = err instanceof Error ? err.message : String(err);
+  return name === "AbortError" || name === "ResponseAborted" || /aborted/i.test(message);
+}
+
+function isSsePath(pathSegments: string[]): boolean {
+  const last = pathSegments.at(-1);
+  return last === "stream" || last === "events";
+}
+
 export async function proxyRequest(
   req: Request,
   pathSegments: string[],
@@ -67,19 +78,29 @@ export async function proxyRequest(
   upstreamHeaders.set("x-user-id", userId);
   upstreamHeaders.delete("host");
 
-  const upstream = await fetch(upstreamUrl, {
-    method: req.method,
-    headers: upstreamHeaders,
-    body: hasBody(req.method) ? await req.arrayBuffer() : undefined,
-    signal: req.signal,
-  });
+  try {
+    const upstream = await fetch(upstreamUrl, {
+      method: req.method,
+      headers: upstreamHeaders,
+      body: hasBody(req.method) ? await req.arrayBuffer() : undefined,
+      signal: req.signal,
+    });
 
-  const responseHeaders = passthroughHeaders(upstream.headers);
-  responseHeaders.set("Cache-Control", "no-transform");
-  responseHeaders.set("X-Accel-Buffering", "no");
+    const responseHeaders = passthroughHeaders(upstream.headers);
+    responseHeaders.set("Cache-Control", "no-transform");
+    responseHeaders.set("X-Accel-Buffering", "no");
 
-  return new Response(upstream.body, {
-    status: upstream.status,
-    headers: responseHeaders,
-  });
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: responseHeaders,
+    });
+  } catch (err) {
+    // SSE streams naturally close via AbortController — not a real error.
+    // Only suppress abort-like errors for SSE paths; let other API calls
+    // still throw so they don't mask real issues.
+    if (isSsePath(pathSegments) && isAbortLike(err)) {
+      return new Response(null, { status: 204 });
+    }
+    throw err;
+  }
 }

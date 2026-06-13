@@ -66,21 +66,12 @@ export class DevRunnerRegistry implements RunnerRegistry {
   }
 
   async #spawn(agentId: string): Promise<DevRunner> {
-    const dir = join(this.opts.dataDir, "runners", agentId);
-    const socket = join(dir, "runner.sock");
-    const sharedRoot = join(dir, "shared");
-    const privateRoot = join(dir, "private");
-    const stateRoot = join(dir, "state");
-    const pidFile = join(dir, "runner.pid");
+    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import("../../infra/runner-workspace.js");
+    const paths = runnerWorkspacePaths(this.opts.dataDir, agentId);
+    const { sharedRoot, privateRoot, stateRoot, socketPath: socket, pidFile } = paths;
 
-    await mkdir(dir, { recursive: true });
-    // Ensure the three sub-roots exist before daemon startup. AgentFS
-    // LocalBackend.#checkParent walks up to find the first existing parent;
-    // if shared/ doesn't exist yet, it hits the runner root dir and falsely
-    // treats it as a path escape. Creating them here keeps the check narrow.
-    await mkdir(sharedRoot, { recursive: true });
-    await mkdir(privateRoot, { recursive: true });
-    await mkdir(stateRoot, { recursive: true });
+    await mkdir(paths.runnerRoot, { recursive: true });
+    await ensureRunnerWorkspace(paths);
 
     // Clean up stale runner from previous run
     try {
@@ -114,7 +105,7 @@ export class DevRunnerRegistry implements RunnerRegistry {
 
     const transport = this.opts.transportFactory(socket);
     await transport.ready();
-    return { agentId, child, transport, socket, dir };
+    return { agentId, child, transport, socket, dir: paths.runnerRoot };
   }
 
   async dispose(): Promise<void> {

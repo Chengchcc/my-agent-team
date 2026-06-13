@@ -4,6 +4,7 @@ import { createSocketClient } from "@my-agent-team/runner-protocol";
 import { loadConfig } from "./config.js";
 import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
 import { AgentBusyError, agentRoutes, createAgentService } from "./features/agent/index.js";
+import { createAgentIdentityStore } from "./features/agent/identity-store.js";
 import {
   sqliteThreadProjectionReadAdapter,
   sqliteThreadProjectionWriteAdapter,
@@ -67,13 +68,20 @@ const agentSvc = createAgentService({
   port: agentPort,
   idGen: ulid,
   workspaceRoot: config.workspaceRoot,
-  materializeWorkspace: (agentId, template) =>
-    materializeWorkspace({
-      workspaceRoot: config.workspaceRoot,
-      agentId,
-      template,
-      templateDir: config.templateDir,
-    }),
+  materializeWorkspace: async (agentId, template) => {
+      // Legacy workspace (kept for backward compat)
+      const legacyPath = await materializeWorkspace({
+        workspaceRoot: config.workspaceRoot,
+        agentId,
+        template,
+        templateDir: config.templateDir,
+      });
+      // Seed runner sharedRoot so identity API and runtime share one source
+      const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import('./infra/runner-workspace.js');
+      const paths = runnerWorkspacePaths(config.dataDir, agentId);
+      await ensureRunnerWorkspace(paths);
+      return legacyPath;
+    },
 
   // M11 hardDelete dependencies — all closures from composition root
   purgeWorkspace: (agentId) => purgeWorkspace({ workspaceRoot: config.workspaceRoot, agentId }),
@@ -338,8 +346,13 @@ const getThreadIdForRun = async (runId: string) => {
   return row.thread_id;
 };
 
+const identityStore = createAgentIdentityStore({
+  dataDir: config.dataDir,
+  getAgent: (id) => agentSvc.getById(id),
+});
+
 const router = createRouter(config.authToken, {
-  agents: agentRoutes(agentSvc),
+  agents: agentRoutes(agentSvc, identityStore),
   // threads: removed — conversation is the user-facing concept
   runs: runRoutes(runSvc, buildAgentSpecV2, getThreadIdForRun),
   threadProjections: threadProjectionRoutes(threadProjectionSvc),

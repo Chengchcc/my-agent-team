@@ -1,7 +1,6 @@
-import { readdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { z } from "zod";
 import { json, parseJsonBody } from "../../http/response.js";
+import type { AgentIdentityStore } from "./identity-store.js";
 import type { AgentService } from "./service.js";
 import { AgentBusyError, AgentNotFoundError } from "./service.js";
 
@@ -23,10 +22,7 @@ const updateSchema = z.object({
   maxSteps: z.number().int().positive().optional(),
 });
 
-export function agentRoutes(svc: AgentService) {
-  // Read workspaceRoot from env (set at startup) for path traversal guard
-  const workspaceRoot = process.env.BACKEND_WORKSPACE_ROOT;
-
+export function agentRoutes(svc: AgentService, identityStore?: AgentIdentityStore) {
   return {
     async create(req: Request): Promise<Response> {
       const body = await parseJsonBody(req);
@@ -82,86 +78,32 @@ export function agentRoutes(svc: AgentService) {
       }
     },
 
-    /** D11: GET /api/agents/:id/identity — read SOUL.md, USER.md, memory/*.md */
+    /** D11: GET /api/agents/:id/identity — read SOUL.md, USER.md, memory/*.md
+     *  from runner sharedRoot (single source of truth after M14.7).
+     *  Falls back to empty if identityStore is not configured. */
     async identity(_req: Request, agentId: string): Promise<Response> {
+      if (!identityStore) return json({ soul: null, user: null, memories: [] });
       try {
-        const agent = await svc.getById(agentId);
-        const wsPath = path.resolve(agent.workspacePath);
-
-        // Path traversal guard
-        if (workspaceRoot) {
-          const resolvedRoot = path.resolve(workspaceRoot);
-          if (!wsPath.startsWith(resolvedRoot + path.sep) && wsPath !== resolvedRoot) {
-            return json({ error: "Invalid workspace path" }, 500);
-          }
-        }
-
-        let soul: string | null = null;
-        let user: string | null = null;
-        const memories: Array<{ date: string; content: string }> = [];
-
-        try {
-          soul = await readFile(path.join(wsPath, "SOUL.md"), "utf-8");
-        } catch {
-          // File doesn't exist — leave null
-        }
-
-        try {
-          user = await readFile(path.join(wsPath, "USER.md"), "utf-8");
-        } catch {
-          // File doesn't exist — leave null
-        }
-
-        try {
-          const memDir = path.join(wsPath, "memory");
-          const entries = await readdir(memDir);
-          for (const entry of entries) {
-            if (!entry.endsWith(".md")) continue;
-            // Prevent path traversal
-            if (entry.includes("..") || entry.includes("/") || entry.includes("\\")) continue;
-            try {
-              const content = await readFile(path.join(memDir, entry), "utf-8");
-              const dateMatch = entry.match(/^(\d{4}-\d{2}-\d{2})/);
-              memories.push({
-                date: dateMatch?.[1] ?? "unknown",
-                content,
-              });
-            } catch {
-              // Skip unreadable files
-            }
-          }
-        } catch {
-          // Memory directory doesn't exist — leave []
-        }
-
-        return json({ soul, user, memories });
+        const data = await identityStore.getIdentity(agentId);
+        return json(data);
       } catch (err) {
         if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
         throw err;
       }
     },
 
-    /** PUT /api/agents/:id/identity — write SOUL.md and/or USER.md */
+    /** PUT /api/agents/:id/identity — write SOUL.md and/or USER.md to runner sharedRoot. */
     async updateIdentity(req: Request, agentId: string): Promise<Response> {
+      if (!identityStore) return json({ error: "Identity store not available" }, 501);
       try {
-        const agent = await svc.getById(agentId);
-        const wsPath = path.resolve(agent.workspacePath);
-        if (workspaceRoot) {
-          const resolvedRoot = path.resolve(workspaceRoot);
-          if (!wsPath.startsWith(resolvedRoot + path.sep) && wsPath !== resolvedRoot) {
-            return json({ error: "Invalid workspace path" }, 500);
-          }
-        }
         const body = (await req.json().catch(() => ({}))) as {
           soul?: string;
           user?: string;
         };
-        if (typeof body.soul === "string") {
-          await writeFile(path.join(wsPath, "SOUL.md"), body.soul, "utf-8");
-        }
-        if (typeof body.user === "string") {
-          await writeFile(path.join(wsPath, "USER.md"), body.user, "utf-8");
-        }
+        await identityStore.updateIdentity(agentId, {
+          soul: typeof body.soul === "string" ? body.soul : undefined,
+          user: typeof body.user === "string" ? body.user : undefined,
+        });
         return json({ ok: true });
       } catch (err) {
         if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
