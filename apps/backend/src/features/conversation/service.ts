@@ -256,7 +256,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
       userRef?: string;
       displayName?: string;
     }): Promise<void> {
-      port.addMember({
+      const { created } = port.addMember({
         memberId: input.memberId,
         conversationId: input.conversationId,
         kind: input.kind,
@@ -265,6 +265,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
         displayName: input.displayName,
         joinedAt: Date.now(),
       });
+
+      if (!created) return; // Already a member — don't re-broadcast member.joined
 
       // Broadcast system message
       const members = port.getMembers(input.conversationId);

@@ -137,10 +137,10 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
 
     // ─── Member ────────────────────────────────────
 
-    addMember(input: CreateMemberInput): MemberRow {
-      // INSERT OR IGNORE: if the same agent is already a member, silently no-op
-      // (invariant: agent memberId equals agentId, so duplicates are naturally prevented)
-      db.run(
+    addMember(input: CreateMemberInput): { member: MemberRow; created: boolean } {
+      // INSERT OR IGNORE: if the same (conversation_id, member_id) already exists,
+      // silently no-op. Detect via result.changes to support idempotent addMember.
+      const result = db.run(
         "INSERT OR IGNORE INTO member (member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         [
           input.memberId,
@@ -153,13 +153,16 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         ],
       );
       return {
-        memberId: input.memberId,
-        conversationId: input.conversationId,
-        kind: input.kind,
-        agentId: input.agentId ?? null,
-        userRef: input.userRef ?? null,
-        displayName: input.displayName ?? null,
-        joinedAt: input.joinedAt,
+        member: {
+          memberId: input.memberId,
+          conversationId: input.conversationId,
+          kind: input.kind,
+          agentId: input.agentId ?? null,
+          userRef: input.userRef ?? null,
+          displayName: input.displayName ?? null,
+          joinedAt: input.joinedAt,
+        },
+        created: result.changes > 0,
       };
     },
 
@@ -228,7 +231,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         conversation_id: string;
         sender_member_id: string;
         addressed_to: string;
-        kind: "message" | "member.joined" | "member.left";
+        kind: "message" | "member.joined" | "member.left" | "todo";
         content: string;
         ts: number;
       }[];

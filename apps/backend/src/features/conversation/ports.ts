@@ -71,7 +71,7 @@ export interface ConversationPort {
   listConversationsByAgent(agentId: string): ConversationWithMembers[];
   deleteConversation(conversationId: string): boolean;
 
-  addMember(input: CreateMemberInput): MemberRow;
+  addMember(input: CreateMemberInput): { member: MemberRow; created: boolean };
   getMembers(conversationId: string): MemberRow[];
   getAgentMembers(conversationId: string): MemberRow[];
   removeMember(conversationId: string, memberId: string): boolean;

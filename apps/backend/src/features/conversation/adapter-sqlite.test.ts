@@ -56,7 +56,7 @@ describe("Conversation CRUD", () => {
 
 describe("Member CRUD", () => {
   test("addMember inserts agent member", () => {
-    const mem = adapter.addMember({
+    const { member: mem } = adapter.addMember({
       memberId: "mem-x1",
       conversationId: "conv-1",
       kind: "agent",
@@ -69,7 +69,7 @@ describe("Member CRUD", () => {
   });
 
   test("addMember inserts human member", () => {
-    const mem = adapter.addMember({
+    const { member: mem } = adapter.addMember({
       memberId: "mem-h1",
       conversationId: "conv-1",
       kind: "human",
