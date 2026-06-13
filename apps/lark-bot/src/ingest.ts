@@ -17,6 +17,7 @@ export interface IngestContext {
   selfAgentName: string;
   botDisplayName: string | null;
   backendUrl: string;
+  backendAuthToken: string | null;
   /** Called when a new conversation is bound — allows dynamic SSE subscription */
   onNewBinding?: (conversationId: string) => void;
 }
@@ -36,7 +37,9 @@ export async function ingest(
   event: LarkMessageEvent,
   ctx: IngestContext,
 ): Promise<IngestResult> {
-  const { db, selfAgentId, selfAgentName, botDisplayName, backendUrl, onNewBinding } = ctx;
+  const { db, selfAgentId, selfAgentName, botDisplayName, backendUrl, backendAuthToken, onNewBinding } = ctx;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (backendAuthToken) headers["x-auth-token"] = backendAuthToken;
 
   // ─── Step 0: Idempotent reserve (local sqlite transaction) ───
   // Reserve before POST: if POST succeeds but confirm fails, the event won't re-POST.
@@ -77,7 +80,7 @@ export async function ingest(
   if (reserveResult.needCreateConv) {
     const convResp = await fetch(`${backendUrl}/api/conversations`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         members: [
           {
@@ -108,7 +111,7 @@ export async function ingest(
       // Add the human member via API (idempotent per §7.3)
       await fetch(`${backendUrl}/api/conversations/${conversationId}/members`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           kind: "human",
           memberId,
@@ -142,7 +145,7 @@ export async function ingest(
   try {
     const msgResp = await fetch(`${backendUrl}/api/conversations/${conversationId}/messages`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         senderMemberId: memberId,
         addressedTo,

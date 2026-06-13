@@ -24,6 +24,7 @@ const larkUpdateSchema = z.object({
   appId: z.string().min(1).optional(),
   appSecret: z.string().min(1).optional(),
   botDisplayName: z.string().optional(),
+  profileRef: z.string().optional(),
 }).optional();
 
 const createSchema = z.object({

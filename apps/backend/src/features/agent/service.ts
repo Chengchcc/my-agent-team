@@ -50,6 +50,16 @@ export function createAgentService(opts: {
     },
 
     async update(id: string, input: UpdateAgentInput): Promise<AgentRow> {
+      // Auto-generate larkProfileRef when enabling lark on an agent without one
+      if (input.lark?.enabled) {
+        const existing = await port.findById(id);
+        if (existing && !existing.larkProfileRef) {
+          const updateWithProfile = { ...input, lark: { ...input.lark, profileRef: `agent:${id}` } };
+          const row = await port.update(id, { ...updateWithProfile, now: Date.now() });
+          if (!row) throw new AgentNotFoundError(id);
+          return row;
+        }
+      }
       const row = await port.update(id, { ...input, now: Date.now() });
       if (!row) throw new AgentNotFoundError(id);
       return row;

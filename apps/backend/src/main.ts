@@ -404,7 +404,7 @@ console.log(`[backend] listening on ${config.host}:${config.port}`);
   const allAgents = await agentSvc.list(true);
   for (const agent of allAgents) {
     if (agent.larkEnabled && agent.larkProfileRef) {
-      larkBotRegistry.ensureLarkBot(agent.id, agent.larkBotDisplayName).catch((err) => {
+      larkBotRegistry.ensureLarkBot(agent.id, agent.larkBotDisplayName, agent.larkProfileRef).catch((err) => {
         console.error(`[lark] failed to start bot for ${agent.id}:`, err);
       });
     }

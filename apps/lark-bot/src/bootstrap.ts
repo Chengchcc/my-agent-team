@@ -9,15 +9,21 @@ export interface BootstrapState {
   botDisplayName: string | null;
 }
 
+function authHeaders(token: string | null): Record<string, string> {
+  if (!token) return {};
+  return { "x-auth-token": token };
+}
+
 /**
  * Startup: fetch agent info, open sqlite, scan existing chat bindings for SSE watcher recovery.
  * If agent is archived/not found, exit cleanly (registry won't restart).
  */
 export async function bootstrap(args: LarkBotArgs): Promise<BootstrapState> {
+  const headers = authHeaders(args.backendAuthToken);
   // Fetch agent info
   let selfAgentName: string;
   try {
-    const resp = await fetch(`${args.backendUrl}/api/agents/${args.agentId}`);
+    const resp = await fetch(`${args.backendUrl}/api/agents/${args.agentId}`, { headers });
     if (resp.status === 404) {
       console.error(`[lark-bot] agent ${args.agentId} not found or archived — graceful exit`);
       process.exit(0);

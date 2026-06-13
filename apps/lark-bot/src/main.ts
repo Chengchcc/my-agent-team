@@ -13,7 +13,7 @@ import type { WatcherHandle } from "./sse-watcher.js";
 const args = parseArgs(process.argv.slice(2));
 const state = await bootstrap(args);
 
-const profile = `agent:${safeAgentId(args.agentId)}`;
+const profile = args.larkProfile ?? `agent:${safeAgentId(args.agentId)}`;
 
 // ─── SSE watchers — one per bound conversation ───
 const watchers = new Map<string, WatcherHandle>();
@@ -23,8 +23,9 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
   const handle = watchConversation(conversationId, larkChatId, afterSeq, {
     db: state.db,
     backendUrl: args.backendUrl,
+    backendAuthToken: args.backendAuthToken,
     onSend: async (chatId, text, idempotencyKey) => {
-      const result = await sendMessage(args.agentId, chatId, text, idempotencyKey);
+      const result = await sendMessage(profile, chatId, text, idempotencyKey);
       if (!result.ok) {
         console.error(`[lark-bot] send failed for ${chatId}: ${result.error}`);
       }
@@ -73,6 +74,7 @@ rl.on("line", async (line: string) => {
     selfAgentName: state.selfAgentName,
     botDisplayName: state.botDisplayName,
     backendUrl: args.backendUrl,
+    backendAuthToken: args.backendAuthToken,
     onNewBinding: (convId) => {
       // Start SSE watcher for the newly bound conversation
       const binding = getChatBinding(state.db, event.chat_id);

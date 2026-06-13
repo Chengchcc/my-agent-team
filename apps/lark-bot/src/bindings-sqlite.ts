@@ -128,9 +128,14 @@ export function putMemberBinding(
 }
 
 export function getMemberBindingsForChat(db: Database, larkChatId: string): MemberBinding[] {
-  return db
+  const rows = db
     .query("SELECT lark_chat_id, lark_open_id, member_id FROM member_binding WHERE lark_chat_id = ?")
-    .all(larkChatId) as MemberBinding[];
+    .all(larkChatId) as { lark_chat_id: string; lark_open_id: string; member_id: string }[];
+  return rows.map((row) => ({
+    larkChatId: row.lark_chat_id,
+    larkOpenId: row.lark_open_id,
+    memberId: row.member_id,
+  }));
 }
 
 // ─── inbound_message (reserve → confirm flow, see spec §4.3) ───

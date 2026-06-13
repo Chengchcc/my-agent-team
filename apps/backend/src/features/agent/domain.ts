@@ -40,5 +40,6 @@ export interface UpdateAgentInput {
     appId?: string;
     appSecret?: string;
     botDisplayName?: string;
+    profileRef?: string;
   };
 }

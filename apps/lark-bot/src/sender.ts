@@ -7,13 +7,11 @@ import { safeAgentId } from "./safe-agent-id.js";
  * Returns a promise that resolves when the send completes.
  */
 export function sendMessage(
-  agentId: string,
+  profile: string,
   larkChatId: string,
   text: string,
   idempotencyKey: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const profile = `agent:${safeAgentId(agentId)}`;
-
   return new Promise((resolve) => {
     const child = spawn("lark-cli", [
       "--profile",

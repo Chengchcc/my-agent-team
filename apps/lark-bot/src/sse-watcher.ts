@@ -15,6 +15,7 @@ export interface LedgerEntry {
 export interface SseWatcherDeps {
   db: Database;
   backendUrl: string;
+  backendAuthToken: string | null;
   /** Called when a message should be sent to Lark */
   onSend: (chatId: string, text: string, idempotencyKey: string) => Promise<void>;
 }
@@ -35,16 +36,16 @@ export function watchConversation(
   afterSeq: number,
   deps: SseWatcherDeps,
 ): WatcherHandle {
-  const { db, backendUrl, onSend } = deps;
+  const { db, backendUrl, backendAuthToken, onSend } = deps;
+  const reqHeaders: Record<string, string> = { Accept: "text/event-stream" };
+  if (backendAuthToken) reqHeaders["x-auth-token"] = backendAuthToken;
   let aborted = false;
 
   const run = async () => {
     const url = `${backendUrl}/api/conversations/${conversationId}/events?afterSeq=${afterSeq}`;
 
     try {
-      const resp = await fetch(url, {
-        headers: { Accept: "text/event-stream" },
-      });
+      const resp = await fetch(url, { headers: reqHeaders });
 
       if (!resp.ok || !resp.body) {
         console.error(`[sse-watcher] failed to connect: ${resp.status}`);

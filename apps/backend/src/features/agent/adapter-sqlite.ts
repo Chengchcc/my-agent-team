@@ -132,6 +132,10 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
         sets.push("lark_bot_display_name = ?");
         vals.push(input.lark.botDisplayName);
       }
+      if (input.lark?.profileRef !== undefined) {
+        sets.push("lark_profile_ref = ?");
+        vals.push(input.lark.profileRef);
+      }
       vals.push(id);
       const result = db.run(
         `UPDATE agents SET ${sets.join(", ")} WHERE id = ? AND archived_at IS NULL`,
