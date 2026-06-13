@@ -65,6 +65,11 @@ export class RunnerDaemon {
   constructor(opts: RunnerDaemonOptions) {
     this.#transport = opts.transport;
     this.#agentId = opts.agentId;
+    // Defensive: ensure roots exist before AgentFS uses them. DevRunnerRegistry
+    // already creates them, but prod / manual daemon launches may not.
+    mkdirSync(opts.sharedRoot, { recursive: true });
+    mkdirSync(opts.privateRoot, { recursive: true });
+    mkdirSync(opts.stateRoot, { recursive: true });
     this.#workspace = makeAgentFsHandle({
       sharedRoot: opts.sharedRoot,
       privateRoot: opts.privateRoot,

@@ -74,6 +74,13 @@ export class DevRunnerRegistry implements RunnerRegistry {
     const pidFile = join(dir, "runner.pid");
 
     await mkdir(dir, { recursive: true });
+    // Ensure the three sub-roots exist before daemon startup. AgentFS
+    // LocalBackend.#checkParent walks up to find the first existing parent;
+    // if shared/ doesn't exist yet, it hits the runner root dir and falsely
+    // treats it as a path escape. Creating them here keeps the check narrow.
+    await mkdir(sharedRoot, { recursive: true });
+    await mkdir(privateRoot, { recursive: true });
+    await mkdir(stateRoot, { recursive: true });
 
     // Clean up stale runner from previous run
     try {
