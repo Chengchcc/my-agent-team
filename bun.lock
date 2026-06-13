@@ -45,6 +45,10 @@
         "@my-agent-team/tools-common": "workspace:*",
       },
     },
+    "apps/lark-bot": {
+      "name": "@my-agent-team/lark-bot",
+      "version": "0.1.0",
+    },
     "apps/web": {
       "name": "@my-agent-team/web",
       "version": "0.1.0",
@@ -439,6 +443,8 @@
     "@my-agent-team/framework": ["@my-agent-team/framework@workspace:packages/framework"],
 
     "@my-agent-team/harness": ["@my-agent-team/harness@workspace:packages/harness"],
+
+    "@my-agent-team/lark-bot": ["@my-agent-team/lark-bot@workspace:apps/lark-bot"],
 
     "@my-agent-team/plugin-fs-memory": ["@my-agent-team/plugin-fs-memory@workspace:packages/plugin-fs-memory"],
 
