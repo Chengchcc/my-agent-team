@@ -75,6 +75,7 @@ function ensureSchema(db: Database) {
       card_update_failed  INTEGER NOT NULL DEFAULT 0,
       final_ledger_seq    INTEGER,
       last_error          TEXT,
+      complete_from_ledger INTEGER NOT NULL DEFAULT 0,
       created_at          INTEGER NOT NULL,
       updated_at          INTEGER NOT NULL
     );
@@ -228,6 +229,11 @@ export interface RunStreamRecord {
   cardUpdateFailed: number;
   finalLedgerSeq: number | null;
   lastError: string | null;
+  /** Set when the card content was confirmed against the ledger final message.
+   *  Until this flag is set, the SSE watcher will NOT skip the final text —
+   *  even if status=done and all card ops succeeded. This prevents skipping
+   *  when the ephemeral /api/runs/:id/stream dropped early deltas. */
+  completeFromLedger: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -237,7 +243,8 @@ export function canSkipFinalLedgerText(run: RunStreamRecord): boolean {
     run.status === "done" &&
     !!run.larkMessageId &&
     run.cardSendFailed === 0 &&
-    run.cardUpdateFailed === 0
+    run.cardUpdateFailed === 0 &&
+    run.completeFromLedger === 1
   );
 }
 
@@ -246,13 +253,14 @@ export function insertRunStream(db: Database, rec: RunStreamRecord): void {
     `INSERT INTO run_stream (run_id, lark_chat_id, conversation_id, lark_message_id,
       source_message_id, typing_reaction_id, typing_status, status, accumulated,
       card_send_failed, card_update_failed, final_ledger_seq, last_error,
-      created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      complete_from_ledger, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       rec.runId, rec.larkChatId, rec.conversationId, rec.larkMessageId,
       rec.sourceMessageId, rec.typingReactionId, rec.typingStatus, rec.status,
       rec.accumulated, rec.cardSendFailed, rec.cardUpdateFailed,
-      rec.finalLedgerSeq, rec.lastError, rec.createdAt, rec.updatedAt,
+      rec.finalLedgerSeq, rec.lastError, rec.completeFromLedger,
+      rec.createdAt, rec.updatedAt,
     ],
   );
 }
@@ -302,6 +310,7 @@ export function updateRunStream(
   if (partial.cardUpdateFailed !== undefined) { fields.push("card_update_failed = ?"); values.push(partial.cardUpdateFailed); }
   if (partial.finalLedgerSeq !== undefined) { fields.push("final_ledger_seq = ?"); values.push(partial.finalLedgerSeq); }
   if (partial.lastError !== undefined) { fields.push("last_error = ?"); values.push(partial.lastError); }
+  if (partial.completeFromLedger !== undefined) { fields.push("complete_from_ledger = ?"); values.push(partial.completeFromLedger); }
   if (fields.length === 0) return;
   fields.push("updated_at = ?");
   values.push(Date.now());
@@ -340,6 +349,7 @@ interface RunStreamDbRow {
   card_update_failed: number;
   final_ledger_seq: number | null;
   last_error: string | null;
+  complete_from_ledger: number;
   created_at: number;
   updated_at: number;
 }
@@ -359,6 +369,7 @@ function toRunStreamRecord(row: RunStreamDbRow): RunStreamRecord {
     cardUpdateFailed: row.card_update_failed,
     finalLedgerSeq: row.final_ledger_seq,
     lastError: row.last_error,
+    completeFromLedger: row.complete_from_ledger,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

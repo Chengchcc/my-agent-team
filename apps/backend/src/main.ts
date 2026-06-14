@@ -65,6 +65,8 @@ const registry: RunnerRegistry =
         dataDir: config.dataDir,
         daemonBin: `${import.meta.dir}/../../../packages/runner-daemon/src/bin.ts`,
         transportFactory: (socket) => createSocketClient({ socketPath: socket }),
+        backendUrl: `http://${config.host}:${config.port}`,
+        backendAuthToken: config.authToken,
       });
 
 // M9: EventLog + Supervisor
@@ -393,7 +395,7 @@ async function onRunComplete(threadId: string, runId: string): Promise<void> {
             senderMemberId,
             addressedTo: [...mentionedMemberIds],
             kind: "message",
-            content: JSON.stringify(content),
+            content: JSON.stringify(contentWithRunId),
             ts: Date.now(),
           });
         }

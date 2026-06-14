@@ -80,6 +80,7 @@ export function removeTypingReaction(
   if (!state.reactionId) return Promise.resolve();
 
   return new Promise((resolve) => {
+    let stderr = "";
     const child = spawn(
       "lark-cli",
       [
@@ -93,6 +94,8 @@ export function removeTypingReaction(
       ],
       { stdio: ["ignore", "pipe", "pipe"] },
     );
+
+    child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
 
     child.on("error", (err) => { console.error(`[lark-bot] removeTypingReaction error: ${err.message}`); resolve(); });
     child.on("exit", (code) => {

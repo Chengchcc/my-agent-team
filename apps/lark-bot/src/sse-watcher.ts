@@ -251,6 +251,14 @@ async function processEntry(
         updatePushedSeq(db, larkChatId, entry.seq);
         return;
       }
+      // Mark that we've seen the final ledger message for this run.
+      // This enables future card-skip checks after an ephemeral-stream card
+      // is confirmed against the ledger final.
+      if (runStream && runStream.status === "done" && !runStream.completeFromLedger) {
+        import("./bindings-sqlite.js").then((m) =>
+          m.updateRunStream(db, runId, { completeFromLedger: 1, finalLedgerSeq: entry.seq }),
+        );
+      }
     }
   }
 

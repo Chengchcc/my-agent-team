@@ -58,15 +58,7 @@ export class CliSetupProvisioner implements LarkProfileProvisioner {
     child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
     child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
 
-    // Parse setup URL asynchronously — stdout data arrives in subsequent event-loop ticks.
-    // Resolves when the URL appears, or defaults to "" if the process exits without one.
-    const urlPromise = new Promise<string>((resolve) => {
-      child.on("exit", () => {
-        const match = stdout.match(SETUP_URL_PATTERN);
-        resolve(match?.[0] ?? "");
-      });
-    });
-
+    // URL is parsed from stdout in the exit handler (after all data has arrived)
     let url = ""; // resolved when stdout data arrives
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -99,6 +91,7 @@ export class CliSetupProvisioner implements LarkProfileProvisioner {
       setupId: `setup_${crypto.randomUUID()}`,
       profileRef,
       url, // resolved after waitForCompletion settles — caller reads via get(setupId)
+      waitForCompletion,
       async cancel() {
         clearTimeout(timer);
         // SIGTERM only — never SIGKILL (respects CLI cleanup)

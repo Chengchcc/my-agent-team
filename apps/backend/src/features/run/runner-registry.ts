@@ -49,6 +49,9 @@ export class DevRunnerRegistry implements RunnerRegistry {
       dataDir: string;
       daemonBin: string;
       transportFactory: (socket: string) => RunnerTransport;
+      /** M15.1: injected into runner daemon env for surface tool callbacks */
+      backendUrl?: string;
+      backendAuthToken?: string | null;
     },
   ) {}
 
@@ -106,7 +109,14 @@ export class DevRunnerRegistry implements RunnerRegistry {
         "--state-root",
         stateRoot,
       ],
-      { stdio: "inherit", env: process.env },
+      {
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          ...(this.opts.backendUrl ? { BACKEND_URL: this.opts.backendUrl } : {}),
+          ...(this.opts.backendAuthToken ? { BACKEND_AUTH_TOKEN: this.opts.backendAuthToken } : {}),
+        },
+      },
     );
 
     await writeFile(pidFile, String(child.pid));

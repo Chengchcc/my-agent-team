@@ -144,10 +144,18 @@ export function watchRunDelta(
         cardUpdateFailed: 0,
         finalLedgerSeq: null,
         lastError: null,
+        completeFromLedger: 0,
         createdAt: now,
         updatedAt: now,
       });
     }
+
+    // Clean up Typing reaction on any terminal path (done/error/fallback)
+    const cleanupReaction = async () => {
+      if (reactionState && reactionState.status === "active") {
+        await removeTypingReaction(profile, reactionState);
+      }
+    };
 
     // ── Send placeholder card ──
     if (!larkMessageId) {
@@ -166,7 +174,7 @@ export function watchRunDelta(
       if (!result.ok) {
         cardSendFailed = 1;
         updateRunStream(db, runId, { status: "fallback_text", cardSendFailed: 1, lastError: result.error });
-        // Fallback: ledger SSE will deliver final text
+        await cleanupReaction();
         return;
       }
 
@@ -186,6 +194,7 @@ export function watchRunDelta(
       if (!resp.ok || !resp.body) {
         // Stream not available — fall back to ledger text
         updateRunStream(db, runId, { status: "fallback_text", lastError: `stream unavailable: ${resp.status}` });
+        await cleanupReaction();
         return;
       }
 
@@ -293,17 +302,14 @@ export function watchRunDelta(
           cardUpdateFailed = 1;
         });
         updateRunStream(db, runId, { status: finalStatus, cardUpdateFailed, accumulated, lastError: errorMsg ?? null });
-
-        // Clean up Typing reaction
-        if (reactionState && reactionState.status === "active") {
-          await removeTypingReaction(profile, reactionState);
-        }
+        await cleanupReaction();
       }
     } catch (err) {
       updateRunStream(db, runId, {
         status: "fallback_text",
         lastError: err instanceof Error ? err.message : String(err),
       });
+      await cleanupReaction();
     } finally {
       if (reader) {
         try { await reader.cancel(); } catch { /* cleanup */ }
