@@ -1,5 +1,8 @@
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Database } from "bun:sqlite";
 import { getAllChatBindings, openBindings } from "./bindings-sqlite.js";
+import { safeAgentId } from "./safe-agent-id.js";
 import type { LarkBotArgs } from "./args.js";
 
 export interface BootstrapState {
@@ -7,6 +10,7 @@ export interface BootstrapState {
   selfAgentName: string;
   restoredConversationIds: string[];
   botDisplayName: string | null;
+  pidFile: string;
 }
 
 function authHeaders(token: string | null): Record<string, string> {
@@ -14,11 +18,46 @@ function authHeaders(token: string | null): Record<string, string> {
   return { "x-auth-token": token };
 }
 
+/** Acquire a PID file lock. Returns the lock path on success, exits on conflict. */
+function acquirePidLock(stateRoot: string, agentId: string): string {
+  const dir = join(stateRoot, "lark-bot", safeAgentId(agentId));
+  const pidFile = join(dir, "pid");
+  const ourPid = String(process.pid);
+
+  try {
+    const existing = readFileSync(pidFile, "utf-8").trim();
+    const oldPid = parseInt(existing, 10);
+    if (oldPid && Number.isFinite(oldPid)) {
+      try {
+        process.kill(oldPid, 0); // signal 0 = existence check
+        console.error(
+          `[lark-bot] another instance is already running (pid=${oldPid}) — exiting`,
+        );
+        process.exit(0);
+      } catch {
+        // Stale PID — overwrite
+      }
+    }
+  } catch {
+    // No existing PID file — first run
+  }
+
+  writeFileSync(pidFile, ourPid);
+  return pidFile;
+}
+
+function releasePidLock(pidFile: string): void {
+  try { unlinkSync(pidFile); } catch { /* best-effort */ }
+}
+
 /**
- * Startup: fetch agent info, open sqlite, scan existing chat bindings for SSE watcher recovery.
+ * Startup: acquire PID lock, fetch agent info, open sqlite, scan existing chat bindings for SSE watcher recovery.
  * If agent is archived/not found, exit cleanly (registry won't restart).
  */
 export async function bootstrap(args: LarkBotArgs): Promise<BootstrapState> {
+  // Acquire PID lock before anything else — prevents duplicate instances
+  const pidFile = acquirePidLock(args.stateRoot, args.agentId);
+
   const headers = authHeaders(args.backendAuthToken);
   // Fetch agent info
   let selfAgentName: string;
@@ -66,5 +105,6 @@ export async function bootstrap(args: LarkBotArgs): Promise<BootstrapState> {
     selfAgentName,
     restoredConversationIds,
     botDisplayName: args.botDisplayName,
+    pidFile,
   };
 }

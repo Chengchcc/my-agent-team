@@ -164,15 +164,19 @@ child.on("exit", (code, signal) => {
 });
 
 // Forward SIGTERM gracefully
-process.on("SIGTERM", () => {
-  console.log("[lark-bot] SIGTERM — forwarding to lark-cli, closing watchers");
+const cleanup = () => {
+  // Release PID lock so a new instance can start
+  try { require("node:fs").unlinkSync(state.pidFile); } catch { /* best-effort */ }
   for (const [, w] of watchers) w.close();
   for (const [, w] of runWatchers) w.close();
+};
+process.on("SIGTERM", () => {
+  console.log("[lark-bot] SIGTERM — forwarding to lark-cli, closing watchers");
+  cleanup();
   child.kill("SIGTERM");
 });
 process.on("SIGINT", () => {
-  for (const [, w] of watchers) w.close();
-  for (const [, w] of runWatchers) w.close();
+  cleanup();
   child.kill("SIGTERM");
   process.exit(0);
 });
