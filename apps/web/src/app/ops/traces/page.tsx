@@ -14,7 +14,7 @@ export default function TracesPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm">← Dashboard</Link>
+        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm">← Observability</Link>
         <h1 className="text-2xl font-bold">Trace Explorer</h1>
       </div>
       <div className="rounded-lg border p-4">

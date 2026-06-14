@@ -27,7 +27,7 @@ export default function RunDetailPage() {
     return (
       <div className="container mx-auto p-6">
         <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm">
-          ← Dashboard
+          ← Observability
         </Link>
         <p className="text-muted-foreground mt-4">Loading...</p>
       </div>
@@ -41,7 +41,7 @@ export default function RunDetailPage() {
           href="/ops"
           className="text-muted-foreground hover:text-foreground text-sm"
         >
-          ← Dashboard
+          ← Observability
         </Link>
         <h1 className="text-xl font-bold font-mono">{runId}</h1>
         <span
