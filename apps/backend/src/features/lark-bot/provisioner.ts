@@ -11,8 +11,8 @@ export type LarkProfileProvisionerKind = "cli_setup" | "mira_managed" | "legacy_
 export interface LarkProfileSetupResult {
   setupId: string;
   profileRef: string;
-  url: string;
-  waitForCompletion: Promise<void>;
+  url: string; // set after waitForCompletion resolves
+  waitForCompletion: Promise<string>; // resolves with the setup URL
   cancel(): Promise<void>;
 }
 
@@ -58,23 +58,32 @@ export class CliSetupProvisioner implements LarkProfileProvisioner {
     child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
     child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
 
-    // Parse setup URL from stdout (URL pattern in QR code text output)
-    const urlMatch = stdout.match(SETUP_URL_PATTERN);
-    const url = urlMatch?.[0] ?? "";
+    // Parse setup URL asynchronously — stdout data arrives in subsequent event-loop ticks.
+    // Resolves when the URL appears, or defaults to "" if the process exits without one.
+    const urlPromise = new Promise<string>((resolve) => {
+      child.on("exit", () => {
+        const match = stdout.match(SETUP_URL_PATTERN);
+        resolve(match?.[0] ?? "");
+      });
+    });
 
+    let url = ""; // resolved when stdout data arrives
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGTERM");
     }, timeoutMs);
 
-    const waitForCompletion = new Promise<void>((resolve, reject) => {
+    const waitForCompletion = new Promise<string>((resolve, reject) => {
       child.on("exit", (code) => {
         clearTimeout(timer);
+        // Parse URL now that all stdout data has arrived
+        const match = stdout.match(SETUP_URL_PATTERN);
+        url = match?.[0] ?? "";
         if (timedOut) {
           reject(new Error("setup timed out"));
         } else if (code === 0) {
-          resolve();
+          resolve(url);
         } else {
           reject(new Error(`lark-cli config init exited ${code}: ${stderr.slice(0, 200)}`));
         }
@@ -89,8 +98,7 @@ export class CliSetupProvisioner implements LarkProfileProvisioner {
     return {
       setupId: `setup_${crypto.randomUUID()}`,
       profileRef,
-      url,
-      waitForCompletion,
+      url, // resolved after waitForCompletion settles — caller reads via get(setupId)
       async cancel() {
         clearTimeout(timer);
         // SIGTERM only — never SIGKILL (respects CLI cleanup)

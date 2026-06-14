@@ -65,6 +65,7 @@ const elementIds = {
   divider1: "divider_1",
   runStatus: "run_status",
   debugRunId: "dbg_rid",
+  errMsg: "err_msg",
 };
 
 export function renderLarkRunCard(
@@ -107,6 +108,7 @@ export function renderLarkRunCard(
   if (model.error) {
     bodyElements.push({
       tag: "plain_text",
+      element_id: elementIds.errMsg,
       content: model.error,
     });
   }

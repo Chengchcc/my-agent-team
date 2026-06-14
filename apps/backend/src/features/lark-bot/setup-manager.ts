@@ -74,11 +74,11 @@ export class LarkSetupManager {
     void this.#provisioner
       .start({ agentId, profileRef, brand, timeoutMs: DEFAULT_TIMEOUT_MS })
       .then((result) => {
-        session.url = result.url;
         session.updatedAt = Date.now();
 
         void result.waitForCompletion
-          .then(() => {
+          .then((url) => {
+            session.url = url; // resolved after all stdout data has arrived
             this.complete(setupId);
           })
           .catch((err: Error) => {

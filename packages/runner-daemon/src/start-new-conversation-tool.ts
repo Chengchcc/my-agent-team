@@ -29,7 +29,8 @@ export function createStartNewConversationTool(input: {
       },
       required: ["reason"],
     },
-    async execute(args) {
+    async execute(args: unknown) {
+      const a = args as { reason: string; title?: string };
       const url = `${input.backendUrl}/api/conversations/${input.conversationId}/start-new`;
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (input.backendAuthToken) {
@@ -40,8 +41,8 @@ export function createStartNewConversationTool(input: {
         method: "POST",
         headers,
         body: JSON.stringify({
-          reason: args.reason as string,
-          title: args.title as string | undefined,
+          reason: a.reason,
+          title: a.title,
           requestedByRunId: input.runId,
           idempotencyKey: `${input.runId}:start_new_conversation`,
         }),

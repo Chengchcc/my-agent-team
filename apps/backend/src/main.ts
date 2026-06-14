@@ -374,7 +374,9 @@ async function onRunComplete(threadId: string, runId: string): Promise<void> {
                 ? { text: content, runId }
                 : Array.isArray(content)
                   ? { blocks: content, runId }
-                  : content
+                  : typeof content === "object" && content !== null
+                    ? { ...(content as Record<string, unknown>), runId }
+                    : content
               : content;
 
           const seq = convPort.appendLedgerEntry({

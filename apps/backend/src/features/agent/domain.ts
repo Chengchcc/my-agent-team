@@ -40,6 +40,6 @@ export interface UpdateAgentInput {
     appId?: string;
     appSecret?: string;
     botDisplayName?: string;
-    profileRef?: string;
+    /** profileRef is server-generated — never accepted from clients (§4.5). */
   };
 }

@@ -38,11 +38,26 @@ export function normalizeForLarkMarkdown(input: string): NormalizedMarkdown {
   // 5. Convert image markdown to plain links (M15.1 skips image upload)
   markdown = markdown.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, "[$1]($2)");
 
-  // 6. HTML entity escape for card markdown parser safety
+  // 6. HTML entity escape for card markdown parser safety.
+  // Protect URLs inside markdown links [text](url) from escaping.
+  // First replace URLs with placeholders, escape the text, then restore.
+  const urlPlaceholders: string[] = [];
+  const URL_IN_LINK_RE = /\[([^\]]*)\]\(([^)]+)\)/g;
+  markdown = markdown.replace(URL_IN_LINK_RE, (_full, text, url: string) => {
+    const idx = urlPlaceholders.length;
+    urlPlaceholders.push(url);
+    return `[${text}](__URL_PLACEHOLDER_${idx}__)`;
+  });
+
   markdown = markdown
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+
+  // Restore original URLs
+  markdown = markdown.replace(/__URL_PLACEHOLDER_(\d+)__/g, (_full, idx: string) => {
+    return urlPlaceholders[parseInt(idx, 10)] ?? "";
+  });
 
   // 4. Truncate total length
   let truncated = false;

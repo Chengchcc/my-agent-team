@@ -94,7 +94,10 @@ export function removeTypingReaction(
       { stdio: ["ignore", "pipe", "pipe"] },
     );
 
-    child.on("error", () => resolve());
-    child.on("exit", () => resolve());
+    child.on("error", (err) => { console.error(`[lark-bot] removeTypingReaction error: ${err.message}`); resolve(); });
+    child.on("exit", (code) => {
+      if (code !== 0) console.error(`[lark-bot] removeTypingReaction failed: code=${code} stderr=${stderr.trim().slice(0, 200)}`);
+      resolve();
+    });
   });
 }

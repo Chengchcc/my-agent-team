@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { AgentSpecV2 } from "@my-agent-team/agent-spec";
 import type { Agent, AgentEvent, Checkpointer } from "@my-agent-team/framework";
+import type { Tool } from "@my-agent-team/core";
 import { sqliteCheckpointer } from "@my-agent-team/framework";
 import type { HostToRunner, RunnerTransport } from "@my-agent-team/runner-protocol";
 import type { AgentFsHandle } from "@my-agent-team/agent-fs";
@@ -144,7 +145,7 @@ export class RunnerDaemon {
     const model = this.#modelFactory.create(spec.model);
 
     // M15.1: Inject start_new_conversation tool for Lark surface main runs
-    const extraTools: Array<{ name: string }> = [];
+    const extraTools: Tool[] = [];
     const sc = msg.surfaceContext;
     if (
       sc?.surface === "lark" &&
