@@ -7,9 +7,9 @@ import { notFound } from "next/navigation";
 export default async function AgentRuntimePage({
   params,
 }: {
-  params: Promise<{ agentId: string }>;
+  params: Promise<{ id: string }>;
 }) {
-  const { agentId } = await params;
+  const { id: agentId } = await params;
   const [runtime, runs] = await Promise.all([
     fetchAgentRuntime(agentId),
     fetchOpsRuns({ agentId, limit: 20 }).catch(() => []),
