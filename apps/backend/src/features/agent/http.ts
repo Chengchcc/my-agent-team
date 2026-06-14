@@ -8,8 +8,8 @@ import { AgentBusyError, AgentNotFoundError } from "./service.js";
 const larkCreateSchema = z
   .object({
     enabled: z.boolean(),
-    appId: z.string().min(1),
-    appSecret: z.string().min(1),
+    appId: z.string().min(1).optional(),
+    appSecret: z.string().min(1).optional(),
     botDisplayName: z.string().optional(),
   })
   .optional()

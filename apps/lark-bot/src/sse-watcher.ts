@@ -55,6 +55,8 @@ export function watchConversation(
     if (aborted) return;
     const url = `${backendUrl}/api/conversations/${conversationId}/events?afterSeq=${afterSeq}`;
 
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
     try {
       const resp = await fetch(url, { headers: reqHeaders });
 
@@ -64,7 +66,7 @@ export function watchConversation(
         return;
       }
 
-      const reader = resp.body.getReader();
+      reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       // Persist across chunks — SSE messages may span multiple reader.read() calls
@@ -116,6 +118,11 @@ export function watchConversation(
     } catch (err) {
       console.error(`[sse-watcher] connection error for ${conversationId}:`, err);
       scheduleReconnect(5000);
+    } finally {
+      if (reader) {
+        try { await reader.cancel(); } catch { /* cleanup best-effort */ }
+        try { reader.releaseLock(); } catch { /* cleanup best-effort */ }
+      }
     }
   };
 

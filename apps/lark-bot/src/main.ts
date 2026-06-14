@@ -53,8 +53,7 @@ const child = spawn(
 
 let ready = false;
 
-const rl = createInterface({ input: child.stdout! });
-rl.on("line", async (line: string) => {
+async function handleLine(line: string): Promise<void> {
   const trimmed = line.trim();
   if (!trimmed) return;
 
@@ -90,6 +89,15 @@ rl.on("line", async (line: string) => {
       `[lark-bot] ingested: ${event.chat_type} seq=${result.ledgerSeq} triggered=${result.triggered}`,
     );
   }
+}
+
+const rl = createInterface({ input: child.stdout! });
+rl.on("line", (line: string) => {
+  void handleLine(line).catch((err) => {
+    console.error(
+      `[lark-bot] event handling failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  });
 });
 
 // stderr ready marker

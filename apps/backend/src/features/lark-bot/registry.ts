@@ -219,7 +219,8 @@ export class ProdLarkBotRegistry implements LarkBotRegistry {
     /* external orchestration */
   }
   statusOf(_agentId: string): LarkBotStatus {
-    return "running";
+    // Prod doesn't know runtime status — caller should query external supervisor
+    return "configured";
   }
   async dispose(): Promise<void> {
     /* no-op */

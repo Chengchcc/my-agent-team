@@ -207,13 +207,26 @@ agent 跑完后一次性发卡片——不走流式，但可以利用卡片的 m
 
 ## 七、风险与限制
 
-> **来源**：部分为官方文档确认，部分为 TODO verify（待实测验证）
+### 7.1 已实测（lark-cli v1.0.53 + fixture-test profile）
 
-1. **卡片 JSON 大小上限**：TODO verify — 未在官方文档找到明确限制。推送 body 通常限制 ~100KB。超大回复需要截断或分页。
-2. **更新频率**：TODO verify — 推测约 100 次/分钟/应用（基于通用 API 限流策略）。流式推送需控制频率（建议 ≤30 次/分钟）。参考：[飞书 API 限流说明](https://open.feishu.cn/document/server-docs/api-call-guide/rate-limit)。
-3. **客户端兼容**：✅ 来源确认 — 卡片 JSON 2.0 需要飞书客户端 ≥7.20。参考：[卡片 JSON 2.0 更新说明](https://open.larkoffice.com/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/card-json-v2-breaking-changes-release-notes)。
-4. **共享卡片约束**：✅ 来源确认 — `update_multi` 必须为 `true`。参考：[卡片全局行为设置](https://open.larkoffice.com/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/card-json-v2-structure)。
-5. **PATCH 是全量替换**：✅ 来源确认 — 需要传完整卡片 JSON。参考：[更新应用发送的消息](https://open.feishu.cn/document/server-docs/im-v1/message/patch)。
+1. **发送卡片**：`lark-cli im +messages-send --msg-type interactive --content '<card JSON>' --as bot` — ✅ 可用，P2P 和群聊均测试通过。
+2. **幂等发送**：`--idempotency-key` 返回相同 message_id — ✅ 确认有效。
+3. **接收卡片事件**：`event consume im.message.receive_v1` 收到 `message_type=interactive` 时 content 为 JSON string — ✅ fixture 已有。
+
+### 7.2 官方文档确认（可作为实现依据）
+
+1. **客户端兼容**：卡片 JSON 2.0 需要飞书客户端 ≥7.20。[来源](https://open.larkoffice.com/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/card-json-v2-breaking-changes-release-notes)
+2. **共享卡片约束**：`update_multi` 必须为 `true`。[来源](https://open.larkoffice.com/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/card-json-v2-structure)
+3. **PATCH 全量替换**：需要传完整卡片 JSON。[来源](https://open.feishu.cn/document/server-docs/im-v1/message/patch)
+4. **流式配置参数**：`streaming_mode/streaming_config/print_step/print_frequency_ms`。[来源](https://open.larkoffice.com/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/streaming-updates-openapi-overview)
+
+### 7.3 待验证，不得作为实现假设（M16 前需 spike）
+
+1. **PATCH 更新卡片的 lark-cli 命令形态**：`lark-cli api PATCH /open-apis/im/v1/messages/{id}` — 未实测，需发真实卡片后调用更新验证。
+2. **body size 上限**：未在官方文档找到明确数字，需通过 API 返回错误码 or 压测确认。
+3. **更新频率/限流**：推测约 100 次/分钟/应用，需通过压测或[官方限流文档](https://open.feishu.cn/document/server-docs/api-call-guide/rate-limit)确认实际值。
+4. **update_multi 群聊可见性**：需验证群聊场景下所有成员是否实时看到卡片更新。
+5. **streaming_config 实际渲染效果**：需在真实设备验证 `print_step`/`print_frequency_ms` 参数的效果差异。
 
 ## 八、建议推进路径
 

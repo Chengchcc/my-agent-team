@@ -301,6 +301,42 @@ export class RunSupervisor {
     return this.#beginAttempt(req);
   }
 
+  /** Register a reflect run that was already started by the daemon.
+   *  Unlike #beginAttempt(), this MUST NOT send HostToRunner.start —
+   *  the daemon already created and is driving the reflect run locally. */
+  async #registerDaemonStartedReflectRun(
+    runId: string,
+    threadId: string,
+    parentRunId: string,
+    spec: Record<string, unknown>,
+    sourceTransport: RunnerTransport,
+  ): Promise<{ runId: string; attemptId: string }> {
+    const agentId = (spec.agentId as string) ?? "default";
+    const now = Date.now();
+    this.#db.run(
+      "INSERT INTO run (run_id, thread_id, agent_id, status, started_at, kind, parent_run_id) VALUES (?, ?, ?, 'running', ?, 'reflect', ?)",
+      [runId, threadId, agentId, now, parentRunId],
+    );
+
+    const attemptId = crypto.randomUUID();
+    this.#db.run(
+      "INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)",
+      [attemptId, runId, now, now],
+    );
+
+    this.#bindTransport(sourceTransport);
+    this.#registerSession({
+      runId,
+      attemptId,
+      threadId,
+      agentId,
+      kind: "reflect",
+      transport: sourceTransport,
+    });
+
+    return { runId, attemptId };
+  }
+
   /** Internal: create run row (main only; reflect uses beginReflectRun), then delegate to #beginAttempt. */
   async #beginAndSend(req: RunRequest): Promise<{ runId: string; attemptId: string }> {
     const now = Date.now();
@@ -384,19 +420,16 @@ export class RunSupervisor {
     const transport = session?.transport ?? sourceTransport;
     switch (msg.type) {
       case "run_started": {
-        // Await DB row creation before processing subsequent events.
-        // This prevents events arriving before the run row exists (race with #drive).
-        await this.beginReflectRun(
+        // Daemon-initiated reflect: register DB row + session WITHOUT sending
+        // HostToRunner.start (daemon is already driving the reflect run locally).
+        // Let errors propagate to transport queue — don't silently continue.
+        await this.#registerDaemonStartedReflectRun(
           runId,
           msg.threadId as string,
           (msg.parentRunId as string) ?? "",
           (msg.spec as Record<string, unknown>) ?? {},
-        ).catch((err: unknown) => {
-          console.error(
-            `[supervisor] beginReflectRun failed for ${runId}:`,
-            (err as Error).message,
-          );
-        });
+          sourceTransport,
+        );
         break;
       }
       case "event": {
@@ -412,6 +445,7 @@ export class RunSupervisor {
               err instanceof Error ? err.message : String(err)
             }`,
           );
+          throw err; // prevent run_done from succeeding with incomplete event log
         }
         break;
       }
