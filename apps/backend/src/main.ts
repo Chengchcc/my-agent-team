@@ -1,6 +1,11 @@
+import { Database } from "bun:sqlite";
 import type { Message } from "@my-agent-team/core";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import { createSocketClient } from "@my-agent-team/runner-protocol";
+import {
+  createRuntimeTracer,
+  resolveObservabilityConfig,
+} from "@my-agent-team/runtime-observability";
 import { loadConfig } from "./config.js";
 import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
 import { AgentBusyError, agentRoutes, createAgentService } from "./features/agent/index.js";
@@ -23,6 +28,8 @@ import type { RunnerRegistry } from "./features/run/runner-registry.js";
 import { DevRunnerRegistry } from "./features/run/runner-registry.js";
 import { ProdRunnerRegistry } from "./features/run/runner-registry.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
+import { RuntimeOpsStore, createRuntimeOpsService, opsRoutes } from "./features/runtime-ops/index.js";
+import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
 import {
   CliSetupProvisioner,
   DevLarkBotRegistry,
@@ -70,11 +77,24 @@ const registry: RunnerRegistry =
       });
 
 // M9: EventLog + Supervisor
+// M16: Shared events DB — runEventsDbMigrations creates all tables (run, attempt, run_ops_event, etc.)
+const eventsDb = new Database(`${config.dataDir}/events.db`);
+eventsDb.exec("PRAGMA journal_mode=WAL");
+eventsDb.exec("PRAGMA busy_timeout=5000");
+runEventsDbMigrations(eventsDb);
+
 const eventLog = sqliteEventLog({ db: `${config.dataDir}/events.db` });
+const obsConfig = resolveObservabilityConfig({ serviceName: "backend" });
+const tracer = createRuntimeTracer(obsConfig);
+const opsStore = new RuntimeOpsStore(eventsDb);
+
 const supervisor = new RunSupervisor({
   eventLog,
   config,
   registry,
+  opsStore,
+  tracer,
+  db: eventsDb,
 });
 
 // M15: Lark-bot registry (spawns per-agent lark-bot processes)
@@ -462,6 +482,15 @@ function getSetupManager(): LarkSetupManager {
   return setupManager;
 }
 
+// M16: Runtime ops service — exposes run diagnostics, health, and control
+const opsSvc = createRuntimeOpsService({
+  db: eventsDb,
+  opsStore,
+  supervisor,
+  registry,
+  heartbeatTimeoutMs: config.heartbeatTimeoutMs,
+});
+
 const router = createRouter(config.authToken, {
   agents: agentRoutes(
     agentSvc,
@@ -473,6 +502,7 @@ const router = createRouter(config.authToken, {
   runs: runRoutes(runSvc, buildAgentSpecV2, getThreadIdForRun),
   threadProjections: threadProjectionRoutes(threadProjectionSvc),
   conversations: conversationRoutes(convSvc, ulid),
+  ops: opsRoutes(opsSvc),
 });
 
 // Server

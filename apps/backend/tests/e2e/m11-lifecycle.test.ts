@@ -118,6 +118,17 @@ describe("M11 Liveness e2e", () => {
 
     // Import RunSupervisor — it creates its own DB at config.dataDir/events.db
     const { RunSupervisor } = await import("../../src/features/run/supervisor.js");
+    const { RuntimeOpsStore } = await import("../../src/features/runtime-ops/store.js");
+    const { createRuntimeTracer, resolveObservabilityConfig } = await import("@my-agent-team/runtime-observability");
+
+    const tracer = createRuntimeTracer(resolveObservabilityConfig({ serviceName: "backend", mode: "off" }));
+    // Supervisor creates an events.db internally; we create an in-memory opsStore
+    // that the test doesn't directly exercise (ops events are tested in store.test.ts)
+    const testDb = new (await import("bun:sqlite")).Database(":memory:");
+    const { runEventsDbMigrations: runMig } = await import("../../src/features/run/events-db-migrations.js");
+    testDb.exec("PRAGMA journal_mode=WAL");
+    runMig(testDb);
+    const opsStore = new RuntimeOpsStore(testDb);
 
     const sup = new RunSupervisor({
       eventLog,
@@ -136,7 +147,10 @@ describe("M11 Liveness e2e", () => {
       registry: {
         transportFor: async () => ({ send() {}, onMessage() {}, onClose() {}, close() {} }),
       } as never,
+      opsStore,
+      tracer,
     });
+
 
     // Insert a run with old heartbeat into the supervisor's DB
     const db = sup.getDb();

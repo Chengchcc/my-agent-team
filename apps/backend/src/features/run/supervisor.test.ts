@@ -1,9 +1,13 @@
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
+import { Database } from "bun:sqlite";
 import type { EventLog } from "@my-agent-team/event-log";
 import { inMemoryEventLog } from "@my-agent-team/event-log";
+import { createRuntimeTracer, resolveObservabilityConfig } from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";
 import { NOOP_TRANSPORT, RunSupervisor } from "./supervisor.js";
+import { RuntimeOpsStore } from "../runtime-ops/store.js";
+import { runEventsDbMigrations } from "./events-db-migrations.js";
 
 const TEST_DATA_DIR = `/tmp/test-reaper-${Date.now()}`;
 
@@ -35,6 +39,17 @@ function makeEventLog(): EventLog {
   return inMemoryEventLog();
 }
 
+function makeTestOpsStore(): RuntimeOpsStore {
+  const db = new Database(":memory:");
+  db.exec("PRAGMA journal_mode=WAL");
+  runEventsDbMigrations(db);
+  return new RuntimeOpsStore(db);
+}
+
+const testTracer = createRuntimeTracer(
+  resolveObservabilityConfig({ serviceName: "backend", mode: "off" }),
+);
+
 describe("RunSupervisor reaper (M11)", () => {
   afterEach(() => {
     // Cleanup handled by test isolation
@@ -49,6 +64,8 @@ describe("RunSupervisor reaper (M11)", () => {
       registry: {
         transportFor: async () => NOOP_TRANSPORT,
       } as never,
+      opsStore: makeTestOpsStore(),
+      tracer: testTracer,
     });
     // Reaper timer should be set
     expect(sup).toBeDefined();
@@ -64,6 +81,8 @@ describe("RunSupervisor reaper (M11)", () => {
       registry: {
         transportFor: async () => NOOP_TRANSPORT,
       } as never,
+      opsStore: makeTestOpsStore(),
+      tracer: testTracer,
     });
 
     const db = sup.getDb();
@@ -107,6 +126,8 @@ describe("RunSupervisor reaper (M11)", () => {
       registry: {
         transportFor: async () => NOOP_TRANSPORT,
       } as never,
+      opsStore: makeTestOpsStore(),
+      tracer: testTracer,
     });
 
     const db = sup.getDb();
@@ -140,6 +161,8 @@ describe("RunSupervisor reaper (M11)", () => {
       registry: {
         transportFor: async () => NOOP_TRANSPORT,
       } as never,
+      opsStore: makeTestOpsStore(),
+      tracer: testTracer,
     });
 
     const completed: Array<{ threadId: string; runId: string }> = [];
@@ -179,6 +202,8 @@ describe("RunSupervisor reaper (M11)", () => {
       registry: {
         transportFor: async () => NOOP_TRANSPORT,
       } as never,
+      opsStore: makeTestOpsStore(),
+      tracer: testTracer,
     });
 
     const db = sup.getDb();
@@ -215,6 +240,8 @@ describe("RunSupervisor reaper (M11)", () => {
       registry: {
         transportFor: async () => NOOP_TRANSPORT,
       } as never,
+      opsStore: makeTestOpsStore(),
+      tracer: testTracer,
     });
 
     const db = sup.getDb();
@@ -253,6 +280,8 @@ describe("RunSupervisor reaper (M11)", () => {
       registry: {
         transportFor: async () => NOOP_TRANSPORT,
       } as never,
+      opsStore: makeTestOpsStore(),
+      tracer: testTracer,
     });
 
     const db = sup.getDb();
@@ -300,6 +329,8 @@ describe("RunSupervisor reaper (M11)", () => {
       registry: {
         transportFor: async () => NOOP_TRANSPORT,
       } as never,
+      opsStore: makeTestOpsStore(),
+      tracer: testTracer,
     });
 
     const db = sup.getDb();
@@ -339,6 +370,8 @@ describe("RunSupervisor reaper (M11)", () => {
           return NOOP_TRANSPORT;
         },
       } as never,
+      opsStore: makeTestOpsStore(),
+      tracer: testTracer,
     });
 
     const db = sup.getDb();

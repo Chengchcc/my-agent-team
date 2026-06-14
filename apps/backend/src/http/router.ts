@@ -6,11 +6,14 @@ import { HttpError } from "../infra/errors.js";
 import { withAuth } from "./middleware.js";
 import { json } from "./response.js";
 
+import type { opsRoutes } from "../features/runtime-ops/http.js";
+
 interface FeatureSet {
   agents: ReturnType<typeof agentRoutes>;
   runs: ReturnType<typeof runRoutes>;
   threadProjections: ReturnType<typeof threadProjectionRoutes>;
   conversations?: ReturnType<typeof conversationRoutes>;
+  ops?: ReturnType<typeof opsRoutes>;
 }
 
 export function createRouter(token: string, features?: FeatureSet) {
@@ -32,7 +35,7 @@ export function createRouter(token: string, features?: FeatureSet) {
     };
   }
 
-  const { agents, runs, conversations } = features;
+  const { agents, runs, conversations, ops } = features;
 
   const agentList = withAuth((req) => agents.list(req), token);
   const agentCreate = withAuth((req) => agents.create(req), token);
@@ -142,6 +145,29 @@ export function createRouter(token: string, features?: FeatureSet) {
         if (convStartNewMatch && method === "POST")
           return withAuth((r) => conversations.startNew(r, convStartNewMatch[1]!), token)(req);
         if (convStartNewMatch) return json({ error: "Method not allowed" }, 405);
+      }
+
+      // M16: Ops routes
+      if (ops) {
+        const opsRunsMatch = path === "/api/ops/runs";
+        const opsRunDetailMatch = path.match(/^\/api\/ops\/runs\/([^/]+)$/);
+        const opsRunCancelMatch = path.match(/^\/api\/ops\/runs\/([^/]+)\/cancel$/);
+        const opsRunRecoverMatch = path.match(/^\/api\/ops\/runs\/([^/]+)\/recover$/);
+        const opsAgentRuntimeMatch = path.match(/^\/api\/ops\/agents\/([^/]+)\/runtime$/);
+        const larkHeartbeatMatch = path === "/api/internal/surfaces/lark/heartbeat";
+
+        if (opsRunsMatch && method === "GET")
+          return withAuth((r) => ops.listRuns(r), token)(req);
+        if (opsRunDetailMatch && method === "GET")
+          return withAuth((r) => ops.getRunDetail(r, opsRunDetailMatch[1]!), token)(req);
+        if (opsRunCancelMatch && method === "POST")
+          return withAuth((r) => ops.cancelRun(r, opsRunCancelMatch[1]!), token)(req);
+        if (opsRunRecoverMatch && method === "POST")
+          return withAuth((r) => ops.recoverRun(r, opsRunRecoverMatch[1]!), token)(req);
+        if (opsAgentRuntimeMatch && method === "GET")
+          return withAuth((r) => ops.getAgentRuntime(r, opsAgentRuntimeMatch[1]!), token)(req);
+        if (larkHeartbeatMatch && method === "POST")
+          return withAuth((r) => ops.larkHeartbeat(r), token)(req);
       }
 
       return withAuth(async () => notFound(req), token)(req);

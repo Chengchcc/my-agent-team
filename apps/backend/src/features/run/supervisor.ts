@@ -2,15 +2,23 @@ import { Database } from "bun:sqlite";
 import type { EventLog, EventSource } from "@my-agent-team/event-log";
 import type { Message } from "@my-agent-team/core";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
+import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";
 import type { RunnerRegistry } from "./runner-registry.js";
 import { runEventsDbMigrations } from "./events-db-migrations.js";
+import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 
 export interface RunSupervisorOptions {
   eventLog: EventLog;
   config: BackendConfig;
   /** M14.7: Runner registry — the only way to reach runner daemons. */
   registry: RunnerRegistry;
+  /** M16: Runtime ops store for diagnostic events. */
+  opsStore: RuntimeOpsStore;
+  /** M16: Runtime tracer for span instrumentation. */
+  tracer: RuntimeTracer;
+  /** M16: Optional pre-opened events DB (shared with opsStore). */
+  db?: Database;
 }
 
 /** Data clump: parameters flowing through every run-start path. */
@@ -36,6 +44,8 @@ export interface RunRequestOptions {
     runId: string;
     capabilities: Array<"start_new_conversation">;
   };
+  /** M16: Trace context propagated to runner daemon via transport start. */
+  trace?: import("@my-agent-team/runtime-observability").RuntimeTraceContext;
 }
 
 export interface RunSession {
@@ -75,7 +85,7 @@ export class RunSupervisor {
 
   constructor(opts: RunSupervisorOptions) {
     this.#opts = opts;
-    this.#db = new Database(`${opts.config.dataDir}/events.db`);
+    this.#db = opts.db ?? new Database(`${opts.config.dataDir}/events.db`);
     this.#db.exec("PRAGMA journal_mode=WAL");
     this.#db.exec("PRAGMA busy_timeout=5000");
     // Fix A + FIX-6: Ensure run/attempt tables exist in events.db via unified migration ledger
@@ -123,6 +133,13 @@ export class RunSupervisor {
       if (age < this.#opts.config.heartbeatTimeoutMs) continue; // fresh
 
       // M14.7: daemon runs have no backend-visible pid — heartbeat timeout is the sole liveness signal.
+      // M16: Record ops event before marking interrupted
+      this.#opts.opsStore.appendRunEvent({
+        runId: row.run_id,
+        attemptId: row.attempt_id,
+        kind: "reaper_marked_interrupted",
+        payload: { age, heartbeatTimeoutMs: this.#opts.config.heartbeatTimeoutMs, reason: "heartbeat_timeout" },
+      });
       const now = Date.now();
       // FIX: transactional write — run + attempt status update is atomic
       this.#db.transaction(() => {
@@ -376,12 +393,21 @@ export class RunSupervisor {
       transport,
     });
 
+    // M16: record ops event
+    this.#opts.opsStore.appendRunEvent({
+      runId: req.runId,
+      attemptId,
+      kind: "attempt_started",
+      traceId: req.options?.trace?.traceId,
+    });
+
     transport.send({
       type: "start",
       runId: req.runId,
       spec: req.spec,
       preloadedMessages: req.options?.preloadedMessages,
       surfaceContext: req.options?.surfaceContext,
+      trace: req.options?.trace,
     });
     return { runId: req.runId, attemptId };
   }
@@ -472,6 +498,12 @@ export class RunSupervisor {
       }
       case "run_done": {
         const status = msg.status as string;
+        this.#opts.opsStore.appendRunEvent({
+          runId,
+          attemptId: session?.attemptId,
+          kind: "run_done_received",
+          payload: { status },
+        });
         const exitNow = Date.now();
         this.#db.run("UPDATE attempt SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL", [
           exitNow,
@@ -489,6 +521,23 @@ export class RunSupervisor {
         await Promise.all(this.#onRunComplete.map((fn) => fn(threadId, runId, status)));
         // Only send run_finalized after all listeners complete (D19, ledger, etc.)
         if (transport) transport.send({ type: "run_finalized", runId });
+        this.#opts.opsStore.appendRunEvent({
+          runId,
+          attemptId: session?.attemptId,
+          kind: "run_finalized_sent",
+        });
+        break;
+      }
+      case "daemon_health": {
+        const h = msg as { agentId: string; uptimeMs: number; activeRunIds: string[]; checkpointer: { kind: string; ok: boolean; lastError?: string }; workspace: { ok: boolean; lastError?: string }; ts: number };
+        this.#opts.opsStore.upsertRunnerHealth({
+          agentId: h.agentId,
+          uptimeMs: h.uptimeMs,
+          activeRunIds: h.activeRunIds,
+          checkpointerOk: h.checkpointer.ok,
+          workspaceOk: h.workspace.ok,
+          lastError: h.checkpointer.lastError ?? h.workspace.lastError,
+        });
         break;
       }
       default:
@@ -506,12 +555,22 @@ export class RunSupervisor {
     return row.thread_id;
   }
 
-  /** Send SIGTERM to subprocess; cancelGraceMs fallback to SIGKILL. */
+  /** Send abort to runner daemon; ops events track the control action. */
   cancel(runId: string): boolean {
     const session = this.#active.get(runId);
     if (!session) return false;
+    this.#opts.opsStore.appendRunEvent({
+      runId,
+      attemptId: session.attemptId,
+      kind: "cancel_requested",
+    });
     session.abortController.abort("cancelled");
     session.transport.send({ type: "abort", runId });
+    this.#opts.opsStore.appendRunEvent({
+      runId,
+      attemptId: session.attemptId,
+      kind: "abort_sent",
+    });
     return true;
   }
 
@@ -543,20 +602,53 @@ export class RunSupervisor {
     }[];
 
     // Phase 1: re-register live runs in #active for post-restart cancel support.
-    // Use no-op transport stub — we do NOT call registry.transportFor here because
-    // DevRunnerRegistry.transportFor spawns a new daemon (which would kill the
-    // still-running daemon via stale pidfile cleanup). Post-restart cancel is
-    // handled by the reaper timeout; the no-op stub prevents crash on cancel().
+    // M16: Try to reattach to existing daemon first; fall back to NOOP_TRANSPORT.
     for (const row of rows) {
       const age = row.heartbeat_at ? Date.now() - row.heartbeat_at : Infinity;
       if (age < this.#opts.config.heartbeatTimeoutMs) {
+        this.#opts.opsStore.appendRunEvent({
+          runId: row.run_id,
+          attemptId: row.attempt_id,
+          kind: "reattach_started",
+        });
+
+        let transport: RunnerTransport = NOOP_TRANSPORT;
+        if (this.#opts.registry.attachExisting) {
+          try {
+            const attached = await this.#opts.registry.attachExisting(row.agent_id);
+            if (attached) {
+              transport = attached;
+              this.#bindTransport(transport);
+              this.#opts.opsStore.appendRunEvent({
+                runId: row.run_id,
+                attemptId: row.attempt_id,
+                kind: "reattach_succeeded",
+              });
+            } else {
+              this.#opts.opsStore.appendRunEvent({
+                runId: row.run_id,
+                attemptId: row.attempt_id,
+                kind: "reattach_failed",
+                payload: { mode: "noop_until_reaper" },
+              });
+            }
+          } catch {
+            this.#opts.opsStore.appendRunEvent({
+              runId: row.run_id,
+              attemptId: row.attempt_id,
+              kind: "reattach_failed",
+              payload: { mode: "noop_until_reaper" },
+            });
+          }
+        }
+
         this.#registerSession({
           runId: row.run_id,
           attemptId: row.attempt_id,
           threadId: row.thread_id,
           agentId: row.agent_id,
           kind: row.kind,
-          transport: NOOP_TRANSPORT,
+          transport,
         });
         console.log(
           `[supervisor] re-discovered live run: ${row.run_id} (attempt ${row.attempt_id}, age ${age}ms)`,

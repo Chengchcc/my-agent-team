@@ -32,7 +32,7 @@ export function createRuntimeTracer(
     ): Promise<T> {
       const safeAttrs = redactAttributes(attrs);
       const span = otelTracer.startSpan(name, {
-        attributes: safeAttrs as Record<string, unknown>,
+        attributes: safeAttrs as Record<string, string | number | boolean>,
       });
       try {
         const result = await fn();
@@ -72,7 +72,11 @@ export function createRuntimeTracer(
 
 function createNoopTracer(): RuntimeTracer {
   return {
-    async startSpan<T>(_name, _attrs, fn) {
+    async startSpan<T>(
+      _name: import("./types.js").RuntimeSpanName,
+      _attrs: import("./types.js").RuntimeSpanAttributes,
+      fn: () => Promise<T>,
+    ): Promise<T> {
       return fn();
     },
     currentTrace() {
@@ -83,6 +87,6 @@ function createNoopTracer(): RuntimeTracer {
       const spanId = generateSpanId();
       return { traceId, spanId, traceparent: `00-${traceId}-${spanId}-01` };
     },
-    link() {},
+    link(_trace: import("./types.js").RuntimeTraceContext, _attrs?: Record<string, unknown>): void {},
   };
 }

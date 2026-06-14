@@ -5,8 +5,18 @@ import { join } from "node:path";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
 import { safeRunnerAgentId } from "../../infra/runner-workspace.js";
 
+export interface RunnerRegistryHealth {
+  status: "online" | "offline" | "unknown";
+  socketPath?: string;
+  error?: string;
+}
+
 export interface RunnerRegistry {
   transportFor(agentId: string): Promise<RunnerTransport>;
+  /** M16: Try to connect to an existing daemon without spawning. Returns null if unreachable. */
+  attachExisting?(agentId: string): Promise<RunnerTransport | null>;
+  /** M16: Check current health of a runner daemon. */
+  healthOf?(agentId: string): Promise<RunnerRegistryHealth>;
   dispose?(): Promise<void>;
 }
 
@@ -126,6 +136,41 @@ export class DevRunnerRegistry implements RunnerRegistry {
     return { agentId, child, transport, socket, dir: paths.runnerRoot };
   }
 
+  async attachExisting(agentId: string): Promise<RunnerTransport | null> {
+    const key = safeRunnerAgentId(agentId);
+    const existing = this.#runners.get(key);
+    if (existing) return existing.transport;
+
+    const { runnerWorkspacePaths } = await import("../../infra/runner-workspace.js");
+    const paths = runnerWorkspacePaths(this.opts.dataDir, agentId);
+    try {
+      const transport = this.opts.transportFactory(paths.socketPath);
+      await transport.ready();
+      return transport;
+    } catch {
+      return null;
+    }
+  }
+
+  async healthOf(agentId: string): Promise<import("./runner-registry.js").RunnerRegistryHealth> {
+    const key = safeRunnerAgentId(agentId);
+    const existing = this.#runners.get(key);
+    if (existing) {
+      const alive = existing.child.exitCode === null && existing.child.signalCode === null;
+      return { status: alive ? "online" : "offline", socketPath: existing.socket };
+    }
+    const { runnerWorkspacePaths } = await import("../../infra/runner-workspace.js");
+    const paths = runnerWorkspacePaths(this.opts.dataDir, agentId);
+    try {
+      const transport = this.opts.transportFactory(paths.socketPath);
+      await transport.ready();
+      transport.close();
+      return { status: "online", socketPath: paths.socketPath };
+    } catch (e) {
+      return { status: "offline", socketPath: paths.socketPath, error: String(e) };
+    }
+  }
+
   async dispose(): Promise<void> {
     const runners = [...this.#runners.values()];
     this.#runners.clear();
@@ -174,6 +219,36 @@ export class ProdRunnerRegistry implements RunnerRegistry {
     await transport.ready();
     this.#transports.set(agentId, transport);
     return transport;
+  }
+
+  async attachExisting(agentId: string): Promise<RunnerTransport | null> {
+    const existing = this.#transports.get(agentId);
+    if (existing) return existing;
+    try {
+      const endpoint = await this.opts.endpointResolver.resolve(agentId);
+      if (!endpoint) return null;
+      const transport = this.opts.transportFactory.create(endpoint);
+      await transport.ready();
+      this.#transports.set(agentId, transport);
+      return transport;
+    } catch {
+      return null;
+    }
+  }
+
+  async healthOf(agentId: string): Promise<import("./runner-registry.js").RunnerRegistryHealth> {
+    const existing = this.#transports.get(agentId);
+    if (existing) return { status: "online" };
+    try {
+      const endpoint = await this.opts.endpointResolver.resolve(agentId);
+      if (!endpoint) return { status: "unknown" };
+      const transport = this.opts.transportFactory.create(endpoint);
+      await transport.ready();
+      transport.close();
+      return { status: "online" };
+    } catch {
+      return { status: "offline" };
+    }
   }
 
   async dispose(): Promise<void> {
