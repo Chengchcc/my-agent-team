@@ -43,8 +43,8 @@ export function collectHealth(
     else if (s.status === "done") runStreams.done++;
     else if (s.status === "error") runStreams.error++;
     else if (s.status === "fallback_text") runStreams.fallbackText++;
-    if (s.card_send_failed) runStreams.cardSendFailed++;
-    if (s.card_update_failed) runStreams.cardUpdateFailed++;
+    if (s.cardSendFailed) runStreams.cardSendFailed++;
+    if (s.cardUpdateFailed) runStreams.cardUpdateFailed++;
   }
 
   const degraded =

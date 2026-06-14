@@ -37,7 +37,7 @@ export interface ConversationServiceDeps {
   forkRun: (
     runId: string,
     threadId: string,
-    ctx: { conversationId: string; agentMemberId: string; agentId: string },
+    ctx: { conversationId: string; agentMemberId: string; agentId: string; ledgerSeq: number },
   ) => Promise<{ runId: string; attemptId: string }>;
   idGen: () => string;
   /** Verify a runId belongs to the given conversation. Throws if not. */
@@ -145,6 +145,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
   async function forkAgentRuns(
     conversationId: string,
     targets: Array<{ memberId: string; agentId: string }>,
+    ledgerSeq: number,
   ): Promise<Array<{ agentMemberId: string; runId: string }>> {
     const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
     activeConversations.add(conversationId);
@@ -158,6 +159,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
             conversationId,
             agentMemberId: target.memberId,
             agentId: target.agentId,
+            ledgerSeq,
           });
           triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
         } catch (err) {
@@ -235,7 +237,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
       // ── @ trigger: fork agent run for each target (skip if hop-capped) ──
       if (targets.length > 0 && !hopCapped) {
-        const runs = await forkAgentRuns(input.conversationId, targets);
+        const runs = await forkAgentRuns(input.conversationId, targets, seq);
         triggeredRuns.push(...runs);
       } else if (hopCapped) {
         // Broadcast system message about the cap (no fork)
@@ -417,7 +419,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
       if (activeConversations.has(input.conversationId)) return triggeredRuns;
 
       // Fork runs (shared helper with postMessage)
-      return forkAgentRuns(input.conversationId, targets);
+      return forkAgentRuns(input.conversationId, targets, 0);
     },
 
     /** M15.1: Start a fresh conversation from a surface control tool call.

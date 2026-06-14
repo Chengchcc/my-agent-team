@@ -41,11 +41,10 @@ export function opsRoutes(svc: RuntimeOpsService) {
       return json(runtime);
     },
 
-    /** M16: Internal surface heartbeat endpoint. */
+    /** M16: Internal surface heartbeat endpoint. Payload pre-sanitized by lark-bot. */
     async larkHeartbeat(req: Request): Promise<Response> {
       const body = await req.json();
-      // Payload is already sanitized by lark-bot (no chat_id/open_id/user text)
-      svc.getAgentRuntime(body.agentId); // validates agent exists
+      svc.ingestLarkHeartbeat(body);
       return json({ ok: true });
     },
   };

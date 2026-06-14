@@ -363,6 +363,28 @@ export function createRuntimeOpsService(deps: {
         surfaces,
       };
     },
+
+    ingestLarkHeartbeat(body: {
+      agentId: string;
+      profileRef: string;
+      status: string;
+      watchers: { conversation: number; runDelta: number };
+      runStreams: Record<string, number>;
+      lastError: string | null;
+      ts: number;
+    }): void {
+      opsStore.upsertSurfaceHealth({
+        agentId: body.agentId,
+        surface: "lark",
+        status: body.status,
+        payload: {
+          watchers: body.watchers,
+          runStreams: body.runStreams,
+          profileRef: body.profileRef,
+        },
+        lastError: body.lastError ?? undefined,
+      });
+    },
   };
 }
 

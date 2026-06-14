@@ -315,10 +315,28 @@ const convSvc = createConversationService({
         }
       : undefined;
 
+    // M16: Generate trace context and propagate to daemon
+    const trace = tracer.inject();
+
     const { attemptId } = await supervisor.startMainRun(runId, threadId, spec, {
       preloadedMessages,
       surfaceContext,
+      trace,
     });
+
+    // M16: Record run origin for diagnostics and server-side retry
+    opsStore.insertRunOrigin({
+      runId,
+      conversationId: ctx.conversationId,
+      sourceLedgerSeq: ctx.ledgerSeq,
+      agentMemberId: ctx.agentMemberId,
+      surface: surfaceContext?.surface ?? "web",
+      traceId: trace.traceId,
+      traceparent: trace.traceparent,
+      idempotencyKey: `${ctx.conversationId}:${ctx.ledgerSeq}:run`,
+      createdAt: Date.now(),
+    });
+
     return { runId, attemptId };
   },
 

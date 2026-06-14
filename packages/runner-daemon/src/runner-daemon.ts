@@ -66,6 +66,8 @@ export class RunnerDaemon {
   #runs = new Map<string, RunHandle>();
   #finalized = new Map<string, RunHandle>();
   #heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  #daemonHealthTimer: ReturnType<typeof setInterval> | undefined;
+  #startTime = Date.now();
   #backendUrl: string;
   #backendAuthToken: string | null;
 
@@ -96,6 +98,20 @@ export class RunnerDaemon {
       for (const [runId] of this.#runs) this.#transport.send({ type: "heartbeat", runId });
     }, 5000);
 
+    // M16: Daemon-level health sent every 10s, even when idle
+    this.#daemonHealthTimer = setInterval(() => {
+      const activeIds = [...this.#runs.keys()];
+      this.#transport.send({
+        type: "daemon_health",
+        agentId: this.#agentId,
+        uptimeMs: Date.now() - this.#startTime,
+        activeRunIds: activeIds,
+        checkpointer: { kind: "sqlite", ok: true },
+        workspace: { ok: true },
+        ts: Date.now(),
+      });
+    }, 10_000);
+
     this.#transport.onMessage((msg) => {
       if (msg.type === "start") void this.#onStart(msg);
       else if (msg.type === "abort") this.#onAbort(msg);
@@ -105,6 +121,7 @@ export class RunnerDaemon {
 
   async close(): Promise<void> {
     if (this.#heartbeatTimer) clearInterval(this.#heartbeatTimer);
+    if (this.#daemonHealthTimer) clearInterval(this.#daemonHealthTimer);
     for (const [, run] of this.#runs) run.abort.abort("daemon shutting down");
     this.#runs.clear();
     await this.#transport.close();
