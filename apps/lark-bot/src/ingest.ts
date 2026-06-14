@@ -18,8 +18,15 @@ export interface IngestContext {
   botDisplayName: string | null;
   backendUrl: string;
   backendAuthToken: string | null;
+  profile: string;
   /** Called when a new conversation is bound — allows dynamic SSE subscription */
   onNewBinding?: (conversationId: string) => void;
+  /** M15.1: Called for each triggered run — starts streaming card lifecycle */
+  onTriggeredRun?: (
+    runId: string,
+    conversationId: string,
+    sourceMessageId: string,
+  ) => void;
 }
 
 export interface IngestResult {
@@ -27,6 +34,7 @@ export interface IngestResult {
   conversationId?: string;
   ledgerSeq?: number;
   triggered: boolean;
+  triggeredRuns: Array<{ agentMemberId: string; runId: string }>;
 }
 
 /**
@@ -87,7 +95,7 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     return { ok: true as const, needCreateConv: false as const, conversationId: cid };
   })();
 
-  if (!reserveResult.ok) return { action: "skipped", triggered: false };
+  if (!reserveResult.ok) return { action: "skipped", triggered: false, triggeredRuns: [] };
 
   // ─── Create conversation if needed (HTTP call, outside transaction) ───
   if (reserveResult.needCreateConv) {
@@ -107,7 +115,7 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     });
     if (!convResp.ok) {
       console.error(`[ingest] create conversation failed: ${convResp.status}`);
-      return { action: "error", triggered: false };
+      return { action: "error", triggered: false, triggeredRuns: [] };
     }
     const conv = (await convResp.json()) as { conversationId: string };
     conversationId = conv.conversationId;
@@ -129,11 +137,11 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
       });
       if (!memberResp.ok) {
         console.error(`[ingest] add member failed: HTTP ${memberResp.status}`);
-        return { action: "error", conversationId, triggered: false };
+        return { action: "error", conversationId, triggered: false, triggeredRuns: [] };
       }
     } catch (err) {
       console.error(`[ingest] add member network error:`, err);
-      return { action: "error", conversationId, triggered: false };
+      return { action: "error", conversationId, triggered: false, triggeredRuns: [] };
     }
 
     // Write local bindings only after /members succeeds
@@ -178,20 +186,38 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
 
     if (!msgResp.ok) {
       console.error(`[ingest] POST /messages failed: ${msgResp.status}`);
-      return { action: "error", conversationId, triggered: false };
+      return { action: "error", conversationId, triggered: false, triggeredRuns: [] };
     }
 
-    const { seq } = (await msgResp.json()) as { seq: number };
+    const body = (await msgResp.json()) as {
+      seq: number;
+      triggeredRuns: Array<{ agentMemberId: string; runId: string }>;
+    };
 
     // ─── Step 3: Confirm inbound (backfill ledger_seq) ───
     db.transaction(() => {
-      confirmInbound(db, event.event_id, conversationId, seq);
+      confirmInbound(db, event.event_id, conversationId, body.seq);
     })();
 
     const triggered = addressedTo.length > 0;
-    return { action: "consumed", conversationId, ledgerSeq: seq, triggered };
+    const runs = body.triggeredRuns ?? [];
+
+    // M15.1: Start streaming card lifecycle for each triggered run
+    if (ctx.onTriggeredRun) {
+      for (const run of runs) {
+        ctx.onTriggeredRun(run.runId, conversationId, event.message_id);
+      }
+    }
+
+    return {
+      action: "consumed",
+      conversationId,
+      ledgerSeq: body.seq,
+      triggered,
+      triggeredRuns: runs,
+    };
   } catch (err) {
     console.error("[ingest] error:", err instanceof Error ? err.message : String(err));
-    return { action: "error", conversationId, triggered: false };
+    return { action: "error", conversationId, triggered: false, triggeredRuns: [] };
   }
 }

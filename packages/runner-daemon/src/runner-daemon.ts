@@ -23,6 +23,10 @@ export interface RunnerDaemonOptions {
   privateRoot: string;
   stateRoot: string;
   modelFactory: ModelFactory;
+  /** M15.1: URL of the backend for tool callbacks (start_new_conversation, etc.) */
+  backendUrl?: string;
+  /** M15.1: Auth token for backend requests */
+  backendAuthToken?: string | null;
 }
 
 interface RunHandle {
@@ -61,9 +65,13 @@ export class RunnerDaemon {
   #runs = new Map<string, RunHandle>();
   #finalized = new Map<string, RunHandle>();
   #heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  #backendUrl: string;
+  #backendAuthToken: string | null;
 
   constructor(opts: RunnerDaemonOptions) {
     this.#transport = opts.transport;
+    this.#backendUrl = opts.backendUrl ?? "http://localhost:3000";
+    this.#backendAuthToken = opts.backendAuthToken ?? null;
     this.#agentId = opts.agentId;
     // Defensive: ensure roots exist before AgentFS uses them. DevRunnerRegistry
     // already creates them, but prod / manual daemon launches may not.
@@ -134,12 +142,35 @@ export class RunnerDaemon {
     }
 
     const model = this.#modelFactory.create(spec.model);
+
+    // M15.1: Inject start_new_conversation tool for Lark surface main runs
+    const extraTools: Array<{ name: string }> = [];
+    const sc = msg.surfaceContext;
+    if (
+      sc?.surface === "lark" &&
+      sc.capabilities.includes("start_new_conversation") &&
+      spec.mode !== "reflect"
+    ) {
+      const { createStartNewConversationTool } = await import(
+        "./start-new-conversation-tool.js"
+      );
+      extraTools.push(
+        createStartNewConversationTool({
+          backendUrl: this.#backendUrl,
+          backendAuthToken: this.#backendAuthToken,
+          conversationId: sc.conversationId,
+          runId: sc.runId,
+        }),
+      );
+    }
+
     const { createGenericAgent } = await import("@my-agent-team/harness");
     const agent = await createGenericAgent({
       workspace: this.#workspace,
       model: model as Parameters<typeof createGenericAgent>[0]["model"],
       threadId: spec.threadId,
       checkpointer: this.#checkpointer,
+      extraTools: extraTools as Parameters<typeof createGenericAgent>[0]["extraTools"],
     });
 
     this.#runs.set(msg.runId, {
@@ -231,6 +262,8 @@ export class RunnerDaemon {
       runId: reflectRunId,
       parentRunId,
     };
+    // M15.1: Strip surfaceContext — reflect runs must not inherit Lark surface tools
+    delete (reflectSpec as { surfaceContext?: unknown }).surfaceContext;
 
     // Register BEFORE sending run_started — so #routeEvent/#drive can find it
     const reflectAgent = parent.agent.fork(undefined, `reflect:${parent.threadId}`);

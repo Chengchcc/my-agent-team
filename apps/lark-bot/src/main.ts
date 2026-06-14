@@ -7,6 +7,9 @@ import { ingest } from "./ingest.js";
 import { parseEvent } from "./event-parser.js";
 import { safeAgentId } from "./safe-agent-id.js";
 import { sendMessage } from "./sender.js";
+import { sendTextOnly } from "./send-text-only.js";
+import { addTypingReaction, removeTypingReaction } from "./feedback-reaction.js";
+import { watchRunDelta, type RunDeltaWatcherHandle } from "./run-delta-watcher.js";
 import { watchConversation } from "./sse-watcher.js";
 import type { WatcherHandle } from "./sse-watcher.js";
 
@@ -17,6 +20,8 @@ const profile = args.larkProfile ?? `agent:${safeAgentId(args.agentId)}`;
 
 // ─── SSE watchers — one per bound conversation ───
 const watchers = new Map<string, WatcherHandle>();
+// M15.1: Run delta watchers — one per triggered run
+const runWatchers = new Map<string, RunDeltaWatcherHandle>();
 
 function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0) {
   if (watchers.has(conversationId)) return;
@@ -30,6 +35,22 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
         const msg = result.error ?? "unknown lark send error";
         console.error(`[lark-bot] send failed for ${chatId}: ${msg}`);
         throw new Error(msg); // prevents sse-watcher from advancing pushed_seq
+      }
+    },
+    // M15.1: Handle conversation rebind from surface.control
+    onRebind: (oldConvId, newConvId) => {
+      const oldWatcher = watchers.get(oldConvId);
+      if (oldWatcher) {
+        oldWatcher.close();
+        watchers.delete(oldConvId);
+      }
+      ensureWatcher(newConvId, larkChatId, 0);
+    },
+    // M15.1: Send text directly to Lark (not through conversation ingest)
+    sendTextOnly: async (chatId, text) => {
+      const result = await sendTextOnly(profile, chatId, text);
+      if (!result.ok) {
+        console.error(`[lark-bot] sendTextOnly failed for ${chatId}: ${result.error}`);
       }
     },
   });
@@ -75,11 +96,35 @@ async function handleLine(line: string): Promise<void> {
     botDisplayName: state.botDisplayName,
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
+    profile,
     onNewBinding: (convId) => {
       // Start SSE watcher for the newly bound conversation
       const binding = getChatBinding(state.db, event.chat_id);
       if (binding) {
         ensureWatcher(binding.conversationId, binding.larkChatId, binding.pushedSeq);
+      }
+    },
+    onTriggeredRun: (runId, conversationId, sourceMessageId) => {
+      // M15.1: Add Typing reaction then start streaming card lifecycle
+      if (event.message_id) {
+        void addTypingReaction(profile, event.message_id).then((reactionState) => {
+          const handle = watchRunDelta(runId, conversationId, reactionState, {
+            db: state.db,
+            backendUrl: args.backendUrl,
+            backendAuthToken: args.backendAuthToken,
+            profile,
+            larkChatId: event.chat_id,
+            sourceMessageId,
+            onFallback: async (fallbackRunId, text) => {
+              // M15 fallback: send plain text via ledger SSE path
+              const result = await sendMessage(profile, event.chat_id, text, `${fallbackRunId}:fallback`);
+              if (!result.ok) {
+                console.error(`[lark-bot] fallback send failed for ${fallbackRunId}: ${result.error}`);
+              }
+            },
+          });
+          runWatchers.set(runId, handle);
+        });
       }
     },
   });
@@ -122,10 +167,12 @@ child.on("exit", (code, signal) => {
 process.on("SIGTERM", () => {
   console.log("[lark-bot] SIGTERM — forwarding to lark-cli, closing watchers");
   for (const [, w] of watchers) w.close();
+  for (const [, w] of runWatchers) w.close();
   child.kill("SIGTERM");
 });
 process.on("SIGINT", () => {
   for (const [, w] of watchers) w.close();
+  for (const [, w] of runWatchers) w.close();
   child.kill("SIGTERM");
   process.exit(0);
 });

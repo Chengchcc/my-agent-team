@@ -28,6 +28,14 @@ export interface RunRequestOptions {
   /** Messages already projected into the thread-projection store by broadcastMessage().
    *  The daemon pre-seeds its own runtime checkpointer with these before createGenericAgent(). */
   preloadedMessages?: readonly Message[];
+  /** M15.1: Surface context for injecting surface-specific extra tools.
+   *  Threaded through to transport.send({ type: "start" }). */
+  surfaceContext?: {
+    surface: "lark" | "web" | "cli";
+    conversationId: string;
+    runId: string;
+    capabilities: Array<"start_new_conversation">;
+  };
 }
 
 export interface RunSession {
@@ -373,6 +381,7 @@ export class RunSupervisor {
       runId: req.runId,
       spec: req.spec,
       preloadedMessages: req.options?.preloadedMessages,
+      surfaceContext: req.options?.surfaceContext,
     });
     return { runId: req.runId, attemptId };
   }

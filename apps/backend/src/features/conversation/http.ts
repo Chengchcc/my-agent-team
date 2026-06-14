@@ -37,6 +37,13 @@ const messageSchema = z.object({
   content: z.unknown(),
 });
 
+const startNewSchema = z.object({
+  reason: z.string().min(1),
+  title: z.string().optional(),
+  requestedByRunId: z.string().min(1),
+  idempotencyKey: z.string().min(1),
+});
+
 export function conversationRoutes(svc: ConversationService, idGen: () => string) {
   return {
     /** GET /api/conversations?agentId= → 200 [{ conversationId, members }] */
@@ -176,6 +183,18 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
         }),
         req.signal,
       );
+    },
+
+    /** M15.1: POST /api/conversations/:id/start-new → 201 { oldConversationId, newConversationId, controlSeq } */
+    async startNew(req: Request, conversationId: string): Promise<Response> {
+      const parsed = startNewSchema.safeParse(await req.json().catch(() => ({})));
+      if (!parsed.success)
+        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
+      const result = await svc.startNewConversationForSurface({
+        oldConversationId: conversationId,
+        ...parsed.data,
+      });
+      return json(result, 201);
     },
   };
 }

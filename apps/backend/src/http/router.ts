@@ -66,6 +66,24 @@ export function createRouter(token: string, features?: FeatureSet) {
       if (agentIdentityMatch && method === "PUT")
         return withAuth((r) => agents.updateIdentity(r, agentIdentityMatch[1]!), token)(req);
       if (agentIdentityMatch) return json({ error: "Method not allowed" }, 405);
+      // M15.1: Lark setup routes
+      const agentLarkSetupMatch = path.match(/^\/api\/agents\/([^/]+)\/lark\/setup$/);
+      const agentLarkSetupIdMatch = path.match(
+        /^\/api\/agents\/([^/]+)\/lark\/setup\/([^/]+)$/,
+      );
+      if (agentLarkSetupMatch && method === "POST")
+        return withAuth((r) => agents.larkSetup(r, agentLarkSetupMatch[1]!), token)(req);
+      if (agentLarkSetupIdMatch && method === "GET")
+        return withAuth(
+          (r) => agents.larkSetupStatus(r, agentLarkSetupIdMatch[1]!, agentLarkSetupIdMatch[2]!),
+          token,
+        )(req);
+      if (agentLarkSetupIdMatch && method === "DELETE")
+        return withAuth(
+          (r) => agents.larkSetupCancel(r, agentLarkSetupIdMatch[1]!, agentLarkSetupIdMatch[2]!),
+          token,
+        )(req);
+      if (agentLarkSetupMatch) return json({ error: "Method not allowed" }, 405);
 
       // Runs — cancel, events, stream, resume, get
       const cancelMatch = path.match(/^\/api\/runs\/([^/]+)\/cancel$/);
@@ -98,6 +116,7 @@ export function createRouter(token: string, features?: FeatureSet) {
         const convMsgMatch = path.match(/^\/api\/conversations\/([^/]+)\/messages$/);
         const convMemberMatch = path.match(/^\/api\/conversations\/([^/]+)\/members$/);
         const convEventsMatch = path.match(/^\/api\/conversations\/([^/]+)\/events$/);
+        const convStartNewMatch = path.match(/^\/api\/conversations\/([^/]+)\/start-new$/);
 
         if (convListMatch && method === "GET")
           return withAuth(async (r) => conversations.list(r), token)(req);
@@ -120,6 +139,9 @@ export function createRouter(token: string, features?: FeatureSet) {
         if (convEventsMatch && method === "GET")
           return withAuth((r) => conversations.events(r, convEventsMatch[1]!), token)(req);
         if (convEventsMatch) return json({ error: "Method not allowed" }, 405);
+        if (convStartNewMatch && method === "POST")
+          return withAuth((r) => conversations.startNew(r, convStartNewMatch[1]!), token)(req);
+        if (convStartNewMatch) return json({ error: "Method not allowed" }, 405);
       }
 
       return withAuth(async () => notFound(req), token)(req);

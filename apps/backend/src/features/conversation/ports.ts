@@ -16,7 +16,7 @@ export interface MemberRow {
   joinedAt: number;
 }
 
-export type LedgerKind = "message" | "member.joined" | "member.left" | "todo";
+export type LedgerKind = "message" | "member.joined" | "member.left" | "todo" | "surface.control";
 
 export interface LedgerRow {
   seq: number;

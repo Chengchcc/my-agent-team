@@ -1,5 +1,11 @@
 import type { Database } from "bun:sqlite";
-import { getMemberBindingsForChat, updatePushedSeq } from "./bindings-sqlite.js";
+import {
+  canSkipFinalLedgerText,
+  getMemberBindingsForChat,
+  getRunStreamsByConversation,
+  rebindChatConversation,
+  updatePushedSeq,
+} from "./bindings-sqlite.js";
 import { render } from "./render.js";
 
 export interface LedgerEntry {
@@ -16,8 +22,12 @@ export interface SseWatcherDeps {
   db: Database;
   backendUrl: string;
   backendAuthToken: string | null;
-  /** Called when a message should be sent to Lark */
+  /** Called when an agent message should be sent to Lark */
   onSend: (chatId: string, text: string, idempotencyKey: string) => Promise<void>;
+  /** M15.1: Called when surface.control triggers a conversation rebind */
+  onRebind?: (oldConversationId: string, newConversationId: string) => void;
+  /** M15.1: Send text directly to Lark without conversation ingest */
+  sendTextOnly?: (chatId: string, text: string) => Promise<void>;
 }
 
 export interface WatcherHandle {
@@ -29,6 +39,7 @@ export interface WatcherHandle {
  * Start watching a conversation's /events endpoint for new ledger entries.
  * Filters out: already pushed entries, non-message kinds, human messages from this chat (echo),
  * and system messages. Sends agent replies and other-surface messages to Lark.
+ * M15.1: Handles surface.control rebind and card-delivered text skipping.
  */
 export function watchConversation(
   conversationId: string,
@@ -36,7 +47,7 @@ export function watchConversation(
   afterSeq: number,
   deps: SseWatcherDeps,
 ): WatcherHandle {
-  const { db, backendUrl, backendAuthToken, onSend } = deps;
+  const { db, backendUrl, backendAuthToken, onSend, onRebind, sendTextOnly } = deps;
   const reqHeaders: Record<string, string> = { Accept: "text/event-stream" };
   if (backendAuthToken) reqHeaders["x-auth-token"] = backendAuthToken;
   let aborted = false;
@@ -92,7 +103,11 @@ export function watchConversation(
             // Complete SSE message
             try {
               const entry = JSON.parse(currentData) as LedgerEntry;
-              await processEntry(entry, larkChatId, db, afterSeq, onSend);
+              await processEntry(entry, larkChatId, db, afterSeq, {
+                onSend,
+                onRebind,
+                sendTextOnly,
+              });
               if (entry.seq > afterSeq) afterSeq = entry.seq;
             } catch (err) {
               // Parse errors: log and skip. Send errors: throw to break connection
@@ -146,10 +161,58 @@ async function processEntry(
   larkChatId: string,
   db: Database,
   currentSeq: number,
-  onSend: (chatId: string, text: string, idempotencyKey: string) => Promise<void>,
+  h: {
+    onSend: (chatId: string, text: string, idempotencyKey: string) => Promise<void>;
+    onRebind?: (oldConversationId: string, newConversationId: string) => void;
+    sendTextOnly?: (chatId: string, text: string) => Promise<void>;
+  },
 ): Promise<void> {
   // Skip already-pushed entries (reconnect guard)
   if (entry.seq <= currentSeq) return;
+
+  // ─── M15.1: surface.control handling ───
+  if (entry.kind === "surface.control") {
+    let control: {
+      type: string;
+      oldConversationId: string;
+      newConversationId: string;
+    };
+    try {
+      control = JSON.parse(entry.content);
+    } catch {
+      updatePushedSeq(db, larkChatId, entry.seq);
+      return;
+    }
+
+    if (
+      control.type === "lark.start_new_conversation" &&
+      control.oldConversationId &&
+      control.newConversationId
+    ) {
+      // Idempotent: rebind only if current binding still points to old conversation
+      const wasRebound = rebindChatConversation(
+        db,
+        larkChatId,
+        control.oldConversationId,
+        control.newConversationId,
+      );
+      updatePushedSeq(db, larkChatId, entry.seq);
+
+      if (wasRebound) {
+        console.log(
+          `[sse-watcher] rebind ${larkChatId}: ${control.oldConversationId} → ${control.newConversationId}`,
+        );
+        h.onRebind?.(control.oldConversationId, control.newConversationId);
+        // Send confirmation directly to Lark (not through conversation)
+        if (h.sendTextOnly) {
+          void h.sendTextOnly(larkChatId, "已开启新的对话。");
+        }
+      }
+    } else {
+      updatePushedSeq(db, larkChatId, entry.seq);
+    }
+    return;
+  }
 
   // Skip non-message kinds (member events, todos — MVP doesn't push to Lark)
   // Still advance pushed_seq to avoid re-scanning on restart
@@ -174,9 +237,26 @@ async function processEntry(
     return;
   }
 
+  // ─── M15.1: Check if this message can be skipped (card delivery proven) ───
+  // Parse content to extract runId (injected by D19)
+  let parsedContent: unknown;
+  try { parsedContent = JSON.parse(entry.content); } catch { /* use raw */ }
+  if (parsedContent && typeof parsedContent === "object" && "runId" in parsedContent) {
+    const runId = (parsedContent as { runId?: string }).runId;
+    if (runId) {
+      const runStreams = getRunStreamsByConversation(db, entry.conversationId);
+      const runStream = runStreams.find((r) => r.runId === runId);
+      if (runStream && canSkipFinalLedgerText(runStream)) {
+        // Card already delivered the final text — skip sending
+        updatePushedSeq(db, larkChatId, entry.seq);
+        return;
+      }
+    }
+  }
+
   // This is an agent reply or message from another surface — push to Lark
   const text = render(entry.content);
   const idempotencyKey = `${entry.conversationId}:${entry.seq}`;
-  await onSend(larkChatId, text, idempotencyKey);
+  await h.onSend(larkChatId, text, idempotencyKey);
   updatePushedSeq(db, larkChatId, entry.seq);
 }

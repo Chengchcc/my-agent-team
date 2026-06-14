@@ -11,6 +11,14 @@ export type HostToRunner =
        *  The daemon seeds its own checkpointer with these before creating the agent,
        *  so conversation context is visible to checkpointer.load(). */
       preloadedMessages?: readonly Message[];
+      /** M15.1: Surface context for injecting surface-specific extra tools.
+       *  Only set for Lark-triggered main runs; stripped for reflect. */
+      surfaceContext?: {
+        surface: "lark" | "web" | "cli";
+        conversationId: string;
+        runId: string;
+        capabilities: Array<"start_new_conversation">;
+      };
     }
   | { type: "abort"; runId: string }
   | { type: "run_finalized"; runId: string };

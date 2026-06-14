@@ -50,6 +50,8 @@ const daemon = new RunnerDaemon({
   privateRoot,
   stateRoot,
   modelFactory,
+  backendUrl: process.env.BACKEND_URL,
+  backendAuthToken: process.env.BACKEND_AUTH_TOKEN ?? null,
 });
 
 await daemon.start();

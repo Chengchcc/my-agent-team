@@ -61,6 +61,23 @@ function ensureSchema(db: Database) {
       created_at      INTEGER NOT NULL,
       UNIQUE(lark_message_id)
     );
+    CREATE TABLE IF NOT EXISTS run_stream (
+      run_id              TEXT PRIMARY KEY,
+      lark_chat_id        TEXT NOT NULL,
+      conversation_id     TEXT NOT NULL,
+      lark_message_id     TEXT,
+      source_message_id   TEXT,
+      typing_reaction_id  TEXT,
+      typing_status       TEXT NOT NULL DEFAULT 'none',
+      status              TEXT NOT NULL DEFAULT 'starting',
+      accumulated         TEXT NOT NULL DEFAULT '',
+      card_send_failed    INTEGER NOT NULL DEFAULT 0,
+      card_update_failed  INTEGER NOT NULL DEFAULT 0,
+      final_ledger_seq    INTEGER,
+      last_error          TEXT,
+      created_at          INTEGER NOT NULL,
+      updated_at          INTEGER NOT NULL
+    );
   `);
 }
 
@@ -193,4 +210,156 @@ export function confirmInbound(
     "UPDATE inbound_message SET conversation_id = ?, ledger_seq = ?, status = 'posted' WHERE lark_event_id = ?",
     [conversationId, ledgerSeq, eventId],
   );
+}
+
+// ─── run_stream (M15.1: card streaming state) ───
+
+export interface RunStreamRecord {
+  runId: string;
+  larkChatId: string;
+  conversationId: string;
+  larkMessageId: string | null;
+  sourceMessageId: string | null;
+  typingReactionId: string | null;
+  typingStatus: "none" | "active" | "removed" | "failed";
+  status: "starting" | "streaming" | "done" | "error" | "fallback_text";
+  accumulated: string;
+  cardSendFailed: number;
+  cardUpdateFailed: number;
+  finalLedgerSeq: number | null;
+  lastError: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export function canSkipFinalLedgerText(run: RunStreamRecord): boolean {
+  return (
+    run.status === "done" &&
+    !!run.larkMessageId &&
+    run.cardSendFailed === 0 &&
+    run.cardUpdateFailed === 0
+  );
+}
+
+export function insertRunStream(db: Database, rec: RunStreamRecord): void {
+  db.run(
+    `INSERT INTO run_stream (run_id, lark_chat_id, conversation_id, lark_message_id,
+      source_message_id, typing_reaction_id, typing_status, status, accumulated,
+      card_send_failed, card_update_failed, final_ledger_seq, last_error,
+      created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      rec.runId, rec.larkChatId, rec.conversationId, rec.larkMessageId,
+      rec.sourceMessageId, rec.typingReactionId, rec.typingStatus, rec.status,
+      rec.accumulated, rec.cardSendFailed, rec.cardUpdateFailed,
+      rec.finalLedgerSeq, rec.lastError, rec.createdAt, rec.updatedAt,
+    ],
+  );
+}
+
+export function getRunStream(db: Database, runId: string): RunStreamRecord | null {
+  const row = db
+    .query("SELECT * FROM run_stream WHERE run_id = ?")
+    .get(runId) as RunStreamDbRow | undefined;
+  return row ? toRunStreamRecord(row) : null;
+}
+
+export function getRunStreamsByChat(db: Database, larkChatId: string): RunStreamRecord[] {
+  const rows = db
+    .query("SELECT * FROM run_stream WHERE lark_chat_id = ?")
+    .all(larkChatId) as RunStreamDbRow[];
+  return rows.map(toRunStreamRecord);
+}
+
+export function getRunStreamsByConversation(
+  db: Database,
+  conversationId: string,
+): RunStreamRecord[] {
+  const rows = db
+    .query("SELECT * FROM run_stream WHERE conversation_id = ?")
+    .all(conversationId) as RunStreamDbRow[];
+  return rows.map(toRunStreamRecord);
+}
+
+export function getAllRunStreams(db: Database): RunStreamRecord[] {
+  const rows = db.query("SELECT * FROM run_stream").all() as RunStreamDbRow[];
+  return rows.map(toRunStreamRecord);
+}
+
+export function updateRunStream(
+  db: Database,
+  runId: string,
+  partial: Partial<RunStreamRecord>,
+): void {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  if (partial.larkMessageId !== undefined) { fields.push("lark_message_id = ?"); values.push(partial.larkMessageId); }
+  if (partial.typingReactionId !== undefined) { fields.push("typing_reaction_id = ?"); values.push(partial.typingReactionId); }
+  if (partial.typingStatus !== undefined) { fields.push("typing_status = ?"); values.push(partial.typingStatus); }
+  if (partial.status !== undefined) { fields.push("status = ?"); values.push(partial.status); }
+  if (partial.accumulated !== undefined) { fields.push("accumulated = ?"); values.push(partial.accumulated); }
+  if (partial.cardSendFailed !== undefined) { fields.push("card_send_failed = ?"); values.push(partial.cardSendFailed); }
+  if (partial.cardUpdateFailed !== undefined) { fields.push("card_update_failed = ?"); values.push(partial.cardUpdateFailed); }
+  if (partial.finalLedgerSeq !== undefined) { fields.push("final_ledger_seq = ?"); values.push(partial.finalLedgerSeq); }
+  if (partial.lastError !== undefined) { fields.push("last_error = ?"); values.push(partial.lastError); }
+  if (fields.length === 0) return;
+  fields.push("updated_at = ?");
+  values.push(Date.now());
+  values.push(runId);
+  db.run(`UPDATE run_stream SET ${fields.join(", ")} WHERE run_id = ?`, values as Parameters<typeof db.run>[1]);
+}
+
+// ─── M15.1: Rebind chat to a new conversation ───
+
+export function rebindChatConversation(
+  db: Database,
+  larkChatId: string,
+  oldConversationId: string,
+  newConversationId: string,
+): boolean {
+  const result = db.run(
+    "UPDATE chat_binding SET conversation_id = ?, pushed_seq = 0 WHERE lark_chat_id = ? AND conversation_id = ?",
+    [newConversationId, larkChatId, oldConversationId],
+  );
+  return result.changes > 0;
+}
+
+// ─── Internal helpers ───
+
+interface RunStreamDbRow {
+  run_id: string;
+  lark_chat_id: string;
+  conversation_id: string;
+  lark_message_id: string | null;
+  source_message_id: string | null;
+  typing_reaction_id: string | null;
+  typing_status: string;
+  status: string;
+  accumulated: string;
+  card_send_failed: number;
+  card_update_failed: number;
+  final_ledger_seq: number | null;
+  last_error: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+function toRunStreamRecord(row: RunStreamDbRow): RunStreamRecord {
+  return {
+    runId: row.run_id,
+    larkChatId: row.lark_chat_id,
+    conversationId: row.conversation_id,
+    larkMessageId: row.lark_message_id,
+    sourceMessageId: row.source_message_id,
+    typingReactionId: row.typing_reaction_id,
+    typingStatus: row.typing_status as RunStreamRecord["typingStatus"],
+    status: row.status as RunStreamRecord["status"],
+    accumulated: row.accumulated,
+    cardSendFailed: row.card_send_failed,
+    cardUpdateFailed: row.card_update_failed,
+    finalLedgerSeq: row.final_ledger_seq,
+    lastError: row.last_error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }

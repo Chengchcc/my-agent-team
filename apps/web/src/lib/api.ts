@@ -40,7 +40,22 @@ export interface LarkConfig {
   enabled: boolean;
   appId: string | null;
   profileRef: string | null;
+  botDisplayName: string | null;
   status: "not_configured" | "configured" | "running" | "degraded" | "error";
+}
+
+export interface LarkSetupSession {
+  setupId: string;
+  agentId: string;
+  profileRef: string;
+  botDisplayName: string | null;
+  brand: "feishu" | "lark";
+  status: "pending" | "completed" | "failed" | "expired" | "cancelled";
+  url: string | null;
+  error: string | null;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number;
 }
 
 export interface AgentRow {
@@ -131,6 +146,19 @@ export const api = {
     apiFetch<{ ok: boolean }>(`agents/${id}/identity`, {
       method: "PUT",
       body,
+    }),
+
+  // M15.1: Lark setup
+  larkSetup: (id: string, body: { botDisplayName?: string; brand?: "feishu" | "lark" }) =>
+    apiFetch<LarkSetupSession>(`agents/${id}/lark/setup`, {
+      method: "POST",
+      body,
+    }),
+  larkSetupStatus: (id: string, setupId: string) =>
+    apiFetch<LarkSetupSession>(`agents/${id}/lark/setup/${setupId}`),
+  larkSetupCancel: (id: string, setupId: string) =>
+    apiFetch<{ cancelled: boolean }>(`agents/${id}/lark/setup/${setupId}`, {
+      method: "DELETE",
     }),
 
   // Runs

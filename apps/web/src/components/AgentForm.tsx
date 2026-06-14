@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { type AgentRow, api } from "@/lib/api";
+import { type AgentRow, type LarkSetupSession, api } from "@/lib/api";
 
 interface AgentFormProps {
   /** If provided, form is in edit mode (PATCH instead of POST). */
@@ -28,9 +28,9 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   );
   const [maxSteps, setMaxSteps] = useState(editAgent?.maxSteps?.toString() ?? "");
   const [enableLark, setEnableLark] = useState(editAgent?.lark?.enabled ?? false);
-  const [larkAppId, setLarkAppId] = useState(editAgent?.lark?.appId ?? "");
-  const [larkAppSecret, setLarkAppSecret] = useState("");
-  const [botDisplayName, setBotDisplayName] = useState("");
+  const [botDisplayName, setBotDisplayName] = useState(editAgent?.lark?.botDisplayName ?? "");
+  const [setupSession, setSetupSession] = useState<LarkSetupSession | null>(null);
+  const [setupLoading, setSetupLoading] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -43,10 +43,29 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
       setPermissionMode(editAgent.permissionMode);
       setMaxSteps(editAgent.maxSteps?.toString() ?? "");
       setEnableLark(editAgent.lark?.enabled ?? false);
-      setLarkAppId(editAgent.lark?.appId ?? "");
-      setLarkAppSecret(""); // never pre-filled — write-only
+      setBotDisplayName(editAgent.lark?.botDisplayName ?? "");
+      setSetupSession(null);
     }
   }, [editAgent]);
+
+  // M15.1: Poll setup session status when pending
+  useEffect(() => {
+    if (!setupSession || setupSession.status !== "pending" || !editAgent?.id) return;
+    const interval = setInterval(async () => {
+      try {
+        const session = await api.larkSetupStatus(editAgent.id, setupSession.setupId);
+        setSetupSession(session);
+        if (session.status !== "pending") {
+          clearInterval(interval);
+          queryClient.invalidateQueries({ queryKey: ["agent", editAgent.id] });
+          queryClient.invalidateQueries({ queryKey: ["agents"] });
+        }
+      } catch {
+        clearInterval(interval);
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [setupSession?.status, setupSession?.setupId, editAgent?.id]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -67,11 +86,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
 
       // Lark bot configuration
       if (enableLark) {
-        body.lark = {
-          enabled: true,
-          appId: larkAppId || undefined,
-          ...(larkAppSecret ? { appSecret: larkAppSecret } : {}),
-        };
+        body.lark = { enabled: true };
         if (botDisplayName) {
           body.lark.botDisplayName = botDisplayName;
         }
@@ -242,31 +257,6 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                 {enableLark && (
                   <div className="space-y-4 pl-6 border-l-2 border-[var(--hairline)]">
                     <div>
-                      <label className={labelClass}>App ID</label>
-                      <input
-                        value={larkAppId}
-                        onChange={(e) => setLarkAppId(e.target.value)}
-                        placeholder="cli_xxx"
-                        className={fieldClass}
-                        required={enableLark}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>
-                        App Secret{" "}
-                        {isEdit && editAgent?.lark?.enabled ? "(leave blank to keep current)" : "*"}
-                      </label>
-                      <input
-                        type="password"
-                        value={larkAppSecret}
-                        onChange={(e) => setLarkAppSecret(e.target.value)}
-                        placeholder={isEdit && editAgent?.lark?.enabled ? "••••••••" : ""}
-                        className={fieldClass}
-                        required={enableLark && !(isEdit && editAgent?.lark?.enabled)}
-                      />
-                      <p className={hintClass}>Write-only — never stored or displayed</p>
-                    </div>
-                    <div>
                       <label className={labelClass}>Bot Display Name</label>
                       <input
                         value={botDisplayName}
@@ -276,6 +266,69 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                       />
                       <p className={hintClass}>Required for group @mention detection</p>
                     </div>
+
+                    {/* Setup flow */}
+                    {editAgent?.lark?.status === "not_configured" || !editAgent?.lark?.profileRef ? (
+                      <div>
+                        {setupSession?.status === "pending" ? (
+                          <div className="space-y-2">
+                            <p className="text-xs text-[var(--body)]">
+                              Setup in progress — open this link to complete:
+                            </p>
+                            {setupSession.url ? (
+                              <a
+                                href={setupSession.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 underline break-all"
+                              >
+                                {setupSession.url}
+                              </a>
+                            ) : (
+                              <p className="text-xs text-amber-600">
+                                Waiting for setup URL…
+                              </p>
+                            )}
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (editAgent?.id && setupSession.setupId) {
+                                    api.larkSetupCancel(editAgent.id, setupSession.setupId);
+                                    setSetupSession(null);
+                                  }
+                                }}
+                                className="text-xs text-red-600 hover:underline"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={setupLoading}
+                            onClick={async () => {
+                              if (!editAgent?.id) return;
+                              setSetupLoading(true);
+                              try {
+                                const session = await api.larkSetup(editAgent.id, {
+                                  botDisplayName: botDisplayName || undefined,
+                                });
+                                setSetupSession(session);
+                              } catch {
+                                // error displayed via error state
+                              } finally {
+                                setSetupLoading(false);
+                              }
+                            }}
+                            className="px-4 py-2 text-xs font-medium bg-[var(--primary)] text-[var(--on-primary)] rounded-md hover:opacity-90 disabled:opacity-40"
+                          >
+                            {setupLoading ? "Starting…" : "Set up Lark"}
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </div>

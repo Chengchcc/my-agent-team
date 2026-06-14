@@ -39,6 +39,9 @@ export interface ConversationServiceDeps {
     threadId: string,
     ctx: { conversationId: string; agentMemberId: string; agentId: string },
   ) => Promise<{ runId: string; attemptId: string }>;
+  idGen: () => string;
+  /** Verify a runId belongs to the given conversation. Throws if not. */
+  verifyRunOwnsConversation?: (runId: string, conversationId: string) => Promise<void>;
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
@@ -102,7 +105,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
    *  M14.6: "todo" entries are UI-only — never projected into agent checkpoints
    *  (todo JSON would pollute the model's conversation context). */
   async function broadcastMessage(entry: LedgerRow): Promise<void> {
-    if (entry.kind === "todo") return; // UI-only, never projected
+    if (entry.kind === "todo" || entry.kind === "surface.control") return; // UI-only, never projected
 
     const conv = buildConversation(entry.conversationId);
     if (!conv) return;
@@ -415,6 +418,90 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
       // Fork runs (shared helper with postMessage)
       return forkAgentRuns(input.conversationId, targets);
+    },
+
+    /** M15.1: Start a fresh conversation from a surface control tool call.
+     *  Copies agent + human members, writes surface.control to old ledger. */
+    async startNewConversationForSurface(input: {
+      oldConversationId: string;
+      reason: string;
+      title?: string;
+      requestedByRunId: string;
+      idempotencyKey: string;
+    }): Promise<{ oldConversationId: string; newConversationId: string; controlSeq: number }> {
+      const { oldConversationId, reason, title, requestedByRunId, idempotencyKey } = input;
+
+      // 1. Idempotency: check if this control was already written
+      const existingEntries = port.getLedgerEntries(oldConversationId);
+      for (const entry of existingEntries) {
+        if (entry.kind !== "surface.control") continue;
+        try {
+          const c = JSON.parse(entry.content) as {
+            type: string;
+            requestedByRunId: string;
+            newConversationId: string;
+          };
+          if (c.type === "lark.start_new_conversation" && c.requestedByRunId === requestedByRunId) {
+            return {
+              oldConversationId,
+              newConversationId: c.newConversationId,
+              controlSeq: entry.seq,
+            };
+          }
+        } catch { /* malformed entry — skip */ }
+      }
+
+      // 2. Verify run owns the old conversation
+      if (deps.verifyRunOwnsConversation) {
+        await deps.verifyRunOwnsConversation(requestedByRunId, oldConversationId);
+      }
+
+      // 3. Create new conversation
+      const newConversationId = deps.idGen();
+      port.createConversation({
+        conversationId: newConversationId,
+        triggerMode: "mention",
+        createdAt: Date.now(),
+      });
+      if (title) {
+        port.setConversationTitle(newConversationId, title);
+      }
+
+      // 4. Copy agent members + Lark human members (NOT history)
+      const members = port.getMembers(oldConversationId);
+      for (const m of members) {
+        if (m.kind === "agent" || (m.kind === "human" && m.userRef?.startsWith("lark:"))) {
+          port.addMember({
+            memberId: m.memberId,
+            conversationId: newConversationId,
+            kind: m.kind,
+            agentId: m.agentId,
+            userRef: m.userRef,
+            displayName: m.displayName,
+            joinedAt: Date.now(),
+          });
+        }
+      }
+
+      // 5. Write surface.control entry to OLD conversation ledger
+      const control = {
+        type: "lark.start_new_conversation",
+        oldConversationId,
+        newConversationId,
+        reason,
+        requestedByRunId,
+        idempotencyKey,
+      };
+      const controlSeq = await appendAndBroadcast({
+        conversationId: oldConversationId,
+        senderMemberId: "__system__",
+        addressedTo: [],
+        kind: "surface.control",
+        content: control,
+      });
+
+      return { oldConversationId, newConversationId, controlSeq };
+    },
     },
   };
 }

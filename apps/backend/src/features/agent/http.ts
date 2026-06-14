@@ -4,6 +4,7 @@ import type { AgentRow } from "./domain.js";
 import type { AgentIdentityStore } from "./identity-store.js";
 import type { AgentService } from "./service.js";
 import { AgentBusyError, AgentNotFoundError } from "./service.js";
+import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
 
 const larkCreateSchema = z
   .object({
@@ -67,6 +68,7 @@ export function agentRoutes(
   svc: AgentService,
   identityStore?: AgentIdentityStore,
   larkStatusOf?: (agentId: string) => string,
+  setupManager?: LarkSetupManager,
 ) {
   return {
     async create(req: Request): Promise<Response> {
@@ -215,6 +217,54 @@ export function agentRoutes(
         if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
         throw err;
       }
+    },
+
+    // ─── M15.1: Lark profile setup ───
+
+    /** POST /api/agents/:id/lark/setup */
+    async larkSetup(req: Request, id: string): Promise<Response> {
+      if (!setupManager) return json({ error: "Lark setup not available" }, 501);
+      const body = (await req.json().catch(() => ({}))) as {
+        botDisplayName?: string;
+        brand?: "feishu" | "lark";
+      };
+      try {
+        const existing = await svc.getById(id);
+        const pending = setupManager.getByAgentId(id);
+        if (pending && pending.status === "pending") {
+          return json({ ...pending }, 200);
+        }
+        const session = await setupManager.create({
+          agentId: id,
+          botDisplayName:
+            typeof body.botDisplayName === "string"
+              ? body.botDisplayName
+              : existing.larkBotDisplayName ?? undefined,
+          brand: body.brand === "lark" ? "lark" : "feishu",
+        });
+        return json(session, 201);
+      } catch (err) {
+        if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
+        throw err;
+      }
+    },
+
+    /** GET /api/agents/:id/lark/setup/:setupId */
+    async larkSetupStatus(_req: Request, id: string, setupId: string): Promise<Response> {
+      if (!setupManager) return json({ error: "Lark setup not available" }, 501);
+      const session = setupManager.get(setupId);
+      if (!session) return json({ error: "Setup session not found" }, 404);
+      if (session.agentId !== id) return json({ error: "Not found" }, 404);
+      return json(session);
+    },
+
+    /** DELETE /api/agents/:id/lark/setup/:setupId */
+    async larkSetupCancel(_req: Request, id: string, setupId: string): Promise<Response> {
+      if (!setupManager) return json({ error: "Lark setup not available" }, 501);
+      const session = setupManager.get(setupId);
+      if (!session || session.agentId !== id) return json({ error: "Not found" }, 404);
+      setupManager.cancel(setupId);
+      return json({ cancelled: true });
     },
   };
 }

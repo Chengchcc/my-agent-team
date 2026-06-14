@@ -24,9 +24,12 @@ import { DevRunnerRegistry } from "./features/run/runner-registry.js";
 import { ProdRunnerRegistry } from "./features/run/runner-registry.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
 import {
+  CliSetupProvisioner,
   DevLarkBotRegistry,
+  LarkSetupManager,
   ProdLarkBotRegistry,
   larkProfileInit,
+  sanitizeLarkCliOutput,
 } from "./features/lark-bot/index.js";
 import type { LarkBotRegistry } from "./features/lark-bot/index.js";
 import { withLarkOrchestration } from "./features/agent/with-lark-orchestration.js";
@@ -262,6 +265,7 @@ const convSvc = createConversationService({
   threadProjectionWrite: threadProjectionWritePort,
   activeConversations,
   maxConsecutiveAgentHops: 8,
+  idGen: ulid,
 
   // ThreadId = conversationId:memberId (derived, not persisted).
   // The threads table is legacy — runtime only needs the derived key.
@@ -274,10 +278,40 @@ const convSvc = createConversationService({
     const preloadedMessages = (await threadProjectionPort.getMessages(threadId)) as
       | readonly Message[]
       | undefined;
+
+    // M15.1: Detect Lark surface by checking for human members with lark: userRef
+    const members = convPort.getMembers(ctx.conversationId);
+    const isLarkConversation = members.some(
+      (m) => m.kind === "human" && m.userRef?.startsWith("lark:"),
+    );
+    const surfaceContext = isLarkConversation
+      ? {
+          surface: "lark" as const,
+          conversationId: ctx.conversationId,
+          runId,
+          capabilities: ["start_new_conversation" as const],
+        }
+      : undefined;
+
     const { attemptId } = await supervisor.startMainRun(runId, threadId, spec, {
       preloadedMessages,
+      surfaceContext,
     });
     return { runId, attemptId };
+  },
+
+  /** M15.1: Verify a run belongs to a conversation before surface control writes. */
+  verifyRunOwnsConversation: async (runId, conversationId) => {
+    const runDb = supervisor.getDb();
+    const row = runDb
+      .query("SELECT thread_id FROM run WHERE run_id = ?")
+      .get(runId) as { thread_id: string } | undefined;
+    if (!row) throw new Error(`run not found: ${runId}`);
+    if (!row.thread_id.startsWith(`${conversationId}:`)) {
+      throw new Error(
+        `run ${runId} does not belong to conversation ${conversationId}`,
+      );
+    }
   },
 });
 
@@ -333,12 +367,22 @@ async function onRunComplete(threadId: string, runId: string): Promise<void> {
             }
           }
 
+          // M15.1: Inject runId so lark-bot can skip card-delivered final text
+          const contentWithRunId =
+            msg.role === "assistant"
+              ? typeof content === "string"
+                ? { text: content, runId }
+                : Array.isArray(content)
+                  ? { blocks: content, runId }
+                  : content
+              : content;
+
           const seq = convPort.appendLedgerEntry({
             conversationId: cid,
             senderMemberId,
             addressedTo: [...mentionedMemberIds],
             kind: "message",
-            content: JSON.stringify(content),
+            content: JSON.stringify(contentWithRunId),
             ts: Date.now(),
           });
           await convSvc.broadcastMessage({
@@ -391,8 +435,31 @@ const identityStore = createAgentIdentityStore({
   getAgent: (id) => agentSvc.getById(id),
 });
 
+// M15.1: Lark profile setup manager
+const setupProvisioner = new CliSetupProvisioner();
+const setupManager = new LarkSetupManager(setupProvisioner, async (session) => {
+  // On setup completion: write lark fields to agent DB + launch bot
+  await agentSvcRaw.update(session.agentId, {
+    lark: {
+      enabled: true,
+      botDisplayName: session.botDisplayName ?? undefined,
+    },
+  });
+  await larkBotRegistry.ensureLarkBot(
+    session.agentId,
+    session.botDisplayName,
+    session.profileRef,
+  );
+  console.log(`[lark-setup] completed for ${session.agentId}, profile=${session.profileRef}`);
+});
+
 const router = createRouter(config.authToken, {
-  agents: agentRoutes(agentSvc, identityStore, (agentId) => larkBotRegistry.statusOf(agentId)),
+  agents: agentRoutes(
+    agentSvc,
+    identityStore,
+    (agentId) => larkBotRegistry.statusOf(agentId),
+    setupManager,
+  ),
   // threads: removed — conversation is the user-facing concept
   runs: runRoutes(runSvc, buildAgentSpecV2, getThreadIdForRun),
   threadProjections: threadProjectionRoutes(threadProjectionSvc),
@@ -437,6 +504,7 @@ const shutdown = async (signal: string) => {
   await registry.dispose?.();
   // M15: Dispose lark-bot registry (SIGTERM all bot processes)
   await larkBotRegistry.dispose();
+  setupManager.dispose();
   db.close();
   process.exit(0);
 };
