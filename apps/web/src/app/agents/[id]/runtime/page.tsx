@@ -25,7 +25,7 @@ export default function AgentRuntimePage() {
   if (!runtime) {
     return (
       <div className="container mx-auto p-6">
-        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm">← Ops</Link>
+        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm">← Dashboard</Link>
         <p className="text-muted-foreground mt-4">Loading...</p>
       </div>
     );
@@ -34,7 +34,7 @@ export default function AgentRuntimePage() {
   return (
     <div className="container mx-auto p-6 space-y-8">
       <div className="flex items-center gap-3">
-        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm">← Ops</Link>
+        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm">← Dashboard</Link>
         <h1 className="text-2xl font-bold">{agentId} — Runtime</h1>
       </div>
       <div className="max-w-md">

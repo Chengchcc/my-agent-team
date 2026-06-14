@@ -78,7 +78,7 @@ export function NavRail() {
         <Link
           href="/ops"
           className="w-7 h-7 flex items-center justify-center rounded-full text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
-          aria-label="Ops"
+          aria-label="Dashboard"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <rect x="1" y="1" width="6" height="5" rx="1" />
@@ -142,7 +142,7 @@ export function NavRail() {
                 <rect x="1" y="10" width="6" height="5" rx="1" />
                 <rect x="9" y="10" width="6" height="5" rx="1" />
               </svg>
-              <span>Ops</span>
+              <span>Dashboard</span>
             </div>
           </Link>
           <h2 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] mb-2 font-[family-name:var(--font-sans)] font-semibold">
