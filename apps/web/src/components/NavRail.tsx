@@ -75,6 +75,18 @@ export function NavRail() {
             <path d="M10 13c0-2 2-3 4-3" />
           </svg>
         </Link>
+        <Link
+          href="/ops"
+          className="w-7 h-7 flex items-center justify-center rounded-full text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
+          aria-label="Ops"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <rect x="1" y="1" width="6" height="5" rx="1" />
+            <rect x="9" y="1" width="6" height="5" rx="1" />
+            <rect x="1" y="10" width="6" height="5" rx="1" />
+            <rect x="9" y="10" width="6" height="5" rx="1" />
+          </svg>
+        </Link>
         <div className="flex-1 w-px bg-[var(--hairline)]" />
       </aside>
     );
@@ -221,7 +233,13 @@ export function NavRail() {
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-[var(--hairline)]">
+      <div className="px-4 py-3 border-t border-[var(--hairline)] flex items-center justify-between">
+        <Link
+          href="/ops"
+          className="text-[9px] tracking-[0.15em] uppercase text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
+        >
+          Ops
+        </Link>
         <Link
           href="/api/auth/logout"
           className="text-[9px] tracking-[0.15em] uppercase text-[var(--mute)] hover:text-[var(--body)] transition-colors"
