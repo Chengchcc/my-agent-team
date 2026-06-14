@@ -18,12 +18,16 @@ const forkLog: Array<{ runId: string; threadId: string }> = [];
 const _nextRunId = 0;
 const activeConversations = new Set<string>();
 
+let idCount = 0;
+function testIdGen(): string { return `test-id-${idCount++}`; }
+
 const svc = createConversationService({
   port,
   threadProjectionRead,
   threadProjectionWrite,
   activeConversations,
   maxConsecutiveAgentHops: 3,
+  idGen: testIdGen,
   forkRun: async (runId, threadId, _ctx) => {
     forkLog.push({ runId, threadId });
     activeConversations.add(""); // placeholder — caller owns lock management
@@ -501,5 +505,111 @@ describe("M14.4: triggerMentionedAgents", () => {
 
     const conv = port.getConversation(id);
     expect(conv?.hopCount).toBe(1);
+  });
+});
+
+// ─── M15.1: surface.control ─────────────────────────────────
+
+describe("surface.control filtering", () => {
+  test("surface.control entries are not projected to agent checkpoints", async () => {
+    const { id } = setupConv("conv-sc1");
+
+    await svc.broadcastMessage({
+      seq: 1,
+      conversationId: id,
+      senderMemberId: "__system__",
+      addressedTo: [],
+      kind: "surface.control",
+      content: JSON.stringify({ type: "lark.start_new_conversation" }),
+      ts: Date.now(),
+    });
+
+    // Agent checkpoint should NOT have the surface.control entry projected
+    const xMsgs = await threadProjectionRead.getMessages(`${id}:mem-x1-${id}`);
+    const xCount = xMsgs?.length ?? 0;
+    // surface.control should not appear in projected messages
+    expect(xCount).toBe(0); // no previous broadcast, so still 0
+  });
+
+  test("todo entries are still filtered (existing behavior)", async () => {
+    const { id } = setupConv("conv-sc2");
+
+    await svc.broadcastMessage({
+      seq: 1,
+      conversationId: id,
+      senderMemberId: "agent",
+      addressedTo: [],
+      kind: "todo",
+      content: JSON.stringify({ todos: [] }),
+      ts: Date.now(),
+    });
+
+    const xMsgs = await threadProjectionRead.getMessages(`${id}:mem-x1-${id}`);
+    expect(xMsgs?.length ?? 0).toBe(0);
+  });
+});
+
+describe("startNewConversationForSurface", () => {
+  test("creates new conversation, copies members, writes surface.control", async () => {
+    const { id: oldId } = setupConv("conv-startnew1");
+    // Add a Lark human member (with lark: userRef) for copy
+    port.addMember({
+      memberId: "human-lark-1",
+      conversationId: oldId,
+      kind: "human",
+      userRef: "lark:ou_user001",
+      displayName: "LarkUser",
+      joinedAt: Date.now(),
+    });
+
+    const result = await svc.startNewConversationForSurface({
+      oldConversationId: oldId,
+      reason: "user requested reset",
+      title: "fresh topic",
+      requestedByRunId: "run_test_1",
+      idempotencyKey: "run_test_1:start_new_conversation",
+    });
+
+    expect(result.oldConversationId).toBe(oldId);
+    expect(result.newConversationId).toStartWith("test-id-");
+    expect(result.controlSeq).toBeGreaterThan(0);
+
+    // New conversation exists
+    const newConv = port.getConversation(result.newConversationId);
+    expect(newConv).not.toBeNull();
+    expect(newConv?.title).toBe("fresh topic");
+
+    // Members copied (agent + human only)
+    const newMembers = port.getMembers(result.newConversationId);
+    const agentMembers = newMembers.filter((m) => m.kind === "agent");
+    const humanMembers = newMembers.filter((m) => m.kind === "human");
+    expect(agentMembers.length).toBeGreaterThan(0);
+    expect(humanMembers.length).toBeGreaterThan(0);
+
+    // Old conversation has surface.control entry
+    const entries = port.getLedgerEntries(oldId);
+    const controlEntries = entries.filter((e) => e.kind === "surface.control");
+    expect(controlEntries.length).toBeGreaterThan(0);
+  });
+
+  test("idempotent — same idempotencyKey returns same result", async () => {
+    const { id: oldId } = setupConv("conv-startnew2");
+
+    const first = await svc.startNewConversationForSurface({
+      oldConversationId: oldId,
+      reason: "reset",
+      requestedByRunId: "run_idem_1",
+      idempotencyKey: "run_idem_1:start_new_conversation",
+    });
+
+    const second = await svc.startNewConversationForSurface({
+      oldConversationId: oldId,
+      reason: "reset again",
+      requestedByRunId: "run_idem_1",
+      idempotencyKey: "run_idem_1:start_new_conversation",
+    });
+
+    expect(second.newConversationId).toBe(first.newConversationId);
+    expect(second.controlSeq).toBe(first.controlSeq);
   });
 });

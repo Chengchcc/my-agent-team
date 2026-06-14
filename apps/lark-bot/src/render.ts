@@ -21,6 +21,21 @@ export function render(content: string): string {
     if (typeof text === "string") return text;
   }
 
+  // M15.1: D19 wraps ContentBlock[] with runId: { blocks: [...], runId }
+  if (parsed && typeof parsed === "object" && "blocks" in parsed) {
+    const blocks = (parsed as { blocks: unknown }).blocks;
+    if (Array.isArray(blocks)) {
+      const texts = blocks
+        .filter(
+          (b): b is { type: "text"; text: string } =>
+            typeof b === "object" && b !== null && (b as { type: string }).type === "text",
+        )
+        .map((b) => b.text);
+      if (texts.length > 0) return texts.join("");
+    }
+    return "[Unsupported content]";
+  }
+
   // ContentBlock[] — extract text blocks
   if (Array.isArray(parsed)) {
     const texts = parsed

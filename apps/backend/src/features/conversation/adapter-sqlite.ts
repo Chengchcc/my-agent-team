@@ -231,7 +231,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         conversation_id: string;
         sender_member_id: string;
         addressed_to: string;
-        kind: "message" | "member.joined" | "member.left" | "todo";
+        kind: "message" | "member.joined" | "member.left" | "todo" | "surface.control";
         content: string;
         ts: number;
       }[];

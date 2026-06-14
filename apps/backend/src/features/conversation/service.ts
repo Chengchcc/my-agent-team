@@ -502,7 +502,6 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
       return { oldConversationId, newConversationId, controlSeq };
     },
-    },
   };
 }
 export type ConversationService = ReturnType<typeof createConversationService>;
