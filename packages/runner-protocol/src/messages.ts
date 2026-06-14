@@ -1,5 +1,6 @@
 import type { Message } from "@my-agent-team/core";
 import type { AgentEvent } from "@my-agent-team/framework";
+import type { RuntimeTraceContext } from "@my-agent-team/runtime-observability";
 
 export type HostToRunner =
   | {
@@ -19,6 +20,8 @@ export type HostToRunner =
         runId: string;
         capabilities: Array<"start_new_conversation">;
       };
+      /** M16: Trace context propagated from backend to runner daemon. */
+      trace?: RuntimeTraceContext;
     }
   | { type: "abort"; runId: string }
   | { type: "run_finalized"; runId: string };
@@ -34,6 +37,16 @@ export type RunnerToHost =
       status: "succeeded" | "error" | "aborted";
       wantsReflect?: boolean;
       error?: string;
+    }
+  | {
+      /** M16: Daemon-level health signal sent every 10s, even when idle. */
+      type: "daemon_health";
+      agentId: string;
+      uptimeMs: number;
+      activeRunIds: string[];
+      checkpointer: { kind: "sqlite"; ok: boolean; lastError?: string };
+      workspace: { ok: boolean; lastError?: string };
+      ts: number;
     };
 
 export type ProtocolMessage = HostToRunner | RunnerToHost;

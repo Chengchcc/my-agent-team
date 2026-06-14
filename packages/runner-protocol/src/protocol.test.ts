@@ -118,6 +118,58 @@ describe("createFramer", () => {
 
     expect(msgs).toEqual([{ type: "abort", runId: "r1" }]);
   });
+
+  // M16: daemon_health and trace propagation
+  test("daemon_health encode/decode round-trip", () => {
+    const msg = {
+      type: "daemon_health" as const,
+      agentId: "agent_x",
+      uptimeMs: 15000,
+      activeRunIds: ["r1", "r2"],
+      checkpointer: { kind: "sqlite" as const, ok: true },
+      workspace: { ok: true },
+      ts: 1000,
+    };
+    const raw = encode(msg);
+    const decoded = JSON.parse(raw);
+    expect(decoded.type).toBe("daemon_health");
+    expect(decoded.agentId).toBe("agent_x");
+    expect(decoded.activeRunIds).toEqual(["r1", "r2"]);
+    expect(decoded.checkpointer.kind).toBe("sqlite");
+  });
+
+  test("start.trace encode/decode", () => {
+    const msg = {
+      type: "start" as const,
+      runId: "r1",
+      spec: {},
+      trace: {
+        traceId: "a".repeat(32),
+        spanId: "b".repeat(16),
+        traceparent: `00-${"a".repeat(32)}-${"b".repeat(16)}-01`,
+      },
+    };
+    const raw = encode(msg);
+    const decoded = JSON.parse(raw);
+    expect(decoded.trace.traceId).toBe("a".repeat(32));
+    expect(decoded.trace.spanId).toBe("b".repeat(16));
+  });
+
+  test("daemon_health with optional error fields", () => {
+    const msg = {
+      type: "daemon_health" as const,
+      agentId: "agent_x",
+      uptimeMs: 5000,
+      activeRunIds: [],
+      checkpointer: { kind: "sqlite" as const, ok: false, lastError: "disk full" },
+      workspace: { ok: false, lastError: "permission denied" },
+      ts: 2000,
+    };
+    const raw = encode(msg);
+    const decoded = JSON.parse(raw);
+    expect(decoded.checkpointer.lastError).toBe("disk full");
+    expect(decoded.workspace.lastError).toBe("permission denied");
+  });
 });
 
 // ─── Memory transport ───
