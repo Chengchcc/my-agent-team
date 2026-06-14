@@ -507,6 +507,7 @@ const opsSvc = createRuntimeOpsService({
   supervisor,
   registry,
   heartbeatTimeoutMs: config.heartbeatTimeoutMs,
+  eventLog,
 });
 
 const router = createRouter(config.authToken, {

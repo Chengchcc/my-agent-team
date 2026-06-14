@@ -5,15 +5,15 @@ export function opsRoutes(svc: RuntimeOpsService) {
   return {
     async listRuns(req: Request): Promise<Response> {
       const url = new URL(req.url);
+      const raw = url.searchParams.get("limit");
+      const limit = raw ? parseInt(raw, 10) : undefined;
       return json(
         svc.listRuns({
           agentId: url.searchParams.get("agentId") ?? undefined,
           threadId: url.searchParams.get("threadId") ?? undefined,
           conversationId: url.searchParams.get("conversationId") ?? undefined,
           status: url.searchParams.get("status") ?? undefined,
-          limit: url.searchParams.get("limit")
-            ? parseInt(url.searchParams.get("limit")!)
-            : undefined,
+          limit: limit != null && Number.isFinite(limit) && limit > 0 ? limit : undefined,
         }),
       );
     },
@@ -31,13 +31,23 @@ export function opsRoutes(svc: RuntimeOpsService) {
     },
 
     async recoverRun(_req: Request, runId: string): Promise<Response> {
-      const result = svc.recover(runId);
+      const result = await svc.recover(runId);
       return json(result);
     },
 
     async getAgentRuntime(_req: Request, agentId: string): Promise<Response> {
       // Always returns an object — "unknown" status means no health data yet
       return json(svc.getAgentRuntime(agentId));
+    },
+
+    async getTraceDetail(_req: Request, traceId: string): Promise<Response> {
+      const detail = svc.getTraceDetail(traceId);
+      if (!detail) return json({ error: "Trace not found" }, 404);
+      return json(detail);
+    },
+
+    async listSurfaces(_req: Request): Promise<Response> {
+      return json(svc.listSurfaces());
     },
 
     /** M16: Internal surface heartbeat endpoint. Payload pre-sanitized by lark-bot. */

@@ -55,6 +55,9 @@ export interface RunSession {
   agentId: string;
   kind: "main" | "reflect";
   transport: RunnerTransport;
+  /** M16.1: Whether the backend has a real control channel to the runner daemon.
+   *  "attached" = live transport; "noop" = NOOP_TRANSPORT placeholder (no control). */
+  transportKind: "attached" | "noop";
   abortController: AbortController;
 }
 
@@ -184,6 +187,13 @@ export class RunSupervisor {
     fn: (threadId: string, runId: string, status: string) => void | Promise<void>,
   ): void {
     this.#onRunComplete.push(fn);
+  }
+
+  /** M16.1: Trigger all onRunComplete listeners. Used by ops service recover() stale path. */
+  notifyRunComplete(threadId: string, runId: string, status: string): void {
+    for (const fn of this.#onRunComplete) {
+      fn(threadId, runId, status);
+    }
   }
 
   get activeCount(): number {
@@ -426,8 +436,10 @@ export class RunSupervisor {
     agentId: string;
     kind: "main" | "reflect";
     transport: RunnerTransport;
+    transportKind?: "attached" | "noop";
   }): void {
-    this.#active.set(o.runId, { ...o, abortController: new AbortController() });
+    const transportKind = o.transportKind ?? (o.transport === NOOP_TRANSPORT ? "noop" : "attached");
+    this.#active.set(o.runId, { ...o, transportKind, abortController: new AbortController() });
   }
 
   #transportQueues = new Map<RunnerTransport, Promise<void>>();
@@ -585,6 +597,29 @@ export class RunSupervisor {
     for (const runId of this.#active.keys()) {
       this.cancel(runId);
     }
+  }
+
+  /** M16.1: Bind a transport to receive messages (used by recover reattach). */
+  bindTransport(transport: RunnerTransport): void {
+    this.#bindTransport(transport);
+  }
+
+  /** M16.1: Register a recovered session in #active after successful reattach. */
+  registerRecoveredSession(
+    runId: string,
+    agentId: string,
+    threadId: string,
+    transport: RunnerTransport,
+    attemptId: string,
+  ): void {
+    this.#registerSession({
+      runId,
+      attemptId,
+      threadId,
+      agentId,
+      kind: "main",
+      transport,
+    });
   }
 
   /** On restart: discover live runs by heartbeat, re-register them for cancel support.

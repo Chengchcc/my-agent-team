@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import type { EventLog } from "@my-agent-team/event-log";
 import { RuntimeOpsStore } from "./store.js";
 import { computeRunnerStatus } from "./types.js";
 import type { RunnerHealthStatus, RunnerHealthRow } from "./types.js";
@@ -58,6 +59,7 @@ export interface RunOpsDetail {
 
 export interface AgentRuntimeStatus {
   agentId: string;
+  heartbeatTimeoutMs: number;
   runner: {
     status: RunnerHealthStatus;
     lastSeenAt: number | null;
@@ -96,8 +98,9 @@ export function createRuntimeOpsService(deps: {
   supervisor: RunSupervisor;
   registry: RunnerRegistry;
   heartbeatTimeoutMs: number;
+  eventLog: EventLog;
 }) {
-  const { db, opsStore, supervisor, registry, heartbeatTimeoutMs } = deps;
+  const { db, opsStore, supervisor, registry, heartbeatTimeoutMs, eventLog } = deps;
   const OFFLINE_AFTER_MS = heartbeatTimeoutMs * 2;
 
   return {
@@ -108,7 +111,8 @@ export function createRuntimeOpsService(deps: {
       status?: string;
       limit?: number;
     }): RunOpsListItem[] {
-      const limit = params.limit ?? 50;
+      const raw = params.limit ?? 50;
+      const limit = Number.isFinite(raw) && raw > 0 && raw <= 500 ? Math.floor(raw) : 50;
       let sql = `SELECT r.run_id, r.thread_id, r.agent_id, r.kind, r.parent_run_id, r.status, r.started_at, r.ended_at
                  FROM run r WHERE 1=1`;
       const args: (string | number)[] = [];
@@ -121,8 +125,10 @@ export function createRuntimeOpsService(deps: {
         args.push(params.threadId);
       }
       if (params.conversationId) {
-        sql += " AND r.thread_id LIKE ?";
-        args.push(`${params.conversationId}:%`);
+        // Escape LIKE wildcards so user input doesn't get interpreted as patterns
+        const escaped = params.conversationId.replace(/[%_]/g, "\\$&");
+        sql += " AND r.thread_id LIKE ? ESCAPE '\\'";
+        args.push(`${escaped}:%`);
       }
       if (params.status) {
         sql += " AND r.status = ?";
@@ -155,7 +161,7 @@ export function createRuntimeOpsService(deps: {
           attempt?.heartbeat_at ? Date.now() - attempt.heartbeat_at : null;
         const session = supervisor.getActive(r.run_id);
         const transport: RunOpsListItem["runnerTransport"] = session
-          ? "attached"
+          ? session.transportKind
           : "detached";
 
         const lastEvent = db
@@ -234,7 +240,7 @@ export function createRuntimeOpsService(deps: {
         attempts: attempts.map((a) => {
           const session = supervisor.getActive(runId);
           const transport: "attached" | "noop" | "detached" = session
-            ? "attached"
+            ? session.transportKind
             : a.ended_at ? "detached" : "detached";
           return {
             attemptId: a.attempt_id,
@@ -279,10 +285,10 @@ export function createRuntimeOpsService(deps: {
       return { ok: true, state: "abort_sent", runId, attemptId: session.attemptId };
     },
 
-    recover(runId: string): RecoverRunResult {
+    async recover(runId: string): Promise<RecoverRunResult> {
       const run = db
-        .query("SELECT status, agent_id FROM run WHERE run_id = ?")
-        .get(runId) as { status: string; agent_id: string } | undefined;
+        .query("SELECT status, agent_id, thread_id FROM run WHERE run_id = ?")
+        .get(runId) as { status: string; agent_id: string; thread_id: string } | undefined;
       if (!run) return { state: "already_terminal", status: "not_found" };
       if (run.status !== "running") return { state: "already_terminal", status: run.status };
 
@@ -298,6 +304,7 @@ export function createRuntimeOpsService(deps: {
 
       const age = attempt.heartbeat_at ? Math.max(0, Date.now() - attempt.heartbeat_at) : Infinity;
       if (age >= heartbeatTimeoutMs) {
+        // M16.1: stale heartbeat → go through reaper terminal path (write EventLog + trigger onRunComplete)
         const now = Date.now();
         db.transaction(() => {
           db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ?", [
@@ -315,7 +322,45 @@ export function createRuntimeOpsService(deps: {
           kind: "recover_requested",
           payload: { reason: "heartbeat_timeout" },
         });
+        // Append terminal event to EventLog (same as reaper path)
+        try {
+          await eventLog.append(run.thread_id, runId, {
+            type: "interrupted",
+            payload: { reason: "heartbeat_timeout" },
+          });
+        } catch {
+          // EventLog append is best-effort
+        }
+        // Trigger onRunComplete listeners
+        // Trigger onRunComplete listeners (same as reaper path)
+        supervisor.notifyRunComplete(run.thread_id, runId, "interrupted");
         return { state: "marked_interrupted", reason: "heartbeat_timeout" };
+      }
+
+      // M16.1: heartbeat fresh — try to reattach to existing daemon
+      if (registry.attachExisting) {
+        try {
+          const attached = await registry.attachExisting(run.agent_id);
+          if (attached) {
+            // Bind transport and register session
+            supervisor.bindTransport(attached);
+            supervisor.registerRecoveredSession(runId, run.agent_id, run.thread_id, attached, attempt.attempt_id);
+            opsStore.appendRunEvent({
+              runId,
+              attemptId: attempt.attempt_id,
+              kind: "reattach_succeeded",
+              payload: { source: "recover" },
+            });
+            return { state: "reattached", attemptId: attempt.attempt_id };
+          }
+        } catch {
+          opsStore.appendRunEvent({
+            runId,
+            attemptId: attempt.attempt_id,
+            kind: "reattach_failed",
+            payload: { source: "recover" },
+          });
+        }
       }
 
       return { state: "waiting", reason: "heartbeat_fresh_but_transport_detached" };
@@ -357,6 +402,7 @@ export function createRuntimeOpsService(deps: {
 
       return {
         agentId,
+        heartbeatTimeoutMs,
         runner: {
           status: computeRunnerStatus(runnerRow, Date.now(), OFFLINE_AFTER_MS),
           lastSeenAt: runnerHealth?.lastSeenAt ?? null,
@@ -389,6 +435,82 @@ export function createRuntimeOpsService(deps: {
           profileRef: body.profileRef,
         },
         lastError: body.lastError ?? undefined,
+      });
+    },
+
+    // ─── M16.1: Trace detail (local waterfall) ───
+
+    getTraceDetail(traceId: string): {
+      traceId: string;
+      mode: "local" | "otlp";
+      runs: RunOpsListItem[];
+      events: Array<{
+        ts: number;
+        runId: string;
+        attemptId: string | null;
+        kind: string;
+        payload: Record<string, unknown>;
+      }>;
+    } | null {
+      // Find all runs with this trace ID
+      const origins = opsStore.listRunOrigins().filter((o) => o.traceId === traceId);
+      if (origins.length === 0) {
+        // Also check run_ops_event for trace_id
+        const opsEvents = opsStore.getRunEventsByTrace(traceId);
+        if (opsEvents.length === 0) return null;
+      }
+
+      const events = opsStore.getRunEventsByTrace(traceId).map((e) => ({
+        ts: e.ts,
+        runId: e.runId,
+        attemptId: e.attemptId,
+        kind: e.kind,
+        payload: e.payload,
+      }));
+
+      const runs = this.listRuns({ limit: 500 }).filter(
+        (r) => r.traceId === traceId,
+      );
+
+      return {
+        traceId,
+        mode: "local",
+        runs,
+        events: events.sort((a, b) => a.ts - b.ts),
+      };
+    },
+
+    // ─── M16.1: Surface diagnostics ───
+
+    listSurfaces(): Array<{
+      agentId: string;
+      surface: string;
+      status: string;
+      lastSeenAt: number | null;
+      lastError: string | null;
+      counters: Record<string, number>;
+    }> {
+      const all = opsStore.listSurfaceHealths();
+      return all.map((sh) => {
+        let counters: Record<string, number> = {};
+        try {
+          counters = JSON.parse(sh.payload);
+        } catch {
+          /* keep empty */
+        }
+        // Redact: remove any lingering identifiers (profileRef, chat_id, open_id)
+        delete counters.profileRef;
+        delete counters.chat_id;
+        delete counters.open_id;
+
+        return {
+          agentId: sh.agentId,
+          surface: sh.surface,
+          status: sh.status,
+          lastSeenAt: sh.lastSeenAt,
+          lastError: sh.lastError,
+          counters,
+        };
       });
     },
   };

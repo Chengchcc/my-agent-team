@@ -203,4 +203,10 @@ export class RuntimeOpsStore {
       )
       .all(agentId) as SurfaceHealthRow[];
   }
+
+  listSurfaceHealths(): SurfaceHealthRow[] {
+    return this.#db
+      .query(`SELECT ${SURFACE_HEALTH_COLS} FROM surface_health ORDER BY agent_id, surface`)
+      .all() as SurfaceHealthRow[];
+  }
 }

@@ -22,7 +22,7 @@ export async function apiFetch<T = unknown>(
   });
 
   if (res.status === 401) {
-    window.location.href = "/login";
+    if (typeof window !== "undefined") window.location.href = "/login";
     throw new ApiError(401, "Session expired");
   }
   if (!res.ok) {
@@ -217,11 +217,19 @@ export const api = {
   deleteConversation: (id: string) => apiFetch<void>(`conversations/${id}`, { method: "DELETE" }),
 
   // M16: Ops observability
-  listOpsRuns: (params?: { agentId?: string; status?: string; limit?: number }) => {
+  listOpsRuns: (params?: {
+    agentId?: string; status?: string; limit?: number;
+    transport?: "attached" | "noop" | "detached";
+    heartbeat?: "fresh" | "stale" | "none";
+    traceId?: string;
+  }) => {
     const qs = new URLSearchParams();
     if (params?.agentId) qs.set("agentId", params.agentId);
     if (params?.status) qs.set("status", params.status);
     if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.transport) qs.set("transport", params.transport);
+    if (params?.heartbeat) qs.set("heartbeat", params.heartbeat);
+    if (params?.traceId) qs.set("traceId", params.traceId);
     const q = qs.toString();
     return apiFetch<RunOpsListItem[]>(`ops/runs${q ? `?${q}` : ""}`);
   },
@@ -232,6 +240,9 @@ export const api = {
     apiFetch<RecoverRunResult>(`ops/runs/${runId}/recover`, { method: "POST" }),
   getAgentRuntime: (agentId: string) =>
     apiFetch<AgentRuntimeStatus>(`ops/agents/${agentId}/runtime`),
+  getTraceOpsDetail: (traceId: string) =>
+    apiFetch<TraceOpsDetail>(`ops/traces/${traceId}`),
+  listSurfaces: () => apiFetch<SurfaceOpsItem[]>("ops/surfaces"),
 };
 
 // ── M16 ops types ──
@@ -272,6 +283,7 @@ export interface RunOpsDetail {
 
 export interface AgentRuntimeStatus {
   agentId: string;
+  heartbeatTimeoutMs: number;
   runner: {
     status: string; lastSeenAt: number | null; uptimeMs: number;
     activeRunCount: number; checkpointerOk: boolean; workspaceOk: boolean;
@@ -280,6 +292,28 @@ export interface AgentRuntimeStatus {
   surfaces: Record<string, {
     status: string; lastSeenAt: number | null;
     lastError: string | null; counters: Record<string, number>;
+  }>;
+}
+
+export interface SurfaceOpsItem {
+  agentId: string;
+  surface: "lark" | "web";
+  status: string;
+  lastSeenAt: number | null;
+  lastError: string | null;
+  counters: Record<string, number>;
+}
+
+export interface TraceOpsDetail {
+  traceId: string;
+  mode: "local" | "otlp";
+  runs: RunOpsListItem[];
+  events: Array<{
+    ts: number;
+    runId: string;
+    attemptId: string | null;
+    kind: string;
+    payload: Record<string, unknown>;
   }>;
 }
 
@@ -294,3 +328,37 @@ export type RecoverRunResult =
   | { state: "reattached"; attemptId: string }
   | { state: "marked_interrupted"; reason: "heartbeat_timeout" }
   | { state: "waiting"; reason: "heartbeat_fresh_but_transport_detached" };
+
+// ── Error classification ──
+
+export type UiErrorKind = "unauthorized" | "not_found" | "backend_unavailable" | "unknown";
+
+export function classifyError(e: unknown): UiErrorKind {
+  if (e instanceof ApiError) {
+    if (e.status === 401) return "unauthorized";
+    if (e.status === 404) return "not_found";
+    if (e.status >= 500) return "backend_unavailable";
+  }
+  return "unknown";
+}
+
+// ── Ops diagnosis types ──
+
+export type RunDiagnosisKind =
+  | "running"
+  | "heartbeat_stale"
+  | "detached_waiting_reaper"
+  | "surface_projection_failed"
+  | "terminal";
+
+export type DiagnosisOwner =
+  | "none"
+  | "runner"
+  | "backend_runner_link"
+  | "surface"
+  | "unknown";
+
+export interface RunDiagnosis {
+  kind: RunDiagnosisKind;
+  owner: DiagnosisOwner;
+}

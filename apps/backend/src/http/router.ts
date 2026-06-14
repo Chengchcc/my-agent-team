@@ -155,6 +155,8 @@ export function createRouter(token: string, features?: FeatureSet) {
         const opsRunRecoverMatch = path.match(/^\/api\/ops\/runs\/([^/]+)\/recover$/);
         const opsAgentRuntimeMatch = path.match(/^\/api\/ops\/agents\/([^/]+)\/runtime$/);
         const larkHeartbeatMatch = path === "/api/internal/surfaces/lark/heartbeat";
+        const opsTracesMatch = path.match(/^\/api\/ops\/traces\/([^/]+)$/);
+        const opsSurfacesMatch = path === "/api/ops/surfaces";
 
         if (opsRunsMatch && method === "GET")
           return withAuth((r) => ops.listRuns(r), token)(req);
@@ -166,6 +168,10 @@ export function createRouter(token: string, features?: FeatureSet) {
           return withAuth((r) => ops.recoverRun(r, opsRunRecoverMatch[1]!), token)(req);
         if (opsAgentRuntimeMatch && method === "GET")
           return withAuth((r) => ops.getAgentRuntime(r, opsAgentRuntimeMatch[1]!), token)(req);
+        if (opsTracesMatch && method === "GET")
+          return withAuth((r) => ops.getTraceDetail(r, opsTracesMatch[1]!), token)(req);
+        if (opsSurfacesMatch && method === "GET")
+          return withAuth((r) => ops.listSurfaces(r), token)(req);
         if (larkHeartbeatMatch && method === "POST")
           return withAuth((r) => ops.larkHeartbeat(r), token)(req);
       }
