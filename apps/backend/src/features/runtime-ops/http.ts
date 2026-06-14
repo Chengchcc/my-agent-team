@@ -13,6 +13,9 @@ export function opsRoutes(svc: RuntimeOpsService) {
           threadId: url.searchParams.get("threadId") ?? undefined,
           conversationId: url.searchParams.get("conversationId") ?? undefined,
           status: url.searchParams.get("status") ?? undefined,
+          transport: (url.searchParams.get("transport") as "attached" | "noop" | "detached" | null) ?? undefined,
+          heartbeat: (url.searchParams.get("heartbeat") as "fresh" | "stale" | null) ?? undefined,
+          traceId: url.searchParams.get("traceId") ?? undefined,
           limit: limit != null && Number.isFinite(limit) && limit > 0 ? limit : undefined,
         }),
       );

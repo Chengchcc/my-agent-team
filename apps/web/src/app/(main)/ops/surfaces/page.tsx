@@ -11,6 +11,7 @@ export default function SurfacesPage() {
     queryKey: ["ops", "surfaces"],
     queryFn: api.listSurfaces,
     staleTime: 10_000,
+    refetchInterval: 30_000,
   });
 
   return (

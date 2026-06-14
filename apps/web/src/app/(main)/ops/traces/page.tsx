@@ -9,6 +9,7 @@ export default function TracesPage() {
     queryKey: ["ops", "runs"],
     queryFn: () => api.listOpsRuns({ limit: 100 }),
     staleTime: 10_000,
+    refetchInterval: 30_000,
   });
 
   return (

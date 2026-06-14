@@ -1,6 +1,8 @@
 "use client";
 
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { api } from "@/lib/api";
 import type { RunOpsListItem, AgentRuntimeStatus } from "@/lib/api";
 import { isStaleRun, isDetachedRun, isUnhealthyAgent, hasSurfaceError } from "@/lib/ops-diagnosis";
 
@@ -16,12 +18,36 @@ interface AttentionItem {
   severity: Severity;
   label: string;
   href: string;
+  runId?: string;
+  actionable: boolean;
 }
 
 const severityColor: Record<Severity, string> = {
   critical: "bg-primary",
   warn: "bg-amber-400",
 };
+
+function RecoverButton({ runId }: { runId: string }) {
+  const qc = useQueryClient();
+  const mut = useMutation({
+    mutationFn: () => api.opsRecoverRun(runId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ops", "runs"] });
+      qc.invalidateQueries({ queryKey: ["ops", "agentRuntime"] });
+    },
+  });
+
+  return (
+    <button
+      type="button"
+      disabled={mut.isPending}
+      onClick={(e) => { e.preventDefault(); mut.mutate(); }}
+      className="ml-auto text-xs text-primary hover:underline disabled:opacity-50 shrink-0"
+    >
+      {mut.isPending ? "…" : "Recover"}
+    </button>
+  );
+}
 
 export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: NeedsAttentionProps) {
   const items: AttentionItem[] = [];
@@ -32,12 +58,16 @@ export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: Needs
         severity: "critical",
         label: `Run ${r.runId.slice(0, 12)}… — Detached placeholder (agent ${r.agentName})`,
         href: `/ops/runs/${r.runId}`,
+        runId: r.runId,
+        actionable: true,
       });
     } else if (isStaleRun(r, heartbeatTimeoutMs)) {
       items.push({
         severity: "critical",
         label: `Run ${r.runId.slice(0, 12)}… — Heartbeat stale (${Math.floor((r.heartbeatAgeMs ?? 0) / 1000)}s, agent ${r.agentName})`,
         href: `/ops/runs/${r.runId}`,
+        runId: r.runId,
+        actionable: true,
       });
     }
   }
@@ -48,6 +78,7 @@ export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: Needs
         severity: rt.runner.status === "offline" ? "critical" : "warn",
         label: `Agent ${rt.agentName} — Runner ${rt.runner.status}${rt.runner.lastError ? `: ${rt.runner.lastError}` : ""}`,
         href: `/ops/agents/${rt.agentId}`,
+        actionable: false,
       });
     }
     if (hasSurfaceError(rt)) {
@@ -57,6 +88,7 @@ export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: Needs
             severity: "warn",
             label: `Agent ${rt.agentName} — ${surface} surface ${health.status}${health.lastError ? `: ${health.lastError}` : ""}`,
             href: `/ops/surfaces`,
+            actionable: false,
           });
         }
       }
@@ -81,6 +113,7 @@ export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: Needs
           >
             <span className={`w-2 h-2 rounded-full shrink-0 ${severityColor[item.severity]}`} />
             <span className="text-foreground">{item.label}</span>
+            {item.actionable && item.runId && <RecoverButton runId={item.runId} />}
           </Link>
         </li>
       ))}

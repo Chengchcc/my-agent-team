@@ -17,6 +17,7 @@ export default function RunDetailPage() {
     queryKey: ["ops", "runDetail", runId],
     queryFn: () => api.getOpsRunDetail(runId),
     enabled: !!runId,
+    refetchInterval: (q) => q.state.data?.run.status === "running" ? 10_000 : false,
   });
 
   const runtimeQuery = useQuery({

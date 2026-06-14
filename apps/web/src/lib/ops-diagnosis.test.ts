@@ -58,6 +58,7 @@ function makeListItem(overrides: Partial<RunOpsListItem> = {}): RunOpsListItem {
     runId: "run-1",
     threadId: "thread-1",
     agentId: "agent-1",
+    agentName: "Agent 1",
     kind: "main",
     parentRunId: null,
     status: "running",
@@ -159,7 +160,7 @@ describe("health predicates", () => {
 
   test("isUnhealthyAgent flags degraded/offline runners", () => {
     const base: AgentRuntimeStatus = {
-      agentId: "a", heartbeatTimeoutMs: 60_000,
+      agentId: "a", agentName: "Agent A", heartbeatTimeoutMs: 60_000,
       runner: { status: "busy", lastSeenAt: Date.now(), uptimeMs: 1000, activeRunCount: 1, checkpointerOk: true, workspaceOk: true, lastError: null },
       surfaces: {},
     };
@@ -172,7 +173,7 @@ describe("health predicates", () => {
 
   test("hasSurfaceError detects non-running surfaces", () => {
     const base: AgentRuntimeStatus = {
-      agentId: "a", heartbeatTimeoutMs: 60_000,
+      agentId: "a", agentName: "Agent A", heartbeatTimeoutMs: 60_000,
       runner: { status: "busy", lastSeenAt: Date.now(), uptimeMs: 1000, activeRunCount: 1, checkpointerOk: true, workspaceOk: true, lastError: null },
       surfaces: {},
     };

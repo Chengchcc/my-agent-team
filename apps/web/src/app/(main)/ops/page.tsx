@@ -12,6 +12,7 @@ export default function OpsPage() {
     queryKey: ["ops", "runs"],
     queryFn: () => api.listOpsRuns({ limit: 100 }),
     staleTime: 10_000,
+    refetchInterval: 30_000,
   });
 
   const agentsQuery = useQuery({

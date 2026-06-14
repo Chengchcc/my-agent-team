@@ -12,6 +12,7 @@ interface QueryStateProps<T> {
     data: T | undefined;
   };
   empty?: (data: T) => boolean;
+  emptyMessage?: string;
   children: (data: T) => ReactNode;
 }
 
@@ -25,7 +26,7 @@ function Skeleton() {
   );
 }
 
-export function QueryState<T>({ query, empty, children }: QueryStateProps<T>) {
+export function QueryState<T>({ query, empty, emptyMessage, children }: QueryStateProps<T>) {
   if (query.isLoading) {
     return (
       <div className="p-6">
@@ -76,7 +77,9 @@ export function QueryState<T>({ query, empty, children }: QueryStateProps<T>) {
   if (query.data !== undefined && empty?.(query.data)) {
     return (
       <div className="p-6">
-        <p className="text-muted-foreground text-sm">No data available.</p>
+        <p className="text-muted-foreground text-sm">
+          {emptyMessage ?? "No data available."}
+        </p>
       </div>
     );
   }

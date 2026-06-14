@@ -116,6 +116,9 @@ export function createRuntimeOpsService(deps: {
       conversationId?: string;
       status?: string;
       limit?: number;
+      transport?: "attached" | "noop" | "detached";
+      heartbeat?: "fresh" | "stale";
+      traceId?: string;
     }): RunOpsListItem[] {
       const raw = params.limit ?? 50;
       const limit = Number.isFinite(raw) && raw > 0 && raw <= 500 ? Math.floor(raw) : 50;
@@ -154,7 +157,7 @@ export function createRuntimeOpsService(deps: {
         ended_at: number | null;
       }>;
 
-      return rows.map((r) => {
+      let items = rows.map((r) => {
         const attempt = db
           .query(
             "SELECT attempt_id, heartbeat_at, started_at, ended_at FROM attempt WHERE run_id = ? ORDER BY started_at DESC LIMIT 1",
@@ -199,6 +202,21 @@ export function createRuntimeOpsService(deps: {
           lastOpsEventKind: lastOps?.kind ?? null,
         };
       });
+
+      // M16.2 G1: Post-query filtering for transport/heartbeat/traceId
+      if (params.transport) {
+        items = items.filter((i) => i.runnerTransport === params.transport);
+      }
+      if (params.heartbeat === "stale") {
+        items = items.filter((i) => i.heartbeatAgeMs != null && i.heartbeatAgeMs > heartbeatTimeoutMs);
+      }
+      if (params.heartbeat === "fresh") {
+        items = items.filter((i) => i.heartbeatAgeMs != null && i.heartbeatAgeMs <= heartbeatTimeoutMs);
+      }
+      if (params.traceId) {
+        items = items.filter((i) => i.traceId === params.traceId);
+      }
+      return items;
     },
 
     getRunDetail(runId: string): RunOpsDetail | null {

@@ -22,6 +22,7 @@ export default function AgentsPage() {
     },
     enabled: agents.length > 0,
     staleTime: 10_000,
+    refetchInterval: 30_000,
   });
 
   return (
