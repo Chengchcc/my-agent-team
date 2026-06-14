@@ -439,30 +439,35 @@ const identityStore = createAgentIdentityStore({
   getAgent: (id) => agentSvc.getById(id),
 });
 
-// M15.1: Lark profile setup manager
-const setupProvisioner = new CliSetupProvisioner();
-const setupManager = new LarkSetupManager(setupProvisioner, async (session) => {
-  // On setup completion: write lark fields to agent DB + launch bot
-  await agentSvcRaw.update(session.agentId, {
-    lark: {
-      enabled: true,
-      botDisplayName: session.botDisplayName ?? undefined,
-    },
-  });
-  await larkBotRegistry.ensureLarkBot(
-    session.agentId,
-    session.botDisplayName,
-    session.profileRef,
-  );
-  console.log(`[lark-setup] completed for ${session.agentId}, profile=${session.profileRef}`);
-});
+// M15.1: Lark profile setup manager — lazily created on first setup request
+let setupManager: LarkSetupManager | undefined;
+function getSetupManager(): LarkSetupManager {
+  if (!setupManager) {
+    const provisioner = new CliSetupProvisioner();
+    setupManager = new LarkSetupManager(provisioner, async (session) => {
+      await agentSvcRaw.update(session.agentId, {
+        lark: {
+          enabled: true,
+          botDisplayName: session.botDisplayName ?? undefined,
+        },
+      });
+      await larkBotRegistry.ensureLarkBot(
+        session.agentId,
+        session.botDisplayName,
+        session.profileRef,
+      );
+      console.log(`[lark-setup] completed for ${session.agentId}, profile=${session.profileRef}`);
+    });
+  }
+  return setupManager;
+}
 
 const router = createRouter(config.authToken, {
   agents: agentRoutes(
     agentSvc,
     identityStore,
     (agentId) => larkBotRegistry.statusOf(agentId),
-    setupManager,
+    getSetupManager,
   ),
   // threads: removed — conversation is the user-facing concept
   runs: runRoutes(runSvc, buildAgentSpecV2, getThreadIdForRun),
@@ -508,7 +513,7 @@ const shutdown = async (signal: string) => {
   await registry.dispose?.();
   // M15: Dispose lark-bot registry (SIGTERM all bot processes)
   await larkBotRegistry.dispose();
-  setupManager.dispose();
+  setupManager?.dispose();
   db.close();
   process.exit(0);
 };

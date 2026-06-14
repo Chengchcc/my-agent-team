@@ -68,7 +68,7 @@ export function agentRoutes(
   svc: AgentService,
   identityStore?: AgentIdentityStore,
   larkStatusOf?: (agentId: string) => string,
-  setupManager?: LarkSetupManager,
+  getSetupManager?: () => LarkSetupManager,
 ) {
   return {
     async create(req: Request): Promise<Response> {
@@ -223,18 +223,18 @@ export function agentRoutes(
 
     /** POST /api/agents/:id/lark/setup */
     async larkSetup(req: Request, id: string): Promise<Response> {
-      if (!setupManager) return json({ error: "Lark setup not available" }, 501);
+      const m = getSetupManager?.(); if (!m) return json({ error: "Lark setup not available" }, 501);
       const body = (await req.json().catch(() => ({}))) as {
         botDisplayName?: string;
         brand?: "feishu" | "lark";
       };
       try {
         const existing = await svc.getById(id);
-        const pending = setupManager.getByAgentId(id);
+        const pending = m.getByAgentId(id);
         if (pending && pending.status === "pending") {
           return json({ ...pending }, 200);
         }
-        const session = await setupManager.create({
+        const session = await m.create({
           agentId: id,
           botDisplayName:
             typeof body.botDisplayName === "string"
@@ -251,8 +251,8 @@ export function agentRoutes(
 
     /** GET /api/agents/:id/lark/setup/:setupId */
     async larkSetupStatus(_req: Request, id: string, setupId: string): Promise<Response> {
-      if (!setupManager) return json({ error: "Lark setup not available" }, 501);
-      const session = setupManager.get(setupId);
+      const m = getSetupManager?.(); if (!m) return json({ error: "Lark setup not available" }, 501);
+      const session = m.get(setupId);
       if (!session) return json({ error: "Setup session not found" }, 404);
       if (session.agentId !== id) return json({ error: "Not found" }, 404);
       return json(session);
@@ -260,10 +260,10 @@ export function agentRoutes(
 
     /** DELETE /api/agents/:id/lark/setup/:setupId */
     async larkSetupCancel(_req: Request, id: string, setupId: string): Promise<Response> {
-      if (!setupManager) return json({ error: "Lark setup not available" }, 501);
-      const session = setupManager.get(setupId);
+      const m = getSetupManager?.(); if (!m) return json({ error: "Lark setup not available" }, 501);
+      const session = m.get(setupId);
       if (!session || session.agentId !== id) return json({ error: "Not found" }, 404);
-      setupManager.cancel(setupId);
+      m.cancel(setupId);
       return json({ cancelled: true });
     },
   };
