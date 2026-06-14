@@ -127,6 +127,24 @@ export function NavRail() {
       {/* Agents section */}
       <div className="flex-1 overflow-y-auto">
         <div className="px-4 pt-4 pb-2">
+          <Link
+            href="/ops"
+            className={`block px-2 py-1.5 text-sm rounded-md transition-colors mb-2 ${
+              pathname.startsWith("/ops")
+                ? "bg-[var(--canvas-soft)] text-[var(--ink)] border-l-2 border-[var(--primary)]"
+                : "text-[var(--body)] hover:bg-[var(--canvas-soft)] hover:text-[var(--ink)]"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="1" y="1" width="6" height="5" rx="1" />
+                <rect x="9" y="1" width="6" height="5" rx="1" />
+                <rect x="1" y="10" width="6" height="5" rx="1" />
+                <rect x="9" y="10" width="6" height="5" rx="1" />
+              </svg>
+              <span>Ops</span>
+            </div>
+          </Link>
           <h2 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] mb-2 font-[family-name:var(--font-sans)] font-semibold">
             Agents
           </h2>
@@ -233,13 +251,7 @@ export function NavRail() {
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-[var(--hairline)] flex items-center justify-between">
-        <Link
-          href="/ops"
-          className="text-[9px] tracking-[0.15em] uppercase text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
-        >
-          Ops
-        </Link>
+      <div className="px-4 py-3 border-t border-[var(--hairline)]">
         <Link
           href="/api/auth/logout"
           className="text-[9px] tracking-[0.15em] uppercase text-[var(--mute)] hover:text-[var(--body)] transition-colors"

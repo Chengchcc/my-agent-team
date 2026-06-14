@@ -2,23 +2,20 @@ import { fetchOpsRuns, fetchAgentRuntime } from "@/lib/observability";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import { AgentRuntimeCard } from "@/components/ops/AgentRuntimeCard";
 
-async function getAgents(): Promise<Array<{ id: string }>> {
+async function getAgents(): Promise<Array<{ id: string; name: string }>> {
   try {
-    const res = await fetch(`${getBaseUrl()}/api/agents`, {
+    const baseUrl = process.env.BACKEND_URL ?? "http://localhost:3000";
+    const token = process.env.BACKEND_AUTH_TOKEN ?? "";
+    const res = await fetch(`${baseUrl}/api/agents`, {
+      headers: token ? { "x-auth-token": token } : {},
       cache: "no-store",
     });
-    return res.json();
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
   } catch {
     return [];
   }
-}
-
-function getBaseUrl() {
-  // Server-side fallback
-  if (typeof window === "undefined") {
-    return process.env.BACKEND_URL ?? "http://localhost:3000";
-  }
-  return window.location.origin;
 }
 
 export default async function OpsPage() {
@@ -29,9 +26,7 @@ export default async function OpsPage() {
 
   const runtimes = (
     await Promise.all(
-      (agents as Array<{ id: string }>)
-        .slice(0, 10)
-        .map((a) => fetchAgentRuntime(a.id).catch(() => null)),
+      agents.slice(0, 10).map((a) => fetchAgentRuntime(a.id).catch(() => null)),
     )
   ).filter(Boolean);
 
