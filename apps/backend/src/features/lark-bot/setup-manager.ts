@@ -27,6 +27,7 @@ export class LarkSetupManager {
   #sessions = new Map<string, LarkProfileSetupSession>();
   #provisioner: LarkProfileProvisioner;
   #expiryTimer: ReturnType<typeof setInterval>;
+  #cancelFns = new Map<string, () => Promise<void>>();
   /** Callback when a setup session completes successfully. */
   #onComplete: (
     session: LarkProfileSetupSession,
@@ -74,14 +75,18 @@ export class LarkSetupManager {
     void this.#provisioner
       .start({ agentId, profileRef, brand, timeoutMs: DEFAULT_TIMEOUT_MS })
       .then((result) => {
+        // Store cancel function so cancel() can SIGTERM the lark-cli process
+        this.#cancelFns.set(setupId, result.cancel);
         session.updatedAt = Date.now();
 
         void result.waitForCompletion
           .then((url) => {
             session.url = url; // resolved after all stdout data has arrived
+            this.#cancelFns.delete(setupId);
             this.complete(setupId);
           })
           .catch((err: Error) => {
+            this.#cancelFns.delete(setupId);
             // Don't mark as failed if user cancelled
             if (session.status !== "cancelled") {
               this.fail(setupId, err.message);
@@ -137,6 +142,12 @@ export class LarkSetupManager {
     session.status = "cancelled";
     session.updatedAt = Date.now();
     this.#sessions.delete(setupId);
+    // SIGTERM the provisioner's lark-cli process (never SIGKILL)
+    const cancelFn = this.#cancelFns.get(setupId);
+    if (cancelFn) {
+      this.#cancelFns.delete(setupId);
+      void cancelFn();
+    }
   }
 
   /** Check for expired sessions. */
@@ -153,6 +164,10 @@ export class LarkSetupManager {
 
   dispose(): void {
     clearInterval(this.#expiryTimer);
+    for (const [, cancelFn] of this.#cancelFns) {
+      void cancelFn();
+    }
+    this.#cancelFns.clear();
     this.#sessions.clear();
   }
 }
