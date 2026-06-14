@@ -1,4 +1,4 @@
-import type { AgentRuntimeStatus } from "@/lib/observability";
+import type { AgentRuntimeStatus } from "@/lib/api";
 
 const statusColor: Record<string, string> = {
   idle: "bg-gray-100 text-gray-600",

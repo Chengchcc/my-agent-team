@@ -1,4 +1,4 @@
-import type { RunOpsDetail } from "@/lib/observability";
+import type { RunOpsDetail } from "@/lib/api";
 
 function ago(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);

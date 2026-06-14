@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import type { RunOpsListItem } from "@/lib/observability";
+import type { RunOpsListItem } from "@/lib/api";
 
 const statusColor: Record<string, string> = {
   running: "bg-blue-100 text-blue-800",

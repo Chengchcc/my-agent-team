@@ -1,7 +1,10 @@
-import { fetchOpsRunDetail } from "@/lib/observability";
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import { useParams } from "next/navigation";
+import { api } from "@/lib/api";
 import { RunOpsTimeline } from "@/components/ops/RunOpsTimeline";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 
 const statusColor: Record<string, string> = {
   running: "bg-blue-100 text-blue-800",
@@ -11,14 +14,25 @@ const statusColor: Record<string, string> = {
   interrupted: "bg-orange-100 text-orange-800",
 };
 
-export default async function RunDetailPage({
-  params,
-}: {
-  params: Promise<{ runId: string }>;
-}) {
-  const { runId } = await params;
-  const detail = await fetchOpsRunDetail(runId);
-  if (!detail) notFound();
+export default function RunDetailPage() {
+  const { runId } = useParams<{ runId: string }>();
+
+  const { data: detail } = useQuery({
+    queryKey: ["ops", "runDetail", runId],
+    queryFn: () => api.getOpsRunDetail(runId),
+    enabled: !!runId,
+  });
+
+  if (!detail) {
+    return (
+      <div className="container mx-auto p-6">
+        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm">
+          ← Ops
+        </Link>
+        <p className="text-muted-foreground mt-4">Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -43,58 +57,27 @@ export default async function RunDetailPage({
         <div className="rounded-lg border p-4">
           <h3 className="text-sm font-semibold mb-2">Run Info</h3>
           <div className="text-sm space-y-1">
-            <div>
-              <span className="text-muted-foreground">Agent: </span>
-              {detail.run.agentId}
-            </div>
-            <div>
-              <span className="text-muted-foreground">Kind: </span>
-              {detail.run.kind}
-            </div>
-            <div>
-              <span className="text-muted-foreground">Thread: </span>
-              <span className="font-mono text-xs">{detail.run.threadId}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Trace: </span>
+            <div><span className="text-muted-foreground">Agent: </span>{detail.run.agentId}</div>
+            <div><span className="text-muted-foreground">Kind: </span>{detail.run.kind}</div>
+            <div><span className="text-muted-foreground">Thread: </span><span className="font-mono text-xs">{detail.run.threadId}</span></div>
+            <div><span className="text-muted-foreground">Trace: </span>
               {detail.run.traceId ? (
-                <Link
-                  href={`/ops/traces/${detail.run.traceId}`}
-                  className="font-mono text-xs text-primary hover:underline"
-                >
+                <Link href={`/ops/traces/${detail.run.traceId}`} className="font-mono text-xs text-primary hover:underline">
                   {detail.run.traceId.slice(0, 16)}...
                 </Link>
-              ) : (
-                "—"
-              )}
+              ) : "—"}
             </div>
-            <div>
-              <span className="text-muted-foreground">Started: </span>
-              {new Date(detail.run.startedAt).toISOString()}
-            </div>
-            {detail.run.endedAt && (
-              <div>
-                <span className="text-muted-foreground">Ended: </span>
-                {new Date(detail.run.endedAt).toISOString()}
-              </div>
-            )}
+            <div><span className="text-muted-foreground">Started: </span>{new Date(detail.run.startedAt).toISOString()}</div>
+            {detail.run.endedAt && <div><span className="text-muted-foreground">Ended: </span>{new Date(detail.run.endedAt).toISOString()}</div>}
           </div>
         </div>
 
         <div className="rounded-lg border p-4">
           <h3 className="text-sm font-semibold mb-2">Attempts</h3>
           {detail.attempts.map((a) => (
-            <div
-              key={a.attemptId}
-              className="text-xs font-mono space-y-0.5 mb-2"
-            >
+            <div key={a.attemptId} className="text-xs font-mono space-y-0.5 mb-2">
               <div>ID: {a.attemptId.slice(0, 16)}...</div>
-              <div>
-                Heartbeat:{" "}
-                {a.heartbeatAgeMs != null
-                  ? `${Math.floor(a.heartbeatAgeMs / 1000)}s ago`
-                  : "none"}
-              </div>
+              <div>Heartbeat: {a.heartbeatAgeMs != null ? `${Math.floor(a.heartbeatAgeMs / 1000)}s ago` : "none"}</div>
               <div>Transport: {a.transport}</div>
             </div>
           ))}
@@ -103,14 +86,8 @@ export default async function RunDetailPage({
         <div className="rounded-lg border p-4">
           <h3 className="text-sm font-semibold mb-2">Event Log</h3>
           <div className="text-sm">
-            <div>
-              <span className="text-muted-foreground">Last Seq: </span>
-              {detail.eventLog.lastSeq ?? "—"}
-            </div>
-            <div>
-              <span className="text-muted-foreground">Last Event: </span>
-              {detail.eventLog.lastEventType ?? "—"}
-            </div>
+            <div><span className="text-muted-foreground">Last Seq: </span>{detail.eventLog.lastSeq ?? "—"}</div>
+            <div><span className="text-muted-foreground">Last Event: </span>{detail.eventLog.lastEventType ?? "—"}</div>
           </div>
         </div>
       </div>

@@ -215,4 +215,82 @@ export const api = {
       body: { memberId },
     }),
   deleteConversation: (id: string) => apiFetch<void>(`conversations/${id}`, { method: "DELETE" }),
+
+  // M16: Ops observability
+  listOpsRuns: (params?: { agentId?: string; status?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.agentId) qs.set("agentId", params.agentId);
+    if (params?.status) qs.set("status", params.status);
+    if (params?.limit) qs.set("limit", String(params.limit));
+    const q = qs.toString();
+    return apiFetch<RunOpsListItem[]>(`ops/runs${q ? `?${q}` : ""}`);
+  },
+  getOpsRunDetail: (runId: string) => apiFetch<RunOpsDetail>(`ops/runs/${runId}`),
+  opsCancelRun: (runId: string) =>
+    apiFetch<CancelRunResult>(`ops/runs/${runId}/cancel`, { method: "POST" }),
+  opsRecoverRun: (runId: string) =>
+    apiFetch<RecoverRunResult>(`ops/runs/${runId}/recover`, { method: "POST" }),
+  getAgentRuntime: (agentId: string) =>
+    apiFetch<AgentRuntimeStatus>(`ops/agents/${agentId}/runtime`),
 };
+
+// ── M16 ops types ──
+
+export interface RunOpsListItem {
+  runId: string;
+  threadId: string;
+  agentId: string;
+  kind: string;
+  parentRunId: string | null;
+  status: string;
+  traceId: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  latestAttemptId: string | null;
+  heartbeatAgeMs: number | null;
+  runnerTransport: "attached" | "noop" | "detached";
+  lastEventType: string | null;
+  lastOpsEventKind: string | null;
+}
+
+export interface RunOpsDetail {
+  run: {
+    runId: string; threadId: string; agentId: string; kind: string;
+    parentRunId: string | null; status: string; traceId: string | null;
+    startedAt: number; endedAt: number | null;
+  };
+  attempts: Array<{
+    attemptId: string; heartbeatAt: number | null; heartbeatAgeMs: number | null;
+    startedAt: number; endedAt: number | null; transport: string;
+  }>;
+  eventLog: { lastSeq: number | null; lastEventType: string | null; lastEventAt: number | null };
+  ops: Array<{
+    seq: number; kind: string; payload: Record<string, unknown>;
+    traceId: string | null; ts: number;
+  }>;
+}
+
+export interface AgentRuntimeStatus {
+  agentId: string;
+  runner: {
+    status: string; lastSeenAt: number | null; uptimeMs: number;
+    activeRunCount: number; checkpointerOk: boolean; workspaceOk: boolean;
+    lastError: string | null;
+  };
+  surfaces: Record<string, {
+    status: string; lastSeenAt: number | null;
+    lastError: string | null; counters: Record<string, number>;
+  }>;
+}
+
+export type CancelRunResult =
+  | { ok: true; state: "abort_sent"; runId: string; attemptId: string }
+  | { ok: true; state: "already_terminal"; runId: string; status: string }
+  | { ok: true; state: "detached_waiting_reaper"; runId: string; heartbeatAgeMs: number | null }
+  | { ok: false; error: "not_found" };
+
+export type RecoverRunResult =
+  | { state: "already_terminal"; status: string }
+  | { state: "reattached"; attemptId: string }
+  | { state: "marked_interrupted"; reason: "heartbeat_timeout" }
+  | { state: "waiting"; reason: "heartbeat_fresh_but_transport_detached" };

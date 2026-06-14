@@ -1,34 +1,34 @@
-import { fetchOpsRuns, fetchAgentRuntime } from "@/lib/observability";
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import { AgentRuntimeCard } from "@/components/ops/AgentRuntimeCard";
 
-async function getAgents(): Promise<Array<{ id: string; name: string }>> {
-  try {
-    const baseUrl = process.env.BACKEND_URL ?? "http://localhost:3000";
-    const token = process.env.BACKEND_AUTH_TOKEN ?? "";
-    const res = await fetch(`${baseUrl}/api/agents`, {
-      headers: token ? { "x-auth-token": token } : {},
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
+export default function OpsPage() {
+  const { data: runs = [] } = useQuery({
+    queryKey: ["ops", "runs"],
+    queryFn: () => api.listOpsRuns({ limit: 50 }),
+    staleTime: 10_000,
+  });
 
-export default async function OpsPage() {
-  const [runs, agents] = await Promise.all([
-    fetchOpsRuns({ limit: 50 }).catch(() => []),
-    getAgents(),
-  ]);
+  const { data: agents = [] } = useQuery({
+    queryKey: ["agents"],
+    queryFn: api.listAgents,
+    staleTime: 30_000,
+  });
 
-  const runtimes = (
-    await Promise.all(
-      agents.slice(0, 10).map((a) => fetchAgentRuntime(a.id).catch(() => null)),
-    )
-  ).filter(Boolean);
+  const { data: runtimes = [] } = useQuery({
+    queryKey: ["ops", "agentRuntime", agents.slice(0, 10).map((a) => a.id)],
+    queryFn: async () => {
+      const results = await Promise.all(
+        agents.slice(0, 10).map((a) => api.getAgentRuntime(a.id).catch(() => null)),
+      );
+      return results.filter(Boolean);
+    },
+    enabled: agents.length > 0,
+    staleTime: 10_000,
+  });
 
   return (
     <div className="container mx-auto p-6 space-y-8">
