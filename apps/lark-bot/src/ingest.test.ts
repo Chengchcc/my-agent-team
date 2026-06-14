@@ -4,10 +4,11 @@ import { ingest } from "./ingest.js";
 import { reserveInbound } from "./bindings-sqlite.js";
 import type { LarkMessageEvent } from "./event-parser.js";
 
-const TEST_DB = `/tmp/test-lark-ingest-${Date.now()}.db`;
+let dbCounter = 0;
+function testDbPath() { return `/tmp/test-lark-ingest-${Date.now()}-${dbCounter++}.db`; }
 
 function makeDb(): Database {
-  const db = new Database(TEST_DB);
+  const db = new Database(testDbPath());
   db.exec("PRAGMA journal_mode=WAL");
   db.exec(`
     CREATE TABLE IF NOT EXISTS chat_binding (
@@ -83,6 +84,7 @@ describe("ingest", () => {
       selfAgentName: "TestBot",
       botDisplayName: "TestBot",
       backendUrl: "http://localhost",
+        profile: "test-profile",
     });
 
     expect(result.action).toBe("consumed");
@@ -106,6 +108,7 @@ describe("ingest", () => {
         selfAgentName: "TestBot",
         botDisplayName: "TestBot",
         backendUrl: "http://localhost",
+        profile: "test-profile",
       },
     );
 
@@ -139,6 +142,7 @@ describe("ingest", () => {
         selfAgentName: "TestBot",
         botDisplayName: "TestBot",
         backendUrl: "http://localhost",
+        profile: "test-profile",
       },
     );
 
@@ -172,11 +176,109 @@ describe("ingest", () => {
         selfAgentName: "TestBot",
         botDisplayName: "TestBot",
         backendUrl: "http://localhost",
+        profile: "test-profile",
       },
     );
 
     expect(result.action).toBe("consumed");
     expect(result.triggered).toBe(true);
+
+    db.close();
+  });
+
+  test("triggeredRuns — returns run IDs from backend response", async () => {
+    const db = makeDb();
+
+    mockFetch([
+      { body: { conversationId: "conv_trig" } },
+      { body: { members: [] } },
+      { body: { seq: 4, triggeredRuns: [{ agentMemberId: "agent_123", runId: "run_001" }] } },
+    ]);
+
+    const result = await ingest(
+      { ...baseEvent, event_id: "evt_trig1", message_id: "om_trig1" },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+      },
+    );
+
+    expect(result.action).toBe("consumed");
+    expect(result.triggeredRuns).toHaveLength(1);
+    expect(result.triggeredRuns[0]!.runId).toBe("run_001");
+    expect(result.triggeredRuns[0]!.agentMemberId).toBe("agent_123");
+
+    db.close();
+  });
+
+  test("triggeredRuns — empty when no targets", async () => {
+    const db = makeDb();
+
+    mockFetch([
+      { body: { conversationId: "conv_empty" } },
+      { body: { members: [] } },
+      { body: { seq: 5, triggeredRuns: [] } },
+    ]);
+
+    const result = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_empty",
+        message_id: "om_empty",
+        chat_id: "oc_grp3",
+        chat_type: "group",
+        content: "no mention here",
+      },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+      },
+    );
+
+    expect(result.action).toBe("consumed");
+    expect(result.triggered).toBe(false);
+    expect(result.triggeredRuns).toHaveLength(0);
+
+    db.close();
+  });
+
+  test("onTriggeredRun callback — called for each triggered run", async () => {
+    const db = makeDb();
+    const triggered: Array<{ runId: string; conversationId: string; sourceMessageId: string }> = [];
+
+    mockFetch([
+      { body: { conversationId: "conv_cb" } },
+      { body: { members: [] } },
+      { body: { seq: 6, triggeredRuns: [{ agentMemberId: "agent_123", runId: "run_cb1" }] } },
+    ]);
+
+    await ingest(
+      { ...baseEvent, event_id: "evt_cb", message_id: "om_cb" },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+        onTriggeredRun: (runId, conversationId, sourceMessageId) => {
+          triggered.push({ runId, conversationId, sourceMessageId });
+        },
+      },
+    );
+
+    expect(triggered).toHaveLength(1);
+    expect(triggered[0]!.runId).toBe("run_cb1");
+    expect(triggered[0]!.conversationId).toBe("conv_cb");
+    expect(triggered[0]!.sourceMessageId).toBe("om_cb");
 
     db.close();
   });
