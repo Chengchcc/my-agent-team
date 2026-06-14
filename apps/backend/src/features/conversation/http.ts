@@ -190,11 +190,19 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
       const parsed = startNewSchema.safeParse(await req.json().catch(() => ({})));
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
-      const result = await svc.startNewConversationForSurface({
-        oldConversationId: conversationId,
-        ...parsed.data,
-      });
-      return json(result, 201);
+      try {
+        const result = await svc.startNewConversationForSurface({
+          oldConversationId: conversationId,
+          ...parsed.data,
+        });
+        return json(result, 201);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("run not found") || msg.includes("does not belong")) {
+          return json({ error: msg }, 404);
+        }
+        throw err;
+      }
     },
   };
 }
