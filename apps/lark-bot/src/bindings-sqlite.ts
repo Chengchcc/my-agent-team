@@ -80,6 +80,25 @@ function ensureSchema(db: Database) {
       updated_at          INTEGER NOT NULL
     );
   `);
+
+  // M15.1 migration: add complete_from_ledger to existing run_stream tables
+  migrateRunStreamSchema(db);
+}
+
+function migrateRunStreamSchema(db: Database): void {
+  try {
+    const cols = db.query("PRAGMA table_info(run_stream)").all() as {
+      cid: number; name: string; type: string; notnull: number;
+      dflt_value: string | null; pk: number;
+    }[];
+    if (!cols.some((c) => c.name === "complete_from_ledger")) {
+      db.run(
+        "ALTER TABLE run_stream ADD COLUMN complete_from_ledger INTEGER NOT NULL DEFAULT 0",
+      );
+    }
+  } catch {
+    /* table doesn't exist yet — first run, schema will create it fresh */
+  }
 }
 
 export function getChatBinding(db: Database, larkChatId: string): ChatBinding | null {

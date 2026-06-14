@@ -1,4 +1,4 @@
-import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
 import { getAllChatBindings, openBindings } from "./bindings-sqlite.js";
@@ -42,6 +42,7 @@ function acquirePidLock(stateRoot: string, agentId: string): string {
     // No existing PID file — first run
   }
 
+  mkdirSync(dir, { recursive: true });
   writeFileSync(pidFile, ourPid);
   return pidFile;
 }

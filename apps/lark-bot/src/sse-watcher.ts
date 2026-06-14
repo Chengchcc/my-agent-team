@@ -240,24 +240,17 @@ async function processEntry(
   // ─── M15.1: Check if this message can be skipped (card delivery proven) ───
   // Parse content to extract runId (injected by D19)
   let parsedContent: unknown;
+  let extractedRunId: string | undefined;
   try { parsedContent = JSON.parse(entry.content); } catch { /* use raw */ }
   if (parsedContent && typeof parsedContent === "object" && "runId" in parsedContent) {
-    const runId = (parsedContent as { runId?: string }).runId;
-    if (runId) {
+    extractedRunId = (parsedContent as { runId?: string }).runId;
+    if (extractedRunId) {
       const runStreams = getRunStreamsByConversation(db, entry.conversationId);
-      const runStream = runStreams.find((r) => r.runId === runId);
+      const runStream = runStreams.find((r) => r.runId === extractedRunId);
       if (runStream && canSkipFinalLedgerText(runStream)) {
-        // Card already delivered the final text — skip sending
+        // Card already delivered + ledger confirmed — skip sending
         updatePushedSeq(db, larkChatId, entry.seq);
         return;
-      }
-      // Mark that we've seen the final ledger message for this run.
-      // This enables future card-skip checks after an ephemeral-stream card
-      // is confirmed against the ledger final.
-      if (runStream && runStream.status === "done" && !runStream.completeFromLedger) {
-        import("./bindings-sqlite.js").then((m) =>
-          m.updateRunStream(db, runId, { completeFromLedger: 1, finalLedgerSeq: entry.seq }),
-        );
       }
     }
   }
@@ -267,4 +260,16 @@ async function processEntry(
   const idempotencyKey = `${entry.conversationId}:${entry.seq}`;
   await h.onSend(larkChatId, text, idempotencyKey);
   updatePushedSeq(db, larkChatId, entry.seq);
+
+  // M15.1: After successful send, mark that the ledger final was delivered.
+  // Only then can future replays skip this text (card proved complete).
+  if (extractedRunId) {
+    const runStreams = getRunStreamsByConversation(db, entry.conversationId);
+    const runStream = runStreams.find((r) => r.runId === extractedRunId);
+    if (runStream && runStream.status === "done" && !runStream.completeFromLedger) {
+      import("./bindings-sqlite.js").then((m) =>
+        m.updateRunStream(db, extractedRunId!, { completeFromLedger: 1, finalLedgerSeq: entry.seq }),
+      );
+    }
+  }
 }
