@@ -287,8 +287,8 @@ export function createRuntimeOpsService(deps: {
 
     async recover(runId: string): Promise<RecoverRunResult> {
       const run = db
-        .query("SELECT status, agent_id, thread_id FROM run WHERE run_id = ?")
-        .get(runId) as { status: string; agent_id: string; thread_id: string } | undefined;
+        .query("SELECT status, agent_id, thread_id, kind FROM run WHERE run_id = ?")
+        .get(runId) as { status: string; agent_id: string; thread_id: string; kind: string } | undefined;
       if (!run) return { state: "already_terminal", status: "not_found" };
       if (run.status !== "running") return { state: "already_terminal", status: run.status };
 
@@ -344,7 +344,7 @@ export function createRuntimeOpsService(deps: {
           if (attached) {
             // Bind transport and register session
             supervisor.bindTransport(attached);
-            supervisor.registerRecoveredSession(runId, run.agent_id, run.thread_id, attached, attempt.attempt_id);
+            supervisor.registerRecoveredSession(runId, run.agent_id, run.thread_id, attached, attempt.attempt_id, run.kind as "main" | "reflect");
             opsStore.appendRunEvent({
               runId,
               attemptId: attempt.attempt_id,

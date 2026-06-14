@@ -48,7 +48,10 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
                   className="absolute top-1/2 -translate-y-1/2 h-3 rounded-sm bg-primary/40 group-hover:bg-primary/70 transition-colors"
                   style={{ left: `${left}%`, width: "4px" }}
                 />
-                <span className="absolute left-[calc(var(--left)+8px)] top-1/2 -translate-y-1/2 text-foreground">
+                <span
+                  className="absolute top-1/2 -translate-y-1/2 text-foreground"
+                  style={{ left: `${left + 0.5}%` }}
+                >
                   {e.kind}
                 </span>
               </div>

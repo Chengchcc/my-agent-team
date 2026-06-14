@@ -17,10 +17,10 @@ export default function SurfacesPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/ops" className="text-[var(--mute)] hover:text-[var(--ink)] text-sm transition-colors">
+        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm transition-colors">
           ← Observability
         </Link>
-        <h1 className="text-2xl font-bold text-[var(--ink)]">Surface Diagnostics</h1>
+        <h1 className="text-2xl font-bold text-foreground">Surface Diagnostics</h1>
       </div>
 
       <OpsTabs />

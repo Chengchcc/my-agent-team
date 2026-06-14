@@ -611,13 +611,14 @@ export class RunSupervisor {
     threadId: string,
     transport: RunnerTransport,
     attemptId: string,
+    kind: "main" | "reflect",
   ): void {
     this.#registerSession({
       runId,
       attemptId,
       threadId,
       agentId,
-      kind: "main",
+      kind,
       transport,
     });
   }

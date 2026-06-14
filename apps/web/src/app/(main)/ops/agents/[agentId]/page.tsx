@@ -46,7 +46,7 @@ export default function AgentRuntimePage() {
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Recent Runs</h2>
             <div className="rounded-lg border">
               <QueryState query={runsQuery}>
-                {(runs) => <RunOpsTable runs={runs} />}
+                {(runs) => <RunOpsTable runs={runs} heartbeatTimeoutMs={runtimeQuery.data?.heartbeatTimeoutMs} />}
               </QueryState>
             </div>
           </section>

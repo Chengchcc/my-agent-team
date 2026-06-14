@@ -9,19 +9,21 @@ import { NeedsAttentionList } from "@/components/ops/NeedsAttentionList";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
 
 export default function OpsPage() {
-  const { data: runs = [] } = useQuery({
+  const runsQuery = useQuery({
     queryKey: ["ops", "runs"],
     queryFn: () => api.listOpsRuns({ limit: 100 }),
     staleTime: 10_000,
   });
 
-  const { data: agents = [] } = useQuery({
+  const agentsQuery = useQuery({
     queryKey: ["agents"],
     queryFn: api.listAgents,
     staleTime: 30_000,
   });
 
-  const { data: runtimes = [] } = useQuery({
+  const agents = agentsQuery.data ?? [];
+
+  const runtimesQuery = useQuery({
     queryKey: ["ops", "agentRuntime", agents.map((a) => a.id)],
     queryFn: async () => {
       const results = await Promise.all(
@@ -33,12 +35,14 @@ export default function OpsPage() {
     staleTime: 10_000,
   });
 
+  const runs = runsQuery.data ?? [];
+  const runtimes = runtimesQuery.data ?? [];
   const heartbeatTimeoutMs = runtimes[0]?.heartbeatTimeoutMs ?? 60_000;
 
   const overviewQuery = {
-    isLoading: false,
-    isError: false,
-    error: null,
+    isLoading: runsQuery.isLoading || agentsQuery.isLoading || runtimesQuery.isLoading,
+    isError: runsQuery.isError || agentsQuery.isError || runtimesQuery.isError,
+    error: runsQuery.error ?? agentsQuery.error ?? runtimesQuery.error,
     data: { runs, runtimes, heartbeatTimeoutMs } as const,
   };
 
@@ -78,7 +82,7 @@ export default function OpsPage() {
                 Recent Activity
               </h2>
               <div className="rounded-lg border">
-                <RunOpsTable runs={data.runs.slice(0, 20)} />
+                <RunOpsTable runs={data.runs.slice(0, 20)} heartbeatTimeoutMs={data.heartbeatTimeoutMs} />
               </div>
             </section>
           </>

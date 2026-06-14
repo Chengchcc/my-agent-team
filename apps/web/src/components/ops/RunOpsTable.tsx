@@ -35,7 +35,7 @@ function ago(ts: number): string {
   return `${Math.floor(s / 3600)}h`;
 }
 
-export function RunOpsTable({ runs }: { runs: RunOpsListItem[] }) {
+export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOpsListItem[]; heartbeatTimeoutMs?: number }) {
   // Sort: needs_attention first (detached, stale, running), then terminal
   const sorted = [...runs].sort((a, b) => {
     const scoreA = a.status === "running" ? (a.runnerTransport === "attached" ? 1 : 0) : 2;
@@ -61,7 +61,7 @@ export function RunOpsTable({ runs }: { runs: RunOpsListItem[] }) {
         </thead>
         <tbody>
           {sorted.map((r) => {
-            const d = diagnoseRunListItem(r, 60_000);
+            const d = diagnoseRunListItem(r, heartbeatTimeoutMs);
             return (
               <tr key={r.runId} className="border-b hover:bg-muted transition-colors">
                 <td className="py-2 pr-3">
