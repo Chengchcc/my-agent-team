@@ -220,17 +220,55 @@ agent 跑完后一次性发卡片——不走流式，但可以利用卡片的 m
 3. **PATCH 全量替换**：需要传完整卡片 JSON。[来源](https://open.feishu.cn/document/server-docs/im-v1/message/patch)
 4. **流式配置参数**：`streaming_mode/streaming_config/print_step/print_frequency_ms`。[来源](https://open.larkoffice.com/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/streaming-updates-openapi-overview)
 
-### 7.3 待验证，不得作为实现假设（M16 前需 spike）
+### 7.3 M15.1 spike 验证结果（2026-06-14，lark-cli v1.0.53）
 
-1. **PATCH 更新卡片的 lark-cli 命令形态**：`lark-cli api PATCH /open-apis/im/v1/messages/{id}` — 未实测，需发真实卡片后调用更新验证。
-2. **body size 上限**：未在官方文档找到明确数字，需通过 API 返回错误码 or 压测确认。
-3. **更新频率/限流**：推测约 100 次/分钟/应用，需通过压测或[官方限流文档](https://open.feishu.cn/document/server-docs/api-call-guide/rate-limit)确认实际值。
-4. **update_multi 群聊可见性**：需验证群聊场景下所有成员是否实时看到卡片更新。
-5. **streaming_config 实际渲染效果**：需在真实设备验证 `print_step`/`print_frequency_ms` 参数的效果差异。
+以下项目已在 M15.1 spike 中 dry-run 验证：
 
-## 八、建议推进路径
+1. **PATCH 更新卡片的 lark-cli 命令形态** — ✅ dry-run 通过：
+   ```bash
+   lark-cli api PATCH /open-apis/im/v1/messages/om_xxx \
+     --as bot \
+     --params '{"message_id_type":"open_message_id"}' \
+     --data '{"content":"<full card JSON>"}'
+   ```
+   dry-run 输出显示 `"as": "bot"`，bot 身份 PATCH 已验证请求形态。`im.messages.patch` / `.update` / `.create` schema shortcut 在 1.0.53 仍不可用（只暴露 `delete/forward/merge_forward/read_users/urgent_*`），因此 `updateCard` 必须封装通用 `api PATCH`，不依赖 typed schema。
 
-1. **M15.x**（当前）— 保持文本发送，验证 E2E 稳定性
-2. **M16 卡片基础** — 实现 `sendCard` + 简单的 markdown 卡片模板，agent 最终回复改为卡片格式
-3. **M17 流式卡片** — 实现 `runDeltaWatcher` + `updateCard`，agent 输出逐段推送到卡片
-4. **M18 交互卡片** — 按钮/表单回调，订阅 `card.action.trigger` 事件，实现审批/确认交互
+2. **sendCard 命令形态** — ✅ dry-run 通过：
+   ```bash
+   lark-cli im +messages-send --chat-id oc_xxx --msg-type interactive \
+     --content '<card JSON>' --as bot --idempotency-key '<key>' --format json
+   ```
+   需在真实 fixture-test profile 上验证 `--format json` stdout 中 `message_id` 字段路径，作为单测 fixture。
+
+3. **Typing reaction API** — ✅ dry-run 通过：
+   ```bash
+   # add
+   lark-cli api POST /open-apis/im/v1/messages/<id>/reactions \
+     --data '{"reaction_type":{"emoji_type":"Typing"}}'
+   # remove (需真实 reaction_id)
+   lark-cli api DELETE /open-apis/im/v1/messages/<id>/reactions/<reaction_id>
+   ```
+
+### 7.4 仍需真实验证（M15.1 implementation gate）
+
+1. **body size 上限**：未在官方文档找到明确数字，需通过 API 返回错误码 or 压测确认。当前保守设为 12000 chars markdown。
+2. **更新频率/限流**：推测约 100 次/分钟/应用，需通过压测或[官方限流文档](https://open.feishu.cn/document/server-docs/api-call-guide/rate-limit)确认实际值。M15.1 保守节流 150ms/次。
+3. **update_multi 群聊可见性**：需验证群聊场景下所有成员是否实时看到卡片更新。
+4. **streaming_config 实际渲染效果**：需在真实设备验证 `print_step`/`print_frequency_ms` 参数的效果差异。
+5. **sendCard stdout JSON 中 message_id 字段路径**：需 fixture-test profile 真实发送一次，确认是 `message_id` 还是 `data.message_id`。
+
+### 7.5 能力探测（capability probe）
+
+不同 Mira / 本地 runtime 可能安装不同 `lark-cli` 版本。实现应在启动时 probe 以下能力，失败时降级：
+
+| 能力 | probe 方式 | 降级 |
+|------|-----------|------|
+| `im +messages-send --msg-type interactive` | `--help` grep `interactive` | 卡片功能整体关闭，fallback 纯文本 |
+| `api PATCH /im/v1/messages` | dry-run 后 grep `PATCH` | `updateCard` 不可用，只发最终卡片 |
+| `config init --new` | 执行后 grep URL pattern | 切到 `legacy_secret_stdin` provisioner |
+
+## 八、推进路径（更新）
+
+1. ~~**M15.x**（当前）— 保持文本发送，验证 E2E 稳定性~~ ✅ 已完成
+2. **M15.1 卡片 + 流式** — `sendCard` + `runDeltaWatcher` + `updateCard` + `Typing` reaction lifecycle，降级纯文本 fallback
+3. **M15.2 交互卡片** — 按钮/表单回调，订阅 `card.action.trigger` 事件，实现审批/确认交互
