@@ -55,6 +55,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
   #bots = new Map<string, DevBot>();
   #backoff = new Map<string, number>();
   #desired = new Map<string, DesiredConfig>();
+  #stableTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(
     private opts: {
@@ -109,6 +110,13 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
     });
 
     child.on("exit", (code, signal) => {
+      // Clear stable timer on exit
+      const stableTimer = this.#stableTimers.get(key);
+      if (stableTimer) {
+        clearTimeout(stableTimer);
+        this.#stableTimers.delete(key);
+      }
+
       if (!this.#bots.has(key)) return; // intentional stop
 
       if (code === 0) {
@@ -123,7 +131,9 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
       const backoff = this.#backoff.get(key) ?? 0;
       const next = Math.min((backoff + 1) * 2000, 30000);
       this.#backoff.set(key, next);
-      console.error(`[lark-bot:${key}] exited code=${code} signal=${signal}, restart in ${next}ms`);
+      console.error(
+        `[lark-bot:${key}] exited code=${code} signal=${signal}, restart in ${next}ms (backoff=${backoff})`,
+      );
       setTimeout(() => {
         if (this.#bots.has(key)) {
           const desired = this.#desired.get(key);
@@ -139,7 +149,14 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
     });
 
     this.#bots.set(key, { agentId, botDisplayName, larkProfile, child });
-    this.#backoff.set(key, 0); // reset backoff on successful start
+    // Reset backoff only after 60s stable runtime — prevents 2s reset loop on rapid crash
+    const stableTimer = setTimeout(() => {
+      if (this.#bots.get(key)?.child === child && child.exitCode === null) {
+        this.#backoff.set(key, 0);
+        this.#stableTimers.delete(key);
+      }
+    }, 60_000);
+    this.#stableTimers.set(key, stableTimer);
   }
 
   async stopLarkBot(agentId: string): Promise<void> {
@@ -149,6 +166,11 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
     this.#bots.delete(key); // mark intentional — prevents restart
     this.#backoff.delete(key);
     this.#desired.delete(key);
+    const stableTimer = this.#stableTimers.get(key);
+    if (stableTimer) {
+      clearTimeout(stableTimer);
+      this.#stableTimers.delete(key);
+    }
     await terminateChild(bot.child);
   }
 
@@ -160,6 +182,8 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
   }
 
   async dispose(): Promise<void> {
+    for (const timer of this.#stableTimers.values()) clearTimeout(timer);
+    this.#stableTimers.clear();
     const entries = [...this.#bots.entries()];
     this.#bots.clear();
     this.#backoff.clear();

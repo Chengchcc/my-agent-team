@@ -366,9 +366,9 @@ export class RunSupervisor {
     const transport = session?.transport ?? sourceTransport;
     switch (msg.type) {
       case "run_started": {
-        // Fire-and-forget: daemon notifies backend that reflection has started.
-        // Backend records the run row + attempt; daemon continues independently.
-        void this.beginReflectRun(
+        // Await DB row creation before processing subsequent events.
+        // This prevents events arriving before the run row exists (race with #drive).
+        await this.beginReflectRun(
           runId,
           msg.threadId as string,
           (msg.parentRunId as string) ?? "",

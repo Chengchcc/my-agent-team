@@ -29,7 +29,11 @@ export function withLarkOrchestration(deps: LarkOrchestrationDeps): AgentService
           await profileInit(row.larkProfileRef, input.lark.appId, input.lark.appSecret);
           await ensureBot(row.id, input.lark.botDisplayName, row.larkProfileRef);
         } catch (err) {
-          console.error(`[lark] profile/ensure failed for ${row.id}:`, err);
+          console.error(
+            `[lark] profile/ensure failed for ${row.id}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
           // Agent created successfully — lark.status will show 'error' or 'configured'
         }
       }
@@ -39,17 +43,28 @@ export function withLarkOrchestration(deps: LarkOrchestrationDeps): AgentService
     async update(id: string, input: UpdateAgentInput): Promise<AgentRow> {
       const row = await service.update(id, input);
       if (input.lark) {
-        if (
-          input.lark.enabled === true &&
-          row.larkProfileRef &&
-          input.lark.appId &&
-          input.lark.appSecret
-        ) {
+        if (input.lark.enabled === true && row.larkProfileRef) {
+          // If fresh credentials provided, re-init profile first
+          if (input.lark.appId && input.lark.appSecret) {
+            try {
+              await profileInit(row.larkProfileRef, input.lark.appId, input.lark.appSecret);
+            } catch (err) {
+              console.error(
+                `[lark] profile init failed for ${id}: ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              );
+            }
+          }
+          // Always ensure bot is running when enabled with existing profile
           try {
-            await profileInit(row.larkProfileRef, input.lark.appId, input.lark.appSecret);
             await ensureBot(id, row.larkBotDisplayName, row.larkProfileRef);
           } catch (err) {
-            console.error(`[lark] profile/ensure failed for ${id}:`, err);
+            console.error(
+              `[lark] ensure bot failed for ${id}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
           }
         } else if (input.lark.enabled === false) {
           await stopBot(id);

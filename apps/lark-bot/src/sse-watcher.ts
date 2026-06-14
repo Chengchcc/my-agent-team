@@ -61,7 +61,11 @@ export function watchConversation(
 
       while (!aborted) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          // Stream ended normally — reconnect to continue watching
+          if (!aborted) setTimeout(run, 1000);
+          break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");

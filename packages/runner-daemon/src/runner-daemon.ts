@@ -223,30 +223,38 @@ export class RunnerDaemon {
   async #fireReflect(parent: RunHandle): Promise<void> {
     const reflectRunId = crypto.randomUUID();
     const parentRunId = (parent.spec as { runId?: string }).runId ?? "";
+    const { reflectionGuidance } = await import("@my-agent-team/harness");
+    const reflectSpec: Record<string, unknown> = {
+      ...parent.spec,
+      mode: "reflect" as const,
+      input: reflectionGuidance(),
+      runId: reflectRunId,
+      parentRunId,
+    };
+
+    // Register BEFORE sending run_started — so #routeEvent/#drive can find it
+    const reflectAgent = parent.agent.fork(undefined, `reflect:${parent.threadId}`);
+    this.#runs.set(reflectRunId, {
+      agent: reflectAgent,
+      abort: new AbortController(),
+      spec: reflectSpec,
+      reflect: false,
+      threadId: `reflect:${parent.threadId}`,
+      runId: reflectRunId,
+      hasPreloaded: false,
+    });
+
+    // Send run_started with spec so backend can create proper DB row
     await this.#transport.send({
       type: "run_started",
       runId: reflectRunId,
       parentRunId,
       threadId: parent.threadId,
       kind: "reflect",
+      spec: reflectSpec,
     });
-    const reflectAgent = parent.agent.fork(undefined, `reflect:${parent.threadId}`);
-    const { reflectionGuidance } = await import("@my-agent-team/harness");
-    this.#runs.set(reflectRunId, {
-      agent: reflectAgent,
-      abort: new AbortController(),
-      spec: {
-        ...parent.spec,
-        mode: "reflect" as const,
-        input: reflectionGuidance(),
-        runId: reflectRunId,
-        parentRunId,
-      },
-      reflect: false,
-      threadId: `reflect:${parent.threadId}`,
-      runId: reflectRunId,
-      hasPreloaded: false,
-    });
+
+    // Drive the reflect run — events go through #routeEvent after this
     await this.#drive(reflectRunId);
   }
 

@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 // The sanitize function is private — test the behavior via the exported function's
 // error message format. For unit testing, verify the pattern directly.
-function sanitizeLarkCliError(stderr: string): string {
-  const trimmed = stderr.trim();
-  if (!trimmed) return "";
-  return trimmed
+function sanitizeLarkCliError(stderr: string, secrets: string[] = []): string {
+  let out = stderr.trim();
+  for (const s of secrets) {
+    if (s) out = out.split(s).join("[redacted]");
+  }
+  return out
     .replace(/app[_-]?secret\s*[:=]\s*\S+/gi, "appSecret=[redacted]")
     .replace(/secret\s*[:=]\s*\S+/gi, "secret=[redacted]")
     .replace(/token\s*[:=]\s*\S+/gi, "token=[redacted]")
@@ -43,5 +45,18 @@ describe("profile error sanitization", () => {
   test("preserves normal error text", () => {
     const stderr = "connection refused on port 3000";
     expect(sanitizeLarkCliError(stderr)).toBe("connection refused on port 3000");
+  });
+
+  test("replaces exact appSecret value", () => {
+    const stderr = "Error: invalid client secret abc123xyz for app cli_test";
+    expect(sanitizeLarkCliError(stderr, ["cli_test", "abc123xyz"])).not.toContain("abc123xyz");
+    expect(sanitizeLarkCliError(stderr, ["cli_test", "abc123xyz"])).toContain("[redacted]");
+  });
+
+  test("replaces exact appId value", () => {
+    const stderr = "Error: app cli_secret123 not found";
+    const result = sanitizeLarkCliError(stderr, ["cli_secret123", "mysecret"]);
+    expect(result).not.toContain("cli_secret123");
+    expect(result).toContain("[redacted]");
   });
 });

@@ -158,6 +158,7 @@ describe("createMemoryTransportPair", () => {
       parentRunId: "",
       threadId: "t1",
       kind: "reflect",
+      spec: { agentId: "ag-test", mode: "reflect" },
     });
     runner.send({ type: "heartbeat", runId: "r1" });
 

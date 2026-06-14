@@ -28,19 +28,22 @@ const larkUpdateSchema = z
     appId: z.string().min(1).optional(),
     appSecret: z.string().min(1).optional(),
     botDisplayName: z.string().optional(),
-    profileRef: z.string().optional(),
+    // profileRef is intentionally NOT accepted from clients —
+    // it is a server-generated internal reference to lark-cli profile
   })
   .optional()
   .refine(
     (data) => {
       if (!data) return true;
       if (data.enabled === true) {
-        // Either fresh credentials or existing profile must be present
-        return (!!data.appId && !!data.appSecret) || !!data.profileRef;
+        // Must provide fresh credentials to enable Lark.
+        // Re-enabling with existing profile (no secret needed) is handled
+        // by the service layer checking the existing row.
+        return !!(data.appId && data.appSecret);
       }
       return true;
     },
-    { message: "lark.enabled=true requires appId+appSecret or profileRef" },
+    { message: "lark.enabled=true requires appId and appSecret" },
   );
 
 const createSchema = z.object({
@@ -92,7 +95,7 @@ export function agentRoutes(
             appId: row.larkAppId,
             profileRef: row.larkProfileRef,
             botDisplayName: row.larkBotDisplayName,
-            status: deriveLarkStatus(row),
+            status: deriveLarkStatus(row, larkStatusOf?.(row.id)),
           },
         },
         201,
@@ -109,7 +112,7 @@ export function agentRoutes(
             appId: row.larkAppId,
             profileRef: row.larkProfileRef,
             botDisplayName: row.larkBotDisplayName,
-            status: deriveLarkStatus(row),
+            status: deriveLarkStatus(row, larkStatusOf?.(row.id)),
           },
         })),
       );

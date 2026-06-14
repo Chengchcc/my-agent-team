@@ -1,9 +1,13 @@
 import { spawn } from "node:child_process";
 
-function sanitizeLarkCliError(stderr: string): string {
-  const trimmed = stderr.trim();
-  if (!trimmed) return "";
-  return trimmed
+function sanitizeLarkCliError(stderr: string, secrets: string[]): string {
+  let out = stderr.trim();
+  // Exact value replacement (catches raw secret echo, not just key=value patterns)
+  for (const s of secrets) {
+    if (s) out = out.split(s).join("[redacted]");
+  }
+  // Pattern-based fallback for common key=value formats
+  return out
     .replace(/app[_-]?secret\s*[:=]\s*\S+/gi, "appSecret=[redacted]")
     .replace(/secret\s*[:=]\s*\S+/gi, "secret=[redacted]")
     .replace(/token\s*[:=]\s*\S+/gi, "token=[redacted]")
@@ -51,7 +55,7 @@ export async function larkProfileInit(
     child.on("exit", (code) => {
       if (code === 0) resolve();
       else
-        reject(new Error(`lark-cli config init exited ${code}: ${sanitizeLarkCliError(stderr)}`));
+        reject(new Error(`lark-cli config init exited ${code}: ${sanitizeLarkCliError(stderr, [appId, appSecret])}`));
     });
 
     // Write secret via stdin, then close for non-interactive init

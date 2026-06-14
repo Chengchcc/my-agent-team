@@ -112,16 +112,11 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     const conv = (await convResp.json()) as { conversationId: string };
     conversationId = conv.conversationId;
     isNewBinding = true;
-
-    // Create member binding for this new conversation
     memberId = `human:lark:${event.sender_id}`;
-    db.transaction(() => {
-      putChatBinding(db, event.chat_id, conversationId, event.chat_type, Date.now());
-      putMemberBinding(db, event.chat_id, event.sender_id, memberId);
-    })();
 
+    // Add the human member via API FIRST (idempotent per §7.3).
+    // Only write local bindings after success — avoids half-bound state on failure.
     try {
-      // Add the human member via API (idempotent per §7.3)
       const memberResp = await fetch(`${backendUrl}/api/conversations/${conversationId}/members`, {
         method: "POST",
         headers,
@@ -140,6 +135,12 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
       console.error(`[ingest] add member network error:`, err);
       return { action: "error", conversationId, triggered: false };
     }
+
+    // Write local bindings only after /members succeeds
+    db.transaction(() => {
+      putChatBinding(db, event.chat_id, conversationId, event.chat_type, Date.now());
+      putMemberBinding(db, event.chat_id, event.sender_id, memberId);
+    })();
 
     onNewBinding?.(conversationId);
   } else {
