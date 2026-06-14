@@ -50,6 +50,7 @@ beforeAll(async () => {
     threadProjectionWrite: sqliteThreadProjectionWriteAdapter(db),
     activeConversations: new Set<string>(),
     maxConsecutiveAgentHops: 8,
+    idGen: () => crypto.randomUUID().slice(0, 8),
     forkRun: async (runId) => ({ runId, attemptId: `att-${runId}` }),
   });
 
