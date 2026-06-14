@@ -80,14 +80,12 @@ export function initialState(): ConvState {
 function norm(c: unknown): string | ContentBlock[] {
   if (typeof c === "string") return c;
   if (Array.isArray(c)) return c as ContentBlock[];
-  // Defense-in-depth: unwrap { text: "..." } from legacy agent message payloads
-  if (
-    typeof c === "object" &&
-    c !== null &&
-    "text" in c &&
-    typeof (c as { text: unknown }).text === "string"
-  ) {
-    return (c as { text: string }).text;
+  // M15.1: 后端给 run 完成的 assistant 消息包了一层 runId 信封（供 lark-bot 跳过已投递文本）。
+  // 到达 web 端有两种形状：{ text, runId } 与 { blocks, runId }，都要解回内层内容。
+  if (typeof c === "object" && c !== null) {
+    const obj = c as { text?: unknown; blocks?: unknown };
+    if (typeof obj.text === "string") return obj.text;
+    if (Array.isArray(obj.blocks)) return obj.blocks as ContentBlock[];
   }
   return String(c);
 }

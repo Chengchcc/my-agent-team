@@ -425,6 +425,37 @@ describe("conversation-reducer", () => {
     expect(typeof msg?.content).toBe("string");
     expect(msg?.content).toBe("hello from agent");
   });
+
+  // ─── M15.1 { blocks, runId } envelope unwrap (Bug 1 fix) ──
+
+  test("{ blocks, runId } envelope is unwrapped to ContentBlock array", () => {
+    const blocks: ContentBlock[] = [{ type: "text", text: "hi" }];
+    const s = runWithBootstrap({
+      type: "ledger/message",
+      seq: 4,
+      senderMemberId: a1,
+      content: { blocks, runId: "r1" },
+    });
+    const msg = s.messages.find((m) => m.id === "s-4");
+    expect(msg).not.toBeNull();
+    expect(Array.isArray(msg?.content)).toBe(true);
+    const content = msg?.content as ContentBlock[];
+    expect(content[0]?.type).toBe("text");
+    expect((content[0] as { text: string }).text).toBe("hi");
+  });
+
+  test("{ text, runId } envelope is unwrapped to string", () => {
+    const s = runWithBootstrap({
+      type: "ledger/message",
+      seq: 5,
+      senderMemberId: a1,
+      content: { text: "hi from agent", runId: "r2" },
+    });
+    const msg = s.messages.find((m) => m.id === "s-5");
+    expect(msg).not.toBeNull();
+    expect(typeof msg?.content).toBe("string");
+    expect(msg?.content).toBe("hi from agent");
+  });
 });
 
 // ─── M14.5: isConclusionMessage ──────────────────────────

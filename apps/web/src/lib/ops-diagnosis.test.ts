@@ -167,6 +167,7 @@ describe("health predicates", () => {
     expect(isUnhealthyAgent({ ...base, runner: { ...base.runner, checkpointerOk: false } })).toBe(true);
     expect(isUnhealthyAgent({ ...base, runner: { ...base.runner, workspaceOk: false } })).toBe(true);
     expect(isUnhealthyAgent({ ...base, runner: { ...base.runner, status: "offline" } })).toBe(true);
+    expect(isUnhealthyAgent({ ...base, runner: { ...base.runner, status: "degraded" } })).toBe(true);
   });
 
   test("hasSurfaceError detects non-running surfaces", () => {

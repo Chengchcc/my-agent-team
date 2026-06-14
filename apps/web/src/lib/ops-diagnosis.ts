@@ -87,7 +87,8 @@ export function isUnhealthyAgent(runtime: AgentRuntimeStatus): boolean {
   return (
     !runtime.runner.checkpointerOk ||
     !runtime.runner.workspaceOk ||
-    runtime.runner.status === "offline"
+    runtime.runner.status === "offline" ||
+    runtime.runner.status === "degraded"
   );
 }
 

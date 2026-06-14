@@ -22,7 +22,10 @@ export function RunControlStrip({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ops", "runDetail", runId] });
       qc.invalidateQueries({ queryKey: ["ops", "runs"] });
-      qc.invalidateQueries({ queryKey: ["ops", "agentRuntime", agentId] });
+      // Bug 5 fix: prefix match on ["ops", "agentRuntime"] covers both
+      // ["ops", "agentRuntime", agentId] (detail page) and
+      // ["ops", "agentRuntime", [...ids]] (Overview aggregation page).
+      qc.invalidateQueries({ queryKey: ["ops", "agentRuntime"] });
     },
   });
 
@@ -31,7 +34,7 @@ export function RunControlStrip({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ops", "runDetail", runId] });
       qc.invalidateQueries({ queryKey: ["ops", "runs"] });
-      qc.invalidateQueries({ queryKey: ["ops", "agentRuntime", agentId] });
+      qc.invalidateQueries({ queryKey: ["ops", "agentRuntime"] });
     },
   });
 

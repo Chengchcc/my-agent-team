@@ -204,9 +204,11 @@ export function createRuntimeOpsService(deps: {
 
       const origin = opsStore.getRunOrigin(runId);
 
+      // Bug 2 fix: ORDER BY started_at DESC so attempts[0] is the latest attempt.
+      // Aligns with listRuns (DESC LIMIT 1) and diagnoseRun which assumes [0] = latest.
       const attempts = db
         .query(
-          "SELECT attempt_id, heartbeat_at, started_at, ended_at FROM attempt WHERE run_id = ? ORDER BY started_at",
+          "SELECT attempt_id, heartbeat_at, started_at, ended_at FROM attempt WHERE run_id = ? ORDER BY started_at DESC",
         )
         .all(runId) as Array<{
           attempt_id: string;
@@ -237,11 +239,13 @@ export function createRuntimeOpsService(deps: {
           startedAt: run.started_at as number,
           endedAt: run.ended_at as number | null,
         },
+        // Bug 6 fix: only apply live session transport to unfinished attempts.
+        // Historical (ended) attempts have no reliable real-time transport; mark as detached.
         attempts: attempts.map((a) => {
-          const session = supervisor.getActive(runId);
+          const session = a.ended_at == null ? supervisor.getActive(runId) : null;
           const transport: "attached" | "noop" | "detached" = session
             ? session.transportKind
-            : a.ended_at ? "detached" : "detached";
+            : "detached";
           return {
             attemptId: a.attempt_id,
             heartbeatAt: a.heartbeat_at,
@@ -492,16 +496,32 @@ export function createRuntimeOpsService(deps: {
     }> {
       const all = opsStore.listSurfaceHealths();
       return all.map((sh) => {
-        let counters: Record<string, number> = {};
+        let raw: Record<string, unknown> = {};
         try {
-          counters = JSON.parse(sh.payload);
+          raw = JSON.parse(sh.payload);
         } catch {
           /* keep empty */
         }
-        // Redact: remove any lingering identifiers (profileRef, chat_id, open_id)
-        delete counters.profileRef;
-        delete counters.chat_id;
-        delete counters.open_id;
+
+        // Flatten nested payload into single-level Record<string, number>.
+        // Nested objects become dot-separated keys (e.g. watchers.conversation).
+        // Non-number values and sensitive identifiers (profileRef, chat_id, open_id)
+        // are discarded, ensuring redaction at every nesting level.
+        const counters: Record<string, number> = {};
+        const flatten = (obj: unknown, prefix: string) => {
+          if (!obj || typeof obj !== "object") return;
+          for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+            if (k === "profileRef" || k === "chat_id" || k === "open_id") continue;
+            const key = prefix ? `${prefix}.${k}` : k;
+            if (typeof v === "number") {
+              counters[key] = v;
+            } else if (v && typeof v === "object") {
+              flatten(v, key);
+            }
+            // String/boolean/null values are intentionally dropped
+          }
+        };
+        flatten(raw, "");
 
         return {
           agentId: sh.agentId,

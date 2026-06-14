@@ -217,19 +217,14 @@ export const api = {
   deleteConversation: (id: string) => apiFetch<void>(`conversations/${id}`, { method: "DELETE" }),
 
   // M16: Ops observability
-  listOpsRuns: (params?: {
-    agentId?: string; status?: string; limit?: number;
-    transport?: "attached" | "noop" | "detached";
-    heartbeat?: "fresh" | "stale" | "none";
-    traceId?: string;
-  }) => {
+  // Bug 7 fix: transport/heartbeat/traceId filtering removed until backend
+  // supports them end-to-end (http → service → SQL/memory filter). Without
+  // backend support these params are silently ignored, creating a latent bug.
+  listOpsRuns: (params?: { agentId?: string; status?: string; limit?: number }) => {
     const qs = new URLSearchParams();
     if (params?.agentId) qs.set("agentId", params.agentId);
     if (params?.status) qs.set("status", params.status);
     if (params?.limit) qs.set("limit", String(params.limit));
-    if (params?.transport) qs.set("transport", params.transport);
-    if (params?.heartbeat) qs.set("heartbeat", params.heartbeat);
-    if (params?.traceId) qs.set("traceId", params.traceId);
     const q = qs.toString();
     return apiFetch<RunOpsListItem[]>(`ops/runs${q ? `?${q}` : ""}`);
   },
