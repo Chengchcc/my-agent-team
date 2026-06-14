@@ -72,7 +72,7 @@ export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOp
                 <td className="py-2 pr-3 font-mono text-xs text-foreground">
                   {r.runId.slice(0, 12)}…
                 </td>
-                <td className="py-2 pr-3 text-foreground">{r.agentId}</td>
+                <td className="py-2 pr-3 text-foreground" title={r.agentId}>{r.agentName}</td>
                 <td className="py-2 pr-3">
                   <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${statusBadge(r.status)}`}>
                     {r.status}

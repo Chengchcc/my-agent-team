@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { AgentRuntimeCard } from "@/components/ops/AgentRuntimeCard";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
-import { OpsTabs } from "@/components/ops/OpsTabs";
 import { QueryState } from "@/components/ops/QueryState";
 import Link from "next/link";
 
@@ -30,10 +29,10 @@ export default function AgentRuntimePage() {
         <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm transition-colors">
           ← Observability
         </Link>
-        <h1 className="text-2xl font-bold text-foreground">{agentId} — Runtime</h1>
+        <h1 className="text-2xl font-bold text-foreground">{runtimeQuery.data?.agentName ?? agentId} — Runtime</h1>
+        <div className="text-xs text-muted-foreground font-mono">{agentId}</div>
       </div>
 
-      <OpsTabs />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-1">

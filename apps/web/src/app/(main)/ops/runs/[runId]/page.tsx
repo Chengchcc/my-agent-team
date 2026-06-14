@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
-import { OpsTabs } from "@/components/ops/OpsTabs";
 import { QueryState } from "@/components/ops/QueryState";
 import { RunDiagnosisHeader } from "@/components/ops/RunDiagnosisHeader";
 import { RunControlStrip } from "@/components/ops/RunControlStrip";
@@ -37,7 +36,6 @@ export default function RunDetailPage() {
         <h1 className="text-xl font-bold font-mono text-foreground">{runId}</h1>
       </div>
 
-      <OpsTabs />
 
       <QueryState query={detailQuery}>
         {(detail) => (

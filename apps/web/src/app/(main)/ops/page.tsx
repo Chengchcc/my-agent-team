@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { OpsTabs } from "@/components/ops/OpsTabs";
 import { QueryState } from "@/components/ops/QueryState";
 import { HealthSummary } from "@/components/ops/HealthSummary";
 import { NeedsAttentionList } from "@/components/ops/NeedsAttentionList";
@@ -50,7 +49,6 @@ export default function OpsPage() {
     <div className="container mx-auto p-6 space-y-6">
       <h1 className="text-2xl font-bold text-foreground">Observability</h1>
 
-      <OpsTabs />
 
       <QueryState query={overviewQuery}>
         {(data) => (

@@ -25,7 +25,7 @@ export function SurfaceHealthPanel({ surface }: { surface: SurfaceOpsItem }) {
       <div className="text-sm space-y-1">
         <div className="flex justify-between">
           <span className="text-muted-foreground">Agent</span>
-          <span className="font-mono text-foreground text-xs">{surface.agentId}</span>
+          <span className="text-foreground text-xs" title={surface.agentId}>{surface.agentName}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Last seen</span>

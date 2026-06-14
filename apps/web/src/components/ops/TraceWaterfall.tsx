@@ -80,7 +80,7 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
                 <span className="font-mono text-xs text-muted-foreground">
                   {r.runId.slice(0, 12)}…
                 </span>
-                <span className="text-foreground">{r.agentId}</span>
+                <span className="text-foreground" title={r.agentId}>{r.agentName}</span>
                 <span className="text-muted-foreground text-xs">{r.status}</span>
               </Link>
             ))}

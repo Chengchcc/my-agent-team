@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { OpsTabs } from "@/components/ops/OpsTabs";
 import { QueryState } from "@/components/ops/QueryState";
 import { SurfaceHealthPanel } from "@/components/ops/SurfaceHealthPanel";
 import Link from "next/link";
@@ -23,7 +22,6 @@ export default function SurfacesPage() {
         <h1 className="text-2xl font-bold text-foreground">Surface Diagnostics</h1>
       </div>
 
-      <OpsTabs />
 
       <QueryState
         query={surfacesQuery}

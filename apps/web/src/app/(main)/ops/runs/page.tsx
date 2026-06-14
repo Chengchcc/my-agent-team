@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
-import { OpsTabs } from "@/components/ops/OpsTabs";
 import Link from "next/link";
 
 export default function RunsPage() {
@@ -20,7 +19,6 @@ export default function RunsPage() {
         <h1 className="text-2xl font-bold">Runs</h1>
       </div>
 
-      <OpsTabs />
 
       <div className="rounded-lg border">
         <RunOpsTable runs={runs} />

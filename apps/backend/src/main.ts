@@ -500,6 +500,13 @@ function getSetupManager(): LarkSetupManager {
   return setupManager;
 }
 
+// M16.2: Pre-populate agent name cache for ops DTOs (sync query from backend.db)
+const agentNames = new Map<string, string>();
+{
+  const rows = db.query("SELECT id, name FROM agent").all() as { id: string; name: string }[];
+  for (const r of rows) agentNames.set(r.id, r.name);
+}
+
 // M16: Runtime ops service — exposes run diagnostics, health, and control
 const opsSvc = createRuntimeOpsService({
   db: eventsDb,
@@ -508,6 +515,7 @@ const opsSvc = createRuntimeOpsService({
   registry,
   heartbeatTimeoutMs: config.heartbeatTimeoutMs,
   eventLog,
+  getAgentName: (agentId) => agentNames.get(agentId),
 });
 
 const router = createRouter(config.authToken, {

@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { AgentRuntimeCard } from "@/components/ops/AgentRuntimeCard";
-import { OpsTabs } from "@/components/ops/OpsTabs";
 import Link from "next/link";
 
 export default function AgentsPage() {
@@ -32,7 +31,6 @@ export default function AgentsPage() {
         <h1 className="text-2xl font-bold">Agent Readiness</h1>
       </div>
 
-      <OpsTabs />
 
       {runtimes.length === 0 ? (
         <p className="text-muted-foreground text-sm">No agent runtime data available.</p>

@@ -10,6 +10,7 @@ export interface RunOpsListItem {
   runId: string;
   threadId: string;
   agentId: string;
+  agentName: string;
   kind: string;
   parentRunId: string | null;
   status: string;
@@ -28,6 +29,7 @@ export interface RunOpsDetail {
     runId: string;
     threadId: string;
     agentId: string;
+    agentName: string;
     kind: string;
     parentRunId: string | null;
     status: string;
@@ -59,6 +61,7 @@ export interface RunOpsDetail {
 
 export interface AgentRuntimeStatus {
   agentId: string;
+  agentName: string;
   heartbeatTimeoutMs: number;
   runner: {
     status: RunnerHealthStatus;
@@ -99,9 +102,12 @@ export function createRuntimeOpsService(deps: {
   registry: RunnerRegistry;
   heartbeatTimeoutMs: number;
   eventLog: EventLog;
+  /** M16.2: Resolve agent display name for ops DTOs. Falls back to agentId if absent. */
+  getAgentName?: (agentId: string) => string | undefined;
 }) {
-  const { db, opsStore, supervisor, registry, heartbeatTimeoutMs, eventLog } = deps;
+  const { db, opsStore, supervisor, registry, heartbeatTimeoutMs, eventLog, getAgentName } = deps;
   const OFFLINE_AFTER_MS = heartbeatTimeoutMs * 2;
+  const resolveName = (agentId: string) => getAgentName?.(agentId) ?? agentId;
 
   return {
     listRuns(params: {
@@ -179,6 +185,7 @@ export function createRuntimeOpsService(deps: {
           runId: r.run_id,
           threadId: r.thread_id,
           agentId: r.agent_id,
+          agentName: resolveName(r.agent_id),
           kind: r.kind,
           parentRunId: r.parent_run_id,
           status: r.status,
@@ -232,6 +239,7 @@ export function createRuntimeOpsService(deps: {
           runId: run.run_id as string,
           threadId: run.thread_id as string,
           agentId: run.agent_id as string,
+          agentName: resolveName(run.agent_id as string),
           kind: run.kind as string,
           parentRunId: run.parent_run_id as string | null,
           status: run.status as string,
@@ -406,6 +414,7 @@ export function createRuntimeOpsService(deps: {
 
       return {
         agentId,
+        agentName: resolveName(agentId),
         heartbeatTimeoutMs,
         runner: {
           status: computeRunnerStatus(runnerRow, Date.now(), OFFLINE_AFTER_MS),
@@ -525,6 +534,7 @@ export function createRuntimeOpsService(deps: {
 
         return {
           agentId: sh.agentId,
+          agentName: resolveName(sh.agentId),
           surface: sh.surface,
           status: sh.status,
           lastSeenAt: sh.lastSeenAt,

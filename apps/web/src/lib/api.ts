@@ -246,6 +246,7 @@ export interface RunOpsListItem {
   runId: string;
   threadId: string;
   agentId: string;
+  agentName: string;
   kind: string;
   parentRunId: string | null;
   status: string;
@@ -278,6 +279,7 @@ export interface RunOpsDetail {
 
 export interface AgentRuntimeStatus {
   agentId: string;
+  agentName: string;
   heartbeatTimeoutMs: number;
   runner: {
     status: string; lastSeenAt: number | null; uptimeMs: number;
@@ -292,6 +294,7 @@ export interface AgentRuntimeStatus {
 
 export interface SurfaceOpsItem {
   agentId: string;
+  agentName: string;
   surface: "lark" | "web";
   status: string;
   lastSeenAt: number | null;

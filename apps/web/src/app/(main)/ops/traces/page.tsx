@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { OpsTabs } from "@/components/ops/OpsTabs";
 import Link from "next/link";
 
 export default function TracesPage() {
@@ -21,7 +20,6 @@ export default function TracesPage() {
         <h1 className="text-2xl font-bold text-foreground">Trace Explorer</h1>
       </div>
 
-      <OpsTabs />
 
       <div className="rounded-lg border p-4">
         <p className="text-muted-foreground text-sm mb-4">

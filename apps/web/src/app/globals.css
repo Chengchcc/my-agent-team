@@ -32,6 +32,9 @@
   --color-destructive: var(--hairline);
   --color-destructive-foreground: var(--ink);
 
+  --color-foreground-strong: var(--ink-strong);
+  --color-foreground-muted: var(--body);
+
   --color-border: var(--hairline);
   --color-input: var(--hairline);
   --color-ring: var(--primary);

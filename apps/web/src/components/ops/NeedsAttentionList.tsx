@@ -30,13 +30,13 @@ export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: Needs
     if (isDetachedRun(r)) {
       items.push({
         severity: "critical",
-        label: `Run ${r.runId.slice(0, 12)}… — Detached placeholder (agent ${r.agentId})`,
+        label: `Run ${r.runId.slice(0, 12)}… — Detached placeholder (agent ${r.agentName})`,
         href: `/ops/runs/${r.runId}`,
       });
     } else if (isStaleRun(r, heartbeatTimeoutMs)) {
       items.push({
         severity: "critical",
-        label: `Run ${r.runId.slice(0, 12)}… — Heartbeat stale (${Math.floor((r.heartbeatAgeMs ?? 0) / 1000)}s, agent ${r.agentId})`,
+        label: `Run ${r.runId.slice(0, 12)}… — Heartbeat stale (${Math.floor((r.heartbeatAgeMs ?? 0) / 1000)}s, agent ${r.agentName})`,
         href: `/ops/runs/${r.runId}`,
       });
     }
@@ -46,7 +46,7 @@ export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: Needs
     if (isUnhealthyAgent(rt)) {
       items.push({
         severity: rt.runner.status === "offline" ? "critical" : "warn",
-        label: `Agent ${rt.agentId} — Runner ${rt.runner.status}${rt.runner.lastError ? `: ${rt.runner.lastError}` : ""}`,
+        label: `Agent ${rt.agentName} — Runner ${rt.runner.status}${rt.runner.lastError ? `: ${rt.runner.lastError}` : ""}`,
         href: `/ops/agents/${rt.agentId}`,
       });
     }
@@ -55,7 +55,7 @@ export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: Needs
         if (health.status !== "running") {
           items.push({
             severity: "warn",
-            label: `Agent ${rt.agentId} — ${surface} surface ${health.status}${health.lastError ? `: ${health.lastError}` : ""}`,
+            label: `Agent ${rt.agentName} — ${surface} surface ${health.status}${health.lastError ? `: ${health.lastError}` : ""}`,
             href: `/ops/surfaces`,
           });
         }

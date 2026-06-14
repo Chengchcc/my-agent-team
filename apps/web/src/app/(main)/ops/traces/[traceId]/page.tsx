@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
-import { OpsTabs } from "@/components/ops/OpsTabs";
 import { QueryState } from "@/components/ops/QueryState";
 import { TraceWaterfall } from "@/components/ops/TraceWaterfall";
 import Link from "next/link";
@@ -26,7 +25,6 @@ export default function TraceDetailPage() {
         <h1 className="text-xl font-bold font-mono text-foreground">{traceId}</h1>
       </div>
 
-      <OpsTabs />
 
       <QueryState query={traceQuery}>
         {(detail) => (

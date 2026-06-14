@@ -18,12 +18,13 @@ export function AgentRuntimeCard({ runtime }: { runtime: AgentRuntimeStatus }) {
   return (
     <div className="rounded-lg border p-4 space-y-2">
       <div className="flex items-center gap-2">
-        <h3 className="font-semibold text-foreground text-sm">{runtime.agentId}</h3>
+        <h3 className="font-semibold text-foreground text-sm">{runtime.agentName}</h3>
         <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${runnerBadge(runtime.runner.status)}`}>
           {runtime.runner.status}
         </span>
       </div>
-      <div className="text-sm space-y-1">
+      <div className="text-sm">
+        <div className="text-xs text-muted-foreground font-mono mb-1">{runtime.agentId}</div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Active Runs</span>
           <span className="font-mono text-foreground">{runtime.runner.activeRunCount}</span>
