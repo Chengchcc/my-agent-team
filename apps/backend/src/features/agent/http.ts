@@ -31,20 +31,9 @@ const larkUpdateSchema = z
     // profileRef is intentionally NOT accepted from clients —
     // it is a server-generated internal reference to lark-cli profile
   })
-  .optional()
-  .refine(
-    (data) => {
-      if (!data) return true;
-      if (data.enabled === true) {
-        // Must provide fresh credentials to enable Lark.
-        // Re-enabling with existing profile (no secret needed) is handled
-        // by the service layer checking the existing row.
-        return !!(data.appId && data.appSecret);
-      }
-      return true;
-    },
-    { message: "lark.enabled=true requires appId and appSecret" },
-  );
+  .optional();
+// Note: enabled=true validation is done at route level (update handler)
+// to check whether the agent already has an existing larkProfileRef.
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -144,6 +133,23 @@ export function agentRoutes(
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       try {
+        // Validate lark.enabled=true: either existing profile exists, or fresh credentials required
+        if (parsed.data.lark?.enabled === true) {
+          const existing = await svc.getById(id);
+          const hasExistingProfile = !!existing.larkProfileRef;
+          const hasFreshCredentials = !!(
+            parsed.data.lark?.appId && parsed.data.lark?.appSecret
+          );
+          if (!hasExistingProfile && !hasFreshCredentials) {
+            return json(
+              {
+                error:
+                  "lark.enabled=true requires appId+appSecret when no existing profile exists",
+              },
+              400,
+            );
+          }
+        }
         const row = await svc.update(id, parsed.data);
         return json({
           ...row,

@@ -27,7 +27,9 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
     onSend: async (chatId, text, idempotencyKey) => {
       const result = await sendMessage(profile, chatId, text, idempotencyKey);
       if (!result.ok) {
-        console.error(`[lark-bot] send failed for ${chatId}: ${result.error}`);
+        const msg = result.error ?? "unknown lark send error";
+        console.error(`[lark-bot] send failed for ${chatId}: ${msg}`);
+        throw new Error(msg); // prevents sse-watcher from advancing pushed_seq
       }
     },
   });

@@ -56,6 +56,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
   #backoff = new Map<string, number>();
   #desired = new Map<string, DesiredConfig>();
   #stableTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  #lastError = new Map<string, { message: string; ts: number }>();
 
   constructor(
     private opts: {
@@ -124,9 +125,16 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
         this.#bots.delete(key);
         this.#backoff.delete(key);
         this.#desired.delete(key);
+        this.#lastError.delete(key);
         console.log(`[lark-bot:${key}] exited cleanly code=0, not restarting`);
         return;
       }
+
+      // Record last error for diagnostics
+      this.#lastError.set(key, {
+        message: `exited code=${code} signal=${signal ?? "none"}`,
+        ts: Date.now(),
+      });
 
       const backoff = this.#backoff.get(key) ?? 0;
       const next = Math.min((backoff + 1) * 2000, 30000);
@@ -153,6 +161,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
     const stableTimer = setTimeout(() => {
       if (this.#bots.get(key)?.child === child && child.exitCode === null) {
         this.#backoff.set(key, 0);
+        this.#lastError.delete(key);
         this.#stableTimers.delete(key);
       }
     }, 60_000);
@@ -175,8 +184,9 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
   }
 
   statusOf(agentId: string): LarkBotStatus {
-    const bot = this.#bots.get(safeRunnerAgentId(agentId));
-    if (!bot) return "configured";
+    const key = safeRunnerAgentId(agentId);
+    const bot = this.#bots.get(key);
+    if (!bot) return this.#lastError.has(key) ? "error" : "configured";
     if (bot.child.exitCode !== null) return "error";
     return "running";
   }
@@ -188,6 +198,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
     this.#bots.clear();
     this.#backoff.clear();
     this.#desired.clear();
+    this.#lastError.clear();
     for (const [, bot] of entries) {
       await terminateChild(bot.child);
     }

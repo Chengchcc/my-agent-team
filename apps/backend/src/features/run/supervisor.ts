@@ -237,6 +237,8 @@ export class RunSupervisor {
     for (const runId of this.#deltaSubs.keys()) {
       this.#closeDeltaSubs(runId);
     }
+    // M15: clear transport message queues
+    this.#transportQueues.clear();
     this.#db.close();
   }
 
@@ -351,11 +353,27 @@ export class RunSupervisor {
     this.#active.set(o.runId, { ...o, abortController: new AbortController() });
   }
 
+  #transportQueues = new Map<RunnerTransport, Promise<void>>();
+
   #bindTransport(transport: RunnerTransport): void {
     if (this.#boundTransports.has(transport)) return;
     this.#boundTransports.add(transport);
+
     transport.onMessage((msg) => {
-      void this.#handleRunnerMessage(msg, transport);
+      // Serialize message processing per transport — prevents race between
+      // run_started / event / run_done arriving faster than beginReflectRun can create DB row.
+      const prev = this.#transportQueues.get(transport) ?? Promise.resolve();
+      const next = prev
+        .catch(() => {}) // drain errors, don't block subsequent messages
+        .then(() => this.#handleRunnerMessage(msg, transport))
+        .catch((err: unknown) => {
+          console.error(
+            `[supervisor] runner message handling failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        });
+      this.#transportQueues.set(transport, next);
     });
   }
 
@@ -382,9 +400,19 @@ export class RunSupervisor {
         break;
       }
       case "event": {
-        void this.#opts.eventLog
-          .append(this.#threadIdFor(runId), runId, msg.event as Parameters<EventLog["append"]>[2])
-          .catch(() => {});
+        try {
+          await this.#opts.eventLog.append(
+            this.#threadIdFor(runId),
+            runId,
+            msg.event as Parameters<EventLog["append"]>[2],
+          );
+        } catch (err) {
+          console.error(
+            `[supervisor] append event failed for ${runId}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
         break;
       }
       case "delta": {

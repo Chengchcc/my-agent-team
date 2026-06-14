@@ -40,8 +40,19 @@ export function watchConversation(
   const reqHeaders: Record<string, string> = { Accept: "text/event-stream" };
   if (backendAuthToken) reqHeaders["x-auth-token"] = backendAuthToken;
   let aborted = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function scheduleReconnect(delayMs: number) {
+    if (aborted) return;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      void run();
+    }, delayMs);
+  }
 
   const run = async () => {
+    if (aborted) return;
     const url = `${backendUrl}/api/conversations/${conversationId}/events?afterSeq=${afterSeq}`;
 
     try {
@@ -49,7 +60,7 @@ export function watchConversation(
 
       if (!resp.ok || !resp.body) {
         console.error(`[sse-watcher] failed to connect: ${resp.status}`);
-        if (!aborted) setTimeout(run, 5000);
+        scheduleReconnect(5000);
         return;
       }
 
@@ -63,7 +74,7 @@ export function watchConversation(
         const { done, value } = await reader.read();
         if (done) {
           // Stream ended normally — reconnect to continue watching
-          if (!aborted) setTimeout(run, 1000);
+          scheduleReconnect(1000);
           break;
         }
 
@@ -81,8 +92,21 @@ export function watchConversation(
               const entry = JSON.parse(currentData) as LedgerEntry;
               await processEntry(entry, larkChatId, db, afterSeq, onSend);
               if (entry.seq > afterSeq) afterSeq = entry.seq;
-            } catch {
-              // skip malformed entries
+            } catch (err) {
+              // Parse errors: log and skip. Send errors: throw to break connection
+              // and reconnect from DB pushed_seq, preventing message loss.
+              if (err instanceof SyntaxError) {
+                console.error(
+                  `[sse-watcher] malformed JSON for ${conversationId}, skipping`,
+                );
+              } else {
+                console.error(
+                  `[sse-watcher] process entry failed for ${conversationId}: ${
+                    err instanceof Error ? err.message : String(err)
+                  }`,
+                );
+                throw err;
+              }
             }
             currentData = "";
           }
@@ -90,10 +114,8 @@ export function watchConversation(
         }
       }
     } catch (err) {
-      if (!aborted) {
-        console.error(`[sse-watcher] connection error for ${conversationId}:`, err);
-        setTimeout(run, 5000);
-      }
+      console.error(`[sse-watcher] connection error for ${conversationId}:`, err);
+      scheduleReconnect(5000);
     }
   };
 
@@ -104,6 +126,10 @@ export function watchConversation(
     conversationId,
     close: () => {
       aborted = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
     },
   };
 }
