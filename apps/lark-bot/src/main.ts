@@ -12,6 +12,7 @@ import { addTypingReaction, removeTypingReaction } from "./feedback-reaction.js"
 import { watchRunDelta, type RunDeltaWatcherHandle } from "./run-delta-watcher.js";
 import { watchConversation } from "./sse-watcher.js";
 import type { WatcherHandle } from "./sse-watcher.js";
+import { collectHealth, postHeartbeat } from "./diagnostics.js";
 
 const args = parseArgs(process.argv.slice(2));
 const state = await bootstrap(args);
@@ -62,6 +63,18 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
 for (const binding of getAllChatBindings(state.db)) {
   ensureWatcher(binding.conversationId, binding.larkChatId, binding.pushedSeq);
 }
+
+// M16: Surface health heartbeat (every 30s)
+const heartbeatTimer = setInterval(() => {
+  const health = collectHealth(
+    args.agentId,
+    profile,
+    state.db,
+    { conversation: watchers.size, runDelta: runWatchers.size },
+    null,
+  );
+  void postHeartbeat(health, args.backendUrl, args.backendAuthToken);
+}, 30_000);
 
 // ─── lark-cli event consume (inbound) ───
 const child = spawn(
@@ -165,6 +178,7 @@ child.on("exit", (code, signal) => {
 
 // Forward SIGTERM gracefully
 const cleanup = () => {
+  clearInterval(heartbeatTimer);
   // Release PID lock so a new instance can start
   try { require("node:fs").unlinkSync(state.pidFile); } catch { /* best-effort */ }
   for (const [, w] of watchers) w.close();
