@@ -161,7 +161,7 @@ describe("RuntimeOpsStore", () => {
       expect(row!.runId).toBe("r1");
     });
 
-    test("unique constraint on idempotencyKey", () => {
+    test("idempotent on duplicate idempotencyKey (INSERT OR IGNORE)", () => {
       const row = {
         runId: "r1",
         conversationId: "c1",
@@ -174,7 +174,11 @@ describe("RuntimeOpsStore", () => {
         createdAt: 1000,
       };
       store.insertRunOrigin(row);
-      expect(() => store.insertRunOrigin({ ...row, runId: "r2" })).toThrow();
+      // Second insert with same idempotencyKey should be silently ignored
+      expect(() => store.insertRunOrigin({ ...row, runId: "r2" })).not.toThrow();
+      // The original row is still there
+      const origin = store.getRunOriginByIdempotencyKey("ik-dup");
+      expect(origin!.runId).toBe("r1");
     });
 
     test("getRunOrigin returns null for missing run", () => {

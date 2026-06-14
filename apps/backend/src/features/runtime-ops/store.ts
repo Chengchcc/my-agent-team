@@ -69,7 +69,7 @@ export class RuntimeOpsStore {
 
   insertRunOrigin(row: RunOriginRow): void {
     this.#db.run(
-      `INSERT INTO run_origin (run_id, conversation_id, source_ledger_seq, agent_member_id, surface, trace_id, traceparent, idempotency_key, created_at)
+      `INSERT OR IGNORE INTO run_origin (run_id, conversation_id, source_ledger_seq, agent_member_id, surface, trace_id, traceparent, idempotency_key, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.runId,

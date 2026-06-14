@@ -104,9 +104,15 @@ export class RunSupervisor {
     this.#reaperTimer = setInterval(() => {
       if (this.#reaping) return; // concurrency guard: skip if previous tick still running
       this.#reaping = true;
-      void this.#reapStaleRuns().finally(() => {
-        this.#reaping = false;
-      });
+      this.#reapStaleRuns()
+        .catch((err) => {
+          console.error(
+            `[supervisor] reaper error: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        })
+        .finally(() => {
+          this.#reaping = false;
+        });
     }, interval);
   }
 
@@ -129,7 +135,7 @@ export class RunSupervisor {
 
     let reaped = false;
     for (const row of rows) {
-      const age = row.heartbeat_at ? Date.now() - row.heartbeat_at : Infinity;
+      const age = row.heartbeat_at ? Math.max(0, Date.now() - row.heartbeat_at) : Infinity;
       if (age < this.#opts.config.heartbeatTimeoutMs) continue; // fresh
 
       // M14.7: daemon runs have no backend-visible pid — heartbeat timeout is the sole liveness signal.
@@ -604,7 +610,7 @@ export class RunSupervisor {
     // Phase 1: re-register live runs in #active for post-restart cancel support.
     // M16: Try to reattach to existing daemon first; fall back to NOOP_TRANSPORT.
     for (const row of rows) {
-      const age = row.heartbeat_at ? Date.now() - row.heartbeat_at : Infinity;
+      const age = row.heartbeat_at ? Math.max(0, Date.now() - row.heartbeat_at) : Infinity;
       if (age < this.#opts.config.heartbeatTimeoutMs) {
         this.#opts.opsStore.appendRunEvent({
           runId: row.run_id,
@@ -657,6 +663,12 @@ export class RunSupervisor {
     }
 
     // Phase 2: delegate stale runs to shared reap logic (includes EventLog append + onRunComplete)
-    await this.#reapStaleRuns();
+    // Set #reaping to prevent concurrent timer-triggered reap during startup.
+    this.#reaping = true;
+    try {
+      await this.#reapStaleRuns();
+    } finally {
+      this.#reaping = false;
+    }
   }
 }

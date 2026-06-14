@@ -36,15 +36,25 @@ export function opsRoutes(svc: RuntimeOpsService) {
     },
 
     async getAgentRuntime(_req: Request, agentId: string): Promise<Response> {
-      const runtime = svc.getAgentRuntime(agentId);
-      if (!runtime) return json({ error: "Agent not found" }, 404);
-      return json(runtime);
+      // Always returns an object — "unknown" status means no health data yet
+      return json(svc.getAgentRuntime(agentId));
     },
 
     /** M16: Internal surface heartbeat endpoint. Payload pre-sanitized by lark-bot. */
     async larkHeartbeat(req: Request): Promise<Response> {
-      const body = await req.json();
-      svc.ingestLarkHeartbeat(body);
+      let body: Record<string, unknown>;
+      try {
+        body = await req.json();
+      } catch {
+        return json({ error: "Invalid JSON body" }, 400);
+      }
+      if (!body.agentId || typeof body.agentId !== "string") {
+        return json({ error: "Missing required field: agentId" }, 400);
+      }
+      if (!body.status || typeof body.status !== "string") {
+        return json({ error: "Missing required field: status" }, 400);
+      }
+      svc.ingestLarkHeartbeat(body as Parameters<typeof svc.ingestLarkHeartbeat>[0]);
       return json({ ok: true });
     },
   };

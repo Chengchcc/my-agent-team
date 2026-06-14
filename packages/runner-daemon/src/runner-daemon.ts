@@ -113,9 +113,17 @@ export class RunnerDaemon {
     }, 10_000);
 
     this.#transport.onMessage((msg) => {
-      if (msg.type === "start") void this.#onStart(msg);
-      else if (msg.type === "abort") this.#onAbort(msg);
-      else if (msg.type === "run_finalized") void this.#onRunFinalized(msg);
+      if (msg.type === "start") {
+        this.#onStart(msg).catch((err) => {
+          console.error(`[runner-daemon] #onStart failed: ${serializeError(err)}`);
+        });
+      } else if (msg.type === "abort") {
+        this.#onAbort(msg);
+      } else if (msg.type === "run_finalized") {
+        this.#onRunFinalized(msg).catch((err) => {
+          console.error(`[runner-daemon] #onRunFinalized failed: ${serializeError(err)}`);
+        });
+      }
     });
   }
 

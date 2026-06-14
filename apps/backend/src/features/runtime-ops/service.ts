@@ -231,14 +231,20 @@ export function createRuntimeOpsService(deps: {
           startedAt: run.started_at as number,
           endedAt: run.ended_at as number | null,
         },
-        attempts: attempts.map((a) => ({
-          attemptId: a.attempt_id,
-          heartbeatAt: a.heartbeat_at,
-          heartbeatAgeMs: a.heartbeat_at ? Date.now() - a.heartbeat_at : null,
-          startedAt: a.started_at,
-          endedAt: a.ended_at,
-          transport: "attached" as const,
-        })),
+        attempts: attempts.map((a) => {
+          const session = supervisor.getActive(runId);
+          const transport: "attached" | "noop" | "detached" = session
+            ? "attached"
+            : a.ended_at ? "detached" : "detached";
+          return {
+            attemptId: a.attempt_id,
+            heartbeatAt: a.heartbeat_at,
+            heartbeatAgeMs: a.heartbeat_at ? Date.now() - a.heartbeat_at : null,
+            startedAt: a.started_at,
+            endedAt: a.ended_at,
+            transport,
+          };
+        }),
         eventLog: {
           lastSeq: lastEvent?.seq ?? null,
           lastEventType: lastEvent?.type ?? null,
@@ -277,7 +283,7 @@ export function createRuntimeOpsService(deps: {
       const run = db
         .query("SELECT status, agent_id FROM run WHERE run_id = ?")
         .get(runId) as { status: string; agent_id: string } | undefined;
-      if (!run) return { state: "already_terminal", status: "unknown" };
+      if (!run) return { state: "already_terminal", status: "not_found" };
       if (run.status !== "running") return { state: "already_terminal", status: run.status };
 
       const attempt = db
@@ -290,7 +296,7 @@ export function createRuntimeOpsService(deps: {
 
       if (!attempt) return { state: "already_terminal", status: "unknown" };
 
-      const age = attempt.heartbeat_at ? Date.now() - attempt.heartbeat_at : Infinity;
+      const age = attempt.heartbeat_at ? Math.max(0, Date.now() - attempt.heartbeat_at) : Infinity;
       if (age >= heartbeatTimeoutMs) {
         const now = Date.now();
         db.transaction(() => {
