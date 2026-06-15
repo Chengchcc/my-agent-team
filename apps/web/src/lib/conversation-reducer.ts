@@ -28,6 +28,7 @@ export interface Draft {
 }
 
 export type TriggerMode = "auto" | "mention";
+export type LedgerConn = "connecting" | "open" | "reconnecting" | "closed";
 
 export interface ConvState {
   viewerMemberId: string;
@@ -35,6 +36,7 @@ export interface ConvState {
   messages: UiMessage[];
   draft: Draft | null;
   run: { id: string | null; phase: RunPhase; agentMemberId: string | null };
+  ledgerConn: LedgerConn;
   pendingInterrupt: { id: string; name: string; input: unknown } | null;
   error: string | null;
   optimisticSeq: number;
@@ -60,6 +62,7 @@ export type Action =
   | { type: "run/done" }
   | { type: "run/completed" }
   | { type: "run/noop" }
+  | { type: "ledger/conn"; status: LedgerConn }
   | { type: "toggleTriggerMode" }
   | { type: "todo/update"; todos: ConvState["todos"] };
 
@@ -70,6 +73,7 @@ export function initialState(): ConvState {
     messages: [],
     draft: null,
     run: { id: null, phase: "idle", agentMemberId: null },
+    ledgerConn: "connecting",
     pendingInterrupt: null,
     error: null,
     optimisticSeq: 0,
@@ -351,6 +355,9 @@ export function reducer(s: ConvState, a: Action): ConvState {
         return { ...s, draft: null };
       }
       return { ...s, draft: null, run: { ...s.run, phase: "done" } };
+
+    case "ledger/conn":
+      return { ...s, ledgerConn: a.status };
 
     case "toggleTriggerMode":
       return {

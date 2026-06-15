@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useReducer } from "react";
 import { api, type ConversationSnapshot } from "@/lib/api";
+import { toast } from "sonner";
 import { type ConvState, initialState, reducer, type SenderRef } from "@/lib/conversation-reducer";
 
 function safeParse(raw: string): unknown {
@@ -56,6 +57,21 @@ export function useConversation(
     if (!conversationId) return;
     const es = new EventSource(`/api/bff/conversations/${conversationId}/events`);
     const seen = new Set<number>();
+    let wasDisconnected = false;
+
+    es.onopen = () => {
+      dispatch({ type: "ledger/conn", status: "open" });
+      if (wasDisconnected) {
+        toast.success("Reconnected — missed messages restored");
+        wasDisconnected = false;
+      }
+    };
+
+    es.onerror = () => {
+      const status = es.readyState === EventSource.CLOSED ? "closed" : "reconnecting";
+      dispatch({ type: "ledger/conn", status });
+      if (status === "reconnecting") wasDisconnected = true;
+    };
 
     const guard = (e: MessageEvent): number | null => {
       const seq = parseInt(e.lastEventId, 10);
@@ -337,6 +353,7 @@ export function useConversation(
     draft: state.draft,
     phase: state.run.phase,
     busy: state.run.phase === "running" || (!!state.draft && state.run.phase !== "done"),
+    ledgerConn: state.ledgerConn,
     pendingInterrupt: state.pendingInterrupt,
     error: state.error,
     runId: state.run.id,
