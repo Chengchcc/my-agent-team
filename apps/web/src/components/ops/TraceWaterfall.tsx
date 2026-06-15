@@ -3,6 +3,8 @@
 import Link from "next/link";
 import type { TraceOpsDetail } from "@/lib/api";
 
+const MIN_BAR_W = 4;
+
 function relativeTime(ts: number, baseTs: number): string {
   const ms = ts - baseTs;
   if (ms < 1000) return `${ms}ms`;
@@ -37,6 +39,13 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
       <div className="space-y-0.5">
         {detail.events.map((e, i) => {
           const left = baseTs === lastTs ? 0 : ((e.ts - baseTs) / totalMs) * 100;
+          // Bar width: proportional to time until next event (or MIN_BAR_W for last)
+          const nextTs = detail.events[i + 1]?.ts;
+          const widthPct = nextTs
+            ? Math.max(((nextTs - e.ts) / totalMs) * 100, 0.2)
+            : Math.max((totalMs * 0.05) / totalMs * 100, 0.5);
+          const barWidth = `${widthPct}%`;
+
           return (
             <div key={`${e.runId}-${e.ts}-${i}`} className="flex items-center gap-3 text-xs group">
               <span className="w-16 shrink-0 text-right font-mono text-muted-foreground">
@@ -46,11 +55,11 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
               <div className="relative flex-1 h-5">
                 <div
                   className="absolute top-1/2 -translate-y-1/2 h-3 rounded-sm bg-primary/40 group-hover:bg-primary/70 transition-colors"
-                  style={{ left: `${left}%`, width: "4px" }}
+                  style={{ left: `${left}%`, width: barWidth, minWidth: MIN_BAR_W }}
                 />
                 <span
-                  className="absolute top-1/2 -translate-y-1/2 text-foreground"
-                  style={{ left: `${left + 0.5}%` }}
+                  className="absolute top-1/2 -translate-y-1/2 text-foreground truncate"
+                  style={{ left: `${Math.min(left + widthPct + 0.5, 98)}%` }}
                 >
                   {e.kind}
                 </span>
@@ -58,7 +67,7 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
 
               <Link
                 href={`/ops/runs/${e.runId}`}
-                className="font-mono text-muted-foreground hover:text-primary transition-colors"
+                className="font-mono text-muted-foreground hover:text-primary transition-colors shrink-0"
               >
                 {e.runId.slice(0, 8)}…
               </Link>
