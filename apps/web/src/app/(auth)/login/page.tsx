@@ -1,4 +1,11 @@
+"use client";
+
+import { useSearchParams } from "next/navigation";
+
 export default function LoginPage() {
+  const searchParams = useSearchParams();
+  const error = searchParams.get("error");
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-[var(--canvas)]">
       <div className="fixed top-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
@@ -17,7 +24,13 @@ export default function LoginPage() {
           Workspace
         </h1>
 
-        <p className="text-sm text-[var(--body)] mb-8">A terminal for working with agents</p>
+        <p className="text-sm text-[var(--body)] mb-6">A terminal for working with agents</p>
+
+        {error && (
+          <div className="mb-6 p-3 rounded border border-destructive/30 bg-destructive/10 text-sm text-destructive">
+            {error === "invalid_password" ? "Invalid password. Please try again." : error}
+          </div>
+        )}
 
         <form action="/api/auth/login" method="POST" className="space-y-5">
           <div>

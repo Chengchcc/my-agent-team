@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { QueryState } from "@/components/ops/QueryState";
@@ -9,8 +10,17 @@ import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import { TokenTrendChart } from "@/components/ops/TokenTrendChart";
 import { CostBreakdownChart } from "@/components/ops/CostBreakdownChart";
 import { TopToolsChart } from "@/components/ops/TopToolsChart";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+const WINDOWS: Record<string, number> = {
+  "1h": 3_600_000,
+  "24h": 86_400_000,
+  "7d": 604_800_000,
+};
 
 export default function OpsPage() {
+  const [windowKey, setWindowKey] = useState("24h");
+
   const runsQuery = useQuery({
     queryKey: ["ops", "runs"],
     queryFn: () => api.listOpsRuns({ limit: 100 }),
@@ -42,6 +52,9 @@ export default function OpsPage() {
   const runtimes = runtimesQuery.data ?? [];
   const heartbeatTimeoutMs = runtimes[0]?.heartbeatTimeoutMs ?? 60_000;
 
+  const rangeMs = WINDOWS[windowKey] ?? WINDOWS["24h"]!;
+  const chartRange = { from: Date.now() - rangeMs, to: Date.now() };
+
   const overviewQuery = {
     isLoading: runsQuery.isLoading || agentsQuery.isLoading || runtimesQuery.isLoading,
     isError: runsQuery.isError || agentsQuery.isError || runtimesQuery.isError,
@@ -69,36 +82,33 @@ export default function OpsPage() {
             </section>
 
             <section>
-              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                Run Insights
-              </h2>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                  Run Insights
+                </h2>
+                <Select value={windowKey} onValueChange={(v) => v && setWindowKey(v)}>
+                  <SelectTrigger className="w-[100px] h-7 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1h">Last hour</SelectItem>
+                    <SelectItem value="24h">Last 24h</SelectItem>
+                    <SelectItem value="7d">Last 7 days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="rounded-lg border p-4">
-                  <h3 className="text-sm font-semibold text-foreground mb-3">Token Trends (24h)</h3>
-                  <TokenTrendChart
-                    range={{
-                      from: Date.now() - 86_400_000,
-                      to: Date.now(),
-                    }}
-                  />
+                  <h3 className="text-sm font-semibold text-foreground mb-3">Token Trends</h3>
+                  <TokenTrendChart range={chartRange} />
                 </div>
                 <div className="rounded-lg border p-4">
-                  <h3 className="text-sm font-semibold text-foreground mb-3">Cost Breakdown (24h)</h3>
-                  <CostBreakdownChart
-                    range={{
-                      from: Date.now() - 86_400_000,
-                      to: Date.now(),
-                    }}
-                  />
+                  <h3 className="text-sm font-semibold text-foreground mb-3">Cost Breakdown</h3>
+                  <CostBreakdownChart range={chartRange} />
                 </div>
                 <div className="rounded-lg border p-4 lg:col-span-2">
-                  <h3 className="text-sm font-semibold text-foreground mb-3">Top Tools (24h)</h3>
-                  <TopToolsChart
-                    range={{
-                      from: Date.now() - 86_400_000,
-                      to: Date.now(),
-                    }}
-                  />
+                  <h3 className="text-sm font-semibold text-foreground mb-3">Top Tools</h3>
+                  <TopToolsChart range={chartRange} />
                 </div>
               </div>
             </section>

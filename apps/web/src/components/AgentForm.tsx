@@ -8,6 +8,7 @@ import { ArrowRight, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { type AgentRow, type LarkSetupSession, api } from "@/lib/api";
+import { toast } from "sonner";
 
 
 interface AgentFormProps {
@@ -101,10 +102,12 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
 
       if (isEdit) {
         await api.updateAgent(editAgent?.id, body);
+        toast.success("Agent updated");
         queryClient.invalidateQueries({ queryKey: ["agent", editAgent?.id] });
         queryClient.invalidateQueries({ queryKey: ["agents"] });
       } else {
         const agent = await api.createAgent(body);
+        toast.success("Agent created");
         queryClient.invalidateQueries({ queryKey: ["agents"] });
         setOpen(false);
         router.push(`/agents/${agent.id}`);
@@ -113,7 +116,9 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
       setOpen(false);
       onSuccess?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save agent");
+      const msg = err instanceof Error ? err.message : "Failed to save agent";
+      setError(msg);
+      toast.error("Failed to save agent", { description: msg });
     } finally {
       setSubmitting(false);
     }
