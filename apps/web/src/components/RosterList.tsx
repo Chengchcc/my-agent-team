@@ -2,10 +2,10 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bot, UserCircle, X } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import type { SenderRef } from "@/lib/conversation-reducer";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
 import { AddMemberButton } from "./AddMemberButton";
 
 interface RosterListProps {
@@ -26,7 +26,9 @@ export function RosterList({ conversationId, roster, viewerMemberId, onClose }: 
       qc.invalidateQueries({ queryKey: ["conv", conversationId] });
     },
     onError: (err) => {
-      toast.error("Failed to remove member", { description: err instanceof Error ? err.message : "Unknown error" });
+      toast.error("Failed to remove member", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
     },
   });
 
@@ -44,7 +46,12 @@ export function RosterList({ conversationId, roster, viewerMemberId, onClose }: 
         <div className="flex items-center gap-1">
           <AddMemberButton conversationId={conversationId} roster={roster} />
           {onClose && (
-            <Button variant="ghost" size="icon-xs" onClick={onClose} aria-label="Close members panel">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={onClose}
+              aria-label="Close members panel"
+            >
               <X size={14} />
             </Button>
           )}

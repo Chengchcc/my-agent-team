@@ -1,12 +1,11 @@
-"use client"
+"use client";
 
-import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
 import { ArrowUp, AtSign, Bot, CornerDownLeft } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SenderRef } from "@/lib/conversation-reducer";
 import { toast } from "sonner";
-
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import type { SenderRef } from "@/lib/conversation-reducer";
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -48,6 +47,7 @@ export function Composer({
   }, [agentMembers, mentionFilter]);
 
   // Reset selection when filter changes (including on filter input)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — must reset when filter narrows options
   useEffect(() => {
     setMentionIndex(0);
   }, [mentionFilter]);
@@ -233,7 +233,6 @@ export function Composer({
                   filteredMentions.map((m, i) => (
                     <Button
                       key={m.memberId}
-                     
                       onClick={() => insertMention(m)}
                       onMouseEnter={() => setMentionIndex(i)}
                       className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
@@ -259,7 +258,6 @@ export function Composer({
 
         {showMentionButton && (
           <Button
-           
             onClick={() => {
               setShowMentions(!showMentions);
               setMentionFilter("");
@@ -273,7 +271,6 @@ export function Composer({
         )}
 
         <Button
-         
           onClick={handleSend}
           disabled={disabled || !value.trim()}
           className="shrink-0 bg-[var(--primary)] text-[var(--on-primary)]

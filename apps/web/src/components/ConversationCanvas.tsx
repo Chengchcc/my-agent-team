@@ -1,20 +1,19 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button";
 import { ArrowDown } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { useConversation } from "@/hooks/useConversation";
 import type { ConversationSnapshot } from "@/lib/api";
-import { RosterList } from "./RosterList";
 import { computeStatus } from "@/lib/run-status";
 import { extractText } from "@/lib/timeline";
 import { Composer } from "./Composer";
 import { DraftMessage } from "./DraftMessage";
+import { RosterList } from "./RosterList";
 import { Timeline } from "./Timeline";
 import { TodoPanel } from "./TodoPanel";
 import { ToolApprovalCard } from "./ToolApprovalCard";
-
 
 interface ConversationCanvasProps {
   conversationId: string;
@@ -97,7 +96,13 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
       {ledgerConn === "closed" && (
         <div className="shrink-0 bg-destructive/10 border-b border-destructive/30 px-6 py-1 text-center flex items-center justify-center gap-3">
           <span className="text-[10px] text-destructive">Connection closed</span>
-          <button type="button" onClick={() => window.location.reload()} className="text-[10px] text-primary hover:underline">Reload</button>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="text-[10px] text-primary hover:underline"
+          >
+            Reload
+          </button>
         </div>
       )}
 
@@ -144,7 +149,6 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
             {!label && <span className="text-xs text-[var(--mute)]">Idle</span>}
             {busy && (
               <Button
-
                 onClick={runId ? cancel : resetLocal}
                 disabled={runId ? canceling : false}
                 className="text-[10px] uppercase tracking-[0.15em] text-[var(--body)] hover:text-[var(--ink)] disabled:opacity-40 transition-colors"
@@ -175,7 +179,6 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
           </div>
           {lastUserMessage && (
             <Button
-             
               onClick={() => send(lastUserMessage)}
               className="text-xs text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors shrink-0 ml-4"
             >
@@ -231,7 +234,6 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
         {/* Scroll-to-bottom — outside scroll container so it stays fixed */}
         {scrolledUp && (
           <Button
-           
             onClick={scrollToBottom}
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-[var(--canvas)] border border-[var(--hairline)] rounded-full p-2 hover:border-[var(--primary)] transition-colors"
             title="Scroll to bottom"
@@ -242,7 +244,11 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
 
         {/* Roster — desktop sidebar */}
         <aside className="hidden md:block shrink-0 w-56 border-l border-[var(--hairline)] overflow-y-auto p-3">
-          <RosterList conversationId={conversationId} roster={roster} viewerMemberId={viewerMemberId} />
+          <RosterList
+            conversationId={conversationId}
+            roster={roster}
+            viewerMemberId={viewerMemberId}
+          />
         </aside>
 
         {/* Roster — mobile trigger */}
@@ -297,7 +303,6 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
       <div className="shrink-0 border-t border-[var(--hairline)]">
         <div className="flex items-center gap-2 px-6 pt-3">
           <Button
-           
             onClick={toggleTriggerMode}
             className="text-[10px] tracking-[0.1em] uppercase px-2 py-0.5 rounded border border-[var(--hairline)] text-[var(--mute)] hover:text-[var(--body)] hover:border-[var(--primary)] transition-colors"
             title={

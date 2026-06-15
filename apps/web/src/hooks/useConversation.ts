@@ -2,8 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useReducer } from "react";
-import { api, type ConversationSnapshot } from "@/lib/api";
 import { toast } from "sonner";
+import { api, type ConversationSnapshot } from "@/lib/api";
 import { type ConvState, initialState, reducer, type SenderRef } from "@/lib/conversation-reducer";
 
 function safeParse(raw: string): unknown {
@@ -342,7 +342,7 @@ export function useConversation(
     [resumeRun],
   );
   const cancel = useCallback(() => cancelRun.mutate(), [cancelRun]);
-  const resetLocal = useCallback(() => dispatch({ type: "run/noop" }), [dispatch]);
+  const resetLocal = useCallback(() => dispatch({ type: "run/noop" }), []);
 
   const toggleTriggerMode = useCallback(() => dispatch({ type: "toggleTriggerMode" }), []);
 
