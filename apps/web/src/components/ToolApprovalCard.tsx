@@ -1,8 +1,9 @@
+"use client"
+
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-"use client";
-
 import { useState } from "react";
+
 
 interface ToolApprovalCardProps {
   tool: { id: string; name: string; input: unknown };

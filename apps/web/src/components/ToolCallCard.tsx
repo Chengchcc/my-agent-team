@@ -1,7 +1,8 @@
-import { Button } from "@/components/ui/button";
-"use client";
+"use client"
 
+import { Button } from "@/components/ui/button";
 import { useState } from "react";
+
 
 export function ToolCallCard({ name, input }: { id?: string; name: string; input: unknown }) {
   const [open, setOpen] = useState(false);

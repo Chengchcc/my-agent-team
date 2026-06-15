@@ -1,10 +1,11 @@
+"use client"
+
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-"use client";
-
 import { ArrowUp, AtSign, Bot, CornerDownLeft } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SenderRef } from "@/lib/conversation-reducer";
+
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -1,8 +1,9 @@
-import { Button } from "@/components/ui/button";
-"use client";
+"use client"
 
+import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { normalizeToolResultContent } from "@/lib/render-blocks";
+
 
 export function ToolStep({
   name,

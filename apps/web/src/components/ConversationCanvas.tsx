@@ -1,6 +1,6 @@
-import { Button } from "@/components/ui/button";
-"use client";
+"use client"
 
+import { Button } from "@/components/ui/button";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, Bot, UserCircle, X } from "lucide-react";
 import Link from "next/link";
@@ -16,6 +16,7 @@ import { DraftMessage } from "./DraftMessage";
 import { Timeline } from "./Timeline";
 import { TodoPanel } from "./TodoPanel";
 import { ToolApprovalCard } from "./ToolApprovalCard";
+
 
 interface ConversationCanvasProps {
   conversationId: string;

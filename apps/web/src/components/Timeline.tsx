@@ -1,6 +1,6 @@
-import { Button } from "@/components/ui/button";
-"use client";
+"use client"
 
+import { Button } from "@/components/ui/button";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UiMessage } from "@/lib/conversation-reducer";
 import { groupTurns, type TurnSegment } from "@/lib/conversation-reducer";
@@ -8,6 +8,7 @@ import { renderContentBlocks } from "@/lib/render-blocks";
 import { extractText } from "@/lib/timeline";
 import { MessageBubble } from "./MessageBubble";
 import { ReasoningTrace } from "./ReasoningTrace";
+
 
 interface TimelineProps {
   messages: UiMessage[];

@@ -1,11 +1,12 @@
+"use client"
+
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-"use client";
-
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
+
 
 interface SectionProps {
   title: string;
