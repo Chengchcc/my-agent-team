@@ -38,7 +38,10 @@ function RootSummary({ insights }: { insights: RunInsights }) {
         <span className="text-foreground">{formatDuration(r.totalLatencyMs)} total</span>
         <span className="text-muted-foreground">·</span>
         <span className="text-foreground">
-          {formatCost(r.totalCostUsd)} <span className="text-muted-foreground text-xs">(est.)</span>
+          {r.unknownCostCalls > 0 && r.totalCostUsd === 0
+            ? <span className="text-muted-foreground">unknown ({r.unknownCostCalls} call{r.unknownCostCalls > 1 ? "s" : ""} unpriced)</span>
+            : <>{formatCost(r.totalCostUsd)} <span className="text-muted-foreground text-xs">(est.{r.unknownCostCalls > 0 ? `, ${r.unknownCostCalls} call${r.unknownCostCalls > 1 ? "s" : ""} unpriced` : ""})</span></>
+          }
         </span>
       </div>
       <div className="text-xs text-muted-foreground font-mono space-y-0.5">
