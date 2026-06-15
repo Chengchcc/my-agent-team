@@ -42,23 +42,21 @@ function segmentId(seg: TurnSegment): string {
   return seg.kind === "turn" ? seg.id : seg.message.id;
 }
 
-/** A turn boundary anchor is placed between two segments when both are
- *  non-system and their sender identity changes. */
-function isSegmentBoundary(prev: TurnSegment, cur: TurnSegment): boolean {
-  const ps = segmentSender(prev);
-  const cs = segmentSender(cur);
-  return ps.memberId !== cs.memberId && cs.kind !== "system" && ps.kind !== "system";
+/** A turn starts at each user (human) message. A turn spans that user message
+ *  plus every following assistant/system segment up to (but not including) the
+ *  next user message. */
+function isTurnStart(seg: TurnSegment): boolean {
+  return segmentSender(seg).kind === "human";
 }
 
 function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {
   const anchors: TurnAnchor[] = [];
   let turnNum = 0;
-  for (let i = 1; i < segments.length; i++) {
-    const prev = segments[i - 1]!;
-    const cur = segments[i]!;
-    if (isSegmentBoundary(prev, cur)) {
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]!;
+    if (isTurnStart(seg)) {
       turnNum++;
-      const id = segmentId(prev);
+      const id = segmentId(seg);
       anchors.push({ id: `turn-${id}`, seq: turnNum, elementId: `turn-${id}` });
     }
   }
@@ -114,26 +112,26 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
     [scrollContainerRef],
   );
 
-  // Build a flat render list of {seg, anchorId?, turnNum?}
+  // Build a flat render list of {seg, anchorId?, turnNum?, isFirst?}
   const renderItems = useMemo(() => {
     const items: Array<{
       seg: TurnSegment;
       anchorId?: string;
       turnNum?: number;
+      isFirst?: boolean;
     }> = [];
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]!;
-      if (i > 0) {
-        const prev = segments[i - 1]!;
-        if (isSegmentBoundary(prev, seg)) {
-          const prevId = segmentId(prev);
-          items.push({
-            seg,
-            anchorId: `turn-${prevId}`,
-            turnNum: turnNumBySegId.get(prevId),
-          });
-          continue;
-        }
+      // Place a turn divider/anchor before each user message that starts a turn.
+      if (isTurnStart(seg)) {
+        const id = segmentId(seg);
+        items.push({
+          seg,
+          anchorId: `turn-${id}`,
+          turnNum: turnNumBySegId.get(id),
+          isFirst: i === 0,
+        });
+        continue;
       }
       items.push({ seg });
     }
@@ -169,19 +167,11 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
       {/* Timeline content */}
       <div className="flex-1 min-w-0">
         <div className="max-w-3xl mx-auto">
-          {renderItems.map(({ seg, anchorId, turnNum }) => {
+          {renderItems.map(({ seg, anchorId, turnNum, isFirst }) => {
             if (seg.kind === "turn") {
+              // Agent turn blocks never start a turn, so they carry no anchor.
               return (
                 <div key={seg.id}>
-                  {anchorId && turnNum !== undefined && (
-                    <div id={anchorId} className="flex items-center gap-3 py-3">
-                      <div className="flex-1 h-px bg-[var(--hairline)]" />
-                      <div className="flex items-center gap-1 text-[10px] text-[var(--mute)] shrink-0">
-                        <span>#{turnNum}</span>
-                      </div>
-                      <div className="flex-1 h-px bg-[var(--hairline)]" />
-                    </div>
-                  )}
                   <ReasoningTrace segment={seg} defaultOpen={false} />
                 </div>
               );
@@ -198,15 +188,21 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
 
             return (
               <div key={m.id}>
-                {anchorId && turnNum !== undefined && (
-                  <div id={anchorId} className="flex items-center gap-3 py-3">
-                    <div className="flex-1 h-px bg-[var(--hairline)]" />
-                    <div className="flex items-center gap-1 text-[10px] text-[var(--mute)] shrink-0">
-                      <span>#{turnNum}</span>
+                {anchorId &&
+                  turnNum !== undefined &&
+                  (isFirst ? (
+                    // Anchor target for the first turn — no visible divider above
+                    // the opening user message.
+                    <div id={anchorId} className="scroll-mt-16" />
+                  ) : (
+                    <div id={anchorId} className="flex items-center gap-3 py-3">
+                      <div className="flex-1 h-px bg-[var(--hairline)]" />
+                      <div className="flex items-center gap-1 text-[10px] text-[var(--mute)] shrink-0">
+                        <span>#{turnNum}</span>
+                      </div>
+                      <div className="flex-1 h-px bg-[var(--hairline)]" />
                     </div>
-                    <div className="flex-1 h-px bg-[var(--hairline)]" />
-                  </div>
-                )}
+                  ))}
                 {isSystem ? (
                   <div style={virt}>
                     <SystemNotice

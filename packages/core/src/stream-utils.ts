@@ -47,6 +47,11 @@ export function mergeChunkIntoBlocks(
     return;
   }
 
+  // Reasoning is ephemeral (UI-only streaming); never persisted as a content block.
+  if (chunk.delta.type === "reasoning") {
+    return;
+  }
+
   if (chunk.delta.type === "tool_use") {
     blocks.push({ type: "tool_use", id: chunk.delta.id, name: chunk.delta.name, input: "" });
     return;

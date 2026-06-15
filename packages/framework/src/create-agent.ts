@@ -28,6 +28,7 @@ export type AgentEvent =
   | { type: "interrupted"; payload: Interrupt }
   | { type: "error"; payload: { message: string; stack?: string } }
   | { type: "text_delta"; payload: { blockIndex: number; text: string } }
+  | { type: "reasoning_delta"; payload: { text: string } }
   | { type: "tool_start"; payload: { id: string; name: string } }
   | { type: "tool_end"; payload: { id: string; name: string; isError?: boolean } }
   | {
@@ -372,6 +373,9 @@ async function* runLoop(
         if (chunk.delta?.type === "text") {
           if (ttftMs === undefined) ttftMs = Date.now() - llmStart;
           yield { type: "text_delta", payload: { blockIndex, text: chunk.delta.text } };
+        }
+        if (chunk.delta?.type === "reasoning") {
+          yield { type: "reasoning_delta", payload: { text: chunk.delta.text } };
         }
         mergeChunkIntoBlocks(blocks, partialJson, chunk);
         if (chunk.usage !== undefined) usage = chunk.usage;

@@ -320,7 +320,12 @@ export class RunnerDaemon {
   // ─── Event routing ───
 
   #routeEvent(runId: string, ev: AgentEvent): void {
-    if (ev.type === "text_delta" || ev.type === "tool_start" || ev.type === "tool_end") {
+    if (
+      ev.type === "text_delta" ||
+      ev.type === "reasoning_delta" ||
+      ev.type === "tool_start" ||
+      ev.type === "tool_end"
+    ) {
       this.#transport.send({ type: "delta", runId, event: ev });
     } else {
       this.#transport.send({ type: "event", runId, event: ev });

@@ -365,16 +365,13 @@ async function onRunComplete(threadId: string, runId: string): Promise<void> {
       // C2: Release the conversation lock
       convSvc.completeRun(cid, threadId, runId);
 
-      // D19: Write all assistant messages from this run to the ledger.
-      // M14.7: Awaited before run_finalized ACK (no longer fire-and-forget).
+      // D19: Run-produced messages are now projected to the ledger incrementally
+      // by supervisor.onRunEvent (projectRunMessageToLedger) as each round lands,
+      // so they appear while the run is still in flight. Here at run completion we
+      // only finalize the side effects that need the FULL run output: the todo
+      // snapshot, and @mention resolution + agent-to-agent triggering.
       try {
         const events = await eventLog.read({ runId });
-
-        const conversationMsgs = events
-          .filter((rec) => rec.event.type === "message")
-          .map((rec) => rec.event.payload as { role: string; content: unknown })
-          .filter((p) => p.role === "assistant" || p.role === "user");
-
         const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
 
         // M14.6: Capture last todo_update snapshot and persist to ledger.
@@ -384,58 +381,27 @@ async function onRunComplete(threadId: string, runId: string): Promise<void> {
           await convSvc.appendTodo(cid, senderMemberId, payload.todos);
         }
 
-        // M14.4: Parse @mentions from agent output for agent-to-agent triggering
+        // M14.4: Parse @mentions from agent output for agent-to-agent triggering.
+        // Read-only scan over the full run output — no ledger writes here.
         const roster = convPort.getMembers(cid);
         const mentionedMemberIds = new Set<string>();
 
-        for (const msg of conversationMsgs) {
-          const content = msg.content;
-          if (typeof content === "string" && content.trim().length === 0) continue;
-          if (Array.isArray(content) && content.length === 0) continue;
+        const conversationMsgs = events
+          .filter((rec) => rec.event.type === "message")
+          .map((rec) => rec.event.payload as { role: string; content: unknown });
 
-          if (msg.role === "assistant") {
-            const text = extractText(content);
-            if (text) {
-              for (const m of roster) {
-                if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
-                const label = m.displayName ?? m.memberId;
-                const re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
-                if (re.test(text) || text.includes(`@${m.memberId}`)) {
-                  mentionedMemberIds.add(m.memberId);
-                }
-              }
+        for (const msg of conversationMsgs) {
+          if (msg.role !== "assistant") continue;
+          const text = extractText(msg.content);
+          if (!text) continue;
+          for (const m of roster) {
+            if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
+            const label = m.displayName ?? m.memberId;
+            const re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
+            if (re.test(text) || text.includes(`@${m.memberId}`)) {
+              mentionedMemberIds.add(m.memberId);
             }
           }
-
-          // M15.1: Inject runId so lark-bot can skip card-delivered final text
-          const contentWithRunId =
-            msg.role === "assistant"
-              ? typeof content === "string"
-                ? { text: content, runId }
-                : Array.isArray(content)
-                  ? { blocks: content, runId }
-                  : typeof content === "object" && content !== null
-                    ? { ...(content as Record<string, unknown>), runId }
-                    : content
-              : content;
-
-          const seq = convPort.appendLedgerEntry({
-            conversationId: cid,
-            senderMemberId,
-            addressedTo: [...mentionedMemberIds],
-            kind: "message",
-            content: JSON.stringify(contentWithRunId),
-            ts: Date.now(),
-          });
-          await convSvc.broadcastMessage({
-            seq,
-            conversationId: cid,
-            senderMemberId,
-            addressedTo: [...mentionedMemberIds],
-            kind: "message",
-            content: JSON.stringify(contentWithRunId),
-            ts: Date.now(),
-          });
         }
 
         // M14.4: Trigger @-mentioned agents (agent-to-agent chain)
@@ -461,6 +427,73 @@ async function onRunComplete(threadId: string, runId: string): Promise<void> {
 }
 
 supervisor.onRunComplete(onRunComplete);
+
+/** D19 (incremental): project a single message produced mid-run into the
+ *  conversation ledger as soon as it is durably logged, so multi-round progress
+ *  becomes visible while the run is still in flight (instead of all rounds
+ *  appearing at once when the run stops).
+ *
+ *  This is the SINGLE ledger writer for run-produced messages — onRunComplete no
+ *  longer batch-writes them (that would double-insert, since appendLedgerEntry is
+ *  a plain auto-increment INSERT with no idempotency key).
+ *
+ *  addressedTo is intentionally left empty: @mention targets can only be known
+ *  after the agent's full output accumulates, so mention RESOLUTION + triggering
+ *  still happens once, at run completion (onRunComplete). */
+async function projectRunMessageToLedger(
+  threadId: string,
+  runId: string,
+  role: string,
+  content: unknown,
+): Promise<void> {
+  // M14.3: reflect runs are not projected to any conversation.
+  if (threadId.startsWith("reflect:")) return;
+  if (role !== "assistant" && role !== "user") return;
+  if (typeof content === "string" && content.trim().length === 0) return;
+  if (Array.isArray(content) && content.length === 0) return;
+
+  const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
+  if (!cid) return;
+  const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+
+  const contentWithRunId =
+    role === "assistant"
+      ? typeof content === "string"
+        ? { text: content, runId }
+        : Array.isArray(content)
+          ? { blocks: content, runId }
+          : typeof content === "object" && content !== null
+            ? { ...(content as Record<string, unknown>), runId }
+            : content
+      : content;
+
+  const ts = Date.now();
+  const serialized = JSON.stringify(contentWithRunId);
+  const seq = convPort.appendLedgerEntry({
+    conversationId: cid,
+    senderMemberId,
+    addressedTo: [],
+    kind: "message",
+    content: serialized,
+    ts,
+  });
+  await convSvc.broadcastMessage({
+    seq,
+    conversationId: cid,
+    senderMemberId,
+    addressedTo: [],
+    kind: "message",
+    content: serialized,
+    ts,
+  });
+}
+
+supervisor.onRunEvent(async (threadId, runId, event) => {
+  if (event.type !== "message") return;
+  const payload = event.payload as { role?: string; content?: unknown } | undefined;
+  if (!payload) return;
+  await projectRunMessageToLedger(threadId, runId, payload.role ?? "", payload.content);
+});
 
 // HTTP router
 // D14: startup assertion — resume support requires thread lookup

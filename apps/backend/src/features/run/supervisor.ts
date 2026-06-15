@@ -81,6 +81,9 @@ export class RunSupervisor {
   #db: Database;
   #onRunComplete: Array<(threadId: string, runId: string, status: string) => void | Promise<void>> =
     [];
+  #onRunEvent: Array<
+    (threadId: string, runId: string, event: { type: string; payload?: unknown }) => void | Promise<void>
+  > = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
   #reaping = false;
   #deltaSubs = new Map<string, Set<ReadableStreamDefaultController>>();
@@ -187,6 +190,21 @@ export class RunSupervisor {
     fn: (threadId: string, runId: string, status: string) => void | Promise<void>,
   ): void {
     this.#onRunComplete.push(fn);
+  }
+
+  /** Register callback invoked for every mid-run event (after it is durably
+   *  appended to the EventLog). Used by D19 to project assistant/tool messages
+   *  into the conversation ledger incrementally, so multi-round progress is
+   *  visible while the run is still in flight. Listener failures are logged and
+   *  swallowed — they must never block the run. */
+  onRunEvent(
+    fn: (
+      threadId: string,
+      runId: string,
+      event: { type: string; payload?: unknown },
+    ) => void | Promise<void>,
+  ): void {
+    this.#onRunEvent.push(fn);
   }
 
   /** M16.1: Trigger all onRunComplete listeners. Used by ops service recover() stale path. */
@@ -499,6 +517,23 @@ export class RunSupervisor {
             }`,
           );
           throw err; // prevent run_done from succeeding with incomplete event log
+        }
+        // D19 (incremental): notify listeners only AFTER the event is durably
+        // logged. Failures here are non-fatal — they must not abort the run.
+        if (this.#onRunEvent.length > 0) {
+          const threadId = this.#threadIdFor(runId);
+          const event = msg.event as { type: string; payload?: unknown };
+          for (const fn of this.#onRunEvent) {
+            try {
+              await fn(threadId, runId, event);
+            } catch (err) {
+              console.error(
+                `[supervisor] onRunEvent listener failed for ${runId}: ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              );
+            }
+          }
         }
         break;
       }

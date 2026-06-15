@@ -4,6 +4,7 @@ import type { Tool } from "./tool.js";
 export interface AIMessageChunk {
   delta?:
     | { type: "text"; text: string }
+    | { type: "reasoning"; text: string }
     | { type: "tool_use"; id: string; name: string }
     | { type: "input_json_delta"; id: string; partial_json: string };
   done?: boolean;

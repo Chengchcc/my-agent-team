@@ -354,7 +354,12 @@ export function reducer(s: ConvState, a: Action): ConvState {
       if (s.run.phase === "interrupted" || s.run.phase === "error") {
         return { ...s, draft: null };
       }
-      return { ...s, draft: null, run: { ...s.run, phase: "done" } };
+      // Keep the draft visible until the authoritative ledger message replaces
+      // it (handled in "ledger/message"). Clearing here causes a flicker: the
+      // durable "done" event arrives ~500ms before the ledger writeback, so
+      // nulling the draft now would blank out the just-streamed content until
+      // the ledger catches up.
+      return { ...s, run: { ...s.run, phase: "done" } };
 
     case "ledger/conn":
       return { ...s, ledgerConn: a.status };
