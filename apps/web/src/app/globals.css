@@ -29,7 +29,7 @@
   --color-accent: var(--primary-soft);
   --color-accent-foreground: var(--canvas);
 
-  --color-destructive: var(--hairline);
+  --color-destructive: #f87171;
   --color-destructive-foreground: var(--ink);
 
   --color-foreground-strong: var(--ink-strong);
@@ -62,7 +62,7 @@
   --ink: #f2f2f2;
   --ink-strong: #ffffff;
   --body: #bdbdbd;
-  --mute: #8b949e;
+  --mute: #a0a8b0;
   --hairline: #3d3a39;
   --hairline-soft: #b8b3b0;
   --canvas-text-soft: #f5f6f7;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { RunOpsListItem } from "@/lib/api";
 import { diagnoseRunListItem } from "@/lib/ops-diagnosis";
@@ -47,6 +47,13 @@ function ago(ts: number): string {
 
 export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOpsListItem[]; heartbeatTimeoutMs?: number }) {
   const [page, setPage] = useState(0);
+  const prevRunCount = useRef(runs.length);
+  useEffect(() => {
+    if (runs.length !== prevRunCount.current) {
+      setPage(0);
+      prevRunCount.current = runs.length;
+    }
+  }, [runs.length]);
 
   const sorted = [...runs].sort((a, b) => {
     const scoreA = a.status === "running" ? (a.runnerTransport === "attached" ? 1 : 0) : 2;

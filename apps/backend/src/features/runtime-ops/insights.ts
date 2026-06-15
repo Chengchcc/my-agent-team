@@ -47,6 +47,7 @@ export interface RunInsights {
     endedAt: number | null;
     totalLatencyMs: number | null;
     totalCostUsd: number | null;
+    unknownCostCalls: number;
     llmCalls: number;
     toolCalls: number;
     totalInput: number;
@@ -114,6 +115,7 @@ export async function getRunInsights(
   let totalCacheRead = 0;
   let totalCacheCreate = 0;
   let totalCostUsd: number | null = 0;
+  let unknownCostCalls = 0;
   let slowestCall: RunInsights["root"]["slowestCall"] | undefined;
   let failedCall: RunInsights["root"]["failedCall"] | undefined;
   let interruptedAt: RunInsights["root"]["interruptedAt"] | undefined;
@@ -129,8 +131,11 @@ export async function getRunInsights(
       if (p.usage.cacheCreate) totalCacheCreate += p.usage.cacheCreate;
 
       const cost = estimateCost(p.model, p.usage);
-      if (cost === null) totalCostUsd = null;
-      if (totalCostUsd !== null && cost !== null) totalCostUsd += cost;
+      if (cost === null) {
+        unknownCostCalls++;
+      } else {
+        totalCostUsd = (totalCostUsd ?? 0) + cost;
+      }
 
       if (!slowestCall || p.latencyMs > slowestCall.latencyMs) {
         slowestCall = { kind: "llm", step: p.step, name: p.model, latencyMs: p.latencyMs };
@@ -177,7 +182,7 @@ export async function getRunInsights(
   }
 
   const totalLatencyMs =
-    params.startedAt && params.endedAt ? params.endedAt - params.startedAt : null;
+    params.startedAt != null && params.endedAt != null ? params.endedAt - params.startedAt : null;
 
   const toolBreakdown = Array.from(toolStats.entries())
     .map(([name, stats]) => ({
@@ -199,6 +204,7 @@ export async function getRunInsights(
       endedAt: params.endedAt,
       totalLatencyMs,
       totalCostUsd,
+      unknownCostCalls,
       llmCalls: calls.filter((c) => c.kind === "llm").length,
       toolCalls: calls.filter((c) => c.kind === "tool").length,
       totalInput,
@@ -219,31 +225,35 @@ export async function getRunInsights(
 export interface InsightsSummaryDeps {
   eventLog: EventLog;
   getAgentName?: (agentId: string) => string | undefined;
-  /** Run id → agent id lookup (from run table) */
-  getAgentIdForRun?: (runId: string) => string | undefined;
+  /** Pre-resolved runId → agentId mapping (from run table, scoped to time window). */
+  runAgentMap?: Map<string, string>;
 }
 
 export async function getInsightsSummary(
   deps: InsightsSummaryDeps,
   range: { from: number; to: number },
 ): Promise<InsightsSummary> {
-  const { eventLog, getAgentName } = deps;
+  const { eventLog, getAgentName, runAgentMap } = deps;
   const resolveName = (agentId: string) => getAgentName?.(agentId) ?? agentId;
 
-  // Fetch all events in the time window. In production, this should be scoped
-  // to a finite set (e.g. last N runs) — the read() without runId filter
-  // may be large. For now, rely on the caller to limit via time window on
-  // run table, then pass specific runIds.
-  const records = await eventLog.read({});
+  // Read events only for runs in the time window (scoped by caller)
+  const allRecords = [];
+  if (runAgentMap && runAgentMap.size > 0) {
+    for (const runId of runAgentMap.keys()) {
+      const recs = await eventLog.read({ runId, limit: 5000 });
+      allRecords.push(...recs);
+    }
+  } else {
+    allRecords.push(...(await eventLog.read({ limit: 5000 })));
+  }
 
   // Bucket by hour
   const tokenBuckets = new Map<number, { input: number; output: number }>();
-  const agentIdByRun = new Map<string, string>();
   const costByAgent = new Map<string, number | null>();
   const costByModel = new Map<string, number | null>();
   const toolCounts = new Map<string, { count: number; errors: number }>();
 
-  for (const rec of records) {
+  for (const rec of allRecords) {
     if (rec.ts < range.from || rec.ts > range.to) continue;
 
     const ev = rec.event;
@@ -256,27 +266,18 @@ export async function getInsightsSummary(
       tokenBuckets.set(hour, bucket);
 
       const cost = estimateCost(p.model, p.usage);
-      const prevModel = costByModel.get(p.model);
-      if (prevModel === undefined) {
-        costByModel.set(p.model, cost);
-      } else if (prevModel !== null && cost !== null) {
-        costByModel.set(p.model, prevModel + cost);
-      } else if (cost === null) {
-        costByModel.set(p.model, null);
+      if (cost !== null) {
+        const prevModel = costByModel.get(p.model);
+        costByModel.set(p.model, (prevModel ?? 0) + cost);
       }
 
-      // Per-agent cost (need run→agent mapping)
-      if (deps.getAgentIdForRun) {
-        const agentId = deps.getAgentIdForRun(rec.runId);
+      // Per-agent cost (use pre-resolved run→agent map)
+      if (runAgentMap) {
+        const agentId = runAgentMap.get(rec.runId);
         if (agentId) {
-          agentIdByRun.set(rec.runId, agentId);
-          const prevAgent = costByAgent.get(agentId);
-          if (prevAgent === undefined) {
-            costByAgent.set(agentId, cost);
-          } else if (prevAgent !== null && cost !== null) {
-            costByAgent.set(agentId, prevAgent + cost);
-          } else if (cost === null) {
-            costByAgent.set(agentId, null);
+          if (cost !== null) {
+            const prevAgent = costByAgent.get(agentId);
+            costByAgent.set(agentId, (prevAgent ?? 0) + cost);
           }
         }
       }

@@ -590,16 +590,21 @@ export function createRuntimeOpsService(deps: {
     },
 
     async getInsightsSummary(range: { from: number; to: number }): Promise<InsightsSummary> {
+      // Scope to runs in the time window (avoid full event_log scan)
+      const runRows = db
+        .query(
+          "SELECT run_id, agent_id FROM run WHERE started_at <= ? AND (ended_at IS NULL OR ended_at >= ?) LIMIT 500",
+        )
+        .all(range.to, range.from) as Array<{ run_id: string; agent_id: string }>;
+
+      const runAgentMap = new Map<string, string>();
+      for (const r of runRows) runAgentMap.set(r.run_id, r.agent_id);
+
       return getInsightsSummary(
         {
           eventLog,
           getAgentName,
-          getAgentIdForRun: (runId: string) => {
-            const row = db
-              .query("SELECT agent_id FROM run WHERE run_id = ?")
-              .get(runId) as { agent_id: string } | undefined;
-            return row?.agent_id;
-          },
+          runAgentMap,
         },
         range,
       );

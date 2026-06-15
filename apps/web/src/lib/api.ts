@@ -351,6 +351,7 @@ export interface RunInsights {
     endedAt: number | null;
     totalLatencyMs: number | null;
     totalCostUsd: number | null;
+    unknownCostCalls: number;
     llmCalls: number;
     toolCalls: number;
     totalInput: number;

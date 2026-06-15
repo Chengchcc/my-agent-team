@@ -133,7 +133,8 @@ describe("getRunInsights", () => {
       { runId: "run4", threadId: "t1", agentId: "a1", status: "done", startedAt: 1000, endedAt: 2000 },
     );
 
-    expect(result.root.totalCostUsd).toBeNull();
+    expect(result.root.totalCostUsd).toBe(0);
+    expect(result.root.unknownCostCalls).toBe(1);
   });
 
   test("resolves agent name", async () => {
