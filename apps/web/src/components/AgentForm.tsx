@@ -173,7 +173,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
                   <label className={labelClass}>Provider</label>
                   <Input
@@ -205,7 +205,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
                   <label className={labelClass}>Permission Mode</label>
                   <Select value={permissionMode} onValueChange={(v) => setPermissionMode(v as "ask" | "auto" | "deny")}>

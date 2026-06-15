@@ -242,7 +242,7 @@ export function NavRail() {
       <div className="px-4 py-3 border-t border-border">
         <Link
           href="/api/auth/logout"
-          className="text-[9px] tracking-[0.15em] uppercase text-muted-foreground hover:text-foreground-muted transition-colors"
+          className="text-[10px] tracking-[0.15em] uppercase text-muted-foreground hover:text-foreground-muted transition-colors"
         >
           Sign Out
         </Link>

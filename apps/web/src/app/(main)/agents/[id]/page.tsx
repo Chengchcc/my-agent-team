@@ -49,7 +49,7 @@ export default function AgentDetailPage() {
       {/* Header */}
       <div className="border-b border-[var(--hairline)] shrink-0">
         <div className="container mx-auto px-8 py-5">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap gap-y-2">
             <h1
               className="text-2xl font-normal text-[var(--ink-strong)] font-[family-name:var(--font-sans)]"
               style={{ letterSpacing: "-0.65px" }}

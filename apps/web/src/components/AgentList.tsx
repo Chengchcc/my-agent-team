@@ -132,7 +132,7 @@ export function AgentList() {
                 e.stopPropagation();
                 setConfirmingId(agent.id);
               }}
-              className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
             >
               Archive
             </Button>

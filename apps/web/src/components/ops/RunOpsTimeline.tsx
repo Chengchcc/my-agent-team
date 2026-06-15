@@ -16,7 +16,8 @@ function TimelineRow({ o }: { o: RunOpsDetail["ops"][number] }) {
   const hasPayload = Object.keys(o.payload).length > 0;
 
   return (
-    <div className="flex items-start gap-3 border-l-2 border-border pl-3">
+    <div className="flex items-start gap-3 border-l-2 border-border pl-3 relative">
+      <div className="absolute w-2 h-2 rounded-full bg-border -left-[5px] top-1.5" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs font-semibold text-foreground">

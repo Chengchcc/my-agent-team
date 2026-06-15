@@ -29,9 +29,9 @@ export default function LoginPage() {
               type="password"
               placeholder="••••••••"
               className="w-full bg-transparent border-0 border-b border-[var(--hairline)]
-                         px-0 py-3 text-[var(--ink)] text-lg
+                         px-0 py-3 text-[var(--ink)] text-base
                          placeholder:text-[var(--mute)]
-                         focus:outline-none focus:border-[var(--primary)]
+                         focus:outline-none focus:border-[var(--primary)] focus-visible:ring-0
                          transition-colors duration-200"
             />
           </div>
@@ -40,7 +40,8 @@ export default function LoginPage() {
             type="submit"
             className="w-full bg-[var(--primary)] text-[var(--on-primary)]
                        rounded-md py-3 text-sm font-semibold
-                       hover:opacity-90 transition-opacity duration-200"
+                       hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]
+                       transition-opacity duration-200"
           >
             Enter &rarr;
           </button>
