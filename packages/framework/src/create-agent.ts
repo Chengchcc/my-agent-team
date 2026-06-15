@@ -383,6 +383,7 @@ async function* runLoop(
       const collected = await collectStream(modelStream);
       blocks = collected.blocks;
       usage = collected.usage;
+      if (collected.stopReason) stopReason = collected.stopReason;
     }
 
     await rt.checkpointer.appendEvent?.(rt.thread.id, {

@@ -180,7 +180,13 @@ export async function getRunInsights(
     params.startedAt && params.endedAt ? params.endedAt - params.startedAt : null;
 
   const toolBreakdown = Array.from(toolStats.entries())
-    .map(([name, stats]) => ({ name, ...stats, errorRate: 0 }))
+    .map(([name, stats]) => ({
+      name,
+      count: stats.count,
+      errorCount: stats.errorCount,
+      totalLatencyMs: stats.totalLatencyMs,
+      errorRate: stats.count > 0 ? stats.errorCount / stats.count : 0,
+    }))
     .sort((a, b) => b.count - a.count);
 
   return {
