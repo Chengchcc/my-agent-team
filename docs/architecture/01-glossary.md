@@ -79,7 +79,7 @@
 |---|---|---|
 | `createAgent()` | 框架入口工厂。`async createAgent(config) → Agent`。若配了 checkpointer + threadId，异步恢复历史。不接受具体 model 类或 tool 实例——只依赖 core 类型 | `packages/framework/src/create-agent.ts` |
 | `Agent` | 框架核心对象。`{ thread, run(input, opts?), resume(command, opts?), fork(msgs?, id?) }`。run/resume 返回 `AsyncIterable<AgentEvent>` | 同上 |
-| `AgentEvent` | Framework 对外 yield 的流事件类型（envelope）。`{ type: 'message' \| 'interrupted', payload }`。`message` payload 是 `Message`；`interrupted` payload 是 `Interrupt`。调用方用 `switch (ev.type)` 判别 | 同上 |
+| `AgentEvent` | Framework 对外 yield 的流事件 envelope。`{ type, payload }` 统一形状，涵盖对话本体（`message`/`interrupted`/`error`）、实时 delta（`text_delta`/`tool_start`/`tool_end`）、结构化指标（`llm_call`/`tool_call`）和插件扩展（`todo_update` 等）。调用方用 `switch (ev.type)` 判别。详见 [02-framework.md](./02-framework.md) | `packages/framework/src/create-agent.ts` |
 | `Interrupt` | 纯领域类型：`{ pendingTool: ToolUseBlock, reason: string, meta?: Record<string, unknown> }`。不含 envelope 元数据——只描述中断态的全部信息。Checkpointer 的 `InterruptState` 可复用 | 同上 |
 | `ResumeCommand` | `{ approved: boolean, message?: string }`。传给 `agent.resume()`。比 LangChain Command 简单——无 goto/update。framework 映射为 `tool_result.is_error = !approved` | 同上 |
 | `AgentConfig` | `{ model, tools?, systemPrompt?, plugins?, checkpointer?, contextManager?, logger?, threadId? }`。checkpointer 默认 `inMemoryCheckpointer()`，contextManager 默认 `passthroughContextManager()`，logger 默认 `consoleLogger({ level: 'info' })` | 同上 |
