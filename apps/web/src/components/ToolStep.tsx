@@ -1,9 +1,8 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { normalizeToolResultContent } from "@/lib/render-blocks";
-
 
 export function ToolStep({
   name,
@@ -18,7 +17,6 @@ export function ToolStep({
   return (
     <div className="font-[family-name:var(--font-mono)] text-[12px]">
       <Button
-       
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 text-left hover:text-[var(--ink)] transition-colors text-[var(--mute)]"
       >

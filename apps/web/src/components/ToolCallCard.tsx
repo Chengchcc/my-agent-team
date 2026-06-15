@@ -1,8 +1,7 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button";
 import { useState } from "react";
-
+import { Button } from "@/components/ui/button";
 
 export function ToolCallCard({ name, input }: { id?: string; name: string; input: unknown }) {
   const [open, setOpen] = useState(false);
@@ -10,7 +9,6 @@ export function ToolCallCard({ name, input }: { id?: string; name: string; input
   return (
     <div className="border border-[var(--hairline)] rounded-lg bg-[var(--canvas)] my-2 mx-0 overflow-hidden">
       <Button
-       
         onClick={() => setOpen(!open)}
         className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-[var(--canvas-soft)] transition-colors"
       >

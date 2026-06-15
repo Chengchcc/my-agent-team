@@ -1,12 +1,11 @@
-"use client"
+"use client";
 
-import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
-
 
 interface SectionProps {
   title: string;
@@ -40,7 +39,6 @@ function Section({
         </h3>
         {!editing && (
           <Button
-           
             onClick={onEdit}
             className="text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors inline-flex items-center gap-1"
           >
@@ -58,7 +56,6 @@ function Section({
           />
           <div className="flex gap-2">
             <Button
-             
               onClick={onSave}
               disabled={saving}
               className="bg-[var(--primary)] text-[var(--on-primary)] rounded-md px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-40 transition-opacity"
@@ -66,7 +63,6 @@ function Section({
               {saving ? "Saving..." : "Save"}
             </Button>
             <Button
-             
               onClick={onCancel}
               disabled={saving}
               className="border border-[var(--hairline)] rounded-md px-3 py-1.5 text-xs text-[var(--body)] hover:text-[var(--ink)] disabled:opacity-40 transition-colors"

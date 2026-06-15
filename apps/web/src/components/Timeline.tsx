@@ -1,14 +1,13 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import type { UiMessage } from "@/lib/conversation-reducer";
 import { groupTurns, type TurnSegment } from "@/lib/conversation-reducer";
 import { renderContentBlocks } from "@/lib/render-blocks";
 import { extractText } from "@/lib/timeline";
 import { MessageBubble } from "./MessageBubble";
 import { ReasoningTrace } from "./ReasoningTrace";
-
 
 interface TimelineProps {
   messages: UiMessage[];
@@ -147,7 +146,6 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
             {anchors.map((a) => (
               <Button
                 key={a.id}
-               
                 onClick={() => scrollToAnchor(a.elementId)}
                 className={`text-[10px] leading-none w-6 h-5 flex items-center justify-center rounded-sm transition-colors font-mono
                   ${

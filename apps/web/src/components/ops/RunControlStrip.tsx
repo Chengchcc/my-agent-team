@@ -1,11 +1,11 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import type { RunOpsDetail } from "@/lib/api";
-import { diagnoseRun } from "@/lib/ops-diagnosis";
-import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import type { RunOpsDetail } from "@/lib/api";
+import { api } from "@/lib/api";
+import { diagnoseRun } from "@/lib/ops-diagnosis";
 
 export function RunControlStrip({
   detail,
@@ -23,7 +23,9 @@ export function RunControlStrip({
     mutationFn: () => api.opsCancelRun(runId),
     onSuccess: (result) => {
       if (result.ok) {
-        toast.success(result.state === "abort_sent" ? "Cancel signal sent" : "Run already finished");
+        toast.success(
+          result.state === "abort_sent" ? "Cancel signal sent" : "Run already finished",
+        );
       } else {
         toast.error("Cancel failed", { description: "Run not found" });
       }
@@ -32,7 +34,9 @@ export function RunControlStrip({
       qc.invalidateQueries({ queryKey: ["ops", "agentRuntime"] });
     },
     onError: (err) => {
-      toast.error("Cancel failed", { description: err instanceof Error ? err.message : "Unknown error" });
+      toast.error("Cancel failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
     },
   });
 
@@ -53,7 +57,9 @@ export function RunControlStrip({
       qc.invalidateQueries({ queryKey: ["ops", "agentRuntime"] });
     },
     onError: (err) => {
-      toast.error("Recover failed", { description: err instanceof Error ? err.message : "Unknown error" });
+      toast.error("Recover failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
     },
   });
 
@@ -74,11 +80,7 @@ export function RunControlStrip({
       )}
 
       {isDetached && (
-        <Button
-          size="sm"
-          disabled={recoverMut.isPending}
-          onClick={() => recoverMut.mutate()}
-        >
+        <Button size="sm" disabled={recoverMut.isPending} onClick={() => recoverMut.mutate()}>
           {recoverMut.isPending ? "Recovering…" : "Recover"}
         </Button>
       )}
@@ -90,9 +92,7 @@ export function RunControlStrip({
       )}
 
       {isTerminal && (
-        <span className="text-xs text-muted-foreground">
-          Final: {detail.run.status}
-        </span>
+        <span className="text-xs text-muted-foreground">Final: {detail.run.status}</span>
       )}
     </div>
   );

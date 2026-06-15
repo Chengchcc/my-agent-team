@@ -1,15 +1,20 @@
-"use client"
+"use client";
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { type AgentRow, type LarkSetupSession, api } from "@/lib/api";
 import { toast } from "sonner";
-
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { type AgentRow, api, type LarkSetupSession } from "@/lib/api";
 
 interface AgentFormProps {
   /** If provided, form is in edit mode (PATCH instead of POST). */
@@ -133,7 +138,6 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   return (
     <>
       <Button
-       
         onClick={() => setOpen(true)}
         className={
           triggerLabel
@@ -157,7 +161,6 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                 {isEdit ? "Edit Agent" : "Create Agent"}
               </h2>
               <Button
-               
                 onClick={() => setOpen(false)}
                 className="text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
                 aria-label="Close"
@@ -213,7 +216,10 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
                   <label className={labelClass}>Permission Mode</label>
-                  <Select value={permissionMode} onValueChange={(v) => setPermissionMode(v as "ask" | "auto" | "deny")}>
+                  <Select
+                    value={permissionMode}
+                    onValueChange={(v) => setPermissionMode(v as "ask" | "auto" | "deny")}
+                  >
                     <SelectTrigger className={fieldClass}>
                       <SelectValue />
                     </SelectTrigger>
@@ -278,7 +284,8 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                     </div>
 
                     {/* Setup flow */}
-                    {editAgent?.lark?.status === "not_configured" || !editAgent?.lark?.profileRef ? (
+                    {editAgent?.lark?.status === "not_configured" ||
+                    !editAgent?.lark?.profileRef ? (
                       <div>
                         {setupSession?.status === "pending" ? (
                           <div className="space-y-2">
@@ -295,13 +302,10 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                                 {setupSession.url}
                               </a>
                             ) : (
-                              <p className="text-xs text-amber-600">
-                                Waiting for setup URL…
-                              </p>
+                              <p className="text-xs text-amber-600">Waiting for setup URL…</p>
                             )}
                             <div className="flex gap-2">
                               <Button
-                               
                                 onClick={() => {
                                   if (editAgent?.id && setupSession.setupId) {
                                     api.larkSetupCancel(editAgent.id, setupSession.setupId);
@@ -316,7 +320,6 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                           </div>
                         ) : (
                           <Button
-                           
                             disabled={setupLoading}
                             onClick={async () => {
                               if (!editAgent?.id) return;
