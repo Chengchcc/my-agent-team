@@ -411,7 +411,7 @@ describe("conversation-reducer", () => {
     expect(result).toEqual([]);
   });
 
-  // ─── { text } unwrap (ledger D19 backfill compat) ──────
+  // ─── { text } unwrap (ledger Conversation Projection backfill compat) ──────
 
   test("agent message with { text } content is unwrapped to string", () => {
     const s = runWithBootstrap({

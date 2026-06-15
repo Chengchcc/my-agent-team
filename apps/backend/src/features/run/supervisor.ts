@@ -193,7 +193,7 @@ export class RunSupervisor {
   }
 
   /** Register callback invoked for every mid-run event (after it is durably
-   *  appended to the EventLog). Used by D19 to project assistant/tool messages
+   *  appended to the EventLog). Used by Conversation Projection to project assistant/tool messages
    *  into the conversation ledger incrementally, so multi-round progress is
    *  visible while the run is still in flight. Listener failures are logged and
    *  swallowed — they must never block the run. */
@@ -518,7 +518,7 @@ export class RunSupervisor {
           );
           throw err; // prevent run_done from succeeding with incomplete event log
         }
-        // D19 (incremental): notify listeners only AFTER the event is durably
+        // Conversation Projection (incremental): notify listeners only AFTER the event is durably
         // logged. Failures here are non-fatal — they must not abort the run.
         if (this.#onRunEvent.length > 0) {
           const threadId = this.#threadIdFor(runId);
@@ -572,7 +572,7 @@ export class RunSupervisor {
         const threadId = this.#threadIdFor(runId);
         // Always fire lifecycle hooks (lock release, cleanup)
         await Promise.all(this.#onRunComplete.map((fn) => fn(threadId, runId, status)));
-        // Only send run_finalized after all listeners complete (D19, ledger, etc.)
+        // Only send run_finalized after all listeners complete (Conversation Projection, ledger, etc.)
         if (transport) transport.send({ type: "run_finalized", runId });
         this.#opts.opsStore.appendRunEvent({
           runId,

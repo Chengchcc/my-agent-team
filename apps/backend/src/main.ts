@@ -355,17 +355,17 @@ const convSvc = createConversationService({
   },
 });
 
-/** D19 handler: on run complete, project messages to conversation ledger
+/** Conversation Projection handler: on run complete, project messages to conversation ledger
  *  and trigger @-mentioned agents. Registered as supervisor.onRunComplete listener. */
 async function onRunComplete(threadId: string, runId: string): Promise<void> {
-  // M14.3: reflect run自身结束 — 不放会话锁、不D19、不递归
+  // M14.3: reflect run自身结束 — 不放会话锁、不做 Conversation Projection、不递归
   if (threadId.startsWith("reflect:")) return;
   for (const cid of activeConversations) {
     if (threadId.startsWith(`${cid}:`)) {
       // C2: Release the conversation lock
       convSvc.completeRun(cid, threadId, runId);
 
-      // D19: Run-produced messages are now projected to the ledger incrementally
+      // Conversation Projection: Run-produced messages are now projected to the ledger incrementally
       // by supervisor.onRunEvent (projectRunMessageToLedger) as each round lands,
       // so they appear while the run is still in flight. Here at run completion we
       // only finalize the side effects that need the FULL run output: the todo
@@ -414,7 +414,7 @@ async function onRunComplete(threadId: string, runId: string): Promise<void> {
         }
       } catch (err) {
         console.error(
-          `[conversation] D19 error for ${runId}:`,
+          `[conversation] Conversation Projection error for ${runId}:`,
           err instanceof Error ? err.message : String(err),
         );
       }
@@ -428,7 +428,7 @@ async function onRunComplete(threadId: string, runId: string): Promise<void> {
 
 supervisor.onRunComplete(onRunComplete);
 
-/** D19 (incremental): project a single message produced mid-run into the
+/** Conversation Projection (incremental): project a single message produced mid-run into the
  *  conversation ledger as soon as it is durably logged, so multi-round progress
  *  becomes visible while the run is still in flight (instead of all rounds
  *  appearing at once when the run stops).

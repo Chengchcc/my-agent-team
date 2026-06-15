@@ -117,6 +117,12 @@
 | SSE（Server-Sent Events） | `AgentEvent` 流 → `text/event-stream` 的序列化。`ev.type` → `event:`，`ev.payload` → `data:`，机械转译零分支 |
 | AgentSpec | Backend ↔ Runner 的 wire 契约对象。zod schema 独立包，带 `schemaVersion` 字段防跨进程版本错配。详见 [13-agent-spec.md](./13-agent-spec.md) |
 | Workspace 物化 | Backend 在 `POST /agents` 时 `mkdir` + 从 template 复制 SOUL/AGENTS/MEMORY 等初始文件。harness 不 mkdir |
+| **Conversation Projection** | Backend 内部概念。把 run 产生的 assistant/user message 从 [EventLog](./14-event-log.md) **投影到** [Conversation ledger](./15-conversation.md) 的过程。使 agent 回复出现在会话历史中，所有订阅该 conversation 的 surface（web、lark-bot）同步可见。实现见 [12-backend](./12-backend.md)。旧称 D19（M10 第 19 号决策编号） |
+| **Conversation Run Lock** | Backend 内部概念。一个 conversation 同时只允许一个 run 在执行。`completeRun` 释放锁，`acquireRun` 获取锁。防并发写 ledger。旧称 D9/D18/D23（M10 决策编号） |
+| **Thread ID Derivation** | `${conversationId}:${memberId}` —— 从 conversation + member 派生 threadId 的固定规则。免存映射表，确定性可恢复。旧称 D16（M10 决策编号） |
+| **Thread Materialization** | Conversation ledger → agent thread.messages 的物化写入过程。经 `checkpointer.save` 落地，复用标准恢复路径。旧称 D7（M10 决策编号） |
+
+> **D-编号禁止出现在架构文档正文中**。它们是里程碑内部的决策编号（M10 的 D1–D24、M7 的 D1–D4 等），每期独立计数。架构文档中一律使用概念的正式名称（Conversation Projection、Conversation Run Lock 等）。代码注释同理。
 
 ---
 

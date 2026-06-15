@@ -21,7 +21,7 @@ export function render(content: string): string {
     if (typeof text === "string") return text;
   }
 
-  // M15.1: D19 wraps ContentBlock[] with runId: { blocks: [...], runId }
+  // M15.1: Conversation Projection wraps ContentBlock[] with runId: { blocks: [...], runId }
   if (parsed && typeof parsed === "object" && "blocks" in parsed) {
     const blocks = (parsed as { blocks: unknown }).blocks;
     if (Array.isArray(blocks)) {

@@ -105,7 +105,7 @@ Runner → Host:  run_started | event | delta | heartbeat | run_done
 - `start { runId, spec, preloadedMessages? }` — daemon `safeParse(spec)` + 预埋 preloadedMessages 到本地 checkpointer + 启动 run
 - `abort { runId }` — 透传 AbortSignal 到 agent loop
 - `run_done { runId, status }` — daemon 通知 backend run 结束
-- `run_finalized { runId }` — backend 确认所有副作用（D19/title/mention）完成后发送
+- `run_finalized { runId }` — backend 确认所有副作用（Conversation Projection / title / mention）完成后发送
 - daemon 收到 `run_finalized` 后才启动 reflect（如有）
 - `preloadedMessages` — 上下文 hydration 快照：conversation-triggered run 时 backend 从 ThreadProjection 读取已投影的 agent 消息，随 start 传给 daemon，daemon 预埋到自己的 checkpointer 后再 `agent.continue()`
 
@@ -392,7 +392,7 @@ sequenceDiagram
     SP-->>EventLog: append
   end
   D-->>SP: run_done { status }
-  SP-->>SP: onRunComplete (D19/title/mention)
+  SP-->>SP: onRunComplete (Conversation Projection / title / mention)
   SP-->>D: run_finalized
 ```
 

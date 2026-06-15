@@ -238,7 +238,7 @@ async function processEntry(
   }
 
   // ─── M15.1: Check if this message can be skipped (card delivery proven) ───
-  // Parse content to extract runId (injected by D19)
+  // Parse content to extract runId (injected by Conversation Projection)
   let parsedContent: unknown;
   let extractedRunId: string | undefined;
   try { parsedContent = JSON.parse(entry.content); } catch { /* use raw */ }
