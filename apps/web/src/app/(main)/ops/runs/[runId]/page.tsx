@@ -45,6 +45,8 @@ export default function RunDetailPage() {
             <RunDiagnosisHeader detail={detail} heartbeatTimeoutMs={heartbeatTimeoutMs} />
             <RunControlStrip detail={detail} heartbeatTimeoutMs={heartbeatTimeoutMs} />
 
+            <RunInsightsPanel runId={runId} />
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-6">
                 <div className="rounded-lg border p-4">
@@ -124,8 +126,6 @@ export default function RunDetailPage() {
               <h3 className="text-sm font-semibold text-foreground mb-4">Diagnostic timeline</h3>
               <RunOpsTimeline ops={detail.ops} />
             </div>
-
-            <RunInsightsPanel runId={runId} />
           </>
         )}
       </QueryState>

@@ -70,26 +70,6 @@ export default function OpsPage() {
 
             <section>
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                Needs Attention
-              </h2>
-              <NeedsAttentionList
-                runs={data.runs}
-                runtimes={data.runtimes}
-                heartbeatTimeoutMs={data.heartbeatTimeoutMs}
-              />
-            </section>
-
-            <section>
-              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                Recent Activity
-              </h2>
-              <div className="rounded-lg border">
-                <RunOpsTable runs={data.runs.slice(0, 20)} heartbeatTimeoutMs={data.heartbeatTimeoutMs} />
-              </div>
-            </section>
-
-            <section>
-              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                 Run Insights
               </h2>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -120,6 +100,26 @@ export default function OpsPage() {
                     }}
                   />
                 </div>
+              </div>
+            </section>
+
+            <section>
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                Needs Attention
+              </h2>
+              <NeedsAttentionList
+                runs={data.runs}
+                runtimes={data.runtimes}
+                heartbeatTimeoutMs={data.heartbeatTimeoutMs}
+              />
+            </section>
+
+            <section>
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                Recent Activity
+              </h2>
+              <div className="rounded-lg border">
+                <RunOpsTable runs={data.runs} heartbeatTimeoutMs={data.heartbeatTimeoutMs} />
               </div>
             </section>
           </>

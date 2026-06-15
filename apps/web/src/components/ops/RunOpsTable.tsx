@@ -1,8 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { RunOpsListItem } from "@/lib/api";
 import { diagnoseRunListItem } from "@/lib/ops-diagnosis";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+
+const PAGE_SIZE = 20;
 
 function statusBadge(status: string): string {
   switch (status) {
@@ -36,6 +48,8 @@ function ago(ts: number): string {
 }
 
 export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOpsListItem[]; heartbeatTimeoutMs?: number }) {
+  const [page, setPage] = useState(0);
+
   // Sort: needs_attention first (detached, stale, running), then terminal
   const sorted = [...runs].sort((a, b) => {
     const scoreA = a.status === "running" ? (a.runnerTransport === "attached" ? 1 : 0) : 2;
@@ -43,66 +57,94 @@ export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOp
     return scoreA - scoreB;
   });
 
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const paged = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b text-left text-muted-foreground">
-            <th className="py-2 pr-3 font-medium text-xs">Diagnosis</th>
-            <th className="py-2 pr-3 font-medium text-xs">Run ID</th>
-            <th className="py-2 pr-3 font-medium text-xs">Agent</th>
-            <th className="py-2 pr-3 font-medium text-xs">Status</th>
-            <th className="py-2 pr-3 font-medium text-xs">Runner connection</th>
-            <th className="py-2 pr-3 font-medium text-xs">Heartbeat</th>
-            <th className="py-2 pr-3 font-medium text-xs">Last event</th>
-            <th className="py-2 pr-3 font-medium text-xs">Started</th>
-            <th className="py-2 font-medium text-xs" />
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((r) => {
+    <div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="text-xs">Diagnosis</TableHead>
+            <TableHead className="text-xs">Run ID</TableHead>
+            <TableHead className="text-xs">Agent</TableHead>
+            <TableHead className="text-xs">Status</TableHead>
+            <TableHead className="text-xs">Connection</TableHead>
+            <TableHead className="text-xs">Heartbeat</TableHead>
+            <TableHead className="text-xs">Last event</TableHead>
+            <TableHead className="text-xs">Started</TableHead>
+            <TableHead className="text-xs w-0" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {paged.map((r) => {
             const d = diagnoseRunListItem(r, heartbeatTimeoutMs);
             return (
-              <tr key={r.runId} className="border-b hover:bg-muted transition-colors">
-                <td className="py-2 pr-3">
+              <TableRow key={r.runId}>
+                <TableCell>
                   <span className="text-xs text-muted-foreground">
                     {diagnosisLabel[d.kind] ?? d.kind}
                   </span>
-                </td>
-                <td className="py-2 pr-3 font-mono text-xs text-foreground">
+                </TableCell>
+                <TableCell className="font-mono text-xs text-foreground">
                   {r.runId.slice(0, 12)}…
-                </td>
-                <td className="py-2 pr-3 text-foreground" title={r.agentId}>{r.agentName}</td>
-                <td className="py-2 pr-3">
+                </TableCell>
+                <TableCell className="text-foreground" title={r.agentId}>{r.agentName}</TableCell>
+                <TableCell>
                   <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${statusBadge(r.status)}`}>
                     {r.status}
                   </span>
-                </td>
-                <td className="py-2 pr-3 text-xs text-foreground">
+                </TableCell>
+                <TableCell className="text-xs text-foreground">
                   {transportLabel[r.runnerTransport] ?? r.runnerTransport}
-                </td>
-                <td className="py-2 pr-3 text-xs text-foreground">
+                </TableCell>
+                <TableCell className="text-xs text-foreground">
                   {r.heartbeatAgeMs != null
                     ? `${Math.floor(r.heartbeatAgeMs / 1000)}s`
                     : "—"}
-                </td>
-                <td className="py-2 pr-3 text-xs text-foreground">
+                </TableCell>
+                <TableCell className="text-xs text-foreground">
                   {r.lastOpsEventKind ?? r.lastEventType ?? "—"}
-                </td>
-                <td className="py-2 pr-3 text-xs text-muted-foreground">{ago(r.startedAt)} ago</td>
-                <td className="py-2">
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">{ago(r.startedAt)} ago</TableCell>
+                <TableCell>
                   <Link
                     href={`/ops/runs/${r.runId}`}
                     className="text-primary text-xs hover:underline"
                   >
                     Detail
                   </Link>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             );
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-2 py-2 border-t">
+          <span className="text-xs text-muted-foreground">
+            {sorted.length} runs · page {page + 1} of {totalPages}
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={page === 0}
+              onClick={() => setPage((p) => p - 1)}
+              className="p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-default transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage((p) => p + 1)}
+              className="p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-default transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
