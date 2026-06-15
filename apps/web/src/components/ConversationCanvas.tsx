@@ -141,7 +141,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
               </>
             )}
             {!label && <span className="text-xs text-[var(--mute)]">Idle</span>}
-            {runId && phase === "running" && (
+            {runId && busy && (
               <Button
                
                 onClick={cancel}

@@ -240,12 +240,14 @@ export function NavRail() {
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-border">
-        <Link
-          href="/api/auth/logout"
-          className="text-[10px] tracking-[0.15em] uppercase text-muted-foreground hover:text-foreground-muted transition-colors"
-        >
-          Sign Out
-        </Link>
+        <form action="/api/auth/logout" method="POST">
+          <button
+            type="submit"
+            className="text-[10px] tracking-[0.15em] uppercase text-muted-foreground hover:text-foreground-muted transition-colors"
+          >
+            Sign Out
+          </button>
+        </form>
       </div>
     </aside>
   );
