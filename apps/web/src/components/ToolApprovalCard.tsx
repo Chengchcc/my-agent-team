@@ -12,19 +12,42 @@ interface ToolApprovalCardProps {
   disabled?: boolean;
 }
 
+const DANGEROUS_TOOLS = new Set(["bash", "write", "edit", "delete", "rm", "mv"]);
+const READONLY_TOOLS = new Set(["read", "grep", "glob", "ls", "cat", "head", "tail"]);
+
+function toolRisk(toolName: string): "dangerous" | "safe" | "neutral" {
+  if (DANGEROUS_TOOLS.has(toolName)) return "dangerous";
+  if (READONLY_TOOLS.has(toolName)) return "safe";
+  return "neutral";
+}
+
+const riskStyles = {
+  dangerous: { border: "border-destructive", dot: "bg-destructive", text: "text-destructive", label: "Approval Required — Destructive Action" },
+  safe: { border: "border-[var(--primary)]", dot: "bg-[var(--primary)]", text: "text-[var(--primary)]", label: "Approval Required" },
+  neutral: { border: "border-[var(--chart-4)]", dot: "bg-[var(--chart-4)]", text: "text-[var(--chart-4)]", label: "Approval Required" },
+} as const;
+
 export function ToolApprovalCard({ tool, onApprove, onDeny, disabled }: ToolApprovalCardProps) {
   const [message, setMessage] = useState("");
+  const risk = toolRisk(tool.name);
+  const s = riskStyles[risk];
 
   return (
-    <div className="border-t-2 border-[var(--primary)] bg-[var(--canvas)]">
+    <div className={`border-t-2 ${s.border} bg-[var(--canvas)]`}>
       <div className="px-6 py-5 mx-auto" style={{ maxWidth: "72ch" }}>
         {/* Header */}
         <div className="flex items-center gap-3 mb-3">
-          <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
-          <p className="text-[10px] tracking-[0.15em] uppercase font-[family-name:var(--font-sans)] font-semibold text-[var(--primary)]">
-            Approval Required
+          <span className={`w-2 h-2 rounded-full ${s.dot}`} />
+          <p className={`text-[10px] tracking-[0.15em] uppercase font-[family-name:var(--font-sans)] font-semibold ${s.text}`}>
+            {s.label}
           </p>
         </div>
+
+        {risk === "dangerous" && (
+          <div className="mb-3 p-2 rounded border border-destructive/30 bg-destructive/10 text-xs text-destructive">
+            This tool can modify files or execute commands. Review carefully before approving.
+          </div>
+        )}
 
         <p className="text-sm text-[var(--ink)] mb-2">
           Agent requests to use{" "}
@@ -50,28 +73,18 @@ export function ToolApprovalCard({ tool, onApprove, onDeny, disabled }: ToolAppr
 
         <div className="flex gap-3">
           <Button
-           
+            variant="default"
             onClick={() => onApprove(message || undefined)}
             disabled={disabled}
-            className="bg-[var(--primary)] text-[var(--on-primary)]
-                       rounded-md px-5 py-2 text-sm font-semibold
-                       hover:opacity-90
-                       disabled:opacity-40 disabled:cursor-not-allowed
-                       transition-opacity duration-200"
           >
-            Approve
+            {disabled ? "Approving…" : "Approve"}
           </Button>
           <Button
-           
+            variant="outline"
             onClick={() => onDeny(message || undefined)}
             disabled={disabled}
-            className="border border-[var(--hairline)] text-[var(--body)]
-                       rounded-md px-5 py-2 text-sm font-semibold
-                       hover:border-[var(--ink)] hover:text-[var(--ink)]
-                       disabled:opacity-40 disabled:cursor-not-allowed
-                       transition-colors duration-200"
           >
-            Deny
+            {disabled ? "Denying…" : "Deny"}
           </Button>
         </div>
       </div>

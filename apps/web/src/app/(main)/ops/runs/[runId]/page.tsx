@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { QueryState } from "@/components/ops/QueryState";
@@ -36,6 +36,11 @@ export default function RunDetailPage() {
           ← Observability
         </Link>
         <h1 className="text-xl font-bold font-mono text-foreground">{runId}</h1>
+        {detailQuery.dataUpdatedAt > 0 && (
+          <span className="text-[10px] text-muted-foreground">
+            updated {Math.floor((Date.now() - detailQuery.dataUpdatedAt) / 1000)}s ago
+          </span>
+        )}
       </div>
 
 

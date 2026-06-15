@@ -15,12 +15,14 @@ export default function AgentRuntimePage() {
     queryKey: ["ops", "agentRuntime", agentId],
     queryFn: () => api.getAgentRuntime(agentId),
     enabled: !!agentId,
+    refetchInterval: 10_000,
   });
 
   const runsQuery = useQuery({
     queryKey: ["ops", "runs", agentId],
     queryFn: () => api.listOpsRuns({ agentId, limit: 20 }),
     enabled: !!agentId,
+    refetchInterval: 10_000,
   });
 
   return (
