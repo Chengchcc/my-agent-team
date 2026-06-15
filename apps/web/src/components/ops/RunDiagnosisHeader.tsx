@@ -6,6 +6,7 @@ import type { RunOpsDetail, RunDiagnosis } from "@/lib/api";
 import { diagnoseRun } from "@/lib/ops-diagnosis";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "./CopyButton";
 
 const diagnosisLabel: Record<RunDiagnosis["kind"], string> = {
   running: "Running",
@@ -55,6 +56,7 @@ export function RunDiagnosisHeader({
     <div className="rounded-lg border p-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <span className="font-mono text-xs text-foreground">{detail.run.runId}</span>
+        <CopyButton text={detail.run.runId} label="run ID" />
 
         <Badge variant={diagnosisBadgeVariant[diagnosis.kind]}>
           {detail.run.status}

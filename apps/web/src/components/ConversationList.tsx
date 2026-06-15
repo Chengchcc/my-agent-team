@@ -5,6 +5,7 @@ import { ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 export function ConversationList({ agentId, agentName }: { agentId: string; agentName?: string }) {
   const router = useRouter();
@@ -34,7 +35,11 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
   const deleteConversation = useMutation({
     mutationFn: (convId: string) => api.deleteConversation(convId),
     onSuccess: () => {
+      toast.success("Conversation deleted");
       queryClient.invalidateQueries({ queryKey: ["conversations", agentId] });
+    },
+    onError: (err) => {
+      toast.error("Failed to delete conversation", { description: err instanceof Error ? err.message : "Unknown error" });
     },
   });
 

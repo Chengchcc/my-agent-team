@@ -27,6 +27,7 @@ export default function LoginPage() {
             <input
               name="password"
               type="password"
+              autoComplete="current-password"
               placeholder="••••••••"
               className="w-full bg-transparent border-0 border-b border-[var(--hairline)]
                          px-0 py-3 text-[var(--ink)] text-base
