@@ -273,7 +273,7 @@ beforeStop: async (ctx, messages) => {
 framework 有"单 agent 单 run"硬约束——第二次 `run()`/`resume()` 撞上 `#running` 会立刻抛 `Agent is already running. Use fork() for concurrent conversations.`（见 [02-framework §Agent](./02-framework.md#agent)）。reflection 就是用 `fork()` 绕开它的：
 
 ```ts
-// runner-daemon entry.ts，reflection 现成模式（M11）
+// runner-daemon entry.ts，reflection 现成模式
 const reflectAgent = agent.fork();
 for await (const ev of reflectAgent.run(reflectionGuidance(), { signal, maxSteps })) { ... }
 ```
@@ -404,7 +404,7 @@ flowchart TD
   Step -->|yes| BMv[beforeModel: 注入当前 todo]
   BMv --> Model[model.stream]
   Model --> Empty{blocks 空?}
-  Empty -->|yes| C1([run_end complete])
+  Empty -->|yes| Complete([run_end complete])
   Empty -->|no| Tool{有 tool_use?}
   Tool -->|yes| Exec["执行工具（todo_write 翻牌）"] --> Step
   Tool -->|no| Off{终止门关 或 续跑用尽?}

@@ -171,7 +171,7 @@ async beforeModel(ctx, messages) {
 
 ## 六、MEMORY.md 写入策略
 
-按你的决议（Q4 = b + 短期不实现 self-compact）：
+设计决策（LLM 用 `write_file` 手动 compact，暂不实现自动 self-compact）：
 
 **v1 范围**：
 - MEMORY.md 由用户手写起步
