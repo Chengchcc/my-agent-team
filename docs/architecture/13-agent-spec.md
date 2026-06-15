@@ -18,9 +18,9 @@
 
 ---
 
-## 二、Schema 定义（V2 — M14.7）
+## 二、Schema 定义
 
-M14.7 把 AgentSpec 从扁平 `z.object` + `superRefine` 升级为 `z.discriminatedUnion("mode")`——互斥字段关系编码进类型，下游不用 `as` 断言。
+这把 AgentSpec 从扁平 `z.object` + `superRefine` 升级为 `z.discriminatedUnion("mode")`——互斥字段关系编码进类型，下游不用 `as` 断言。
 
 ```ts
 // packages/agent-spec/src/index.ts

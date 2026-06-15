@@ -105,6 +105,9 @@ L1 Protocols   类型契约：Message / ChatModel / Tool
 | **M13** | **`apps/web` frontend（独立 SPA，调 backend HTTP/SSE）** | 待定 |
 | M14 | IM bot adapters（[Lark bot](./18-im-adapter.md) 等 → backend） | 🚧 |
 | M15+ | TeamSpec / team governance / sandbox runner / 跨语言 runner | 待定 |
+| **M16.1** | **Observability Console — 运维视角：run table、诊断 header、cancel/recover、heartbeat 监控** | ✅ |
+| **M16.2** | **Observability Polish — 导航统一、配色收敛、agent 名、产品缺口 G1-G6** | ✅ |
+| **M16.3** | **Run Insights — llm_call/tool_call 指标落 EventLog、根汇总+归因、token/cost/tools 图表** | ✅ |
 
 **里程碑分工**：
 

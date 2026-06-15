@@ -2,7 +2,7 @@
 
 > Conversation 把 [Thread](./01-glossary.md)（一条 `{id, messages}` 对话线 = 隐式绑死一个 agent）**升维**为一个**汇总多个 agent thread 的容器 + 一份会话级 ledger（事实源）**；Member 把"谁在对话里"做成 first-class 名册（`AgentMember | HumanMember`）。这是把项目从 "agent runtime" 推进到 [vision §一](./00-vision.md) 的 "agent **team** runtime" 的抽象底座。
 >
-> 它解决的第一性问题：**一条会话里能挂多个成员（真人 + 多个 agent），它们彼此知道存在、能互相 @，真人在中间点名对话**——而**不**重写下层执行。每个 agent 仍持有一条完整的 [M9 thread](./12-backend.md#durable-runs)；Conversation 只在其**上方**加一层"会话级 ledger → 广播投影进各 thread"。
+> 它解决的第一性问题：**一条会话里能挂多个成员（真人 + 多个 agent），它们彼此知道存在、能互相 @，真人在中间点名对话**——而**不**重写下层执行。每个 agent 仍持有一条完整的 thread(./12-backend.md#durable-runs)；Conversation 只在其**上方**加一层"会话级 ledger → 广播投影进各 thread"。
 >
 > 核心机制一句话：**广播可见 + @ 触发执行**。
 >
@@ -14,15 +14,15 @@
 
 ## 一、为什么需要 Conversation 这一层
 
-从第一性事实推导，M9 及之前的 `thread` 模型撑不起 team 协作：
+从第一性事实推导，之前的 `thread` 模型撑不起 team 协作：
 
 1. **thread 隐式绑死单个 agent** — `(messages)` 里只有 "user ↔ 一个 assistant" 两方。多 agent 无处安放。
 2. **多 agent 要彼此"知道存在"** — agent X 想 @Y 协作，前提是它的上下文里出现过 "Y 在场"。thread 没有成员名册概念。
 3. **真人是 team 的 first-class member，不是"用工具的人"** — vision 要求真人与 agent 同为成员。thread 的 "user" 角色把真人降格成了一个 message role。
 4. **"看得见"与"要回应"必须解耦** — team 里 A 对 B 说话，C 看得见但不必插话。thread 只有"在不在 messages 里"一个维度，无法表达"可见但不触发"。
-5. **执行层（M9）不该为协作语义买单** — run/attempt、EventLog、SSE 投影、cancel/resume 是稳定的执行底座。协作是上层语义，必须**叠加**而非**侵入**。
+5. **执行层不该为协作语义买单** — run/attempt、EventLog、SSE 投影、cancel/resume 是稳定的执行底座。协作是上层语义，必须**叠加**而非**侵入**。
 
-> **关键判断**：Conversation **不是替换 thread**，而是 thread 的**汇总容器**。每个 agent 仍跑一条 M9 thread；Conversation 只多了"成员名册 + 会话 ledger + 广播投影"。`(conversationId, agentMemberId)` 唯一定位一条 M9 thread。**单 agent 会话精确退化为一条 M9 thread**——这是零退化的根。
+> **关键判断**：Conversation **不是替换 thread**，而是 thread 的**汇总容器**。每个 agent 仍跑一条 thread；Conversation 只多了"成员名册 + 会话 ledger + 广播投影"。`(conversationId, agentMemberId)` 唯一定位一条 thread。**单 agent 会话精确退化为一条 thread**——这是零退化的根。
 
 ---
 
@@ -30,10 +30,10 @@
 
 | 抽象 | 含义 | 与既有模型的关系 |
 |---|---|---|
-| **Conversation** | 汇总多个 agent thread 的容器 + 会话级 ledger（事实源）。有自己的 `id`（汇总维度） | 取代"一人对一 agent"的单 thread 模型；单 agent 会话退化成 M9 thread |
+| **Conversation** | 汇总多个 agent thread 的容器 + 会话级 ledger（事实源）。有自己的 `id`（汇总维度） | 取代"一人对一 agent"的单 thread 模型；单 agent 会话退化成单 agent thread |
 | **Member** | team 的 first-class 成员名册项：`AgentMember`（指向 agentStore 的 agentId）或 `HumanMember`（外部 userRef） | vision §三 的 `type Member = AgentMember \| HumanMember` |
 | **Ledger（conversation ledger）** | 会话事件的唯一事实源：消息 + 成员系统事件，统一形状、单调 seq | 与 [EventLog](./14-event-log.md) 同精神（只追加、可投影），但维度不同：ledger 是**会话语义层**，event_log 是**run 执行层** |
-| **thread.messages** | 每个 agent 的执行态消息序列 | **从 ledger 广播投影派生**的物化态，不是事实源（沿用 M9 "messages 是派生态" 的纪律） |
+| **thread.messages** | 每个 agent 的执行态消息序列 | **从 ledger 广播投影派生**的物化态，不是事实源（沿用 "messages 是派生态" 的纪律） |
 | **addressedTo** | 一条消息的"点名集" | **同时编码可见性与执行性**（见 §三） |
 | **triggerMode** | 触发策略开关：`mention`（被 @ 才动）/ `all`（任何新消息都触发，留口子） | 当前只实现 `mention`；`all` 是 autonomous 协作（后续里程碑） |
 
@@ -67,7 +67,7 @@ type Member = AgentMember | HumanMember;   // discriminatedUnion("kind")
         - M 自己说的                → role=assistant（它自己的输出）
         ▼  @ 触发判定（execution = 仅 addressedTo）
   ③ for each agentMember M in addressedTo：
-        triggerMode 允许（mention：总是；all：留口子）→ fork M 的 run（M9 路径）
+        triggerMode 允许（mention：总是；all：留口子）→ fork M 的 run（标准路径）
         子进程 agent.run() 此时 thread 里已含 ② 投影的全部累积消息
      未被 addressedTo 点名的 agent：② 已让它"看见"，③ 不起 loop
         ▼  循环硬阀（execution 受 hop 计数约束，见 §四）
@@ -87,8 +87,8 @@ type Member = AgentMember | HumanMember;   // discriminatedUnion("kind")
                      → ② 广播给 X/Y 的 thread → ③ 触发 X 起 loop
 agent X 输出里 @Y  = X 的 assistant 消息 { sender: X, addressedTo: [Y] }
                      → ② 广播给 X/Y 的 thread → ③ 触发 Y 起 loop（mention）
-                     **M10 limitation: addressedTo 来自 surface 显式传入；agent 输出中的 @mention
-                     自由文本解析留 M12。M10 内 agent→agent 的 addressedTo 由调用方（CLI/surface）提供。**
+                     **当前 limitation: addressedTo 来自 surface 显式传入；agent 输出中的 @mention
+                     自由文本解析留待。当前 agent→agent 的 addressedTo 由调用方（CLI/surface）提供。**
 成员变化           = ledger 系统事件 { sender: __system__, kind: 'member.joined', memberId: Y }
                      → ② 广播投影成 system/user 消息注入所有在场 agent thread
                         （"成员变化：Y 加入。当前在场：H, X, Y"）
@@ -121,12 +121,12 @@ agent X 输出里 @Y  = X 的 assistant 消息 { sender: X, addressedTo: [Y] }
 |---|---|---|
 | **定位** | 会话事件**唯一事实源** | 每个 agent 的执行态**派生物化** |
 | **写入** | 真人消息、agent 输出、成员事件统一 append | 由 ledger **广播投影**写入（经 `ThreadProjectionWrite.appendMessages`） |
-| **形状** | `{ seq, sender, addressedTo, kind, content, ts }` 统一 | M9 `Message[]`（role + content） |
+| **形状** | `{ seq, sender, addressedTo, kind, content, ts }` 统一 | `Message[]`（role + content） |
 | **服务对象** | 会话级回放 / 审计 / SSE 汇总投影 | agent.run 从 checkpointer 恢复执行 |
 | **可重建性** | 不可重建（是源） | 可从 ledger 重新投影得到 |
 
 > **为什么物化进 thread.messages，而不是每次 run 现读 ledger 重算？**
-> M9 的 `agent.run()` / `agent.continue()` 从 **checkpointer** 恢复 messages。把 ledger 消息物化进各 agent 的 thread.messages（经 `ThreadProjectionWrite.appendMessages` 写入，run 启动时由 transport `preloadedMessages` hydrate 到 runner checkpointer），让 **M9 恢复路径零改动**——agent daemon 仍只认 checkpointer，完全不知道上层有 ledger。这是"叠加而非侵入"原则的具体落点：协作语义停在 backend 层，**绝不下沉到 framework/harness/runner**。
+> 的 `agent.run()` / `agent.continue()` 从 **checkpointer** 恢复 messages。把 ledger 消息物化进各 agent 的 thread.messages（经 `ThreadProjectionWrite.appendMessages` 写入，run 启动时由 transport `preloadedMessages` hydrate 到 runner checkpointer），让 **checkpointer 恢复路径零改动**——agent daemon 仍只认 checkpointer，完全不知道上层有 ledger。这是"叠加而非侵入"原则的具体落点：协作语义停在 backend 层，**绝不下沉到 framework/harness/runner**。
 
 ### 与 EventLog 的关系（两条不同维度的"日志"）
 
@@ -144,20 +144,20 @@ agent X 输出里 @Y  = X 的 assistant 消息 { sender: X, addressedTo: [Y] }
 
 ```
 conversation 只挂 [H（真人）, X（一个 agent）]，真人始终 @X：
-  POST /conversations/:id/messages {H, @X}  ⟺  M9 的 POST /threads/X/runs
-  GET  /conversations/:id/events            ⟺  M9 GET /runs/:id/events
-  X 的 thread / checkpointer / resume / cancel 全是 M9 原物
-  → M1–M9 的执行、持久化、恢复路径一行不改
+  POST /conversations/:id/messages {H, @X}  ⟺  的 POST /threads/X/runs
+  GET  /conversations/:id/events            ⟺  GET /runs/:id/events
+  X 的 thread / checkpointer / resume / cancel 全是 原物
+  → 执行、持久化、恢复路径一行不改
 ```
 
-单 agent 会话 = 一条 thread + 一条 "X joined" 系统消息，行为完全退化成 M9。**Conversation 层是 strict superset**：它能表达的最简形态就是旧的单 thread 模型。
+单 agent 会话 = 一条 thread + 一条 "X joined" 系统消息，行为完全退化为单 agent thread。**Conversation 层是 strict superset**：它能表达的最简形态就是旧的单 thread 模型。
 
 ---
 
 ## 七、不变量（invariant）
 
 - **Conversation 是 thread 汇总容器，绝不破坏退化形态** — "1 human + 1 agent" 会话 = 旧 thread。
-- **执行层（M9）零侵入** — EventLog 四铁律 / run-attempt / SSE 投影 / cancel / resume / heartbeat / checkpointer / event_log schema 一行不改。
+- **执行层零侵入** — EventLog 四铁律 / run-attempt / SSE 投影 / cancel / resume / heartbeat / checkpointer / event_log schema 一行不改。
 - **可见性广播 + 执行靠 @** — ② 对所有在场 agent 广播，③ 仅触发 addressedTo；不回应靠机制不靠 prompt。
 - **ledger 是会话事件唯一事实源** — thread.messages 是广播派生态（backend `ThreadProjection` 存储投影，run 启动时 hydrate 到 runner checkpointer）。
 - **真人 / agent / 系统发言同构** — 同一条 ledger 记录走同一链路，无特例分支。

@@ -469,7 +469,7 @@ Permission 这类需求**从 plugin 中迁出**——它本质上是控制流操
 
 ## 与 Backend ThreadProjection 的关系
 
-M14.7 拆出 resident runner daemon 后，原「checkpointer」职责被拆成两个独立概念：
+拆出 resident runner daemon 后，原「checkpointer」职责被拆成两个独立概念：
 
 | 概念 | 所有权 | 存储 | 职责 |
 |------|--------|------|------|
