@@ -36,7 +36,7 @@ function TimelineRow({ o }: { o: RunOpsDetail["ops"][number] }) {
           )}
         </div>
         {open && hasPayload && (
-          <pre className="text-muted-foreground mt-1 text-xs overflow-x-auto bg-muted p-2 rounded-md">
+          <pre className="text-muted-foreground mt-1 text-xs overflow-x-auto max-h-64 overflow-y-auto bg-muted p-2 rounded-md">
             {JSON.stringify(o.payload, null, 2)}
           </pre>
         )}
