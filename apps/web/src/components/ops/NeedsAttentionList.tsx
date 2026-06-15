@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import type { RunOpsListItem, AgentRuntimeStatus } from "@/lib/api";
 import { isStaleRun, isDetachedRun, isUnhealthyAgent, hasSurfaceError } from "@/lib/ops-diagnosis";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 interface NeedsAttentionProps {
   runs: RunOpsListItem[];
@@ -33,8 +34,12 @@ function RecoverButton({ runId }: { runId: string }) {
   const mut = useMutation({
     mutationFn: () => api.opsRecoverRun(runId),
     onSuccess: () => {
+      toast.success("Recovery initiated");
       qc.invalidateQueries({ queryKey: ["ops", "runs"] });
       qc.invalidateQueries({ queryKey: ["ops", "agentRuntime"] });
+    },
+    onError: (err) => {
+      toast.error("Recover failed", { description: err instanceof Error ? err.message : "Unknown error" });
     },
   });
 

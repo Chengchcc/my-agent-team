@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import type { RunOpsDetail } from "@/lib/api";
 import { diagnoseRun } from "@/lib/ops-diagnosis";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 export function RunControlStrip({
   detail,
@@ -20,19 +21,37 @@ export function RunControlStrip({
 
   const cancelMut = useMutation({
     mutationFn: () => api.opsCancelRun(runId),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result.ok) {
+        toast.success(result.state === "abort_sent" ? "Cancel signal sent" : "Run already finished");
+      }
       qc.invalidateQueries({ queryKey: ["ops", "runDetail", runId] });
       qc.invalidateQueries({ queryKey: ["ops", "runs"] });
       qc.invalidateQueries({ queryKey: ["ops", "agentRuntime"] });
+    },
+    onError: (err) => {
+      toast.error("Cancel failed", { description: err instanceof Error ? err.message : "Unknown error" });
     },
   });
 
   const recoverMut = useMutation({
     mutationFn: () => api.opsRecoverRun(runId),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result.state === "reattached") {
+        toast.success("Run recovered — daemon reattached");
+      } else if (result.state === "marked_interrupted") {
+        toast.success("Run marked as interrupted (heartbeat timeout)");
+      } else if (result.state === "already_terminal") {
+        toast("Run already in terminal state");
+      } else {
+        toast("Waiting for heartbeat to complete");
+      }
       qc.invalidateQueries({ queryKey: ["ops", "runDetail", runId] });
       qc.invalidateQueries({ queryKey: ["ops", "runs"] });
       qc.invalidateQueries({ queryKey: ["ops", "agentRuntime"] });
+    },
+    onError: (err) => {
+      toast.error("Recover failed", { description: err instanceof Error ? err.message : "Unknown error" });
     },
   });
 
@@ -71,17 +90,6 @@ export function RunControlStrip({
       {isTerminal && (
         <span className="text-xs text-muted-foreground">
           Final: {detail.run.status}
-        </span>
-      )}
-
-      {cancelMut.isError && (
-        <span className="text-xs text-destructive">
-          Cancel failed: {cancelMut.error instanceof Error ? cancelMut.error.message : "Unknown"}
-        </span>
-      )}
-      {recoverMut.isError && (
-        <span className="text-xs text-destructive">
-          Recover failed: {recoverMut.error instanceof Error ? recoverMut.error.message : "Unknown"}
         </span>
       )}
     </div>

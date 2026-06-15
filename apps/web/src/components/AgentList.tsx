@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 export function AgentList() {
   const queryClient = useQueryClient();
@@ -18,8 +19,12 @@ export function AgentList() {
   const archive = useMutation({
     mutationFn: (id: string) => api.archiveAgent(id),
     onSuccess: () => {
+      toast.success("Agent archived");
       queryClient.invalidateQueries({ queryKey: ["agents"] });
       setConfirmingId(null);
+    },
+    onError: (err) => {
+      toast.error("Failed to archive agent", { description: err instanceof Error ? err.message : "Unknown error" });
     },
   });
 
