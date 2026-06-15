@@ -1,17 +1,14 @@
 "use client"
 
 import { Button } from "@/components/ui/button";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, Bot, UserCircle, X } from "lucide-react";
+import { ArrowDown } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConversation } from "@/hooks/useConversation";
 import type { ConversationSnapshot } from "@/lib/api";
-import { api } from "@/lib/api";
-import { toast } from "sonner";
+import { RosterList } from "./RosterList";
 import { computeStatus } from "@/lib/run-status";
 import { extractText } from "@/lib/timeline";
-import { AddMemberButton } from "./AddMemberButton";
 import { Composer } from "./Composer";
 import { DraftMessage } from "./DraftMessage";
 import { Timeline } from "./Timeline";
@@ -61,6 +58,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevLen = useRef(messages.length);
   const [scrolledUp, setScrolledUp] = useState(false);
+  const [rosterOpen, setRosterOpen] = useState(false);
 
   useEffect(() => {
     if (messages.length > prevLen.current && scrollRef.current) {
@@ -87,18 +85,6 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
     const agent = Object.values(roster).find((m) => m.kind === "agent");
     return agent ?? null;
   }, [roster]);
-
-  const qc = useQueryClient();
-  const removeMember = useMutation({
-    mutationFn: (memberId: string) => api.removeConversationMember(conversationId, memberId),
-    onSuccess: () => {
-      toast.success("Member removed");
-      qc.invalidateQueries({ queryKey: ["conv", conversationId] });
-    },
-    onError: (err) => {
-      toast.error("Failed to remove member", { description: err instanceof Error ? err.message : "Unknown error" });
-    },
-  });
 
   return (
     <div className="h-full flex flex-col bg-[var(--canvas)]">
@@ -254,49 +240,45 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
           </Button>
         )}
 
-        {/* Roster sidebar */}
-        <div className="shrink-0 w-56 border-l border-[var(--hairline)] overflow-y-auto p-3">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[10px] tracking-[0.15em] uppercase text-[var(--mute)] font-semibold">
-              Members
-            </span>
-            <AddMemberButton conversationId={conversationId} roster={roster} />
-          </div>
-          <ul className="space-y-1">
-            {Object.values(roster).map((m) => {
-              if (m.kind === "system") return null;
-              const isViewer = m.memberId === viewerMemberId;
-              return (
-                <li key={m.memberId} className="flex items-center gap-2 text-xs py-1 group">
-                  {m.kind === "agent" ? (
-                    <Bot size={14} className="text-[var(--primary)] shrink-0" />
-                  ) : (
-                    <UserCircle size={14} className="text-[var(--mute)] shrink-0" />
-                  )}
-                  <span className="truncate text-[var(--body)] flex-1">
-                    {m.displayName ?? m.memberId}
-                    {isViewer ? " (you)" : ""}
-                  </span>
-                  {!isViewer && (
-                    <Button
+        {/* Roster — desktop sidebar */}
+        <aside className="hidden md:block shrink-0 w-56 border-l border-[var(--hairline)] overflow-y-auto p-3">
+          <RosterList conversationId={conversationId} roster={roster} viewerMemberId={viewerMemberId} />
+        </aside>
 
-                      onClick={() => {
-                        if (confirm(`Remove ${m.displayName ?? m.memberId} from conversation?`)) {
-                          removeMember.mutate(m.memberId);
-                        }
-                      }}
-                      disabled={removeMember.isPending}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[var(--canvas-soft)] transition-all disabled:opacity-0 shrink-0"
-                      title={`Remove ${m.displayName ?? m.memberId}`}
-                    >
-                      <X size={12} className="text-[var(--mute)]" />
-                    </Button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+        {/* Roster — mobile trigger */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setRosterOpen(true)}
+          className="md:hidden"
+          aria-expanded={rosterOpen}
+          aria-controls="roster-drawer"
+        >
+          Members ({Object.values(roster).filter((m) => m.kind !== "system").length})
+        </Button>
+
+        {/* Roster — mobile drawer overlay */}
+        {rosterOpen && (
+          <>
+            <div
+              className="md:hidden fixed inset-0 bg-black/40 z-40"
+              onClick={() => setRosterOpen(false)}
+            />
+            <aside
+              id="roster-drawer"
+              className="md:hidden fixed right-0 top-0 bottom-0 w-64 bg-[var(--canvas)] border-l border-[var(--hairline)] z-50 overflow-y-auto p-3 shadow-lg"
+              role="dialog"
+              aria-label="Members"
+            >
+              <RosterList
+                conversationId={conversationId}
+                roster={roster}
+                viewerMemberId={viewerMemberId}
+                onClose={() => setRosterOpen(false)}
+              />
+            </aside>
+          </>
+        )}
       </div>
 
       {/* Interrupt */}
