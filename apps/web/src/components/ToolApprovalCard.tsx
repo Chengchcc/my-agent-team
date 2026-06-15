@@ -16,8 +16,9 @@ const DANGEROUS_TOOLS = new Set(["bash", "write", "edit", "delete", "rm", "mv"])
 const READONLY_TOOLS = new Set(["read", "grep", "glob", "ls", "cat", "head", "tail"]);
 
 function toolRisk(toolName: string): "dangerous" | "safe" | "neutral" {
-  if (DANGEROUS_TOOLS.has(toolName)) return "dangerous";
-  if (READONLY_TOOLS.has(toolName)) return "safe";
+  const n = toolName.toLowerCase();
+  if (DANGEROUS_TOOLS.has(n)) return "dangerous";
+  if (READONLY_TOOLS.has(n)) return "safe";
   return "neutral";
 }
 

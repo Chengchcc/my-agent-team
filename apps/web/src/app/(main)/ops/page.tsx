@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { QueryState } from "@/components/ops/QueryState";
@@ -53,7 +53,10 @@ export default function OpsPage() {
   const heartbeatTimeoutMs = runtimes[0]?.heartbeatTimeoutMs ?? 60_000;
 
   const rangeMs = WINDOWS[windowKey] ?? WINDOWS["24h"]!;
-  const chartRange = { from: Date.now() - rangeMs, to: Date.now() };
+  const chartRange = useMemo(() => {
+    const now = Math.floor(Date.now() / 60_000) * 60_000;
+    return { from: now - rangeMs, to: now };
+  }, [rangeMs]);
 
   const overviewQuery = {
     isLoading: runsQuery.isLoading || agentsQuery.isLoading || runtimesQuery.isLoading,

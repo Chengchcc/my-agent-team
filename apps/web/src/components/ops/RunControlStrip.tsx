@@ -24,6 +24,8 @@ export function RunControlStrip({
     onSuccess: (result) => {
       if (result.ok) {
         toast.success(result.state === "abort_sent" ? "Cancel signal sent" : "Run already finished");
+      } else {
+        toast.error("Cancel failed", { description: "Run not found" });
       }
       qc.invalidateQueries({ queryKey: ["ops", "runDetail", runId] });
       qc.invalidateQueries({ queryKey: ["ops", "runs"] });

@@ -41,12 +41,15 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
 
       <div className="space-y-0.5">
         {detail.events.map((e, i) => {
-          const left = baseTs === lastTs ? 0 : ((e.ts - baseTs) / totalMs) * 100;
+          const left = totalMs === 0 ? 0 : ((e.ts - baseTs) / totalMs) * 100;
           // Bar width: proportional to time until next event (or MIN_BAR_W for last)
           const nextTs = detail.events[i + 1]?.ts;
-          const widthPct = nextTs
-            ? Math.max(((nextTs - e.ts) / totalMs) * 100, 0.2)
-            : Math.max((totalMs * 0.05) / totalMs * 100, 0.5);
+          const widthPct =
+            totalMs === 0
+              ? 100 / detail.events.length
+              : nextTs
+                ? Math.max(((nextTs - e.ts) / totalMs) * 100, 0.2)
+                : Math.max(5, 0.5);
           const barWidth = `${widthPct}%`;
 
           return (

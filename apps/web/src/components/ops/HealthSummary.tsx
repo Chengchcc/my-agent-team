@@ -50,8 +50,8 @@ export function HealthSummary({ runs, runtimes, heartbeatTimeoutMs }: HealthSumm
     { label: "Running", count: running, warnAt: 20, criticalAt: 50, href: "/ops/runs?status=running" },
     { label: "Stale", count: stale, warnAt: -1, criticalAt: 0, href: "/ops/runs?heartbeat=stale" },
     { label: "Detached", count: detached, warnAt: -1, criticalAt: 0, href: "/ops/runs?transport=detached" },
-    { label: "Degraded Agents", count: degradedAgents, warnAt: -1, criticalAt: 0, href: "/ops/agents" },
-    { label: "Surface Errors", count: surfaceErrors, warnAt: -1, criticalAt: 0, href: "/ops/surfaces" },
+    { label: "Degraded Agents", count: degradedAgents, warnAt: -1, criticalAt: 0, href: "/ops/agents?health=degraded" },
+    { label: "Surface Errors", count: surfaceErrors, warnAt: -1, criticalAt: 0, href: "/ops/surfaces?status=error" },
   ];
 
   return (

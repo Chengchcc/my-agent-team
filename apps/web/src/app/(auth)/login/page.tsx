@@ -2,6 +2,8 @@
 
 import { useSearchParams } from "next/navigation";
 
+export const dynamic = "force-dynamic";
+
 export default function LoginPage() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
@@ -28,7 +30,9 @@ export default function LoginPage() {
 
         {error && (
           <div className="mb-6 p-3 rounded border border-destructive/30 bg-destructive/10 text-sm text-destructive">
-            {error === "invalid_password" ? "Invalid password. Please try again." : error}
+            {error === "invalid_password"
+              ? "Invalid password. Please try again."
+              : "Sign in failed. Please try again."}
           </div>
         )}
 

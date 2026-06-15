@@ -7,6 +7,8 @@ import { api } from "@/lib/api";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import Link from "next/link";
 
+export const dynamic = "force-dynamic";
+
 const STATUS_FILTERS = [
   { label: "All", value: "" },
   { label: "Running", value: "running" },

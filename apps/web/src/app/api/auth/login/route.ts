@@ -14,7 +14,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (contentType.includes("application/json")) {
       return NextResponse.json({ error: result.error }, { status: 401 });
     }
-    return NextResponse.redirect(new URL("/login?error=1", req.url));
+    return NextResponse.redirect(new URL("/login?error=invalid_password", req.url));
   }
 
   // 302 redirect — browser processes Set-Cookie natively on navigation

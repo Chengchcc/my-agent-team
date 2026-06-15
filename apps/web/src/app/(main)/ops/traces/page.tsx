@@ -45,7 +45,7 @@ export default function TracesPage() {
       </div>
 
       <Input
-        placeholder="Search by trace ID…"
+        placeholder="Search by trace ID (recent 100 runs)…"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="max-w-sm"
@@ -54,7 +54,9 @@ export default function TracesPage() {
       <div className="rounded-lg border">
         {traces.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">
-            {search ? "No traces match your search." : "No traces recorded yet."}
+            {search
+              ? "No traces match your search within the most recent 100 runs."
+              : "No traces recorded yet."}
           </p>
         ) : (
           <div className="divide-y divide-border">
