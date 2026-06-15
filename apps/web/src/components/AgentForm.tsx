@@ -60,7 +60,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
 
   // M15.1: Poll setup session status when pending
   useEffect(() => {
-    if (!setupSession || setupSession.status !== "pending" || !editAgent?.id) return;
+    if (setupSession?.status !== "pending" || !editAgent?.id) return;
     const interval = setInterval(async () => {
       try {
         const session = await api.larkSetupStatus(editAgent.id, setupSession.setupId);
@@ -75,7 +75,13 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [setupSession?.status, setupSession?.setupId, editAgent?.id]);
+  }, [
+    setupSession?.status,
+    setupSession?.setupId,
+    editAgent?.id,
+    setupSession,
+    queryClient.invalidateQueries,
+  ]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -252,7 +258,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                     onChange={(e) => setEnableLark(e.target.checked)}
                     className="w-4 h-4 rounded border-[var(--hairline)] accent-[var(--primary)]"
                   />
-                  <span className={labelClass + " mb-0"}>Enable Lark Bot</span>
+                  <span className={`${labelClass} mb-0`}>Enable Lark Bot</span>
                   {editAgent?.lark?.status && (
                     <span
                       className={`text-[10px] px-1.5 py-0.5 rounded-full border ${
