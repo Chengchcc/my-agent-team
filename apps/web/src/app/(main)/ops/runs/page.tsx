@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import Link from "next/link";
@@ -22,16 +23,41 @@ const TRANSPORT_FILTERS = [
   { label: "Detached", value: "detached" },
 ] as const;
 
+const HEARTBEAT_FILTERS = [
+  { label: "Any", value: "" },
+  { label: "Fresh", value: "fresh" },
+  { label: "Stale", value: "stale" },
+] as const;
+
 export default function RunsPage() {
-  const [status, setStatus] = useState("");
-  const [transport, setTransport] = useState("");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const status = searchParams.get("status") ?? "";
+  const transport = searchParams.get("transport") ?? "";
+  const heartbeat = searchParams.get("heartbeat") ?? "";
+  const hasFilters = !!(status || transport || heartbeat);
+
+  const setParam = useCallback(
+    (key: string, value: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value) params.set(key, value);
+      else params.delete(key);
+      router.replace(`/ops/runs?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams],
+  );
+
+  const clearFilters = useCallback(() => {
+    router.replace("/ops/runs", { scroll: false });
+  }, [router]);
 
   const { data: runs = [] } = useQuery({
-    queryKey: ["ops", "runs", { status, transport }],
+    queryKey: ["ops", "runs", { status, transport, heartbeat }],
     queryFn: () => api.listOpsRuns({
       limit: 100,
       ...(status ? { status } : {}),
       ...(transport ? { transport: transport as "attached" | "noop" | "detached" } : {}),
+      ...(heartbeat ? { heartbeat: heartbeat as "fresh" | "stale" } : {}),
     }),
     staleTime: 10_000,
     refetchInterval: 30_000,
@@ -52,7 +78,7 @@ export default function RunsPage() {
               key={f.value}
               type="button"
               aria-pressed={status === f.value}
-              onClick={() => setStatus(f.value)}
+              onClick={() => setParam("status", f.value)}
               className={`px-2 py-1 text-xs rounded transition-colors ${
                 status === f.value
                   ? "bg-primary text-primary-foreground"
@@ -70,7 +96,7 @@ export default function RunsPage() {
               key={f.value}
               type="button"
               aria-pressed={transport === f.value}
-              onClick={() => setTransport(f.value)}
+              onClick={() => setParam("transport", f.value)}
               className={`px-2 py-1 text-xs rounded transition-colors ${
                 transport === f.value
                   ? "bg-primary text-primary-foreground"
@@ -81,10 +107,28 @@ export default function RunsPage() {
             </button>
           ))}
         </div>
-        {(status || transport) && (
+        <div className="h-4 w-px bg-border" />
+        <div className="flex gap-1" role="group" aria-label="Heartbeat filter">
+          {HEARTBEAT_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              aria-pressed={heartbeat === f.value}
+              onClick={() => setParam("heartbeat", f.value)}
+              className={`px-2 py-1 text-xs rounded transition-colors ${
+                heartbeat === f.value
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        {hasFilters && (
           <button
             type="button"
-            onClick={() => { setStatus(""); setTransport(""); }}
+            onClick={clearFilters}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             Clear filters ({runs.length} result{runs.length !== 1 ? "s" : ""})
@@ -96,11 +140,11 @@ export default function RunsPage() {
         {runs.length === 0 ? (
           <div className="p-8 text-center space-y-2">
             <p className="text-sm text-muted-foreground">
-              {status || transport
+              {hasFilters
                 ? "No runs match the current filters."
                 : "No runs recorded yet."}
             </p>
-            {(status || transport) ? null : (
+            {hasFilters ? null : (
               <Link href="/agents" className="inline-block text-xs text-primary hover:underline">
                 → Create an agent to get started
               </Link>
