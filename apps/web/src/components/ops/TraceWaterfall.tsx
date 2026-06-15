@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import type { TraceOpsDetail } from "@/lib/api";
 
@@ -12,6 +13,8 @@ function relativeTime(ts: number, baseTs: number): string {
 }
 
 export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+
   if (detail.events.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
@@ -47,7 +50,13 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
           const barWidth = `${widthPct}%`;
 
           return (
-            <div key={`${e.runId}-${e.ts}-${i}`} className="flex items-center gap-3 text-xs group">
+            <div key={`${e.runId}-${e.ts}-${i}`}>
+              <button
+                type="button"
+                onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                className="flex items-center gap-3 text-xs group w-full text-left py-0.5 hover:bg-muted/30 rounded transition-colors"
+                aria-expanded={expandedIdx === i}
+              >
               <span className="w-16 shrink-0 text-right font-mono text-muted-foreground">
                 {relativeTime(e.ts, baseTs)}
               </span>
@@ -68,10 +77,27 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
               <Link
                 href={`/ops/runs/${e.runId}`}
                 className="font-mono text-muted-foreground hover:text-primary transition-colors shrink-0"
+                onClick={(ev) => ev.stopPropagation()}
               >
                 {e.runId.slice(0, 8)}…
               </Link>
-            </div>
+            </button>
+            {expandedIdx === i && (
+              <div className="ml-[76px] mt-1 mb-2 p-2 rounded bg-muted/30 text-xs font-mono text-muted-foreground overflow-x-auto">
+                <div className="flex gap-4 mb-1">
+                  <span>kind: {e.kind}</span>
+                  <span>ts: {new Date(e.ts).toISOString()}</span>
+                  <span>runId: {e.runId}</span>
+                  {e.attemptId && <span>attemptId: {e.attemptId}</span>}
+                </div>
+                {Object.keys(e.payload).length > 0 && (
+                  <pre className="mt-1 text-[11px] max-h-48 overflow-y-auto">
+                    {JSON.stringify(e.payload, null, 2)}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
           );
         })}
       </div>

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConversation } from "@/hooks/useConversation";
 import type { ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 import { computeStatus } from "@/lib/run-status";
 import { extractText } from "@/lib/timeline";
 import { AddMemberButton } from "./AddMemberButton";
@@ -89,7 +90,11 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
   const removeMember = useMutation({
     mutationFn: (memberId: string) => api.removeConversationMember(conversationId, memberId),
     onSuccess: () => {
+      toast.success("Member removed");
       qc.invalidateQueries({ queryKey: ["conv", conversationId] });
+    },
+    onError: (err) => {
+      toast.error("Failed to remove member", { description: err instanceof Error ? err.message : "Unknown error" });
     },
   });
 
