@@ -59,6 +59,7 @@ export type Action =
   | { type: "run/error"; message: string }
   | { type: "run/done" }
   | { type: "run/completed" }
+  | { type: "run/noop" }
   | { type: "toggleTriggerMode" }
   | { type: "todo/update"; todos: ConvState["todos"] };
 
@@ -339,6 +340,10 @@ export function reducer(s: ConvState, a: Action): ConvState {
         run: { ...s.run, phase: "error" },
         draft: null,
       };
+
+    case "run/noop":
+      // Recover optimistic phase when send succeeded but no run was triggered
+      return { ...s, run: { ...s.run, phase: "idle" } };
 
     case "run/done":
     case "run/completed":

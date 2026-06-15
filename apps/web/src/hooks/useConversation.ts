@@ -280,6 +280,8 @@ export function useConversation(
           runId: tr.runId,
           agentMemberId: tr.agentMemberId,
         });
+      } else {
+        dispatch({ type: "run/noop" });
       }
     },
     onError: () => dispatch({ type: "run/error", message: "发送失败" }),
@@ -324,6 +326,7 @@ export function useConversation(
     [resumeRun],
   );
   const cancel = useCallback(() => cancelRun.mutate(), [cancelRun]);
+  const resetLocal = useCallback(() => dispatch({ type: "run/noop" }), [dispatch]);
 
   const toggleTriggerMode = useCallback(() => dispatch({ type: "toggleTriggerMode" }), []);
 
@@ -344,6 +347,7 @@ export function useConversation(
     approve,
     deny,
     cancel,
+    resetLocal,
     canceling: cancelRun.isPending,
     resuming: resumeRun.isPending,
     todos: state.todos,

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowUp, AtSign, Bot, CornerDownLeft } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SenderRef } from "@/lib/conversation-reducer";
+import { toast } from "sonner";
 
 
 function escapeRegExp(s: string): string {
@@ -46,10 +47,10 @@ export function Composer({
     );
   }, [agentMembers, mentionFilter]);
 
-  // Reset selection when filter changes
+  // Reset selection when filter changes (including on filter input)
   useEffect(() => {
     setMentionIndex(0);
-  }, []);
+  }, [mentionFilter]);
 
   const autoGrow = useCallback(() => {
     const el = textareaRef.current;
@@ -124,13 +125,18 @@ export function Composer({
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
     const addressedTo = resolveAddressedTo(trimmed);
+    if (agentMembers.length > 1 && addressedTo.length === 0) {
+      toast.error("Use @ to specify which agent to send to");
+      setShowMentions(true);
+      return;
+    }
     onSend(trimmed, addressedTo);
     setValue("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "44px";
       textareaRef.current.focus();
     }
-  }, [value, disabled, onSend, resolveAddressedTo]);
+  }, [value, disabled, onSend, resolveAddressedTo, agentMembers.length]);
 
   const navigateMention = useCallback(
     (dir: -1 | 1) => {
@@ -164,12 +170,14 @@ export function Composer({
       }
       if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        insertMention(filteredMentions[mentionIndex]!);
+        const idx = Math.min(mentionIndex, filteredMentions.length - 1);
+        if (filteredMentions[idx]) insertMention(filteredMentions[idx]);
         return;
       }
       if (e.key === "Tab") {
         e.preventDefault();
-        if (filteredMentions[mentionIndex]) insertMention(filteredMentions[mentionIndex]!);
+        const idx = Math.min(mentionIndex, filteredMentions.length - 1);
+        if (filteredMentions[idx]) insertMention(filteredMentions[idx]);
         return;
       }
     }

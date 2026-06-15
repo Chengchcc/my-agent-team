@@ -40,6 +40,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
     approve,
     deny,
     cancel,
+    resetLocal,
     canceling,
     resuming,
     triggerMode,
@@ -141,14 +142,14 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
               </>
             )}
             {!label && <span className="text-xs text-[var(--mute)]">Idle</span>}
-            {runId && busy && (
+            {busy && (
               <Button
-               
-                onClick={cancel}
-                disabled={canceling}
+
+                onClick={runId ? cancel : resetLocal}
+                disabled={runId ? canceling : false}
                 className="text-[10px] uppercase tracking-[0.15em] text-[var(--body)] hover:text-[var(--ink)] disabled:opacity-40 transition-colors"
               >
-                {canceling ? "Cancelling…" : "Cancel"}
+                {runId && canceling ? "Cancelling…" : "Cancel"}
               </Button>
             )}
           </div>
