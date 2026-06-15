@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 "use client";
 
 import { useState } from "react";
@@ -7,8 +8,8 @@ export function ToolCallCard({ name, input }: { id?: string; name: string; input
 
   return (
     <div className="border border-[var(--hairline)] rounded-lg bg-[var(--canvas)] my-2 mx-0 overflow-hidden">
-      <button
-        type="button"
+      <Button
+       
         onClick={() => setOpen(!open)}
         className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-[var(--canvas-soft)] transition-colors"
       >
@@ -16,7 +17,7 @@ export function ToolCallCard({ name, input }: { id?: string; name: string; input
           Tool: {name}
         </span>
         <span className="text-[10px] text-[var(--mute)]">{open ? "▲ collapse" : "▼ expand"}</span>
-      </button>
+      </Button>
       <div
         className="grid transition-all duration-200 ease-out"
         style={{ gridTemplateRows: open ? "1fr" : "0fr" }}

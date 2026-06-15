@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { RunOpsDetail } from "@/lib/api";
 import { diagnoseRun } from "@/lib/ops-diagnosis";
+import { Button } from "@/components/ui/button";
 
 export function RunControlStrip({
   detail,
@@ -22,9 +23,6 @@ export function RunControlStrip({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ops", "runDetail", runId] });
       qc.invalidateQueries({ queryKey: ["ops", "runs"] });
-      // Bug 5 fix: prefix match on ["ops", "agentRuntime"] covers both
-      // ["ops", "agentRuntime", agentId] (detail page) and
-      // ["ops", "agentRuntime", [...ids]] (Overview aggregation page).
       qc.invalidateQueries({ queryKey: ["ops", "agentRuntime"] });
     },
   });
@@ -44,25 +42,24 @@ export function RunControlStrip({
   return (
     <div className="flex items-center gap-2">
       {!isTerminal && !isDetached && (
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="sm"
           disabled={cancelMut.isPending}
           onClick={() => cancelMut.mutate()}
-          className="px-3 py-1.5 text-xs font-medium rounded-md border text-foreground hover:bg-muted disabled:opacity-50 transition-colors"
         >
           {cancelMut.isPending ? "Cancelling…" : "Cancel run"}
-        </button>
+        </Button>
       )}
 
       {isDetached && (
-        <button
-          type="button"
+        <Button
+          size="sm"
           disabled={recoverMut.isPending}
           onClick={() => recoverMut.mutate()}
-          className="px-3 py-1.5 text-xs font-medium rounded-md border border-primary text-primary hover:bg-primary hover:text-primary-foreground disabled:opacity-50 transition-colors"
         >
           {recoverMut.isPending ? "Recovering…" : "Recover"}
-        </button>
+        </Button>
       )}
 
       {isDetached && (

@@ -2,27 +2,25 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { RunOpsListItem } from "@/lib/api";
 import { diagnoseRunListItem } from "@/lib/ops-diagnosis";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import {
+  Pagination, PaginationContent, PaginationItem, PaginationPrevious, PaginationNext,
+} from "@/components/ui/pagination";
 
 const PAGE_SIZE = 20;
 
-function statusBadge(status: string): string {
+function statusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
   switch (status) {
-    case "running":     return "bg-blue-950 text-blue-400";
-    case "succeeded":   return "bg-green-950 text-green-400";
-    case "error":       return "bg-red-950 text-red-400";
-    case "interrupted": return "bg-amber-950 text-amber-400";
-    default:            return "bg-muted text-muted-foreground";
+    case "running":     return "default";
+    case "succeeded":   return "secondary";
+    case "error":       return "destructive";
+    case "interrupted": return "outline";
+    default:            return "secondary";
   }
 }
 
@@ -50,7 +48,6 @@ function ago(ts: number): string {
 export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOpsListItem[]; heartbeatTimeoutMs?: number }) {
   const [page, setPage] = useState(0);
 
-  // Sort: needs_attention first (detached, stale, running), then terminal
   const sorted = [...runs].sort((a, b) => {
     const scoreA = a.status === "running" ? (a.runnerTransport === "attached" ? 1 : 0) : 2;
     const scoreB = b.status === "running" ? (b.runnerTransport === "attached" ? 1 : 0) : 2;
@@ -89,11 +86,11 @@ export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOp
                 <TableCell className="font-mono text-xs text-foreground">
                   {r.runId.slice(0, 12)}…
                 </TableCell>
-                <TableCell className="text-foreground" title={r.agentId}>{r.agentName}</TableCell>
+                <TableCell className="text-foreground text-xs" title={r.agentId}>{r.agentName}</TableCell>
                 <TableCell>
-                  <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${statusBadge(r.status)}`}>
+                  <Badge variant={statusVariant(r.status)} className="text-xs">
                     {r.status}
-                  </span>
+                  </Badge>
                 </TableCell>
                 <TableCell className="text-xs text-foreground">
                   {transportLabel[r.runnerTransport] ?? r.runnerTransport}
@@ -121,28 +118,28 @@ export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOp
         </TableBody>
       </Table>
       {totalPages > 1 && (
-        <div className="flex items-center justify-between px-2 py-2 border-t">
+        <div className="flex items-center justify-between py-2">
           <span className="text-xs text-muted-foreground">
             {sorted.length} runs · page {page + 1} of {totalPages}
           </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={page === 0}
-              onClick={() => setPage((p) => p - 1)}
-              className="p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-default transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              disabled={page >= totalPages - 1}
-              onClick={() => setPage((p) => p + 1)}
-              className="p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-default transition-colors"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+          <Pagination className="w-auto mx-0">
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  text="Previous"
+                  onClick={() => setPage((p) => p - 1)}
+                  className={page === 0 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationNext
+                  text="Next"
+                  onClick={() => setPage((p) => p + 1)}
+                  className={page >= totalPages - 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
         </div>
       )}
     </div>

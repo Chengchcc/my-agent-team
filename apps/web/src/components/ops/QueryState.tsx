@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { classifyError } from "@/lib/api";
 import type { UseQueryResult } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
 
 interface QueryStateProps<T> {
   query: {
@@ -54,13 +55,13 @@ export function QueryState<T>({ query, empty, emptyMessage, children }: QuerySta
         return (
           <div className="p-6 space-y-2">
             <p className="text-muted-foreground text-sm">Backend unavailable</p>
-            <button
-              type="button"
+            <Button
+              variant="link"
+              size="sm"
               onClick={() => (query as UseQueryResult).refetch()}
-              className="text-sm text-primary hover:underline"
             >
               Retry
-            </button>
+            </Button>
           </div>
         );
       default:

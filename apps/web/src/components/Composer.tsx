@@ -1,3 +1,5 @@
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 "use client";
 
 import { ArrowUp, AtSign, Bot, CornerDownLeft } from "lucide-react";
@@ -184,7 +186,7 @@ export function Composer({
     <div className="bg-[var(--canvas)] px-6 py-4">
       <div className="mx-auto flex gap-2 items-end relative" style={{ maxWidth: "72ch" }}>
         <div className="flex-1 relative">
-          <textarea
+          <Textarea
             ref={textareaRef}
             value={value}
             onChange={handleInput}
@@ -220,9 +222,9 @@ export function Composer({
                   <p className="text-xs text-[var(--mute)] px-3 py-3">No matching agents</p>
                 ) : (
                   filteredMentions.map((m, i) => (
-                    <button
+                    <Button
                       key={m.memberId}
-                      type="button"
+                     
                       onClick={() => insertMention(m)}
                       onMouseEnter={() => setMentionIndex(i)}
                       className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
@@ -238,7 +240,7 @@ export function Composer({
                       <span className="text-[10px] font-mono text-[var(--mute)] shrink-0">
                         agent
                       </span>
-                    </button>
+                    </Button>
                   ))
                 )}
               </div>
@@ -247,8 +249,8 @@ export function Composer({
         </div>
 
         {showMentionButton && (
-          <button
-            type="button"
+          <Button
+           
             onClick={() => {
               setShowMentions(!showMentions);
               setMentionFilter("");
@@ -258,11 +260,11 @@ export function Composer({
             title="Mention an agent"
           >
             <AtSign size={16} />
-          </button>
+          </Button>
         )}
 
-        <button
-          type="button"
+        <Button
+         
           onClick={handleSend}
           disabled={disabled || !value.trim()}
           className="shrink-0 bg-[var(--primary)] text-[var(--on-primary)]
@@ -271,7 +273,7 @@ export function Composer({
                      transition-opacity duration-200 inline-flex items-center justify-center mb-0.5"
         >
           <ArrowUp size={16} className="shrink-0" aria-label="Send" />
-        </button>
+        </Button>
       </div>
     </div>
   );

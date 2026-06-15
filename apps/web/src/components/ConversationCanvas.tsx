@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -135,14 +136,14 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
             )}
             {!label && <span className="text-xs text-[var(--mute)]">Idle</span>}
             {runId && phase === "running" && (
-              <button
-                type="button"
+              <Button
+               
                 onClick={cancel}
                 disabled={canceling}
                 className="text-[10px] uppercase tracking-[0.15em] text-[var(--body)] hover:text-[var(--ink)] disabled:opacity-40 transition-colors"
               >
                 {canceling ? "Cancelling…" : "Cancel"}
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -166,13 +167,13 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
             <p className="text-xs text-[var(--ink)]">{error}</p>
           </div>
           {lastUserMessage && (
-            <button
-              type="button"
+            <Button
+             
               onClick={() => send(lastUserMessage)}
               className="text-xs text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors shrink-0 ml-4"
             >
               Retry
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -222,14 +223,14 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
 
         {/* Scroll-to-bottom — outside scroll container so it stays fixed */}
         {scrolledUp && (
-          <button
-            type="button"
+          <Button
+           
             onClick={scrollToBottom}
             className="absolute bottom-4 right-4 z-20 bg-[var(--canvas)] border border-[var(--hairline)] rounded-full p-2 shadow-lg hover:border-[var(--primary)] transition-colors"
             title="Scroll to bottom"
           >
             <ArrowDown size={14} className="text-[var(--body)]" />
-          </button>
+          </Button>
         )}
 
         {/* Roster sidebar */}
@@ -256,15 +257,15 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
                     {isViewer ? " (you)" : ""}
                   </span>
                   {!isViewer && (
-                    <button
-                      type="button"
+                    <Button
+                     
                       onClick={() => removeMember.mutate(m.memberId)}
                       disabled={removeMember.isPending}
                       className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[var(--canvas-soft)] transition-all disabled:opacity-0 shrink-0"
                       title={`Remove ${m.displayName ?? m.memberId}`}
                     >
                       <X size={12} className="text-[var(--mute)]" />
-                    </button>
+                    </Button>
                   )}
                 </li>
               );
@@ -288,8 +289,8 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
       {/* Composer */}
       <div className="shrink-0 border-t border-[var(--hairline)]">
         <div className="flex items-center gap-2 px-6 pt-3">
-          <button
-            type="button"
+          <Button
+           
             onClick={toggleTriggerMode}
             className="text-[10px] tracking-[0.1em] uppercase px-2 py-0.5 rounded border border-[var(--hairline)] text-[var(--mute)] hover:text-[var(--body)] hover:border-[var(--primary)] transition-colors"
             title={
@@ -299,7 +300,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
             }
           >
             {triggerMode === "auto" ? "Auto" : "@ Mention"}
-          </button>
+          </Button>
         </div>
         <Composer
           onSend={send}

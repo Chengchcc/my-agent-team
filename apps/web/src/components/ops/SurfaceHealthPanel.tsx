@@ -1,6 +1,7 @@
 "use client";
 
 import type { SurfaceOpsItem } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
 
 export function SurfaceHealthPanel({ surface }: { surface: SurfaceOpsItem }) {
   const isLark = surface.surface === "lark";
@@ -11,15 +12,9 @@ export function SurfaceHealthPanel({ surface }: { surface: SurfaceOpsItem }) {
         <h3 className="font-semibold text-foreground text-sm capitalize">
           {surface.surface} Surface
         </h3>
-        <span
-          className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
-            surface.status === "running"
-              ? "bg-green-950 text-green-400"
-              : "bg-red-950 text-red-400"
-          }`}
-        >
+        <Badge variant={surface.status === "running" ? "default" : "destructive"} className="text-xs">
           {surface.status}
-        </span>
+        </Badge>
       </div>
 
       <div className="text-sm space-y-1">
@@ -42,8 +37,6 @@ export function SurfaceHealthPanel({ surface }: { surface: SurfaceOpsItem }) {
         )}
       </div>
 
-      {/* Render all flat counter entries. Backend flattens nested payloads
-          into dot-separated numerical keys and redacts sensitive identifiers. */}
       {Object.keys(surface.counters).length > 0 && (
         <div className="border-t pt-3 mt-3">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">

@@ -1,3 +1,5 @@
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 "use client";
 
 import { useState } from "react";
@@ -34,7 +36,7 @@ export function ToolApprovalCard({ tool, onApprove, onDeny, disabled }: ToolAppr
           {JSON.stringify(tool.input, null, 2)}
         </pre>
 
-        <input
+        <Input
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Optional feedback..."
@@ -46,8 +48,8 @@ export function ToolApprovalCard({ tool, onApprove, onDeny, disabled }: ToolAppr
         />
 
         <div className="flex gap-3">
-          <button
-            type="button"
+          <Button
+           
             onClick={() => onApprove(message || undefined)}
             disabled={disabled}
             className="bg-[var(--primary)] text-[var(--on-primary)]
@@ -57,9 +59,9 @@ export function ToolApprovalCard({ tool, onApprove, onDeny, disabled }: ToolAppr
                        transition-opacity duration-200"
           >
             Approve
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+           
             onClick={() => onDeny(message || undefined)}
             disabled={disabled}
             className="border border-[var(--hairline)] text-[var(--body)]
@@ -69,7 +71,7 @@ export function ToolApprovalCard({ tool, onApprove, onDeny, disabled }: ToolAppr
                        transition-colors duration-200"
           >
             Deny
-          </button>
+          </Button>
         </div>
       </div>
     </div>

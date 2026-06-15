@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 
 export function ConversationList({ agentId, agentName }: { agentId: string; agentName?: string }) {
   const router = useRouter();
@@ -53,27 +54,28 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
         <p className="text-xs text-[var(--mute)]">
           {(conversations ?? []).length} conversation{(conversations ?? []).length !== 1 ? "s" : ""}
         </p>
-        <button
-          type="button"
+        <Button
+          variant="link"
+          size="sm"
           onClick={() => createConversation.mutate()}
           disabled={createConversation.isPending}
-          className="flex items-center gap-1 text-xs text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors disabled:opacity-40 font-medium"
+          className="text-xs h-auto p-0"
         >
           <Plus size={14} />
           New Conversation
-        </button>
+        </Button>
       </div>
 
       {(conversations ?? []).length === 0 ? (
         <div className="text-center py-12">
           <p className="text-sm text-[var(--mute)] mb-2">No conversations yet</p>
-          <button
-            type="button"
+          <Button
+            variant="link"
+            size="sm"
             onClick={() => createConversation.mutate()}
-            className="text-xs text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors font-medium"
           >
             Create your first conversation
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="space-y-0.5">
@@ -103,19 +105,19 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0 ml-3">
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
                   onClick={(e) => {
                     e.stopPropagation();
                     if (confirm("Delete this conversation?")) {
                       deleteConversation.mutate(conv.conversationId);
                     }
                   }}
-                  className="p-1 text-[var(--hairline)] hover:text-red-400 transition-colors opacity-60 hover:opacity-100"
                   title="Delete conversation"
                 >
                   <Trash2 size={14} />
-                </button>
+                </Button>
                 <ChevronRight size={14} className="text-[var(--hairline)]" />
               </div>
             </div>

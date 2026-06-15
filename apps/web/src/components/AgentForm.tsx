@@ -1,3 +1,6 @@
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -123,8 +126,8 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
 
   return (
     <>
-      <button
-        type="button"
+      <Button
+       
         onClick={() => setOpen(true)}
         className={
           triggerLabel
@@ -133,7 +136,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
         }
       >
         {triggerLabel ?? "+ New Agent"}
-      </button>
+      </Button>
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" role="dialog">
@@ -147,20 +150,20 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
               <h2 className="text-lg font-normal text-[var(--ink-strong)] font-[family-name:var(--font-sans)]">
                 {isEdit ? "Edit Agent" : "Create Agent"}
               </h2>
-              <button
-                type="button"
+              <Button
+               
                 onClick={() => setOpen(false)}
                 className="text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
                 aria-label="Close"
               >
                 <X size={18} />
-              </button>
+              </Button>
             </div>
 
             <form onSubmit={handleSubmit} className="px-8 py-6 space-y-6">
               <div>
                 <label className={labelClass}>Name *</label>
-                <input
+                <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Archivist"
@@ -172,7 +175,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
               <div className="grid grid-cols-2 gap-6">
                 <div>
                   <label className={labelClass}>Provider</label>
-                  <input
+                  <Input
                     value="Anthropic"
                     disabled
                     className={`${fieldClass} opacity-50 cursor-not-allowed`}
@@ -181,7 +184,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                 </div>
                 <div>
                   <label className={labelClass}>Model *</label>
-                  <input
+                  <Input
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
                     placeholder="claude-sonnet-4-6"
@@ -193,7 +196,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
 
               <div>
                 <label className={labelClass}>Base URL</label>
-                <input
+                <Input
                   value={baseURL}
                   onChange={(e) => setBaseURL(e.target.value)}
                   placeholder="https://api.anthropic.com/v1"
@@ -204,19 +207,20 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
               <div className="grid grid-cols-2 gap-6">
                 <div>
                   <label className={labelClass}>Permission Mode</label>
-                  <select
-                    value={permissionMode}
-                    onChange={(e) => setPermissionMode(e.target.value as "ask" | "auto" | "deny")}
-                    className={fieldClass}
-                  >
-                    <option value="ask">Ask (approval)</option>
-                    <option value="auto">Auto</option>
-                    <option value="deny">Deny</option>
-                  </select>
+                  <Select value={permissionMode} onValueChange={(v) => setPermissionMode(v as "ask" | "auto" | "deny")}>
+                    <SelectTrigger className={fieldClass}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ask">Ask (approval)</SelectItem>
+                      <SelectItem value="auto">Auto</SelectItem>
+                      <SelectItem value="deny">Deny</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <label className={labelClass}>Max Steps</label>
-                  <input
+                  <Input
                     type="number"
                     value={maxSteps}
                     onChange={(e) => setMaxSteps(e.target.value)}
@@ -230,7 +234,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
               {/* ─── Lark Bot ─── */}
               <div className="border-t border-[var(--hairline)] pt-5">
                 <label className="flex items-center gap-2 cursor-pointer mb-4">
-                  <input
+                  <Input
                     type="checkbox"
                     checked={enableLark}
                     onChange={(e) => setEnableLark(e.target.checked)}
@@ -258,7 +262,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                   <div className="space-y-4 pl-6 border-l-2 border-[var(--hairline)]">
                     <div>
                       <label className={labelClass}>Bot Display Name</label>
-                      <input
+                      <Input
                         value={botDisplayName}
                         onChange={(e) => setBotDisplayName(e.target.value)}
                         placeholder="Must match Lark app settings"
@@ -290,8 +294,8 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                               </p>
                             )}
                             <div className="flex gap-2">
-                              <button
-                                type="button"
+                              <Button
+                               
                                 onClick={() => {
                                   if (editAgent?.id && setupSession.setupId) {
                                     api.larkSetupCancel(editAgent.id, setupSession.setupId);
@@ -301,12 +305,12 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                                 className="text-xs text-red-600 hover:underline"
                               >
                                 Cancel
-                              </button>
+                              </Button>
                             </div>
                           </div>
                         ) : (
-                          <button
-                            type="button"
+                          <Button
+                           
                             disabled={setupLoading}
                             onClick={async () => {
                               if (!editAgent?.id) return;
@@ -325,7 +329,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                             className="px-4 py-2 text-xs font-medium bg-[var(--primary)] text-[var(--on-primary)] rounded-md hover:opacity-90 disabled:opacity-40"
                           >
                             {setupLoading ? "Starting…" : "Set up Lark"}
-                          </button>
+                          </Button>
                         )}
                       </div>
                     ) : null}
@@ -335,7 +339,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
 
               {error && <p className="text-xs text-[var(--body)]">{error}</p>}
 
-              <button
+              <Button
                 type="submit"
                 disabled={submitting || !name.trim()}
                 className="w-full bg-[var(--primary)] text-[var(--on-primary)]
@@ -355,7 +359,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                     Create Agent <ArrowRight size={14} />
                   </span>
                 )}
-              </button>
+              </Button>
             </form>
           </div>
         </div>

@@ -1,3 +1,5 @@
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -36,40 +38,40 @@ function Section({
           {title}
         </h3>
         {!editing && (
-          <button
-            type="button"
+          <Button
+           
             onClick={onEdit}
             className="text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors inline-flex items-center gap-1"
           >
             <Pencil size={12} />
             <span className="text-[10px]">Edit</span>
-          </button>
+          </Button>
         )}
       </div>
       {editing ? (
         <div className="space-y-3">
-          <textarea
+          <Textarea
             value={draft}
             onChange={(e) => onChange(e.target.value)}
             className="w-full bg-[var(--canvas-soft)] border border-[var(--hairline)] rounded-md px-3 py-2 text-sm text-[var(--ink)] font-[family-name:var(--font-mono)] resize-y min-h-[200px] focus:outline-none focus:border-[var(--primary)] transition-colors"
           />
           <div className="flex gap-2">
-            <button
-              type="button"
+            <Button
+             
               onClick={onSave}
               disabled={saving}
               className="bg-[var(--primary)] text-[var(--on-primary)] rounded-md px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-40 transition-opacity"
             >
               {saving ? "Saving..." : "Save"}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+             
               onClick={onCancel}
               disabled={saving}
               className="border border-[var(--hairline)] rounded-md px-3 py-1.5 text-xs text-[var(--body)] hover:text-[var(--ink)] disabled:opacity-40 transition-colors"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : content === null ? (

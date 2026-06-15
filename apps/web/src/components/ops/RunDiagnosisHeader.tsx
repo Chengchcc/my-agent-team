@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import type { RunOpsDetail, RunDiagnosis } from "@/lib/api";
 import { diagnoseRun } from "@/lib/ops-diagnosis";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 const diagnosisLabel: Record<RunDiagnosis["kind"], string> = {
   running: "Running",
@@ -21,12 +23,12 @@ const ownerLabel: Record<RunDiagnosis["owner"], string> = {
   unknown: "Unknown",
 };
 
-const diagnosisTextColor: Record<RunDiagnosis["kind"], string> = {
-  running: "text-blue-400",
-  heartbeat_stale: "text-amber-400",
-  detached_waiting_reaper: "text-violet-400",
-  surface_projection_failed: "text-red-400",
-  terminal: "text-muted-foreground",
+const diagnosisBadgeVariant: Record<RunDiagnosis["kind"], "default" | "secondary" | "destructive" | "outline"> = {
+  running: "default",
+  heartbeat_stale: "outline",
+  detached_waiting_reaper: "secondary",
+  surface_projection_failed: "destructive",
+  terminal: "secondary",
 };
 
 export function RunDiagnosisHeader({
@@ -54,12 +56,12 @@ export function RunDiagnosisHeader({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <span className="font-mono text-xs text-foreground">{detail.run.runId}</span>
 
-        <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${diagnosisTextColor[diagnosis.kind]} bg-muted`}>
+        <Badge variant={diagnosisBadgeVariant[diagnosis.kind]}>
           {detail.run.status}
-        </span>
+        </Badge>
 
         <span className="text-muted-foreground">Diagnosis:</span>
-        <span className={`font-medium ${diagnosisTextColor[diagnosis.kind]}`}>
+        <span className="font-medium text-foreground">
           {diagnosisLabel[diagnosis.kind]}
         </span>
 
@@ -86,13 +88,14 @@ export function RunDiagnosisHeader({
         </span>
 
         {evidence.length > 0 && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setShowEvidence(!showEvidence)}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="text-xs h-auto py-0"
           >
             {showEvidence ? "▲ hide evidence" : "▼ why"}
-          </button>
+          </Button>
         )}
       </div>
 

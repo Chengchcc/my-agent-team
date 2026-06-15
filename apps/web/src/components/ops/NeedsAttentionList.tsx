@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import type { RunOpsListItem, AgentRuntimeStatus } from "@/lib/api";
 import { isStaleRun, isDetachedRun, isUnhealthyAgent, hasSurfaceError } from "@/lib/ops-diagnosis";
+import { Button } from "@/components/ui/button";
 
 interface NeedsAttentionProps {
   runs: RunOpsListItem[];
@@ -38,14 +39,15 @@ function RecoverButton({ runId }: { runId: string }) {
   });
 
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="sm"
       disabled={mut.isPending}
       onClick={(e) => { e.preventDefault(); mut.mutate(); }}
-      className="ml-auto text-xs text-primary hover:underline disabled:opacity-50 shrink-0"
+      className="ml-auto text-xs h-auto py-0 shrink-0"
     >
       {mut.isPending ? "…" : "Recover"}
-    </button>
+    </Button>
   );
 }
 

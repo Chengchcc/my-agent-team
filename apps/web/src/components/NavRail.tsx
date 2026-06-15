@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useShell } from "./ShellProvider";
+import { Button } from "@/components/ui/button";
 
 const OPS_LINKS = [
   { label: "Overview", href: "/ops", exact: true },
@@ -52,16 +53,16 @@ export function NavRail() {
         className="h-full border-r border-border bg-background flex flex-col items-center py-4 gap-3 shrink-0"
         style={{ width: "3rem" }}
       >
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={toggleRail}
-          className="w-7 h-7 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
           aria-label="Expand sidebar"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M6 4l4 4-4 4" />
           </svg>
-        </button>
+        </Button>
 
         {/* Workspace icon */}
         <Link
@@ -111,16 +112,16 @@ export function NavRail() {
         >
           Operations
         </Link>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={toggleRail}
-          className="w-6 h-6 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
           aria-label="Collapse sidebar"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M10 4l-4 4 4 4" />
           </svg>
-        </button>
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto">

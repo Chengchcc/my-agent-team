@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface CallItem {
   kind: "llm" | "tool" | "interrupt";
@@ -45,10 +46,11 @@ export function CallTreeItem({ call, depth = 0 }: { call: CallItem; depth?: numb
 
   return (
     <div>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={() => setExpanded(!expanded)}
-        className="w-full text-left text-xs font-mono py-1.5 px-2 hover:bg-muted/50 rounded transition-colors flex items-center gap-2 group"
+        className="w-full justify-start text-xs font-mono py-1.5 px-2 h-auto rounded"
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
       >
         {expanded ? (
@@ -88,7 +90,7 @@ export function CallTreeItem({ call, depth = 0 }: { call: CallItem; depth?: numb
             {call.isError && <span className="text-red-500 ml-auto">✗ error</span>}
           </>
         )}
-      </button>
+      </Button>
       {expanded && (
         <div
           className="pl-8 pr-2 py-1 text-[11px] text-muted-foreground font-mono space-y-0.5 border-l border-border ml-[10px]"

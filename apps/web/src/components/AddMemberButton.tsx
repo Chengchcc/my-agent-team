@@ -5,6 +5,7 @@ import { Bot, Check, Plus, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { type AgentRow, api } from "@/lib/api";
 import type { SenderRef } from "@/lib/conversation-reducer";
+import { Button } from "@/components/ui/button";
 
 interface AddMemberButtonProps {
   conversationId: string;
@@ -58,27 +59,27 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
 
   return (
     <>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon-xs"
         onClick={() => setOpen(true)}
-        className="p-0.5 rounded hover:bg-[var(--canvas-soft)] transition-colors"
         title="Add agent"
       >
-        <Plus size={14} className="text-[var(--mute)]" />
-      </button>
+        <Plus size={14} />
+      </Button>
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
           <div className="bg-[var(--canvas)] rounded-lg border border-[var(--hairline)] shadow-xl w-80 max-h-96 flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--hairline)]">
               <span className="text-sm font-semibold text-[var(--ink-strong)]">Add Agent</span>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => setOpen(false)}
-                className="p-0.5 rounded hover:bg-[var(--canvas-soft)]"
               >
-                <X size={14} className="text-[var(--mute)]" />
-              </button>
+                <X size={14} />
+              </Button>
             </div>
             <div className="flex-1 overflow-y-auto p-2">
               {sorted.length === 0 ? (

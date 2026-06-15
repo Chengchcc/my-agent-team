@@ -2,6 +2,7 @@
 
 import type { RunOpsDetail } from "@/lib/api";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 
 function ago(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
@@ -23,13 +24,14 @@ function TimelineRow({ o }: { o: RunOpsDetail["ops"][number] }) {
           </span>
           <span className="text-muted-foreground text-xs">{ago(o.ts)}</span>
           {hasPayload && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setOpen(!open)}
-              className="text-muted-foreground hover:text-foreground text-xs transition-colors"
+              className="text-xs h-auto py-0"
             >
               {open ? "▲ hide" : "▼ details"}
-            </button>
+            </Button>
           )}
         </div>
         {open && hasPayload && (

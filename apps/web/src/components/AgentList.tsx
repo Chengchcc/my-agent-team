@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 
 export function AgentList() {
   const queryClient = useQueryClient();
@@ -98,40 +99,43 @@ export function AgentList() {
           {/* Delete / archive controls */}
           {confirmingId === agent.id ? (
             <div className="absolute top-3 right-3 flex gap-1">
-              <button
+              <Button
+                size="xs"
+                variant="secondary"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   archive.mutate(agent.id);
                 }}
                 disabled={archive.isPending}
-                className="text-[10px] px-2 py-1 rounded bg-[var(--hairline)] text-[var(--body)] hover:bg-[var(--mute)] transition-colors"
               >
                 Confirm
-              </button>
-              <button
+              </Button>
+              <Button
+                size="xs"
+                variant="outline"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   setConfirmingId(null);
                 }}
-                className="text-[10px] px-2 py-1 rounded border border-[var(--hairline)] text-[var(--mute)] hover:text-[var(--ink)] transition-colors"
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           ) : (
-            <button
+            <Button
+              variant="ghost"
+              size="xs"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 setConfirmingId(agent.id);
               }}
-              className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity
-                         text-[10px] px-2 py-1 text-[var(--mute)] hover:text-[var(--ink)]"
+              className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity"
             >
               Archive
-            </button>
+            </Button>
           )}
         </div>
       ))}

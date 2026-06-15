@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import type { AgentRuntimeStatus } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
 
-function runnerBadge(status: string): string {
+function runnerBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
   switch (status) {
-    case "busy":     return "bg-blue-950 text-blue-400";
-    case "degraded": return "bg-amber-950 text-amber-400";
-    case "offline":  return "bg-red-950 text-red-400";
-    default:         return "bg-muted text-muted-foreground";
+    case "busy":     return "default";
+    case "degraded": return "outline";
+    case "offline":  return "destructive";
+    default:         return "secondary";
   }
 }
 
@@ -19,9 +20,9 @@ export function AgentRuntimeCard({ runtime }: { runtime: AgentRuntimeStatus }) {
     <div className="rounded-lg border p-4 space-y-2">
       <div className="flex items-center gap-2">
         <h3 className="font-semibold text-foreground text-sm">{runtime.agentName}</h3>
-        <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${runnerBadge(runtime.runner.status)}`}>
+        <Badge variant={runnerBadgeVariant(runtime.runner.status)} className="text-xs">
           {runtime.runner.status}
-        </span>
+        </Badge>
       </div>
       <div className="text-sm">
         <div className="text-xs text-muted-foreground font-mono mb-1">{runtime.agentId}</div>

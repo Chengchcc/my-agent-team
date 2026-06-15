@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -145,9 +146,9 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
         <div className="shrink-0 w-7 relative order-2">
           <div className="sticky top-20 flex flex-col items-center gap-0.5 py-2">
             {anchors.map((a) => (
-              <button
+              <Button
                 key={a.id}
-                type="button"
+               
                 onClick={() => scrollToAnchor(a.elementId)}
                 className={`text-[10px] leading-none w-6 h-5 flex items-center justify-center rounded-sm transition-colors font-mono
                   ${
@@ -158,7 +159,7 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                 title={`Turn ${a.seq}`}
               >
                 {a.seq}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
