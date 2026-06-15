@@ -5,6 +5,8 @@ import { computeRunnerStatus } from "./types.js";
 import type { RunnerHealthStatus, RunnerHealthRow } from "./types.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RunnerRegistry } from "../run/runner-registry.js";
+import { getRunInsights, getInsightsSummary } from "./insights.js";
+import type { RunInsights, InsightsSummary } from "./insights.js";
 
 export interface RunOpsListItem {
   runId: string;
@@ -560,6 +562,47 @@ export function createRuntimeOpsService(deps: {
           counters,
         };
       });
+    },
+
+    // ─── M16.3: Run Insights ───
+
+    async getRunInsights(runId: string): Promise<RunInsights | null> {
+      const run = db
+        .query(
+          "SELECT run_id, thread_id, agent_id, status, started_at, ended_at FROM run WHERE run_id = ?",
+        )
+        .get(runId) as
+        | { run_id: string; thread_id: string; agent_id: string; status: string; started_at: number; ended_at: number | null }
+        | undefined;
+      if (!run) return null;
+
+      return getRunInsights(
+        { eventLog, getAgentName },
+        {
+          runId: run.run_id,
+          threadId: run.thread_id,
+          agentId: run.agent_id,
+          status: run.status,
+          startedAt: run.started_at,
+          endedAt: run.ended_at,
+        },
+      );
+    },
+
+    async getInsightsSummary(range: { from: number; to: number }): Promise<InsightsSummary> {
+      return getInsightsSummary(
+        {
+          eventLog,
+          getAgentName,
+          getAgentIdForRun: (runId: string) => {
+            const row = db
+              .query("SELECT agent_id FROM run WHERE run_id = ?")
+              .get(runId) as { agent_id: string } | undefined;
+            return row?.agent_id;
+          },
+        },
+        range,
+      );
     },
   };
 }

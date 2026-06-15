@@ -53,6 +53,22 @@ export function opsRoutes(svc: RuntimeOpsService) {
       return json(svc.listSurfaces());
     },
 
+    // ─── M16.3: Run Insights ───
+
+    async getRunInsights(_req: Request, runId: string): Promise<Response> {
+      const insights = await svc.getRunInsights(runId);
+      if (!insights) return json({ error: "Run not found" }, 404);
+      return json(insights);
+    },
+
+    async getInsightsSummary(req: Request): Promise<Response> {
+      const url = new URL(req.url);
+      const from = parseInt(url.searchParams.get("from") ?? "", 10);
+      const to = parseInt(url.searchParams.get("to") ?? "", 10);
+      if (!from || !to) return json({ error: "from and to query params required" }, 400);
+      return json(await svc.getInsightsSummary({ from, to }));
+    },
+
     /** M16: Internal surface heartbeat endpoint. Payload pre-sanitized by lark-bot. */
     async larkHeartbeat(req: Request): Promise<Response> {
       let body: Record<string, unknown>;

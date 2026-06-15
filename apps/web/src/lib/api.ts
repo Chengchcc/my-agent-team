@@ -244,6 +244,12 @@ export const api = {
   getTraceOpsDetail: (traceId: string) =>
     apiFetch<TraceOpsDetail>(`ops/traces/${traceId}`),
   listSurfaces: () => apiFetch<SurfaceOpsItem[]>("ops/surfaces"),
+  // M16.3: Run Insights
+  getRunInsights: (runId: string) => apiFetch<RunInsights>(`ops/runs/${runId}/insights`),
+  getInsightsSummary: (range: { from: number; to: number }) => {
+    const qs = new URLSearchParams({ from: String(range.from), to: String(range.to) });
+    return apiFetch<InsightsSummary>(`ops/insights/summary?${qs}`);
+  },
 };
 
 // ── M16 ops types ──
@@ -332,6 +338,52 @@ export type RecoverRunResult =
   | { state: "reattached"; attemptId: string }
   | { state: "marked_interrupted"; reason: "heartbeat_timeout" }
   | { state: "waiting"; reason: "heartbeat_fresh_but_transport_detached" };
+
+// ── M16.3 Run Insights types ──
+
+export interface RunInsights {
+  runId: string;
+  agentId: string;
+  agentName: string;
+  root: {
+    status: string;
+    startedAt: number;
+    endedAt: number | null;
+    totalLatencyMs: number | null;
+    totalCostUsd: number | null;
+    llmCalls: number;
+    toolCalls: number;
+    totalInput: number;
+    totalOutput: number;
+    totalCacheRead: number;
+    totalCacheCreate: number;
+    slowestCall?: { kind: "llm" | "tool"; step: number; name: string; latencyMs: number };
+    failedCall?: { step: number; name: string };
+    interruptedAt?: { step: number };
+  };
+  calls: Array<{
+    kind: "llm" | "tool" | "interrupt";
+    step: number;
+    ts: number;
+    model?: string;
+    usage?: { input: number; output: number; cacheCreate?: number; cacheRead?: number };
+    latencyMs?: number;
+    ttftMs?: number | null;
+    costUsd?: number | null;
+    stopReason?: string;
+    name?: string;
+    isError?: boolean;
+  }>;
+  toolBreakdown: Array<{ name: string; count: number; errorCount: number; totalLatencyMs: number }>;
+}
+
+export interface InsightsSummary {
+  window: { from: number; to: number };
+  tokenSeries: Array<{ ts: number; input: number; output: number }>;
+  costByAgent: Array<{ agentId: string; agentName: string; costUsd: number | null }>;
+  costByModel: Array<{ model: string; costUsd: number | null }>;
+  topTools: Array<{ name: string; count: number; errorRate: number }>;
+}
 
 // ── Error classification ──
 

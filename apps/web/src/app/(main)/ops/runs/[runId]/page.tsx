@@ -8,6 +8,7 @@ import { RunDiagnosisHeader } from "@/components/ops/RunDiagnosisHeader";
 import { RunControlStrip } from "@/components/ops/RunControlStrip";
 import { ExecutionPath } from "@/components/ops/ExecutionPath";
 import { RunOpsTimeline } from "@/components/ops/RunOpsTimeline";
+import { RunInsightsPanel } from "@/components/ops/RunInsightsPanel";
 import Link from "next/link";
 
 export default function RunDetailPage() {
@@ -123,6 +124,8 @@ export default function RunDetailPage() {
               <h3 className="text-sm font-semibold text-foreground mb-4">Diagnostic timeline</h3>
               <RunOpsTimeline ops={detail.ops} />
             </div>
+
+            <RunInsightsPanel runId={runId} />
           </>
         )}
       </QueryState>

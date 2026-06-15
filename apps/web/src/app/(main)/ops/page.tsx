@@ -6,6 +6,9 @@ import { QueryState } from "@/components/ops/QueryState";
 import { HealthSummary } from "@/components/ops/HealthSummary";
 import { NeedsAttentionList } from "@/components/ops/NeedsAttentionList";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
+import { TokenTrendChart } from "@/components/ops/TokenTrendChart";
+import { CostBreakdownChart } from "@/components/ops/CostBreakdownChart";
+import { TopToolsChart } from "@/components/ops/TopToolsChart";
 
 export default function OpsPage() {
   const runsQuery = useQuery({
@@ -82,6 +85,41 @@ export default function OpsPage() {
               </h2>
               <div className="rounded-lg border">
                 <RunOpsTable runs={data.runs.slice(0, 20)} heartbeatTimeoutMs={data.heartbeatTimeoutMs} />
+              </div>
+            </section>
+
+            <section>
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                Run Insights
+              </h2>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="rounded-lg border p-4">
+                  <h3 className="text-sm font-semibold text-foreground mb-3">Token Trends (24h)</h3>
+                  <TokenTrendChart
+                    range={{
+                      from: Date.now() - 86_400_000,
+                      to: Date.now(),
+                    }}
+                  />
+                </div>
+                <div className="rounded-lg border p-4">
+                  <h3 className="text-sm font-semibold text-foreground mb-3">Cost Breakdown (24h)</h3>
+                  <CostBreakdownChart
+                    range={{
+                      from: Date.now() - 86_400_000,
+                      to: Date.now(),
+                    }}
+                  />
+                </div>
+                <div className="rounded-lg border p-4 lg:col-span-2">
+                  <h3 className="text-sm font-semibold text-foreground mb-3">Top Tools (24h)</h3>
+                  <TopToolsChart
+                    range={{
+                      from: Date.now() - 86_400_000,
+                      to: Date.now(),
+                    }}
+                  />
+                </div>
               </div>
             </section>
           </>

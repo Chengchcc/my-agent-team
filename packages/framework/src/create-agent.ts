@@ -33,6 +33,28 @@ export type AgentEvent =
   | {
       type: "todo_update";
       payload: { todos: Array<{ step: string; status: "pending" | "in_progress" | "done" }> };
+    }
+  // ── M16.3: Persisted per-call metrics (not deltas) ──
+  | {
+      type: "llm_call";
+      payload: {
+        step: number;
+        model: string;
+        usage: { input: number; output: number; cacheCreate?: number; cacheRead?: number };
+        latencyMs: number;
+        ttftMs?: number;
+        stopReason?: string;
+      };
+    }
+  | {
+      type: "tool_call";
+      payload: {
+        step: number;
+        id: string;
+        name: string;
+        latencyMs: number;
+        isError: boolean;
+      };
     };
 
 export interface ResumeCommand {
@@ -203,6 +225,7 @@ async function* executeOne(
   rt: AgentRuntime,
   call: ToolUseBlock,
   opts: { signal?: AbortSignal },
+  step: number,
 ): AsyncGenerator<AgentEvent, boolean> {
   await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "tool_start", call, ts: Date.now() });
   yield { type: "tool_start", payload: { id: call.id, name: call.name } };
@@ -217,6 +240,10 @@ async function* executeOne(
     });
     rt.thread.messages.push({ role: "user", content: [r] } as Message);
     await rt.save(rt.thread.messages);
+    yield {
+      type: "tool_call",
+      payload: { step, id: call.id, name: call.name, latencyMs: Date.now() - toolStart, isError: r.is_error === true },
+    };
     yield {
       type: "tool_end",
       payload: { id: call.id, name: call.name, isError: r.is_error as boolean | undefined },
@@ -257,6 +284,7 @@ async function* executeOne(
         reason: err.reason,
         ts: Date.now(),
       });
+      yield { type: "tool_call", payload: { step, id: call.id, name: call.name, latencyMs: Date.now() - toolStart, isError: true } };
       yield { type: "tool_end", payload: { id: call.id, name: call.name, isError: true } };
       yield {
         type: "interrupted",
@@ -279,6 +307,10 @@ async function* executeOne(
     durationMs: Date.now() - toolStart,
     ts: Date.now(),
   });
+  yield {
+    type: "tool_call",
+    payload: { step, id: call.id, name: call.name, latencyMs: Date.now() - toolStart, isError: resultBlock.is_error === true },
+  };
   yield {
     type: "tool_end",
     payload: { id: call.id, name: call.name, isError: resultBlock.is_error as boolean | undefined },
@@ -317,6 +349,10 @@ async function* runLoop(
       ts: Date.now(),
     });
 
+    const llmStart = Date.now();
+    let ttftMs: number | undefined;
+    let stopReason: string | undefined;
+
     const modelStream = rt.model.stream(finalMsgs, { signal: opts.signal, tools: rt.tools });
     let blocks: ContentBlock[];
     let usage: AIMessageChunk["usage"];
@@ -334,10 +370,12 @@ async function* runLoop(
           blockIndex++;
         }
         if (chunk.delta?.type === "text") {
+          if (ttftMs === undefined) ttftMs = Date.now() - llmStart;
           yield { type: "text_delta", payload: { blockIndex, text: chunk.delta.text } };
         }
         mergeChunkIntoBlocks(blocks, partialJson, chunk);
         if (chunk.usage !== undefined) usage = chunk.usage;
+        if (chunk.stopReason) stopReason = chunk.stopReason;
         if (chunk.done) break;
       }
       finalizeToolUseInputs(blocks, partialJson);
@@ -353,6 +391,23 @@ async function* runLoop(
       usage,
       ts: Date.now(),
     });
+
+    yield {
+      type: "llm_call",
+      payload: {
+        step,
+        model: rt.model.id ?? "unknown",
+        usage: {
+          input: usage?.input ?? 0,
+          output: usage?.output ?? 0,
+          cacheCreate: usage?.cacheCreate,
+          cacheRead: usage?.cacheRead,
+        },
+        latencyMs: Date.now() - llmStart,
+        ttftMs,
+        stopReason,
+      },
+    };
 
     if (blocks.length === 0) {
       await rt.checkpointer.appendEvent?.(rt.thread.id, {
@@ -397,7 +452,7 @@ async function* runLoop(
 
     for (let i = 0; i < toolUses.length; i++) {
       const call = toolUses[i]!;
-      const interrupted = yield* executeOne(rt, call, opts);
+      const interrupted = yield* executeOne(rt, call, opts, step);
       if (interrupted) {
         for (let j = i; j < toolUses.length; j++) {
           const remaining = toolUses[j]!;

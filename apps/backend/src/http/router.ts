@@ -153,6 +153,8 @@ export function createRouter(token: string, features?: FeatureSet) {
         const opsRunDetailMatch = path.match(/^\/api\/ops\/runs\/([^/]+)$/);
         const opsRunCancelMatch = path.match(/^\/api\/ops\/runs\/([^/]+)\/cancel$/);
         const opsRunRecoverMatch = path.match(/^\/api\/ops\/runs\/([^/]+)\/recover$/);
+        const opsRunInsightsMatch = path.match(/^\/api\/ops\/runs\/([^/]+)\/insights$/);
+        const opsInsightsSummaryMatch = path === "/api/ops/insights/summary";
         const opsAgentRuntimeMatch = path.match(/^\/api\/ops\/agents\/([^/]+)\/runtime$/);
         const larkHeartbeatMatch = path === "/api/internal/surfaces/lark/heartbeat";
         const opsTracesMatch = path.match(/^\/api\/ops\/traces\/([^/]+)$/);
@@ -166,6 +168,10 @@ export function createRouter(token: string, features?: FeatureSet) {
           return withAuth((r) => ops.cancelRun(r, opsRunCancelMatch[1]!), token)(req);
         if (opsRunRecoverMatch && method === "POST")
           return withAuth((r) => ops.recoverRun(r, opsRunRecoverMatch[1]!), token)(req);
+        if (opsRunInsightsMatch && method === "GET")
+          return withAuth((r) => ops.getRunInsights(r, opsRunInsightsMatch[1]!), token)(req);
+        if (opsInsightsSummaryMatch && method === "GET")
+          return withAuth((r) => ops.getInsightsSummary(r), token)(req);
         if (opsAgentRuntimeMatch && method === "GET")
           return withAuth((r) => ops.getAgentRuntime(r, opsAgentRuntimeMatch[1]!), token)(req);
         if (opsTracesMatch && method === "GET")

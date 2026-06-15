@@ -65,12 +65,19 @@ describe("createAgent", () => {
 
     const yielded = await collect(agent.run("hi"));
 
-    expect(yielded).toEqual([
-      {
-        type: "message",
-        payload: { role: "assistant", content: [{ type: "text", text: "hello" }] },
-      },
-    ]);
+    const llmCall = yielded.find((e): e is Extract<typeof yielded[number], { type: "llm_call" }> => e.type === "llm_call");
+    expect(llmCall).toBeDefined();
+    if (llmCall) {
+      expect(llmCall.payload.step).toBe(0);
+      expect(llmCall.payload.model).toBe("unknown");
+      expect(llmCall.payload.usage).toEqual({ input: 0, output: 0, cacheCreate: undefined, cacheRead: undefined });
+      expect(typeof llmCall.payload.latencyMs).toBe("number");
+    }
+    const msg = yielded.find((e): e is Extract<typeof yielded[number], { type: "message" }> => e.type === "message");
+    expect(msg).toBeDefined();
+    if (msg) {
+      expect(msg.payload).toEqual({ role: "assistant", content: [{ type: "text", text: "hello" }] });
+    }
     expect(agent.thread.messages).toEqual([
       { role: "user", content: "hi" },
       { role: "assistant", content: [{ type: "text", text: "hello" }] },

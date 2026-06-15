@@ -94,7 +94,12 @@ export class AnthropicChatModel implements ChatModel {
       done: true,
       stopReason: finalMessage?.stop_reason as AIMessageChunk["stopReason"],
       usage: finalMessage
-        ? { input: finalMessage.usage.input_tokens, output: finalMessage.usage.output_tokens }
+        ? {
+            input: finalMessage.usage.input_tokens,
+            output: finalMessage.usage.output_tokens,
+            cacheCreate: finalMessage.usage.cache_creation_input_tokens ?? undefined,
+            cacheRead: finalMessage.usage.cache_read_input_tokens ?? undefined,
+          }
         : undefined,
     };
   }
