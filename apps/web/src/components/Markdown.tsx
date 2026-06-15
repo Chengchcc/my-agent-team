@@ -113,7 +113,7 @@ function buildComponents(): Components {
       </th>
     ),
     td: ({ children }) => (
-      <td className="px-2 py-1 text-left text-[var(--ink)] border-b border-[var(--hairline)]/40">
+      <td className="px-2 py-1 text-left text-[var(--ink)] border-b border-[var(--hairline)]/60">
         {children}
       </td>
     ),

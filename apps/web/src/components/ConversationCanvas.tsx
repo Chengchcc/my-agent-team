@@ -227,7 +227,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
           <Button
            
             onClick={scrollToBottom}
-            className="absolute bottom-4 right-4 z-20 bg-[var(--canvas)] border border-[var(--hairline)] rounded-full p-2 shadow-lg hover:border-[var(--primary)] transition-colors"
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-[var(--canvas)] border border-[var(--hairline)] rounded-full p-2 hover:border-[var(--primary)] transition-colors"
             title="Scroll to bottom"
           >
             <ArrowDown size={14} className="text-[var(--body)]" />

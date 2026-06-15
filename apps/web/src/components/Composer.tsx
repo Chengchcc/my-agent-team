@@ -208,7 +208,7 @@ export function Composer({
           {showMentions && (
             <div
               ref={popoverRef}
-              className="absolute bottom-full left-0 mb-1 w-72 bg-[var(--canvas)] border border-[var(--hairline)] rounded-lg shadow-xl z-50 overflow-hidden"
+              className="absolute bottom-full left-0 mb-1 w-72 bg-[var(--canvas)] border border-[var(--hairline)] rounded-lg border-[var(--hairline-soft)]/20 z-50 overflow-hidden"
             >
               <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--hairline)] bg-[var(--canvas-soft)]">
                 <span className="text-[10px] tracking-[0.1em] uppercase text-[var(--mute)] font-semibold">
