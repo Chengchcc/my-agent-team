@@ -24,7 +24,7 @@ export function TokenTrendChart({ range }: { range: { from: number; to: number }
         data.tokenSeries.length === 0 ? (
           <div className="text-xs text-muted-foreground p-4 text-center">No token data in this window.</div>
         ) : (
-          <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
+          <ChartContainer config={chartConfig} className="h-[220px] w-full">
             <AreaChart accessibilityLayer data={data.tokenSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis

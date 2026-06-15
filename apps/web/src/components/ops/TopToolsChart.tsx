@@ -6,6 +6,11 @@ import { api } from "@/lib/api";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { QueryState } from "./QueryState";
 
+const ROW_H = 32;
+const minH = 100;
+const maxH = 600;
+const chartH = (items: number) => Math.min(maxH, Math.max(minH, items * ROW_H + 40));
+
 const chartConfig = {
   count: { label: "Invocations", color: "var(--chart-3)" },
 } satisfies ChartConfig;
@@ -21,9 +26,9 @@ export function TopToolsChart({ range }: { range: { from: number; to: number } }
     <QueryState query={query}>
       {(data) =>
         data.topTools.length === 0 ? (
-          <div className="text-xs text-muted-foreground p-4 text-center">No tool data in this window.</div>
+          <div className="text-xs text-muted-foreground p-4 text-center min-h-[100px] flex items-center justify-center">No tool data in this window.</div>
         ) : (
-          <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
+          <ChartContainer config={chartConfig} className="w-full" style={{ height: chartH(data.topTools.length) }}>
             <BarChart
               accessibilityLayer
               data={data.topTools.map((t) => ({ name: t.name, count: t.count, errorRate: Math.round(t.errorRate * 100) }))}

@@ -6,6 +6,11 @@ import { api } from "@/lib/api";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { QueryState } from "./QueryState";
 
+const ROW_H = 32;
+const minH = 100;
+const maxH = 400;
+const chartH = (items: number) => Math.min(maxH, Math.max(minH, items * ROW_H + 40));
+
 const chartConfig = {
   costUsd: { label: "Cost (USD, est.)", color: "var(--chart-1)" },
 } satisfies ChartConfig;
@@ -21,13 +26,13 @@ export function CostBreakdownChart({ range }: { range: { from: number; to: numbe
     <QueryState query={query}>
       {(data) =>
         data.costByModel.length === 0 && data.costByAgent.length === 0 ? (
-          <div className="text-xs text-muted-foreground p-4 text-center">No cost data in this window.</div>
+          <div className="text-xs text-muted-foreground p-4 text-center min-h-[100px] flex items-center justify-center">No cost data in this window.</div>
         ) : (
           <div className="space-y-6">
             {data.costByModel.length > 0 && (
               <div>
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Cost by Model</h4>
-                <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
+                <ChartContainer config={chartConfig} className="w-full" style={{ height: chartH(data.costByModel.length) }}>
                   <BarChart
                     accessibilityLayer
                     data={data.costByModel.map((m) => ({ name: m.model, costUsd: m.costUsd ?? 0 }))}
@@ -46,7 +51,7 @@ export function CostBreakdownChart({ range }: { range: { from: number; to: numbe
             {data.costByAgent.length > 0 && (
               <div>
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Cost by Agent</h4>
-                <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
+                <ChartContainer config={chartConfig} className="w-full" style={{ height: chartH(data.costByAgent.length) }}>
                   <BarChart
                     accessibilityLayer
                     data={data.costByAgent.map((a) => ({ name: a.agentName, costUsd: a.costUsd ?? 0 }))}
