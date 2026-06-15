@@ -38,7 +38,7 @@ export function CallTreeItem({ call, depth = 0 }: { call: CallItem; depth?: numb
 
   if (call.kind === "interrupt") {
     return (
-      <div className="text-xs text-amber-500 font-mono py-1" style={{ paddingLeft: `${depth * 16 + 8}px` }}>
+      <div className="text-xs text-[var(--chart-4)] font-mono py-1" style={{ paddingLeft: `${depth * 16 + 8}px` }}>
         ⏸ paused (step {call.step})
       </div>
     );
@@ -60,7 +60,7 @@ export function CallTreeItem({ call, depth = 0 }: { call: CallItem; depth?: numb
         )}
         {call.kind === "llm" ? (
           <>
-            <span className="text-blue-500 font-medium">LLM</span>
+            <span className="text-[var(--chart-2)] font-medium">LLM</span>
             <span className="text-muted-foreground truncate max-w-[200px]">{call.model}</span>
             {call.usage && (
               <span className="text-muted-foreground">
@@ -74,7 +74,7 @@ export function CallTreeItem({ call, depth = 0 }: { call: CallItem; depth?: numb
               <span className="text-muted-foreground">TTFT {formatLatency(call.ttftMs)}</span>
             )}
             {call.costUsd != null && (
-              <span className="text-emerald-500 ml-auto">{formatCost(call.costUsd)}</span>
+              <span className="text-primary ml-auto">{formatCost(call.costUsd)}</span>
             )}
             {call.costUsd == null && (
               <span className="text-muted-foreground ml-auto">unknown price</span>
@@ -82,12 +82,12 @@ export function CallTreeItem({ call, depth = 0 }: { call: CallItem; depth?: numb
           </>
         ) : (
           <>
-            <span className={call.isError ? "text-red-500" : "text-purple-500"}>TOOL</span>
+            <span className={call.isError ? "text-destructive" : "text-[var(--chart-3)]"}>TOOL</span>
             <span className="text-foreground truncate max-w-[200px]">{call.name}</span>
             {call.latencyMs != null && (
               <span className="text-muted-foreground">{formatLatency(call.latencyMs)}</span>
             )}
-            {call.isError && <span className="text-red-500 ml-auto">✗ error</span>}
+            {call.isError && <span className="text-destructive ml-auto">✗ error</span>}
           </>
         )}
       </Button>

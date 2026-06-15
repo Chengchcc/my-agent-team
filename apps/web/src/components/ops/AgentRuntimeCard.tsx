@@ -38,18 +38,18 @@ export function AgentRuntimeCard({ runtime }: { runtime: AgentRuntimeStatus }) {
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Checkpointer</span>
-          <span className={`text-xs ${runtime.runner.checkpointerOk ? "text-green-400" : "text-red-400"}`}>
+          <span className={`text-xs ${runtime.runner.checkpointerOk ? "text-primary" : "text-destructive"}`}>
             {runtime.runner.checkpointerOk ? "OK" : "FAIL"}
           </span>
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Workspace</span>
-          <span className={`text-xs ${runtime.runner.workspaceOk ? "text-green-400" : "text-red-400"}`}>
+          <span className={`text-xs ${runtime.runner.workspaceOk ? "text-primary" : "text-destructive"}`}>
             {runtime.runner.workspaceOk ? "OK" : "FAIL"}
           </span>
         </div>
         {runtime.runner.lastError && (
-          <div className="text-xs text-red-400">
+          <div className="text-xs text-destructive">
             {runtime.runner.lastError}
           </div>
         )}

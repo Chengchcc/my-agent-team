@@ -31,7 +31,7 @@ export function SurfaceHealthPanel({ surface }: { surface: SurfaceOpsItem }) {
           </span>
         </div>
         {surface.lastError && (
-          <div className="text-xs text-red-400">
+          <div className="text-xs text-destructive">
             Error: {surface.lastError}
           </div>
         )}

@@ -9,7 +9,7 @@ export function ToolResultCard({
   return (
     <div
       className={`border rounded-lg bg-[var(--canvas)] my-2 overflow-hidden ${
-        isError ? "border-[var(--primary)]/30" : "border-[var(--hairline)]"
+        isError ? "border-destructive/30" : "border-[var(--hairline)]"
       }`}
     >
       <div className="p-3">

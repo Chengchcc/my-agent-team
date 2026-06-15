@@ -32,6 +32,14 @@ const diagnosisLabel: Record<string, string> = {
   terminal: "Terminal",
 };
 
+const diagnosisColor: Record<string, string> = {
+  running: "text-primary",
+  heartbeat_stale: "text-[var(--chart-4)]",
+  detached_waiting_reaper: "text-[var(--chart-3)]",
+  surface_projection_failed: "text-destructive",
+  terminal: "text-muted-foreground",
+};
+
 const transportLabel: Record<string, string> = {
   attached: "Attached",
   noop: "Detached placeholder",
@@ -86,14 +94,14 @@ export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOp
             return (
               <TableRow key={r.runId}>
                 <TableCell>
-                  <span className="text-xs text-muted-foreground">
+                  <span className={`text-xs font-medium ${diagnosisColor[d.kind] ?? "text-muted-foreground"}`}>
                     {diagnosisLabel[d.kind] ?? d.kind}
                   </span>
                 </TableCell>
                 <TableCell className="font-mono text-xs text-foreground">
                   {r.runId.slice(0, 12)}…
                 </TableCell>
-                <TableCell className="text-foreground text-xs" title={r.agentId}>{r.agentName}</TableCell>
+                <TableCell className="text-foreground text-xs max-w-[160px] truncate" title={r.agentId}>{r.agentName}</TableCell>
                 <TableCell>
                   <Badge variant={statusVariant(r.status)} className="text-xs">
                     {r.status}

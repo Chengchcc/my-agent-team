@@ -75,12 +75,12 @@ export function RunControlStrip({
       )}
 
       {cancelMut.isError && (
-        <span className="text-xs text-red-400">
+        <span className="text-xs text-destructive">
           Cancel failed: {cancelMut.error instanceof Error ? cancelMut.error.message : "Unknown"}
         </span>
       )}
       {recoverMut.isError && (
-        <span className="text-xs text-red-400">
+        <span className="text-xs text-destructive">
           Recover failed: {recoverMut.error instanceof Error ? recoverMut.error.message : "Unknown"}
         </span>
       )}

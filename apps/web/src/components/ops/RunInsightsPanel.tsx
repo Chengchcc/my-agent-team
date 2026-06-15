@@ -31,7 +31,7 @@ function RootSummary({ insights }: { insights: RunInsights }) {
   return (
     <div className="rounded-lg border bg-card p-4 space-y-2">
       <div className="flex items-center gap-3 text-sm">
-        <span className={`font-semibold ${r.status === "running" ? "text-blue-500" : r.status === "interrupted" ? "text-amber-500" : "text-emerald-500"}`}>
+        <span className={`font-semibold ${r.status === "running" ? "text-[var(--chart-2)]" : r.status === "interrupted" ? "text-[var(--chart-4)]" : "text-primary"}`}>
           {r.status}
         </span>
         <span className="text-muted-foreground">·</span>
@@ -54,12 +54,12 @@ function RootSummary({ insights }: { insights: RunInsights }) {
           </div>
         )}
         {r.failedCall && (
-          <div className="text-red-500">
+          <div className="text-destructive">
             ✗ failed: step{r.failedCall.step} {r.failedCall.name}
           </div>
         )}
         {r.interruptedAt && (
-          <div className="text-amber-500">
+          <div className="text-[var(--chart-4)]">
             ⏸ interrupted at step {r.interruptedAt.step}
           </div>
         )}

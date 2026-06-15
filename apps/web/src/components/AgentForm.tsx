@@ -244,14 +244,14 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                   <span className={labelClass + " mb-0"}>Enable Lark Bot</span>
                   {editAgent?.lark?.status && (
                     <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full border ${
                         editAgent.lark.status === "running"
-                          ? "bg-green-100 text-green-700"
+                          ? "text-primary border-primary/30 bg-primary/10"
                           : editAgent.lark.status === "error"
-                            ? "bg-red-100 text-red-700"
+                            ? "text-destructive border-destructive/30 bg-destructive/10"
                             : editAgent.lark.status === "degraded"
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-gray-100 text-gray-500"
+                              ? "text-[var(--chart-4)] border-[var(--chart-4)]/30 bg-[var(--chart-4)]/10"
+                              : "text-muted-foreground border-border bg-muted/20"
                       }`}
                     >
                       {editAgent.lark.status}
@@ -285,7 +285,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                                 href={setupSession.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-xs text-blue-600 underline break-all"
+                                className="text-xs text-[var(--chart-2)] underline break-all"
                               >
                                 {setupSession.url}
                               </a>
@@ -303,7 +303,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                                     setSetupSession(null);
                                   }
                                 }}
-                                className="text-xs text-red-600 hover:underline"
+                                className="text-xs text-destructive hover:underline"
                               >
                                 Cancel
                               </Button>
