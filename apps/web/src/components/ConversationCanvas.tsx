@@ -264,8 +264,12 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
                   </span>
                   {!isViewer && (
                     <Button
-                     
-                      onClick={() => removeMember.mutate(m.memberId)}
+
+                      onClick={() => {
+                        if (confirm(`Remove ${m.displayName ?? m.memberId} from conversation?`)) {
+                          removeMember.mutate(m.memberId);
+                        }
+                      }}
                       disabled={removeMember.isPending}
                       className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[var(--canvas-soft)] transition-all disabled:opacity-0 shrink-0"
                       title={`Remove ${m.displayName ?? m.memberId}`}

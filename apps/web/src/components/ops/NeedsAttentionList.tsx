@@ -116,6 +116,7 @@ export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: Needs
         <li key={`${item.href}-${i}`}>
           <Link
             href={item.href}
+            aria-label={`${item.severity}: ${item.label}`}
             className="flex items-center gap-2 text-sm py-1 px-2 rounded hover:bg-muted transition-colors"
           >
             <span className={`w-2 h-2 rounded-full shrink-0 ${severityColor[item.severity]}`} />
