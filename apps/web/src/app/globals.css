@@ -66,6 +66,13 @@
   --hairline: #3d3a39;
   --hairline-soft: #b8b3b0;
   --canvas-text-soft: #f5f6f7;
+
+  /* shadcn Chart colors */
+  --chart-1: #00d992;   /* primary green */
+  --chart-2: #3b82f6;   /* blue */
+  --chart-3: #8b5cf6;   /* purple */
+  --chart-4: #f59e0b;   /* amber */
+  --chart-5: #ef4444;   /* red */
 }
 
 /* ── Base layer ── */

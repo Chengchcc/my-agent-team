@@ -3,12 +3,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { api } from "@/lib/api";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { QueryState } from "./QueryState";
 
-const CHART_CONFIG = {
-  count: { label: "Invocations", color: "var(--color-purple-500, #8b5cf6)" },
-};
+const chartConfig = {
+  count: { label: "Invocations", color: "var(--chart-3)" },
+} satisfies ChartConfig;
 
 export function TopToolsChart({ range }: { range: { from: number; to: number } }) {
   const query = useQuery({
@@ -23,13 +23,10 @@ export function TopToolsChart({ range }: { range: { from: number; to: number } }
         data.topTools.length === 0 ? (
           <div className="text-xs text-muted-foreground p-4 text-center">No tool data in this window.</div>
         ) : (
-          <ChartContainer config={CHART_CONFIG} className="aspect-[21/9] max-h-[300px] w-full">
+          <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
             <BarChart
-              data={data.topTools.map((t) => ({
-                name: t.name,
-                count: t.count,
-                errorRate: Math.round(t.errorRate * 100),
-              }))}
+              accessibilityLayer
+              data={data.topTools.map((t) => ({ name: t.name, count: t.count, errorRate: Math.round(t.errorRate * 100) }))}
               margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
               layout="vertical"
             >
@@ -51,7 +48,7 @@ export function TopToolsChart({ range }: { range: { from: number; to: number } }
                   />
                 }
               />
-              <Bar dataKey="count" fill="var(--color-purple-500, #8b5cf6)" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="count" fill="var(--color-count)" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ChartContainer>
         )

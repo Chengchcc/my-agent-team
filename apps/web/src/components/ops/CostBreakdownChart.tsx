@@ -3,12 +3,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { api } from "@/lib/api";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { QueryState } from "./QueryState";
 
-const CHART_CONFIG = {
-  costUsd: { label: "Cost (USD, estimated)", color: "var(--color-emerald-500, #10b981)" },
-};
+const chartConfig = {
+  costUsd: { label: "Cost (USD, est.)", color: "var(--chart-1)" },
+} satisfies ChartConfig;
 
 export function CostBreakdownChart({ range }: { range: { from: number; to: number } }) {
   const query = useQuery({
@@ -26,11 +26,10 @@ export function CostBreakdownChart({ range }: { range: { from: number; to: numbe
           <div className="space-y-6">
             {data.costByModel.length > 0 && (
               <div>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  Cost by Model
-                </h4>
-                <ChartContainer config={CHART_CONFIG} className="aspect-[21/9] max-h-[250px] w-full">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Cost by Model</h4>
+                <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
                   <BarChart
+                    accessibilityLayer
                     data={data.costByModel.map((m) => ({ name: m.model, costUsd: m.costUsd ?? 0 }))}
                     margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
                     layout="vertical"
@@ -39,18 +38,17 @@ export function CostBreakdownChart({ range }: { range: { from: number; to: numbe
                     <XAxis type="number" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
                     <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={140} />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="costUsd" fill="var(--color-emerald-500, #10b981)" radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="costUsd" fill="var(--color-costUsd)" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ChartContainer>
               </div>
             )}
             {data.costByAgent.length > 0 && (
               <div>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  Cost by Agent
-                </h4>
-                <ChartContainer config={CHART_CONFIG} className="aspect-[21/9] max-h-[250px] w-full">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Cost by Agent</h4>
+                <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
                   <BarChart
+                    accessibilityLayer
                     data={data.costByAgent.map((a) => ({ name: a.agentName, costUsd: a.costUsd ?? 0 }))}
                     margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
                     layout="vertical"
@@ -59,7 +57,7 @@ export function CostBreakdownChart({ range }: { range: { from: number; to: numbe
                     <XAxis type="number" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
                     <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={140} />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="costUsd" fill="var(--color-emerald-500, #10b981)" radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="costUsd" fill="var(--color-costUsd)" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ChartContainer>
               </div>
