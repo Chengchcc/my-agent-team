@@ -143,6 +143,7 @@ export function NavRail() {
               >
                 <button
                   type="button"
+                  title={agent.name}
                   onClick={() => router.push(`/agents/${agent.id}`)}
                   className={`w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors ${
                     isAgentActive(agent.id)
