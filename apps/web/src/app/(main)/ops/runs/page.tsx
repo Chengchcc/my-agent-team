@@ -16,7 +16,7 @@ const STATUS_FILTERS = [
 ] as const;
 
 const TRANSPORT_FILTERS = [
-  { label: "Any connection", value: "" },
+  { label: "Any", value: "" },
   { label: "Attached", value: "attached" },
   { label: "Noop", value: "noop" },
   { label: "Detached", value: "detached" },
@@ -46,11 +46,12 @@ export default function RunsPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex gap-1">
+        <div className="flex gap-1" role="group" aria-label="Status filter">
           {STATUS_FILTERS.map((f) => (
             <button
               key={f.value}
               type="button"
+              aria-pressed={status === f.value}
               onClick={() => setStatus(f.value)}
               className={`px-2 py-1 text-xs rounded transition-colors ${
                 status === f.value
@@ -62,12 +63,13 @@ export default function RunsPage() {
             </button>
           ))}
         </div>
-        <span className="text-muted-foreground text-xs">|</span>
-        <div className="flex gap-1">
+        <div className="h-4 w-px bg-border" />
+        <div className="flex gap-1" role="group" aria-label="Transport filter">
           {TRANSPORT_FILTERS.map((f) => (
             <button
               key={f.value}
               type="button"
+              aria-pressed={transport === f.value}
               onClick={() => setTransport(f.value)}
               className={`px-2 py-1 text-xs rounded transition-colors ${
                 transport === f.value
@@ -79,15 +81,31 @@ export default function RunsPage() {
             </button>
           ))}
         </div>
+        {(status || transport) && (
+          <button
+            type="button"
+            onClick={() => { setStatus(""); setTransport(""); }}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Clear filters ({runs.length} result{runs.length !== 1 ? "s" : ""})
+          </button>
+        )}
       </div>
 
       <div className="rounded-lg border">
         {runs.length === 0 ? (
-          <p className="p-4 text-sm text-muted-foreground">
-            {status || transport
-              ? "No runs match the current filters."
-              : "No runs recorded yet. Create an agent and start a conversation to trigger runs."}
-          </p>
+          <div className="p-8 text-center space-y-2">
+            <p className="text-sm text-muted-foreground">
+              {status || transport
+                ? "No runs match the current filters."
+                : "No runs recorded yet."}
+            </p>
+            {(status || transport) ? null : (
+              <Link href="/agents" className="inline-block text-xs text-primary hover:underline">
+                → Create an agent to get started
+              </Link>
+            )}
+          </div>
         ) : (
           <RunOpsTable runs={runs} />
         )}
