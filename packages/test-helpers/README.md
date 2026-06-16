@@ -1,77 +1,43 @@
 # @my-agent-team/test-helpers
 
-> **Layer:** Testing &nbsp;|&nbsp; **Depends on:** `@my-agent-team/core`
+给测试用的模型替身。它提供一个按脚本回放的假 `ChatModel`，让你在不调真实 API 的情况下测试 agent 的行为。
 
-## Position in the stack
+## 为什么需要它
 
-```
-┌──────────────────────────────────────────┐
-│ Every package's test suite               │
-│           │                              │
-│    ┌──────▼──────┐                       │
-│    │ test-helpers │  ◄── HERE            │
-│    │ echoModel() │                       │
-│    └──────┬──────┘                       │
-│           │                              │
-│ substitutes ChatModel in tests           │
-└──────────────────────────────────────────┘
-```
+agent 的运行内核以 `ChatModel` 接口为中心。测试这套内核时，最大的麻烦就是模型本身：真实模型要密钥、要联网、慢、且每次输出不一样，没法写确定性断言。
 
-## What problem it solves
+解决办法是给测试一个完全可控的模型替身——它不思考，只按事先写好的脚本，一轮一轮地“回放”预设的文字或工具调用。这样测试就能精确控制模型在第几轮说什么、调哪个工具、传什么参数，从而稳定地验证 agent 循环、工具执行、插件等下游逻辑。这个包只做这一件事。
 
-Testing agent behavior with real LLM calls is slow, expensive, and non-deterministic. `echoModel()` implements `ChatModel` with a **script** — you define exactly what the model should return on each turn, and the agent loop runs deterministically against those responses. This is the primary testing strategy across the entire repo.
+## 核心概念
 
-## How it works
+**EchoScript。** 描述这个假模型“要演什么”的脚本结构。它就是一个对象，含一个 `turns` 数组，每个元素是两种之一：
 
-```
-┌──────────────────────────────────────┐
-│ EchoScript = [                       │
-│   [chunk1, chunk2, ...],  // turn 1  │
-│   [chunk3, chunk4, ...],  // turn 2  │
-│   ...                                │
-│ ]                                    │
-│                                      │
-│ echoModel(script).stream(messages)   │
-│   → yields turn1 chunks              │
-│   → then turn2 chunks                │
-│   → then ...                         │
-└──────────────────────────────────────┘
-```
+- `{ type: "text"; text: string }` —— 这一轮模型输出一段文字。
+- `{ type: "tool_call"; id: string; name: string; input: unknown }` —— 这一轮模型发起一次工具调用。
 
-## Key exports
+**echoModel。** `echoModel(script)` 接受一个 `EchoScript`，返回一个实现了 `ChatModel` 的对象（`id` 为 `"echo"`）。它的回放规则很简单：每次 `stream` 被调用时，数它收到的消息里有几条 assistant 消息，以这个数作为“当前轮次”，取脚本里对应的那一项；轮次超出脚本长度时，固定回放最后一项。
 
-| Export | What | Why |
-|--------|------|-----|
-| `echoModel(script)` | `→ ChatModel` | Deterministic test double |
-| `EchoScript` | `AIMessageChunk[][]` | Script type — one array per model turn |
+- 文字项：吐出一个 text delta，再吐一个 `done`（`stopReason: "end_turn"`）。
+- 工具调用项：先吐 `tool_use`（带 id、name），再吐 `input_json_delta`（把 `input` 序列化成 JSON），最后吐 `done`（`stopReason: "tool_use"`）。
 
-## Usage
+因为轮次是从历史消息里数出来的，把同一个 echoModel 接进 agent 循环，就能驱动出“先调工具、再根据结果说话”这类多轮交互。
+
+## 怎么用
 
 ```ts
-import { echoModel } from "@my-agent-team/test-helpers";
-import { run, collectStream } from "@my-agent-team/core";
+import { echoModel, type EchoScript } from "@my-agent-team/test-helpers";
 
-const model = echoModel([
-  // Turn 1: model outputs a tool call
-  [
-    { type: "tool_use", id: "1", name: "bash", input: { command: "ls" } },
+const script: EchoScript = {
+  turns: [
+    { type: "tool_call", id: "call-1", name: "read", input: { path: "/SOUL.md" } },
+    { type: "text", text: "读完了，这是一个测试 agent。" },
   ],
-  // Turn 2: after tool result, model outputs text
-  [
-    { type: "text", text: "I ran ls and found 3 files." },
-  ],
-]);
+};
 
-const messages = [userMsg("List files")];
-const result = await collectStream(run({ model, tools: [bashTool], messages }));
-
-expect(result.at(-1)!.content).toContain("3 files");
+const model = echoModel(script);
+// 把 model 作为 ChatModel 传给 createAgent / createGenericAgent，即可写确定性测试
 ```
 
-## Dependencies
+## 依赖关系
 
-```
-test-helpers (this package)
-  ↑ depends on: core
-  ↑ depended on by: (devDependency of every other package)
-```
+test-helpers 只依赖 core（拿 `ChatModel`、`Message`、`AIMessageChunk` 等类型）。它是测试期工具，仓库里没有其他包在生产依赖中引用它。

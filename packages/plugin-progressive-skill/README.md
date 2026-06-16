@@ -1,98 +1,45 @@
 # @my-agent-team/plugin-progressive-skill
 
-> **Layer:** L3 Plugin &nbsp;|&nbsp; **Depends on:** core, framework, tools-common, gray-matter
+一个 framework 插件，实现 Claude Code 风格的渐进式技能加载。它先把所有可用技能的名字和简介塞进系统提示，让模型知道有哪些能力；只有模型真正要用某个技能时，才通过工具把完整说明按需读进来。
 
-## Position in the stack
+## 为什么需要它 / 解决什么问题
 
-```
-┌──────────────────────────────────────────┐
-│ L4  Harness ────┐                        │
-│                 │ default plugin         │
-│          ┌──────▼───────────────────┐    │
-│          │ plugin-progressive-skill  │◄─ HERE
-│          │ SKILL.md index + load     │    │
-│          │ on-demand skill bodies    │    │
-│          └──────────────────────────┘    │
-│ L3  Framework    definePlugin()          │
-└──────────────────────────────────────────┘
-```
+技能（每个是一份 `SKILL.md`）的完整说明可能很长。如果一上来就把所有技能的全文都灌进上下文，token 会被迅速吃光，而且大部分内容本轮根本用不到。
 
-## What problem it solves
+渐进式加载解决的就是这个「想让模型知道、又不想付全文代价」的矛盾。它把信息分两层：常驻的只是一份轻量索引（名字 + 一句话简介），随时提醒模型有哪些技能可调；完整指令则放在工具背后，按需、可分页地取用。这样上下文成本和技能数量解耦，技能再多也只多几行索引。
 
-An agent might have dozens of skills, each with a long `SKILL.md` body. You can't fit them all in the system prompt (would blow the context window). This plugin uses **progressive disclosure**: inject a short index (name + one-line description) into the system prompt, and load the full body only when the agent explicitly requests it via a tool call.
+职责边界：它只负责把技能索引注入提示、以及在被调用时从文件系统读出技能正文，不执行技能里的步骤，也不管理技能文件本身。文件读写交给传入的 `AgentFsLike`。
 
-## Progressive loading flow
+## 核心概念
 
-```
-┌──────────────────────────────────────────────────────┐
-│ System prompt injection (beforeModel hook)            │
-│                                                      │
-│   Available skills:                                  │
-│   - tdd: Test-driven development with red-green-...   │
-│   - diagnose: Disciplined diagnosis loop for...      │
-│   - dead-code-sweep: Token-frugal dead code...       │
-│                                                      │
-│   Use the skill-load tool to read full skill body.   │
-└──────────────────────────────────────────────────────┘
-        │
-        │ Agent decides to use "tdd" skill
-        ▼
-┌──────────────────────────────────────────────────────┐
-│ skill_load("tdd") → reads SKILL.md full body         │
-│                                                      │
-│   # TDD Skill                                        │
-│   ## Red-Green-Refactor Loop                         │
-│   1. Write a failing test...                         │
-│   2. Write minimum code to pass...                   │
-│   3. Refactor...                                     │
-│   ...                                                │
-└──────────────────────────────────────────────────────┘
-```
+插件接收一个 `AgentFsLike` 工作区和技能根目录（`root`，默认 `/skills/`），通过 framework 的 `beforeModel` 钩子工作：每一轮模型调用前，它扫描根目录下的技能、构造一个 `<available-skills>` 块（每行 `- **名字**: 简介`，并附一句「调用 `skill_load(name)` 加载完整说明」），追加到系统提示后面。索引带 mtime 缓存，文件没变就不重复读盘；读取失败会记日志并跳过注入（fail-open）。
 
-## SKILL.md format
+插件贡献的工具是 `skill_load`。它的入参是 `{ name, offset? }`，分页契约如下：
 
-```markdown
----
-name: tdd
-description: Test-driven development with red-green-refactor loop
----
+- 找不到该技能时返回 `isError: true`。
+- 读出技能正文（跳过 frontmatter），把其中的 `${SKILL_DIR}` 占位符替换成可用路径（设置了 `posixSkillRoot` 时替换为真实 POSIX 路径，否则用逻辑路径）。
+- 从 `offset` 处开始，按 `maxCharsPerLoad`（默认 8000）在段落边界附近截断。
+- 如果还有剩余，返回内容末尾会附上一行 `[Truncated. Call skill_load('名字', offset=下一个偏移) to continue.]`，模型据此用新的 `offset` 继续读。
+- 当 `offset` 已超出正文长度，返回 `Skill 名字 fully loaded.`。
 
-# TDD Skill
+也就是说，模型先在索引里看到技能，再用 `skill_load(name)` 把全文一页页拉进来。
 
-## Red-Green-Refactor Loop
-1. Write a failing test...
-```
-
-Frontmatter (`name` + `description`) goes into the index. The body below `---` is loaded on demand.
-
-## Key exports
-
-| Export | What | Why |
-|--------|------|-----|
-| `progressiveSkillPlugin(opts)` | `→ Plugin` | Progressive skill loading plugin |
-| `ProgressiveSkillOptions` | Type | `{ ws, root, maxCharsPerLoad, posixSkillRoot }` |
-
-## Usage
+## 怎么用
 
 ```ts
 import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
-import { createAgent } from "@my-agent-team/framework";
+import type { AgentFsLike } from "@my-agent-team/tools-common";
 
-const agent = createAgent({
-  model: "...",
-  plugins: [
-    progressiveSkillPlugin({
-      ws: "/agent-workspace",
-      maxCharsPerLoad: 20000,
-    }),
-  ],
+declare const ws: AgentFsLike;
+
+const plugin = progressiveSkillPlugin({
+  ws,
+  root: "/skills/",        // 技能根目录，默认 /skills/
+  maxCharsPerLoad: 8000,   // 每次 skill_load 返回的最大字符数
+  // posixSkillRoot: "/var/agents/abc/private/skills",  // 让 ${SKILL_DIR} 解析为真实路径
 });
+
+// 把 plugin 注册进 framework 的 agent 配置即可
 ```
 
-## Dependencies
-
-```
-plugin-progressive-skill (this package)
-  ↑ depends on: core, framework, tools-common, gray-matter
-  ↑ depended on by: harness (as default plugin)
-```
+依赖关系：依赖 `@my-agent-team/core`、`@my-agent-team/framework`、`@my-agent-team/tools-common`（`AgentFsLike`），以及 `gray-matter`（解析 SKILL.md frontmatter）。包内被 `harness` 使用。
