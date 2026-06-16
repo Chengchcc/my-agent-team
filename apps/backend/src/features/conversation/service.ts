@@ -88,16 +88,11 @@ export function createConversationService(deps: ConversationServiceDeps) {
       content: serialized,
       ts,
     });
-
-    await broadcastMessage({
-      seq,
-      conversationId: input.conversationId,
-      senderMemberId: input.senderMemberId,
-      addressedTo: input.addressedTo,
-      kind: input.kind,
-      content: serialized,
-      ts,
-    });
+    // No longer broadcasts to thread_projection here — forkRun reads
+    // preloadedMessages directly from the conversation ledger (canonical).
+    // broadcastMessage is still used by projectRunMessageToLedger for
+    // assistant message projection (other agents need the context for
+    // future runs), but user messages don't need eager materialization.
     return seq;
   }
 

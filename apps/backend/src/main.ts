@@ -23,6 +23,7 @@ import {
   createConversationService,
   sqliteConversationAdapter,
 } from "./features/conversation/index.js";
+import type { ConversationPort } from "./features/conversation/ports.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
 import type { RunnerRegistry } from "./features/run/runner-registry.js";
 import { DevRunnerRegistry } from "./features/run/runner-registry.js";
@@ -269,6 +270,39 @@ const threadProjectionSvc = createThreadProjectionService({ port: threadProjecti
 
 // M10: Conversation feature
 const convPort = sqliteConversationAdapter(db);
+/** Build preloaded Message[] for a run from the conversation ledger.
+ *  Eliminates the thread_projection round-trip: the ledger is the canonical
+ *  source, and materializing to thread_projection eagerly was a vestige of
+ *  M9's checkpointer-only recovery path. */
+function buildPreloadedMessages(
+  port: ConversationPort,
+  conversationId: string,
+  memberId: string,
+): Message[] {
+  const entries = port.getLedgerEntries(conversationId);
+  const msgs: Message[] = [];
+  for (const entry of entries) {
+    if (entry.kind !== "message") continue;
+    const role = entry.senderMemberId === memberId ? "assistant" : "user";
+    let content: unknown;
+    try { content = JSON.parse(entry.content); } catch { content = entry.content; }
+    if (content && typeof content === "object" && !Array.isArray(content)) {
+      const c = content as Record<string, unknown>;
+      if ("text" in c && typeof c.text === "string") {
+        content = c.text;
+      } else if ("blocks" in c && Array.isArray(c.blocks)) {
+        content = c.blocks;
+      }
+    }
+    if (typeof content === "string") {
+      msgs.push({ role: role as "user" | "assistant", content });
+    } else if (Array.isArray(content)) {
+      msgs.push({ role: role as "user" | "assistant", content: content as Message["content"] });
+    }
+  }
+  return msgs;
+}
+
 const activeConversations = new Set<string>();
 
 const convSvc = createConversationService({
@@ -279,6 +313,7 @@ const convSvc = createConversationService({
   maxConsecutiveAgentHops: 8,
   idGen: ulid,
 
+
   // ThreadId = conversationId:memberId (derived, not persisted).
   // The threads table is legacy — runtime only needs the derived key.
   forkRun: async (runId, threadId, ctx) => {
@@ -287,9 +322,16 @@ const convSvc = createConversationService({
       conversationId: ctx.conversationId,
       senderMemberId: ctx.agentMemberId,
     });
-    const preloadedMessages = (await threadProjectionPort.getMessages(threadId)) as
-      | readonly Message[]
-      | undefined;
+
+    // Build preloaded messages from the conversation ledger (canonical source).
+    // No longer reads from thread_projection — the ledger is the single source
+    // of truth for conversation history. thread_projection is a read-only cache
+    // for SSE subscribers, not a required step in the hot path.
+    const preloadedMessages = buildPreloadedMessages(
+      convPort,
+      ctx.conversationId,
+      ctx.agentMemberId,
+    );
 
     // M15.1: Detect Lark surface by checking for human members with lark: userRef
     const members = convPort.getMembers(ctx.conversationId);
