@@ -79,7 +79,7 @@ const clearsDraft =
   (s.draft !== null && a.senderMemberId === s.draft.agentMemberId);
 ```
 
-它按「同一个 Agent」匹配，**不看 runId**。所以一条同 Agent 的**中途**账本消息（增量投影产生的非最终文本）也会清掉实时草稿，这正是闪烁的根因。`norm(c)` 会解 M15.1 信封（读 `{text}`/`{blocks}`，丢掉 runId），但 reducer 始终没拿 runId 来对账。
+它按「同一个 Agent」匹配，**不看 runId**。所以一条同 Agent 的**中途**账本消息（增量投影产生的非最终文本）也会清掉实时草稿，这正是闪烁的根因。`norm(c)` 会解信封包装（读 `{text}`/`{blocks}`，丢掉 runId），但 reducer 始终没拿 runId 来对账。
 
 ## 几个关键纯函数
 
