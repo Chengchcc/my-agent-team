@@ -44,14 +44,27 @@ jobs:
           for pkg in packages/*/ apps/*/; do
             pkg_name=$(basename "$pkg")
             [ -f "$pkg/package.json" ] || continue
-            if [ ! -f "$pkg/dist/index.js" ]; then
-              missing="$missing  $pkg_name (dist/index.js not found)\n"
+            # Skip packages that don't have a build step
+            grep -q '"build"' "$pkg/package.json" || continue
+            # Web outputs to .next/ instead of dist/
+            if [ -d "$pkg/.next" ]; then
+              # Next.js: check .next exists and is fresh
+              newest_src=$(find "$pkg/src" -type f \( -name '*.ts' -o -name '*.tsx' \) -newer "$pkg/.next/BUILD_ID" 2>/dev/null | head -1)
+              if [ -n "$newest_src" ]; then
+                stale="$stale  $pkg_name ($newest_src newer than .next/BUILD_ID)\n"
+              fi
               continue
             fi
-            # Check dist freshness: any src file newer than dist/index.js = stale
-            newest_src=$(find "$pkg/src" -type f -name '*.ts' -newer "$pkg/dist/index.js" 2>/dev/null | head -1)
+            # Find the newest .js file in dist/ as the freshness anchor
+            build_marker=$(find "$pkg/dist" -name '*.js' -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+            if [ -z "$build_marker" ]; then
+              missing="$missing  $pkg_name (no .js files in dist/)\n"
+              continue
+            fi
+            # Check dist freshness: any src file newer than build output = stale
+            newest_src=$(find "$pkg/src" -type f \( -name '*.ts' -o -name '*.tsx' \) -newer "$build_marker" 2>/dev/null | head -1)
             if [ -n "$newest_src" ]; then
-              stale="$stale  $pkg_name ($newest_src newer than dist/index.js)\n"
+              stale="$stale  $pkg_name ($newest_src newer than $build_marker)\n"
             fi
           done
           err=0
