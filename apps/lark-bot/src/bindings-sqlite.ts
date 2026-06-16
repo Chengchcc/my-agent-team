@@ -449,10 +449,7 @@ export function getMessageDelivery(
   };
 }
 
-export function upsertMessageDelivery(
-  db: Database,
-  rec: MessageDeliveryRecord,
-): void {
+export function upsertMessageDelivery(db: Database, rec: MessageDeliveryRecord): void {
   db.run(
     `INSERT INTO message_delivery (conversation_id, message_id, lark_chat_id, last_state, last_seq, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)

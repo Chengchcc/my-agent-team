@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { parseRevision, type ConversationMessageRevision } from "@my-agent-team/conversation";
+import { parseRevision } from "@my-agent-team/conversation";
 import {
   getMemberBindingsForChat,
   getMessageDelivery,
@@ -118,8 +118,16 @@ export function watchConversation(
       scheduleReconnect(5000);
     } finally {
       if (reader) {
-        try { await reader.cancel(); } catch { /* cleanup */ }
-        try { reader.releaseLock(); } catch { /* cleanup */ }
+        try {
+          await reader.cancel();
+        } catch {
+          /* cleanup */
+        }
+        try {
+          reader.releaseLock();
+        } catch {
+          /* cleanup */
+        }
       }
     }
   };
@@ -130,7 +138,10 @@ export function watchConversation(
     conversationId,
     close: () => {
       aborted = true;
-      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
     },
   };
 }
@@ -157,11 +168,22 @@ async function processEntry(
       updatePushedSeq(db, larkChatId, entry.seq);
       return;
     }
-    if (control.type === "lark.start_new_conversation" && control.oldConversationId && control.newConversationId) {
-      const wasRebound = rebindChatConversation(db, larkChatId, control.oldConversationId, control.newConversationId);
+    if (
+      control.type === "lark.start_new_conversation" &&
+      control.oldConversationId &&
+      control.newConversationId
+    ) {
+      const wasRebound = rebindChatConversation(
+        db,
+        larkChatId,
+        control.oldConversationId,
+        control.newConversationId,
+      );
       updatePushedSeq(db, larkChatId, entry.seq);
       if (wasRebound) {
-        console.log(`[sse-watcher] rebind ${larkChatId}: ${control.oldConversationId} → ${control.newConversationId}`);
+        console.log(
+          `[sse-watcher] rebind ${larkChatId}: ${control.oldConversationId} → ${control.newConversationId}`,
+        );
         h.onRebind?.(control.oldConversationId, control.newConversationId);
         if (h.sendTextOnly) void h.sendTextOnly(larkChatId, "已开启新的对话。");
       }
@@ -216,5 +238,9 @@ async function processEntry(
 }
 
 function safeJsonParse(raw: string): unknown {
-  try { return JSON.parse(raw); } catch { return raw; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
 }

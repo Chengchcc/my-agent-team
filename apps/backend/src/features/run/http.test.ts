@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import type { EventLog, EventRecord, ReadQuery, SubscribeOptions } from "@my-agent-team/event-log";
+import type { EventLog, EventRecord } from "@my-agent-team/event-log";
 import { runRoutes } from "./http.js";
 import { createRunService } from "./service.js";
 import type { RunSupervisor } from "./supervisor.js";
@@ -50,19 +50,6 @@ function makeRequest(
     headers: { "Content-Type": "application/json", ...opts?.headers },
     body: opts?.body ? JSON.stringify(opts.body) : undefined,
   });
-}
-
-async function collectSSE(res: Response): Promise<string[]> {
-  if (!res.body) return [];
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let text = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    text += decoder.decode(value, { stream: true });
-  }
-  return text.split("\n\n").filter(Boolean);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
