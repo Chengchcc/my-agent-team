@@ -13,3 +13,8 @@ export {
   isTerminalMessageState,
   mergeMessageRevision,
 } from "./helpers.js";
+export {
+  MessageParseError,
+  parseMessageRevision,
+  serializeMessageRevision,
+} from "./parser.js";
