@@ -334,8 +334,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
       const since = opts?.afterSeq ?? 0;
       const pollMs = opts?.pollMs ?? 500;
       let lastSeq = since;
-      let emptyPolls = 0;
-      const maxEmptyPolls = 120; // ~60s at 500ms
+      let silentPolls = 0;
+      const heartbeatInterval = 30; // ~15s at 500ms poll
 
       // First, yield all existing entries (catch up)
       const initial = port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
@@ -344,7 +344,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
         lastSeq = entry.seq;
       }
 
-      // Then long-poll for new entries
+      // Then long-poll for new entries — no idle timeout.
+      // pollMs=0 means one-shot (tests); otherwise stay alive indefinitely.
       while (true) {
         if (opts?.signal?.aborted) break;
 
@@ -352,13 +353,27 @@ export function createConversationService(deps: ConversationServiceDeps) {
         for (const entry of entries) {
           yield entry;
           lastSeq = entry.seq;
-          emptyPolls = 0; // reset on data
+          silentPolls = 0;
         }
 
         if (entries.length === 0) {
-          if (pollMs === 0) break; // no polling — exit immediately
-          emptyPolls++;
-          if (emptyPolls >= maxEmptyPolls) break; // timeout — client reconnects
+          if (pollMs === 0) break; // one-shot — exit immediately
+          silentPolls++;
+          // Heartbeat: yield a sentinel row every ~15s so sseResponse
+          // can emit an SSE comment to keep the connection alive.
+          // Frontend EventSource ignores SSE comments (not a business event).
+          if (silentPolls % heartbeatInterval === 0) {
+            yield {
+              seq: 0,
+              conversationId,
+              senderMemberId: "",
+              addressedTo: [],
+              kind: "message" as const,
+              content: "",
+              ts: Date.now(),
+              _heartbeat: true as const,
+            } as LedgerRow & { _heartbeat: true };
+          }
           await new Promise((r) => setTimeout(r, pollMs));
         }
       }
