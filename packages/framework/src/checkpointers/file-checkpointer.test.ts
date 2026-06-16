@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { fileCheckpointer } from "./file-checkpointer.js";
 
 const tmpDir = `/tmp/test-fw-cp-${Date.now()}`;
@@ -13,8 +13,8 @@ describe("fileCheckpointer", () => {
   test("save and load round-trips messages", async () => {
     const cp = fileCheckpointer({ dir: tmpDir });
     const messages: Message[] = [
-      { role: "user", content: "hello" },
-      { role: "assistant", content: "world" },
+      { role: "user", text: "hello" },
+      { role: "assistant", text: "world" },
     ];
 
     await cp.save("thread-1", messages);
@@ -53,11 +53,11 @@ describe("fileCheckpointer", () => {
   test("thread isolation", async () => {
     const cp = fileCheckpointer({ dir: tmpDir });
 
-    await cp.save("a", [{ role: "user", content: "a-msg" }]);
-    await cp.save("b", [{ role: "user", content: "b-msg" }]);
+    await cp.save("a", [{ role: "user", text: "a-msg" }]);
+    await cp.save("b", [{ role: "user", text: "b-msg" }]);
 
-    expect(await cp.load("a")).toEqual([{ role: "user", content: "a-msg" }]);
-    expect(await cp.load("b")).toEqual([{ role: "user", content: "b-msg" }]);
+    expect(await cp.load("a")).toEqual([{ role: "user", text: "a-msg" }]);
+    expect(await cp.load("b")).toEqual([{ role: "user", text: "b-msg" }]);
   });
 
   test("appendEvent/readEvents roundtrip", async () => {
@@ -83,6 +83,7 @@ describe("fileCheckpointer", () => {
     expect(cp.save("..", [])).rejects.toThrow("Invalid threadId");
     expect(cp.save("....", [])).rejects.toThrow("Invalid threadId");
     expect(cp.save(".hidden", [])).rejects.toThrow("Invalid threadId");
+    expect(cp.save("ok-id", [])).rejects.toThrow("Invalid threadId");
     expect(cp.save("ok-id", [])).resolves.toBeUndefined();
   });
 });

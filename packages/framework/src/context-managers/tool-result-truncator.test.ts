@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { consoleLogger } from "../logger.js";
 import { toolResultTruncator } from "./tool-result-truncator.js";
 
@@ -14,12 +14,12 @@ describe("toolResultTruncator", () => {
     const msgs: Message[] = [
       {
         role: "user",
-        content: [{ type: "tool_result", tool_use_id: "t1", content: "a".repeat(200) }],
+        blocks: [{ type: "tool_result", tool_use_id: "t1", content: "a".repeat(200) }],
       },
     ];
 
     const result = await toolResultTruncator({ maxCharsPerResult: 100 }).shape(ctx, msgs);
-    const block = (result[0]?.content as { type: string; content: string }[])[0]!;
+    const block = (result[0]?.blocks as { type: string; content: string }[])[0]!;
     expect(block.content.length).toBeLessThan(200);
     expect(block.content).toContain("[truncated");
     expect(block.content).toContain("100 chars");
@@ -29,7 +29,7 @@ describe("toolResultTruncator", () => {
     const msgs: Message[] = [
       {
         role: "user",
-        content: [{ type: "tool_result", tool_use_id: "t1", content: "short" }],
+        blocks: [{ type: "tool_result", tool_use_id: "t1", content: "short" }],
       },
     ];
 
@@ -42,7 +42,7 @@ describe("toolResultTruncator", () => {
     const msgs: Message[] = [
       {
         role: "user",
-        content: [
+        blocks: [
           { type: "tool_use", id: "t1", name: "read", input: {} },
           { type: "tool_result", tool_use_id: "t1", content: "short" },
         ],
@@ -50,13 +50,13 @@ describe("toolResultTruncator", () => {
     ];
 
     const result = await toolResultTruncator({ maxCharsPerResult: 10 }).shape(ctx, msgs);
-    const blocks = result[0]?.content as { type: string }[];
+    const blocks = result[0]?.blocks as { type: string }[];
     expect(blocks[0]?.type).toBe("tool_use");
     expect(blocks[1]?.type).toBe("tool_result");
   });
 
   test("string content messages unchanged", async () => {
-    const msgs: Message[] = [{ role: "assistant", content: "hello world" }];
+    const msgs: Message[] = [{ role: "assistant", text: "hello world" }];
 
     const result = await toolResultTruncator({ maxCharsPerResult: 10 }).shape(ctx, msgs);
     expect(result).toEqual(msgs);

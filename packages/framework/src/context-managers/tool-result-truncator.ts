@@ -11,10 +11,10 @@ export function toolResultTruncator(opts: ToolResultTruncatorOptions): ContextMa
     async shape(_ctx, messages) {
       return messages.map((msg) => {
         if (msg.role !== "user") return msg;
-        const content = msg.content;
-        if (typeof content === "string") return msg;
+        const blocks = msg.blocks;
+        if (!blocks) return msg;
 
-        const truncated = content.map((block) => {
+        const truncated = blocks.map((block) => {
           if (block.type !== "tool_result") return block;
           if (block.content.length <= maxChars) return block;
           return {
@@ -25,7 +25,7 @@ export function toolResultTruncator(opts: ToolResultTruncatorOptions): ContextMa
           };
         });
 
-        return { ...msg, content: truncated };
+        return { ...msg, blocks: truncated };
       });
     },
   };

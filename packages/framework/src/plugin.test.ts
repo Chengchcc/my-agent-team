@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Message, Tool, ToolUseBlock } from "@my-agent-team/core";
+import type { Tool, ToolUseBlock } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 import { passthroughContextManager } from "./context-managers/passthrough.js";
 import { consoleLogger } from "./logger.js";
@@ -56,7 +57,7 @@ describe("definePlugin", () => {
     });
 
     const ctx = testCtx();
-    const msgs: Message[] = [{ role: "user", content: "hi" }];
+    const msgs: Message[] = [{ role: "user", text: "hi" }];
     await plugin.hooks.afterModel?.(ctx, msgs);
 
     expect(capturedCtx).toHaveProperty("threadId", "t1");

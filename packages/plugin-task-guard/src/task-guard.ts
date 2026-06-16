@@ -1,5 +1,6 @@
-import type { ChatModel, Message, Tool } from "@my-agent-team/core";
+import type { ChatModel, ContentBlock, Tool } from "@my-agent-team/core";
 import { collectStream } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { Plugin, StopDecision } from "@my-agent-team/framework";
 
 // ─── Types ───
@@ -44,7 +45,7 @@ function injectIntoSystem(messages: readonly Message[], block: string): Message[
   const sys = messages[systemIdx]!;
   const newSys = {
     ...sys,
-    content: `${sys.content}\n\n${block}`,
+    text: `${sys.text ?? ""}\n\n${block}`,
   };
   return [...messages.slice(0, systemIdx), newSys, ...messages.slice(systemIdx + 1)];
 }
@@ -60,8 +61,8 @@ export function unresolvedToolErrors(messages: readonly Message[]): StopDecision
   // Walk backwards to find the last user message that contains tool_results
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]!;
-    if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
-    const results = msg.content.filter((b) => "tool_use_id" in b);
+    if (msg.role !== "user" || !msg.blocks) continue;
+    const results = msg.blocks.filter((b) => "tool_use_id" in b);
     if (results.length === 0) continue;
 
     // If the very last tool_result-bearing message has errors, and no
@@ -109,7 +110,7 @@ async function generatePlan(model: ChatModel, messages: readonly Message[]): Pro
   const slim: Message[] = [
     ...(systemMsg ? [systemMsg] : []),
     ...(lastUser ? [lastUser] : []),
-    { role: "user" as const, content: planPrompt },
+    { role: "user" as const, text: planPrompt },
   ];
 
   const result = await collectStream(model.stream(slim, { tools: [] as const }));
@@ -264,7 +265,7 @@ export function taskGuardPlugin(opts: TaskGuardOptions): Plugin {
         // Emit initial snapshot
         onUpdate([...planList]);
 
-        return [...messages, { role: "user" as const, content: planGuidance(steps) }];
+        return [...messages, { role: "user" as const, text: planGuidance(steps) }];
       },
 
       async beforeModel(ctx, messages) {

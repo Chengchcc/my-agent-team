@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
-import { assistantMessageId, type ConversationMessageRevision } from "@my-agent-team/conversation";
-import type { Message } from "@my-agent-team/core";
+import type { ContentBlock } from "@my-agent-team/core";
+import type { Message, MessageRevision } from "@my-agent-team/message";
+import { assistantMessageId } from "@my-agent-team/message";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import { createSocketClient } from "@my-agent-team/runner-protocol";
 import {
@@ -289,9 +290,9 @@ function buildPreloadedMessages(
       }
     }
     if (typeof content === "string") {
-      msgs.push({ role: role as "user" | "assistant", content });
+      msgs.push({ role: role as "user" | "assistant", text: content });
     } else if (Array.isArray(content)) {
-      msgs.push({ role: role as "user" | "assistant", content: content as Message["content"] });
+      msgs.push({ role: role as "user" | "assistant", blocks: content as ContentBlock[] });
     }
   }
   return msgs;
@@ -400,19 +401,20 @@ async function onRunComplete(threadId: string, runId: string, status: string): P
         // If no streaming revision was projected (e.g. tool-only run, immediate
         // error), write a minimal terminal revision so Web/Lark exit busy state.
         const baseRev = acc.latestAssistantRevision;
-        const finalRev: ConversationMessageRevision = baseRev
+        const finalRev: MessageRevision = baseRev
           ? {
               ...baseRev,
               state: status === "succeeded" ? "done" : "error",
-              error: status === "succeeded" ? undefined : status,
+              error: status === "succeeded" ? undefined : { message: status },
             }
           : {
               messageId: assistantMessageId(runId),
               state: status === "succeeded" ? "done" : "error",
               role: "assistant",
               text: status === "succeeded" ? "" : `Run failed: ${status}`,
-              error: status === "succeeded" ? undefined : status,
+              error: status === "succeeded" ? undefined : { message: status },
               runId,
+              updatedAt: Date.now(),
             };
         const serialized = JSON.stringify(finalRev);
         if (!convPort.hasLedgerContent?.(runId, serialized)) {
@@ -483,7 +485,7 @@ interface RunAccumulator {
   lastTodoUpdate: { todos: unknown } | null;
   /** M17: Latest assistant revision written to the ledger for this run.
    *  Updated on each streaming projection; read by onRunComplete for the final done/error revision. */
-  latestAssistantRevision: ConversationMessageRevision | null;
+  latestAssistantRevision: MessageRevision | null;
   /** M17: Serial chain of projection writes — guarantees that same-run rewrites
    *  of the same logical message are ordered. onRunComplete awaits this before
    *  appending the done/error terminal revision. */
@@ -507,24 +509,25 @@ function getOrCreateAccumulator(runId: string, senderMemberId: string): RunAccum
   return acc;
 }
 
-/** Build a ConversationMessageRevision envelope for assistant content produced
+/** Build a MessageRevision envelope for assistant content produced
  *  during a run. Human messages don't get revision envelopes. */
 function buildAssistantRevision(
   runId: string,
   content: unknown,
-  state: ConversationMessageRevision["state"] = "streaming",
-): ConversationMessageRevision {
+  state: MessageRevision["state"] = "streaming",
+): MessageRevision {
   const msgId = assistantMessageId(runId);
   if (typeof content === "string") {
-    return { messageId: msgId, state, role: "assistant", text: content, runId };
+    return { messageId: msgId, state, role: "assistant", text: content, runId, updatedAt: Date.now() };
   }
   if (Array.isArray(content)) {
     return {
       messageId: msgId,
       state,
       role: "assistant",
-      blocks: content as ConversationMessageRevision["blocks"],
+      blocks: content as ContentBlock[],
       runId,
+      updatedAt: Date.now(),
     };
   }
   if (content && typeof content === "object" && !Array.isArray(content)) {
@@ -533,14 +536,15 @@ function buildAssistantRevision(
       state,
       role: "assistant",
       runId,
+      updatedAt: Date.now(),
       ...(content as Record<string, unknown>),
-    } as ConversationMessageRevision;
+    } as MessageRevision;
   }
-  return { messageId: msgId, state, role: "assistant", text: String(content), runId };
+  return { messageId: msgId, state, role: "assistant", text: String(content), runId, updatedAt: Date.now() };
 }
 
 /** Conversation Projection (incremental): project a single message produced mid-run into the
- *  conversation ledger as a ConversationMessageRevision. Same messageId across revisions
+ *  conversation ledger as a MessageRevision. Same messageId across revisions
  *  allows Web/Lark to upsert into a single bubble/card. */
 async function projectRunMessageToLedger(
   threadId: string,
@@ -573,6 +577,7 @@ async function projectRunMessageToLedger(
           state: "done" as const,
           role: role as "user",
           text: typeof content === "string" ? content : "",
+          updatedAt: Date.now(),
         };
 
   const ts = Date.now();

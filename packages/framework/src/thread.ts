@@ -1,4 +1,4 @@
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 
 export interface Thread {
   readonly id: string;

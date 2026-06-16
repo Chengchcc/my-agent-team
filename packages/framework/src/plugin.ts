@@ -1,4 +1,5 @@
-import type { Message, Tool, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
+import type { Tool, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { Checkpointer } from "./checkpointer.js";
 import type { ContextManager } from "./context-manager.js";
 import type { AgentEvent } from "./create-agent.js";

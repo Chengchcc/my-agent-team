@@ -1,4 +1,5 @@
-import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
+import type { ContentBlock, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 
 export class InterruptSignal extends Error {
   constructor(

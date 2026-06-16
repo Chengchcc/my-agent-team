@@ -1,4 +1,5 @@
-import type { ChatModel, Message } from "@my-agent-team/core";
+import type { ChatModel } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { Logger } from "./logger.js";
 
 export interface ContextManagerContext {

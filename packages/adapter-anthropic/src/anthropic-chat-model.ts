@@ -1,5 +1,6 @@
 import { Anthropic } from "@anthropic-ai/sdk";
-import type { AIMessageChunk, ChatModel, ChatModelOptions, Message } from "@my-agent-team/core";
+import type { AIMessageChunk, ChatModel, ChatModelOptions } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { toAnthropicTools } from "./to-anthropic-tools.js";
 
 export interface AnthropicChatModelConfig {
@@ -108,8 +109,9 @@ export class AnthropicChatModel implements ChatModel {
 // -- Helpers --
 
 function textOf(msg: Message): string {
-  if (typeof msg.content === "string") return msg.content;
-  return msg.content
+  if (msg.text !== undefined) return msg.text;
+  if (!msg.blocks) return "";
+  return msg.blocks
     .filter((b) => b.type === "text")
     .map((b) => b.text)
     .join("\n");
@@ -126,8 +128,8 @@ function mergeSystemMessages(messages: readonly Message[]): string | undefined {
 }
 
 function isEmptyMessage(msg: Message): boolean {
-  if (typeof msg.content === "string") return msg.content.trim().length === 0;
-  if (Array.isArray(msg.content)) return msg.content.length === 0;
+  if (msg.text !== undefined) return msg.text.trim().length === 0;
+  if (msg.blocks) return msg.blocks.length === 0;
   return false;
 }
 
@@ -160,12 +162,12 @@ function buildApiMessages(messages: readonly Message[]): Anthropic.Messages.Mess
 }
 
 function convertMessage(msg: Message): Anthropic.Messages.MessageParam {
-  if (typeof msg.content === "string") {
-    return { role: msg.role as "user" | "assistant", content: msg.content };
+  if (msg.text !== undefined) {
+    return { role: msg.role as "user" | "assistant", content: msg.text };
   }
 
   const blocks: Anthropic.Messages.ContentBlockParam[] = [];
-  for (const block of msg.content) {
+  for (const block of msg.blocks ?? []) {
     if (block.type === "text") {
       blocks.push({ type: "text", text: block.text });
     } else if (block.type === "tool_use") {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { AgentFS, MemoryBackend } from "@my-agent-team/agent-fs";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import {
   consoleLogger,
   type HookContext,
@@ -56,13 +56,13 @@ describe("progressiveSkillPlugin", () => {
 
     const plugin = progressiveSkillPlugin({ ws, root });
     const msgs: Message[] = [
-      { role: "system", content: "You are helpful." },
-      { role: "user", content: "hi" },
+      { role: "system", text: "You are helpful." },
+      { role: "user", text: "hi" },
     ];
 
     const result = (await plugin.hooks.beforeModel?.(testCtx(), msgs)) as Message[];
     expect(result).toHaveLength(2);
-    const sysContent = (result[0] as Message).content as string;
+    const sysContent = (result[0] as Message).text as string;
     expect(sysContent).toContain("pdf-extract");
     expect(sysContent).toContain("Extract text from PDF files");
     expect(sysContent).toContain("<available-skills>");
@@ -75,12 +75,12 @@ describe("progressiveSkillPlugin", () => {
 
     const plugin = progressiveSkillPlugin({ ws, root });
     const msgs: Message[] = [
-      { role: "system", content: "sys" },
-      { role: "user", content: "hi" },
+      { role: "system", text: "sys" },
+      { role: "user", text: "hi" },
     ];
 
     const result = (await plugin.hooks.beforeModel?.(testCtx(), msgs)) as Message[];
-    expect((result[0] as Message).content).toBe("sys");
+    expect((result[0] as Message).text).toBe("sys");
   });
 
   test("dir does not exist → warn + pass through", async () => {
@@ -100,8 +100,8 @@ describe("progressiveSkillPlugin", () => {
 
     const plugin = progressiveSkillPlugin({ ws, root });
     const msgs: Message[] = [
-      { role: "system", content: "sys" },
-      { role: "user", content: "hi" },
+      { role: "system", text: "sys" },
+      { role: "user", text: "hi" },
     ];
 
     const result = await plugin.hooks.beforeModel?.(ctx, msgs as Message[]);
@@ -127,7 +127,7 @@ describe("progressiveSkillPlugin", () => {
     };
 
     const plugin = progressiveSkillPlugin({ ws, root });
-    const msgs: Message[] = [{ role: "user", content: "hi" }];
+    const msgs: Message[] = [{ role: "user", text: "hi" }];
 
     const result = await plugin.hooks.beforeModel?.(ctx, msgs as Message[]);
     expect(result).toHaveLength(1);

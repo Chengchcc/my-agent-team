@@ -18,7 +18,7 @@ describe("echoModel", () => {
       ],
     });
 
-    const first = await collect(model.stream([{ role: "user", content: "hello" }]));
+    const first = await collect(model.stream([{ role: "user", text: "hello" }]));
     expect(first).toEqual([
       { delta: { type: "tool_use", id: "toolu_1", name: "lookup" } },
       {
@@ -33,10 +33,10 @@ describe("echoModel", () => {
 
     const second = await collect(
       model.stream([
-        { role: "user", content: "hello" },
+        { role: "user", text: "hello" },
         {
           role: "assistant",
-          content: [
+          blocks: [
             { type: "tool_use", id: "toolu_1", name: "lookup", input: { query: "weather" } },
           ],
         },

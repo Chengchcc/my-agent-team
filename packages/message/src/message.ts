@@ -1,4 +1,4 @@
-import type { ContentBlock } from "@my-agent-team/core";
+import type { ContentBlock } from "./content-block.js";
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
 

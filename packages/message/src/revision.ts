@@ -1,4 +1,4 @@
-import type { ContentBlock } from "@my-agent-team/core";
+import type { ContentBlock } from "./content-block.js";
 import type { MessageError, MessageRole, MessageState, MessageToolState } from "./message.js";
 
 export interface MessageRevision {

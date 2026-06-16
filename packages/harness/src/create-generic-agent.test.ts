@@ -4,7 +4,8 @@ import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentFsHandle } from "@my-agent-team/agent-fs";
 import { AgentFS, LocalBackend } from "@my-agent-team/agent-fs";
-import type { AIMessageChunk, ChatModel, Message, Tool } from "@my-agent-team/core";
+import type { AIMessageChunk, ChatModel, ContentBlock, Tool } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { createGenericAgent } from "./create-generic-agent.js";
 
 function testHandle(root: string): AgentFsHandle {
@@ -100,8 +101,8 @@ describe("createGenericAgent", () => {
       // Verify system prompt was injected and contains workspace content
       const sysMsg = agent.thread.messages.find((m) => m.role === "system");
       expect(sysMsg).toBeDefined();
-      expect((sysMsg as Message).content).toInclude("<soul>");
-      expect((sysMsg as Message).content).toInclude("You are a test agent.");
+      expect((sysMsg as Message).text).toInclude("<soul>");
+      expect((sysMsg as Message).text).toInclude("You are a test agent.");
     } finally {
       await rm(ws, { recursive: true, force: true });
     }

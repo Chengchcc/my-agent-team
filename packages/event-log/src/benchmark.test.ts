@@ -41,7 +41,7 @@ afterAll(() => {
 });
 
 function makeEvent(text: string) {
-  return { type: "message" as const, payload: { role: "assistant" as const, content: text } };
+  return { type: "message" as const, payload: { role: "assistant" as const, text } };
 }
 
 // ── Benchmark helpers ──────────────────────────────────────────────

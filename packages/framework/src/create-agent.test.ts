@@ -3,9 +3,9 @@ import type {
   AIMessageChunk,
   ChatModel,
   ChatModelOptions,
-  Message,
   Tool,
 } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { InterruptState } from "./checkpointer.js";
 import type { AgentEvent } from "./create-agent.js";
 import { createAgent, InterruptSignal } from "./index.js";
@@ -87,12 +87,12 @@ describe("createAgent", () => {
     if (msg) {
       expect(msg.payload).toEqual({
         role: "assistant",
-        content: [{ type: "text", text: "hello" }],
+        blocks: [{ type: "text", text: "hello" }],
       });
     }
     expect(agent.thread.messages).toEqual([
-      { role: "user", content: "hi" },
-      { role: "assistant", content: [{ type: "text", text: "hello" }] },
+      { role: "user", text: "hi" },
+      { role: "assistant", blocks: [{ type: "text", text: "hello" }] },
     ]);
   });
 
@@ -104,7 +104,7 @@ describe("createAgent", () => {
 
     await collect(agent.run("hi"));
 
-    expect(agent.thread.messages[0]).toEqual({ role: "system", content: "You are helpful." });
+    expect(agent.thread.messages[0]).toEqual({ role: "system", text: "You are helpful." });
   });
 
   test("does not duplicate systemPrompt across runs", async () => {
@@ -226,9 +226,9 @@ describe("createAgent", () => {
 
   test("checkpointer load recovers existing thread", async () => {
     const savedMessages: Message[] = [
-      { role: "system", content: "sys" },
-      { role: "user", content: "old" },
-      { role: "assistant", content: "answer" },
+      { role: "system", text: "sys" },
+      { role: "user", text: "old" },
+      { role: "assistant", text: "answer" },
     ];
 
     const agent = await createAgent({
@@ -309,8 +309,8 @@ describe("createAgent", () => {
     const toolResults = agent.thread.messages.filter(
       (m) =>
         m.role === "user" &&
-        Array.isArray(m.content) &&
-        m.content.some((b) => b.type === "tool_result"),
+        Array.isArray(m.blocks) &&
+        m.blocks.some((b) => b.type === "tool_result"),
     );
     expect(toolResults).toHaveLength(1);
   });
@@ -520,11 +520,11 @@ describe("createAgent", () => {
 
     // Should have tool_result in messages
     const toolResults = agent.thread.messages.filter(
-      (m) => Array.isArray(m.content) && m.content.some((b) => b.type === "tool_result"),
+      (m) => Array.isArray(m.blocks) && m.blocks.some((b) => b.type === "tool_result"),
     );
     expect(toolResults).toHaveLength(1);
 
-    const resultBlock = (toolResults[0]?.content as { type: string; is_error?: boolean }[])[0]!;
+    const resultBlock = (toolResults[0]?.blocks as { type: string; is_error?: boolean }[])[0]!;
     expect(resultBlock.type).toBe("tool_result");
     expect((resultBlock as { is_error?: boolean }).is_error).toBe(false);
 
@@ -570,10 +570,10 @@ describe("createAgent", () => {
     await collect(agent.resume({ approved: false }));
 
     const toolResults = agent.thread.messages.filter(
-      (m) => Array.isArray(m.content) && m.content.some((b) => b.type === "tool_result"),
+      (m) => Array.isArray(m.blocks) && m.blocks.some((b) => b.type === "tool_result"),
     );
     const block = (
-      toolResults[0]?.content as { type: string; content: string; is_error?: boolean }[]
+      toolResults[0]?.blocks as { type: string; content: string; is_error?: boolean }[]
     )[0]!;
     expect((block as { is_error?: boolean }).is_error).toBe(true);
     expect(block.content).toContain("denied");
@@ -616,10 +616,10 @@ describe("createAgent", () => {
     await collect(agent.resume({ approved: false, message: "Not now, try a different approach" }));
 
     const toolResults = agent.thread.messages.filter(
-      (m) => Array.isArray(m.content) && m.content.some((b) => b.type === "tool_result"),
+      (m) => Array.isArray(m.blocks) && m.blocks.some((b) => b.type === "tool_result"),
     );
     const block = (
-      toolResults[0]?.content as { type: string; content: string; is_error?: boolean }[]
+      toolResults[0]?.blocks as { type: string; content: string; is_error?: boolean }[]
     )[0]!;
     expect(block.content).toBe("Not now, try a different approach");
   });
@@ -706,11 +706,11 @@ describe("createAgent", () => {
 
     // Extract all tool_use and tool_result blocks with their ids
     const toolUses = agent.thread.messages.flatMap((m) =>
-      Array.isArray(m.content) ? m.content.filter((b) => b.type === "tool_use") : [],
+      Array.isArray(m.blocks) ? m.blocks.filter((b) => b.type === "tool_use") : [],
     ) as { type: "tool_use"; id: string }[];
 
     const toolResults = agent.thread.messages.flatMap((m) =>
-      Array.isArray(m.content) ? m.content.filter((b) => b.type === "tool_result") : [],
+      Array.isArray(m.blocks) ? m.blocks.filter((b) => b.type === "tool_result") : [],
     ) as { type: "tool_result"; tool_use_id: string; is_error?: boolean; content: string }[];
 
     const resultIds = new Set(toolResults.map((r) => r.tool_use_id));
@@ -815,8 +815,8 @@ describe("createAgent", () => {
         shape: (_ctx, _msgs) => {
           // return different messages than what's in thread
           return [
-            { role: "system", content: "fake" },
-            { role: "user", content: "fake" },
+            { role: "system", text: "fake" },
+            { role: "user", text: "fake" },
           ];
         },
       },
@@ -826,7 +826,7 @@ describe("createAgent", () => {
 
     // thread.messages still has the real messages, not shape output
     expect(agent.thread.messages[0]?.role).toBe("user");
-    expect(agent.thread.messages[0]?.content).toBe("hi");
+    expect(agent.thread.messages[0]?.text).toBe("hi");
   });
 
   test("default ContextManager is passthrough", async () => {
@@ -1028,7 +1028,7 @@ describe("createAgent", () => {
     expect(events.some((e) => e.type === "interrupted")).toBe(false);
     // Tool still executed: find a tool_result for t1 with no error flag
     const toolResults = agent.thread.messages.flatMap((m) =>
-      Array.isArray(m.content) ? m.content.filter((b) => b.type === "tool_result") : [],
+      Array.isArray(m.blocks) ? m.blocks.filter((b) => b.type === "tool_result") : [],
     ) as { type: "tool_result"; tool_use_id: string; is_error?: boolean }[];
     const t1Result = toolResults.find((r) => r.tool_use_id === "t1");
     expect(t1Result).toBeDefined();
@@ -1089,7 +1089,7 @@ describe("createAgent", () => {
     await collect(agent2.run("go"));
     const toolResults = agent2.thread.messages.filter(
       (m) =>
-        Array.isArray(m.content) && m.content.some((b) => b.type === "tool_result" && b.is_error),
+        Array.isArray(m.blocks) && m.blocks.some((b) => b.type === "tool_result" && b.is_error),
     );
     expect(toolResults).toHaveLength(0);
   });

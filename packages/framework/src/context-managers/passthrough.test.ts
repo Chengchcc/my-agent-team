@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { consoleLogger } from "../logger.js";
 import { passthroughContextManager } from "./passthrough.js";
 
@@ -12,8 +12,8 @@ const ctx = {
 describe("passthroughContextManager", () => {
   test("returns new array with same elements", async () => {
     const msgs: Message[] = [
-      { role: "user", content: "hi" },
-      { role: "assistant", content: "hello" },
+      { role: "user", text: "hi" },
+      { role: "assistant", text: "hello" },
     ];
 
     const result = await passthroughContextManager().shape(ctx, msgs);
@@ -23,7 +23,7 @@ describe("passthroughContextManager", () => {
   });
 
   test("does not mutate input", async () => {
-    const msgs: Message[] = [{ role: "user", content: "hi" }];
+    const msgs: Message[] = [{ role: "user", text: "hi" }];
     const original = [...msgs];
 
     await passthroughContextManager().shape(ctx, msgs);

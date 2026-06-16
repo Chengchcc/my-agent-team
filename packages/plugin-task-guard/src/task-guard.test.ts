@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { AIMessageChunk, ChatModel, Message } from "@my-agent-team/core";
+import type { AIMessageChunk, ChatModel, ContentBlock } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { createAgent, inMemoryCheckpointer } from "@my-agent-team/framework";
 import { taskGuardPlugin, unresolvedToolErrors } from "./task-guard.js";
 
@@ -61,8 +62,8 @@ function todoPayloads(
 describe("unresolvedToolErrors", () => {
   test("no tool_results → undefined", () => {
     const msgs: Message[] = [
-      { role: "user", content: "hello" },
-      { role: "assistant", content: "hi" },
+      { role: "user", text: "hello" },
+      { role: "assistant", text: "hi" },
     ];
     expect(unresolvedToolErrors(msgs)).toBeUndefined();
   });
@@ -71,7 +72,7 @@ describe("unresolvedToolErrors", () => {
     const msgs: Message[] = [
       {
         role: "user",
-        content: [{ type: "tool_result", tool_use_id: "1", content: "ok" }],
+        blocks: [{ type: "tool_result", tool_use_id: "1", content: "ok" }],
       },
     ] as unknown as Message[];
     expect(unresolvedToolErrors(msgs)).toBeUndefined();
@@ -81,7 +82,7 @@ describe("unresolvedToolErrors", () => {
     const msgs: Message[] = [
       {
         role: "user",
-        content: [{ type: "tool_result", tool_use_id: "1", content: "fail", is_error: true }],
+        blocks: [{ type: "tool_result", tool_use_id: "1", content: "fail", is_error: true }],
       },
     ] as unknown as Message[];
     const v = unresolvedToolErrors(msgs);
@@ -323,7 +324,7 @@ describe("taskGuardPlugin", () => {
     const spyModel: ChatModel = {
       async *stream(messages: Message[], _opts?) {
         const sys = messages.find((m) => m.role === "system");
-        if (sys) receivedSystemContent = String(sys.content);
+        if (sys) receivedSystemContent = String(sys.text ?? sys.blocks ?? "");
         yield {
           delta: { type: "text" as const, text: JSON.stringify(["Step 1"]) },
           stopReason: null as unknown as undefined,
@@ -353,7 +354,7 @@ describe("taskGuardPlugin", () => {
     const spyModel: ChatModel = {
       async *stream(messages: Message[], _opts?) {
         const sys = messages.find((m) => m.role === "system");
-        if (sys) receivedSystemContent = String(sys.content);
+        if (sys) receivedSystemContent = String(sys.text ?? sys.blocks ?? "");
         yield {
           delta: { type: "text" as const, text: JSON.stringify(["Step 1"]) },
           stopReason: null as unknown as undefined,

@@ -1,4 +1,5 @@
-import type { ContentBlock, Message } from "@my-agent-team/core";
+import type { ContentBlock } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 
 /**
  * 修复消息列表中的 tool_use / tool_result 配对：
@@ -14,7 +15,7 @@ export function repairToolPairs(messages: Message[]): Message[] {
   const toolResultIds = new Set<string>();
 
   for (const msg of messages) {
-    const blocks = contentAsBlocks(msg.content);
+    const blocks = contentAsBlocks(msg);
     for (const block of blocks) {
       if (block.type === "tool_use") {
         toolUseIds.add(block.id);
@@ -28,7 +29,7 @@ export function repairToolPairs(messages: Message[]): Message[] {
   // Pass 2: 过滤
   const result: Message[] = [];
   for (const msg of messages) {
-    let blocks = contentAsBlocks(msg.content);
+    let blocks = contentAsBlocks(msg);
 
     // 删除无配对 tool_use 的 tool_result，和无配对 tool_result 的 tool_use
     blocks = blocks.filter((block) => {
@@ -43,21 +44,26 @@ export function repairToolPairs(messages: Message[]): Message[] {
     );
     if (!hasContent && msg.role !== "system") continue;
 
-    // 还原 content 格式：如果原始就是 string 且过滤后仍只有单 text 块，还原为 string
-    const content: Message["content"] =
-      typeof msg.content === "string" && blocks.length === 1 && blocks[0]?.type === "text"
-        ? (blocks[0] as { type: "text"; text: string }).text
-        : (blocks as ContentBlock[]);
-
-    result.push({ ...msg, content } as Message);
+    // 还原格式：如果原始是 text 且过滤后仍只有单 text 块，还原为 text
+    const wasText = msg.text !== undefined;
+    if (wasText && blocks.length === 1 && blocks[0]?.type === "text") {
+      const textBlock = blocks[0] as { type: "text"; text: string };
+      result.push({ ...msg, text: textBlock.text, blocks: undefined });
+    } else {
+      result.push({
+        ...msg,
+        text: undefined,
+        blocks: blocks.length > 0 ? (blocks as ContentBlock[]) : undefined,
+      });
+    }
   }
 
   return result;
 }
 
-function contentAsBlocks(content: Message["content"]): ContentBlock[] {
-  if (typeof content === "string") {
-    return content.trim().length > 0 ? [{ type: "text" as const, text: content }] : [];
+function contentAsBlocks(msg: Message): ContentBlock[] {
+  if (msg.text !== undefined) {
+    return msg.text.trim().length > 0 ? [{ type: "text" as const, text: msg.text }] : [];
   }
-  return content;
+  return msg.blocks ?? [];
 }

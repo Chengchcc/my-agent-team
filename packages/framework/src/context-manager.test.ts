@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { type ContextManagerContext, pipeContextManagers } from "./context-manager.js";
 import { consoleLogger } from "./logger.js";
 
@@ -10,10 +10,10 @@ const ctx: ContextManagerContext = {
 };
 
 const msgs: Message[] = [
-  { role: "system", content: "sys" },
-  { role: "user", content: "u1" },
-  { role: "assistant", content: "a1" },
-  { role: "user", content: "u2" },
+  { role: "system", text: "sys" },
+  { role: "user", text: "u1" },
+  { role: "assistant", text: "a1" },
+  { role: "user", text: "u2" },
 ];
 
 describe("pipeContextManagers", () => {

@@ -6,7 +6,7 @@ import { inMemoryEventLog, sqliteEventLog } from "./index.js";
 function makeEvent(text: string) {
   return {
     type: "message" as const,
-    payload: { role: "assistant" as const, content: text },
+    payload: { role: "assistant" as const, text },
   };
 }
 
@@ -32,7 +32,7 @@ describe("inMemoryEventLog", () => {
 
     const r1 = await log.read({ runId: "r1" });
     expect(r1.length).toBe(1);
-    expect((r1[0]?.event as { payload: { content: string } }).payload.content).toBe("a");
+    expect((r1[0]?.event as { payload: { text: string } }).payload.text).toBe("a");
   });
 
   test("read with afterSeq skips earlier events", async () => {

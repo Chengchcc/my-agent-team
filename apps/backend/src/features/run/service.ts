@@ -1,4 +1,4 @@
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { EventLog, EventRecord } from "@my-agent-team/event-log";
 import type { RunSupervisor } from "./supervisor.js";
 

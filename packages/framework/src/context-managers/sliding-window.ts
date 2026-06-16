@@ -1,4 +1,4 @@
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { ContextManager } from "../context-manager.js";
 import { repairToolPairs } from "../repair-tool-pairs.js";
 
@@ -63,9 +63,7 @@ function findTurnEnd(messages: readonly Message[], userIdx: number): number {
   for (let j = userIdx + 1; j < messages.length; j++) {
     if (messages[j]?.role === "user") {
       // Check if this user is a standalone (not a tool_result continuation)
-      const c = Array.isArray(messages[j]?.content)
-        ? (messages[j]?.content as { type: string }[])
-        : [];
+      const c = messages[j]?.blocks ?? [];
       const isToolResult = c.some((b) => b.type === "tool_result");
       if (!isToolResult) {
         nextUser = j;

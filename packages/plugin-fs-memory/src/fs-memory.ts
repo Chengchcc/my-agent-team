@@ -1,4 +1,4 @@
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { Plugin } from "@my-agent-team/framework";
 import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { pjoin } from "@my-agent-team/tools-common";
@@ -50,7 +50,7 @@ export function fsMemoryPlugin(options: FsMemoryOptions): Plugin {
         const sys = messages[systemIdx]!;
         return [
           ...messages.slice(0, systemIdx),
-          { ...sys, content: `${sys.content}\n\n<memory>\n${memContent}\n</memory>` },
+          { ...sys, text: `${sys.text ?? ""}\n\n<memory>\n${memContent}\n</memory>` },
           ...messages.slice(systemIdx + 1),
         ] as Message[];
       },

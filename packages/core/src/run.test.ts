@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk, ChatModel } from "./chat-model.js";
-import type { Message } from "./message.js";
+import type { Message } from "@my-agent-team/message";
 import { run } from "./run.js";
 import type { Tool } from "./tool.js";
 
@@ -44,19 +44,19 @@ function scriptedModel(
 
 describe("run", () => {
   test("streams a text response and appends the completed assistant message", async () => {
-    const messages: Message[] = [{ role: "user", content: "hello" }];
+    const messages: Message[] = [{ role: "user", text: "hello" }];
 
     const yielded = await collect(run(scriptedModel([{ type: "text", text: "hi" }]), [], messages));
 
-    expect(yielded).toEqual([{ role: "assistant", content: [{ type: "text", text: "hi" }] }]);
+    expect(yielded).toEqual([{ role: "assistant", blocks: [{ type: "text", text:"hi" }] }]);
     expect(messages).toEqual([
-      { role: "user", content: "hello" },
-      { role: "assistant", content: [{ type: "text", text: "hi" }] },
+      { role: "user", text: "hello" },
+      { role: "assistant", blocks: [{ type: "text", text:"hi" }] },
     ]);
   });
 
   test("executes requested tools, appends results, and continues until text", async () => {
-    const messages: Message[] = [{ role: "user", content: "lookup weather" }];
+    const messages: Message[] = [{ role: "user", text: "lookup weather" }];
     const lookup = tool("lookup", (input: unknown) => ({
       content: `result:${JSON.stringify(input)}`,
     }));
@@ -74,26 +74,26 @@ describe("run", () => {
 
     expect(yielded.at(-1)).toEqual({
       role: "assistant",
-      content: [{ type: "text", text: "sunny" }],
+      blocks: [{ type: "text", text:"sunny" }],
     });
     expect(messages).toEqual([
-      { role: "user", content: "lookup weather" },
+      { role: "user", text: "lookup weather" },
       {
         role: "assistant",
-        content: [{ type: "tool_use", id: "toolu_1", name: "lookup", input: { q: "weather" } }],
+        blocks: [{ type: "tool_use", id: "toolu_1", name: "lookup", input: { q: "weather" } }],
       },
       {
         role: "user",
-        content: [
+        blocks: [
           { type: "tool_result", tool_use_id: "toolu_1", content: 'result:{"q":"weather"}' },
         ],
       },
-      { role: "assistant", content: [{ type: "text", text: "sunny" }] },
+      { role: "assistant", blocks: [{ type: "text", text:"sunny" }] },
     ]);
   });
 
   test("turns missing and thrown tools into error tool results before continuing", async () => {
-    const messages: Message[] = [{ role: "user", content: "call tools" }];
+    const messages: Message[] = [{ role: "user", text: "call tools" }];
     const model = {
       async *stream(history: readonly Message[]): AsyncIterable<AIMessageChunk> {
         const assistantTurns = history.filter((message) => message.role === "assistant").length;
@@ -124,7 +124,7 @@ describe("run", () => {
 
     expect(messages[2]).toEqual({
       role: "user",
-      content: [
+      blocks: [
         {
           type: "tool_result",
           tool_use_id: "toolu_1",
@@ -138,7 +138,7 @@ describe("run", () => {
 
   test("does not append partial turns when aborted or when the model returns no blocks", async () => {
     const abortController = new AbortController();
-    const messages: Message[] = [{ role: "user", content: "start" }];
+    const messages: Message[] = [{ role: "user", text: "start" }];
     const abortingModel = {
       async *stream(): AsyncIterable<AIMessageChunk> {
         yield { delta: { type: "text", text: "partial" } };
@@ -151,10 +151,10 @@ describe("run", () => {
       run(abortingModel, [], messages, { signal: abortController.signal }),
     );
 
-    expect(yielded).toEqual([{ role: "assistant", content: [{ type: "text", text: "partial" }] }]);
-    expect(messages).toEqual([{ role: "user", content: "start" }]);
+    expect(yielded).toEqual([{ role: "assistant", blocks: [{ type: "text", text:"partial" }] }]);
+    expect(messages).toEqual([{ role: "user", text: "start" }]);
 
-    const emptyMessages: Message[] = [{ role: "user", content: "empty" }];
+    const emptyMessages: Message[] = [{ role: "user", text: "empty" }];
     const emptyModel = {
       async *stream(): AsyncIterable<AIMessageChunk> {
         yield { done: true, stopReason: "end_turn" };
@@ -162,12 +162,12 @@ describe("run", () => {
     };
 
     expect(await collect(run(emptyModel, [], emptyMessages))).toEqual([]);
-    expect(emptyMessages).toEqual([{ role: "user", content: "empty" }]);
+    expect(emptyMessages).toEqual([{ role: "user", text: "empty" }]);
   });
 
   test("does not append partial tool results when aborted during tool execution", async () => {
     const abortController = new AbortController();
-    const messages: Message[] = [{ role: "user", content: "run tools" }];
+    const messages: Message[] = [{ role: "user", text: "run tools" }];
     const model = {
       async *stream(): AsyncIterable<AIMessageChunk> {
         yield { delta: { type: "tool_use", id: "toolu_a", name: "record" } };
@@ -193,10 +193,10 @@ describe("run", () => {
     );
 
     expect(messages).toEqual([
-      { role: "user", content: "run tools" },
+      { role: "user", text: "run tools" },
       {
         role: "assistant",
-        content: [
+        blocks: [
           { type: "tool_use", id: "toolu_a", name: "record", input: {} },
           { type: "tool_use", id: "toolu_b", name: "record", input: {} },
         ],
@@ -205,7 +205,7 @@ describe("run", () => {
   });
 
   test("stops after maxSteps and runs multiple tool calls in order", async () => {
-    const messages: Message[] = [{ role: "user", content: "loop" }];
+    const messages: Message[] = [{ role: "user", text: "loop" }];
     const calls: unknown[] = [];
     const model = {
       async *stream(): AsyncIterable<AIMessageChunk> {
@@ -243,7 +243,7 @@ describe("run", () => {
         yield { done: true, stopReason: "end_turn" };
       },
     };
-    const messages: Message[] = [{ role: "user", content: "hi" }];
+    const messages: Message[] = [{ role: "user", text: "hi" }];
     const lookup = tool("lookup", () => ({ content: "ok" }));
 
     await collect(run(model, [lookup], messages));

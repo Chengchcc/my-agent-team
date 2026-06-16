@@ -1,4 +1,5 @@
-import { type ConversationMessageRevision, parseRevision } from "@my-agent-team/conversation";
+import type { Message, MessageRevision } from "@my-agent-team/message";
+import { mergeMessageRevision, parseMessageRevision } from "@my-agent-team/message";
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -11,7 +12,7 @@ export interface SenderRef {
 export interface UiMessage {
   id: string;
   sender: SenderRef;
-  content: ConversationMessageRevision;
+  content: Message;
 }
 
 export type TriggerMode = "auto" | "mention";
@@ -80,7 +81,7 @@ export function getApprovalTarget(s: ConvState): {
   for (const m of s.messages) {
     if (m.sender.kind === "agent" && m.content.state === "waiting" && m.content.runId) {
       return {
-        messageId: m.content.messageId,
+        messageId: m.content.id ?? "",
         runId: m.content.runId,
         text: m.content.text ?? "",
         tools: (m.content.tools ?? [])
@@ -96,7 +97,7 @@ function upsertAuthoritative(
   list: UiMessage[],
   id: string,
   sender: SenderRef,
-  content: ConversationMessageRevision,
+  content: Message,
   viewerMemberId: string,
 ): UiMessage[] {
   const idx = list.findIndex((m) => m.id === id);
@@ -133,10 +134,8 @@ export type TurnSegment =
     };
 
 export function isConclusionMessage(m: UiMessage): boolean {
-  if (typeof m.content === "string") return m.content.trim().length > 0;
-  const rev = m.content;
-  const text = rev.text ?? "";
-  const blocks = rev.blocks;
+  const text = m.content.text ?? "";
+  const blocks = m.content.blocks;
   if (text.trim().length > 0) return true;
   if (!blocks || blocks.length === 0) return false;
   const hasToolUse = blocks.some((b: { type: string }) => b.type === "tool_use");
@@ -217,20 +216,21 @@ export function reducer(s: ConvState, a: Action): ConvState {
         s.messages,
         id,
         sender,
-        { messageId: id, state: "done", text: `[系统] 成员变化：${verb}。当前在场：${present}` },
+        { id, role: "system" as const, state: "done" as const, text: `[系统] 成员变化：${verb}。当前在场：${present}` },
         s.viewerMemberId,
       );
       return { ...s, roster, messages };
     }
 
     case "ledger/message": {
-      const revision = parseRevision(a.seq, a.content);
-      const id = revision.messageId;
+      const revision = parseMessageRevision(a.content);
+      const message = mergeMessageRevision(null, revision);
+      const id = message.id ?? "";
       const sender = s.roster[a.senderMemberId] ?? {
         memberId: a.senderMemberId,
         kind: "agent" as const,
       };
-      const messages = upsertAuthoritative(s.messages, id, sender, revision, s.viewerMemberId);
+      const messages = upsertAuthoritative(s.messages, id, sender, message, s.viewerMemberId);
       // First agent message confirms the POST — clear pending send count
       const cleared = sender.kind === "agent" && s.pendingSendCount > 0 ? 0 : s.pendingSendCount;
       return { ...s, messages, pendingSendCount: cleared };
@@ -247,7 +247,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
           {
             id,
             sender: a.viewer,
-            content: { messageId: id, state: "done" as const, text: a.text },
+            content: { id, role: "user" as const, state: "done" as const, text: a.text },
           },
         ],
       };

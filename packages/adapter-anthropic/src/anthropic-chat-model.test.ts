@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { AnthropicChatModel } from "./anthropic-chat-model.js";
 
 async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
@@ -46,7 +46,7 @@ describe("AnthropicChatModel", () => {
     }));
 
     const model = new AnthropicChatModel({ apiKey: "test-key" });
-    const messages: Message[] = [{ role: "user", content: "hi" }];
+    const messages: Message[] = [{ role: "user", text: "hi" }];
     const chunks = await collect(model.stream(messages));
 
     expect(chunks).toEqual([
@@ -93,7 +93,7 @@ describe("AnthropicChatModel", () => {
     }));
 
     const model = new AnthropicChatModel({ apiKey: "test-key" });
-    const messages: Message[] = [{ role: "user", content: "read /tmp/x" }];
+    const messages: Message[] = [{ role: "user", text: "read /tmp/x" }];
     const chunks = await collect(model.stream(messages));
 
     expect(chunks).toEqual([
@@ -128,8 +128,8 @@ describe("AnthropicChatModel", () => {
 
     const model = new AnthropicChatModel({ apiKey: "test-key" });
     const messages: Message[] = [
-      { role: "system", content: "You are helpful." },
-      { role: "user", content: "hi" },
+      { role: "system", text: "You are helpful." },
+      { role: "user", text: "hi" },
     ];
     await collect(model.stream(messages));
 
@@ -162,9 +162,9 @@ describe("AnthropicChatModel", () => {
     const model = new AnthropicChatModel({ apiKey: "test-key" });
     await collect(
       model.stream([
-        { role: "system", content: "Rule A." },
-        { role: "system", content: "Rule B." },
-        { role: "user", content: "hi" },
+        { role: "system", text: "Rule A." },
+        { role: "system", text: "Rule B." },
+        { role: "user", text: "hi" },
       ]),
     );
 
@@ -198,9 +198,9 @@ describe("AnthropicChatModel", () => {
     const model = new AnthropicChatModel({ apiKey: "test-key" });
     await collect(
       model.stream([
-        { role: "user", content: "first question" },
-        { role: "user", content: "second question" },
-        { role: "assistant", content: "response" },
+        { role: "user", text: "first question" },
+        { role: "user", text: "second question" },
+        { role: "assistant", text: "response" },
       ]),
     );
 
@@ -235,9 +235,9 @@ describe("AnthropicChatModel", () => {
     const model = new AnthropicChatModel({ apiKey: "test-key" });
     await collect(
       model.stream([
-        { role: "system", content: "sys" },
-        { role: "user", content: "" },
-        { role: "assistant", content: "valid" },
+        { role: "system", text: "sys" },
+        { role: "user", text: "" },
+        { role: "assistant", text: "valid" },
       ]),
     );
 
@@ -293,7 +293,7 @@ describe("AnthropicChatModel", () => {
     }));
 
     const model = new AnthropicChatModel({ apiKey: "test-key" });
-    const chunks = await collect(model.stream([{ role: "user", content: "hi" }]));
+    const chunks = await collect(model.stream([{ role: "user", text: "hi" }]));
 
     // Only "actual output" text + done should pass through
     const textChunks = chunks.filter((c) => "delta" in c && c.delta?.type === "text");
@@ -327,7 +327,7 @@ describe("AnthropicChatModel", () => {
 
     const model = new AnthropicChatModel({ apiKey: "test-key" });
     await collect(
-      model.stream([{ role: "user", content: "hi" }], {
+      model.stream([{ role: "user", text: "hi" }], {
         tools: [
           { name: "read", description: "r", inputSchema: {}, execute: () => ({ content: "" }) },
         ],
@@ -361,7 +361,7 @@ describe("AnthropicChatModel", () => {
     }));
 
     const model = new AnthropicChatModel({ apiKey: "test-key" });
-    await collect(model.stream([{ role: "user", content: "hi" }]));
+    await collect(model.stream([{ role: "user", text: "hi" }]));
 
     expect(capturedSystem).toBeUndefined();
   });
@@ -396,7 +396,7 @@ describe("AnthropicChatModel", () => {
       thinking: { type: "adaptive" },
       effort: "xhigh",
     });
-    await collect(model.stream([{ role: "user", content: "hi" }]));
+    await collect(model.stream([{ role: "user", text: "hi" }]));
 
     expect(capturedThinking).toEqual({ type: "adaptive" });
     expect(capturedEffort).toBe("xhigh");
@@ -428,8 +428,8 @@ describe("AnthropicChatModel", () => {
     const model = new AnthropicChatModel({ apiKey: "test-key" });
     await collect(
       model.stream([
-        { role: "system", content: [{ type: "text", text: "sys from blocks" }] },
-        { role: "user", content: "hi" },
+        { role: "system", blocks: [{ type: "text", text: "sys from blocks" }] },
+        { role: "user", text: "hi" },
       ]),
     );
 

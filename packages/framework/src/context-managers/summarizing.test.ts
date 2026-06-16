@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { consoleLogger } from "../logger.js";
 import { summarizingContextManager } from "./summarizing.js";
 
@@ -12,8 +12,8 @@ const ctx = {
 function msgs(count: number): Message[] {
   const m: Message[] = [];
   for (let i = 0; i < count; i++) {
-    m.push({ role: "user", content: `msg-${i}` });
-    m.push({ role: "assistant", content: `resp-${i}` });
+    m.push({ role: "user", text: `msg-${i}` });
+    m.push({ role: "assistant", text: `resp-${i}` });
   }
   return m;
 }
@@ -39,14 +39,14 @@ describe("summarizingContextManager", () => {
       keepRecent: 2,
       summarizer: async (old) => {
         summarizerCalled = true;
-        return { role: "user", content: `[Summary of ${old.length} msgs]` };
+        return { role: "user", text: `[Summary of ${old.length} msgs]` };
       },
       countTokens: () => 1000,
     }).shape(ctx, messages);
 
     expect(summarizerCalled).toBe(true);
     // result should have: summary + last 2 messages (keepRecent=2)
-    expect(result[0]?.content).toContain("[Summary");
+    expect(result[0]?.text).toContain("[Summary");
     expect(result.length).toBe(3);
   });
 

@@ -1,4 +1,4 @@
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { AgentEvent } from "@my-agent-team/framework";
 import type { RuntimeTraceContext } from "@my-agent-team/runtime-observability";
 

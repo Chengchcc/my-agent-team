@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { consoleLogger } from "../logger.js";
 import { tokenBudgetContextManager } from "./token-budget.js";
 
@@ -12,8 +12,8 @@ const ctx = {
 function msgs(count: number): Message[] {
   const m: Message[] = [];
   for (let i = 0; i < count; i++) {
-    m.push({ role: "user", content: `msg-${i}` });
-    m.push({ role: "assistant", content: `resp-${i}` });
+    m.push({ role: "user", text: `msg-${i}` });
+    m.push({ role: "assistant", text: `resp-${i}` });
   }
   return m;
 }

@@ -1,4 +1,5 @@
-import type { AIMessageChunk, ChatModel, Message } from "@my-agent-team/core";
+import type { AIMessageChunk, ChatModel } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 
 export interface EchoScript {
   turns: Array<

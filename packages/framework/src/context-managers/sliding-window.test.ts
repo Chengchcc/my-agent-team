@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { consoleLogger } from "../logger.js";
 import { slidingWindowContextManager } from "./sliding-window.js";
 
@@ -12,30 +12,30 @@ const ctx = {
 describe("slidingWindowContextManager", () => {
   test("keeps last N turns", async () => {
     const msgs: Message[] = [
-      { role: "user", content: "u1" },
-      { role: "assistant", content: "a1" },
-      { role: "user", content: "u2" },
-      { role: "assistant", content: "a2" },
-      { role: "user", content: "u3" },
-      { role: "assistant", content: "a3" },
+      { role: "user", text: "u1" },
+      { role: "assistant", text: "a1" },
+      { role: "user", text: "u2" },
+      { role: "assistant", text: "a2" },
+      { role: "user", text: "u3" },
+      { role: "assistant", text: "a3" },
     ];
 
     const result = await slidingWindowContextManager({ maxTurns: 2 }).shape(ctx, msgs);
     expect(result).toEqual([
-      { role: "user", content: "u2" },
-      { role: "assistant", content: "a2" },
-      { role: "user", content: "u3" },
-      { role: "assistant", content: "a3" },
+      { role: "user", text: "u2" },
+      { role: "assistant", text: "a2" },
+      { role: "user", text: "u3" },
+      { role: "assistant", text: "a3" },
     ]);
   });
 
   test("keepFirst preserves prefix", async () => {
     const msgs: Message[] = [
-      { role: "system", content: "sys" },
-      { role: "user", content: "u1" },
-      { role: "assistant", content: "a1" },
-      { role: "user", content: "u2" },
-      { role: "assistant", content: "a2" },
+      { role: "system", text: "sys" },
+      { role: "user", text: "u1" },
+      { role: "assistant", text: "a1" },
+      { role: "user", text: "u2" },
+      { role: "assistant", text: "a2" },
     ];
 
     const result = await slidingWindowContextManager({ maxTurns: 1, keepFirst: 1 }).shape(
@@ -43,16 +43,16 @@ describe("slidingWindowContextManager", () => {
       msgs,
     );
     expect(result).toEqual([
-      { role: "system", content: "sys" },
-      { role: "user", content: "u2" },
-      { role: "assistant", content: "a2" },
+      { role: "system", text: "sys" },
+      { role: "user", text: "u2" },
+      { role: "assistant", text: "a2" },
     ]);
   });
 
   test("under limit → all preserved", async () => {
     const msgs: Message[] = [
-      { role: "user", content: "u1" },
-      { role: "assistant", content: "a1" },
+      { role: "user", text: "u1" },
+      { role: "assistant", text: "a1" },
     ];
 
     const result = await slidingWindowContextManager({ maxTurns: 5 }).shape(ctx, msgs);
@@ -61,9 +61,9 @@ describe("slidingWindowContextManager", () => {
 
   test("does not mutate input", async () => {
     const msgs: Message[] = [
-      { role: "user", content: "u1" },
-      { role: "assistant", content: "a1" },
-      { role: "user", content: "u2" },
+      { role: "user", text: "u1" },
+      { role: "assistant", text: "a1" },
+      { role: "user", text: "u2" },
     ];
     const original = JSON.stringify(msgs);
 
@@ -78,25 +78,25 @@ describe("slidingWindowContextManager", () => {
 
   test("pairing-aware: dropping a turn with tool_use drops associated tool_result", async () => {
     const msgs: Message[] = [
-      { role: "user", content: "u1" },
+      { role: "user", text: "u1" },
       {
         role: "assistant",
-        content: [{ type: "tool_use", id: "t1", name: "read", input: {} }],
+        blocks: [{ type: "tool_use", id: "t1", name: "read", input: {} }],
       },
       {
         role: "user",
-        content: [{ type: "tool_result", tool_use_id: "t1", content: "file content" }],
+        blocks: [{ type: "tool_result", tool_use_id: "t1", content: "file content" }],
       },
-      { role: "user", content: "u2" },
-      { role: "assistant", content: "a2" },
+      { role: "user", text: "u2" },
+      { role: "assistant", text: "a2" },
     ];
 
     const result = await slidingWindowContextManager({ maxTurns: 1 }).shape(ctx, msgs);
 
     // Only u2 + a2 should remain; u1 + tool_use + tool_result should be dropped together
     expect(result).toEqual([
-      { role: "user", content: "u2" },
-      { role: "assistant", content: "a2" },
+      { role: "user", text: "u2" },
+      { role: "assistant", text: "a2" },
     ]);
   });
 });

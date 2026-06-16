@@ -2,11 +2,11 @@ import type {
   AIMessageChunk,
   ChatModel,
   ContentBlock,
-  Message,
   Tool,
   ToolResultBlock,
   ToolUseBlock,
 } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { collectStream, finalizeToolUseInputs, mergeChunkIntoBlocks } from "@my-agent-team/core";
 import { type Checkpointer, InterruptSignal, validateCheckpointer } from "./checkpointer.js";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
@@ -243,7 +243,7 @@ async function* executeOne(
       content: decision.result ?? "Tool skipped",
       isError: decision.isError ?? (decision.result ? true : undefined),
     });
-    rt.thread.messages.push({ role: "user", content: [r] } as Message);
+    rt.thread.messages.push({ role: "user", blocks: [r] });
     await rt.save(rt.thread.messages);
     yield {
       type: "tool_call",
@@ -318,7 +318,7 @@ async function* executeOne(
     });
   }
 
-  rt.thread.messages.push({ role: "user", content: [resultBlock] } as Message);
+  rt.thread.messages.push({ role: "user", blocks: [resultBlock] });
   await rt.plugins.fireAfterTool(call, resultBlock, rt.thread.messages);
   for (const ev of rt.pendingEvents.splice(0)) yield ev;
   await rt.checkpointer.appendEvent?.(rt.thread.id, {
@@ -448,7 +448,7 @@ async function* runLoop(
       return;
     }
 
-    const assistantMsg: Message = { role: "assistant", content: blocks.slice() };
+    const assistantMsg: Message = { role: "assistant", blocks: blocks.slice() };
     rt.thread.messages.push(assistantMsg);
     await rt.plugins.fireAfterModel(rt.thread.messages);
     yield { type: "message", payload: assistantMsg };
@@ -460,7 +460,7 @@ async function* runLoop(
         for (const ev of rt.pendingEvents.splice(0)) yield ev;
         if (verdict?.continue) {
           forceContinues++;
-          rt.thread.messages.push({ role: "user", content: verdict.reason } as Message);
+          rt.thread.messages.push({ role: "user", text: verdict.reason });
           await rt.checkpointer.appendEvent?.(rt.thread.id, {
             type: "force_continue",
             reason: verdict.reason,
@@ -488,8 +488,8 @@ async function* runLoop(
           const remaining = toolUses[j]!;
           rt.thread.messages.push({
             role: "user",
-            content: [wrapToolResult(remaining, { content: "Interrupted", isError: true })],
-          } as Message);
+            blocks: [wrapToolResult(remaining, { content: "Interrupted", isError: true })],
+          });
         }
         await rt.save(rt.thread.messages);
         return;
@@ -618,9 +618,9 @@ function createAgentInternal(
       try {
         opts.signal?.throwIfAborted();
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
-          thread.messages.unshift({ role: "system", content: systemPrompt });
+          thread.messages.unshift({ role: "system", text: systemPrompt });
         }
-        thread.messages.push({ role: "user", content: input });
+        thread.messages.push({ role: "user", text: input });
         await save(thread.messages);
         await checkpointer.appendEvent?.(thread.id, {
           type: "user_input",
@@ -655,7 +655,7 @@ function createAgentInternal(
       try {
         opts.signal?.throwIfAborted();
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
-          thread.messages.unshift({ role: "system", content: systemPrompt });
+          thread.messages.unshift({ role: "system", text: systemPrompt });
           await save(thread.messages);
         }
 
@@ -686,8 +686,8 @@ function createAgentInternal(
 
         const placeholderIdx = thread.messages.findLastIndex(
           (m) =>
-            Array.isArray(m.content) &&
-            m.content.some(
+            Array.isArray(m.blocks) &&
+            m.blocks.some(
               (b) =>
                 b.type === "tool_result" &&
                 b.tool_use_id === it.pendingTool.call.id &&
@@ -701,9 +701,9 @@ function createAgentInternal(
           is_error: !command.approved,
         };
         if (placeholderIdx >= 0) {
-          thread.messages[placeholderIdx] = { role: "user", content: [realResult] } as Message;
+          thread.messages[placeholderIdx] = { role: "user", blocks: [realResult] };
         } else {
-          thread.messages.push({ role: "user", content: [realResult] } as Message);
+          thread.messages.push({ role: "user", blocks: [realResult] });
         }
         await save(thread.messages);
         yield* runLoop(rt, runLoopOpts(opts));

@@ -10,6 +10,7 @@
     "lint": "bun check"
   },
   "dependencies": {
-    "@my-agent-team/conversation": "workspace:*"
+    "@my-agent-team/conversation": "workspace:*",
+    "@my-agent-team/message": "workspace:*"
   }
 }

@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { InterruptState } from "../checkpointer.js";
 import { inMemoryCheckpointer } from "./in-memory.js";
 
 describe("inMemoryCheckpointer", () => {
   test("save/load roundtrip", async () => {
     const cp = inMemoryCheckpointer();
-    const msgs: Message[] = [{ role: "user", content: "hi" }];
+    const msgs: Message[] = [{ role: "user", text: "hi" }];
 
     await cp.save("t1", msgs);
     const loaded = await cp.load("t1");
@@ -59,10 +59,10 @@ describe("inMemoryCheckpointer", () => {
   test("thread isolation", async () => {
     const cp = inMemoryCheckpointer();
 
-    await cp.save("a", [{ role: "user", content: "a-msg" }]);
-    await cp.save("b", [{ role: "user", content: "b-msg" }]);
+    await cp.save("a", [{ role: "user", text: "a-msg" }]);
+    await cp.save("b", [{ role: "user", text: "b-msg" }]);
 
-    expect(await cp.load("a")).toEqual([{ role: "user", content: "a-msg" }]);
-    expect(await cp.load("b")).toEqual([{ role: "user", content: "b-msg" }]);
+    expect(await cp.load("a")).toEqual([{ role: "user", text: "a-msg" }]);
+    expect(await cp.load("b")).toEqual([{ role: "user", text: "b-msg" }]);
   });
 });

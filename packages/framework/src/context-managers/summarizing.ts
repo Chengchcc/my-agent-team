@@ -1,4 +1,5 @@
-import type { ChatModel, Message } from "@my-agent-team/core";
+import type { ChatModel } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { collectStream } from "@my-agent-team/core";
 import type { ContextManager } from "../context-manager.js";
 import { repairToolPairs } from "../repair-tool-pairs.js";
@@ -26,8 +27,7 @@ async function defaultSummarize(
     ...old,
     {
       role: "user",
-      content:
-        "Summarize the conversation above concisely. Keep key decisions, facts, and action items. Output only the summary text, no preamble.",
+      text: "Summarize the conversation above concisely. Keep key decisions, facts, and action items. Output only the summary text, no preamble.",
     },
   ];
   const { blocks } = await collectStream(model.stream(promptMsgs, { signal }));
@@ -35,7 +35,7 @@ async function defaultSummarize(
     .filter((b) => b.type === "text")
     .map((b) => b.text)
     .join("\n");
-  return { role: "user", content: `[Earlier conversation summary]: ${text}` };
+  return { role: "user", text: `[Earlier conversation summary]: ${text}` };
 }
 
 export function summarizingContextManager(opts: SummarizingOptions): ContextManager {

@@ -12,8 +12,6 @@
     "test": "bun test",
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
-  "dependencies": {
-    "@my-agent-team/core": "workspace:*"
-  },
+  "dependencies": {},
   "devDependencies": {}
 }

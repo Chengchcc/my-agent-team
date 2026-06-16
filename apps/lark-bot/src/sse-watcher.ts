@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { parseRevision } from "@my-agent-team/conversation";
+import { isTerminalMessageState, type MessageState, parseMessageRevision } from "@my-agent-team/message";
 import {
   getMemberBindingsForChat,
   getMessageDelivery,
@@ -209,12 +209,12 @@ async function processEntry(
   }
 
   // ─── M17: Message revision model ───
-  const revision = parseRevision(entry.seq, safeJsonParse(entry.content));
+  const revision = parseMessageRevision(safeJsonParse(entry.content));
   const messageId = revision.messageId;
 
   // Check delivery state: if already delivered as terminal, skip
   const delivery = getMessageDelivery(db, entry.conversationId, messageId, larkChatId);
-  if (delivery && (delivery.lastState === "done" || delivery.lastState === "error")) {
+  if (delivery && isTerminalMessageState(delivery.lastState as MessageState)) {
     updatePushedSeq(db, larkChatId, entry.seq);
     return;
   }

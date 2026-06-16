@@ -23,6 +23,7 @@
     "@my-agent-team/agent-fs": "workspace:*",
     "@my-agent-team/core": "workspace:*",
     "@my-agent-team/framework": "workspace:*",
+    "@my-agent-team/message": "workspace:*",
     "@my-agent-team/plugin-fs-memory": "workspace:*",
     "@my-agent-team/plugin-progressive-skill": "workspace:*",
     "@my-agent-team/plugin-task-guard": "workspace:*",

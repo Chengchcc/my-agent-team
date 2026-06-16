@@ -22,6 +22,7 @@
   "dependencies": {
     "@my-agent-team/core": "workspace:*",
     "@my-agent-team/framework": "workspace:*",
+    "@my-agent-team/message": "workspace:*",
     "@my-agent-team/runtime-observability": "workspace:*"
   }
 }

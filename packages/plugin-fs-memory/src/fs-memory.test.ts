@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { AgentFS, MemoryBackend } from "@my-agent-team/agent-fs";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import {
   consoleLogger,
   type HookContext,
@@ -50,14 +50,14 @@ describe("fsMemoryPlugin", () => {
 
     const plugin = fsMemoryPlugin({ ws, root });
     const msgs: Message[] = [
-      { role: "system", content: "You are helpful." },
-      { role: "user", content: "hi" },
+      { role: "system", text:"You are helpful." },
+      { role: "user", text: "hi" },
     ];
 
     const result = (await plugin.hooks.beforeModel?.(testCtx(), msgs))!;
     expect(result).toHaveLength(2);
-    expect((result[0] as Message).content).toContain("my memory content");
-    expect((result[0] as Message).content).toContain("<memory>");
+    expect((result[0] as Message).text).toContain("my memory content");
+    expect((result[0] as Message).text).toContain("<memory>");
   });
 
   test("empty MEMORY.md skips injection (passes through)", async () => {
@@ -68,13 +68,13 @@ describe("fsMemoryPlugin", () => {
 
     const plugin = fsMemoryPlugin({ ws, root });
     const msgs: Message[] = [
-      { role: "system", content: "sys" },
-      { role: "user", content: "hi" },
+      { role: "system", text:"sys" },
+      { role: "user", text: "hi" },
     ];
 
     const result = (await plugin.hooks.beforeModel?.(testCtx(), msgs))!;
     // No injection, should be same
-    expect((result[0] as Message).content).toBe("sys");
+    expect((result[0] as Message).text).toBe("sys");
   });
 
   test("MEMORY.md missing → no injection, no error", async () => {
@@ -83,12 +83,12 @@ describe("fsMemoryPlugin", () => {
     invalidateMemCache(root);
     const plugin = fsMemoryPlugin({ ws, root });
     const msgs: Message[] = [
-      { role: "system", content: "sys" },
-      { role: "user", content: "hi" },
+      { role: "system", text:"sys" },
+      { role: "user", text: "hi" },
     ];
 
     const result = (await plugin.hooks.beforeModel?.(testCtx(), msgs))!;
-    expect((result[0] as Message).content).toBe("sys");
+    expect((result[0] as Message).text).toBe("sys");
   });
 
   test("no system message → warns + passes through", async () => {
@@ -109,7 +109,7 @@ describe("fsMemoryPlugin", () => {
     };
 
     const plugin = fsMemoryPlugin({ ws, root });
-    const msgs: Message[] = [{ role: "user", content: "hi" }];
+    const msgs: Message[] = [{ role: "user", text: "hi" }];
 
     const result = (await plugin.hooks.beforeModel?.(ctx, msgs as Message[]))!;
     expect(result).toHaveLength(1);
@@ -136,15 +136,15 @@ describe("fsMemoryPlugin", () => {
 
     const plugin = fsMemoryPlugin({ ws, root });
     const msgs: Message[] = [
-      { role: "system", content: "sys" },
-      { role: "user", content: "hi" },
+      { role: "system", text:"sys" },
+      { role: "user", text: "hi" },
     ];
 
     const result = (await plugin.hooks.beforeModel?.(ctx, msgs as Message[]))!;
     expect(result).toHaveLength(2);
     expect(warnings.some((w) => w.includes("read failed"))).toBe(true);
     // should still pass through unchanged
-    expect((result[0] as Message).content).toBe("sys");
+    expect((result[0] as Message).text).toBe("sys");
   });
 
   test("plugin exposes 3 tools", () => {

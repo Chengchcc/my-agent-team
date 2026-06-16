@@ -1,4 +1,4 @@
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { CheckpointEvent, Checkpointer, InterruptState } from "../checkpointer.js";
 
 export function inMemoryCheckpointer(): Checkpointer {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ConversationMessageRevision } from "@my-agent-team/conversation";
+import type { Message } from "@my-agent-team/message";
 import { initialState, isBusy, reducer, type SenderRef } from "@/lib/conversation-reducer";
 
 function bootstrap(overrides: { viewerMemberId?: string; members?: SenderRef[] } = {}) {
@@ -12,11 +12,12 @@ function bootstrap(overrides: { viewerMemberId?: string; members?: SenderRef[] }
   });
 }
 
-function rev(overrides: Partial<ConversationMessageRevision> = {}): ConversationMessageRevision {
+function rev(overrides: Record<string, unknown> = {}) {
   return {
     messageId: "run:r1:assistant:0",
     state: "streaming",
     role: "assistant",
+    updatedAt: 1,
     text: "hello",
     runId: "r1",
     ...overrides,
@@ -55,7 +56,7 @@ describe("ledger/message", () => {
     let s = bootstrap();
     s = reducer(s, { type: "ledger/message", seq: 1, senderMemberId: "agent-1", content: rev() });
     expect(s.messages).toHaveLength(1);
-    expect(s.messages[0]!.content.messageId).toBe("run:r1:assistant:0");
+    expect(s.messages[0]!.content.id).toBe("run:r1:assistant:0");
     expect(s.messages[0]!.content.state).toBe("streaming");
   });
 
@@ -77,33 +78,32 @@ describe("ledger/message", () => {
     let s = bootstrap();
     s = reducer(s, { type: "send", text: "hi", viewer: s.roster["human-1"]! });
     expect(s.messages[0]!.id).toStartWith("opt-");
-    s = reducer(s, { type: "ledger/message", seq: 1, senderMemberId: "human-1", content: "hi" });
+    s = reducer(s, { type: "ledger/message", seq: 1, senderMemberId: "human-1",
+      content: { messageId: "s-1", state: "done", role: "user", updatedAt: 1, text: "hi" } });
     expect(s.messages).toHaveLength(1);
     expect(s.messages[0]!.id).toBe("s-1");
   });
 
-  test("legacy content (string) → state=done, id=s-seq", () => {
-    let s = bootstrap();
-    s = reducer(s, {
-      type: "ledger/message",
-      seq: 42,
-      senderMemberId: "agent-1",
-      content: "legacy text",
-    });
-    expect(s.messages[0]!.content.messageId).toBe("s-42");
-    expect(s.messages[0]!.content.state).toBe("done");
+  test("legacy content (string) → rejected by strict parser", () => {
+    const s = bootstrap();
+    expect(() =>
+      reducer(s, {
+        type: "ledger/message",
+        seq: 42,
+        senderMemberId: "agent-1",
+        content: "legacy text",
+      }),
+    ).toThrow();
   });
 
-  test("legacy content (array) → state=done blocks", () => {
+  test("legacy content (array) → rejected by strict parser", () => {
     let s = bootstrap();
-    s = reducer(s, {
+    expect(() => reducer(s, {
       type: "ledger/message",
       seq: 42,
       senderMemberId: "agent-1",
       content: [{ type: "text", text: "legacy" }],
-    });
-    expect(s.messages[0]!.content.messageId).toBe("s-42");
-    expect(s.messages[0]!.content.blocks).toEqual([{ type: "text", text: "legacy" }]);
+    })).toThrow();
   });
 });
 

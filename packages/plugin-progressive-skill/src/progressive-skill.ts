@@ -1,4 +1,4 @@
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { Plugin } from "@my-agent-team/framework";
 import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { loadSkillIndexWithMtimeCache, type SkillMeta } from "./cache.js";
@@ -47,7 +47,7 @@ export function progressiveSkillPlugin(options: ProgressiveSkillOptions): Plugin
         if (!sys) return messages as Message[];
         const newSys = {
           ...sys,
-          content: `${sys.content}\n\n${indexBlock}`,
+          text: `${sys.text ?? ""}\n\n${indexBlock}`,
         };
         return [
           ...messages.slice(0, systemIdx),

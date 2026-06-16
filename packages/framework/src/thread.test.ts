@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import { createThread } from "./thread.js";
 
 describe("createThread", () => {
@@ -12,7 +12,7 @@ describe("createThread", () => {
   });
 
   test("accepts initial messages", () => {
-    const messages: Message[] = [{ role: "user", content: "hi" }];
+    const messages: Message[] = [{ role: "user", text: "hi" }];
     const thread = createThread(messages);
 
     expect(thread.messages).toEqual(messages);
@@ -21,7 +21,7 @@ describe("createThread", () => {
   test("messages is mutable", () => {
     const thread = createThread();
 
-    thread.messages.push({ role: "user", content: "hello" });
+    thread.messages.push({ role: "user", text: "hello" });
 
     expect(thread.messages).toHaveLength(1);
   });

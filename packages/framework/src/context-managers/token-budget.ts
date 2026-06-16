@@ -1,4 +1,4 @@
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { ContextManager } from "../context-manager.js";
 import { repairToolPairs } from "../repair-tool-pairs.js";
 

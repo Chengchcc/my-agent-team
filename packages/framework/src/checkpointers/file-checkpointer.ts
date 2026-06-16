@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Message } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 import type { CheckpointEvent, Checkpointer, InterruptState } from "../checkpointer.js";
 
 const VALID_ID = /^(?!\.)[A-Za-z0-9_\-.]{1,128}$/;

@@ -1,4 +1,10 @@
 export type {
+  ContentBlock,
+  TextBlock,
+  ToolResultBlock,
+  ToolUseBlock,
+} from "./content-block.js";
+export type {
   Message,
   MessageAuthor,
   MessageError,

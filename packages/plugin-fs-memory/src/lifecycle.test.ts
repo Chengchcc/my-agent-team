@@ -31,8 +31,8 @@ describe("lifecycle", () => {
         contextManager: { shape: (_ctx: never, msgs: readonly never[]) => [...msgs] },
       },
       [
-        { role: "system", content: "sys" },
-        { role: "user", content: "hi" },
+        { role: "system", text: "sys" },
+        { role: "user", text: "hi" },
       ],
     );
 
@@ -59,8 +59,8 @@ describe("lifecycle", () => {
         contextManager: { shape: (_ctx: never, msgs: readonly never[]) => [...msgs] },
       },
       [
-        { role: "system", content: "sys" },
-        { role: "user", content: "hi" },
+        { role: "system", text: "sys" },
+        { role: "user", text: "hi" },
       ],
     );
 
