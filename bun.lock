@@ -36,17 +36,6 @@
         "@my-agent-team/agent-fs": "workspace:*",
       },
     },
-    "apps/cli": {
-      "name": "@my-agent-team/cli",
-      "version": "0.1.0",
-      "dependencies": {
-        "@my-agent-team/adapter-anthropic": "workspace:*",
-        "@my-agent-team/agent-fs": "workspace:*",
-        "@my-agent-team/core": "workspace:*",
-        "@my-agent-team/harness": "workspace:*",
-        "@my-agent-team/tools-common": "workspace:*",
-      },
-    },
     "apps/lark-bot": {
       "name": "@my-agent-team/lark-bot",
       "version": "0.1.0",
@@ -78,7 +67,7 @@
         "@types/react": "^19.0.0",
         "@types/react-dom": "^19.0.0",
         "tailwindcss": "^4.0.0",
-        "typescript": "^5.7.0",
+        "typescript": "^6.0.3",
       },
     },
     "packages/adapter-anthropic": {
@@ -446,8 +435,6 @@
     "@my-agent-team/agent-spec": ["@my-agent-team/agent-spec@workspace:packages/agent-spec"],
 
     "@my-agent-team/backend": ["@my-agent-team/backend@workspace:apps/backend"],
-
-    "@my-agent-team/cli": ["@my-agent-team/cli@workspace:apps/cli"],
 
     "@my-agent-team/conversation": ["@my-agent-team/conversation@workspace:packages/conversation"],
 
@@ -1536,8 +1523,6 @@
     "@eslint-community/eslint-utils/eslint-visitor-keys": ["eslint-visitor-keys@3.4.3", "https://registry.npmmirror.com/eslint-visitor-keys/-/eslint-visitor-keys-3.4.3.tgz", {}, "sha512-wpc+LXeiyiisxPlEkUzU6svyS1frIO3Mgxj1fdy7Pm8Ygzguax2N3Fa/D/ag1WqbOprdI+uY6wMUl8/a2G+iag=="],
 
     "@modelcontextprotocol/sdk/ajv": ["ajv@8.20.0", "https://registry.npmmirror.com/ajv/-/ajv-8.20.0.tgz", { "dependencies": { "fast-deep-equal": "^3.1.3", "fast-uri": "^3.0.1", "json-schema-traverse": "^1.0.0", "require-from-string": "^2.0.2" } }, "sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA=="],
-
-    "@my-agent-team/web/typescript": ["typescript@5.9.3", "https://registry.npmmirror.com/typescript/-/typescript-5.9.3.tgz", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@reduxjs/toolkit/immer": ["immer@11.1.8", "https://registry.npmmirror.com/immer/-/immer-11.1.8.tgz", {}, "sha512-/tbkHMW7y10Lx6i1crLjD4/OhNkRG+Fo7byZHtah0547nIeXYcpIXaUh0IAQY6gO5459qpGGYapcEOHtFXkIuA=="],
 

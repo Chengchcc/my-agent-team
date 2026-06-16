@@ -20,8 +20,8 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
-    "@my-agent-team/core": "workspace:*",
-    "@anthropic-ai/sdk": "^0.100.1"
+    "@anthropic-ai/sdk": "^0.100.1",
+    "@my-agent-team/core": "workspace:*"
   },
   "devDependencies": {}
 }
