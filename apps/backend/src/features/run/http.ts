@@ -51,8 +51,9 @@ export function runRoutes(
     },
 
     /** GET /api/runs/:id/events → SSE (Last-Event-ID or ?afterSeq= query param).
-     *  Merges EventLog durable events + ephemeral text_delta/tool events into
-     *  a single stream. Frontend no longer needs a separate /runs/:id/stream connection. */
+     *  @deprecated M17: Web/Lark surfaces no longer consume this for user-visible output.
+     *  Conversation ledger SSE is the sole user-output source. This remains for
+     *  internal debugging/tooling only. */
     async events(req: Request, runId: string): Promise<Response> {
       const qsAfterSeq = new URL(req.url).searchParams.get("afterSeq");
       const afterSeq = qsAfterSeq
