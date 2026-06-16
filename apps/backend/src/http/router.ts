@@ -85,23 +85,14 @@ export function createRouter(token: string, features?: FeatureSet) {
         )(req);
       if (agentLarkSetupMatch) return json({ error: "Method not allowed" }, 405);
 
-      // Runs — cancel, events, stream, resume, get
+      // Runs — cancel, resume, get
       const cancelMatch = path.match(/^\/api\/runs\/([^/]+)\/cancel$/);
-      const eventsMatch = path.match(/^\/api\/runs\/([^/]+)\/events$/);
-      const streamMatch = path.match(/^\/api\/runs\/([^/]+)\/stream$/);
       const resumeMatch = path.match(/^\/api\/runs\/([^/]+)\/resume$/);
       const runMatch = path.match(/^\/api\/runs\/([^/]+)$/);
 
       if (cancelMatch && method === "POST")
         return withAuth((r) => runs.cancel(r, cancelMatch[1]!), token)(req);
       if (cancelMatch) return json({ error: "Method not allowed" }, 405);
-      if (eventsMatch && method === "GET")
-        return withAuth((r) => runs.events(r, eventsMatch[1]!), token)(req);
-      if (eventsMatch) return json({ error: "Method not allowed" }, 405);
-      // M13: /stream for ephemeral text_delta SSE
-      if (streamMatch && method === "GET")
-        return withAuth((r) => runs.stream(r, streamMatch[1]!), token)(req);
-      if (streamMatch) return json({ error: "Method not allowed" }, 405);
       if (resumeMatch && method === "POST")
         return withAuth((r) => runs.resume(r, resumeMatch[1]!), token)(req);
       if (resumeMatch) return json({ error: "Method not allowed" }, 405);

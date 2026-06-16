@@ -173,68 +173,6 @@ export function createRunService(deps: RunServiceDeps) {
       }
     },
 
-    /** M13: Stream ephemeral text_delta events via supervisor fan-out. Never hits EventLog. */
-    deltaStream(runId: string): ReadableStream {
-      return supervisor.subscribeDelta(runId);
-    },
-
-    /** Unified SSE stream: merges EventLog (durable events) + delta (ephemeral
-     *  text_delta/tool_start/tool_end) into a single stream. Eliminates the
-     *  need for the frontend to open two EventSource connections per run. */
-    mergedStream(runId: string, afterSeq: number, signal?: AbortSignal): ReadableStream {
-      const encoder = new TextEncoder();
-
-      return new ReadableStream({
-        async start(controller) {
-          const enq = (s: string) => controller.enqueue(encoder.encode(s));
-          // Phase 1: replay EventLog history
-          const records = await eventLog.read({ runId, afterSeq });
-          for (const rec of records) {
-            if (signal?.aborted) {
-              controller.close();
-              return;
-            }
-            enq(`id: ${rec.seq}\nevent: ${rec.event.type}\ndata: ${JSON.stringify(rec.event)}\n\n`);
-          }
-
-          // Phase 2: tail both EventLog (durable) and delta (ephemeral) concurrently.
-          // Start after the last record we just replayed to avoid duplicates.
-          const deltaReader = supervisor.subscribeDelta(runId).getReader();
-          let eventSeq =
-            records.length > 0 ? (records[records.length - 1]?.seq ?? afterSeq) : afterSeq;
-
-          const pollEventLog = async () => {
-            for await (const rec of eventLog.subscribe({ runId, afterSeq: eventSeq }, {}, signal)) {
-              eventSeq = rec.seq;
-              enq(
-                `id: ${rec.seq}\nevent: ${rec.event.type}\ndata: ${JSON.stringify(rec.event)}\n\n`,
-              );
-            }
-          };
-
-          const pumpDeltas = async () => {
-            while (true) {
-              const { done, value } = await deltaReader.read();
-              if (done) break;
-              // Delta stream may output strings or Uint8Array
-              controller.enqueue(typeof value === "string" ? encoder.encode(value) : value);
-            }
-          };
-
-          // Wait for either source to finish (run completes → both close)
-          // or signal abort → close
-          const donePromise = new Promise<void>((resolve) => {
-            if (signal) signal.addEventListener("abort", () => resolve(), { once: true });
-          });
-
-          await Promise.race([Promise.all([pollEventLog(), pumpDeltas()]), donePromise]);
-
-          enq("event: done\ndata: {}\n\n");
-          controller.close();
-        },
-      });
-    },
-
     /** Get run metadata (status, timestamps). */
     getRunById(
       runId: string,

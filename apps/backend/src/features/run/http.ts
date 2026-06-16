@@ -50,25 +50,6 @@ export function runRoutes(
       }
     },
 
-    /** GET /api/runs/:id/events → SSE (Last-Event-ID or ?afterSeq= query param).
-     *  @deprecated M17: Web/Lark surfaces no longer consume this for user-visible output.
-     *  Conversation ledger SSE is the sole user-output source. This remains for
-     *  internal debugging/tooling only. */
-    async events(req: Request, runId: string): Promise<Response> {
-      const qsAfterSeq = new URL(req.url).searchParams.get("afterSeq");
-      const afterSeq = qsAfterSeq
-        ? parseInt(qsAfterSeq, 10) || 0
-        : parseInt(req.headers.get("Last-Event-ID") ?? "0", 10) || 0;
-      const stream = svc.mergedStream(runId, afterSeq, req.signal);
-      return new Response(stream, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        },
-      });
-    },
-
     /** POST /api/runs/:id/resume → 202 { runId, attemptId } */
     async resume(req: Request, runId: string): Promise<Response> {
       const body = await parseJsonBody(req);
@@ -101,16 +82,5 @@ export function runRoutes(
       return json(meta);
     },
 
-    /** M13: GET /api/runs/:id/stream → SSE text_delta stream (ephemeral, not EventLog) */
-    async stream(_req: Request, runId: string): Promise<Response> {
-      const deltaStream = svc.deltaStream(runId);
-      return new Response(deltaStream, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        },
-      });
-    },
   };
 }
