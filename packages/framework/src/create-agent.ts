@@ -247,7 +247,13 @@ async function* executeOne(
     await rt.save(rt.thread.messages);
     yield {
       type: "tool_call",
-      payload: { step, id: call.id, name: call.name, latencyMs: Date.now() - toolStart, isError: r.is_error === true },
+      payload: {
+        step,
+        id: call.id,
+        name: call.name,
+        latencyMs: Date.now() - toolStart,
+        isError: r.is_error === true,
+      },
     };
     yield {
       type: "tool_end",
@@ -289,7 +295,16 @@ async function* executeOne(
         reason: err.reason,
         ts: Date.now(),
       });
-      yield { type: "tool_call", payload: { step, id: call.id, name: call.name, latencyMs: Date.now() - toolStart, isError: true } };
+      yield {
+        type: "tool_call",
+        payload: {
+          step,
+          id: call.id,
+          name: call.name,
+          latencyMs: Date.now() - toolStart,
+          isError: true,
+        },
+      };
       yield { type: "tool_end", payload: { id: call.id, name: call.name, isError: true } };
       yield {
         type: "interrupted",
@@ -314,7 +329,13 @@ async function* executeOne(
   });
   yield {
     type: "tool_call",
-    payload: { step, id: call.id, name: call.name, latencyMs: Date.now() - toolStart, isError: resultBlock.is_error === true },
+    payload: {
+      step,
+      id: call.id,
+      name: call.name,
+      latencyMs: Date.now() - toolStart,
+      isError: resultBlock.is_error === true,
+    },
   };
   yield {
     type: "tool_end",

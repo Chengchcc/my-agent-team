@@ -5,12 +5,7 @@
 
 import { normalizeForLarkMarkdown } from "./markdown-normalizer.js";
 
-export type LarkRunCardStatus =
-  | "thinking"
-  | "streaming"
-  | "done"
-  | "error"
-  | "fallback_text";
+export type LarkRunCardStatus = "thinking" | "streaming" | "done" | "error" | "fallback_text";
 
 export interface LarkRunCardModel {
   runId: string;
@@ -29,36 +24,34 @@ export interface LarkRunCardRenderOptions {
   includeDebugRunId: boolean;
 }
 
-const STATUS_MAP: Record<
-  LarkRunCardStatus,
-  { header: string; template: string; summary: string }
-> = {
-  thinking: {
-    header: "Mira 正在思考",
-    template: "blue",
-    summary: "生成中...",
-  },
-  streaming: {
-    header: "Mira 正在回复",
-    template: "blue",
-    summary: "生成中...",
-  },
-  done: {
-    header: "Mira 已完成",
-    template: "green",
-    summary: "已完成",
-  },
-  error: {
-    header: "Mira 回复中断",
-    template: "red",
-    summary: "回复中断",
-  },
-  fallback_text: {
-    header: "Mira 回复",
-    template: "grey",
-    summary: "",
-  },
-};
+const STATUS_MAP: Record<LarkRunCardStatus, { header: string; template: string; summary: string }> =
+  {
+    thinking: {
+      header: "Mira 正在思考",
+      template: "blue",
+      summary: "生成中...",
+    },
+    streaming: {
+      header: "Mira 正在回复",
+      template: "blue",
+      summary: "生成中...",
+    },
+    done: {
+      header: "Mira 已完成",
+      template: "green",
+      summary: "已完成",
+    },
+    error: {
+      header: "Mira 回复中断",
+      template: "red",
+      summary: "回复中断",
+    },
+    fallback_text: {
+      header: "Mira 回复",
+      template: "grey",
+      summary: "",
+    },
+  };
 
 const elementIds = {
   agentOutput: "agent_output",
@@ -75,10 +68,7 @@ export function renderLarkRunCard(
   const statusMeta = STATUS_MAP[model.status];
 
   const normalized = normalizeForLarkMarkdown(model.content);
-  const markdownContent =
-    model.status === "thinking"
-      ? "_正在思考..._"
-      : normalized.markdown;
+  const markdownContent = model.status === "thinking" ? "_正在思考..._" : normalized.markdown;
 
   const bodyElements: Record<string, unknown>[] = [
     {

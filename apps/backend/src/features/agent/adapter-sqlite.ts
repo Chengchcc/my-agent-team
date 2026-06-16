@@ -109,7 +109,10 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
       return (db.query(sql).all() as DbAgentRow[]).map(toRow);
     },
 
-    async update(id: string, input: UpdateAgentInput & { now: number; lark?: { profileRef?: string } }): Promise<AgentRow | null> {
+    async update(
+      id: string,
+      input: UpdateAgentInput & { now: number; lark?: { profileRef?: string } },
+    ): Promise<AgentRow | null> {
       const sets: string[] = ["updated_at = ?"];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const vals: any[] = [input.now];

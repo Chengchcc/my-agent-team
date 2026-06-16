@@ -17,8 +17,7 @@ export function resolveObservabilityConfig(
   return {
     mode,
     serviceName: overrides?.serviceName ?? "backend",
-    otlpEndpoint:
-      overrides?.otlpEndpoint ?? process.env.MIRA_OTEL_EXPORTER_OTLP_ENDPOINT,
+    otlpEndpoint: overrides?.otlpEndpoint ?? process.env.MIRA_OTEL_EXPORTER_OTLP_ENDPOINT,
     sampleRatio,
     redact: "strict",
   };

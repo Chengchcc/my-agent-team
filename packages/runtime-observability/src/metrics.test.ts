@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test } from "bun:test";
 import { createRuntimeMetricSink } from "./metrics.js";
 import type { ObservabilityConfig } from "./types.js";
 

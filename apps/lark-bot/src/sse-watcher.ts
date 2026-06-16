@@ -113,9 +113,7 @@ export function watchConversation(
               // Parse errors: log and skip. Send errors: throw to break connection
               // and reconnect from DB pushed_seq, preventing message loss.
               if (err instanceof SyntaxError) {
-                console.error(
-                  `[sse-watcher] malformed JSON for ${conversationId}, skipping`,
-                );
+                console.error(`[sse-watcher] malformed JSON for ${conversationId}, skipping`);
               } else {
                 console.error(
                   `[sse-watcher] process entry failed for ${conversationId}: ${
@@ -135,8 +133,16 @@ export function watchConversation(
       scheduleReconnect(5000);
     } finally {
       if (reader) {
-        try { await reader.cancel(); } catch { /* cleanup best-effort */ }
-        try { reader.releaseLock(); } catch { /* cleanup best-effort */ }
+        try {
+          await reader.cancel();
+        } catch {
+          /* cleanup best-effort */
+        }
+        try {
+          reader.releaseLock();
+        } catch {
+          /* cleanup best-effort */
+        }
       }
     }
   };
@@ -240,7 +246,11 @@ async function processEntry(
   // ─── M15.1: Check if this message can be skipped ───
   let parsedContent: unknown;
   let extractedRunId: string | undefined;
-  try { parsedContent = JSON.parse(entry.content); } catch { /* use raw */ }
+  try {
+    parsedContent = JSON.parse(entry.content);
+  } catch {
+    /* use raw */
+  }
 
   // Incremental projections (mid-run) carry _preliminary:true. The final answer
   // normally arrives as a card after run completion, so skip them to avoid
@@ -261,9 +271,7 @@ async function processEntry(
       );
       cardFailed =
         !!rs &&
-        (rs.status === "fallback_text" ||
-          rs.cardSendFailed === 1 ||
-          rs.cardUpdateFailed === 1);
+        (rs.status === "fallback_text" || rs.cardSendFailed === 1 || rs.cardUpdateFailed === 1);
     }
     if (!cardFailed) {
       updatePushedSeq(db, larkChatId, entry.seq);
@@ -298,7 +306,10 @@ async function processEntry(
     const runStream = runStreams.find((r) => r.runId === extractedRunId);
     if (runStream && runStream.status === "done" && !runStream.completeFromLedger) {
       import("./bindings-sqlite.js").then((m) =>
-        m.updateRunStream(db, extractedRunId!, { completeFromLedger: 1, finalLedgerSeq: entry.seq }),
+        m.updateRunStream(db, extractedRunId!, {
+          completeFromLedger: 1,
+          finalLedgerSeq: entry.seq,
+        }),
       );
     }
   }

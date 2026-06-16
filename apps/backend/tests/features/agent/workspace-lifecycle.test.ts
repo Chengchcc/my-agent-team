@@ -1,17 +1,17 @@
-import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
-import { rmSync } from "node:fs";
-import path from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
-import { openDb } from "../../../src/infra/sqlite/db.js";
-import { createAgentService } from "../../../src/features/agent/service.js";
+import { rmSync } from "node:fs";
+import { mkdir, readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import { sqliteAgentAdapter } from "../../../src/features/agent/adapter-sqlite.js";
-import { materializeWorkspace, purgeWorkspace } from "../../../src/infra/workspace.js";
+import { createAgentService } from "../../../src/features/agent/service.js";
 import {
-  runnerWorkspacePaths,
   ensureRunnerWorkspace,
   migrateLegacyWorkspaceToShared,
   purgeRunnerWorkspace,
+  runnerWorkspacePaths,
 } from "../../../src/infra/runner-workspace.js";
+import { openDb } from "../../../src/infra/sqlite/db.js";
+import { materializeWorkspace, purgeWorkspace } from "../../../src/infra/workspace.js";
 
 const tmpBase = `/tmp/workspace-lifecycle-${Date.now()}`;
 const workspaceRoot = path.join(tmpBase, "workspaces");
@@ -21,7 +21,9 @@ const templateDir = path.join(tmpBase, "templates");
 function clean() {
   try {
     rmSync(tmpBase, { recursive: true, force: true });
-  } catch {}
+  } catch {
+    /* noop */
+  }
 }
 
 afterAll(() => clean());

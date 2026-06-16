@@ -29,9 +29,7 @@ export class LarkSetupManager {
   #expiryTimer: ReturnType<typeof setInterval>;
   #cancelFns = new Map<string, () => Promise<void>>();
   /** Callback when a setup session completes successfully. */
-  #onComplete: (
-    session: LarkProfileSetupSession,
-  ) => Promise<void>;
+  #onComplete: (session: LarkProfileSetupSession) => Promise<void>;
 
   constructor(
     provisioner: LarkProfileProvisioner,

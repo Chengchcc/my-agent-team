@@ -1,7 +1,7 @@
 "use client";
 
-import type { SurfaceOpsItem } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import type { SurfaceOpsItem } from "@/lib/api";
 
 export function SurfaceHealthPanel({ surface }: { surface: SurfaceOpsItem }) {
   const isLark = surface.surface === "lark";
@@ -12,7 +12,10 @@ export function SurfaceHealthPanel({ surface }: { surface: SurfaceOpsItem }) {
         <h3 className="font-semibold text-foreground text-sm capitalize">
           {surface.surface} Surface
         </h3>
-        <Badge variant={surface.status === "running" ? "default" : "destructive"} className="text-xs">
+        <Badge
+          variant={surface.status === "running" ? "default" : "destructive"}
+          className="text-xs"
+        >
           {surface.status}
         </Badge>
       </div>
@@ -20,7 +23,9 @@ export function SurfaceHealthPanel({ surface }: { surface: SurfaceOpsItem }) {
       <div className="text-sm space-y-1">
         <div className="flex justify-between">
           <span className="text-muted-foreground">Agent</span>
-          <span className="text-foreground text-xs" title={surface.agentId}>{surface.agentName}</span>
+          <span className="text-foreground text-xs" title={surface.agentId}>
+            {surface.agentName}
+          </span>
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Last seen</span>
@@ -31,9 +36,7 @@ export function SurfaceHealthPanel({ surface }: { surface: SurfaceOpsItem }) {
           </span>
         </div>
         {surface.lastError && (
-          <div className="text-xs text-destructive">
-            Error: {surface.lastError}
-          </div>
+          <div className="text-xs text-destructive">Error: {surface.lastError}</div>
         )}
       </div>
 

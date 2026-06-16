@@ -14,10 +14,7 @@ const STAGES = [
 
 type StageStatus = "completed" | "pending" | "not_instrumented";
 
-function stageStatus(
-  stage: (typeof STAGES)[number],
-  detail: RunOpsDetail,
-): StageStatus {
+function stageStatus(stage: (typeof STAGES)[number], detail: RunOpsDetail): StageStatus {
   const hasOps = detail.ops.some((o) => {
     if (stage.key === "start_sent" || stage.key === "scheduled") {
       return o.kind === "attempt_started";

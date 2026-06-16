@@ -1,14 +1,11 @@
-import type { RunOpsDetail, RunOpsListItem, RunDiagnosis, AgentRuntimeStatus } from "@/lib/api";
+import type { AgentRuntimeStatus, RunDiagnosis, RunOpsDetail, RunOpsListItem } from "@/lib/api";
 
 /**
  * Diagnose a single run from its full detail.
  * `heartbeatTimeoutMs` is passed in from backend (AgentRuntimeStatus.heartbeatTimeoutMs),
  * NOT hardcoded — avoids drift with reaper threshold.
  */
-export function diagnoseRun(
-  detail: RunOpsDetail,
-  heartbeatTimeoutMs: number,
-): RunDiagnosis {
+export function diagnoseRun(detail: RunOpsDetail, heartbeatTimeoutMs: number): RunDiagnosis {
   const latestAttempt = detail.attempts[0];
   const lastOps = detail.ops.at(-1);
 
@@ -25,10 +22,7 @@ export function diagnoseRun(
     return { kind: "detached_waiting_reaper", owner: "backend_runner_link" };
   }
 
-  if (
-    latestAttempt?.heartbeatAgeMs != null &&
-    latestAttempt.heartbeatAgeMs > heartbeatTimeoutMs
-  ) {
+  if (latestAttempt?.heartbeatAgeMs != null && latestAttempt.heartbeatAgeMs > heartbeatTimeoutMs) {
     return { kind: "heartbeat_stale", owner: "runner" };
   }
 
@@ -56,10 +50,7 @@ export function diagnoseRunListItem(
     return { kind: "detached_waiting_reaper", owner: "backend_runner_link" };
   }
 
-  if (
-    item.heartbeatAgeMs != null &&
-    item.heartbeatAgeMs > heartbeatTimeoutMs
-  ) {
+  if (item.heartbeatAgeMs != null && item.heartbeatAgeMs > heartbeatTimeoutMs) {
     return { kind: "heartbeat_stale", owner: "runner" };
   }
 

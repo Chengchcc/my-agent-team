@@ -1,5 +1,5 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { WritableBackend } from "./types.js";
 

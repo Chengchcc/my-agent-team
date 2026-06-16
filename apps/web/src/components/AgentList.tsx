@@ -3,9 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
-import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 
 export function AgentList() {
   const queryClient = useQueryClient();
@@ -24,7 +24,9 @@ export function AgentList() {
       setConfirmingId(null);
     },
     onError: (err) => {
-      toast.error("Failed to archive agent", { description: err instanceof Error ? err.message : "Unknown error" });
+      toast.error("Failed to archive agent", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
     },
   });
 

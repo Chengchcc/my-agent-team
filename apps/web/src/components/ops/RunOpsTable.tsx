@@ -1,26 +1,40 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import type { RunOpsListItem } from "@/lib/api";
-import { diagnoseRunListItem } from "@/lib/ops-diagnosis";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
-  Pagination, PaginationContent, PaginationItem, PaginationPrevious, PaginationNext,
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
 } from "@/components/ui/pagination";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import type { RunOpsListItem } from "@/lib/api";
+import { diagnoseRunListItem } from "@/lib/ops-diagnosis";
 
 const PAGE_SIZE = 20;
 
 function statusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
   switch (status) {
-    case "running":     return "default";
-    case "succeeded":   return "secondary";
-    case "error":       return "destructive";
-    case "interrupted": return "outline";
-    default:            return "secondary";
+    case "running":
+      return "default";
+    case "succeeded":
+      return "secondary";
+    case "error":
+      return "destructive";
+    case "interrupted":
+      return "outline";
+    default:
+      return "secondary";
   }
 }
 
@@ -53,7 +67,13 @@ function ago(ts: number): string {
   return `${Math.floor(s / 3600)}h`;
 }
 
-export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOpsListItem[]; heartbeatTimeoutMs?: number }) {
+export function RunOpsTable({
+  runs,
+  heartbeatTimeoutMs = 60_000,
+}: {
+  runs: RunOpsListItem[];
+  heartbeatTimeoutMs?: number;
+}) {
   const [page, setPage] = useState(0);
   const prevRunCount = useRef(runs.length);
   useEffect(() => {
@@ -94,14 +114,21 @@ export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOp
             return (
               <TableRow key={r.runId}>
                 <TableCell>
-                  <span className={`text-xs font-medium ${diagnosisColor[d.kind] ?? "text-muted-foreground"}`}>
+                  <span
+                    className={`text-xs font-medium ${diagnosisColor[d.kind] ?? "text-muted-foreground"}`}
+                  >
                     {diagnosisLabel[d.kind] ?? d.kind}
                   </span>
                 </TableCell>
                 <TableCell className="font-mono text-xs text-foreground">
                   {r.runId.slice(0, 12)}…
                 </TableCell>
-                <TableCell className="text-foreground text-xs max-w-[160px] truncate" title={r.agentId}>{r.agentName}</TableCell>
+                <TableCell
+                  className="text-foreground text-xs max-w-[160px] truncate"
+                  title={r.agentId}
+                >
+                  {r.agentName}
+                </TableCell>
                 <TableCell>
                   <Badge variant={statusVariant(r.status)} className="text-xs">
                     {r.status}
@@ -111,14 +138,14 @@ export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOp
                   {transportLabel[r.runnerTransport] ?? r.runnerTransport}
                 </TableCell>
                 <TableCell className="text-xs text-foreground">
-                  {r.heartbeatAgeMs != null
-                    ? `${Math.floor(r.heartbeatAgeMs / 1000)}s`
-                    : "—"}
+                  {r.heartbeatAgeMs != null ? `${Math.floor(r.heartbeatAgeMs / 1000)}s` : "—"}
                 </TableCell>
                 <TableCell className="text-xs text-foreground">
                   {r.lastOpsEventKind ?? r.lastEventType ?? "—"}
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground">{ago(r.startedAt)} ago</TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {ago(r.startedAt)} ago
+                </TableCell>
                 <TableCell>
                   <Link
                     href={`/ops/runs/${r.runId}`}
@@ -150,7 +177,9 @@ export function RunOpsTable({ runs, heartbeatTimeoutMs = 60_000 }: { runs: RunOp
                 <PaginationNext
                   text="Next"
                   onClick={() => setPage((p) => p + 1)}
-                  className={page >= totalPages - 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  className={
+                    page >= totalPages - 1 ? "pointer-events-none opacity-50" : "cursor-pointer"
+                  }
                 />
               </PaginationItem>
             </PaginationContent>

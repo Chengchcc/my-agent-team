@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
+import { api } from "@/lib/api";
 
 export default function TracesPage() {
   const [search, setSearch] = useState("");
@@ -38,7 +38,10 @@ export default function TracesPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm transition-colors">
+        <Link
+          href="/ops"
+          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+        >
           ← Observability
         </Link>
         <h1 className="text-2xl font-bold text-foreground">Trace Explorer</h1>
@@ -62,16 +65,20 @@ export default function TracesPage() {
           <div className="divide-y divide-border">
             {traces.map((t) => (
               <div key={t.traceId} className="flex items-center gap-4 p-3 text-sm">
-                <span className="font-mono text-foreground w-[180px] shrink-0 truncate" title={t.traceId}>
+                <span
+                  className="font-mono text-foreground w-[180px] shrink-0 truncate"
+                  title={t.traceId}
+                >
                   {t.traceId}
                 </span>
-                <span className="text-muted-foreground text-xs">
-                  {t.statuses.join(", ")}
-                </span>
+                <span className="text-muted-foreground text-xs">{t.statuses.join(", ")}</span>
                 <span className="text-muted-foreground text-xs">
                   {t.runs.length} run{t.runs.length !== 1 ? "s" : ""}
                 </span>
-                <Link href={`/ops/traces/${t.traceId}`} className="text-primary hover:underline text-xs ml-auto">
+                <Link
+                  href={`/ops/traces/${t.traceId}`}
+                  className="text-primary hover:underline text-xs ml-auto"
+                >
                   Trace View
                 </Link>
               </div>

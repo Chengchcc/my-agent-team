@@ -1,15 +1,15 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "next/navigation";
-import { api } from "@/lib/api";
-import { QueryState } from "@/components/ops/QueryState";
-import { RunDiagnosisHeader } from "@/components/ops/RunDiagnosisHeader";
-import { RunControlStrip } from "@/components/ops/RunControlStrip";
-import { ExecutionPath } from "@/components/ops/ExecutionPath";
-import { RunOpsTimeline } from "@/components/ops/RunOpsTimeline";
-import { RunInsightsPanel } from "@/components/ops/RunInsightsPanel";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useParams } from "next/navigation";
+import { ExecutionPath } from "@/components/ops/ExecutionPath";
+import { QueryState } from "@/components/ops/QueryState";
+import { RunControlStrip } from "@/components/ops/RunControlStrip";
+import { RunDiagnosisHeader } from "@/components/ops/RunDiagnosisHeader";
+import { RunInsightsPanel } from "@/components/ops/RunInsightsPanel";
+import { RunOpsTimeline } from "@/components/ops/RunOpsTimeline";
+import { api } from "@/lib/api";
 
 export default function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
@@ -18,7 +18,7 @@ export default function RunDetailPage() {
     queryKey: ["ops", "runDetail", runId],
     queryFn: () => api.getOpsRunDetail(runId),
     enabled: !!runId,
-    refetchInterval: (q) => q.state.data?.run.status === "running" ? 10_000 : false,
+    refetchInterval: (q) => (q.state.data?.run.status === "running" ? 10_000 : false),
   });
 
   const runtimeQuery = useQuery({
@@ -32,7 +32,10 @@ export default function RunDetailPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm transition-colors">
+        <Link
+          href="/ops"
+          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+        >
           ← Observability
         </Link>
         <h1 className="text-xl font-bold font-mono text-foreground">{runId}</h1>
@@ -42,7 +45,6 @@ export default function RunDetailPage() {
           </span>
         )}
       </div>
-
 
       <QueryState query={detailQuery}>
         {(detail) => (
@@ -79,9 +81,7 @@ export default function RunDetailPage() {
                     </div>
                     <div>
                       <span className="text-muted-foreground">Last diagnostic: </span>
-                      <span className="text-foreground">
-                        {detail.ops.at(-1)?.kind ?? "—"}
-                      </span>
+                      <span className="text-foreground">{detail.ops.at(-1)?.kind ?? "—"}</span>
                     </div>
                   </div>
                 </div>
@@ -120,7 +120,9 @@ export default function RunDetailPage() {
                     </div>
                     <div>
                       <span className="text-muted-foreground">Last Event: </span>
-                      <span className="text-foreground">{detail.eventLog.lastEventType ?? "—"}</span>
+                      <span className="text-foreground">
+                        {detail.eventLog.lastEventType ?? "—"}
+                      </span>
                     </div>
                   </div>
                 </div>

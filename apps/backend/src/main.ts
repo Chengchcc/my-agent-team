@@ -8,39 +8,41 @@ import {
 } from "@my-agent-team/runtime-observability";
 import { loadConfig } from "./config.js";
 import { sqliteAgentAdapter } from "./features/agent/adapter-sqlite.js";
-import { AgentBusyError, agentRoutes, createAgentService } from "./features/agent/index.js";
 import { createAgentIdentityStore } from "./features/agent/identity-store.js";
-import {
-  sqliteThreadProjectionReadAdapter,
-  sqliteThreadProjectionWriteAdapter,
-} from "./features/thread-projection/adapter-sqlite.js";
-import {
-  threadProjectionRoutes,
-  createThreadProjectionService,
-} from "./features/thread-projection/index.js";
+import { AgentBusyError, agentRoutes, createAgentService } from "./features/agent/index.js";
+import { withLarkOrchestration } from "./features/agent/with-lark-orchestration.js";
 import {
   conversationRoutes,
   createConversationService,
   sqliteConversationAdapter,
 } from "./features/conversation/index.js";
 import type { ConversationPort } from "./features/conversation/ports.js";
-import { createRunService, runRoutes } from "./features/run/index.js";
-import type { RunnerRegistry } from "./features/run/runner-registry.js";
-import { DevRunnerRegistry } from "./features/run/runner-registry.js";
-import { ProdRunnerRegistry } from "./features/run/runner-registry.js";
-import { RunSupervisor } from "./features/run/supervisor.js";
-import { RuntimeOpsStore, createRuntimeOpsService, opsRoutes } from "./features/runtime-ops/index.js";
-import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
+import type { LarkBotRegistry } from "./features/lark-bot/index.js";
 import {
   CliSetupProvisioner,
   DevLarkBotRegistry,
   LarkSetupManager,
-  ProdLarkBotRegistry,
   larkProfileInit,
-  sanitizeLarkCliOutput,
+  ProdLarkBotRegistry,
 } from "./features/lark-bot/index.js";
-import type { LarkBotRegistry } from "./features/lark-bot/index.js";
-import { withLarkOrchestration } from "./features/agent/with-lark-orchestration.js";
+import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
+import { createRunService, runRoutes } from "./features/run/index.js";
+import type { RunnerRegistry } from "./features/run/runner-registry.js";
+import { DevRunnerRegistry, ProdRunnerRegistry } from "./features/run/runner-registry.js";
+import { RunSupervisor } from "./features/run/supervisor.js";
+import {
+  createRuntimeOpsService,
+  opsRoutes,
+  RuntimeOpsStore,
+} from "./features/runtime-ops/index.js";
+import {
+  sqliteThreadProjectionReadAdapter,
+  sqliteThreadProjectionWriteAdapter,
+} from "./features/thread-projection/adapter-sqlite.js";
+import {
+  createThreadProjectionService,
+  threadProjectionRoutes,
+} from "./features/thread-projection/index.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
 import { openDb } from "./infra/sqlite/db.js";
@@ -272,7 +274,11 @@ function buildPreloadedMessages(
     if (entry.kind !== "message") continue;
     const role = entry.senderMemberId === memberId ? "assistant" : "user";
     let content: unknown;
-    try { content = JSON.parse(entry.content); } catch { content = entry.content; }
+    try {
+      content = JSON.parse(entry.content);
+    } catch {
+      content = entry.content;
+    }
     if (content && typeof content === "object" && !Array.isArray(content)) {
       const c = content as Record<string, unknown>;
       if ("text" in c && typeof c.text === "string") {
@@ -299,7 +305,6 @@ const convSvc = createConversationService({
   activeConversations,
   maxConsecutiveAgentHops: 8,
   idGen: ulid,
-
 
   // ThreadId = conversationId:memberId (derived, not persisted).
   // The threads table is legacy — runtime only needs the derived key.
@@ -362,14 +367,12 @@ const convSvc = createConversationService({
   /** M15.1: Verify a run belongs to a conversation before surface control writes. */
   verifyRunOwnsConversation: async (runId, conversationId) => {
     const runDb = supervisor.getDb();
-    const row = runDb
-      .query("SELECT thread_id FROM run WHERE run_id = ?")
-      .get(runId) as { thread_id: string } | undefined;
+    const row = runDb.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as
+      | { thread_id: string }
+      | undefined;
     if (!row) throw new Error(`run not found: ${runId}`);
     if (!row.thread_id.startsWith(`${conversationId}:`)) {
-      throw new Error(
-        `run ${runId} does not belong to conversation ${conversationId}`,
-      );
+      throw new Error(`run ${runId} does not belong to conversation ${conversationId}`);
     }
   },
 });
@@ -462,8 +465,9 @@ async function projectRunMessageToLedger(
   // Filter out tool-only rounds — they render as [Unsupported content] in Lark
   // and provide no value to humans mid-execution.
   if (role === "assistant" && Array.isArray(content)) {
-    const hasText = content.some((b: unknown) =>
-      typeof b === "object" && b !== null && (b as Record<string, unknown>).type === "text",
+    const hasText = content.some(
+      (b: unknown) =>
+        typeof b === "object" && b !== null && (b as Record<string, unknown>).type === "text",
     );
     if (!hasText) return;
   }
@@ -538,14 +542,15 @@ supervisor.onRunEvent((threadId, runId, event) => {
 
   // Accumulate @mentions from assistant text (for deferred trigger at run end)
   if (role === "assistant") {
-    const text = typeof content === "string"
-      ? content
-      : Array.isArray(content)
+    const text =
+      typeof content === "string"
         ? content
-            .filter((b: unknown) => (b as { type: string }).type === "text")
-            .map((b: unknown) => (b as { text: string }).text)
-            .join(" ")
-        : "";
+        : Array.isArray(content)
+          ? content
+              .filter((b: unknown) => (b as { type: string }).type === "text")
+              .map((b: unknown) => (b as { text: string }).text)
+              .join(" ")
+          : "";
     if (text) {
       const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
       if (cid) {

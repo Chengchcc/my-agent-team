@@ -1,8 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { NavRail } from "./NavRail";
 import { Toaster } from "@/components/ui/sonner";
+import { NavRail } from "./NavRail";
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (

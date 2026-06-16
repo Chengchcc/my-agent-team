@@ -48,9 +48,7 @@ export function collectHealth(
   }
 
   const degraded =
-    runStreams.cardSendFailed > 0 ||
-    runStreams.cardUpdateFailed > 0 ||
-    lastError !== null;
+    runStreams.cardSendFailed > 0 || runStreams.cardUpdateFailed > 0 || lastError !== null;
   const hasError = runStreams.error > 0;
 
   return {
@@ -73,14 +71,11 @@ export async function postHeartbeat(
   if (backendAuthToken) headers["x-auth-token"] = backendAuthToken;
 
   try {
-    const res = await fetch(
-      `${backendUrl}/api/internal/surfaces/lark/heartbeat`,
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify(health),
-      },
-    );
+    const res = await fetch(`${backendUrl}/api/internal/surfaces/lark/heartbeat`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(health),
+    });
     if (!res.ok) {
       console.error(`[lark-bot] heartbeat POST failed: ${res.status}`);
     }

@@ -2,11 +2,11 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { api } from "@/lib/api";
-import type { RunOpsListItem, AgentRuntimeStatus } from "@/lib/api";
-import { isStaleRun, isDetachedRun, isUnhealthyAgent, hasSurfaceError } from "@/lib/ops-diagnosis";
-import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import type { AgentRuntimeStatus, RunOpsListItem } from "@/lib/api";
+import { api } from "@/lib/api";
+import { hasSurfaceError, isDetachedRun, isStaleRun, isUnhealthyAgent } from "@/lib/ops-diagnosis";
 
 interface NeedsAttentionProps {
   runs: RunOpsListItem[];
@@ -39,7 +39,9 @@ function RecoverButton({ runId }: { runId: string }) {
       qc.invalidateQueries({ queryKey: ["ops", "agentRuntime"] });
     },
     onError: (err) => {
-      toast.error("Recover failed", { description: err instanceof Error ? err.message : "Unknown error" });
+      toast.error("Recover failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
     },
   });
 
@@ -48,7 +50,10 @@ function RecoverButton({ runId }: { runId: string }) {
       variant="ghost"
       size="sm"
       disabled={mut.isPending}
-      onClick={(e) => { e.preventDefault(); mut.mutate(); }}
+      onClick={(e) => {
+        e.preventDefault();
+        mut.mutate();
+      }}
       className="ml-auto text-xs h-auto py-0 shrink-0"
     >
       {mut.isPending ? "…" : "Recover"}
@@ -105,9 +110,7 @@ export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: Needs
   items.sort((a, b) => (a.severity === "critical" ? -1 : 1) - (b.severity === "critical" ? -1 : 1));
 
   if (items.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">Nothing needs attention.</p>
-    );
+    return <p className="text-sm text-muted-foreground">Nothing needs attention.</p>;
   }
 
   return (

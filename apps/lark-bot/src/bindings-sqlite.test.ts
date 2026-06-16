@@ -1,5 +1,5 @@
+import type { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import {
   confirmInbound,
   getAllChatBindings,

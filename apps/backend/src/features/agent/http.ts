@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { json, parseJsonBody } from "../../http/response.js";
+import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
 import type { AgentRow } from "./domain.js";
 import type { AgentIdentityStore } from "./identity-store.js";
 import type { AgentService } from "./service.js";
 import { AgentBusyError, AgentNotFoundError } from "./service.js";
-import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
 
 const larkCreateSchema = z
   .object({
@@ -139,14 +139,11 @@ export function agentRoutes(
         if (parsed.data.lark?.enabled === true) {
           const existing = await svc.getById(id);
           const hasExistingProfile = !!existing.larkProfileRef;
-          const hasFreshCredentials = !!(
-            parsed.data.lark?.appId && parsed.data.lark?.appSecret
-          );
+          const hasFreshCredentials = !!(parsed.data.lark?.appId && parsed.data.lark?.appSecret);
           if (!hasExistingProfile && !hasFreshCredentials) {
             return json(
               {
-                error:
-                  "lark.enabled=true requires appId+appSecret when no existing profile exists",
+                error: "lark.enabled=true requires appId+appSecret when no existing profile exists",
               },
               400,
             );
@@ -223,7 +220,8 @@ export function agentRoutes(
 
     /** POST /api/agents/:id/lark/setup */
     async larkSetup(req: Request, id: string): Promise<Response> {
-      const m = getSetupManager?.(); if (!m) return json({ error: "Lark setup not available" }, 501);
+      const m = getSetupManager?.();
+      if (!m) return json({ error: "Lark setup not available" }, 501);
       const body = (await req.json().catch(() => ({}))) as {
         botDisplayName?: string;
         brand?: "feishu" | "lark";
@@ -239,7 +237,7 @@ export function agentRoutes(
           botDisplayName:
             typeof body.botDisplayName === "string"
               ? body.botDisplayName
-              : existing.larkBotDisplayName ?? undefined,
+              : (existing.larkBotDisplayName ?? undefined),
           brand: body.brand === "lark" ? "lark" : "feishu",
         });
         return json(session, 201);
@@ -251,7 +249,8 @@ export function agentRoutes(
 
     /** GET /api/agents/:id/lark/setup/:setupId */
     async larkSetupStatus(_req: Request, id: string, setupId: string): Promise<Response> {
-      const m = getSetupManager?.(); if (!m) return json({ error: "Lark setup not available" }, 501);
+      const m = getSetupManager?.();
+      if (!m) return json({ error: "Lark setup not available" }, 501);
       const session = m.get(setupId);
       if (!session) return json({ error: "Setup session not found" }, 404);
       if (session.agentId !== id) return json({ error: "Not found" }, 404);
@@ -260,7 +259,8 @@ export function agentRoutes(
 
     /** DELETE /api/agents/:id/lark/setup/:setupId */
     async larkSetupCancel(_req: Request, id: string, setupId: string): Promise<Response> {
-      const m = getSetupManager?.(); if (!m) return json({ error: "Lark setup not available" }, 501);
+      const m = getSetupManager?.();
+      if (!m) return json({ error: "Lark setup not available" }, 501);
       const session = m.get(setupId);
       if (!session || session.agentId !== id) return json({ error: "Not found" }, 404);
       m.cancel(setupId);

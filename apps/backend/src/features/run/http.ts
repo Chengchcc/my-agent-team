@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { json, parseJsonBody, sseResponse } from "../../http/response.js";
+import { json, parseJsonBody } from "../../http/response.js";
 import type { RunService } from "./service.js";
 import { RunNotFoundError, ThreadBusyError, TooManyRunsError } from "./service.js";
 

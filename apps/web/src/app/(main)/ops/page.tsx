@@ -1,16 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { QueryState } from "@/components/ops/QueryState";
+import { useMemo, useState } from "react";
+import { CostBreakdownChart } from "@/components/ops/CostBreakdownChart";
 import { HealthSummary } from "@/components/ops/HealthSummary";
 import { NeedsAttentionList } from "@/components/ops/NeedsAttentionList";
+import { QueryState } from "@/components/ops/QueryState";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import { TokenTrendChart } from "@/components/ops/TokenTrendChart";
-import { CostBreakdownChart } from "@/components/ops/CostBreakdownChart";
 import { TopToolsChart } from "@/components/ops/TopToolsChart";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { api } from "@/lib/api";
 
 const WINDOWS: Record<string, number> = {
   "1h": 3_600_000,
@@ -68,7 +74,6 @@ export default function OpsPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <h1 className="text-2xl font-bold text-foreground">Observability</h1>
-
 
       <QueryState query={overviewQuery}>
         {(data) => (

@@ -152,7 +152,7 @@ export class DevRunnerRegistry implements RunnerRegistry {
     }
   }
 
-  async healthOf(agentId: string): Promise<import("./runner-registry.js").RunnerRegistryHealth> {
+  async healthOf(agentId: string): Promise<RunnerRegistryHealth> {
     const key = safeRunnerAgentId(agentId);
     const existing = this.#runners.get(key);
     if (existing) {
@@ -236,7 +236,7 @@ export class ProdRunnerRegistry implements RunnerRegistry {
     }
   }
 
-  async healthOf(agentId: string): Promise<import("./runner-registry.js").RunnerRegistryHealth> {
+  async healthOf(agentId: string): Promise<RunnerRegistryHealth> {
     const existing = this.#transports.get(agentId);
     if (existing) return { status: "online" };
     try {

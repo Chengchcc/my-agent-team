@@ -55,7 +55,11 @@ export async function larkProfileInit(
     child.on("exit", (code) => {
       if (code === 0) resolve();
       else
-        reject(new Error(`lark-cli config init exited ${code}: ${sanitizeLarkCliError(stderr, [appId, appSecret])}`));
+        reject(
+          new Error(
+            `lark-cli config init exited ${code}: ${sanitizeLarkCliError(stderr, [appId, appSecret])}`,
+          ),
+        );
     });
 
     // Write secret via stdin, then close for non-interactive init

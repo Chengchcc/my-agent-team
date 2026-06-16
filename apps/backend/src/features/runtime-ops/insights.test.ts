@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { inMemoryEventLog } from "@my-agent-team/event-log";
-import { getRunInsights, getInsightsSummary } from "./insights.js";
+import { getInsightsSummary, getRunInsights } from "./insights.js";
 
 describe("getRunInsights", () => {
   test("returns empty calls for run with no llm/tool events", async () => {
@@ -12,7 +12,14 @@ describe("getRunInsights", () => {
 
     const result = await getRunInsights(
       { eventLog },
-      { runId: "run1", threadId: "thread1", agentId: "agent1", status: "done", startedAt: 1000, endedAt: 5000 },
+      {
+        runId: "run1",
+        threadId: "thread1",
+        agentId: "agent1",
+        status: "done",
+        startedAt: 1000,
+        endedAt: 5000,
+      },
     );
 
     expect(result.calls).toHaveLength(0);
@@ -47,7 +54,14 @@ describe("getRunInsights", () => {
 
     const result = await getRunInsights(
       { eventLog },
-      { runId: "run1", threadId: "t1", agentId: "a1", status: "done", startedAt: 1000, endedAt: 5000 },
+      {
+        runId: "run1",
+        threadId: "t1",
+        agentId: "a1",
+        status: "done",
+        startedAt: 1000,
+        endedAt: 5000,
+      },
     );
 
     expect(result.root.llmCalls).toBe(2);
@@ -81,7 +95,14 @@ describe("getRunInsights", () => {
 
     const result = await getRunInsights(
       { eventLog },
-      { runId: "run2", threadId: "t1", agentId: "a1", status: "interrupted", startedAt: 1000, endedAt: 5000 },
+      {
+        runId: "run2",
+        threadId: "t1",
+        agentId: "a1",
+        status: "interrupted",
+        startedAt: 1000,
+        endedAt: 5000,
+      },
     );
 
     expect(result.root.toolCalls).toBe(3);
@@ -99,7 +120,12 @@ describe("getRunInsights", () => {
 
     await eventLog.append("t1", "run3", {
       type: "llm_call",
-      payload: { step: 0, model: "claude-sonnet-4", usage: { input: 100, output: 50 }, latencyMs: 500 },
+      payload: {
+        step: 0,
+        model: "claude-sonnet-4",
+        usage: { input: 100, output: 50 },
+        latencyMs: 500,
+      },
     });
     await eventLog.append("t1", "run3", {
       type: "tool_call",
@@ -112,7 +138,14 @@ describe("getRunInsights", () => {
 
     const result = await getRunInsights(
       { eventLog },
-      { runId: "run3", threadId: "t1", agentId: "a1", status: "running", startedAt: 1000, endedAt: null },
+      {
+        runId: "run3",
+        threadId: "t1",
+        agentId: "a1",
+        status: "running",
+        startedAt: 1000,
+        endedAt: null,
+      },
     );
 
     expect(result.root.interruptedAt).toBeDefined();
@@ -130,7 +163,14 @@ describe("getRunInsights", () => {
 
     const result = await getRunInsights(
       { eventLog },
-      { runId: "run4", threadId: "t1", agentId: "a1", status: "done", startedAt: 1000, endedAt: 2000 },
+      {
+        runId: "run4",
+        threadId: "t1",
+        agentId: "a1",
+        status: "done",
+        startedAt: 1000,
+        endedAt: 2000,
+      },
     );
 
     expect(result.root.totalCostUsd).toBe(0);
@@ -141,8 +181,15 @@ describe("getRunInsights", () => {
     const eventLog = inMemoryEventLog();
 
     const result = await getRunInsights(
-      { eventLog, getAgentName: (id) => id === "a1" ? "My Agent" : undefined },
-      { runId: "run5", threadId: "t1", agentId: "a1", status: "done", startedAt: 1000, endedAt: 2000 },
+      { eventLog, getAgentName: (id) => (id === "a1" ? "My Agent" : undefined) },
+      {
+        runId: "run5",
+        threadId: "t1",
+        agentId: "a1",
+        status: "done",
+        startedAt: 1000,
+        endedAt: 2000,
+      },
     );
 
     expect(result.agentName).toBe("My Agent");
@@ -156,7 +203,12 @@ describe("getInsightsSummary", () => {
 
     await eventLog.append("t1", "r1", {
       type: "llm_call",
-      payload: { step: 0, model: "claude-sonnet-4", usage: { input: 1000, output: 500 }, latencyMs: 500 },
+      payload: {
+        step: 0,
+        model: "claude-sonnet-4",
+        usage: { input: 1000, output: 500 },
+        latencyMs: 500,
+      },
     });
 
     const result = await getInsightsSummary(
@@ -176,17 +228,24 @@ describe("getInsightsSummary", () => {
 
     await eventLog.append("t1", "r1", {
       type: "llm_call",
-      payload: { step: 0, model: "claude-sonnet-4", usage: { input: 10000, output: 1000 }, latencyMs: 500 },
+      payload: {
+        step: 0,
+        model: "claude-sonnet-4",
+        usage: { input: 10000, output: 1000 },
+        latencyMs: 500,
+      },
     });
     await eventLog.append("t1", "r2", {
       type: "llm_call",
-      payload: { step: 0, model: "claude-haiku-4-5", usage: { input: 10000, output: 1000 }, latencyMs: 500 },
+      payload: {
+        step: 0,
+        model: "claude-haiku-4-5",
+        usage: { input: 10000, output: 1000 },
+        latencyMs: 500,
+      },
     });
 
-    const result = await getInsightsSummary(
-      { eventLog },
-      { from: 0, to: Date.now() + 86_400_000 },
-    );
+    const result = await getInsightsSummary({ eventLog }, { from: 0, to: Date.now() + 86_400_000 });
 
     expect(result.costByModel).toHaveLength(2);
     const sonnet = result.costByModel.find((m) => m.model === "claude-sonnet-4");
@@ -210,10 +269,7 @@ describe("getInsightsSummary", () => {
       payload: { step: 0, id: "c", name: "edit_file", latencyMs: 100, isError: true },
     });
 
-    const result = await getInsightsSummary(
-      { eventLog },
-      { from: 0, to: Date.now() + 86_400_000 },
-    );
+    const result = await getInsightsSummary({ eventLog }, { from: 0, to: Date.now() + 86_400_000 });
 
     expect(result.topTools).toHaveLength(2);
     const read = result.topTools.find((t) => t.name === "read_file");

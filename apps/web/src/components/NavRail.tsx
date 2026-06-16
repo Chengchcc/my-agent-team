@@ -3,9 +3,9 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useShell } from "./ShellProvider";
-import { Button } from "@/components/ui/button";
 
 const OPS_LINKS = [
   { label: "Overview", href: "/ops", exact: true },
@@ -53,13 +53,15 @@ export function NavRail() {
         className="h-full border-r border-border bg-background flex flex-col items-center py-4 gap-3 shrink-0"
         style={{ width: "3rem" }}
       >
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleRail}
-          aria-label="Expand sidebar"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <Button variant="ghost" size="icon" onClick={toggleRail} aria-label="Expand sidebar">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          >
             <path d="M6 4l4 4-4 4" />
           </svg>
         </Button>
@@ -70,7 +72,14 @@ export function NavRail() {
           className="w-7 h-7 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground transition-colors"
           aria-label="Workspace"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          >
             <circle cx="6" cy="5" r="2" />
             <circle cx="10" cy="5" r="2" />
             <path d="M2 13c0-2 1.8-3 4-3s4 1 4 3" />
@@ -84,7 +93,14 @@ export function NavRail() {
           className="w-7 h-7 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground transition-colors"
           aria-label="Operations"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          >
             <rect x="1" y="1" width="6" height="5" rx="1" />
             <rect x="9" y="1" width="6" height="5" rx="1" />
             <rect x="1" y="10" width="6" height="5" rx="1" />
@@ -112,13 +128,15 @@ export function NavRail() {
         >
           Operations
         </Link>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={toggleRail}
-          aria-label="Collapse sidebar"
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <Button variant="ghost" size="icon-sm" onClick={toggleRail} aria-label="Collapse sidebar">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          >
             <path d="M10 4l-4 4 4 4" />
           </svg>
         </Button>
@@ -175,8 +193,18 @@ export function NavRail() {
                   const humanId = `human-${crypto.randomUUID().slice(0, 8)}`;
                   const conv = await api.createConversation({
                     members: [
-                      { memberId: selectedAgentId, kind: "agent", agentId: selectedAgentId, displayName: agent?.name },
-                      { memberId: humanId, kind: "human", userRef: "__legacy__", displayName: "User" },
+                      {
+                        memberId: selectedAgentId,
+                        kind: "agent",
+                        agentId: selectedAgentId,
+                        displayName: agent?.name,
+                      },
+                      {
+                        memberId: humanId,
+                        kind: "human",
+                        userRef: "__legacy__",
+                        displayName: "User",
+                      },
                     ],
                   });
                   router.push(`/conversations/${conv.conversationId}`);
@@ -184,7 +212,14 @@ export function NavRail() {
                 className="text-primary hover:text-primary/80 transition-colors"
                 aria-label="New conversation"
               >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
                   <path d="M8 3v10M3 8h10" />
                 </svg>
               </button>
@@ -194,7 +229,11 @@ export function NavRail() {
             )}
             <ul className="space-y-0.5">
               {(conversations ?? []).map((conv, i) => (
-                <li key={conv.conversationId} className="animate-fade-in" style={{ animationDelay: `${i * 0.04}s` }}>
+                <li
+                  key={conv.conversationId}
+                  className="animate-fade-in"
+                  style={{ animationDelay: `${i * 0.04}s` }}
+                >
                   <button
                     type="button"
                     onClick={() => router.push(`/conversations/${conv.conversationId}`)}

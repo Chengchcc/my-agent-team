@@ -4,7 +4,7 @@
  * Mira managed, self-hosted, and legacy stdin paths can coexist.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 
 export type LarkProfileProvisionerKind = "cli_setup" | "mira_managed" | "legacy_secret_stdin";
 
@@ -42,21 +42,21 @@ export class CliSetupProvisioner implements LarkProfileProvisioner {
   }): Promise<LarkProfileSetupResult> {
     const { profileRef, brand, timeoutMs } = input;
 
-    const child = spawn("lark-cli", [
-      "config",
-      "init",
-      "--new",
-      "--name",
-      profileRef,
-      "--brand",
-      brand,
-    ], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(
+      "lark-cli",
+      ["config", "init", "--new", "--name", profileRef, "--brand", brand],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
 
     let stdout = "";
     let stderr = "";
 
-    child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
-    child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+    child.stdout?.on("data", (d: Buffer) => {
+      stdout += d.toString();
+    });
+    child.stderr?.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
 
     // URL is parsed from stdout in the exit handler (after all data has arrived)
     let url = ""; // resolved when stdout data arrives
@@ -133,7 +133,9 @@ export function probeCliSetupCapability(): Promise<boolean> {
     });
 
     let stderr = "";
-    child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+    child.stderr?.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
 
     child.on("exit", (code) => {
       // If help exits 0, CLI setup is available

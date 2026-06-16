@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 
 export const EVENTS_DB_MIGRATIONS = [
   {

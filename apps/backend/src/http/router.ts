@@ -1,12 +1,11 @@
 import type { agentRoutes } from "../features/agent/http.js";
-import type { threadProjectionRoutes } from "../features/thread-projection/http.js";
 import type { conversationRoutes } from "../features/conversation/http.js";
 import type { runRoutes } from "../features/run/http.js";
+import type { opsRoutes } from "../features/runtime-ops/http.js";
+import type { threadProjectionRoutes } from "../features/thread-projection/http.js";
 import { HttpError } from "../infra/errors.js";
 import { withAuth } from "./middleware.js";
 import { json } from "./response.js";
-
-import type { opsRoutes } from "../features/runtime-ops/http.js";
 
 interface FeatureSet {
   agents: ReturnType<typeof agentRoutes>;
@@ -71,9 +70,7 @@ export function createRouter(token: string, features?: FeatureSet) {
       if (agentIdentityMatch) return json({ error: "Method not allowed" }, 405);
       // M15.1: Lark setup routes
       const agentLarkSetupMatch = path.match(/^\/api\/agents\/([^/]+)\/lark\/setup$/);
-      const agentLarkSetupIdMatch = path.match(
-        /^\/api\/agents\/([^/]+)\/lark\/setup\/([^/]+)$/,
-      );
+      const agentLarkSetupIdMatch = path.match(/^\/api\/agents\/([^/]+)\/lark\/setup\/([^/]+)$/);
       if (agentLarkSetupMatch && method === "POST")
         return withAuth((r) => agents.larkSetup(r, agentLarkSetupMatch[1]!), token)(req);
       if (agentLarkSetupIdMatch && method === "GET")
@@ -160,8 +157,7 @@ export function createRouter(token: string, features?: FeatureSet) {
         const opsTracesMatch = path.match(/^\/api\/ops\/traces\/([^/]+)$/);
         const opsSurfacesMatch = path === "/api/ops/surfaces";
 
-        if (opsRunsMatch && method === "GET")
-          return withAuth((r) => ops.listRuns(r), token)(req);
+        if (opsRunsMatch && method === "GET") return withAuth((r) => ops.listRuns(r), token)(req);
         if (opsRunDetailMatch && method === "GET")
           return withAuth((r) => ops.getRunDetail(r, opsRunDetailMatch[1]!), token)(req);
         if (opsRunCancelMatch && method === "POST")

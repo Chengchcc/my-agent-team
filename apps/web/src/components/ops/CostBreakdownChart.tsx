@@ -2,8 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import {
+  type ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
 import { api } from "@/lib/api";
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { QueryState } from "./QueryState";
 
 const ROW_H = 32;
@@ -26,13 +31,21 @@ export function CostBreakdownChart({ range }: { range: { from: number; to: numbe
     <QueryState query={query}>
       {(data) =>
         data.costByModel.length === 0 && data.costByAgent.length === 0 ? (
-          <div className="text-xs text-muted-foreground p-4 text-center min-h-[100px] flex items-center justify-center">No cost data in this window.</div>
+          <div className="text-xs text-muted-foreground p-4 text-center min-h-[100px] flex items-center justify-center">
+            No cost data in this window.
+          </div>
         ) : (
           <div className="space-y-6">
             {data.costByModel.length > 0 && (
               <div>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Cost by Model</h4>
-                <ChartContainer config={chartConfig} className="w-full" style={{ height: chartH(data.costByModel.length) }}>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Cost by Model
+                </h4>
+                <ChartContainer
+                  config={chartConfig}
+                  className="w-full"
+                  style={{ height: chartH(data.costByModel.length) }}
+                >
                   <BarChart
                     accessibilityLayer
                     data={data.costByModel.map((m) => ({ name: m.model, costUsd: m.costUsd ?? 0 }))}
@@ -40,8 +53,21 @@ export function CostBreakdownChart({ range }: { range: { from: number; to: numbe
                     layout="vertical"
                   >
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-                    <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={140} />
+                    <XAxis
+                      type="number"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      tickFormatter={(v: number) => `$${v.toFixed(2)}`}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      width={140}
+                    />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Bar dataKey="costUsd" fill="var(--color-costUsd)" radius={[0, 4, 4, 0]} />
                   </BarChart>
@@ -50,24 +76,48 @@ export function CostBreakdownChart({ range }: { range: { from: number; to: numbe
             )}
             {data.costByAgent.length > 0 && (
               <div>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Cost by Agent</h4>
-                <ChartContainer config={chartConfig} className="w-full" style={{ height: chartH(data.costByAgent.length) }}>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Cost by Agent
+                </h4>
+                <ChartContainer
+                  config={chartConfig}
+                  className="w-full"
+                  style={{ height: chartH(data.costByAgent.length) }}
+                >
                   <BarChart
                     accessibilityLayer
-                    data={data.costByAgent.map((a) => ({ name: a.agentName, costUsd: a.costUsd ?? 0 }))}
+                    data={data.costByAgent.map((a) => ({
+                      name: a.agentName,
+                      costUsd: a.costUsd ?? 0,
+                    }))}
                     margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
                     layout="vertical"
                   >
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-                    <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={140} />
+                    <XAxis
+                      type="number"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      tickFormatter={(v: number) => `$${v.toFixed(2)}`}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      width={140}
+                    />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Bar dataKey="costUsd" fill="var(--color-costUsd)" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ChartContainer>
               </div>
             )}
-            <p className="text-[10px] text-muted-foreground text-right">All costs are estimates based on current pricing.</p>
+            <p className="text-[10px] text-muted-foreground text-right">
+              All costs are estimates based on current pricing.
+            </p>
           </div>
         )
       }

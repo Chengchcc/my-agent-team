@@ -1,8 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import type { RunInsights } from "@/lib/api";
+import { api } from "@/lib/api";
 import { CallTreeItem } from "./CallTreeItem";
 
 function formatDuration(ms: number | null): string {
@@ -31,26 +31,42 @@ function RootSummary({ insights }: { insights: RunInsights }) {
   return (
     <div className="rounded-lg border bg-card p-4 space-y-2">
       <div className="flex items-center gap-3 text-sm">
-        <span className={`font-semibold ${r.status === "running" ? "text-[var(--chart-2)]" : r.status === "interrupted" ? "text-[var(--chart-4)]" : "text-primary"}`}>
+        <span
+          className={`font-semibold ${r.status === "running" ? "text-[var(--chart-2)]" : r.status === "interrupted" ? "text-[var(--chart-4)]" : "text-primary"}`}
+        >
           {r.status}
         </span>
         <span className="text-muted-foreground">·</span>
         <span className="text-foreground">{formatDuration(r.totalLatencyMs)} total</span>
         <span className="text-muted-foreground">·</span>
         <span className="text-foreground">
-          {r.unknownCostCalls > 0 && r.totalCostUsd === 0
-            ? <span className="text-muted-foreground">unknown ({r.unknownCostCalls} call{r.unknownCostCalls > 1 ? "s" : ""} unpriced)</span>
-            : <>{formatCost(r.totalCostUsd)} <span className="text-muted-foreground text-xs">(est.{r.unknownCostCalls > 0 ? `, ${r.unknownCostCalls} call${r.unknownCostCalls > 1 ? "s" : ""} unpriced` : ""})</span></>
-          }
+          {r.unknownCostCalls > 0 && r.totalCostUsd === 0 ? (
+            <span className="text-muted-foreground">
+              unknown ({r.unknownCostCalls} call{r.unknownCostCalls > 1 ? "s" : ""} unpriced)
+            </span>
+          ) : (
+            <>
+              {formatCost(r.totalCostUsd)}{" "}
+              <span className="text-muted-foreground text-xs">
+                (est.
+                {r.unknownCostCalls > 0
+                  ? `, ${r.unknownCostCalls} call${r.unknownCostCalls > 1 ? "s" : ""} unpriced`
+                  : ""}
+                )
+              </span>
+            </>
+          )}
         </span>
       </div>
       <div className="text-xs text-muted-foreground font-mono space-y-0.5">
         <div>
-          {r.llmCalls} LLM calls · {r.toolCalls} tool calls · {formatToken(r.totalInput)} in / {formatToken(r.totalOutput)} out
+          {r.llmCalls} LLM calls · {r.toolCalls} tool calls · {formatToken(r.totalInput)} in /{" "}
+          {formatToken(r.totalOutput)} out
         </div>
         {r.slowestCall && (
           <div>
-            ⚠ slowest: step{r.slowestCall.step} {r.slowestCall.kind} {r.slowestCall.name} ({formatDuration(r.slowestCall.latencyMs)})
+            ⚠ slowest: step{r.slowestCall.step} {r.slowestCall.kind} {r.slowestCall.name} (
+            {formatDuration(r.slowestCall.latencyMs)})
           </div>
         )}
         {r.failedCall && (
@@ -59,9 +75,7 @@ function RootSummary({ insights }: { insights: RunInsights }) {
           </div>
         )}
         {r.interruptedAt && (
-          <div className="text-[var(--chart-4)]">
-            ⏸ interrupted at step {r.interruptedAt.step}
-          </div>
+          <div className="text-[var(--chart-4)]">⏸ interrupted at step {r.interruptedAt.step}</div>
         )}
       </div>
     </div>
@@ -73,7 +87,7 @@ export function RunInsightsPanel({ runId }: { runId: string }) {
     queryKey: ["ops", "runInsights", runId],
     queryFn: () => api.getRunInsights(runId),
     enabled: !!runId,
-    refetchInterval: (q) => q.state.data?.root.status === "running" ? 10_000 : false,
+    refetchInterval: (q) => (q.state.data?.root.status === "running" ? 10_000 : false),
   });
 
   // No data yet (likely old run pre-M16.3)
@@ -81,7 +95,9 @@ export function RunInsightsPanel({ runId }: { runId: string }) {
     return (
       <div className="rounded-lg border p-4">
         <h3 className="text-sm font-semibold text-foreground mb-2">Run Insights</h3>
-        <p className="text-xs text-muted-foreground">This run has no collected metrics (pre-M16.3 data).</p>
+        <p className="text-xs text-muted-foreground">
+          This run has no collected metrics (pre-M16.3 data).
+        </p>
       </div>
     );
   }
@@ -90,7 +106,9 @@ export function RunInsightsPanel({ runId }: { runId: string }) {
     <div className="rounded-lg border p-4 space-y-4">
       <h3 className="text-sm font-semibold text-foreground">Run Insights</h3>
 
-      {isLoading && <div className="text-xs text-muted-foreground animate-pulse">Loading insights…</div>}
+      {isLoading && (
+        <div className="text-xs text-muted-foreground animate-pulse">Loading insights…</div>
+      )}
       {isError && <div className="text-xs text-red-500">Failed to load run insights.</div>}
 
       {data && (

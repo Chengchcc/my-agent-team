@@ -1,13 +1,13 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { AgentSpecV2 } from "@my-agent-team/agent-spec";
-import type { Agent, AgentEvent, Checkpointer } from "@my-agent-team/framework";
-import type { Tool } from "@my-agent-team/core";
-import { sqliteCheckpointer } from "@my-agent-team/framework";
-import type { HostToRunner, RunnerTransport } from "@my-agent-team/runner-protocol";
 import type { AgentFsHandle } from "@my-agent-team/agent-fs";
 import { makeAgentFsHandle } from "@my-agent-team/agent-fs";
+import { AgentSpecV2 } from "@my-agent-team/agent-spec";
+import type { Tool } from "@my-agent-team/core";
+import type { Agent, AgentEvent, Checkpointer } from "@my-agent-team/framework";
+import { sqliteCheckpointer } from "@my-agent-team/framework";
+import type { HostToRunner, RunnerTransport } from "@my-agent-team/runner-protocol";
 
 // ─── Types ───
 
@@ -175,9 +175,7 @@ export class RunnerDaemon {
       sc.capabilities.includes("start_new_conversation") &&
       spec.mode !== "reflect"
     ) {
-      const { createStartNewConversationTool } = await import(
-        "./start-new-conversation-tool.js"
-      );
+      const { createStartNewConversationTool } = await import("./start-new-conversation-tool.js");
       extraTools.push(
         createStartNewConversationTool({
           backendUrl: this.#backendUrl,

@@ -1,8 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { rmSync } from "node:fs";
-import path from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { openDb } from "./sqlite/db.js";
+import { rmSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import {
   ensureRunnerWorkspace,
   migrateLegacyWorkspaceToShared,
@@ -17,7 +16,9 @@ const dataDir = path.join(tmpBase, "data");
 function clean() {
   try {
     rmSync(tmpBase, { recursive: true, force: true });
-  } catch {}
+  } catch {
+    /* noop */
+  }
 }
 
 beforeAll(() => clean());

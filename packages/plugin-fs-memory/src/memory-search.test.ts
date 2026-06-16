@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MemoryBackend, AgentFS } from "@my-agent-team/agent-fs";
+import { AgentFS, MemoryBackend } from "@my-agent-team/agent-fs";
 import { invalidateFactsCache } from "./cache.js";
 import { memorySearchTool } from "./memory-search.js";
 import { memoryWriteTool } from "./memory-write.js";

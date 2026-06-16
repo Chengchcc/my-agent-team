@@ -9,9 +9,7 @@ const REDACTED_ATTRIBUTE_KEYS = new Set([
   "api.key",
 ]);
 
-export function redactAttributes(
-  attrs: RuntimeSpanAttributes,
-): RuntimeSpanAttributes {
+export function redactAttributes(attrs: RuntimeSpanAttributes): RuntimeSpanAttributes {
   const result: RuntimeSpanAttributes = {};
   for (const [key, value] of Object.entries(attrs)) {
     if (REDACTED_ATTRIBUTE_KEYS.has(key)) continue;

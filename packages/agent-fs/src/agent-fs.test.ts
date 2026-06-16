@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { AgentFS, AgentFsAccessError } from "./agent-fs.js";
 import { SharedOnlyAliases } from "./aliases.js";
 import { MemoryBackend } from "./backends.js";
 import { makeDefaultMounts, makeExternalMount, makeSharedOnlyMounts } from "./mounts.js";
-import { AgentFsAccessError, AgentFS } from "./agent-fs.js";
 
 function tmpDir() {
   return path.join(tmpdir(), `wsfs-${Date.now()}-${Math.random().toString(36).slice(2)}`);

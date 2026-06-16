@@ -1,13 +1,16 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
-import { Database } from "bun:sqlite";
 import type { EventLog } from "@my-agent-team/event-log";
 import { inMemoryEventLog } from "@my-agent-team/event-log";
-import { createRuntimeTracer, resolveObservabilityConfig } from "@my-agent-team/runtime-observability";
+import {
+  createRuntimeTracer,
+  resolveObservabilityConfig,
+} from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";
-import { NOOP_TRANSPORT, RunSupervisor } from "./supervisor.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { runEventsDbMigrations } from "./events-db-migrations.js";
+import { NOOP_TRANSPORT, RunSupervisor } from "./supervisor.js";
 
 const TEST_DATA_DIR = `/tmp/test-reaper-${Date.now()}`;
 

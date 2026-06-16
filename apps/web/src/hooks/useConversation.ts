@@ -172,7 +172,9 @@ export function useConversation(
         if (typeof text === "string") {
           dispatch({ type: "stream/delta", runId, agentMemberId, blockIndex, text });
         }
-      } catch { /* skip */ }
+      } catch {
+        /* skip */
+      }
     });
 
     es.addEventListener("tool_start", (e: Event) => {
@@ -180,7 +182,9 @@ export function useConversation(
       try {
         const { id, name } = JSON.parse(e.data) as { id: string; name: string };
         if (id && name) dispatch({ type: "stream/toolStart", id, name });
-      } catch { /* skip */ }
+      } catch {
+        /* skip */
+      }
     });
 
     es.addEventListener("tool_end", (e: Event) => {
@@ -188,7 +192,9 @@ export function useConversation(
       try {
         const { id } = JSON.parse(e.data) as { id: string };
         if (id) dispatch({ type: "stream/toolEnd", id });
-      } catch { /* skip */ }
+      } catch {
+        /* skip */
+      }
     });
 
     // ── Durable terminal events ──
@@ -208,7 +214,9 @@ export function useConversation(
           type: "run/interrupted",
           payload: raw.payload as { pendingTool?: { id: string; name: string; input: unknown } },
         });
-      } catch { /* skip */ }
+      } catch {
+        /* skip */
+      }
     });
 
     // M14.6: todo_update events — durable channel, survives refresh
@@ -247,7 +255,7 @@ export function useConversation(
     };
 
     return () => es.close();
-  }, [state.run.id, state.run.phase]);
+  }, [state.run.id, state.run.phase, state.run.agentMemberId]);
 
   // 4) Send: optimistic dispatch + POST /conversations/:id/messages
   const sendMut = useMutation({

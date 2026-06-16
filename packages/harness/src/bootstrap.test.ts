@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { AgentFS, LocalBackend } from "@my-agent-team/agent-fs";
 import { consoleLogger } from "@my-agent-team/framework";
-import { LocalBackend, AgentFS } from "@my-agent-team/agent-fs";
 import { BOOTSTRAP_TEMPLATE, bootstrap } from "./bootstrap.js";
 
 function testFS(root: string): AgentFS {

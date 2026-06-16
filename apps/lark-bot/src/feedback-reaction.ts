@@ -15,7 +15,10 @@ export interface LarkTypingReactionState {
 }
 
 /** Add a Typing reaction to a Lark message. Best-effort, never throws. */
-export function addTypingReaction(profile: string, messageId: string): Promise<LarkTypingReactionState> {
+export function addTypingReaction(
+  profile: string,
+  messageId: string,
+): Promise<LarkTypingReactionState> {
   return new Promise((resolve) => {
     const startedAt = Date.now();
     const child = spawn(
@@ -36,8 +39,12 @@ export function addTypingReaction(profile: string, messageId: string): Promise<L
 
     let stdout = "";
     let stderr = "";
-    child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
-    child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+    child.stdout?.on("data", (d: Buffer) => {
+      stdout += d.toString();
+    });
+    child.stderr?.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
 
     child.on("error", (err) => {
       resolve({
@@ -54,10 +61,10 @@ export function addTypingReaction(profile: string, messageId: string): Promise<L
         let reactionId: string | null = null;
         try {
           const parsed = JSON.parse(stdout);
-          reactionId =
-            (parsed as { data?: { reaction_id?: string } }).data?.reaction_id ??
-            null;
-        } catch { /* ignore parse errors */ }
+          reactionId = (parsed as { data?: { reaction_id?: string } }).data?.reaction_id ?? null;
+        } catch {
+          /* ignore parse errors */
+        }
         resolve({ messageId, reactionId, startedAt, status: "active" });
       } else {
         resolve({
@@ -95,11 +102,19 @@ export function removeTypingReaction(
       { stdio: ["ignore", "pipe", "pipe"] },
     );
 
-    child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+    child.stderr?.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
 
-    child.on("error", (err) => { console.error(`[lark-bot] removeTypingReaction error: ${err.message}`); resolve(); });
+    child.on("error", (err) => {
+      console.error(`[lark-bot] removeTypingReaction error: ${err.message}`);
+      resolve();
+    });
     child.on("exit", (code) => {
-      if (code !== 0) console.error(`[lark-bot] removeTypingReaction failed: code=${code} stderr=${stderr.trim().slice(0, 200)}`);
+      if (code !== 0)
+        console.error(
+          `[lark-bot] removeTypingReaction failed: code=${code} stderr=${stderr.trim().slice(0, 200)}`,
+        );
       resolve();
     });
   });

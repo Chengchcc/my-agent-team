@@ -1,9 +1,9 @@
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Database } from "bun:sqlite";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { LarkBotArgs } from "./args.js";
 import { getAllChatBindings, openBindings } from "./bindings-sqlite.js";
 import { safeAgentId } from "./safe-agent-id.js";
-import type { LarkBotArgs } from "./args.js";
 
 export interface BootstrapState {
   db: Database;
@@ -30,9 +30,7 @@ function acquirePidLock(stateRoot: string, agentId: string): string {
     if (oldPid && Number.isFinite(oldPid)) {
       try {
         process.kill(oldPid, 0); // signal 0 = existence check
-        console.error(
-          `[lark-bot] another instance is already running (pid=${oldPid}) — exiting`,
-        );
+        console.error(`[lark-bot] another instance is already running (pid=${oldPid}) — exiting`);
         process.exit(0);
       } catch {
         // Stale PID — overwrite
@@ -45,10 +43,6 @@ function acquirePidLock(stateRoot: string, agentId: string): string {
   mkdirSync(dir, { recursive: true });
   writeFileSync(pidFile, ourPid);
   return pidFile;
-}
-
-function releasePidLock(pidFile: string): void {
-  try { unlinkSync(pidFile); } catch { /* best-effort */ }
 }
 
 /**

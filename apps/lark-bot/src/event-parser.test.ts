@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { isBotMentioned, parseEvent } from "./event-parser.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isBotMentioned, parseEvent } from "./event-parser.js";
 
 const fixtureDir = join(import.meta.dir, "..", "fixtures");
 

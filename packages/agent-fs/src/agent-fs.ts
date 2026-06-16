@@ -1,9 +1,9 @@
 import { DefaultWorkspaceAliases } from "./aliases.js";
 import type {
+  AgentFsDomain,
   MountEntry,
   PathAliasResolver,
   ReadableBackend,
-  AgentFsDomain,
   WritableBackend,
 } from "./types.js";
 

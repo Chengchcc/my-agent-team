@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import type { RunOpsDetail, RunDiagnosis } from "@/lib/api";
-import { diagnoseRun } from "@/lib/ops-diagnosis";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import type { RunDiagnosis, RunOpsDetail } from "@/lib/api";
+import { diagnoseRun } from "@/lib/ops-diagnosis";
 import { CopyButton } from "./CopyButton";
 
 const diagnosisLabel: Record<RunDiagnosis["kind"], string> = {
@@ -24,7 +24,10 @@ const ownerLabel: Record<RunDiagnosis["owner"], string> = {
   unknown: "Unknown",
 };
 
-const diagnosisBadgeVariant: Record<RunDiagnosis["kind"], "default" | "secondary" | "destructive" | "outline"> = {
+const diagnosisBadgeVariant: Record<
+  RunDiagnosis["kind"],
+  "default" | "secondary" | "destructive" | "outline"
+> = {
   running: "default",
   heartbeat_stale: "outline",
   detached_waiting_reaper: "secondary",
@@ -46,9 +49,11 @@ export function RunDiagnosisHeader({
   const a = detail.attempts[0];
   if (a) {
     evidence.push(`transport=${a.transport}`);
-    if (a.heartbeatAgeMs != null) evidence.push(`heartbeatAgeMs=${a.heartbeatAgeMs}ms (timeout=${heartbeatTimeoutMs}ms)`);
+    if (a.heartbeatAgeMs != null)
+      evidence.push(`heartbeatAgeMs=${a.heartbeatAgeMs}ms (timeout=${heartbeatTimeoutMs}ms)`);
   }
-  if (detail.eventLog.lastEventType) evidence.push(`lastEventType=${detail.eventLog.lastEventType}`);
+  if (detail.eventLog.lastEventType)
+    evidence.push(`lastEventType=${detail.eventLog.lastEventType}`);
   const lastOps = detail.ops.at(-1);
   if (lastOps) evidence.push(`lastOpsKind=${lastOps.kind}`);
 
@@ -58,14 +63,10 @@ export function RunDiagnosisHeader({
         <span className="font-mono text-xs text-foreground">{detail.run.runId}</span>
         <CopyButton text={detail.run.runId} label="run ID" />
 
-        <Badge variant={diagnosisBadgeVariant[diagnosis.kind]}>
-          {detail.run.status}
-        </Badge>
+        <Badge variant={diagnosisBadgeVariant[diagnosis.kind]}>{detail.run.status}</Badge>
 
         <span className="text-muted-foreground">Diagnosis:</span>
-        <span className="font-medium text-foreground">
-          {diagnosisLabel[diagnosis.kind]}
-        </span>
+        <span className="font-medium text-foreground">{diagnosisLabel[diagnosis.kind]}</span>
 
         <span className="text-muted-foreground">Owner:</span>
         <span className="text-foreground">{ownerLabel[diagnosis.owner]}</span>

@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import type { AgentFsHandle } from "@my-agent-team/agent-fs";
 import type { Tool } from "@my-agent-team/core";
 import {
   type Agent,
@@ -17,7 +18,6 @@ import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill"
 import { taskGuardPlugin } from "@my-agent-team/plugin-task-guard";
 import type { AgentFsRoots } from "@my-agent-team/tools-common";
 import { bashTool, globTool, grepTool, withWorkspace } from "@my-agent-team/tools-common";
-import type { AgentFsHandle } from "@my-agent-team/agent-fs";
 import { bootstrap } from "./bootstrap.js";
 
 function toAgentFsRoots(ws: AgentFsHandle): AgentFsRoots {

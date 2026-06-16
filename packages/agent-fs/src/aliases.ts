@@ -1,5 +1,5 @@
-import type { PathAliasResolver } from "./types.js";
 import { AgentFsAccessError } from "./agent-fs.js";
+import type { PathAliasResolver } from "./types.js";
 
 const SHARED_ROOT_FILES = new Set([
   "/SOUL.md",

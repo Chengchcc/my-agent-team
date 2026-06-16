@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { describe, expect, test } from "bun:test";
 import { render } from "./render.js";
 
 // processEntry moved to module scope for testability — test via watchConversation integration

@@ -1,9 +1,9 @@
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import type {
+  RunnerHealthRow,
   RunOpsEvent,
   RunOpsEventKind,
   RunOriginRow,
-  RunnerHealthRow,
   SurfaceHealthRow,
 } from "./types.js";
 
@@ -43,25 +43,21 @@ export class RuntimeOpsStore {
         now,
       ],
     );
-    const row = this.#db
-      .query("SELECT last_insert_rowid()")
-      .get() as { "last_insert_rowid()": number };
+    const row = this.#db.query("SELECT last_insert_rowid()").get() as {
+      "last_insert_rowid()": number;
+    };
     return row["last_insert_rowid()"];
   }
 
   getRunEvents(runId: string): RunOpsEvent[] {
     return this.#db
-      .query(
-        `SELECT ${RUN_OPS_COLS} FROM run_ops_event WHERE run_id = ? ORDER BY seq`,
-      )
+      .query(`SELECT ${RUN_OPS_COLS} FROM run_ops_event WHERE run_id = ? ORDER BY seq`)
       .all(runId) as RunOpsEvent[];
   }
 
   getRunEventsByTrace(traceId: string): RunOpsEvent[] {
     return this.#db
-      .query(
-        `SELECT ${RUN_OPS_COLS} FROM run_ops_event WHERE trace_id = ? ORDER BY seq`,
-      )
+      .query(`SELECT ${RUN_OPS_COLS} FROM run_ops_event WHERE trace_id = ? ORDER BY seq`)
       .all(traceId) as RunOpsEvent[];
   }
 
@@ -185,22 +181,15 @@ export class RuntimeOpsStore {
     );
   }
 
-  getSurfaceHealth(
-    agentId: string,
-    surface: string,
-  ): SurfaceHealthRow | undefined {
+  getSurfaceHealth(agentId: string, surface: string): SurfaceHealthRow | undefined {
     return this.#db
-      .query(
-        `SELECT ${SURFACE_HEALTH_COLS} FROM surface_health WHERE agent_id = ? AND surface = ?`,
-      )
+      .query(`SELECT ${SURFACE_HEALTH_COLS} FROM surface_health WHERE agent_id = ? AND surface = ?`)
       .get(agentId, surface) as SurfaceHealthRow | undefined;
   }
 
   getSurfaceHealthsForAgent(agentId: string): SurfaceHealthRow[] {
     return this.#db
-      .query(
-        `SELECT ${SURFACE_HEALTH_COLS} FROM surface_health WHERE agent_id = ?`,
-      )
+      .query(`SELECT ${SURFACE_HEALTH_COLS} FROM surface_health WHERE agent_id = ?`)
       .all(agentId) as SurfaceHealthRow[];
   }
 

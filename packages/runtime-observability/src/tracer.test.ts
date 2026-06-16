@@ -1,6 +1,6 @@
-import { describe, test, expect } from "bun:test";
-import { createRuntimeTracer } from "./tracer.js";
+import { describe, expect, test } from "bun:test";
 import { resolveObservabilityConfig } from "./config.js";
+import { createRuntimeTracer } from "./tracer.js";
 import type { ObservabilityConfig } from "./types.js";
 
 const offConfig: ObservabilityConfig = {
@@ -39,9 +39,7 @@ describe("RuntimeTracer (off mode)", () => {
 
   test("inject returns valid traceparent format", () => {
     const ctx = tracer.inject();
-    expect(ctx.traceparent).toMatch(
-      /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/,
-    );
+    expect(ctx.traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
     expect(ctx.traceId).toHaveLength(32);
     expect(ctx.spanId).toHaveLength(16);
   });

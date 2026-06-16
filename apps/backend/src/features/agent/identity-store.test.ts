@@ -1,7 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { rmSync } from "node:fs";
-import path from "node:path";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { rmSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { createAgentIdentityStore } from "./identity-store.js";
 
 const tmpBase = `/tmp/identity-store-test-${Date.now()}`;
@@ -10,7 +10,9 @@ const dataDir = path.join(tmpBase, "data");
 function clean() {
   try {
     rmSync(tmpBase, { recursive: true, force: true });
-  } catch {}
+  } catch {
+    /* noop */
+  }
 }
 
 afterAll(() => clean());

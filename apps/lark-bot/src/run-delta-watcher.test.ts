@@ -1,14 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import {
-  parseRunStreamEvent,
-  parseSseFrames,
-} from "./run-delta-watcher.js";
+import { parseRunStreamEvent, parseSseFrames } from "./run-delta-watcher.js";
 
 describe("parseSseFrames", () => {
   test("parses a single event+data frame", () => {
-    const frames = parseSseFrames(
-      "event: text_delta\ndata: {\"blockIndex\":0,\"text\":\"hello\"}\n\n",
-    );
+    const frames = parseSseFrames('event: text_delta\ndata: {"blockIndex":0,"text":"hello"}\n\n');
     expect(frames).toHaveLength(1);
     expect(frames[0]!.eventName).toBe("text_delta");
     expect(frames[0]!.dataText).toBe('{"blockIndex":0,"text":"hello"}');
@@ -20,9 +15,7 @@ describe("parseSseFrames", () => {
   });
 
   test("handles multi-line data", () => {
-    const frames = parseSseFrames(
-      'data: line1\ndata: line2\n\n',
-    );
+    const frames = parseSseFrames("data: line1\ndata: line2\n\n");
     expect(frames).toHaveLength(1);
     expect(frames[0]!.dataText).toBe("line1\nline2");
   });

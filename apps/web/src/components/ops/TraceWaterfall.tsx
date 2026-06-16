@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
+import { useState } from "react";
 import type { TraceOpsDetail } from "@/lib/api";
 
 const MIN_BAR_W = 4;
@@ -17,9 +17,7 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
 
   if (detail.events.length === 0) {
     return (
-      <p className="text-muted-foreground text-sm">
-        No diagnostic events recorded for this trace.
-      </p>
+      <p className="text-muted-foreground text-sm">No diagnostic events recorded for this trace.</p>
     );
   }
 
@@ -60,47 +58,47 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
                 className="flex items-center gap-3 text-xs group w-full text-left py-0.5 hover:bg-muted/30 rounded transition-colors"
                 aria-expanded={expandedIdx === i}
               >
-              <span className="w-16 shrink-0 text-right font-mono text-muted-foreground">
-                {relativeTime(e.ts, baseTs)}
-              </span>
-
-              <div className="relative flex-1 h-5">
-                <div
-                  className="absolute top-1/2 -translate-y-1/2 h-3 rounded-sm bg-primary/40 group-hover:bg-primary/70 transition-colors"
-                  style={{ left: `${left}%`, width: barWidth, minWidth: MIN_BAR_W }}
-                />
-                <span
-                  className="absolute top-1/2 -translate-y-1/2 text-foreground truncate"
-                  style={{ left: `${Math.min(left + widthPct + 0.5, 98)}%` }}
-                >
-                  {e.kind}
+                <span className="w-16 shrink-0 text-right font-mono text-muted-foreground">
+                  {relativeTime(e.ts, baseTs)}
                 </span>
-              </div>
 
-              <Link
-                href={`/ops/runs/${e.runId}`}
-                className="font-mono text-muted-foreground hover:text-primary transition-colors shrink-0"
-                onClick={(ev) => ev.stopPropagation()}
-              >
-                {e.runId.slice(0, 8)}…
-              </Link>
-            </button>
-            {expandedIdx === i && (
-              <div className="ml-[76px] mt-1 mb-2 p-2 rounded bg-muted/30 text-xs font-mono text-muted-foreground overflow-x-auto">
-                <div className="flex gap-4 mb-1">
-                  <span>kind: {e.kind}</span>
-                  <span>ts: {new Date(e.ts).toISOString()}</span>
-                  <span>runId: {e.runId}</span>
-                  {e.attemptId && <span>attemptId: {e.attemptId}</span>}
+                <div className="relative flex-1 h-5">
+                  <div
+                    className="absolute top-1/2 -translate-y-1/2 h-3 rounded-sm bg-primary/40 group-hover:bg-primary/70 transition-colors"
+                    style={{ left: `${left}%`, width: barWidth, minWidth: MIN_BAR_W }}
+                  />
+                  <span
+                    className="absolute top-1/2 -translate-y-1/2 text-foreground truncate"
+                    style={{ left: `${Math.min(left + widthPct + 0.5, 98)}%` }}
+                  >
+                    {e.kind}
+                  </span>
                 </div>
-                {Object.keys(e.payload).length > 0 && (
-                  <pre className="mt-1 text-[11px] max-h-48 overflow-y-auto">
-                    {JSON.stringify(e.payload, null, 2)}
-                  </pre>
-                )}
-              </div>
-            )}
-          </div>
+
+                <Link
+                  href={`/ops/runs/${e.runId}`}
+                  className="font-mono text-muted-foreground hover:text-primary transition-colors shrink-0"
+                  onClick={(ev) => ev.stopPropagation()}
+                >
+                  {e.runId.slice(0, 8)}…
+                </Link>
+              </button>
+              {expandedIdx === i && (
+                <div className="ml-[76px] mt-1 mb-2 p-2 rounded bg-muted/30 text-xs font-mono text-muted-foreground overflow-x-auto">
+                  <div className="flex gap-4 mb-1">
+                    <span>kind: {e.kind}</span>
+                    <span>ts: {new Date(e.ts).toISOString()}</span>
+                    <span>runId: {e.runId}</span>
+                    {e.attemptId && <span>attemptId: {e.attemptId}</span>}
+                  </div>
+                  {Object.keys(e.payload).length > 0 && (
+                    <pre className="mt-1 text-[11px] max-h-48 overflow-y-auto">
+                      {JSON.stringify(e.payload, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
@@ -118,7 +116,9 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
                 <span className="font-mono text-xs text-muted-foreground">
                   {r.runId.slice(0, 12)}…
                 </span>
-                <span className="text-foreground" title={r.agentId}>{r.agentName}</span>
+                <span className="text-foreground" title={r.agentId}>
+                  {r.agentName}
+                </span>
                 <span className="text-muted-foreground text-xs">{r.status}</span>
               </Link>
             ))}

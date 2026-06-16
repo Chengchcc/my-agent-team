@@ -3,9 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 
 export function ConversationList({ agentId, agentName }: { agentId: string; agentName?: string }) {
   const router = useRouter();
@@ -39,7 +39,9 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
       queryClient.invalidateQueries({ queryKey: ["conversations", agentId] });
     },
     onError: (err) => {
-      toast.error("Failed to delete conversation", { description: err instanceof Error ? err.message : "Unknown error" });
+      toast.error("Failed to delete conversation", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
     },
   });
 
@@ -74,11 +76,7 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
       {(conversations ?? []).length === 0 ? (
         <div className="text-center py-12">
           <p className="text-sm text-[var(--mute)] mb-2">No conversations yet</p>
-          <Button
-            variant="link"
-            size="sm"
-            onClick={() => createConversation.mutate()}
-          >
+          <Button variant="link" size="sm" onClick={() => createConversation.mutate()}>
             Create your first conversation
           </Button>
         </div>

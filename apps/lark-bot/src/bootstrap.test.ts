@@ -1,8 +1,7 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { bootstrap } from "./bootstrap.js";
 import type { LarkBotArgs } from "./args.js";
+import { bootstrap } from "./bootstrap.js";
 
 const testDir = mkdtempSync("/tmp/test-lark-bootstrap-");
 const originalFetch = globalThis.fetch;

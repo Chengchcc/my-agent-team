@@ -223,9 +223,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
 
     hasLedgerContent(runId: string, content: string): boolean {
       const row = db
-        .query(
-          "SELECT 1 FROM conversation_ledger WHERE run_id = ? AND content = ? LIMIT 1",
-        )
+        .query("SELECT 1 FROM conversation_ledger WHERE run_id = ? AND content = ? LIMIT 1")
         .get(runId, content);
       return row !== null;
     },

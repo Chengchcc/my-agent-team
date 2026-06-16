@@ -1,12 +1,12 @@
 import type { Database } from "bun:sqlite";
 import type { EventLog } from "@my-agent-team/event-log";
-import { RuntimeOpsStore } from "./store.js";
-import { computeRunnerStatus } from "./types.js";
-import type { RunnerHealthStatus, RunnerHealthRow } from "./types.js";
-import type { RunSupervisor } from "../run/supervisor.js";
 import type { RunnerRegistry } from "../run/runner-registry.js";
-import { getRunInsights, getInsightsSummary } from "./insights.js";
-import type { RunInsights, InsightsSummary } from "./insights.js";
+import type { RunSupervisor } from "../run/supervisor.js";
+import type { InsightsSummary, RunInsights } from "./insights.js";
+import { getInsightsSummary, getRunInsights } from "./insights.js";
+import type { RuntimeOpsStore } from "./store.js";
+import type { RunnerHealthRow, RunnerHealthStatus } from "./types.js";
+import { computeRunnerStatus } from "./types.js";
 
 export interface RunOpsListItem {
   runId: string;
@@ -165,11 +165,15 @@ export function createRuntimeOpsService(deps: {
             "SELECT attempt_id, heartbeat_at, started_at, ended_at FROM attempt WHERE run_id = ? ORDER BY started_at DESC LIMIT 1",
           )
           .get(r.run_id) as
-          | { attempt_id: string; heartbeat_at: number | null; started_at: number; ended_at: number | null }
+          | {
+              attempt_id: string;
+              heartbeat_at: number | null;
+              started_at: number;
+              ended_at: number | null;
+            }
           | undefined;
 
-        const heartbeatAgeMs =
-          attempt?.heartbeat_at ? Date.now() - attempt.heartbeat_at : null;
+        const heartbeatAgeMs = attempt?.heartbeat_at ? Date.now() - attempt.heartbeat_at : null;
         const session = supervisor.getActive(r.run_id);
         const transport: RunOpsListItem["runnerTransport"] = session
           ? session.transportKind
@@ -210,10 +214,14 @@ export function createRuntimeOpsService(deps: {
         items = items.filter((i) => i.runnerTransport === params.transport);
       }
       if (params.heartbeat === "stale") {
-        items = items.filter((i) => i.heartbeatAgeMs != null && i.heartbeatAgeMs > heartbeatTimeoutMs);
+        items = items.filter(
+          (i) => i.heartbeatAgeMs != null && i.heartbeatAgeMs > heartbeatTimeoutMs,
+        );
       }
       if (params.heartbeat === "fresh") {
-        items = items.filter((i) => i.heartbeatAgeMs != null && i.heartbeatAgeMs <= heartbeatTimeoutMs);
+        items = items.filter(
+          (i) => i.heartbeatAgeMs != null && i.heartbeatAgeMs <= heartbeatTimeoutMs,
+        );
       }
       if (params.traceId) {
         items = items.filter((i) => i.traceId === params.traceId);
@@ -238,19 +246,17 @@ export function createRuntimeOpsService(deps: {
           "SELECT attempt_id, heartbeat_at, started_at, ended_at FROM attempt WHERE run_id = ? ORDER BY started_at DESC",
         )
         .all(runId) as Array<{
-          attempt_id: string;
-          heartbeat_at: number | null;
-          started_at: number;
-          ended_at: number | null;
-        }>;
+        attempt_id: string;
+        heartbeat_at: number | null;
+        started_at: number;
+        ended_at: number | null;
+      }>;
 
       const lastEvent = db
         .query(
           "SELECT seq, json_extract(event, '$.type') as type, ts FROM event_log WHERE run_id = ? ORDER BY seq DESC LIMIT 1",
         )
-        .get(runId) as
-        | { seq: number | null; type: string | null; ts: number | null }
-        | undefined;
+        .get(runId) as { seq: number | null; type: string | null; ts: number | null } | undefined;
 
       const ops = opsStore.getRunEvents(runId);
 
@@ -299,9 +305,9 @@ export function createRuntimeOpsService(deps: {
     },
 
     cancel(runId: string): CancelRunResult {
-      const run = db
-        .query("SELECT status FROM run WHERE run_id = ?")
-        .get(runId) as { status: string } | undefined;
+      const run = db.query("SELECT status FROM run WHERE run_id = ?").get(runId) as
+        | { status: string }
+        | undefined;
       if (!run) return { ok: false, error: "not_found" };
 
       if (run.status !== "running") {
@@ -320,7 +326,9 @@ export function createRuntimeOpsService(deps: {
     async recover(runId: string): Promise<RecoverRunResult> {
       const run = db
         .query("SELECT status, agent_id, thread_id, kind FROM run WHERE run_id = ?")
-        .get(runId) as { status: string; agent_id: string; thread_id: string; kind: string } | undefined;
+        .get(runId) as
+        | { status: string; agent_id: string; thread_id: string; kind: string }
+        | undefined;
       if (!run) return { state: "already_terminal", status: "not_found" };
       if (run.status !== "running") return { state: "already_terminal", status: run.status };
 
@@ -328,9 +336,7 @@ export function createRuntimeOpsService(deps: {
         .query(
           "SELECT attempt_id, heartbeat_at FROM attempt WHERE run_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
         )
-        .get(runId) as
-        | { attempt_id: string; heartbeat_at: number | null }
-        | undefined;
+        .get(runId) as { attempt_id: string; heartbeat_at: number | null } | undefined;
 
       if (!attempt) return { state: "already_terminal", status: "unknown" };
 
@@ -343,10 +349,7 @@ export function createRuntimeOpsService(deps: {
             now,
             runId,
           ]);
-          db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [
-            now,
-            attempt.attempt_id,
-          ]);
+          db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, attempt.attempt_id]);
         })();
         opsStore.appendRunEvent({
           runId,
@@ -376,7 +379,14 @@ export function createRuntimeOpsService(deps: {
           if (attached) {
             // Bind transport and register session
             supervisor.bindTransport(attached);
-            supervisor.registerRecoveredSession(runId, run.agent_id, run.thread_id, attached, attempt.attempt_id, run.kind as "main" | "reflect");
+            supervisor.registerRecoveredSession(
+              runId,
+              run.agent_id,
+              run.thread_id,
+              attached,
+              attempt.attempt_id,
+              run.kind as "main" | "reflect",
+            );
             opsStore.appendRunEvent({
               runId,
               attemptId: attempt.attempt_id,
@@ -501,9 +511,7 @@ export function createRuntimeOpsService(deps: {
         payload: e.payload,
       }));
 
-      const runs = this.listRuns({ limit: 500 }).filter(
-        (r) => r.traceId === traceId,
-      );
+      const runs = this.listRuns({ limit: 500 }).filter((r) => r.traceId === traceId);
 
       return {
         traceId,
@@ -572,7 +580,14 @@ export function createRuntimeOpsService(deps: {
           "SELECT run_id, thread_id, agent_id, status, started_at, ended_at FROM run WHERE run_id = ?",
         )
         .get(runId) as
-        | { run_id: string; thread_id: string; agent_id: string; status: string; started_at: number; ended_at: number | null }
+        | {
+            run_id: string;
+            thread_id: string;
+            agent_id: string;
+            status: string;
+            started_at: number;
+            ended_at: number | null;
+          }
         | undefined;
       if (!run) return null;
 

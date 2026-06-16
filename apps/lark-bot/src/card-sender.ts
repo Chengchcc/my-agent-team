@@ -51,8 +51,12 @@ export function sendCard(input: {
 
     let stdout = "";
     let stderr = "";
-    child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
-    child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+    child.stdout?.on("data", (d: Buffer) => {
+      stdout += d.toString();
+    });
+    child.stderr?.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
 
     child.on("error", (err) => {
       resolve({ ok: false, error: err.message, retryable: true });
@@ -61,7 +65,7 @@ export function sendCard(input: {
     child.on("exit", (code) => {
       if (code === 0) {
         let raw: unknown;
-        let messageId = "";
+        let messageId: string;
         try {
           raw = JSON.parse(stdout);
           messageId =
@@ -74,11 +78,16 @@ export function sendCard(input: {
         if (messageId) {
           resolve({ ok: true, messageId, raw });
         } else {
-          resolve({ ok: false, error: `no message_id in: ${stdout.slice(0, 200)}`, retryable: false });
+          resolve({
+            ok: false,
+            error: `no message_id in: ${stdout.slice(0, 200)}`,
+            retryable: false,
+          });
         }
       } else {
         // 429 / 5xx are retryable
-        const retryable = /429|5\d\d/.test(stderr) || stderr.includes("rate_limit") || stderr.includes("RateLimit");
+        const retryable =
+          /429|5\d\d/.test(stderr) || stderr.includes("rate_limit") || stderr.includes("RateLimit");
         resolve({ ok: false, error: stderr.trim() || `exit code ${code}`, retryable });
       }
     });
@@ -114,8 +123,12 @@ export function updateCard(input: {
 
     let stdout = "";
     let stderr = "";
-    child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
-    child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+    child.stdout?.on("data", (d: Buffer) => {
+      stdout += d.toString();
+    });
+    child.stderr?.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
 
     child.on("error", (err) => {
       resolve({ ok: false, error: err.message, retryable: true });
@@ -124,10 +137,15 @@ export function updateCard(input: {
     child.on("exit", (code) => {
       if (code === 0) {
         let raw: unknown;
-        try { raw = JSON.parse(stdout); } catch { raw = stdout; }
+        try {
+          raw = JSON.parse(stdout);
+        } catch {
+          raw = stdout;
+        }
         resolve({ ok: true, raw });
       } else {
-        const retryable = /429|5\d\d/.test(stderr) || stderr.includes("rate_limit") || stderr.includes("RateLimit");
+        const retryable =
+          /429|5\d\d/.test(stderr) || stderr.includes("rate_limit") || stderr.includes("RateLimit");
         resolve({ ok: false, error: stderr.trim() || `exit code ${code}`, retryable });
       }
     });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MemoryBackend, AgentFS } from "@my-agent-team/agent-fs";
+import { AgentFS, MemoryBackend } from "@my-agent-team/agent-fs";
 import { invalidateSkillCache, loadSkillIndexWithMtimeCache } from "./cache.js";
 
 function testFS(): AgentFS {

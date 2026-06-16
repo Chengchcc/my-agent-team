@@ -1,5 +1,5 @@
-import { describe, test, expect } from "bun:test";
-import { redactAttributes, isRedactedKey } from "./redaction.js";
+import { describe, expect, test } from "bun:test";
+import { isRedactedKey, redactAttributes } from "./redaction.js";
 import type { RuntimeSpanAttributes } from "./types.js";
 
 describe("redactAttributes", () => {

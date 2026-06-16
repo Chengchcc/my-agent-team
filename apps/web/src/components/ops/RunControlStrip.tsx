@@ -17,7 +17,6 @@ export function RunControlStrip({
   const qc = useQueryClient();
   const diagnosis = diagnoseRun(detail, heartbeatTimeoutMs);
   const runId = detail.run.runId;
-  const agentId = detail.run.agentId;
 
   const cancelMut = useMutation({
     mutationFn: () => api.opsCancelRun(runId),

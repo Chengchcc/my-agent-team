@@ -19,7 +19,9 @@ const _nextRunId = 0;
 const activeConversations = new Set<string>();
 
 let idCount = 0;
-function testIdGen(): string { return `test-id-${idCount++}`; }
+function testIdGen(): string {
+  return `test-id-${idCount++}`;
+}
 
 const svc = createConversationService({
   port,
@@ -429,7 +431,6 @@ describe("P0-2: lock lifecycle", () => {
 import { unlinkSync } from "node:fs";
 
 describe("M14.4: triggerMentionedAgents", () => {
-  // eslint-disable-next-line
   test("triggers @-mentioned agent via forkRun", async () => {
     activeConversations.clear();
     forkLog.length = 0;

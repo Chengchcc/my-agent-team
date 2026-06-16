@@ -1,12 +1,12 @@
 import { Database } from "bun:sqlite";
-import type { EventLog, EventSource } from "@my-agent-team/event-log";
 import type { Message } from "@my-agent-team/core";
+import type { EventLog, EventSource } from "@my-agent-team/event-log";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
-import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
+import type { RuntimeTraceContext, RuntimeTracer } from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";
-import type { RunnerRegistry } from "./runner-registry.js";
-import { runEventsDbMigrations } from "./events-db-migrations.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
+import { runEventsDbMigrations } from "./events-db-migrations.js";
+import type { RunnerRegistry } from "./runner-registry.js";
 
 export interface RunSupervisorOptions {
   eventLog: EventLog;
@@ -45,7 +45,7 @@ export interface RunRequestOptions {
     capabilities: Array<"start_new_conversation">;
   };
   /** M16: Trace context propagated to runner daemon via transport start. */
-  trace?: import("@my-agent-team/runtime-observability").RuntimeTraceContext;
+  trace?: RuntimeTraceContext;
 }
 
 export interface RunSession {
@@ -82,7 +82,11 @@ export class RunSupervisor {
   #onRunComplete: Array<(threadId: string, runId: string, status: string) => void | Promise<void>> =
     [];
   #onRunEvent: Array<
-    (threadId: string, runId: string, event: { type: string; payload?: unknown }) => void | Promise<void>
+    (
+      threadId: string,
+      runId: string,
+      event: { type: string; payload?: unknown },
+    ) => void | Promise<void>
   > = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
   #reaping = false;
@@ -150,7 +154,11 @@ export class RunSupervisor {
         runId: row.run_id,
         attemptId: row.attempt_id,
         kind: "reaper_marked_interrupted",
-        payload: { age, heartbeatTimeoutMs: this.#opts.config.heartbeatTimeoutMs, reason: "heartbeat_timeout" },
+        payload: {
+          age,
+          heartbeatTimeoutMs: this.#opts.config.heartbeatTimeoutMs,
+          reason: "heartbeat_timeout",
+        },
       });
       const now = Date.now();
       // FIX: transactional write — run + attempt status update is atomic
@@ -582,7 +590,14 @@ export class RunSupervisor {
         break;
       }
       case "daemon_health": {
-        const h = msg as { agentId: string; uptimeMs: number; activeRunIds: string[]; checkpointer: { kind: string; ok: boolean; lastError?: string }; workspace: { ok: boolean; lastError?: string }; ts: number };
+        const h = msg as {
+          agentId: string;
+          uptimeMs: number;
+          activeRunIds: string[];
+          checkpointer: { kind: string; ok: boolean; lastError?: string };
+          workspace: { ok: boolean; lastError?: string };
+          ts: number;
+        };
         this.#opts.opsStore.upsertRunnerHealth({
           agentId: h.agentId,
           uptimeMs: h.uptimeMs,

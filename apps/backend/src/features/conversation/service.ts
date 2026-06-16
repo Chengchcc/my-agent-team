@@ -107,7 +107,10 @@ export function createConversationService(deps: ConversationServiceDeps) {
   /** Project a ledger entry into all agent member checkpoints.
    *  M14.6: "todo" entries are UI-only — never projected into agent checkpoints
    *  (todo JSON would pollute the model's conversation context). */
-  async function broadcastMessage(entry: LedgerRow, opts?: { excludeMemberId?: string }): Promise<void> {
+  async function broadcastMessage(
+    entry: LedgerRow,
+    opts?: { excludeMemberId?: string },
+  ): Promise<void> {
     if (entry.kind === "todo" || entry.kind === "surface.control") return; // UI-only, never projected
 
     const conv = buildConversation(entry.conversationId);
@@ -455,7 +458,9 @@ export function createConversationService(deps: ConversationServiceDeps) {
               controlSeq: entry.seq,
             };
           }
-        } catch { /* malformed entry — skip */ }
+        } catch {
+          /* malformed entry — skip */
+        }
       }
 
       // 2. Verify run owns the old conversation

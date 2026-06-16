@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
 interface CallItem {
@@ -38,7 +38,10 @@ export function CallTreeItem({ call, depth = 0 }: { call: CallItem; depth?: numb
 
   if (call.kind === "interrupt") {
     return (
-      <div className="text-xs text-[var(--chart-4)] font-mono py-1" style={{ paddingLeft: `${depth * 16 + 8}px` }}>
+      <div
+        className="text-xs text-[var(--chart-4)] font-mono py-1"
+        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+      >
         ⏸ paused (step {call.step})
       </div>
     );
@@ -82,7 +85,9 @@ export function CallTreeItem({ call, depth = 0 }: { call: CallItem; depth?: numb
           </>
         ) : (
           <>
-            <span className={call.isError ? "text-destructive" : "text-[var(--chart-3)]"}>TOOL</span>
+            <span className={call.isError ? "text-destructive" : "text-[var(--chart-3)]"}>
+              TOOL
+            </span>
             <span className="text-foreground truncate max-w-[200px]">{call.name}</span>
             {call.latencyMs != null && (
               <span className="text-muted-foreground">{formatLatency(call.latencyMs)}</span>
@@ -103,8 +108,12 @@ export function CallTreeItem({ call, depth = 0 }: { call: CallItem; depth?: numb
               <div>TTFT: {call.ttftMs != null ? formatLatency(call.ttftMs) : "—"}</div>
               <div>input: {call.usage?.input ?? 0} tokens</div>
               <div>output: {call.usage?.output ?? 0} tokens</div>
-              {call.usage?.cacheCreate != null && <div>cache write: {call.usage.cacheCreate} tokens</div>}
-              {call.usage?.cacheRead != null && <div>cache read: {call.usage.cacheRead} tokens</div>}
+              {call.usage?.cacheCreate != null && (
+                <div>cache write: {call.usage.cacheCreate} tokens</div>
+              )}
+              {call.usage?.cacheRead != null && (
+                <div>cache read: {call.usage.cacheRead} tokens</div>
+              )}
               <div>stop reason: {call.stopReason ?? "—"}</div>
               <div>cost (est.): {formatCost(call.costUsd)}</div>
             </>

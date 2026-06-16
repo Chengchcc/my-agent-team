@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useRouter, useSearchParams } from "next/navigation";
-import { api } from "@/lib/api";
-import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback } from "react";
+import { RunOpsTable } from "@/components/ops/RunOpsTable";
+import { api } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -55,12 +55,13 @@ export default function RunsPage() {
 
   const { data: runs = [] } = useQuery({
     queryKey: ["ops", "runs", { status, transport, heartbeat }],
-    queryFn: () => api.listOpsRuns({
-      limit: 100,
-      ...(status ? { status } : {}),
-      ...(transport ? { transport: transport as "attached" | "noop" | "detached" } : {}),
-      ...(heartbeat ? { heartbeat: heartbeat as "fresh" | "stale" } : {}),
-    }),
+    queryFn: () =>
+      api.listOpsRuns({
+        limit: 100,
+        ...(status ? { status } : {}),
+        ...(transport ? { transport: transport as "attached" | "noop" | "detached" } : {}),
+        ...(heartbeat ? { heartbeat: heartbeat as "fresh" | "stale" } : {}),
+      }),
     staleTime: 10_000,
     refetchInterval: 30_000,
   });
@@ -68,7 +69,9 @@ export default function RunsPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm">← Observability</Link>
+        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm">
+          ← Observability
+        </Link>
         <h1 className="text-2xl font-bold text-foreground">Runs</h1>
       </div>
 
@@ -142,9 +145,7 @@ export default function RunsPage() {
         {runs.length === 0 ? (
           <div className="p-8 text-center space-y-2">
             <p className="text-sm text-muted-foreground">
-              {hasFilters
-                ? "No runs match the current filters."
-                : "No runs recorded yet."}
+              {hasFilters ? "No runs match the current filters." : "No runs recorded yet."}
             </p>
             {hasFilters ? null : (
               <Link href="/agents" className="inline-block text-xs text-primary hover:underline">

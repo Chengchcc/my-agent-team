@@ -5,14 +5,10 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { getRunStream, insertRunStream, updateRunStream, type RunStreamRecord } from "./bindings-sqlite.js";
-import { sendCard, updateCard, type CardSendOk, type CardSendErr } from "./card-sender.js";
-import { renderLarkRunCard, type LarkRunCardStatus } from "./card-renderer.js";
-import {
-  addTypingReaction,
-  removeTypingReaction,
-  type LarkTypingReactionState,
-} from "./feedback-reaction.js";
+import { getRunStream, insertRunStream, updateRunStream } from "./bindings-sqlite.js";
+import { type LarkRunCardStatus, renderLarkRunCard } from "./card-renderer.js";
+import { type CardSendOk, sendCard, updateCard } from "./card-sender.js";
+import { type LarkTypingReactionState, removeTypingReaction } from "./feedback-reaction.js";
 
 // ─── SSE parsing ───
 
@@ -102,7 +98,7 @@ export function watchRunDelta(
   reactionState: LarkTypingReactionState | null,
   opts: RunDeltaWatcherOptions,
 ): RunDeltaWatcherHandle {
-  const { db, backendUrl, backendAuthToken, profile, larkChatId, sourceMessageId, onFallback } = opts;
+  const { db, backendUrl, backendAuthToken, profile, larkChatId, sourceMessageId } = opts;
   let aborted = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -114,7 +110,6 @@ export function watchRunDelta(
     let pendingChars = 0;
     let lastFlushAt = now;
     let larkMessageId: string | null = null;
-    let cardSendFailed = 0;
     let cardUpdateFailed = 0;
 
     // Check if this run already has a record (restart recovery)
@@ -122,7 +117,6 @@ export function watchRunDelta(
     if (existing) {
       accumulated = existing.accumulated;
       larkMessageId = existing.larkMessageId;
-      cardSendFailed = existing.cardSendFailed;
       cardUpdateFailed = existing.cardUpdateFailed;
       // If already done/error, don't restart
       if (existing.status === "done" || existing.status === "error") return;
@@ -169,11 +163,19 @@ export function watchRunDelta(
       });
 
       const idempotencyKey = `${conversationId}:${runId}:card`;
-      const result = await sendCard({ profile, chatId: larkChatId, card: thinkingCard, idempotencyKey });
+      const result = await sendCard({
+        profile,
+        chatId: larkChatId,
+        card: thinkingCard,
+        idempotencyKey,
+      });
 
       if (!result.ok) {
-        cardSendFailed = 1;
-        updateRunStream(db, runId, { status: "fallback_text", cardSendFailed: 1, lastError: result.error });
+        updateRunStream(db, runId, {
+          status: "fallback_text",
+          cardSendFailed: 1,
+          lastError: result.error,
+        });
         await cleanupReaction();
         return;
       }
@@ -193,7 +195,10 @@ export function watchRunDelta(
       const resp = await fetch(url, { headers });
       if (!resp.ok || !resp.body) {
         // Stream not available — fall back to ledger text
-        updateRunStream(db, runId, { status: "fallback_text", lastError: `stream unavailable: ${resp.status}` });
+        updateRunStream(db, runId, {
+          status: "fallback_text",
+          lastError: `stream unavailable: ${resp.status}`,
+        });
         await cleanupReaction();
         return;
       }
@@ -219,7 +224,11 @@ export function watchRunDelta(
             currentData += currentData ? "\n" + line.slice(6) : line.slice(6);
           } else if (line === "" && currentData) {
             let parsedData: unknown;
-            try { parsedData = JSON.parse(currentData); } catch { parsedData = currentData; }
+            try {
+              parsedData = JSON.parse(currentData);
+            } catch {
+              parsedData = currentData;
+            }
 
             const ev = parseRunStreamEvent({
               eventName: currentEvent,
@@ -269,7 +278,9 @@ export function watchRunDelta(
       let errorMsg: string | undefined;
 
       try {
-        const metaResp = await fetch(`${backendUrl}/api/runs/${runId}`, { headers: { "x-auth-token": backendAuthToken ?? "" } });
+        const metaResp = await fetch(`${backendUrl}/api/runs/${runId}`, {
+          headers: { "x-auth-token": backendAuthToken ?? "" },
+        });
         if (metaResp.ok) {
           const meta = (await metaResp.json()) as { status: string };
           if (meta.status === "succeeded") {
@@ -301,7 +312,12 @@ export function watchRunDelta(
         await updateCard({ profile, messageId: larkMessageId!, card }).catch(() => {
           cardUpdateFailed = 1;
         });
-        updateRunStream(db, runId, { status: finalStatus, cardUpdateFailed, accumulated, lastError: errorMsg ?? null });
+        updateRunStream(db, runId, {
+          status: finalStatus,
+          cardUpdateFailed,
+          accumulated,
+          lastError: errorMsg ?? null,
+        });
         await cleanupReaction();
       }
     } catch (err) {
@@ -312,8 +328,16 @@ export function watchRunDelta(
       await cleanupReaction();
     } finally {
       if (reader) {
-        try { await reader.cancel(); } catch { /* cleanup */ }
-        try { reader.releaseLock(); } catch { /* cleanup */ }
+        try {
+          await reader.cancel();
+        } catch {
+          /* cleanup */
+        }
+        try {
+          reader.releaseLock();
+        } catch {
+          /* cleanup */
+        }
       }
     }
   };
@@ -321,7 +345,10 @@ export function watchRunDelta(
   function scheduleReconnect(delayMs: number) {
     if (aborted) return;
     if (reconnectTimer) clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(() => { reconnectTimer = null; void drive(); }, delayMs);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      void drive();
+    }, delayMs);
   }
 
   // Start driving
@@ -331,7 +358,10 @@ export function watchRunDelta(
     runId,
     close: () => {
       aborted = true;
-      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
     },
   };
 }

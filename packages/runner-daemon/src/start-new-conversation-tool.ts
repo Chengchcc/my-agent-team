@@ -51,9 +51,7 @@ export function createStartNewConversationTool(input: {
       if (!resp.ok) {
         const body = (await resp.json().catch(() => ({}))) as { error?: string };
         throw new Error(
-          `start_new_conversation failed: HTTP ${resp.status} - ${
-            body.error ?? "unknown"
-          }`,
+          `start_new_conversation failed: HTTP ${resp.status} - ${body.error ?? "unknown"}`,
         );
       }
       return await resp.json();

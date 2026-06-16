@@ -22,11 +22,7 @@ export interface IngestContext {
   /** Called when a new conversation is bound — allows dynamic SSE subscription */
   onNewBinding?: (conversationId: string) => void;
   /** M15.1: Called for each triggered run — starts streaming card lifecycle */
-  onTriggeredRun?: (
-    runId: string,
-    conversationId: string,
-    sourceMessageId: string,
-  ) => void;
+  onTriggeredRun?: (runId: string, conversationId: string, sourceMessageId: string) => void;
 }
 
 export interface IngestResult {
@@ -59,8 +55,6 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   // Trade-off: "lose an inbound rather than duplicate a run trigger" (spec §5.3).
   let memberId = "";
   let conversationId = "";
-  let isNewBinding = false;
-
   // ─── Step 0: Idempotent reserve (local sqlite transaction) ───
   const reserveResult = db.transaction(() => {
     if (inboundExists(db, event.event_id, event.message_id)) {
@@ -119,7 +113,6 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     }
     const conv = (await convResp.json()) as { conversationId: string };
     conversationId = conv.conversationId;
-    isNewBinding = true;
     memberId = `human:lark:${event.sender_id}`;
 
     // Add the human member via API FIRST (idempotent per §7.3).

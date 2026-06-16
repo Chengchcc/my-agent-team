@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { RuntimeOpsStore } from "./store.js";
 import { computeRunnerStatus } from "./types.js";
 

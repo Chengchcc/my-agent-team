@@ -13,7 +13,9 @@ export function opsRoutes(svc: RuntimeOpsService) {
           threadId: url.searchParams.get("threadId") ?? undefined,
           conversationId: url.searchParams.get("conversationId") ?? undefined,
           status: url.searchParams.get("status") ?? undefined,
-          transport: (url.searchParams.get("transport") as "attached" | "noop" | "detached" | null) ?? undefined,
+          transport:
+            (url.searchParams.get("transport") as "attached" | "noop" | "detached" | null) ??
+            undefined,
           heartbeat: (url.searchParams.get("heartbeat") as "fresh" | "stale" | null) ?? undefined,
           traceId: url.searchParams.get("traceId") ?? undefined,
           limit: limit != null && Number.isFinite(limit) && limit > 0 ? limit : undefined,
@@ -65,7 +67,8 @@ export function opsRoutes(svc: RuntimeOpsService) {
       const url = new URL(req.url);
       const from = parseInt(url.searchParams.get("from") ?? "", 10);
       const to = parseInt(url.searchParams.get("to") ?? "", 10);
-      if (Number.isNaN(from) || Number.isNaN(to)) return json({ error: "from and to query params required" }, 400);
+      if (Number.isNaN(from) || Number.isNaN(to))
+        return json({ error: "from and to query params required" }, 400);
       return json(await svc.getInsightsSummary({ from, to }));
     },
 

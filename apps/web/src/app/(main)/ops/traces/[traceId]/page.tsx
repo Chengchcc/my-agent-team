@@ -1,11 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { useParams } from "next/navigation";
-import { api } from "@/lib/api";
 import { QueryState } from "@/components/ops/QueryState";
 import { TraceWaterfall } from "@/components/ops/TraceWaterfall";
-import Link from "next/link";
+import { api } from "@/lib/api";
 
 export default function TraceDetailPage() {
   const { traceId } = useParams<{ traceId: string }>();
@@ -19,12 +19,14 @@ export default function TraceDetailPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/ops/traces" className="text-muted-foreground hover:text-foreground text-sm transition-colors">
+        <Link
+          href="/ops/traces"
+          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+        >
           ← Traces
         </Link>
         <h1 className="text-xl font-bold font-mono text-foreground">{traceId}</h1>
       </div>
-
 
       <QueryState query={traceQuery}>
         {(detail) => (

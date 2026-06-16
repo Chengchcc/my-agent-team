@@ -3,14 +3,14 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sqliteAgentAdapter } from "../features/agent/adapter-sqlite.js";
 import { agentRoutes, createAgentService } from "../features/agent/index.js";
 import {
-  sqliteThreadProjectionReadAdapter,
-  sqliteThreadProjectionWriteAdapter,
-} from "../features/thread-projection/adapter-sqlite.js";
-import {
   conversationRoutes,
   createConversationService,
   sqliteConversationAdapter,
 } from "../features/conversation/index.js";
+import {
+  sqliteThreadProjectionReadAdapter,
+  sqliteThreadProjectionWriteAdapter,
+} from "../features/thread-projection/adapter-sqlite.js";
 import { openDb } from "../infra/sqlite/db.js";
 import { createRouter } from "./router.js";
 

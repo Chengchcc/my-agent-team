@@ -30,7 +30,9 @@ export function sendTextOnly(
     );
 
     let stderr = "";
-    child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+    child.stderr?.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
 
     child.on("error", (err) => {
       resolve({ ok: false, error: err.message });

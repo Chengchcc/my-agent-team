@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { renderLarkRunCard } from "./card-renderer.js";
 import type { LarkRunCardModel } from "./card-renderer.js";
+import { renderLarkRunCard } from "./card-renderer.js";
 
 function baseModel(overrides?: Partial<LarkRunCardModel>): LarkRunCardModel {
   return {
@@ -21,7 +21,9 @@ describe("renderLarkRunCard", () => {
     const config = card.config as Record<string, unknown>;
     expect(config.streaming_mode).toBe(true);
     expect(config.update_multi).toBe(true);
-    expect((config as { streaming_config: { print_strategy: string } }).streaming_config.print_strategy).toBe("fast");
+    expect(
+      (config as { streaming_config: { print_strategy: string } }).streaming_config.print_strategy,
+    ).toBe("fast");
     const header = card.header as { title: { content: string }; template: string };
     expect(header.title.content).toBe("Mira 正在思考");
     expect(header.template).toBe("blue");
@@ -40,7 +42,9 @@ describe("renderLarkRunCard", () => {
   });
 
   test("error card has red template and error message", () => {
-    const card = renderLarkRunCard(baseModel({ status: "error", content: "partial", error: "run failed" }));
+    const card = renderLarkRunCard(
+      baseModel({ status: "error", content: "partial", error: "run failed" }),
+    );
     const header = card.header as { template: string };
     expect(header.template).toBe("red");
     const body = card.body as { elements: Array<{ content?: string; tag: string }> };
@@ -50,7 +54,9 @@ describe("renderLarkRunCard", () => {
 
   test("body has required element_ids", () => {
     const card = renderLarkRunCard(baseModel({ status: "streaming", content: "hello" }));
-    const body = card.body as { elements: Array<{ element_id?: string; tag: string; content?: string }> };
+    const body = card.body as {
+      elements: Array<{ element_id?: string; tag: string; content?: string }>;
+    };
     expect(body.elements.some((e) => e.element_id === "agent_output")).toBe(true);
     expect(body.elements.some((e) => e.element_id === "divider_1")).toBe(true);
     expect(body.elements.some((e) => e.element_id === "run_status")).toBe(true);
@@ -75,7 +81,9 @@ describe("renderLarkRunCard", () => {
       ["error", "回复中断"],
     ];
     for (const [status, expected] of statusSummaries) {
-      const card = renderLarkRunCard(baseModel({ status: status as "thinking" | "streaming" | "done" | "error" }));
+      const card = renderLarkRunCard(
+        baseModel({ status: status as "thinking" | "streaming" | "done" | "error" }),
+      );
       const config = card.config as { summary: { content: string } };
       expect(config.summary.content).toBe(expected);
     }

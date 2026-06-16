@@ -1,9 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { classifyError } from "@/lib/api";
 import type { UseQueryResult } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { classifyError } from "@/lib/api";
 
 interface QueryStateProps<T> {
   query: {
@@ -55,11 +55,7 @@ export function QueryState<T>({ query, empty, emptyMessage, children }: QuerySta
         return (
           <div className="p-6 space-y-2">
             <p className="text-muted-foreground text-sm">Backend unavailable</p>
-            <Button
-              variant="link"
-              size="sm"
-              onClick={() => (query as UseQueryResult).refetch()}
-            >
+            <Button variant="link" size="sm" onClick={() => (query as UseQueryResult).refetch()}>
               Retry
             </Button>
           </div>
@@ -78,9 +74,7 @@ export function QueryState<T>({ query, empty, emptyMessage, children }: QuerySta
   if (query.data !== undefined && empty?.(query.data)) {
     return (
       <div className="p-6">
-        <p className="text-muted-foreground text-sm">
-          {emptyMessage ?? "No data available."}
-        </p>
+        <p className="text-muted-foreground text-sm">{emptyMessage ?? "No data available."}</p>
       </div>
     );
   }

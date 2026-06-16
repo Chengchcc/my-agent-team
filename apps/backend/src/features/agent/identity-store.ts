@@ -1,9 +1,6 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import {
-  ensureRunnerWorkspace,
-  runnerWorkspacePaths,
-} from "../../infra/runner-workspace.js";
+import { ensureRunnerWorkspace, runnerWorkspacePaths } from "../../infra/runner-workspace.js";
 
 export interface IdentityData {
   soul: string | null;
@@ -105,7 +102,7 @@ export function createAgentIdentityStore(opts: {
 }): AgentIdentityStore {
   return {
     async getIdentity(agentId: string): Promise<IdentityData> {
-      const agent = await opts.getAgent(agentId);
+      void (await opts.getAgent(agentId)); // validate agent exists
       const paths = runnerWorkspacePaths(opts.dataDir, agentId);
       await ensureRunnerWorkspace(paths);
 
@@ -119,7 +116,7 @@ export function createAgentIdentityStore(opts: {
     },
 
     async updateIdentity(agentId: string, patch: IdentityPatch): Promise<void> {
-      const agent = await opts.getAgent(agentId);
+      void (await opts.getAgent(agentId)); // validate agent exists
       const paths = runnerWorkspacePaths(opts.dataDir, agentId);
       await ensureRunnerWorkspace(paths);
 

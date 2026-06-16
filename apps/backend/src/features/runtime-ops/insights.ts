@@ -108,7 +108,10 @@ export async function getRunInsights(
   const records = await eventLog.read({ runId: params.runId });
 
   const calls: CallItem[] = [];
-  const toolStats = new Map<string, { count: number; errorCount: number; totalLatencyMs: number }>();
+  const toolStats = new Map<
+    string,
+    { count: number; errorCount: number; totalLatencyMs: number }
+  >();
 
   let totalInput = 0;
   let totalOutput = 0;

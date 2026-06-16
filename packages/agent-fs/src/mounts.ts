@@ -1,9 +1,9 @@
 import path from "node:path";
+import type { AgentFsHandle } from "./agent-fs.js";
+import { AgentFS } from "./agent-fs.js";
 import { SharedOnlyAliases } from "./aliases.js";
 import { LocalBackend, MemoryBackend } from "./backends.js";
 import type { MountEntry } from "./types.js";
-import type { AgentFsHandle } from "./agent-fs.js";
-import { AgentFS } from "./agent-fs.js";
 
 export function makeDefaultMounts(o: {
   sharedRoot: string;

@@ -1,11 +1,13 @@
-import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { ingest } from "./ingest.js";
+import { afterAll, describe, expect, test } from "bun:test";
 import { reserveInbound } from "./bindings-sqlite.js";
 import type { LarkMessageEvent } from "./event-parser.js";
+import { ingest } from "./ingest.js";
 
 let dbCounter = 0;
-function testDbPath() { return `/tmp/test-lark-ingest-${Date.now()}-${dbCounter++}.db`; }
+function testDbPath() {
+  return `/tmp/test-lark-ingest-${Date.now()}-${dbCounter++}.db`;
+}
 
 function makeDb(): Database {
   const db = new Database(testDbPath());
@@ -84,7 +86,7 @@ describe("ingest", () => {
       selfAgentName: "TestBot",
       botDisplayName: "TestBot",
       backendUrl: "http://localhost",
-        profile: "test-profile",
+      profile: "test-profile",
     });
 
     expect(result.action).toBe("consumed");

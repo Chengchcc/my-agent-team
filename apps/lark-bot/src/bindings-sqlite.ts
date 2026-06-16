@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { safeAgentId } from "./safe-agent-id.js";
 
 export interface ChatBinding {
@@ -88,13 +88,15 @@ function ensureSchema(db: Database) {
 function migrateRunStreamSchema(db: Database): void {
   try {
     const cols = db.query("PRAGMA table_info(run_stream)").all() as {
-      cid: number; name: string; type: string; notnull: number;
-      dflt_value: string | null; pk: number;
+      cid: number;
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: string | null;
+      pk: number;
     }[];
     if (!cols.some((c) => c.name === "complete_from_ledger")) {
-      db.run(
-        "ALTER TABLE run_stream ADD COLUMN complete_from_ledger INTEGER NOT NULL DEFAULT 0",
-      );
+      db.run("ALTER TABLE run_stream ADD COLUMN complete_from_ledger INTEGER NOT NULL DEFAULT 0");
     }
   } catch {
     /* table doesn't exist yet — first run, schema will create it fresh */
@@ -275,19 +277,30 @@ export function insertRunStream(db: Database, rec: RunStreamRecord): void {
       complete_from_ledger, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      rec.runId, rec.larkChatId, rec.conversationId, rec.larkMessageId,
-      rec.sourceMessageId, rec.typingReactionId, rec.typingStatus, rec.status,
-      rec.accumulated, rec.cardSendFailed, rec.cardUpdateFailed,
-      rec.finalLedgerSeq, rec.lastError, rec.completeFromLedger,
-      rec.createdAt, rec.updatedAt,
+      rec.runId,
+      rec.larkChatId,
+      rec.conversationId,
+      rec.larkMessageId,
+      rec.sourceMessageId,
+      rec.typingReactionId,
+      rec.typingStatus,
+      rec.status,
+      rec.accumulated,
+      rec.cardSendFailed,
+      rec.cardUpdateFailed,
+      rec.finalLedgerSeq,
+      rec.lastError,
+      rec.completeFromLedger,
+      rec.createdAt,
+      rec.updatedAt,
     ],
   );
 }
 
 export function getRunStream(db: Database, runId: string): RunStreamRecord | null {
-  const row = db
-    .query("SELECT * FROM run_stream WHERE run_id = ?")
-    .get(runId) as RunStreamDbRow | undefined;
+  const row = db.query("SELECT * FROM run_stream WHERE run_id = ?").get(runId) as
+    | RunStreamDbRow
+    | undefined;
   return row ? toRunStreamRecord(row) : null;
 }
 
@@ -320,21 +333,54 @@ export function updateRunStream(
 ): void {
   const fields: string[] = [];
   const values: unknown[] = [];
-  if (partial.larkMessageId !== undefined) { fields.push("lark_message_id = ?"); values.push(partial.larkMessageId); }
-  if (partial.typingReactionId !== undefined) { fields.push("typing_reaction_id = ?"); values.push(partial.typingReactionId); }
-  if (partial.typingStatus !== undefined) { fields.push("typing_status = ?"); values.push(partial.typingStatus); }
-  if (partial.status !== undefined) { fields.push("status = ?"); values.push(partial.status); }
-  if (partial.accumulated !== undefined) { fields.push("accumulated = ?"); values.push(partial.accumulated); }
-  if (partial.cardSendFailed !== undefined) { fields.push("card_send_failed = ?"); values.push(partial.cardSendFailed); }
-  if (partial.cardUpdateFailed !== undefined) { fields.push("card_update_failed = ?"); values.push(partial.cardUpdateFailed); }
-  if (partial.finalLedgerSeq !== undefined) { fields.push("final_ledger_seq = ?"); values.push(partial.finalLedgerSeq); }
-  if (partial.lastError !== undefined) { fields.push("last_error = ?"); values.push(partial.lastError); }
-  if (partial.completeFromLedger !== undefined) { fields.push("complete_from_ledger = ?"); values.push(partial.completeFromLedger); }
+  if (partial.larkMessageId !== undefined) {
+    fields.push("lark_message_id = ?");
+    values.push(partial.larkMessageId);
+  }
+  if (partial.typingReactionId !== undefined) {
+    fields.push("typing_reaction_id = ?");
+    values.push(partial.typingReactionId);
+  }
+  if (partial.typingStatus !== undefined) {
+    fields.push("typing_status = ?");
+    values.push(partial.typingStatus);
+  }
+  if (partial.status !== undefined) {
+    fields.push("status = ?");
+    values.push(partial.status);
+  }
+  if (partial.accumulated !== undefined) {
+    fields.push("accumulated = ?");
+    values.push(partial.accumulated);
+  }
+  if (partial.cardSendFailed !== undefined) {
+    fields.push("card_send_failed = ?");
+    values.push(partial.cardSendFailed);
+  }
+  if (partial.cardUpdateFailed !== undefined) {
+    fields.push("card_update_failed = ?");
+    values.push(partial.cardUpdateFailed);
+  }
+  if (partial.finalLedgerSeq !== undefined) {
+    fields.push("final_ledger_seq = ?");
+    values.push(partial.finalLedgerSeq);
+  }
+  if (partial.lastError !== undefined) {
+    fields.push("last_error = ?");
+    values.push(partial.lastError);
+  }
+  if (partial.completeFromLedger !== undefined) {
+    fields.push("complete_from_ledger = ?");
+    values.push(partial.completeFromLedger);
+  }
   if (fields.length === 0) return;
   fields.push("updated_at = ?");
   values.push(Date.now());
   values.push(runId);
-  db.run(`UPDATE run_stream SET ${fields.join(", ")} WHERE run_id = ?`, values as Parameters<typeof db.run>[1]);
+  db.run(
+    `UPDATE run_stream SET ${fields.join(", ")} WHERE run_id = ?`,
+    values as Parameters<typeof db.run>[1],
+  );
 }
 
 // ─── M15.1: Rebind chat to a new conversation ───

@@ -219,7 +219,9 @@ export const api = {
   // M16: Ops observability
   // M16.2 G1: Backend now supports transport/heartbeat/traceId filters end-to-end
   listOpsRuns: (params?: {
-    agentId?: string; status?: string; limit?: number;
+    agentId?: string;
+    status?: string;
+    limit?: number;
     transport?: "attached" | "noop" | "detached";
     heartbeat?: "fresh" | "stale";
     traceId?: string;
@@ -241,8 +243,7 @@ export const api = {
     apiFetch<RecoverRunResult>(`ops/runs/${runId}/recover`, { method: "POST" }),
   getAgentRuntime: (agentId: string) =>
     apiFetch<AgentRuntimeStatus>(`ops/agents/${agentId}/runtime`),
-  getTraceOpsDetail: (traceId: string) =>
-    apiFetch<TraceOpsDetail>(`ops/traces/${traceId}`),
+  getTraceOpsDetail: (traceId: string) => apiFetch<TraceOpsDetail>(`ops/traces/${traceId}`),
   listSurfaces: () => apiFetch<SurfaceOpsItem[]>("ops/surfaces"),
   // M16.3: Run Insights
   getRunInsights: (runId: string) => apiFetch<RunInsights>(`ops/runs/${runId}/insights`),
@@ -274,18 +275,31 @@ export interface RunOpsListItem {
 
 export interface RunOpsDetail {
   run: {
-    runId: string; threadId: string; agentId: string; kind: string;
-    parentRunId: string | null; status: string; traceId: string | null;
-    startedAt: number; endedAt: number | null;
+    runId: string;
+    threadId: string;
+    agentId: string;
+    kind: string;
+    parentRunId: string | null;
+    status: string;
+    traceId: string | null;
+    startedAt: number;
+    endedAt: number | null;
   };
   attempts: Array<{
-    attemptId: string; heartbeatAt: number | null; heartbeatAgeMs: number | null;
-    startedAt: number; endedAt: number | null; transport: string;
+    attemptId: string;
+    heartbeatAt: number | null;
+    heartbeatAgeMs: number | null;
+    startedAt: number;
+    endedAt: number | null;
+    transport: string;
   }>;
   eventLog: { lastSeq: number | null; lastEventType: string | null; lastEventAt: number | null };
   ops: Array<{
-    seq: number; kind: string; payload: Record<string, unknown>;
-    traceId: string | null; ts: number;
+    seq: number;
+    kind: string;
+    payload: Record<string, unknown>;
+    traceId: string | null;
+    ts: number;
   }>;
 }
 
@@ -294,14 +308,23 @@ export interface AgentRuntimeStatus {
   agentName: string;
   heartbeatTimeoutMs: number;
   runner: {
-    status: string; lastSeenAt: number | null; uptimeMs: number;
-    activeRunCount: number; checkpointerOk: boolean; workspaceOk: boolean;
+    status: string;
+    lastSeenAt: number | null;
+    uptimeMs: number;
+    activeRunCount: number;
+    checkpointerOk: boolean;
+    workspaceOk: boolean;
     lastError: string | null;
   };
-  surfaces: Record<string, {
-    status: string; lastSeenAt: number | null;
-    lastError: string | null; counters: Record<string, number>;
-  }>;
+  surfaces: Record<
+    string,
+    {
+      status: string;
+      lastSeenAt: number | null;
+      lastError: string | null;
+      counters: Record<string, number>;
+    }
+  >;
 }
 
 export interface SurfaceOpsItem {
@@ -408,12 +431,7 @@ export type RunDiagnosisKind =
   | "surface_projection_failed"
   | "terminal";
 
-export type DiagnosisOwner =
-  | "none"
-  | "runner"
-  | "backend_runner_link"
-  | "surface"
-  | "unknown";
+export type DiagnosisOwner = "none" | "runner" | "backend_runner_link" | "surface" | "unknown";
 
 export interface RunDiagnosis {
   kind: RunDiagnosisKind;

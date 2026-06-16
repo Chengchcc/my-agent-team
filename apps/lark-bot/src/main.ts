@@ -1,18 +1,19 @@
 import { spawn } from "node:child_process";
+import { unlinkSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { parseArgs } from "./args.js";
-import { bootstrap } from "./bootstrap.js";
 import { getAllChatBindings, getChatBinding } from "./bindings-sqlite.js";
-import { ingest } from "./ingest.js";
-import { parseEvent } from "./event-parser.js";
-import { safeAgentId } from "./safe-agent-id.js";
-import { sendMessage } from "./sender.js";
-import { sendTextOnly } from "./send-text-only.js";
-import { addTypingReaction, removeTypingReaction } from "./feedback-reaction.js";
-import { watchRunDelta, type RunDeltaWatcherHandle } from "./run-delta-watcher.js";
-import { watchConversation } from "./sse-watcher.js";
-import type { WatcherHandle } from "./sse-watcher.js";
+import { bootstrap } from "./bootstrap.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
+import { parseEvent } from "./event-parser.js";
+import { addTypingReaction } from "./feedback-reaction.js";
+import { ingest } from "./ingest.js";
+import { type RunDeltaWatcherHandle, watchRunDelta } from "./run-delta-watcher.js";
+import { safeAgentId } from "./safe-agent-id.js";
+import { sendTextOnly } from "./send-text-only.js";
+import { sendMessage } from "./sender.js";
+import type { WatcherHandle } from "./sse-watcher.js";
+import { watchConversation } from "./sse-watcher.js";
 
 const args = parseArgs(process.argv.slice(2));
 const state = await bootstrap(args);
@@ -110,7 +111,7 @@ async function handleLine(line: string): Promise<void> {
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
     profile,
-    onNewBinding: (convId) => {
+    onNewBinding: (_convId) => {
       // Start SSE watcher for the newly bound conversation
       const binding = getChatBinding(state.db, event.chat_id);
       if (binding) {
@@ -130,9 +131,16 @@ async function handleLine(line: string): Promise<void> {
             sourceMessageId,
             onFallback: async (fallbackRunId, text) => {
               // M15 fallback: send plain text via ledger SSE path
-              const result = await sendMessage(profile, event.chat_id, text, `${fallbackRunId}:fallback`);
+              const result = await sendMessage(
+                profile,
+                event.chat_id,
+                text,
+                `${fallbackRunId}:fallback`,
+              );
               if (!result.ok) {
-                console.error(`[lark-bot] fallback send failed for ${fallbackRunId}: ${result.error}`);
+                console.error(
+                  `[lark-bot] fallback send failed for ${fallbackRunId}: ${result.error}`,
+                );
               }
             },
           });
@@ -180,7 +188,11 @@ child.on("exit", (code, signal) => {
 const cleanup = () => {
   clearInterval(heartbeatTimer);
   // Release PID lock so a new instance can start
-  try { require("node:fs").unlinkSync(state.pidFile); } catch { /* best-effort */ }
+  try {
+    unlinkSync(state.pidFile);
+  } catch {
+    /* best-effort */
+  }
   for (const [, w] of watchers) w.close();
   for (const [, w] of runWatchers) w.close();
 };

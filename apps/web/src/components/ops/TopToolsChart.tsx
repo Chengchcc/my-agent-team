@@ -2,8 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import {
+  type ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
 import { api } from "@/lib/api";
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { QueryState } from "./QueryState";
 
 const ROW_H = 32;
@@ -26,23 +31,41 @@ export function TopToolsChart({ range }: { range: { from: number; to: number } }
     <QueryState query={query}>
       {(data) =>
         data.topTools.length === 0 ? (
-          <div className="text-xs text-muted-foreground p-4 text-center min-h-[100px] flex items-center justify-center">No tool data in this window.</div>
+          <div className="text-xs text-muted-foreground p-4 text-center min-h-[100px] flex items-center justify-center">
+            No tool data in this window.
+          </div>
         ) : (
-          <ChartContainer config={chartConfig} className="w-full" style={{ height: chartH(data.topTools.length) }}>
+          <ChartContainer
+            config={chartConfig}
+            className="w-full"
+            style={{ height: chartH(data.topTools.length) }}
+          >
             <BarChart
               accessibilityLayer
-              data={data.topTools.map((t) => ({ name: t.name, count: t.count, errorRate: Math.round(t.errorRate * 100) }))}
+              data={data.topTools.map((t) => ({
+                name: t.name,
+                count: t.count,
+                errorRate: Math.round(t.errorRate * 100),
+              }))}
               margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
               layout="vertical"
             >
               <CartesianGrid strokeDasharray="3 3" horizontal={false} />
               <XAxis type="number" tickLine={false} axisLine={false} tickMargin={8} />
-              <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={120} />
+              <YAxis
+                type="category"
+                dataKey="name"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                width={120}
+              />
               <ChartTooltip
                 content={
                   <ChartTooltipContent
                     formatter={(value, _name, item) => {
-                      const payload = (item as { payload?: { errorRate?: number } } | undefined)?.payload;
+                      const payload = (item as { payload?: { errorRate?: number } } | undefined)
+                        ?.payload;
                       const rate = payload?.errorRate;
                       return (
                         <span>

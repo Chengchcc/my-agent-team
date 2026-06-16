@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import type { AgentRuntimeStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import type { AgentRuntimeStatus } from "@/lib/api";
 
 function runnerBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
   switch (status) {
-    case "busy":     return "default";
-    case "degraded": return "outline";
-    case "offline":  return "destructive";
-    default:         return "secondary";
+    case "busy":
+      return "default";
+    case "degraded":
+      return "outline";
+    case "offline":
+      return "destructive";
+    default:
+      return "secondary";
   }
 }
 
@@ -38,20 +42,22 @@ export function AgentRuntimeCard({ runtime }: { runtime: AgentRuntimeStatus }) {
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Checkpointer</span>
-          <span className={`text-xs ${runtime.runner.checkpointerOk ? "text-primary" : "text-destructive"}`}>
+          <span
+            className={`text-xs ${runtime.runner.checkpointerOk ? "text-primary" : "text-destructive"}`}
+          >
             {runtime.runner.checkpointerOk ? "OK" : "FAIL"}
           </span>
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Workspace</span>
-          <span className={`text-xs ${runtime.runner.workspaceOk ? "text-primary" : "text-destructive"}`}>
+          <span
+            className={`text-xs ${runtime.runner.workspaceOk ? "text-primary" : "text-destructive"}`}
+          >
             {runtime.runner.workspaceOk ? "OK" : "FAIL"}
           </span>
         </div>
         {runtime.runner.lastError && (
-          <div className="text-xs text-destructive">
-            {runtime.runner.lastError}
-          </div>
+          <div className="text-xs text-destructive">{runtime.runner.lastError}</div>
         )}
 
         {hasSurfaces && (
@@ -60,10 +66,7 @@ export function AgentRuntimeCard({ runtime }: { runtime: AgentRuntimeStatus }) {
               <span className="text-muted-foreground text-xs">
                 {Object.keys(runtime.surfaces).length} surface(s)
               </span>
-              <Link
-                href="/ops/surfaces"
-                className="text-primary text-xs hover:underline"
-              >
+              <Link href="/ops/surfaces" className="text-primary text-xs hover:underline">
                 View surfaces
               </Link>
             </div>

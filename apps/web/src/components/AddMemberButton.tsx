@@ -3,9 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Check, Plus, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { type AgentRow, api } from "@/lib/api";
 import type { SenderRef } from "@/lib/conversation-reducer";
-import { Button } from "@/components/ui/button";
 
 interface AddMemberButtonProps {
   conversationId: string;
@@ -59,12 +59,7 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        onClick={() => setOpen(true)}
-        title="Add agent"
-      >
+      <Button variant="ghost" size="icon-xs" onClick={() => setOpen(true)} title="Add agent">
         <Plus size={14} />
       </Button>
 
@@ -73,11 +68,7 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
           <div className="bg-[var(--canvas)] rounded-lg border border-[var(--hairline)] shadow-xl w-80 max-h-96 flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--hairline)]">
               <span className="text-sm font-semibold text-[var(--ink-strong)]">Add Agent</span>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => setOpen(false)}
-              >
+              <Button variant="ghost" size="icon-xs" onClick={() => setOpen(false)}>
                 <X size={14} />
               </Button>
             </div>

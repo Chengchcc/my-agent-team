@@ -1,9 +1,8 @@
-"use client"
+"use client";
 
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { useState } from "react";
-
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface ToolApprovalCardProps {
   tool: { id: string; name: string; input: unknown };
@@ -23,9 +22,24 @@ function toolRisk(toolName: string): "dangerous" | "safe" | "neutral" {
 }
 
 const riskStyles = {
-  dangerous: { border: "border-destructive", dot: "bg-destructive", text: "text-destructive", label: "Approval Required — Destructive Action" },
-  safe: { border: "border-[var(--primary)]", dot: "bg-[var(--primary)]", text: "text-[var(--primary)]", label: "Approval Required" },
-  neutral: { border: "border-[var(--chart-4)]", dot: "bg-[var(--chart-4)]", text: "text-[var(--chart-4)]", label: "Approval Required" },
+  dangerous: {
+    border: "border-destructive",
+    dot: "bg-destructive",
+    text: "text-destructive",
+    label: "Approval Required — Destructive Action",
+  },
+  safe: {
+    border: "border-[var(--primary)]",
+    dot: "bg-[var(--primary)]",
+    text: "text-[var(--primary)]",
+    label: "Approval Required",
+  },
+  neutral: {
+    border: "border-[var(--chart-4)]",
+    dot: "bg-[var(--chart-4)]",
+    text: "text-[var(--chart-4)]",
+    label: "Approval Required",
+  },
 } as const;
 
 export function ToolApprovalCard({ tool, onApprove, onDeny, disabled }: ToolApprovalCardProps) {
@@ -39,7 +53,9 @@ export function ToolApprovalCard({ tool, onApprove, onDeny, disabled }: ToolAppr
         {/* Header */}
         <div className="flex items-center gap-3 mb-3">
           <span className={`w-2 h-2 rounded-full ${s.dot}`} />
-          <p className={`text-[10px] tracking-[0.15em] uppercase font-[family-name:var(--font-sans)] font-semibold ${s.text}`}>
+          <p
+            className={`text-[10px] tracking-[0.15em] uppercase font-[family-name:var(--font-sans)] font-semibold ${s.text}`}
+          >
             {s.label}
           </p>
         </div>

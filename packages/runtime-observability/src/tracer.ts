@@ -1,12 +1,12 @@
-import { trace, SpanStatusCode } from "@opentelemetry/api";
-import type {
-  RuntimeTracer,
-  RuntimeTraceContext,
-  RuntimeSpanName,
-  RuntimeSpanAttributes,
-  ObservabilityConfig,
-} from "./types.js";
+import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { redactAttributes } from "./redaction.js";
+import type {
+  ObservabilityConfig,
+  RuntimeSpanAttributes,
+  RuntimeSpanName,
+  RuntimeTraceContext,
+  RuntimeTracer,
+} from "./types.js";
 
 function generateTraceId(): string {
   return crypto.randomUUID().replace(/-/g, "");
@@ -16,9 +16,7 @@ function generateSpanId(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 16);
 }
 
-export function createRuntimeTracer(
-  config: ObservabilityConfig,
-): RuntimeTracer {
+export function createRuntimeTracer(config: ObservabilityConfig): RuntimeTracer {
   if (config.mode === "off") return createNoopTracer();
 
   const otelTracer = trace.getTracer(config.serviceName);
@@ -73,8 +71,8 @@ export function createRuntimeTracer(
 function createNoopTracer(): RuntimeTracer {
   return {
     async startSpan<T>(
-      _name: import("./types.js").RuntimeSpanName,
-      _attrs: import("./types.js").RuntimeSpanAttributes,
+      _name: RuntimeSpanName,
+      _attrs: RuntimeSpanAttributes,
       fn: () => Promise<T>,
     ): Promise<T> {
       return fn();
@@ -87,6 +85,6 @@ function createNoopTracer(): RuntimeTracer {
       const spanId = generateSpanId();
       return { traceId, spanId, traceparent: `00-${traceId}-${spanId}-01` };
     },
-    link(_trace: import("./types.js").RuntimeTraceContext, _attrs?: Record<string, unknown>): void {},
+    link(_trace: RuntimeTraceContext, _attrs?: Record<string, unknown>): void {},
   };
 }
