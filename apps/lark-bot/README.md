@@ -1,132 +1,44 @@
 # @my-agent-team/lark-bot
 
-> **Layer:** L6 Surface &nbsp;|&nbsp; **Runtime:** Bun/Node &nbsp;|&nbsp; **Zero monorepo deps**
+把飞书(Lark)当作一个对话 surface 的桥接常驻进程。它让用户能像和普通联系人聊天那样跟 agent 对话:一端连飞书的 IM 事件流,一端连 backend 的会话 API,在两边之间双向翻译。一个 agent 对应一个 lark-bot 进程,由 backend 拉起和管理。
 
-## Position in the stack
+## 它负责什么
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                                                          │
-│  L6  Surfaces  ┌──────────────────────┐                  │
-│                │      lark-bot        │  ◄── HERE        │
-│                │  Feishu/Lark IM      │                  │
-│                │  bridge daemon       │                  │
-│                └──────────┬───────────┘                  │
-│                           │                             │
-│                    ┌──────┴──────┐                      │
-│                    ▼             ▼                       │
-│              lark-cli      backend:3000                  │
-│           (IM events)   (HTTP + SSE)                    │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
-```
+lark-bot 不跑模型,也不持有会话状态——它只做转译和投递。核心是两条方向相反的链路:
 
-## What problem it solves
+**入站(飞书 → backend)。** 进程通过 `spawn` 启动 `lark-cli ... event consume im.message.receive_v1`,从它的 stdout 按行读 NDJSON 事件。`event-parser.ts` 把每行解析成带 `event_id`/`message_id`/`chat_id`/`chat_type`/`sender_id`/`content` 的结构化事件,非法行丢弃。随后 `ingest.ts` 走 reserve→POST→confirm 流程:先在本地 SQLite 做幂等占位(同一 `event_id`/`message_id` 不重复处理),没有对应会话则 `POST /api/conversations` 新建并加入人类成员,再 `POST /api/conversations/:id/messages` 投递消息,最后回填 ledger seq 确认。p2p 默认定向到本 agent;群聊里需要 `isBotMentioned` 检出 `@<botDisplayName>` 才定向(缺 botDisplayName 时按 fail-closed 不定向)。
 
-Bridges the Lark (Feishu) IM platform with the multi-agent backend. Users chat with agents in Lark like any other contact. This daemon translates between Lark IM events and backend API calls — one process per agent, managed by the backend.
+**出站(backend → 飞书)。** 每个已绑定会话对应一个 `sse-watcher.ts` 监听器,订阅 `/api/conversations/:id/events`,从 `pushedSeq` 之后接收 ledger 条目。它会过滤已推送条目、非 message 类型、系统消息、以及本 chat 人类成员的回声;`surface.control` 里的 `lark.start_new_conversation` 触发会话重绑(`onRebind`)。需要推送的 agent 回复经 `render.ts` 抽取成纯文本后投递,并推进 `pushedSeq`(投递失败时抛错以阻止 seq 前进,保证不丢消息)。
 
-## Data flow
+**流式卡片。** 一旦某条入站消息触发了 run,`run-delta-watcher.ts` 会订阅 `/api/runs/:runId/stream`,先发一张"思考中"占位卡(`card-renderer.ts` 产出 Lark Card JSON 2.0,开启 streaming_mode),再按节流(约 150ms 或累计约 120 字)增量 `updateCard` 刷新内容,run 结束时查 `/api/runs/:runId` 元数据收尾为"已完成/回复中断"。卡片发送或更新失败会落到 `fallback_text`:通过 `onFallback` 走普通文本路径兜底,确保用户至少收到回复。卡片收发都通过 `lark-cli`(`card-sender.ts` 调 `im +messages-send --msg-type interactive` 和 `api PATCH /open-apis/im/v1/messages/<id>`)。
 
-```
-┌──────────┐     ┌──────────────┐     ┌──────────────┐
-│  Lark    │     │  lark-bot    │     │   backend    │
-│  IM      │     │  (this app)  │     │              │
-└────┬─────┘     └──────┬───────┘     └──────┬───────┘
-     │                  │                    │
-     │  IM message      │                    │
-     │ ────────────────→│                    │
-     │                  │  ingest()          │
-     │                  │  POST /conversations│
-     │                  │  POST /messages    │
-     │                  │ ──────────────────→│
-     │                  │                    │ agent runs
-     │                  │  SSE events        │
-     │                  │ ←──────────────────│
-     │                  │                    │
-     │  sendMessage()   │                    │
-     │ ←────────────────│                    │
-     │  (Lark card)     │                    │
-     │                  │                    │
-     │  30s heartbeat   │                    │
-     │                  │ ──────────────────→│
-     │                  │                    │
+## 数据流与状态存储
+
+一次完整往返:飞书消息 → lark-cli stdout → parse → ingest 转发 backend → backend 触发 run → run-delta-watcher 流式刷卡 / sse-watcher 推 ledger 文本 → 飞书。
+
+所有绑定关系和流式状态都存在本地 SQLite(`bindings-sqlite.ts`,每个 agent 一个 `bindings.sqlite`):`chat_binding` 记录飞书 chatId↔backend conversationId 及 `pushed_seq`;`member_binding` 记录飞书发送者↔会话成员;`inbound_message` 做入站幂等;`run_stream` 持久化每个 run 的流式进度(便于重启恢复)。
+
+## 启动与生命周期
+
+`bootstrap.ts` 启动时:抢 PID 文件锁(避免同 agent 重复实例)、向 backend 拉取 agent 信息(已归档/未启用 Lark 则优雅退出)、打开 SQLite、为已有绑定恢复 SSE 监听器。`main.ts` 随后起 30s 心跳上报 surface 健康、spawn lark-cli 消费事件。收到 SIGTERM/SIGINT 时转发给 lark-cli 子进程、关闭所有监听器、释放 PID 锁。
+
+## 怎么跑起来
+
+package.json 脚本:`build`(tsc)、`typecheck`、`test`(bun test)、`lint`。进程一般由 backend 的 registry 拉起,直跑示例:
+
+```bash
+bun run src/main.ts \
+  --agent-id=agent-42 \
+  --backend-url=http://localhost:3000 \
+  --state-root=./.data \
+  --bot-display-name="Mira" \
+  --agent-name="Mira" \
+  --lark-profile=agent:agent-42 \
+  --backend-auth-token=dev
 ```
 
-## Inbound pipeline (Lark → Backend)
+参数解析见 `src/args.ts`:`--agent-id` 必填;`--backend-url`(默认 `http://localhost:3000`,可由 `BACKEND_URL` 兜底)、`--state-root`(默认 `./.data`,可由 `BACKEND_DATA_DIR` 兜底)、`--bot-display-name`、`--agent-name`、`--lark-profile`(缺省回退为 `agent:<safeAgentId>`)、`--backend-auth-token`(可由 `BACKEND_AUTH_TOKEN` 兜底)。
 
-```
-lark-cli event consume
-  → event-parser (JSON line → typed event)
-    → @mention detection
-      → inbound dedup check (SQLite idempotency)
-        → reserve conversation (POST /api/conversations)
-          → add members (POST /api/conversations/:id/members)
-            → POST message (POST /api/conversations/:id/messages)
-              → confirm (to Lark)
-```
+## 依赖
 
-## Outbound pipeline (Backend → Lark)
-
-```
-SSE watcher per conversation binding
-  → receive ledger entry from backend
-    → project to Lark message format
-      → render markdown to Lark card
-        → send to Lark via lark-cli
-
-Run delta watcher
-  → receive run deltas during agent execution
-    → render streaming card (typing indicator → partial output)
-      → update card as new deltas arrive
-        → finalize card when run completes
-```
-
-## Key features
-
-- **Idempotent inbound** — SQLite-backed dedup prevents double-processing of Lark events
-- **Conversation binding** — persistent mapping of Lark `chatId` ↔ backend `conversationId`
-- **Streaming cards** — agent output renders incrementally as Lark interactive cards
-- **Typing indicators** — shows typing reaction during active runs
-- **Conversation rebind** — handles `surface.control` for start-new-conversation
-- **PID locking** — prevents duplicate bot instances per agent
-- **Health heartbeat** — reports surface health to backend every 30s
-
-## Startup sequence
-
-```
-bootstrap()
-  → acquire PID lock
-  → fetch agent info from backend (exit if archived/disabled)
-  → open local SQLite bindings DB
-  → restore chat↔conversation bindings
-  → start SSE watchers for restored bindings
-  → start 30s heartbeat interval
-  → spawn lark-cli event consume (IM message stream)
-  → pipe stdout → event-parser → ingest()
-
-SIGTERM/SIGINT
-  → forward to lark-cli subprocess
-  → close SSE watchers
-  → release PID lock
-```
-
-## Configuration
-
-| Arg | Default | Purpose |
-|-----|---------|---------|
-| `--agent-id` | (required) | Which agent this bot represents |
-| `--backend-url` | `http://localhost:3000` | Backend API URL |
-| `--state-root` | (required) | PID lock + SQLite directory |
-| `--bot-display-name` | (required) | Display name in Lark |
-| `--agent-name` | (required) | Agent's name |
-| `--lark-profile` | (required) | lark-cli profile name |
-| `--backend-auth-token` | (required) | Bearer token for backend API |
-
-## Dependencies
-
-```
-apps/lark-bot (this app)
-  ↑ monorepo deps: NONE (zero workspace dependencies)
-  ↑ external: bun:sqlite, lark-cli binary, Node.js stdlib
-  ↑ managed by: apps/backend (DevLarkBotRegistry / ProdLarkBotRegistry)
-```
+零工作区依赖,只靠 `bun:sqlite`、外部 `lark-cli` 二进制和 Node 标准库;通过 HTTP/SSE 对接 backend,由 backend 的 LarkBotRegistry 管理。

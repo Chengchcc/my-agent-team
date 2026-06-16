@@ -1,112 +1,46 @@
 # @my-agent-team/cli
 
-> **Layer:** L6 Surface &nbsp;|&nbsp; **Runtime:** Bun/Node &nbsp;|&nbsp; **No server ports**
+本地命令行入口,用一个 readline REPL 跟 agent 对话。它既能在进程内直接跑模型和工具,也能连远端 backend,适合开发调试和无界面场景。
 
-## Position in the stack
+## 它负责什么
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                                                          │
-│  L6  Surfaces  ┌──────────────────────┐                  │
-│                │         cli          │  ◄── HERE        │
-│                │  readline REPL       │                  │
-│                │  local + remote mode │                  │
-│                └──────────┬───────────┘                  │
-│                           │                             │
-│               ┌───────────┼───────────┐                 │
-│               ▼           ▼           ▼                 │
-│         standalone    harness     backend:3000           │
-│         (core+adapter)(L4 agent)  (HTTP+SSE)            │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
-```
+cli 是单个 agent 的本地驱动入口。它从 `process.argv` 解析 `--key=value` 形式的参数(见 `src/args.ts`),据此决定以哪种方式启动,然后进入一个交互循环:读一行输入,把它跑成一次 agent/模型调用,边产出边流式打印到终端。
 
-## What problem it solves
+启动方式由参数组合决定:
 
-A universal entry point for interacting with agents — whether locally (in-process or workspace-based) or remotely (against a backend). One binary, four modes, same readline REPL experience.
+- 不带 `--backend`、不带 `--workspace`:进程内直跑 `@my-agent-team/core` 的 `run()` 循环,自带 web-fetch、web-search、memory、read/write 工具。这条路径额外需要 `TAVILY_API_KEY`。
+- 带 `--workspace=<dir>`:用 `@my-agent-team/harness` 的 `createGenericAgent()` 起一个挂载该工作区(`@my-agent-team/agent-fs`)的完整 agent,在本地跑完整的 harness/插件栈。
+- 带 `--backend=<url>`:远端线程模式,`POST /api/threads/:id/runs` 触发,再订阅 `GET /api/runs/:id/events` 的 SSE 流;断线时用 `Last-Event-ID` 续传。
+- 带 `--backend=<url> --conversation=<id>`:多人会话模式,先创建/加入会话,再 `POST /api/conversations/:id/messages` 发消息;支持 `@<member> <text>` 定向某个 agent,并从会话 SSE 流里读其他成员的回复。
+- 带 `--rm=<agentId>`(需配合 `--backend`):管理操作,确认后 `DELETE /api/agents/:id` 归档该 agent;加 `--hard` 则物理删除且不可恢复。
 
-## Four operating modes
+## 流式输出
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    apps/cli                              │
-│                                                         │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ Legacy REPL (default)                            │   │
-│  │  run() loop in-process                           │   │
-│  │  AnthropicChatModel + read/write/web/memory      │   │
-│  │  $ my-agent-chat                                 │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                         │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ Workspace Harness                                │   │
-│  │  createGenericAgent() + AgentFS                  │   │
-│  │  Full plugin stack (memory, skills, task-guard)  │   │
-│  │  $ my-agent-chat --workspace /path/to/project    │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                         │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ Remote (thread mode)                             │   │
-│  │  POST /api/threads/:id/runs + SSE events         │   │
-│  │  $ my-agent-chat --backend http://localhost:3000 │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                         │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ Remote Conversation                              │   │
-│  │  POST /api/conversations/:id/messages            │   │
-│  │  @mention parsing + conversation SSE             │   │
-│  │  $ my-agent-chat --backend ... --conversation c1 │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                         │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ Agent Management                                 │   │
-│  │  DELETE /api/agents/:id (archive or hard)        │   │
-│  │  $ my-agent-chat --backend ... --rm agent-42     │   │
-│  └─────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-```
+各模式共用同一套渲染逻辑:assistant 的文本块即时写到 stdout,`tool_use` 显示为 `[tool: <name>]`,工具结果显示为带 OK/FAIL 的截断预览。
 
-## REPL features
+## 怎么跑起来
 
-- **Readline interface** with prompt showing current mode
-- **@mention parsing** in conversation mode (`@agent-name message`)
-- **Streaming output** — model responses render as chunks arrive
-- **Tool call display** — shows tool invocations inline
-- **Interrupt handling** — approve/deny prompts for tool permissions
-- **Color output** — ANSI colors for different message roles
-
-## Usage
+package.json 提供 `start` 脚本,等价于 `bun run src/main.ts`:
 
 ```bash
-# Legacy: direct model + tools (needs ANTHROPIC_API_KEY)
-my-agent-chat
+# 进程内直跑(需 ANTHROPIC_API_KEY、TAVILY_API_KEY)
+bun run src/main.ts
 
-# Local workspace with full harness
-my-agent-chat --workspace ~/my-project
+# 本地工作区 + 完整 harness
+bun run src/main.ts --workspace=~/my-project
 
-# Remote against backend
-my-agent-chat --backend http://localhost:3000
+# 连远端 backend
+bun run src/main.ts --backend=http://localhost:3000
 
-# Multi-agent conversation
-my-agent-chat --backend http://localhost:3000 --conversation conv-abc
+# 多人会话
+bun run src/main.ts --backend=http://localhost:3000 --conversation=conv-abc
 
-# Delete an agent
-my-agent-chat --backend http://localhost:3000 --rm agent-42 --hard
+# 删除 agent
+bun run src/main.ts --backend=http://localhost:3000 --rm=agent-42 --hard
 ```
 
-## Configuration
+其他参数:`--model`(默认 `claude-opus-4-7`)、`--max-steps`(默认 `32`,仅进程内模式)、`--system`(系统提示)。环境变量:`ANTHROPIC_API_KEY`(必需),`TAVILY_API_KEY`(进程内模式的 web-search 需要)。
 
-| Env var | Required | Purpose |
-|---------|----------|---------|
-| `ANTHROPIC_API_KEY` | Yes (local modes) | Anthropic API key |
-| `TAVILY_API_KEY` | No (legacy mode) | Web search API key |
+## 依赖
 
-## Dependencies
-
-```
-apps/cli (this app)
-  ↑ monorepo deps: adapter-anthropic, core, harness,
-                   tools-common, agent-fs
-  ↑ external: Node.js stdlib only (readline, path, crypto)
-  ↑ consumed by: end users (terminal)
-```
+工作区内依赖 core、adapter-anthropic、harness、tools-common、agent-fs;远端模式只通过 HTTP/SSE 对接 backend。

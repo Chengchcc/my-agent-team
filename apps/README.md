@@ -1,87 +1,25 @@
 # Apps
 
-## Position in the stack
+`apps/` 是面向用户的 surfaces 层:用户从这里接触系统。真正有状态的核心是 `backend`——它持有会话、ledger、run 调度和 agent 生命周期;`web`、`cli`、`lark-bot` 都是不持久化会话状态的接入端,各自把一种界面(浏览器、终端、飞书)桥接到 backend,统一通过 HTTP + SSE 对话。
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                                                          │
-│  L6  Surfaces   web:3001     cli        lark-bot        │
-│                 (Next.js)   (REPL)    (IM bridge)       │
-│                   │           │           │              │
-│                   │   HTTP    │   HTTP    │  HTTP        │
-│                   ▼           ▼           ▼              │
-│  L5  Backend  ┌──────────────────────────────┐          │
-│               │        backend:3000           │          │
-│               │   REST API + SSE + runner     │          │
-│               │   pool + conversations        │          │
-│               └──────────────────────────────┘          │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
-```
+## 各应用一句话
 
-## App list
+- [`backend`](./backend/):有状态核心(L5)。提供 REST API、SSE 事件流、run 调度与 conversation/ledger,统管 agent 生命周期,并拉起/管理 lark-bot 实例。
+- [`web`](./web/):浏览器观测与管理界面。Next.js 应用,经 BFF 代理把请求转发到 backend(注入鉴权头),用于查看会话、管理 agent。
+- [`cli`](./cli/):本地命令行入口。一个 readline REPL,可进程内直跑单个 agent,也可连 backend 跑远端线程或多人会话。
+- [`lark-bot`](./lark-bot/):飞书/Lark 桥接进程。把 IM 事件转发给 backend,订阅 run/会话事件并渲染卡片回推飞书,卡片失败时降级为文本;每个 agent 一个进程。
 
-| App | Surface | Runtime | Port | Monorepo deps |
-|-----|---------|---------|------|--------------|
-| [`web`](./web/) | Browser UI | Next.js 15 | 3001 | 0 |
-| [`cli`](./cli/) | Terminal | Bun/Node | — | 5 |
-| [`lark-bot`](./lark-bot/) | Feishu IM | Bun/Node | — | 0 |
-| [`backend`](./backend/) | Server (L5) | Bun | 3000 | 9 |
-
-## Communication patterns
-
-### Browser (web)
-```
-Browser ──→ /api/bff/[...path] ──→ backend:3000
-        ←── SSE passthrough    ←──
-```
-The BFF proxy injects `x-auth-token` + `x-user-id` headers. Browser never sees backend credentials.
-
-### Terminal (cli)
-```
-Terminal ──→ POST /api/threads/:id/runs ──→ backend:3000
-         ←── SSE /api/runs/:id/events   ←──
-```
-Can also run fully standalone (in-process agent loop, no backend needed).
-
-### Feishu/Lark (lark-bot)
-```
-Lark IM ──→ lark-cli stdout ──→ lark-bot ──→ POST /api/conversations/:id/messages ──→ backend:3000
-         ←── lark-cli stdin  ←── lark-bot ←── SSE /api/conversations/:id/events  ←──
-```
-One lark-bot process per agent, managed by backend's `LarkBotRegistry`.
-
-### Daemon management (backend → runner)
-```
-backend:3000 ──→ spawn/kill runner-daemon subprocess (dev)
-             ──→ connect Unix socket            (prod)
-             ←── NDJSON events via runner-protocol
-```
-
-## How to run
+## 怎么跑起来
 
 ```bash
-# Terminal 1: Backend
-cd apps/backend
-ANTHROPIC_API_KEY=sk-... BACKEND_AUTH_TOKEN=dev bun run src/main.ts
+# 核心(其他 surface 多数依赖它)
+cd apps/backend && ANTHROPIC_API_KEY=sk-... BACKEND_AUTH_TOKEN=dev bun run src/main.ts
 
-# Terminal 2: Web UI
-cd apps/web
-BACKEND_URL=http://localhost:3000 BACKEND_TOKEN=dev bun run dev
+# 浏览器界面
+cd apps/web && BACKEND_URL=http://localhost:3000 BACKEND_TOKEN=dev bun run dev
 
-# Terminal 3: CLI (standalone)
-cd apps/cli
-ANTHROPIC_API_KEY=sk-... bun run src/main.ts
-
-# Terminal 4: CLI (remote against backend)
-bun run src/main.ts --backend http://localhost:3000
+# 终端(进程内直跑,无需 backend)
+cd apps/cli && ANTHROPIC_API_KEY=sk-... bun run src/main.ts
 ```
 
-## Which surface to use
-
-| When you want to... | Use |
-|---------------------|-----|
-| Manage agents, view conversations in a browser | `web` (Observatory UI) |
-| Chat with agents in terminal | `cli` |
-| Chat with agents in Feishu/Lark IM | `lark-bot` |
-| Host multi-agent orchestration | `backend` |
+各应用的参数、环境变量与内部数据流详见其子目录 README。
