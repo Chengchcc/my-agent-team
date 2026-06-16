@@ -165,7 +165,7 @@ export function useConversation(
         addressedTo: addressedTo.length > 0 ? addressedTo : resolveAddressedTo(state),
         content: text,
       }),
-    onError: () => dispatch({ type: "ledger/conn", status: "closed" }),
+    onError: () => dispatch({ type: "send/error", message: "Send failed — retry" }),
   });
 
   const send = useCallback(

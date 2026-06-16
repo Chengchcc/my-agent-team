@@ -27,6 +27,10 @@ export interface ConvState {
   triggerMode: TriggerMode;
   /** M14.6: Task todo progress — full snapshot from todo_update events. */
   todos: Array<{ step: string; status: "pending" | "in_progress" | "done" }>;
+  /** M17: Number of sends that have been dispatched locally but not yet
+   *  confirmed by the backend (POST in-flight). Cleared when the first
+   *  authoritative agent revision arrives or on send error. */
+  pendingSendCount: number;
 }
 
 export type Action =
@@ -36,6 +40,7 @@ export type Action =
   | { type: "send"; text: string; viewer: SenderRef }
   | { type: "ledger/conn"; status: LedgerConn }
   | { type: "toggleTriggerMode" }
+  | { type: "send/error"; message: string }
   | { type: "todo/update"; todos: ConvState["todos"] };
 
 export function initialState(): ConvState {
@@ -48,6 +53,7 @@ export function initialState(): ConvState {
     optimisticSeq: 0,
     triggerMode: "auto",
     todos: [],
+    pendingSendCount: 0,
   };
 }
 
@@ -56,6 +62,7 @@ export function initialState(): ConvState {
 /** Whether there is an open (not done/error) assistant message
  *  that means the UI should show a busy state. */
 export function isBusy(s: ConvState): boolean {
+  if (s.pendingSendCount > 0) return true;
   return s.messages.some(
     (m) =>
       m.sender.kind === "agent" &&
@@ -202,7 +209,9 @@ export function reducer(s: ConvState, a: Action): ConvState {
         kind: "agent" as const,
       };
       const messages = upsertAuthoritative(s.messages, id, sender, revision, s.viewerMemberId);
-      return { ...s, messages };
+      // First agent message confirms the POST — clear pending send count
+      const cleared = sender.kind === "agent" && s.pendingSendCount > 0 ? 0 : s.pendingSendCount;
+      return { ...s, messages, pendingSendCount: cleared };
     }
 
     case "send": {
@@ -210,6 +219,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
       return {
         ...s,
         optimisticSeq: s.optimisticSeq + 1,
+        pendingSendCount: s.pendingSendCount + 1,
         messages: [
           ...s.messages,
           {
@@ -223,6 +233,13 @@ export function reducer(s: ConvState, a: Action): ConvState {
 
     case "ledger/conn":
       return { ...s, ledgerConn: a.status };
+
+    case "send/error":
+      return {
+        ...s,
+        error: a.message,
+        pendingSendCount: Math.max(0, s.pendingSendCount - 1),
+      };
 
     case "toggleTriggerMode":
       return { ...s, triggerMode: s.triggerMode === "auto" ? "mention" : "auto" };
