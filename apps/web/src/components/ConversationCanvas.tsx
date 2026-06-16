@@ -6,14 +6,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useConversation } from "@/hooks/useConversation";
 import type { ConversationSnapshot } from "@/lib/api";
-import { computeStatus } from "@/lib/run-status";
 import { extractText } from "@/lib/timeline";
 import { Composer } from "./Composer";
-import { DraftMessage } from "./DraftMessage";
 import { RosterList } from "./RosterList";
 import { Timeline } from "./Timeline";
 import { TodoPanel } from "./TodoPanel";
-import { ToolApprovalCard } from "./ToolApprovalCard";
 
 interface ConversationCanvasProps {
   conversationId: string;
@@ -21,31 +18,14 @@ interface ConversationCanvasProps {
 }
 
 export function ConversationCanvas({ conversationId, snapshot }: ConversationCanvasProps) {
-  const {
-    viewerMemberId,
-    roster,
-    messages,
-    draft,
-    phase,
-    busy,
-    pendingInterrupt,
-    error,
-    runId,
-    loading,
-    send,
-    approve,
-    deny,
-    cancel,
-    resetLocal,
-    canceling,
-    resuming,
-    triggerMode,
-    toggleTriggerMode,
-    ledgerConn,
-    todos,
-  } = useConversation(conversationId, snapshot);
+  const { state, busy, send, toggleTriggerMode } = useConversation(conversationId, snapshot);
+  const { viewerMemberId, roster, messages, ledgerConn, error, todos, triggerMode } = state;
 
-  const label = computeStatus(runId, phase);
+  // Derive status label from open-message state rather than a run phase.
+  const isAwaiting = state.messages.some(
+    (m) => m.sender.kind === "agent" && m.content.state === "waiting",
+  );
+  const label = isAwaiting ? "Awaiting Approval" : busy ? "Running" : null;
 
   const lastUserMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -130,16 +110,16 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
               <>
                 <span
                   className={`w-1.5 h-1.5 rounded-full transition-colors duration-500 ${
-                    phase === "running" ? "animate-dot-pulse" : ""
+                    busy ? "animate-dot-pulse" : ""
                   }`}
                   style={{
-                    backgroundColor: phase === "running" ? "var(--primary)" : "var(--mute)",
+                    backgroundColor: busy ? "var(--primary)" : "var(--mute)",
                   }}
                 />
                 <span
                   className="text-xs tracking-[0.15em] uppercase font-semibold"
                   style={{
-                    color: phase === "running" ? "var(--primary)" : "var(--mute)",
+                    color: busy ? "var(--primary)" : "var(--mute)",
                   }}
                 >
                   {label}
@@ -147,15 +127,6 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
               </>
             )}
             {!label && <span className="text-xs text-[var(--mute)]">Idle</span>}
-            {busy && (
-              <Button
-                onClick={runId ? cancel : resetLocal}
-                disabled={runId ? canceling : false}
-                className="text-[10px] uppercase tracking-[0.15em] text-[var(--body)] hover:text-[var(--ink)] disabled:opacity-40 transition-colors"
-              >
-                {runId && canceling ? "Cancelling…" : "Cancel"}
-              </Button>
-            )}
           </div>
         </div>
         {primaryAgent && (
@@ -192,18 +163,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
         {/* Main scroll area */}
         <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
           <div className="mx-auto" style={{ maxWidth: "72ch", padding: "0 1.5rem" }}>
-            {loading ? (
-              <div className="flex items-center justify-center py-16">
-                <div className="space-y-4 w-full">
-                  {[1, 2, 3].map((i) => (
-                    <div key={`sk-${i}`} className="animate-pulse">
-                      <div className="h-2 w-8 bg-[var(--canvas-soft)] mb-2" />
-                      <div className="h-3 w-3/4 bg-[var(--canvas-soft)]" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : messages.length === 0 && !draft ? (
+            {messages.length === 0 ? (
               <div className="flex flex-col items-start justify-center py-24">
                 {primaryAgent && (
                   <h1
@@ -225,7 +185,6 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
                   viewerMemberId={viewerMemberId}
                   scrollContainerRef={scrollRef}
                 />
-                {draft && <DraftMessage draft={draft} />}
               </div>
             )}
           </div>
@@ -286,18 +245,6 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
           </>
         )}
       </div>
-
-      {/* Interrupt */}
-      {pendingInterrupt && (
-        <div className="shrink-0 border-t border-[var(--hairline)]">
-          <ToolApprovalCard
-            tool={pendingInterrupt}
-            onApprove={approve}
-            onDeny={deny}
-            disabled={resuming}
-          />
-        </div>
-      )}
 
       {/* Composer */}
       <div className="shrink-0 border-t border-[var(--hairline)]">

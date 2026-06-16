@@ -1,6 +1,7 @@
+import { parseRevision, type ConversationMessageRevision } from "@my-agent-team/conversation";
 import type { ContentBlock } from "./api";
 
-export type RunPhase = "idle" | "running" | "interrupted" | "done" | "error";
+// ─── Types ────────────────────────────────────────────────
 
 export interface SenderRef {
   memberId: string;
@@ -11,20 +12,7 @@ export interface SenderRef {
 export interface UiMessage {
   id: string;
   sender: SenderRef;
-  content: string | ContentBlock[];
-}
-
-export interface DraftTool {
-  id: string;
-  name: string;
-}
-
-export interface Draft {
-  runId: string;
-  agentMemberId: string;
-  sender: SenderRef;
-  text: string;
-  tools: DraftTool[];
+  content: ConversationMessageRevision;
 }
 
 export type TriggerMode = "auto" | "mention";
@@ -34,10 +22,7 @@ export interface ConvState {
   viewerMemberId: string;
   roster: Record<string, SenderRef>;
   messages: UiMessage[];
-  draft: Draft | null;
-  run: { id: string | null; phase: RunPhase; agentMemberId: string | null };
   ledgerConn: LedgerConn;
-  pendingInterrupt: { id: string; name: string; input: unknown } | null;
   error: string | null;
   optimisticSeq: number;
   triggerMode: TriggerMode;
@@ -50,18 +35,6 @@ export type Action =
   | { type: "ledger/member"; seq: number; kind: "member.joined" | "member.left"; payload: unknown }
   | { type: "ledger/message"; seq: number; senderMemberId: string; content: unknown }
   | { type: "send"; text: string; viewer: SenderRef }
-  | { type: "run/started"; runId: string; agentMemberId: string }
-  | { type: "stream/delta"; runId: string; agentMemberId: string; blockIndex: number; text: string }
-  | { type: "stream/toolStart"; id: string; name: string }
-  | { type: "stream/toolEnd"; id: string }
-  | {
-      type: "run/interrupted";
-      payload: { pendingTool?: { id: string; name: string; input: unknown } };
-    }
-  | { type: "run/error"; message: string }
-  | { type: "run/done" }
-  | { type: "run/completed" }
-  | { type: "run/noop" }
   | { type: "ledger/conn"; status: LedgerConn }
   | { type: "toggleTriggerMode" }
   | { type: "todo/update"; todos: ConvState["todos"] };
@@ -71,10 +44,7 @@ export function initialState(): ConvState {
     viewerMemberId: "",
     roster: {},
     messages: [],
-    draft: null,
-    run: { id: null, phase: "idle", agentMemberId: null },
     ledgerConn: "connecting",
-    pendingInterrupt: null,
     error: null,
     optimisticSeq: 0,
     triggerMode: "auto",
@@ -82,24 +52,23 @@ export function initialState(): ConvState {
   };
 }
 
-function norm(c: unknown): string | ContentBlock[] {
-  if (typeof c === "string") return c;
-  if (Array.isArray(c)) return c as ContentBlock[];
-  // M15.1: 后端给 run 完成的 assistant 消息包了一层 runId 信封（供 lark-bot 跳过已投递文本）。
-  // 到达 web 端有两种形状：{ text, runId } 与 { blocks, runId }，都要解回内层内容。
-  if (typeof c === "object" && c !== null) {
-    const obj = c as { text?: unknown; blocks?: unknown };
-    if (typeof obj.text === "string") return obj.text;
-    if (Array.isArray(obj.blocks)) return obj.blocks as ContentBlock[];
-  }
-  return String(c);
+// ─── Helpers ───────────────────────────────────────────────
+
+/** Whether there is an open (not done/error) assistant message
+ *  that means the UI should show a busy state. */
+export function isBusy(s: ConvState): boolean {
+  return s.messages.some(
+    (m) =>
+      m.sender.kind === "agent" &&
+      (m.content.state === "streaming" || m.content.state === "waiting"),
+  );
 }
 
 function upsertAuthoritative(
   list: UiMessage[],
   id: string,
   sender: SenderRef,
-  content: string | ContentBlock[],
+  content: ConversationMessageRevision,
   viewerMemberId: string,
 ): UiMessage[] {
   const idx = list.findIndex((m) => m.id === id);
@@ -108,7 +77,7 @@ function upsertAuthoritative(
     next[idx] = { id, sender, content };
     return next;
   }
-  // Self echo: replace optimistic self message (was "role === user")
+  // Self echo: replace optimistic self message
   if (sender.memberId === viewerMemberId) {
     const optIdx = [...list]
       .reverse()
@@ -123,7 +92,7 @@ function upsertAuthoritative(
   return [...list, { id, sender, content }];
 }
 
-// ─── M14.5: Turn grouping (pure render-layer selector) ───
+// ─── Turn Grouping (pure render-layer) ─────────────────────
 
 export type TurnSegment =
   | { kind: "single"; message: UiMessage }
@@ -135,22 +104,20 @@ export type TurnSegment =
       conclusion: UiMessage | null;
     };
 
-/** A message is a "conclusion" if it has text content AND no tool_use blocks.
- *  Tool_result-only messages (has tool_result but no text) are NOT conclusions. */
 export function isConclusionMessage(m: UiMessage): boolean {
   if (typeof m.content === "string") return m.content.trim().length > 0;
-  const blocks = m.content;
-  const hasToolUse = blocks.some((b) => b.type === "tool_use");
+  const rev = m.content;
+  const text = rev.text ?? "";
+  const blocks = rev.blocks;
+  if (text.trim().length > 0) return true;
+  if (!blocks || blocks.length === 0) return false;
+  const hasToolUse = blocks.some((b: { type: string }) => b.type === "tool_use");
   const hasText = blocks.some(
-    (b) =>
-      b.type === "text" &&
-      typeof (b as { text?: string }).text === "string" &&
-      (b as { text: string }).text.trim().length > 0,
+    (b: { type: string; text?: string }) => b.type === "text" && typeof b.text === "string" && b.text.trim().length > 0,
   );
   return !hasToolUse && hasText;
 }
 
-/** Group flat messages into turn segments by continuous same-agent sender. */
 export function groupTurns(messages: UiMessage[]): TurnSegment[] {
   const out: TurnSegment[] = [];
   let i = 0;
@@ -161,7 +128,6 @@ export function groupTurns(messages: UiMessage[]): TurnSegment[] {
       i++;
       continue;
     }
-    // Collect continuous same-agent block
     const start = i;
     while (
       i < messages.length &&
@@ -170,7 +136,6 @@ export function groupTurns(messages: UiMessage[]): TurnSegment[] {
     )
       i++;
     const block = messages.slice(start, i);
-    // Find last conclusion within the block
     let lastConclusionIdx = -1;
     for (let k = block.length - 1; k >= 0; k--) {
       if (isConclusionMessage(block[k]!)) {
@@ -184,6 +149,8 @@ export function groupTurns(messages: UiMessage[]): TurnSegment[] {
   }
   return out;
 }
+
+// ─── Reducer ───────────────────────────────────────────────
 
 export function reducer(s: ConvState, a: Action): ConvState {
   switch (a.type) {
@@ -211,12 +178,8 @@ export function reducer(s: ConvState, a: Action): ConvState {
       };
       const roster = { ...s.roster };
       for (const m of payload.members ?? []) roster[m.memberId] = { ...m };
-      // Drop a system notice for the member event
       const id = `s-${a.seq}`;
-      const sender: SenderRef = {
-        memberId: "__system__",
-        kind: "system",
-      };
+      const sender: SenderRef = { memberId: "__system__", kind: "system" };
       const verb = a.kind === "member.joined" ? "加入" : "离开";
       const present = (payload.members ?? [])
         .map((m) => roster[m.memberId]?.displayName ?? m.memberId)
@@ -225,33 +188,21 @@ export function reducer(s: ConvState, a: Action): ConvState {
         s.messages,
         id,
         sender,
-        `[系统] 成员变化：${verb}。当前在场：${present}`,
+        { messageId: id, state: "done", text: `[系统] 成员变化：${verb}。当前在场：${present}` },
         s.viewerMemberId,
       );
       return { ...s, roster, messages };
     }
 
     case "ledger/message": {
-      const id = `s-${a.seq}`;
+      const revision = parseRevision(a.seq, a.content);
+      const id = revision.messageId;
       const sender = s.roster[a.senderMemberId] ?? {
         memberId: a.senderMemberId,
         kind: "agent" as const,
       };
-      const messages = upsertAuthoritative(
-        s.messages,
-        id,
-        sender,
-        norm(a.content),
-        s.viewerMemberId,
-      );
-      // Clear draft if: self message arrives, or current draft's agent message arrives
-      // AND the run is no longer active (otherwise incremental mid-run projections
-      // would clear the live streaming draft, causing flicker).
-      const clearsDraft =
-        s.run.phase !== "running" &&
-        (sender.memberId === s.viewerMemberId ||
-          (s.draft !== null && a.senderMemberId === s.draft.agentMemberId));
-      return clearsDraft ? { ...s, messages, draft: null } : { ...s, messages };
+      const messages = upsertAuthoritative(s.messages, id, sender, revision, s.viewerMemberId);
+      return { ...s, messages };
     }
 
     case "send": {
@@ -259,123 +210,17 @@ export function reducer(s: ConvState, a: Action): ConvState {
       return {
         ...s,
         optimisticSeq: s.optimisticSeq + 1,
-        run: { ...s.run, phase: "running" },
-        messages: [...s.messages, { id, sender: a.viewer, content: a.text }],
+        messages: [...s.messages, { id, sender: a.viewer, content: { messageId: id, state: "done" as const, text: a.text } }],
       };
     }
-
-    case "run/started":
-      return {
-        ...s,
-        run: { id: a.runId, phase: "running", agentMemberId: a.agentMemberId },
-        error: null,
-      };
-
-    case "stream/delta": {
-      const sender = s.roster[a.agentMemberId] ?? {
-        memberId: a.agentMemberId,
-        kind: "agent" as const,
-      };
-      const sameRun = a.runId === s.draft?.runId;
-      const carryText = sameRun ? (s.draft?.text ?? "") : "";
-      const carryTools = sameRun ? (s.draft?.tools ?? []) : [];
-      return {
-        ...s,
-        draft: {
-          runId: a.runId,
-          agentMemberId: a.agentMemberId,
-          sender,
-          tools: carryTools,
-          text: carryText + a.text,
-        },
-      };
-    }
-
-    case "stream/toolStart": {
-      // When tool_start arrives before first text_delta, seed a minimal draft
-      if (s.draft) {
-        return {
-          ...s,
-          draft: {
-            ...s.draft,
-            tools: [...s.draft.tools, { id: a.id, name: a.name }],
-          },
-        };
-      }
-      const runId = s.run.id;
-      const agentMemberId = s.run.agentMemberId;
-      if (!runId || !agentMemberId) return s; // no active run context, drop
-      const sender = s.roster[agentMemberId] ?? {
-        memberId: agentMemberId,
-        kind: "agent" as const,
-      };
-      return {
-        ...s,
-        draft: {
-          runId,
-          agentMemberId,
-          sender,
-          text: "",
-          tools: [{ id: a.id, name: a.name }],
-        },
-      };
-    }
-
-    case "stream/toolEnd":
-      return s.draft
-        ? {
-            ...s,
-            draft: {
-              ...s.draft,
-              tools: s.draft.tools.filter((t) => t.id !== a.id),
-            },
-          }
-        : s;
-
-    case "run/interrupted":
-      return {
-        ...s,
-        pendingInterrupt: a.payload.pendingTool ?? null,
-        run: { ...s.run, phase: "interrupted" },
-        draft: null,
-      };
-
-    case "run/error":
-      return {
-        ...s,
-        error: a.message,
-        run: { ...s.run, phase: "error" },
-        draft: null,
-      };
-
-    case "run/noop":
-      // Recover optimistic phase when send succeeded but no run was triggered
-      return { ...s, run: { ...s.run, phase: "idle" } };
-
-    case "run/done":
-    case "run/completed":
-      if (s.run.phase === "interrupted" || s.run.phase === "error") {
-        return { ...s, draft: null };
-      }
-      // Keep the draft visible until the authoritative ledger message replaces
-      // it (handled in "ledger/message"). If the final round produces no ledger
-      // message (tool-only, projection skip, SSE loss), the draft would stick
-      // forever. As a safety net, clear it after the done phase settles.
-      // The ledger/message handler above already clears draft when a matching
-      // agent message arrives during the done phase.
-      return { ...s, run: { ...s.run, phase: "done" } };
 
     case "ledger/conn":
       return { ...s, ledgerConn: a.status };
 
     case "toggleTriggerMode":
-      return {
-        ...s,
-        triggerMode: s.triggerMode === "auto" ? "mention" : "auto",
-      };
+      return { ...s, triggerMode: s.triggerMode === "auto" ? "mention" : "auto" };
 
     case "todo/update":
-      // Full snapshot replacement — latest arrival is authoritative
       return { ...s, todos: a.todos };
 
     default:

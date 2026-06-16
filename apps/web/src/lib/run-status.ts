@@ -1,4 +1,4 @@
-import type { RunPhase } from "./conversation-reducer";
+export type RunPhase = "idle" | "running" | "interrupted" | "done" | "error";
 
 export type RunStatusLabel =
   | "Connecting"
