@@ -32,4 +32,5 @@
 - `docs/architecture/surfaces/lark-adapter.md`
 - `docs/architecture/surfaces/overview.md`
 - `docs/architecture/surfaces/web.md`
+- `docs/architecture/design-philosophy.md`
 - `docs/architecture/system-overview.md`
