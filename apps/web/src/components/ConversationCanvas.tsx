@@ -11,6 +11,7 @@ import { Composer } from "./Composer";
 import { RosterList } from "./RosterList";
 import { Timeline } from "./Timeline";
 import { TodoPanel } from "./TodoPanel";
+import { ToolApprovalCard } from "./ToolApprovalCard";
 
 interface ConversationCanvasProps {
   conversationId: string;
@@ -18,7 +19,7 @@ interface ConversationCanvasProps {
 }
 
 export function ConversationCanvas({ conversationId, snapshot }: ConversationCanvasProps) {
-  const { state, busy, send, toggleTriggerMode } = useConversation(conversationId, snapshot);
+  const { state, busy, send, toggleTriggerMode, approvalTarget, approve, deny, resuming } = useConversation(conversationId, snapshot);
   const { viewerMemberId, roster, messages, ledgerConn, error, todos, triggerMode } = state;
 
   // Derive status label from open-message state rather than a run phase.
@@ -245,6 +246,18 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
           </>
         )}
       </div>
+
+      {/* M17: Ledger-native approval — data from waiting revision, not run EventSource */}
+      {approvalTarget && (
+        <div className="shrink-0 border-t border-[var(--hairline)]">
+          <ToolApprovalCard
+            tool={{ id: approvalTarget.tools[0]?.id ?? "", name: approvalTarget.tools[0]?.name ?? "", input: {} }}
+            onApprove={approve}
+            onDeny={deny}
+            disabled={resuming}
+          />
+        </div>
+      )}
 
       {/* Composer */}
       <div className="shrink-0 border-t border-[var(--hairline)]">

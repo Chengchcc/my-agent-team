@@ -70,6 +70,28 @@ export function isBusy(s: ConvState): boolean {
   );
 }
 
+/** M17: Extract pending approval from a waiting revision for ToolApprovalCard. */
+export function getApprovalTarget(s: ConvState): {
+  messageId: string;
+  runId: string;
+  text: string;
+  tools: Array<{ id: string; name: string }>;
+} | null {
+  for (const m of s.messages) {
+    if (m.sender.kind === "agent" && m.content.state === "waiting" && m.content.runId) {
+      return {
+        messageId: m.content.messageId,
+        runId: m.content.runId,
+        text: m.content.text ?? "",
+        tools: (m.content.tools ?? [])
+          .filter((t: { state: string }) => t.state === "running")
+          .map((t: { id: string; name: string }) => ({ id: t.id, name: t.name })),
+      };
+    }
+  }
+  return null;
+}
+
 function upsertAuthoritative(
   list: UiMessage[],
   id: string,

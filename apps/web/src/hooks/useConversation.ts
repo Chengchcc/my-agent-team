@@ -6,11 +6,13 @@ import { toast } from "sonner";
 import { api, type ConversationSnapshot } from "@/lib/api";
 import {
   type ConvState,
+  getApprovalTarget,
   initialState,
   isBusy,
   reducer,
   type SenderRef,
 } from "@/lib/conversation-reducer";
+import { api } from "@/lib/api";
 
 function safeParse(raw: string): unknown {
   try {
@@ -185,11 +187,31 @@ export function useConversation(
   }, []);
 
   const busy = isBusy(state);
+  const approvalTarget = getApprovalTarget(state);
+
+  // M17: Ledger-native approval via run resume API (not run EventSource)
+  const approveMut = useMutation({
+    mutationFn: (v: { approved: boolean; message?: string }) =>
+      api.resumeRun(approvalTarget!.runId, v.approved, v.message),
+  });
+
+  const approve = useCallback(
+    (message?: string) => approveMut.mutate({ approved: true, message }),
+    [approveMut],
+  );
+  const deny = useCallback(
+    (message?: string) => approveMut.mutate({ approved: false, message }),
+    [approveMut],
+  );
 
   return {
     state,
     busy,
     send,
     toggleTriggerMode,
+    approvalTarget,
+    approve,
+    deny,
+    resuming: approveMut.isPending,
   };
 }
