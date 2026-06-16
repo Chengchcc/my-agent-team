@@ -4,7 +4,7 @@ title: 系统总览
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-16
-summary: "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。对话账本是共享的对话事实，EventLog 是单次运行的执行事实，会话投影把后者单向桥接到前者。"
+summary: "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。对话账本是共享的对话事实，EventLog 是单次运行的执行事实，会话投影以 ConversationMessageRevision 信封（按 messageId 修订）把执行事实单向桥接到对话事实，对话账本 SSE 是用户可见输出的唯一通道。"
 depends_on:
   - foundations.facts-and-projections
 used_by:
@@ -14,7 +14,7 @@ used_by:
 
 # 系统总览
 
-整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。对话账本是共享的对话事实，EventLog 是单次运行的执行事实，会话投影把后者单向桥接到前者。
+整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。对话账本是共享的对话事实，EventLog 是单次运行的执行事实，会话投影以 `ConversationMessageRevision` 信封（按 `messageId` 修订，state=streaming→done/error）把执行事实单向桥接到对话事实——对话账本 SSE 是用户可见输出的唯一通道。
 
 ## 这套架构在解决什么问题
 
@@ -88,7 +88,7 @@ flowchart TB
 ```mermaid
 sequenceDiagram
   participant H as 人
-  participant S as 端
+  participant S as 端 (Web/飞书)
   participant B as Backend
   participant L as 对话账本
   participant R as Runner
@@ -100,29 +100,30 @@ sequenceDiagram
   B->>L: 追加「人」的账本条目
   B->>B: 判定触发模式与目标 Agent
   B->>R: 下发 start(AgentSpec)
-  R->>B: 每 5s 心跳 + 流式 delta
+  R->>B: 每 5s 心跳 + delta (内部)
   R->>B: event(type=message)
   B->>E: 先把事件写进 EventLog
-  B->>P: 写成功后才回调 onRunEvent
-  P->>L: 追加「assistant」账本条目（包 runId）
-  L-->>S: 会话 SSE 推给端
+  B->>P: 写成功后 onRunEvent → 串进 projectionChain
+  P->>L: appendLedgerEntry(ConversationMessageRevision, state=streaming)
+  L-->>S: 会话 SSE 推给端（按 messageId upsert）
   R->>B: run_done(status)
-  B->>B: 跑 onRunComplete（放锁/快照/扫@）
+  B->>B: await projectionChain → 写 done/error 修订 → 放锁/快照/扫@
   B->>R: run_finalized
 ```
 
-这里有两个顺序上的关键点，后面多页会反复用到：
+关键点：
 
-1. **EventLog 先写、投影后跑。** 在 `RunSupervisor` 的 `"event"` 分支里，`eventLog.append(...)` 成功之后才遍历 `onRunEvent` 监听器；append 失败会抛出、阻止 run 被当成完成，而监听器（投影）失败只记日志、不影响运行。
-2. **`run_done` 时先落库、再跑完成钩子、最后才发 `run_finalized`。** 顺序是：更新 attempt/run 状态 → 关掉 delta 订阅 → 从活动表删除 → 并行 await 所有 `onRunComplete` → 才向 daemon 发 `run_finalized`。
+1. **EventLog 先写、投影后跑。** 在 `RunSupervisor` 的 `"event"` 分支里，`eventLog.append(...)` 成功之后才串入 `projectionChain`；append 失败会抛出、阻止 run 被当成完成，而监听器（投影）失败只记日志、不影响运行。
+2. **投影通过 projectionChain 串行，onRunComplete await 后写终端修订。** `projectionChain` 是 `RunAccumulator` 上的一条 Promise 链，保证同一 `messageId` 的 streaming/done/error 修订有序。`onRunComplete` 先 `await projectionChain`，再写 state=done/error 的最终修订关闭消息。
+3. **对话账本 SSE 是用户可见输出的唯一通道。** `delta` 信道（text_delta/tool_start/tool_end）仍存在于 Runner→Host 协议中，但仅限后端内部（日志/运维）通过 `subscribeDelta()` 消费；`/runs/:id/events` 和 `/runs/:id/stream` HTTP 路由已删除，Web/飞书统一通过对话账本 SSE 接收所有用户可见更新。
 
 ## 当前实现的几条边界
 
 - EventLog 由后端 `RunSupervisor` 在收到 Runner 传输事件后追加；Runner 不直接打开 EventLog 库。
-- 会话投影 `projectRunMessageToLedger` 在 `apps/backend/src/main.ts` 里注册为 `onRunEvent` 监听器，按事件**增量**触发；`onRunComplete` 已经不再批量补写消息，只做放锁、todo 快照、@提及扫描。
+- 会话投影 `projectRunMessageToLedger` 在 `apps/backend/src/main.ts` 里通过 `projectionChain` 串行写入 `ConversationMessageRevision` 信封（messageId, state=streaming/done/error）；`onRunComplete` await projectionChain 后写入最终 done/error 修订，再做放锁、todo 快照、@提及扫描。
 - Runner 本地的 `checkpointer.sqlite` 是给 Agent 执行恢复用的；后端侧的线程投影（`checkpoint_messages` 表）是给「下次运行前把对话喂给 Agent」用的——两者同名易混，但用途不同。
-- Web 同时消费会话 SSE 和运行流，在 reducer 里合并。
-- 飞书消费运行流渲染卡片，再消费账本消息决定最终可见文本。
+- Web/飞书统一消费对话账本 SSE，按 `messageId` upsert 到同一个气泡/卡片中。不再有独立的 `/runs/:id/events` 或 `/runs/:id/stream` 连接。
+- delta 信道（text_delta/tool_start/tool_end）仅限后端内部日志/运维消费，不直接暴露给端。
 
 ## 不变量
 
@@ -135,20 +136,19 @@ sequenceDiagram
 ## 例子：Agent 在 Web 里回答一句话
 
 1. 用户在 Web 发「总结一下这个仓库」。
-2. 后端把用户消息追加进账本。
+2. 后端把用户消息（`ConversationMessageRevision`, state=done）追加进账本。
 3. 触发逻辑启动目标 Agent 成员的运行。
-4. Runner 把 delta 流给 Web 做实时草稿。
-5. Runner 发出最终 `message` 事件。
-6. 后端写 EventLog。
-7. 投影把 assistant 文本包上 runId 写进账本。
-8. Web 收到账本事件，用它替换掉实时草稿。
+4. Agent 开始流式产出，Runner 上发 event 事件；投影生成 state=streaming 的修订信封，经 projectionChain 写入账本。
+5. 对话账本 SSE 推修订给 Web；Web 按 `messageId` upsert 进气泡，实时刷新内容。
+6. Runner 发出 `run_done`（succeeded）。
+7. `onRunComplete` await projectionChain 后写入 state=done 修订，关闭该消息。
+8. Web 收到 done 修订，标记气泡为最终态。
 
 ## 当前缺口
 
-- 增量投影还缺幂等键和「纯工具消息」过滤（见 [会话投影](./backend/conversation-projection.md)）。
-- Web 草稿生命周期目前按「同 Agent」匹配，不是按 runId（见 [Web 端](./surfaces/web.md)）。
-- 飞书最终文本的去重与投影时机不完全对齐（见 [飞书适配器](./surfaces/lark-adapter.md)）。
-- 部分旧文档/接口还残留历史路由设计；本 Wiki 一律以当前代码行为为准。
+- 端侧按 messageId upsert 的「终态优先」语义需加固——若因网络延迟在 done/error 后收到旧的 streaming 修订，端应忽略。
+- 投影仍在 `onRunEvent` 监听器路径里（虽已用 `projectionChain` 串行），应挪进独立持久队列提升容错与可重试性。
+- 部分旧文档/接口可能残留 `/runs/:id/events`、`/runs/:id/stream`、`mergedStream` 等已删除路由/方法的引用；本 Wiki 一律以当前代码行为准。
 
 ## 关联页面
 

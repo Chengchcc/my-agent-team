@@ -4,7 +4,7 @@ title: 飞书消息端到端
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-16
-summary: "这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、流式卡片渲染、投影，到最终文本去重。它解释了为什么飞书用户有时会收到两遍同一个答案。"
+summary: "这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、sse-watcher 解析 ConversationMessageRevision，到最终文本去重。不再有 run-delta-watcher 和流式卡片——sse-watcher 是唯一出站流入口。"
 depends_on:
   - surfaces.lark-adapter
   - backend.conversation-projection
@@ -13,7 +13,7 @@ used_by:
 
 # 飞书消息端到端
 
-这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、流式卡片渲染、投影，到最终文本去重。它解释了为什么飞书用户有时会收到两遍同一个答案。
+这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、sse-watcher 解析 ConversationMessageRevision，到最终文本去重。不再有 run-delta-watcher 和流式卡片——sse-watcher 是唯一出站流入口。
 
 ## 时序图
 
@@ -34,36 +34,43 @@ sequenceDiagram
   Bot->>B: POST 会话消息
   B->>S: 触发 Agent
   S->>D: start(AgentSpec)
-  D-->>S: 流式 delta
-  S-->>Bot: 运行流 → 更新卡片
   D->>S: event(message)
   S->>E: append EventLog
-  S->>P: 增量投影（_preliminary:true）→ 最终投影（无 _preliminary）
-  P-->>Bot: 账本消息（先 _preliminary，后不含 _preliminary）
-  Bot->>Bot: _preliminary 且卡片健康？→ 跳过
-  Bot->>Bot: 非 _preliminary：canSkipFinalLedgerText? (首次必为否)
-  Bot->>L: 发最终文本（首次都会发）
+  S->>P: 投影 → ConversationMessageRevision（state: streaming）
+  P-->>Bot: 账本 SSE → sse-watcher 解析 revision
+  Bot->>Bot: revision.state === "streaming" → 渲染流式文本
+  D->>S: event(message)（更多轮）
+  P-->>Bot: 更多 revision（同 messageId，state: streaming）
+  D->>S: run_done
+  S->>P: onRunComplete → terminal revision
+  P-->>Bot: revision（同 messageId，state: done）
+  Bot->>Bot: canSkipFinalLedgerText?
+  Bot->>L: 不能跳过则发最终文本
 ```
 
 ## 绑定模型
 
 飞书适配器要维护四组映射：飞书 chat → 对话；飞书 user → human 成员；Bot/Agent 身份 → agent 成员；飞书卡片/消息 ID → 投递状态。
 
-## 增量投影与 `_preliminary` 标记
+## 流式输出路径
 
-会话投影在 run 期间产生的增量 projection 携带 `_preliminary: true`（见 `contentWithRunId`）。sse-watcher 发现此标记且卡片通道健康（无 `cardSendFailed`/`cardUpdateFailed`，`status !== "fallback_text"`）时，跳过该账本条目不发送——最终答案会等 `run_done` 后的非 `_preliminary` 投影由卡片路径投递。如果卡片通道已故障，则忽略标记，让账本文本作为 fallback 纯文本发送。
+飞书不再使用 `run-delta-watcher` 监听运行流。`sse-watcher` 是唯一出站流入口：它监听账本 SSE，通过 `parseRevision` 解析 `ConversationMessageRevision` 信封。
+
+`state === "streaming"` 的 revision 表示 run 仍在进行——sse-watcher 可将文本实时投递为流式消息。`state === "done"` 的 terminal revision 表示 run 已完成——这是最终答案投递时机。
+
+不再有 `_preliminary` 标记：revision 的 `state` 字段本身就表达消息生命周期阶段（streaming / done / error / waiting），取代了旧的 `_preliminary: true` 压制机制。
 
 ## 去重模型与为什么会重
 
-一个最终答案能从「流式卡片」和「账本最终文本」两条路出现。去重需要：账本 content 里的 runId 信封、卡片已交付最终内容的记录、可靠的运行终态、以及「账本消息就是最终可读答案」这个认知。
+一个最终答案可能从「流式渐进渲染」和「terminal revision 最终文本」两条路可见。去重依赖：revision 的 `messageId`（同 run 的 revision 共享同一 messageId）、runId 匹配、以及 `canSkipFinalLedgerText` 的 `completeFromLedger` 标志。
 
-`_preliminary` 压制机制在卡片健康时避免了增量投影重复。但 `completeFromLedger` 只在最终文本成功发出**一次之后**才置 1，所以 run_done 后的非 `_preliminary` 最终投影首次必然发一遍——拿到卡片的用户至少会再收到一次纯文本。详见 [飞书适配器](../surfaces/lark-adapter.md)。
+`sse-watcher` 对 `state === "streaming"` 的 revision 仅做渐进渲染更新，不单独发最终文本。terminal revision（`state === "done"`）到达时查 `canSkipFinalLedgerText`——首次到达时 `completeFromLedger` 必为 0，跳不掉，所以至少发一次最终文本。后续重连重放时 `completeFromLedger === 1` 才跳过。详见 [飞书适配器](../surfaces/lark-adapter.md)。
 
 ## 出问题先看哪层
 
 | 症状 | 可能成因 | 接着读 |
 |---|---|---|
-| 最终答案重复 | 投影早于 done / 跳过条件没满足 | [飞书适配器](../surfaces/lark-adapter.md) |
+| 最终答案重复 | terminal revision 重放 / canSkipFinalLedgerText 没命中 | [飞书适配器](../surfaces/lark-adapter.md) |
 | 不支持的内容 | 纯工具块被投影 | [会话投影](../backend/conversation-projection.md) |
 | Agent 没触发 | 绑定/成员/提及问题 | [对话与成员](../conversation/conversation-and-members.md) |
 | 消息进错线程 | chat 绑定错 | [数据模型](../backend/data-model.md) |

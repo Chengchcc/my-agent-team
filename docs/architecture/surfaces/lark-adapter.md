@@ -4,7 +4,7 @@ title: 飞书适配器
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-16
-summary: "飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，把运行流渲染成流式卡片，再消费账本消息决定最终可见文本。它最棘手的地方是去重：同一个答案可能从「卡片」和「账本最终文本」两条路各到一次。"
+summary: "飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，通过 sse-watcher 消费账本 ConversationMessageRevision 决定流式/最终可见文本。不再有 run-delta-watcher 和流式卡片——sse-watcher 是唯一出站流入口。去重依赖 revision 的 messageId + canSkipFinalLedgerText。"
 depends_on:
   - conversation.ledger
   - backend.conversation-projection
@@ -15,7 +15,7 @@ used_by:
 
 # 飞书适配器
 
-飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，把运行流渲染成流式卡片，再消费账本消息决定最终可见文本。它最棘手的地方是去重：同一个答案可能从「卡片」和「账本最终文本」两条路各到一次。
+飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，通过 sse-watcher 消费账本 ConversationMessageRevision 决定流式/最终可见文本。不再有 run-delta-watcher 和流式卡片——sse-watcher 是唯一出站流入口。去重依赖 revision 的 messageId + canSkipFinalLedgerText。
 
 ## 这页解决什么问题
 
@@ -53,29 +53,27 @@ sequenceDiagram
   participant Bot as 飞书 Bot
   participant L as 飞书
 
-  B-->>Bot: 运行流 text_delta (run-delta-watcher)
-  Bot->>L: 发「思考中」占位卡片，节流 updateCard
   B-->>Bot: 账本 message (sse-watcher)
+  Bot->>Bot: parseRevision → ConversationMessageRevision
+  Bot->>Bot: state === "streaming" → 渐进渲染文本
+  B-->>Bot: 账本 message（同 messageId，state: done）
   Bot->>Bot: canSkipFinalLedgerText?
   Bot->>L: 不能跳过则发最终文本
 ```
 
-流式卡片（`run-delta-watcher.ts`）累积 `text_delta`，每 150ms 或满 120 字 flush 一次 `updateCard`；EOF 时查 `/api/runs/:runId` 终态切换卡片状态。
+`sse-watcher` 是唯一出站流入口。不再有 `run-delta-watcher.ts`、`card-renderer.ts`、`card-sender.ts`、`feedback-reaction.ts`——这些全部删除。ingest 的 `onTriggeredRun` 回调移除，不再为每个 run 启动独立的 delta watcher。
 
-## `_preliminary` 标记：增量投影的提前压制
+## Revision state 驱动出站逻辑
 
-会话投影期间，增量投影（mid-run）的内容信封会携带 `_preliminary: true`（见 `backend/src/main.ts` 的 `contentWithRunId`）。当 sse-watcher 解析账本 entry 的 content 发现此标记时：
+`sse-watcher` 用 `parseRevision` 解析账本 entry 的 content 为 `ConversationMessageRevision`。`state` 字段驱动出站行为：
 
-```ts
-if (parsedContent._preliminary === true) {
-  // 卡片通道健康 → 跳过账本条目不发送，等最终投影
-  // 卡片通道故障 → fall through，用账本文本兜底投递
-}
-```
+- `state === "streaming"`：run 仍在进行。sse-watcher 可将文本渐进渲染为流式消息（更新同一 message），但不发最终文本。
+- `state === "done"`：terminal revision。到达时查 `canSkipFinalLedgerText`——首次必发一次最终文本（`completeFromLedger` 尚为 0），重连重放时可跳过。
+- `state === "error"`：run 失败。发错误文本。
 
-逻辑：如果对应的 run_stream 记录显示卡片发送/更新均未失败（`cardSendFailed === 0 && cardUpdateFailed === 0` 且 `status !== "fallback_text"`），则跳过账本条、更新 pushed_seq 直接返回——最终答案会由卡片路径投递。如果卡片通道已故障，则忽略 `_preliminary`，让账本消息作为纯文本 fallback 发送。这样在正常路径下只为每个答案发一次（卡片），只在故障时才用纯文本补发。
+不再有 `_preliminary` 标记。旧的 `_preliminary: true` 压制逻辑（卡片健康时跳过账本消息）被 revision state 替代——`streaming` 仅用于渐进渲染，`done`/`error` 触发最终投递。
 
-## 去重难题与真实的 canSkipFinalLedgerText
+## 去重难题与 canSkipFinalLedgerText
 
 ```ts
 export function canSkipFinalLedgerText(run: RunStreamRecord): boolean {
@@ -89,17 +87,17 @@ export function canSkipFinalLedgerText(run: RunStreamRecord): boolean {
 }
 ```
 
-它**确实要求 `status === "done"`**，但本身不收 runId 参数——runId 匹配在调用方 `sse-watcher.processEntry` 做：解析账本 content 的信封，取出 `runId`，按 runId 找到对应 `run_stream` 记录，再判 `canSkipFinalLedgerText`。
+runId 匹配在调用方 `sse-watcher.processEntry` 做：解析 revision 的 `runId`，按 runId 找 `run_stream` 记录，再判 `canSkipFinalLedgerText`。
 
-关键在 `completeFromLedger`：它只在「账本文本成功发出一次之后」才被置 1。所以**首次投递时这个标志还是 0，跳不掉**——拿到流式卡片的用户，仍会至少再收到一次最终账本文本（卡片 + 纯文本重复）。跳过逻辑只能压制重连时的**重放**。叠加上 [会话投影](../backend/conversation-projection.md) 的增量时机（可能在 `done` 之前就写最终文本），重复风险进一步放大。
+`completeFromLedger` 只在账本文本成功发出一次之后才置 1。首次投递时该标志为 0，跳不掉——terminal revision 到达时至少会发一次最终文本。跳过逻辑主要压制重连时的重放。
 
 ## 内容渲染
 
-`render.ts` 只抽 `type==="text"` 块（支持裸字符串、`{text}`、`{blocks,runId}`、`ContentBlock[]`）。没有文本块（纯 tool_use/tool_result）时返回字面量 `"[Unsupported content]"`。流式卡片只渲染累积的纯文本，工具活动在飞书里完全不可见。
+`render.ts` 从 `ConversationMessageRevision` 取 `text` 或 `blocks`——只抽 `type==="text"` 块（支持裸字符串、`{text}`、`{blocks}`、`ContentBlock[]`）。没有文本块（纯 tool_use/tool_result）时返回字面量 `"[Unsupported content]"`。工具活动在飞书里完全不可见。
 
 ## 失败模式
 
-- 最终答案重复：卡片 + 账本文本都发了。
+- 最终答案重复：terminal revision 重放 / `canSkipFinalLedgerText` 没命中。
 - 不支持的内容：纯工具块被投影进账本。
 - 会话绑定错：飞书 chat 映射到了错误对话。
 - 缺成员：飞书用户没解析成 human 成员。

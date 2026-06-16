@@ -4,7 +4,7 @@ title: RunSupervisor
 status: current
 owners: backend-runtime
 last_verified_against_code: 2026-06-16
-summary: "RunSupervisor（apps/backend/src/features/run/supervisor.ts）是后端里运行与尝试生命周期的唯一拥有者。它启动/恢复/取消运行，接收 Runner 的传输消息，写 EventLog，推流，更新运行状态，跑收割器恢复，并按确定的顺序回调 onRunEvent / onRunComplete。"
+summary: "RunSupervisor（apps/backend/src/features/run/supervisor.ts）是后端里运行与尝试生命周期的唯一拥有者。它启动/恢复/取消运行，接收 Runner 的传输消息，写 EventLog，维护内部 delta 信道（供后端内部日志/运维使用），更新运行状态，跑收割器恢复，并按确定的顺序回调 onRunEvent / onRunComplete。用户可见输出现在全部由对话账本 SSE（通过会话投影的 ConversationMessageRevision 信封）提供服务。"
 depends_on:
   - runner.runner-protocol
 used_by:
@@ -15,15 +15,15 @@ used_by:
 
 # RunSupervisor
 
-RunSupervisor（apps/backend/src/features/run/supervisor.ts）是后端里运行与尝试生命周期的唯一拥有者。它启动/恢复/取消运行，接收 Runner 的传输消息，写 EventLog，推流，更新运行状态，跑收割器恢复，并按确定的顺序回调 onRunEvent / onRunComplete。
+RunSupervisor（apps/backend/src/features/run/supervisor.ts）是后端里运行与尝试生命周期的唯一拥有者。它启动/恢复/取消运行，接收 Runner 的传输消息，写 EventLog，维护内部 delta 信道（供后端运维/日志使用），更新运行状态，跑收割器恢复，并按确定的顺序回调 onRunEvent / onRunComplete。用户可见输出现全部由对话账本 SSE（通过会话投影的 `ConversationMessageRevision` 信封）提供服务——`/runs/:id/events` 和 `/runs/:id/stream` 路由已在 M17 中删除。
 
 ## 这页解决什么问题
 
-Agent 执行是异步且易失败的。后端需要一个唯一拥有者来负责：建运行与尝试、把运行接到 Runner 会话、收心跳、落事件、处理取消/恢复、检测僵死、通知投影与完成钩子。这个拥有者就是 `RunSupervisor`。
+Agent 执行是异步且易失败的。后端需要一个唯一拥有者来负责：建运行与尝试、把运行接到 Runner 会话、收心跳、落事件、处理取消/恢复、检测僵死、通知投影与完成钩子。用户侧实时输出不再通过 `/runs/:id/events` 或 `/runs/:id/stream`（已删除）；统一由对话账本 SSE 经会话投影的 `ConversationMessageRevision` 信封推送给端。
 
 ## 内部状态
 
-`RunSupervisor` 持有：`#active: Map<runId, RunSession>`、`#db`（events.db，WAL，busy_timeout=5000）、`#onRunComplete[]`、`#onRunEvent[]`、`#reaperTimer`、`#deltaSubs`（runId → 一组 SSE controller）、`#boundTransports`、`#transportQueues`（每个 transport 一条串行 Promise 链，保证 `run_started`/`event`/`run_done` 不会抢在建行之前）。构造时跑 `runEventsDbMigrations` 并启动收割器。
+`RunSupervisor` 持有：`#active: Map<runId, RunSession>`、`#db`（events.db，WAL，busy_timeout=5000）、`#onRunComplete[]`、`#onRunEvent[]`、`#reaperTimer`、`#deltaSubs`（runId → 一组 SSE controller，仅后端内部使用：日志/运维消费 delta 事件，不再通过 HTTP 路由暴露给端）、`#boundTransports`、`#transportQueues`（每个 transport 一条串行 Promise 链，保证 `run_started`/`event`/`run_done` 不会抢在建行之前）。构造时跑 `runEventsDbMigrations` 并启动收割器。
 
 ## 启动类方法
 
@@ -53,7 +53,7 @@ case "event": {
 }
 ```
 
-其他分支：`"delta"` → `#pushEphemeral`（纯内存，永不进 EventLog）；`"heartbeat"` → `UPDATE attempt SET heartbeat_at=now`；`"daemon_health"` → 写 `runner_health`；`"run_started"` → 注册 daemon 自发起的 reflect 运行。
+其他分支：`"delta"` → `#pushEphemeral`（纯内存，永不进 EventLog；仅后端内部使用，不路由给端）；`"heartbeat"` → `UPDATE attempt SET heartbeat_at=now`；`"daemon_health"` → 写 `runner_health`；`"run_started"` → 注册 daemon 自发起的 reflect 运行。
 
 ## 完成处理顺序
 
@@ -78,8 +78,8 @@ case "run_done": {
 | 操作 | 输入 | 输出 |
 |---|---|---|
 | start | AgentSpec, threadId, agentId | run 行、attempt 行、向 Runner 发 start |
-| event | Runner 传输事件 | EventLog 行，随后可能触发投影 |
-| delta | Runner 流式 delta | 临时 SSE，不持久 |
+| event | Runner 传输事件 | EventLog 行，随后可能触发投影 → ConversationMessageRevision 写进账本 SSE |
+| delta | Runner 流式 delta | 内部 SSE（`subscribeDelta`，仅供后端日志/运维消费；不再暴露 HTTP 路由给端） |
 | heartbeat | Runner 心跳 | 更新 attempt 心跳时间 |
 | run_done | Runner 终态消息 | 更新 run 状态、跑完成钩子、发 run_finalized |
 | cancel | runId | 向 Runner 发 abort |
@@ -121,7 +121,7 @@ stateDiagram-v2
 
 ## 当前缺口
 
-- `onRunEvent` 在消息路径里被 await，投影应挪进队列。
+- `onRunEvent` 的投影已通过 `projectionChain` 串行但仍在事件路径里；应挪进独立持久队列提升容错。
 - 收割器只看心跳，做不到「步骤级」僵死检测。
 - run 状态名应在后端与 Web 之间统一（Web 用 `idle/running/interrupted/done/error`）。
 
