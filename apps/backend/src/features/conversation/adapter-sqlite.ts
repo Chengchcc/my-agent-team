@@ -207,7 +207,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
 
     appendLedgerEntry(input: AppendLedgerInput): number {
       const result = db.run(
-        "INSERT INTO conversation_ledger (conversation_id, sender_member_id, addressed_to, kind, content, ts) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO conversation_ledger (conversation_id, sender_member_id, addressed_to, kind, content, ts, run_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
         [
           input.conversationId,
           input.senderMemberId,
@@ -215,9 +215,19 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           input.kind,
           input.content,
           input.ts,
+          input.runId ?? null,
         ],
       );
       return Number(result.lastInsertRowid);
+    },
+
+    hasLedgerContent(runId: string, content: string): boolean {
+      const row = db
+        .query(
+          "SELECT 1 FROM conversation_ledger WHERE run_id = ? AND content = ? LIMIT 1",
+        )
+        .get(runId, content);
+      return row !== null;
     },
 
     getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerRow[] {

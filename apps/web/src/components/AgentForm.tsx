@@ -59,15 +59,21 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   }, [editAgent]);
 
   // M15.1: Poll setup session status when pending
+  // Poll setup session when pending. Only re-create interval when the
+  // identity of the pending session changes (by setupId), not on every
+  // status update — avoids tearing down the 3s timer each poll cycle.
   useEffect(() => {
-    if (setupSession?.status !== "pending" || !editAgent?.id) return;
+    const status = setupSession?.status;
+    const setupId = setupSession?.setupId;
+    const agentId = editAgent?.id;
+    if (status !== "pending" || !agentId || !setupId) return;
     const interval = setInterval(async () => {
       try {
-        const session = await api.larkSetupStatus(editAgent.id, setupSession.setupId);
+        const session = await api.larkSetupStatus(agentId, setupId);
         setSetupSession(session);
         if (session.status !== "pending") {
           clearInterval(interval);
-          queryClient.invalidateQueries({ queryKey: ["agent", editAgent.id] });
+          queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
           queryClient.invalidateQueries({ queryKey: ["agents"] });
         }
       } catch {
@@ -75,13 +81,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [
-    setupSession?.status,
-    setupSession?.setupId,
-    editAgent?.id,
-    setupSession,
-    queryClient.invalidateQueries,
-  ]);
+  }, [setupSession?.status, setupSession?.setupId, editAgent?.id, queryClient]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

@@ -51,6 +51,8 @@ export interface AppendLedgerInput {
   kind: LedgerKind;
   content: string; // JSON-encoded
   ts: number;
+  /** Optional: run ID for dedup (incremental projection). */
+  runId?: string;
 }
 
 export interface ConversationWithMembers {
@@ -78,4 +80,6 @@ export interface ConversationPort {
 
   appendLedgerEntry(input: AppendLedgerInput): number; // returns seq
   getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerRow[];
+  /** Dedup guard: check if (runId, content) already exists in the ledger. */
+  hasLedgerContent?(runId: string, content: string): boolean;
 }

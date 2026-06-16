@@ -478,6 +478,12 @@ async function projectRunMessageToLedger(
 
   const ts = Date.now();
   const serialized = JSON.stringify(contentWithRunId);
+
+  // Dedup: check if this exact (runId, content) pair already exists in the
+  // ledger. Guards against replay when the supervisor replays the same
+  // EventLog events after reconnect/recover.
+  if (convPort.hasLedgerContent?.(runId, serialized)) return;
+
   const seq = convPort.appendLedgerEntry({
     conversationId: cid,
     senderMemberId,
@@ -485,6 +491,7 @@ async function projectRunMessageToLedger(
     kind: "message",
     content: serialized,
     ts,
+    runId,
   });
   // Broadcast to OTHER members only — the sender's own live run thread already
   // has the real message from the agent loop (rt.save()), so writing it again

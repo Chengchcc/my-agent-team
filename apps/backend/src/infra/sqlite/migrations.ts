@@ -163,6 +163,13 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
     CREATE INDEX IF NOT EXISTS idx_ledger_conv ON conversation_ledger(conversation_id, seq)`,
   },
   {
+    name: "backend_v17_ledger_run_id_column",
+    id: 4003,
+    up: `
+      ALTER TABLE conversation_ledger ADD COLUMN run_id TEXT DEFAULT NULL;
+      CREATE INDEX IF NOT EXISTS idx_ledger_run ON conversation_ledger(run_id) WHERE run_id IS NOT NULL`,
+  },
+  {
     name: "backend_v16_drop_orphan_conversations",
     id: 5002,
     up: `
