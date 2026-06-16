@@ -237,11 +237,23 @@ async function processEntry(
     return;
   }
 
-  // ─── M15.1: Check if this message can be skipped (card delivery proven) ───
-  // Parse content to extract runId (injected by Conversation Projection)
+  // ─── M15.1: Check if this message can be skipped ───
   let parsedContent: unknown;
   let extractedRunId: string | undefined;
   try { parsedContent = JSON.parse(entry.content); } catch { /* use raw */ }
+
+  // Incremental projections (mid-run) carry _preliminary:true — the final
+  // answer will arrive as a card after run completion. Skip them to avoid
+  // sending duplicate text messages.
+  if (
+    parsedContent &&
+    typeof parsedContent === "object" &&
+    (parsedContent as Record<string, unknown>)._preliminary === true
+  ) {
+    updatePushedSeq(db, larkChatId, entry.seq);
+    return;
+  }
+
   if (parsedContent && typeof parsedContent === "object" && "runId" in parsedContent) {
     extractedRunId = (parsedContent as { runId?: string }).runId;
     if (extractedRunId) {
