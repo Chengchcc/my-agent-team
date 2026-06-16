@@ -25,7 +25,7 @@ framework 只定义了 `Tool` 这个抽象——一个有名字、有输入 sche
 
 **网络工具。** `webFetchTool`（名字 `web_fetch`）抓取一个 URL 返回纯文本，内置 URL 安全校验、手动跟随重定向、超时与响应大小上限。`createWebSearchTool(apiKey)` 是工厂函数，返回名为 `web_search` 的工具，底层走 Tavily，返回 top 结果的 JSON。
 
-**记忆工具（内存版）。** `createMemorySaveTool(store)` 和 `createMemoryRecallTool(store)` 都接受一个 `Map<string, string>` 作为后端，返回名为 `memory_save` / `memory_recall` 的工具。`memory_recall` 找不到 key 时返回 `isError: true` 的结果。注意这是简单的内存键值版；harness 默认装配的是基于文件的 `fsMemoryPlugin`，并不使用这两个工具。
+**文件记忆工具**在 `@my-agent-team/plugin-fs-memory` 里（`memory_read`/`memory_write`/`memory_search`），基于 AgentFS 持久化。tools-common 不再提供内存版记忆工具。
 
 **AgentFsLike。** 逻辑路径工具依赖的最小文件系统接口（`read`/`write`/`list`/`stat`/`exists`/`mkdirp`），AgentFS 通过结构化类型天然实现它。配套还导出一个路径拼接小工具 `pjoin`。
 
@@ -56,4 +56,4 @@ console.log(result.content);
 
 ## 依赖关系
 
-tools-common 只依赖 core（拿 `Tool` 类型）。反向看，它被 harness、plugin-fs-memory、plugin-progressive-skill 以及 cli app 使用。
+tools-common 只依赖 core（拿 `Tool` 类型）。反向看，它被 harness、plugin-fs-memory、plugin-progressive-skill 使用。
