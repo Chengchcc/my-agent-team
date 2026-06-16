@@ -526,7 +526,7 @@ export class RunSupervisor {
           const threadId = this.#threadIdFor(runId);
           const event = msg.event as { type: string; payload?: unknown };
           for (const fn of this.#onRunEvent) {
-            fn(threadId, runId, event).catch((err) => {
+            void Promise.resolve(fn(threadId, runId, event)).catch((err: unknown) => {
               console.error(
                 `[supervisor] onRunEvent listener failed for ${runId}: ${
                   err instanceof Error ? err.message : String(err)
