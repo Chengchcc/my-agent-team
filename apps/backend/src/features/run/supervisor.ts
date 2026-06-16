@@ -519,20 +519,20 @@ export class RunSupervisor {
           throw err; // prevent run_done from succeeding with incomplete event log
         }
         // Conversation Projection (incremental): notify listeners only AFTER the event is durably
-        // logged. Failures here are non-fatal — they must not abort the run.
+        // logged. Fire-and-forget to avoid blocking the per-transport serial queue —
+        // a slow projection must not delay heartbeats, deltas, or run_done for other runs
+        // sharing the same transport.
         if (this.#onRunEvent.length > 0) {
           const threadId = this.#threadIdFor(runId);
           const event = msg.event as { type: string; payload?: unknown };
           for (const fn of this.#onRunEvent) {
-            try {
-              await fn(threadId, runId, event);
-            } catch (err) {
+            fn(threadId, runId, event).catch((err) => {
               console.error(
                 `[supervisor] onRunEvent listener failed for ${runId}: ${
                   err instanceof Error ? err.message : String(err)
                 }`,
               );
-            }
+            });
           }
         }
         break;
