@@ -69,11 +69,7 @@ export class AnthropicChatModel implements ChatModel {
           event.content_block.type === "thinking" ||
           event.content_block.type === "redacted_thinking"
         ) {
-          const thinkingText =
-            event.content_block.type === "thinking" ? event.content_block.thinking : "";
-          if (thinkingText) {
-            yield { delta: { type: "reasoning", text: thinkingText } };
-          }
+          void 0; // filtered out — thinking is not surfaced to the UI
         }
       } else if (event.type === "content_block_delta") {
         if (event.delta.type === "text_delta") {

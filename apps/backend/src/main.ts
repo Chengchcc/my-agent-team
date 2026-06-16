@@ -452,6 +452,15 @@ async function projectRunMessageToLedger(
   if (typeof content === "string" && content.trim().length === 0) return;
   if (Array.isArray(content) && content.length === 0) return;
 
+  // Filter out tool-only rounds — they render as [Unsupported content] in Lark
+  // and provide no value to humans mid-execution.
+  if (role === "assistant" && Array.isArray(content)) {
+    const hasText = content.some((b: unknown) =>
+      typeof b === "object" && b !== null && (b as Record<string, unknown>).type === "text",
+    );
+    if (!hasText) return;
+  }
+
   const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
   if (!cid) return;
   const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
@@ -459,11 +468,11 @@ async function projectRunMessageToLedger(
   const contentWithRunId =
     role === "assistant"
       ? typeof content === "string"
-        ? { text: content, runId }
+        ? { text: content, runId, _preliminary: true }
         : Array.isArray(content)
-          ? { blocks: content, runId }
+          ? { blocks: content, runId, _preliminary: true }
           : typeof content === "object" && content !== null
-            ? { ...(content as Record<string, unknown>), runId }
+            ? { ...(content as Record<string, unknown>), runId, _preliminary: true }
             : content
       : content;
 
@@ -477,15 +486,21 @@ async function projectRunMessageToLedger(
     content: serialized,
     ts,
   });
-  await convSvc.broadcastMessage({
-    seq,
-    conversationId: cid,
-    senderMemberId,
-    addressedTo: [],
-    kind: "message",
-    content: serialized,
-    ts,
-  });
+  // Broadcast to OTHER members only — the sender's own live run thread already
+  // has the real message from the agent loop (rt.save()), so writing it again
+  // via broadcast would double-insert and cause checkpoint lock contention.
+  await convSvc.broadcastMessage(
+    {
+      seq,
+      conversationId: cid,
+      senderMemberId,
+      addressedTo: [],
+      kind: "message",
+      content: serialized,
+      ts,
+    },
+    { excludeMemberId: senderMemberId },
+  );
 }
 
 supervisor.onRunEvent(async (threadId, runId, event) => {

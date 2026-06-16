@@ -43,9 +43,17 @@ function segmentId(seg: TurnSegment): string {
 
 /** A turn starts at each user (human) message. A turn spans that user message
  *  plus every following assistant/system segment up to (but not including) the
- *  next user message. */
-function isTurnStart(seg: TurnSegment): boolean {
-  return segmentSender(seg).kind === "human";
+ *  next user message.
+ *
+ *  For pure agent-to-agent conversations (no human messages), falls back to
+ *  sender-change boundaries so agent chains still have visible turn separators. */
+function isTurnStart(seg: TurnSegment, segments: TurnSegment[], i: number): boolean {
+  const sender = segmentSender(seg);
+  if (sender.kind === "human") return true;
+  // Agent-to-agent fallback: boundary on sender identity change
+  if (i === 0) return true;
+  const prevSender = segmentSender(segments[i - 1]!);
+  return prevSender.memberId !== sender.memberId && prevSender.kind !== "system";
 }
 
 function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {
@@ -53,7 +61,7 @@ function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {
   let turnNum = 0;
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i]!;
-    if (isTurnStart(seg)) {
+    if (isTurnStart(seg, segments, i)) {
       turnNum++;
       const id = segmentId(seg);
       anchors.push({ id: `turn-${id}`, seq: turnNum, elementId: `turn-${id}` });
@@ -121,8 +129,8 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
     }> = [];
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]!;
-      // Place a turn divider/anchor before each user message that starts a turn.
-      if (isTurnStart(seg)) {
+      // Place a turn divider/anchor before each message that starts a turn.
+      if (isTurnStart(seg, segments, i)) {
         const id = segmentId(seg);
         items.push({
           seg,

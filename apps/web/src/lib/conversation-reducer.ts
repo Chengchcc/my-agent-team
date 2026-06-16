@@ -245,9 +245,12 @@ export function reducer(s: ConvState, a: Action): ConvState {
         s.viewerMemberId,
       );
       // Clear draft if: self message arrives, or current draft's agent message arrives
+      // AND the run is no longer active (otherwise incremental mid-run projections
+      // would clear the live streaming draft, causing flicker).
       const clearsDraft =
-        sender.memberId === s.viewerMemberId ||
-        (s.draft !== null && a.senderMemberId === s.draft.agentMemberId);
+        s.run.phase !== "running" &&
+        (sender.memberId === s.viewerMemberId ||
+          (s.draft !== null && a.senderMemberId === s.draft.agentMemberId));
       return clearsDraft ? { ...s, messages, draft: null } : { ...s, messages };
     }
 
@@ -355,10 +358,11 @@ export function reducer(s: ConvState, a: Action): ConvState {
         return { ...s, draft: null };
       }
       // Keep the draft visible until the authoritative ledger message replaces
-      // it (handled in "ledger/message"). Clearing here causes a flicker: the
-      // durable "done" event arrives ~500ms before the ledger writeback, so
-      // nulling the draft now would blank out the just-streamed content until
-      // the ledger catches up.
+      // it (handled in "ledger/message"). If the final round produces no ledger
+      // message (tool-only, projection skip, SSE loss), the draft would stick
+      // forever. As a safety net, clear it after the done phase settles.
+      // The ledger/message handler above already clears draft when a matching
+      // agent message arrives during the done phase.
       return { ...s, run: { ...s.run, phase: "done" } };
 
     case "ledger/conn":
