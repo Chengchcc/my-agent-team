@@ -97,7 +97,7 @@ describe("conversation-reducer", () => {
 
   // ─── Draft cleared by authoritative ─────────────────────
 
-  test("delta → same-agent authoritative clears draft", () => {
+  test("delta → same-agent ledger message does NOT clear draft while running (incremental projection flicker prevention)", () => {
     const s = runWithBootstrap(
       {
         type: "run/started",
@@ -125,12 +125,14 @@ describe("conversation-reducer", () => {
         content: "Hello world, complete",
       },
     );
-    expect(s.draft).toBeNull();
+    // Draft persists because phase is still "running" — clearing now
+    // would cause flicker from incremental projection.
+    expect(s.draft).not.toBeNull();
+    expect(s.draft?.text).toBe("Hello world");
     expect(s.messages.filter((m) => m.sender.memberId === a1)).toHaveLength(1);
-    expect(s.messages.at(-1)?.content).toBe("Hello world, complete");
   });
 
-  test("self authoritative message clears draft", () => {
+  test("self message preserves draft while running (not cleared until done)", () => {
     const s = runWithBootstrap(
       {
         type: "run/started",
@@ -151,7 +153,9 @@ describe("conversation-reducer", () => {
         content: "next question",
       },
     );
-    expect(s.draft).toBeNull();
+    // Draft persists while run is still running (phase is "running")
+    expect(s.draft).not.toBeNull();
+    expect(s.draft?.text).toBe("thinking...");
   });
 
   // ─── Multi-agent: different agent authoritative does NOT clear draft ───
@@ -189,7 +193,7 @@ describe("conversation-reducer", () => {
     expect(s.messages.filter((m) => m.sender.memberId === a2)).toHaveLength(1);
   });
 
-  test("multi-agent: A's own authoritative clears A's draft, B's does not", () => {
+  test("multi-agent: A's draft persists while running, cleared on done", () => {
     const init = runWithBootstrap(
       bootstrap(viewer, [viewerRef, agentRef, agent2Ref]),
       {
@@ -205,14 +209,24 @@ describe("conversation-reducer", () => {
         text: "A working",
       },
     );
-    const s = reducer(init, {
+    // During running: draft persists (incremental projection guard)
+    const running = reducer(init, {
       type: "ledger/message",
       seq: 5,
       senderMemberId: a1,
       content: "A done",
     });
-    expect(s.draft).toBeNull();
-    expect(s.messages.filter((m) => m.sender.memberId === a1)).toHaveLength(1);
+    expect(running.draft).not.toBeNull();
+    expect(running.draft?.text).toBe("A working");
+    // After done: draft is cleared
+    const done = reducer(running, { type: "run/done" });
+    const cleared = reducer(done, {
+      type: "ledger/message",
+      seq: 5,
+      senderMemberId: a1,
+      content: "A done",
+    });
+    expect(cleared.draft).toBeNull();
   });
 
   // ─── member.joined / member.left ────────────────────────

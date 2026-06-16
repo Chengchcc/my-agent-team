@@ -153,46 +153,34 @@ export function useConversation(
     return () => es.close();
   }, [conversationId]);
 
-  // 3) Run-level token/tool stream: only when there's an active run
+  // 3) Unified run events + deltas: /runs/:id/events now merges both
+  //    EventLog (durable done/interrupted/todo) and ephemeral deltas
+  //    (text_delta/tool_start/tool_end) into a single SSE stream.
   useEffect(() => {
     const runId = state.run.id;
     if (!runId || state.run.phase !== "running") return;
     const agentMemberId = state.run.agentMemberId ?? "";
 
-    const es = new EventSource(`/api/bff/runs/${runId}/stream`);
+    const es = new EventSource(`/api/bff/runs/${runId}/events`);
+    let didComplete = false;
 
+    // ── Ephemeral deltas (now on unified events endpoint) ──
     es.addEventListener("text_delta", (e: Event) => {
       if (!(e instanceof MessageEvent)) return;
       try {
-        const { blockIndex, text } = JSON.parse(e.data) as {
-          blockIndex: number;
-          text: string;
-        };
+        const { blockIndex, text } = JSON.parse(e.data) as { blockIndex: number; text: string };
         if (typeof text === "string") {
-          dispatch({
-            type: "stream/delta",
-            runId,
-            agentMemberId,
-            blockIndex,
-            text,
-          });
+          dispatch({ type: "stream/delta", runId, agentMemberId, blockIndex, text });
         }
-      } catch {
-        // skip
-      }
+      } catch { /* skip */ }
     });
 
     es.addEventListener("tool_start", (e: Event) => {
       if (!(e instanceof MessageEvent)) return;
       try {
-        const { id, name } = JSON.parse(e.data) as {
-          id: string;
-          name: string;
-        };
+        const { id, name } = JSON.parse(e.data) as { id: string; name: string };
         if (id && name) dispatch({ type: "stream/toolStart", id, name });
-      } catch {
-        // skip
-      }
+      } catch { /* skip */ }
     });
 
     es.addEventListener("tool_end", (e: Event) => {
@@ -200,22 +188,10 @@ export function useConversation(
       try {
         const { id } = JSON.parse(e.data) as { id: string };
         if (id) dispatch({ type: "stream/toolEnd", id });
-      } catch {
-        // skip
-      }
+      } catch { /* skip */ }
     });
 
-    return () => es.close();
-  }, [state.run.id, state.run.phase, state.run.agentMemberId]);
-
-  // 3b) /runs/:id/events (durable) — done/interrupted/error fallback
-  useEffect(() => {
-    const runId = state.run.id;
-    if (!runId || state.run.phase !== "running") return;
-
-    const es = new EventSource(`/api/bff/runs/${runId}/events`);
-    let didComplete = false;
-
+    // ── Durable terminal events ──
     const handleDone = () => {
       didComplete = true;
       dispatch({ type: "run/done" });
@@ -227,19 +203,12 @@ export function useConversation(
     es.addEventListener("interrupted", (e: Event) => {
       if (!(e instanceof MessageEvent)) return;
       try {
-        const raw = JSON.parse(e.data) as {
-          type: string;
-          payload: unknown;
-        };
+        const raw = JSON.parse(e.data) as { type: string; payload: unknown };
         dispatch({
           type: "run/interrupted",
-          payload: raw.payload as {
-            pendingTool?: { id: string; name: string; input: unknown };
-          },
+          payload: raw.payload as { pendingTool?: { id: string; name: string; input: unknown } },
         });
-      } catch {
-        // skip
-      }
+      } catch { /* skip */ }
     });
 
     // M14.6: todo_update events — durable channel, survives refresh

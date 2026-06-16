@@ -50,24 +50,22 @@ export function runRoutes(
       }
     },
 
-    /** GET /api/runs/:id/events → SSE (Last-Event-ID or ?afterSeq= query param) */
+    /** GET /api/runs/:id/events → SSE (Last-Event-ID or ?afterSeq= query param).
+     *  Merges EventLog durable events + ephemeral text_delta/tool events into
+     *  a single stream. Frontend no longer needs a separate /runs/:id/stream connection. */
     async events(req: Request, runId: string): Promise<Response> {
-      // Support both standard Last-Event-ID header and ?afterSeq= query param (browser EventSource compat)
       const qsAfterSeq = new URL(req.url).searchParams.get("afterSeq");
       const afterSeq = qsAfterSeq
         ? parseInt(qsAfterSeq, 10) || 0
         : parseInt(req.headers.get("Last-Event-ID") ?? "0", 10) || 0;
-      const stream = svc.eventStream(runId, afterSeq, req.signal);
-
-      return sseResponse(
-        stream,
-        (rec) => ({
-          id: String(rec.seq),
-          event: rec.event.type,
-          data: rec.event,
-        }),
-        req.signal,
-      );
+      const stream = svc.mergedStream(runId, afterSeq, req.signal);
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
     },
 
     /** POST /api/runs/:id/resume → 202 { runId, attemptId } */
