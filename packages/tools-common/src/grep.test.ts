@@ -1,8 +1,24 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { grepTool } from "./grep.js";
 
+const hasRg = (() => {
+  try {
+    Bun.spawnSync({ cmd: ["rg", "--version"], stdout: "ignore", stderr: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
 describe("grepTool", () => {
+  beforeAll(() => {
+    if (!hasRg) {
+      console.warn("SKIP: rg (ripgrep) not installed — skipping grepTool tests");
+    }
+  });
+
   test("returns stdout when matches found", async () => {
+    if (!hasRg) return;
     // Use a temp dir with known content
     const tmpDir = `/tmp/test-grep-${Date.now()}`;
     await Bun.$`mkdir -p ${tmpDir}`.quiet();
@@ -19,6 +35,7 @@ describe("grepTool", () => {
   });
 
   test("returns empty string on no matches (rg exit code 1)", async () => {
+    if (!hasRg) return;
     const tmpDir = `/tmp/test-grep-${Date.now()}`;
     await Bun.$`mkdir -p ${tmpDir}`.quiet();
     await Bun.write(`${tmpDir}/a.txt`, "hello world");
@@ -34,6 +51,7 @@ describe("grepTool", () => {
   });
 
   test("glob filtering works", async () => {
+    if (!hasRg) return;
     const tmpDir = `/tmp/test-grep-${Date.now()}`;
     await Bun.$`mkdir -p ${tmpDir}`.quiet();
     await Bun.write(`${tmpDir}/a.ts`, "hello");
