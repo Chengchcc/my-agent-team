@@ -6,9 +6,7 @@ import { getAllChatBindings, getChatBinding } from "./bindings-sqlite.js";
 import { bootstrap } from "./bootstrap.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
 import { parseEvent } from "./event-parser.js";
-import { addTypingReaction } from "./feedback-reaction.js";
 import { ingest } from "./ingest.js";
-import { type RunDeltaWatcherHandle, watchRunDelta } from "./run-delta-watcher.js";
 import { safeAgentId } from "./safe-agent-id.js";
 import { sendTextOnly } from "./send-text-only.js";
 import { sendMessage } from "./sender.js";
@@ -22,8 +20,6 @@ const profile = args.larkProfile ?? `agent:${safeAgentId(args.agentId)}`;
 
 // ─── SSE watchers — one per bound conversation ───
 const watchers = new Map<string, WatcherHandle>();
-// M15.1: Run delta watchers — one per triggered run
-const runWatchers = new Map<string, RunDeltaWatcherHandle>();
 
 function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0) {
   if (watchers.has(conversationId)) return;
@@ -71,7 +67,7 @@ const heartbeatTimer = setInterval(() => {
     args.agentId,
     profile,
     state.db,
-    { conversation: watchers.size, runDelta: runWatchers.size },
+    { conversation: watchers.size, runDelta: 0 },
     null,
   );
   void postHeartbeat(health, args.backendUrl, args.backendAuthToken);
@@ -118,36 +114,9 @@ async function handleLine(line: string): Promise<void> {
         ensureWatcher(binding.conversationId, binding.larkChatId, binding.pushedSeq);
       }
     },
-    onTriggeredRun: (runId, conversationId, sourceMessageId) => {
-      // M15.1: Add Typing reaction then start streaming card lifecycle
-      if (event.message_id) {
-        void addTypingReaction(profile, event.message_id).then((reactionState) => {
-          const handle = watchRunDelta(runId, conversationId, reactionState, {
-            db: state.db,
-            backendUrl: args.backendUrl,
-            backendAuthToken: args.backendAuthToken,
-            profile,
-            larkChatId: event.chat_id,
-            sourceMessageId,
-            onFallback: async (fallbackRunId, text) => {
-              // M15 fallback: send plain text via ledger SSE path
-              const result = await sendMessage(
-                profile,
-                event.chat_id,
-                text,
-                `${fallbackRunId}:fallback`,
-              );
-              if (!result.ok) {
-                console.error(
-                  `[lark-bot] fallback send failed for ${fallbackRunId}: ${result.error}`,
-                );
-              }
-            },
-          });
-          runWatchers.set(runId, handle);
-        });
-      }
-    },
+    // M17: Run delta watcher removed from production user-output path.
+    // Streaming card/text rendering is now driven by conversation ledger
+    // revision via sse-watcher (see message-revisions spec).
   });
 
   if (result.action === "consumed") {
@@ -194,7 +163,6 @@ const cleanup = () => {
     /* best-effort */
   }
   for (const [, w] of watchers) w.close();
-  for (const [, w] of runWatchers) w.close();
 };
 process.on("SIGTERM", () => {
   console.log("[lark-bot] SIGTERM — forwarding to lark-cli, closing watchers");
