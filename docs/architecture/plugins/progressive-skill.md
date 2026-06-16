@@ -28,13 +28,19 @@ used_by:
 
 插件用 `beforeModel` 钩子，在每次模型调用前把技能索引拼进系统提示。Agent 因此始终知道「有哪些技能可用」，但不被它们的完整内容淹没。
 
+索引以 `<available-skills>` XML 块的形式注入系统提示（`progressive-skill.ts` 第 62-68 行），每条技能显示 `name` 和 `description`，末尾附指令：`Call skill_load(name) to load the full instructions for a skill before using it.`
+
 ## 按需加载：skill_load
 
 当 Agent 决定使用某个技能，它调用 `skill_load` 工具，把那个技能的正文加载进来。触发完全由 Agent 自己的判断驱动——不是预先全量，也不是规则硬编码，而是「需要时才取」。
 
+`skill_load` 支持 `offset` 参数用于分页续读：技能正文一次加载有字符上限（默认 8000），超出时在段落边界截断，并返回 `[Truncated. Call skill_load('name', offset=N) to continue.]` 提示。Agent 可以传 `offset` 继续读取剩余内容（`skill-load.ts` 第 44-63 行）。
+
 ## 技能放在哪
 
 技能文件落在 AgentFS 的 `/skills/` 前缀下。该前缀实际别名到 `/private/skills/*`，归 **private** 域——技能是这个 Agent 私有的能力集，不跨 Agent 共享。
+
+每个技能是一个**目录**，内含 `SKILL.md` 文件。插件扫描 `/skills/*/SKILL.md`（`cache.ts` 第 49-50 行）。`SKILL.md` 须有 YAML frontmatter，包含 `name`（技能名）和 `description`（简介）字段。插件按 frontmatter 后的 `bodyOffset` 截取正文，使 `skill_load` 只返回技能正文而跳过 frontmatter 元数据（`cache.ts` 第 13-32 行）。
 
 ## 关联页面
 

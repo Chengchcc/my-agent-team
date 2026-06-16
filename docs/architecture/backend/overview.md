@@ -22,7 +22,7 @@ used_by:
 | feature | 负责 | 关键符号 |
 |---|---|---|
 | `conversation` | 对话、成员、账本、触发、锁、跳数 | `appendLedgerEntry`、`broadcastMessage`、`deriveThreadId` |
-| `thread-projection` | 按成员把账本投影成 Agent 的 thread | `getMessages`、`appendMessages` |
+| `thread-projection` | 按成员把账本投影成 Agent 的 thread | `getMessages`、`appendMessages`（路由已定义但 router.ts 未派发 HTTP 请求，仅作为内部 service 使用） |
 | `run` | 运行/尝试生命周期、EventLog 写入、SSE | `RunSupervisor`、`runRoutes` |
 | `runtime-ops` | 运行可观测性查询 | run_ops_event / runner_health 查询层 |
 | `agent` | Agent 注册与配置 | agents 表 |
@@ -60,9 +60,9 @@ flowchart TB
 
 1. `conversation/http.ts` 收到 `POST /api/conversations/:id/messages`，把人的消息 `appendLedgerEntry` 进账本。
 2. Conversation Service 按触发模式（`mention`/`all`）、`addressedTo`、锁与跳数，决定要 fork 哪些 Agent 运行。
-3. 对每个目标成员，`deriveThreadId(conversationId, memberId)` 得到 thread，从线程投影取 `preloadedMessages`，交给 `RunSupervisor.startMainRun`。
+3. 对每个目标成员，`deriveThreadId(conversationId, memberId)` 得到 thread，从对话账本按 memberId 构建 `preloadedMessages`（`buildPreloadedMessages`），交给 `RunSupervisor.startMainRun`。
 4. Runner 回传事件，`RunSupervisor` 写 EventLog，再触发会话投影写回账本。
-5. `run_done` 时跑 `onRunComplete`：放锁、todo 快照、扫 @提及。
+5. `run_done` 时跑 `onRunComplete`：放锁、todo 快照、消费累进的 @提及（`RunAccumulator` 在 `onRunEvent` tick 期间增量收集，不再批量扫描 EventLog）。
 
 ## 关联页面
 

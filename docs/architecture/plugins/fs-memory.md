@@ -19,6 +19,8 @@ used_by:
 
 记忆文件落在 AgentFS 的 `/memory/` 前缀下，该前缀映射到 **shared** 域。shared 意味着这块数据不绑定单次运行——同一个 Agent 在不同运行、不同对话里都能看到自己之前记下的东西。这正是「长期记忆」该有的生命周期。
 
+插件在首次 `beforeModel` 调用时会自动创建 `/memory/` 目录和 `/memory/facts/` 子目录（`fs-memory.ts` 第 33-34 行）。`memory_write` 工具将记忆写成带 YAML frontmatter 的独立 fact 文件（`frontmatter.ts`），落在 `/memory/facts/` 下，文件名格式为 `<timestamp>-<slug>.md`。
+
 ## 怎么用上记忆：beforeModel 注入
 
 插件挂在 `beforeModel` 钩子上。每次即将调用模型前，它读取相关记忆内容并拼进系统提示，使模型「带着记忆」去思考。注入发生在模型调用前、对 Agent 透明——Agent 不需要每轮都显式去查记忆，相关上下文已经在提示里。
@@ -34,6 +36,8 @@ used_by:
 | `memory_search` | 检索记忆 |
 
 被动注入解决「该记得的自动带上」，主动工具解决「Agent 想刻意存一条或翻一条」。两者配合，记忆既不全靠 Agent 自觉，也不死板地只能自动。
+
+`memory_read` 在不传 `path` 参数时，默认读取 `/memory/MEMORY.md`（`memory-read.ts` 第 14 行）。传入 `path` 则可读取指定 fact 文件。
 
 ## 关联页面
 

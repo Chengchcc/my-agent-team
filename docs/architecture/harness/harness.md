@@ -24,14 +24,29 @@ createGenericAgent(opts: GenericAgentOptions): Promise<Agent>
 
 它做的事可以概括成「在 Framework 上铺一层有主张的默认值」：Framework 本身不假设你要哪些工具、挂哪些插件；Harness 替最常见的「通用助理」场景做了这些选择。
 
+### GenericAgentOptions
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `workspace` | `AgentFsHandle` | 是 | Agent 文件系统句柄，提供虚拟文件视图 |
+| `model` | `ChatModel` | 是 | 预构造的 ChatModel 实例（由调用方选适配器） |
+| `threadId?` | `string` | 否 | 线程标识。相同 threadId 复用 checkpointer 历史。默认随机 uuid |
+| `permissionMode?` | `"ask" \| "auto" \| "deny"` | 否 | 权限模式。默认 `"ask"` |
+| `logger?` | `Logger` | 否 | 可注入的 Logger。默认 `consoleLogger()` |
+| `checkpointer?` | `Checkpointer \| "memory" \| "sqlite"` | 否 | Checkpointer 实例或别名。默认 sqlite |
+| `checkpointerDb?` | `Database` | 否 | 当 checkpointer 为 sqlite 时，使用此 Database 实例而非默认工作区文件 |
+| `messages?` | `Message[]` | 否 | 预载消息以引导线程初始状态。传入后绕过 checkpointer.load() |
+| `extraPlugins?` | `readonly Plugin[]` | 否 | 额外用户定义插件。与默认合并；重名则 fast-fail |
+| `extraTools?` | `readonly Tool[]` | 否 | 额外用户定义工具。与默认合并；重名则 fast-fail |
+
 ## 默认工具
 
-| 工具 | 说明 |
-|------|------|
-| `Read` / `Write` / `Edit` | 走 AgentFS 的文件读写编辑 |
-| `bash` / `glob` / `grep` | 带工作区沙箱（workspace root）约束的命令与检索 |
+| 工具 | 来源 | 说明 |
+|------|------|------|
+| `Read` / `Write` / `Edit` | `@my-agent-team/tools-common` — `createReadToolForWorkspace(ws)`, `createWriteToolForWorkspace(ws)`, `createEditToolForWorkspace(ws)` | 走 AgentFS 的文件读写编辑 |
+| `bash` / `glob` / `grep` | `@my-agent-team/tools-common` — `withWorkspace(bashTool, sandbox)`, `withWorkspace(grepTool, sandbox)`, `withWorkspace(globTool, sandbox)` | 带工作区沙箱（workspace root）约束的命令与检索 |
 
-bash 等工具被显式包进工作区根目录，避免 Agent 触碰沙箱之外的真实文件系统——这是执行层安全的一道边界。
+所有默认工具从 `@my-agent-team/tools-common` 导入。bash 等工具被显式包进工作区沙箱（`withWorkspace`），避免 Agent 触碰沙箱之外的真实文件系统——这是执行层安全的一道边界。
 
 ## 默认插件
 
@@ -39,12 +54,29 @@ Harness 默认装上三个插件，正好覆盖「记得住、学得会、不早
 
 ```ts
 fsMemoryPlugin({ ws, root: "/memory/" }),       // 长期记忆，挂在 shared 域
-progressiveSkillPlugin({ ... root: "/skills/" }) // 渐进式技能，挂在 private 域
-taskGuardPlugin(...)                              // 防早停守卫
+progressiveSkillPlugin({                        // 渐进式技能，挂在 private 域
+  ws,
+  root: "/skills/",
+  posixSkillRoot: `${workspace.privateRoot}/skills`,
+}),
+taskGuardPlugin({ model }),                     // 防早停守卫
 ```
 
 - `/memory/` 映射到 **shared** 域：记忆跨运行可见。
 - `/skills/` 映射到 **private** 域（`/skills/*` 实际别名到 `/private/skills/*`）：技能是 Agent 私有的。
+
+插件从各自的包导入：`@my-agent-team/plugin-fs-memory`、`@my-agent-team/plugin-progressive-skill`、`@my-agent-team/plugin-task-guard`。
+
+## 其他导出
+
+除 `createGenericAgent` 和 `GenericAgentOptions` 外，harness 包还导出：
+
+| 导出 | 说明 |
+|------|------|
+| `BOOTSTRAP_TEMPLATE` | Genesis 引导模板字符串。Agent 首次运行时若工作区为空，将其作为系统提示注入，引导 Agent 完成「出生」对话 |
+| `bootstrap(fs, logger, displayRoot?)` | 读取工作区文件（SOUL/USER/TOOLS/AGENTS/日志），组装系统提示。若工作区为空则返回 `BOOTSTRAP_TEMPLATE` |
+| `reflectionGuidance()` | 反射引导文本。在主线任务循环结束后注入，让 Agent 自行决定把哪些观察写到记忆文件里 |
+| `verificationGuidance()` | 冷审查验证引导文本。注入到分叉 Agent 中，让冷审阅者重新打开产物并逐项验证计划是否真的完成 |
 
 ## 为什么要有 Harness 这一层
 

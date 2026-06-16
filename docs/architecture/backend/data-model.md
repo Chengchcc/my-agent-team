@@ -50,12 +50,15 @@ LedgerRow = {
   addressedTo: string[],       // 以 JSON 存进 addressed_to TEXT 列
   kind: LedgerKind,
   content: string,             // JSON
-  ts: number
+  ts: number,
+  runId?: string               // 产出该账本条目的运行 ID
 }
 LedgerKind = "message" | "member.joined" | "member.left" | "todo" | "surface.control"
 ```
 
 账本 seq 是对话历史的序，**不要和 EventLog seq 混**。
+
+增量投影期间，assistant 内容信封会加 `_preliminary: true` 标记——表示该消息是运行中途写入的，最终文本会在 `run_done` 后由 Web/飞书端按 runId 替换。
 
 ## member（成员）
 
@@ -73,7 +76,7 @@ LedgerKind = "message" | "member.joined" | "member.left" | "todo" | "surface.con
 | `attempt` | `attempt_id PK, run_id FK→run ON DELETE CASCADE, pid, heartbeat_at, started_at, ended_at` |
 | `event_log` | `seq PK AUTOINCREMENT, thread_id, run_id, event, ts` |
 | `run_ops_event` | `seq PK, run_id, attempt_id, kind, payload DEFAULT '{}', trace_id, ts` |
-| `run_origin` | `run_id PK, conversation_id, source_ledger_seq, agent_member_id, surface DEFAULT 'web', trace_id, traceparent, idempotency_key, created_at`（带 idem 唯一索引） |
+| `run_origin` | `run_id PK, conversation_id, source_ledger_seq, agent_member_id, surface DEFAULT 'web', trace_id, traceparent, idempotency_key, created_at`；索引：`idx_run_origin_idem`（唯一） + `idx_run_origin_trace` |
 | `runner_health` | `agent_id PK, last_seen_at, uptime_ms, active_run_count, active_run_ids, checkpointer_ok, workspace_ok, last_error, updated_at` |
 | `surface_health` | 复合主键 `(agent_id, surface)`, `status, last_seen_at, payload, last_error, updated_at` |
 

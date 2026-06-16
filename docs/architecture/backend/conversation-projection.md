@@ -82,7 +82,9 @@ async function projectRunMessageToLedger(threadId, runId, role, content) {
 
 投影在 `RunSupervisor` 的 `"event"` 分支里被调用，**且一定在 `eventLog.append(...)` 成功之后**；监听器报错只会被 `catch` 记日志，不会中断运行。
 
-与此相对，`onRunComplete` 已经**不再批量补写 assistant 消息**了。它现在只做三件收尾：放掉对话锁（`convSvc.completeRun`）、把最后一次 `todo_update` 快照写进账本（`convSvc.appendTodo`）、以只读方式扫描整段运行产出里的 @提及并触发对应 Agent（`convSvc.triggerMentionedAgents`）。reflect 线程在这里也提前返回。
+与此相对，`onRunComplete` 已经**不再批量补写 assistant 消息**了。它现在只做三件收尾：放掉对话锁（`convSvc.completeRun`）、把最后一次 `todo_update` 快照写进账本（`convSvc.appendTodo`）、消费运行期间累进的 @提及集合并触发对应 Agent（`convSvc.triggerMentionedAgents`）。
+
+@提及的收集是增量的：每次 `onRunEvent` tick 遇到 `role === "assistant"` 的消息事件，就从文本内容中提取 `@displayName` 或 `@memberId`，与当前对话的 agent 成员名册匹配，命中的 memberId 写入 `RunAccumulator.mentionedMemberIds`。`onRunComplete` 时直接消费该累加器，无需第二次 EventLog 扫描。
 
 ```mermaid
 sequenceDiagram
@@ -129,16 +131,18 @@ sequenceDiagram
 5. `senderMemberId` = `threadId` 最后一个 `:` 之后的部分。
 6. assistant 文本 → `{ text, runId }`；assistant 数组 → `{ blocks, runId }`；assistant 对象 → `{ ...content, runId }`；user 角色原样透传。
 7. `JSON.stringify` 后以 `kind="message"`、`addressedTo: []` 追加账本条目。
-8. `broadcastMessage` 广播，更新各成员的线程投影。
+8. `broadcastMessage` 广播，更新各成员的线程投影——调用时传 `{ excludeMemberId: senderMemberId }`，防止把发送者自己的 assistant 产出二次写入其 checkpoint（Runner 已通过 `rt.save()` 保存了真实消息，广播再写入会导致上下文重复和 checkpoint 锁争用）。
 
 ## 关键数据结构
 
 ### 账本内容信封
 
 ```ts
-{ text: string, runId: string }          // assistant 文本
-{ blocks: ContentBlock[], runId: string } // assistant 内容块
+{ text: string, runId: string, _preliminary: true }          // assistant 文本（运行中）
+{ blocks: ContentBlock[], runId: string, _preliminary: true } // assistant 内容块（运行中）
 ```
+
+增量投影期间，所有 assistant 内容信封均加 `_preliminary: true` 标记。Web/飞书端用此标记区分「运行中途消息」与「最终消息」：`run_done` 后可替换草稿、去重等。
 
 ### 账本条目字段
 
@@ -183,12 +187,12 @@ Web 目前在「同一个 Agent 的账本消息到达」时清掉草稿，而不
 
 ### 发送者检查点污染
 
-把投影出来的 assistant 消息广播回「当前正在跑的发送者 thread」，会和 Runner 自己保存的同一段 assistant 产出叠加，造成上下文重复。
+已通过 `broadcastMessage(entry, { excludeMemberId: senderMemberId })` 解决——广播时跳过发送者自身，因为 Runner 已通过 `rt.save()` 保存了同一段 assistant 产出，再写入会造成上下文重复和 checkpoint 锁争用。
 
 ## 例子：先工具、后回答
 
 1. Agent 发出只含 `tool_use` 的 assistant 消息。
-2. 理想情况下投影应跳过它（对用户不可读）——当前仅靠角色过滤，尚未专门过滤纯工具块。
+2. 投影检测到 `role === "assistant"` 且数组内无 `type: "text"` 块，直接跳过（已实现纯工具块过滤）。
 3. Agent 随后发出 assistant 回答文本。
 4. 投影包上 runId 写进账本。
 5. Web 用账本文本替换草稿。
@@ -196,8 +200,7 @@ Web 目前在「同一个 Agent 的账本消息到达」时清掉草稿，而不
 
 ## 当前缺口
 
-- 加投影幂等键。
-- 过滤纯工具块内容。
+- 加投影幂等键（当前 `hasLedgerContent(runId, serialized)` 仅做去重，非真正幂等键）。
 - 在增量路径里保留 `addressedTo`（当前恒为 `[]`）。
 - 把投影从同步的 `onRunEvent` 监听器挪进独立队列。
 - 让 Web 草稿与飞书去重都改成「按 runId 感知」。
