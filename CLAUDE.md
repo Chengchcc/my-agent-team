@@ -39,6 +39,17 @@ L1 Protocols    Type contracts: Message / ChatModel / Tool / ContentBlock
 
 Vision and milestone roadmap: see `docs/architecture/00-vision.md`.
 
+## Design Philosophy (MUST READ before any design/review/refactor)
+
+**`docs/architecture/design-philosophy.md`** — 架构设计哲学，每次设计、评审、修复前必须过一遍。
+
+Three iron rules:
+1. **统一本体，不复制语义** — 同一个领域对象（Message, Run, Conversation）不能在每个模块各有一份模型
+2. **暴露业务，隐藏机制** — Ledger/EventLog/Projection/Checkpoint 是实现细节，不能上浮成主心智
+3. **边界要硬，概念要少** — 业务边界 5-6 个（Conversation/Run/Message/Agent/Memory/Tool），机制边界可以多但必须低调
+
+Before adding a new type/interface/table/endpoint: ask which existing domain object it belongs to. If the answer creates a new layer-specific variant of the same thing, don't.
+
 Package map:
 
 | Package | Layer | Exports |
