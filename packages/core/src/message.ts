@@ -1,5 +1,3 @@
-export type Role = "user" | "assistant" | "system";
-
 export interface TextBlock {
   type: "text";
   text: string;
@@ -20,8 +18,3 @@ export interface ToolResultBlock {
 }
 
 export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock;
-
-export interface Message {
-  role: Role;
-  content: string | ContentBlock[];
-}

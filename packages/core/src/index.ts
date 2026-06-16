@@ -1,8 +1,6 @@
 export type { AIMessageChunk, ChatModel, ChatModelOptions } from "./chat-model.js";
 export type {
   ContentBlock,
-  Message,
-  Role,
   TextBlock,
   ToolResultBlock,
   ToolUseBlock,

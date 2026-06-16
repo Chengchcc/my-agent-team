@@ -1,5 +1,6 @@
 import type { AIMessageChunk, ChatModel } from "./chat-model.js";
-import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from "./message.js";
+import type { ContentBlock, ToolResultBlock, ToolUseBlock } from "./message.js";
+import type { Message } from "@my-agent-team/message";
 import type { Tool, ToolExecuteResult } from "./tool.js";
 
 export interface RunOptions {
@@ -31,7 +32,7 @@ export async function* run(
 
       const changed = mergeChunkIntoBlocks(blocks, partialJson, chunk);
       if (changed) {
-        yield { role: "assistant", content: structuredClone(blocks) };
+        yield { role: "assistant", blocks: structuredClone(blocks) };
       }
 
       if (chunk.done) {
@@ -45,7 +46,7 @@ export async function* run(
 
     finalizeToolUseInputs(blocks, partialJson);
 
-    const assistantMsg: Message = { role: "assistant", content: blocks };
+    const assistantMsg: Message = { role: "assistant", blocks };
     messages.push(assistantMsg);
 
     const toolUses = blocks.filter((block): block is ToolUseBlock => block.type === "tool_use");
@@ -86,7 +87,7 @@ export async function* run(
       return;
     }
 
-    const userMsg: Message = { role: "user", content: results };
+    const userMsg: Message = { role: "user", blocks: results };
     messages.push(userMsg);
     yield userMsg;
   }
