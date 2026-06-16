@@ -263,16 +263,6 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\/]/g, "\\&");
 }
 
-function extractText(content: unknown): string | null {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((b): b is { type: "text"; text: string } => (b as { type: string }).type === "text")
-      .map((b) => b.text)
-      .join(" ");
-  }
-  return null;
-}
 // Checkpoint feature
 const threadProjectionWritePort = sqliteThreadProjectionWriteAdapter(db);
 const threadProjectionSvc = createThreadProjectionService({ port: threadProjectionPort });
@@ -365,58 +355,30 @@ async function onRunComplete(threadId: string, runId: string): Promise<void> {
       // C2: Release the conversation lock
       convSvc.completeRun(cid, threadId, runId);
 
-      // Conversation Projection: Run-produced messages are now projected to the ledger incrementally
-      // by supervisor.onRunEvent (projectRunMessageToLedger) as each round lands,
-      // so they appear while the run is still in flight. Here at run completion we
-      // only finalize the side effects that need the FULL run output: the todo
-      // snapshot, and @mention resolution + agent-to-agent triggering.
-      try {
-        const events = await eventLog.read({ runId });
-        const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+      // Side effects deferred to run completion: the onRunEvent callback above
+      // has already projected messages to the ledger and accumulated @mentions
+      // + the last todo_update. Consume the accumulator now (no second EventLog read).
+      const acc = runAccumulators.get(runId);
+      if (acc) {
+        runAccumulators.delete(runId);
 
-        // M14.6: Capture last todo_update snapshot and persist to ledger.
-        const lastTodoUpdate = events.filter((rec) => rec.event.type === "todo_update").pop();
-        if (lastTodoUpdate) {
-          const payload = (lastTodoUpdate.event as { payload: { todos: unknown } }).payload;
-          await convSvc.appendTodo(cid, senderMemberId, payload.todos);
-        }
-
-        // M14.4: Parse @mentions from agent output for agent-to-agent triggering.
-        // Read-only scan over the full run output — no ledger writes here.
-        const roster = convPort.getMembers(cid);
-        const mentionedMemberIds = new Set<string>();
-
-        const conversationMsgs = events
-          .filter((rec) => rec.event.type === "message")
-          .map((rec) => rec.event.payload as { role: string; content: unknown });
-
-        for (const msg of conversationMsgs) {
-          if (msg.role !== "assistant") continue;
-          const text = extractText(msg.content);
-          if (!text) continue;
-          for (const m of roster) {
-            if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
-            const label = m.displayName ?? m.memberId;
-            const re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
-            if (re.test(text) || text.includes(`@${m.memberId}`)) {
-              mentionedMemberIds.add(m.memberId);
-            }
+        try {
+          if (acc.lastTodoUpdate) {
+            await convSvc.appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos);
           }
+          if (acc.mentionedMemberIds.size > 0) {
+            void convSvc.triggerMentionedAgents({
+              conversationId: cid,
+              senderMemberId: acc.senderMemberId,
+              addressedTo: [...acc.mentionedMemberIds],
+            });
+          }
+        } catch (err) {
+          console.error(
+            `[conversation] Conversation Projection error for ${runId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
         }
-
-        // M14.4: Trigger @-mentioned agents (agent-to-agent chain)
-        if (mentionedMemberIds.size > 0) {
-          void convSvc.triggerMentionedAgents({
-            conversationId: cid,
-            senderMemberId,
-            addressedTo: [...mentionedMemberIds],
-          });
-        }
-      } catch (err) {
-        console.error(
-          `[conversation] Conversation Projection error for ${runId}:`,
-          err instanceof Error ? err.message : String(err),
-        );
       }
 
       // M14.7: Reflection is now orchestrated by the daemon control loop.
@@ -428,18 +390,34 @@ async function onRunComplete(threadId: string, runId: string): Promise<void> {
 
 supervisor.onRunComplete(onRunComplete);
 
+// ── Per-run accumulator for side-effects that need the full output ──
+// Each onRunEvent tick appends to this; onRunComplete consumes and cleans up.
+// Eliminates the second EventLog read (eventLog.read({runId})) that the old
+// batch path needed — events are processed exactly once.
+
+interface RunAccumulator {
+  senderMemberId: string;
+  mentionedMemberIds: Set<string>;
+  lastTodoUpdate: { todos: unknown } | null;
+}
+
+const runAccumulators = new Map<string, RunAccumulator>();
+
+function getOrCreateAccumulator(runId: string, senderMemberId: string): RunAccumulator {
+  let acc = runAccumulators.get(runId);
+  if (!acc) {
+    acc = { senderMemberId, mentionedMemberIds: new Set(), lastTodoUpdate: null };
+    runAccumulators.set(runId, acc);
+  }
+  return acc;
+}
+
 /** Conversation Projection (incremental): project a single message produced mid-run into the
  *  conversation ledger as soon as it is durably logged, so multi-round progress
- *  becomes visible while the run is still in flight (instead of all rounds
- *  appearing at once when the run stops).
+ *  becomes visible while the run is still in flight.
  *
- *  This is the SINGLE ledger writer for run-produced messages — onRunComplete no
- *  longer batch-writes them (that would double-insert, since appendLedgerEntry is
- *  a plain auto-increment INSERT with no idempotency key).
- *
- *  addressedTo is intentionally left empty: @mention targets can only be known
- *  after the agent's full output accumulates, so mention RESOLUTION + triggering
- *  still happens once, at run completion (onRunComplete). */
+ *  Also accumulates @mention targets for resolution at run completion — each event
+ *  is processed exactly once (no second EventLog read). */
 async function projectRunMessageToLedger(
   threadId: string,
   runId: string,
@@ -510,11 +488,60 @@ async function projectRunMessageToLedger(
   );
 }
 
-supervisor.onRunEvent(async (threadId, runId, event) => {
+supervisor.onRunEvent((threadId, runId, event) => {
+  // ── todo_update: store the last snapshot for onRunComplete ──
+  if (event.type === "todo_update") {
+    const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
+    if (!cid) return;
+    const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+    const acc = getOrCreateAccumulator(runId, senderMemberId);
+    const payload = (event as { payload?: { todos?: unknown } }).payload;
+    if (payload?.todos) acc.lastTodoUpdate = { todos: payload.todos };
+    return;
+  }
+
+  // ── message: project to ledger + accumulate @mentions ──
   if (event.type !== "message") return;
   const payload = event.payload as { role?: string; content?: unknown } | undefined;
   if (!payload) return;
-  await projectRunMessageToLedger(threadId, runId, payload.role ?? "", payload.content);
+  const role = payload.role ?? "";
+  const content = payload.content;
+
+  // Accumulate @mentions from assistant text (for deferred trigger at run end)
+  if (role === "assistant") {
+    const text = typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .filter((b: unknown) => (b as { type: string }).type === "text")
+            .map((b: unknown) => (b as { text: string }).text)
+            .join(" ")
+        : "";
+    if (text) {
+      const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
+      if (cid) {
+        const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+        const acc = getOrCreateAccumulator(runId, senderMemberId);
+        const roster = convPort.getMembers(cid);
+        for (const m of roster) {
+          if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
+          const label = m.displayName ?? m.memberId;
+          const re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
+          if (re.test(text) || text.includes(`@${m.memberId}`)) {
+            acc.mentionedMemberIds.add(m.memberId);
+          }
+        }
+      }
+    }
+  }
+
+  // Fire-and-forget the ledger write (projectRunMessageToLedger does its own guards)
+  projectRunMessageToLedger(threadId, runId, role, content).catch((err) => {
+    console.error(
+      `[conversation] projectRunMessageToLedger failed for ${runId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  });
 });
 
 // HTTP router
