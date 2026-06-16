@@ -32,13 +32,18 @@ sequenceDiagram
 
   LU->>Bot: 群消息 / @机器人
   Bot->>Bot: 按 event_id/message_id 幂等占位 reserveInbound
-  Bot->>B: getChatBinding 无则 POST /api/conversations 建会话
-  Bot->>B: getMemberBinding 无则 POST /members 建 human 成员
+  opt 新会话
+    Bot->>B: POST /api/conversations（含 agent 和 human 成员）
+    Bot->>B: POST /conversations/:id/members（建 human 成员）
+  end
+  opt 已有会话
+    Bot->>Bot: getMemberBinding 无则本地分配 memberId、写绑定，不 POST
+  end
   Bot->>C: POST /messages（content 带 larkEventId/larkMessageId）
   C->>C: 触发 Agent，confirmInbound 回填 ledger_seq
 ```
 
-成员 id 形如 `human:lark:${sender_id}`，**先 POST 建成员、再写本地绑定**，避免半绑定状态。`addressedTo`：单聊为 `[selfAgentId]`；群聊仅当 `isBotMentioned` 才为 `[selfAgentId]`，否则 `[]`（缺 botDisplayName 时 fail-closed）。
+成员 id 形如 `human:lark:${sender_id}`。建成员路径**区分新会话与已有会话**：新会话路径在 `POST /api/conversations` 后调 `POST /conversations/:id/members` 建成员再写绑定；已有会话路径仅本地分配 memberId + `putMemberBinding`，不调 `/members` API。这样已有会话里新出现的飞书用户不会产生多余的 HTTP 往返。`addressedTo`：单聊为 `[selfAgentId]`；群聊仅当 `isBotMentioned` 才为 `[selfAgentId]`，否则 `[]`（缺 botDisplayName 时 fail-closed）。
 
 ## 出站流
 
@@ -56,6 +61,19 @@ sequenceDiagram
 ```
 
 流式卡片（`run-delta-watcher.ts`）累积 `text_delta`，每 150ms 或满 120 字 flush 一次 `updateCard`；EOF 时查 `/api/runs/:runId` 终态切换卡片状态。
+
+## `_preliminary` 标记：增量投影的提前压制
+
+会话投影期间，增量投影（mid-run）的内容信封会携带 `_preliminary: true`（见 `backend/src/main.ts` 的 `contentWithRunId`）。当 sse-watcher 解析账本 entry 的 content 发现此标记时：
+
+```ts
+if (parsedContent._preliminary === true) {
+  // 卡片通道健康 → 跳过账本条目不发送，等最终投影
+  // 卡片通道故障 → fall through，用账本文本兜底投递
+}
+```
+
+逻辑：如果对应的 run_stream 记录显示卡片发送/更新均未失败（`cardSendFailed === 0 && cardUpdateFailed === 0` 且 `status !== "fallback_text"`），则跳过账本条、更新 pushed_seq 直接返回——最终答案会由卡片路径投递。如果卡片通道已故障，则忽略 `_preliminary`，让账本消息作为纯文本 fallback 发送。这样在正常路径下只为每个答案发一次（卡片），只在故障时才用纯文本补发。
 
 ## 去重难题与真实的 canSkipFinalLedgerText
 

@@ -53,6 +53,51 @@ Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏
 
 这套钩子是 task-guard、observability 等插件的接入点。
 
+## Agent API：run / continue / fork / resume
+
+Framework 返回的 `Agent` 对象暴露四种执行入口：
+
+### run(input, opts?)
+
+标准入口，追加用户消息后启动运行循环。
+
+```ts
+run(input: string, opts?: AgentRunOptions): AsyncIterable<AgentEvent>
+```
+
+### continue(opts?)
+
+从断点消息恢复运行，**不追加**新的用户消息。适用于会话级触发场景：用户的输入已经由上层（如 `broadcastMessage()`）预投影到 checkpointer 中，`continue()` 直接拾取已有上下文继续执行。若无用户消息则抛错。
+
+```ts
+continue(opts?: AgentRunOptions): AsyncIterable<AgentEvent>
+```
+
+实现上，`continue()` 和 `run()` 共享同一运行逻辑——区别仅在于 `continue()` 不推送新 user message，且会在入口处校验线程中至少有一条 user 消息。
+
+### fork(messages?, id?)
+
+创建新的 `Agent` 实例，**共享**配置（model、systemPrompt、plugins、checkpointer）但拥有**独立**的消息线程。不复制历史时默认 `structuredClone` 当前消息；也可显式传入 `messages` 数组和可选的 `threadId`。
+
+```ts
+fork(messages?: Message[], id?: string): Agent
+```
+
+典型用途：在验证回合（cold-review）中用 fork 克隆一个 Agent，注入验证提示单独跑一轮，而原 Agent 保持原样。
+
+### resume(command, opts?)
+
+从中断恢复运行。`command` 使用 `ResumeCommand` 类型：
+
+```ts
+interface ResumeCommand {
+  approved: boolean;   // 是否批准被中断的操作
+  message?: string;    // 可选的附加消息（如拒绝原因）
+}
+```
+
+恢复时框架会找到中断对应的占位 tool_result，替换为真实结果（`approved` 决定 `is_error` 字段），然后继续执行循环。
+
 ## Checkpointer 接口
 
 断点能力被抽象成一个接口，由具体后端（如 Runner 本地的 checkpointer.sqlite）实现：

@@ -42,13 +42,12 @@ RunPhase = "idle" | "running" | "interrupted" | "done" | "error"
 
 Action 联合（精确）：`bootstrap`、`ledger/member`、`ledger/message`、`send`、`run/started`、`stream/delta`、`stream/toolStart`、`stream/toolEnd`、`run/interrupted`、`run/error`、`run/done`、`run/completed`、`run/noop`、`ledger/conn`、`toggleTriggerMode`、`todo/update`。
 
-## 三条 SSE 怎么合并
+## 两条 SSE 怎么合并
 
-`useConversation` 开三个 EventSource：
+`useConversation` 开两个 EventSource：
 
 1. **会话/账本 SSE** `/api/bff/conversations/:id/events`——事件 `message`、`member.*`、`todo`；按 `lastEventId` 去重；这是权威流。
-2. **运行 token/工具流** `/api/bff/runs/:runId/stream`（仅 `phase==="running"` 时开）——`text_delta`/`tool_start`/`tool_end`，用来画实时草稿。
-3. **运行持久事件** `/api/bff/runs/:runId/events`——`done`/`interrupted`/`todo_update`，外加 `onerror` 兜底去 `getRun` 查终态。
+2. **统一运行 SSE** `/api/bff/runs/:runId/events`（仅 `phase==="running"` 时开）——单个端点合并了临时 delta（`text_delta`/`tool_start`/`tool_end`）和持久事件（`done`/`interrupted`/`todo_update`），外加 `onerror` 兜底去 `getRun` 查终态。临时 delta 画 `draft`，持久事件驱动状态迁移。
 
 合并思路：临时运行流画 `draft`，权威账本流写 `UiMessage` 并清掉草稿，完成「临时 → 持久」的交接。
 
@@ -89,7 +88,7 @@ const clearsDraft =
 
 ## Timeline 锚点
 
-`Timeline` 调 `groupTurns`，`extractAnchors` 把锚点放在 `segmentSender(seg).kind === "human"` 的段上——**锚点按「人发言」边界**。Agent 的 `turn` 段经 `ReasoningTrace` 渲染、不带锚点。纯 Agent ↔ Agent 链因此缺少可导航的分隔，是已知不足。
+`Timeline` 调 `groupTurns`，`extractAnchors` 把锚点放在 `segmentSender(seg).kind === "human"` 的段上——**锚点按「人发言」边界**。Agent 的 `turn` 段经 `ReasoningTrace` 渲染、不带锚点。纯 Agent ↔ Agent 链以 sender-change 边界兜底，`isTurnStart` 在 `prevSender.memberId !== sender.memberId && prevSender.kind !== "system"` 时也视为 turn 起点。
 
 ## 失败模式
 
@@ -101,7 +100,6 @@ const clearsDraft =
 ## 当前缺口
 
 - 草稿生命周期应改为按 runId 感知。
-- Timeline 锚点应支持 Agent↔Agent 边界。
 - Web 需要一份成文的内容 schema（runId 信封 + 纯工具过滤约定）。
 
 ## 关联页面

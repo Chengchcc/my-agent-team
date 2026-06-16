@@ -4,7 +4,7 @@ title: 常驻 Runner
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-16
-summary: "常驻 Runner 是真正执行 Agent 的进程。每个 Agent 对应一个独立的常驻进程，由 runner-daemon 拉起并保活；它本地维护自己的 checkpointer.sqlite 用于断点恢复，通过心跳向后端证明自己还活着，但它完全不懂对话语义，也不知道飞书的去重规则——它只负责跑、只负责把事件原样上报。"
+summary: "常驻 Runner 是真正执行 Agent 的统一进程（RunnerDaemon 类）。每个 Agent 对应一个独立的 RunnerDaemon 实例；它本地维护自己的 checkpointer.sqlite 用于断点恢复，通过两个内部定时器（heartbeat + daemon_health）向后端证明自己还活着，但它完全不懂对话语义，也不知道飞书的去重规则——它只负责跑、只负责把事件原样上报。"
 depends_on:
   - runner.runner-protocol
   - runner.agent-file-system
@@ -14,7 +14,7 @@ used_by:
 
 # 常驻 Runner
 
-常驻 Runner 是真正执行 Agent 的进程。每个 Agent 对应一个独立的常驻进程，由 runner-daemon 拉起并保活；它本地维护自己的 checkpointer.sqlite 用于断点恢复，通过心跳向后端证明自己还活着，但它完全不懂对话语义，也不知道飞书的去重规则——它只负责跑、只负责把事件原样上报。
+常驻 Runner 是真正执行 Agent 的统一进程（`RunnerDaemon` 类）。每个 Agent 对应一个独立的 `RunnerDaemon` 实例；它本地维护自己的 checkpointer.sqlite 用于断点恢复，通过两个内部定时器（`#heartbeatTimer` 和 `#daemonHealthTimer`）向后端证明自己还活着，但它完全不懂对话语义，也不知道飞书的去重规则——它只负责跑、只负责把事件原样上报。
 
 ## 为什么要常驻
 
@@ -24,9 +24,9 @@ used_by:
 
 ## 保活与心跳
 
-Runner 进程内部用 `setInterval` 每 **5000ms** 向后端发一次 `heartbeat`。runner-daemon 这一侧则每 **10000ms** 检查一次各进程的健康（`daemon_health`）。两个周期错开，意味着后端要连续错过两个心跳窗口才会判定一个 Runner 失联——这给了短暂 GC 停顿、磁盘抖动一点容错余量，不会因为一次抖动就误杀一个正在跑的运行。
+`RunnerDaemon` 类内部维护两个定时器：`#heartbeatTimer` 每 **5000ms** 向后端发一次 `heartbeat`（按活跃 runId 逐条发送），`#daemonHealthTimer` 每 **10000ms** 向后端发一次 `daemon_health`（自报健康，包括 uptime、活跃 runId 列表、checkpointer 和 workspace 状态）。两个周期错开，意味着后端要连续错过两个心跳窗口才会判定一个 Runner 失联——这给了短暂 GC 停顿、磁盘抖动一点容错余量，不会因为一次抖动就误杀一个正在跑的运行。
 
-心跳不仅是「我还活着」，它也携带 Runner 当前负载/状态，让 daemon 能做调度与健康汇总（落到 events.db 的 `runner_health` / `surface_health`）。
+心跳和 daemon_health 消息由后端消费：后端收到后写入 events.db 的 `runner_health` / `surface_health` 表，用于调度与健康汇总。
 
 ## 断点恢复：checkpointer.sqlite
 
@@ -45,6 +45,12 @@ Runner 进程内部用 `setInterval` 每 **5000ms** 向后端发一次 `heartbea
 2. 反思线程被显式标记，便于在事件流和恢复逻辑里区分「这是主线运行」还是「这是一次反思分叉」。
 
 另外，进入反思时 `surfaceContext` 会被**删除**——反思是 Agent 对自身的内省，不应该继承「这次是从 Web 来的还是从飞书来的」这种端上下文，否则反思产物可能错误地携带端语义。
+
+## continue() 路径：预加载对话上下文
+
+当 `start` 消息携带 `preloadedMessages`（非空数组）时，`hasPreloaded` 被置为 `true`。此时 Runner 不会调用 `agent.run(spec.input)`，而是调用 `agent.continue()`——跳过追加空 user message 的步骤，直接基于已预加载的对话上下文继续执行。
+
+这条路径服务于「恢复一个已有对话的运行」：后端已经通过 `broadcastMessage()` 将对话投影到 checkpointer，Runner 只需加载后继续，不需要再插入一条空输入。
 
 ## 它不负责什么
 

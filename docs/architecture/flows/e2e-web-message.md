@@ -31,22 +31,33 @@ sequenceDiagram
 
   U->>W: 发消息
   W->>W: 加乐观消息（opt-）
-  W->>B: POST /api/conversations/:id/messages
+  W->>B: POST /api/bff/conversations/:id/messages
   B->>L: 追加「人」账本条目
   L-->>W: 账本 SSE 回声替换乐观消息
   B->>S: 触发目标 Agent 运行
   S->>D: start(AgentSpec)
   D-->>S: text_delta / 工具事件
-  S-->>W: 运行流 SSE → 更新草稿
+  S-->>W: 统一运行 SSE → 更新草稿
   D->>S: event(message)
   S->>E: 先 append EventLog
-  S->>P: onRunEvent → 投影
-  P->>L: 追加 assistant 账本条目（{text,runId}）
-  L-->>W: 账本 SSE assistant 消息
+  S->>P: onRunEvent → 增量投影（_preliminary:true）
+  P->>L: 追加 assistant 账本条目（{text,runId,_preliminary:true}）
+  L-->>W: 账本 SSE assistant 增量消息
   W->>W: 清掉匹配的草稿
   D->>S: run_done
+  S->>P: run_done → 最终投影（无 _preliminary）
+  P->>L: 追加 assistant 账本条目（{text,runId}，无 _preliminary）
+  L-->>W: 账本 SSE assistant 最终消息
   S->>D: run_finalized
 ```
+
+## BFF 路由前缀
+
+Web 端全部 API 调用经 `/api/bff` 前缀（Next.js rewrite 到后端）：账本 SSE 走 `/api/bff/conversations/:id/events`，消息 POST 走 `/api/bff/conversations/:id/messages`，统一运行 SSE 走 `/api/bff/runs/:runId/events`。
+
+## 增量投影与 `_preliminary` 标记
+
+会话投影在 run 期间产生的增量 projection 携带 `_preliminary: true`（见 `contentWithRunId`）。Web reducer 的 `ledger/message` 不区分此标记——它照常写入 UiMessage 并清草稿。这意味着 Web 端在 run 进行中就可能看到增量 assistant 账本条目（而非等 `run_done` 后的最终投影）。标记主要被飞书适配器消费做去重（见 [飞书适配器](../surfaces/lark-adapter.md)）。
 
 ## 几条边界
 

@@ -38,9 +38,10 @@ sequenceDiagram
   S-->>Bot: 运行流 → 更新卡片
   D->>S: event(message)
   S->>E: append EventLog
-  S->>P: 投影进账本
-  P-->>Bot: 观察到账本消息
-  Bot->>Bot: canSkipFinalLedgerText? (首次必为否)
+  S->>P: 增量投影（_preliminary:true）→ 最终投影（无 _preliminary）
+  P-->>Bot: 账本消息（先 _preliminary，后不含 _preliminary）
+  Bot->>Bot: _preliminary 且卡片健康？→ 跳过
+  Bot->>Bot: 非 _preliminary：canSkipFinalLedgerText? (首次必为否)
   Bot->>L: 发最终文本（首次都会发）
 ```
 
@@ -48,11 +49,15 @@ sequenceDiagram
 
 飞书适配器要维护四组映射：飞书 chat → 对话；飞书 user → human 成员；Bot/Agent 身份 → agent 成员；飞书卡片/消息 ID → 投递状态。
 
+## 增量投影与 `_preliminary` 标记
+
+会话投影在 run 期间产生的增量 projection 携带 `_preliminary: true`（见 `contentWithRunId`）。sse-watcher 发现此标记且卡片通道健康（无 `cardSendFailed`/`cardUpdateFailed`，`status !== "fallback_text"`）时，跳过该账本条目不发送——最终答案会等 `run_done` 后的非 `_preliminary` 投影由卡片路径投递。如果卡片通道已故障，则忽略标记，让账本文本作为 fallback 纯文本发送。
+
 ## 去重模型与为什么会重
 
 一个最终答案能从「流式卡片」和「账本最终文本」两条路出现。去重需要：账本 content 里的 runId 信封、卡片已交付最终内容的记录、可靠的运行终态、以及「账本消息就是最终可读答案」这个认知。
 
-但当前 `completeFromLedger` 只在最终文本成功发出**一次之后**才置 1，所以首次必然发一遍——拿到卡片的用户至少会再收到一次纯文本。详见 [飞书适配器](../surfaces/lark-adapter.md)。
+`_preliminary` 压制机制在卡片健康时避免了增量投影重复。但 `completeFromLedger` 只在最终文本成功发出**一次之后**才置 1，所以 run_done 后的非 `_preliminary` 最终投影首次必然发一遍——拿到卡片的用户至少会再收到一次纯文本。详见 [飞书适配器](../surfaces/lark-adapter.md)。
 
 ## 出问题先看哪层
 

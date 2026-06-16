@@ -34,16 +34,63 @@ export interface Plugin {
 
 ## 可挂的钩子
 
-`PluginHooks` 对应 runLoop 的关键节点：
+`PluginHooks` 对应 runLoop 的关键节点。钩子签名不是统一的——各自有各自的参数和返回值语义：
 
-| 钩子 | 触发时机 | 典型用途 |
-|------|----------|----------|
-| `beforeRun` | 收到用户消息、进入循环前 | 预置待办计划 |
-| `beforeModel` | 每次模型调用前 | 改写/注入消息（记忆、技能索引就挂这里） |
-| `afterModel` | 每次模型调用后 | 观测、记账 |
-| `beforeTool` | 工具执行前 | 可跳过或改写入参 |
-| `afterTool` | 工具执行后 | 处理结果 |
-| `beforeStop` | 循环准备停下前 | 否决停止、强制继续（防早停挂这里） |
+### TRANSFORMER 钩子（返回消息，替换线程消息）
+
+| 钩子 | 签名 | 触发时机 | 返回 |
+|------|------|----------|------|
+| `beforeRun` | `(ctx: HookContext, messages) => Message[] \| Promise<Message[]>` | 收到用户消息、进入循环前 | 返回的 `Message[]` 替换 `thread.messages`（如果引用等同则不替换） |
+| `beforeModel` | `(ctx: HookContext, messages) => Message[] \| Promise<Message[]>` | 每次模型调用前 | 返回的 `Message[]` 作为本次模型调用的实际入参（不持久修改线程消息）；链式：每个插件的返回值传给下一个插件 |
+
+`beforeRun` 的 Transformer 特殊约定：如果插件返回的数组引用不等于 `thread.messages`，**线程消息会被整批替换**为新数组（`create-agent.ts` L631-636）。这意味着 `beforeRun` 可以追加消息（如待办指南）、注入系统提示，甚至截断历史。
+
+### 特殊返回钩子
+
+| 钩子 | 签名 | 触发时机 | 返回 |
+|------|------|----------|------|
+| `beforeTool` | `(ctx: HookContext, call: ToolUseBlock, messages) => ...` | 工具执行前 | `{ skip?, input?, result?, isError? } \| undefined` -- `skip: true` 跳过执行并用 `result` 作为伪造结果；`input` 覆写入参 |
+| `beforeStop` | `(ctx: HookContext, messages) => StopDecision \| undefined \| Promise<...>` | 循环准备停下前 | `{ continue: true; reason: string }` 否决停止强制继续；`{ continue: false }` 或 `undefined` 放行 |
+
+`beforeStop` 是唯一能「否定」循环停止动作的钩子。当多个插件挂 `beforeStop` 时，所有 `continue: true` 的 `reason` 会被合并为一条用户消息注入。
+
+### OBSERVER 钩子（无返回值，纯副作用）
+
+| 钩子 | 签名 | 触发时机 | 典型用途 |
+|------|------|----------|----------|
+| `afterModel` | `(ctx: HookContext, messages) => void \| Promise<void>` | 每次模型调用后 | 观测、记账 |
+| `afterTool` | `(ctx: HookContext, call: ToolUseBlock, result: ToolResultBlock, messages) => void \| Promise<void>` | 工具执行后 | 处理结果、副作用 |
+
+Observers 不能改变消息流——它们只能读取状态、发事件（通过 `ctx.emit`）、或执行副作用。
+
+## StopDecision 类型
+
+`beforeStop` 钩子的返回类型，定义在 `packages/framework/src/plugin.ts`：
+
+```ts
+type StopDecision = { continue: true; reason: string } | { continue: false };
+```
+
+- `{ continue: true, reason }` -- 否决停止，`reason` 作为新的 user 消息注入线程，促使 Agent 继续
+- `{ continue: false }` -- 放行，允许循环结束
+- 返回 `undefined` 等价于 `{ continue: false }`
+
+## HookContext 接口
+
+每个钩子函数都接收一个 `ctx: HookContext`，定义在 `packages/framework/src/plugin.ts`：
+
+```ts
+interface HookContext {
+  threadId: string;              // 当前线程 ID
+  signal?: AbortSignal;          // 运行中止信号
+  logger: Logger;                // 日志器
+  checkpointer: Checkpointer;    // 断点存取
+  contextManager: ContextManager;// 上下文管理器（用于上下文窗口整形等）
+  emit?(event: AgentEvent): void;// 可选事件发射器，插件可通过它推送 AgentEvent
+}
+```
+
+`emit` 仅在携带事件（如 `todo_update`）时使用——不暴露模型，不改变消息流。框架在每次钩子触发前注入最新引用。
 
 ## 注册与触发
 
