@@ -127,6 +127,96 @@ export function projectForMember(
   return { role: "user", text: `[${name}]: ${formatContent(entry.content)}` };
 }
 
+// ─── Message Revision — ConversationMessageRevision 类型与 parseRevision ───
+
+/** Minimal content-block shape (avoiding @my-agent-team/core dependency).
+ *  Any block with a `type` field and arbitrary extra keys. */
+export type RevisionContentBlock = { type: string } & Record<string, unknown>;
+
+export type MessageRevisionState = "streaming" | "waiting" | "done" | "error";
+
+export interface MessageToolRevision {
+  id: string;
+  name: string;
+  state: "running" | "done" | "error";
+  isError?: boolean;
+}
+
+export interface ConversationMessageRevision {
+  messageId: string;
+  state: MessageRevisionState;
+  role?: "assistant" | "user";
+  text?: string;
+  blocks?: RevisionContentBlock[];
+  tools?: MessageToolRevision[];
+  runId?: string;
+  error?: string;
+}
+
+export function isRevisionState(v: unknown): v is MessageRevisionState {
+  return v === "streaming" || v === "waiting" || v === "done" || v === "error";
+}
+
+/** Parse a ledger entry's content into a ConversationMessageRevision.
+ *  Compatible with legacy content (string, RevisionContentBlock[], {text}, {blocks}).
+ *  Legacy content without messageId/state → id=`s-${seq}`, state=done. */
+export function parseRevision(
+  seq: number,
+  content: unknown,
+): ConversationMessageRevision {
+  if (content && typeof content === "object" && !Array.isArray(content)) {
+    const obj = content as Record<string, unknown>;
+    const hasRevisionShape =
+      typeof obj.messageId === "string" || typeof obj.state === "string";
+    if (hasRevisionShape) {
+      return {
+        messageId:
+          typeof obj.messageId === "string" ? obj.messageId : `s-${seq}`,
+        state: isRevisionState(obj.state) ? obj.state : "done",
+        role:
+          obj.role === "assistant" || obj.role === "user"
+            ? obj.role
+            : undefined,
+        text: typeof obj.text === "string" ? obj.text : undefined,
+        blocks: Array.isArray(obj.blocks)
+          ? (obj.blocks as RevisionContentBlock[])
+          : undefined,
+        tools: Array.isArray(obj.tools)
+          ? (obj.tools as MessageToolRevision[])
+          : undefined,
+        runId: typeof obj.runId === "string" ? obj.runId : undefined,
+        error: typeof obj.error === "string" ? obj.error : undefined,
+      };
+    }
+    // Legacy shapes: { text, runId } or { blocks, runId }
+    if (typeof obj.text === "string") {
+      return {
+        messageId: `s-${seq}`,
+        state: "done",
+        text: obj.text,
+        runId: typeof obj.runId === "string" ? obj.runId : undefined,
+      };
+    }
+    if (Array.isArray(obj.blocks)) {
+      return {
+        messageId: `s-${seq}`,
+        state: "done",
+        blocks: obj.blocks as RevisionContentBlock[],
+        runId: typeof obj.runId === "string" ? obj.runId : undefined,
+      };
+    }
+  }
+  if (Array.isArray(content)) {
+    return { messageId: `s-${seq}`, state: "done", blocks: content as RevisionContentBlock[] };
+  }
+  return { messageId: `s-${seq}`, state: "done", text: String(content ?? "") };
+}
+
+/** Build a messageId for a run's assistant output. */
+export function assistantMessageId(runId: string): string {
+  return `run:${runId}:assistant:0`;
+}
+
 // ─── resolveTriggerTargets ──────────────────────────────────
 
 export function resolveTriggerTargets(conv: Conversation, addressedTo: string[]): AgentMember[] {
