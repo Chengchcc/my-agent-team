@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
+import { Suspense, useCallback } from "react";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import { api } from "@/lib/api";
 
@@ -32,6 +32,14 @@ const HEARTBEAT_FILTERS = [
 ] as const;
 
 export default function RunsPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto p-6" />}>
+      <RunsPageInner />
+    </Suspense>
+  );
+}
+
+function RunsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const status = searchParams.get("status") ?? "";
