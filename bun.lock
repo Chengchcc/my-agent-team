@@ -39,6 +39,9 @@
     "apps/lark-bot": {
       "name": "@my-agent-team/lark-bot",
       "version": "0.1.0",
+      "dependencies": {
+        "@my-agent-team/conversation": "workspace:*",
+      },
     },
     "apps/web": {
       "name": "@my-agent-team/web",

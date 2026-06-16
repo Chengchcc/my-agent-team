@@ -79,6 +79,15 @@ function ensureSchema(db: Database) {
       created_at          INTEGER NOT NULL,
       updated_at          INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS message_delivery (
+      conversation_id   TEXT NOT NULL,
+      message_id        TEXT NOT NULL,
+      lark_chat_id      TEXT NOT NULL,
+      last_state        TEXT NOT NULL DEFAULT 'streaming',
+      last_seq          INTEGER NOT NULL DEFAULT 0,
+      updated_at        INTEGER NOT NULL,
+      PRIMARY KEY (conversation_id, message_id, lark_chat_id)
+    );
   `);
 
   // M15.1 migration: add complete_from_ledger to existing run_stream tables
@@ -396,6 +405,71 @@ export function rebindChatConversation(
     [newConversationId, larkChatId, oldConversationId],
   );
   return result.changes > 0;
+}
+
+// ─── M17: Message delivery tracking ───
+
+export interface MessageDeliveryRecord {
+  conversationId: string;
+  messageId: string;
+  larkChatId: string;
+  lastState: string;
+  lastSeq: number;
+  updatedAt: number;
+}
+
+export function getMessageDelivery(
+  db: Database,
+  conversationId: string,
+  messageId: string,
+  larkChatId: string,
+): MessageDeliveryRecord | null {
+  const row = db
+    .query(
+      "SELECT conversation_id, message_id, lark_chat_id, last_state, last_seq, updated_at FROM message_delivery WHERE conversation_id = ? AND message_id = ? AND lark_chat_id = ?",
+    )
+    .get(conversationId, messageId, larkChatId) as
+    | {
+        conversation_id: string;
+        message_id: string;
+        lark_chat_id: string;
+        last_state: string;
+        last_seq: number;
+        updated_at: number;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    conversationId: row.conversation_id,
+    messageId: row.message_id,
+    larkChatId: row.lark_chat_id,
+    lastState: row.last_state,
+    lastSeq: row.last_seq,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function upsertMessageDelivery(
+  db: Database,
+  rec: MessageDeliveryRecord,
+): void {
+  db.run(
+    `INSERT INTO message_delivery (conversation_id, message_id, lark_chat_id, last_state, last_seq, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(conversation_id, message_id, lark_chat_id)
+     DO UPDATE SET last_state = ?, last_seq = ?, updated_at = ?`,
+    [
+      rec.conversationId,
+      rec.messageId,
+      rec.larkChatId,
+      rec.lastState,
+      rec.lastSeq,
+      rec.updatedAt,
+      rec.lastState,
+      rec.lastSeq,
+      rec.updatedAt,
+    ],
+  );
 }
 
 // ─── Internal helpers ───

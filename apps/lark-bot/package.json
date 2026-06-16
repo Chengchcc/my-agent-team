@@ -8,5 +8,8 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
     "test": "bun test",
     "lint": "bun check"
+  },
+  "dependencies": {
+    "@my-agent-team/conversation": "workspace:*"
   }
 }

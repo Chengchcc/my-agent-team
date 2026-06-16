@@ -396,39 +396,48 @@ async function onRunComplete(threadId: string, runId: string, status: string): P
           // chain error already logged in onRunEvent
         }
 
-        // Write final done/error revision to close the open assistant message
-        if (acc.latestAssistantRevision) {
-          const finalRev: ConversationMessageRevision = {
-            ...acc.latestAssistantRevision,
-            state: status === "succeeded" ? "done" : "error",
-            error: status === "succeeded" ? undefined : status,
-          };
-          const serialized = JSON.stringify(finalRev);
-          // Only write if different from last streaming revision
-          if (!convPort.hasLedgerContent?.(runId, serialized)) {
-            const ts = Date.now();
-            const seq = convPort.appendLedgerEntry({
+        // Write final done/error revision to close the open assistant message.
+        // If no streaming revision was projected (e.g. tool-only run, immediate
+        // error), write a minimal terminal revision so Web/Lark exit busy state.
+        const baseRev = acc.latestAssistantRevision;
+        const finalRev: ConversationMessageRevision = baseRev
+          ? {
+              ...baseRev,
+              state: status === "succeeded" ? "done" : "error",
+              error: status === "succeeded" ? undefined : status,
+            }
+          : {
+              messageId: assistantMessageId(runId),
+              state: status === "succeeded" ? "done" : "error",
+              role: "assistant",
+              text: status === "succeeded" ? "" : `Run failed: ${status}`,
+              error: status === "succeeded" ? undefined : status,
+              runId,
+            };
+        const serialized = JSON.stringify(finalRev);
+        if (!convPort.hasLedgerContent?.(runId, serialized)) {
+          const ts = Date.now();
+          const seq = convPort.appendLedgerEntry({
+            conversationId: cid,
+            senderMemberId: acc.senderMemberId,
+            addressedTo: [],
+            kind: "message",
+            content: serialized,
+            ts,
+            runId,
+          });
+          await convSvc.broadcastMessage(
+            {
+              seq,
               conversationId: cid,
               senderMemberId: acc.senderMemberId,
               addressedTo: [],
               kind: "message",
               content: serialized,
               ts,
-              runId,
-            });
-            await convSvc.broadcastMessage(
-              {
-                seq,
-                conversationId: cid,
-                senderMemberId: acc.senderMemberId,
-                addressedTo: [],
-                kind: "message",
-                content: serialized,
-                ts,
-              },
-              { excludeMemberId: acc.senderMemberId },
-            );
-          }
+            },
+            { excludeMemberId: acc.senderMemberId },
+          );
         }
 
         runAccumulators.delete(runId);
@@ -545,14 +554,9 @@ async function projectRunMessageToLedger(
   if (typeof content === "string" && content.trim().length === 0) return;
   if (Array.isArray(content) && content.length === 0) return;
 
-  // Filter out tool-only rounds
-  if (role === "assistant" && Array.isArray(content)) {
-    const hasText = content.some(
-      (b: unknown) =>
-        typeof b === "object" && b !== null && (b as Record<string, unknown>).type === "text",
-    );
-    if (!hasText) return;
-  }
+  // M17: Don't filter tool-only rounds — they still need a terminal revision.
+  // Tool-only blocks produce a revision with blocks but empty text, so Web/Lark
+  // can render the tool progress bar and wait for the done/error terminal.
 
   const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
   if (!cid) return;
