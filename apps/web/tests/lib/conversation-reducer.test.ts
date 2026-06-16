@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { initialState, reducer, type SenderRef, isBusy } from "@/lib/conversation-reducer";
 import type { ConversationMessageRevision } from "@my-agent-team/conversation";
+import { initialState, isBusy, reducer, type SenderRef } from "@/lib/conversation-reducer";
 
 function bootstrap(overrides: { viewerMemberId?: string; members?: SenderRef[] } = {}) {
   const a: SenderRef = { memberId: "agent-1", kind: "agent", displayName: "Bot" };
@@ -62,7 +62,12 @@ describe("ledger/message", () => {
   test("upserts by messageId — streaming → done", () => {
     let s = bootstrap();
     s = reducer(s, { type: "ledger/message", seq: 1, senderMemberId: "agent-1", content: rev() });
-    s = reducer(s, { type: "ledger/message", seq: 2, senderMemberId: "agent-1", content: rev({ state: "done", text: "final" }) });
+    s = reducer(s, {
+      type: "ledger/message",
+      seq: 2,
+      senderMemberId: "agent-1",
+      content: rev({ state: "done", text: "final" }),
+    });
     expect(s.messages).toHaveLength(1);
     expect(s.messages[0]!.content.state).toBe("done");
     expect(s.messages[0]!.content.text).toBe("final");
@@ -79,14 +84,24 @@ describe("ledger/message", () => {
 
   test("legacy content (string) → state=done, id=s-seq", () => {
     let s = bootstrap();
-    s = reducer(s, { type: "ledger/message", seq: 42, senderMemberId: "agent-1", content: "legacy text" });
+    s = reducer(s, {
+      type: "ledger/message",
+      seq: 42,
+      senderMemberId: "agent-1",
+      content: "legacy text",
+    });
     expect(s.messages[0]!.content.messageId).toBe("s-42");
     expect(s.messages[0]!.content.state).toBe("done");
   });
 
   test("legacy content (array) → state=done blocks", () => {
     let s = bootstrap();
-    s = reducer(s, { type: "ledger/message", seq: 42, senderMemberId: "agent-1", content: [{ type: "text", text: "legacy" }] });
+    s = reducer(s, {
+      type: "ledger/message",
+      seq: 42,
+      senderMemberId: "agent-1",
+      content: [{ type: "text", text: "legacy" }],
+    });
     expect(s.messages[0]!.content.messageId).toBe("s-42");
     expect(s.messages[0]!.content.blocks).toEqual([{ type: "text", text: "legacy" }]);
   });
@@ -95,26 +110,47 @@ describe("ledger/message", () => {
 describe("isBusy", () => {
   test("busy when open streaming message exists", () => {
     let s = bootstrap();
-    s = reducer(s, { type: "ledger/message", seq: 1, senderMemberId: "agent-1", content: rev({ state: "streaming" }) });
+    s = reducer(s, {
+      type: "ledger/message",
+      seq: 1,
+      senderMemberId: "agent-1",
+      content: rev({ state: "streaming" }),
+    });
     expect(isBusy(s)).toBe(true);
   });
 
   test("not busy when all agent messages are done", () => {
     let s = bootstrap();
-    s = reducer(s, { type: "ledger/message", seq: 1, senderMemberId: "agent-1", content: rev({ state: "done" }) });
+    s = reducer(s, {
+      type: "ledger/message",
+      seq: 1,
+      senderMemberId: "agent-1",
+      content: rev({ state: "done" }),
+    });
     expect(isBusy(s)).toBe(false);
   });
 
   test("busy when waiting on approval", () => {
     let s = bootstrap();
-    s = reducer(s, { type: "ledger/message", seq: 1, senderMemberId: "agent-1", content: rev({ state: "waiting" }) });
+    s = reducer(s, {
+      type: "ledger/message",
+      seq: 1,
+      senderMemberId: "agent-1",
+      content: rev({ state: "waiting" }),
+    });
     expect(isBusy(s)).toBe(true);
   });
 });
 
 describe("toggleTriggerMode", () => {
   test("toggles auto ↔ mention", () => {
-    let s = bootstrap({ members: [{ memberId: "agent-1", kind: "agent" }, { memberId: "agent-2", kind: "agent" }, { memberId: "human-1", kind: "human" }] });
+    let s = bootstrap({
+      members: [
+        { memberId: "agent-1", kind: "agent" },
+        { memberId: "agent-2", kind: "agent" },
+        { memberId: "human-1", kind: "human" },
+      ],
+    });
     expect(s.triggerMode).toBe("mention");
     s = reducer(s, { type: "toggleTriggerMode" });
     expect(s.triggerMode).toBe("auto");
@@ -142,7 +178,12 @@ describe("todo/update", () => {
 describe("ledger/member", () => {
   test("adds system notice for member join", () => {
     let s = bootstrap();
-    s = reducer(s, { type: "ledger/member", seq: 10, kind: "member.joined", payload: { members: [{ memberId: "human-2", kind: "human", displayName: "User2" }] } });
+    s = reducer(s, {
+      type: "ledger/member",
+      seq: 10,
+      kind: "member.joined",
+      payload: { members: [{ memberId: "human-2", kind: "human", displayName: "User2" }] },
+    });
     expect(s.roster["human-2"]?.displayName).toBe("User2");
     expect(s.messages).toHaveLength(1);
     expect(s.messages[0]!.content.text).toInclude("加入");
@@ -153,8 +194,18 @@ describe("groupTurns", () => {
   test("groups continuous same-agent messages", () => {
     let s = bootstrap();
     // Agent messages need to have different messageIds to show separately
-    s = reducer(s, { type: "ledger/message", seq: 1, senderMemberId: "agent-1", content: rev({ messageId: "m1", text: "msg1", state: "done" }) });
-    s = reducer(s, { type: "ledger/message", seq: 2, senderMemberId: "agent-1", content: rev({ messageId: "m2", text: "msg2", state: "done" }) });
+    s = reducer(s, {
+      type: "ledger/message",
+      seq: 1,
+      senderMemberId: "agent-1",
+      content: rev({ messageId: "m1", text: "msg1", state: "done" }),
+    });
+    s = reducer(s, {
+      type: "ledger/message",
+      seq: 2,
+      senderMemberId: "agent-1",
+      content: rev({ messageId: "m2", text: "msg2", state: "done" }),
+    });
     expect(s.messages).toHaveLength(2);
   });
 });

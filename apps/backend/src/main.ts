@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { assistantMessageId, type ConversationMessageRevision } from "@my-agent-team/conversation";
 import type { Message } from "@my-agent-team/core";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import { createSocketClient } from "@my-agent-team/runner-protocol";
@@ -16,7 +17,6 @@ import {
   createConversationService,
   sqliteConversationAdapter,
 } from "./features/conversation/index.js";
-import { assistantMessageId, type ConversationMessageRevision } from "@my-agent-team/conversation";
 import type { ConversationPort } from "./features/conversation/ports.js";
 import type { LarkBotRegistry } from "./features/lark-bot/index.js";
 import {
@@ -564,7 +564,12 @@ async function projectRunMessageToLedger(
   const revision =
     role === "assistant"
       ? buildAssistantRevision(runId, content, "streaming")
-      : { messageId: `s-${runId}-${role}`, state: "done" as const, role: role as "user", text: typeof content === "string" ? content : "" };
+      : {
+          messageId: `s-${runId}-${role}`,
+          state: "done" as const,
+          role: role as "user",
+          text: typeof content === "string" ? content : "",
+        };
 
   const ts = Date.now();
   const serialized = JSON.stringify(revision);

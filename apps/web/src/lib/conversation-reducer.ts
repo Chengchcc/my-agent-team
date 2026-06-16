@@ -1,5 +1,4 @@
-import { parseRevision, type ConversationMessageRevision } from "@my-agent-team/conversation";
-import type { ContentBlock } from "./api";
+import { type ConversationMessageRevision, parseRevision } from "@my-agent-team/conversation";
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -113,7 +112,8 @@ export function isConclusionMessage(m: UiMessage): boolean {
   if (!blocks || blocks.length === 0) return false;
   const hasToolUse = blocks.some((b: { type: string }) => b.type === "tool_use");
   const hasText = blocks.some(
-    (b: { type: string; text?: string }) => b.type === "text" && typeof b.text === "string" && b.text.trim().length > 0,
+    (b: { type: string; text?: string }) =>
+      b.type === "text" && typeof b.text === "string" && b.text.trim().length > 0,
   );
   return !hasToolUse && hasText;
 }
@@ -210,7 +210,14 @@ export function reducer(s: ConvState, a: Action): ConvState {
       return {
         ...s,
         optimisticSeq: s.optimisticSeq + 1,
-        messages: [...s.messages, { id, sender: a.viewer, content: { messageId: id, state: "done" as const, text: a.text } }],
+        messages: [
+          ...s.messages,
+          {
+            id,
+            sender: a.viewer,
+            content: { messageId: id, state: "done" as const, text: a.text },
+          },
+        ],
       };
     }
 

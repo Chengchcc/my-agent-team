@@ -160,30 +160,18 @@ export function isRevisionState(v: unknown): v is MessageRevisionState {
 /** Parse a ledger entry's content into a ConversationMessageRevision.
  *  Compatible with legacy content (string, RevisionContentBlock[], {text}, {blocks}).
  *  Legacy content without messageId/state → id=`s-${seq}`, state=done. */
-export function parseRevision(
-  seq: number,
-  content: unknown,
-): ConversationMessageRevision {
+export function parseRevision(seq: number, content: unknown): ConversationMessageRevision {
   if (content && typeof content === "object" && !Array.isArray(content)) {
     const obj = content as Record<string, unknown>;
-    const hasRevisionShape =
-      typeof obj.messageId === "string" || typeof obj.state === "string";
+    const hasRevisionShape = typeof obj.messageId === "string" || typeof obj.state === "string";
     if (hasRevisionShape) {
       return {
-        messageId:
-          typeof obj.messageId === "string" ? obj.messageId : `s-${seq}`,
+        messageId: typeof obj.messageId === "string" ? obj.messageId : `s-${seq}`,
         state: isRevisionState(obj.state) ? obj.state : "done",
-        role:
-          obj.role === "assistant" || obj.role === "user"
-            ? obj.role
-            : undefined,
+        role: obj.role === "assistant" || obj.role === "user" ? obj.role : undefined,
         text: typeof obj.text === "string" ? obj.text : undefined,
-        blocks: Array.isArray(obj.blocks)
-          ? (obj.blocks as RevisionContentBlock[])
-          : undefined,
-        tools: Array.isArray(obj.tools)
-          ? (obj.tools as MessageToolRevision[])
-          : undefined,
+        blocks: Array.isArray(obj.blocks) ? (obj.blocks as RevisionContentBlock[]) : undefined,
+        tools: Array.isArray(obj.tools) ? (obj.tools as MessageToolRevision[]) : undefined,
         runId: typeof obj.runId === "string" ? obj.runId : undefined,
         error: typeof obj.error === "string" ? obj.error : undefined,
       };
