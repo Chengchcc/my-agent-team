@@ -167,9 +167,9 @@ describe("postMessage", () => {
     // Ledger entry appended
     expect(result.seq).toBeGreaterThan(0);
 
-    // Broadcast: X sees the message
-    const xMsgs = await threadProjectionRead.getMessages(`${id}:mem-x1-${id}`);
-    expect(xMsgs?.length).toBeGreaterThan(0);
+    // Ledger contains the message (no longer materialized to thread_projection eagerly)
+    const entries = port.getLedgerEntries(id);
+    expect(entries.length).toBeGreaterThan(0);
 
     // @ trigger: X's fork was called
     expect(forkLog).toHaveLength(1);

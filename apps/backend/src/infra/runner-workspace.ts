@@ -1,5 +1,7 @@
-import { cp, mkdir, readdir, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { BOOTSTRAP_TEMPLATE } from "@my-agent-team/harness";
 
 export interface RunnerWorkspacePaths {
   runnerRoot: string;
@@ -39,6 +41,38 @@ export async function ensureRunnerWorkspace(paths: RunnerWorkspacePaths): Promis
   await mkdir(paths.sharedRoot, { recursive: true });
   await mkdir(paths.privateRoot, { recursive: true });
   await mkdir(paths.stateRoot, { recursive: true });
+}
+
+/** Create the runner workspace and populate it with template/bootstrap files.
+ *  Returns the sharedRoot path — this is the ONLY workspace path an agent
+ *  needs. The legacy `workspaceRoot/agentId` directory is no longer created. */
+export async function materializeRunnerWorkspace(opts: {
+  dataDir: string;
+  agentId: string;
+  template?: string;
+  templateDir: string;
+}): Promise<string> {
+  const paths = runnerWorkspacePaths(opts.dataDir, opts.agentId);
+  await ensureRunnerWorkspace(paths);
+  await mkdir(path.join(paths.sharedRoot, "memory"), { recursive: true });
+
+  if (opts.template) {
+    const src = path.join(opts.templateDir, opts.template);
+    try {
+      await cp(src, paths.sharedRoot, { recursive: true, force: true });
+    } catch {
+      // Template missing is non-fatal — agent starts with minimal workspace
+    }
+  }
+
+  // M11 genesis: if no SOUL.md exists after template copy, write BOOTSTRAP.md
+  const soulPath = path.join(paths.sharedRoot, "SOUL.md");
+  if (!existsSync(soulPath)) {
+    const bootPath = path.join(paths.sharedRoot, "BOOTSTRAP.md");
+    await writeFile(bootPath, BOOTSTRAP_TEMPLATE, "utf-8");
+  }
+
+  return paths.sharedRoot;
 }
 
 // ─── Error helpers ──────────────────────────────────────────────

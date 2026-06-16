@@ -44,7 +44,7 @@ import { withLarkOrchestration } from "./features/agent/with-lark-orchestration.
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
 import { openDb } from "./infra/sqlite/db.js";
-import { materializeWorkspace, purgeWorkspace } from "./infra/workspace.js";
+// Legacy workspace module kept for reference; new agents use runner-workspace.js only.
 import { createServer } from "./server.js";
 
 const config = loadConfig();
@@ -115,30 +115,17 @@ const agentSvcRaw = createAgentService({
   idGen: ulid,
   workspaceRoot: config.workspaceRoot,
   materializeWorkspace: async (agentId, template) => {
-    // Legacy workspace (kept for backward compat)
-    const legacyPath = await materializeWorkspace({
-      workspaceRoot: config.workspaceRoot,
+    const { materializeRunnerWorkspace } = await import("./infra/runner-workspace.js");
+    return materializeRunnerWorkspace({
+      dataDir: config.dataDir,
       agentId,
       template,
       templateDir: config.templateDir,
     });
-    // Seed runner sharedRoot so identity API and runtime share one source
-    const { runnerWorkspacePaths, ensureRunnerWorkspace, migrateLegacyWorkspaceToShared } =
-      await import("./infra/runner-workspace.js");
-    const paths = runnerWorkspacePaths(config.dataDir, agentId);
-    await ensureRunnerWorkspace(paths);
-    // Immediately seed identity files from legacy workspace. Don't wait for
-    // identity API lazy migration or first runner spawn — new agents need
-    // BOOTSTRAP.md available before their first run.
-    await migrateLegacyWorkspaceToShared(paths.sharedRoot, legacyPath);
-    return legacyPath;
   },
 
   // M11 hardDelete dependencies — all closures from composition root
   purgeWorkspace: async (agentId) => {
-    // Legacy workspace
-    await purgeWorkspace({ workspaceRoot: config.workspaceRoot, agentId });
-    // Runner workspace (shared/private/state/socket/pid)
     const { purgeRunnerWorkspace } = await import("./infra/runner-workspace.js");
     await purgeRunnerWorkspace({ dataDir: config.dataDir, agentId });
   },

@@ -2,7 +2,6 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   ensureRunnerWorkspace,
-  migrateLegacyWorkspaceToShared,
   runnerWorkspacePaths,
 } from "../../infra/runner-workspace.js";
 
@@ -110,11 +109,6 @@ export function createAgentIdentityStore(opts: {
       const paths = runnerWorkspacePaths(opts.dataDir, agentId);
       await ensureRunnerWorkspace(paths);
 
-      // Lazy migrate from legacy workspace (no-op if sharedRoot already has data)
-      if (agent.workspacePath) {
-        await migrateLegacyWorkspaceToShared(paths.sharedRoot, agent.workspacePath);
-      }
-
       const [soul, user, memories] = await Promise.all([
         readTextOrNull(path.join(paths.sharedRoot, "SOUL.md")),
         readTextOrNull(path.join(paths.sharedRoot, "USER.md")),
@@ -128,10 +122,6 @@ export function createAgentIdentityStore(opts: {
       const agent = await opts.getAgent(agentId);
       const paths = runnerWorkspacePaths(opts.dataDir, agentId);
       await ensureRunnerWorkspace(paths);
-
-      if (agent.workspacePath) {
-        await migrateLegacyWorkspaceToShared(paths.sharedRoot, agent.workspacePath);
-      }
 
       // Ensure memory/facts/ directory exists so the agent can write
       await mkdir(path.join(paths.sharedRoot, "memory", "facts"), { recursive: true });

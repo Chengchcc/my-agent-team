@@ -77,6 +77,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
     addressedTo: string[];
     kind: LedgerKind;
     content: unknown;
+    /** When false, skip thread_projection write (forkRun reads from ledger directly). */
+    broadcast?: boolean;
   }): Promise<number> {
     const ts = Date.now();
     const serialized = JSON.stringify(input.content);
@@ -88,11 +90,17 @@ export function createConversationService(deps: ConversationServiceDeps) {
       content: serialized,
       ts,
     });
-    // No longer broadcasts to thread_projection here — forkRun reads
-    // preloadedMessages directly from the conversation ledger (canonical).
-    // broadcastMessage is still used by projectRunMessageToLedger for
-    // assistant message projection (other agents need the context for
-    // future runs), but user messages don't need eager materialization.
+    if (input.broadcast !== false) {
+      await broadcastMessage({
+        seq,
+        conversationId: input.conversationId,
+        senderMemberId: input.senderMemberId,
+        addressedTo: input.addressedTo,
+        kind: input.kind,
+        content: serialized,
+        ts,
+      });
+    }
     return seq;
   }
 
@@ -222,13 +230,14 @@ export function createConversationService(deps: ConversationServiceDeps) {
         hopCapped = currentHop > maxConsecutiveAgentHops;
       }
 
-      // ── Append this message to ledger + broadcast (always, even if hop-capped) ──
+      // ── Append this message to ledger (no broadcast — forkRun reads from ledger) ──
       const seq = await appendAndBroadcast({
         conversationId: input.conversationId,
         senderMemberId: input.senderMemberId,
         addressedTo: input.addressedTo,
         kind: "message",
         content: input.content,
+        broadcast: false,
       });
 
       // ── @ trigger: fork agent run for each target (skip if hop-capped) ──

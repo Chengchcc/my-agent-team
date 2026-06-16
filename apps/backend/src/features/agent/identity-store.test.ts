@@ -100,42 +100,21 @@ describe("AgentIdentityStore", () => {
     expect(dates).toEqual(["2025-06-01", "2025-06-02"]);
   });
 
-  test("lazy migration copies legacy identity files to sharedRoot", async () => {
-    const agentId = `lazy-${Date.now()}`;
-    // Create legacy workspace with SOUL/USER
-    const legacyWs = path.join(tmpBase, "legacy", agentId);
-    await mkdir(legacyWs, { recursive: true });
-    await writeFile(path.join(legacyWs, "SOUL.md"), "legacy soul", "utf-8");
-    await writeFile(path.join(legacyWs, "USER.md"), "legacy user", "utf-8");
-
-    const store = makeStore();
-    const identity = await store.getIdentity(agentId);
-
-    // Should have been migrated from legacy
-    expect(identity.soul).toBe("legacy soul");
-    expect(identity.user).toBe("legacy user");
-  });
-
-  test("lazy migration does not overwrite existing sharedRoot files", async () => {
-    const agentId = `lazy-nowrite-${Date.now()}`;
-    // Pre-seed sharedRoot
+  test("reads identity files from sharedRoot workspace", async () => {
+    const agentId = `shared-${Date.now()}`;
     const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import(
       "../../infra/runner-workspace.js"
     );
     const paths = runnerWorkspacePaths(dataDir, agentId);
     await ensureRunnerWorkspace(paths);
-    await writeFile(path.join(paths.sharedRoot, "SOUL.md"), "existing soul", "utf-8");
-
-    // Create legacy workspace with a different SOUL.md
-    const legacyWs = path.join(tmpBase, "legacy", agentId);
-    await mkdir(legacyWs, { recursive: true });
-    await writeFile(path.join(legacyWs, "SOUL.md"), "legacy soul", "utf-8");
+    await writeFile(path.join(paths.sharedRoot, "SOUL.md"), "shared soul", "utf-8");
+    await writeFile(path.join(paths.sharedRoot, "USER.md"), "shared user", "utf-8");
 
     const store = makeStore();
     const identity = await store.getIdentity(agentId);
 
-    // Existing sharedRoot file should win
-    expect(identity.soul).toBe("existing soul");
+    expect(identity.soul).toBe("shared soul");
+    expect(identity.user).toBe("shared user");
   });
 
   test("updateIdentity writes SOUL.md and USER.md to sharedRoot", async () => {
