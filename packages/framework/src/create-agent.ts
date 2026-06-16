@@ -91,6 +91,10 @@ export interface AgentConfig {
   contextManager?: ContextManager;
   logger?: Logger;
   threadId?: string;
+  /** Preloaded messages to bootstrap the thread. When provided, bypasses
+   *  checkpointer.load() for the initial message state. The checkpointer
+   *  is still used for subsequent saves during the run. */
+  messages?: Message[];
 }
 
 // ─── Pure helpers ──────────────────────────────────────────────
@@ -486,9 +490,15 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   const checkpointer = config.checkpointer ?? inMemoryCheckpointer();
   validateCheckpointer(checkpointer);
 
-  let messages: Message[] = [];
-  const loaded = await checkpointer.load(threadId);
-  if (loaded) messages = loaded;
+  let messages: Message[];
+  if (config.messages) {
+    messages = config.messages;
+    // Seed the checkpointer so crash recovery works (fire-and-forget).
+    checkpointer.save(threadId, messages).catch(() => {});
+  } else {
+    const loaded = await checkpointer.load(threadId);
+    messages = loaded ?? [];
+  }
 
   return createAgentInternal({
     ...config,

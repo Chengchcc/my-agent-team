@@ -160,12 +160,10 @@ export class RunnerDaemon {
       return;
     }
 
-    // Pre-seed the daemon's checkpointer with conversation context from the
-    // backend. Messages travel through the transport layer — no DB coupling.
+    // Conversation context from the backend. Passed directly to the agent
+    // (bypassing checkpointer.load) to eliminate a save→load round-trip.
+    // The framework persists them to the checkpointer for crash recovery.
     const hasPreloaded = !!(msg.preloadedMessages && msg.preloadedMessages.length > 0);
-    if (hasPreloaded && msg.preloadedMessages) {
-      await this.#checkpointer.save(spec.threadId, msg.preloadedMessages);
-    }
 
     const model = this.#modelFactory.create(spec.model);
 
@@ -197,6 +195,7 @@ export class RunnerDaemon {
       threadId: spec.threadId,
       checkpointer: this.#checkpointer,
       extraTools: extraTools as Parameters<typeof createGenericAgent>[0]["extraTools"],
+      messages: msg.preloadedMessages as Parameters<typeof createGenericAgent>[0]["messages"],
     });
 
     this.#runs.set(msg.runId, {

@@ -59,6 +59,11 @@ export interface GenericAgentOptions {
   /** When checkpointer is sqlite (or default), use this Database instance instead of opening workspace file. */
   checkpointerDb?: Database;
 
+  /** Preloaded messages to bootstrap the thread. When provided, bypasses
+   *  checkpointer.load() for the initial state. Checkpointer is still used
+   *  for subsequent saves during the run. */
+  messages?: Parameters<typeof createAgent>[0]["messages"];
+
   /** Additional user-defined plugins / tools. Merged with defaults; duplicate names fail fast. */
   extraPlugins?: readonly Plugin[];
   extraTools?: readonly Tool[];
@@ -145,5 +150,6 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
     threadId,
     logger: lg,
     checkpointer,
+    messages: opts.messages,
   });
 }
