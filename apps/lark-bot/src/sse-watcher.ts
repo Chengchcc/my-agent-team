@@ -7,7 +7,7 @@ import {
   updatePushedSeq,
   upsertMessageDelivery,
 } from "./bindings-sqlite.js";
-import { render } from "./render.js";
+import { renderRevision } from "./render.js";
 
 export interface LedgerEntry {
   seq: number;
@@ -220,7 +220,7 @@ async function processEntry(
   }
 
   // Render and send
-  const text = render(entry.content);
+  const text = renderRevision(revision);
   const idempotencyKey = `${entry.conversationId}:${messageId}:${delivery ? "update" : "create"}`;
   await h.onSend(larkChatId, text, idempotencyKey);
 
