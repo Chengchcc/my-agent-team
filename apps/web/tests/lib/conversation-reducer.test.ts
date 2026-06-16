@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@my-agent-team/message";
 import { initialState, isBusy, reducer, type SenderRef } from "@/lib/conversation-reducer";
 
 function bootstrap(overrides: { viewerMemberId?: string; members?: SenderRef[] } = {}) {
@@ -78,8 +77,12 @@ describe("ledger/message", () => {
     let s = bootstrap();
     s = reducer(s, { type: "send", text: "hi", viewer: s.roster["human-1"]! });
     expect(s.messages[0]!.id).toStartWith("opt-");
-    s = reducer(s, { type: "ledger/message", seq: 1, senderMemberId: "human-1",
-      content: { messageId: "s-1", state: "done", role: "user", updatedAt: 1, text: "hi" } });
+    s = reducer(s, {
+      type: "ledger/message",
+      seq: 1,
+      senderMemberId: "human-1",
+      content: { messageId: "s-1", state: "done", role: "user", updatedAt: 1, text: "hi" },
+    });
     expect(s.messages).toHaveLength(1);
     expect(s.messages[0]!.id).toBe("s-1");
   });
@@ -97,13 +100,15 @@ describe("ledger/message", () => {
   });
 
   test("legacy content (array) → rejected by strict parser", () => {
-    let s = bootstrap();
-    expect(() => reducer(s, {
-      type: "ledger/message",
-      seq: 42,
-      senderMemberId: "agent-1",
-      content: [{ type: "text", text: "legacy" }],
-    })).toThrow();
+    const s = bootstrap();
+    expect(() =>
+      reducer(s, {
+        type: "ledger/message",
+        seq: 42,
+        senderMemberId: "agent-1",
+        content: [{ type: "text", text: "legacy" }],
+      }),
+    ).toThrow();
   });
 });
 

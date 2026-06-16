@@ -1,6 +1,6 @@
+import type { Message } from "@my-agent-team/message";
 import type { AIMessageChunk, ChatModel } from "./chat-model.js";
 import type { ContentBlock, ToolResultBlock, ToolUseBlock } from "./message.js";
-import type { Message } from "@my-agent-team/message";
 import type { Tool, ToolExecuteResult } from "./tool.js";
 
 export interface RunOptions {

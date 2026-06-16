@@ -129,15 +129,15 @@ export function projectForMember(
 
 // M17.1: Re-export unified Message types from the canonical package.
 export {
-  type Message,
-  type MessageRevision,
-  type MessageState,
-  type MessageRole,
-  parseMessageRevision,
   assistantMessageId,
   isOpenMessageState,
   isTerminalMessageState,
+  type Message,
+  type MessageRevision,
+  type MessageRole,
+  type MessageState,
   mergeMessageRevision,
+  parseMessageRevision,
 } from "@my-agent-team/message";
 
 // ─── resolveTriggerTargets ──────────────────────────────────

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
-import type { Message } from "@my-agent-team/message";
 import type { EventLog, EventSource } from "@my-agent-team/event-log";
+import type { Message } from "@my-agent-team/message";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
 import type { RuntimeTraceContext, RuntimeTracer } from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";

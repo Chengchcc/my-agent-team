@@ -37,13 +37,7 @@ function assertRole(val: unknown): MessageRole {
 
 function assertState(val: unknown): MessageState {
   const s = assertString(val, "state");
-  if (
-    s !== "pending" &&
-    s !== "streaming" &&
-    s !== "waiting" &&
-    s !== "done" &&
-    s !== "error"
-  ) {
+  if (s !== "pending" && s !== "streaming" && s !== "waiting" && s !== "done" && s !== "error") {
     throw new MessageParseError("state", `invalid state: ${s}`);
   }
   return s;
@@ -81,9 +75,7 @@ function assertNumber(val: unknown, field: string): number {
   return val;
 }
 
-function assertOptionalVisibility(
-  val: unknown,
-): "internal" | "conversation" | undefined {
+function assertOptionalVisibility(val: unknown): "internal" | "conversation" | undefined {
   if (val === undefined || val === null) return undefined;
   const s = assertString(val, "visibility");
   if (s !== "internal" && s !== "conversation") {
@@ -92,9 +84,7 @@ function assertOptionalVisibility(
   return s;
 }
 
-function assertOptionalError(
-  val: unknown,
-): { code?: string; message: string } | undefined {
+function assertOptionalError(val: unknown): { code?: string; message: string } | undefined {
   if (val === undefined || val === null) return undefined;
   if (typeof val !== "object" || val === null) {
     throw new MessageParseError("error", `expected object, got ${typeof val}`);

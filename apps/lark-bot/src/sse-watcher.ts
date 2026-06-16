@@ -1,5 +1,9 @@
 import type { Database } from "bun:sqlite";
-import { isTerminalMessageState, type MessageState, parseMessageRevision } from "@my-agent-team/message";
+import {
+  isTerminalMessageState,
+  type MessageState,
+  parseMessageRevision,
+} from "@my-agent-team/message";
 import {
   getMemberBindingsForChat,
   getMessageDelivery,
@@ -87,7 +91,7 @@ export function watchConversation(
 
         for (const line of lines) {
           if (line.startsWith("data: ")) {
-            currentData += currentData ? "\n" + line.slice(6) : line.slice(6);
+            currentData += currentData ? `\n${line.slice(6)}` : line.slice(6);
           } else if (line === "" && currentData) {
             try {
               const entry = JSON.parse(currentData) as LedgerEntry;

@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { AgentFS, MemoryBackend } from "@my-agent-team/agent-fs";
-import type { Message } from "@my-agent-team/message";
 import {
   consoleLogger,
   type HookContext,
   inMemoryCheckpointer,
   passthroughContextManager,
 } from "@my-agent-team/framework";
+import type { Message } from "@my-agent-team/message";
 import { invalidateSkillCache } from "./cache.js";
 import { progressiveSkillPlugin } from "./progressive-skill.js";
 

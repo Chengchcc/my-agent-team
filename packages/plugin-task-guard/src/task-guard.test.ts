@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { AIMessageChunk, ChatModel, ContentBlock } from "@my-agent-team/core";
-import type { Message } from "@my-agent-team/message";
+import type { AIMessageChunk, ChatModel } from "@my-agent-team/core";
 import { createAgent, inMemoryCheckpointer } from "@my-agent-team/framework";
+import type { Message } from "@my-agent-team/message";
 import { taskGuardPlugin, unresolvedToolErrors } from "./task-guard.js";
 
 // ─── Helpers ───

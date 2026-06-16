@@ -29,7 +29,7 @@ export function normalizeForLarkMarkdown(input: string): NormalizedMarkdown {
   // 3. Truncate lines exceeding MAX_CARD_LINE_CHARS
   const lines = markdown.split("\n");
   const truncatedLines = lines.map((line) =>
-    line.length > MAX_CARD_LINE_CHARS ? line.slice(0, MAX_CARD_LINE_CHARS) + "…" : line,
+    line.length > MAX_CARD_LINE_CHARS ? `${line.slice(0, MAX_CARD_LINE_CHARS)}…` : line,
   );
   markdown = truncatedLines.join("\n");
 
@@ -59,8 +59,7 @@ export function normalizeForLarkMarkdown(input: string): NormalizedMarkdown {
   if (markdown.length > MAX_CARD_MARKDOWN_CHARS) {
     truncated = true;
     const trimmed = markdown.slice(0, MAX_CARD_MARKDOWN_CHARS);
-    markdown =
-      trimmed + `\n\n内容过长，已展示前 ${MAX_CARD_MARKDOWN_CHARS} 字。完整结果请在 Web 端查看。`;
+    markdown = `${trimmed}\n\n内容过长，已展示前 ${MAX_CARD_MARKDOWN_CHARS} 字。完整结果请在 Web 端查看。`;
   }
 
   return {

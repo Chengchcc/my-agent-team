@@ -1,5 +1,5 @@
-import type { Message } from "@my-agent-team/message";
 import type { EventLog, EventRecord } from "@my-agent-team/event-log";
+import type { Message } from "@my-agent-team/message";
 import type { RunSupervisor } from "./supervisor.js";
 
 export class ThreadBusyError extends Error {

@@ -20,7 +20,7 @@ function normalizeAbs(raw: string): string {
       out.push(s);
     }
   }
-  p = "/" + out.join("/");
+  p = `/${out.join("/")}`;
   if (raw.endsWith("/") && p !== "/") p += "/";
   return p;
 }

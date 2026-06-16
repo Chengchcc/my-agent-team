@@ -1,5 +1,5 @@
-import type { Message } from "@my-agent-team/message";
 import type { Plugin } from "@my-agent-team/framework";
+import type { Message } from "@my-agent-team/message";
 import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { loadSkillIndexWithMtimeCache, type SkillMeta } from "./cache.js";
 import { skillLoadTool } from "./skill-load.js";

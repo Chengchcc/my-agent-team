@@ -189,7 +189,7 @@ export class MemoryBackend implements WritableBackend {
   async remove(relPath: string): Promise<void> {
     const k = this.#key(relPath);
     for (const key of [...this.#store.keys()]) {
-      if (key === k || key.startsWith(k + "/")) {
+      if (key === k || key.startsWith(`${k}/`)) {
         this.#store.delete(key);
         this.#mtime.delete(key);
       }

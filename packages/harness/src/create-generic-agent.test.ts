@@ -4,7 +4,7 @@ import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentFsHandle } from "@my-agent-team/agent-fs";
 import { AgentFS, LocalBackend } from "@my-agent-team/agent-fs";
-import type { AIMessageChunk, ChatModel, ContentBlock, Tool } from "@my-agent-team/core";
+import type { AIMessageChunk, ChatModel, Tool } from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
 import { createGenericAgent } from "./create-generic-agent.js";
 

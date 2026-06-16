@@ -1,4 +1,4 @@
-import type { Message, MessageRevision } from "@my-agent-team/message";
+import type { Message } from "@my-agent-team/message";
 import { mergeMessageRevision, parseMessageRevision } from "@my-agent-team/message";
 
 // ─── Types ────────────────────────────────────────────────
@@ -216,7 +216,12 @@ export function reducer(s: ConvState, a: Action): ConvState {
         s.messages,
         id,
         sender,
-        { id, role: "system" as const, state: "done" as const, text: `[系统] 成员变化：${verb}。当前在场：${present}` },
+        {
+          id,
+          role: "system" as const,
+          state: "done" as const,
+          text: `[系统] 成员变化：${verb}。当前在场：${present}`,
+        },
         s.viewerMemberId,
       );
       return { ...s, roster, messages };

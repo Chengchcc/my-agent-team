@@ -181,7 +181,7 @@ export function sanitizeLarkCliOutput(text: string, secrets: string[]): string {
 
   // Truncate for safety
   if (out.length > 500) {
-    out = out.slice(0, 500) + "...";
+    out = `${out.slice(0, 500)}...`;
   }
 
   return out;

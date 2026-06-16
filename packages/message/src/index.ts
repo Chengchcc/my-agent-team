@@ -4,6 +4,12 @@ export type {
   ToolResultBlock,
   ToolUseBlock,
 } from "./content-block.js";
+export {
+  assistantMessageId,
+  isOpenMessageState,
+  isTerminalMessageState,
+  mergeMessageRevision,
+} from "./helpers.js";
 export type {
   Message,
   MessageAuthor,
@@ -12,15 +18,9 @@ export type {
   MessageState,
   MessageToolState,
 } from "./message.js";
-export type { MessageRevision } from "./revision.js";
-export {
-  assistantMessageId,
-  isOpenMessageState,
-  isTerminalMessageState,
-  mergeMessageRevision,
-} from "./helpers.js";
 export {
   MessageParseError,
   parseMessageRevision,
   serializeMessageRevision,
 } from "./parser.js";
+export type { MessageRevision } from "./revision.js";

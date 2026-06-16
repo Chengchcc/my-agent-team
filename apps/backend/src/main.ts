@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import type { ContentBlock } from "@my-agent-team/core";
+import { sqliteEventLog } from "@my-agent-team/event-log";
 import type { Message, MessageRevision } from "@my-agent-team/message";
 import { assistantMessageId } from "@my-agent-team/message";
-import { sqliteEventLog } from "@my-agent-team/event-log";
 import { createSocketClient } from "@my-agent-team/runner-protocol";
 import {
   createRuntimeTracer,
@@ -518,7 +518,14 @@ function buildAssistantRevision(
 ): MessageRevision {
   const msgId = assistantMessageId(runId);
   if (typeof content === "string") {
-    return { messageId: msgId, state, role: "assistant", text: content, runId, updatedAt: Date.now() };
+    return {
+      messageId: msgId,
+      state,
+      role: "assistant",
+      text: content,
+      runId,
+      updatedAt: Date.now(),
+    };
   }
   if (Array.isArray(content)) {
     return {
@@ -540,7 +547,14 @@ function buildAssistantRevision(
       ...(content as Record<string, unknown>),
     } as MessageRevision;
   }
-  return { messageId: msgId, state, role: "assistant", text: String(content), runId, updatedAt: Date.now() };
+  return {
+    messageId: msgId,
+    state,
+    role: "assistant",
+    text: String(content),
+    runId,
+    updatedAt: Date.now(),
+  };
 }
 
 /** Conversation Projection (incremental): project a single message produced mid-run into the

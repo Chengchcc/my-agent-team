@@ -1,5 +1,5 @@
-import type { Message } from "@my-agent-team/message";
 import type { Plugin } from "@my-agent-team/framework";
+import type { Message } from "@my-agent-team/message";
 import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { pjoin } from "@my-agent-team/tools-common";
 import { readMemoryWithMtimeCache } from "./cache.js";

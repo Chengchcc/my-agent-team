@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { AIMessageChunk, ChatModel } from "./chat-model.js";
 import type { Message } from "@my-agent-team/message";
+import type { AIMessageChunk, ChatModel } from "./chat-model.js";
 import { run } from "./run.js";
 import type { Tool } from "./tool.js";
 
@@ -48,10 +48,10 @@ describe("run", () => {
 
     const yielded = await collect(run(scriptedModel([{ type: "text", text: "hi" }]), [], messages));
 
-    expect(yielded).toEqual([{ role: "assistant", blocks: [{ type: "text", text:"hi" }] }]);
+    expect(yielded).toEqual([{ role: "assistant", blocks: [{ type: "text", text: "hi" }] }]);
     expect(messages).toEqual([
       { role: "user", text: "hello" },
-      { role: "assistant", blocks: [{ type: "text", text:"hi" }] },
+      { role: "assistant", blocks: [{ type: "text", text: "hi" }] },
     ]);
   });
 
@@ -74,7 +74,7 @@ describe("run", () => {
 
     expect(yielded.at(-1)).toEqual({
       role: "assistant",
-      blocks: [{ type: "text", text:"sunny" }],
+      blocks: [{ type: "text", text: "sunny" }],
     });
     expect(messages).toEqual([
       { role: "user", text: "lookup weather" },
@@ -88,7 +88,7 @@ describe("run", () => {
           { type: "tool_result", tool_use_id: "toolu_1", content: 'result:{"q":"weather"}' },
         ],
       },
-      { role: "assistant", blocks: [{ type: "text", text:"sunny" }] },
+      { role: "assistant", blocks: [{ type: "text", text: "sunny" }] },
     ]);
   });
 
@@ -151,7 +151,7 @@ describe("run", () => {
       run(abortingModel, [], messages, { signal: abortController.signal }),
     );
 
-    expect(yielded).toEqual([{ role: "assistant", blocks: [{ type: "text", text:"partial" }] }]);
+    expect(yielded).toEqual([{ role: "assistant", blocks: [{ type: "text", text: "partial" }] }]);
     expect(messages).toEqual([{ role: "user", text: "start" }]);
 
     const emptyMessages: Message[] = [{ role: "user", text: "empty" }];

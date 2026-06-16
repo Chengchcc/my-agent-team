@@ -1,7 +1,7 @@
-import type { ChatModel, ContentBlock, Tool } from "@my-agent-team/core";
+import type { ChatModel, Tool } from "@my-agent-team/core";
 import { collectStream } from "@my-agent-team/core";
-import type { Message } from "@my-agent-team/message";
 import type { Plugin, StopDecision } from "@my-agent-team/framework";
+import type { Message } from "@my-agent-team/message";
 
 // ─── Types ───
 

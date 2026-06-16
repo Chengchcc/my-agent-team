@@ -24,9 +24,7 @@ describe("parseMessageRevision", () => {
   });
 
   test("fails on non-object input (array)", () => {
-    expect(() =>
-      parseMessageRevision([{ type: "text", text: "old" }]),
-    ).toThrow(MessageParseError);
+    expect(() => parseMessageRevision([{ type: "text", text: "old" }])).toThrow(MessageParseError);
   });
 
   test("fails on missing messageId", () => {
@@ -47,9 +45,9 @@ describe("parseMessageRevision", () => {
   });
 
   test("fails on missing role", () => {
-    expect(() =>
-      parseMessageRevision({ messageId: "m1", state: "done", updatedAt: 1000 }),
-    ).toThrow(MessageParseError);
+    expect(() => parseMessageRevision({ messageId: "m1", state: "done", updatedAt: 1000 })).toThrow(
+      MessageParseError,
+    );
   });
 
   test("fails on missing updatedAt", () => {
@@ -98,9 +96,7 @@ describe("parseMessageRevision", () => {
   });
 
   test("fails on old { text, runId } shape", () => {
-    expect(() =>
-      parseMessageRevision({ text: "legacy", runId: "r1" }),
-    ).toThrow(MessageParseError);
+    expect(() => parseMessageRevision({ text: "legacy", runId: "r1" })).toThrow(MessageParseError);
   });
 
   test("fails on old blocks-only shape", () => {

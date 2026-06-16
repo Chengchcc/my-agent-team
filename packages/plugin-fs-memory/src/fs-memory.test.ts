@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { AgentFS, MemoryBackend } from "@my-agent-team/agent-fs";
-import type { Message } from "@my-agent-team/message";
 import {
   consoleLogger,
   type HookContext,
   inMemoryCheckpointer,
   passthroughContextManager,
 } from "@my-agent-team/framework";
+import type { Message } from "@my-agent-team/message";
 import { invalidateMemCache } from "./cache.js";
 import { fsMemoryPlugin } from "./fs-memory.js";
 
@@ -50,7 +50,7 @@ describe("fsMemoryPlugin", () => {
 
     const plugin = fsMemoryPlugin({ ws, root });
     const msgs: Message[] = [
-      { role: "system", text:"You are helpful." },
+      { role: "system", text: "You are helpful." },
       { role: "user", text: "hi" },
     ];
 
@@ -68,7 +68,7 @@ describe("fsMemoryPlugin", () => {
 
     const plugin = fsMemoryPlugin({ ws, root });
     const msgs: Message[] = [
-      { role: "system", text:"sys" },
+      { role: "system", text: "sys" },
       { role: "user", text: "hi" },
     ];
 
@@ -83,7 +83,7 @@ describe("fsMemoryPlugin", () => {
     invalidateMemCache(root);
     const plugin = fsMemoryPlugin({ ws, root });
     const msgs: Message[] = [
-      { role: "system", text:"sys" },
+      { role: "system", text: "sys" },
       { role: "user", text: "hi" },
     ];
 
@@ -136,7 +136,7 @@ describe("fsMemoryPlugin", () => {
 
     const plugin = fsMemoryPlugin({ ws, root });
     const msgs: Message[] = [
-      { role: "system", text:"sys" },
+      { role: "system", text: "sys" },
       { role: "user", text: "hi" },
     ];
 
