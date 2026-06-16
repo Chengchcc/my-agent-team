@@ -12,7 +12,6 @@ import {
   reducer,
   type SenderRef,
 } from "@/lib/conversation-reducer";
-import { api } from "@/lib/api";
 
 function safeParse(raw: string): unknown {
   try {
