@@ -182,24 +182,27 @@ export function createRunService(deps: RunServiceDeps) {
      *  text_delta/tool_start/tool_end) into a single stream. Eliminates the
      *  need for the frontend to open two EventSource connections per run. */
     mergedStream(runId: string, afterSeq: number, signal?: AbortSignal): ReadableStream {
-      const self = this;
+      const encoder = new TextEncoder();
+
       return new ReadableStream({
         async start(controller) {
+          const enq = (s: string) => controller.enqueue(encoder.encode(s));
           // Phase 1: replay EventLog history
           const records = await eventLog.read({ runId, afterSeq });
           for (const rec of records) {
             if (signal?.aborted) { controller.close(); return; }
-            controller.enqueue(`id: ${rec.seq}\nevent: ${rec.event.type}\ndata: ${JSON.stringify(rec.event)}\n\n`);
+            enq(`id: ${rec.seq}\nevent: ${rec.event.type}\ndata: ${JSON.stringify(rec.event)}\n\n`);
           }
 
-          // Phase 2: tail both EventLog (durable) and delta (ephemeral) concurrently
+          // Phase 2: tail both EventLog (durable) and delta (ephemeral) concurrently.
+          // Start after the last record we just replayed to avoid duplicates.
           const deltaReader = supervisor.subscribeDelta(runId).getReader();
-          let eventSeq = afterSeq;
+          let eventSeq = records.length > 0 ? (records[records.length - 1]?.seq ?? afterSeq) : afterSeq;
 
           const pollEventLog = async () => {
             for await (const rec of eventLog.subscribe({ runId, afterSeq: eventSeq }, {}, signal)) {
               eventSeq = rec.seq;
-              controller.enqueue(`id: ${rec.seq}\nevent: ${rec.event.type}\ndata: ${JSON.stringify(rec.event)}\n\n`);
+              enq(`id: ${rec.seq}\nevent: ${rec.event.type}\ndata: ${JSON.stringify(rec.event)}\n\n`);
             }
           };
 
@@ -207,7 +210,8 @@ export function createRunService(deps: RunServiceDeps) {
             while (true) {
               const { done, value } = await deltaReader.read();
               if (done) break;
-              controller.enqueue(value);
+              // Delta stream may output strings or Uint8Array
+              controller.enqueue(typeof value === "string" ? encoder.encode(value) : value);
             }
           };
 
@@ -222,6 +226,7 @@ export function createRunService(deps: RunServiceDeps) {
             donePromise,
           ]);
 
+          enq("event: done\ndata: {}\n\n");
           controller.close();
         },
       });

@@ -242,16 +242,34 @@ async function processEntry(
   let extractedRunId: string | undefined;
   try { parsedContent = JSON.parse(entry.content); } catch { /* use raw */ }
 
-  // Incremental projections (mid-run) carry _preliminary:true — the final
-  // answer will arrive as a card after run completion. Skip them to avoid
-  // sending duplicate text messages.
+  // Incremental projections (mid-run) carry _preliminary:true. The final answer
+  // normally arrives as a card after run completion, so skip them to avoid
+  // duplicate text messages — BUT only when the card path is healthy. If card
+  // delivery failed (status=fallback_text / cardSendFailed / cardUpdateFailed),
+  // the ledger text is the only way the human sees the answer, so fall through
+  // and send it instead of silently dropping it.
   if (
     parsedContent &&
     typeof parsedContent === "object" &&
     (parsedContent as Record<string, unknown>)._preliminary === true
   ) {
-    updatePushedSeq(db, larkChatId, entry.seq);
-    return;
+    const prelimRunId = (parsedContent as { runId?: string }).runId;
+    let cardFailed = false;
+    if (prelimRunId) {
+      const rs = getRunStreamsByConversation(db, entry.conversationId).find(
+        (r) => r.runId === prelimRunId,
+      );
+      cardFailed =
+        !!rs &&
+        (rs.status === "fallback_text" ||
+          rs.cardSendFailed === 1 ||
+          rs.cardUpdateFailed === 1);
+    }
+    if (!cardFailed) {
+      updatePushedSeq(db, larkChatId, entry.seq);
+      return;
+    }
+    // card failed → fall through to send ledger text as fallback delivery
   }
 
   if (parsedContent && typeof parsedContent === "object" && "runId" in parsedContent) {
