@@ -1,0 +1,426 @@
+{
+  "concepts": [
+    {
+      "id": "architecture.index",
+      "title": "架构 Wiki 首页",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/README.md",
+      "summary": "这是给人看的架构 Wiki 入口。它不是按里程碑流水账排的，而是按「你想干什么」组织阅读路线。先在这里选好路线，再去读具体实现页。",
+      "depends_on": [],
+      "used_by": []
+    },
+    {
+      "id": "architecture.system-overview",
+      "title": "系统总览",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/system-overview.md",
+      "summary": "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。对话账本是共享的对话事实，EventLog 是单次运行的执行事实，会话投影把后者单向桥接到前者。",
+      "depends_on": [
+        "foundations.facts-and-projections"
+      ],
+      "used_by": [
+        "flows.e2e-web-message",
+        "flows.e2e-lark-message"
+      ]
+    },
+    {
+      "id": "foundations.facts-and-projections",
+      "title": "事实与投影",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/foundations/facts-and-projections.md",
+      "summary": "系统里有好几个结构都叫「messages」，但它们回答的是不同的问题。对话账本和 EventLog 是持久的「事实」；线程投影和各种 SSE 流是从事实推导出来的「投影」；Runner 本地的 Checkpointer 则是执行恢复用的状态。把它们混为一谈，正是重复消息、检查点污染、UI 丢事件这类 bug 的根源。",
+      "depends_on": [],
+      "used_by": [
+        "backend.conversation-projection",
+        "backend.data-model",
+        "operations.troubleshooting"
+      ]
+    },
+    {
+      "id": "backend.conversation-projection",
+      "title": "会话投影",
+      "status": "current",
+      "owners": "backend-runtime",
+      "path": "docs/architecture/backend/conversation-projection.md",
+      "summary": "会话投影是后端独占的那座桥：它把一次运行产出的 `message` 事件，转成对话账本里一条对话可见的消息。它由 `apps/backend/src/main.ts` 里的 `projectRunMessageToLedger` 实现，注册成 `RunSupervisor` 的 `onRunEvent` 监听器，按事件增量触发——也就是说，运行还没结束，中途的每条消息就已经在投影了。",
+      "depends_on": [
+        "backend.event-log",
+        "backend.run-supervisor",
+        "conversation.ledger"
+      ],
+      "used_by": [
+        "surfaces.web",
+        "surfaces.lark-adapter",
+        "flows.e2e-web-message",
+        "flows.e2e-lark-message",
+        "operations.troubleshooting"
+      ]
+    },
+    {
+      "id": "backend.overview",
+      "title": "后端总览",
+      "status": "current",
+      "owners": "backend-runtime",
+      "path": "docs/architecture/backend/overview.md",
+      "summary": "后端（apps/backend）是整个系统的事实持有者：它拥有 agents、对话、成员、运行、事件、账本和投影。它对外是一组 HTTP/SSE 接口，对内由几个相互独立的 feature 模块组成，存储分成 backend.db 和 events.db 两个库。",
+      "depends_on": [],
+      "used_by": [
+        "backend.run-supervisor",
+        "backend.data-model"
+      ]
+    },
+    {
+      "id": "backend.run-supervisor",
+      "title": "RunSupervisor",
+      "status": "current",
+      "owners": "backend-runtime",
+      "path": "docs/architecture/backend/run-supervisor.md",
+      "summary": "RunSupervisor（apps/backend/src/features/run/supervisor.ts）是后端里运行与尝试生命周期的唯一拥有者。它启动/恢复/取消运行，接收 Runner 的传输消息，写 EventLog，推流，更新运行状态，跑收割器恢复，并按确定的顺序回调 onRunEvent / onRunComplete。",
+      "depends_on": [
+        "runner.runner-protocol"
+      ],
+      "used_by": [
+        "backend.event-log",
+        "backend.conversation-projection",
+        "flows.e2e-web-message"
+      ]
+    },
+    {
+      "id": "backend.event-log",
+      "title": "EventLog",
+      "status": "current",
+      "owners": "backend-runtime",
+      "path": "docs/architecture/backend/event-log.md",
+      "summary": "EventLog（packages/event-log）是单次运行历史的持久事实。后端 RunSupervisor 把 Runner 上报的事件追加进来，运行事件 SSE 从它按 seq 续读，会话投影也从它消费 message 事件。Runner 自己不直接打开这个库。",
+      "depends_on": [
+        "backend.run-supervisor"
+      ],
+      "used_by": [
+        "backend.conversation-projection",
+        "surfaces.web",
+        "operations.troubleshooting"
+      ]
+    },
+    {
+      "id": "backend.data-model",
+      "title": "数据模型",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/backend/data-model.md",
+      "summary": "持久状态分布在三处：backend.db 拥有 agents、对话、成员、账本和线程投影；events.db 拥有运行、尝试、事件日志和各类 ops/健康表；Runner 本地的 checkpointer.sqlite 拥有续跑检查点。下面给出与代码对齐的真实表结构。",
+      "depends_on": [
+        "foundations.facts-and-projections"
+      ],
+      "used_by": [
+        "backend.conversation-projection",
+        "operations.troubleshooting"
+      ]
+    },
+    {
+      "id": "backend.agent-spec",
+      "title": "AgentSpec",
+      "status": "current",
+      "owners": "backend-runtime",
+      "path": "docs/architecture/backend/agent-spec.md",
+      "summary": "AgentSpec 是后端下发给 Runner 的序列化指令：跑哪个 Agent、在哪个 thread、什么模式、用什么模型。它是 Backend 编排与 Runner 执行之间的边界对象，刻意不携带后端数据库句柄和端的细节。现行代码只用 V2（discriminatedUnion on mode）。",
+      "depends_on": [
+        "runner.runner-protocol"
+      ],
+      "used_by": [
+        "runner.resident-runner"
+      ]
+    },
+    {
+      "id": "conversation.ledger",
+      "title": "对话账本",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/conversation/ledger.md",
+      "summary": "对话账本是共享对话历史的持久事实。它记录人的消息、被投影进来的 assistant 消息、成员/系统事件，以及个别 UI 可见的控制条目。端只是渲染它；线程投影从它派生出每个 Agent 各自的上下文。",
+      "depends_on": [
+        "foundations.facts-and-projections"
+      ],
+      "used_by": [
+        "backend.conversation-projection",
+        "surfaces.web",
+        "surfaces.lark-adapter"
+      ]
+    },
+    {
+      "id": "conversation.members",
+      "title": "对话与成员",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/conversation/conversation-and-members.md",
+      "summary": "对话是共享协作空间，成员是人/Agent/系统在这个空间里的本地身份。触发模式、跳数上限、活动锁和 @提及解析，共同防止多 Agent 失控地互相触发。",
+      "depends_on": [],
+      "used_by": [
+        "flows.e2e-lark-message",
+        "backend.conversation-projection"
+      ]
+    },
+    {
+      "id": "surfaces.web",
+      "title": "Web 端",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/surfaces/web.md",
+      "summary": "Web 端是浏览器里的对话与运行界面。它同时消费两条 SSE——会话/账本流和运行流——在 conversation-reducer 里把乐观消息、实时草稿、运行阶段、todo 合并成一份状态。它的核心难点是「临时草稿」和「持久账本消息」之间的交接。",
+      "depends_on": [
+        "conversation.ledger",
+        "backend.conversation-projection"
+      ],
+      "used_by": [
+        "flows.e2e-web-message",
+        "operations.troubleshooting"
+      ]
+    },
+    {
+      "id": "surfaces.lark-adapter",
+      "title": "飞书适配器",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/surfaces/lark-adapter.md",
+      "summary": "飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，把运行流渲染成流式卡片，再消费账本消息决定最终可见文本。它最棘手的地方是去重：同一个答案可能从「卡片」和「账本最终文本」两条路各到一次。",
+      "depends_on": [
+        "conversation.ledger",
+        "backend.conversation-projection"
+      ],
+      "used_by": [
+        "flows.e2e-lark-message",
+        "operations.troubleshooting"
+      ]
+    },
+    {
+      "id": "surfaces.overview",
+      "title": "端总览",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/surfaces/overview.md",
+      "summary": "端是面向用户的适配器，目前是 Web 和飞书。它们采集输入、渲染账本与运行流、把外部身份映射成成员、处理 UX 层的去重；但它们不拥有任何持久事实。",
+      "depends_on": [],
+      "used_by": [
+        "surfaces.web",
+        "surfaces.lark-adapter"
+      ]
+    },
+    {
+      "id": "flows.e2e-web-message",
+      "title": "Web 消息端到端",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/flows/e2e-web-message.md",
+      "summary": "这条流追踪一条 Web 用户消息：从乐观 UI，经账本追加、运行触发、Runner 执行、EventLog 追加、会话投影，到最终 UI 对账。它把前面几页的概念串成一次完整往返。",
+      "depends_on": [
+        "surfaces.web",
+        "backend.conversation-projection",
+        "backend.run-supervisor"
+      ],
+      "used_by": []
+    },
+    {
+      "id": "flows.e2e-lark-message",
+      "title": "飞书消息端到端",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/flows/e2e-lark-message.md",
+      "summary": "这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、流式卡片渲染、投影，到最终文本去重。它解释了为什么飞书用户有时会收到两遍同一个答案。",
+      "depends_on": [
+        "surfaces.lark-adapter",
+        "backend.conversation-projection"
+      ],
+      "used_by": []
+    },
+    {
+      "id": "runner.resident-runner",
+      "title": "常驻 Runner",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/runner/resident-runner.md",
+      "summary": "常驻 Runner 是真正执行 Agent 的进程。每个 Agent 对应一个独立的常驻进程，由 runner-daemon 拉起并保活；它本地维护自己的 checkpointer.sqlite 用于断点恢复，通过心跳向后端证明自己还活着，但它完全不懂对话语义，也不知道飞书的去重规则——它只负责跑、只负责把事件原样上报。",
+      "depends_on": [
+        "runner.runner-protocol",
+        "runner.agent-file-system"
+      ],
+      "used_by": [
+        "backend.run-supervisor"
+      ]
+    },
+    {
+      "id": "runner.runner-protocol",
+      "title": "Runner 协议",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/runner/runner-protocol.md",
+      "summary": "Runner 协议是后端（Host）与常驻 Runner 之间的双向消息契约。它把「谁能发起什么、谁能上报什么」固化成两组有判别字段的消息类型：Host 只能下达 start / abort / run_finalized，Runner 只能上报 run_started / event / delta / heartbeat / run_done / daemon_health。这条协议是执行层和编排层之间唯一的通信面。",
+      "depends_on": [
+        "backend.event-log",
+        "backend.agent-spec"
+      ],
+      "used_by": [
+        "runner.resident-runner",
+        "backend.run-supervisor"
+      ]
+    },
+    {
+      "id": "runner.agent-file-system",
+      "title": "Agent 文件系统",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/runner/agent-file-system.md",
+      "summary": "Agent 文件系统（AgentFS）是 Agent 在运行时看到的那套虚拟文件视图。它用一张挂载表把对外暴露的路径前缀映射到不同的后端与「域」。真实的两个根是 /shared 和 /private——常被误以为有 /workspace，其实没有；面向 Agent 的 /memory 映射到 shared 域，/skills 映射到 private 域。",
+      "depends_on": [
+        "runner.resident-runner"
+      ],
+      "used_by": [
+        "plugins.fs-memory",
+        "plugins.progressive-skill"
+      ]
+    },
+    {
+      "id": "runtime.framework",
+      "title": "Framework 运行循环",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/runtime/framework.md",
+      "summary": "Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏是 runLoop：一个受 maxSteps 与 maxForceContinues 约束的循环，每一步可能调模型、可能调工具，并把过程拆成一串结构化 AgentEvent 往外吐。围绕循环还有一组生命周期钩子和一个 Checkpointer 接口，分别负责「在关键节点插手」和「断点存取」。",
+      "depends_on": [
+        "runner.resident-runner"
+      ],
+      "used_by": [
+        "runtime.plugin",
+        "plugins.task-guard"
+      ]
+    },
+    {
+      "id": "runtime.plugin",
+      "title": "运行时插件机制",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/runtime/plugin.md",
+      "summary": "插件是往 Framework 运行循环里挂行为的标准方式。一个插件就是一个带名字、带一组钩子、可选带工具的对象；createAgent 收下所有插件，由 createPluginRunner 在循环的各个节点按顺序触发它们的钩子。记忆、技能、防早停都是用这套机制实现的，循环本体不需要知道它们的存在。",
+      "depends_on": [
+        "runtime.framework"
+      ],
+      "used_by": [
+        "harness.harness",
+        "plugins.fs-memory",
+        "plugins.progressive-skill",
+        "plugins.task-guard"
+      ]
+    },
+    {
+      "id": "harness.harness",
+      "title": "Harness 默认装配",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/harness/harness.md",
+      "summary": "Harness 把 Framework 这套底座装配成一个「开箱即用」的通用 Agent。它的入口是 createGenericAgent：在裸 Framework 之上，预置一组默认工具（基于 AgentFS 的 Read/Write/Edit，加上带工作区沙箱的 bash/glob/grep）和一组默认插件（文件型记忆、渐进式技能、防早停守卫），让上层不必每次都手工拼装。",
+      "depends_on": [
+        "runtime.framework",
+        "runtime.plugin",
+        "runner.agent-file-system"
+      ],
+      "used_by": []
+    },
+    {
+      "id": "plugins.fs-memory",
+      "title": "文件型记忆插件",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/plugins/fs-memory.md",
+      "summary": "文件型记忆插件（fsMemoryPlugin）让 Agent 拥有「跨运行记得住」的长期记忆。它把记忆落在 AgentFS 的 /memory/ 路径下（shared 域），通过 beforeModel 钩子在每次模型调用前把相关记忆注入系统提示，并向 Agent 暴露 memory_read / memory_write / memory_search 这组工具来主动读写。",
+      "depends_on": [
+        "runtime.plugin",
+        "runner.agent-file-system"
+      ],
+      "used_by": []
+    },
+    {
+      "id": "plugins.progressive-skill",
+      "title": "渐进式技能插件",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/plugins/progressive-skill.md",
+      "summary": "渐进式技能插件（progressiveSkillPlugin）解决「技能很多但上下文有限」的矛盾。它不把所有技能正文一股脑塞进提示，而是先通过 beforeModel 只注入一份技能索引（元数据），等 Agent 判断需要某个技能时，再用 skill_load 工具按需把那一个技能的正文加载进来。技能存在 AgentFS 的 /skills/ 下，归 private 域。",
+      "depends_on": [
+        "runtime.plugin",
+        "runner.agent-file-system"
+      ],
+      "used_by": []
+    },
+    {
+      "id": "plugins.task-guard",
+      "title": "防早停任务守卫",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/plugins/task-guard.md",
+      "summary": "防早停任务守卫（taskGuardPlugin）专治 Agent「活没干完就想收工」。它挂在 beforeStop 钩子上：当 Agent 准备停下时，守卫检查是否还有未解决的工具错误、是否还有未完成的待办步骤；只要有，就否决停止、返回「继续」并附上原因。这种强制继续受 Framework 的 maxForceContinues（默认 3）约束，不会无限续命。",
+      "depends_on": [
+        "runtime.framework",
+        "runtime.plugin"
+      ],
+      "used_by": []
+    },
+    {
+      "id": "security.overview",
+      "title": "隔离与安全模型",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/security/overview.md",
+      "summary": "这个系统的安全性不是靠一道总闸，而是靠几条彼此正交的隔离边界叠加：后端入口的鉴权中间件、对话层的线程隔离、文件层的域隔离、以及执行层的工作区沙箱。理解它们各自挡住什么、各自不管什么，才能知道一条数据从入口到落盘一路被哪些边界约束。",
+      "depends_on": [
+        "conversation.members",
+        "runner.agent-file-system",
+        "harness.harness"
+      ],
+      "used_by": []
+    },
+    {
+      "id": "operations.troubleshooting",
+      "title": "排障手册",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/operations/troubleshooting.md",
+      "summary": "这一页把常见故障按「症状 → 该去哪条事实线查 → 根因方向」组织起来。核心心法是：先判断问题落在哪一层——是对话事实（账本）错了，还是投影/流（线程投影、SSE）错了，还是执行(Runner / 事件日志)错了——再顺着对应的存储和不变式去定位，而不是一上来就乱翻日志。",
+      "depends_on": [
+        "foundations.facts-and-projections",
+        "backend.conversation-projection",
+        "backend.run-supervisor"
+      ],
+      "used_by": []
+    },
+    {
+      "id": "foundations.lifecycle-overview",
+      "title": "一次运行的生命周期",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/foundations/lifecycle-overview.md",
+      "summary": "这一页把一次 Agent 运行从「被发起」到「彻底收尾」串成一条时间线，标出每个阶段由谁负责、产出什么事实、触发什么投影。它是理解后端、Runner、Framework、各端如何咬合的总览——具体每一段的细节都另有专页，这里只给骨架和顺序。",
+      "depends_on": [
+        "foundations.facts-and-projections",
+        "backend.conversation-projection",
+        "backend.run-supervisor",
+        "runtime.framework"
+      ],
+      "used_by": []
+    },
+    {
+      "id": "roadmap.future-work",
+      "title": "未来工作",
+      "status": "future",
+      "owners": "architecture",
+      "path": "docs/architecture/roadmap/future-work.md",
+      "summary": "这一页是唯一谈「还没做 / 想做」的地方——刻意和描述当前状态的所有页面隔离开，避免把「现状」和「设想」混在一起误导读者。其余每一页都只讲代码现在确实是怎样的；任何前瞻性的方向都收拢到这里，并标注它依赖哪些现有抽象。",
+      "depends_on": [
+        "backend.conversation-projection",
+        "surfaces.lark-adapter",
+        "runtime.framework"
+      ],
+      "used_by": []
+    }
+  ]
+}

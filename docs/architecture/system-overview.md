@@ -1,0 +1,159 @@
+---
+id: architecture.system-overview
+title: 系统总览
+status: current
+owners: architecture
+last_verified_against_code: 2026-06-16
+summary: "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。对话账本是共享的对话事实，EventLog 是单次运行的执行事实，会话投影把后者单向桥接到前者。"
+depends_on:
+  - foundations.facts-and-projections
+used_by:
+  - flows.e2e-web-message
+  - flows.e2e-lark-message
+---
+
+# 系统总览
+
+整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。对话账本是共享的对话事实，EventLog 是单次运行的执行事实，会话投影把后者单向桥接到前者。
+
+## 这套架构在解决什么问题
+
+单 Agent 的循环可以把所有历史塞进一个 `thread.messages` 里，因为只有一个读者、一个写者。但团队 Agent 产品做不到：人、多个 Agent、Web、飞书、后台运行、中断、重试、观测流，全都需要对「同一段活动」的不同视图。所以系统把**执行**和**协作**拆开：
+
+- Runner 执行一个 Agent。
+- EventLog 记录这次运行的历史。
+- 后端持有团队语义（谁是成员、该触发谁、锁与跳数）。
+- 对话账本记录共享对话历史。
+- 端渲染这些事实。
+
+## 容器视图
+
+```mermaid
+flowchart TB
+  subgraph Surfaces[端]
+    Web[apps/web\nWeb 控制台]
+    Lark[apps/lark-bot\n飞书 Bot]
+  end
+
+  subgraph Backend[apps/backend]
+    API[HTTP/SSE 路由]
+    Conv[Conversation Service]
+    Sup[RunSupervisor]
+    Proj[会话投影 projectRunMessageToLedger]
+    Ops[运行可观测性]
+  end
+
+  subgraph Storage[存储]
+    BDB[(backend.db\nagents/conversation/member\nconversation_ledger/checkpoint_messages)]
+    EDB[(events.db\nrun/attempt/event_log\nrun_ops_event/runner_health)]
+  end
+
+  subgraph Runner[Runner 侧]
+    Daemon[常驻 Runner 进程（每 Agent 一个）]
+    Agent[Framework Agent]
+    CKPT[(checkpointer.sqlite\n按 stateRoot)]
+    AFS[Agent 文件系统 /shared /private]
+  end
+
+  Web <--> API
+  Lark <--> API
+  API --> Conv
+  API --> Sup
+  Conv --> BDB
+  Sup --> EDB
+  Sup <--> Daemon
+  Daemon --> Agent
+  Agent --> CKPT
+  Agent --> AFS
+  Sup --> Proj
+  Proj --> Conv
+  Proj --> BDB
+  BDB --> Web
+  BDB --> Lark
+```
+
+## 分层与各自的边界
+
+| 层 | 名字 | 拥有 | 不该拥有 |
+|---|---|---|---|
+| L1 | Core 原语 | Message / Tool / ChatModel / Thread | 后端、端、租户语义 |
+| L2 | Framework | Agent 主循环、插件、上下文管理、Checkpointer | 成员关系、账本 |
+| L3 | Harness | 把文件/工具/插件装配成 Agent | 运行调度、团队路由 |
+| L4 | Runner | 进程/会话生命周期、心跳、中止/恢复 | 账本写入规则、飞书/Web 去重 |
+| L5 | Backend | agents / conversation / run / event / 账本 / 投影 | 模型与工具内部 |
+| L6 | 端 | Web/飞书的输入与渲染 | 任何持久化事实 |
+
+## 一次完整运行的时序
+
+```mermaid
+sequenceDiagram
+  participant H as 人
+  participant S as 端
+  participant B as Backend
+  participant L as 对话账本
+  participant R as Runner
+  participant E as EventLog
+  participant P as 会话投影
+
+  H->>S: 发消息
+  S->>B: POST 会话消息
+  B->>L: 追加「人」的账本条目
+  B->>B: 判定触发模式与目标 Agent
+  B->>R: 下发 start(AgentSpec)
+  R->>B: 每 5s 心跳 + 流式 delta
+  R->>B: event(type=message)
+  B->>E: 先把事件写进 EventLog
+  B->>P: 写成功后才回调 onRunEvent
+  P->>L: 追加「assistant」账本条目（包 runId）
+  L-->>S: 会话 SSE 推给端
+  R->>B: run_done(status)
+  B->>B: 跑 onRunComplete（放锁/快照/扫@）
+  B->>R: run_finalized
+```
+
+这里有两个顺序上的关键点，后面多页会反复用到：
+
+1. **EventLog 先写、投影后跑。** 在 `RunSupervisor` 的 `"event"` 分支里，`eventLog.append(...)` 成功之后才遍历 `onRunEvent` 监听器；append 失败会抛出、阻止 run 被当成完成，而监听器（投影）失败只记日志、不影响运行。
+2. **`run_done` 时先落库、再跑完成钩子、最后才发 `run_finalized`。** 顺序是：更新 attempt/run 状态 → 关掉 delta 订阅 → 从活动表删除 → 并行 await 所有 `onRunComplete` → 才向 daemon 发 `run_finalized`。
+
+## 当前实现的几条边界
+
+- EventLog 由后端 `RunSupervisor` 在收到 Runner 传输事件后追加；Runner 不直接打开 EventLog 库。
+- 会话投影 `projectRunMessageToLedger` 在 `apps/backend/src/main.ts` 里注册为 `onRunEvent` 监听器，按事件**增量**触发；`onRunComplete` 已经不再批量补写消息，只做放锁、todo 快照、@提及扫描。
+- Runner 本地的 `checkpointer.sqlite` 是给 Agent 执行恢复用的；后端侧的线程投影（`checkpoint_messages` 表）是给「下次运行前把对话喂给 Agent」用的——两者同名易混，但用途不同。
+- Web 同时消费会话 SSE 和运行流，在 reducer 里合并。
+- 飞书消费运行流渲染卡片，再消费账本消息决定最终可见文本。
+
+## 不变量
+
+1. 对话事实与运行事实分属两类，互不充当对方。
+2. 端可以展示数据，但不能成为事实来源。
+3. Runner 执行 AgentSpec、上报事件，它不决定对话语义。
+4. 从「运行消息」变成「对话可见消息」，只能经由会话投影这一座桥。
+5. 线程投影可以从账本重建；账本不能从线程投影重建。
+
+## 例子：Agent 在 Web 里回答一句话
+
+1. 用户在 Web 发「总结一下这个仓库」。
+2. 后端把用户消息追加进账本。
+3. 触发逻辑启动目标 Agent 成员的运行。
+4. Runner 把 delta 流给 Web 做实时草稿。
+5. Runner 发出最终 `message` 事件。
+6. 后端写 EventLog。
+7. 投影把 assistant 文本包上 runId 写进账本。
+8. Web 收到账本事件，用它替换掉实时草稿。
+
+## 当前缺口
+
+- 增量投影还缺幂等键和「纯工具消息」过滤（见 [会话投影](./backend/conversation-projection.md)）。
+- Web 草稿生命周期目前按「同 Agent」匹配，不是按 runId（见 [Web 端](./surfaces/web.md)）。
+- 飞书最终文本的去重与投影时机不完全对齐（见 [飞书适配器](./surfaces/lark-adapter.md)）。
+- 部分旧文档/接口还残留历史路由设计；本 Wiki 一律以当前代码行为为准。
+
+## 关联页面
+
+- [事实与投影](./foundations/facts-and-projections.md)
+- [RunSupervisor](./backend/run-supervisor.md)
+- [会话投影](./backend/conversation-projection.md)
+- [Web 端](./surfaces/web.md)
+- [飞书适配器](./surfaces/lark-adapter.md)
