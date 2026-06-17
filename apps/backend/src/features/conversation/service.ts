@@ -421,6 +421,34 @@ export function createConversationService(deps: ConversationServiceDeps) {
       lock.releaseOne(conversationId);
     },
 
+    /** M17.5 P7: Write an assistant message revision directly to the ledger.
+     *  This is the SOLE authoritative entry for assistant messages in the conversation.
+     *  Replaces the old path of event_log → projection → ledger. */
+    async appendAssistantMessage(input: {
+      conversationId: string;
+      senderMemberId: string;
+      runId: string;
+      revision: MessageRevision;
+    }): Promise<number> {
+      const stamped: MessageRevision = {
+        ...input.revision,
+        conversationId: input.conversationId,
+        runId: input.runId,
+      };
+      const serialized = serializeMessageRevision(stamped);
+      const ts = Date.now();
+      const seq = port.appendLedgerEntry({
+        conversationId: input.conversationId,
+        senderMemberId: input.senderMemberId,
+        addressedTo: [],
+        kind: "message",
+        content: serialized,
+        ts,
+        runId: input.runId,
+      });
+      return seq;
+    },
+
     /** M14.4: Trigger agent runs from agent-to-agent @mentions.
      *  Only forks runs — does NOT append ledger entries (caller already did).
      *  Best-effort: silently skips if conversation busy or hop-capped. */

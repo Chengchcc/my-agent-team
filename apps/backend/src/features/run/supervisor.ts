@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
-import type { Message } from "@my-agent-team/message";
+import type { Message, MessageRevision } from "@my-agent-team/message";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
 import type { RuntimeTraceContext, RuntimeTracer } from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";
@@ -85,6 +85,12 @@ export class RunSupervisor {
   > = [];
   #onRunEvent: Array<
     (threadId: string, runId: string, event: AgentEvent, kind: string) => void | Promise<void>
+  > = [];
+  /** M17.5 P7: Callbacks for assistant message events — invoked BEFORE EventLog.
+   *  This is the authoritative ledger write path (critical). Separate from
+   *  #onRunEvent which is now best-effort observability only. */
+  #onRunMessage: Array<
+    (threadId: string, runId: string, revision: MessageRevision, kind: string) => Promise<void>
   > = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
   #reaping = false;
@@ -207,12 +213,18 @@ export class RunSupervisor {
     this.#onRunComplete.push(fn);
   }
 
-  /** Register callback invoked for every mid-run event (after it is durably
-   *  appended to the EventLog). Used by Conversation Projection to project assistant/tool messages
-   *  into the conversation ledger incrementally, so multi-round progress is
-   *  visible while the run is still in flight. Listener failures are logged and
-   *  swallowed — they must never block the run.
-   *  M17.4: kind parameter added (\"main\"|\"reflect\") — eliminates startsWith(\"reflect:\"). */
+  /** M17.5 P7: Register callback for assistant message revisions.
+   *  Invoked BEFORE EventLog — this is the authoritative ledger write path (critical).
+   *  Replaces the old event_log → projection → ledger indirection. */
+  onRunMessage(
+    fn: (threadId: string, runId: string, revision: MessageRevision, kind: string) => Promise<void>,
+  ): void {
+    this.#onRunMessage.push(fn);
+  }
+
+  /** Register callback for mid-run events (observability/fan-out only post-P7).
+   *  M17.5: Demoted to best-effort — message events are now handled by onRunMessage.
+   *  This only receives non-message events (tool_start/tool_end/text_delta). */
   onRunEvent(
     fn: (threadId: string, runId: string, event: AgentEvent, kind: string) => void | Promise<void>,
   ): void {
@@ -459,36 +471,38 @@ export class RunSupervisor {
         break;
       }
       case "event": {
-        try {
-          await this.#opts.eventLog.append(
-            this.#threadIdFor(runId),
-            runId,
-            msg.event as Parameters<EventLog["append"]>[2],
-          );
-        } catch (err) {
-          console.error(
-            `[supervisor] append event failed for ${runId}: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-          throw err; // prevent run_done from succeeding with incomplete event log
-        }
-        // Conversation Projection (incremental): notify listeners only AFTER the event is durably
-        // logged. Fire-and-forget to avoid blocking the per-transport serial queue —
-        // a slow projection must not delay heartbeats, messages, or run_done for other runs
-        // sharing the same transport.
-        if (this.#onRunEvent.length > 0) {
-          const threadId = this.#threadIdFor(runId);
-          const kind = this.#kindFor(runId);
-          const event = msg.event as AgentEvent;
+        const threadId = this.#threadIdFor(runId);
+        const kind = this.#kindFor(runId);
+        const event = msg.event as AgentEvent;
+
+        // M17.5 P7: message events → onRunMessage (authoritative ledger write, critical).
+        // Non-message events → EventLog (execution detail) + onRunEvent (best-effort fan-out).
+        if (event.type === "message" && this.#onRunMessage.length > 0) {
+          for (const fn of this.#onRunMessage) {
+            await fn(threadId, runId, event.payload as MessageRevision, kind);
+          }
           for (const fn of this.#onRunEvent) {
-            void Promise.resolve(fn(threadId, runId, event, kind)).catch((err: unknown) => {
+            void Promise.resolve(fn(threadId, runId, event, kind)).catch((err: unknown) =>
               console.error(
-                `[supervisor] onRunEvent listener failed for ${runId}: ${
-                  err instanceof Error ? err.message : String(err)
-                }`,
-              );
-            });
+                `[supervisor] onRunEvent listener failed for ${runId}: ${err instanceof Error ? err.message : String(err)}`,
+              ),
+            );
+          }
+        } else {
+          try {
+            await this.#opts.eventLog.append(threadId, runId, event as Parameters<EventLog["append"]>[2]);
+          } catch (err) {
+            console.error(
+              `[supervisor] append event failed for ${runId}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+            throw err;
+          }
+          for (const fn of this.#onRunEvent) {
+            void Promise.resolve(fn(threadId, runId, event, kind)).catch((err: unknown) =>
+              console.error(
+                `[supervisor] onRunEvent listener failed for ${runId}: ${err instanceof Error ? err.message : String(err)}`,
+              ),
+            );
           }
         }
         break;

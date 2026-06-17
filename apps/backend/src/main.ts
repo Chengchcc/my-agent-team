@@ -13,12 +13,11 @@ import {
   createConversationFeature,
 } from "./features/conversation/conv-svc-factory.js";
 import { conversationRoutes, parseThreadId } from "./features/conversation/index.js";
-import { extractText, isTerminalMessageState } from "@my-agent-team/message";
+import { extractText, isTerminalMessageState, serializeMessageRevision } from "@my-agent-team/message";
 import {
   escapeRegExp,
   getOrCreateAccumulator,
   onRunComplete,
-  projectRunMessageToLedger,
 } from "./features/conversation/projection.js";
 import { sqliteEventLog } from "./features/event-log/index.js";
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
@@ -110,61 +109,79 @@ function getMentionRegex(label: string): RegExp {
   return re;
 }
 
-supervisor.onRunEvent((threadId, runId, event, kind) => {
-  // M17.5 P3: Parse cid directly from threadId (no activeConversations iteration).
+// M17.5 P7: Authoritative ledger write for assistant messages — direct path,
+// bypassing event_log. This replaces the old event_log → projection → ledger
+// indirection. Message events are now written to ledger BEFORE EventLog, and
+// EventLog only receives non-message execution events.
+supervisor.onRunMessage(async (threadId, runId, revision, kind) => {
+  if (kind === "reflect") return;
   const cid = parseThreadId(threadId).conversationId;
+  if (!cid) return;
   const senderMemberId = parseThreadId(threadId).memberId || threadId;
 
-  // ── Concern 1: todo accumulation (pure local state) ──
-  if (event.type === "todo_update") {
-    if (!cid) return;
-    const acc = getOrCreateAccumulator(runId, senderMemberId);
-    const payload = (event as { payload?: { todos?: unknown } }).payload;
-    if (payload?.todos) acc.lastTodoUpdate = { todos: payload.todos };
-    return;
-  }
+  // Write directly to ledger (authoritative entry for assistant messages)
+  const seq = await conv.convSvc.appendAssistantMessage({
+    conversationId: cid,
+    senderMemberId,
+    runId,
+    revision,
+  });
 
-  if (event.type !== "message") return;
-  const revision = event.payload;
+  // Update accumulator for terminal processing (onRunComplete)
+  const acc = getOrCreateAccumulator(runId, senderMemberId);
+  if (revision.role === "assistant") {
+    acc.latestAssistantRevision = { ...revision, conversationId: cid };
 
-  // ── Concern 2: @mention scanning (only on terminal revisions) ──
-  // M17.5 P3: Don't run regex on every streaming revision — only scan on terminal.
-  if (revision.role === "assistant" && isTerminalMessageState(revision.state)) {
-    const text = extractText(revision);
-    if (text && cid) {
-      const acc = getOrCreateAccumulator(runId, senderMemberId);
-      const roster = conv.convPort.getMembers(cid);
-      for (const m of roster) {
-        if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
-        const label = m.displayName ?? m.memberId;
-        const re = getMentionRegex(label);
-        if (re.test(text) || text.includes(`@${m.memberId}`)) {
-          acc.mentionedMemberIds.add(m.memberId);
+    // @mention scanning (only on terminal revisions)
+    if (isTerminalMessageState(revision.state)) {
+      const text = extractText(revision);
+      if (text) {
+        const roster = conv.convPort.getMembers(cid);
+        for (const m of roster) {
+          if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
+          const label = m.displayName ?? m.memberId;
+          const re = getMentionRegex(label);
+          if (re.test(text) || text.includes(`@${m.memberId}`)) {
+            acc.mentionedMemberIds.add(m.memberId);
+          }
         }
       }
     }
   }
 
-  // ── Concern 3: projection chain (incremental ledger writes) ──
-  const acc = getOrCreateAccumulator(runId, senderMemberId);
-  acc.projectionChain = acc.projectionChain
-    .then(() =>
-      projectRunMessageToLedger(
-        threadId,
-        runId,
-        revision as MessageRevision,
-        conv.activeConversations,
-        conv.convPort,
-        conv.convSvc,
-        kind,
-      ),
-    )
-    .catch((err) => {
-      console.error(
-        `[conversation] projectRunMessageToLedger failed for ${runId}:`,
-        err instanceof Error ? err.message : String(err),
-      );
-    });
+  // Fan-out to frontend subscribers (best-effort)
+  const entry = {
+    seq,
+    conversationId: cid,
+    senderMemberId,
+    addressedTo: [] as string[],
+    kind: "message" as const,
+    content: serializeMessageRevision({ ...revision, conversationId: cid, runId }),
+    ts: Date.now(),
+  };
+  void conv.convSvc.broadcastMessage(entry, { excludeMemberId: senderMemberId }).catch((err) =>
+    console.error(
+      `[main] broadcastMessage failed for ${runId}:`,
+      err instanceof Error ? err.message : String(err),
+    ),
+  );
+});
+
+// M17.5 P7: onRunEvent is now best-effort observability only. Message events
+// are handled by onRunMessage (authoritative ledger write). This callback only
+// sees non-message events (todo_update, tool_start, tool_end, text_delta).
+supervisor.onRunEvent((threadId, runId, event, kind) => {
+  if (event.type === "todo_update") {
+    const cid = parseThreadId(threadId).conversationId;
+    if (!cid) return;
+    const senderMemberId = parseThreadId(threadId).memberId || threadId;
+    const acc = getOrCreateAccumulator(runId, senderMemberId);
+    const payload = (event as { payload?: { todos?: unknown } }).payload;
+    if (payload?.todos) acc.lastTodoUpdate = { todos: payload.todos };
+    return;
+  }
+  // Non-message, non-todo events (tool_start, tool_end, etc.) — no-op.
+  // Observability is handled by the EventLog append in supervisor.
 });
 
 // ─── HTTP router ──────────────────────────────────────────────
