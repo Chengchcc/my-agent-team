@@ -90,7 +90,6 @@ export class RunSupervisor {
   > = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
   #reaping = false;
-  #deltaSubs = new Map<string, Set<ReadableStreamDefaultController>>();
   #boundTransports = new Set<RunnerTransport>();
 
   constructor(opts: RunSupervisorOptions) {
@@ -236,59 +235,6 @@ export class RunSupervisor {
     return this.#db;
   }
 
-  /** M13: Subscribe to ephemeral text_delta events for a run. Returns a ReadableStream
-   *  of SSE-ready strings. Deltas are in-memory only — never touch EventLog. */
-  subscribeDelta(runId: string): ReadableStream {
-    let controllers = this.#deltaSubs.get(runId);
-    if (!controllers) {
-      controllers = new Set();
-      this.#deltaSubs.set(runId, controllers);
-    }
-
-    let ctrl: ReadableStreamDefaultController | null = null;
-    return new ReadableStream({
-      start: (controller) => {
-        ctrl = controller;
-        controllers?.add(controller);
-      },
-      cancel: () => {
-        if (ctrl) {
-          controllers?.delete(ctrl);
-          if (controllers?.size === 0) this.#deltaSubs.delete(runId);
-        }
-      },
-    });
-  }
-
-  /** M13.1: Push any named SSE event to all delta subscribers for this run. */
-  #pushEphemeral(runId: string, event: string, data: unknown): void {
-    const controllers = this.#deltaSubs.get(runId);
-    if (!controllers || controllers.size === 0) return;
-    const line = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-    for (const ctrl of controllers) {
-      try {
-        ctrl.enqueue(new TextEncoder().encode(line));
-      } catch {
-        controllers.delete(ctrl);
-      }
-    }
-    if (controllers.size === 0) this.#deltaSubs.delete(runId);
-  }
-
-  /** M13: Close all delta subscribers for a run and clean up. */
-  #closeDeltaSubs(runId: string): void {
-    const controllers = this.#deltaSubs.get(runId);
-    if (!controllers) return;
-    for (const ctrl of controllers) {
-      try {
-        ctrl.close();
-      } catch {
-        /* already closed */
-      }
-    }
-    this.#deltaSubs.delete(runId);
-  }
-
   /** Dispose the supervisor's DB connection and stop reaper. */
   async dispose(): Promise<void> {
     // M11: Stop reaper first, then wait for in-flight tick, then close DB
@@ -299,10 +245,6 @@ export class RunSupervisor {
     // Wait for any in-flight #reapStaleRuns to complete before closing DB
     while (this.#reaping) {
       await new Promise((r) => setTimeout(r, 10));
-    }
-    // M13: close all delta subscribers
-    for (const runId of this.#deltaSubs.keys()) {
-      this.#closeDeltaSubs(runId);
     }
     // M15: clear transport message queues
     this.#transportQueues.clear();
@@ -545,11 +487,6 @@ export class RunSupervisor {
         }
         break;
       }
-      case "delta": {
-        const ev = msg.event as { type?: string; payload?: unknown };
-        if (ev.type && ev.payload) this.#pushEphemeral(runId, ev.type, ev.payload);
-        break;
-      }
       case "heartbeat": {
         this.#db.run("UPDATE attempt SET heartbeat_at = ? WHERE run_id = ? AND ended_at IS NULL", [
           Date.now(),
@@ -575,7 +512,6 @@ export class RunSupervisor {
           exitNow,
           runId,
         ]);
-        this.#closeDeltaSubs(runId);
         this.#active.delete(runId);
         const threadId = this.#threadIdFor(runId);
         // Always fire lifecycle hooks (lock release, cleanup)

@@ -36,7 +36,6 @@ export type RunnerToHost =
       spec: Record<string, unknown>;
     }
   | { type: "event"; runId: string; event: AgentEvent }
-  | { type: "delta"; runId: string; event: AgentEvent }
   | { type: "heartbeat"; runId: string }
   | {
       type: "run_done";

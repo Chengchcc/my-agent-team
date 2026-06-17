@@ -214,7 +214,7 @@ export class RunnerDaemon {
     const parsed = AgentSpecV2.safeParse(run.spec);
     if (!parsed.success) throw new Error(`invalid stored spec for run ${run.runId}`);
     const spec = parsed.data;
-    const opts = { signal: run.abort.signal, maxSteps: spec.maxSteps ?? 32 };
+    const opts = { signal: run.abort.signal, maxSteps: spec.maxSteps ?? 32, runId: run.runId };
     switch (spec.mode) {
       case "resume":
         return run.agent.resume(spec.resumeCommand, opts);
