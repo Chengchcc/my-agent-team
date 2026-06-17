@@ -141,7 +141,11 @@ export function parseMessageRevision(input: unknown): MessageRevision {
   };
 }
 
-/** Serialize a MessageRevision for storage (ledger content, etc.). */
+/** Serialize a MessageRevision for storage (ledger content, etc.).
+ *  Validates the revision via parseMessageRevision before serializing,
+ *  so that invalid revisions are caught at write time, not read time. */
 export function serializeMessageRevision(revision: MessageRevision): string {
-  return JSON.stringify(revision);
+  // Round-trip validate: ensures all required fields are present and valid
+  const validated = parseMessageRevision(revision);
+  return JSON.stringify(validated);
 }

@@ -3,6 +3,8 @@ import {
   projectForMember,
   resolveTriggerTargets,
 } from "@my-agent-team/conversation";
+import type { MessageRevision } from "@my-agent-team/message";
+import { serializeMessageRevision } from "@my-agent-team/message";
 import type {
   ThreadProjectionReadPort,
   ThreadProjectionWritePort,
@@ -70,7 +72,9 @@ export function createConversationService(deps: ConversationServiceDeps) {
     });
   }
 
-  /** Append a ledger entry and broadcast it to all agent checkpoints. Returns seq. */
+  /** Append a ledger entry and broadcast it to all agent checkpoints. Returns seq.
+   *  For kind:"message", content MUST be a MessageRevision — validated via
+   *  serializeMessageRevision. Other kinds use plain JSON.stringify. */
   async function appendAndBroadcast(input: {
     conversationId: string;
     senderMemberId: string;
@@ -81,7 +85,10 @@ export function createConversationService(deps: ConversationServiceDeps) {
     broadcast?: boolean;
   }): Promise<number> {
     const ts = Date.now();
-    const serialized = JSON.stringify(input.content);
+    const serialized =
+      input.kind === "message"
+        ? serializeMessageRevision(input.content as MessageRevision)
+        : JSON.stringify(input.content);
     const seq = port.appendLedgerEntry({
       conversationId: input.conversationId,
       senderMemberId: input.senderMemberId,
@@ -233,13 +240,25 @@ export function createConversationService(deps: ConversationServiceDeps) {
         hopCapped = currentHop > maxConsecutiveAgentHops;
       }
 
-      // ── Append this message to ledger (no broadcast — forkRun reads from ledger) ──
+      // ── Append this message to ledger as a MessageRevision (no broadcast — forkRun reads from ledger) ──
+      const userRev: MessageRevision = {
+        messageId: `msg:${input.conversationId}:${input.senderMemberId}:${Date.now()}`,
+        role: "user",
+        state: "done",
+        text: typeof input.content === "string" ? input.content : undefined,
+        blocks: Array.isArray(input.content)
+          ? (input.content as MessageRevision["blocks"])
+          : undefined,
+        conversationId: input.conversationId,
+        visibility: "conversation",
+        updatedAt: Date.now(),
+      };
       const seq = await appendAndBroadcast({
         conversationId: input.conversationId,
         senderMemberId: input.senderMemberId,
         addressedTo: input.addressedTo,
         kind: "message",
-        content: input.content,
+        content: userRev,
         broadcast: false,
       });
 
@@ -249,14 +268,20 @@ export function createConversationService(deps: ConversationServiceDeps) {
         triggeredRuns.push(...runs);
       } else if (hopCapped) {
         // Broadcast system message about the cap (no fork)
+        const sysRev: MessageRevision = {
+          messageId: `sys:${input.conversationId}:hopcap:${Date.now()}`,
+          role: "system",
+          state: "done",
+          text: `[系统] 连续 agent→agent 触发达上限（${maxConsecutiveAgentHops}），已暂停，等待真人介入。`,
+          visibility: "conversation",
+          updatedAt: Date.now(),
+        };
         await appendAndBroadcast({
           conversationId: input.conversationId,
           senderMemberId: "__system__",
           addressedTo: [],
           kind: "message",
-          content: {
-            text: `[系统] 连续 agent→agent 触发达上限（${maxConsecutiveAgentHops}），已暂停，等待真人介入。`,
-          },
+          content: sysRev,
         });
       }
 

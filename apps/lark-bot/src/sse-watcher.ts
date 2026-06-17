@@ -212,8 +212,22 @@ async function processEntry(
     return;
   }
 
-  // ─── M17: Message revision model ───
-  const revision = parseMessageRevision(safeJsonParse(entry.content));
+  // ─── M17.1: Message revision model with error isolation ───
+  // Parse errors are non-retryable data errors — skip the entry and advance seq
+  // so a single bad entry doesn't permanently block the watcher.
+  let revision: ReturnType<typeof parseMessageRevision>;
+  try {
+    revision = parseMessageRevision(safeJsonParse(entry.content));
+  } catch (err) {
+    console.error(
+      `[sse-watcher] invalid message revision at seq=${entry.seq}, conversation=${entry.conversationId}, skipping: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    updatePushedSeq(db, larkChatId, entry.seq);
+    return;
+  }
+
   const messageId = revision.messageId;
 
   // Check delivery state: if already delivered as terminal, skip
@@ -223,7 +237,7 @@ async function processEntry(
     return;
   }
 
-  // Render and send
+  // Render and send (send errors are retryable — thrown to trigger reconnect)
   const text = renderRevision(revision);
   const idempotencyKey = `${entry.conversationId}:${messageId}:${delivery ? "update" : "create"}`;
   await h.onSend(larkChatId, text, idempotencyKey);

@@ -1,4 +1,4 @@
-import type { Message } from "@my-agent-team/message";
+import type { Message, MessageRevision } from "@my-agent-team/message";
 import { mergeMessageRevision, parseMessageRevision } from "@my-agent-team/message";
 
 // ─── Types ────────────────────────────────────────────────
@@ -228,7 +228,17 @@ export function reducer(s: ConvState, a: Action): ConvState {
     }
 
     case "ledger/message": {
-      const revision = parseMessageRevision(a.content);
+      // M17.1: isolate parse errors — a single bad entry must not crash the SSE stream
+      let revision: MessageRevision;
+      try {
+        revision = parseMessageRevision(a.content);
+      } catch (err) {
+        console.error(
+          `[reducer] invalid message revision at seq=${a.seq}, skipping:`,
+          err instanceof Error ? err.message : String(err),
+        );
+        return s; // skip bad entry, keep state unchanged
+      }
       const message = mergeMessageRevision(null, revision);
       const id = message.id ?? "";
       const sender = s.roster[a.senderMemberId] ?? {

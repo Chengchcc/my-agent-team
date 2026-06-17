@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import type { ContentBlock } from "@my-agent-team/core";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import type { Message, MessageRevision } from "@my-agent-team/message";
-import { assistantMessageId } from "@my-agent-team/message";
+import { assistantMessageId, serializeMessageRevision } from "@my-agent-team/message";
 import { createSocketClient } from "@my-agent-team/runner-protocol";
 import {
   createRuntimeTracer,
@@ -387,61 +387,71 @@ async function onRunComplete(threadId: string, runId: string, status: string): P
   if (threadId.startsWith("reflect:")) return;
   for (const cid of activeConversations) {
     if (threadId.startsWith(`${cid}:`)) {
+      const senderMemberId = threadId.includes(":")
+        ? (threadId.split(":").pop() as string)
+        : threadId;
       const acc = runAccumulators.get(runId);
+
+      // M17: Await the projection chain before writing the terminal revision,
+      // so that the done/error revision is always the last one for this messageId.
       if (acc) {
-        // M17: Await the projection chain before writing the terminal revision,
-        // so that the done/error revision is always the last one for this messageId.
         try {
           await acc.projectionChain;
         } catch {
           // chain error already logged in onRunEvent
         }
+      }
 
-        // Write final done/error revision to close the open assistant message.
-        // If no streaming revision was projected (e.g. tool-only run, immediate
-        // error), write a minimal terminal revision so Web/Lark exit busy state.
-        const baseRev = acc.latestAssistantRevision;
-        const finalRev: MessageRevision = baseRev
-          ? {
-              ...baseRev,
-              state: status === "succeeded" ? "done" : "error",
-              error: status === "succeeded" ? undefined : { message: status },
-            }
-          : {
-              messageId: assistantMessageId(runId),
-              state: status === "succeeded" ? "done" : "error",
-              role: "assistant",
-              text: status === "succeeded" ? "" : `Run failed: ${status}`,
-              error: status === "succeeded" ? undefined : { message: status },
-              runId,
-              updatedAt: Date.now(),
-            };
-        const serialized = JSON.stringify(finalRev);
-        if (!convPort.hasLedgerContent?.(runId, serialized)) {
-          const ts = Date.now();
-          const seq = convPort.appendLedgerEntry({
+      // M17.1 P0: always write terminal revision, even without accumulator.
+      // Runs that fail before any message event (e.g. immediate error) must
+      // still produce a terminal revision so Web/Lark exit busy state.
+      const baseRev = acc?.latestAssistantRevision ?? null;
+      const finalRev: MessageRevision = baseRev
+        ? {
+            ...baseRev,
+            state: status === "succeeded" ? "done" : "error",
+            error: status === "succeeded" ? undefined : { message: status },
+            updatedAt: Date.now(),
+          }
+        : {
+            messageId: assistantMessageId(runId),
+            role: "assistant",
+            state: status === "succeeded" ? "done" : "error",
+            text: status === "succeeded" ? "" : `Run failed: ${status}`,
+            runId,
             conversationId: cid,
-            senderMemberId: acc.senderMemberId,
+            visibility: "conversation",
+            updatedAt: Date.now(),
+            error: status === "succeeded" ? undefined : { message: status },
+          };
+
+      const serialized = serializeMessageRevision(finalRev);
+      if (!convPort.hasLedgerContent?.(runId, serialized)) {
+        const ts = Date.now();
+        const seq = convPort.appendLedgerEntry({
+          conversationId: cid,
+          senderMemberId,
+          addressedTo: [],
+          kind: "message",
+          content: serialized,
+          ts,
+          runId,
+        });
+        await convSvc.broadcastMessage(
+          {
+            seq,
+            conversationId: cid,
+            senderMemberId,
             addressedTo: [],
             kind: "message",
             content: serialized,
             ts,
-            runId,
-          });
-          await convSvc.broadcastMessage(
-            {
-              seq,
-              conversationId: cid,
-              senderMemberId: acc.senderMemberId,
-              addressedTo: [],
-              kind: "message",
-              content: serialized,
-              ts,
-            },
-            { excludeMemberId: acc.senderMemberId },
-          );
-        }
+          },
+          { excludeMemberId: senderMemberId },
+        );
+      }
 
+      if (acc) {
         runAccumulators.delete(runId);
 
         try {
@@ -510,51 +520,48 @@ function getOrCreateAccumulator(runId: string, senderMemberId: string): RunAccum
 }
 
 /** Build a MessageRevision envelope for assistant content produced
- *  during a run. Human messages don't get revision envelopes. */
+ *  during a run. Only whitelists known fields from content — never
+ *  lets raw content override core fields (messageId, state, role, runId). */
 function buildAssistantRevision(
   runId: string,
   content: unknown,
   state: MessageRevision["state"] = "streaming",
 ): MessageRevision {
-  const msgId = assistantMessageId(runId);
-  if (typeof content === "string") {
-    return {
-      messageId: msgId,
-      state,
-      role: "assistant",
-      text: content,
-      runId,
-      updatedAt: Date.now(),
-    };
-  }
-  if (Array.isArray(content)) {
-    return {
-      messageId: msgId,
-      state,
-      role: "assistant",
-      blocks: content as ContentBlock[],
-      runId,
-      updatedAt: Date.now(),
-    };
-  }
-  if (content && typeof content === "object" && !Array.isArray(content)) {
-    return {
-      messageId: msgId,
-      state,
-      role: "assistant",
-      runId,
-      updatedAt: Date.now(),
-      ...(content as Record<string, unknown>),
-    } as MessageRevision;
-  }
-  return {
-    messageId: msgId,
+  const now = Date.now();
+  const base: MessageRevision = {
+    messageId: assistantMessageId(runId),
     state,
     role: "assistant",
-    text: String(content),
     runId,
-    updatedAt: Date.now(),
+    visibility: "conversation",
+    updatedAt: now,
   };
+
+  if (typeof content === "string") {
+    return { ...base, text: content };
+  }
+
+  if (Array.isArray(content)) {
+    return { ...base, blocks: content as ContentBlock[] };
+  }
+
+  if (content && typeof content === "object" && !Array.isArray(content)) {
+    const obj = content as Record<string, unknown>;
+    return {
+      ...base,
+      text: typeof obj.text === "string" ? obj.text : undefined,
+      blocks: Array.isArray(obj.blocks) ? (obj.blocks as ContentBlock[]) : undefined,
+      tools: Array.isArray(obj.tools) ? (obj.tools as MessageRevision["tools"]) : undefined,
+      error:
+        typeof obj.error === "string"
+          ? { message: obj.error }
+          : obj.error && typeof obj.error === "object" && "message" in obj.error
+            ? (obj.error as MessageRevision["error"])
+            : undefined,
+    };
+  }
+
+  return { ...base, text: String(content ?? "") };
 }
 
 /** Conversation Projection (incremental): project a single message produced mid-run into the
@@ -582,20 +589,22 @@ async function projectRunMessageToLedger(
 
   const acc = getOrCreateAccumulator(runId, senderMemberId);
 
-  // M17: Build revision envelope — replaces the old { text/blocks, runId, _preliminary: true } shape.
+  // M17.1: Build revision envelope — replaces the old { text/blocks, runId, _preliminary: true } shape.
+  // All message revisions go through serializeMessageRevision for validation.
   const revision =
     role === "assistant"
       ? buildAssistantRevision(runId, content, "streaming")
       : {
-          messageId: `s-${runId}-${role}`,
+          messageId: `msg:${runId}:${role}:0`,
           state: "done" as const,
           role: role as "user",
           text: typeof content === "string" ? content : "",
+          visibility: "conversation" as const,
           updatedAt: Date.now(),
         };
 
   const ts = Date.now();
-  const serialized = JSON.stringify(revision);
+  const serialized = serializeMessageRevision(revision);
 
   // Dedup: same (runId, serialized) pair
   if (convPort.hasLedgerContent?.(runId, serialized)) return;
