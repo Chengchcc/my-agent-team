@@ -25,11 +25,9 @@ export const ToolResultBlockSchema = z.object({
 // M17.3 fix: accept unknown block types via passthrough, so legacy or future
 // block variants don't cause parse failures. The discriminatedUnion covers known
 // types; the passthrough fallback keeps the rest.
-export const ContentBlockSchema = z.discriminatedUnion("type", [
-  TextBlockSchema,
-  ToolUseBlockSchema,
-  ToolResultBlockSchema,
-]).or(z.object({ type: z.string() }).passthrough());
+export const ContentBlockSchema = z
+  .discriminatedUnion("type", [TextBlockSchema, ToolUseBlockSchema, ToolResultBlockSchema])
+  .or(z.object({ type: z.string() }).passthrough());
 
 // ─── Message sub-type schemas ─────────────────────────────────
 
@@ -113,7 +111,9 @@ export function parseMessageRevision(input: unknown): MessageRevision {
 }
 
 /** Safe parse — returns success/error instead of throwing. M17.3 new addition. */
-export function safeParseMessageRevision(input: unknown): z.SafeParseReturnType<unknown, MessageRevision> {
+export function safeParseMessageRevision(
+  input: unknown,
+): z.SafeParseReturnType<unknown, MessageRevision> {
   return MessageRevisionSchema.safeParse(input) as z.SafeParseReturnType<unknown, MessageRevision>;
 }
 

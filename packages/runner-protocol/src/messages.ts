@@ -25,7 +25,11 @@ const runnerToHostSchema = z.discriminatedUnion("type", [
     agentId: z.string(),
     uptimeMs: z.number(),
     activeRunIds: z.array(z.string()),
-    checkpointer: z.object({ kind: z.literal("sqlite"), ok: z.boolean(), lastError: z.string().optional() }),
+    checkpointer: z.object({
+      kind: z.literal("sqlite"),
+      ok: z.boolean(),
+      lastError: z.string().optional(),
+    }),
     workspace: z.object({ ok: z.boolean(), lastError: z.string().optional() }),
     ts: z.number(),
   }),

@@ -28,11 +28,11 @@ export {
   MessageSchema,
   MessageStateSchema,
   MessageToolStateSchema,
-  TextBlockSchema,
-  ToolResultBlockSchema,
-  ToolUseBlockSchema,
   parseMessageRevision,
   safeParseMessageRevision,
   serializeMessageRevision,
+  TextBlockSchema,
+  ToolResultBlockSchema,
+  ToolUseBlockSchema,
 } from "./parser.js";
 export type { MessageRevision } from "./revision.js";

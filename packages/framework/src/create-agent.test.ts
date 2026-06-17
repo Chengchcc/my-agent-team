@@ -1238,9 +1238,7 @@ describe("createAgent", () => {
     const msgEvents = events.filter((e) => e.type === "message");
 
     // messageId uses thread.id as fallback
-    expect(msgEvents[0]!.payload.messageId).toBe(
-      `run:${agent.thread.id}:assistant:0`,
-    );
+    expect(msgEvents[0]!.payload.messageId).toBe(`run:${agent.thread.id}:assistant:0`);
     expect(msgEvents[0]!.payload.runId).toBe(agent.thread.id);
   });
 

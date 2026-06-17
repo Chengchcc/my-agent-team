@@ -1,8 +1,13 @@
 import type { Message } from "@my-agent-team/message";
-import type { Agent, AgentConfig, AgentRunOptions, ResumeCommand } from "./agent-options.js";
-import type { AgentRuntime } from "./agent-options.js";
 import type { AgentEvent } from "./agent-event.js";
-import { InterruptSignal, type Checkpointer, validateCheckpointer } from "./checkpointer.js";
+import type {
+  Agent,
+  AgentConfig,
+  AgentRunOptions,
+  AgentRuntime,
+  ResumeCommand,
+} from "./agent-options.js";
+import { type Checkpointer, validateCheckpointer } from "./checkpointer.js";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 import { passthroughContextManager } from "./context-managers/passthrough.js";
 import { consoleLogger } from "./logger.js";
@@ -14,11 +19,9 @@ import { createThread } from "./thread.js";
 
 // ─── Public exports (thin re-exports from extracted modules) ──
 
-export type { Agent, AgentConfig, AgentRunOptions } from "./agent-options.js";
-export type { AgentEvent } from "./agent-event.js";
+export type { AgentEvent, Interrupt } from "./agent-event.js";
 export { parseAgentEvent, safeParseAgentEvent } from "./agent-event.js";
-export type { Interrupt } from "./agent-event.js";
-export type { ResumeCommand } from "./agent-options.js";
+export type { Agent, AgentConfig, AgentRunOptions, ResumeCommand } from "./agent-options.js";
 
 // ─── createAgent / createAgentInternal ──────────────────────────
 

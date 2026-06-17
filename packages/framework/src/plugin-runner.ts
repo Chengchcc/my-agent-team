@@ -1,8 +1,8 @@
-import type { Message, MessageRole } from "@my-agent-team/message";
 import type { ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
-import type { HookContext, Plugin, StopDecision } from "./plugin.js";
-import type { Logger } from "./logger.js";
+import type { Message } from "@my-agent-team/message";
 import type { PluginRunner } from "./agent-options.js";
+import type { Logger } from "./logger.js";
+import type { HookContext, Plugin } from "./plugin.js";
 
 // ─── Pure helpers ──────────────────────────────────────────────
 

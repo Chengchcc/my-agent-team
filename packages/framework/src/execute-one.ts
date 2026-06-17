@@ -77,7 +77,13 @@ export async function* executeOne(
       });
       yield {
         type: "tool_call",
-        payload: { step, id: call.id, name: call.name, latencyMs: Date.now() - toolStart, isError: true },
+        payload: {
+          step,
+          id: call.id,
+          name: call.name,
+          latencyMs: Date.now() - toolStart,
+          isError: true,
+        },
       };
       // Update tool state to error for interrupt
       updateToolState(rt, call.id, "error", true);
@@ -113,7 +119,12 @@ export async function* executeOne(
     },
   };
   // Update tool state in the running revision
-  updateToolState(rt, call.id, resultBlock.is_error === true ? "error" : "done", resultBlock.is_error === true);
+  updateToolState(
+    rt,
+    call.id,
+    resultBlock.is_error === true ? "error" : "done",
+    resultBlock.is_error === true,
+  );
   await rt.save(rt.thread.messages);
   return false;
 }
