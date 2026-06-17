@@ -36,8 +36,8 @@ describe("lifecycle", () => {
       ],
     );
 
-    // No error thrown — mkdirp succeeded
-    expect(true).toBe(true);
+    // No error thrown — mkdirp succeeded. If beforeModel rejects,
+    // the test framework catches the unhandled rejection.
   });
 
   test("MEMORY.md missing → not auto-created", async () => {

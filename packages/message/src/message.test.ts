@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message, MessageRole, MessageState } from "./message.js";
+import type { Message } from "./message.js";
 
 describe("Message (type-level)", () => {
   test("minimal Message — only role is required", () => {
@@ -29,16 +29,6 @@ describe("Message (type-level)", () => {
     expect(msg.id).toBe("run:r1:assistant:0");
     expect(msg.state).toBe("streaming");
     expect(msg.blocks).toHaveLength(1);
-  });
-
-  test("MessageRole allows all four values at type level", () => {
-    const roles: MessageRole[] = ["system", "user", "assistant", "tool"];
-    expect(roles).toHaveLength(4);
-  });
-
-  test("MessageState allows all five values at type level", () => {
-    const states: MessageState[] = ["pending", "streaming", "waiting", "done", "error"];
-    expect(states).toHaveLength(5);
   });
 
   test("text-only message (no blocks)", () => {

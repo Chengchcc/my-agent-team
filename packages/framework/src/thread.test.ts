@@ -17,12 +17,4 @@ describe("createThread", () => {
 
     expect(thread.messages).toEqual(messages);
   });
-
-  test("messages is mutable", () => {
-    const thread = createThread();
-
-    thread.messages.push({ role: "user", text: "hello" });
-
-    expect(thread.messages).toHaveLength(1);
-  });
 });

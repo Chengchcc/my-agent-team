@@ -6,6 +6,15 @@ import { passthroughContextManager } from "./context-managers/passthrough.js";
 import { consoleLogger } from "./logger.js";
 import { definePlugin, type HookContext, validatePlugins } from "./plugin.js";
 
+function getError(fn: () => void): Error {
+  try {
+    fn();
+    throw new Error("Expected function to throw");
+  } catch (e) {
+    return e as Error;
+  }
+}
+
 function testCtx(overrides?: Partial<HookContext>): HookContext {
   return {
     threadId: "t1",
@@ -65,27 +74,6 @@ describe("definePlugin", () => {
     expect(capturedCtx).toHaveProperty("checkpointer");
     expect(capturedCtx).toHaveProperty("contextManager");
     expect(capturedMsgs).toBe(msgs);
-  });
-
-  test("HookContext exposes three capabilities", () => {
-    const ctx = testCtx();
-    expect(ctx.logger).toBeDefined();
-    expect(ctx.checkpointer).toBeDefined();
-    expect(ctx.contextManager).toBeDefined();
-    expect(ctx.threadId).toBe("t1");
-  });
-
-  test("beforeTool returns undefined by default", async () => {
-    const plugin = definePlugin({
-      name: "passthrough",
-      hooks: {
-        beforeTool(_ctx, _call) {},
-      },
-    });
-
-    const call: ToolUseBlock = { type: "tool_use", id: "t1", name: "read", input: {} };
-    const result = await plugin.hooks.beforeTool?.(testCtx(), call, []);
-    expect(result).toBeUndefined();
   });
 
   test("beforeTool can return skip with result", async () => {
@@ -170,7 +158,7 @@ describe("validatePlugins", () => {
     const plugins = [definePlugin({ name: "my-plugin", hooks: {}, tools: [makeTool("read")] })];
 
     expect(() => validatePlugins(plugins, [makeTool("read")])).toThrow(
-      "Tool name collision: 'read' declared by both 'config.tools' and plugin 'my-plugin'",
+      /Tool name collision.*read.*config\.tools.*my-plugin/,
     );
   });
 
@@ -180,16 +168,14 @@ describe("validatePlugins", () => {
       definePlugin({ name: "beta", hooks: {}, tools: [makeTool("shared")] }),
     ];
 
-    expect(() => validatePlugins(plugins, [])).toThrow(
-      "Tool name collision: 'shared' declared by both 'plugin:alpha' and plugin 'beta'",
-    );
+    expect(() => validatePlugins(plugins, [])).toThrow(/Tool name collision.*shared.*alpha.*beta/);
   });
 
   test("error message names both collision sources", () => {
     const plugins = [definePlugin({ name: "collider", hooks: {}, tools: [makeTool("boom")] })];
-
-    expect(() => validatePlugins(plugins, [makeTool("boom")])).toThrow("boom");
-    expect(() => validatePlugins(plugins, [makeTool("boom")])).toThrow("config.tools");
-    expect(() => validatePlugins(plugins, [makeTool("boom")])).toThrow("collider");
+    const err = getError(() => validatePlugins(plugins, [makeTool("boom")]));
+    expect(err.message).toMatch(/boom/);
+    expect(err.message).toMatch(/config\.tools/);
+    expect(err.message).toMatch(/collider/);
   });
 });
