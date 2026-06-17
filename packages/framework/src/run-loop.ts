@@ -48,17 +48,13 @@ export async function* runLoop(
 ): AsyncGenerator<AgentEvent> {
   let forceContinues = 0;
   const maxForce = opts.maxForceContinues ?? 3;
-  // M17.4: Each model turn within a run is a distinct assistant message.
-  // Ordinal 0 = first turn, 1 = post-tool turn, 2 = third turn, etc.
-  // This replaces the hardcoded 0 so that multi-turn runs don't overwrite
-  // earlier assistant messages in the ledger.
-  let assistantOrdinal = 0;
+  // M17.4 (Patch C v3): a run materializes as a single growing assistant
+  // message (M17.2 full-run visibility). Ordinal is reserved for a future
+  // multi-message-per-run semantic; today it is always 0. Blocks/tools
+  // accumulate across steps and are NOT reset per turn — resetting them
+  // orphaned every non-final turn in a permanently-open (streaming) state.
+  const assistantOrdinal = 0;
   for (let step = 0; step < opts.maxSteps; step++) {
-    if (step > 0) {
-      assistantOrdinal++;
-      rt.assistantBlocks.length = 0;
-      rt.toolStates.length = 0;
-    }
     if (opts.signal?.aborted) {
       // M17.2 fix: mark remaining running tools as error, emit with accumulated blocks
       markRunningToolsAsError(rt);
@@ -232,7 +228,7 @@ export async function* runLoop(
     }
 
     // Execute tools — executeOne updates rt.toolStates in-place
-    let interrupted: boolean;
+    let interrupted = false;
     for (let i = 0; i < toolUses.length; i++) {
       const call = toolUses[i]!;
       interrupted = yield* executeOne(rt, call, opts, step);

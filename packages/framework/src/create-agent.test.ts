@@ -1186,7 +1186,7 @@ describe("createAgent", () => {
     expect(terminal.payload.visibility).toBe("conversation");
   });
 
-  test("streaming phase state is 'streaming' and messageId ordinal increments per turn", async () => {
+  test("streaming phase state is 'streaming' and messageId is constant", async () => {
     const runId = "stream-run";
     const agent = await createAgent({
       model: scriptedModel([
@@ -1199,11 +1199,11 @@ describe("createAgent", () => {
     const events = await collect(agent.run("go", { runId }));
     const msgEvents = events.filter((e) => e.type === "message");
 
-    // M17.4: Each model turn is a distinct message with its own ordinal.
-    // Turn 1 (tool_use) → ordinal 0; Turn 2 (text reply) → ordinal 1.
-    const ordinals = [...new Set(msgEvents.map((e) => e.payload.messageId))].sort();
-    expect(ordinals.length).toBeGreaterThanOrEqual(1);
-    expect(ordinals[0]).toBe(`run:${runId}:assistant:0`);
+    // M17.4 (Patch C v3): one run = one growing assistant message.
+    // All revisions share the same messageId; ordinal is reserved.
+    for (const ev of msgEvents) {
+      expect(ev.payload.messageId).toBe(`run:${runId}:assistant:0`);
+    }
 
     // Non-terminal message events have state "streaming" or "waiting"
     const nonTerminal = msgEvents.filter(
@@ -1215,6 +1215,28 @@ describe("createAgent", () => {
     }
 
     // Last event is terminal (done)
+    const last = msgEvents[msgEvents.length - 1]!;
+    expect(last.payload.state).toBe("done");
+  });
+
+  test("K-turn run — all intermediate revisions have terminal follow-up, no open segments left", async () => {
+    const agent = await createAgent({
+      model: scriptedModel([
+        { type: "tool_call", id: "t1", name: "lookup", input: { q: "a" } },
+        { type: "tool_call", id: "t2", name: "lookup", input: { q: "b" } },
+        { type: "text", text: "done" },
+      ]),
+      tools: [makeTool("lookup")],
+    });
+
+    const events = await collect(agent.run("go"));
+    const msgEvents = events.filter((e) => e.type === "message");
+
+    // All revisions belong to the same message (single growing bubble).
+    const ids = new Set(msgEvents.map((e) => e.payload.messageId));
+    expect(ids.size).toBe(1);
+
+    // Final state must be terminal — no open segments left behind.
     const last = msgEvents[msgEvents.length - 1]!;
     expect(last.payload.state).toBe("done");
   });
