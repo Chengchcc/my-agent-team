@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { parseLedgerEntry } from "@my-agent-team/conversation";
 import {
   isTerminalMessageState,
   type MessageState,
@@ -94,7 +95,8 @@ export function watchConversation(
             currentData += currentData ? `\n${line.slice(6)}` : line.slice(6);
           } else if (line === "" && currentData) {
             try {
-              const entry = JSON.parse(currentData) as LedgerEntry;
+              // M17.3: use codec instead of bare JSON.parse + as
+              const entry = parseLedgerEntry(JSON.parse(currentData));
               await processEntry(entry, larkChatId, db, afterSeq, {
                 onSend,
                 onRebind,

@@ -51,11 +51,57 @@ export type AgentEvent =
     }
   // ── ③ Control (progress / lifecycle) ──
   | { type: "interrupted"; payload: Interrupt }
-  | { type: "error"; payload: { message: string; stack?: string } }
   | {
       type: "todo_update";
       payload: { todos: Array<{ step: string; status: "pending" | "in_progress" | "done" }> };
     };
+
+// ─── M17.3: AgentEvent codec — zod schema for runtime validation ──
+
+import { z } from "zod";
+
+const interruptSchema = z.object({
+  pendingTool: z
+    .object({ type: z.literal("tool_use"), id: z.string(), name: z.string(), input: z.unknown() })
+    .optional(),
+  reason: z.string(),
+  meta: z.record(z.unknown()).optional(),
+});
+
+const agentEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("message"), payload: z.unknown() }),
+  z.object({
+    type: z.literal("llm_call"),
+    payload: z.object({
+      step: z.number(),
+      model: z.string(),
+      usage: z.object({ input: z.number(), output: z.number(), cacheCreate: z.number().optional(), cacheRead: z.number().optional() }),
+      latencyMs: z.number(),
+      ttftMs: z.number().optional(),
+      stopReason: z.string().optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal("tool_call"),
+    payload: z.object({ step: z.number(), id: z.string(), name: z.string(), latencyMs: z.number(), isError: z.boolean() }),
+  }),
+  z.object({ type: z.literal("interrupted"), payload: interruptSchema }),
+  z.object({
+    type: z.literal("todo_update"),
+    payload: z.object({ todos: z.array(z.object({ step: z.string(), status: z.enum(["pending", "in_progress", "done"]) })) }),
+  }),
+]);
+
+/** Parse an AgentEvent from wire/persistence, throwing on invalid shape.
+ *  M17.3: replaces bare JSON.parse(...) as AgentEvent across the codebase. */
+export function parseAgentEvent(raw: unknown): AgentEvent {
+  return agentEventSchema.parse(raw) as AgentEvent;
+}
+
+/** Safe-parse an AgentEvent (returns success/error instead of throwing). */
+export function safeParseAgentEvent(raw: unknown): z.SafeParseReturnType<unknown, AgentEvent> {
+  return agentEventSchema.safeParse(raw) as z.SafeParseReturnType<unknown, AgentEvent>;
+}
 
 export interface ResumeCommand {
   approved: boolean;

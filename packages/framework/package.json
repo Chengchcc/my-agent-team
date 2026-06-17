@@ -21,7 +21,8 @@
   },
   "dependencies": {
     "@my-agent-team/core": "workspace:*",
-    "@my-agent-team/message": "workspace:*"
+    "@my-agent-team/message": "workspace:*",
+    "zod": "^3.23.0"
   },
   "devDependencies": {}
 }

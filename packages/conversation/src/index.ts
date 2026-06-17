@@ -36,6 +36,16 @@ export const Conversation = z.object({
 
 export type Conversation = z.infer<typeof Conversation>;
 
+// ─── LedgerKind (M17.3: single source of truth for entry kind) ──
+
+export const LedgerKind = z.enum([
+  "message",
+  "member.joined",
+  "member.left",
+  "todo",
+  "surface.control",
+]);
+
 // ─── LedgerEntry ────────────────────────────────────────────
 
 export const LedgerEntry = z.object({
@@ -43,7 +53,7 @@ export const LedgerEntry = z.object({
   conversationId: z.string(),
   senderMemberId: z.string(),
   addressedTo: z.array(z.string()).default([]),
-  kind: z.enum(["message", "member.joined", "member.left"]),
+  kind: LedgerKind,
   // M17.2: content is always a serialized string (JSON.stringify for structured payloads).
   // Message entries use serializeMessageRevision; other kinds use JSON.stringify.
   content: z.string(),
@@ -51,6 +61,21 @@ export const LedgerEntry = z.object({
 });
 
 export type LedgerEntry = z.infer<typeof LedgerEntry>;
+
+/** Parse a ledger entry from wire/SSE, throwing on invalid shape. */
+export function parseLedgerEntry(raw: unknown): LedgerEntry {
+  return LedgerEntry.parse(raw);
+}
+
+/** Safe-parse a ledger entry (returns success/error instead of throwing). */
+export function safeParseLedgerEntry(raw: unknown): z.SafeParseReturnType<unknown, LedgerEntry> {
+  return LedgerEntry.safeParse(raw);
+}
+
+/** Serialize a ledger entry to JSON. */
+export function serializeLedgerEntry(e: LedgerEntry): string {
+  return JSON.stringify(LedgerEntry.parse(e));
+}
 
 // ─── assertMember ───────────────────────────────────────────
 

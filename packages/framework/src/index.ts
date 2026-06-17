@@ -25,7 +25,9 @@ export {
   type AgentRunOptions,
   createAgent,
   type Interrupt,
+  parseAgentEvent,
   type ResumeCommand,
+  safeParseAgentEvent,
 } from "./create-agent.js";
 export { consoleLogger, type Logger, type LogLevel, noopLogger } from "./logger.js";
 export {

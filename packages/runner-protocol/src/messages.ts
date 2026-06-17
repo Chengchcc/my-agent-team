@@ -56,3 +56,67 @@ export type RunnerToHost =
     };
 
 export type ProtocolMessage = HostToRunner | RunnerToHost;
+
+// ─── M17.3: Wire codec — zod schemas for runtime validation ──
+
+import { z } from "zod";
+
+const runnerToHostSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("run_started"),
+    runId: z.string(),
+    parentRunId: z.string(),
+    threadId: z.string(),
+    kind: z.literal("reflect"),
+    spec: z.record(z.unknown()),
+  }),
+  z.object({ type: z.literal("event"), runId: z.string(), event: z.object({}).passthrough() }),
+  z.object({ type: z.literal("heartbeat"), runId: z.string() }),
+  z.object({
+    type: z.literal("run_done"),
+    runId: z.string(),
+    status: z.enum(["succeeded", "error", "aborted"]),
+    wantsReflect: z.boolean().optional(),
+    error: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("daemon_health"),
+    agentId: z.string(),
+    uptimeMs: z.number(),
+    activeRunIds: z.array(z.string()),
+    checkpointer: z.object({ kind: z.literal("sqlite"), ok: z.boolean(), lastError: z.string().optional() }),
+    workspace: z.object({ ok: z.boolean(), lastError: z.string().optional() }),
+    ts: z.number(),
+  }),
+]);
+
+const hostToRunnerSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("start"),
+    runId: z.string(),
+    spec: z.record(z.unknown()),
+    reflect: z.boolean().optional(),
+    preloadedMessages: z.array(z.object({}).passthrough()).optional(),
+    surfaceContext: z
+      .object({
+        surface: z.enum(["lark", "web", "cli"]),
+        conversationId: z.string(),
+        runId: z.string(),
+        capabilities: z.array(z.literal("start_new_conversation")),
+      })
+      .optional(),
+    trace: z.object({}).passthrough().optional(),
+  }),
+  z.object({ type: z.literal("abort"), runId: z.string() }),
+  z.object({ type: z.literal("run_finalized"), runId: z.string() }),
+]);
+
+/** Parse a runner→host frame from NDJSON, throwing on invalid shape. */
+export function parseRunnerToHost(raw: unknown): RunnerToHost {
+  return runnerToHostSchema.parse(raw) as RunnerToHost;
+}
+
+/** Parse a host→runner frame from NDJSON, throwing on invalid shape. */
+export function parseHostToRunner(raw: unknown): HostToRunner {
+  return hostToRunnerSchema.parse(raw) as HostToRunner;
+}

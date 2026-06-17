@@ -1,5 +1,6 @@
 import type { SQLQueryBindings, Database as SqliteDatabase } from "bun:sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
+import { parseAgentEvent } from "@my-agent-team/framework";
 
 // -- Types --
 
@@ -98,7 +99,7 @@ function mapRow(row: {
     seq: row.seq,
     threadId: row.thread_id,
     runId: row.run_id,
-    event: JSON.parse(row.event) as AgentEvent,
+    event: parseAgentEvent(JSON.parse(row.event)),
     ts: row.ts,
   };
 }

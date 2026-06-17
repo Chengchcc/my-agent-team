@@ -16,7 +16,9 @@ export interface MemberRow {
   joinedAt: number;
 }
 
-export type LedgerKind = "message" | "member.joined" | "member.left" | "todo" | "surface.control";
+import type { LedgerKind as _LedgerKind } from "@my-agent-team/conversation";
+// M17.3: single source of truth — derived from conversation package's zod enum
+export type LedgerKind = _LedgerKind;
 
 export interface LedgerRow {
   seq: number;

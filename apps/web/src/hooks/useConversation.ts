@@ -12,6 +12,7 @@ import {
   reducer,
   type SenderRef,
 } from "@/lib/conversation-reducer";
+import { safeParseLedgerEntry } from "@my-agent-team/conversation";
 
 function safeParse(raw: string): unknown {
   try {
@@ -93,10 +94,11 @@ export function useConversation(
       const seq = guard(e);
       if (seq === null) return;
       try {
-        const entry = JSON.parse(e.data) as {
-          senderMemberId: string;
-          content: string;
-        };
+        // M17.3: use codec instead of bare JSON.parse + as
+        const raw = JSON.parse(e.data);
+        const result = safeParseLedgerEntry(raw);
+        if (!result.success) return; // skip malformed entries
+        const entry = result.data;
         const content =
           typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
         if (entry.senderMemberId === "__system__") {
@@ -125,7 +127,11 @@ export function useConversation(
         const seq = guard(e);
         if (seq === null) return;
         try {
-          const entry = JSON.parse(e.data) as { content: string };
+          // M17.3: use codec instead of bare JSON.parse + as
+          const raw = JSON.parse(e.data);
+          const result = safeParseLedgerEntry(raw);
+          if (!result.success) return;
+          const entry = result.data;
           const payload =
             typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
           dispatch({ type: "ledger/member", seq, kind, payload });
@@ -138,7 +144,11 @@ export function useConversation(
     es.addEventListener("todo", (e: Event) => {
       if (!(e instanceof MessageEvent)) return;
       try {
-        const entry = JSON.parse(e.data) as { content: string };
+        // M17.3: use codec instead of bare JSON.parse + as
+        const raw = JSON.parse(e.data);
+        const result = safeParseLedgerEntry(raw);
+        if (!result.success) return;
+        const entry = result.data;
         const payload =
           typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
         const todos =

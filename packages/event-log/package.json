@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
-    "@my-agent-team/framework": "workspace:*"
+    "@my-agent-team/framework": "workspace:*",
+    "zod": "^3.23.0"
   }
 }

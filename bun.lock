@@ -117,6 +117,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@my-agent-team/framework": "workspace:*",
+        "zod": "^3.23.0",
       },
     },
     "packages/framework": {
@@ -125,6 +126,7 @@
       "dependencies": {
         "@my-agent-team/core": "workspace:*",
         "@my-agent-team/message": "workspace:*",
+        "zod": "^3.23.0",
       },
     },
     "packages/harness": {
@@ -205,6 +207,7 @@
         "@my-agent-team/framework": "workspace:*",
         "@my-agent-team/message": "workspace:*",
         "@my-agent-team/runtime-observability": "workspace:*",
+        "zod": "^3.23.0",
       },
     },
     "packages/runtime-observability": {
