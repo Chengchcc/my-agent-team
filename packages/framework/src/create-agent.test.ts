@@ -43,7 +43,7 @@ function scriptedModel(
 }
 
 function msgPayloads(events: AgentEvent[]): MessageRevision[] {
-  return events.filter((e) => e.type === "message").map((e) => e.payload);
+  return events.filter((e) => e.type === "message").map((e) => e.payload as MessageRevision);
 }
 
 function makeTool(name: string): Tool {

@@ -19,7 +19,18 @@ export type {
   MessageToolState,
 } from "./message.js";
 export {
+  ContentBlockSchema,
+  MessageAuthorSchema,
+  MessageErrorSchema,
   MessageParseError,
+  MessageRevisionSchema,
+  MessageRoleSchema,
+  MessageSchema,
+  MessageStateSchema,
+  MessageToolStateSchema,
+  TextBlockSchema,
+  ToolResultBlockSchema,
+  ToolUseBlockSchema,
   parseMessageRevision,
   safeParseMessageRevision,
   serializeMessageRevision,

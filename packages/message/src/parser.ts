@@ -1,28 +1,28 @@
 import { z } from "zod";
 import type { MessageRevision } from "./revision.js";
 
-// ─── Zod schemas (internal, not exported directly — use parse/safeParse functions below) ──
+// ─── Zod schemas ──────────────────────────────────────────────
 
-const TextBlockSchema = z.object({
+export const TextBlockSchema = z.object({
   type: z.literal("text"),
   text: z.string(),
 });
 
-const ToolUseBlockSchema = z.object({
+export const ToolUseBlockSchema = z.object({
   type: z.literal("tool_use"),
   id: z.string().min(1),
   name: z.string().min(1),
   input: z.unknown(),
 });
 
-const ToolResultBlockSchema = z.object({
+export const ToolResultBlockSchema = z.object({
   type: z.literal("tool_result"),
   tool_use_id: z.string().min(1),
   content: z.string(),
   is_error: z.boolean().optional(),
 });
 
-const ContentBlockSchema = z.discriminatedUnion("type", [
+export const ContentBlockSchema = z.discriminatedUnion("type", [
   TextBlockSchema,
   ToolUseBlockSchema,
   ToolResultBlockSchema,
@@ -30,22 +30,22 @@ const ContentBlockSchema = z.discriminatedUnion("type", [
 
 // ─── Message sub-type schemas ─────────────────────────────────
 
-const MessageRoleSchema = z.enum(["system", "user", "assistant", "tool"]);
-const MessageStateSchema = z.enum(["pending", "streaming", "waiting", "done", "error"]);
+export const MessageRoleSchema = z.enum(["system", "user", "assistant", "tool"]);
+export const MessageStateSchema = z.enum(["pending", "streaming", "waiting", "done", "error"]);
 
-const MessageToolStateSchema = z.object({
+export const MessageToolStateSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   state: z.enum(["running", "done", "error"]),
   isError: z.boolean().optional(),
 });
 
-const MessageErrorSchema = z.object({
+export const MessageErrorSchema = z.object({
   code: z.string().optional(),
   message: z.string().min(1),
 });
 
-const MessageAuthorSchema = z.object({
+export const MessageAuthorSchema = z.object({
   kind: z.enum(["system", "user", "agent", "tool"]),
   id: z.string().optional(),
   displayName: z.string().optional(),
@@ -53,7 +53,7 @@ const MessageAuthorSchema = z.object({
 
 // ─── Domain schemas ───────────────────────────────────────────
 
-const MessageSchema = z.object({
+export const MessageSchema = z.object({
   id: z.string().optional(),
   role: MessageRoleSchema,
   author: MessageAuthorSchema.optional(),
@@ -69,7 +69,7 @@ const MessageSchema = z.object({
   error: MessageErrorSchema.optional(),
 });
 
-const MessageRevisionSchema = z.object({
+export const MessageRevisionSchema = z.object({
   messageId: z.string().min(1),
   state: MessageStateSchema,
   role: MessageRoleSchema,
