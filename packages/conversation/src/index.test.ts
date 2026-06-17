@@ -117,7 +117,7 @@ describe("LedgerEntry", () => {
       senderMemberId: "h1",
       addressedTo: ["x1"],
       kind: "message",
-      content: { text: "hello" },
+      content: JSON.stringify({ text: "hello" }),
       ts: 1700000000000,
     });
     expect(e.kind).toBe("message");
@@ -131,7 +131,7 @@ describe("LedgerEntry", () => {
       conversationId: "conv-1",
       senderMemberId: "__system__",
       kind: "member.joined",
-      content: { memberId: "x1", members: [human, agentX] },
+      content: JSON.stringify({ memberId: "x1", members: [human, agentX] }),
       ts: 1700000000000,
     });
     expect(e.kind).toBe("member.joined");
@@ -144,7 +144,7 @@ describe("LedgerEntry", () => {
       conversationId: "conv-1",
       senderMemberId: "h1",
       kind: "message",
-      content: {},
+      content: JSON.stringify({}),
       ts: 1700000000000,
     });
     expect(e.addressedTo).toEqual([]);
@@ -198,7 +198,7 @@ describe("projectForMember", () => {
       senderMemberId: "h1", // Alice says
       addressedTo: ["x1"],
       kind: "message",
-      content: { text: "hello X" },
+      content: JSON.stringify({ text: "hello X" }),
       ts: Date.now(),
     });
     // Project as seen by X (the agent)
@@ -216,7 +216,7 @@ describe("projectForMember", () => {
       senderMemberId: "x1", // X says
       addressedTo: [],
       kind: "message",
-      content: { text: "I'll handle it" },
+      content: JSON.stringify({ text: "I'll handle it" }),
       ts: Date.now(),
     });
     // Project as seen by X (the sender)
@@ -238,7 +238,7 @@ describe("projectForMember", () => {
       senderMemberId: "h1",
       addressedTo: [],
       kind: "message",
-      content: { text: "hi" },
+      content: JSON.stringify({ text: "hi" }),
       ts: Date.now(),
     });
     const projected = projectForMember(entry, "x1", conv);
@@ -252,7 +252,7 @@ describe("projectForMember", () => {
       conversationId: "conv-1",
       senderMemberId: "__system__",
       kind: "member.joined",
-      content: { memberId: "y1", members: [human, agentX, agentY] },
+      content: JSON.stringify({ memberId: "y1", members: [human, agentX, agentY] }),
       ts: Date.now(),
     });
     const projected = projectForMember(entry, "x1", conv);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseMessageRevision } from "@my-agent-team/message";
 
 // ─── Member ─────────────────────────────────────────────────
 
@@ -43,7 +44,9 @@ export const LedgerEntry = z.object({
   senderMemberId: z.string(),
   addressedTo: z.array(z.string()).default([]),
   kind: z.enum(["message", "member.joined", "member.left"]),
-  content: z.unknown(),
+  // M17.2: content is always a serialized string (JSON.stringify for structured payloads).
+  // Message entries use serializeMessageRevision; other kinds use JSON.stringify.
+  content: z.string(),
   ts: z.number(),
 });
 
@@ -84,8 +87,27 @@ function displayNameOf(conv: Conversation, memberId: string): string {
   return m?.displayName ?? memberId;
 }
 
+/** M17.2: Extract displayable text from ledger content using unified parser.
+ *  LedgerEntry.content is always a serialized string. For message entries it's
+ *  a serialized MessageRevision; for other kinds it's JSON.stringify'd payload. */
 function formatContent(content: unknown): string {
-  if (typeof content === "string") return content;
+  if (typeof content === "string") {
+    // Try parsing as MessageRevision first (common path for message entries)
+    try {
+      const parsed = JSON.parse(content) as unknown;
+      const rev = parseMessageRevision(parsed);
+      return rev.text ?? "";
+    } catch {
+      // Fallback: try legacy {text} shape
+      try {
+        const obj = JSON.parse(content) as Record<string, unknown>;
+        if (typeof obj.text === "string") return obj.text;
+      } catch {
+        // Not JSON — return as-is
+      }
+      return content;
+    }
+  }
   if (content && typeof content === "object" && "text" in content) {
     return String((content as { text: unknown }).text);
   }
@@ -108,9 +130,15 @@ export function projectForMember(
     // For member events, produce a human-readable description
     if (entry.kind === "member.joined" || entry.kind === "member.left") {
       const verb = entry.kind === "member.joined" ? "加入" : "离开";
-      const payload = entry.content as
-        | { memberId?: string; members?: Array<{ displayName?: string; memberId: string }> }
-        | undefined;
+      // M17.2: content is always a serialized string — parse before reading
+      let payload: { memberId?: string; members?: Array<{ displayName?: string; memberId: string }> } | undefined;
+      try {
+        payload = typeof entry.content === "string"
+          ? (JSON.parse(entry.content) as typeof payload)
+          : (entry.content as typeof payload);
+      } catch {
+        payload = undefined;
+      }
       const who = payload?.memberId ? displayNameOf(conv, payload.memberId) : "未知成员";
       const present =
         payload?.members?.map((m) => displayNameOf(conv, m.memberId)).join(", ") ?? "";

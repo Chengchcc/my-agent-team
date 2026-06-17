@@ -275,24 +275,17 @@ function buildPreloadedMessages(
   for (const entry of entries) {
     if (entry.kind !== "message") continue;
     const role = entry.senderMemberId === memberId ? "assistant" : "user";
-    let content: unknown;
+    // M17.2: Use unified parser — all message entries are now serialized MessageRevisions.
+    // No more {text}/{blocks} shape guessing.
     try {
-      content = JSON.parse(entry.content);
-    } catch {
-      content = entry.content;
-    }
-    if (content && typeof content === "object" && !Array.isArray(content)) {
-      const c = content as Record<string, unknown>;
-      if ("text" in c && typeof c.text === "string") {
-        content = c.text;
-      } else if ("blocks" in c && Array.isArray(c.blocks)) {
-        content = c.blocks;
+      const rev = parseMessageRevision(JSON.parse(entry.content));
+      if (rev.text) {
+        msgs.push({ role: role as "user" | "assistant", text: rev.text });
+      } else if (rev.blocks && rev.blocks.length > 0) {
+        msgs.push({ role: role as "user" | "assistant", blocks: rev.blocks });
       }
-    }
-    if (typeof content === "string") {
-      msgs.push({ role: role as "user" | "assistant", text: content });
-    } else if (Array.isArray(content)) {
-      msgs.push({ role: role as "user" | "assistant", blocks: content as ContentBlock[] });
+    } catch {
+      // Skip malformed or legacy entries that don't parse as MessageRevision
     }
   }
   return msgs;
