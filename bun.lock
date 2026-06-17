@@ -144,6 +144,9 @@
     "packages/message": {
       "name": "@my-agent-team/message",
       "version": "0.1.0",
+      "dependencies": {
+        "zod": "^3.23.0",
+      },
     },
     "packages/plugin-fs-memory": {
       "name": "@my-agent-team/plugin-fs-memory",

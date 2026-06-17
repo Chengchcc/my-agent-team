@@ -1,6 +1,89 @@
-import type { ContentBlock } from "./content-block.js";
-import type { MessageRole, MessageState, MessageToolState } from "./message.js";
+import { z } from "zod";
 import type { MessageRevision } from "./revision.js";
+
+// ─── Zod schemas (internal, not exported directly — use parse/safeParse functions below) ──
+
+const TextBlockSchema = z.object({
+  type: z.literal("text"),
+  text: z.string(),
+});
+
+const ToolUseBlockSchema = z.object({
+  type: z.literal("tool_use"),
+  id: z.string().min(1),
+  name: z.string().min(1),
+  input: z.unknown(),
+});
+
+const ToolResultBlockSchema = z.object({
+  type: z.literal("tool_result"),
+  tool_use_id: z.string().min(1),
+  content: z.string(),
+  is_error: z.boolean().optional(),
+});
+
+const ContentBlockSchema = z.discriminatedUnion("type", [
+  TextBlockSchema,
+  ToolUseBlockSchema,
+  ToolResultBlockSchema,
+]);
+
+// ─── Message sub-type schemas ─────────────────────────────────
+
+const MessageRoleSchema = z.enum(["system", "user", "assistant", "tool"]);
+const MessageStateSchema = z.enum(["pending", "streaming", "waiting", "done", "error"]);
+
+const MessageToolStateSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  state: z.enum(["running", "done", "error"]),
+  isError: z.boolean().optional(),
+});
+
+const MessageErrorSchema = z.object({
+  code: z.string().optional(),
+  message: z.string().min(1),
+});
+
+const MessageAuthorSchema = z.object({
+  kind: z.enum(["system", "user", "agent", "tool"]),
+  id: z.string().optional(),
+  displayName: z.string().optional(),
+});
+
+// ─── Domain schemas ───────────────────────────────────────────
+
+const MessageSchema = z.object({
+  id: z.string().optional(),
+  role: MessageRoleSchema,
+  author: MessageAuthorSchema.optional(),
+  state: MessageStateSchema.optional(),
+  text: z.string().optional(),
+  blocks: z.array(ContentBlockSchema).optional(),
+  tools: z.array(MessageToolStateSchema).optional(),
+  runId: z.string().optional(),
+  conversationId: z.string().optional(),
+  visibility: z.enum(["internal", "conversation"]).optional(),
+  createdAt: z.number().optional(),
+  updatedAt: z.number().optional(),
+  error: MessageErrorSchema.optional(),
+});
+
+const MessageRevisionSchema = z.object({
+  messageId: z.string().min(1),
+  state: MessageStateSchema,
+  role: MessageRoleSchema,
+  text: z.string().optional(),
+  blocks: z.array(ContentBlockSchema).optional(),
+  tools: z.array(MessageToolStateSchema).optional(),
+  runId: z.string().optional(),
+  conversationId: z.string().optional(),
+  visibility: z.enum(["internal", "conversation"]).optional(),
+  updatedAt: z.number(),
+  error: MessageErrorSchema.optional(),
+});
+
+// ─── Public API (backward-compatible signatures, zod inside) ──
 
 export class MessageParseError extends Error {
   constructor(
@@ -12,140 +95,25 @@ export class MessageParseError extends Error {
   }
 }
 
-function assertString(val: unknown, field: string): string {
-  if (typeof val !== "string" || val.length === 0) {
-    throw new MessageParseError(field, `expected non-empty string, got ${typeof val}`);
-  }
-  return val;
-}
-
-function assertOptionalString(val: unknown, field: string): string | undefined {
-  if (val === undefined || val === null) return undefined;
-  if (typeof val !== "string") {
-    throw new MessageParseError(field, `expected string or null/undefined, got ${typeof val}`);
-  }
-  return val;
-}
-
-function assertRole(val: unknown): MessageRole {
-  const s = assertString(val, "role");
-  if (s !== "system" && s !== "user" && s !== "assistant" && s !== "tool") {
-    throw new MessageParseError("role", `invalid role: ${s}`);
-  }
-  return s;
-}
-
-function assertState(val: unknown): MessageState {
-  const s = assertString(val, "state");
-  if (s !== "pending" && s !== "streaming" && s !== "waiting" && s !== "done" && s !== "error") {
-    throw new MessageParseError("state", `invalid state: ${s}`);
-  }
-  return s;
-}
-
-function assertOptionalBlocks(val: unknown): ContentBlock[] | undefined {
-  if (val === undefined || val === null) return undefined;
-  if (!Array.isArray(val)) {
-    throw new MessageParseError("blocks", `expected array, got ${typeof val}`);
-  }
-  for (const item of val) {
-    if (
-      !item ||
-      typeof item !== "object" ||
-      typeof (item as Record<string, unknown>).type !== "string"
-    ) {
-      throw new MessageParseError("blocks", "block missing type field");
-    }
-  }
-  return val as ContentBlock[];
-}
-
-function assertOptionalTools(val: unknown): MessageToolState[] | undefined {
-  if (val === undefined || val === null) return undefined;
-  if (!Array.isArray(val)) {
-    throw new MessageParseError("tools", `expected array, got ${typeof val}`);
-  }
-  return val as MessageToolState[];
-}
-
-function assertNumber(val: unknown, field: string): number {
-  if (typeof val !== "number" || Number.isNaN(val)) {
-    throw new MessageParseError(field, `expected number, got ${typeof val}`);
-  }
-  return val;
-}
-
-function assertOptionalVisibility(val: unknown): "internal" | "conversation" | undefined {
-  if (val === undefined || val === null) return undefined;
-  const s = assertString(val, "visibility");
-  if (s !== "internal" && s !== "conversation") {
-    throw new MessageParseError("visibility", `invalid visibility: ${s}`);
-  }
-  return s;
-}
-
-function assertOptionalError(val: unknown): { code?: string; message: string } | undefined {
-  if (val === undefined || val === null) return undefined;
-  if (typeof val !== "object" || val === null) {
-    throw new MessageParseError("error", `expected object, got ${typeof val}`);
-  }
-  const obj = val as Record<string, unknown>;
-  if (typeof obj.message !== "string") {
-    throw new MessageParseError("error.message", "expected string");
-  }
-  return {
-    code: typeof obj.code === "string" ? obj.code : undefined,
-    message: obj.message,
-  };
-}
-
-/** Strict parser: fails on missing required fields, no fallback IDs,
- *  no legacy shape support. Only accepts valid MessageRevision objects. */
+/** Strictly parse and validate a MessageRevision. Throws MessageParseError on failure.
+ *  M17.3: Internal implementation uses zod; external signature unchanged. */
 export function parseMessageRevision(input: unknown): MessageRevision {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new MessageParseError(
-      "root",
-      `expected object, got ${Array.isArray(input) ? "array" : typeof input}`,
-    );
+  const result = MessageRevisionSchema.safeParse(input);
+  if (!result.success) {
+    const first = result.error.issues[0];
+    const path = first?.path.join(".") ?? "(root)";
+    throw new MessageParseError(path, first?.message ?? "invalid");
   }
-
-  const obj = input as Record<string, unknown>;
-
-  // Required fields
-  const messageId = assertString(obj.messageId, "messageId");
-  const state = assertState(obj.state);
-  const role = assertRole(obj.role);
-  const updatedAt = assertNumber(obj.updatedAt, "updatedAt");
-
-  // Optional fields
-  const text = assertOptionalString(obj.text, "text");
-  const blocks = assertOptionalBlocks(obj.blocks);
-  const tools = assertOptionalTools(obj.tools);
-  const runId = assertOptionalString(obj.runId, "runId");
-  const conversationId = assertOptionalString(obj.conversationId, "conversationId");
-  const visibility = assertOptionalVisibility(obj.visibility);
-  const error = assertOptionalError(obj.error);
-
-  return {
-    messageId,
-    state,
-    role,
-    updatedAt,
-    ...(text !== undefined ? { text } : {}),
-    ...(blocks !== undefined ? { blocks } : {}),
-    ...(tools !== undefined ? { tools } : {}),
-    ...(runId !== undefined ? { runId } : {}),
-    ...(conversationId !== undefined ? { conversationId } : {}),
-    ...(visibility !== undefined ? { visibility } : {}),
-    ...(error !== undefined ? { error } : {}),
-  };
+  return result.data as MessageRevision;
 }
 
-/** Serialize a MessageRevision for storage (ledger content, etc.).
- *  Validates the revision via parseMessageRevision before serializing,
- *  so that invalid revisions are caught at write time, not read time. */
+/** Safe parse — returns success/error instead of throwing. M17.3 new addition. */
+export function safeParseMessageRevision(input: unknown): z.SafeParseReturnType<unknown, MessageRevision> {
+  return MessageRevisionSchema.safeParse(input) as z.SafeParseReturnType<unknown, MessageRevision>;
+}
+
+/** Serialize a MessageRevision to JSON, validating via parse first. */
 export function serializeMessageRevision(revision: MessageRevision): string {
-  // Round-trip validate: ensures all required fields are present and valid
   const validated = parseMessageRevision(revision);
   return JSON.stringify(validated);
 }

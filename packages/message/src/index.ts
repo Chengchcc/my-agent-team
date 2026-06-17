@@ -21,6 +21,7 @@ export type {
 export {
   MessageParseError,
   parseMessageRevision,
+  safeParseMessageRevision,
   serializeMessageRevision,
 } from "./parser.js";
 export type { MessageRevision } from "./revision.js";
