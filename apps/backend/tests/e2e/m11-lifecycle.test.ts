@@ -2,10 +2,10 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { inMemoryEventLog } from "@my-agent-team/event-log";
 import { loadConfig } from "../../src/config.js";
 import { sqliteAgentAdapter } from "../../src/features/agent/adapter-sqlite.js";
 import { createAgentService } from "../../src/features/agent/index.js";
+import { inMemoryEventLog } from "../../src/features/event-log/index.js";
 
 const TEST_DIR = `/tmp/test-m11-e2e-${Date.now()}`;
 const DATA_DIR = `${TEST_DIR}/data`;

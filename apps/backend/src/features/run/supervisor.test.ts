@@ -1,13 +1,13 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
-import type { EventLog } from "@my-agent-team/event-log";
-import { inMemoryEventLog } from "@my-agent-team/event-log";
 import {
   createRuntimeTracer,
   resolveObservabilityConfig,
 } from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";
+import type { EventLog } from "../event-log/index.js";
+import { inMemoryEventLog } from "../event-log/index.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { runEventsDbMigrations } from "./events-db-migrations.js";
 import { NOOP_TRANSPORT, RunSupervisor } from "./supervisor.js";

@@ -96,6 +96,19 @@ export const EVENTS_DB_MIGRATIONS = [
     )`,
   },
   {
+    name: "events_v11_event_log",
+    id: 3010,
+    up: `CREATE TABLE IF NOT EXISTS event_log (
+      seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+      thread_id  TEXT NOT NULL,
+      run_id     TEXT NOT NULL,
+      event      TEXT NOT NULL,
+      ts         INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_event_log_run    ON event_log(run_id, seq);
+    CREATE INDEX IF NOT EXISTS idx_event_log_thread ON event_log(thread_id, seq);`,
+  },
+  {
     name: "events_v10_surface_health",
     id: 3009,
     up: `CREATE TABLE IF NOT EXISTS surface_health (

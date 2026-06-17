@@ -1,4 +1,5 @@
-import type { SQLQueryBindings, Database as SqliteDatabase } from "bun:sqlite";
+import type { SQLQueryBindings } from "bun:sqlite";
+import { Database as SqliteDatabase } from "bun:sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
 import { safeParseAgentEvent } from "@my-agent-team/framework";
 
@@ -42,9 +43,9 @@ export interface EventSource {
 
 export interface EventLog extends EventSink, EventSource {}
 
-// -- Migrations --
+// -- DDL (owned by runEventsDbMigrations; exported for test use) --
 
-const EVENT_LOG_DDL = `
+export const EVENT_LOG_DDL = `
 CREATE TABLE IF NOT EXISTS event_log (
   seq        INTEGER PRIMARY KEY AUTOINCREMENT,
   thread_id  TEXT NOT NULL,
@@ -56,16 +57,10 @@ CREATE INDEX IF NOT EXISTS idx_event_log_run    ON event_log(run_id, seq);
 CREATE INDEX IF NOT EXISTS idx_event_log_thread ON event_log(thread_id, seq);
 `;
 
-export const EVENT_LOG_MIGRATIONS = [
-  { id: 2000, name: "event_log_v1_event_log", up: EVENT_LOG_DDL },
-] as const;
-
 // -- SQLite --
 
 function openDatabase(db: SqliteDatabase | string): SqliteDatabase {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Database } = require("bun:sqlite") as { Database: typeof SqliteDatabase };
-  if (typeof db === "string") return new Database(db);
+  if (typeof db === "string") return new SqliteDatabase(db);
   return db;
 }
 
@@ -97,7 +92,9 @@ function mapRow(row: {
 }): EventRecord | null {
   const result = safeParseAgentEvent(JSON.parse(row.event));
   if (!result.success) {
-    console.warn(`[event-log] skipping unparseable event seq=${row.seq}: ${result.error.issues[0]?.message}`);
+    console.warn(
+      `[event-log] skipping unparseable event seq=${row.seq}: ${result.error.issues[0]?.message}`,
+    );
     return null;
   }
   return {
@@ -113,6 +110,9 @@ export function sqliteEventLog(opts: { db: SqliteDatabase | string }): EventLog 
   const db = openDatabase(opts.db);
   db.exec("PRAGMA journal_mode=WAL");
   db.exec("PRAGMA busy_timeout=5000");
+  // M17.4: Canonical DDL registration is in runEventsDbMigrations
+  // (events_v11_event_log, id 3010). This is a safety net for standalone
+  // or test usage that doesn't go through the full migration path.
   db.exec(EVENT_LOG_DDL);
 
   const sink: EventSink = {
@@ -143,7 +143,9 @@ export function sqliteEventLog(opts: { db: SqliteDatabase | string }): EventLog 
           event: string;
           ts: number;
         }[]
-      ).map(mapRow).filter((r): r is EventRecord => r !== null);
+      )
+        .map(mapRow)
+        .filter((r): r is EventRecord => r !== null);
     },
 
     async *subscribe(

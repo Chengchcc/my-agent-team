@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { inMemoryEventLog } from "@my-agent-team/event-log";
+import { inMemoryEventLog } from "../event-log/index.js";
 import { getInsightsSummary, getRunInsights } from "./insights.js";
 
 describe("getRunInsights", () => {

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { EventLog } from "@my-agent-team/event-log";
+import type { EventLog } from "../event-log/index.js";
 import type { RunnerRegistry } from "../run/runner-registry.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { InsightsSummary, RunInsights } from "./insights.js";
@@ -368,7 +368,7 @@ export function createRuntimeOpsService(deps: {
         }
         // Trigger onRunComplete listeners
         // Trigger onRunComplete listeners (same as reaper path)
-        supervisor.notifyRunComplete(run.thread_id, runId, "interrupted");
+        supervisor.notifyRunComplete(run.thread_id, runId, "interrupted", run.kind);
         return { state: "marked_interrupted", reason: "heartbeat_timeout" };
       }
 

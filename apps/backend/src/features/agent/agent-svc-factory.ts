@@ -1,13 +1,13 @@
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
+import type { LarkBotRegistry } from "../lark-bot/index.js";
+import { larkProfileInit } from "../lark-bot/index.js";
+import type { RunSupervisor } from "../run/supervisor.js";
 import { sqliteAgentAdapter } from "./adapter-sqlite.js";
 import type { AgentService } from "./index.js";
 import { AgentBusyError, createAgentService } from "./index.js";
 import { withLarkOrchestration } from "./with-lark-orchestration.js";
-import type { LarkBotRegistry } from "../lark-bot/index.js";
-import { larkProfileInit } from "../lark-bot/index.js";
-import type { RunSupervisor } from "../run/supervisor.js";
 
 /** Create the full agent service with workspace materialization, thread-id lookup,
  *  hard-delete dependencies, and lark-bot orchestration. */

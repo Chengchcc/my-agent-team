@@ -1,20 +1,19 @@
-import { Database } from "bun:sqlite";
-import type { Message } from "@my-agent-team/message";
+import type { Database } from "bun:sqlite";
 import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
-import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import type { RunSupervisor } from "../run/supervisor.js";
-import { sqliteConversationAdapter } from "./index.js";
-import { buildPreloadedMessages } from "./projection.js";
-import type { ConversationPort } from "./ports.js";
-import { createConversationService } from "./service.js";
+import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import {
   sqliteThreadProjectionReadAdapter,
   sqliteThreadProjectionWriteAdapter,
 } from "../thread-projection/adapter-sqlite.js";
 import { createThreadProjectionService } from "../thread-projection/index.js";
+import { sqliteConversationAdapter } from "./index.js";
+import type { ConversationPort } from "./ports.js";
+import { buildPreloadedMessages } from "./projection.js";
+import { createConversationService, parseThreadId } from "./service.js";
 
 export interface ConversationFeature {
   convPort: ConversationPort;
@@ -28,7 +27,7 @@ export interface ConversationFeature {
  *  forkRun closure that ties conversation events to agent runs. */
 export function createConversationFeature(
   db: Database,
-  config: BackendConfig,
+  _config: BackendConfig,
   supervisor: RunSupervisor,
   agentSvc: AgentService,
   opsStore: RuntimeOpsStore,
@@ -130,8 +129,7 @@ export async function buildAgentSpecV2(
     parentRunId?: string;
   },
 ): Promise<Record<string, unknown>> {
-  const cid = threadId.split(":")[0]!;
-  const memberId = threadId.split(":").slice(1).join(":");
+  const { conversationId: cid, memberId } = parseThreadId(threadId);
   const member = db
     .query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
     .get(cid, memberId) as { agent_id: string } | undefined;

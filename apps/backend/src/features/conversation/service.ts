@@ -22,6 +22,15 @@ function deriveThreadId(conversationId: string, memberId: string): string {
   return `${conversationId}:${memberId}`;
 }
 
+/** Parse a threadId back into its constituent parts.
+ *  Inverse of deriveThreadId. First colon separates conversationId from memberId;
+ *  memberId may itself contain colons. */
+export function parseThreadId(threadId: string): { conversationId: string; memberId: string } {
+  const idx = threadId.indexOf(":");
+  if (idx < 0) return { conversationId: threadId, memberId: "" };
+  return { conversationId: threadId.slice(0, idx), memberId: threadId.slice(idx + 1) };
+}
+
 function isHumanMember(members: MemberRow[], memberId: string): boolean {
   return members.some((m) => m.memberId === memberId && m.kind === "human");
 }

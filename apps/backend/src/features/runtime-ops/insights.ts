@@ -1,5 +1,5 @@
-import type { EventLog } from "@my-agent-team/event-log";
 import type { AgentEvent, Interrupt } from "@my-agent-team/framework";
+import type { EventLog } from "../event-log/index.js";
 import { estimateCost, type Usage } from "./pricing.js";
 
 // ─── Types ───

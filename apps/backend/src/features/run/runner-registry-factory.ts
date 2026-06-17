@@ -1,5 +1,5 @@
-import type { BackendConfig } from "../../config.js";
 import { createSocketClient } from "@my-agent-team/runner-protocol";
+import type { BackendConfig } from "../../config.js";
 import type { RunnerRegistry } from "./runner-registry.js";
 import { DevRunnerRegistry, ProdRunnerRegistry } from "./runner-registry.js";
 

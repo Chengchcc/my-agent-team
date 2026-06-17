@@ -161,14 +161,4 @@ describe("sqliteEventLog", () => {
       /* best-effort cleanup */
     }
   });
-
-  test("EVENT_LOG_MIGRATIONS is exported", async () => {
-    const mod = await import("./index.js");
-    expect(Array.isArray(mod.EVENT_LOG_MIGRATIONS)).toBe(true);
-    expect(mod.EVENT_LOG_MIGRATIONS.length).toBeGreaterThan(0);
-    for (const m of mod.EVENT_LOG_MIGRATIONS) {
-      expect(typeof m.name).toBe("string");
-      expect(typeof m.up).toBe("string");
-    }
-  });
 });

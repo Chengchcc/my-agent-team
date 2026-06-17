@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { EventLog, EventRecord } from "@my-agent-team/event-log";
+import type { EventLog, EventRecord } from "../event-log/index.js";
 import {
   createRunService,
   RunNotFoundError,

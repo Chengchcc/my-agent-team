@@ -1,32 +1,27 @@
 import { Database } from "bun:sqlite";
-import { sqliteEventLog } from "@my-agent-team/event-log";
-import type { Message } from "@my-agent-team/message";
+import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
   createRuntimeTracer,
   resolveObservabilityConfig,
 } from "@my-agent-team/runtime-observability";
 import { loadConfig } from "./config.js";
+import { createAgentSvc } from "./features/agent/agent-svc-factory.js";
 import { createAgentIdentityStore } from "./features/agent/identity-store.js";
 import { agentRoutes } from "./features/agent/index.js";
-import { createAgentSvc } from "./features/agent/agent-svc-factory.js";
-import {
-  conversationRoutes,
-} from "./features/conversation/index.js";
 import {
   buildAgentSpecV2,
   createConversationFeature,
 } from "./features/conversation/conv-svc-factory.js";
+import { conversationRoutes, parseThreadId } from "./features/conversation/index.js";
 import {
   escapeRegExp,
   getOrCreateAccumulator,
   onRunComplete,
   projectRunMessageToLedger,
 } from "./features/conversation/projection.js";
+import { sqliteEventLog } from "./features/event-log/index.js";
+import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
-import {
-  CliSetupProvisioner,
-  LarkSetupManager,
-} from "./features/lark-bot/index.js";
 import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
 import { createRunnerRegistry } from "./features/run/runner-registry-factory.js";
@@ -36,9 +31,7 @@ import {
   opsRoutes,
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
-import {
-  threadProjectionRoutes,
-} from "./features/thread-projection/index.js";
+import { threadProjectionRoutes } from "./features/thread-projection/index.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
 import { openDb } from "./infra/sqlite/db.js";
@@ -61,7 +54,14 @@ const tracer = createRuntimeTracer(obsConfig);
 const opsStore = new RuntimeOpsStore(eventsDb);
 
 const registry = createRunnerRegistry(config);
-const supervisor = new RunSupervisor({ eventLog, config, registry, opsStore, tracer, db: eventsDb });
+const supervisor = new RunSupervisor({
+  eventLog,
+  config,
+  registry,
+  opsStore,
+  tracer,
+  db: eventsDb,
+});
 
 // Feature services
 const larkBotRegistry = createLarkBotRegistry(config);
@@ -77,15 +77,15 @@ const runSvc = createRunService({
   idGen: ulid,
   autoTitle: {
     getThread: async (tid) => {
-      const cid = tid.includes(":") ? tid.split(":")[0]! : tid;
+      const cid = parseThreadId(tid).conversationId || tid;
       const c = conv.convPort.getConversation(cid);
       if (c?.title) return { title: c.title };
       return c ? { title: null } : null;
     },
     getMessages: async (tid) =>
-      (await conv.threadProjectionSvc.port.getMessages(tid)) as Message[] | null,
+      (await conv.threadProjectionSvc.getMessages(tid)) as Message[] | null,
     setTitle: async (tid, title) => {
-      const cid = tid.includes(":") ? tid.split(":")[0]! : tid;
+      const cid = parseThreadId(tid).conversationId || tid;
       conv.convPort.setConversationTitle(cid, title);
     },
     llm: { apiKey: config.anthropicApiKey },
@@ -94,14 +94,23 @@ const runSvc = createRunService({
 
 // ─── Event wiring ─────────────────────────────────────────────
 
-supervisor.onRunComplete((threadId, runId, status) =>
-  onRunComplete(threadId, runId, status, conv.activeConversations, conv.convPort, conv.convSvc));
+supervisor.onRunComplete((threadId, runId, status, kind) =>
+  onRunComplete(
+    threadId,
+    runId,
+    status,
+    conv.activeConversations,
+    conv.convPort,
+    conv.convSvc,
+    kind,
+  ),
+);
 
-supervisor.onRunEvent((threadId, runId, event) => {
+supervisor.onRunEvent((threadId, runId, event, kind) => {
   if (event.type === "todo_update") {
     const cid = [...conv.activeConversations].find((c) => threadId.startsWith(`${c}:`));
     if (!cid) return;
-    const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+    const senderMemberId = parseThreadId(threadId).memberId || threadId;
     const acc = getOrCreateAccumulator(runId, senderMemberId);
     const payload = (event as { payload?: { todos?: unknown } }).payload;
     if (payload?.todos) acc.lastTodoUpdate = { todos: payload.todos };
@@ -123,7 +132,7 @@ supervisor.onRunEvent((threadId, runId, event) => {
     if (text) {
       const cid = [...conv.activeConversations].find((c) => threadId.startsWith(`${c}:`));
       if (cid) {
-        const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+        const senderMemberId = parseThreadId(threadId).memberId || threadId;
         const acc = getOrCreateAccumulator(runId, senderMemberId);
         const roster = conv.convPort.getMembers(cid);
         for (const m of roster) {
@@ -138,11 +147,19 @@ supervisor.onRunEvent((threadId, runId, event) => {
     }
   }
 
-  const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+  const senderMemberId = parseThreadId(threadId).memberId || threadId;
   const acc = getOrCreateAccumulator(runId, senderMemberId);
   acc.projectionChain = acc.projectionChain
     .then(() =>
-      projectRunMessageToLedger(threadId, runId, revision, conv.activeConversations, conv.convPort, conv.convSvc),
+      projectRunMessageToLedger(
+        threadId,
+        runId,
+        revision as MessageRevision,
+        conv.activeConversations,
+        conv.convPort,
+        conv.convSvc,
+        kind,
+      ),
     )
     .catch((err) => {
       console.error(
@@ -176,7 +193,11 @@ function getSetupManager(): LarkSetupManager {
       await agentSvc.update(session.agentId, {
         lark: { enabled: true, botDisplayName: session.botDisplayName ?? undefined },
       });
-      await larkBotRegistry.ensureLarkBot(session.agentId, session.botDisplayName, session.profileRef);
+      await larkBotRegistry.ensureLarkBot(
+        session.agentId,
+        session.botDisplayName,
+        session.profileRef,
+      );
       console.log(`[lark-setup] completed for ${session.agentId}, profile=${session.profileRef}`);
     });
   }
@@ -190,14 +211,27 @@ const agentNames = new Map<string, string>();
   for (const r of rows) agentNames.set(r.id, r.name);
 }
 const opsSvc = createRuntimeOpsService({
-  db: eventsDb, opsStore, supervisor, registry,
-  heartbeatTimeoutMs: config.heartbeatTimeoutMs, eventLog,
+  db: eventsDb,
+  opsStore,
+  supervisor,
+  registry,
+  heartbeatTimeoutMs: config.heartbeatTimeoutMs,
+  eventLog,
   getAgentName: (agentId) => agentNames.get(agentId),
 });
 
 const router = createRouter(config.authToken, {
-  agents: agentRoutes(agentSvc, identityStore, (id) => larkBotRegistry.statusOf(id), getSetupManager),
-  runs: runRoutes(runSvc, (threadId, input, overrides) => buildAgentSpecV2(db, agentSvc, threadId, input, overrides), getThreadIdForRun),
+  agents: agentRoutes(
+    agentSvc,
+    identityStore,
+    (id) => larkBotRegistry.statusOf(id),
+    getSetupManager,
+  ),
+  runs: runRoutes(
+    runSvc,
+    (threadId, input, overrides) => buildAgentSpecV2(db, agentSvc, threadId, input, overrides),
+    getThreadIdForRun,
+  ),
   threadProjections: threadProjectionRoutes(conv.threadProjectionSvc),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),

@@ -1,10 +1,10 @@
 import { Database } from "bun:sqlite";
-import type { EventLog, EventSource } from "@my-agent-team/event-log";
 import type { AgentEvent } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
 import type { RuntimeTraceContext, RuntimeTracer } from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";
+import type { EventLog, EventSource } from "../event-log/index.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { runEventsDbMigrations } from "./events-db-migrations.js";
 import type { RunnerRegistry } from "./runner-registry.js";
@@ -80,14 +80,11 @@ export class RunSupervisor {
   #active = new Map<string, RunSession>();
   #opts: RunSupervisorOptions;
   #db: Database;
-  #onRunComplete: Array<(threadId: string, runId: string, status: string) => void | Promise<void>> =
-    [];
+  #onRunComplete: Array<
+    (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>
+  > = [];
   #onRunEvent: Array<
-    (
-      threadId: string,
-      runId: string,
-      event: AgentEvent,
-    ) => void | Promise<void>
+    (threadId: string, runId: string, event: AgentEvent, kind: string) => void | Promise<void>
   > = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
   #reaping = false;
@@ -132,7 +129,7 @@ export class RunSupervisor {
     // JOIN attempt with run to get thread_id for EventLog append
     const rows = this.#db
       .query(
-        `SELECT a.attempt_id, a.run_id, a.heartbeat_at, r.thread_id
+        `SELECT a.attempt_id, a.run_id, a.heartbeat_at, r.thread_id, r.kind
          FROM attempt a JOIN run r ON a.run_id = r.run_id
          WHERE a.ended_at IS NULL`,
       )
@@ -141,6 +138,7 @@ export class RunSupervisor {
       run_id: string;
       heartbeat_at: number | null;
       thread_id: string;
+      kind: string;
     }[];
 
     let reaped = false;
@@ -182,7 +180,7 @@ export class RunSupervisor {
 
       // Trigger onRunComplete listeners (releases M10 locks, notifies Growth)
       for (const fn of this.#onRunComplete) {
-        fn(row.thread_id, row.run_id, "interrupted");
+        fn(row.thread_id, row.run_id, "interrupted", row.kind);
       }
 
       console.log(
@@ -193,9 +191,10 @@ export class RunSupervisor {
     return reaped;
   }
 
-  /** Register callback invoked when any run completes (success/error/abort). Supports multiple listeners. */
+  /** Register callback invoked when any run completes (success/error/abort). Supports multiple listeners.
+   *  M17.4: kind parameter added (\"main\"|\"reflect\") so consumers can dispatch without string-prefix checks. */
   onRunComplete(
-    fn: (threadId: string, runId: string, status: string) => void | Promise<void>,
+    fn: (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>,
   ): void {
     this.#onRunComplete.push(fn);
   }
@@ -204,21 +203,18 @@ export class RunSupervisor {
    *  appended to the EventLog). Used by Conversation Projection to project assistant/tool messages
    *  into the conversation ledger incrementally, so multi-round progress is
    *  visible while the run is still in flight. Listener failures are logged and
-   *  swallowed — they must never block the run. */
+   *  swallowed — they must never block the run.
+   *  M17.4: kind parameter added (\"main\"|\"reflect\") — eliminates startsWith(\"reflect:\"). */
   onRunEvent(
-    fn: (
-      threadId: string,
-      runId: string,
-      event: AgentEvent,
-    ) => void | Promise<void>,
+    fn: (threadId: string, runId: string, event: AgentEvent, kind: string) => void | Promise<void>,
   ): void {
     this.#onRunEvent.push(fn);
   }
 
   /** M16.1: Trigger all onRunComplete listeners. Used by ops service recover() stale path. */
-  notifyRunComplete(threadId: string, runId: string, status: string): void {
+  notifyRunComplete(threadId: string, runId: string, status: string, kind: string): void {
     for (const fn of this.#onRunComplete) {
-      fn(threadId, runId, status);
+      fn(threadId, runId, status, kind);
     }
   }
 
@@ -390,7 +386,7 @@ export class RunSupervisor {
       type: "start",
       runId: req.runId,
       spec: req.spec,
-      preloadedMessages: req.options?.preloadedMessages,
+      preloadedMessages: req.options?.preloadedMessages as unknown[] | undefined,
       surfaceContext: req.options?.surfaceContext,
       trace: req.options?.trace,
     });
@@ -475,9 +471,10 @@ export class RunSupervisor {
         // sharing the same transport.
         if (this.#onRunEvent.length > 0) {
           const threadId = this.#threadIdFor(runId);
+          const kind = this.#kindFor(runId);
           const event = msg.event as AgentEvent;
           for (const fn of this.#onRunEvent) {
-            void Promise.resolve(fn(threadId, runId, event)).catch((err: unknown) => {
+            void Promise.resolve(fn(threadId, runId, event, kind)).catch((err: unknown) => {
               console.error(
                 `[supervisor] onRunEvent listener failed for ${runId}: ${
                   err instanceof Error ? err.message : String(err)
@@ -515,8 +512,9 @@ export class RunSupervisor {
         ]);
         this.#active.delete(runId);
         const threadId = this.#threadIdFor(runId);
+        const kind = this.#kindFor(runId);
         // Always fire lifecycle hooks (lock release, cleanup)
-        await Promise.all(this.#onRunComplete.map((fn) => fn(threadId, runId, status)));
+        await Promise.all(this.#onRunComplete.map((fn) => fn(threadId, runId, status, kind)));
         // Only send run_finalized after all listeners complete (Conversation Projection, ledger, etc.)
         if (transport) transport.send({ type: "run_finalized", runId });
         this.#opts.opsStore.appendRunEvent({
@@ -558,6 +556,16 @@ export class RunSupervisor {
       | undefined;
     if (!row) throw new Error(`unknown runId: ${runId}`);
     return row.thread_id;
+  }
+
+  /** M17.4: Look up run kind — used for reflect/main dispatch. */
+  #kindFor(runId: string): string {
+    const active = this.#active.get(runId);
+    if (active) return active.kind;
+    const row = this.#db.query("SELECT kind FROM run WHERE run_id = ?").get(runId) as
+      | { kind: string }
+      | undefined;
+    return row?.kind ?? "main";
   }
 
   /** Send abort to runner daemon; ops events track the control action. */
