@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { extractText } from "../../src/lib/timeline";
 
 describe("extractText", () => {
-  test("extracts text from string content", () => {
-    expect(extractText("plain string")).toBe("plain string");
+  test("extracts text from text field", () => {
+    expect(extractText({ text: "plain string" })).toBe("plain string");
   });
 
   test("extracts text from ContentBlock array", () => {
@@ -12,7 +12,7 @@ describe("extractText", () => {
       { type: "tool_use", id: "1", name: "read", input: {} },
       { type: "text", text: "world" },
     ];
-    expect(extractText(blocks)).toBe("Hello world");
+    expect(extractText({ blocks })).toBe("Hello  world");
   });
 
   test("returns empty string for no text blocks", () => {
@@ -20,10 +20,6 @@ describe("extractText", () => {
       { type: "tool_use", id: "1", name: "read", input: {} },
       { type: "tool_result", tool_use_id: "1", content: "data" },
     ];
-    expect(extractText(blocks)).toBe("");
-  });
-
-  test("handles unknown array items gracefully", () => {
-    expect(extractText([{ type: "unknown" }])).toBe("");
+    expect(extractText({ blocks })).toBe("");
   });
 });

@@ -1,6 +1,7 @@
 import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
   assistantMessageId,
+  deserializeLedgerContent,
   isTerminalMessageState,
   parseMessageRevision,
   serializeMessageRevision,
@@ -36,13 +37,10 @@ export function buildPreloadedMessages(
   >();
   for (const entry of entries) {
     if (entry.kind !== "message") continue;
-    try {
-      const rev = parseMessageRevision(JSON.parse(entry.content));
-      const role = entry.senderMemberId === memberId ? "assistant" : "user";
-      folded.set(rev.messageId, { role, rev });
-    } catch {
-      // Malformed or legacy entry — silently skip (old-shape rows are cleaned up by migration)
-    }
+    const parsed = deserializeLedgerContent(entry.content);
+    if (!("messageId" in parsed)) continue; // legacy or malformed — skip
+    const role = entry.senderMemberId === memberId ? "assistant" : "user";
+    folded.set(parsed.messageId, { role, rev: parsed });
   }
 
   // Output in ledger insertion order (Map guarantees insertion order)
@@ -105,19 +103,16 @@ function findLatestAssistantRevision(
   let latest: { rev: MessageRevision; seq: number } | null = null;
   for (const entry of entries) {
     if (entry.kind !== "message" || entry.runId !== runId) continue;
-    try {
-      const rev = parseMessageRevision(JSON.parse(entry.content));
-      if (rev.role === "assistant" && (!latest || entry.seq > latest.seq)) {
-        latest = { rev, seq: entry.seq };
-      }
-    } catch {
-      // Malformed entry — skip
+    const parsed = deserializeLedgerContent(entry.content);
+    if (!("messageId" in parsed)) continue;
+    if (parsed.role === "assistant" && (!latest || entry.seq > latest.seq)) {
+      latest = { rev: parsed, seq: entry.seq };
     }
   }
   return latest?.rev ?? null;
 }
 
-/** M17.4: Check if a terminal revision (done/error) already exists in the ledger
+/** Check if a terminal revision (done/error) already exists in the ledger
  *  for the given (runId, messageId). Avoids repeated terminal writes when
  *  onRunComplete is invoked multiple times (reaper re-invocation, restart). */
 function ledgerHasTerminalForMessage(
@@ -129,13 +124,10 @@ function ledgerHasTerminalForMessage(
   const entries = port.getLedgerEntries(conversationId);
   for (const entry of entries) {
     if (entry.kind !== "message" || entry.runId !== runId) continue;
-    try {
-      const rev = parseMessageRevision(JSON.parse(entry.content));
-      if (rev.messageId === messageId && isTerminalMessageState(rev.state)) {
-        return true;
-      }
-    } catch {
-      /* malformed entry — skip */
+    const parsed = deserializeLedgerContent(entry.content);
+    if (!("messageId" in parsed)) continue;
+    if (parsed.messageId === messageId && isTerminalMessageState(parsed.state)) {
+      return true;
     }
   }
   return false;

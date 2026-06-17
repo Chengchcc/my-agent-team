@@ -83,7 +83,7 @@ export function getApprovalTarget(s: ConvState): {
   tools: Array<{ id: string; name: string }>;
 } | null {
   for (const m of s.messages) {
-    if (m.sender.kind === "agent" && m.content.state === "waiting" && m.content.runId) {
+    if (m.sender.kind === "agent" && m.content.state != null && isOpenMessageState(m.content.state) && m.content.runId) {
       return {
         messageId: m.content.id ?? "",
         runId: m.content.runId,

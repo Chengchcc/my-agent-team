@@ -1,6 +1,6 @@
 import { Anthropic } from "@anthropic-ai/sdk";
 import type { AIMessageChunk, ChatModel, ChatModelOptions } from "@my-agent-team/core";
-import type { Message } from "@my-agent-team/message";
+import { extractText, type Message } from "@my-agent-team/message";
 import { toAnthropicTools } from "./to-anthropic-tools.js";
 
 export interface AnthropicChatModelConfig {
@@ -108,21 +108,12 @@ export class AnthropicChatModel implements ChatModel {
 
 // -- Helpers --
 
-function textOf(msg: Message): string {
-  if (msg.text !== undefined) return msg.text;
-  if (!msg.blocks) return "";
-  return msg.blocks
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
-}
-
 /** Merge all system messages into a single string. */
 function mergeSystemMessages(messages: readonly Message[]): string | undefined {
   const systemMessages = messages.filter((m) => m.role === "system");
   if (systemMessages.length === 0) return undefined;
   return systemMessages
-    .map(textOf)
+    .map(extractText)
     .filter((s) => s.trim().length > 0)
     .join("\n\n");
 }

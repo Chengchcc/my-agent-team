@@ -1,7 +1,7 @@
 import type { ChatModel, Tool } from "@my-agent-team/core";
 import { collectStream } from "@my-agent-team/core";
 import type { Plugin, StopDecision } from "@my-agent-team/framework";
-import type { Message } from "@my-agent-team/message";
+import { extractText, type Message } from "@my-agent-team/message";
 
 // ─── Types ───
 
@@ -114,11 +114,7 @@ async function generatePlan(model: ChatModel, messages: readonly Message[]): Pro
   ];
 
   const result = await collectStream(model.stream(slim, { tools: [] as const }));
-  const text = result.blocks
-    .filter((b) => b.type === "text")
-    .map((b) => (b as { text: string }).text)
-    .join("\n")
-    .trim();
+  const text = extractText({ blocks: result.blocks }).trim();
 
   // Try to extract JSON array from the response
   const jsonMatch = text.match(/\[[\s\S]*\]/);

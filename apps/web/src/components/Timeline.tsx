@@ -212,7 +212,7 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                 {isSystem ? (
                   <div style={virt}>
                     <SystemNotice
-                      text={typeof m.content === "string" ? m.content : extractText(m.content)}
+                      text={extractText(m.content)}
                     />
                   </div>
                 ) : (

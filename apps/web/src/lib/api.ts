@@ -1,3 +1,6 @@
+import type { ContentBlock } from "@my-agent-team/message";
+import type { LedgerEntry, Member } from "@my-agent-team/conversation";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -87,31 +90,21 @@ export interface RunMeta {
   endedAt?: number | null;
 }
 
-export interface ContentBlock {
-  type: "text" | "tool_use" | "tool_result";
-  text?: string;
-  id?: string;
-  name?: string;
-  input?: unknown;
-  tool_use_id?: string;
-  content?: string;
-  is_error?: boolean;
-}
+// ContentBlock is now the canonical discriminated union from @my-agent-team/message
+// (TextBlock | ToolUseBlock | ToolResultBlock), replacing the old baggy local interface.
+export type { ContentBlock };
 
+/** BFF wire-level Message shape. Uses `content` as an aggregated field name,
+ *  distinct from the canonical `Message` in @my-agent-team/message which uses
+ *  `text`/`blocks`/`tools` as separate fields. */
 export interface Message {
   role: "user" | "assistant" | "system";
   content: string | ContentBlock[];
 }
 
-// ── Conversation types (M14) ──
+// ── Conversation types ──
 
-export interface MemberInfo {
-  memberId: string;
-  kind: "agent" | "human";
-  agentId?: string | null;
-  userRef?: string | null;
-  displayName?: string | null;
-}
+export type MemberInfo = Member;
 
 export interface ConversationSnapshot {
   conversationId: string;
@@ -121,15 +114,7 @@ export interface ConversationSnapshot {
   members: MemberInfo[];
 }
 
-export interface LedgerEntry {
-  seq: number;
-  conversationId: string;
-  senderMemberId: string;
-  addressedTo: string[];
-  kind: "message" | "member.joined" | "member.left";
-  content: string;
-  ts: number;
-}
+export type { LedgerEntry };
 
 // ── Typed API ──
 

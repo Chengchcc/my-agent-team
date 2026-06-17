@@ -1,24 +1,6 @@
 import { expect, test } from "bun:test";
-
-// Inline copies of pure functions from title.ts (avoids workspace import issue in bun test)
-function buildTitleContext(msgs: Array<{ role: string; content: unknown }>, maxTurns = 4): string {
-  function text(c: unknown): string {
-    if (typeof c === "string") return c;
-    if (Array.isArray(c)) {
-      return (c as Array<{ type?: string; text?: string }>)
-        .filter((b) => b.type === "text" && typeof b.text === "string")
-        .map((b) => b.text!)
-        .join("");
-    }
-    return "";
-  }
-  return (msgs as Array<{ role: string; content: unknown }>)
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .slice(0, maxTurns * 2)
-    .map((m) => `${m.role === "user" ? "用户" : "助手"}: ${text(m.content)}`)
-    .filter((line) => line.length > 3)
-    .join("\n");
-}
+import { extractText } from "@my-agent-team/message";
+import { buildTitleContext } from "./title.js";
 
 function sanitizeTitle(raw: string): string {
   return raw
@@ -31,11 +13,11 @@ function sanitizeTitle(raw: string): string {
 test("buildTitleContext extracts first N turns", () => {
   const ctx = buildTitleContext(
     [
-      { role: "user", content: "帮我修复登录 bug" },
-      { role: "assistant", content: "好的，我来看一下" },
-      { role: "user", content: "还有第三轮" },
-      { role: "user", content: "第四轮" },
-      { role: "user", content: "第五轮不该出现" },
+      { role: "user", text: "帮我修复登录 bug" },
+      { role: "assistant", text: "好的，我来看一下" },
+      { role: "user", text: "还有第三轮" },
+      { role: "user", text: "第四轮" },
+      { role: "user", text: "第五轮不该出现" },
     ],
     2,
   );
@@ -48,7 +30,7 @@ test("buildTitleContext handles ContentBlock[] content", () => {
     [
       {
         role: "user",
-        content: [
+        blocks: [
           { type: "text", text: "你好世界" },
           { type: "tool_use", id: "1", name: "bash", input: {} },
         ],

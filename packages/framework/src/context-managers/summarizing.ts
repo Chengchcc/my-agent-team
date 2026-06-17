@@ -1,6 +1,6 @@
 import type { ChatModel } from "@my-agent-team/core";
 import { collectStream } from "@my-agent-team/core";
-import type { Message } from "@my-agent-team/message";
+import { extractText, type Message } from "@my-agent-team/message";
 import type { ContextManager } from "../context-manager.js";
 import { repairToolPairs } from "../repair-tool-pairs.js";
 
@@ -31,10 +31,7 @@ async function defaultSummarize(
     },
   ];
   const { blocks } = await collectStream(model.stream(promptMsgs, { signal }));
-  const text = blocks
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
+  const text = extractText({ blocks: blocks as readonly { type: string; text?: string }[] });
   return { role: "user", text: `[Earlier conversation summary]: ${text}` };
 }
 
