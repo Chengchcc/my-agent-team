@@ -48,14 +48,30 @@ export async function* runLoop(
 ): AsyncGenerator<AgentEvent> {
   let forceContinues = 0;
   const maxForce = opts.maxForceContinues ?? 3;
+  // M17.4: Each model turn within a run is a distinct assistant message.
+  // Ordinal 0 = first turn, 1 = post-tool turn, 2 = third turn, etc.
+  // This replaces the hardcoded 0 so that multi-turn runs don't overwrite
+  // earlier assistant messages in the ledger.
+  let assistantOrdinal = 0;
   for (let step = 0; step < opts.maxSteps; step++) {
+    if (step > 0) {
+      assistantOrdinal++;
+      rt.assistantBlocks.length = 0;
+      rt.toolStates.length = 0;
+    }
     if (opts.signal?.aborted) {
       // M17.2 fix: mark remaining running tools as error, emit with accumulated blocks
       markRunningToolsAsError(rt);
       yield {
         type: "message",
         payload: {
-          ...buildAssistantRevision(rt.runId, 0, "error", rt.assistantBlocks, rt.toolStates),
+          ...buildAssistantRevision(
+            rt.runId,
+            assistantOrdinal,
+            "error",
+            rt.assistantBlocks,
+            rt.toolStates,
+          ),
           error: { message: "Run aborted" },
         },
       };
@@ -134,7 +150,13 @@ export async function* runLoop(
     if (blocks.length === 0) {
       yield {
         type: "message",
-        payload: buildAssistantRevision(rt.runId, 0, "done", rt.assistantBlocks, rt.toolStates),
+        payload: buildAssistantRevision(
+          rt.runId,
+          assistantOrdinal,
+          "done",
+          rt.assistantBlocks,
+          rt.toolStates,
+        ),
       };
       await rt.checkpointer.appendEvent?.(rt.thread.id, {
         type: "run_end",
@@ -163,7 +185,13 @@ export async function* runLoop(
     // Emit message revision with accumulated blocks
     yield {
       type: "message",
-      payload: buildAssistantRevision(rt.runId, 0, "streaming", rt.assistantBlocks, rt.toolStates),
+      payload: buildAssistantRevision(
+        rt.runId,
+        assistantOrdinal,
+        "streaming",
+        rt.assistantBlocks,
+        rt.toolStates,
+      ),
     };
 
     const toolUses = blocks.filter((b): b is ToolUseBlock => b.type === "tool_use");
@@ -187,7 +215,13 @@ export async function* runLoop(
       await rt.save(rt.thread.messages);
       yield {
         type: "message",
-        payload: buildAssistantRevision(rt.runId, 0, "done", rt.assistantBlocks, rt.toolStates),
+        payload: buildAssistantRevision(
+          rt.runId,
+          assistantOrdinal,
+          "done",
+          rt.assistantBlocks,
+          rt.toolStates,
+        ),
       };
       await rt.checkpointer.appendEvent?.(rt.thread.id, {
         type: "run_end",
@@ -198,7 +232,7 @@ export async function* runLoop(
     }
 
     // Execute tools — executeOne updates rt.toolStates in-place
-    let interrupted = false;
+    let interrupted: boolean;
     for (let i = 0; i < toolUses.length; i++) {
       const call = toolUses[i]!;
       interrupted = yield* executeOne(rt, call, opts, step);
@@ -229,7 +263,13 @@ export async function* runLoop(
     // After all tools in this step completed, emit updated revision
     yield {
       type: "message",
-      payload: buildAssistantRevision(rt.runId, 0, "streaming", rt.assistantBlocks, rt.toolStates),
+      payload: buildAssistantRevision(
+        rt.runId,
+        assistantOrdinal,
+        "streaming",
+        rt.assistantBlocks,
+        rt.toolStates,
+      ),
     };
   }
 
@@ -238,7 +278,13 @@ export async function* runLoop(
   yield {
     type: "message",
     payload: {
-      ...buildAssistantRevision(rt.runId, 0, "error", rt.assistantBlocks, rt.toolStates),
+      ...buildAssistantRevision(
+        rt.runId,
+        assistantOrdinal,
+        "error",
+        rt.assistantBlocks,
+        rt.toolStates,
+      ),
       error: { message: "Max steps reached" },
     },
   };

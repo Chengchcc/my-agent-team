@@ -95,15 +95,7 @@ const runSvc = createRunService({
 // ─── Event wiring ─────────────────────────────────────────────
 
 supervisor.onRunComplete((threadId, runId, status, kind) =>
-  onRunComplete(
-    threadId,
-    runId,
-    status,
-    conv.activeConversations,
-    conv.convPort,
-    conv.convSvc,
-    kind,
-  ),
+  onRunComplete(threadId, runId, status, conv.convPort, conv.convSvc, kind),
 );
 
 supervisor.onRunEvent((threadId, runId, event, kind) => {

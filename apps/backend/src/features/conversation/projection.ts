@@ -71,9 +71,6 @@ export interface RunAccumulator {
    *  of the same logical message are ordered. onRunComplete awaits this before
    *  appending the done/error terminal revision. */
   projectionChain: Promise<void>;
-  /** M17.4: Tracks which assistant message segment this run is on.
-   *  Incremented when a run opens a new assistant message (e.g. post-tool segment). */
-  assistantOrdinal: number;
 }
 
 const runAccumulators = new Map<string, RunAccumulator>();
@@ -87,7 +84,6 @@ export function getOrCreateAccumulator(runId: string, senderMemberId: string): R
       lastTodoUpdate: null,
       latestAssistantRevision: null,
       projectionChain: Promise.resolve(),
-      assistantOrdinal: 0,
     };
     runAccumulators.set(runId, acc);
   }
@@ -193,6 +189,30 @@ function findLatestAssistantRevision(
   return latest?.rev ?? null;
 }
 
+/** M17.4: Check if a terminal revision (done/error) already exists in the ledger
+ *  for the given (runId, messageId). Avoids repeated terminal writes when
+ *  onRunComplete is invoked multiple times (reaper re-invocation, restart). */
+function ledgerHasTerminalForMessage(
+  port: ConversationPort,
+  conversationId: string,
+  runId: string,
+  messageId: string,
+): boolean {
+  const entries = port.getLedgerEntries(conversationId);
+  for (const entry of entries) {
+    if (entry.kind !== "message" || entry.runId !== runId) continue;
+    try {
+      const rev = parseMessageRevision(JSON.parse(entry.content));
+      if (rev.messageId === messageId && (rev.state === "done" || rev.state === "error")) {
+        return true;
+      }
+    } catch {
+      /* malformed entry — skip */
+    }
+  }
+  return false;
+}
+
 // ─── Terminal projection (onRunComplete) ──────────────────────
 
 /** Conversation Projection handler: on run complete, await the projection chain,
@@ -202,106 +222,111 @@ export async function onRunComplete(
   threadId: string,
   runId: string,
   status: string,
-  activeConversations: Set<string>,
   convPort: ConversationPort,
   convSvc: ConversationService,
   /** M17.4: Run kind for dispatch — "reflect" runs skip conversation projection. */
   kind?: string,
 ): Promise<void> {
   if (kind === "reflect") return;
-  for (const cid of activeConversations) {
-    if (threadId.startsWith(`${cid}:`)) {
-      const senderMemberId = parseThreadId(threadId).memberId || threadId;
-      const acc = runAccumulators.get(runId);
 
-      // M17: Await the projection chain before writing the terminal revision
-      if (acc) {
-        try {
-          await acc.projectionChain;
-        } catch {
-          /* chain error already logged */
+  // M17.4: Parse cid from threadId instead of iterating activeConversations.
+  // activeConversations is only populated by forkAgentRuns (postMessage path);
+  // restart paths (reaper, rediscover) never add to it, so the old for-of loop
+  // was dead code for the exact scenario this function was designed to handle.
+  const { conversationId: cid, memberId: senderMemberId } = parseThreadId(threadId);
+  if (!cid) return;
+
+  const acc = runAccumulators.get(runId);
+
+  // M17: Await the projection chain before writing the terminal revision
+  if (acc) {
+    try {
+      await acc.projectionChain;
+    } catch {
+      /* chain error already logged */
+    }
+  }
+
+  // M17.4: Read latest assistant revision from accumulator first, then fall
+  // back to ledger scan (handles process restart where in-memory Map is empty).
+  const baseRev = acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
+
+  // M17.2: Framework now emits terminal (state=done/error). Backend writes
+  // terminal only as fallback or status-conflict override.
+  const frameworkSentTerminal = baseRev?.state === "done" || baseRev?.state === "error";
+  const statusConflict = baseRev?.state === "done" && status !== "succeeded";
+  if (!frameworkSentTerminal || statusConflict) {
+    const finalRev: MessageRevision = baseRev
+      ? {
+          ...baseRev,
+          state: status === "succeeded" ? "done" : "error",
+          error: status === "succeeded" ? undefined : { message: status },
+          updatedAt: Date.now(),
         }
-      }
+      : {
+          messageId: assistantMessageId(runId, 0),
+          role: "assistant",
+          state: status === "succeeded" ? "done" : "error",
+          text: status === "succeeded" ? "" : `Run failed: ${status}`,
+          runId,
+          conversationId: cid,
+          visibility: "conversation",
+          updatedAt: Date.now(),
+          error: status === "succeeded" ? undefined : { message: status },
+        };
 
-      // M17.4: Read latest assistant revision from accumulator first, then fall
-      // back to ledger scan (handles process restart where in-memory Map is empty).
-      const baseRev =
-        acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
-
-      // M17.2: Framework now emits terminal (state=done/error). Backend writes
-      // terminal only as fallback or status-conflict override.
-      const frameworkSentTerminal = baseRev?.state === "done" || baseRev?.state === "error";
-      const statusConflict = baseRev?.state === "done" && status !== "succeeded";
-      if (!frameworkSentTerminal || statusConflict) {
-        const finalRev: MessageRevision = baseRev
-          ? {
-              ...baseRev,
-              state: status === "succeeded" ? "done" : "error",
-              error: status === "succeeded" ? undefined : { message: status },
-              updatedAt: Date.now(),
-            }
-          : {
-              messageId: assistantMessageId(runId, 0),
-              role: "assistant",
-              state: status === "succeeded" ? "done" : "error",
-              text: status === "succeeded" ? "" : `Run failed: ${status}`,
-              runId,
-              conversationId: cid,
-              visibility: "conversation",
-              updatedAt: Date.now(),
-              error: status === "succeeded" ? undefined : { message: status },
-            };
-
-        const serialized = serializeMessageRevision(finalRev);
-        if (!convPort.hasLedgerContent?.(runId, serialized)) {
-          const ts = Date.now();
-          const seq = convPort.appendLedgerEntry({
+    // M17.4: Dedup by (runId, messageId, state) — avoids repeated terminal writes
+    // when updatedAt varies (process restart, reaper re-invocation).
+    const messageId = finalRev.messageId;
+    if (!ledgerHasTerminalForMessage(convPort, cid, runId, messageId)) {
+      const serialized = serializeMessageRevision(finalRev);
+      if (!convPort.hasLedgerContent?.(runId, serialized)) {
+        const ts = Date.now();
+        const seq = convPort.appendLedgerEntry({
+          conversationId: cid,
+          senderMemberId,
+          addressedTo: [],
+          kind: "message",
+          content: serialized,
+          ts,
+          runId,
+        });
+        await convSvc.broadcastMessage(
+          {
+            seq,
             conversationId: cid,
             senderMemberId,
             addressedTo: [],
             kind: "message",
             content: serialized,
             ts,
-            runId,
-          });
-          await convSvc.broadcastMessage(
-            {
-              seq,
-              conversationId: cid,
-              senderMemberId,
-              addressedTo: [],
-              kind: "message",
-              content: serialized,
-              ts,
-            },
-            { excludeMemberId: senderMemberId },
-          );
-        }
+          },
+          { excludeMemberId: senderMemberId },
+        );
       }
-
-      if (acc) {
-        clearAccumulator(runId);
-        try {
-          if (acc.lastTodoUpdate) {
-            await convSvc.appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos);
-          }
-          if (acc.mentionedMemberIds.size > 0) {
-            void convSvc.triggerMentionedAgents({
-              conversationId: cid,
-              senderMemberId: acc.senderMemberId,
-              addressedTo: [...acc.mentionedMemberIds],
-            });
-          }
-        } catch (err) {
-          console.error(
-            `[conversation] Conversation Projection error for ${runId}:`,
-            err instanceof Error ? err.message : String(err),
-          );
-        }
-      }
-
-      convSvc.completeRun(cid, threadId, runId);
-      break;
     }
   }
+
+  if (acc) {
+    clearAccumulator(runId);
+    try {
+      if (acc.lastTodoUpdate) {
+        await convSvc.appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos);
+      }
+      if (acc.mentionedMemberIds.size > 0) {
+        void convSvc.triggerMentionedAgents({
+          conversationId: cid,
+          senderMemberId: acc.senderMemberId,
+          addressedTo: [...acc.mentionedMemberIds],
+        });
+      }
+    } catch (err) {
+      console.error(
+        `[conversation] Conversation Projection error for ${runId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  convSvc.completeRun(cid, threadId, runId);
 }

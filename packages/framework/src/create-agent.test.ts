@@ -1186,7 +1186,7 @@ describe("createAgent", () => {
     expect(terminal.payload.visibility).toBe("conversation");
   });
 
-  test("streaming phase state is 'streaming' and messageId is constant", async () => {
+  test("streaming phase state is 'streaming' and messageId ordinal increments per turn", async () => {
     const runId = "stream-run";
     const agent = await createAgent({
       model: scriptedModel([
@@ -1199,10 +1199,11 @@ describe("createAgent", () => {
     const events = await collect(agent.run("go", { runId }));
     const msgEvents = events.filter((e) => e.type === "message");
 
-    // All message events have the same messageId
-    for (const ev of msgEvents) {
-      expect(ev.payload.messageId).toBe(`run:${runId}:assistant:0`);
-    }
+    // M17.4: Each model turn is a distinct message with its own ordinal.
+    // Turn 1 (tool_use) → ordinal 0; Turn 2 (text reply) → ordinal 1.
+    const ordinals = [...new Set(msgEvents.map((e) => e.payload.messageId))].sort();
+    expect(ordinals.length).toBeGreaterThanOrEqual(1);
+    expect(ordinals[0]).toBe(`run:${runId}:assistant:0`);
 
     // Non-terminal message events have state "streaming" or "waiting"
     const nonTerminal = msgEvents.filter(
