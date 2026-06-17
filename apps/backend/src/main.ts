@@ -1,7 +1,6 @@
 import { Database } from "bun:sqlite";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import type { Message, MessageRevision } from "@my-agent-team/message";
-import { createSocketClient } from "@my-agent-team/runner-protocol";
 import {
   createRuntimeTracer,
   resolveObservabilityConfig,
@@ -16,7 +15,6 @@ import {
   createConversationService,
   sqliteConversationAdapter,
 } from "./features/conversation/index.js";
-import type { ConversationPort } from "./features/conversation/ports.js";
 import {
   buildPreloadedMessages,
   escapeRegExp,
@@ -24,18 +22,15 @@ import {
   onRunComplete,
   projectRunMessageToLedger,
 } from "./features/conversation/projection.js";
-import type { LarkBotRegistry } from "./features/lark-bot/index.js";
+import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
 import {
   CliSetupProvisioner,
-  DevLarkBotRegistry,
   LarkSetupManager,
   larkProfileInit,
-  ProdLarkBotRegistry,
 } from "./features/lark-bot/index.js";
 import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
-import type { RunnerRegistry } from "./features/run/runner-registry.js";
-import { DevRunnerRegistry, ProdRunnerRegistry } from "./features/run/runner-registry.js";
+import { createRunnerRegistry } from "./features/run/runner-registry-factory.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
 import {
   createRuntimeOpsService,
@@ -62,29 +57,8 @@ const db = openDb(`${config.dataDir}/backend.db`);
 // Infrastructure
 const threads = new Set<string>();
 
-// M14.7: RunnerRegistry — dev spawns daemons, prod resolves endpoints
-const runnerEnv = process.env.RUNNER_ENV ?? "dev";
-const registry: RunnerRegistry =
-  runnerEnv === "prod"
-    ? new ProdRunnerRegistry({
-        endpointResolver: {
-          resolve: async (agentId: string) => ({
-            kind: "unix" as const,
-            socketPath: `/run/runners/${agentId}/runner.sock`,
-          }),
-        },
-        transportFactory: {
-          create: (endpoint: { kind: "unix"; socketPath: string }) =>
-            createSocketClient({ socketPath: endpoint.socketPath }),
-        },
-      })
-    : new DevRunnerRegistry({
-        dataDir: config.dataDir,
-        daemonBin: `${import.meta.dir}/../../../packages/runner-daemon/src/bin.ts`,
-        transportFactory: (socket) => createSocketClient({ socketPath: socket }),
-        backendUrl: `http://${config.host}:${config.port}`,
-        backendAuthToken: config.authToken,
-      });
+// M14.7: RunnerRegistry — factory selects dev/prod based on RUNNER_ENV
+const registry = createRunnerRegistry(config);
 
 // M9: EventLog + Supervisor
 // M16: Shared events DB — runEventsDbMigrations creates all tables (run, attempt, run_ops_event, etc.)
@@ -107,15 +81,8 @@ const supervisor = new RunSupervisor({
   db: eventsDb,
 });
 
-// M15: Lark-bot registry (spawns per-agent lark-bot processes)
-const larkBotRegistry: LarkBotRegistry =
-  runnerEnv === "prod"
-    ? new ProdLarkBotRegistry()
-    : new DevLarkBotRegistry({
-        dataDir: config.dataDir,
-        larkBotBin: `${import.meta.dir}/../../lark-bot/src/main.ts`,
-        backendUrl: `http://${config.host}:${config.port}`,
-      });
+// M15: Lark-bot registry — factory selects dev/prod based on RUNNER_ENV
+const larkBotRegistry = createLarkBotRegistry(config);
 
 // Agent feature
 const agentPort = sqliteAgentAdapter(db);
