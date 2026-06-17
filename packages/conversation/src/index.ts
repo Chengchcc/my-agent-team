@@ -1,5 +1,5 @@
-import { z } from "zod";
 import { parseMessageRevision } from "@my-agent-team/message";
+import { z } from "zod";
 
 // ─── Member ─────────────────────────────────────────────────
 
@@ -131,11 +131,14 @@ export function projectForMember(
     if (entry.kind === "member.joined" || entry.kind === "member.left") {
       const verb = entry.kind === "member.joined" ? "加入" : "离开";
       // M17.2: content is always a serialized string — parse before reading
-      let payload: { memberId?: string; members?: Array<{ displayName?: string; memberId: string }> } | undefined;
+      let payload:
+        | { memberId?: string; members?: Array<{ displayName?: string; memberId: string }> }
+        | undefined;
       try {
-        payload = typeof entry.content === "string"
-          ? (JSON.parse(entry.content) as typeof payload)
-          : (entry.content as typeof payload);
+        payload =
+          typeof entry.content === "string"
+            ? (JSON.parse(entry.content) as typeof payload)
+            : (entry.content as typeof payload);
       } catch {
         payload = undefined;
       }
