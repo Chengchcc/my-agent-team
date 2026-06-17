@@ -1,6 +1,6 @@
 import type { SQLQueryBindings, Database as SqliteDatabase } from "bun:sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
-import { parseAgentEvent } from "@my-agent-team/framework";
+import { safeParseAgentEvent } from "@my-agent-team/framework";
 
 // -- Types --
 
@@ -94,12 +94,17 @@ function mapRow(row: {
   run_id: string;
   event: string;
   ts: number;
-}): EventRecord {
+}): EventRecord | null {
+  const result = safeParseAgentEvent(JSON.parse(row.event));
+  if (!result.success) {
+    console.warn(`[event-log] skipping unparseable event seq=${row.seq}: ${result.error.issues[0]?.message}`);
+    return null;
+  }
   return {
     seq: row.seq,
     threadId: row.thread_id,
     runId: row.run_id,
-    event: parseAgentEvent(JSON.parse(row.event)),
+    event: result.data,
     ts: row.ts,
   };
 }
@@ -138,7 +143,7 @@ export function sqliteEventLog(opts: { db: SqliteDatabase | string }): EventLog 
           event: string;
           ts: number;
         }[]
-      ).map(mapRow);
+      ).map(mapRow).filter((r): r is EventRecord => r !== null);
     },
 
     async *subscribe(

@@ -22,11 +22,14 @@ export const ToolResultBlockSchema = z.object({
   is_error: z.boolean().optional(),
 });
 
+// M17.3 fix: accept unknown block types via passthrough, so legacy or future
+// block variants don't cause parse failures. The discriminatedUnion covers known
+// types; the passthrough fallback keeps the rest.
 export const ContentBlockSchema = z.discriminatedUnion("type", [
   TextBlockSchema,
   ToolUseBlockSchema,
   ToolResultBlockSchema,
-]);
+]).or(z.object({ type: z.string() }).passthrough());
 
 // ─── Message sub-type schemas ─────────────────────────────────
 
@@ -73,14 +76,16 @@ export const MessageRevisionSchema = z.object({
   messageId: z.string().min(1),
   state: MessageStateSchema,
   role: MessageRoleSchema,
-  text: z.string().optional(),
-  blocks: z.array(ContentBlockSchema).optional(),
-  tools: z.array(MessageToolStateSchema).optional(),
-  runId: z.string().optional(),
-  conversationId: z.string().optional(),
-  visibility: z.enum(["internal", "conversation"]).optional(),
+  // M17.3 fix: .nullable() tolerates explicit null in legacy rows (old hand-written
+  // parser accepted null→undefined; zod rejects null for .optional() by default)
+  text: z.string().nullable().optional(),
+  blocks: z.array(ContentBlockSchema).nullable().optional(),
+  tools: z.array(MessageToolStateSchema).nullable().optional(),
+  runId: z.string().nullable().optional(),
+  conversationId: z.string().nullable().optional(),
+  visibility: z.enum(["internal", "conversation"]).nullable().optional(),
   updatedAt: z.number(),
-  error: MessageErrorSchema.optional(),
+  error: MessageErrorSchema.nullable().optional(),
 });
 
 // ─── Public API (backward-compatible signatures, zod inside) ──

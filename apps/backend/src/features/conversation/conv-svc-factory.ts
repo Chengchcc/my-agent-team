@@ -50,7 +50,7 @@ export function createConversationFeature(
     idGen: ulid,
 
     forkRun: async (runId, threadId, ctx) => {
-      const spec = await buildAgentSpecV2(db, agentSvc, threadId, {
+      const spec = await buildAgentSpecV2(db, agentSvc, threadId, "", {
         runId,
         conversationId: ctx.conversationId,
         senderMemberId: ctx.agentMemberId,
@@ -120,6 +120,7 @@ export async function buildAgentSpecV2(
   db: Database,
   agentSvc: AgentService,
   threadId: string,
+  input: string,
   overrides?: {
     runId?: string;
     mode?: "run" | "resume" | "reflect";
@@ -142,7 +143,7 @@ export async function buildAgentSpecV2(
     threadId,
     runId: overrides?.runId ?? crypto.randomUUID(),
     mode: overrides?.mode ?? "run",
-    input: overrides?.mode === "run" || !overrides?.mode ? "" : undefined,
+    input,
     model: {
       provider: agent.modelProvider,
       model: agent.modelName,

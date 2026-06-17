@@ -6,7 +6,7 @@ import type { ConversationService } from "./service.js";
 // ─── @mention helpers ─────────────────────────────────────────
 
 export function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\/]/g, "\\&");
+  return s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 }
 
 // ─── Preloaded messages (forkRun hot path) ────────────────────

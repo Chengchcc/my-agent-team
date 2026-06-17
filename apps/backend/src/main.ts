@@ -197,7 +197,7 @@ const opsSvc = createRuntimeOpsService({
 
 const router = createRouter(config.authToken, {
   agents: agentRoutes(agentSvc, identityStore, (id) => larkBotRegistry.statusOf(id), getSetupManager),
-  runs: runRoutes(runSvc, (threadId, input, overrides) => buildAgentSpecV2(db, agentSvc, threadId, { ...overrides, mode: overrides?.mode ?? "run" }), getThreadIdForRun),
+  runs: runRoutes(runSvc, (threadId, input, overrides) => buildAgentSpecV2(db, agentSvc, threadId, input, overrides), getThreadIdForRun),
   threadProjections: threadProjectionRoutes(conv.threadProjectionSvc),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),

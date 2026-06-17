@@ -104,8 +104,14 @@ export function watchConversation(
               });
               if (entry.seq > afterSeq) afterSeq = entry.seq;
             } catch (err) {
-              if (err instanceof SyntaxError) {
-                console.error(`[sse-watcher] malformed JSON for ${conversationId}, skipping`);
+              // M17.3 fix: ZodError (from parseLedgerEntry) is skippable, same as SyntaxError.
+              // A structurally invalid frame must not trigger a reconnect loop.
+              if (err instanceof SyntaxError || (err as Error)?.name === "ZodError") {
+                console.error(
+                  `[sse-watcher] malformed ledger entry for ${conversationId}, skipping: ${
+                    (err as Error).message
+                  }`,
+                );
               } else {
                 console.error(
                   `[sse-watcher] process entry failed for ${conversationId}: ${
