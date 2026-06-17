@@ -1,35 +1,47 @@
 import { describe, expect, test } from "bun:test";
-import { render } from "./render.js";
+import type { MessageRevision } from "@my-agent-team/message";
+import { renderRevision } from "./render.js";
 
-describe("render", () => {
-  test("renders raw string (non-JSON)", () => {
-    expect(render("hello world")).toBe("hello world");
+function makeRevision(overrides: Partial<MessageRevision> = {}): MessageRevision {
+  return {
+    messageId: "msg:test:1",
+    role: "assistant",
+    state: "done",
+    updatedAt: Date.now(),
+    ...overrides,
+  };
+}
+
+describe("renderRevision", () => {
+  test("renders text field", () => {
+    expect(renderRevision(makeRevision({ text: "hello world" }))).toBe("hello world");
   });
 
-  test("renders {text} object", () => {
-    expect(render(JSON.stringify({ text: "hello from agent" }))).toBe("hello from agent");
+  test("renders blocks — joined text blocks", () => {
+    expect(
+      renderRevision(
+        makeRevision({
+          blocks: [
+            { type: "text", text: "Hello " },
+            { type: "text", text: "World" },
+            { type: "tool_use", id: "t1", name: "read", input: {} },
+          ],
+        }),
+      ),
+    ).toBe("Hello World");
   });
 
-  test("renders ContentBlock[] — returns joined text blocks", () => {
-    const blocks = [
-      { type: "text", text: "Hello " },
-      { type: "text", text: "World" },
-      { type: "tool_use", id: "t1", name: "read", input: {} },
-    ];
-    expect(render(JSON.stringify(blocks))).toBe("Hello World");
+  test("renders blocks with no text blocks — fallback", () => {
+    expect(
+      renderRevision(
+        makeRevision({
+          blocks: [{ type: "tool_use", id: "t1", name: "read", input: {} }],
+        }),
+      ),
+    ).toBe("[Unsupported content]");
   });
 
-  test("renders ContentBlock[] with no text blocks — fallback", () => {
-    const blocks = [{ type: "tool_use", id: "t1", name: "read", input: {} }];
-    expect(render(JSON.stringify(blocks))).toBe("[Unsupported content]");
-  });
-
-  test("renders unknown structured object — fallback", () => {
-    expect(render(JSON.stringify({ foo: "bar" }))).toBe("[Unsupported content]");
-  });
-
-  test("renders JSON string that's already plain text", () => {
-    // JSON-encoded string: "\"already a string\""
-    expect(render(JSON.stringify("already a string"))).toBe("already a string");
+  test("empty revision — fallback", () => {
+    expect(renderRevision(makeRevision())).toBe("[Unsupported content]");
   });
 });

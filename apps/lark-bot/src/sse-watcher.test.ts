@@ -1,22 +1,32 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { render } from "./render.js";
+import type { MessageRevision } from "@my-agent-team/message";
+import { renderRevision } from "./render.js";
 
-// processEntry moved to module scope for testability — test via watchConversation integration
-// For now, test the supporting functions that are independently testable.
+function makeRevision(overrides: Partial<MessageRevision> = {}): MessageRevision {
+  return {
+    messageId: "msg:test:1",
+    role: "assistant",
+    state: "done",
+    updatedAt: Date.now(),
+    ...overrides,
+  };
+}
 
-describe("render (used by SSE watcher)", () => {
-  test("renders agent text reply", () => {
-    const content = JSON.stringify([{ type: "text", text: "Hello from agent" }]);
-    expect(render(content)).toBe("Hello from agent");
+describe("renderRevision (used by SSE watcher)", () => {
+  test("renders agent text reply from blocks", () => {
+    const rev = makeRevision({
+      blocks: [{ type: "text", text: "Hello from agent" }],
+    });
+    expect(renderRevision(rev)).toBe("Hello from agent");
   });
 
-  test("renders simple text object", () => {
-    expect(render(JSON.stringify({ text: "simple" }))).toBe("simple");
+  test("renders simple text", () => {
+    expect(renderRevision(makeRevision({ text: "simple" }))).toBe("simple");
   });
 
-  test("renders raw string", () => {
-    expect(render("plain text")).toBe("plain text");
+  test("renders empty as fallback", () => {
+    expect(renderRevision(makeRevision())).toBe("[Unsupported content]");
   });
 });
 
@@ -46,15 +56,11 @@ describe("SSE watcher pushed_seq advancement", () => {
   test("pushed_seq advances for non-message entries", () => {
     const db = setupDb();
     const larkChatId = "oc_test";
-    // Insert binding with pushed_seq 0
     db.run(
       "INSERT INTO chat_binding (lark_chat_id, conversation_id, chat_type, created_at, pushed_seq) VALUES (?, ?, ?, ?, 0)",
       [larkChatId, "conv_test", "group", Date.now()],
     );
 
-    // Non-message (member.joined) should call updatePushedSeq
-    // This is tested indirectly — the function is private, we verify the public API
-    // For now: verify db state transitions work
     db.run("UPDATE chat_binding SET pushed_seq = ? WHERE lark_chat_id = ?", [42, larkChatId]);
     const row = db
       .query("SELECT pushed_seq FROM chat_binding WHERE lark_chat_id = ?")
