@@ -1,5 +1,6 @@
 "use client";
 
+import { safeParseLedgerEntry } from "@my-agent-team/conversation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useReducer } from "react";
 import { toast } from "sonner";
@@ -12,7 +13,6 @@ import {
   reducer,
   type SenderRef,
 } from "@/lib/conversation-reducer";
-import { safeParseLedgerEntry } from "@my-agent-team/conversation";
 
 function safeParse(raw: string): unknown {
   try {

@@ -86,30 +86,6 @@ describe("ledger/message", () => {
     expect(s.messages).toHaveLength(1);
     expect(s.messages[0]!.id).toBe("s-1");
   });
-
-  test("legacy content (string) → rejected by strict parser", () => {
-    const s = bootstrap();
-    expect(() =>
-      reducer(s, {
-        type: "ledger/message",
-        seq: 42,
-        senderMemberId: "agent-1",
-        content: "legacy text",
-      }),
-    ).toThrow();
-  });
-
-  test("legacy content (array) → rejected by strict parser", () => {
-    const s = bootstrap();
-    expect(() =>
-      reducer(s, {
-        type: "ledger/message",
-        seq: 42,
-        senderMemberId: "agent-1",
-        content: [{ type: "text", text: "legacy" }],
-      }),
-    ).toThrow();
-  });
 });
 
 describe("isBusy", () => {

@@ -1,3 +1,4 @@
+import type { Message } from "@my-agent-team/message";
 import { ToolCallCard } from "@/components/ToolCallCard";
 import { ToolResultCard } from "@/components/ToolResultCard";
 
@@ -43,9 +44,15 @@ export function collectToolResults(
   return into;
 }
 
-export function renderContentBlocks(blocks: unknown[] | undefined) {
-  if (!Array.isArray(blocks)) return null;
-  const typed = blocks as BlockLike[];
+export function renderContentBlocks(blocks: unknown[] | undefined | Message) {
+  // Unwrap Message object to its blocks array
+  const resolved: unknown[] | undefined = Array.isArray(blocks)
+    ? blocks
+    : blocks && typeof blocks === "object" && "blocks" in blocks
+      ? (blocks as Message).blocks
+      : undefined;
+  if (!Array.isArray(resolved)) return null;
+  const typed = resolved as BlockLike[];
 
   const toolResults = collectToolResults(typed);
 
