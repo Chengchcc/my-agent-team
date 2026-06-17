@@ -24,39 +24,7 @@ export interface Interrupt {
   meta?: Record<string, unknown>;
 }
 
-export type AgentEvent =
-  // ── ① Message revision stream (L1/L2): each carries messageId, no side-channel needed ──
-  | { type: "message"; payload: MessageRevision }
-  // ── ② Observability (L3): per-call metrics, not message identity ──
-  | {
-      type: "llm_call";
-      payload: {
-        step: number;
-        model: string;
-        usage: { input: number; output: number; cacheCreate?: number; cacheRead?: number };
-        latencyMs: number;
-        ttftMs?: number;
-        stopReason?: string;
-      };
-    }
-  | {
-      type: "tool_call";
-      payload: {
-        step: number;
-        id: string;
-        name: string;
-        latencyMs: number;
-        isError: boolean;
-      };
-    }
-  // ── ③ Control (progress / lifecycle) ──
-  | { type: "interrupted"; payload: Interrupt }
-  | {
-      type: "todo_update";
-      payload: { todos: Array<{ step: string; status: "pending" | "in_progress" | "done" }> };
-    };
-
-// ─── M17.3: AgentEvent codec — zod schema for runtime validation ──
+// ─── M17.3: AgentEvent codec — zod schema is the single source of truth ──
 
 import { z } from "zod";
 
@@ -92,8 +60,11 @@ const agentEventSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-/** Parse an AgentEvent from wire/persistence, throwing on invalid shape.
- *  M17.3: replaces bare JSON.parse(...) as AgentEvent across the codebase. */
+// M17.3: AgentEvent derived from zod schema — schema is the single source of truth.
+// Previously this was a hand-written TS union that could drift from the schema.
+export type AgentEvent = z.infer<typeof agentEventSchema>;
+
+/** Parse an AgentEvent from wire/persistence, throwing on invalid shape. */
 export function parseAgentEvent(raw: unknown): AgentEvent {
   return agentEventSchema.parse(raw) as AgentEvent;
 }
