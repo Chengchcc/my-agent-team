@@ -1,9 +1,11 @@
 import type { Socket } from "bun";
 import type { HostToRunner, RunnerToHost } from "./messages.js";
+import { parseHostToRunner, parseRunnerToHost } from "./messages.js";
 import { createFramer, encode } from "./ndjson.js";
 import type { RunnerTransport } from "./transport.js";
 
 // ─── Server side (daemon listens, single backend client) ───
+// Daemon receives HostToRunner frames from the backend.
 
 export interface SocketServerOptions {
   socketPath: string;
@@ -22,7 +24,13 @@ export function createSocketServer(opts: SocketServerOptions): {
 
   const framer = createFramer(
     (obj) => {
-      for (const cb of messageCbs) cb(obj as HostToRunner | RunnerToHost);
+      // M17.3 fix: validate at wire boundary instead of bare "as" cast
+      try {
+        const msg = parseHostToRunner(obj);
+        for (const cb of messageCbs) cb(msg);
+      } catch {
+        opts.onError?.(new Error(`Bad HostToRunner frame: type=${(obj as { type?: string }).type ?? "unknown"}`));
+      }
     },
     (line) => {
       opts.onError?.(new Error(`Bad NDJSON frame: ${line.slice(0, 80)}`));
@@ -106,9 +114,16 @@ export function createSocketClient(opts: SocketClientOptions): RunnerTransport {
   const readyTimeoutMs = opts.readyTimeoutMs ?? 10_000;
   let readyTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // Client side (backend) receives RunnerToHost frames from the daemon.
   const framer = createFramer(
     (obj) => {
-      for (const cb of messageCbs) cb(obj as HostToRunner | RunnerToHost);
+      // M17.3 fix: validate at wire boundary instead of bare "as" cast
+      try {
+        const msg = parseRunnerToHost(obj);
+        for (const cb of messageCbs) cb(msg);
+      } catch {
+        opts.onError?.(new Error(`Bad RunnerToHost frame: type=${(obj as { type?: string }).type ?? "unknown"}`));
+      }
     },
     (line) => {
       opts.onError?.(new Error(`Bad NDJSON frame: ${line.slice(0, 80)}`));
