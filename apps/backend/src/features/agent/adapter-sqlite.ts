@@ -1,6 +1,9 @@
 import type { Database } from "bun:sqlite";
+import { z } from "zod";
 import type { AgentRow, CreateAgentInput, UpdateAgentInput } from "./domain.js";
 import type { AgentPort } from "./ports.js";
+
+const permissionModeSchema = z.enum(["ask", "auto", "deny"]);
 
 interface DbAgentRow {
   id: string;
@@ -47,7 +50,7 @@ function toRow(db: {
     modelProvider: db.model_provider,
     modelName: db.model_name,
     modelBaseUrl: db.model_base_url,
-    permissionMode: db.permission_mode as AgentRow["permissionMode"],
+    permissionMode: permissionModeSchema.parse(db.permission_mode),
     maxSteps: db.max_steps,
     larkEnabled: db.lark_enabled === 1,
     larkAppId: db.lark_app_id,

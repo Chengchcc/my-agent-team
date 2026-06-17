@@ -13,7 +13,7 @@ import {
   createConversationFeature,
 } from "./features/conversation/conv-svc-factory.js";
 import { conversationRoutes, parseThreadId } from "./features/conversation/index.js";
-import { extractText, isTerminalMessageState, serializeMessageRevision } from "@my-agent-team/message";
+import { extractText, isTerminalMessageState, MessageSchema, serializeMessageRevision } from "@my-agent-team/message";
 import {
   escapeRegExp,
   getOrCreateAccumulator,
@@ -82,8 +82,11 @@ const runSvc = createRunService({
       if (c?.title) return { title: c.title };
       return c ? { title: null } : null;
     },
-    getMessages: async (tid) =>
-      (await conv.threadProjectionSvc.getMessages(tid)) as Message[] | null,
+    getMessages: async (tid) => {
+      const msgs = await conv.threadProjectionSvc.getMessages(tid);
+      if (!msgs) return null;
+      return MessageSchema.array().parse(msgs) as Message[];
+    },
     setTitle: async (tid, title) => {
       const cid = parseThreadId(tid).conversationId || tid;
       conv.convPort.setConversationTitle(cid, title);

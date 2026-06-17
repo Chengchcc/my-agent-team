@@ -4,7 +4,7 @@ import {
   resolveTriggerTargets,
 } from "@my-agent-team/conversation";
 import type { MessageRevision } from "@my-agent-team/message";
-import { humanMessageId, serializeMessageRevision, systemMessageId } from "@my-agent-team/message";
+import { ContentBlockSchema, humanMessageId, MessageRevisionSchema, serializeMessageRevision, systemMessageId } from "@my-agent-team/message";
 import type {
   ThreadProjectionReadPort,
   ThreadProjectionWritePort,
@@ -94,7 +94,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     const ts = Date.now();
     const serialized =
       input.kind === "message"
-        ? serializeMessageRevision(input.content as MessageRevision)
+        ? serializeMessageRevision(MessageRevisionSchema.parse(input.content) as MessageRevision)
         : JSON.stringify(input.content);
     const seq = port.appendLedgerEntry({
       conversationId: input.conversationId,
@@ -245,7 +245,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
         state: "done",
         text: typeof input.content === "string" ? input.content : undefined,
         blocks: Array.isArray(input.content)
-          ? (input.content as MessageRevision["blocks"])
+          ? ContentBlockSchema.array().parse(input.content) as MessageRevision["blocks"]
           : undefined,
         conversationId: input.conversationId,
         visibility: "conversation",
@@ -395,7 +395,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
               content: "",
               ts: Date.now(),
               _heartbeat: true as const,
-            } as LedgerRow & { _heartbeat: true };
+            } as LedgerEntry & { _heartbeat: true }; // sentinel — not persisted, only yielded to SSE handler
           }
           await new Promise((r) => setTimeout(r, pollMs));
         }

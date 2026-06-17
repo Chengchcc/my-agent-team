@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
-import type { Message, MessageRevision } from "@my-agent-team/message";
+import { parseMessageRevision, type Message, type MessageRevision } from "@my-agent-team/message";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
 import type { RuntimeTraceContext, RuntimeTracer } from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";
@@ -482,7 +482,8 @@ export class RunSupervisor {
         // Non-message events → EventLog (execution detail) + onRunEvent (best-effort fan-out).
         if (event.type === "message" && this.#onRunMessage.length > 0) {
           for (const fn of this.#onRunMessage) {
-            await fn(threadId, runId, event.payload as MessageRevision, kind);
+            const revision = parseMessageRevision(event.payload);
+            await fn(threadId, runId, revision, kind);
           }
           for (const fn of this.#onRunEvent) {
             void Promise.resolve(fn(threadId, runId, event, kind)).catch((err: unknown) =>

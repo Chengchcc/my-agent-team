@@ -3,7 +3,7 @@ import { type LedgerEntry, parseLedgerEntry } from "@my-agent-team/conversation"
 import {
   deserializeLedgerContent,
   isTerminalMessageState,
-  type MessageState,
+  MessageStateSchema,
   parseMessageRevision,
 } from "@my-agent-team/message";
 import {
@@ -233,7 +233,7 @@ async function processEntry(
 
   // Check delivery state: if already delivered as terminal, skip
   const delivery = getMessageDelivery(db, entry.conversationId, messageId, larkChatId);
-  if (delivery && isTerminalMessageState(delivery.lastState as MessageState)) {
+  if (delivery && isTerminalMessageState(MessageStateSchema.parse(delivery.lastState))) {
     updatePushedSeq(db, larkChatId, entry.seq);
     return;
   }

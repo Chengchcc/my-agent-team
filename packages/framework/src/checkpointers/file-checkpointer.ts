@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Message } from "@my-agent-team/message";
+import { type Message, MessageSchema } from "@my-agent-team/message";
 import type { CheckpointEvent, Checkpointer, InterruptState } from "../checkpointer.js";
 
 const VALID_ID = /^(?!\.)[A-Za-z0-9_\-.]{1,128}$/;
@@ -39,7 +39,7 @@ export function fileCheckpointer({ dir }: { dir: string }): Checkpointer {
       await ready;
       try {
         const buf = await readFile(path(id, ".state.json"), "utf8");
-        return JSON.parse(buf) as Message[];
+        return MessageSchema.array().parse(JSON.parse(buf)) as Message[];
       } catch (err: unknown) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
         throw err;

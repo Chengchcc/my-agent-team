@@ -86,7 +86,10 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         title: c.title,
         members: db
           .query(
-            "SELECT member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at FROM member WHERE conversation_id = ?",
+            `SELECT member_id AS memberId, conversation_id AS conversationId, kind,
+                    agent_id AS agentId, user_ref AS userRef,
+                    display_name AS displayName, joined_at AS joinedAt
+             FROM member WHERE conversation_id = ?`,
           )
           .all(c.conversation_id) as MemberRow[],
       }));
@@ -127,7 +130,10 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
             title: c.title,
             members: db
               .query(
-                "SELECT member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at FROM member WHERE conversation_id = ?",
+                `SELECT member_id AS memberId, conversation_id AS conversationId, kind,
+                        agent_id AS agentId, user_ref AS userRef,
+                        display_name AS displayName, joined_at AS joinedAt
+                 FROM member WHERE conversation_id = ?`,
               )
               .all(c.conversation_id) as MemberRow[],
           };
