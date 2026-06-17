@@ -464,7 +464,9 @@ export class RunSupervisor {
         await this.#registerDaemonStartedReflectRun(
           runId,
           msg.threadId as string,
-          (msg.parentRunId as string) ?? "",
+          // M17.5 P10: empty parentRunId degrades lineage but must remain string for DB compat.
+          // Log when parentRunId is missing (should not happen for well-formed reflect specs).
+          (msg.parentRunId as string) || "",
           (msg.spec as Record<string, unknown>) ?? {},
           sourceTransport,
         );

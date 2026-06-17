@@ -73,7 +73,7 @@ const runSvc = createRunService({
   supervisor,
   eventLog,
   maxConcurrentRuns: config.maxConcurrentRuns,
-  threads: new Set<string>(),
+  lock: conv.lock,
   idGen: ulid,
   autoTitle: {
     getThread: async (tid) => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { EventLog, EventRecord } from "../event-log/index.js";
+import { ConversationLock } from "../conversation/lock.js";
 import {
   createRunService,
   RunNotFoundError,
@@ -38,7 +39,7 @@ describe("RunService", () => {
       supervisor: makeMockSupervisor(),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads: new Set(),
+      lock: new ConversationLock(),
       idGen: () => "run-1",
     });
 
@@ -48,12 +49,13 @@ describe("RunService", () => {
   });
 
   test("start throws ThreadBusyError when thread already running", () => {
-    const threads = new Set<string>(["th-1"]);
+    const lock = new ConversationLock();
+    lock.acquireThread("th-1", "th-1");
     const svc = createRunService({
       supervisor: makeMockSupervisor(),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads,
+      lock,
       idGen: () => "run-1",
     });
 
@@ -65,7 +67,7 @@ describe("RunService", () => {
       supervisor: makeMockSupervisor({ activeCount: 8 }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads: new Set(),
+      lock: new ConversationLock(),
       idGen: () => "run-1",
     });
 
@@ -83,7 +85,7 @@ describe("RunService", () => {
       }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads: new Set(),
+      lock: new ConversationLock(),
       idGen: () => "run-1",
     });
 
@@ -96,7 +98,7 @@ describe("RunService", () => {
       supervisor: makeMockSupervisor({ cancel: () => false }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads: new Set(),
+      lock: new ConversationLock(),
       idGen: () => "run-1",
     });
 
@@ -121,7 +123,7 @@ describe("RunService", () => {
       supervisor: makeMockSupervisor(),
       eventLog: mockLog,
       maxConcurrentRuns: 8,
-      threads: new Set(),
+      lock: new ConversationLock(),
       idGen: () => "run-1",
     });
 

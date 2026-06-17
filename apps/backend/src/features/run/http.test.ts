@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import type { EventLog, EventRecord } from "../event-log/index.js";
+import { ConversationLock } from "../conversation/lock.js";
 import { runRoutes } from "./http.js";
 import { createRunService } from "./service.js";
 import type { RunSupervisor } from "./supervisor.js";
@@ -53,7 +54,7 @@ describe("Run HTTP", () => {
       supervisor: makeMockSupervisor(),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads: new Set(),
+      lock: new ConversationLock(),
       idGen: () => "run-1",
     });
     const routes = runRoutes(svc, async () => ({}));
@@ -73,7 +74,7 @@ describe("Run HTTP", () => {
       supervisor: makeMockSupervisor(),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads: new Set(["t1"]),
+      lock: (() => { const l = new ConversationLock(); l.acquireThread("t1", "t1"); return l; })(),
       idGen: () => "run-1",
     });
     const routes = runRoutes(svc, async () => ({}));
@@ -90,7 +91,7 @@ describe("Run HTTP", () => {
       supervisor: makeMockSupervisor({ activeCount: 8 }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads: new Set(),
+      lock: new ConversationLock(),
       idGen: () => "run-1",
     });
     const routes = runRoutes(svc, async () => ({}));
@@ -107,7 +108,7 @@ describe("Run HTTP", () => {
       supervisor: makeMockSupervisor(),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads: new Set(),
+      lock: new ConversationLock(),
       idGen: () => "run-1",
     });
     const routes = runRoutes(svc, async () => ({}));
@@ -126,7 +127,7 @@ describe("Run HTTP", () => {
       supervisor: makeMockSupervisor({ cancel: () => true }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads: new Set(),
+      lock: new ConversationLock(),
       idGen: () => "run-1",
     });
     const routes = runRoutes(svc, async () => ({}));
@@ -140,7 +141,7 @@ describe("Run HTTP", () => {
       supervisor: makeMockSupervisor({ cancel: () => false }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads: new Set(),
+      lock: new ConversationLock(),
       idGen: () => "run-1",
     });
     const routes = runRoutes(svc, async () => ({}));
@@ -162,7 +163,7 @@ describe("Run HTTP", () => {
       }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads: new Set(),
+      lock: new ConversationLock(),
       idGen: () => "run-1",
     });
     const routes = runRoutes(
@@ -196,7 +197,7 @@ describe("Run HTTP", () => {
       supervisor: makeMockSupervisor({ getDb: () => mockDb as unknown as Database }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      threads: new Set(),
+      lock: new ConversationLock(),
       idGen: () => "run-1",
     });
     const routes = runRoutes(svc, async () => ({}));

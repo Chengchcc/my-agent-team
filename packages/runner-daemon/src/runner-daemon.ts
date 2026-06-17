@@ -299,7 +299,9 @@ export class RunnerDaemon {
     // M15.1: Strip surfaceContext — reflect runs must not inherit Lark surface tools
     delete (reflectSpec as { surfaceContext?: unknown }).surfaceContext;
 
-    // Register BEFORE sending run_started — so #routeEvent/#drive can find it
+    // M17.5 P10: #runs is a NON-AUTHORITATIVE execution-state cache.
+    // The authoritative reflect record is the DB row created by supervisor
+    // when it processes the run_started message.
     const reflectAgent = parent.agent.fork(undefined, `reflect:${parent.threadId}`);
     this.#runs.set(reflectRunId, {
       agent: reflectAgent,

@@ -1,5 +1,7 @@
 import type { Message } from "@my-agent-team/message";
 import type { EventLog, EventRecord } from "../event-log/index.js";
+import { parseThreadId } from "../conversation/service.js";
+import type { ConversationLock } from "../conversation/lock.js";
 import type { RunSupervisor } from "./supervisor.js";
 
 export class ThreadBusyError extends Error {
@@ -34,7 +36,8 @@ export interface RunServiceDeps {
   supervisor: RunSupervisor;
   eventLog: EventLog;
   maxConcurrentRuns: number;
-  threads: Set<string>;
+  /** M17.5 P11: ConversationLock replaces threads Set — merged into unified gate. */
+  lock: ConversationLock;
   idGen: () => string;
   /** Optional: generate thread title via LLM after first run (when thread has no title). */
   autoTitle?: {
@@ -46,11 +49,12 @@ export interface RunServiceDeps {
 }
 
 export function createRunService(deps: RunServiceDeps) {
-  const { supervisor, eventLog, maxConcurrentRuns, threads, idGen, autoTitle } = deps;
+  const { supervisor, eventLog, maxConcurrentRuns, lock, idGen, autoTitle } = deps;
 
-  // Fix B: Register cleanup callback so thread lock is released on run completion
+  // M17.5 P11: Register cleanup callback — thread lock released via unified gate.
   supervisor.onRunComplete((threadId, _runId, status) => {
-    threads.delete(threadId);
+    const cid = parseThreadId(threadId).conversationId || threadId;
+    lock.releaseThread(threadId, cid);
     // Only succeeded runs trigger downstream side effects (title, mention, etc.)
     if (status !== "succeeded") return;
     if (autoTitle) {
@@ -79,18 +83,20 @@ export function createRunService(deps: RunServiceDeps) {
   return {
     /** Fork subprocess + write ledger. Returns 202 payload immediately. */
     async start(threadId: string, spec: Record<string, unknown>) {
-      if (threads.has(threadId)) throw new ThreadBusyError(threadId);
-      if (supervisor.activeCount >= maxConcurrentRuns)
+      const cid = parseThreadId(threadId).conversationId || threadId;
+      if (!lock.acquireThread(threadId, cid)) throw new ThreadBusyError(threadId);
+      if (supervisor.activeCount >= maxConcurrentRuns) {
+        lock.releaseThread(threadId, cid);
         throw new TooManyRunsError(maxConcurrentRuns);
+      }
 
       const runId = idGen();
-      threads.add(threadId);
 
       try {
         const { attemptId } = await supervisor.startMainRun(runId, threadId, spec);
         return { runId, attemptId };
       } catch (err) {
-        threads.delete(threadId);
+        lock.releaseThread(threadId, cid);
         throw err;
       }
     },
