@@ -64,14 +64,11 @@ export interface RunAccumulator {
   mentionedMemberIds: Set<string>;
   lastTodoUpdate: { todos: unknown } | null;
   /** M17: Latest assistant revision written to the ledger for this run.
-   *  Updated on each streaming projection; read by onRunComplete for the final done/error revision.
+   *  Updated by onRunMessage callback; read by onRunComplete for the final done/error revision.
    *  M17.4: This is an optimization — if the process restarts and the accumulator is gone,
-   *  onRunComplete falls back to scanning the ledger. */
+   *  onRunComplete falls back to scanning the ledger.
+   *  M17.5 P7: Updated directly in main.ts onRunMessage instead of via projectionChain. */
   latestAssistantRevision: MessageRevision | null;
-  /** M17: Serial chain of projection writes — guarantees that same-run rewrites
-   *  of the same logical message are ordered. onRunComplete awaits this before
-   *  appending the done/error terminal revision. */
-  projectionChain: Promise<void>;
 }
 
 const runAccumulators = new Map<string, RunAccumulator>();
@@ -84,7 +81,6 @@ export function getOrCreateAccumulator(runId: string, senderMemberId: string): R
       mentionedMemberIds: new Set(),
       lastTodoUpdate: null,
       latestAssistantRevision: null,
-      projectionChain: Promise.resolve(),
     };
     runAccumulators.set(runId, acc);
   }
@@ -93,75 +89,6 @@ export function getOrCreateAccumulator(runId: string, senderMemberId: string): R
 
 export function clearAccumulator(runId: string): void {
   runAccumulators.delete(runId);
-}
-
-// ─── Incremental projection (onRunEvent hot path) ─────────────
-
-/** Conversation Projection (incremental) — receive a MessageRevision already
- *  assembled by framework, add conversationId (归属戳), serialize, and write to ledger.
- *  Same messageId across revisions allows Web/Lark to upsert into a single bubble/card. */
-export async function projectRunMessageToLedger(
-  threadId: string,
-  runId: string,
-  revision: MessageRevision,
-  activeConversations: Set<string>,
-  convPort: ConversationPort,
-  convSvc: ConversationService,
-  /** M17.4: Run kind for dispatch — "reflect" runs are not projected to conversations. */
-  kind?: string,
-): Promise<void> {
-  // M17.4: kind dispatch replaces threadId.startsWith("reflect:").
-  if (kind === "reflect") return;
-  if (revision.role !== "assistant" && revision.role !== "user") return;
-
-  // M17.2 fix: skip empty revisions (no text, no blocks, no tools) to avoid air bubbles.
-  const hasContent =
-    (revision.text && revision.text.length > 0) ||
-    (revision.blocks && revision.blocks.length > 0) ||
-    (revision.tools && revision.tools.length > 0);
-  if (!hasContent) return;
-
-  const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
-  if (!cid) return;
-  const senderMemberId = parseThreadId(threadId).memberId || threadId;
-
-  const acc = getOrCreateAccumulator(runId, senderMemberId);
-
-  // M17.2: Add conversationId (归属戳) to the framework-assembled revision
-  const stamped: MessageRevision = { ...revision, conversationId: cid };
-
-  const ts = Date.now();
-  const serialized = serializeMessageRevision(stamped);
-
-  // Dedup: same (runId, serialized) pair
-  if (convPort.hasLedgerContent?.(runId, serialized)) return;
-
-  // Update accumulator before writing so onRunComplete has the latest revision
-  if (stamped.role === "assistant" && kind !== "reflect") {
-    acc.latestAssistantRevision = stamped;
-  }
-
-  const seq = convPort.appendLedgerEntry({
-    conversationId: cid,
-    senderMemberId,
-    addressedTo: [],
-    kind: "message",
-    content: serialized,
-    ts,
-    runId,
-  });
-  await convSvc.broadcastMessage(
-    {
-      seq,
-      conversationId: cid,
-      senderMemberId,
-      addressedTo: [],
-      kind: "message",
-      content: serialized,
-      ts,
-    },
-    { excludeMemberId: senderMemberId },
-  );
 }
 
 // ─── Terminal projection helpers ──────────────────────────────
@@ -242,14 +169,6 @@ export async function onRunComplete(
 
   // ── Phase 1: CRITICAL — terminal revision write + broadcast ──
   try {
-    if (acc) {
-      try {
-        await acc.projectionChain;
-      } catch {
-        /* chain error already logged */
-      }
-    }
-
     const baseRev = acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
     const frameworkSentTerminal = baseRev != null && isTerminalMessageState(baseRev.state);
     const statusConflict = baseRev?.state === "done" && status !== "succeeded";

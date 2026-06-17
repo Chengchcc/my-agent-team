@@ -20,10 +20,8 @@ export interface ConversationFeature {
   convPort: ConversationPort;
   convSvc: ReturnType<typeof createConversationService>;
   threadProjectionSvc: ReturnType<typeof createThreadProjectionService>;
-  /** M17.5 P4: ConversationLock replaces activeConversations Set. */
+  /** M17.5 P4+P11: ConversationLock replaces ad-hoc activeConversations Set + threads Set. */
   lock: ConversationLock;
-  /** @deprecated M17.5: Use lock instead. Kept for projectRunMessageToLedger compat. */
-  activeConversations: Set<string>;
 }
 
 /** Create the full conversation feature — adapters, projection, and service.
@@ -43,8 +41,6 @@ export function createConversationFeature(
 
   const convPort = sqliteConversationAdapter(db);
   const lock = new ConversationLock();
-  // Kept for projectRunMessageToLedger compat — will be removed in P7.
-  const activeConversations = new Set<string>();
 
   const convSvc = createConversationService({
     port: convPort,
@@ -115,7 +111,7 @@ export function createConversationFeature(
     },
   });
 
-  return { convPort, convSvc, threadProjectionSvc, lock, activeConversations };
+  return { convPort, convSvc, threadProjectionSvc, lock };
 }
 
 // ─── Spec builder (shared by forkRun and HTTP run routes) ──────

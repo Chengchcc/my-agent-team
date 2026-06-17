@@ -309,7 +309,7 @@ export class RunSupervisor {
   async beginReflectRun(
     runId: string,
     threadId: string,
-    parentRunId: string,
+    parentRunId: string | null,
     spec: Record<string, unknown>,
   ): Promise<{ runId: string; attemptId: string }> {
     const req: RunRequest = {
@@ -333,7 +333,7 @@ export class RunSupervisor {
   async #registerDaemonStartedReflectRun(
     runId: string,
     threadId: string,
-    parentRunId: string,
+    parentRunId: string | null,
     spec: Record<string, unknown>,
     sourceTransport: RunnerTransport,
   ): Promise<{ runId: string; attemptId: string }> {
@@ -464,9 +464,10 @@ export class RunSupervisor {
         await this.#registerDaemonStartedReflectRun(
           runId,
           msg.threadId as string,
-          // M17.5 P10: empty parentRunId degrades lineage but must remain string for DB compat.
-          // Log when parentRunId is missing (should not happen for well-formed reflect specs).
-          (msg.parentRunId as string) || "",
+          // M17.5 P10: null instead of "" — empty string is indistinguishable
+          // from "no parent" and breaks lineage queries. SQLite TEXT column
+          // accepts NULL, storing a proper missing-parent sentinel.
+          (msg.parentRunId as string) || null,
           (msg.spec as Record<string, unknown>) ?? {},
           sourceTransport,
         );
