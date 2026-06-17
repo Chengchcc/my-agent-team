@@ -7,7 +7,7 @@ test("openDb creates database file and runs migrations", () => {
   const tmpPath = `/tmp/test-backend-db-${Date.now()}.db`;
   const db = openDb(tmpPath);
 
-  // Verify tables exist (backend own + checkpointer)
+  // Verify tables exist (backend own)
   const tables = db
     .query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     .all() as { name: string }[];
@@ -17,7 +17,10 @@ test("openDb creates database file and runs migrations", () => {
   expect(names).not.toContain("threads");
   expect(names).not.toContain("run");
   expect(names).not.toContain("attempt");
-  expect(names).toContain("checkpoint_messages");
+  // M17.4: projection_messages replaces checkpoint_messages after migration
+  expect(names).toContain("projection_messages");
+  expect(names).not.toContain("checkpoint_messages"); // Dropped by v22 migration
+  // Checkpointer tables (from SQLITE_CHECKPOINTER_MIGRATIONS) still created then dropped
   expect(names).toContain("checkpoint_interrupts");
   expect(names).toContain("checkpoint_events");
 
@@ -73,6 +76,8 @@ test("_migrations table tracks applied migrations by name", () => {
   expect(rows.length).toBeGreaterThan(0);
   expect(rows.some((r) => r.name === "backend_v1_agents")).toBe(true);
   expect(rows.some((r) => r.name === "checkpointer_v1_messages")).toBe(true);
+  // M17.4: projection_messages migration runs after checkpointer tables are created
+  expect(rows.some((r) => r.name === "backend_v22_projection_messages")).toBe(true);
 
   db.close();
   try {

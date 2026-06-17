@@ -215,9 +215,29 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
     id: 5007,
     up: `ALTER TABLE agents ADD COLUMN lark_bot_display_name TEXT`,
   },
+  // ─── M17.4 projection_messages — replaces checkpoint_messages ──
+  {
+    name: "backend_v22_projection_messages",
+    id: 5008,
+    up: `CREATE TABLE IF NOT EXISTS projection_messages (
+      thread_id  TEXT NOT NULL,
+      messages   TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (thread_id)
+    );
+    -- Migrate existing data from the old checkpoint_messages table (if any)
+    INSERT OR IGNORE INTO projection_messages
+      SELECT thread_id, messages, COALESCE(updated_at, 0) FROM checkpoint_messages
+      WHERE true
+      ON CONFLICT(thread_id) DO NOTHING;
+    DROP TABLE IF EXISTS checkpoint_messages;`,
+  },
 ];
 
-/** Combined migrations: backend own + checkpointer tables. Sorted by id. */
+/** Combined migrations: backend own + checkpointer (creates checkpoint_messages which
+ *  is then migrated to projection_messages by backend_v22_projection_messages).
+ *  M17.4: Once all existing installs have run v22, the checkpointer migrations
+ *  can be removed from this list (new installs will get projection_messages directly). */
 export const ALL_MIGRATIONS: readonly { name: string; id: number; up: string }[] = [
   ...BACKEND_MIGRATIONS,
   ...SQLITE_CHECKPOINTER_MIGRATIONS,

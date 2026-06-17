@@ -5,7 +5,7 @@ export function sqliteThreadProjectionReadAdapter(db: Database): ThreadProjectio
   return {
     async getMessages(threadId: string): Promise<unknown[] | null> {
       const row = db
-        .query("SELECT messages FROM checkpoint_messages WHERE thread_id = ?")
+        .query("SELECT messages FROM projection_messages WHERE thread_id = ?")
         .get(threadId) as { messages: string } | undefined;
       if (!row) return null;
       try {
@@ -18,8 +18,7 @@ export function sqliteThreadProjectionReadAdapter(db: Database): ThreadProjectio
 }
 
 /** Write adapter for broadcast projection — load→merge→save.
- *  Writes to the same checkpoint_messages table that the runner daemon's
- *  sqliteCheckpointer reads (via preloadedMessages hydration). */
+ *  M17.4: Uses projection_messages table (no longer borrows checkpointer's table name). */
 export function sqliteThreadProjectionWriteAdapter(db: Database): ThreadProjectionWritePort {
   return {
     async appendMessages(threadId: string, msgs: unknown[]): Promise<void> {
@@ -27,7 +26,7 @@ export function sqliteThreadProjectionWriteAdapter(db: Database): ThreadProjecti
       db.run("BEGIN IMMEDIATE");
       try {
         const row = db
-          .query("SELECT messages FROM checkpoint_messages WHERE thread_id = ?")
+          .query("SELECT messages FROM projection_messages WHERE thread_id = ?")
           .get(threadId) as { messages: string } | undefined;
 
         let existing: unknown[] = [];
@@ -42,7 +41,7 @@ export function sqliteThreadProjectionWriteAdapter(db: Database): ThreadProjecti
 
         const merged = [...existing, ...msgs];
         db.run(
-          "INSERT INTO checkpoint_messages (thread_id, messages, updated_at) VALUES (?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET messages = excluded.messages, updated_at = excluded.updated_at",
+          "INSERT INTO projection_messages (thread_id, messages, updated_at) VALUES (?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET messages = excluded.messages, updated_at = excluded.updated_at",
           [threadId, JSON.stringify(merged), Date.now()],
         );
         db.run("COMMIT");

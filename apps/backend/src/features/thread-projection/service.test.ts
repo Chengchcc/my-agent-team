@@ -22,7 +22,7 @@ describe("ThreadProjectionService with SQLite", () => {
   test("getMessages returns persisted messages from real checkpointer", async () => {
     // Insert via raw SQL (simulating what harness checkpointer would do)
     const msgs = [{ role: "user" as const, content: "hello world" }];
-    db.run("INSERT INTO checkpoint_messages (thread_id, messages, updated_at) VALUES (?, ?, ?)", [
+    db.run("INSERT INTO projection_messages (thread_id, messages, updated_at) VALUES (?, ?, ?)", [
       "th-1",
       JSON.stringify(msgs),
       Date.now(),
@@ -39,7 +39,7 @@ describe("ThreadProjectionService with SQLite", () => {
 
   test("getMessages handles corrupted JSON gracefully", async () => {
     db.run(
-      "INSERT OR REPLACE INTO checkpoint_messages (thread_id, messages, updated_at) VALUES (?, ?, ?)",
+      "INSERT OR REPLACE INTO projection_messages (thread_id, messages, updated_at) VALUES (?, ?, ?)",
       ["th-corrupt", "{not valid json", Date.now()],
     );
 

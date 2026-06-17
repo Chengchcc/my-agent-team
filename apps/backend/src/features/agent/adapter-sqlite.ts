@@ -184,7 +184,7 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
         // Delete checkpoint rows by thread ID
         const deletedThreads = threadIds.length;
         for (const tid of threadIds) {
-          db.run("DELETE FROM checkpoint_messages WHERE thread_id = ?", [tid]);
+          db.run("DELETE FROM projection_messages WHERE thread_id = ?", [tid]);
           db.run("DELETE FROM checkpoint_interrupts WHERE thread_id = ?", [tid]);
           db.run("DELETE FROM checkpoint_events WHERE thread_id = ?", [tid]);
         }
