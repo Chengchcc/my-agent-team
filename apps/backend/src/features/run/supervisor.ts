@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { EventLog, EventSource } from "@my-agent-team/event-log";
+import type { AgentEvent } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
 import type { RuntimeTraceContext, RuntimeTracer } from "@my-agent-team/runtime-observability";
@@ -85,7 +86,7 @@ export class RunSupervisor {
     (
       threadId: string,
       runId: string,
-      event: { type: string; payload?: unknown },
+      event: AgentEvent,
     ) => void | Promise<void>
   > = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
@@ -208,7 +209,7 @@ export class RunSupervisor {
     fn: (
       threadId: string,
       runId: string,
-      event: { type: string; payload?: unknown },
+      event: AgentEvent,
     ) => void | Promise<void>,
   ): void {
     this.#onRunEvent.push(fn);
@@ -474,7 +475,7 @@ export class RunSupervisor {
         // sharing the same transport.
         if (this.#onRunEvent.length > 0) {
           const threadId = this.#threadIdFor(runId);
-          const event = msg.event as { type: string; payload?: unknown };
+          const event = msg.event as AgentEvent;
           for (const fn of this.#onRunEvent) {
             void Promise.resolve(fn(threadId, runId, event)).catch((err: unknown) => {
               console.error(

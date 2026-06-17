@@ -402,53 +402,57 @@ async function onRunComplete(threadId: string, runId: string, status: string): P
         }
       }
 
-      // M17.1 P0: always write terminal revision, even without accumulator.
-      // Runs that fail before any message event (e.g. immediate error) must
-      // still produce a terminal revision so Web/Lark exit busy state.
+      // M17.2: Framework now emits terminal (state=done/error). Backend writes
+      // terminal only as a fallback when framework didn't — e.g. crash before emit.
+      // M17.1 P0 invariant preserved: always produce terminal revision for Web/Lark.
       const baseRev = acc?.latestAssistantRevision ?? null;
-      const finalRev: MessageRevision = baseRev
-        ? {
-            ...baseRev,
-            state: status === "succeeded" ? "done" : "error",
-            error: status === "succeeded" ? undefined : { message: status },
-            updatedAt: Date.now(),
-          }
-        : {
-            messageId: assistantMessageId(runId),
-            role: "assistant",
-            state: status === "succeeded" ? "done" : "error",
-            text: status === "succeeded" ? "" : `Run failed: ${status}`,
-            runId,
-            conversationId: cid,
-            visibility: "conversation",
-            updatedAt: Date.now(),
-            error: status === "succeeded" ? undefined : { message: status },
-          };
+      const frameworkSentTerminal =
+        baseRev?.state === "done" || baseRev?.state === "error";
+      if (!frameworkSentTerminal) {
+        const finalRev: MessageRevision = baseRev
+          ? {
+              ...baseRev,
+              state: status === "succeeded" ? "done" : "error",
+              error: status === "succeeded" ? undefined : { message: status },
+              updatedAt: Date.now(),
+            }
+          : {
+              messageId: assistantMessageId(runId),
+              role: "assistant",
+              state: status === "succeeded" ? "done" : "error",
+              text: status === "succeeded" ? "" : `Run failed: ${status}`,
+              runId,
+              conversationId: cid,
+              visibility: "conversation",
+              updatedAt: Date.now(),
+              error: status === "succeeded" ? undefined : { message: status },
+            };
 
-      const serialized = serializeMessageRevision(finalRev);
-      if (!convPort.hasLedgerContent?.(runId, serialized)) {
-        const ts = Date.now();
-        const seq = convPort.appendLedgerEntry({
-          conversationId: cid,
-          senderMemberId,
-          addressedTo: [],
-          kind: "message",
-          content: serialized,
-          ts,
-          runId,
-        });
-        await convSvc.broadcastMessage(
-          {
-            seq,
+        const serialized = serializeMessageRevision(finalRev);
+        if (!convPort.hasLedgerContent?.(runId, serialized)) {
+          const ts = Date.now();
+          const seq = convPort.appendLedgerEntry({
             conversationId: cid,
             senderMemberId,
             addressedTo: [],
             kind: "message",
             content: serialized,
             ts,
-          },
-          { excludeMemberId: senderMemberId },
-        );
+            runId,
+          });
+          await convSvc.broadcastMessage(
+            {
+              seq,
+              conversationId: cid,
+              senderMemberId,
+              addressedTo: [],
+              kind: "message",
+              content: serialized,
+              ts,
+            },
+            { excludeMemberId: senderMemberId },
+          );
+        }
       }
 
       if (acc) {
@@ -519,69 +523,17 @@ function getOrCreateAccumulator(runId: string, senderMemberId: string): RunAccum
   return acc;
 }
 
-/** Build a MessageRevision envelope for assistant content produced
- *  during a run. Only whitelists known fields from content — never
- *  lets raw content override core fields (messageId, state, role, runId). */
-function buildAssistantRevision(
-  runId: string,
-  content: unknown,
-  state: MessageRevision["state"] = "streaming",
-): MessageRevision {
-  const now = Date.now();
-  const base: MessageRevision = {
-    messageId: assistantMessageId(runId),
-    state,
-    role: "assistant",
-    runId,
-    visibility: "conversation",
-    updatedAt: now,
-  };
-
-  if (typeof content === "string") {
-    return { ...base, text: content };
-  }
-
-  if (Array.isArray(content)) {
-    return { ...base, blocks: content as ContentBlock[] };
-  }
-
-  if (content && typeof content === "object" && !Array.isArray(content)) {
-    const obj = content as Record<string, unknown>;
-    return {
-      ...base,
-      text: typeof obj.text === "string" ? obj.text : undefined,
-      blocks: Array.isArray(obj.blocks) ? (obj.blocks as ContentBlock[]) : undefined,
-      tools: Array.isArray(obj.tools) ? (obj.tools as MessageRevision["tools"]) : undefined,
-      error:
-        typeof obj.error === "string"
-          ? { message: obj.error }
-          : obj.error && typeof obj.error === "object" && "message" in obj.error
-            ? (obj.error as MessageRevision["error"])
-            : undefined,
-    };
-  }
-
-  return { ...base, text: String(content ?? "") };
-}
-
-/** Conversation Projection (incremental): project a single message produced mid-run into the
- *  conversation ledger as a MessageRevision. Same messageId across revisions
- *  allows Web/Lark to upsert into a single bubble/card. */
+/** M17.2: Conversation Projection (incremental) — receive a MessageRevision already
+ *  assembled by framework, add conversationId (归属戳), serialize, and write to ledger.
+ *  Same messageId across revisions allows Web/Lark to upsert into a single bubble/card. */
 async function projectRunMessageToLedger(
   threadId: string,
   runId: string,
-  role: string,
-  content: unknown,
+  revision: MessageRevision,
 ): Promise<void> {
   // M14.3: reflect runs are not projected to any conversation.
   if (threadId.startsWith("reflect:")) return;
-  if (role !== "assistant" && role !== "user") return;
-  if (typeof content === "string" && content.trim().length === 0) return;
-  if (Array.isArray(content) && content.length === 0) return;
-
-  // M17: Don't filter tool-only rounds — they still need a terminal revision.
-  // Tool-only blocks produce a revision with blocks but empty text, so Web/Lark
-  // can render the tool progress bar and wait for the done/error terminal.
+  if (revision.role !== "assistant" && revision.role !== "user") return;
 
   const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
   if (!cid) return;
@@ -589,29 +541,18 @@ async function projectRunMessageToLedger(
 
   const acc = getOrCreateAccumulator(runId, senderMemberId);
 
-  // M17.1: Build revision envelope — replaces the old { text/blocks, runId, _preliminary: true } shape.
-  // All message revisions go through serializeMessageRevision for validation.
-  const revision =
-    role === "assistant"
-      ? buildAssistantRevision(runId, content, "streaming")
-      : {
-          messageId: `msg:${runId}:${role}:0`,
-          state: "done" as const,
-          role: role as "user",
-          text: typeof content === "string" ? content : "",
-          visibility: "conversation" as const,
-          updatedAt: Date.now(),
-        };
+  // M17.2: Add conversationId (归属戳) to the framework-assembled revision
+  const stamped: MessageRevision = { ...revision, conversationId: cid };
 
   const ts = Date.now();
-  const serialized = serializeMessageRevision(revision);
+  const serialized = serializeMessageRevision(stamped);
 
   // Dedup: same (runId, serialized) pair
   if (convPort.hasLedgerContent?.(runId, serialized)) return;
 
   // Update accumulator before writing so onRunComplete has the latest revision
-  if (role === "assistant" && !threadId.startsWith("reflect:")) {
-    acc.latestAssistantRevision = revision;
+  if (stamped.role === "assistant" && !threadId.startsWith("reflect:")) {
+    acc.latestAssistantRevision = stamped;
   }
 
   const seq = convPort.appendLedgerEntry({
@@ -649,24 +590,13 @@ supervisor.onRunEvent((threadId, runId, event) => {
     return;
   }
 
-  // ── message: enqueue projection on serial chain + accumulate @mentions ──
+  // ── M17.2: message — payload is already a MessageRevision from framework ──
   if (event.type !== "message") return;
-  const payload = event.payload as { role?: string; content?: unknown } | undefined;
-  if (!payload) return;
-  const role = payload.role ?? "";
-  const content = payload.content;
+  const revision = event.payload;
 
   // Accumulate @mentions from assistant text (for deferred trigger at run end)
-  if (role === "assistant") {
-    const text =
-      typeof content === "string"
-        ? content
-        : Array.isArray(content)
-          ? content
-              .filter((b: unknown) => (b as { type: string }).type === "text")
-              .map((b: unknown) => (b as { text: string }).text)
-              .join(" ")
-          : "";
+  if (revision.role === "assistant") {
+    const text = revision.text ?? "";
     if (text) {
       const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
       if (cid) {
@@ -690,7 +620,7 @@ supervisor.onRunEvent((threadId, runId, event) => {
   const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
   const acc = getOrCreateAccumulator(runId, senderMemberId);
   acc.projectionChain = acc.projectionChain
-    .then(() => projectRunMessageToLedger(threadId, runId, role, content))
+    .then(() => projectRunMessageToLedger(threadId, runId, revision))
     .catch((err) => {
       console.error(
         `[conversation] projectRunMessageToLedger failed for ${runId}:`,

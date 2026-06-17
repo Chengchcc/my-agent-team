@@ -7,7 +7,13 @@ describe("getRunInsights", () => {
     const eventLog = inMemoryEventLog();
     await eventLog.append("thread1", "run1", {
       type: "message",
-      payload: { role: "user", content: "hi" },
+      payload: {
+        messageId: "test-msg",
+        role: "user",
+        state: "done" as const,
+        text: "hi",
+        updatedAt: Date.now(),
+      },
     });
 
     const result = await getRunInsights(
