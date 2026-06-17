@@ -1,8 +1,7 @@
 import { Database } from "bun:sqlite";
-import type { ContentBlock } from "@my-agent-team/core";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import type { Message, MessageRevision } from "@my-agent-team/message";
-import { assistantMessageId, serializeMessageRevision } from "@my-agent-team/message";
+import { assistantMessageId, parseMessageRevision, serializeMessageRevision } from "@my-agent-team/message";
 import { createSocketClient } from "@my-agent-team/runner-protocol";
 import {
   createRuntimeTracer,
@@ -587,9 +586,16 @@ supervisor.onRunEvent((threadId, runId, event) => {
   if (event.type !== "message") return;
   const revision = event.payload;
 
-  // Accumulate @mentions from assistant text (for deferred trigger at run end)
+  // Accumulate @mentions from assistant text/blocks (for deferred trigger at run end)
   if (revision.role === "assistant") {
-    const text = revision.text ?? "";
+    // Framework emits `blocks` (ContentBlock[]) not `text` — extract text from both sources
+    const text =
+      revision.text ??
+      revision.blocks
+        ?.filter((b) => b.type === "text")
+        .map((b) => (b as { text: string }).text)
+        .join(" ") ??
+      "";
     if (text) {
       const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
       if (cid) {

@@ -124,16 +124,11 @@ export function createConversationService(deps: ConversationServiceDeps) {
     if (!conv) return;
 
     const agentMembers = port.getAgentMembers(entry.conversationId);
-    let content: unknown;
-    try {
-      content = JSON.parse(entry.content);
-    } catch {
-      content = entry.content;
-    }
 
     for (const member of agentMembers) {
       if (opts?.excludeMemberId && member.memberId === opts.excludeMemberId) continue;
       const threadId = deriveThreadId(entry.conversationId, member.memberId);
+      // M17.2: Pass raw string — projectForMember/formatContent handle parsing internally
       const projected = projectForMember(
         {
           seq: entry.seq,
@@ -141,7 +136,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
           senderMemberId: entry.senderMemberId,
           addressedTo: entry.addressedTo,
           kind: entry.kind,
-          content,
+          content: entry.content,
           ts: entry.ts,
         },
         member.memberId,
