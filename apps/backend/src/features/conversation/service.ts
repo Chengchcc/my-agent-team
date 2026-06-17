@@ -237,7 +237,11 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
       // ── Append this message to ledger as a MessageRevision (no broadcast — forkRun reads from ledger) ──
       const userRev: MessageRevision = {
-        messageId: `msg:${input.conversationId}:${input.senderMemberId}:${Date.now()}`,
+        // M17.2 fix: use UUID (not Date.now()) to prevent same-ms collision when
+        // buildPreloadedMessages folds by messageId. Two posts in the same millisecond
+        // would share an id and the second would silently overwrite the first.
+        messageId: `msg:${input.conversationId}:${input.senderMemberId}:${crypto.randomUUID()}`,
+
         role: "user",
         state: "done",
         text: typeof input.content === "string" ? input.content : undefined,
@@ -264,7 +268,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
       } else if (hopCapped) {
         // Broadcast system message about the cap (no fork)
         const sysRev: MessageRevision = {
-          messageId: `sys:${input.conversationId}:hopcap:${Date.now()}`,
+          messageId: `sys:${input.conversationId}:hopcap:${crypto.randomUUID()}`,
           role: "system",
           state: "done",
           text: `[系统] 连续 agent→agent 触发达上限（${maxConsecutiveAgentHops}），已暂停，等待真人介入。`,
