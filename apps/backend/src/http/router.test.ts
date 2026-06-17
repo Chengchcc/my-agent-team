@@ -7,6 +7,7 @@ import {
   createConversationService,
   sqliteConversationAdapter,
 } from "../features/conversation/index.js";
+import { ConversationLock } from "../features/conversation/lock.js";
 import {
   sqliteThreadProjectionReadAdapter,
   sqliteThreadProjectionWriteAdapter,
@@ -48,7 +49,7 @@ beforeAll(async () => {
     port: convPort,
     threadProjectionRead: sqliteThreadProjectionReadAdapter(db),
     threadProjectionWrite: sqliteThreadProjectionWriteAdapter(db),
-    activeConversations: new Set<string>(),
+    lock: new ConversationLock(),
     maxConsecutiveAgentHops: 8,
     idGen: () => crypto.randomUUID().slice(0, 8),
     forkRun: async (runId) => ({ runId, attemptId: `att-${runId}` }),

@@ -10,6 +10,7 @@ import type {
   ThreadProjectionWritePort,
 } from "../thread-projection/ports.js";
 import type { ConversationPort, LedgerEntry, LedgerKind, LedgerRow, MemberRow } from "./ports.js";
+import { ConversationLock } from "./lock.js";
 
 export class ConversationBusyError extends Error {
   constructor(conversationId: string) {
@@ -43,7 +44,8 @@ export interface ConversationServiceDeps {
   port: ConversationPort;
   threadProjectionRead: ThreadProjectionReadPort;
   threadProjectionWrite: ThreadProjectionWritePort;
-  activeConversations: Set<string>;
+  /** M17.5 P4: ConversationLock replaces ad-hoc activeConversations Set + pendingRuns Map. */
+  lock: ConversationLock;
   maxConsecutiveAgentHops: number;
   forkRun: (
     runId: string,
@@ -56,11 +58,7 @@ export interface ConversationServiceDeps {
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
-  const { port, threadProjectionWrite, activeConversations, maxConsecutiveAgentHops, forkRun } =
-    deps;
-  // Track pending run count per conversation — lock released only when
-  // all triggered runs complete, not just the first one.
-  const pendingRuns = new Map<string, number>();
+  const { port, threadProjectionWrite, lock, maxConsecutiveAgentHops, forkRun } = deps;
 
   /** Load members and build Conversation for pure helpers. */
   function buildConversation(conversationId: string) {
@@ -166,33 +164,25 @@ export function createConversationService(deps: ConversationServiceDeps) {
     ledgerSeq: number,
   ): Promise<Array<{ agentMemberId: string; runId: string }>> {
     const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
-    activeConversations.add(conversationId);
-    pendingRuns.set(conversationId, targets.length);
-    try {
-      for (const target of targets) {
-        try {
-          const runId = crypto.randomUUID();
-          const threadId = deriveThreadId(conversationId, target.memberId);
-          const { runId: rId } = await forkRun(runId, threadId, {
-            conversationId,
-            agentMemberId: target.memberId,
-            agentId: target.agentId,
-            ledgerSeq,
-          });
-          triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
-        } catch (err) {
-          console.error(
-            `[conversation] forkRun failed for ${target.memberId}:`,
-            err instanceof Error ? err.message : String(err),
-          );
-          pendingRuns.set(conversationId, (pendingRuns.get(conversationId) ?? 1) - 1);
-        }
-      }
-    } finally {
-      const remaining = pendingRuns.get(conversationId) ?? 0;
-      if (remaining <= 0) {
-        activeConversations.delete(conversationId);
-        pendingRuns.delete(conversationId);
+    lock.acquire(conversationId, targets.length);
+    for (const target of targets) {
+      try {
+        const runId = crypto.randomUUID();
+        const threadId = deriveThreadId(conversationId, target.memberId);
+        const { runId: rId } = await forkRun(runId, threadId, {
+          conversationId,
+          agentMemberId: target.memberId,
+          agentId: target.agentId,
+          ledgerSeq,
+        });
+        triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
+      } catch (err) {
+        console.error(
+          `[conversation] forkRun failed for ${target.memberId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+        // Decrement pending count for failed fork
+        lock.releaseOne(conversationId);
       }
     }
     return triggeredRuns;
@@ -235,7 +225,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
       let hopCapped = false;
       if (targets.length > 0) {
         // Single-active guard
-        if (activeConversations.has(input.conversationId)) {
+        if (lock.isActive(input.conversationId)) {
           throw new ConversationBusyError(input.conversationId);
         }
 
@@ -428,13 +418,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
     /** Release the conversation lock when ALL triggered runs complete. */
     completeRun(conversationId: string, _threadId: string, _runId: string): void {
-      const remaining = (pendingRuns.get(conversationId) ?? 1) - 1;
-      if (remaining <= 0) {
-        activeConversations.delete(conversationId);
-        pendingRuns.delete(conversationId);
-      } else {
-        pendingRuns.set(conversationId, remaining);
-      }
+      lock.releaseOne(conversationId);
     },
 
     /** M14.4: Trigger agent runs from agent-to-agent @mentions.
@@ -472,7 +456,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
       if (currentHop > maxConsecutiveAgentHops) return triggeredRuns;
 
       // Conversation busy guard (best-effort: skip, don't throw)
-      if (activeConversations.has(input.conversationId)) return triggeredRuns;
+      if (lock.isActive(input.conversationId)) return triggeredRuns;
 
       // Fork runs (shared helper with postMessage)
       return forkAgentRuns(input.conversationId, targets, 0);

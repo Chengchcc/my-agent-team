@@ -5,6 +5,7 @@ import {
   sqliteThreadProjectionWriteAdapter,
 } from "../thread-projection/adapter-sqlite.js";
 import { sqliteConversationAdapter } from "./adapter-sqlite.js";
+import { ConversationLock } from "./lock.js";
 import { createConversationService } from "./service.js";
 
 const dbPath = `/tmp/test-conv-svc-${Date.now()}.db`;
@@ -16,7 +17,7 @@ const threadProjectionWrite = sqliteThreadProjectionWriteAdapter(db);
 // Track fork calls for @ trigger verification
 const forkLog: Array<{ runId: string; threadId: string }> = [];
 const _nextRunId = 0;
-const activeConversations = new Set<string>();
+const lock = new ConversationLock();
 
 let idCount = 0;
 function testIdGen(): string {
@@ -27,12 +28,11 @@ const svc = createConversationService({
   port,
   threadProjectionRead,
   threadProjectionWrite,
-  activeConversations,
+  lock,
   maxConsecutiveAgentHops: 3,
   idGen: testIdGen,
   forkRun: async (runId, threadId, _ctx) => {
     forkLog.push({ runId, threadId });
-    activeConversations.add(""); // placeholder — caller owns lock management
     return { runId, attemptId: `att-${runId}` };
   },
 });
@@ -155,7 +155,7 @@ describe("broadcastMessage", () => {
 
 describe("postMessage", () => {
   test("appends ledger entry, broadcasts, and triggers addressed agent", async () => {
-    activeConversations.clear();
+    // lock state managed internally by ConversationLock
     const { id } = setupConv("conv-pm1");
     forkLog.length = 0;
 
@@ -212,7 +212,7 @@ describe("postMessage", () => {
 
   test("409 when conversation has active run", async () => {
     const { id } = setupConv("conv-pm4");
-    activeConversations.add(id);
+    lock.acquire(id, 1);
 
     try {
       await expect(
@@ -224,7 +224,7 @@ describe("postMessage", () => {
         }),
       ).rejects.toThrow();
     } finally {
-      activeConversations.delete(id);
+      lock.releaseOne(id);
     }
   });
 });
@@ -331,7 +331,7 @@ describe("member join/leave", () => {
 
 describe("subscribeConversation", () => {
   test("returns ledger entries as async iterable, newest first", async () => {
-    activeConversations.clear();
+    // lock state managed internally by ConversationLock
     const { id } = setupConv("conv-sse1");
 
     // Post two messages, unlocking between each (simulating run completion)
@@ -341,7 +341,7 @@ describe("subscribeConversation", () => {
       addressedTo: [`mem-x1-${id}`],
       content: { text: "first" },
     });
-    activeConversations.delete(id);
+    lock.releaseOne(id);
 
     await svc.postMessage({
       conversationId: id,
@@ -349,7 +349,7 @@ describe("subscribeConversation", () => {
       addressedTo: [`mem-x1-${id}`],
       content: { text: "second" },
     });
-    activeConversations.delete(id);
+    lock.releaseOne(id);
 
     const stream = svc.subscribeConversation(id, { afterSeq: 0, pollMs: 0 });
     const entries: unknown[] = [];
@@ -361,7 +361,7 @@ describe("subscribeConversation", () => {
   });
 
   test("afterSeq filters out seen entries", async () => {
-    activeConversations.clear();
+    // lock state managed internally by ConversationLock
     const { id } = setupConv("conv-sse2");
 
     await svc.postMessage({
@@ -370,7 +370,7 @@ describe("subscribeConversation", () => {
       addressedTo: [`mem-x1-${id}`],
       content: { text: "msg1" },
     });
-    activeConversations.delete(id);
+    lock.releaseOne(id);
 
     const result2 = await svc.postMessage({
       conversationId: id,
@@ -378,7 +378,7 @@ describe("subscribeConversation", () => {
       addressedTo: [`mem-x1-${id}`],
       content: { text: "msg2" },
     });
-    activeConversations.delete(id);
+    lock.releaseOne(id);
 
     const stream = svc.subscribeConversation(id, { afterSeq: result2.seq, pollMs: 0 });
     const entries: unknown[] = [];
@@ -395,7 +395,7 @@ describe("subscribeConversation", () => {
 
 describe("P0-2: lock lifecycle", () => {
   test("completeRun releases conversation lock so next postMessage succeeds", async () => {
-    activeConversations.clear();
+    // lock state managed internally by ConversationLock
     forkLog.length = 0;
     const { id } = setupConv("conv-lock1");
 
@@ -407,14 +407,14 @@ describe("P0-2: lock lifecycle", () => {
       content: { text: "first" },
     });
     expect(r1.triggeredRuns).toHaveLength(1);
-    expect(activeConversations.has(id)).toBe(true);
+    expect(lock.isActive(id)).toBe(true);
 
     // Simulate run completion (P0-2: this must NOT hang)
     const start = Date.now();
     svc.completeRun(id, `${id}:mem-x1-${id}`, r1.triggeredRuns[0]!.runId);
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(1000); // must complete near-instantly, not hang
-    expect(activeConversations.has(id)).toBe(false);
+    expect(lock.isActive(id)).toBe(false);
 
     // Second post should succeed (lock released)
     const r2 = await svc.postMessage({
@@ -432,7 +432,7 @@ import { unlinkSync } from "node:fs";
 
 describe("M14.4: triggerMentionedAgents", () => {
   test("triggers @-mentioned agent via forkRun", async () => {
-    activeConversations.clear();
+    // lock state managed internally by ConversationLock
     forkLog.length = 0;
     const { id } = setupConv("conv-at1");
 
@@ -451,7 +451,7 @@ describe("M14.4: triggerMentionedAgents", () => {
   test("skips when conversation is busy", async () => {
     forkLog.length = 0;
     const { id } = setupConv("conv-at2");
-    activeConversations.add(id);
+    lock.acquire(id, 1);
 
     const result = await svc.triggerMentionedAgents({
       conversationId: id,
@@ -462,7 +462,7 @@ describe("M14.4: triggerMentionedAgents", () => {
     expect(result).toHaveLength(0);
     expect(forkLog).toHaveLength(0);
 
-    activeConversations.delete(id);
+    lock.releaseOne(id);
   });
 
   test("returns empty for empty addressedTo", async () => {

@@ -13,12 +13,16 @@ import { createThreadProjectionService } from "../thread-projection/index.js";
 import { sqliteConversationAdapter } from "./index.js";
 import type { ConversationPort } from "./ports.js";
 import { buildPreloadedMessages } from "./projection.js";
+import { ConversationLock } from "./lock.js";
 import { createConversationService, parseThreadId } from "./service.js";
 
 export interface ConversationFeature {
   convPort: ConversationPort;
   convSvc: ReturnType<typeof createConversationService>;
   threadProjectionSvc: ReturnType<typeof createThreadProjectionService>;
+  /** M17.5 P4: ConversationLock replaces activeConversations Set. */
+  lock: ConversationLock;
+  /** @deprecated M17.5: Use lock instead. Kept for projectRunMessageToLedger compat. */
   activeConversations: Set<string>;
 }
 
@@ -38,13 +42,15 @@ export function createConversationFeature(
   const threadProjectionSvc = createThreadProjectionService({ port: threadProjectionPort });
 
   const convPort = sqliteConversationAdapter(db);
+  const lock = new ConversationLock();
+  // Kept for projectRunMessageToLedger compat — will be removed in P7.
   const activeConversations = new Set<string>();
 
   const convSvc = createConversationService({
     port: convPort,
     threadProjectionRead: threadProjectionPort,
     threadProjectionWrite: threadProjectionWritePort,
-    activeConversations,
+    lock,
     maxConsecutiveAgentHops: 8,
     idGen: ulid,
 
@@ -109,7 +115,7 @@ export function createConversationFeature(
     },
   });
 
-  return { convPort, convSvc, threadProjectionSvc, activeConversations };
+  return { convPort, convSvc, threadProjectionSvc, lock, activeConversations };
 }
 
 // ─── Spec builder (shared by forkRun and HTTP run routes) ──────
