@@ -41,7 +41,10 @@ const modelFactory: ModelFactory = {
   },
 };
 
-const { transport } = createSocketServer({ socketPath });
+const { transport } = createSocketServer({
+  socketPath,
+  onError: (err) => console.error(`[runner-daemon] ${err.message}`),
+});
 
 const daemon = new RunnerDaemon({
   transport,

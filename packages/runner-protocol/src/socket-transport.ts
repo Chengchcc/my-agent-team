@@ -28,8 +28,11 @@ export function createSocketServer(opts: SocketServerOptions): {
       try {
         const msg = parseHostToRunner(obj);
         for (const cb of messageCbs) cb(msg);
-      } catch {
-        opts.onError?.(new Error(`Bad HostToRunner frame: type=${(obj as { type?: string }).type ?? "unknown"}`));
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        const type = (obj as { type?: string }).type ?? "unknown";
+        console.error(`[socket-server] Bad HostToRunner frame: type=${type}: ${detail}`);
+        opts.onError?.(new Error(`Bad HostToRunner frame: type=${type}: ${detail}`));
       }
     },
     (line) => {
@@ -121,8 +124,11 @@ export function createSocketClient(opts: SocketClientOptions): RunnerTransport {
       try {
         const msg = parseRunnerToHost(obj);
         for (const cb of messageCbs) cb(msg);
-      } catch {
-        opts.onError?.(new Error(`Bad RunnerToHost frame: type=${(obj as { type?: string }).type ?? "unknown"}`));
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        const type = (obj as { type?: string }).type ?? "unknown";
+        console.error(`[socket-client] Bad RunnerToHost frame: type=${type}: ${detail}`);
+        opts.onError?.(new Error(`Bad RunnerToHost frame: type=${type}: ${detail}`));
       }
     },
     (line) => {

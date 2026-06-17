@@ -17,14 +17,21 @@ export function createRunnerRegistry(config: BackendConfig): RunnerRegistry {
       },
       transportFactory: {
         create: (endpoint: { kind: "unix"; socketPath: string }) =>
-          createSocketClient({ socketPath: endpoint.socketPath }),
+          createSocketClient({
+            socketPath: endpoint.socketPath,
+            onError: (err) => console.error(`[runner-transport] ${err.message}`),
+          }),
       },
     });
   }
   return new DevRunnerRegistry({
     dataDir: config.dataDir,
     daemonBin: `${import.meta.dir}/../../../../packages/runner-daemon/src/bin.ts`,
-    transportFactory: (socket) => createSocketClient({ socketPath: socket }),
+    transportFactory: (socket) =>
+      createSocketClient({
+        socketPath: socket,
+        onError: (err) => console.error(`[runner-transport] ${err.message}`),
+      }),
     backendUrl: `http://${config.host}:${config.port}`,
     backendAuthToken: config.authToken,
   });
