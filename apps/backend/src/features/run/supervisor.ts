@@ -471,7 +471,7 @@ export class RunSupervisor {
         }
         // Conversation Projection (incremental): notify listeners only AFTER the event is durably
         // logged. Fire-and-forget to avoid blocking the per-transport serial queue —
-        // a slow projection must not delay heartbeats, deltas, or run_done for other runs
+        // a slow projection must not delay heartbeats, messages, or run_done for other runs
         // sharing the same transport.
         if (this.#onRunEvent.length > 0) {
           const threadId = this.#threadIdFor(runId);

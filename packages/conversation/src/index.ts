@@ -96,7 +96,15 @@ function formatContent(content: unknown): string {
     try {
       const parsed = JSON.parse(content) as unknown;
       const rev = parseMessageRevision(parsed);
-      return rev.text ?? "";
+      // M17.2 fix: framework emits blocks not text — extract text from text blocks
+      return (
+        rev.text ??
+        rev.blocks
+          ?.filter((b) => b.type === "text")
+          .map((b) => (b as { text: string }).text)
+          .join(" ") ??
+        ""
+      );
     } catch {
       // Fallback: try legacy {text} shape
       try {

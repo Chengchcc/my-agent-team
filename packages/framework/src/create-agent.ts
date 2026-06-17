@@ -230,6 +230,10 @@ interface AgentRuntime {
   /** M17.2: Accumulated tool states for the current assistant message.
    *  Updated in-place by executeOne; read when emitting message revisions. */
   toolStates: import("@my-agent-team/message").MessageToolState[];
+  /** M17.2 fix: Run-level accumulated assistant blocks — all emit revisions use
+   *  the full accumulated set so consumer mergeMessageRevision shows complete history.
+   *  Per-step blocks are still pushed to thread.messages for LLM context. */
+  assistantBlocks: ContentBlock[];
 }
 
 // ─── executeOne (extracted from createAgentInternal) ────────────
@@ -403,16 +407,17 @@ async function* runLoop(
   const maxForce = opts.maxForceContinues ?? 3;
   for (let step = 0; step < opts.maxSteps; step++) {
     if (opts.signal?.aborted) {
-      // M17.2: emit terminal error on abort
+      // M17.2 fix: mark remaining running tools as error, emit with accumulated blocks
+      for (const ts of rt.toolStates) {
+        if (ts.state === "running") {
+          ts.state = "error";
+          ts.isError = true;
+        }
+      }
       yield {
         type: "message",
         payload: {
-          messageId: assistantMessageId(rt.runId),
-          role: "assistant",
-          state: "error",
-          runId: rt.runId,
-          visibility: "conversation",
-          updatedAt: Date.now(),
+          ...buildAssistantRevision(rt.runId, "error", rt.assistantBlocks, rt.toolStates),
           error: { message: "Run aborted" },
         },
       };
@@ -491,10 +496,10 @@ async function* runLoop(
     };
 
     if (blocks.length === 0) {
-      // M17.2: emit terminal done before returning
+      // M17.2: emit terminal done before returning (with accumulated blocks)
       yield {
         type: "message",
-        payload: buildAssistantRevision(rt.runId, "done", [], rt.toolStates),
+        payload: buildAssistantRevision(rt.runId, "done", rt.assistantBlocks, rt.toolStates),
       };
       await rt.checkpointer.appendEvent?.(rt.thread.id, {
         type: "run_end",
@@ -509,6 +514,11 @@ async function* runLoop(
     rt.thread.messages.push(assistantMsg);
     await rt.plugins.fireAfterModel(rt.thread.messages);
 
+    // M17.2 fix: Accumulate blocks for full-run visibility. Consumer mergeMessageRevision
+    // uses revision.blocks ?? base.blocks, which replaces the full array — so each
+    // emit must carry ALL blocks from ALL steps, not just the current step.
+    rt.assistantBlocks.push(...blocks);
+
     // M17.2: Extract tool states from model output — new tools are "running"
     const newTools = extractToolStates(blocks);
     // Merge with existing tool states: keep previous tools' states, add new ones
@@ -518,10 +528,10 @@ async function* runLoop(
       else rt.toolStates.push(nt);
     }
 
-    // Emit message revision (state=streaming) — the single event type for message updates
+    // Emit message revision (state=streaming) — uses FULL accumulated blocks
     yield {
       type: "message",
-      payload: buildAssistantRevision(rt.runId, "streaming", blocks, rt.toolStates),
+      payload: buildAssistantRevision(rt.runId, "streaming", rt.assistantBlocks, rt.toolStates),
     };
 
     const toolUses = blocks.filter((b): b is ToolUseBlock => b.type === "tool_use");
@@ -543,10 +553,10 @@ async function* runLoop(
         }
       }
       await rt.save(rt.thread.messages);
-      // M17.2: emit terminal done
+      // M17.2: emit terminal done (with accumulated blocks)
       yield {
         type: "message",
-        payload: buildAssistantRevision(rt.runId, "done", blocks, rt.toolStates),
+        payload: buildAssistantRevision(rt.runId, "done", rt.assistantBlocks, rt.toolStates),
       };
       await rt.checkpointer.appendEvent?.(rt.thread.id, {
         type: "run_end",
@@ -578,30 +588,31 @@ async function* runLoop(
         // Emit message with updated tool states (shows which tools errored)
         yield {
           type: "message",
-          payload: buildAssistantRevision(rt.runId, "waiting", blocks, rt.toolStates),
+          payload: buildAssistantRevision(rt.runId, "waiting", rt.assistantBlocks, rt.toolStates),
         };
         await rt.save(rt.thread.messages);
         return;
       }
     }
 
-    // After all tools in this step completed, emit updated revision with tool states (done/error)
+    // After all tools in this step completed, emit updated revision with accumulated blocks + tool states
     yield {
       type: "message",
-      payload: buildAssistantRevision(rt.runId, "streaming", blocks, rt.toolStates),
+      payload: buildAssistantRevision(rt.runId, "streaming", rt.assistantBlocks, rt.toolStates),
     };
   }
 
-  // M17.2: maxSteps reached — emit terminal error
+  // M17.2 fix: maxSteps reached — mark remaining running tools as error, emit with accumulated blocks
+  for (const ts of rt.toolStates) {
+    if (ts.state === "running") {
+      ts.state = "error";
+      ts.isError = true;
+    }
+  }
   yield {
     type: "message",
     payload: {
-      messageId: assistantMessageId(rt.runId),
-      role: "assistant",
-      state: "error",
-      runId: rt.runId,
-      visibility: "conversation",
-      updatedAt: Date.now(),
+      ...buildAssistantRevision(rt.runId, "error", rt.assistantBlocks, rt.toolStates),
       error: { message: "Max steps reached" },
     },
   };
@@ -690,6 +701,7 @@ function createAgentInternal(
     save,
     runId: thread.id,     // M17.2: default to thread.id, overridden per-run
     toolStates: [],       // M17.2: reset each run
+    assistantBlocks: [],  // M17.2: accumulated assistant blocks per run
   };
 
   function runLoopOpts(opts: AgentRunOptions) {
@@ -728,6 +740,7 @@ function createAgentInternal(
       // M17.2: set run identity for this execution
       rt.runId = opts.runId ?? thread.id;
       rt.toolStates = [];
+      rt.assistantBlocks = [];
       try {
         opts.signal?.throwIfAborted();
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
@@ -768,6 +781,7 @@ function createAgentInternal(
       // M17.2: set run identity for this execution
       rt.runId = opts.runId ?? thread.id;
       rt.toolStates = [];
+      rt.assistantBlocks = [];
       try {
         opts.signal?.throwIfAborted();
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
@@ -797,6 +811,7 @@ function createAgentInternal(
       // M17.2: set run identity for this execution
       rt.runId = opts.runId ?? thread.id;
       rt.toolStates = [];
+      rt.assistantBlocks = [];
       try {
         const it = await checkpointer.consumeInterrupt?.(thread.id);
         if (!it) throw new Error("No pending interrupt for this thread");

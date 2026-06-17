@@ -270,21 +270,36 @@ function buildPreloadedMessages(
   memberId: string,
 ): Message[] {
   const entries = port.getLedgerEntries(conversationId);
-  const msgs: Message[] = [];
+  // M17.2 fix: fold by messageId (后写覆盖先写) so streaming/done revisions of the
+  // same assistant message collapse into one entry per messageId. Without folding,
+  // each revision row becomes a separate thread message, feeding duplicates to the model.
+  const folded = new Map<string, { role: "user" | "assistant"; rev: ReturnType<typeof parseMessageRevision> }>();
+  let legacyDropped = 0;
   for (const entry of entries) {
     if (entry.kind !== "message") continue;
-    const role = entry.senderMemberId === memberId ? "assistant" : "user";
-    // M17.2: Use unified parser — all message entries are now serialized MessageRevisions.
-    // No more {text}/{blocks} shape guessing.
     try {
       const rev = parseMessageRevision(JSON.parse(entry.content));
-      if (rev.text) {
-        msgs.push({ role: role as "user" | "assistant", text: rev.text });
-      } else if (rev.blocks && rev.blocks.length > 0) {
-        msgs.push({ role: role as "user" | "assistant", blocks: rev.blocks });
-      }
+      const role = entry.senderMemberId === memberId ? "assistant" : "user";
+      folded.set(rev.messageId, { role, rev });
     } catch {
-      // Skip malformed or legacy entries that don't parse as MessageRevision
+      // Legacy entries without messageId — silently drop but make observable
+      legacyDropped++;
+    }
+  }
+  if (legacyDropped > 0) {
+    console.warn(
+      `[buildPreloadedMessages] dropped ${legacyDropped} legacy ledger row(s) for ${conversationId} — ` +
+        `run a migration to rewrite old message rows as MessageRevision.`,
+    );
+  }
+
+  // Output in ledger insertion order (Map guarantees insertion order)
+  const msgs: Message[] = [];
+  for (const { role, rev } of folded.values()) {
+    if (rev.text) {
+      msgs.push({ role, text: rev.text });
+    } else if (rev.blocks && rev.blocks.length > 0) {
+      msgs.push({ role, blocks: rev.blocks });
     }
   }
   return msgs;
@@ -395,12 +410,16 @@ async function onRunComplete(threadId: string, runId: string, status: string): P
       }
 
       // M17.2: Framework now emits terminal (state=done/error). Backend writes
-      // terminal only as a fallback when framework didn't — e.g. crash before emit.
-      // M17.1 P0 invariant preserved: always produce terminal revision for Web/Lark.
+      // terminal only as fallback or status-conflict override.
+      // Status conflict: framework emitted "done" but supervisor reports "failed"
+      // (process crashed after done emit, transport disconnected non-zero, etc.).
+      // In this case we must overwrite with an error terminal.
       const baseRev = acc?.latestAssistantRevision ?? null;
       const frameworkSentTerminal =
         baseRev?.state === "done" || baseRev?.state === "error";
-      if (!frameworkSentTerminal) {
+      const statusConflict =
+        baseRev?.state === "done" && status !== "succeeded";
+      if (!frameworkSentTerminal || statusConflict) {
         const finalRev: MessageRevision = baseRev
           ? {
               ...baseRev,
@@ -526,6 +545,14 @@ async function projectRunMessageToLedger(
   // M14.3: reflect runs are not projected to any conversation.
   if (threadId.startsWith("reflect:")) return;
   if (revision.role !== "assistant" && revision.role !== "user") return;
+
+  // M17.2 fix: skip empty revisions (no text, no blocks, no tools) to avoid air bubbles.
+  // Note: tool-only terminal revisions with tools[] are still projected (they carry tool state).
+  const hasContent =
+    (revision.text && revision.text.length > 0) ||
+    (revision.blocks && revision.blocks.length > 0) ||
+    (revision.tools && revision.tools.length > 0);
+  if (!hasContent) return;
 
   const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
   if (!cid) return;

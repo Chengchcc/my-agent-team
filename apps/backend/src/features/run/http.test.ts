@@ -18,15 +18,6 @@ function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
     dispose: () => {},
     cancelByPid: () => true,
     getDb: () => ({ query: () => ({ get: () => null }) }) as unknown as RunSupervisor["getDb"],
-    // mergedStream tails an ephemeral delta stream alongside the EventLog.
-    // The mock has no deltas, so return a stream that closes immediately —
-    // pumpDeltas resolves at once and the merge is driven solely by pollEventLog.
-    subscribeDelta: () =>
-      new ReadableStream({
-        start(controller) {
-          controller.close();
-        },
-      }),
     ...overrides,
   } as unknown as RunSupervisor;
 }
