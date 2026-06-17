@@ -1,7 +1,6 @@
 import { Database } from "bun:sqlite";
 import { sqliteEventLog } from "@my-agent-team/event-log";
 import type { Message, MessageRevision } from "@my-agent-team/message";
-import { assistantMessageId, parseMessageRevision, serializeMessageRevision } from "@my-agent-team/message";
 import { createSocketClient } from "@my-agent-team/runner-protocol";
 import {
   createRuntimeTracer,
@@ -18,6 +17,13 @@ import {
   sqliteConversationAdapter,
 } from "./features/conversation/index.js";
 import type { ConversationPort } from "./features/conversation/ports.js";
+import {
+  buildPreloadedMessages,
+  escapeRegExp,
+  getOrCreateAccumulator,
+  onRunComplete,
+  projectRunMessageToLedger,
+} from "./features/conversation/projection.js";
 import type { LarkBotRegistry } from "./features/lark-bot/index.js";
 import {
   CliSetupProvisioner,
@@ -249,62 +255,12 @@ async function buildAgentSpecV2(
   };
 }
 
-// M14.4: @mention parsing helpers for agent-to-agent triggering
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\/]/g, "\\&");
-}
-
 // Checkpoint feature
 const threadProjectionWritePort = sqliteThreadProjectionWriteAdapter(db);
 const threadProjectionSvc = createThreadProjectionService({ port: threadProjectionPort });
 
 // M10: Conversation feature
 const convPort = sqliteConversationAdapter(db);
-/** Build preloaded Message[] for a run from the conversation ledger.
- *  Eliminates the thread_projection round-trip: the ledger is the canonical
- *  source, and materializing to thread_projection eagerly was a vestige of
- *  M9's checkpointer-only recovery path. */
-function buildPreloadedMessages(
-  port: ConversationPort,
-  conversationId: string,
-  memberId: string,
-): Message[] {
-  const entries = port.getLedgerEntries(conversationId);
-  // M17.2 fix: fold by messageId (后写覆盖先写) so streaming/done revisions of the
-  // same assistant message collapse into one entry per messageId. Without folding,
-  // each revision row becomes a separate thread message, feeding duplicates to the model.
-  const folded = new Map<string, { role: "user" | "assistant"; rev: ReturnType<typeof parseMessageRevision> }>();
-  let legacyDropped = 0;
-  for (const entry of entries) {
-    if (entry.kind !== "message") continue;
-    try {
-      const rev = parseMessageRevision(JSON.parse(entry.content));
-      const role = entry.senderMemberId === memberId ? "assistant" : "user";
-      folded.set(rev.messageId, { role, rev });
-    } catch {
-      // Legacy entries without messageId — silently drop but make observable
-      legacyDropped++;
-    }
-  }
-  if (legacyDropped > 0) {
-    console.warn(
-      `[buildPreloadedMessages] dropped ${legacyDropped} legacy ledger row(s) for ${conversationId} — ` +
-        `run a migration to rewrite old message rows as MessageRevision.`,
-    );
-  }
-
-  // Output in ledger insertion order (Map guarantees insertion order)
-  const msgs: Message[] = [];
-  for (const { role, rev } of folded.values()) {
-    if (rev.text) {
-      msgs.push({ role, text: rev.text });
-    } else if (rev.blocks && rev.blocks.length > 0) {
-      msgs.push({ role, blocks: rev.blocks });
-    }
-  }
-  return msgs;
-}
-
 const activeConversations = new Set<string>();
 
 const convSvc = createConversationService({
@@ -386,216 +342,10 @@ const convSvc = createConversationService({
   },
 });
 
-/** Conversation Projection handler: on run complete, await the projection chain,
- *  write a final done/error revision to close the open message, then release the lock
- *  and trigger side effects. Registered as supervisor.onRunComplete listener. */
-async function onRunComplete(threadId: string, runId: string, status: string): Promise<void> {
-  // M14.3: reflect run自身结束 — 不放会话锁、不做 Conversation Projection、不递归
-  if (threadId.startsWith("reflect:")) return;
-  for (const cid of activeConversations) {
-    if (threadId.startsWith(`${cid}:`)) {
-      const senderMemberId = threadId.includes(":")
-        ? (threadId.split(":").pop() as string)
-        : threadId;
-      const acc = runAccumulators.get(runId);
 
-      // M17: Await the projection chain before writing the terminal revision,
-      // so that the done/error revision is always the last one for this messageId.
-      if (acc) {
-        try {
-          await acc.projectionChain;
-        } catch {
-          // chain error already logged in onRunEvent
-        }
-      }
-
-      // M17.2: Framework now emits terminal (state=done/error). Backend writes
-      // terminal only as fallback or status-conflict override.
-      // Status conflict: framework emitted "done" but supervisor reports "failed"
-      // (process crashed after done emit, transport disconnected non-zero, etc.).
-      // In this case we must overwrite with an error terminal.
-      const baseRev = acc?.latestAssistantRevision ?? null;
-      const frameworkSentTerminal =
-        baseRev?.state === "done" || baseRev?.state === "error";
-      const statusConflict =
-        baseRev?.state === "done" && status !== "succeeded";
-      if (!frameworkSentTerminal || statusConflict) {
-        const finalRev: MessageRevision = baseRev
-          ? {
-              ...baseRev,
-              state: status === "succeeded" ? "done" : "error",
-              error: status === "succeeded" ? undefined : { message: status },
-              updatedAt: Date.now(),
-            }
-          : {
-              messageId: assistantMessageId(runId),
-              role: "assistant",
-              state: status === "succeeded" ? "done" : "error",
-              text: status === "succeeded" ? "" : `Run failed: ${status}`,
-              runId,
-              conversationId: cid,
-              visibility: "conversation",
-              updatedAt: Date.now(),
-              error: status === "succeeded" ? undefined : { message: status },
-            };
-
-        const serialized = serializeMessageRevision(finalRev);
-        if (!convPort.hasLedgerContent?.(runId, serialized)) {
-          const ts = Date.now();
-          const seq = convPort.appendLedgerEntry({
-            conversationId: cid,
-            senderMemberId,
-            addressedTo: [],
-            kind: "message",
-            content: serialized,
-            ts,
-            runId,
-          });
-          await convSvc.broadcastMessage(
-            {
-              seq,
-              conversationId: cid,
-              senderMemberId,
-              addressedTo: [],
-              kind: "message",
-              content: serialized,
-              ts,
-            },
-            { excludeMemberId: senderMemberId },
-          );
-        }
-      }
-
-      if (acc) {
-        runAccumulators.delete(runId);
-
-        try {
-          if (acc.lastTodoUpdate) {
-            await convSvc.appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos);
-          }
-          if (acc.mentionedMemberIds.size > 0) {
-            void convSvc.triggerMentionedAgents({
-              conversationId: cid,
-              senderMemberId: acc.senderMemberId,
-              addressedTo: [...acc.mentionedMemberIds],
-            });
-          }
-        } catch (err) {
-          console.error(
-            `[conversation] Conversation Projection error for ${runId}:`,
-            err instanceof Error ? err.message : String(err),
-          );
-        }
-      }
-
-      // C2: Release the conversation lock
-      convSvc.completeRun(cid, threadId, runId);
-
-      // M14.7: Reflection is now orchestrated by the daemon control loop.
-      break;
-    }
-  }
-}
-
-supervisor.onRunComplete(onRunComplete);
-
-// ── Per-run accumulator for side-effects that need the full output ──
-// Each onRunEvent tick appends to this; onRunComplete consumes and cleans up.
-// Eliminates the second EventLog read (eventLog.read({runId})) that the old
-// batch path needed — events are processed exactly once.
-
-interface RunAccumulator {
-  senderMemberId: string;
-  mentionedMemberIds: Set<string>;
-  lastTodoUpdate: { todos: unknown } | null;
-  /** M17: Latest assistant revision written to the ledger for this run.
-   *  Updated on each streaming projection; read by onRunComplete for the final done/error revision. */
-  latestAssistantRevision: MessageRevision | null;
-  /** M17: Serial chain of projection writes — guarantees that same-run rewrites
-   *  of the same logical message are ordered. onRunComplete awaits this before
-   *  appending the done/error terminal revision. */
-  projectionChain: Promise<void>;
-}
-
-const runAccumulators = new Map<string, RunAccumulator>();
-
-function getOrCreateAccumulator(runId: string, senderMemberId: string): RunAccumulator {
-  let acc = runAccumulators.get(runId);
-  if (!acc) {
-    acc = {
-      senderMemberId,
-      mentionedMemberIds: new Set(),
-      lastTodoUpdate: null,
-      latestAssistantRevision: null,
-      projectionChain: Promise.resolve(),
-    };
-    runAccumulators.set(runId, acc);
-  }
-  return acc;
-}
-
-/** M17.2: Conversation Projection (incremental) — receive a MessageRevision already
- *  assembled by framework, add conversationId (归属戳), serialize, and write to ledger.
- *  Same messageId across revisions allows Web/Lark to upsert into a single bubble/card. */
-async function projectRunMessageToLedger(
-  threadId: string,
-  runId: string,
-  revision: MessageRevision,
-): Promise<void> {
-  // M14.3: reflect runs are not projected to any conversation.
-  if (threadId.startsWith("reflect:")) return;
-  if (revision.role !== "assistant" && revision.role !== "user") return;
-
-  // M17.2 fix: skip empty revisions (no text, no blocks, no tools) to avoid air bubbles.
-  // Note: tool-only terminal revisions with tools[] are still projected (they carry tool state).
-  const hasContent =
-    (revision.text && revision.text.length > 0) ||
-    (revision.blocks && revision.blocks.length > 0) ||
-    (revision.tools && revision.tools.length > 0);
-  if (!hasContent) return;
-
-  const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
-  if (!cid) return;
-  const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
-
-  const acc = getOrCreateAccumulator(runId, senderMemberId);
-
-  // M17.2: Add conversationId (归属戳) to the framework-assembled revision
-  const stamped: MessageRevision = { ...revision, conversationId: cid };
-
-  const ts = Date.now();
-  const serialized = serializeMessageRevision(stamped);
-
-  // Dedup: same (runId, serialized) pair
-  if (convPort.hasLedgerContent?.(runId, serialized)) return;
-
-  // Update accumulator before writing so onRunComplete has the latest revision
-  if (stamped.role === "assistant" && !threadId.startsWith("reflect:")) {
-    acc.latestAssistantRevision = stamped;
-  }
-
-  const seq = convPort.appendLedgerEntry({
-    conversationId: cid,
-    senderMemberId,
-    addressedTo: [],
-    kind: "message",
-    content: serialized,
-    ts,
-    runId,
-  });
-  await convSvc.broadcastMessage(
-    {
-      seq,
-      conversationId: cid,
-      senderMemberId,
-      addressedTo: [],
-      kind: "message",
-      content: serialized,
-      ts,
-    },
-    { excludeMemberId: senderMemberId },
-  );
-}
+// M17.3: Wired from projection.ts — pure functions, singleton deps passed explicitly
+supervisor.onRunComplete((threadId, runId, status) =>
+  onRunComplete(threadId, runId, status, activeConversations, convPort, convSvc));
 
 supervisor.onRunEvent((threadId, runId, event) => {
   // ── todo_update: store the last snapshot for onRunComplete ──
@@ -646,7 +396,7 @@ supervisor.onRunEvent((threadId, runId, event) => {
   const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
   const acc = getOrCreateAccumulator(runId, senderMemberId);
   acc.projectionChain = acc.projectionChain
-    .then(() => projectRunMessageToLedger(threadId, runId, revision))
+    .then(() => projectRunMessageToLedger(threadId, runId, revision, activeConversations, convPort, convSvc))
     .catch((err) => {
       console.error(
         `[conversation] projectRunMessageToLedger failed for ${runId}:`,
