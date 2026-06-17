@@ -178,9 +178,17 @@ export class RunSupervisor {
         // EventLog append is best-effort for reaper
       }
 
-      // Trigger onRunComplete listeners (releases M10 locks, notifies Growth)
+      // M17.5 P2: Trigger onRunComplete listeners with await — lock release is critical.
+      // Each listener is individually caught so one failure doesn't skip others.
       for (const fn of this.#onRunComplete) {
-        fn(row.thread_id, row.run_id, "interrupted", row.kind);
+        try {
+          await fn(row.thread_id, row.run_id, "interrupted", row.kind);
+        } catch (err) {
+          console.error(
+            `[supervisor] reaper onRunComplete failed for ${row.run_id}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
       }
 
       console.log(
@@ -513,15 +521,25 @@ export class RunSupervisor {
         this.#active.delete(runId);
         const threadId = this.#threadIdFor(runId);
         const kind = this.#kindFor(runId);
-        // Always fire lifecycle hooks (lock release, cleanup)
-        await Promise.all(this.#onRunComplete.map((fn) => fn(threadId, runId, status, kind)));
-        // Only send run_finalized after all listeners complete (Conversation Projection, ledger, etc.)
+        // M17.5 P1: Control signal first — send run_finalized BEFORE business listeners.
+        // run_finalized drives the daemon's reflect state machine; business listeners
+        // (projection, lock release) have no data dependency on run_finalized.
         if (transport) transport.send({ type: "run_finalized", runId });
         this.#opts.opsStore.appendRunEvent({
           runId,
           attemptId: session?.attemptId,
           kind: "run_finalized_sent",
         });
+        // Business listeners fire-and-forget — each catches independently so one
+        // failed listener doesn't block others or the control signal.
+        for (const fn of this.#onRunComplete) {
+          void Promise.resolve(fn(threadId, runId, status, kind)).catch((err) =>
+            console.error(
+              `[supervisor] onRunComplete listener failed for ${runId}:`,
+              err instanceof Error ? err.message : String(err),
+            ),
+          );
+        }
         break;
       }
       case "daemon_health": {

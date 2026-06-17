@@ -218,7 +218,12 @@ function ledgerHasTerminalForMessage(
 
 /** Conversation Projection handler: on run complete, await the projection chain,
  *  write a final done/error revision to close the open message, then release the lock
- *  and trigger side effects. Registered as supervisor.onRunComplete listener. */
+ *  and trigger side effects. Registered as supervisor.onRunComplete listener.
+ *
+ *  M17.5 P3: Split into three consistency tiers:
+ *  Phase 1 (CRITICAL): terminal revision write + broadcast. Failure propagates.
+ *  Phase 2 (CRITICAL): lock release in finally — always executes regardless of Phase 1.
+ *  Phase 3 (BEST-EFFORT): todo append + @mention triggers — fire-and-forget, each caught. */
 export async function onRunComplete(
   threadId: string,
   runId: string,
@@ -230,106 +235,94 @@ export async function onRunComplete(
 ): Promise<void> {
   if (kind === "reflect") return;
 
-  // M17.4: Parse cid from threadId instead of iterating activeConversations.
-  // activeConversations is only populated by forkAgentRuns (postMessage path);
-  // restart paths (reaper, rediscover) never add to it, so the old for-of loop
-  // was dead code for the exact scenario this function was designed to handle.
   const { conversationId: cid, memberId: senderMemberId } = parseThreadId(threadId);
   if (!cid) return;
 
   const acc = runAccumulators.get(runId);
 
-  // M17: Await the projection chain before writing the terminal revision
-  if (acc) {
-    try {
-      await acc.projectionChain;
-    } catch {
-      /* chain error already logged */
+  // ── Phase 1: CRITICAL — terminal revision write + broadcast ──
+  try {
+    if (acc) {
+      try {
+        await acc.projectionChain;
+      } catch {
+        /* chain error already logged */
+      }
     }
-  }
 
-  // M17.4: Read latest assistant revision from accumulator first, then fall
-  // back to ledger scan (handles process restart where in-memory Map is empty).
-  const baseRev = acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
+    const baseRev = acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
+    const frameworkSentTerminal = baseRev != null && isTerminalMessageState(baseRev.state);
+    const statusConflict = baseRev?.state === "done" && status !== "succeeded";
 
-  // M17.2: Framework now emits terminal (state=done/error). Backend writes
-  // terminal only as fallback or status-conflict override.
-  const frameworkSentTerminal = baseRev != null && isTerminalMessageState(baseRev.state);
-  const statusConflict = baseRev?.state === "done" && status !== "succeeded";
-  if (!frameworkSentTerminal || statusConflict) {
-    const finalRev: MessageRevision = baseRev
-      ? {
-          ...baseRev,
-          // Mapping: run.status → message.state. "succeeded" maps to "done", others to "error".
-          // This is the single authoritative mapping point between the two state machines.
-          state: status === "succeeded" ? "done" : "error",
-          error: status === "succeeded" ? undefined : { message: status },
-          updatedAt: Date.now(),
-        }
-      : {
-          messageId: assistantMessageId(runId, 0),
-          role: "assistant",
-          state: status === "succeeded" ? "done" : "error",
-          text: status === "succeeded" ? "" : `Run failed: ${status}`,
-          runId,
-          conversationId: cid,
-          visibility: "conversation",
-          updatedAt: Date.now(),
-          error: status === "succeeded" ? undefined : { message: status },
-        };
+    if (!frameworkSentTerminal || statusConflict) {
+      const finalRev: MessageRevision = baseRev
+        ? {
+            ...baseRev,
+            // Mapping: run.status → message.state (single authoritative mapping point).
+            state: status === "succeeded" ? "done" : "error",
+            error: status === "succeeded" ? undefined : { message: status },
+            updatedAt: Date.now(),
+          }
+        : {
+            messageId: assistantMessageId(runId, 0),
+            role: "assistant",
+            state: status === "succeeded" ? "done" : "error",
+            text: status === "succeeded" ? "" : `Run failed: ${status}`,
+            runId,
+            conversationId: cid,
+            visibility: "conversation",
+            updatedAt: Date.now(),
+            error: status === "succeeded" ? undefined : { message: status },
+          };
 
-    // M17.4: Dedup by (runId, messageId, state) — avoids repeated terminal writes
-    // when updatedAt varies (process restart, reaper re-invocation).
-    const messageId = finalRev.messageId;
-    if (!ledgerHasTerminalForMessage(convPort, cid, runId, messageId)) {
-      const serialized = serializeMessageRevision(finalRev);
-      if (!convPort.hasLedgerContent?.(runId, serialized)) {
-        const ts = Date.now();
-        const seq = convPort.appendLedgerEntry({
-          conversationId: cid,
-          senderMemberId,
-          addressedTo: [],
-          kind: "message",
-          content: serialized,
-          ts,
-          runId,
-        });
-        await convSvc.broadcastMessage(
-          {
-            seq,
+      const messageId = finalRev.messageId;
+      if (!ledgerHasTerminalForMessage(convPort, cid, runId, messageId)) {
+        const serialized = serializeMessageRevision(finalRev);
+        if (!convPort.hasLedgerContent?.(runId, serialized)) {
+          const ts = Date.now();
+          const seq = convPort.appendLedgerEntry({
             conversationId: cid,
             senderMemberId,
             addressedTo: [],
             kind: "message",
             content: serialized,
             ts,
-          },
-          { excludeMemberId: senderMemberId },
-        );
+            runId,
+          });
+          await convSvc.broadcastMessage(
+            { seq, conversationId: cid, senderMemberId, addressedTo: [], kind: "message", content: serialized, ts },
+            { excludeMemberId: senderMemberId },
+          );
+        }
       }
     }
+  } catch (err) {
+    console.error(
+      `[conversation] terminal projection failed for ${runId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    throw err; // critical failure propagated
+  } finally {
+    // ── Phase 2: CRITICAL — always release lock regardless of Phase 1 outcome ──
+    convSvc.completeRun(cid, threadId, runId);
   }
 
+  // ── Phase 3: BEST-EFFORT — fire-and-forget, each catches independently ──
   if (acc) {
     clearAccumulator(runId);
-    try {
-      if (acc.lastTodoUpdate) {
-        await convSvc.appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos);
-      }
-      if (acc.mentionedMemberIds.size > 0) {
-        void convSvc.triggerMentionedAgents({
-          conversationId: cid,
-          senderMemberId: acc.senderMemberId,
-          addressedTo: [...acc.mentionedMemberIds],
-        });
-      }
-    } catch (err) {
-      console.error(
-        `[conversation] Conversation Projection error for ${runId}:`,
-        err instanceof Error ? err.message : String(err),
+    if (acc.lastTodoUpdate) {
+      void convSvc.appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos).catch((err) =>
+        console.error(`[conversation] appendTodo failed for ${runId}:`, err instanceof Error ? err.message : String(err)),
+      );
+    }
+    if (acc.mentionedMemberIds.size > 0) {
+      void convSvc.triggerMentionedAgents({
+        conversationId: cid,
+        senderMemberId: acc.senderMemberId,
+        addressedTo: [...acc.mentionedMemberIds],
+      }).catch((err) =>
+        console.error(`[conversation] triggerMentionedAgents failed for ${runId}:`, err instanceof Error ? err.message : String(err)),
       );
     }
   }
-
-  convSvc.completeRun(cid, threadId, runId);
 }

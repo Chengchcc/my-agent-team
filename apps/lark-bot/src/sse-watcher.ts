@@ -238,12 +238,9 @@ async function processEntry(
     return;
   }
 
-  // Render and send (send errors are retryable — thrown to trigger reconnect)
-  const text = renderRevision(revision);
-  const idempotencyKey = `${entry.conversationId}:${messageId}:${delivery ? "update" : "create"}`;
-  await h.onSend(larkChatId, text, idempotencyKey);
-
-  // Record delivery
+  // M17.5 P3: Record delivery intent BEFORE sending (idempotency).
+  // If onSend throws, the delivery record is already persisted, so reconnection
+  // won't re-send (it hits the terminal-state guard above).
   upsertMessageDelivery(db, {
     conversationId: entry.conversationId,
     messageId,
@@ -252,6 +249,11 @@ async function processEntry(
     lastSeq: entry.seq,
     updatedAt: Date.now(),
   });
+
+  // Render and send (send errors are retryable — thrown to trigger reconnect)
+  const text = renderRevision(revision);
+  const idempotencyKey = `${entry.conversationId}:${messageId}:${delivery ? "update" : "create"}`;
+  await h.onSend(larkChatId, text, idempotencyKey);
 
   updatePushedSeq(db, larkChatId, entry.seq);
 }

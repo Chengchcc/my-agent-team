@@ -13,6 +13,7 @@ import {
   createConversationFeature,
 } from "./features/conversation/conv-svc-factory.js";
 import { conversationRoutes, parseThreadId } from "./features/conversation/index.js";
+import { extractText, isTerminalMessageState } from "@my-agent-team/message";
 import {
   escapeRegExp,
   getOrCreateAccumulator,
@@ -98,11 +99,25 @@ supervisor.onRunComplete((threadId, runId, status, kind) =>
   onRunComplete(threadId, runId, status, conv.convPort, conv.convSvc, kind),
 );
 
+// M17.5 P3: @mention regex cache — compile once per label, not per streaming revision.
+const mentionRegexCache = new Map<string, RegExp>();
+function getMentionRegex(label: string): RegExp {
+  let re = mentionRegexCache.get(label);
+  if (!re) {
+    re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
+    mentionRegexCache.set(label, re);
+  }
+  return re;
+}
+
 supervisor.onRunEvent((threadId, runId, event, kind) => {
+  // M17.5 P3: Parse cid directly from threadId (no activeConversations iteration).
+  const cid = parseThreadId(threadId).conversationId;
+  const senderMemberId = parseThreadId(threadId).memberId || threadId;
+
+  // ── Concern 1: todo accumulation (pure local state) ──
   if (event.type === "todo_update") {
-    const cid = [...conv.activeConversations].find((c) => threadId.startsWith(`${c}:`));
     if (!cid) return;
-    const senderMemberId = parseThreadId(threadId).memberId || threadId;
     const acc = getOrCreateAccumulator(runId, senderMemberId);
     const payload = (event as { payload?: { todos?: unknown } }).payload;
     if (payload?.todos) acc.lastTodoUpdate = { todos: payload.todos };
@@ -112,34 +127,25 @@ supervisor.onRunEvent((threadId, runId, event, kind) => {
   if (event.type !== "message") return;
   const revision = event.payload;
 
-  // Accumulate @mentions
-  if (revision.role === "assistant") {
-    const text =
-      revision.text ??
-      revision.blocks
-        ?.filter((b) => b.type === "text")
-        .map((b) => (b as { text: string }).text)
-        .join(" ") ??
-      "";
-    if (text) {
-      const cid = [...conv.activeConversations].find((c) => threadId.startsWith(`${c}:`));
-      if (cid) {
-        const senderMemberId = parseThreadId(threadId).memberId || threadId;
-        const acc = getOrCreateAccumulator(runId, senderMemberId);
-        const roster = conv.convPort.getMembers(cid);
-        for (const m of roster) {
-          if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
-          const label = m.displayName ?? m.memberId;
-          const re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
-          if (re.test(text) || text.includes(`@${m.memberId}`)) {
-            acc.mentionedMemberIds.add(m.memberId);
-          }
+  // ── Concern 2: @mention scanning (only on terminal revisions) ──
+  // M17.5 P3: Don't run regex on every streaming revision — only scan on terminal.
+  if (revision.role === "assistant" && isTerminalMessageState(revision.state)) {
+    const text = extractText(revision);
+    if (text && cid) {
+      const acc = getOrCreateAccumulator(runId, senderMemberId);
+      const roster = conv.convPort.getMembers(cid);
+      for (const m of roster) {
+        if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
+        const label = m.displayName ?? m.memberId;
+        const re = getMentionRegex(label);
+        if (re.test(text) || text.includes(`@${m.memberId}`)) {
+          acc.mentionedMemberIds.add(m.memberId);
         }
       }
     }
   }
 
-  const senderMemberId = parseThreadId(threadId).memberId || threadId;
+  // ── Concern 3: projection chain (incremental ledger writes) ──
   const acc = getOrCreateAccumulator(runId, senderMemberId);
   acc.projectionChain = acc.projectionChain
     .then(() =>

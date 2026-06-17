@@ -162,8 +162,10 @@ export class RunnerDaemon {
 
     // Conversation context from the backend. Passed directly to the agent
     // (bypassing checkpointer.load) to eliminate a save→load round-trip.
-    // The framework persists them to the checkpointer for crash recovery.
-    const hasPreloaded = !!(msg.preloadedMessages && msg.preloadedMessages.length > 0);
+    // M17.5 P3: Only use continue() if preloaded messages contain at least one user message.
+    // If buildPreloadedMessages folded everything to empty, fall back to run().
+    const preloadedMsgs = msg.preloadedMessages as Array<{ role: string }> | undefined;
+    const hasPreloaded = !!(preloadedMsgs && preloadedMsgs.length > 0 && preloadedMsgs.some((m) => m.role === "user"));
 
     const model = this.#modelFactory.create(spec.model);
 
@@ -247,15 +249,24 @@ export class RunnerDaemon {
       if (run.abort.signal.aborted) status = "aborted";
       const mode = (run.spec as { mode?: string }).mode ?? "run";
       const wantsReflect = status === "succeeded" && run.reflect && mode === "run";
+      // M17.5 P1: Local state before IO — update #finalized first so reflect
+      // isn't lost if send(run_done) throws. The reaper still provides a backstop.
       this.#runs.delete(runId);
-      await this.#transport.send({
-        type: "run_done",
-        runId,
-        status,
-        wantsReflect,
-        error: serializeError(error),
-      });
       if (wantsReflect) this.#finalized.set(runId, run);
+      try {
+        this.#transport.send({
+          type: "run_done",
+          runId,
+          status,
+          wantsReflect,
+          error: serializeError(error),
+        });
+      } catch (err) {
+        console.error(
+          `[runner-daemon] send(run_done) failed for ${runId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
   }
 
