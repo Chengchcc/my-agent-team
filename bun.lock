@@ -25,7 +25,6 @@
         "@my-agent-team/agent-spec": "workspace:*",
         "@my-agent-team/conversation": "workspace:*",
         "@my-agent-team/core": "workspace:*",
-        "@my-agent-team/event-log": "workspace:*",
         "@my-agent-team/framework": "workspace:*",
         "@my-agent-team/harness": "workspace:*",
         "@my-agent-team/message": "workspace:*",
@@ -110,14 +109,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@my-agent-team/message": "workspace:*",
-      },
-    },
-    "packages/event-log": {
-      "name": "@my-agent-team/event-log",
-      "version": "0.1.0",
-      "dependencies": {
-        "@my-agent-team/framework": "workspace:*",
-        "zod": "^3.23.0",
       },
     },
     "packages/framework": {
@@ -468,8 +459,6 @@
     "@my-agent-team/conversation": ["@my-agent-team/conversation@workspace:packages/conversation"],
 
     "@my-agent-team/core": ["@my-agent-team/core@workspace:packages/core"],
-
-    "@my-agent-team/event-log": ["@my-agent-team/event-log@workspace:packages/event-log"],
 
     "@my-agent-team/framework": ["@my-agent-team/framework@workspace:packages/framework"],
 
