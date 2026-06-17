@@ -3,8 +3,8 @@ id: runner.agent-file-system
 title: Agent 文件系统
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-16
-summary: "Agent 文件系统（AgentFS）是 Agent 在运行时看到的那套虚拟文件视图。它用一张挂载表把对外暴露的路径前缀映射到不同的后端与「域」。真实的两个根是 /shared 和 /private——常被误以为有 /workspace，其实没有；面向 Agent 的 /memory 映射到 shared 域，/skills 映射到 private 域。"
+last_verified_against_code: 2026-06-17
+summary: "Agent 文件系统（AgentFS）是 Agent 在运行时看到的那套虚拟文件视图。它用一张挂载表把对外暴露的路径前缀映射到不同的后端与「域」。文件系统契约（AgentFsLike）定义在 packages/core（L1 原语层），AgentFS 显式 implements 它。真实的两个根是 /shared 和 /private——常被误以为有 /workspace，其实没有。"
 depends_on:
   - runner.resident-runner
 used_by:
@@ -14,7 +14,27 @@ used_by:
 
 # Agent 文件系统
 
-Agent 文件系统（AgentFS）是 Agent 在运行时看到的那套虚拟文件视图。它用一张挂载表把对外暴露的路径前缀映射到不同的后端与「域」。真实的两个根是 /shared 和 /private——常被误以为有 /workspace，其实没有；面向 Agent 的 /memory 映射到 shared 域，/skills 映射到 private 域。
+Agent 文件系统（AgentFS）是 Agent 在运行时看到的那套虚拟文件视图。它用一张挂载表把对外暴露的路径前缀映射到不同的后端与「域」。
+
+## 文件系统契约：AgentFsLike
+
+`AgentFsLike` 是"Agent 能读写的文件系统长什么样"的规范定义，在 `packages/core`（L1 原语层，与 `Tool`/`Message`/`ChatModel` 并列）：
+
+```ts
+// packages/core/src/agent-fs.ts
+export interface AgentFsLike {
+  read(path: string): Promise<string | null>;
+  write(path: string, content: string): Promise<void>;
+  list(path: string): Promise<string[]>;
+  stat(path: string): Promise<{ mtimeMs: number; size: number } | null>;
+  exists(path: string): Promise<boolean>;
+  mkdirp(path: string): Promise<void>;
+}
+```
+
+`AgentFS` 类（`packages/agent-fs`）显式 `implements AgentFsLike`，从 duck-typing 升级为编译期保证——任一方改签名会立即编译失败。依赖方向：`agent-fs → core`（L1 实现依赖 L1 契约，正确），`tools-common → core`（L2 工具层依赖 L1 契约，正确）。`agent-fs` 和 `tools-common` 是 `core` 的平行消费者，无环。
+
+`ReadableBackend`/`WritableBackend`（`agent-fs/src/types.ts`）是 backend 层契约（相对路径、单挂载点），语义与 `AgentFsLike`（逻辑路径、多挂载聚合）不同层——两者保留，`agent-fs/src/types.ts` 中有注释说明分层关系。
 
 ## 挂载表是核心抽象
 
@@ -29,7 +49,7 @@ type MountEntry = {
 }
 ```
 
-Agent 发起的每一次文件访问，都先按 `prefix` 匹配到一条挂载项，再交给对应 `backend` 执行。这样「Agent 视角的路径」和「真实存储位置」被彻底解耦：换后端、换物理根，对 Agent 透明。
+Agent 发起的每一次文件访问，都先按 `prefix` 匹配到一条挂载项，再交给对应 `backend` 执行。
 
 ## 四个域
 

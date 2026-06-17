@@ -3,8 +3,8 @@ id: foundations.facts-and-projections
 title: 事实与投影
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-16
-summary: "系统里有好几个结构都叫「messages」，但它们回答的是不同的问题。对话账本和 EventLog 是持久的「事实」；线程投影和各种 SSE 流是从事实推导出来的「投影」；Runner 本地的 Checkpointer 则是执行恢复用的状态。把它们混为一谈，正是重复消息、检查点污染、UI 丢事件这类 bug 的根源。"
+last_verified_against_code: 2026-06-17
+summary: "系统里有好几个结构都叫「messages」，但它们回答的是不同的问题。对话账本是对话消息的唯一事实来源（assistant 消息直写账本，与人类消息同一入口）。EventLog 现在是纯执行细节（tool_start/tool_end/text_delta），不再承载对话消息内容。线程投影和各种 SSE 流是从事实推导出来的「投影」；Runner 本地的 Checkpointer 则是执行恢复用的状态。"
 depends_on:
 used_by:
   - backend.conversation-projection
@@ -14,54 +14,58 @@ used_by:
 
 # 事实与投影
 
-系统里有好几个结构都叫「messages」，但它们回答的是不同的问题。对话账本和 EventLog 是持久的「事实」；线程投影和各种 SSE 流是从事实推导出来的「投影」；Runner 本地的 Checkpointer 则是执行恢复用的状态。把它们混为一谈，正是重复消息、检查点污染、UI 丢事件这类 bug 的根源。
+系统里有好几个结构都叫「messages」，但它们回答的是不同的问题。对话账本是对话消息的**唯一**事实来源。EventLog 现在是纯执行细节，不再承载对话消息内容。线程投影和各种 SSE 流是从事实推导出来的「投影」；Runner 本地的 Checkpointer 则是执行恢复用的状态。
 
 ## 五个「消息」分别回答什么问题
 
-- 「这个共享对话里发生了什么？」→ **对话账本（conversation_ledger）**
-- 「这一次运行内部发生了什么？」→ **EventLog（event_log）**
+- 「这个共享对话里发生了什么？」→ **对话账本（conversation_ledger）** — 唯一权威
+- 「这一次运行内部发生了什么？」→ **EventLog（event_log）** — 仅执行细节
 - 「这个 Agent 要从哪恢复执行？」→ **Runner Checkpointer（checkpointer.sqlite）**
-- 「这个 Agent 这次该看到怎样的 thread？」→ **线程投影（checkpoint_messages）**
+- 「这个 Agent 这次该看到怎样的 thread？」→ **线程投影（projection_messages）**
 - 「界面此刻该显示什么？」→ **SSE 流 / Web 草稿**
 
 ## 数据层对照表
 
 | 层 | 持久 | 是否事实来源 | 写者 | 主要读者 | 可重建 |
 |---|---:|---:|---|---|---:|
-| 对话账本 | 是 | 是 | Conversation Service / 会话投影 | Web、飞书、线程投影 | 否 |
-| EventLog | 是 | 是 | RunSupervisor | 运行 UI、投影、Ops | 否 |
+| 对话账本 | 是 | **是（唯一）** | Conversation Service（人类消息）/ Supervisor onRunMessage（assistant 消息） | Web、飞书、线程投影 | 否 |
+| EventLog | 是 | **是（仅执行细节）** | RunSupervisor | 运行 UI、Ops | 否 |
 | Runner Checkpointer | 是 | 对「恢复」而言是 | Framework / Runner | Runner 恢复 | 部分 |
-| 线程投影 checkpoint_messages | 是（更像缓存） | 否 | Conversation Service 广播 | 运行启动时 hydrate | 是，可从账本重建 |
+| 线程投影 projection_messages | 是（更像缓存） | 否 | Conversation Service 广播 | 运行启动时 hydrate | 是，可从账本重建 |
 | 运行流 SSE（delta） | 否 | 否 | RunSupervisor | Web/飞书实时 UI | 否（纯内存扇出，断线即丢） |
 | 会话 SSE | 否 | 否 | Conversation Service | Web/飞书 | 是，可从账本重放 |
+
+> **关键变化**：assistant 消息的"事实来源"标记从 EventLog **撤销**，改标账本为唯一来源。EventLog 的"事实来源"现在仅指**执行细节**（tool_start/tool_end/text_delta），不再包含对话消息内容。
 
 ## 关系图
 
 ```mermaid
 flowchart LR
   Human[人的消息] --> Ledger[(对话账本)]
+  Sup[RunSupervisor] -->|onRunMessage 直写| Ledger
   Ledger --> TP[线程投影 per member]
   TP --> Spec[start 消息的 preloadedMessages]
   Spec --> Runner[Runner]
   Runner --> CKPT[(Runner Checkpointer)]
-  Runner --> Sup[RunSupervisor]
-  Sup --> EventLog[(EventLog)]
-  EventLog --> Projection[会话投影]
-  Projection --> Ledger
-  EventLog --> RunUI[运行事件 UI / SSE]
-  Ledger --> ConvUI[对话 UI / SSE]
+  Runner --> Sup
+  Sup -->|非消息事件| EventLog[(EventLog)]
+  EventLog --> RunUI[运行事件 UI / Ops]
+  Ledger -->|SSE 扇出 best-effort| ConvUI[对话 UI / SSE]
+  Ledger -->|broadcast best-effort| Fanout[前端订阅者]
 ```
+
+> **关键变化**：旧路径 `EventLog → Projection → Ledger` 已删除。assistant 消息现在是 `Supervisor → Ledger`（直写），EventLog 只接收非消息事件（tool_start/tool_end/text_delta）。投影桥从"产生事实"降级为"分发已成事实"（best-effort 扇出）。
 
 ## 账本 vs EventLog：为什么不能合并
 
 账本是「对话可见历史」，EventLog 是「执行历史」。一次 `tool_start`/`tool_end` 对 EventLog 是必需的（排障要看），但放进账本就是噪音甚至会让飞书渲染出 `[Unsupported content]`。反过来，一条「成员加入」通知对账本有意义，却根本不属于任何一次运行。
 
-所以代码里有一条硬边界：**只有会话投影这一个地方，能把一次运行事件变成对话可见消息。** 任何端、任何插件都不许绕过它直接往账本写 Agent 产出。
+此前的硬边界是："只有会话投影这一个地方，能把一次运行事件变成对话可见消息。" 现在这句话修正为：**assistant 消息由 Supervisor 经与人类消息同一入口直写账本**，EventLog 退回到纯执行细节的角色。投影桥仍然存在，但它不再产生事实——它只做 best-effort 扇出（broadcast、ops）。
 
 ## Checkpointer vs 线程投影：同样叫 checkpoint，用途相反
 
 - **Runner Checkpointer**（`checkpointer.sqlite`，在 Runner 进程的 `stateRoot` 下）属于「正在执行的 Agent」，保存它的内部续跑状态，给 `resume` 用。
-- **线程投影**（后端 `checkpoint_messages` 表）属于「后端的对话语义」，在一次运行**开始前**，把该成员视角下的对话历史灌给 Agent 作为 `preloadedMessages`。
+- **线程投影**（后端 `projection_messages` 表，M17.4 从 `checkpoint_messages` 改名）属于「后端的对话语义」，在一次运行**开始前**，把该成员视角下的对话历史灌给 Agent 作为 `preloadedMessages`。
 
 如果用户报「Agent 看到了重复消息」，要分开查这两处：
 
@@ -74,20 +78,21 @@ flowchart LR
 ### 线程投影
 
 - 输入：账本条目、成员身份、`packages/conversation` 里的 `projectForMember` 规则。
-- 输出：某个成员的 `messages` 数组（写进 `checkpoint_messages`，下次运行作为 `preloadedMessages`）。
+- 输出：某个成员的 `messages` 数组（写进 `projection_messages`，下次运行作为 `preloadedMessages`）。
 - 关键规则：同一条账本行，对**发送者本人**投影成 `{role:"assistant"}`，对**别人**投影成带前缀的 `{role:"user", text:"[名字]: ..."}`，对 `__system__` 投影成 `{role:"user", text:"[系统] ..."}`。`kind` 为 `todo` 和 `surface.control` 的条目直接跳过、不投影。
 
-### 会话投影
+### 会话投影（当前角色）
 
-- 输入：EventLog 的 `message` 事件、`runId`、`activeConversations` 映射。
-- 输出：一条 `kind=message` 的账本条目，并广播进各成员线程投影。
+- 输入：已直写进账本的消息条目（来自 `onRunMessage` 回调）。
+- 输出：best-effort broadcast 给各成员的 SSE 订阅者；best-effort ops 记录。
+- 不再是事实来源——事实已经由直写路径持久化到账本。
 
 ## 失败模式
 
 ### 事件被重复写进账本
 
-成因：投影被重放（例如 SSE 重连、事件重投递），而 `appendLedgerEntry` 是纯自增 INSERT，没有幂等键。
-需要的修复：给投影加一个稳定键，例如 `(runId, eventSeq, conversationId)`。
+成因：投影被重放（例如 SSE 重连、事件重投递），而 `appendLedgerEntry` 是纯自增 INSERT。
+当前状态：直写路径使这个问题缩小了范围——assistant 消息不再通过投影桥写入，只有人类消息和系统消息走 `appendAndBroadcast`。
 
 ### Agent 的检查点被自己的产出污染两次
 
@@ -97,12 +102,12 @@ flowchart LR
 ### 飞书渲染出不支持的内容
 
 成因：纯 `tool_use`/`tool_result` 的 assistant 块进了账本。它是非空数组，能绕过「空数组」判空。
-需要的修复：投影按「是否对话可见」过滤内容。
+当前状态：直写路径中，`appendAssistantMessage` 在写入前不做内容过滤——过滤应在调用方（`onRunMessage`）或渲染方（`renderRevision`）完成。
 
 ## 不变量
 
-1. 账本行是对话事实。
-2. EventLog 行是运行事实。
+1. 账本是对话消息的**唯一**事实来源（assistant 消息直写，不再从 EventLog 派生）。
+2. EventLog 仅含执行细节（tool_start/tool_end/text_delta），不含对话消息内容。
 3. 线程投影是推导出来的，可重建。
 4. Checkpointer 不是对话历史库。
 5. SSE 流不定义事实。
