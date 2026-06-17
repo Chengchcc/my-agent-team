@@ -1,4 +1,8 @@
-import { parseMessageRevision } from "@my-agent-team/message";
+import {
+  deserializeLedgerContent,
+  extractText,
+  parseMessageRevision,
+} from "@my-agent-team/message";
 import { z } from "zod";
 
 // ─── Member ─────────────────────────────────────────────────
@@ -46,6 +50,10 @@ export const LedgerKind = z.enum([
   "surface.control",
 ]);
 
+/** Type-level LedgerKind — use this for type annotations.
+ *  The zod const is the runtime validator; this is the type alias. */
+export type LedgerKind = z.infer<typeof LedgerKind>;
+
 // ─── LedgerEntry ────────────────────────────────────────────
 
 export const LedgerEntry = z.object({
@@ -58,6 +66,10 @@ export const LedgerEntry = z.object({
   // Message entries use serializeMessageRevision; other kinds use JSON.stringify.
   content: z.string(),
   ts: z.number(),
+  /** Run that produced this entry. Present for assistant messages (run traceability),
+   *  absent for human/system messages. M17.5: canonical field — was previously
+   *  hand-copied as LedgerRow.runId in backend ports. */
+  runId: z.string().optional(),
 });
 
 export type LedgerEntry = z.infer<typeof LedgerEntry>;
@@ -114,37 +126,24 @@ function displayNameOf(conv: Conversation, memberId: string): string {
 
 /** M17.2: Extract displayable text from ledger content using unified parser.
  *  LedgerEntry.content is always a serialized string. For message entries it's
- *  a serialized MessageRevision; for other kinds it's JSON.stringify'd payload. */
+ *  a serialized MessageRevision; for other kinds it's JSON.stringify'd payload.
+ *  M17.5: Uses unified deserializeLedgerContent + extractText from @my-agent-team/message. */
 function formatContent(content: unknown): string {
-  if (typeof content === "string") {
-    // Try parsing as MessageRevision first (common path for message entries)
-    try {
-      const parsed = JSON.parse(content) as unknown;
-      const rev = parseMessageRevision(parsed);
-      // M17.2 fix: framework emits blocks not text — extract text from text blocks
-      return (
-        rev.text ??
-        rev.blocks
-          ?.filter((b) => b.type === "text")
-          .map((b) => (b as { text: string }).text)
-          .join(" ") ??
-        ""
-      );
-    } catch {
-      // Fallback: try legacy {text} shape
-      try {
-        const obj = JSON.parse(content) as Record<string, unknown>;
-        if (typeof obj.text === "string") return obj.text;
-      } catch {
-        // Not JSON — return as-is
-      }
-      return content;
+  if (typeof content !== "string") {
+    if (content && typeof content === "object" && "text" in content) {
+      return String((content as { text: unknown }).text);
     }
+    return JSON.stringify(content);
   }
-  if (content && typeof content === "object" && "text" in content) {
-    return String((content as { text: unknown }).text);
+  const result = deserializeLedgerContent(content);
+  if ("messageId" in result) {
+    return extractText(result);
   }
-  return JSON.stringify(content);
+  // Legacy fallback: pre-M17 content stored as {text} shape
+  if (result.raw && typeof result.raw === "object" && "text" in result.raw) {
+    return String((result.raw as { text: unknown }).text);
+  }
+  return typeof result.raw === "string" ? result.raw : JSON.stringify(result.raw);
 }
 
 export function projectForMember(
@@ -194,6 +193,9 @@ export function projectForMember(
 // M17.1: Re-export unified Message types from the canonical package.
 export {
   assistantMessageId,
+  deserializeLedgerContent,
+  extractText,
+  humanMessageId,
   isOpenMessageState,
   isTerminalMessageState,
   type Message,
@@ -202,6 +204,7 @@ export {
   type MessageState,
   mergeMessageRevision,
   parseMessageRevision,
+  systemMessageId,
 } from "@my-agent-team/message";
 
 // ─── resolveTriggerTargets ──────────────────────────────────

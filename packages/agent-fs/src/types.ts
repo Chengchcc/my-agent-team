@@ -1,5 +1,7 @@
 export type AgentFsDomain = "shared" | "private" | "external";
 
+// Backend-layer contract: relative paths, single mount point.
+// For the logical-path multi-mount contract see @my-agent-team/core AgentFsLike.
 export interface ReadableBackend {
   read(relPath: string): Promise<string | null>;
   list(relPath: string): Promise<string[]>;

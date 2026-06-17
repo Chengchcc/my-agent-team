@@ -1,3 +1,4 @@
+import type { AgentFsLike } from "@my-agent-team/core";
 import { DefaultWorkspaceAliases } from "./aliases.js";
 import type {
   AgentFsDomain,
@@ -66,7 +67,7 @@ export interface AgentFsHandle {
   displayRoot: string;
 }
 
-export class AgentFS {
+export class AgentFS implements AgentFsLike {
   #mounts: MountEntry[];
   #aliases: PathAliasResolver;
 

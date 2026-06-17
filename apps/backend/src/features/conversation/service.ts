@@ -4,12 +4,12 @@ import {
   resolveTriggerTargets,
 } from "@my-agent-team/conversation";
 import type { MessageRevision } from "@my-agent-team/message";
-import { serializeMessageRevision } from "@my-agent-team/message";
+import { humanMessageId, serializeMessageRevision, systemMessageId } from "@my-agent-team/message";
 import type {
   ThreadProjectionReadPort,
   ThreadProjectionWritePort,
 } from "../thread-projection/ports.js";
-import type { ConversationPort, LedgerKind, LedgerRow, MemberRow } from "./ports.js";
+import type { ConversationPort, LedgerEntry, LedgerKind, LedgerRow, MemberRow } from "./ports.js";
 
 export class ConversationBusyError extends Error {
   constructor(conversationId: string) {
@@ -249,7 +249,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
         // M17.2 fix: use UUID (not Date.now()) to prevent same-ms collision when
         // buildPreloadedMessages folds by messageId. Two posts in the same millisecond
         // would share an id and the second would silently overwrite the first.
-        messageId: `msg:${input.conversationId}:${input.senderMemberId}:${crypto.randomUUID()}`,
+        messageId: humanMessageId(input.conversationId, input.senderMemberId),
 
         role: "user",
         state: "done",
@@ -277,7 +277,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
       } else if (hopCapped) {
         // Broadcast system message about the cap (no fork)
         const sysRev: MessageRevision = {
-          messageId: `sys:${input.conversationId}:hopcap:${crypto.randomUUID()}`,
+          messageId: systemMessageId(input.conversationId, "hopcap"),
           role: "system",
           state: "done",
           text: `[系统] 连续 agent→agent 触发达上限（${maxConsecutiveAgentHops}），已暂停，等待真人介入。`,

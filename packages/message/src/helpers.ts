@@ -1,4 +1,5 @@
 import type { Message, MessageState } from "./message.js";
+import { parseMessageRevision } from "./parser.js";
 import type { MessageRevision } from "./revision.js";
 
 /** Build a messageId for a run's N-th assistant output.
@@ -8,6 +9,18 @@ import type { MessageRevision } from "./revision.js";
 export function assistantMessageId(runId: string, ordinal: number): string {
   return `run:${runId}:assistant:${ordinal}`;
 }
+
+/** Human message id: msg:{conversationId}:{senderMemberId}:{uuid} */
+export function humanMessageId(conversationId: string, senderMemberId: string): string {
+  return `msg:${conversationId}:${senderMemberId}:${crypto.randomUUID()}`;
+}
+
+/** System notification id: sys:{conversationId}:{tag}:{uuid} */
+export function systemMessageId(conversationId: string, tag: string): string {
+  return `sys:${conversationId}:${tag}:${crypto.randomUUID()}`;
+}
+
+// ─── State predicates ─────────────────────────────────────────
 
 const OPEN_STATES: ReadonlySet<MessageState> = new Set(["pending", "streaming", "waiting"]);
 
@@ -21,6 +34,40 @@ const TERMINAL_STATES: ReadonlySet<MessageState> = new Set(["done", "error"]);
 /** Whether the state means the message has reached a terminal state. */
 export function isTerminalMessageState(state: MessageState): boolean {
   return TERMINAL_STATES.has(state);
+}
+
+// ─── Content codec ────────────────────────────────────────────
+
+/** Extract displayable text from message content (revision or message).
+ *  Prefers .text, falls back to concatenating text blocks.
+ *  Accepts a structural type so it works for both Message and MessageRevision. */
+export function extractText(input: {
+  text?: string | null;
+  blocks?: readonly { type: string; text?: string }[] | null;
+}): string {
+  return (
+    input.text ??
+    input.blocks
+      ?.filter((b) => b.type === "text")
+      .map((b) => b.text ?? "")
+      .join(" ") ??
+    ""
+  );
+}
+
+/** Deserialize ledger content string to a MessageRevision if possible.
+ *  Returns the revision on success, or { raw } with the parsed JSON / raw string on failure. */
+export function deserializeLedgerContent(content: string): MessageRevision | { raw: unknown } {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    return parseMessageRevision(parsed);
+  } catch {
+    try {
+      return { raw: JSON.parse(content) };
+    } catch {
+      return { raw: content };
+    }
+  }
 }
 
 /** Apply a MessageRevision to a Message (upsert by messageId).

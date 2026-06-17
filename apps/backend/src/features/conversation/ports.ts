@@ -1,3 +1,10 @@
+import type { LedgerEntry, Member } from "@my-agent-team/conversation";
+
+// M17.5: LedgerKind type is the canonical enum from @my-agent-team/conversation.
+// We mirror the literal union for storage-layer type usage since the zod const
+// value is not importable as a type under ESM/NodeNext resolution.
+export type LedgerKind = "message" | "member.joined" | "member.left" | "todo" | "surface.control";
+
 export interface ConversationRow {
   conversationId: string;
   triggerMode: string;
@@ -9,29 +16,20 @@ export interface ConversationRow {
 export interface MemberRow {
   memberId: string;
   conversationId: string;
-  kind: "agent" | "human";
+  /** M17.5: Derived from canonical Member.kind (agent|human). */
+  kind: Member["kind"];
   agentId: string | null;
   userRef: string | null;
   displayName: string | null;
   joinedAt: number;
 }
 
-// M17.3: LedgerKind is defined by @my-agent-team/conversation's zod enum.
-// We mirror the type here rather than importing it because the enum is exported
-// as a const value, and the backend's ESM/NodeNext resolution requires explicit type-only exports.
-export type LedgerKind = "message" | "member.joined" | "member.left" | "todo" | "surface.control";
-
-export interface LedgerRow {
-  seq: number;
-  conversationId: string;
-  senderMemberId: string;
-  addressedTo: string[];
-  kind: LedgerKind;
-  content: string; // JSON-encoded
-  ts: number;
-  /** Run ID that produced this entry. Present for kind="message" entries written by projection. */
-  runId?: string;
-}
+// M17.5: LedgerEntry is imported from the canonical @my-agent-team/conversation
+// package (single ontology). The local LedgerRow interface is deleted — all code now
+// references the domain LedgerEntry directly. runId was added to the canonical schema.
+export type { LedgerEntry };
+/** Transitional alias — consumers should migrate to LedgerEntry. */
+export type LedgerRow = LedgerEntry;
 
 export interface CreateConversationInput {
   conversationId: string;

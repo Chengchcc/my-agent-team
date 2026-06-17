@@ -4,6 +4,13 @@ export type MessageRole = "system" | "user" | "assistant" | "tool";
 
 export type MessageState = "pending" | "streaming" | "waiting" | "done" | "error";
 
+/** Message-level authorship role — who generated this message.
+ *  Distinct from conversation Member (who participates in the conversation).
+ *  - "system": system-generated messages (hop caps, lifecycle events)
+ *  - "user": human user sent this message
+ *  - "agent": an agent model produced this message
+ *  - "tool": a tool execution produced this content
+ *  Conversation Member.kind is "agent" | "human" — a different layer (participation, not authorship). */
 export interface MessageAuthor {
   kind: "system" | "user" | "agent" | "tool";
   id?: string;

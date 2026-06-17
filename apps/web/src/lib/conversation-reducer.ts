@@ -1,10 +1,13 @@
 import type { Message, MessageRevision } from "@my-agent-team/message";
-import { mergeMessageRevision, parseMessageRevision } from "@my-agent-team/message";
+import { extractText, isOpenMessageState, mergeMessageRevision, parseMessageRevision } from "@my-agent-team/message";
 
 // ─── Types ────────────────────────────────────────────────
 
 export interface SenderRef {
   memberId: string;
+  /** "agent" | "human" from conversation Member.kind; "system" is reserved for
+   *  the __system__ pseudo-sender (member join/leave notifications) and is NOT
+   *  a conversation Member kind. See @my-agent-team/conversation Member. */
   kind: "agent" | "human" | "system";
   displayName?: string;
 }
@@ -67,7 +70,8 @@ export function isBusy(s: ConvState): boolean {
   return s.messages.some(
     (m) =>
       m.sender.kind === "agent" &&
-      (m.content.state === "streaming" || m.content.state === "waiting"),
+      m.content.state != null &&
+      isOpenMessageState(m.content.state),
   );
 }
 
@@ -134,16 +138,12 @@ export type TurnSegment =
     };
 
 export function isConclusionMessage(m: UiMessage): boolean {
-  const text = m.content.text ?? "";
-  const blocks = m.content.blocks;
+  const text = extractText({ text: m.content.text, blocks: m.content.blocks });
   if (text.trim().length > 0) return true;
+  const blocks = m.content.blocks;
   if (!blocks || blocks.length === 0) return false;
   const hasToolUse = blocks.some((b: { type: string }) => b.type === "tool_use");
-  const hasText = blocks.some(
-    (b: { type: string; text?: string }) =>
-      b.type === "text" && typeof b.text === "string" && b.text.trim().length > 0,
-  );
-  return !hasToolUse && hasText;
+  return !hasToolUse;
 }
 
 export function groupTurns(messages: UiMessage[]): TurnSegment[] {

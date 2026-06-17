@@ -22,10 +22,10 @@
   "dependencies": {
     "@my-agent-team/adapter-anthropic": "workspace:*",
     "@my-agent-team/agent-fs": "workspace:*",
-    "@my-agent-team/agent-spec": "workspace:*",
     "@my-agent-team/core": "workspace:*",
     "@my-agent-team/framework": "workspace:*",
     "@my-agent-team/harness": "workspace:*",
-    "@my-agent-team/runner-protocol": "workspace:*"
+    "@my-agent-team/runner-protocol": "workspace:*",
+    "zod": "^3.23.0"
   }
 }

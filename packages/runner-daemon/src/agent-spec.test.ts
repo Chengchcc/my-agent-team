@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AgentSpecV2 } from "./index.js";
+import { AgentSpecV2 } from "./agent-spec.js";
 
 // ─── AgentSpecV2 — discriminated union, builder→parse round-trip ────────
 

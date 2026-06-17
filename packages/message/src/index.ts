@@ -6,9 +6,13 @@ export type {
 } from "./content-block.js";
 export {
   assistantMessageId,
+  deserializeLedgerContent,
+  extractText,
+  humanMessageId,
   isOpenMessageState,
   isTerminalMessageState,
   mergeMessageRevision,
+  systemMessageId,
 } from "./helpers.js";
 export type {
   Message,

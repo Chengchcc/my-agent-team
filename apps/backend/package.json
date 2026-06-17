@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@my-agent-team/adapter-anthropic": "workspace:*",
-    "@my-agent-team/agent-spec": "workspace:*",
+
     "@my-agent-team/conversation": "workspace:*",
     "@my-agent-team/core": "workspace:*",
 

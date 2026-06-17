@@ -1,6 +1,7 @@
 import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
   assistantMessageId,
+  isTerminalMessageState,
   parseMessageRevision,
   serializeMessageRevision,
 } from "@my-agent-team/message";
@@ -203,7 +204,7 @@ function ledgerHasTerminalForMessage(
     if (entry.kind !== "message" || entry.runId !== runId) continue;
     try {
       const rev = parseMessageRevision(JSON.parse(entry.content));
-      if (rev.messageId === messageId && (rev.state === "done" || rev.state === "error")) {
+      if (rev.messageId === messageId && isTerminalMessageState(rev.state)) {
         return true;
       }
     } catch {
@@ -253,12 +254,14 @@ export async function onRunComplete(
 
   // M17.2: Framework now emits terminal (state=done/error). Backend writes
   // terminal only as fallback or status-conflict override.
-  const frameworkSentTerminal = baseRev?.state === "done" || baseRev?.state === "error";
+  const frameworkSentTerminal = baseRev != null && isTerminalMessageState(baseRev.state);
   const statusConflict = baseRev?.state === "done" && status !== "succeeded";
   if (!frameworkSentTerminal || statusConflict) {
     const finalRev: MessageRevision = baseRev
       ? {
           ...baseRev,
+          // Mapping: run.status → message.state. "succeeded" maps to "done", others to "error".
+          // This is the single authoritative mapping point between the two state machines.
           state: status === "succeeded" ? "done" : "error",
           error: status === "succeeded" ? undefined : { message: status },
           updatedAt: Date.now(),

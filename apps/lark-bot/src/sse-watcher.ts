@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
-import { parseLedgerEntry } from "@my-agent-team/conversation";
+import { type LedgerEntry, parseLedgerEntry } from "@my-agent-team/conversation";
 import {
+  deserializeLedgerContent,
   isTerminalMessageState,
   type MessageState,
   parseMessageRevision,
@@ -13,16 +14,6 @@ import {
   upsertMessageDelivery,
 } from "./bindings-sqlite.js";
 import { renderRevision } from "./render.js";
-
-export interface LedgerEntry {
-  seq: number;
-  conversationId: string;
-  senderMemberId: string;
-  addressedTo: string[];
-  kind: string;
-  content: string;
-  ts: number;
-}
 
 export interface SseWatcherDeps {
   db: Database;
@@ -225,7 +216,9 @@ async function processEntry(
   // so a single bad entry doesn't permanently block the watcher.
   let revision: ReturnType<typeof parseMessageRevision>;
   try {
-    revision = parseMessageRevision(safeJsonParse(entry.content));
+    const result = deserializeLedgerContent(entry.content);
+    if (!("messageId" in result)) throw new Error("not a message revision");
+    revision = result;
   } catch (err) {
     console.error(
       `[sse-watcher] invalid message revision at seq=${entry.seq}, conversation=${entry.conversationId}, skipping: ${
@@ -261,12 +254,4 @@ async function processEntry(
   });
 
   updatePushedSeq(db, larkChatId, entry.seq);
-}
-
-function safeJsonParse(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return raw;
-  }
 }
