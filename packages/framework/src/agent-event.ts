@@ -27,7 +27,12 @@ const agentEventSchema = z.discriminatedUnion("type", [
     payload: z.object({
       step: z.number(),
       model: z.string(),
-      usage: z.object({ input: z.number(), output: z.number(), cacheCreate: z.number().optional(), cacheRead: z.number().optional() }),
+      usage: z.object({
+        input: z.number(),
+        output: z.number(),
+        cacheCreate: z.number().optional(),
+        cacheRead: z.number().optional(),
+      }),
       latencyMs: z.number(),
       ttftMs: z.number().optional(),
       stopReason: z.string().optional(),
@@ -35,12 +40,22 @@ const agentEventSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("tool_call"),
-    payload: z.object({ step: z.number(), id: z.string(), name: z.string(), latencyMs: z.number(), isError: z.boolean() }),
+    payload: z.object({
+      step: z.number(),
+      id: z.string(),
+      name: z.string(),
+      latencyMs: z.number(),
+      isError: z.boolean(),
+    }),
   }),
   z.object({ type: z.literal("interrupted"), payload: interruptSchema }),
   z.object({
     type: z.literal("todo_update"),
-    payload: z.object({ todos: z.array(z.object({ step: z.string(), status: z.enum(["pending", "in_progress", "done"]) })) }),
+    payload: z.object({
+      todos: z.array(
+        z.object({ step: z.string(), status: z.enum(["pending", "in_progress", "done"]) }),
+      ),
+    }),
   }),
 ]);
 

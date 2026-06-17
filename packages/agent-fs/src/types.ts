@@ -1,4 +1,4 @@
-export type AgentFsDomain = "shared" | "private" | "external" | "runner_state";
+export type AgentFsDomain = "shared" | "private" | "external";
 
 export interface ReadableBackend {
   read(relPath: string): Promise<string | null>;
