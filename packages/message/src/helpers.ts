@@ -1,9 +1,12 @@
 import type { Message, MessageState } from "./message.js";
 import type { MessageRevision } from "./revision.js";
 
-/** Build a messageId for a run's assistant output. */
-export function assistantMessageId(runId: string): string {
-  return `run:${runId}:assistant:0`;
+/** Build a messageId for a run's N-th assistant output.
+ *  Ordinal distinguishes multiple assistant messages within the same run
+ *  (e.g. pre-tool vs post-tool segments). Most runs produce exactly one
+ *  assistant message (ordinal = 0). */
+export function assistantMessageId(runId: string, ordinal: number): string {
+  return `run:${runId}:assistant:${ordinal}`;
 }
 
 const OPEN_STATES: ReadonlySet<MessageState> = new Set(["pending", "streaming", "waiting"]);

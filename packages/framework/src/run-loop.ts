@@ -1,6 +1,11 @@
 import type { AIMessageChunk, ContentBlock, ToolUseBlock } from "@my-agent-team/core";
 import { collectStream, finalizeToolUseInputs, mergeChunkIntoBlocks } from "@my-agent-team/core";
-import type { Message, MessageRevision, MessageState, MessageToolState } from "@my-agent-team/message";
+import type {
+  Message,
+  MessageRevision,
+  MessageState,
+  MessageToolState,
+} from "@my-agent-team/message";
 import { assistantMessageId } from "@my-agent-team/message";
 import type { AgentEvent } from "./agent-event.js";
 import type { AgentRuntime } from "./agent-options.js";
@@ -11,12 +16,13 @@ import { wrapToolResult } from "./plugin-runner.js";
 
 export function buildAssistantRevision(
   runId: string,
+  ordinal: number,
   state: MessageState,
   blocks: ContentBlock[],
   tools: MessageToolState[],
 ): MessageRevision {
   return {
-    messageId: assistantMessageId(runId),
+    messageId: assistantMessageId(runId, ordinal),
     role: "assistant",
     state,
     blocks: blocks.slice(),
@@ -28,9 +34,7 @@ export function buildAssistantRevision(
 }
 
 /** Extract tool states from tool_use blocks (all "running" initially). */
-export function extractToolStates(
-  blocks: ContentBlock[],
-): MessageToolState[] {
+export function extractToolStates(blocks: ContentBlock[]): MessageToolState[] {
   return blocks
     .filter((b): b is ToolUseBlock => b.type === "tool_use")
     .map((b) => ({ id: b.id, name: b.name, state: "running" as const }));
@@ -51,7 +55,7 @@ export async function* runLoop(
       yield {
         type: "message",
         payload: {
-          ...buildAssistantRevision(rt.runId, "error", rt.assistantBlocks, rt.toolStates),
+          ...buildAssistantRevision(rt.runId, 0, "error", rt.assistantBlocks, rt.toolStates),
           error: { message: "Run aborted" },
         },
       };
@@ -130,7 +134,7 @@ export async function* runLoop(
     if (blocks.length === 0) {
       yield {
         type: "message",
-        payload: buildAssistantRevision(rt.runId, "done", rt.assistantBlocks, rt.toolStates),
+        payload: buildAssistantRevision(rt.runId, 0, "done", rt.assistantBlocks, rt.toolStates),
       };
       await rt.checkpointer.appendEvent?.(rt.thread.id, {
         type: "run_end",
@@ -159,7 +163,7 @@ export async function* runLoop(
     // Emit message revision with accumulated blocks
     yield {
       type: "message",
-      payload: buildAssistantRevision(rt.runId, "streaming", rt.assistantBlocks, rt.toolStates),
+      payload: buildAssistantRevision(rt.runId, 0, "streaming", rt.assistantBlocks, rt.toolStates),
     };
 
     const toolUses = blocks.filter((b): b is ToolUseBlock => b.type === "tool_use");
@@ -183,7 +187,7 @@ export async function* runLoop(
       await rt.save(rt.thread.messages);
       yield {
         type: "message",
-        payload: buildAssistantRevision(rt.runId, "done", rt.assistantBlocks, rt.toolStates),
+        payload: buildAssistantRevision(rt.runId, 0, "done", rt.assistantBlocks, rt.toolStates),
       };
       await rt.checkpointer.appendEvent?.(rt.thread.id, {
         type: "run_end",
@@ -209,7 +213,13 @@ export async function* runLoop(
         }
         yield {
           type: "message",
-          payload: buildAssistantRevision(rt.runId, "waiting", rt.assistantBlocks, rt.toolStates),
+          payload: buildAssistantRevision(
+            rt.runId,
+            0,
+            "waiting",
+            rt.assistantBlocks,
+            rt.toolStates,
+          ),
         };
         await rt.save(rt.thread.messages);
         return;
@@ -219,7 +229,7 @@ export async function* runLoop(
     // After all tools in this step completed, emit updated revision
     yield {
       type: "message",
-      payload: buildAssistantRevision(rt.runId, "streaming", rt.assistantBlocks, rt.toolStates),
+      payload: buildAssistantRevision(rt.runId, 0, "streaming", rt.assistantBlocks, rt.toolStates),
     };
   }
 
@@ -228,7 +238,7 @@ export async function* runLoop(
   yield {
     type: "message",
     payload: {
-      ...buildAssistantRevision(rt.runId, "error", rt.assistantBlocks, rt.toolStates),
+      ...buildAssistantRevision(rt.runId, 0, "error", rt.assistantBlocks, rt.toolStates),
       error: { message: "Max steps reached" },
     },
   };

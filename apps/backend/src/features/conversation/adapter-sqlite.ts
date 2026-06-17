@@ -232,7 +232,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       const since = opts?.sinceSeq ?? 0;
       const rows = db
         .query(
-          "SELECT seq, conversation_id, sender_member_id, addressed_to, kind, content, ts FROM conversation_ledger WHERE conversation_id = ? AND seq > ? ORDER BY seq ASC",
+          "SELECT seq, conversation_id, sender_member_id, addressed_to, kind, content, ts, run_id FROM conversation_ledger WHERE conversation_id = ? AND seq > ? ORDER BY seq ASC",
         )
         .all(conversationId, since) as {
         seq: number;
@@ -242,6 +242,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         kind: "message" | "member.joined" | "member.left" | "todo" | "surface.control";
         content: string;
         ts: number;
+        run_id: string | null;
       }[];
       return rows.map((r) => {
         let addressedTo: string[];
@@ -258,6 +259,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           kind: r.kind,
           content: r.content,
           ts: r.ts,
+          runId: r.run_id ?? undefined,
         };
       });
     },

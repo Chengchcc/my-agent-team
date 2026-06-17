@@ -1,7 +1,12 @@
 import type { Message, MessageRevision } from "@my-agent-team/message";
-import { assistantMessageId, parseMessageRevision, serializeMessageRevision } from "@my-agent-team/message";
+import {
+  assistantMessageId,
+  parseMessageRevision,
+  serializeMessageRevision,
+} from "@my-agent-team/message";
 import type { ConversationPort } from "./ports.js";
 import type { ConversationService } from "./service.js";
+import { parseThreadId } from "./service.js";
 
 // ─── @mention helpers ─────────────────────────────────────────
 
@@ -24,8 +29,10 @@ export function buildPreloadedMessages(
   // M17.2 fix: fold by messageId (后写覆盖先写) so streaming/done revisions of the
   // same assistant message collapse into one entry per messageId. Without folding,
   // each revision row becomes a separate thread message, feeding duplicates to the model.
-  const folded = new Map<string, { role: "user" | "assistant"; rev: ReturnType<typeof parseMessageRevision> }>();
-  let legacyDropped = 0;
+  const folded = new Map<
+    string,
+    { role: "user" | "assistant"; rev: ReturnType<typeof parseMessageRevision> }
+  >();
   for (const entry of entries) {
     if (entry.kind !== "message") continue;
     try {
@@ -33,15 +40,8 @@ export function buildPreloadedMessages(
       const role = entry.senderMemberId === memberId ? "assistant" : "user";
       folded.set(rev.messageId, { role, rev });
     } catch {
-      // Legacy entries without messageId — silently drop but make observable
-      legacyDropped++;
+      // Malformed or legacy entry — silently skip (old-shape rows are cleaned up by migration)
     }
-  }
-  if (legacyDropped > 0) {
-    console.warn(
-      `[buildPreloadedMessages] dropped ${legacyDropped} legacy ledger row(s) for ${conversationId} — ` +
-        `run a migration to rewrite old message rows as MessageRevision.`,
-    );
   }
 
   // Output in ledger insertion order (Map guarantees insertion order)
@@ -63,12 +63,17 @@ export interface RunAccumulator {
   mentionedMemberIds: Set<string>;
   lastTodoUpdate: { todos: unknown } | null;
   /** M17: Latest assistant revision written to the ledger for this run.
-   *  Updated on each streaming projection; read by onRunComplete for the final done/error revision. */
+   *  Updated on each streaming projection; read by onRunComplete for the final done/error revision.
+   *  M17.4: This is an optimization — if the process restarts and the accumulator is gone,
+   *  onRunComplete falls back to scanning the ledger. */
   latestAssistantRevision: MessageRevision | null;
   /** M17: Serial chain of projection writes — guarantees that same-run rewrites
    *  of the same logical message are ordered. onRunComplete awaits this before
    *  appending the done/error terminal revision. */
   projectionChain: Promise<void>;
+  /** M17.4: Tracks which assistant message segment this run is on.
+   *  Incremented when a run opens a new assistant message (e.g. post-tool segment). */
+  assistantOrdinal: number;
 }
 
 const runAccumulators = new Map<string, RunAccumulator>();
@@ -82,6 +87,7 @@ export function getOrCreateAccumulator(runId: string, senderMemberId: string): R
       lastTodoUpdate: null,
       latestAssistantRevision: null,
       projectionChain: Promise.resolve(),
+      assistantOrdinal: 0,
     };
     runAccumulators.set(runId, acc);
   }
@@ -104,9 +110,11 @@ export async function projectRunMessageToLedger(
   activeConversations: Set<string>,
   convPort: ConversationPort,
   convSvc: ConversationService,
+  /** M17.4: Run kind for dispatch — "reflect" runs are not projected to conversations. */
+  kind?: string,
 ): Promise<void> {
-  // M14.3: reflect runs are not projected to any conversation.
-  if (threadId.startsWith("reflect:")) return;
+  // M17.4: kind dispatch replaces threadId.startsWith("reflect:").
+  if (kind === "reflect") return;
   if (revision.role !== "assistant" && revision.role !== "user") return;
 
   // M17.2 fix: skip empty revisions (no text, no blocks, no tools) to avoid air bubbles.
@@ -118,7 +126,7 @@ export async function projectRunMessageToLedger(
 
   const cid = [...activeConversations].find((c) => threadId.startsWith(`${c}:`));
   if (!cid) return;
-  const senderMemberId = threadId.includes(":") ? threadId.split(":").pop()! : threadId;
+  const senderMemberId = parseThreadId(threadId).memberId || threadId;
 
   const acc = getOrCreateAccumulator(runId, senderMemberId);
 
@@ -132,7 +140,7 @@ export async function projectRunMessageToLedger(
   if (convPort.hasLedgerContent?.(runId, serialized)) return;
 
   // Update accumulator before writing so onRunComplete has the latest revision
-  if (stamped.role === "assistant" && !threadId.startsWith("reflect:")) {
+  if (stamped.role === "assistant" && kind !== "reflect") {
     acc.latestAssistantRevision = stamped;
   }
 
@@ -146,9 +154,43 @@ export async function projectRunMessageToLedger(
     runId,
   });
   await convSvc.broadcastMessage(
-    { seq, conversationId: cid, senderMemberId, addressedTo: [], kind: "message", content: serialized, ts },
+    {
+      seq,
+      conversationId: cid,
+      senderMemberId,
+      addressedTo: [],
+      kind: "message",
+      content: serialized,
+      ts,
+    },
     { excludeMemberId: senderMemberId },
   );
+}
+
+// ─── Terminal projection helpers ──────────────────────────────
+
+/** Scan the ledger for the latest assistant MessageRevision produced by `runId`.
+ *  Used as a fallback when the in-memory RunAccumulator is gone (process restart).
+ *  Returns null if no matching revision is found. */
+function findLatestAssistantRevision(
+  port: ConversationPort,
+  conversationId: string,
+  runId: string,
+): MessageRevision | null {
+  const entries = port.getLedgerEntries(conversationId);
+  let latest: { rev: MessageRevision; seq: number } | null = null;
+  for (const entry of entries) {
+    if (entry.kind !== "message" || entry.runId !== runId) continue;
+    try {
+      const rev = parseMessageRevision(JSON.parse(entry.content));
+      if (rev.role === "assistant" && (!latest || entry.seq > latest.seq)) {
+        latest = { rev, seq: entry.seq };
+      }
+    } catch {
+      // Malformed entry — skip
+    }
+  }
+  return latest?.rev ?? null;
 }
 
 // ─── Terminal projection (onRunComplete) ──────────────────────
@@ -163,36 +205,75 @@ export async function onRunComplete(
   activeConversations: Set<string>,
   convPort: ConversationPort,
   convSvc: ConversationService,
+  /** M17.4: Run kind for dispatch — "reflect" runs skip conversation projection. */
+  kind?: string,
 ): Promise<void> {
-  if (threadId.startsWith("reflect:")) return;
+  if (kind === "reflect") return;
   for (const cid of activeConversations) {
     if (threadId.startsWith(`${cid}:`)) {
-      const senderMemberId = threadId.includes(":")
-        ? (threadId.split(":").pop() as string)
-        : threadId;
+      const senderMemberId = parseThreadId(threadId).memberId || threadId;
       const acc = runAccumulators.get(runId);
 
       // M17: Await the projection chain before writing the terminal revision
       if (acc) {
-        try { await acc.projectionChain; } catch { /* chain error already logged */ }
+        try {
+          await acc.projectionChain;
+        } catch {
+          /* chain error already logged */
+        }
       }
+
+      // M17.4: Read latest assistant revision from accumulator first, then fall
+      // back to ledger scan (handles process restart where in-memory Map is empty).
+      const baseRev =
+        acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
 
       // M17.2: Framework now emits terminal (state=done/error). Backend writes
       // terminal only as fallback or status-conflict override.
-      const baseRev = acc?.latestAssistantRevision ?? null;
       const frameworkSentTerminal = baseRev?.state === "done" || baseRev?.state === "error";
       const statusConflict = baseRev?.state === "done" && status !== "succeeded";
       if (!frameworkSentTerminal || statusConflict) {
         const finalRev: MessageRevision = baseRev
-          ? { ...baseRev, state: status === "succeeded" ? "done" : "error", error: status === "succeeded" ? undefined : { message: status }, updatedAt: Date.now() }
-          : { messageId: assistantMessageId(runId), role: "assistant", state: status === "succeeded" ? "done" : "error", text: status === "succeeded" ? "" : `Run failed: ${status}`, runId, conversationId: cid, visibility: "conversation", updatedAt: Date.now(), error: status === "succeeded" ? undefined : { message: status } };
+          ? {
+              ...baseRev,
+              state: status === "succeeded" ? "done" : "error",
+              error: status === "succeeded" ? undefined : { message: status },
+              updatedAt: Date.now(),
+            }
+          : {
+              messageId: assistantMessageId(runId, 0),
+              role: "assistant",
+              state: status === "succeeded" ? "done" : "error",
+              text: status === "succeeded" ? "" : `Run failed: ${status}`,
+              runId,
+              conversationId: cid,
+              visibility: "conversation",
+              updatedAt: Date.now(),
+              error: status === "succeeded" ? undefined : { message: status },
+            };
 
         const serialized = serializeMessageRevision(finalRev);
         if (!convPort.hasLedgerContent?.(runId, serialized)) {
           const ts = Date.now();
-          const seq = convPort.appendLedgerEntry({ conversationId: cid, senderMemberId, addressedTo: [], kind: "message", content: serialized, ts, runId });
+          const seq = convPort.appendLedgerEntry({
+            conversationId: cid,
+            senderMemberId,
+            addressedTo: [],
+            kind: "message",
+            content: serialized,
+            ts,
+            runId,
+          });
           await convSvc.broadcastMessage(
-            { seq, conversationId: cid, senderMemberId, addressedTo: [], kind: "message", content: serialized, ts },
+            {
+              seq,
+              conversationId: cid,
+              senderMemberId,
+              addressedTo: [],
+              kind: "message",
+              content: serialized,
+              ts,
+            },
             { excludeMemberId: senderMemberId },
           );
         }

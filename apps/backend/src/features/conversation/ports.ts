@@ -16,9 +16,10 @@ export interface MemberRow {
   joinedAt: number;
 }
 
-import type { LedgerKind as _LedgerKind } from "@my-agent-team/conversation";
-// M17.3: single source of truth — derived from conversation package's zod enum
-export type LedgerKind = _LedgerKind;
+// M17.3: LedgerKind is defined by @my-agent-team/conversation's zod enum.
+// We mirror the type here rather than importing it because the enum is exported
+// as a const value, and the backend's ESM/NodeNext resolution requires explicit type-only exports.
+export type LedgerKind = "message" | "member.joined" | "member.left" | "todo" | "surface.control";
 
 export interface LedgerRow {
   seq: number;
@@ -28,6 +29,8 @@ export interface LedgerRow {
   kind: LedgerKind;
   content: string; // JSON-encoded
   ts: number;
+  /** Run ID that produced this entry. Present for kind="message" entries written by projection. */
+  runId?: string;
 }
 
 export interface CreateConversationInput {

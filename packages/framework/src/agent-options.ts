@@ -1,4 +1,10 @@
-import type { ChatModel, ContentBlock, Tool, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
+import type {
+  ChatModel,
+  ContentBlock,
+  Tool,
+  ToolResultBlock,
+  ToolUseBlock,
+} from "@my-agent-team/core";
 import type { Message, MessageToolState } from "@my-agent-team/message";
 import type { AgentEvent } from "./agent-event.js";
 import type { Checkpointer } from "./checkpointer.js";

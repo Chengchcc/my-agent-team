@@ -9,8 +9,17 @@ import type { Message } from "./message.js";
 import type { MessageRevision } from "./revision.js";
 
 describe("assistantMessageId", () => {
-  test("generates id from runId", () => {
-    expect(assistantMessageId("r1")).toBe("run:r1:assistant:0");
+  test("generates id from runId and ordinal", () => {
+    expect(assistantMessageId("r1", 0)).toBe("run:r1:assistant:0");
+    expect(assistantMessageId("r1", 1)).toBe("run:r1:assistant:1");
+  });
+
+  test("same runId + same ordinal is idempotent", () => {
+    expect(assistantMessageId("r1", 0)).toBe(assistantMessageId("r1", 0));
+  });
+
+  test("different ordinals produce different ids", () => {
+    expect(assistantMessageId("r1", 0)).not.toBe(assistantMessageId("r1", 1));
   });
 });
 
