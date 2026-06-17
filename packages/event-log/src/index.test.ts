@@ -6,7 +6,13 @@ import { inMemoryEventLog, sqliteEventLog } from "./index.js";
 function makeEvent(text: string) {
   return {
     type: "message" as const,
-    payload: { role: "assistant" as const, text },
+    payload: {
+      messageId: `test-msg-${text}`,
+      role: "assistant" as const,
+      state: "streaming" as const,
+      text,
+      updatedAt: Date.now(),
+    },
   };
 }
 

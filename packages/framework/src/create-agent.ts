@@ -7,7 +7,8 @@ import type {
   ToolUseBlock,
 } from "@my-agent-team/core";
 import { collectStream, finalizeToolUseInputs, mergeChunkIntoBlocks } from "@my-agent-team/core";
-import type { Message } from "@my-agent-team/message";
+import type { Message, MessageRevision, MessageState } from "@my-agent-team/message";
+import { assistantMessageId } from "@my-agent-team/message";
 import { type Checkpointer, InterruptSignal, validateCheckpointer } from "./checkpointer.js";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 import type { ContextManager } from "./context-manager.js";
@@ -24,18 +25,9 @@ export interface Interrupt {
 }
 
 export type AgentEvent =
-  | { type: "message"; payload: Message }
-  | { type: "interrupted"; payload: Interrupt }
-  | { type: "error"; payload: { message: string; stack?: string } }
-  | { type: "text_delta"; payload: { blockIndex: number; text: string } }
-  | { type: "reasoning_delta"; payload: { text: string } }
-  | { type: "tool_start"; payload: { id: string; name: string } }
-  | { type: "tool_end"; payload: { id: string; name: string; isError?: boolean } }
-  | {
-      type: "todo_update";
-      payload: { todos: Array<{ step: string; status: "pending" | "in_progress" | "done" }> };
-    }
-  // ── M16.3: Persisted per-call metrics (not deltas) ──
+  // ── ① Message revision stream (L1/L2): each carries messageId, no side-channel needed ──
+  | { type: "message"; payload: MessageRevision }
+  // ── ② Observability (L3): per-call metrics, not message identity ──
   | {
       type: "llm_call";
       payload: {
@@ -56,6 +48,13 @@ export type AgentEvent =
         latencyMs: number;
         isError: boolean;
       };
+    }
+  // ── ③ Control (progress / lifecycle) ──
+  | { type: "interrupted"; payload: Interrupt }
+  | { type: "error"; payload: { message: string; stack?: string } }
+  | {
+      type: "todo_update";
+      payload: { todos: Array<{ step: string; status: "pending" | "in_progress" | "done" }> };
     };
 
 export interface ResumeCommand {
@@ -68,6 +67,10 @@ export interface AgentRunOptions {
   maxSteps?: number;
   stream?: boolean;
   maxForceContinues?: number;
+  /** M17.2: The run's identity, assigned by the runner/backend. Injected so
+   *  framework can emit MessageRevision with the correct messageId. Falls
+   *  back to thread.id when not provided (standalone mode). */
+  runId?: string;
 }
 
 export interface Agent {
@@ -222,6 +225,11 @@ interface AgentRuntime {
   tools: readonly Tool[];
   pendingEvents: AgentEvent[];
   save: (msgs: Message[]) => Promise<void>;
+  /** M17.2: The run's identity — set at run/continue/resume start. */
+  runId: string;
+  /** M17.2: Accumulated tool states for the current assistant message.
+   *  Updated in-place by executeOne; read when emitting message revisions. */
+  toolStates: import("@my-agent-team/message").MessageToolState[];
 }
 
 // ─── executeOne (extracted from createAgentInternal) ────────────
@@ -233,7 +241,9 @@ async function* executeOne(
   step: number,
 ): AsyncGenerator<AgentEvent, boolean> {
   await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "tool_start", call, ts: Date.now() });
-  yield { type: "tool_start", payload: { id: call.id, name: call.name } };
+  // M17.2: tool_start/tool_end no longer top-level events — tool state lives in
+  // MessageRevision.tools[] (updated below). Render-layer reads tools[]; observability
+  // reads tool_call.
 
   const toolStart = Date.now();
   const decision = await rt.plugins.fireBeforeTool(call, rt.thread.messages);
@@ -255,10 +265,12 @@ async function* executeOne(
         isError: r.is_error === true,
       },
     };
-    yield {
-      type: "tool_end",
-      payload: { id: call.id, name: call.name, isError: r.is_error as boolean | undefined },
-    };
+    // Update tool state in the running revision
+    const ts = rt.toolStates.find((t) => t.id === call.id);
+    if (ts) {
+      ts.state = r.is_error === true ? "error" : "done";
+      ts.isError = r.is_error === true;
+    }
     return false;
   }
 
@@ -305,7 +317,12 @@ async function* executeOne(
           isError: true,
         },
       };
-      yield { type: "tool_end", payload: { id: call.id, name: call.name, isError: true } };
+      // Update tool state to error for interrupt
+      const ts = rt.toolStates.find((t) => t.id === call.id);
+      if (ts) {
+        ts.state = "error";
+        ts.isError = true;
+      }
       yield {
         type: "interrupted",
         payload: { pendingTool: call, reason: err.reason, meta: err.meta },
@@ -337,12 +354,43 @@ async function* executeOne(
       isError: resultBlock.is_error === true,
     },
   };
-  yield {
-    type: "tool_end",
-    payload: { id: call.id, name: call.name, isError: resultBlock.is_error as boolean | undefined },
-  };
+  // Update tool state in the running revision
+  const ts = rt.toolStates.find((t) => t.id === call.id);
+  if (ts) {
+    ts.state = resultBlock.is_error === true ? "error" : "done";
+    ts.isError = resultBlock.is_error === true;
+  }
   await rt.save(rt.thread.messages);
   return false;
+}
+
+// ─── Pure helper: build an assistant MessageRevision ───────────
+
+function buildAssistantRevision(
+  runId: string,
+  state: MessageState,
+  blocks: ContentBlock[],
+  tools: import("@my-agent-team/message").MessageToolState[],
+): MessageRevision {
+  return {
+    messageId: assistantMessageId(runId),
+    role: "assistant",
+    state,
+    blocks: blocks.slice(),
+    tools: tools.length > 0 ? tools.map((t) => ({ ...t })) : undefined,
+    runId,
+    visibility: "conversation",
+    updatedAt: Date.now(),
+  };
+}
+
+/** Extract tool states from tool_use blocks (all "running" initially). */
+function extractToolStates(
+  blocks: ContentBlock[],
+): import("@my-agent-team/message").MessageToolState[] {
+  return blocks
+    .filter((b): b is ToolUseBlock => b.type === "tool_use")
+    .map((b) => ({ id: b.id, name: b.name, state: "running" as const }));
 }
 
 // ─── runLoop (extracted from createAgentInternal) ───────────────
@@ -355,6 +403,19 @@ async function* runLoop(
   const maxForce = opts.maxForceContinues ?? 3;
   for (let step = 0; step < opts.maxSteps; step++) {
     if (opts.signal?.aborted) {
+      // M17.2: emit terminal error on abort
+      yield {
+        type: "message",
+        payload: {
+          messageId: assistantMessageId(rt.runId),
+          role: "assistant",
+          state: "error",
+          runId: rt.runId,
+          visibility: "conversation",
+          updatedAt: Date.now(),
+          error: { message: "Run aborted" },
+        },
+      };
       await rt.checkpointer.appendEvent?.(rt.thread.id, {
         type: "run_end",
         reason: "aborted",
@@ -386,22 +447,12 @@ async function* runLoop(
     if (opts.stream) {
       blocks = [];
       const partialJson = new Map<string, string>();
-      let blockIndex = 0;
       for await (const chunk of modelStream) {
-        if (
-          chunk.delta?.type === "text" &&
-          blocks.length > 0 &&
-          blocks[blocks.length - 1]?.type !== "text"
-        ) {
-          blockIndex++;
+        if (chunk.delta?.type === "text" && ttftMs === undefined) {
+          ttftMs = Date.now() - llmStart;
         }
-        if (chunk.delta?.type === "text") {
-          if (ttftMs === undefined) ttftMs = Date.now() - llmStart;
-          yield { type: "text_delta", payload: { blockIndex, text: chunk.delta.text } };
-        }
-        if (chunk.delta?.type === "reasoning") {
-          yield { type: "reasoning_delta", payload: { text: chunk.delta.text } };
-        }
+        // M17.2: text_delta/reasoning_delta no longer top-level events — streaming
+        // visibility is provided by per-step message revisions (state="streaming").
         mergeChunkIntoBlocks(blocks, partialJson, chunk);
         if (chunk.usage !== undefined) usage = chunk.usage;
         if (chunk.stopReason) stopReason = chunk.stopReason;
@@ -440,6 +491,11 @@ async function* runLoop(
     };
 
     if (blocks.length === 0) {
+      // M17.2: emit terminal done before returning
+      yield {
+        type: "message",
+        payload: buildAssistantRevision(rt.runId, "done", [], rt.toolStates),
+      };
       await rt.checkpointer.appendEvent?.(rt.thread.id, {
         type: "run_end",
         reason: "complete",
@@ -448,10 +504,25 @@ async function* runLoop(
       return;
     }
 
+    // Push assistant message to thread (internal, for LLM context)
     const assistantMsg: Message = { role: "assistant", blocks: blocks.slice() };
     rt.thread.messages.push(assistantMsg);
     await rt.plugins.fireAfterModel(rt.thread.messages);
-    yield { type: "message", payload: assistantMsg };
+
+    // M17.2: Extract tool states from model output — new tools are "running"
+    const newTools = extractToolStates(blocks);
+    // Merge with existing tool states: keep previous tools' states, add new ones
+    for (const nt of newTools) {
+      const existing = rt.toolStates.findIndex((t) => t.id === nt.id);
+      if (existing >= 0) rt.toolStates[existing] = nt;
+      else rt.toolStates.push(nt);
+    }
+
+    // Emit message revision (state=streaming) — the single event type for message updates
+    yield {
+      type: "message",
+      payload: buildAssistantRevision(rt.runId, "streaming", blocks, rt.toolStates),
+    };
 
     const toolUses = blocks.filter((b): b is ToolUseBlock => b.type === "tool_use");
     if (toolUses.length === 0) {
@@ -472,6 +543,11 @@ async function* runLoop(
         }
       }
       await rt.save(rt.thread.messages);
+      // M17.2: emit terminal done
+      yield {
+        type: "message",
+        payload: buildAssistantRevision(rt.runId, "done", blocks, rt.toolStates),
+      };
       await rt.checkpointer.appendEvent?.(rt.thread.id, {
         type: "run_end",
         reason: "complete",
@@ -480,9 +556,11 @@ async function* runLoop(
       return;
     }
 
+    // Execute tools — executeOne updates rt.toolStates in-place
+    let interrupted = false;
     for (let i = 0; i < toolUses.length; i++) {
       const call = toolUses[i]!;
-      const interrupted = yield* executeOne(rt, call, opts, step);
+      interrupted = yield* executeOne(rt, call, opts, step);
       if (interrupted) {
         for (let j = i; j < toolUses.length; j++) {
           const remaining = toolUses[j]!;
@@ -490,13 +568,43 @@ async function* runLoop(
             role: "user",
             blocks: [wrapToolResult(remaining, { content: "Interrupted", isError: true })],
           });
+          // Mark remaining tools as error
+          const ts = rt.toolStates.find((t) => t.id === remaining.id);
+          if (ts) {
+            ts.state = "error";
+            ts.isError = true;
+          }
         }
+        // Emit message with updated tool states (shows which tools errored)
+        yield {
+          type: "message",
+          payload: buildAssistantRevision(rt.runId, "waiting", blocks, rt.toolStates),
+        };
         await rt.save(rt.thread.messages);
         return;
       }
     }
+
+    // After all tools in this step completed, emit updated revision with tool states (done/error)
+    yield {
+      type: "message",
+      payload: buildAssistantRevision(rt.runId, "streaming", blocks, rt.toolStates),
+    };
   }
 
+  // M17.2: maxSteps reached — emit terminal error
+  yield {
+    type: "message",
+    payload: {
+      messageId: assistantMessageId(rt.runId),
+      role: "assistant",
+      state: "error",
+      runId: rt.runId,
+      visibility: "conversation",
+      updatedAt: Date.now(),
+      error: { message: "Max steps reached" },
+    },
+  };
   await rt.checkpointer.appendEvent?.(rt.thread.id, {
     type: "run_end",
     reason: "maxSteps",
@@ -580,6 +688,8 @@ function createAgentInternal(
     tools,
     pendingEvents,
     save,
+    runId: thread.id,     // M17.2: default to thread.id, overridden per-run
+    toolStates: [],       // M17.2: reset each run
   };
 
   function runLoopOpts(opts: AgentRunOptions) {
@@ -615,6 +725,9 @@ function createAgentInternal(
         throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       running = true;
       ctx.signal = opts.signal;
+      // M17.2: set run identity for this execution
+      rt.runId = opts.runId ?? thread.id;
+      rt.toolStates = [];
       try {
         opts.signal?.throwIfAborted();
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
@@ -652,6 +765,9 @@ function createAgentInternal(
       }
       running = true;
       ctx.signal = opts.signal;
+      // M17.2: set run identity for this execution
+      rt.runId = opts.runId ?? thread.id;
+      rt.toolStates = [];
       try {
         opts.signal?.throwIfAborted();
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
@@ -678,6 +794,9 @@ function createAgentInternal(
         throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       running = true;
       ctx.signal = opts.signal;
+      // M17.2: set run identity for this execution
+      rt.runId = opts.runId ?? thread.id;
+      rt.toolStates = [];
       try {
         const it = await checkpointer.consumeInterrupt?.(thread.id);
         if (!it) throw new Error("No pending interrupt for this thread");

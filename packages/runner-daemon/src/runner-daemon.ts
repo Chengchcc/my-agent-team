@@ -317,15 +317,8 @@ export class RunnerDaemon {
   // ─── Event routing ───
 
   #routeEvent(runId: string, ev: AgentEvent): void {
-    if (
-      ev.type === "text_delta" ||
-      ev.type === "reasoning_delta" ||
-      ev.type === "tool_start" ||
-      ev.type === "tool_end"
-    ) {
-      this.#transport.send({ type: "delta", runId, event: ev });
-    } else {
-      this.#transport.send({ type: "event", runId, event: ev });
-    }
+    // M17.2: All events now go through the event channel — text_delta/reasoning_delta/tool_start/tool_end
+    // have been absorbed into the MessageRevision stream. No more ephemeral delta channel for messages.
+    this.#transport.send({ type: "event", runId, event: ev });
   }
 }

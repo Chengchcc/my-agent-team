@@ -41,7 +41,16 @@ afterAll(() => {
 });
 
 function makeEvent(text: string) {
-  return { type: "message" as const, payload: { role: "assistant" as const, text } };
+  return {
+    type: "message" as const,
+    payload: {
+      messageId: `test-msg-${text}`,
+      role: "assistant" as const,
+      state: "streaming" as const,
+      text,
+      updatedAt: Date.now(),
+    },
+  };
 }
 
 // ── Benchmark helpers ──────────────────────────────────────────────

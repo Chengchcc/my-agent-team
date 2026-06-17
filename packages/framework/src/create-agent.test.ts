@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk, ChatModel, ChatModelOptions, Tool } from "@my-agent-team/core";
-import type { Message } from "@my-agent-team/message";
+import type { Message, MessageRevision } from "@my-agent-team/message";
 import type { InterruptState } from "./checkpointer.js";
 import type { AgentEvent } from "./create-agent.js";
 import { createAgent, InterruptSignal } from "./index.js";
@@ -42,8 +42,8 @@ function scriptedModel(
   };
 }
 
-function msgPayloads(events: AgentEvent[]): Message[] {
-  return events.filter((e) => e.type === "message").map((e) => e.payload as Message);
+function msgPayloads(events: AgentEvent[]): MessageRevision[] {
+  return events.filter((e) => e.type === "message").map((e) => e.payload);
 }
 
 function makeTool(name: string): Tool {
@@ -80,10 +80,15 @@ describe("createAgent", () => {
     );
     expect(msg).toBeDefined();
     if (msg) {
-      expect(msg.payload).toEqual({
-        role: "assistant",
-        blocks: [{ type: "text", text: "hello" }],
-      });
+      // M17.2: payload is now a MessageRevision (envelope with messageId/state/runId etc.)
+      const rev = msg.payload;
+      expect(rev.role).toBe("assistant");
+      expect(rev.state).toBe("streaming"); // First message is always streaming
+      expect(rev.blocks).toEqual([{ type: "text", text: "hello" }]);
+      expect(rev.messageId).toContain("run:");
+      expect(rev.messageId).toContain(":assistant:0");
+      expect(typeof rev.runId).toBe("string");
+      expect(typeof rev.updatedAt).toBe("number");
     }
     expect(agent.thread.messages).toEqual([
       { role: "user", text: "hi" },
@@ -375,7 +380,8 @@ describe("createAgent", () => {
     // Error was logged via warn
     expect(warnCount).toBeGreaterThan(0);
     // Model still produced the expected output despite plugin error
-    expect(events.filter((e) => e.type === "message").length).toBe(1);
+    // M17.2: 1 streaming + 1 terminal = 2 message events
+    expect(events.filter((e) => e.type === "message").length).toBe(2);
   });
 
   test("afterModel error is swallowed", async () => {
@@ -414,8 +420,8 @@ describe("createAgent", () => {
 
     // 2 steps: 2 assistant yields + tool_result pushes = 5 thread messages
     expect(agent.thread.messages).toHaveLength(5);
-    // yielded: 2 assistant messages (tool_result pushed but not yielded)
-    expect(yielded.filter((e) => e.type === "message")).toHaveLength(2);
+    // M17.2: each step emits 2 message events (model output + post-tool), plus terminal error = 5
+    expect(yielded.filter((e) => e.type === "message")).toHaveLength(5);
   });
 
   // ─── M4: AgentEvent envelope ─────────────────────────────────
@@ -1154,5 +1160,140 @@ describe("createAgent", () => {
     });
     await collect(agent.run("hi"));
     expect(spy.lastOptions?.tools?.map((t: Tool) => t.name)).toContain("bash");
+  });
+
+  // ─── M17.2: MessageRevision envelope ───────────────────────
+
+  test("message event payload is a valid MessageRevision with messageId and runId", async () => {
+    const runId = "test-run-1";
+    const agent = await createAgent({
+      model: scriptedModel([{ type: "text", text: "hello" }]),
+    });
+
+    const events = await collect(agent.run("hi", { runId }));
+    const msgEvents = events.filter((e) => e.type === "message");
+
+    // At least streaming + terminal
+    expect(msgEvents.length).toBeGreaterThanOrEqual(2);
+
+    // Terminal revision has state "done"
+    const terminal = msgEvents[msgEvents.length - 1]!;
+    expect(terminal.payload.state).toBe("done");
+    expect(terminal.payload.messageId).toBe(`run:${runId}:assistant:0`);
+    expect(terminal.payload.role).toBe("assistant");
+    expect(terminal.payload.runId).toBe(runId);
+    expect(typeof terminal.payload.updatedAt).toBe("number");
+    expect(terminal.payload.visibility).toBe("conversation");
+  });
+
+  test("streaming phase state is 'streaming' and messageId is constant", async () => {
+    const runId = "stream-run";
+    const agent = await createAgent({
+      model: scriptedModel([
+        { type: "tool_call", id: "t1", name: "lookup", input: { q: "x" } },
+        { type: "text", text: "found" },
+      ]),
+      tools: [makeTool("lookup")],
+    });
+
+    const events = await collect(agent.run("go", { runId }));
+    const msgEvents = events.filter((e) => e.type === "message");
+
+    // All message events have the same messageId
+    for (const ev of msgEvents) {
+      expect(ev.payload.messageId).toBe(`run:${runId}:assistant:0`);
+    }
+
+    // Non-terminal message events have state "streaming" or "waiting"
+    const nonTerminal = msgEvents.filter(
+      (e) => e.payload.state !== "done" && e.payload.state !== "error",
+    );
+    expect(nonTerminal.length).toBeGreaterThan(0);
+    for (const ev of nonTerminal) {
+      expect(["streaming", "waiting"]).toContain(ev.payload.state);
+    }
+
+    // Last event is terminal (done)
+    const last = msgEvents[msgEvents.length - 1]!;
+    expect(last.payload.state).toBe("done");
+  });
+
+  test("run normal completion emits state 'done' terminal", async () => {
+    const agent = await createAgent({
+      model: scriptedModel([{ type: "text", text: "all done" }]),
+    });
+
+    const events = await collect(agent.run("hi"));
+    const msgEvents = events.filter((e) => e.type === "message");
+    const terminal = msgEvents[msgEvents.length - 1]!;
+    expect(terminal.payload.state).toBe("done");
+  });
+
+  test("fallback to thread.id when runId not passed", async () => {
+    const agent = await createAgent({
+      model: scriptedModel([{ type: "text", text: "ok" }]),
+    });
+
+    const events = await collect(agent.run("hi"));
+    const msgEvents = events.filter((e) => e.type === "message");
+
+    // messageId uses thread.id as fallback
+    expect(msgEvents[0]!.payload.messageId).toBe(
+      `run:${agent.thread.id}:assistant:0`,
+    );
+    expect(msgEvents[0]!.payload.runId).toBe(agent.thread.id);
+  });
+
+  test("tool-only run still emits terminal", async () => {
+    const agent = await createAgent({
+      model: scriptedModel([
+        { type: "tool_call", id: "t1", name: "lookup", input: { q: "x" } },
+        // No text — tool-only, model returns empty after tools
+      ]),
+      tools: [makeTool("lookup")],
+    });
+
+    // Use maxSteps=1 to stop after tool execution (no second model call)
+    const events = await collect(agent.run("go", { maxSteps: 1 }));
+    const msgEvents = events.filter((e) => e.type === "message");
+
+    // Should have: step0-message + post-tool-message + terminal-error (maxSteps)
+    expect(msgEvents.length).toBeGreaterThanOrEqual(1);
+
+    // Check that tools appear in payload.tools[]
+    const withTools = msgEvents.filter((e) => e.payload.tools && e.payload.tools.length > 0);
+    expect(withTools.length).toBeGreaterThan(0);
+    // Tools state should be populated
+    for (const ev of withTools) {
+      for (const t of ev.payload.tools ?? []) {
+        expect(t.id).toBe("t1");
+        expect(t.name).toBe("lookup");
+        expect(["running", "done", "error"]).toContain(t.state);
+      }
+    }
+  });
+
+  test("AgentEvent no longer exposes text_delta/reasoning_delta/tool_start/tool_end", async () => {
+    const agent = await createAgent({
+      model: scriptedModel([
+        { type: "tool_call", id: "t1", name: "lookup", input: {} },
+        { type: "text", text: "done" },
+      ]),
+      tools: [makeTool("lookup")],
+    });
+
+    const events = await collect(agent.run("go"));
+    const eventTypes = new Set<string>(events.map((e) => e.type));
+
+    // These legacy event types must not appear
+    expect(eventTypes.has("text_delta" as string)).toBe(false);
+    expect(eventTypes.has("reasoning_delta" as string)).toBe(false);
+    expect(eventTypes.has("tool_start" as string)).toBe(false);
+    expect(eventTypes.has("tool_end" as string)).toBe(false);
+
+    // observability and control still present
+    expect(eventTypes.has("tool_call")).toBe(true);
+    expect(eventTypes.has("llm_call")).toBe(true);
+    expect(eventTypes.has("message")).toBe(true);
   });
 });
