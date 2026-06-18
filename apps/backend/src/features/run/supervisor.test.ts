@@ -414,7 +414,9 @@ describe("RunSupervisor reaper (M11)", () => {
 
     // Setup: create a running run
     db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
-      runId, "thread-cas", Date.now() - 5000,
+      runId,
+      "thread-cas",
+      Date.now() - 5000,
     ]);
     db.run(
       "INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)",
@@ -424,17 +426,32 @@ describe("RunSupervisor reaper (M11)", () => {
     // Simulate reaper: mark interrupted (first writer)
     const now = Date.now();
     db.transaction(() => {
-      db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ? AND ended_at IS NULL", [now, runId]);
-      db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ? AND ended_at IS NULL", [now, `att-${runId}`]);
+      db.run(
+        "UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ? AND ended_at IS NULL",
+        [now, runId],
+      );
+      db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ? AND ended_at IS NULL", [
+        now,
+        `att-${runId}`,
+      ]);
     })();
 
     // Simulate late run_done: try to overwrite with 'succeeded'
     const lateNow = Date.now() + 100;
-    db.run("UPDATE run SET status = ?, ended_at = ? WHERE run_id = ? AND ended_at IS NULL", ["succeeded", lateNow, runId]);
-    db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ? AND ended_at IS NULL", [lateNow, `att-${runId}`]);
+    db.run("UPDATE run SET status = ?, ended_at = ? WHERE run_id = ? AND ended_at IS NULL", [
+      "succeeded",
+      lateNow,
+      runId,
+    ]);
+    db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ? AND ended_at IS NULL", [
+      lateNow,
+      `att-${runId}`,
+    ]);
 
     // Assert: reaper's interrupted status was NOT overwritten
-    const runRow = db.query("SELECT status FROM run WHERE run_id = ?").get(runId) as { status: string };
+    const runRow = db.query("SELECT status FROM run WHERE run_id = ?").get(runId) as {
+      status: string;
+    };
     expect(runRow.status).toBe("interrupted");
 
     await sup.dispose();
