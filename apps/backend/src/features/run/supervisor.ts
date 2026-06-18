@@ -134,11 +134,7 @@ export class RunSupervisor {
   /** M17.5 P10: Single authoritative entry for run finalization.
    *  CAS semantics — first writer wins, late arrivals are no-ops.
    *  Returns true if this call was the first to finalize the run. */
-  #finalizeRun(
-    runId: string,
-    attemptId: string | null,
-    status: string,
-  ): boolean {
+  #finalizeRun(runId: string, attemptId: string | null, status: string): boolean {
     const now = Date.now();
     const result = this.#db.transaction(() => {
       const r = this.#db.run(
@@ -148,10 +144,10 @@ export class RunSupervisor {
       // Attempt finalization is guarded too: late run_done must not overwrite
       // attempt.ended_at if reaper already wrote it.
       if (attemptId) {
-        this.#db.run(
-          "UPDATE attempt SET ended_at = ? WHERE attempt_id = ? AND ended_at IS NULL",
-          [now, attemptId],
-        );
+        this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ? AND ended_at IS NULL", [
+          now,
+          attemptId,
+        ]);
       }
       return r.changes;
     })();
@@ -194,9 +190,7 @@ export class RunSupervisor {
       // P10: CAS finalization — first writer wins, late arrivals no-op.
       const finalized = this.#finalizeRun(row.run_id, row.attempt_id, "interrupted");
       if (!finalized) {
-        console.log(
-          `[supervisor] reaper skipped already-finalized run: ${row.run_id}`,
-        );
+        console.log(`[supervisor] reaper skipped already-finalized run: ${row.run_id}`);
         continue;
       }
 
