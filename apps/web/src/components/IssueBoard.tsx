@@ -32,7 +32,8 @@ export function IssueBoard({ statuses, issues }: { statuses: IssueStatus[]; issu
   }
 
   // 未知状态的 Issue 不被静默丢弃 — 收进兜底列显式提示
-  const columns = unmatched.length > 0 ? [...statuses, "unknown" as IssueStatus] : statuses;
+  const columns: readonly (IssueStatus | "unknown")[] =
+    unmatched.length > 0 ? [...statuses, "unknown"] : statuses;
 
   return (
     <div className="flex gap-4 p-6 overflow-x-auto">
