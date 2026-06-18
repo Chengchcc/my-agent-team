@@ -58,8 +58,8 @@ export function useConversation(
     dispatch({ type: "bootstrap", viewerMemberId, members });
   }, [snap.data]);
 
-  // 2) Conversation ledger SSE — sole message input for Web surface.
-  //    No more run EventSource; all message output arrives via ledger revisions.
+  // 2) Conversation event stream — sole message input for Web surface.
+  //    No more run EventSource; all message output arrives via the conversation SSE.
   useEffect(() => {
     if (!conversationId) return;
     const es = new EventSource(`/api/bff/conversations/${conversationId}/events`);
@@ -67,7 +67,7 @@ export function useConversation(
     let wasDisconnected = false;
 
     es.onopen = () => {
-      dispatch({ type: "ledger/conn", status: "open" });
+      dispatch({ type: "conn", status: "open" });
       if (wasDisconnected) {
         toast.success("Reconnected — missed messages restored");
         wasDisconnected = false;
@@ -76,7 +76,7 @@ export function useConversation(
 
     es.onerror = () => {
       const status = es.readyState === EventSource.CLOSED ? "closed" : "reconnecting";
-      dispatch({ type: "ledger/conn", status });
+      dispatch({ type: "conn", status });
       if (status === "reconnecting") wasDisconnected = true;
     };
 
@@ -103,14 +103,14 @@ export function useConversation(
           typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
         if (entry.senderMemberId === "__system__") {
           dispatch({
-            type: "ledger/member",
+            type: "member",
             seq,
             kind: "member.joined",
             payload: content,
           });
         } else {
           dispatch({
-            type: "ledger/message",
+            type: "message",
             seq,
             senderMemberId: entry.senderMemberId,
             content,
@@ -134,7 +134,7 @@ export function useConversation(
           const entry = result.data;
           const payload =
             typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
-          dispatch({ type: "ledger/member", seq, kind, payload });
+          dispatch({ type: "member", seq, kind, payload });
         } catch {
           /* skip */
         }

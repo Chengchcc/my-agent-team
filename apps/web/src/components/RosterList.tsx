@@ -32,7 +32,7 @@ export function RosterList({ conversationId, roster, viewerMemberId, onClose }: 
     },
   });
 
-  const members = Object.values(roster).filter((m) => m.kind !== "system");
+  const members = Object.values(roster);
   const memberCount = members.length;
 
   return (

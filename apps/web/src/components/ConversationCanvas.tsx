@@ -21,11 +21,11 @@ interface ConversationCanvasProps {
 export function ConversationCanvas({ conversationId, snapshot }: ConversationCanvasProps) {
   const { state, busy, send, toggleTriggerMode, approvalTarget, approve, deny, resuming } =
     useConversation(conversationId, snapshot);
-  const { viewerMemberId, roster, messages, ledgerConn, error, todos, triggerMode } = state;
+  const { viewerMemberId, roster, items, streamConn, error, todos, triggerMode } = state;
 
   // Derive status label from open-message state rather than a run phase.
-  const isAwaiting = state.messages.some(
-    (m) => m.sender.kind === "agent" && m.content.state === "waiting",
+  const isAwaiting = state.items.some(
+    (item) => item.kind === "message" && item.sender.kind === "agent" && item.content.state === "waiting",
   );
   const label = isAwaiting ? "Awaiting Approval" : busy ? "Running" : null;
 
@@ -221,7 +221,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
           aria-expanded={rosterOpen}
           aria-controls="roster-drawer"
         >
-          Members ({Object.values(roster).filter((m) => m.kind !== "system").length})
+          Members ({Object.values(roster).length})
         </Button>
 
         {/* Roster — mobile drawer overlay */}

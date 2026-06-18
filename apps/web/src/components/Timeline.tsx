@@ -34,11 +34,11 @@ function SystemNotice({ text }: { text: string }) {
 // ── Segment helpers ──
 
 function segmentSender(seg: TurnSegment): UiMessage["sender"] {
-  return seg.kind === "turn" ? seg.sender : seg.message.sender;
+  return seg.kind === "turn" ? seg.sender : seg.kind === "single" ? seg.item.sender : seg.item.sender;
 }
 
 function segmentId(seg: TurnSegment): string {
-  return seg.kind === "turn" ? seg.id : seg.message.id;
+  return seg.kind === "turn" ? seg.id : seg.kind === "single" ? seg.item.id : seg.id;
 }
 
 /** A turn starts at each user (human) message. A turn spans that user message
@@ -53,7 +53,7 @@ function isTurnStart(seg: TurnSegment, segments: TurnSegment[], i: number): bool
   // Agent-to-agent fallback: boundary on sender identity change
   if (i === 0) return true;
   const prevSender = segmentSender(segments[i - 1]!);
-  return prevSender.memberId !== sender.memberId && prevSender.kind !== "system";
+  return prevSender.memberId !== sender.memberId;
 }
 
 function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {

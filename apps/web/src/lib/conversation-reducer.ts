@@ -8,12 +8,11 @@ import {
 
 // ─── Types ────────────────────────────────────────────────
 
+/** Mirrors @my-agent-team/conversation Member.kind exactly.
+ *  System notices (member join/leave) are NOT messages — they are UiItems of kind "notice". */
 export interface SenderRef {
   memberId: string;
-  /** "agent" | "human" from conversation Member.kind; "system" is reserved for
-   *  the __system__ pseudo-sender (member join/leave notifications) and is NOT
-   *  a conversation Member kind. See @my-agent-team/conversation Member. */
-  kind: "agent" | "human" | "system";
+  kind: "agent" | "human";
   displayName?: string;
 }
 
@@ -23,20 +22,24 @@ export interface UiMessage {
   content: Message;
 }
 
+export type UiItem =
+  | { kind: "message"; id: string; sender: SenderRef; content: Message }
+  | { kind: "notice"; id: string; text: string };
+
 export type TriggerMode = "auto" | "mention";
-export type LedgerConn = "connecting" | "open" | "reconnecting" | "closed";
+export type StreamConn = "connecting" | "open" | "reconnecting" | "closed";
 
 export interface ConvState {
   viewerMemberId: string;
   roster: Record<string, SenderRef>;
-  messages: UiMessage[];
-  ledgerConn: LedgerConn;
+  items: UiItem[];
+  streamConn: StreamConn;
   error: string | null;
   optimisticSeq: number;
   triggerMode: TriggerMode;
   /** M14.6: Task todo progress — full snapshot from todo_update events. */
   todos: Array<{ step: string; status: "pending" | "in_progress" | "done" }>;
-  /** M17: Number of sends that have been dispatched locally but not yet
+  /** Number of sends that have been dispatched locally but not yet
    *  confirmed by the backend (POST in-flight). Cleared when the first
    *  authoritative agent revision arrives or on send error. */
   pendingSendCount: number;
@@ -44,10 +47,10 @@ export interface ConvState {
 
 export type Action =
   | { type: "bootstrap"; viewerMemberId: string; members: SenderRef[] }
-  | { type: "ledger/member"; seq: number; kind: "member.joined" | "member.left"; payload: unknown }
-  | { type: "ledger/message"; seq: number; senderMemberId: string; content: unknown }
+  | { type: "member"; seq: number; kind: "member.joined" | "member.left"; payload: unknown }
+  | { type: "message"; seq: number; senderMemberId: string; content: unknown }
   | { type: "send"; text: string; viewer: SenderRef }
-  | { type: "ledger/conn"; status: LedgerConn }
+  | { type: "conn"; status: StreamConn }
   | { type: "toggleTriggerMode" }
   | { type: "send/error"; message: string }
   | { type: "todo/update"; todos: ConvState["todos"] };
@@ -56,8 +59,8 @@ export function initialState(): ConvState {
   return {
     viewerMemberId: "",
     roster: {},
-    messages: [],
-    ledgerConn: "connecting",
+    items: [],
+    streamConn: "connecting",
     error: null,
     optimisticSeq: 0,
     triggerMode: "auto",
@@ -72,9 +75,12 @@ export function initialState(): ConvState {
  *  that means the UI should show a busy state. */
 export function isBusy(s: ConvState): boolean {
   if (s.pendingSendCount > 0) return true;
-  return s.messages.some(
-    (m) =>
-      m.sender.kind === "agent" && m.content.state != null && isOpenMessageState(m.content.state),
+  return s.items.some(
+    (item) =>
+      item.kind === "message" &&
+      item.sender.kind === "agent" &&
+      item.content.state != null &&
+      isOpenMessageState(item.content.state),
   );
 }
 
@@ -85,18 +91,19 @@ export function getApprovalTarget(s: ConvState): {
   text: string;
   tools: Array<{ id: string; name: string }>;
 } | null {
-  for (const m of s.messages) {
+  for (const item of s.items) {
+    if (item.kind !== "message") continue;
     if (
-      m.sender.kind === "agent" &&
-      m.content.state != null &&
-      isOpenMessageState(m.content.state) &&
-      m.content.runId
+      item.sender.kind === "agent" &&
+      item.content.state != null &&
+      isOpenMessageState(item.content.state) &&
+      item.content.runId
     ) {
       return {
-        messageId: m.content.id ?? "",
-        runId: m.content.runId,
-        text: m.content.text ?? "",
-        tools: (m.content.tools ?? [])
+        messageId: item.content.id ?? "",
+        runId: item.content.runId,
+        text: item.content.text ?? "",
+        tools: (item.content.tools ?? [])
           .filter((t: { state: string }) => t.state === "running")
           .map((t: { id: string; name: string }) => ({ id: t.id, name: t.name })),
       };
@@ -106,37 +113,43 @@ export function getApprovalTarget(s: ConvState): {
 }
 
 function upsertAuthoritative(
-  list: UiMessage[],
+  list: UiItem[],
   id: string,
   sender: SenderRef,
   content: Message,
   viewerMemberId: string,
-): UiMessage[] {
-  const idx = list.findIndex((m) => m.id === id);
+): UiItem[] {
+  const idx = list.findIndex((item) => item.kind === "message" && item.id === id);
   if (idx >= 0) {
     const next = [...list];
-    next[idx] = { id, sender, content };
+    next[idx] = { kind: "message", id, sender, content };
     return next;
   }
   // Self echo: replace optimistic self message
   if (sender.memberId === viewerMemberId) {
     const optIdx = [...list]
       .reverse()
-      .findIndex((m) => m.id.startsWith("opt-") && m.sender.memberId === viewerMemberId);
+      .findIndex(
+        (item) =>
+          item.kind === "message" &&
+          item.id.startsWith("opt-") &&
+          item.sender.memberId === viewerMemberId,
+      );
     if (optIdx >= 0) {
       const real = list.length - 1 - optIdx;
       const next = [...list];
-      next[real] = { id, sender, content };
+      next[real] = { kind: "message", id, sender, content };
       return next;
     }
   }
-  return [...list, { id, sender, content }];
+  return [...list, { kind: "message", id, sender, content }];
 }
 
 // ─── Turn Grouping (pure render-layer) ─────────────────────
 
 export type TurnSegment =
-  | { kind: "single"; message: UiMessage }
+  | { kind: "single"; item: UiItem }
+  | { kind: "notice"; text: string; id: string }
   | {
       kind: "turn";
       id: string;
@@ -154,24 +167,30 @@ export function isConclusionMessage(m: UiMessage): boolean {
   return !hasToolUse;
 }
 
-export function groupTurns(messages: UiMessage[]): TurnSegment[] {
+export function groupTurns(items: UiItem[]): TurnSegment[] {
   const out: TurnSegment[] = [];
   let i = 0;
-  while (i < messages.length) {
-    const m = messages[i]!;
-    if (m.sender.kind !== "agent") {
-      out.push({ kind: "single", message: m });
+  while (i < items.length) {
+    const item = items[i]!;
+    if (item.kind === "notice") {
+      out.push({ kind: "notice", text: item.text, id: item.id });
+      i++;
+      continue;
+    }
+    if (item.sender.kind !== "agent") {
+      out.push({ kind: "single", item });
       i++;
       continue;
     }
     const start = i;
     while (
-      i < messages.length &&
-      messages[i]?.sender.kind === "agent" &&
-      messages[i]?.sender.memberId === m.sender.memberId
+      i < items.length &&
+      items[i]?.kind === "message" &&
+      items[i]?.sender.kind === "agent" &&
+      items[i]?.sender.memberId === item.sender.memberId
     )
       i++;
-    const block = messages.slice(start, i);
+    const block = items.slice(start, i).filter((x): x is UiItem & { kind: "message" } => x.kind === "message");
     let lastConclusionIdx = -1;
     for (let k = block.length - 1; k >= 0; k--) {
       if (isConclusionMessage(block[k]!)) {
@@ -181,7 +200,7 @@ export function groupTurns(messages: UiMessage[]): TurnSegment[] {
     }
     const conclusion = lastConclusionIdx >= 0 ? block[lastConclusionIdx]! : null;
     const rounds = block.filter((_, k) => k !== lastConclusionIdx);
-    out.push({ kind: "turn", id: block[0]!.id, sender: m.sender, rounds, conclusion });
+    out.push({ kind: "turn", id: block[0]!.id, sender: item.sender, rounds, conclusion });
   }
   return out;
 }
@@ -191,9 +210,7 @@ export function groupTurns(messages: UiMessage[]): TurnSegment[] {
 export function reducer(s: ConvState, a: Action): ConvState {
   switch (a.type) {
     case "bootstrap": {
-      const roster: Record<string, SenderRef> = {
-        __system__: { memberId: "__system__", kind: "system" },
-      };
+      const roster: Record<string, SenderRef> = {};
       for (const m of a.members) roster[m.memberId] = m;
       const agentCount = Object.values(roster).filter((m) => m.kind === "agent").length;
       return {
@@ -204,7 +221,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
       };
     }
 
-    case "ledger/member": {
+    case "member": {
       const payload = a.payload as {
         members?: Array<{
           memberId: string;
@@ -214,28 +231,19 @@ export function reducer(s: ConvState, a: Action): ConvState {
       };
       const roster = { ...s.roster };
       for (const m of payload.members ?? []) roster[m.memberId] = { ...m };
-      const id = `s-${a.seq}`;
-      const sender: SenderRef = { memberId: "__system__", kind: "system" };
       const verb = a.kind === "member.joined" ? "加入" : "离开";
       const present = (payload.members ?? [])
         .map((m) => roster[m.memberId]?.displayName ?? m.memberId)
         .join(", ");
-      const messages = upsertAuthoritative(
-        s.messages,
-        id,
-        sender,
-        {
-          id,
-          role: "system" as const,
-          state: "done" as const,
-          text: `[系统] 成员变化：${verb}。当前在场：${present}`,
-        },
-        s.viewerMemberId,
-      );
-      return { ...s, roster, messages };
+      const id = `notice-${a.seq}`;
+      const items: UiItem[] = [
+        ...s.items,
+        { kind: "notice", id, text: `[系统] 成员变化：${verb}。当前在场：${present}` },
+      ];
+      return { ...s, roster, items };
     }
 
-    case "ledger/message": {
+    case "message": {
       // M17.1: isolate parse errors — a single bad entry must not crash the SSE stream
       let revision: MessageRevision;
       try {
@@ -253,10 +261,10 @@ export function reducer(s: ConvState, a: Action): ConvState {
         memberId: a.senderMemberId,
         kind: "agent" as const,
       };
-      const messages = upsertAuthoritative(s.messages, id, sender, message, s.viewerMemberId);
+      const items = upsertAuthoritative(s.items, id, sender, message, s.viewerMemberId);
       // First agent message confirms the POST — clear pending send count
       const cleared = sender.kind === "agent" && s.pendingSendCount > 0 ? 0 : s.pendingSendCount;
-      return { ...s, messages, pendingSendCount: cleared };
+      return { ...s, items, pendingSendCount: cleared };
     }
 
     case "send": {
@@ -265,9 +273,10 @@ export function reducer(s: ConvState, a: Action): ConvState {
         ...s,
         optimisticSeq: s.optimisticSeq + 1,
         pendingSendCount: s.pendingSendCount + 1,
-        messages: [
-          ...s.messages,
+        items: [
+          ...s.items,
           {
+            kind: "message" as const,
             id,
             sender: a.viewer,
             content: { id, role: "user" as const, state: "done" as const, text: a.text },
@@ -276,8 +285,8 @@ export function reducer(s: ConvState, a: Action): ConvState {
       };
     }
 
-    case "ledger/conn":
-      return { ...s, ledgerConn: a.status };
+    case "conn":
+      return { ...s, streamConn: a.status };
 
     case "send/error":
       return {

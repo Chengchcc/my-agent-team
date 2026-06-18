@@ -94,14 +94,6 @@ export interface RunMeta {
 // (TextBlock | ToolUseBlock | ToolResultBlock), replacing the old baggy local interface.
 export type { ContentBlock };
 
-/** BFF wire-level Message shape. Uses `content` as an aggregated field name,
- *  distinct from the canonical `Message` in @my-agent-team/message which uses
- *  `text`/`blocks`/`tools` as separate fields. */
-export interface Message {
-  role: "user" | "assistant" | "system";
-  content: string | ContentBlock[];
-}
-
 // ── Conversation types ──
 
 export type MemberInfo = Member;
