@@ -1,6 +1,18 @@
 import type { LedgerEntry, Member } from "@my-agent-team/conversation";
 import type { ContentBlock } from "@my-agent-team/message";
 
+// ── Issue types (M18.1) ──
+export type IssueStatus = "planned" | "in_progress" | "in_review" | "done";
+export interface IssueRow {
+  issueId: string;
+  projectId: string;
+  title: string;
+  status: IssueStatus;
+  threadId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -228,6 +240,16 @@ export const api = {
     const qs = new URLSearchParams({ from: String(range.from), to: String(range.to) });
     return apiFetch<InsightsSummary>(`ops/insights/summary?${qs}`);
   },
+
+  // ── Issues (M18.1) ──
+  getIssueMeta: () => apiFetch<{ statuses: IssueStatus[] }>("issue-meta"),
+  listIssues: (projectId?: string) =>
+    apiFetch<{ issues: IssueRow[] }>(`issues${projectId ? `?projectId=${projectId}` : ""}`),
+  getIssue: (id: string) => apiFetch<{ issue: IssueRow }>(`issues/${id}`),
+  createIssue: (body: { projectId: string; title: string; threadId: string }) =>
+    apiFetch<{ issue: IssueRow }>("issues", { method: "POST", body }),
+  applyTransition: (id: string, to: IssueStatus) =>
+    apiFetch<{ issue: IssueRow }>(`issues/${id}/transition`, { method: "POST", body: { to } }),
 };
 
 // ── M16 ops types ──

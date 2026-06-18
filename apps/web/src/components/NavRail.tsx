@@ -108,6 +108,29 @@ export function NavRail() {
           </svg>
         </Link>
 
+        {/* Issues icon (M18.1) */}
+        <Link
+          href="/issues"
+          className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors ${
+            pathname.startsWith("/issues")
+              ? "bg-muted text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          aria-label="Issues"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect x="1" y="2" width="4" height="5" rx="1" />
+            <rect x="6" y="5" width="4" height="8" rx="1" />
+            <rect x="11" y="1" width="4" height="11" rx="1" />
+          </svg>
+        </Link>
+
         <div className="flex-1 w-px bg-border" />
       </aside>
     );
@@ -252,6 +275,27 @@ export function NavRail() {
             </ul>
           </div>
         )}
+
+        {/* ── Issues section (M18.1) ── */}
+        <div className="px-4 pt-4 pb-2 border-t border-border">
+          <h2 className="text-[10px] tracking-[2.52px] uppercase text-muted-foreground mb-2 font-[family-name:var(--font-sans)] font-semibold">
+            Issues
+          </h2>
+          <ul className="space-y-0.5">
+            <li>
+              <Link
+                href="/issues"
+                className={`block px-2 py-1.5 text-sm rounded-md transition-colors ${
+                  pathname.startsWith("/issues")
+                    ? "bg-muted text-foreground border-l-2 border-primary"
+                    : "text-foreground-muted hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Board
+              </Link>
+            </li>
+          </ul>
+        </div>
 
         {/* ── Operations section ── */}
         <div className="px-4 pt-4 pb-2 border-t border-border">
