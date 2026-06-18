@@ -16,15 +16,12 @@ export interface SenderRef {
   displayName?: string;
 }
 
-export interface UiMessage {
-  id: string;
-  sender: SenderRef;
-  content: Message;
-}
-
 export type UiItem =
   | { kind: "message"; id: string; sender: SenderRef; content: Message }
   | { kind: "notice"; id: string; text: string };
+
+/** "message" variant of UiItem — derived, not a new domain concept. */
+export type MessageItem = Extract<UiItem, { kind: "message" }>;
 
 export type TriggerMode = "auto" | "mention";
 export type StreamConn = "connecting" | "open" | "reconnecting" | "closed";
@@ -148,17 +145,17 @@ function upsertAuthoritative(
 // ─── Turn Grouping (pure render-layer) ─────────────────────
 
 export type TurnSegment =
-  | { kind: "single"; item: UiItem }
+  | { kind: "single"; item: MessageItem }
   | { kind: "notice"; text: string; id: string }
   | {
       kind: "turn";
       id: string;
       sender: SenderRef;
-      rounds: UiMessage[];
-      conclusion: UiMessage | null;
+      rounds: MessageItem[];
+      conclusion: MessageItem | null;
     };
 
-export function isConclusionMessage(m: UiMessage): boolean {
+export function isConclusionMessage(m: MessageItem): boolean {
   const text = extractText({ text: m.content.text, blocks: m.content.blocks });
   if (text.trim().length > 0) return true;
   const blocks = m.content.blocks;
@@ -183,16 +180,18 @@ export function groupTurns(items: UiItem[]): TurnSegment[] {
       continue;
     }
     const start = i;
-    while (
-      i < items.length &&
-      items[i]?.kind === "message" &&
-      items[i]?.sender.kind === "agent" &&
-      items[i]?.sender.memberId === item.sender.memberId
-    )
+    while (i < items.length) {
+      // i < items.length guarantees items[i] is defined
+      const cur = items[i]!;
+      if (
+        cur.kind !== "message" ||
+        cur.sender.kind !== "agent" ||
+        cur.sender.memberId !== item.sender.memberId
+      )
+        break;
       i++;
-    const block = items
-      .slice(start, i)
-      .filter((x): x is UiItem & { kind: "message" } => x.kind === "message");
+    }
+    const block = items.slice(start, i).filter((x): x is MessageItem => x.kind === "message");
     let lastConclusionIdx = -1;
     for (let k = block.length - 1; k >= 0; k--) {
       if (isConclusionMessage(block[k]!)) {

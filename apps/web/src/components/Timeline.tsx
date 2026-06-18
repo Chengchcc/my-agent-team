@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { UiItem, UiMessage } from "@/lib/conversation-reducer";
+import type { SenderRef, UiItem } from "@/lib/conversation-reducer";
 import { groupTurns, type TurnSegment } from "@/lib/conversation-reducer";
 import { renderContentBlocks } from "@/lib/render-blocks";
 import { extractText } from "@/lib/timeline";
@@ -33,7 +33,7 @@ function SystemNotice({ text }: { text: string }) {
 
 // ── Segment helpers ──
 
-function segmentSender(seg: TurnSegment): UiMessage["sender"] {
+function segmentSender(seg: TurnSegment): SenderRef {
   if (seg.kind === "turn") return seg.sender;
   if (seg.kind === "single") return seg.item.sender;
   return { kind: "agent", memberId: "" }; // notice
