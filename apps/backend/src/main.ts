@@ -106,7 +106,7 @@ const runSvc = createRunService({
 // P2: onRunComplete is AWAITED by supervisor — critical sink (ledger terminal write).
 // P1: run_finalized already sent before this, so await doesn't block control signal.
 supervisor.onRunComplete((threadId, runId, status, kind) =>
-  onRunComplete(threadId, runId, status, conv.convPort, conv.convSvc, kind),
+  onRunComplete(threadId, runId, status, conv.convPort, conv.convSvc, opsStore, kind),
 );
 
 // M17.5 P3: @mention regex cache — compile once per label, not per streaming revision.

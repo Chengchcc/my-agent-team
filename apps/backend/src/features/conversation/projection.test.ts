@@ -9,6 +9,9 @@ import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
 import { onRunComplete } from "./projection.js";
 import { createConversationService } from "./service.js";
+import type { RuntimeOpsStore } from "../runtime-ops/store.js";
+
+const fakeOpsStore = { getRunOrigin: () => null } as unknown as RuntimeOpsStore;
 
 const dbPath = `/tmp/test-projection-${Date.now()}.db`;
 const db = openDb(dbPath);
@@ -71,7 +74,7 @@ describe("P3: onRunComplete tiering", () => {
     } as ConversationPort;
 
     await expect(
-      onRunComplete(threadId, "r-p3-lock", "succeeded", failingPort, svc),
+      onRunComplete(threadId, "r-p3-lock", "succeeded", failingPort, svc, fakeOpsStore),
     ).rejects.toThrow("ledger down");
 
     // Phase 2 finally must have released the lock
@@ -87,7 +90,7 @@ describe("P7: ledger single authority for assistant messages", () => {
     const threadId = `${cid}:agent-1`;
     setupConv(cid);
 
-    await onRunComplete(threadId, "r-p7-term", "succeeded", port, svc);
+    await onRunComplete(threadId, "r-p7-term", "succeeded", port, svc, fakeOpsStore);
 
     const entries = port.getLedgerEntries(cid);
     const terminal = entries.find((e) => e.runId === "r-p7-term" && e.kind === "message");
@@ -102,7 +105,7 @@ describe("P7: ledger single authority for assistant messages", () => {
 
     // Broadcast is best-effort; ledger write (Phase 1 critical) succeeds regardless.
     try {
-      await onRunComplete(threadId, "r-p7-bcast", "succeeded", port, svc);
+      await onRunComplete(threadId, "r-p7-bcast", "succeeded", port, svc, fakeOpsStore);
     } catch {
       // Should not throw — only broadcast is best-effort
     }

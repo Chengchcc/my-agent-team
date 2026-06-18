@@ -10,6 +10,7 @@ import {
 import type { ConversationPort } from "./ports.js";
 import type { ConversationService } from "./service.js";
 import { parseThreadId } from "./service.js";
+import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 
 // ─── @mention helpers ─────────────────────────────────────────
 
@@ -157,6 +158,7 @@ export async function onRunComplete(
   status: string,
   convPort: ConversationPort,
   convSvc: ConversationService,
+  opsStore: RuntimeOpsStore,
   kind?: string,
 ): Promise<void> {
   if (kind === "reflect") return;
@@ -235,6 +237,9 @@ export async function onRunComplete(
   }
 
   // ── Phase 3: BEST-EFFORT — fire-and-forget, each catches independently ──
+  // M18.2: issue-driven runs' advancement is handled by orchestrator; skip @mention
+  if (opsStore.getRunOrigin(runId)?.issueId) return;
+
   if (acc) {
     clearAccumulator(runId);
     if (acc.lastTodoUpdate) {
