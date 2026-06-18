@@ -1,0 +1,1 @@
+npx biome format --write . && npx biome check --fix --unsafe . 2>/dev/null || true
