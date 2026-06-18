@@ -7,10 +7,10 @@ import {
   type parseMessageRevision,
   serializeMessageRevision,
 } from "@my-agent-team/message";
+import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { ConversationPort } from "./ports.js";
 import type { ConversationService } from "./service.js";
 import { parseThreadId } from "./service.js";
-import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 
 // ─── @mention helpers ─────────────────────────────────────────
 
@@ -166,6 +166,9 @@ export async function onRunComplete(
   const { conversationId: cid, memberId: senderMemberId } = parseThreadId(threadId);
   if (!cid) return;
 
+  // M18.2: issue-driven runs are handled by orchestrator — skip entire projection
+  if (opsStore.getRunOrigin(runId)?.issueId) return;
+
   const acc = runAccumulators.get(runId);
 
   // ── Phase 1: CRITICAL — terminal revision write + broadcast ──
@@ -237,9 +240,6 @@ export async function onRunComplete(
   }
 
   // ── Phase 3: BEST-EFFORT — fire-and-forget, each catches independently ──
-  // M18.2: issue-driven runs' advancement is handled by orchestrator; skip @mention
-  if (opsStore.getRunOrigin(runId)?.issueId) return;
-
   if (acc) {
     clearAccumulator(runId);
     if (acc.lastTodoUpdate) {
