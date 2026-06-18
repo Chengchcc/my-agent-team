@@ -1,6 +1,7 @@
 import type { agentRoutes } from "../features/agent/http.js";
 import type { conversationRoutes } from "../features/conversation/http.js";
 import type { runRoutes } from "../features/run/http.js";
+import type { issueRoutes } from "../features/issue/http.js";
 import type { opsRoutes } from "../features/runtime-ops/http.js";
 import type { threadProjectionRoutes } from "../features/thread-projection/http.js";
 import { HttpError } from "../infra/errors.js";
@@ -13,6 +14,7 @@ interface FeatureSet {
   threadProjections: ReturnType<typeof threadProjectionRoutes>;
   conversations?: ReturnType<typeof conversationRoutes>;
   ops?: ReturnType<typeof opsRoutes>;
+  issues?: ReturnType<typeof issueRoutes>;
 }
 
 export function createRouter(token: string, features?: FeatureSet) {
@@ -34,7 +36,7 @@ export function createRouter(token: string, features?: FeatureSet) {
     };
   }
 
-  const { agents, runs, conversations, ops } = features;
+  const { agents, runs, conversations, ops, issues } = features;
 
   const agentList = withAuth((req) => agents.list(req), token);
   const agentCreate = withAuth((req) => agents.create(req), token);
@@ -167,6 +169,23 @@ export function createRouter(token: string, features?: FeatureSet) {
           return withAuth((r) => ops.listSurfaces(r), token)(req);
         if (larkHeartbeatMatch && method === "POST")
           return withAuth((r) => ops.larkHeartbeat(r), token)(req);
+      }
+
+      // M18.1: Issue routes
+      if (issues) {
+        const issuesListMatch = path === "/api/issues";
+        const issueTransitionMatch = path.match(/^\/api\/issues\/([^/]+)\/transition$/);
+        const issueDetailMatch = path.match(/^\/api\/issues\/([^/]+)$/);
+        const issueMetaMatch = path === "/api/issue-meta";
+
+        if (issueMetaMatch && method === "GET") return withAuth(async () => issues.meta(), token)(req);
+        if (issuesListMatch && method === "GET") return withAuth(async (r) => issues.list(r), token)(req);
+        if (issuesListMatch && method === "POST") return withAuth(async (r) => issues.create(r), token)(req);
+        // transition must be before detail to avoid /:id capturing /:id/transition
+        if (issueTransitionMatch && method === "POST")
+          return withAuth((r) => issues.transition(r, issueTransitionMatch[1]!), token)(req);
+        if (issueDetailMatch && method === "GET")
+          return withAuth(async (r) => issues.get(r, issueDetailMatch[1]!), token)(req);
       }
 
       return withAuth(async () => notFound(req), token)(req);

@@ -36,6 +36,7 @@ import {
   opsRoutes,
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
+import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
 import { threadProjectionRoutes } from "./features/thread-projection/index.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
@@ -247,6 +248,9 @@ const opsSvc = createRuntimeOpsService({
   getAgentName: (agentId) => agentNames.get(agentId),
 });
 
+// Issue service (M18.1)
+const issueSvc = createIssueService({ port: sqliteIssueAdapter(db), idGen: ulid });
+
 const router = createRouter(config.authToken, {
   agents: agentRoutes(
     agentSvc,
@@ -262,6 +266,7 @@ const router = createRouter(config.authToken, {
   threadProjections: threadProjectionRoutes(conv.threadProjectionSvc),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),
+  issues: issueRoutes(issueSvc),
 });
 
 // ─── Start ────────────────────────────────────────────────────
