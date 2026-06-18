@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { IssueBoard } from "@/components/IssueBoard";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -59,29 +60,26 @@ export default function IssuesPage() {
 
       {showForm && (
         <form onSubmit={handleCreate} className="space-y-3 max-w-md">
-          <input
+          <Input
             type="text"
             placeholder="Project ID"
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
             required
-            className="w-full rounded-md border px-3 py-1.5 text-sm"
           />
-          <input
+          <Input
             type="text"
             placeholder="Title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required
-            className="w-full rounded-md border px-3 py-1.5 text-sm"
           />
-          <input
+          <Input
             type="text"
             placeholder="Thread ID"
             value={threadId}
             onChange={(e) => setThreadId(e.target.value)}
             required
-            className="w-full rounded-md border px-3 py-1.5 text-sm"
           />
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" disabled={submitting} size="sm">
