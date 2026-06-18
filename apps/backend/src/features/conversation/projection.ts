@@ -143,13 +143,19 @@ function ledgerHasTerminalForMessage(
  *  Phase 1 (CRITICAL): terminal revision write + broadcast. Failure propagates.
  *  Phase 2 (CRITICAL): lock release in finally — always executes regardless of Phase 1.
  *  Phase 3 (BEST-EFFORT): todo append + @mention triggers — fire-and-forget, each caught. */
+
+/** Run-completion handler. Supervisor AWAITS this — failure propagates (critical sink).
+ *  P1: run_finalized already sent before this, so await doesn't block control signal.
+ *
+ *  Phase 1 (CRITICAL): terminal revision write + broadcast. Throws on failure.
+ *  Phase 2 (CRITICAL finally): lock release — always executes.
+ *  Phase 3 (BEST-EFFORT): todo append + @mention triggers — fire-and-forget, each caught. */
 export async function onRunComplete(
   threadId: string,
   runId: string,
   status: string,
   convPort: ConversationPort,
   convSvc: ConversationService,
-  /** M17.4: Run kind for dispatch — "reflect" runs skip conversation projection. */
   kind?: string,
 ): Promise<void> {
   if (kind === "reflect") return;
@@ -164,15 +170,12 @@ export async function onRunComplete(
     const baseRev =
       acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
     const frameworkSentTerminal = baseRev != null && isTerminalMessageState(baseRev.state);
-    // Explicit "done" check (not generic terminal): statusConflict only matters when
-    // framework emitted "done" but the run actually failed. "error" conflicts need no rewrite.
     const statusConflict = baseRev?.state === "done" && status !== "succeeded";
 
     if (!frameworkSentTerminal || statusConflict) {
       const finalRev: MessageRevision = baseRev
         ? {
             ...baseRev,
-            // Mapping: run.status → message.state (single authoritative mapping point).
             state: status === "succeeded" ? "done" : "error",
             error: status === "succeeded" ? undefined : { message: status },
             updatedAt: Date.now(),
@@ -195,24 +198,11 @@ export async function onRunComplete(
         if (!convPort.hasLedgerContent?.(runId, serialized)) {
           const ts = Date.now();
           const seq = convPort.appendLedgerEntry({
-            conversationId: cid,
-            senderMemberId,
-            addressedTo: [],
-            kind: "message",
-            content: serialized,
-            ts,
-            runId,
+            conversationId: cid, senderMemberId, addressedTo: [],
+            kind: "message", content: serialized, ts, runId,
           });
           await convSvc.broadcastMessage(
-            {
-              seq,
-              conversationId: cid,
-              senderMemberId,
-              addressedTo: [],
-              kind: "message",
-              content: serialized,
-              ts,
-            },
+            { seq, conversationId: cid, senderMemberId, addressedTo: [], kind: "message", content: serialized, ts },
             { excludeMemberId: senderMemberId },
           );
         }
@@ -223,9 +213,9 @@ export async function onRunComplete(
       `[conversation] terminal projection failed for ${runId}:`,
       err instanceof Error ? err.message : String(err),
     );
-    throw err; // critical failure propagated
+    throw err; // critical failure propagated — supervisor catches and logs
   } finally {
-    // ── Phase 2: CRITICAL — always release lock regardless of Phase 1 outcome ──
+    // Phase 2: lock release always executes.
     convSvc.completeRun(cid, threadId, runId);
   }
 
@@ -233,28 +223,18 @@ export async function onRunComplete(
   if (acc) {
     clearAccumulator(runId);
     if (acc.lastTodoUpdate) {
-      void convSvc
-        .appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos)
-        .catch((err) =>
-          console.error(
-            `[conversation] appendTodo failed for ${runId}:`,
-            err instanceof Error ? err.message : String(err),
-          ),
-        );
+      void convSvc.appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos).catch((err) =>
+        console.error(`[conversation] appendTodo failed for ${runId}:`, err instanceof Error ? err.message : String(err)),
+      );
     }
     if (acc.mentionedMemberIds.size > 0) {
-      void convSvc
-        .triggerMentionedAgents({
-          conversationId: cid,
-          senderMemberId: acc.senderMemberId,
-          addressedTo: [...acc.mentionedMemberIds],
-        })
-        .catch((err) =>
-          console.error(
-            `[conversation] triggerMentionedAgents failed for ${runId}:`,
-            err instanceof Error ? err.message : String(err),
-          ),
-        );
+      void convSvc.triggerMentionedAgents({
+        conversationId: cid,
+        senderMemberId: acc.senderMemberId,
+        addressedTo: [...acc.mentionedMemberIds],
+      }).catch((err) =>
+        console.error(`[conversation] triggerMentionedAgents failed for ${runId}:`, err instanceof Error ? err.message : String(err)),
+      );
     }
   }
 }

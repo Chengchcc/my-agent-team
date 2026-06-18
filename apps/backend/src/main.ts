@@ -102,6 +102,8 @@ const runSvc = createRunService({
 
 // ─── Event wiring ─────────────────────────────────────────────
 
+// P2: onRunComplete is AWAITED by supervisor — critical sink (ledger terminal write).
+// P1: run_finalized already sent before this, so await doesn't block control signal.
 supervisor.onRunComplete((threadId, runId, status, kind) =>
   onRunComplete(threadId, runId, status, conv.convPort, conv.convSvc, kind),
 );

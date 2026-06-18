@@ -204,7 +204,7 @@ export class RunSupervisor {
         // EventLog append is best-effort for reaper
       }
 
-      // Trigger onRunComplete listeners with await — lock release is critical.
+      // P2: onRunComplete is AWAITED — critical sink (ledger terminal write).
       for (const fn of this.#onRunComplete) {
         try {
           await fn(row.thread_id, row.run_id, "interrupted", row.kind);
@@ -226,6 +226,9 @@ export class RunSupervisor {
 
   /** Register callback invoked when any run completes (success/error/abort). Supports multiple listeners.
    *  M17.4: kind parameter added (\"main\"|\"reflect\") so consumers can dispatch without string-prefix checks. */
+  /** Register callback invoked when any run completes (success/error/abort).
+   *  AWAITED by supervisor in run_done/reaper — failure propagated (critical sink).
+   *  P1: run_finalized is already sent before this, so await doesn't block control signal. */
   onRunComplete(
     fn: (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>,
   ): void {
@@ -565,14 +568,18 @@ export class RunSupervisor {
             attemptId: session?.attemptId,
             kind: "run_finalized_sent",
           });
-          // Business listeners fire-and-forget — each catches independently.
+          // P2: onRunComplete is AWAITED — critical sink (ledger terminal write).
+          // P1: run_finalized already sent, so await doesn't block control signal.
+          // Each listener is individually caught so one failure doesn't skip others.
           for (const fn of this.#onRunComplete) {
-            void Promise.resolve(fn(threadId, runId, status, kind)).catch((err) =>
+            try {
+              await fn(threadId, runId, status, kind);
+            } catch (err) {
               console.error(
                 `[supervisor] onRunComplete listener failed for ${runId}:`,
                 err instanceof Error ? err.message : String(err),
-              ),
-            );
+              );
+            }
           }
         } else {
           console.log(
