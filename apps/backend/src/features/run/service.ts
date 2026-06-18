@@ -2,6 +2,7 @@ import type { Message } from "@my-agent-team/message";
 import type { EventLog, EventRecord } from "../event-log/index.js";
 import { parseThreadId } from "../conversation/service.js";
 import type { ConversationLock } from "../conversation/lock.js";
+import { buildTitleContext, generateTitle } from "../conversation/title.js";
 import type { RunSupervisor } from "./supervisor.js";
 
 export class ThreadBusyError extends Error {
@@ -69,7 +70,6 @@ export function createRunService(deps: RunServiceDeps) {
           // accurate title summarization. Fewer rounds = not enough context.
           const userAssist = msgs.filter((m) => m.role === "user" || m.role === "assistant");
           if (userAssist.length < 4) return;
-          const { buildTitleContext, generateTitle } = await import("../conversation/title.js");
           const ctx = buildTitleContext(msgs);
           const title = await generateTitle(autoTitle.llm, ctx);
           if (title) await autoTitle.setTitle(threadId, title);

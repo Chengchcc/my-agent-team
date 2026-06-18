@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
+import { materializeRunnerWorkspace, purgeRunnerWorkspace } from "../../infra/runner-workspace.js";
 import type { LarkBotRegistry } from "../lark-bot/index.js";
 import { larkProfileInit } from "../lark-bot/index.js";
 import type { RunSupervisor } from "../run/supervisor.js";
@@ -24,7 +25,6 @@ export function createAgentSvc(
     idGen: ulid,
     workspaceRoot: config.workspaceRoot,
     materializeWorkspace: async (agentId, template) => {
-      const { materializeRunnerWorkspace } = await import("../../infra/runner-workspace.js");
       return materializeRunnerWorkspace({
         dataDir: config.dataDir,
         agentId,
@@ -34,7 +34,6 @@ export function createAgentSvc(
     },
 
     purgeWorkspace: async (agentId) => {
-      const { purgeRunnerWorkspace } = await import("../../infra/runner-workspace.js");
       await purgeRunnerWorkspace({ dataDir: config.dataDir, agentId });
     },
 

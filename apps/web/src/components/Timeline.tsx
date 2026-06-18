@@ -211,9 +211,7 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                   ))}
                 {isSystem ? (
                   <div style={virt}>
-                    <SystemNotice
-                      text={extractText(m.content)}
-                    />
+                    <SystemNotice text={extractText(m.content)} />
                   </div>
                 ) : (
                   <div style={virt}>

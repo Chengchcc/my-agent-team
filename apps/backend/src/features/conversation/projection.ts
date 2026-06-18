@@ -161,7 +161,8 @@ export async function onRunComplete(
 
   // ── Phase 1: CRITICAL — terminal revision write + broadcast ──
   try {
-    const baseRev = acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
+    const baseRev =
+      acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
     const frameworkSentTerminal = baseRev != null && isTerminalMessageState(baseRev.state);
     const statusConflict = baseRev?.state === "done" && status !== "succeeded";
 
@@ -201,7 +202,15 @@ export async function onRunComplete(
             runId,
           });
           await convSvc.broadcastMessage(
-            { seq, conversationId: cid, senderMemberId, addressedTo: [], kind: "message", content: serialized, ts },
+            {
+              seq,
+              conversationId: cid,
+              senderMemberId,
+              addressedTo: [],
+              kind: "message",
+              content: serialized,
+              ts,
+            },
             { excludeMemberId: senderMemberId },
           );
         }
@@ -222,18 +231,28 @@ export async function onRunComplete(
   if (acc) {
     clearAccumulator(runId);
     if (acc.lastTodoUpdate) {
-      void convSvc.appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos).catch((err) =>
-        console.error(`[conversation] appendTodo failed for ${runId}:`, err instanceof Error ? err.message : String(err)),
-      );
+      void convSvc
+        .appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos)
+        .catch((err) =>
+          console.error(
+            `[conversation] appendTodo failed for ${runId}:`,
+            err instanceof Error ? err.message : String(err),
+          ),
+        );
     }
     if (acc.mentionedMemberIds.size > 0) {
-      void convSvc.triggerMentionedAgents({
-        conversationId: cid,
-        senderMemberId: acc.senderMemberId,
-        addressedTo: [...acc.mentionedMemberIds],
-      }).catch((err) =>
-        console.error(`[conversation] triggerMentionedAgents failed for ${runId}:`, err instanceof Error ? err.message : String(err)),
-      );
+      void convSvc
+        .triggerMentionedAgents({
+          conversationId: cid,
+          senderMemberId: acc.senderMemberId,
+          addressedTo: [...acc.mentionedMemberIds],
+        })
+        .catch((err) =>
+          console.error(
+            `[conversation] triggerMentionedAgents failed for ${runId}:`,
+            err instanceof Error ? err.message : String(err),
+          ),
+        );
     }
   }
 }

@@ -7,7 +7,9 @@ import { AgentSpecV2 } from "./agent-spec.js";
 import type { Tool } from "@my-agent-team/core";
 import type { Agent, AgentEvent, Checkpointer } from "@my-agent-team/framework";
 import { sqliteCheckpointer } from "@my-agent-team/framework";
+import { createGenericAgent, reflectionGuidance } from "@my-agent-team/harness";
 import type { HostToRunner, RunnerTransport } from "@my-agent-team/runner-protocol";
+import { createStartNewConversationTool } from "./start-new-conversation-tool.js";
 
 // ─── Types ───
 
@@ -165,7 +167,11 @@ export class RunnerDaemon {
     // M17.5 P3: Only use continue() if preloaded messages contain at least one user message.
     // If buildPreloadedMessages folded everything to empty, fall back to run().
     const preloadedMsgs = msg.preloadedMessages as Array<{ role: string }> | undefined;
-    const hasPreloaded = !!(preloadedMsgs && preloadedMsgs.length > 0 && preloadedMsgs.some((m) => m.role === "user"));
+    const hasPreloaded = !!(
+      preloadedMsgs &&
+      preloadedMsgs.length > 0 &&
+      preloadedMsgs.some((m) => m.role === "user")
+    );
 
     const model = this.#modelFactory.create(spec.model);
 
@@ -177,7 +183,6 @@ export class RunnerDaemon {
       sc.capabilities.includes("start_new_conversation") &&
       spec.mode !== "reflect"
     ) {
-      const { createStartNewConversationTool } = await import("./start-new-conversation-tool.js");
       extraTools.push(
         createStartNewConversationTool({
           backendUrl: this.#backendUrl,
@@ -188,7 +193,6 @@ export class RunnerDaemon {
       );
     }
 
-    const { createGenericAgent } = await import("@my-agent-team/harness");
     const agent = await createGenericAgent({
       workspace: this.#workspace,
       model: model as Parameters<typeof createGenericAgent>[0]["model"],
@@ -288,7 +292,6 @@ export class RunnerDaemon {
   async #fireReflect(parent: RunHandle): Promise<void> {
     const reflectRunId = crypto.randomUUID();
     const parentRunId = (parent.spec as { runId?: string }).runId ?? "";
-    const { reflectionGuidance } = await import("@my-agent-team/harness");
     const reflectSpec: Record<string, unknown> = {
       ...parent.spec,
       mode: "reflect" as const,

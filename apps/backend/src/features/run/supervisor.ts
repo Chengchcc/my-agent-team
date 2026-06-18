@@ -494,7 +494,11 @@ export class RunSupervisor {
           }
         } else {
           try {
-            await this.#opts.eventLog.append(threadId, runId, event as Parameters<EventLog["append"]>[2]);
+            await this.#opts.eventLog.append(
+              threadId,
+              runId,
+              event as Parameters<EventLog["append"]>[2],
+            );
           } catch (err) {
             console.error(
               `[supervisor] append event failed for ${runId}: ${err instanceof Error ? err.message : String(err)}`,

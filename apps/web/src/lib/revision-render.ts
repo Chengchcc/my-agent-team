@@ -1,4 +1,9 @@
-import { isOpenMessageState, isTerminalMessageState, type Message, type MessageRevision } from "@my-agent-team/message";
+import {
+  isOpenMessageState,
+  isTerminalMessageState,
+  type Message,
+  type MessageRevision,
+} from "@my-agent-team/message";
 
 export function getRevisionText(rev: MessageRevision | Message): string {
   return rev.text ?? "";

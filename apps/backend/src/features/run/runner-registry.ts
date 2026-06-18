@@ -3,7 +3,11 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
-import { safeRunnerAgentId } from "../../infra/runner-workspace.js";
+import {
+  ensureRunnerWorkspace,
+  runnerWorkspacePaths,
+  safeRunnerAgentId,
+} from "../../infra/runner-workspace.js";
 
 export interface RunnerRegistryHealth {
   status: "online" | "offline" | "unknown";
@@ -78,9 +82,6 @@ export class DevRunnerRegistry implements RunnerRegistry {
   }
 
   async #spawn(agentId: string): Promise<DevRunner> {
-    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import(
-      "../../infra/runner-workspace.js"
-    );
     const paths = runnerWorkspacePaths(this.opts.dataDir, agentId);
     const { sharedRoot, privateRoot, stateRoot, socketPath: socket, pidFile } = paths;
 
@@ -141,7 +142,6 @@ export class DevRunnerRegistry implements RunnerRegistry {
     const existing = this.#runners.get(key);
     if (existing) return existing.transport;
 
-    const { runnerWorkspacePaths } = await import("../../infra/runner-workspace.js");
     const paths = runnerWorkspacePaths(this.opts.dataDir, agentId);
     try {
       const transport = this.opts.transportFactory(paths.socketPath);
@@ -159,7 +159,6 @@ export class DevRunnerRegistry implements RunnerRegistry {
       const alive = existing.child.exitCode === null && existing.child.signalCode === null;
       return { status: alive ? "online" : "offline", socketPath: existing.socket };
     }
-    const { runnerWorkspacePaths } = await import("../../infra/runner-workspace.js");
     const paths = runnerWorkspacePaths(this.opts.dataDir, agentId);
     try {
       const transport = this.opts.transportFactory(paths.socketPath);

@@ -13,7 +13,12 @@ import {
   createConversationFeature,
 } from "./features/conversation/conv-svc-factory.js";
 import { conversationRoutes, parseThreadId } from "./features/conversation/index.js";
-import { extractText, isTerminalMessageState, MessageSchema, serializeMessageRevision } from "@my-agent-team/message";
+import {
+  extractText,
+  isTerminalMessageState,
+  MessageSchema,
+  serializeMessageRevision,
+} from "@my-agent-team/message";
 import {
   escapeRegExp,
   getOrCreateAccumulator,
@@ -162,12 +167,14 @@ supervisor.onRunMessage(async (threadId, runId, revision, kind) => {
     content: serializeMessageRevision({ ...revision, conversationId: cid, runId }),
     ts: Date.now(),
   };
-  void conv.convSvc.broadcastMessage(entry, { excludeMemberId: senderMemberId }).catch((err) =>
-    console.error(
-      `[main] broadcastMessage failed for ${runId}:`,
-      err instanceof Error ? err.message : String(err),
-    ),
-  );
+  void conv.convSvc
+    .broadcastMessage(entry, { excludeMemberId: senderMemberId })
+    .catch((err) =>
+      console.error(
+        `[main] broadcastMessage failed for ${runId}:`,
+        err instanceof Error ? err.message : String(err),
+      ),
+    );
 });
 
 // M17.5 P7: onRunEvent is now best-effort observability only. Message events

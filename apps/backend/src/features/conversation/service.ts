@@ -4,7 +4,13 @@ import {
   resolveTriggerTargets,
 } from "@my-agent-team/conversation";
 import type { MessageRevision } from "@my-agent-team/message";
-import { ContentBlockSchema, humanMessageId, MessageRevisionSchema, serializeMessageRevision, systemMessageId } from "@my-agent-team/message";
+import {
+  ContentBlockSchema,
+  humanMessageId,
+  MessageRevisionSchema,
+  serializeMessageRevision,
+  systemMessageId,
+} from "@my-agent-team/message";
 import type {
   ThreadProjectionReadPort,
   ThreadProjectionWritePort,
@@ -245,7 +251,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
         state: "done",
         text: typeof input.content === "string" ? input.content : undefined,
         blocks: Array.isArray(input.content)
-          ? ContentBlockSchema.array().parse(input.content) as MessageRevision["blocks"]
+          ? (ContentBlockSchema.array().parse(input.content) as MessageRevision["blocks"])
           : undefined,
         conversationId: input.conversationId,
         visibility: "conversation",

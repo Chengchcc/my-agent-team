@@ -74,7 +74,11 @@ describe("Run HTTP", () => {
       supervisor: makeMockSupervisor(),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      lock: (() => { const l = new ConversationLock(); l.acquireThread("t1", "t1"); return l; })(),
+      lock: (() => {
+        const l = new ConversationLock();
+        l.acquireThread("t1", "t1");
+        return l;
+      })(),
       idGen: () => "run-1",
     });
     const routes = runRoutes(svc, async () => ({}));

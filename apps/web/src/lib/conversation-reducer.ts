@@ -1,5 +1,10 @@
 import type { Message, MessageRevision } from "@my-agent-team/message";
-import { extractText, isOpenMessageState, mergeMessageRevision, parseMessageRevision } from "@my-agent-team/message";
+import {
+  extractText,
+  isOpenMessageState,
+  mergeMessageRevision,
+  parseMessageRevision,
+} from "@my-agent-team/message";
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -69,9 +74,7 @@ export function isBusy(s: ConvState): boolean {
   if (s.pendingSendCount > 0) return true;
   return s.messages.some(
     (m) =>
-      m.sender.kind === "agent" &&
-      m.content.state != null &&
-      isOpenMessageState(m.content.state),
+      m.sender.kind === "agent" && m.content.state != null && isOpenMessageState(m.content.state),
   );
 }
 
@@ -83,7 +86,12 @@ export function getApprovalTarget(s: ConvState): {
   tools: Array<{ id: string; name: string }>;
 } | null {
   for (const m of s.messages) {
-    if (m.sender.kind === "agent" && m.content.state != null && isOpenMessageState(m.content.state) && m.content.runId) {
+    if (
+      m.sender.kind === "agent" &&
+      m.content.state != null &&
+      isOpenMessageState(m.content.state) &&
+      m.content.runId
+    ) {
       return {
         messageId: m.content.id ?? "",
         runId: m.content.runId,
