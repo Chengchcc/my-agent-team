@@ -8,6 +8,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "lint": "biome check . && eslint .",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

@@ -16,7 +16,7 @@
     "dev:web": "bun run --cwd apps/web dev",
     "dev:turbo": "turbo run dev --parallel",
     "format": "biome format --write .",
-    "lint": "biome check . && eslint .",
+    "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "prepare": "husky"

@@ -7,7 +7,7 @@
     "build": "tsc",
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
     "test": "bun test",
-    "lint": "bun check"
+    "lint": "biome check . && eslint ."
   },
   "dependencies": {
     "@my-agent-team/conversation": "workspace:*",
