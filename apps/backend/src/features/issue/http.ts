@@ -1,12 +1,17 @@
 import { z } from "zod";
 import { json } from "../../http/response.js";
 import { ISSUE_STATUSES, type IssueStatus } from "./entities.js";
-import { IllegalTransitionError, IssueNotFoundError, type IssueService } from "./service.js";
+import {
+  IllegalTransitionError,
+  IssueNotFoundError,
+  type IssueService,
+  ValidationError,
+} from "./service.js";
 
 const createSchema = z.object({
-  projectId: z.string().min(1),
-  title: z.string().min(1),
-  threadId: z.string().min(1),
+  projectId: z.string().trim().min(1),
+  title: z.string().trim().min(1),
+  threadId: z.string().trim().min(1),
 });
 
 const transitionSchema = z.object({ to: z.enum(ISSUE_STATUSES as readonly [string, ...string[]]) });
@@ -18,7 +23,12 @@ export function issueRoutes(svc: IssueService) {
       const parsed = createSchema.safeParse(await req.json().catch(() => ({})));
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
-      return json({ issue: svc.createIssue(parsed.data) }, 201);
+      try {
+        return json({ issue: svc.createIssue(parsed.data) }, 201);
+      } catch (err) {
+        if (err instanceof ValidationError) return json({ error: err.message }, 400);
+        throw err;
+      }
     },
 
     /** GET /api/issues?projectId= → 200 { issues } */

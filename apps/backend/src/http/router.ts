@@ -189,6 +189,12 @@ export function createRouter(token: string, features?: FeatureSet) {
           return withAuth(async (r) => issues.transition(r, issueTransitionMatch[1]!), token)(req);
         if (issueDetailMatch && method === "GET")
           return withAuth(async (r) => issues.get(r, issueDetailMatch[1]!), token)(req);
+
+        // 405 for known paths with wrong method
+        if (issuesListMatch) return json({ error: "Method not allowed" }, 405);
+        if (issueMetaMatch) return json({ error: "Method not allowed" }, 405);
+        if (issueTransitionMatch) return json({ error: "Method not allowed" }, 405);
+        if (issueDetailMatch) return json({ error: "Method not allowed" }, 405);
       }
 
       return withAuth(async () => notFound(req), token)(req);

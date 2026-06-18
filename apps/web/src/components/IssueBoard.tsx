@@ -24,22 +24,33 @@ export function IssueBoard({ statuses, issues }: { statuses: IssueStatus[]; issu
 
   // 手动分组（替代 ES2024 的 Object.groupBy）
   const byStatus = new Map<IssueStatus, IssueRow[]>(statuses.map((s) => [s, []]));
-  for (const it of issues) byStatus.get(it.status)?.push(it);
+  const unmatched: IssueRow[] = [];
+  for (const it of issues) {
+    const bucket = byStatus.get(it.status);
+    if (bucket) bucket.push(it);
+    else unmatched.push(it);
+  }
+
+  // 未知状态的 Issue 不被静默丢弃 — 收进兜底列显式提示
+  const columns = unmatched.length > 0 ? [...statuses, "unknown" as IssueStatus] : statuses;
 
   return (
     <div className="flex gap-4 p-6 overflow-x-auto">
-      {statuses.map((s) => (
-        <section key={s} className="w-72 shrink-0">
-          <h2 className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
-            {COLUMN_LABEL[s] ?? s} ({byStatus.get(s)?.length ?? 0})
-          </h2>
-          <div className="space-y-2">
-            {(byStatus.get(s) ?? []).map((it) => (
-              <IssueCard key={it.issueId} issue={it} />
-            ))}
-          </div>
-        </section>
-      ))}
+      {columns.map((s) => {
+        const items = s === "unknown" ? unmatched : (byStatus.get(s) ?? []);
+        return (
+          <section key={s} className="w-72 shrink-0">
+            <h2 className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+              {s === "unknown" ? "Other" : (COLUMN_LABEL[s] ?? s)} ({items.length})
+            </h2>
+            <div className="space-y-2">
+              {items.map((it) => (
+                <IssueCard key={it.issueId} issue={it} />
+              ))}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

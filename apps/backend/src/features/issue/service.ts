@@ -15,20 +15,37 @@ export class IllegalTransitionError extends Error {
   }
 }
 
+export class ValidationError extends Error {
+  constructor(msg: string) {
+    super(msg);
+    this.name = "ValidationError";
+  }
+}
+
 export interface IssueServiceDeps {
   port: IssuePort;
   idGen: () => string;
   now?: () => number;
+  /** 可选：校验 threadId 是否真实存在。不存在则抛 ValidationError → 400。 */
+  threadExists?: (threadId: string) => boolean;
+  /** 可选：校验 projectId 是否真实存在。不存在则抛 ValidationError → 400。 */
+  projectExists?: (projectId: string) => boolean;
 }
 
 export function createIssueService(deps: IssueServiceDeps) {
-  const { port, idGen } = deps;
+  const { port, idGen, threadExists, projectExists } = deps;
   const now = deps.now ?? Date.now;
 
   return {
     port,
 
     createIssue(input: { projectId: string; title: string; threadId: string }): IssueRow {
+      if (threadExists && !threadExists(input.threadId)) {
+        throw new ValidationError(`thread not found: ${input.threadId}`);
+      }
+      if (projectExists && !projectExists(input.projectId)) {
+        throw new ValidationError(`project not found: ${input.projectId}`);
+      }
       return port.createIssue({
         issueId: idGen(),
         projectId: input.projectId,
@@ -46,7 +63,8 @@ export function createIssueService(deps: IssueServiceDeps) {
       const ts = now();
       const ok = port.setStatus(issueId, issue.status, to, ts);
       if (!ok) throw new IllegalTransitionError(`${issue.status} → ${to} (lost CAS)`);
-      return { ...issue, status: to, updatedAt: ts };
+      // 写后重读：保证返回对象等于库内真值，为 M18.2 多列写入预留
+      return port.getIssue(issueId)!;
     },
   };
 }

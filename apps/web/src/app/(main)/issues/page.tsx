@@ -36,7 +36,11 @@ export default function IssuesPage() {
     setError("");
     setSubmitting(true);
     try {
-      await api.createIssue({ projectId, title, threadId });
+      await api.createIssue({
+        projectId: projectId.trim(),
+        title: title.trim(),
+        threadId: threadId.trim(),
+      });
       await queryClient.invalidateQueries({ queryKey: ["issues"] });
       setProjectId("");
       setTitle("");
