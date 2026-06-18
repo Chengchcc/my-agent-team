@@ -190,7 +190,9 @@ export function groupTurns(items: UiItem[]): TurnSegment[] {
       items[i]?.sender.memberId === item.sender.memberId
     )
       i++;
-    const block = items.slice(start, i).filter((x): x is UiItem & { kind: "message" } => x.kind === "message");
+    const block = items
+      .slice(start, i)
+      .filter((x): x is UiItem & { kind: "message" } => x.kind === "message");
     let lastConclusionIdx = -1;
     for (let k = block.length - 1; k >= 0; k--) {
       if (isConclusionMessage(block[k]!)) {

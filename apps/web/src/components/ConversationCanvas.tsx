@@ -25,28 +25,31 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
 
   // Derive status label from open-message state rather than a run phase.
   const isAwaiting = state.items.some(
-    (item) => item.kind === "message" && item.sender.kind === "agent" && item.content.state === "waiting",
+    (item) =>
+      item.kind === "message" && item.sender.kind === "agent" && item.content.state === "waiting",
   );
   const label = isAwaiting ? "Awaiting Approval" : busy ? "Running" : null;
 
   const lastUserMessage = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]!.sender.memberId === viewerMemberId) return extractText(messages[i]!.content);
+    for (let i = items.length - 1; i >= 0; i--) {
+      const entry = items[i]!;
+      if (entry.kind !== "message") continue;
+      if (entry.sender.memberId === viewerMemberId) return extractText(entry.content);
     }
     return null;
-  }, [messages, viewerMemberId]);
+  }, [viewerMemberId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const prevLen = useRef(messages.length);
+  const prevLen = useRef(items.length);
   const [scrolledUp, setScrolledUp] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(false);
 
   useEffect(() => {
-    if (messages.length > prevLen.current && scrollRef.current) {
+    if (items.length > prevLen.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-    prevLen.current = messages.length;
-  }, [messages.length]);
+    prevLen.current = items.length;
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -70,12 +73,12 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
   return (
     <div className="h-full flex flex-col bg-[var(--canvas)]">
       {/* Connection status */}
-      {ledgerConn === "reconnecting" && (
+      {streamConn === "reconnecting" && (
         <div className="shrink-0 bg-[var(--chart-4)]/10 border-b border-[var(--chart-4)]/30 px-6 py-1 text-center">
           <span className="text-[10px] text-[var(--chart-4)]">Connection lost — reconnecting…</span>
         </div>
       )}
-      {ledgerConn === "closed" && (
+      {streamConn === "closed" && (
         <div className="shrink-0 bg-destructive/10 border-b border-destructive/30 px-6 py-1 text-center flex items-center justify-center gap-3">
           <span className="text-[10px] text-destructive">Connection closed</span>
           <button
@@ -165,7 +168,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
         {/* Main scroll area */}
         <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
           <div className="mx-auto" style={{ maxWidth: "72ch", padding: "0 1.5rem" }}>
-            {messages.length === 0 ? (
+            {items.length === 0 ? (
               <div className="flex flex-col items-start justify-center py-24">
                 {primaryAgent && (
                   <h1
@@ -183,7 +186,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
             ) : (
               <div className="py-4">
                 <Timeline
-                  messages={messages}
+                  messages={items}
                   viewerMemberId={viewerMemberId}
                   scrollContainerRef={scrollRef}
                 />

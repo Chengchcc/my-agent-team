@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { UiMessage } from "@/lib/conversation-reducer";
+import type { UiItem, UiMessage } from "@/lib/conversation-reducer";
 import { groupTurns, type TurnSegment } from "@/lib/conversation-reducer";
 import { renderContentBlocks } from "@/lib/render-blocks";
 import { extractText } from "@/lib/timeline";
@@ -10,7 +10,7 @@ import { MessageBubble } from "./MessageBubble";
 import { ReasoningTrace } from "./ReasoningTrace";
 
 interface TimelineProps {
-  messages: UiMessage[];
+  messages: UiItem[];
   viewerMemberId: string;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
 }
@@ -34,11 +34,15 @@ function SystemNotice({ text }: { text: string }) {
 // ── Segment helpers ──
 
 function segmentSender(seg: TurnSegment): UiMessage["sender"] {
-  return seg.kind === "turn" ? seg.sender : seg.kind === "single" ? seg.item.sender : seg.item.sender;
+  if (seg.kind === "turn") return seg.sender;
+  if (seg.kind === "single") return seg.item.sender;
+  return { kind: "agent", memberId: "" }; // notice
 }
 
 function segmentId(seg: TurnSegment): string {
-  return seg.kind === "turn" ? seg.id : seg.kind === "single" ? seg.item.id : seg.id;
+  if (seg.kind === "turn") return seg.id;
+  if (seg.kind === "single") return seg.item.id;
+  return seg.id; // notice
 }
 
 /** A turn starts at each user (human) message. A turn spans that user message
@@ -183,10 +187,16 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
               );
             }
 
-            // single segment: human / system / standalone agent
-            const m = seg.message;
+            if (seg.kind === "notice") {
+              return (
+                <div key={seg.id}>
+                  <SystemNotice text={seg.text} />
+                </div>
+              );
+            }
+            // single segment: human / standalone agent (notices rendered above)
+            const m = seg.item;
             const isSelf = m.sender.memberId === viewerMemberId;
-            const isSystem = m.sender.kind === "system";
             const virt = {
               contentVisibility: "auto" as const,
               containIntrinsicSize: "auto 80px" as const,
@@ -197,8 +207,6 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                 {anchorId &&
                   turnNum !== undefined &&
                   (isFirst ? (
-                    // Anchor target for the first turn — no visible divider above
-                    // the opening user message.
                     <div id={anchorId} className="scroll-mt-16" />
                   ) : (
                     <div id={anchorId} className="flex items-center gap-3 py-3">
@@ -209,34 +217,28 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                       <div className="flex-1 h-px bg-[var(--hairline)]" />
                     </div>
                   ))}
-                {isSystem ? (
-                  <div style={virt}>
-                    <SystemNotice text={extractText(m.content)} />
-                  </div>
-                ) : (
-                  <div style={virt}>
-                    {typeof m.content === "string" ? (
-                      <MessageBubble
-                        align={isSelf ? "right" : "left"}
-                        name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
-                        kind={m.sender.kind === "system" ? undefined : m.sender.kind}
-                        content={m.content}
-                      />
-                    ) : (
-                      <>
-                        {extractText(m.content) && (
-                          <MessageBubble
-                            align={isSelf ? "right" : "left"}
-                            name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
-                            kind={m.sender.kind === "system" ? undefined : m.sender.kind}
-                            content={extractText(m.content)}
-                          />
-                        )}
-                        {renderContentBlocks(m.content)}
-                      </>
-                    )}
-                  </div>
-                )}
+                <div style={virt}>
+                  {typeof m.content === "string" ? (
+                    <MessageBubble
+                      align={isSelf ? "right" : "left"}
+                      name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
+                      kind={m.sender.kind}
+                      content={m.content}
+                    />
+                  ) : (
+                    <>
+                      {extractText(m.content) && (
+                        <MessageBubble
+                          align={isSelf ? "right" : "left"}
+                          name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
+                          kind={m.sender.kind}
+                          content={extractText(m.content)}
+                        />
+                      )}
+                      {renderContentBlocks(m.content)}
+                    </>
+                  )}
+                </div>
               </div>
             );
           })}
