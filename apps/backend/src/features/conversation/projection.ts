@@ -2,6 +2,7 @@ import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
   assistantMessageId,
   deserializeLedgerContent,
+  isSucceededMessageState,
   isTerminalMessageState,
   type parseMessageRevision,
   serializeMessageRevision,
@@ -170,7 +171,8 @@ export async function onRunComplete(
     const baseRev =
       acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
     const frameworkSentTerminal = baseRev != null && isTerminalMessageState(baseRev.state);
-    const statusConflict = baseRev?.state === "done" && status !== "succeeded";
+    const statusConflict =
+      baseRev != null && isSucceededMessageState(baseRev.state) && status !== "succeeded";
 
     if (!frameworkSentTerminal || statusConflict) {
       const finalRev: MessageRevision = baseRev

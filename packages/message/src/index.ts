@@ -10,6 +10,7 @@ export {
   extractText,
   humanMessageId,
   isOpenMessageState,
+  isSucceededMessageState,
   isTerminalMessageState,
   mergeMessageRevision,
   systemMessageId,

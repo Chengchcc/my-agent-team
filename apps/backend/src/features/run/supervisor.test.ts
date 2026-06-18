@@ -500,10 +500,11 @@ describe("RunSupervisor reaper (M11)", () => {
     });
     const db = sup.getDb();
     const runId = `r-deg-${Date.now()}`;
-    db.run(
-      "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
-      [runId, "t-deg", Date.now()],
-    );
+    db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
+      runId,
+      "t-deg",
+      Date.now(),
+    ]);
 
     // Sync throw — notifyRunComplete catches it synchronously
     sup.onRunComplete(() => {
@@ -512,9 +513,9 @@ describe("RunSupervisor reaper (M11)", () => {
 
     sup.notifyRunComplete("t-deg", runId, "succeeded", "main");
 
-    const row = db
-      .query("SELECT status, degraded_reason FROM run WHERE run_id = ?")
-      .get(runId) as { status: string; degraded_reason: string | null } | undefined;
+    const row = db.query("SELECT status, degraded_reason FROM run WHERE run_id = ?").get(runId) as
+      | { status: string; degraded_reason: string | null }
+      | undefined;
     expect(row?.degraded_reason).toBe("ledger write failed");
 
     await sup.dispose();

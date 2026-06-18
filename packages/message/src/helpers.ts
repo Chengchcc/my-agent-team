@@ -36,6 +36,12 @@ export function isTerminalMessageState(state: MessageState): boolean {
   return TERMINAL_STATES.has(state);
 }
 
+/** Whether the state means the message succeeded (terminal success, not error).
+ *  Narrower than isTerminalMessageState — only matches "done". */
+export function isSucceededMessageState(state: MessageState): boolean {
+  return state === "done";
+}
+
 // ─── Content codec ────────────────────────────────────────────
 
 /** Extract displayable text from message content (revision or message).

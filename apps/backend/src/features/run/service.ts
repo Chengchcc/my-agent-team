@@ -180,9 +180,7 @@ export function createRunService(deps: RunServiceDeps) {
     },
 
     /** Get run metadata (status, timestamps). */
-    getRunById(
-      runId: string,
-    ): {
+    getRunById(runId: string): {
       runId: string;
       status: string;
       startedAt: number | null;
