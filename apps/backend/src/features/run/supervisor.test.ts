@@ -487,9 +487,40 @@ describe("RunSupervisor reaper (M11)", () => {
     await sup.dispose();
   });
 
-  // ─── P3: lock release on critical failure ───
+  // ─── P2: critical sink failure is VISIBLE (degraded), not swallowed ───
 
-  test("P10: onRunComplete listeners fire even when run_done listener throws", async () => {
+  test("P2: listener failure marks run degraded_reason + emits ops event", async () => {
+    const opsStore = makeTestOpsStore();
+    const sup = new RunSupervisor({
+      eventLog: makeEventLog(),
+      config: makeConfig(),
+      registry: { transportFor: async () => NOOP_TRANSPORT } as never,
+      opsStore,
+      tracer: testTracer,
+    });
+    const db = sup.getDb();
+    const runId = `r-deg-${Date.now()}`;
+    db.run(
+      "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
+      [runId, "t-deg", Date.now()],
+    );
+
+    // Sync throw — notifyRunComplete catches it synchronously
+    sup.onRunComplete(() => {
+      throw new Error("ledger write failed");
+    });
+
+    sup.notifyRunComplete("t-deg", runId, "succeeded", "main");
+
+    const row = db
+      .query("SELECT status, degraded_reason FROM run WHERE run_id = ?")
+      .get(runId) as { status: string; degraded_reason: string | null } | undefined;
+    expect(row?.degraded_reason).toBe("ledger write failed");
+
+    await sup.dispose();
+  });
+
+  test("P2: failing listener does not skip subsequent listeners", async () => {
     const sup = new RunSupervisor({
       eventLog: makeEventLog(),
       config: makeConfig(),
@@ -498,21 +529,16 @@ describe("RunSupervisor reaper (M11)", () => {
       tracer: testTracer,
     });
 
-    const calls: string[] = [];
-    sup.onRunComplete((_tid, _rid, _s, _k) => {
-      calls.push("first");
+    let secondRan = false;
+    sup.onRunComplete(() => {
       throw new Error("boom");
     });
-    sup.onRunComplete((_tid, _rid, _s, _k) => {
-      calls.push("second");
+    sup.onRunComplete(() => {
+      secondRan = true;
     });
 
-    // Trigger via notifyRunComplete (reaper path simulation)
-    sup.notifyRunComplete("t", "r", "interrupted", "main");
-
-    // Both listeners should have been called despite first throwing
-    expect(calls).toContain("first");
-    expect(calls).toContain("second");
+    sup.notifyRunComplete("t", "r", "succeeded", "main");
+    expect(secondRan).toBe(true);
 
     await sup.dispose();
   });

@@ -5,6 +5,10 @@ export interface RunRow {
   status: "running" | "succeeded" | "error" | "aborted" | "interrupted";
   startedAt: number;
   endedAt: number | null;
+  /** P2: non-null when the critical projection sink (ledger terminal write)
+   *  failed for this run. The run status remains authoritative; this flags
+   *  that the conversation ledger may be missing the terminal assistant message. */
+  degradedReason?: string | null;
 }
 
 /** Physical attempt — one per subprocess fork. */

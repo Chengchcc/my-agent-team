@@ -182,12 +182,26 @@ export function createRunService(deps: RunServiceDeps) {
     /** Get run metadata (status, timestamps). */
     getRunById(
       runId: string,
-    ): { runId: string; status: string; startedAt: number | null; endedAt: number | null } | null {
+    ): {
+      runId: string;
+      status: string;
+      startedAt: number | null;
+      endedAt: number | null;
+      degradedReason: string | null;
+    } | null {
       const db = supervisor.getDb();
       const row = db
-        .query("SELECT run_id, status, started_at, ended_at FROM run WHERE run_id = ?")
+        .query(
+          "SELECT run_id, status, started_at, ended_at, degraded_reason FROM run WHERE run_id = ?",
+        )
         .get(runId) as
-        | { run_id: string; status: string; started_at: number; ended_at: number | null }
+        | {
+            run_id: string;
+            status: string;
+            started_at: number;
+            ended_at: number | null;
+            degraded_reason: string | null;
+          }
         | undefined;
       if (!row) return null;
       return {
@@ -195,6 +209,7 @@ export function createRunService(deps: RunServiceDeps) {
         status: row.status,
         startedAt: row.started_at,
         endedAt: row.ended_at,
+        degradedReason: row.degraded_reason,
       };
     },
   };

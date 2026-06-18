@@ -122,6 +122,11 @@ export const EVENTS_DB_MIGRATIONS = [
       PRIMARY KEY (agent_id, surface)
     )`,
   },
+  {
+    name: "events_v12_run_degraded_reason",
+    id: 3011,
+    up: `ALTER TABLE run ADD COLUMN degraded_reason TEXT`,
+  },
 ];
 
 export function runEventsDbMigrations(db: Database): void {

@@ -154,6 +154,46 @@ export class RunSupervisor {
     return result > 0;
   }
 
+  /** P2: mark a run as degraded when the critical projection sink failed.
+   *  Independent column — does NOT touch run.status (execution result stays
+   *  authoritative). Idempotent: only writes the first failure reason. */
+  #markProjectionDegraded(runId: string, attemptId: string | null, err: unknown): void {
+    const reason = err instanceof Error ? err.message : String(err);
+    this.#db.run(
+      "UPDATE run SET degraded_reason = ? WHERE run_id = ? AND degraded_reason IS NULL",
+      [reason, runId],
+    );
+    this.#opts.opsStore.appendRunEvent({
+      runId,
+      attemptId: attemptId ?? undefined,
+      kind: "projection_degraded",
+      payload: { reason },
+    });
+    console.error(
+      `[supervisor] run ${runId} marked DEGRADED: critical projection failed: ${reason}`,
+    );
+  }
+
+  /** P2 + P3: run the critical onRunComplete listeners (ledger terminal write +
+   *  lock release). Each listener is awaited (critical sink). A failure is made
+   *  VISIBLE via #markProjectionDegraded instead of being swallowed — but does
+   *  not abort the loop, so remaining listeners (e.g. lock release) still run. */
+  async #runCompletionListeners(
+    threadId: string,
+    runId: string,
+    attemptId: string | null,
+    status: string,
+    kind: string,
+  ): Promise<void> {
+    for (const fn of this.#onRunComplete) {
+      try {
+        await fn(threadId, runId, status, kind);
+      } catch (err) {
+        this.#markProjectionDegraded(runId, attemptId, err);
+      }
+    }
+  }
+
   async #reapStaleRuns(): Promise<boolean> {
     // JOIN attempt with run to get thread_id for EventLog append
     const rows = this.#db
@@ -204,17 +244,14 @@ export class RunSupervisor {
         // EventLog append is best-effort for reaper
       }
 
-      // P2: onRunComplete is AWAITED — critical sink (ledger terminal write).
-      for (const fn of this.#onRunComplete) {
-        try {
-          await fn(row.thread_id, row.run_id, "interrupted", row.kind);
-        } catch (err) {
-          console.error(
-            `[supervisor] reaper onRunComplete failed for ${row.run_id}:`,
-            err instanceof Error ? err.message : String(err),
-          );
-        }
-      }
+      // P2: critical sink — failures are made visible (run marked degraded), not swallowed.
+      await this.#runCompletionListeners(
+        row.thread_id,
+        row.run_id,
+        row.attempt_id,
+        "interrupted",
+        row.kind,
+      );
 
       console.log(
         `[supervisor] reaped stale run: ${row.run_id} (heartbeat age ${age}ms > timeout ${this.#opts.config.heartbeatTimeoutMs}ms)`,
@@ -254,16 +291,14 @@ export class RunSupervisor {
   }
 
   /** M16.1: Trigger all onRunComplete listeners. Used by ops service recover() stale path.
-   *  Each listener individually caught — one failure doesn't skip others. */
+   *  Each listener individually caught — one failure doesn't skip others.
+   *  Failure is made visible via degraded_reason (same as #runCompletionListeners). */
   notifyRunComplete(threadId: string, runId: string, status: string, kind: string): void {
     for (const fn of this.#onRunComplete) {
       try {
         fn(threadId, runId, status, kind);
       } catch (err) {
-        console.error(
-          `[supervisor] notifyRunComplete listener failed for ${runId}:`,
-          err instanceof Error ? err.message : String(err),
-        );
+        this.#markProjectionDegraded(runId, null, err);
       }
     }
   }
@@ -576,19 +611,15 @@ export class RunSupervisor {
             attemptId: session?.attemptId,
             kind: "run_finalized_sent",
           });
-          // P2: onRunComplete is AWAITED — critical sink (ledger terminal write).
-          // P1: run_finalized already sent, so await doesn't block control signal.
-          // Each listener is individually caught so one failure doesn't skip others.
-          for (const fn of this.#onRunComplete) {
-            try {
-              await fn(threadId, runId, status, kind);
-            } catch (err) {
-              console.error(
-                `[supervisor] onRunComplete listener failed for ${runId}:`,
-                err instanceof Error ? err.message : String(err),
-              );
-            }
-          }
+          // P2: critical sink — failures are made visible (run marked degraded), not swallowed.
+          // P1: run_finalized already sent above, so awaiting here doesn't block the control signal.
+          await this.#runCompletionListeners(
+            threadId,
+            runId,
+            session?.attemptId ?? null,
+            status,
+            kind,
+          );
         } else {
           console.log(
             `[supervisor] run_done skipped — run ${runId} already finalized (reaper beat daemon)`,

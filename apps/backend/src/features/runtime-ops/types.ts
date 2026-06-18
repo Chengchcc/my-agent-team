@@ -10,6 +10,7 @@ export type RunOpsEventKind =
   | "reattach_succeeded"
   | "reattach_failed"
   | "reaper_marked_interrupted"
+  | "projection_degraded" // P2: critical sink (ledger terminal write) failed
   | "recover_requested"
   | "retry_requested"
   | "retry_started";
