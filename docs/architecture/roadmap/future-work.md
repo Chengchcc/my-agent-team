@@ -9,6 +9,8 @@ depends_on:
   - backend.conversation-projection
   - surfaces.lark-adapter
   - runtime.framework
+  - backend.orchestrator
+  - foundations.issue
 used_by:
 ---
 
@@ -24,9 +26,11 @@ used_by:
 
 > 以下为方向性条目，不代表已实现；落地前请以对应当前状态页为准。
 
-- **更细的投影可见性策略**　当前会话投影按「message 是否对话可见」做判断。未来可在此基础上引入更细的可见性规则（按成员、按事件子类型），但任何扩展都应保持「EventLog 先于投影」「账本为唯一事实」这两条不变式。依赖：[会话投影](../backend/conversation-projection.md)、[事实与投影](../foundations/facts-and-projections.md)。
+- **更细的投影可见性策略**　当前 assistant 消息经 `onRunMessage` 直写账本，投影桥只做 best-effort 扇出。未来可引入更细的可见性规则（按成员、按事件子类型），但任何扩展都应保持「assistant 消息与人类消息同一入口直写账本」「账本为唯一对话事实」这两条不变式。依赖：[会话投影](../backend/conversation-projection.md)、[事实与投影](../foundations/facts-and-projections.md)。
 - **端去重的统一化**　飞书侧的 `canSkipFinalLedgerText` 解决了终稿重发与首投必发的张力。若未来接入更多端，可考虑把「端去重」抽象成各适配器共享的一层，而非每个端各写一套。依赖：[飞书适配器](../surfaces/lark-adapter.md)。
 - **恢复语义的强化**　checkpointer 的 saveInterrupt / consumeInterrupt 已支撑中断恢复。可进一步明确多次中断、反思分叉（`reflect:<threadId>`）与主线恢复之间的交互边界。依赖：[Framework 运行循环](../runtime/framework.md)、[常驻 Runner](../runner/resident-runner.md)。
+- **可配置编排引擎**　[Orchestrator](../backend/orchestrator.md) 当前是一张固定线性转移表（计划中→开发中→待 Review→已完成）。未来可让转移从「写死的常量」长成「可配置」——条件分支、并行 fork/join 等。落地时应在**同一个 Orchestrator 名字下**替换转移表的形态，而非新增概念；引入新机制（DAG 节点/边/上下文传递）前先确认存在真实的多形态需求，避免过度设计。依赖：[Orchestrator](../backend/orchestrator.md)、[Issue](../foundations/issue.md)。
+- **@提及收编进编排**　现状里 @提及自动触发（`onRunComplete` 扫描文本 → `forkAgentRuns`）和 Orchestrator 的状态机推进是两套驱动。未来可把对话内的 @提及招呼也统一交给编排器调度，让「下一步谁干」只有一个权威来源。依赖：[Orchestrator](../backend/orchestrator.md)、[对话与成员](../conversation/conversation-and-members.md)。
 
 ## 处理原则
 

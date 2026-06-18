@@ -3,7 +3,7 @@ id: backend.run-supervisor
 title: RunSupervisor
 status: current
 owners: backend-runtime
-last_verified_against_code: 2026-06-17
+last_verified_against_code: 2026-06-18
 summary: "RunSupervisor（apps/backend/src/features/run/supervisor.ts）是后端里运行与尝试生命周期的唯一拥有者。新增 `onRunMessage` 回调（assistant 消息直写账本的 critical 路径）。`run_finalized` 控制信号优先于业务 listener 发出。reaper 与 run_done 经同一 `finalizeRun` 入口完成运行。"
 depends_on:
   - runner.runner-protocol
@@ -73,7 +73,7 @@ case "run_done": {
 | 操作 | 输入 | 输出 |
 |---|---|---|
 | start | AgentSpec, threadId, agentId | run 行、attempt 行、向 Runner 发 start |
-| event | Runner 传输事件 | EventLog 行，随后可能触发投影 → ConversationMessageRevision 写进账本 SSE |
+| event | Runner 传输事件 | message 事件经 `onRunMessage` 直写账本（ConversationMessageRevision → 账本 SSE）；非消息事件写 EventLog 行 |
 | delta | Runner 流式 delta | 内部 SSE（`subscribeDelta`，仅供后端日志/运维消费；不再暴露 HTTP 路由给端） |
 | heartbeat | Runner 心跳 | 更新 attempt 心跳时间 |
 | run_done | Runner 终态消息 | 更新 run 状态、跑完成钩子、发 run_finalized |
@@ -108,15 +108,16 @@ stateDiagram-v2
 
 ## 失败模式
 
-- EventLog append 失败：事件不算持久，run 不被当成完成（异常上抛）。
-- `onRunEvent` 监听器失败：当前只记日志继续，投影可能丢失。
-- 完成钩子卡住：`run_finalized` 延迟下发。
+- `onRunMessage` 直写账本失败：assistant 消息不算持久，run 标记为 error（异常上抛）。
+- EventLog append 失败（非消息事件）：事件不算持久，run 不被当成完成（异常上抛）。
+- `onRunEvent` 监听器失败：当前只记日志继续，扇出/todo 累积可能丢失（不影响事实）。
+- 完成钩子卡住：`run_finalized` 已先于业务 listener 发出，不受影响。
 - 心跳僵死：收割器把运行置为 interrupted。
 - `service.eventStream` 注册的 `onRunComplete(onDone)` 在 finally 里没注销，每个事件 SSE 连接都会让监听器数组增长（已知泄漏）。
 
 ## 当前缺口
 
-- `onRunEvent` 的投影已通过 `projectionChain` 串行但仍在事件路径里；应挪进独立持久队列提升容错。
+- assistant 消息直写已去掉 `projectionChain`；终端修订与扇出仍在 `onRunComplete`/`onRunMessage` 监听器路径里，若要更强容错可挪进独立持久队列。
 - 收割器只看心跳，做不到「步骤级」僵死检测。
 - run 状态名应在后端与 Web 之间统一（Web 用 `idle/running/interrupted/done/error`）。
 

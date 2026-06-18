@@ -3,8 +3,8 @@ id: flows.e2e-lark-message
 title: 飞书消息端到端
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-16
-summary: "这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、sse-watcher 解析 ConversationMessageRevision，到最终文本去重。不再有 run-delta-watcher 和流式卡片——sse-watcher 是唯一出站流入口。"
+last_verified_against_code: 2026-06-18
+summary: "这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、onRunMessage 直写账本、sse-watcher 解析 ConversationMessageRevision，到最终文本去重。不再有 run-delta-watcher 和流式卡片——sse-watcher 是唯一出站流入口。"
 depends_on:
   - surfaces.lark-adapter
   - backend.conversation-projection
@@ -13,7 +13,7 @@ used_by:
 
 # 飞书消息端到端
 
-这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、sse-watcher 解析 ConversationMessageRevision，到最终文本去重。不再有 run-delta-watcher 和流式卡片——sse-watcher 是唯一出站流入口。
+这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、onRunMessage 直写账本、sse-watcher 解析 ConversationMessageRevision，到最终文本去重。不再有 run-delta-watcher 和流式卡片——sse-watcher 是唯一出站流入口。
 
 ## 时序图
 
@@ -25,8 +25,7 @@ sequenceDiagram
   participant S as RunSupervisor
   participant D as Runner
   participant E as EventLog
-  participant P as 投影
-  participant L as 飞书
+  participant L as 账本
 
   U->>Bot: 发消息 / @机器人
   Bot->>B: 解析 chat 绑定（无则建会话）
@@ -35,17 +34,19 @@ sequenceDiagram
   B->>S: 触发 Agent
   S->>D: start(AgentSpec)
   D->>S: event(message)
-  S->>E: append EventLog
-  S->>P: 投影 → ConversationMessageRevision（state: streaming）
-  P-->>Bot: 账本 SSE → sse-watcher 解析 revision
+  S->>L: onRunMessage 直写 ConversationMessageRevision（state: streaming）
+  L-->>Bot: 账本 SSE → sse-watcher 解析 revision
   Bot->>Bot: revision.state === "streaming" → 渲染流式文本
   D->>S: event(message)（更多轮）
-  P-->>Bot: 更多 revision（同 messageId，state: streaming）
+  S->>L: 更多直写（同 messageId，state: streaming）
+  L-->>Bot: 账本 SSE → 同 messageId
+  D->>S: event(tool_start/tool_end)（非消息）
+  S->>E: append EventLog（仅非消息事件）
   D->>S: run_done
-  S->>P: onRunComplete → terminal revision
-  P-->>Bot: revision（同 messageId，state: done）
+  S->>L: onRunComplete → 写 terminal revision（state: done）
+  L-->>Bot: 账本 SSE → revision（同 messageId，state: done）
   Bot->>Bot: canSkipFinalLedgerText?
-  Bot->>L: 不能跳过则发最终文本
+  Bot->>U: 不能跳过则发最终文本
 ```
 
 ## 绑定模型

@@ -1,6 +1,6 @@
 import { deserializeLedgerContent, extractText } from "@my-agent-team/message";
-import type { Conversation } from "./member.js";
 import type { LedgerEntry } from "./ledger.js";
+import type { Conversation } from "./member.js";
 
 // ─── projectForMember ───────────────────────────────────────
 

@@ -51,6 +51,15 @@ used_by:
 4. [对话账本](./conversation/ledger.md)
 5. [飞书消息端到端](./flows/e2e-lark-message.md)
 
+### 想搞懂 Issue 与协作编排
+
+> 这条路线上的页面是 `status: design`——已锁定但尚未进代码的设计，不是现状。
+
+1. [Issue](./foundations/issue.md)
+2. [Orchestrator](./backend/orchestrator.md)
+3. [Issue 生命周期端到端](./flows/e2e-issue-lifecycle.md)
+4. [对话与成员](./conversation/conversation-and-members.md)（被取代的 @提及自动触发）
+
 ## 给 LLM 的入口
 
 - [LLM 索引](./index.llm.md)：按问题类型给出「先读这几页」的路由。

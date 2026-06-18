@@ -3,7 +3,7 @@ id: backend.overview
 title: 后端总览
 status: current
 owners: backend-runtime
-last_verified_against_code: 2026-06-16
+last_verified_against_code: 2026-06-18
 summary: "后端（apps/backend）是整个系统的事实持有者：它拥有 agents、对话、成员、运行、事件、账本和投影。它对外是一组 HTTP/SSE 接口，对内由几个相互独立的 feature 模块组成，存储分成 backend.db 和 events.db 两个库。"
 depends_on:
 used_by:
@@ -28,7 +28,7 @@ used_by:
 | `agent` | Agent 注册与配置 | agents 表 |
 | `lark-bot` | 后端侧飞书绑定与触发 | 见 [飞书适配器](../surfaces/lark-adapter.md) |
 
-`apps/backend/src/main.ts` 是组合根：它把这些 service 接起来，并在这里**注册会话投影**（`supervisor.onRunEvent(...)`）和完成钩子（`supervisor.onRunComplete(...)`），把 `maxConsecutiveAgentHops` 设为 8。
+`apps/backend/src/main.ts` 是组合根：它把这些 service 接起来，并在这里注册 **assistant 消息直写**（`supervisor.onRunMessage(...)`，critical, awaited）、**best-effort 扇出/todo 累积**（`supervisor.onRunEvent(...)`）和完成钩子（`supervisor.onRunComplete(...)`），把 `maxConsecutiveAgentHops` 设为 8。
 
 ## 两个库的分工
 
@@ -61,8 +61,8 @@ flowchart TB
 1. `conversation/http.ts` 收到 `POST /api/conversations/:id/messages`，把人的消息 `appendLedgerEntry` 进账本。
 2. Conversation Service 按触发模式（`mention`/`all`）、`addressedTo`、锁与跳数，决定要 fork 哪些 Agent 运行。
 3. 对每个目标成员，`deriveThreadId(conversationId, memberId)` 得到 thread，从对话账本按 memberId 构建 `preloadedMessages`（`buildPreloadedMessages`），交给 `RunSupervisor.startMainRun`。
-4. Runner 回传事件，`RunSupervisor` 写 EventLog，再触发会话投影写回账本。
-5. `run_done` 时跑 `onRunComplete`：放锁、todo 快照、消费累进的 @提及（`RunAccumulator` 在 `onRunEvent` tick 期间增量收集，不再批量扫描 EventLog）。
+4. Runner 回传事件，`RunSupervisor` 按类型分流：`message` 事件经 `onRunMessage` 直写账本（不进 EventLog），其它事件才写 EventLog。
+5. `run_done` 时跑 `onRunComplete`：写终端修订、放锁、todo 快照、消费累进的 @提及（`RunAccumulator` 在 `onRunMessage` 终端修订上增量收集，不再批量扫描 EventLog）。
 
 ## 关联页面
 

@@ -6,14 +6,17 @@
 - `docs/architecture/backend/conversation-projection.md`
 - `docs/architecture/backend/data-model.md`
 - `docs/architecture/backend/event-log.md`
+- `docs/architecture/backend/orchestrator.md`
 - `docs/architecture/backend/overview.md`
 - `docs/architecture/backend/run-supervisor.md`
 - `docs/architecture/concepts.json`
 - `docs/architecture/conversation/conversation-and-members.md`
 - `docs/architecture/conversation/ledger.md`
+- `docs/architecture/flows/e2e-issue-lifecycle.md`
 - `docs/architecture/flows/e2e-lark-message.md`
 - `docs/architecture/flows/e2e-web-message.md`
 - `docs/architecture/foundations/facts-and-projections.md`
+- `docs/architecture/foundations/issue.md`
 - `docs/architecture/foundations/lifecycle-overview.md`
 - `docs/architecture/harness/harness.md`
 - `docs/architecture/index.llm.md`

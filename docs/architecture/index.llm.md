@@ -2,6 +2,8 @@
 
 当一个 LLM 需要回答关于 `my-agent-team` 架构的问题时，先读这个文件，再按下面的「问题类型 → 该读哪几页」去取对应正文。每一页正文都基于真实代码撰写，frontmatter 里的 `summary` 与 `depends_on` / `used_by` 可用于快速判断相关性。
 
+> 例外：`status: design` 的页面描述的是**已锁定但尚未进代码**的设计抽象（如 `foundations/issue.md`、`backend/orchestrator.md`）。回答现状问题时不要把它们当成当前行为；可凭 frontmatter 的 `status` 字段区分。
+
 ## 如果问的是整个系统怎么运转
 
 1. `system-overview.md`
@@ -57,6 +59,15 @@
 1. `security/overview.md`
 2. `runner/agent-file-system.md`
 3. `conversation/conversation-and-members.md`
+
+## 如果问的是 Issue / 看板 / 多 Agent 协作编排
+
+> 以下页面 `status: design`，是已锁定但**尚未进代码**的设计，不要当成当前行为。
+
+1. `foundations/issue.md`
+2. `backend/orchestrator.md`
+3. `flows/e2e-issue-lifecycle.md`
+4. `conversation/conversation-and-members.md`（现状的 @提及自动触发，被 Orchestrator 取代）
 
 ## 如果问的是未来方向
 

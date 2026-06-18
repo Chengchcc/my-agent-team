@@ -2,11 +2,11 @@
 
 `my-agent-team` 是一个用 TypeScript + Bun 写的多智能体协作运行时。它要解决的核心问题是：当一个对话里同时坐着「人」和「多个 Agent」，而且对话要在 Web 和飞书两个端上同时可见、Agent 又是在独立进程里异步执行时，怎么让所有人看到一致、不丢、不重的对话历史。
 
-整个仓库围绕一条主线展开：**把「对话事实」和「运行事实」彻底分开，再用一座单向的桥把后者投影到前者。**
+整个仓库围绕一条主线展开：**把「对话事实」和「运行事实」彻底分开——assistant 消息直写对话账本，运行内部的执行细节单独进事件日志。**
 
-- **对话账本（Conversation Ledger）** 记录一个共享对话里发生了什么——谁说了什么、@了谁。这是人能看到的历史。
-- **事件日志（EventLog）** 记录一次 Agent 运行内部发生了什么——调了哪个模型、用了哪个工具、什么时候被中断。这是排障用的执行流水。
-- **会话投影（Conversation Projection）** 是后端独占的那座桥：它在运行产出 `message` 事件、且事件已写进 EventLog 之后，挑出「对话可见」的那部分，包上 `runId` 写进账本，并广播进每个成员各自的线程投影。
+- **对话账本（Conversation Ledger）** 记录一个共享对话里发生了什么——谁说了什么、@了谁。这是人能看到的历史，也是对话消息的唯一事实来源。
+- **事件日志（EventLog）** 记录一次 Agent 运行内部发生了什么——调了哪个模型、用了哪个工具、什么时候被中断。这是排障用的执行流水，只含非消息的执行事件。
+- **会话投影（Conversation Projection）** 是后端独占的那座桥：`message` 事件经 `RunSupervisor.onRunMessage` 直接写进账本（不经 EventLog），与人类消息共用同一条 `appendLedgerEntry` 入口；投影桥现在只做 best-effort 扇出（broadcast 给前端、ops 记录）和运行结束时的终端修订收尾。
 - **常驻 Runner** 只负责执行 Agent、上报事件，它不知道对话语义、不知道飞书的去重规则。
 - **Web 和飞书** 只是「端」：它们渲染账本、采集输入，但都不是事实来源。
 
@@ -16,13 +16,11 @@
 flowchart LR
   Web[Web 控制台] --> Backend[Backend 团队运行时]
   Lark[飞书 Bot] --> Backend
-  Backend --> Ledger[(对话账本)]
-  Backend --> EventLog[(事件日志)]
+  Backend -->|assistant 消息 onRunMessage 直写| Ledger[(对话账本)]
+  Backend -->|非消息执行事件| EventLog[(事件日志)]
   Backend <--> Runner[常驻 Runner]
   Runner --> Framework[Framework Agent]
   Framework --> AFS[Agent 文件系统]
-  EventLog --> Projection[会话投影]
-  Projection --> Ledger
   Ledger --> Web
   Ledger --> Lark
 ```

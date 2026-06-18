@@ -3,8 +3,8 @@ id: architecture.system-overview
 title: 系统总览
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-16
-summary: "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。对话账本是共享的对话事实，EventLog 是单次运行的执行事实，会话投影以 ConversationMessageRevision 信封（按 messageId 修订）把执行事实单向桥接到对话事实，对话账本 SSE 是用户可见输出的唯一通道。"
+last_verified_against_code: 2026-06-18
+summary: "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。assistant 消息经 RunSupervisor.onRunMessage 直写对话账本（与人类消息同一入口），非消息执行事件单独进 EventLog；会话投影只做 best-effort 扇出（broadcast/ops）。对话账本 SSE 是用户可见输出的唯一通道。"
 depends_on:
   - foundations.facts-and-projections
 used_by:
@@ -14,7 +14,7 @@ used_by:
 
 # 系统总览
 
-整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。对话账本是共享的对话事实，EventLog 是单次运行的执行事实，会话投影以 `ConversationMessageRevision` 信封（按 `messageId` 修订，state=streaming→done/error）把执行事实单向桥接到对话事实——对话账本 SSE 是用户可见输出的唯一通道。
+整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。assistant 消息经 `RunSupervisor.onRunMessage` 直写对话账本（与人类消息共用同一条 `appendLedgerEntry` 入口），非消息执行事件（tool_start/tool_end/text_delta）单独进 EventLog；会话投影桥降级为 best-effort 扇出（broadcast 给前端、ops 记录）。对话账本 SSE 是用户可见输出的唯一通道。
 
 ## 这套架构在解决什么问题
 
@@ -39,7 +39,6 @@ flowchart TB
     API[HTTP/SSE 路由]
     Conv[Conversation Service]
     Sup[RunSupervisor]
-    Proj[会话投影 projectRunMessageToLedger]
     Ops[运行可观测性]
   end
 
@@ -60,14 +59,12 @@ flowchart TB
   API --> Conv
   API --> Sup
   Conv --> BDB
-  Sup --> EDB
+  Sup -->|onRunMessage 直写 assistant 消息| Conv
+  Sup -->|非消息执行事件| EDB
   Sup <--> Daemon
   Daemon --> Agent
   Agent --> CKPT
   Agent --> AFS
-  Sup --> Proj
-  Proj --> Conv
-  Proj --> BDB
   BDB --> Web
   BDB --> Lark
 ```
@@ -93,7 +90,6 @@ sequenceDiagram
   participant L as 对话账本
   participant R as Runner
   participant E as EventLog
-  participant P as 会话投影
 
   H->>S: 发消息
   S->>B: POST 会话消息
@@ -102,25 +98,26 @@ sequenceDiagram
   B->>R: 下发 start(AgentSpec)
   R->>B: 每 5s 心跳 + delta (内部)
   R->>B: event(type=message)
-  B->>E: 先把事件写进 EventLog
-  B->>P: 写成功后 onRunEvent → 串进 projectionChain
-  P->>L: appendLedgerEntry(ConversationMessageRevision, state=streaming)
+  B->>L: onRunMessage 直写 appendAssistantMessage(state=streaming)
   L-->>S: 会话 SSE 推给端（按 messageId upsert）
+  R->>B: event(其它类型 tool_start/tool_end…)
+  B->>E: 非消息事件写进 EventLog
   R->>B: run_done(status)
-  B->>B: await projectionChain → 写 done/error 修订 → 放锁/快照/扫@
+  B->>L: onRunComplete 写 done/error 终端修订
+  B->>B: 放锁/快照/扫@ (best-effort)
   B->>R: run_finalized
 ```
 
 关键点：
 
-1. **EventLog 先写、投影后跑。** 在 `RunSupervisor` 的 `"event"` 分支里，`eventLog.append(...)` 成功之后才串入 `projectionChain`；append 失败会抛出、阻止 run 被当成完成，而监听器（投影）失败只记日志、不影响运行。
-2. **投影通过 projectionChain 串行，onRunComplete await 后写终端修订。** `projectionChain` 是 `RunAccumulator` 上的一条 Promise 链，保证同一 `messageId` 的 streaming/done/error 修订有序。`onRunComplete` 先 `await projectionChain`，再写 state=done/error 的最终修订关闭消息。
+1. **消息直写账本、非消息进 EventLog。** 在 `RunSupervisor` 的 `"event"` 分支里，`message` 事件经 `onRunMessage`（critical, awaited）直接 `appendAssistantMessage` 写进账本；其它事件才走 `eventLog.append(...)`。直写失败会抛出、把 run 标记为 error；而 `onRunEvent` 扇出失败只记日志、不影响运行。
+2. **终端修订由 onRunComplete 直接写账本。** assistant 消息从 streaming 到 done/error 是同一 `messageId` 的多次直写。`onRunComplete` 取该 run 的最新 assistant revision 作为 base，写 state=done/error 的终端修订关闭消息——base 可从账本重建，不依赖进程内存。已删除 `projectionChain` / `projectRunMessageToLedger`。
 3. **对话账本 SSE 是用户可见输出的唯一通道。** `delta` 信道（text_delta/tool_start/tool_end）仍存在于 Runner→Host 协议中，但仅限后端内部（日志/运维）通过 `subscribeDelta()` 消费；`/runs/:id/events` 和 `/runs/:id/stream` HTTP 路由已删除，Web/飞书统一通过对话账本 SSE 接收所有用户可见更新。
 
 ## 当前实现的几条边界
 
-- EventLog 由后端 `RunSupervisor` 在收到 Runner 传输事件后追加；Runner 不直接打开 EventLog 库。
-- 会话投影 `projectRunMessageToLedger` 在 `apps/backend/src/main.ts` 里通过 `projectionChain` 串行写入 `ConversationMessageRevision` 信封（messageId, state=streaming/done/error）；`onRunComplete` await projectionChain 后写入最终 done/error 修订，再做放锁、todo 快照、@提及扫描。
+- EventLog 由后端 `RunSupervisor` 在收到 Runner 传输的**非消息**事件后追加；Runner 不直接打开 EventLog 库，message 事件根本不进 EventLog。
+- assistant 消息在 `apps/backend/src/main.ts` 的 `onRunMessage` 回调里经 `appendAssistantMessage` 直写 `ConversationMessageRevision` 信封（messageId, state=streaming/done/error），与人类消息共用同一条 `appendLedgerEntry` 入口；`onRunComplete` 取最新 assistant revision 写入最终 done/error 修订，再做放锁、todo 快照、@提及扫描。会话投影桥只剩 best-effort 扇出（broadcast/ops）。
 - Runner 本地的 `checkpointer.sqlite` 是给 Agent 执行恢复用的；后端侧的线程投影（`checkpoint_messages` 表）是给「下次运行前把对话喂给 Agent」用的——两者同名易混，但用途不同。
 - Web/飞书统一消费对话账本 SSE，按 `messageId` upsert 到同一个气泡/卡片中。不再有独立的 `/runs/:id/events` 或 `/runs/:id/stream` 连接。
 - delta 信道（text_delta/tool_start/tool_end）仅限后端内部日志/运维消费，不直接暴露给端。
@@ -130,7 +127,7 @@ sequenceDiagram
 1. 对话事实与运行事实分属两类，互不充当对方。
 2. 端可以展示数据，但不能成为事实来源。
 3. Runner 执行 AgentSpec、上报事件，它不决定对话语义。
-4. 从「运行消息」变成「对话可见消息」，只能经由会话投影这一座桥。
+4. assistant 消息与人类消息经同一入口（`appendLedgerEntry`）写进账本，账本是对话消息的唯一事实来源；EventLog 只含非消息执行细节。
 5. 线程投影可以从账本重建；账本不能从线程投影重建。
 
 ## 例子：Agent 在 Web 里回答一句话
@@ -138,17 +135,17 @@ sequenceDiagram
 1. 用户在 Web 发「总结一下这个仓库」。
 2. 后端把用户消息（`ConversationMessageRevision`, state=done）追加进账本。
 3. 触发逻辑启动目标 Agent 成员的运行。
-4. Agent 开始流式产出，Runner 上发 event 事件；投影生成 state=streaming 的修订信封，经 projectionChain 写入账本。
+4. Agent 开始流式产出，Runner 上发 message 事件；`onRunMessage` 把 state=streaming 的修订信封直写账本。
 5. 对话账本 SSE 推修订给 Web；Web 按 `messageId` upsert 进气泡，实时刷新内容。
 6. Runner 发出 `run_done`（succeeded）。
-7. `onRunComplete` await projectionChain 后写入 state=done 修订，关闭该消息。
+7. `onRunComplete` 取最新 assistant revision 写入 state=done 修订，关闭该消息。
 8. Web 收到 done 修订，标记气泡为最终态。
 
 ## 当前缺口
 
 - 端侧按 messageId upsert 的「终态优先」语义需加固——若因网络延迟在 done/error 后收到旧的 streaming 修订，端应忽略。
-- 投影仍在 `onRunEvent` 监听器路径里（虽已用 `projectionChain` 串行），应挪进独立持久队列提升容错与可重试性。
-- 部分旧文档/接口可能残留 `/runs/:id/events`、`/runs/:id/stream`、`mergedStream` 等已删除路由/方法的引用；本 Wiki 一律以当前代码行为准。
+- assistant 消息直写已去掉 `projectionChain`，但终端修订与扇出仍在 `onRunComplete`/`onRunMessage` 监听器路径里；若要更强的容错与可重试性，可挪进独立持久队列。
+- 部分旧文档/接口可能残留 `/runs/:id/events`、`/runs/:id/stream`、`mergedStream`、`projectRunMessageToLedger` 等已删除路由/方法的引用；本 Wiki 一律以当前代码行为准。
 
 ## 关联页面
 

@@ -75,10 +75,10 @@ AgentSpec 描述的是「这个 Agent 是什么、用什么模式跑」（run / 
 
 这是协议里最容易混淆的一对：
 
-- `event` 是**会被持久化**的事实候选。后端收到后按顺序写入 EventLog，再由投影判断是否对话可见。
-- `delta` 是**流式片段**（`text_delta` / `reasoning_delta` / `tool_start` / `tool_end`），由 `RunSupervisor.#pushEphemeral` 纯内存分发。**M17 后 delta 不再流向 Web/飞书**——`/runs/:id/events` 和 `/runs/:id/stream` HTTP 路由已删除。delta 信道仅保留供后端内部（日志、运维调试）通过 `subscribeDelta()` 消费。用户可见的流式更新全部由会话投影生成 `ConversationMessageRevision`（state=streaming），经对话账本 SSE 推送——端按 `messageId` upsert 到同一个气泡/卡片里，流式结束（run_done）后投影写入 state=done/error 关闭消息。
+- `event` 是**会被持久化**的事实候选。后端收到后按类型分流：`message` 事件经 `onRunMessage` 直写对话账本，其它事件（tool_start/tool_end 等）写入 EventLog。
+- `delta` 是**流式片段**（`text_delta` / `reasoning_delta` / `tool_start` / `tool_end`），由 `RunSupervisor.#pushEphemeral` 纯内存分发。**M17 后 delta 不再流向 Web/飞书**——`/runs/:id/events` 和 `/runs/:id/stream` HTTP 路由已删除。delta 信道仅保留供后端内部（日志、运维调试）通过 `subscribeDelta()` 消费。用户可见的流式更新全部由 `onRunMessage` 直写 `ConversationMessageRevision`（state=streaming），经对话账本 SSE 推送——端按 `messageId` upsert 到同一个气泡/卡片里，流式结束（run_done）后 `onRunComplete` 写入 state=done/error 关闭消息。
 
-理解这点就能理解一个关键不变式：**EventLog 的 append 一定发生在 onRunEvent 回调之前**——先把事实钉死，再触发下游投影（含增量 streaming 修订推送）。
+理解这点就能理解一个关键不变式：**message 事件经 `onRunMessage`（critical, awaited）直写账本，非消息事件经 `eventLog.append` 写入 EventLog**——两类事实物理分离，写成功才算持久。
 
 ## 收尾握手：run_done → run_finalized
 

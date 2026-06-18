@@ -3,7 +3,7 @@ id: foundations.lifecycle-overview
 title: 一次运行的生命周期
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-16
+last_verified_against_code: 2026-06-18
 summary: "这一页把一次 Agent 运行从「被发起」到「彻底收尾」串成一条时间线，标出每个阶段由谁负责、产出什么事实、触发什么投影。它是理解后端、Runner、Framework、各端如何咬合的总览——具体每一段的细节都另有专页，这里只给骨架和顺序。"
 depends_on:
   - foundations.facts-and-projections
@@ -29,11 +29,13 @@ sequenceDiagram
   后端->>Runner: start（携带 preloadedMessages）
   Runner->>FW: 进入 runLoop
   FW-->>Runner: AgentEvent（message/tool/delta...）
-  Runner-->>后端: event（先写 EventLog）
-  后端->>后端: 会话投影：message→账本→线程投影
-  后端-->>端: 广播投影 / SSE
+  Runner-->>后端: event(type=message)
+  后端->>后端: onRunMessage 直写账本（appendAssistantMessage）
+  Runner-->>后端: event(其它类型 tool/delta)
+  后端->>后端: 非消息事件写 EventLog
+  后端-->>端: 账本 SSE / best-effort 扇出
   Runner-->>后端: run_done(终态)
-  后端->>后端: 收尾(更新状态→关订阅→出#active→await onRunComplete)
+  后端->>后端: 收尾(更新状态→关订阅→出#active→await onRunComplete 写终端修订)
   后端-->>Runner: run_finalized
 ```
 
@@ -43,7 +45,7 @@ sequenceDiagram
 
 **2. 执行**　Runner 进入 Framework 的 `runLoop`，一步步推进（受 maxSteps=32、maxForceContinues=3 约束）。循环把过程拆成 `AgentEvent`，Runner 转成协议里的 `event` / `delta` 上报。
 
-**3. 固化事实**　后端每收到一个 `event`，**先写 EventLog**（事实先于投影的不变式），随后会话投影挑出 `message` 类事件包上 runId 写进账本，并广播进各成员的线程投影；`delta` 走实时流单独渲染。
+**3. 固化事实**　后端按事件类型分流：`message` 事件经 `onRunMessage`（critical, awaited）直接 `appendAssistantMessage` 写进账本（与人类消息同一入口），并 best-effort 广播给端；其它事件（tool_start/tool_end/text_delta）才写进 EventLog。`delta` 走实时流单独渲染，仅限后端内部消费。
 
 **4. 收尾**　Runner 发 `run_done`（终态：succeeded/error/aborted/interrupted）。后端按固定顺序收尾：更新 attempt/run → 关闭 delta 订阅 → 从 `#active` 移除 → await 所有 onRunComplete → 发 `run_finalized`。Runner 收到后确认 Host 侧彻底结束。
 

@@ -3,19 +3,17 @@ id: backend.event-log
 title: EventLog
 status: current
 owners: backend-runtime
-last_verified_against_code: 2026-06-16
-summary: "EventLog（packages/event-log）是单次运行历史的持久事实。后端 RunSupervisor 把 Runner 上报的事件追加进来，运行事件 SSE 从它按 seq 续读，会话投影也从它消费 message 事件。Runner 自己不直接打开这个库。"
+last_verified_against_code: 2026-06-18
+summary: "EventLog（packages/event-log）是单次运行内部执行细节的持久事实。后端 RunSupervisor 把 Runner 上报的**非消息**事件追加进来，用于排障/replay。assistant 消息不再经它——message 事件经 onRunMessage 直写账本，绕过 EventLog。Runner 自己不直接打开这个库。"
 depends_on:
   - backend.run-supervisor
 used_by:
-  - backend.conversation-projection
-  - surfaces.web
   - operations.troubleshooting
 ---
 
 # EventLog
 
-EventLog（packages/event-log）是单次运行历史的持久事实。后端 RunSupervisor 把 Runner 上报的事件追加进来，运行事件 SSE 从它按 seq 续读，会话投影也从它消费 message 事件。Runner 自己不直接打开这个库。
+EventLog（packages/event-log）是单次运行内部执行细节的持久事实——它只含非消息的执行事件（tool_start/tool_end/interrupted/error/todo_update）。后端 RunSupervisor 把 Runner 上报的非消息事件追加进来，供排障/replay 用。**assistant 消息不再经它**：message 事件经 `onRunMessage` 直写对话账本，绕过 EventLog。Runner 自己不直接打开这个库。
 
 ## 这页解决什么问题
 
@@ -33,11 +31,15 @@ sequenceDiagram
 
   A->>D: AgentEvent
   D->>S: transport event
-  S->>E: append(threadId, runId, event) → seq
-  E-->>C: 按 seq read / subscribe
+  alt 非消息事件 (tool/control/...)
+    S->>E: append(threadId, runId, event) → seq
+    E-->>C: 按 seq read / subscribe
+  else message 事件
+    S-->>S: onRunMessage 直写账本（绕过 EventLog）
+  end
 ```
 
-写入由后端在收到 daemon 传输事件后完成。`EventLog` 接口同时是 `EventSink`（写）和 `EventSource`（读）。
+写入由后端在收到 daemon 传输的**非消息**事件后完成。`EventLog` 接口同时是 `EventSink`（写）和 `EventSource`（读）。
 
 ## 条目形状
 
@@ -61,34 +63,29 @@ EventRecord = {
 
 实现有 `sqliteEventLog({db})` 与 `inMemoryEventLog()`。
 
-## 事件分类与是否进账本
+## 事件分类与去向
 
-| 类别 | 例子 | 进账本？ |
+| 类别 | 例子 | 去向 |
 |---|---|---|
-| 对话可见 | 最终 assistant/user 消息 | 仅经会话投影 |
-| 执行细节 | tool_start/tool_end | 否 |
-| 控制 | interrupted、error、todo_update | 个别经专门 UI 账本条目 |
+| 对话可见 | 最终 assistant/user 消息 | 经 `onRunMessage` 直写账本，**不进 EventLog** |
+| 执行细节 | tool_start/tool_end | EventLog |
+| 控制 | interrupted、error、todo_update | EventLog（todo 另由 onRunComplete 写专门 UI 账本条目） |
 | 仅流 | text_delta | 不进 EventLog（走 delta 通道） |
 
-## SSE 续读用的是 EventLog seq
+## EventLog 与账本的关系
 
-运行事件 SSE（`GET /api/runs/:id/events`）以 EventLog 的 `seq` 作为 SSE `id`，并接受 `?afterSeq=` 或 `Last-Event-ID`，所以断线能精确续读。**这与对话账本的 seq 是两条独立时间线，不要混用。** 运行的 delta 流（`/stream`）则是纯内存扇出、不带 seq、断线即丢。
-
-## EventLog 与投影的关系
-
-会话投影消费已落库的 `message` 事件。投影应把 EventLog 当作输入事实：投影失败时，运行事件仍然存在，理论上可重试——但当前重试不持久（见缺口）。
+assistant 消息已不再经 EventLog——它们经 `onRunMessage` 直写账本，账本是对话消息的唯一事实来源。EventLog 只保存运行内部的非消息执行细节，供 audit / replay / troubleshooting。两类事实物理分离，互不充当对方。
 
 ## 失败模式
 
-- append 成功但投影失败：运行历史完整，但对话缺这条 assistant 消息，需要投影重试/修复。
-- append 失败：事件不持久，Supervisor 不该假装它被投影了。
-- 事件重投递：投影无幂等键时会产生账本重复行。
+- 非消息事件 append 失败：运行执行历史缺一条，run 不被当成完成（异常上抛）。
+- assistant 消息直写账本失败：属 `onRunMessage` critical 路径，run 标记为 error；与 EventLog 无关。
+- 事件重投递：EventLog 无幂等键时会产生重复执行事件行（仅影响排障视图，不影响对话事实）。
 
 ## 当前缺口
 
 - 事件 schema 应独立版本化并单独成文。
-- 投影重试不持久。
-- 个别旧设计文档写过「Runner 直写 EventLog」；当前实现是后端 append，本 Wiki 以此为准。
+- 个别旧设计文档写过「Runner 直写 EventLog」或「会话投影从 EventLog 消费 message 事件」；当前实现是后端 append 非消息事件、message 事件直写账本，本 Wiki 以此为准。
 
 ## 关联页面
 

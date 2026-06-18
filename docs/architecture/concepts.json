@@ -16,7 +16,7 @@
       "status": "current",
       "owners": "architecture",
       "path": "docs/architecture/system-overview.md",
-      "summary": "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。对话账本是共享的对话事实，EventLog 是单次运行的执行事实，会话投影把后者单向桥接到前者。",
+      "summary": "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。assistant 消息经 RunSupervisor.onRunMessage 直写对话账本（与人类消息同一入口），非消息执行事件单独进 EventLog；会话投影只做 best-effort 扇出。对话账本 SSE 是用户可见输出的唯一通道。",
       "depends_on": ["foundations.facts-and-projections"],
       "used_by": ["flows.e2e-web-message", "flows.e2e-lark-message"]
     },
@@ -40,7 +40,7 @@
       "status": "current",
       "owners": "backend-runtime",
       "path": "docs/architecture/backend/conversation-projection.md",
-      "summary": "会话投影是后端独占的那座桥：它把一次运行产出的 `message` 事件，转成对话账本里一条对话可见的消息。它由 `apps/backend/src/main.ts` 里的 `projectRunMessageToLedger` 实现，注册成 `RunSupervisor` 的 `onRunEvent` 监听器，按事件增量触发——也就是说，运行还没结束，中途的每条消息就已经在投影了。",
+      "summary": "会话投影的角色已从「产生事实」变为「分发已成事实」。assistant 消息由 RunSupervisor 经 `onRunMessage` 回调直写对话账本（与人类消息同一入口），不再经 EventLog 派生。投影桥（`apps/backend/src/main.ts`）现在只做 best-effort 扇出：broadcast 给前端、ops 记录。`projectRunMessageToLedger`、`projectionChain`、`activeConversations` 已删除。",
       "depends_on": ["backend.event-log", "backend.run-supervisor", "conversation.ledger"],
       "used_by": [
         "surfaces.web",
@@ -76,7 +76,7 @@
       "status": "current",
       "owners": "backend-runtime",
       "path": "docs/architecture/backend/event-log.md",
-      "summary": "EventLog（packages/event-log）是单次运行历史的持久事实。后端 RunSupervisor 把 Runner 上报的事件追加进来，运行事件 SSE 从它按 seq 续读，会话投影也从它消费 message 事件。Runner 自己不直接打开这个库。",
+      "summary": "EventLog（packages/event-log）是单次运行内部执行细节的持久事实，只含非消息事件（tool_start/tool_end/interrupted/error/todo_update），供 audit/replay/troubleshooting。assistant 消息不再经它——message 事件经 onRunMessage 直写账本，绕过 EventLog。Runner 自己不直接打开这个库。",
       "depends_on": ["backend.run-supervisor"],
       "used_by": ["backend.conversation-projection", "surfaces.web", "operations.troubleshooting"]
     },
@@ -156,7 +156,7 @@
       "status": "current",
       "owners": "architecture",
       "path": "docs/architecture/flows/e2e-web-message.md",
-      "summary": "这条流追踪一条 Web 用户消息：从乐观 UI，经账本追加、运行触发、Runner 执行、EventLog 追加、会话投影，到最终 UI 对账。它把前面几页的概念串成一次完整往返。",
+      "summary": "这条流追踪一条 Web 用户消息：从乐观 UI，经账本追加、运行触发、Runner 执行、onRunMessage 直写 ConversationMessageRevision，到账本 SSE 按 messageId upsert 对账。它把前面几页的概念串成一次完整往返。",
       "depends_on": ["surfaces.web", "backend.conversation-projection", "backend.run-supervisor"],
       "used_by": []
     },
@@ -314,8 +314,40 @@
       "depends_on": [
         "backend.conversation-projection",
         "surfaces.lark-adapter",
-        "runtime.framework"
+        "runtime.framework",
+        "backend.orchestrator",
+        "foundations.issue"
       ],
+      "used_by": []
+    },
+    {
+      "id": "foundations.issue",
+      "title": "Issue",
+      "status": "design",
+      "owners": "architecture",
+      "path": "docs/architecture/foundations/issue.md",
+      "summary": "Issue 是「一个有独立状态机生命周期的工作单元」（计划中→开发中→待 Review→已完成），是这套协作设计里唯一新增的领域本体：Conversation/Run/Message 都表达不了「一件需要跨多次运行、按状态推进的活」。Issue 直接绑定 threadId、复用现有 supervisor/checkpointer，与 Conversation 解耦。Kanban 是 Issue 按状态分组的视图，Project 是 Issue 所属的 git 仓库子目录——两者都不是新本体。本页 status: design，尚未进代码。",
+      "depends_on": ["foundations.facts-and-projections", "backend.run-supervisor"],
+      "used_by": ["backend.orchestrator", "roadmap.future-work", "flows.e2e-issue-lifecycle"]
+    },
+    {
+      "id": "backend.orchestrator",
+      "title": "Orchestrator",
+      "status": "design",
+      "owners": "backend-runtime",
+      "path": "docs/architecture/backend/orchestrator.md",
+      "summary": "Orchestrator 是驱动 Issue 状态机往前走的显式编排器，取代原来靠 @提及自动触发的脆弱链路。当前形态是一张固定线性转移表，配两个纯函数：① prompt 模板插值（字符串 + {{}}，刻意不引入模板 DSL）；② status 回填监听器（run 终态 → 推进到下一状态）。命名为 Orchestrator 是为后续长成可配置编排引擎预留概念位，无需改名。本页 status: design，尚未进代码。",
+      "depends_on": ["foundations.issue", "backend.run-supervisor", "conversation.members"],
+      "used_by": ["roadmap.future-work", "flows.e2e-issue-lifecycle"]
+    },
+    {
+      "id": "flows.e2e-issue-lifecycle",
+      "title": "Issue 生命周期端到端",
+      "status": "design",
+      "owners": "architecture",
+      "path": "docs/architecture/flows/e2e-issue-lifecycle.md",
+      "summary": "这条流把一个 Issue 从创建到完成串成一条时间线：每进入一个状态，Orchestrator 按固定转移表用对应 Agent 在 Issue 的 threadId 上起一次运行；run 终态经 status 回填监听器把 Issue 推进到下一状态，再起下一棒，直到 done。它把 Issue（结构）与 Orchestrator（机制）合起来才隐含的「时间维度」画出来——区别于现状的 @提及自动流。本页 status: design，尚未进代码。",
+      "depends_on": ["foundations.issue", "backend.orchestrator", "backend.run-supervisor"],
       "used_by": []
     }
   ]

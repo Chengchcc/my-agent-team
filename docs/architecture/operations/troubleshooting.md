@@ -42,8 +42,8 @@ used_by:
 
 排障时拿这几条当标尺，违反了基本就是根因：
 
-- **EventLog append 一定先于 onRunEvent**：事实先钉死，再触发投影。若看到投影里有、事件日志里没有，说明顺序被破坏。
-- **run_done 收尾顺序固定**：更新 attempt/run → 关闭 delta 订阅 → 从 `#active` 移除 → await 所有 onRunComplete → 发 run_finalized。任一步乱序都可能导致悬挂或重复。
+- **message 事件直写账本、非消息事件进 EventLog**：`message` 事件经 `onRunMessage`（critical, awaited）直写对话账本，不进 EventLog；其它事件才 `eventLog.append`。若看到 assistant 消息出现在 EventLog 里，或对话账本缺了某条 assistant 消息，说明分流被破坏。
+- **run_done 收尾顺序固定**：更新 attempt/run → 关闭 delta 订阅 → 从 `#active` 移除 → 发 run_finalized（控制信号优先）→ fire-and-forget onRunComplete。任一步乱序都可能导致悬挂或重复。
 - **账本是唯一对话事实来源**：任何端（Web/飞书）若和账本不一致，错的是端的投影，不是账本。
 
 ## 关联页面
