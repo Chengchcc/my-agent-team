@@ -1,8 +1,8 @@
 import type { Message } from "@my-agent-team/message";
-import type { EventLog, EventRecord } from "../event-log/index.js";
-import { parseThreadId } from "../conversation/service.js";
 import type { ConversationLock } from "../conversation/lock.js";
+import { parseThreadId } from "../conversation/service.js";
 import { buildTitleContext, generateTitle } from "../conversation/title.js";
+import type { EventLog, EventRecord } from "../event-log/index.js";
 import type { RunSupervisor } from "./supervisor.js";
 
 export class ThreadBusyError extends Error {

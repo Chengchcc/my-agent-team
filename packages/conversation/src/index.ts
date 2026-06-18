@@ -1,8 +1,4 @@
-import {
-  deserializeLedgerContent,
-  extractText,
-  parseMessageRevision,
-} from "@my-agent-team/message";
+import { deserializeLedgerContent, extractText } from "@my-agent-team/message";
 import { z } from "zod";
 
 // ─── Member ─────────────────────────────────────────────────

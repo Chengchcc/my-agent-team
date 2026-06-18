@@ -228,7 +228,7 @@ export async function* runLoop(
     }
 
     // Execute tools — executeOne updates rt.toolStates in-place
-    let interrupted = false;
+    let interrupted: boolean;
     for (let i = 0; i < toolUses.length; i++) {
       const call = toolUses[i]!;
       interrupted = yield* executeOne(rt, call, opts, step);

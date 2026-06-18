@@ -3,7 +3,7 @@ import {
   assistantMessageId,
   deserializeLedgerContent,
   isTerminalMessageState,
-  parseMessageRevision,
+  type parseMessageRevision,
   serializeMessageRevision,
 } from "@my-agent-team/message";
 import type { ConversationPort } from "./ports.js";

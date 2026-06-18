@@ -15,8 +15,8 @@ import type {
   ThreadProjectionReadPort,
   ThreadProjectionWritePort,
 } from "../thread-projection/ports.js";
+import type { ConversationLock } from "./lock.js";
 import type { ConversationPort, LedgerEntry, LedgerKind, LedgerRow, MemberRow } from "./ports.js";
-import { ConversationLock } from "./lock.js";
 
 export class ConversationBusyError extends Error {
   constructor(conversationId: string) {

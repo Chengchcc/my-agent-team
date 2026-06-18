@@ -1,5 +1,11 @@
 import { Database } from "bun:sqlite";
-import type { Message, MessageRevision } from "@my-agent-team/message";
+import type { Message } from "@my-agent-team/message";
+import {
+  extractText,
+  isTerminalMessageState,
+  MessageSchema,
+  serializeMessageRevision,
+} from "@my-agent-team/message";
 import {
   createRuntimeTracer,
   resolveObservabilityConfig,
@@ -13,12 +19,6 @@ import {
   createConversationFeature,
 } from "./features/conversation/conv-svc-factory.js";
 import { conversationRoutes, parseThreadId } from "./features/conversation/index.js";
-import {
-  extractText,
-  isTerminalMessageState,
-  MessageSchema,
-  serializeMessageRevision,
-} from "@my-agent-team/message";
 import {
   escapeRegExp,
   getOrCreateAccumulator,
@@ -180,7 +180,7 @@ supervisor.onRunMessage(async (threadId, runId, revision, kind) => {
 // M17.5 P7: onRunEvent is now best-effort observability only. Message events
 // are handled by onRunMessage (authoritative ledger write). This callback only
 // sees non-message events (todo_update, tool_start, tool_end, text_delta).
-supervisor.onRunEvent((threadId, runId, event, kind) => {
+supervisor.onRunEvent((threadId, runId, event, _kind) => {
   if (event.type === "todo_update") {
     const cid = parseThreadId(threadId).conversationId;
     if (!cid) return;

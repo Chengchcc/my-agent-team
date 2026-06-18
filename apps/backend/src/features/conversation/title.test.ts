@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { extractText } from "@my-agent-team/message";
 import { buildTitleContext } from "./title.js";
 
 function sanitizeTitle(raw: string): string {

@@ -1,6 +1,6 @@
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import { collectStream } from "@my-agent-team/core";
-import { type Message, extractText } from "@my-agent-team/message";
+import { extractText, type Message } from "@my-agent-team/message";
 
 const TITLE_SYSTEM =
   "你是一个会话标题生成器。阅读用户与助手的前几轮对话，输出一个不超过12个字的简短中文标题，" +

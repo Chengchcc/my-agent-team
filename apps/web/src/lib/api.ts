@@ -1,5 +1,5 @@
-import type { ContentBlock } from "@my-agent-team/message";
 import type { LedgerEntry, Member } from "@my-agent-team/conversation";
+import type { ContentBlock } from "@my-agent-team/message";
 
 export class ApiError extends Error {
   constructor(

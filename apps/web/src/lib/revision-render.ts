@@ -9,6 +9,5 @@ export function getRevisionText(rev: MessageRevision | Message): string {
   return rev.text ?? "";
 }
 
+export type { ContentBlock } from "@my-agent-team/message";
 export { isOpenMessageState, isTerminalMessageState };
-
-export { type ContentBlock } from "@my-agent-team/message";

@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import type { EventLog, EventRecord } from "../event-log/index.js";
 import { ConversationLock } from "../conversation/lock.js";
+import type { EventLog, EventRecord } from "../event-log/index.js";
 import { runRoutes } from "./http.js";
 import { createRunService } from "./service.js";
 import type { RunSupervisor } from "./supervisor.js";

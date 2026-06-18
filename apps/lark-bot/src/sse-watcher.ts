@@ -4,7 +4,7 @@ import {
   deserializeLedgerContent,
   isTerminalMessageState,
   MessageStateSchema,
-  parseMessageRevision,
+  type parseMessageRevision,
 } from "@my-agent-team/message";
 import {
   getMemberBindingsForChat,

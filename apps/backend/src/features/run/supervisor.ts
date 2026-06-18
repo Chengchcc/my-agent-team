@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
-import { parseMessageRevision, type Message, type MessageRevision } from "@my-agent-team/message";
+import { type Message, type MessageRevision, parseMessageRevision } from "@my-agent-team/message";
 import type { RunnerTransport } from "@my-agent-team/runner-protocol";
 import type { RuntimeTraceContext, RuntimeTracer } from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";

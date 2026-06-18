@@ -3,12 +3,12 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import type { AgentFsHandle } from "@my-agent-team/agent-fs";
 import { makeAgentFsHandle } from "@my-agent-team/agent-fs";
-import { AgentSpecV2 } from "./agent-spec.js";
 import type { Tool } from "@my-agent-team/core";
 import type { Agent, AgentEvent, Checkpointer } from "@my-agent-team/framework";
 import { sqliteCheckpointer } from "@my-agent-team/framework";
 import { createGenericAgent, reflectionGuidance } from "@my-agent-team/harness";
 import type { HostToRunner, RunnerTransport } from "@my-agent-team/runner-protocol";
+import { AgentSpecV2 } from "./agent-spec.js";
 import { createStartNewConversationTool } from "./start-new-conversation-tool.js";
 
 // ─── Types ───

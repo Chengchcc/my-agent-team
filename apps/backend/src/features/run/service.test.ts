@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { EventLog, EventRecord } from "../event-log/index.js";
 import { ConversationLock } from "../conversation/lock.js";
+import type { EventLog, EventRecord } from "../event-log/index.js";
 import {
   createRunService,
   RunNotFoundError,

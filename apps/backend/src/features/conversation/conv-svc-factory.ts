@@ -11,9 +11,9 @@ import {
 } from "../thread-projection/adapter-sqlite.js";
 import { createThreadProjectionService } from "../thread-projection/index.js";
 import { sqliteConversationAdapter } from "./index.js";
+import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
 import { buildPreloadedMessages } from "./projection.js";
-import { ConversationLock } from "./lock.js";
 import { createConversationService, parseThreadId } from "./service.js";
 
 export interface ConversationFeature {
