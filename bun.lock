@@ -41,6 +41,7 @@
       "dependencies": {
         "@my-agent-team/conversation": "workspace:*",
         "@my-agent-team/message": "workspace:*",
+        "zod": "^3.23.0",
       },
     },
     "apps/web": {

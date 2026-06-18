@@ -1,7 +1,14 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { z } from "zod";
 import { safeAgentId } from "./safe-agent-id.js";
+
+const typingStatusSchema = z.enum(["none", "active", "removed", "failed"]);
+const runStatusSchema = z.enum(["starting", "streaming", "done", "error", "fallback_text"]);
+const cardSendFailedSchema = z.number().int().min(0).max(1);
+const cardUpdateFailedSchema = z.number().int().min(0).max(1);
+const completeFromLedgerSchema = z.number().int().min(0).max(1);
 
 export interface ChatBinding {
   larkChatId: string;
@@ -498,14 +505,14 @@ function toRunStreamRecord(row: RunStreamDbRow): RunStreamRecord {
     larkMessageId: row.lark_message_id,
     sourceMessageId: row.source_message_id,
     typingReactionId: row.typing_reaction_id,
-    typingStatus: row.typing_status as RunStreamRecord["typingStatus"],
-    status: row.status as RunStreamRecord["status"],
+    typingStatus: typingStatusSchema.parse(row.typing_status),
+    status: runStatusSchema.parse(row.status),
     accumulated: row.accumulated,
-    cardSendFailed: row.card_send_failed,
-    cardUpdateFailed: row.card_update_failed,
+    cardSendFailed: cardSendFailedSchema.parse(row.card_send_failed),
+    cardUpdateFailed: cardUpdateFailedSchema.parse(row.card_update_failed),
     finalLedgerSeq: row.final_ledger_seq,
     lastError: row.last_error,
-    completeFromLedger: row.complete_from_ledger,
+    completeFromLedger: completeFromLedgerSchema.parse(row.complete_from_ledger),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { z } from "zod";
 import type {
   AppendLedgerInput,
   ConversationPort,
@@ -9,6 +10,8 @@ import type {
   LedgerRow,
   MemberRow,
 } from "./ports.js";
+
+const addressedToSchema = z.array(z.string());
 
 export function sqliteConversationAdapter(db: Database): ConversationPort {
   return {
@@ -253,7 +256,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       return rows.map((r) => {
         let addressedTo: string[];
         try {
-          addressedTo = JSON.parse(r.addressed_to) as string[];
+          addressedTo = addressedToSchema.parse(JSON.parse(r.addressed_to));
         } catch {
           addressedTo = [];
         }
