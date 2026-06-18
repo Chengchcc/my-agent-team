@@ -37,6 +37,7 @@ function createTestDb() {
       trace_id          TEXT NOT NULL,
       traceparent       TEXT NOT NULL,
       idempotency_key   TEXT NOT NULL,
+      issue_id          TEXT,
       created_at        INTEGER NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_run_origin_idem ON run_origin(idempotency_key);

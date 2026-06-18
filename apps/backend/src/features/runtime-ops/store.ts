@@ -10,7 +10,7 @@ import type {
 // bun:sqlite returns column names exactly as written in SQL. Use aliases so
 // rows map to our camelCase interface types without a transform layer.
 const RUN_OPS_COLS = `seq, run_id AS runId, attempt_id AS attemptId, kind, payload, trace_id AS traceId, ts`;
-const RUN_ORIGIN_COLS = `run_id AS runId, conversation_id AS conversationId, source_ledger_seq AS sourceLedgerSeq, agent_member_id AS agentMemberId, surface, trace_id AS traceId, traceparent, idempotency_key AS idempotencyKey, created_at AS createdAt`;
+const RUN_ORIGIN_COLS = `run_id AS runId, conversation_id AS conversationId, source_ledger_seq AS sourceLedgerSeq, agent_member_id AS agentMemberId, surface, trace_id AS traceId, traceparent, idempotency_key AS idempotencyKey, issue_id AS issueId, created_at AS createdAt`;
 const RUNNER_HEALTH_COLS = `agent_id AS agentId, last_seen_at AS lastSeenAt, uptime_ms AS uptimeMs, active_run_count AS activeRunCount, active_run_ids AS activeRunIds, checkpointer_ok AS checkpointerOk, workspace_ok AS workspaceOk, last_error AS lastError, updated_at AS updatedAt`;
 const SURFACE_HEALTH_COLS = `agent_id AS agentId, surface, status, last_seen_at AS lastSeenAt, payload, last_error AS lastError, updated_at AS updatedAt`;
 
@@ -65,8 +65,8 @@ export class RuntimeOpsStore {
 
   insertRunOrigin(row: RunOriginRow): void {
     this.#db.run(
-      `INSERT OR IGNORE INTO run_origin (run_id, conversation_id, source_ledger_seq, agent_member_id, surface, trace_id, traceparent, idempotency_key, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR IGNORE INTO run_origin (run_id, conversation_id, source_ledger_seq, agent_member_id, surface, trace_id, traceparent, idempotency_key, issue_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.runId,
         row.conversationId,
@@ -76,6 +76,7 @@ export class RuntimeOpsStore {
         row.traceId,
         row.traceparent,
         row.idempotencyKey,
+        row.issueId ?? null,
         row.createdAt,
       ],
     );

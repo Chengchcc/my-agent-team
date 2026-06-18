@@ -34,6 +34,8 @@ export interface RunOriginRow {
   traceId: string;
   traceparent: string;
   idempotencyKey: string;
+  /** M18.2: non-null = issue-driven run (used for Issue back-link + @mention isolation) */
+  issueId?: string | null;
   createdAt: number;
 }
 

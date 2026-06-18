@@ -127,6 +127,12 @@ export const EVENTS_DB_MIGRATIONS = [
     id: 3011,
     up: `ALTER TABLE run ADD COLUMN degraded_reason TEXT`,
   },
+  {
+    name: "events_v13_run_origin_issue",
+    id: 3012,
+    up: `ALTER TABLE run_origin ADD COLUMN issue_id TEXT;
+    CREATE INDEX IF NOT EXISTS idx_run_origin_issue ON run_origin(issue_id);`,
+  },
 ];
 
 export function runEventsDbMigrations(db: Database): void {
