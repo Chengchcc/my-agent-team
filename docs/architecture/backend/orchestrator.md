@@ -1,9 +1,9 @@
 ---
 id: backend.orchestrator
 title: Orchestrator
-status: design
+status: current
 owners: backend-runtime
-last_verified_against_code:
+last_verified_against_code: 2026-06-18
 summary: "Orchestrator 是驱动 Issue 状态机往前走的显式编排器。它取代了原来靠 @提及自动触发的脆弱链路：现在「下一步该谁干、干完进哪个状态」是一张固定的线性转移表，配两个纯函数——① prompt 模板插值（字符串 + {{}}，刻意不引入模板 DSL）；② status 回填监听器（run 终态 → 推进到下一状态）。命名为 Orchestrator 是有意为之：它当前是固定转移的雏形，为后续长成可配置编排引擎预留概念位，无需改名。"
 depends_on:
   - foundations.issue
@@ -15,7 +15,10 @@ used_by:
 
 # Orchestrator
 
-> 本页 `status: design`：描述的是已锁定的设计抽象，**尚未进代码**。落地前请勿当成现状。
+> 本页 `status: current`：已落地为代码。
+> - 转移表：`apps/backend/src/features/orchestrator/transitions.ts`
+> - renderPrompt：`apps/backend/src/features/orchestrator/render.ts`
+> - 回填监听器：`apps/backend/src/features/orchestrator/reactor.ts`
 
 Orchestrator 是驱动 [Issue](../foundations/issue.md) 状态机往前走的显式编排器。Issue 定义「一件活有哪些状态」，Orchestrator 定义「状态之间怎么推进、每一步跑什么」。
 

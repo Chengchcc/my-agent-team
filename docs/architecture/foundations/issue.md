@@ -58,7 +58,7 @@ stateDiagram-v2
   done --> [*]
 ```
 
-这是一条**固定的线性推进**。每一步状态转移由谁触发、转移时跑什么——由 [Orchestrator](../backend/orchestrator.md) 负责，本页只定义 Issue 这个本体本身。
+这是一条**固定的线性推进**。每一步状态转移由谁触发、转移时跑什么——由 [Orchestrator](../backend/orchestrator.md) 负责（转移表定义在 `apps/backend/src/features/orchestrator/transitions.ts`），本页只定义 Issue 这个本体本身。M18.2 起，状态推进的自动驱动由 Orchestrator 经 `run_origin.issue_id` 关联实现。
 
 > 为什么转移表是固定线性的、而不是可配置的工作流图：这是有意的设计取舍，理由见 [Orchestrator](../backend/orchestrator.md) 的「设计取舍」小节。
 

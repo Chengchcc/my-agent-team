@@ -1,9 +1,9 @@
 ---
 id: flows.e2e-issue-lifecycle
 title: Issue 生命周期端到端
-status: design
+status: current
 owners: architecture
-last_verified_against_code:
+last_verified_against_code: 2026-06-18
 summary: "这条流把一个 Issue 从创建到完成串成一条时间线：每进入一个状态，Orchestrator 按固定转移表用对应 Agent 在 Issue 的 threadId 上起一次运行；run 终态经 status 回填监听器把 Issue 推进到下一状态，再起下一棒，直到 done。它把 Issue（结构）与 Orchestrator（机制）合起来才隐含的「时间维度」画出来——区别于现状的 @提及自动流。"
 depends_on:
   - foundations.issue
@@ -14,7 +14,7 @@ used_by:
 
 # Issue 生命周期端到端
 
-> 本页 `status: design`：描述的是已锁定但**尚未进代码**的设计动线。落地前请勿当成现状；与现状 flow 页（`status: current`）区分阅读。
+> 本页 `status: current`：已落地，回填监听器经 `applyTransition`/`startMainRun` 实际调用。
 
 这条流把一个 [Issue](../foundations/issue.md) 从创建到完成串成一条时间线。[Issue](../foundations/issue.md) 页讲的是「一件活有哪些状态」（静态结构），[Orchestrator](../backend/orchestrator.md) 页讲的是「转移表 + 两个纯函数」（驱动机制）；这页把两者合起来,画出**动起来的样子**：一个 Issue 如何跨多次运行被一步步推进。
 
