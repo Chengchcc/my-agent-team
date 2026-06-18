@@ -16,7 +16,8 @@ export function issueRoutes(svc: IssueService) {
     /** POST /api/issues → 201 { issue } */
     async create(req: Request): Promise<Response> {
       const parsed = createSchema.safeParse(await req.json().catch(() => ({})));
-      if (!parsed.success) return json({ error: "Validation failed", details: parsed.error.issues }, 400);
+      if (!parsed.success)
+        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       return json({ issue: svc.createIssue(parsed.data) }, 201);
     },
 
@@ -36,7 +37,8 @@ export function issueRoutes(svc: IssueService) {
     /** POST /api/issues/:id/transition { to } → 200 { issue } | 404 | 409 */
     async transition(req: Request, issueId: string): Promise<Response> {
       const parsed = transitionSchema.safeParse(await req.json().catch(() => ({})));
-      if (!parsed.success) return json({ error: "Validation failed", details: parsed.error.issues }, 400);
+      if (!parsed.success)
+        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       try {
         return json({ issue: svc.applyTransition(issueId, parsed.data.to as IssueStatus) });
       } catch (err) {

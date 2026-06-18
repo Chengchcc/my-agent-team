@@ -28,7 +28,14 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
       db.run(
         `INSERT INTO issue (issue_id, project_id, title, status, thread_id, created_at, updated_at)
          VALUES (?, ?, ?, 'planned', ?, ?, ?)`,
-        [input.issueId, input.projectId, input.title, input.threadId, input.createdAt, input.createdAt],
+        [
+          input.issueId,
+          input.projectId,
+          input.title,
+          input.threadId,
+          input.createdAt,
+          input.createdAt,
+        ],
       );
       return { ...input, status: "planned", updatedAt: input.createdAt };
     },
@@ -39,17 +46,28 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
     },
 
     listIssues(opts?: { projectId?: string }): IssueRow[] {
-      const rows = (opts?.projectId
-        ? db.query("SELECT * FROM issue WHERE project_id = ? ORDER BY created_at DESC").all(opts.projectId)
-        : db.query("SELECT * FROM issue ORDER BY created_at DESC").all()) as Raw[];
+      const rows = (
+        opts?.projectId
+          ? db
+              .query("SELECT * FROM issue WHERE project_id = ? ORDER BY created_at DESC")
+              .all(opts.projectId)
+          : db.query("SELECT * FROM issue ORDER BY created_at DESC").all()
+      ) as Raw[];
       return rows.map(toRow);
     },
 
-    setStatus(issueId: string, expectFrom: IssueStatus, to: IssueStatus, updatedAt: number): boolean {
-      db.run(
-        "UPDATE issue SET status = ?, updated_at = ? WHERE issue_id = ? AND status = ?",
-        [to, updatedAt, issueId, expectFrom],
-      );
+    setStatus(
+      issueId: string,
+      expectFrom: IssueStatus,
+      to: IssueStatus,
+      updatedAt: number,
+    ): boolean {
+      db.run("UPDATE issue SET status = ?, updated_at = ? WHERE issue_id = ? AND status = ?", [
+        to,
+        updatedAt,
+        issueId,
+        expectFrom,
+      ]);
       const { n } = db.query("SELECT changes() AS n").get() as { n: number };
       return n > 0;
     },

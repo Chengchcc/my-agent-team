@@ -2,11 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { unlinkSync } from "node:fs";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteIssueAdapter } from "./adapter-sqlite.js";
-import {
-  createIssueService,
-  IllegalTransitionError,
-  IssueNotFoundError,
-} from "./service.js";
+import { createIssueService, IllegalTransitionError, IssueNotFoundError } from "./service.js";
 
 const dbPath = `/tmp/test-issue-svc-${Date.now()}.db`;
 const db = openDb(dbPath);
@@ -57,15 +53,11 @@ describe("IssueService", () => {
       title: "Jump fail",
       threadId: "th-3",
     });
-    expect(() => svc.applyTransition(issue.issueId, "done")).toThrow(
-      IllegalTransitionError,
-    );
+    expect(() => svc.applyTransition(issue.issueId, "done")).toThrow(IllegalTransitionError);
   });
 
   test("applyTransition throws IssueNotFoundError for nonexistent", () => {
-    expect(() => svc.applyTransition("nope", "in_progress")).toThrow(
-      IssueNotFoundError,
-    );
+    expect(() => svc.applyTransition("nope", "in_progress")).toThrow(IssueNotFoundError);
   });
 
   test("idempotent transition: moving to current state fails", () => {
@@ -76,9 +68,7 @@ describe("IssueService", () => {
     });
     svc.applyTransition(issue.issueId, "in_progress");
     // Trying to go in_progress → in_progress — not in LEGAL_TRANSITIONS
-    expect(() => svc.applyTransition(issue.issueId, "in_progress")).toThrow(
-      IllegalTransitionError,
-    );
+    expect(() => svc.applyTransition(issue.issueId, "in_progress")).toThrow(IllegalTransitionError);
   });
 
   test("full lifecycle: planned → in_progress → in_review → done", () => {
@@ -99,9 +89,7 @@ describe("IssueService", () => {
     expect(step3.status).toBe("done");
 
     // done is terminal — no outgoing transitions
-    expect(() => svc.applyTransition(issue.issueId, "in_review")).toThrow(
-      IllegalTransitionError,
-    );
+    expect(() => svc.applyTransition(issue.issueId, "in_review")).toThrow(IllegalTransitionError);
   });
 
   test("port is exposed on service", () => {

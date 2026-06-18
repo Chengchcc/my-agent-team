@@ -25,6 +25,7 @@ import {
   onRunComplete,
 } from "./features/conversation/projection.js";
 import { sqliteEventLog } from "./features/event-log/index.js";
+import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
 import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
@@ -36,7 +37,6 @@ import {
   opsRoutes,
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
-import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
 import { threadProjectionRoutes } from "./features/thread-projection/index.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";

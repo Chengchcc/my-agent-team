@@ -1,4 +1,4 @@
-import { LEGAL_TRANSITIONS, type IssueRow, type IssueStatus } from "./entities.js";
+import { type IssueRow, type IssueStatus, LEGAL_TRANSITIONS } from "./entities.js";
 import type { IssuePort } from "./ports.js";
 
 export class IssueNotFoundError extends Error {
