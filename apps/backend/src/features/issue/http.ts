@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { json } from "../../http/response.js";
-import { type IssueStatus } from "./entities.js";
 import { ISSUE_STATUSES } from "../orchestrator/transitions.js";
+import { type IssueStatus } from "./entities.js";
+import type { IssueRow } from "./entities.js";
 import {
   IllegalTransitionError,
   IssueNotFoundError,
@@ -17,7 +18,12 @@ const createSchema = z.object({
 
 const transitionSchema = z.object({ to: z.enum(ISSUE_STATUSES as readonly [string, ...string[]]) });
 
-export function issueRoutes(svc: IssueService) {
+export function issueRoutes(
+  svc: IssueService,
+  opts?: { onIssueCreated?: (issue: IssueRow) => Promise<unknown> },
+) {
+  const { onIssueCreated } = opts ?? {};
+
   return {
     /** POST /api/issues → 201 { issue } */
     async create(req: Request): Promise<Response> {
@@ -25,7 +31,12 @@ export function issueRoutes(svc: IssueService) {
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       try {
-        return json({ issue: svc.createIssue(parsed.data) }, 201);
+        const issue = svc.createIssue(parsed.data);
+        // M18.2: best-effort start first step — failure does not block create response
+        void onIssueCreated?.(issue).catch((e) =>
+          console.error(`[orchestrator] startStep failed for ${issue.issueId}: ${String(e)}`),
+        );
+        return json({ issue }, 201);
       } catch (err) {
         if (err instanceof ValidationError) return json({ error: err.message }, 400);
         throw err;
