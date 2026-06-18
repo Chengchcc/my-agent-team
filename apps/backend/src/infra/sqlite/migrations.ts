@@ -232,6 +232,24 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
       ON CONFLICT(thread_id) DO NOTHING;
     DROP TABLE IF EXISTS checkpoint_messages;`,
   },
+  // ─── M18.1 issue — new domain entity table ──
+  // 5000 段注释虽写"schema alterations & repairs"，但 backend_v22_projection_messages(id 5008)
+  // 已在此段建新表，故 Issue 用 5009 有先例；不要选 4000 段（那是 conversation/member/ledger 专段）。
+  {
+    name: "backend_v23_issue",
+    id: 5009,
+    up: `CREATE TABLE IF NOT EXISTS issue (
+      issue_id   TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      title      TEXT NOT NULL,
+      status     TEXT NOT NULL,
+      thread_id  TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_issue_project ON issue(project_id);
+    CREATE INDEX IF NOT EXISTS idx_issue_status  ON issue(status);`,
+  },
 ];
 
 /** Combined migrations: backend own + checkpointer (creates checkpoint_messages which
