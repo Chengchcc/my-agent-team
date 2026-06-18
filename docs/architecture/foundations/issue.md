@@ -1,9 +1,9 @@
 ---
 id: foundations.issue
 title: Issue
-status: design
+status: current
 owners: architecture
-last_verified_against_code:
+last_verified_against_code: 2026-06-18
 summary: "Issue 是「一个有独立状态机生命周期的工作单元」——计划中→开发中→待 Review→已完成。它是这套设计里唯一新增的领域本体：Conversation 表达「谁在哪说话」、Run 表达「一次执行」、Message 表达「一条话」，三者都表达不了「一件需要跨多次运行、按状态推进的活」。Issue 直接绑定一个 threadId、复用现有 supervisor / checkpointer，与 Conversation 解耦。Kanban 是 Issue 按状态分组的视图，Project 是 Issue 所属的 git 仓库子目录——两者都不是新本体。"
 depends_on:
   - foundations.facts-and-projections
