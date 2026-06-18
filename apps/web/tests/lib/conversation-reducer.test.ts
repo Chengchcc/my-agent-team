@@ -55,8 +55,12 @@ describe("message", () => {
     let s = bootstrap();
     s = reducer(s, { type: "message", seq: 1, senderMemberId: "agent-1", content: rev() });
     expect(s.items).toHaveLength(1);
-    expect((s.items[0] as { content: { id: string; state: string; text?: string } }).content.id).toBe("run:r1:assistant:0");
-    expect((s.items[0] as { content: { id: string; state: string; text?: string } }).content.state).toBe("streaming");
+    expect(
+      (s.items[0] as { content: { id: string; state: string; text?: string } }).content.id,
+    ).toBe("run:r1:assistant:0");
+    expect(
+      (s.items[0] as { content: { id: string; state: string; text?: string } }).content.state,
+    ).toBe("streaming");
   });
 
   test("upserts by messageId — streaming → done", () => {
@@ -69,8 +73,12 @@ describe("message", () => {
       content: rev({ state: "done", text: "final" }),
     });
     expect(s.items).toHaveLength(1);
-    expect((s.items[0] as { content: { id: string; state: string; text?: string } }).content.state).toBe("done");
-    expect((s.items[0] as { content: { id: string; state: string; text?: string } }).content.text).toBe("final");
+    expect(
+      (s.items[0] as { content: { id: string; state: string; text?: string } }).content.state,
+    ).toBe("done");
+    expect(
+      (s.items[0] as { content: { id: string; state: string; text?: string } }).content.text,
+    ).toBe("final");
   });
 
   test("replaces optimistic self message", () => {
