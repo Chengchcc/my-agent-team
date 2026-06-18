@@ -164,6 +164,8 @@ export async function onRunComplete(
     const baseRev =
       acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
     const frameworkSentTerminal = baseRev != null && isTerminalMessageState(baseRev.state);
+    // Explicit "done" check (not generic terminal): statusConflict only matters when
+    // framework emitted "done" but the run actually failed. "error" conflicts need no rewrite.
     const statusConflict = baseRev?.state === "done" && status !== "succeeded";
 
     if (!frameworkSentTerminal || statusConflict) {

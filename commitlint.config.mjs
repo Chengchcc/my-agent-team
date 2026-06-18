@@ -47,6 +47,8 @@ export default {
       "always",
       ["feat", "fix", "refactor", "perf", "style", "test", "docs", "chore", "ci", "revert"],
     ],
+    // Allow technical terms with uppercase abbreviations (P10, CAS, SQL, etc.)
+    "subject-case": [0],
     // Subject max length
     "subject-max-length": [2, "always", 100],
     // Body leading blank

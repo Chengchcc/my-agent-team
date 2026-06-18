@@ -25,11 +25,8 @@ export interface MemberRow {
 }
 
 // M17.5: LedgerEntry is imported from the canonical @my-agent-team/conversation
-// package (single ontology). The local LedgerRow interface is deleted — all code now
-// references the domain LedgerEntry directly. runId was added to the canonical schema.
+// package (single ontology). runId was added to the canonical LedgerEntry schema.
 export type { LedgerEntry };
-/** Transitional alias — consumers should migrate to LedgerEntry. */
-export type LedgerRow = LedgerEntry;
 
 export interface CreateConversationInput {
   conversationId: string;
@@ -82,7 +79,7 @@ export interface ConversationPort {
   removeMember(conversationId: string, memberId: string): boolean;
 
   appendLedgerEntry(input: AppendLedgerInput): number; // returns seq
-  getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerRow[];
+  getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerEntry[];
   /** Dedup guard: check if (runId, content) already exists in the ledger. */
   hasLedgerContent?(runId: string, content: string): boolean;
 }

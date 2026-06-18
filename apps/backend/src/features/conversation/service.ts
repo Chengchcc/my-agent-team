@@ -16,7 +16,7 @@ import type {
   ThreadProjectionWritePort,
 } from "../thread-projection/ports.js";
 import type { ConversationLock } from "./lock.js";
-import type { ConversationPort, LedgerEntry, LedgerKind, LedgerRow, MemberRow } from "./ports.js";
+import type { ConversationPort, LedgerEntry, LedgerKind, MemberRow } from "./ports.js";
 
 export class ConversationBusyError extends Error {
   constructor(conversationId: string) {
@@ -128,7 +128,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
    *  M14.6: "todo" entries are UI-only — never projected into agent checkpoints
    *  (todo JSON would pollute the model's conversation context). */
   async function broadcastMessage(
-    entry: LedgerRow,
+    entry: LedgerEntry,
     opts?: { excludeMemberId?: string },
   ): Promise<void> {
     if (entry.kind === "todo" || entry.kind === "surface.control") return; // UI-only, never projected
@@ -359,7 +359,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     async *subscribeConversation(
       conversationId: string,
       opts?: { afterSeq?: number; signal?: AbortSignal; pollMs?: number },
-    ): AsyncIterable<LedgerRow> {
+    ): AsyncIterable<LedgerEntry> {
       const since = opts?.afterSeq ?? 0;
       const pollMs = opts?.pollMs ?? 500;
       let lastSeq = since;

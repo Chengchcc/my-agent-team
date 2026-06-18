@@ -290,8 +290,15 @@ export class RunnerDaemon {
   }
 
   async #fireReflect(parent: RunHandle): Promise<void> {
+    const parentRunId = (parent.spec as { runId?: string }).runId;
+    // P10: parentRunId missing → skip reflection, don't write empty string lineage.
+    if (!parentRunId) {
+      console.error(
+        `[runner-daemon] reflect skipped for ${(parent.spec as { runId?: string }).runId ?? "unknown"}: missing parentRunId`,
+      );
+      return;
+    }
     const reflectRunId = crypto.randomUUID();
-    const parentRunId = (parent.spec as { runId?: string }).runId ?? "";
     const reflectSpec: Record<string, unknown> = {
       ...parent.spec,
       mode: "reflect" as const,

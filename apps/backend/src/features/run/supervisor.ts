@@ -131,6 +131,33 @@ export class RunSupervisor {
 
   /** M11: Shared stale-run detection. Used by both reaper (periodic) and rediscover (startup).
    *  Returns true if any runs were reaped. */
+  /** M17.5 P10: Single authoritative entry for run finalization.
+   *  CAS semantics — first writer wins, late arrivals are no-ops.
+   *  Returns true if this call was the first to finalize the run. */
+  #finalizeRun(
+    runId: string,
+    attemptId: string | null,
+    status: string,
+  ): boolean {
+    const now = Date.now();
+    const result = this.#db.transaction(() => {
+      const r = this.#db.run(
+        "UPDATE run SET status = ?, ended_at = ? WHERE run_id = ? AND ended_at IS NULL",
+        [status, now, runId],
+      );
+      // Attempt finalization is guarded too: late run_done must not overwrite
+      // attempt.ended_at if reaper already wrote it.
+      if (attemptId) {
+        this.#db.run(
+          "UPDATE attempt SET ended_at = ? WHERE attempt_id = ? AND ended_at IS NULL",
+          [now, attemptId],
+        );
+      }
+      return r.changes;
+    })();
+    return result > 0;
+  }
+
   async #reapStaleRuns(): Promise<boolean> {
     // JOIN attempt with run to get thread_id for EventLog append
     const rows = this.#db
@@ -164,15 +191,14 @@ export class RunSupervisor {
           reason: "heartbeat_timeout",
         },
       });
-      const now = Date.now();
-      // FIX: transactional write — run + attempt status update is atomic
-      this.#db.transaction(() => {
-        this.#db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ?", [
-          now,
-          row.run_id,
-        ]);
-        this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, row.attempt_id]);
-      })();
+      // P10: CAS finalization — first writer wins, late arrivals no-op.
+      const finalized = this.#finalizeRun(row.run_id, row.attempt_id, "interrupted");
+      if (!finalized) {
+        console.log(
+          `[supervisor] reaper skipped already-finalized run: ${row.run_id}`,
+        );
+        continue;
+      }
 
       // Append terminal event to EventLog
       try {
@@ -184,8 +210,7 @@ export class RunSupervisor {
         // EventLog append is best-effort for reaper
       }
 
-      // M17.5 P2: Trigger onRunComplete listeners with await — lock release is critical.
-      // Each listener is individually caught so one failure doesn't skip others.
+      // Trigger onRunComplete listeners with await — lock release is critical.
       for (const fn of this.#onRunComplete) {
         try {
           await fn(row.thread_id, row.run_id, "interrupted", row.kind);
@@ -530,36 +555,34 @@ export class RunSupervisor {
           kind: "run_done_received",
           payload: { status },
         });
-        const exitNow = Date.now();
-        this.#db.run("UPDATE attempt SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL", [
-          exitNow,
-          runId,
-        ]);
-        this.#db.run("UPDATE run SET status = ?, ended_at = ? WHERE run_id = ?", [
-          status,
-          exitNow,
-          runId,
-        ]);
+
+        // P10: CAS finalization — first writer wins. Late run_done after reaper
+        // has already marked the run interrupted will be a no-op.
+        const finalized = this.#finalizeRun(runId, session?.attemptId ?? null, status);
         this.#active.delete(runId);
         const threadId = this.#threadIdFor(runId);
         const kind = this.#kindFor(runId);
-        // M17.5 P1: Control signal first — send run_finalized BEFORE business listeners.
-        // run_finalized drives the daemon's reflect state machine; business listeners
-        // (projection, lock release) have no data dependency on run_finalized.
-        if (transport) transport.send({ type: "run_finalized", runId });
-        this.#opts.opsStore.appendRunEvent({
-          runId,
-          attemptId: session?.attemptId,
-          kind: "run_finalized_sent",
-        });
-        // Business listeners fire-and-forget — each catches independently so one
-        // failed listener doesn't block others or the control signal.
-        for (const fn of this.#onRunComplete) {
-          void Promise.resolve(fn(threadId, runId, status, kind)).catch((err) =>
-            console.error(
-              `[supervisor] onRunComplete listener failed for ${runId}:`,
-              err instanceof Error ? err.message : String(err),
-            ),
+
+        if (finalized) {
+          // P1: Control signal first — send run_finalized BEFORE business listeners.
+          if (transport) transport.send({ type: "run_finalized", runId });
+          this.#opts.opsStore.appendRunEvent({
+            runId,
+            attemptId: session?.attemptId,
+            kind: "run_finalized_sent",
+          });
+          // Business listeners fire-and-forget — each catches independently.
+          for (const fn of this.#onRunComplete) {
+            void Promise.resolve(fn(threadId, runId, status, kind)).catch((err) =>
+              console.error(
+                `[supervisor] onRunComplete listener failed for ${runId}:`,
+                err instanceof Error ? err.message : String(err),
+              ),
+            );
+          }
+        } else {
+          console.log(
+            `[supervisor] run_done skipped — run ${runId} already finalized (reaper beat daemon)`,
           );
         }
         break;

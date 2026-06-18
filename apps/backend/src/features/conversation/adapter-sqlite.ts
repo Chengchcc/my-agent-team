@@ -7,7 +7,7 @@ import type {
   ConversationWithMembers,
   CreateConversationInput,
   CreateMemberInput,
-  LedgerRow,
+  LedgerEntry,
   MemberRow,
 } from "./ports.js";
 
@@ -237,7 +237,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       return row !== null;
     },
 
-    getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerRow[] {
+    getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerEntry[] {
       const since = opts?.sinceSeq ?? 0;
       const rows = db
         .query(
