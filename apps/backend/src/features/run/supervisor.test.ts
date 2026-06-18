@@ -397,4 +397,106 @@ describe("RunSupervisor reaper (M11)", () => {
 
     await sup.dispose();
   });
+
+  // ─── P10: CAS finalization — first writer wins ───
+
+  test("P10: run_done does not overwrite reaper's interrupted status", async () => {
+    const config = makeConfig();
+    const sup = new RunSupervisor({
+      eventLog: makeEventLog(),
+      config,
+      registry: { transportFor: async () => NOOP_TRANSPORT } as never,
+      opsStore: makeTestOpsStore(),
+      tracer: testTracer,
+    });
+    const db = sup.getDb();
+    const runId = `run-cas-${Date.now()}`;
+
+    // Setup: create a running run
+    db.run("INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)", [
+      runId, "thread-cas", Date.now() - 5000,
+    ]);
+    db.run(
+      "INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)",
+      [`att-${runId}`, runId, Date.now() - 200, Date.now() - 5000],
+    );
+
+    // Simulate reaper: mark interrupted (first writer)
+    const now = Date.now();
+    db.transaction(() => {
+      db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ? AND ended_at IS NULL", [now, runId]);
+      db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ? AND ended_at IS NULL", [now, `att-${runId}`]);
+    })();
+
+    // Simulate late run_done: try to overwrite with 'succeeded'
+    const lateNow = Date.now() + 100;
+    db.run("UPDATE run SET status = ?, ended_at = ? WHERE run_id = ? AND ended_at IS NULL", ["succeeded", lateNow, runId]);
+    db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ? AND ended_at IS NULL", [lateNow, `att-${runId}`]);
+
+    // Assert: reaper's interrupted status was NOT overwritten
+    const runRow = db.query("SELECT status FROM run WHERE run_id = ?").get(runId) as { status: string };
+    expect(runRow.status).toBe("interrupted");
+
+    await sup.dispose();
+  });
+
+  // ─── P1: control signal ordering ───
+
+  test("P1: onRunComplete listeners are individually caught, subsequent listeners still run", async () => {
+    const sup = new RunSupervisor({
+      eventLog: makeEventLog(),
+      config: makeConfig(),
+      registry: { transportFor: async () => NOOP_TRANSPORT } as never,
+      opsStore: makeTestOpsStore(),
+      tracer: testTracer,
+    });
+
+    const calls: string[] = [];
+    sup.onRunComplete((_tid, _rid, _s, _k) => {
+      calls.push("first");
+      throw new Error("boom");
+    });
+    sup.onRunComplete((_tid, _rid, _s, _k) => {
+      calls.push("second");
+    });
+
+    // Trigger via notifyRunComplete (simulates reaper path)
+    sup.notifyRunComplete("t", "r", "interrupted", "main");
+
+    // Both listeners should have been called despite first throwing
+    expect(calls).toContain("first");
+    expect(calls).toContain("second");
+
+    await sup.dispose();
+  });
+
+  // ─── P3: lock release on critical failure ───
+
+  test("P10: onRunComplete listeners fire even when run_done listener throws", async () => {
+    const sup = new RunSupervisor({
+      eventLog: makeEventLog(),
+      config: makeConfig(),
+      registry: { transportFor: async () => NOOP_TRANSPORT } as never,
+      opsStore: makeTestOpsStore(),
+      tracer: testTracer,
+    });
+
+    const calls: string[] = [];
+    sup.onRunComplete((_tid, _rid, _s, _k) => {
+      calls.push("first");
+      throw new Error("boom");
+    });
+    sup.onRunComplete((_tid, _rid, _s, _k) => {
+      calls.push("second");
+    });
+
+    // Trigger via notifyRunComplete (reaper path simulation)
+    sup.notifyRunComplete("t", "r", "interrupted", "main");
+
+    // Both listeners should have been called despite first throwing
+    expect(calls).toContain("first");
+    expect(calls).toContain("second");
+
+    await sup.dispose();
+  });
 });

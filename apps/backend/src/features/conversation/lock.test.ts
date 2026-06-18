@@ -75,4 +75,30 @@ describe("ConversationLock", () => {
     expect(lock.isThreadActive("t1")).toBe(true);
     expect(lock.isThreadActive("t2")).toBe(true);
   });
+
+  // ─── P4: lock released on all fork failures ───
+
+  test("P4: acquire with count=3, releaseOne x3 → lock released", () => {
+    const lock = new ConversationLock();
+    lock.acquire("c1", 3);
+    // All three forks fail
+    lock.releaseOne("c1");
+    lock.releaseOne("c1");
+    lock.releaseOne("c1");
+    expect(lock.isActive("c1")).toBe(false);
+  });
+
+  // ─── P11: thread and conversation lock are unified ───
+
+  test("P11: acquireThread blocks conversation-level acquire", () => {
+    const lock = new ConversationLock();
+    lock.acquireThread("t1", "c1");
+    expect(lock.acquire("c1", 1)).toBe(false);
+  });
+
+  test("P11: conversation-level acquire blocks acquireThread", () => {
+    const lock = new ConversationLock();
+    lock.acquire("c1", 1);
+    expect(lock.acquireThread("t1", "c1")).toBe(false);
+  });
 });

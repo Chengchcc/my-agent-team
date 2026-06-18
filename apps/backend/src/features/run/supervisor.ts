@@ -253,10 +253,18 @@ export class RunSupervisor {
     this.#onRunEvent.push(fn);
   }
 
-  /** M16.1: Trigger all onRunComplete listeners. Used by ops service recover() stale path. */
+  /** M16.1: Trigger all onRunComplete listeners. Used by ops service recover() stale path.
+   *  Each listener individually caught — one failure doesn't skip others. */
   notifyRunComplete(threadId: string, runId: string, status: string, kind: string): void {
     for (const fn of this.#onRunComplete) {
-      fn(threadId, runId, status, kind);
+      try {
+        fn(threadId, runId, status, kind);
+      } catch (err) {
+        console.error(
+          `[supervisor] notifyRunComplete listener failed for ${runId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
   }
 
