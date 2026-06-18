@@ -1,8 +1,7 @@
 import { z } from "zod";
 import { json } from "../../http/response.js";
 import { ISSUE_STATUSES } from "../orchestrator/transitions.js";
-import { type IssueStatus } from "./entities.js";
-import type { IssueRow } from "./entities.js";
+import type { IssueRow, IssueStatus } from "./entities.js";
 import {
   IllegalTransitionError,
   IssueNotFoundError,

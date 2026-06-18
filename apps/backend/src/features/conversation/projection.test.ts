@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
+import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import {
   sqliteThreadProjectionReadAdapter,
   sqliteThreadProjectionWriteAdapter,
@@ -9,7 +10,6 @@ import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
 import { onRunComplete } from "./projection.js";
 import { createConversationService } from "./service.js";
-import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 
 const fakeOpsStore = { getRunOrigin: () => null } as unknown as RuntimeOpsStore;
 

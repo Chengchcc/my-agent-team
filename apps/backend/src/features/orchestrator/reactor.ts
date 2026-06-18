@@ -1,6 +1,6 @@
+import type { AgentService } from "../agent/service.js";
 import type { IssueRow } from "../issue/entities.js";
 import type { IssueService } from "../issue/service.js";
-import type { AgentService } from "../agent/service.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { renderPrompt } from "./render.js";
@@ -62,7 +62,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
 
   /** 注册为 supervisor.onRunComplete 监听器。只处理 issue-driven 的成功终态。 */
   async function onRunComplete(
-    threadId: string,
+    _threadId: string,
     runId: string,
     status: string,
     kind: string,

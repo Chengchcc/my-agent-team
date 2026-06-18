@@ -1,12 +1,12 @@
-export { createOrchestrator, OrchestratorAgentMissingError } from "./reactor.js";
 export type { OrchestratorDeps } from "./reactor.js";
+export { createOrchestrator, OrchestratorAgentMissingError } from "./reactor.js";
 export { renderPrompt } from "./render.js";
+export type { Transition } from "./transitions.js";
 export {
-  TRANSITIONS,
+  deriveLegalMap,
+  deriveStatuses,
   ISSUE_STATUSES,
   LEGAL_TRANSITIONS,
-  deriveStatuses,
-  deriveLegalMap,
   nextTransition,
+  TRANSITIONS,
 } from "./transitions.js";
-export type { Transition } from "./transitions.js";

@@ -1,5 +1,5 @@
-import { type IssueRow, type IssueStatus } from "./entities.js";
 import { LEGAL_TRANSITIONS } from "../orchestrator/transitions.js";
+import type { IssueRow, IssueStatus } from "./entities.js";
 import type { IssuePort } from "./ports.js";
 
 export class IssueNotFoundError extends Error {

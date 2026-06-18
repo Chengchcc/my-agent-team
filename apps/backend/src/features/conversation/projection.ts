@@ -167,7 +167,10 @@ export async function onRunComplete(
   if (!cid) return;
 
   // M18.2: issue-driven runs are handled by orchestrator — skip entire projection
-  if (opsStore.getRunOrigin(runId)?.issueId) return;
+  if (opsStore.getRunOrigin(runId)?.issueId) {
+    clearAccumulator(runId);
+    return;
+  }
 
   const acc = runAccumulators.get(runId);
 

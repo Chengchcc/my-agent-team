@@ -1,11 +1,11 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
-  TRANSITIONS,
-  deriveStatuses,
   deriveLegalMap,
-  nextTransition,
+  deriveStatuses,
   ISSUE_STATUSES,
   LEGAL_TRANSITIONS,
+  nextTransition,
+  TRANSITIONS,
 } from "./transitions.js";
 
 describe("deriveStatuses", () => {
