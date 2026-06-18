@@ -1,14 +1,14 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
-import { createIssueService } from "../issue/service.js";
+import type { AgentRow } from "../agent/domain.js";
+import type { AgentService } from "../agent/service.js";
 import { sqliteIssueAdapter } from "../issue/adapter-sqlite.js";
-import { createOrchestrator, OrchestratorAgentMissingError } from "./reactor.js";
+import { createIssueService } from "../issue/service.js";
+import { runEventsDbMigrations } from "../run/events-db-migrations.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
-import { runEventsDbMigrations } from "../run/events-db-migrations.js";
-import type { AgentService } from "../agent/service.js";
-import type { AgentRow } from "../agent/domain.js";
+import { createOrchestrator, OrchestratorAgentMissingError } from "./reactor.js";
 
 // ── Fakes ─────────────────────────────────────────────────
 
@@ -40,11 +40,19 @@ function fakeAgentSvc(agents: Map<string, AgentRow>): AgentService {
       }
       return agent;
     },
-    create: async () => { throw new Error("not implemented"); },
+    create: async () => {
+      throw new Error("not implemented");
+    },
     list: async () => [],
-    update: async () => { throw new Error("not implemented"); },
-    archive: async () => { throw new Error("not implemented"); },
-    hardDelete: async () => { throw new Error("not implemented"); },
+    update: async () => {
+      throw new Error("not implemented");
+    },
+    archive: async () => {
+      throw new Error("not implemented");
+    },
+    hardDelete: async () => {
+      throw new Error("not implemented");
+    },
   } as unknown as AgentService;
 }
 
@@ -70,7 +78,11 @@ function makeAgentRow(overrides?: Partial<AgentRow>): AgentRow {
   };
 }
 
-async function buildSpec(agentId: string, threadId: string, input: string): Promise<Record<string, unknown>> {
+async function buildSpec(
+  agentId: string,
+  threadId: string,
+  input: string,
+): Promise<Record<string, unknown>> {
   return {
     schemaVersion: "2",
     agentId,
@@ -228,7 +240,7 @@ describe("Orchestrator reactor", () => {
   });
 
   test("onRunComplete: ignores conversation-driven runs (no issueId in run_origin)", async () => {
-    const { orch, issueSvc, supervisor } = makeOrchestrator(issueDb, eventsDb);
+    const { orch, supervisor } = makeOrchestrator(issueDb, eventsDb);
 
     const startCount = supervisor.startedRuns.length;
     await orch.onRunComplete("some-thread", "non-issue-run", "succeeded", "main");
