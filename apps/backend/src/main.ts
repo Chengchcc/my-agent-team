@@ -26,6 +26,7 @@ import {
 } from "./features/conversation/projection.js";
 import { sqliteEventLog } from "./features/event-log/index.js";
 import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
+import { createOrchestrator } from "./features/orchestrator/index.js";
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
 import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
@@ -251,6 +252,40 @@ const opsSvc = createRuntimeOpsService({
 // Issue service (M18.1)
 const issueSvc = createIssueService({ port: sqliteIssueAdapter(db), idGen: ulid });
 
+// M18.2 Orchestrator: build spec by agentId directly (not via member table)
+const buildIssueSpec = async (agentId: string, threadId: string, input: string) => {
+  const agent = await agentSvc.getById(agentId);
+  return {
+    schemaVersion: "2",
+    agentId,
+    threadId,
+    runId: crypto.randomUUID(),
+    mode: "run",
+    input,
+    model: {
+      provider: agent.modelProvider,
+      model: agent.modelName,
+      ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}),
+    },
+    permissionMode: agent.permissionMode ?? "ask",
+    maxSteps: agent.maxSteps ?? undefined,
+  };
+};
+
+const orchestrator = createOrchestrator({
+  issueSvc,
+  agentSvc,
+  supervisor,
+  opsStore,
+  buildSpec: buildIssueSpec,
+  idGen: ulid,
+});
+
+// Register orchestrator's backfill listener (alongside conversation's onRunComplete)
+supervisor.onRunComplete((threadId, runId, status, kind) =>
+  orchestrator.onRunComplete(threadId, runId, status, kind),
+);
+
 const router = createRouter(config.authToken, {
   agents: agentRoutes(
     agentSvc,
@@ -266,7 +301,7 @@ const router = createRouter(config.authToken, {
   threadProjections: threadProjectionRoutes(conv.threadProjectionSvc),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),
-  issues: issueRoutes(issueSvc),
+  issues: issueRoutes(issueSvc, { onIssueCreated: (issue) => orchestrator.startStep(issue) }),
 });
 
 // ─── Start ────────────────────────────────────────────────────
