@@ -37,7 +37,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
       if (entry.sender.memberId === viewerMemberId) return extractText(entry.content);
     }
     return null;
-  }, [viewerMemberId]);
+  }, [viewerMemberId, items.length, items]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevLen = useRef(items.length);
@@ -49,7 +49,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
     prevLen.current = items.length;
-  }, []);
+  }, [items.length]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {

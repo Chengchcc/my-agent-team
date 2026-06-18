@@ -26,8 +26,8 @@ function rev(overrides: Record<string, unknown> = {}) {
 describe("initialState", () => {
   test("returns empty state", () => {
     const s = initialState();
-    expect(s.messages).toEqual([]);
-    expect(s.ledgerConn).toBe("connecting");
+    expect(s.items).toEqual([]);
+    expect(s.streamConn).toBe("connecting");
     expect(s.todos).toEqual([]);
     expect(s.optimisticSeq).toBe(0);
   });
@@ -50,41 +50,41 @@ describe("bootstrap", () => {
   });
 });
 
-describe("ledger/message", () => {
+describe("message", () => {
   test("adds a new message", () => {
     let s = bootstrap();
-    s = reducer(s, { type: "ledger/message", seq: 1, senderMemberId: "agent-1", content: rev() });
-    expect(s.messages).toHaveLength(1);
-    expect(s.messages[0]!.content.id).toBe("run:r1:assistant:0");
-    expect(s.messages[0]!.content.state).toBe("streaming");
+    s = reducer(s, { type: "message", seq: 1, senderMemberId: "agent-1", content: rev() });
+    expect(s.items).toHaveLength(1);
+    expect((s.items[0] as { content: { id: string; state: string; text?: string } }).content.id).toBe("run:r1:assistant:0");
+    expect((s.items[0] as { content: { id: string; state: string; text?: string } }).content.state).toBe("streaming");
   });
 
   test("upserts by messageId — streaming → done", () => {
     let s = bootstrap();
-    s = reducer(s, { type: "ledger/message", seq: 1, senderMemberId: "agent-1", content: rev() });
+    s = reducer(s, { type: "message", seq: 1, senderMemberId: "agent-1", content: rev() });
     s = reducer(s, {
-      type: "ledger/message",
+      type: "message",
       seq: 2,
       senderMemberId: "agent-1",
       content: rev({ state: "done", text: "final" }),
     });
-    expect(s.messages).toHaveLength(1);
-    expect(s.messages[0]!.content.state).toBe("done");
-    expect(s.messages[0]!.content.text).toBe("final");
+    expect(s.items).toHaveLength(1);
+    expect((s.items[0] as { content: { id: string; state: string; text?: string } }).content.state).toBe("done");
+    expect((s.items[0] as { content: { id: string; state: string; text?: string } }).content.text).toBe("final");
   });
 
   test("replaces optimistic self message", () => {
     let s = bootstrap();
     s = reducer(s, { type: "send", text: "hi", viewer: s.roster["human-1"]! });
-    expect(s.messages[0]!.id).toStartWith("opt-");
+    expect(s.items[0]!.id).toStartWith("opt-");
     s = reducer(s, {
-      type: "ledger/message",
+      type: "message",
       seq: 1,
       senderMemberId: "human-1",
       content: { messageId: "s-1", state: "done", role: "user", updatedAt: 1, text: "hi" },
     });
-    expect(s.messages).toHaveLength(1);
-    expect(s.messages[0]!.id).toBe("s-1");
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]!.id).toBe("s-1");
   });
 });
 
@@ -92,7 +92,7 @@ describe("isBusy", () => {
   test("busy when open streaming message exists", () => {
     let s = bootstrap();
     s = reducer(s, {
-      type: "ledger/message",
+      type: "message",
       seq: 1,
       senderMemberId: "agent-1",
       content: rev({ state: "streaming" }),
@@ -103,7 +103,7 @@ describe("isBusy", () => {
   test("not busy when all agent messages are done", () => {
     let s = bootstrap();
     s = reducer(s, {
-      type: "ledger/message",
+      type: "message",
       seq: 1,
       senderMemberId: "agent-1",
       content: rev({ state: "done" }),
@@ -114,7 +114,7 @@ describe("isBusy", () => {
   test("busy when waiting on approval", () => {
     let s = bootstrap();
     s = reducer(s, {
-      type: "ledger/message",
+      type: "message",
       seq: 1,
       senderMemberId: "agent-1",
       content: rev({ state: "waiting" }),
@@ -156,18 +156,19 @@ describe("todo/update", () => {
   });
 });
 
-describe("ledger/member", () => {
+describe("member", () => {
   test("adds system notice for member join", () => {
     let s = bootstrap();
     s = reducer(s, {
-      type: "ledger/member",
+      type: "member",
       seq: 10,
       kind: "member.joined",
       payload: { members: [{ memberId: "human-2", kind: "human", displayName: "User2" }] },
     });
     expect(s.roster["human-2"]?.displayName).toBe("User2");
-    expect(s.messages).toHaveLength(1);
-    expect(s.messages[0]!.content.text).toInclude("加入");
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]!.kind).toBe("notice");
+    if (s.items[0]!.kind === "notice") expect(s.items[0]!.text).toInclude("加入");
   });
 });
 
@@ -176,17 +177,17 @@ describe("groupTurns", () => {
     let s = bootstrap();
     // Agent messages need to have different messageIds to show separately
     s = reducer(s, {
-      type: "ledger/message",
+      type: "message",
       seq: 1,
       senderMemberId: "agent-1",
       content: rev({ messageId: "m1", text: "msg1", state: "done" }),
     });
     s = reducer(s, {
-      type: "ledger/message",
+      type: "message",
       seq: 2,
       senderMemberId: "agent-1",
       content: rev({ messageId: "m2", text: "msg2", state: "done" }),
     });
-    expect(s.messages).toHaveLength(2);
+    expect(s.items).toHaveLength(2);
   });
 });
