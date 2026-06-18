@@ -1,23 +1,20 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { openDb } from "../../infra/sqlite/db.js";
 import {
   sqliteThreadProjectionReadAdapter,
   sqliteThreadProjectionWriteAdapter,
 } from "../thread-projection/adapter-sqlite.js";
-import { createThreadProjectionService } from "../thread-projection/index.js";
 import { sqliteConversationAdapter } from "./adapter-sqlite.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
 import { onRunComplete } from "./projection.js";
-import { createConversationService, parseThreadId } from "./service.js";
+import { createConversationService } from "./service.js";
 
 const dbPath = `/tmp/test-projection-${Date.now()}.db`;
 const db = openDb(dbPath);
 const port = sqliteConversationAdapter(db);
 const threadProjectionRead = sqliteThreadProjectionReadAdapter(db);
 const threadProjectionWrite = sqliteThreadProjectionWriteAdapter(db);
-const threadProjectionSvc = createThreadProjectionService({ port: threadProjectionRead });
 const lock = new ConversationLock();
 
 let idCount = 0;
@@ -32,7 +29,7 @@ const svc = createConversationService({
   lock,
   maxConsecutiveAgentHops: 3,
   idGen: testIdGen,
-  forkRun: async (runId, threadId) => {
+  forkRun: async (runId, _threadId) => {
     return { runId, attemptId: `att-${runId}` };
   },
 });
@@ -103,8 +100,7 @@ describe("P7: ledger single authority for assistant messages", () => {
     const threadId = `${cid}:agent-1`;
     setupConv(cid);
 
-    // Broadcast fails, but ledger write (Phase 1 critical) still succeeds
-    const { ConversationBusyError } = await import("./service.js");
+    // Broadcast is best-effort; ledger write (Phase 1 critical) succeeds regardless.
     try {
       await onRunComplete(threadId, "r-p7-bcast", "succeeded", port, svc);
     } catch {
