@@ -7,5 +7,6 @@ coverage/
 .DS_Store
 .env
 .env.*
+!.env.example
 .backend-data/
 apps/web/tsconfig.tsbuildinfo
