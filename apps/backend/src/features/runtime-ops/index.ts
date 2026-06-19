@@ -1,3 +1,5 @@
+export { emitIssueEvent } from "./emit-issue-event.js";
+export { subscribeIssueTimeline } from "./subscribe-issue-timeline.js";
 export { opsRoutes } from "./http.js";
 export type {
   AgentRuntimeStatus,
@@ -20,4 +22,3 @@ export type {
   SurfaceHealthRow,
 } from "./types.js";
 export { computeRunnerStatus } from "./types.js";
-export { emitIssueEvent } from "./emit-issue-event.js";
