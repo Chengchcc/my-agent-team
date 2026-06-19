@@ -4,6 +4,8 @@ import type { AgentPort } from "./ports.js";
 export interface AgentService {
   create(input: CreateAgentInput): Promise<AgentRow>;
   getById(id: string): Promise<AgentRow>;
+  /** Check if an agent exists and is not archived. Single-row lookup, no full scan. */
+  exists(id: string): Promise<boolean>;
   list(includeArchived?: boolean): Promise<AgentRow[]>;
   update(id: string, input: UpdateAgentInput): Promise<AgentRow>;
   archive(id: string): Promise<AgentRow>;
@@ -49,6 +51,11 @@ export function createAgentService(opts: {
       const row = await port.findById(id);
       if (!row || row.archivedAt) throw new AgentNotFoundError(id);
       return row;
+    },
+
+    async exists(id: string): Promise<boolean> {
+      const row = await port.findById(id);
+      return row !== null && row.archivedAt == null;
     },
 
     async list(includeArchived = false): Promise<AgentRow[]> {
