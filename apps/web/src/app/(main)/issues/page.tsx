@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { IssueKanban } from "@/components/IssueKanban";
@@ -38,7 +38,6 @@ export const dynamic = "force-dynamic";
 const formSchema = z.object({
   projectId: z.string().trim().min(1, "Project is required"),
   title: z.string().trim().min(1, "Title is required"),
-  threadId: z.string().trim().min(1, "Thread ID is required"),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -50,7 +49,7 @@ export default function IssuesPage() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { projectId: "", title: "", threadId: "" },
+    defaultValues: { projectId: "", title: "" },
   });
 
   const { data: meta } = useQuery({
@@ -63,8 +62,17 @@ export default function IssuesPage() {
     queryKey: ["issues"],
     queryFn: () => api.listIssues(),
     staleTime: 10_000,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000, // SSE fallback
   });
+
+  // M18.4: SSE real-time updates
+  useEffect(() => {
+    const es = new EventSource("/api/bff/issues/events");
+    es.addEventListener("issue", () => {
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
+    });
+    return () => es.close();
+  }, [queryClient]);
 
   const { data: projectsData } = useQuery({
     queryKey: ["projects"],
@@ -87,7 +95,6 @@ export default function IssuesPage() {
       await api.createIssue({
         projectId: values.projectId,
         title: values.title,
-        threadId: values.threadId,
       });
       await queryClient.invalidateQueries({ queryKey: ["issues"] });
       form.reset();
@@ -165,20 +172,6 @@ export default function IssuesPage() {
                       <FormLabel className={labelClass}>Title</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="Issue title" className={fieldClass} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="threadId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className={labelClass}>Thread ID</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="Thread ID" className={fieldClass} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

@@ -23,6 +23,17 @@ export interface IssueRow {
   updatedAt: number;
 }
 
+// ── ColumnConfig types (M18.4) ──
+export interface ColumnConfigRow {
+  configId: string;
+  projectId: string;
+  status: IssueStatus;
+  agentId: string;
+  promptTemplate: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -266,10 +277,22 @@ export const api = {
   listIssues: (projectId?: string) =>
     apiFetch<{ issues: IssueRow[] }>(`issues${projectId ? `?projectId=${projectId}` : ""}`),
   getIssue: (id: string) => apiFetch<{ issue: IssueRow }>(`issues/${id}`),
-  createIssue: (body: { projectId: string; title: string; threadId: string }) =>
+  createIssue: (body: { projectId: string; title: string }) =>
     apiFetch<{ issue: IssueRow }>("issues", { method: "POST", body }),
   applyTransition: (id: string, to: IssueStatus) =>
     apiFetch<{ issue: IssueRow }>(`issues/${id}/transition`, { method: "POST", body: { to } }),
+
+  // ── ColumnConfigs (M18.4) ──
+  listColumnConfigs: (projectId: string) =>
+    apiFetch<{ configs: ColumnConfigRow[] }>(`column-configs?projectId=${projectId}`),
+  upsertColumnConfig: (body: {
+    projectId: string;
+    status: IssueStatus;
+    agentId: string;
+    promptTemplate: string;
+  }) => apiFetch<{ config: ColumnConfigRow }>("column-configs", { method: "POST", body }),
+  deleteColumnConfig: (configId: string) =>
+    apiFetch<void>(`column-configs/${configId}`, { method: "DELETE" }),
 };
 
 // ── M16 ops types ──
