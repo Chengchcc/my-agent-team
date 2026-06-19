@@ -1,10 +1,10 @@
 ---
 id: foundations.issue-workflow
 title: Issue 协作工作流
-status: design
+status: design (①②③④⑤⑥⑦⑧ current via M18.3-M18.7)
 owners: architecture
 last_verified_against_code: 2026-06-19
-summary: "这页沉淀 Issue 协作工作流的下一版设计——在 Issue 本体已立、Orchestrator 已能固定线性推进的基础上，把它演进成「可被人发起、按配置驱动、交付物可结构化传递、可被人验收返工、可观测」的协作流。八处变化：①threadId 由 issueId 派生；②创建即草稿态、人工入列才启动；③列可配置（绑定已有 agent + prompt 模板）；④交付物结构化捕获；⑤Issue 上下文累积 + 模板变量提取；⑥人工验收闸门 + 返工（转移表线性→图）；⑦Issue Timeline；⑧复用 M16 的 Issue 级可观测。本页只定义设计抽象与契约，不含里程碑（里程碑见未来工作）。"
+summary: "这页沉淀 Issue 协作工作流的下一版设计——在 Issue 本体已立、Orchestrator 已能固定线性推进的基础上，把它演进成「可被人发起、按配置驱动、交付物可结构化传递、可被人验收返工、可观测」的协作流。八处变化：①threadId 由 issueId 派生；②创建即草稿态、人工入列才启动；③列可配置（绑定已有 agent + prompt 模板）；④交付物结构化捕获；⑤Issue 上下文累积 + 模板变量提取；⑥人工验收闸门 + 返工（转移表线性→图）；⑦Issue Timeline；⑧复用 M16 的 Issue 级可观测。全部八节已落地（①~⑥ M18.3-M18.6，⑦⑧ M18.7）。"
 depends_on:
   - foundations.issue
   - backend.orchestrator
@@ -131,7 +131,9 @@ flowchart LR
 
 闸门是**人工**的：它不靠 run 终态自动推进，而是等一个明确的人类裁决事件。这是整条流里唯一刻意保留的人类决策点——其余推进都自动。
 
-## ⑦ Issue 不是会话账本——它有自己的 Timeline
+## ⑦ Issue 不是会话账本——它有自己的 Timeline（✅ 已落地 M18.7）
+
+**status: current** — 已实现于 `runtime-ops/store.ts`（`issue_event` 表，`appendIssueEvent`/`getIssueEvents`）、`orchestrator/reactor.ts`（run.started/run.ended/status.advanced 埋点）、`issue/http.ts`（created/started/deliverable.submitted/human.decided 埋点）、`GET /api/issues/:id/timeline`（全量 + SSE 增量）。
 
 > 这一节专门回答「Issue 流程能不能当成一种会话账本」：**不能**，但 Issue 该有自己的追加式时间线。
 
@@ -153,11 +155,13 @@ IssueEvent = {
 
 它与会话账本是**两套并行的事实**：账本管「对话里说了什么」，Timeline 管「这件活发生了什么」。二者互不混入。
 
-## ⑧ Issue 可观测性：复用 M16
+## ⑧ Issue 可观测性：复用 M16（✅ 已落地 M18.7）
+
+**status: current** — 已实现于 `GET /api/issues/:id/detail`（聚合 `{issue, timeline, runs}`）、`getRunOriginsByIssueId`（反查 issue→runs）、`getRuns(runIds[])`（批量补 run 终态）、前端 `IssueDetailSheet`（Sheet overlay + Timeline SSE + run 跳转 `/ops/runs/[runId]`）。
 
 Issue 级可观测 = **Issue Timeline（活的视角）** + **复用 M16 的 run 级可观测**。不发明新的可观测机制。
 
-关键复用点已经就位：M16 的 `run_origin` 表**已有 `issue_id` 列**，Orchestrator 起每一棒时都会写入（`idempotencyKey = issue:<id>:<status>:run`）。因此「这件活的所有 run」是可反查的，M16 现有的 Run Insights / trace 视图 / 心跳诊断可以直接挂到 Issue 上。
+关键复用点已经就位：M16 的 `run_origin` 表**已有 `issue_id` 列**，Orchestrator 起每一棒时都会写入（`idempotencyKey = runId`（M18.6 改：返工重入同 status 不撞键）；`fromStatus` 是 `run_origin` 的独立权威列）。因此「这件活的所有 run」是可反查的，M16 现有的 Run Insights / trace 视图 / 心跳诊断可以直接挂到 Issue 上。
 
 设计需补三处接缝：
 
@@ -173,8 +177,8 @@ Issue 级可观测 = **Issue Timeline（活的视角）** + **复用 M16 的 run
 4. 下一棒的输入来自**结构化交付物 + Issue 上下文**，不靠扫上一棒的自由文本。
 5. `renderPrompt` 仍只做 `{{}}` 字符串插值，变量字典从 Issue 上下文构建，不引入模板 DSL。
 6. 「是否完成」由人工闸门裁决；返工是转移表上的显式回退边，而非旁路。
-7. Issue Timeline 与会话账本是两套事实，互不混入；Timeline 按 issue 聚合、装工作事件。
-8. 不发明新的执行/可观测机制：run 复用 [RunSupervisor](../backend/run-supervisor.md) 与 checkpointer，可观测复用 M16 经 `run_origin.issue_id`。
+7. ✅ Issue Timeline 与会话账本是两套事实，互不混入；Timeline 按 issue 聚合、装工作事件。（M18.7 已落地）
+8. ✅ 不发明新的执行/可观测机制：run 复用 [RunSupervisor](../backend/run-supervisor.md) 与 checkpointer，可观测复用 M16 经 `run_origin.issue_id`。（M18.7 已落地）
 
 ## 关联页面
 

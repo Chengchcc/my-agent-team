@@ -212,28 +212,35 @@ export function issueRoutes(
           to: "in_progress",
           by: "rework",
         });
-        const d = deliverableSvc.submit({
-          issueId,
-          fromStatus: "in_review",
-          kind: "rework_feedback",
-          fields: { note: parsed.data.note! },
-        });
-        emitIssueEvent(opsStore, issueId, "deliverable.submitted", {
-          kind: "rework_feedback",
-          deliverableId: d.row.deliverableId,
-          runId: null,
-          ref: null,
-        });
         try {
+          const d = deliverableSvc.submit({
+            issueId,
+            fromStatus: "in_review",
+            kind: "rework_feedback",
+            fields: { note: parsed.data.note! },
+          });
+          emitIssueEvent(opsStore, issueId, "deliverable.submitted", {
+            kind: "rework_feedback",
+            deliverableId: d.row.deliverableId,
+            runId: null,
+            ref: null,
+          });
           await onReviewRejected?.(updated);
         } catch (e) {
-          // Rework run failed to start — compensation rollback to in_review
-          console.error(`[orchestrator] rework start failed for ${issueId}: ${String(e)}`);
+          // Rework failed (submit or startStep) — compensation rollback to in_review
+          console.error(
+            `[orchestrator] rework reject failed for ${issueId}: ${String(e)}`,
+          );
           try {
             const reverted = svc.revertReviewReject(issueId);
+            emitIssueEvent(opsStore, issueId, "status.advanced", {
+              from: "in_progress",
+              to: "in_review",
+              by: "revert",
+            });
             return json(
               {
-                error: "rework run failed to start; issue returned to in_review",
+                error: "rework failed; issue returned to in_review",
                 issue: reverted,
               },
               502,
@@ -242,7 +249,10 @@ export function issueRoutes(
             console.error(
               `[orchestrator] rollback in_progress→in_review failed for ${issueId}: ${String(rollbackErr)}`,
             );
-            return json({ error: "rework run failed and rollback failed", issue: updated }, 500);
+            return json(
+              { error: "rework failed and rollback failed", issue: updated },
+              500,
+            );
           }
         }
         return json({ issue: updated });
