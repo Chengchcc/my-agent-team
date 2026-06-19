@@ -197,17 +197,12 @@ export class RunnerDaemon {
     // M18.5: Inject submit_deliverable tool for issue runs.
     // Condition: capability present + issue info attached + not a reflect run.
     // We don't bind on surface literal — the capability+issue combo is the signal.
-    if (
-      sc?.capabilities.includes("submit_deliverable") &&
-      sc.issue &&
-      spec.mode !== "reflect"
-    ) {
+    if (sc?.capabilities.includes("submit_deliverable") && sc.issue && spec.mode !== "reflect") {
       extraTools.push(
         createSubmitDeliverableTool({
           backendUrl: this.#backendUrl,
           backendAuthToken: this.#backendAuthToken,
           issueId: sc.issue.issueId,
-          fromStatus: sc.issue.fromStatus,
           runId: sc.runId,
         }),
       );

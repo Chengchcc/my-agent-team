@@ -344,8 +344,8 @@ const router = createRouter(config.authToken, {
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),
   issues: issueRoutes(issueSvc, opsStore, deliverableSvc, {
-      onIssueStarted: (issue) => orchestrator.startStep(issue),
-    }),
+    onIssueStarted: (issue) => orchestrator.startStep(issue),
+  }),
   projects: projectRoutes(projectSvc),
   columnConfigs: columnConfigRoutes(columnConfigSvc),
 });

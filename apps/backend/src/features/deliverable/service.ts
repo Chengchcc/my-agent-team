@@ -10,7 +10,9 @@ export function createDeliverableService(deps: {
   return {
     port: deps.port,
 
-    /** 提交一份交付物（追加）。归属 (issueId, fromStatus) 由调用方补全后传入。 */
+    /** 提交一份交付物（追加）。归属 (issueId, fromStatus) 由调用方补全后传入。
+     *  幂等由 adapter 的 INSERT … ON CONFLICT(run_id, kind) 保证。
+     *  返回 { row, replay } — replay 为 true 表示该 (runId, kind) 已有交付物。 */
     submit(input: {
       issueId: string;
       fromStatus: string;
@@ -18,8 +20,7 @@ export function createDeliverableService(deps: {
       fields: Record<string, string>;
       ref?: string;
       runId?: string;
-      idempotencyKey?: string;
-    }): DeliverableRow {
+    }): { row: DeliverableRow; replay: boolean } {
       return deps.port.insert({
         deliverableId: deps.idGen(),
         issueId: input.issueId,
@@ -28,7 +29,6 @@ export function createDeliverableService(deps: {
         fields: input.fields,
         ref: input.ref ?? null,
         runId: input.runId ?? null,
-        idempotencyKey: input.idempotencyKey ?? null,
         createdAt: now(),
       });
     },

@@ -198,7 +198,10 @@ export function createRouter(token: string, features?: FeatureSet) {
           return withAuth(async (r) => issues.transition(r, issueTransitionMatch[1]!), token)(req);
         // deliverables must be before detail to avoid /:id capturing /:id/deliverables
         if (issueDeliverablesMatch && method === "POST")
-          return withAuth(async (r) => issues.submitDeliverable(r, issueDeliverablesMatch[1]!), token)(req);
+          return withAuth(
+            async (r) => issues.submitDeliverable(r, issueDeliverablesMatch[1]!),
+            token,
+          )(req);
         if (issueDetailMatch && method === "GET")
           return withAuth(async (r) => issues.get(r, issueDetailMatch[1]!), token)(req);
 

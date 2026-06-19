@@ -13,7 +13,6 @@ export function createSubmitDeliverableTool(input: {
   backendUrl: string;
   backendAuthToken: string | null;
   issueId: string;
-  fromStatus: string;
   runId: string;
 }): Tool {
   return {
@@ -46,6 +45,8 @@ export function createSubmitDeliverableTool(input: {
       const url = `${input.backendUrl}/api/issues/${input.issueId}/deliverables`;
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (input.backendAuthToken) headers["x-auth-token"] = input.backendAuthToken;
+      // R1: only send deliverable content + runId. fromStatus and idempotency
+      // are derived server-side from run_origin — the tool is not authoritative.
       const resp = await fetch(url, {
         method: "POST",
         headers,
@@ -53,9 +54,7 @@ export function createSubmitDeliverableTool(input: {
           kind: a.kind,
           fields: a.fields,
           ref: a.ref,
-          fromStatus: input.fromStatus,
           runId: input.runId,
-          idempotencyKey: `issue:${input.issueId}:${input.fromStatus}:deliverable`,
         }),
       });
       if (!resp.ok) {

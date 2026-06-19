@@ -63,7 +63,6 @@ function mockDeliverableSvc(
         fields: r.fields,
         ref: r.ref ?? null,
         runId: `run_00${i}`,
-        idempotencyKey: null,
         createdAt: r.createdAt,
       }));
     },

@@ -133,6 +133,12 @@ export const EVENTS_DB_MIGRATIONS = [
     up: `ALTER TABLE run_origin ADD COLUMN issue_id TEXT;
     CREATE INDEX IF NOT EXISTS idx_run_origin_issue ON run_origin(issue_id);`,
   },
+  // ─── M18.5 R3: run_origin.from_status — authoritative source, no more split(":") ──
+  {
+    name: "events_v14_run_origin_from_status",
+    id: 3013,
+    up: `ALTER TABLE run_origin ADD COLUMN from_status TEXT NOT NULL DEFAULT '';`,
+  },
 ];
 
 export function runEventsDbMigrations(db: Database): void {

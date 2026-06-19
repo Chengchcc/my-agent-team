@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { json, sseResponse } from "../../http/response.js";
+import type { DeliverableService } from "../deliverable/service.js";
 import { ISSUE_STATUSES, ORDER } from "../orchestrator/transitions.js";
+import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { IssueRow, IssueStatus } from "./entities.js";
 import {
   IllegalTransitionError,
@@ -8,8 +10,6 @@ import {
   type IssueService,
   ValidationError,
 } from "./service.js";
-import type { RuntimeOpsStore } from "../runtime-ops/store.js";
-import type { DeliverableService } from "../deliverable/service.js";
 
 const createSchema = z.object({
   projectId: z.string().trim().min(1),
@@ -19,12 +19,14 @@ const createSchema = z.object({
 const transitionSchema = z.object({ to: z.enum(ISSUE_STATUSES as readonly [string, ...string[]]) });
 
 const deliverableSchema = z.object({
-  kind: z.string().trim().min(1),
+  kind: z
+    .string()
+    .trim()
+    .min(1)
+    .regex(/^[a-z][a-z0-9_]*$/, "kind must be lowercase alphanumeric"),
   fields: z.record(z.string()),
   ref: z.string().optional(),
-  fromStatus: z.string().optional(),
   runId: z.string().optional(),
-  idempotencyKey: z.string().optional(),
 });
 
 export function issueRoutes(
@@ -92,35 +94,36 @@ export function issueRoutes(
       }
     },
 
-    /** POST /api/issues/:id/deliverables → 201 { deliverable } | 404 | 409 */
+    /** POST /api/issues/:id/deliverables → 201 | 200(replay) | 400 | 404 | 409
+     *  R3: fromStatus is read from run_origin.from_status (authoritative), never parsed from a string.
+     *  R1: idempotency is (runId, kind) — INSERT … ON CONFLICT in adapter. */
     async submitDeliverable(req: Request, issueId: string): Promise<Response> {
       const parsed = deliverableSchema.safeParse(await req.json().catch(() => ({})));
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       if (!svc.port.getIssue(issueId)) return json({ error: "issue not found" }, 404);
 
-      let fromStatus = parsed.data.fromStatus ?? "";
+      // R3: runId provided → origin must exist and issueId must match (hard 409, no fallback)
+      let fromStatus = "";
       if (parsed.data.runId) {
         const origin = opsStore.getRunOrigin(parsed.data.runId);
-        if (origin?.issueId && origin.issueId !== issueId)
+        if (!origin) return json({ error: "run not found" }, 409);
+        if (origin.issueId && origin.issueId !== issueId)
           return json({ error: "run/issue mismatch" }, 409);
-        fromStatus = origin?.idempotencyKey?.split(":")[2] ?? fromStatus;
+        fromStatus = origin.fromStatus;
       }
 
-      const key = parsed.data.idempotencyKey;
-      const existing = key ? deliverableSvc.port.getByIdempotencyKey(key) : null;
-      if (existing) return json({ deliverable: existing });
-
-      const row = deliverableSvc.submit({
+      // R2: atomic upsert — adapter handles ON CONFLICT, returns { row, replay }
+      const { row, replay } = deliverableSvc.submit({
         issueId,
         fromStatus,
         kind: parsed.data.kind,
         fields: parsed.data.fields,
         ref: parsed.data.ref,
         runId: parsed.data.runId,
-        idempotencyKey: key,
       });
-      return json({ deliverable: row }, 201);
+
+      return json({ deliverable: row }, replay ? 200 : 201);
     },
 
     /** GET /api/issue-meta → 200 { statuses } */

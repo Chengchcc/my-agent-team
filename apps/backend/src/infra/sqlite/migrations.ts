@@ -281,6 +281,7 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
     CREATE INDEX IF NOT EXISTS idx_column_config_project ON column_config(project_id);`,
   },
   // ─── M18.5 deliverable — structured hand-off artifacts ──
+  // R1: idempotency is (run_id, kind) via UNIQUE index. No separate idempotency_key column.
   {
     name: "backend_v26_deliverable",
     id: 5012,
@@ -292,12 +293,11 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
       fields           TEXT NOT NULL,
       ref              TEXT,
       run_id           TEXT,
-      idempotency_key  TEXT,
       created_at       INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_deliverable_issue ON deliverable(issue_id);
     CREATE INDEX IF NOT EXISTS idx_deliverable_issue_kind ON deliverable(issue_id, kind);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_deliverable_idem ON deliverable(idempotency_key) WHERE idempotency_key IS NOT NULL;`,
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_deliverable_run_kind ON deliverable(run_id, kind) WHERE run_id IS NOT NULL;`,
   },
 ];
 

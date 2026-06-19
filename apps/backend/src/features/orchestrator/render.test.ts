@@ -23,34 +23,37 @@ describe("renderPrompt", () => {
     expect(renderPrompt("{{a}}{{b}}", { a: "x", b: "y" })).toBe("xy");
   });
 
-  test("nested dot-path lookup: {{deliverables.plan.summary}}", () => {
+  test("nested dot-path lookup: {{deliverables.plan.fields.summary}} (R4 namespace)", () => {
     const vars = {
       title: "Test Issue",
       deliverables: {
-        plan: { summary: "Build feature X", ref: "https://doc.example/plan" },
-        mr: { url: "https://git.example/mr/1" },
+        plan: { fields: { summary: "Build feature X" }, ref: "https://doc.example/plan" },
+        mr: { fields: { url: "https://git.example/mr/1" }, ref: "" },
       },
     };
     const result = renderPrompt(
-      "Plan: {{deliverables.plan.summary}}, MR: {{deliverables.mr.url}}",
+      "Plan: {{deliverables.plan.fields.summary}} ({{deliverables.plan.ref}}), MR: {{deliverables.mr.fields.url}}",
       vars,
     );
-    expect(result).toBe("Plan: Build feature X, MR: https://git.example/mr/1");
+    expect(result).toBe(
+      "Plan: Build feature X (https://doc.example/plan), MR: https://git.example/mr/1",
+    );
   });
 
   test("missing nested path resolves to empty string", () => {
     const vars = {
       title: "Test",
-      deliverables: { plan: { summary: "X" } },
+      deliverables: { plan: { fields: { summary: "X" }, ref: "" } },
     };
-    const result = renderPrompt("MR: {{deliverables.mr.url}}", vars);
+    const result = renderPrompt("MR: {{deliverables.mr.fields.url}}", vars);
     expect(result).toBe("MR: ");
   });
 
   test("intermediate object (non-string leaf) resolves to empty string", () => {
     const vars = {
-      deliverables: { plan: { summary: "X" } },
+      deliverables: { plan: { fields: { summary: "X" }, ref: "" } },
     };
+    // {{deliverables.plan}} → { fields: { summary: "X" }, ref: "" } — non-string → ""
     const result = renderPrompt("{{deliverables.plan}}", vars);
     expect(result).toBe("");
   });

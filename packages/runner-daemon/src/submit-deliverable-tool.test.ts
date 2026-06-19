@@ -17,7 +17,6 @@ describe("createSubmitDeliverableTool", () => {
       backendUrl: "http://localhost:3000",
       backendAuthToken: "tok_123",
       issueId: "iss_001",
-      fromStatus: "planned",
       runId: "run_001",
     });
 
@@ -37,9 +36,10 @@ describe("createSubmitDeliverableTool", () => {
     expect(body.kind).toBe("plan");
     expect(body.fields).toEqual({ summary: "Build login" });
     expect(body.ref).toBe("https://doc.example/plan");
-    expect(body.fromStatus).toBe("planned");
     expect(body.runId).toBe("run_001");
-    expect(body.idempotencyKey).toBe("issue:iss_001:planned:deliverable");
+    // R1: fromStatus and idempotencyKey are derived server-side — tool only sends content + runId
+    expect(body.fromStatus).toBeUndefined();
+    expect(body.idempotencyKey).toBeUndefined();
   });
 
   test("non-2xx returns isError:true (does not throw)", async () => {
@@ -51,7 +51,6 @@ describe("createSubmitDeliverableTool", () => {
       backendUrl: "http://localhost:3000",
       backendAuthToken: null,
       issueId: "iss_001",
-      fromStatus: "planned",
       runId: "run_001",
     });
 

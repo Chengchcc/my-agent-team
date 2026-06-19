@@ -36,6 +36,8 @@ export interface RunOriginRow {
   idempotencyKey: string;
   /** M18.2: non-null = issue-driven run (used for Issue back-link + @mention isolation) */
   issueId?: string | null;
+  /** M18.5 R3: authoritative source for the issue status at run start — no more split(":"). */
+  fromStatus: string;
   createdAt: number;
 }
 

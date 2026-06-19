@@ -29,14 +29,26 @@ export interface OrchestratorDeps {
 }
 
 export function createOrchestrator(deps: OrchestratorDeps) {
-  const { issueSvc, agentSvc, supervisor, opsStore, buildSpec, idGen, columnConfigSvc, deliverableSvc } = deps;
+  const {
+    issueSvc,
+    agentSvc,
+    supervisor,
+    opsStore,
+    buildSpec,
+    idGen,
+    columnConfigSvc,
+    deliverableSvc,
+  } = deps;
 
   /** Build a nested PromptVars dict from issue creation info + accumulated deliverables.
-   *  Same kind → latest wins (listByIssue returns created_at ASC → later items overwrite earlier). */
+   *  Same kind → latest wins (listByIssue returns created_at ASC → later items overwrite earlier).
+   *  R4: fields and ref are separate namespaces — {{deliverables.<kind>.fields.<key>}} and {{deliverables.<kind>.ref}}.
+   *  R5: Object.create(null) prevents prototype pollution from agent-controlled kind strings. */
   function buildPromptVars(issue: IssueRow, deliverables: DeliverableRow[]): PromptVars {
-    const byKind: Record<string, Record<string, string>> = {};
+    const byKind: Record<string, { fields: Record<string, string>; ref: string }> =
+      Object.create(null);
     for (const d of deliverables) {
-      byKind[d.kind] = { ...d.fields, ...(d.ref ? { ref: d.ref } : {}) };
+      byKind[d.kind] = { fields: d.fields, ref: d.ref ?? "" };
     }
     return { title: issue.title, issueId: issue.issueId, deliverables: byKind };
   }
@@ -79,6 +91,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       traceId: "",
       traceparent: "",
       idempotencyKey: `issue:${issue.issueId}:${issue.status}:run`,
+      fromStatus: issue.status,
       createdAt: (deps.now ?? Date.now)(),
     });
 

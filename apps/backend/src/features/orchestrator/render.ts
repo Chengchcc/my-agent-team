@@ -6,11 +6,15 @@ export type PromptVars = { [k: string]: string | PromptVars };
 
 export function renderPrompt(template: string, vars: PromptVars): string {
   return template.replace(/\{\{([\w.]+)\}\}/g, (_, path: string) => {
-    const v = path.split(".").reduce<unknown>(
-      (acc, seg) =>
-        acc != null && typeof acc === "object" ? (acc as Record<string, unknown>)[seg] : undefined,
-      vars,
-    );
+    const v = path
+      .split(".")
+      .reduce<unknown>(
+        (acc, seg) =>
+          acc != null && typeof acc === "object"
+            ? (acc as Record<string, unknown>)[seg]
+            : undefined,
+        vars,
+      );
     return typeof v === "string" ? v : "";
   });
 }

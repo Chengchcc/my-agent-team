@@ -38,6 +38,7 @@ function createTestDb() {
       traceparent       TEXT NOT NULL,
       idempotency_key   TEXT NOT NULL,
       issue_id          TEXT,
+      from_status       TEXT NOT NULL DEFAULT '',
       created_at        INTEGER NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_run_origin_idem ON run_origin(idempotency_key);
@@ -135,6 +136,7 @@ describe("RuntimeOpsStore", () => {
         traceId: "t1",
         traceparent: "00-t1-s1-01",
         idempotencyKey: "ik-1",
+        fromStatus: "",
         createdAt: 1000,
       });
 
@@ -154,6 +156,7 @@ describe("RuntimeOpsStore", () => {
         traceId: "t1",
         traceparent: "00-t1-s1-01",
         idempotencyKey: "ik-1",
+        fromStatus: "",
         createdAt: 1000,
       });
 
@@ -172,6 +175,7 @@ describe("RuntimeOpsStore", () => {
         traceId: "t1",
         traceparent: "00-t1-s1-01",
         idempotencyKey: "ik-dup",
+        fromStatus: "",
         createdAt: 1000,
       };
       store.insertRunOrigin(row);

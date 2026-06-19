@@ -10,7 +10,6 @@ type Raw = {
   fields: string;
   ref: string | null;
   run_id: string | null;
-  idempotency_key: string | null;
   created_at: number;
 };
 
@@ -22,16 +21,18 @@ const toRow = (r: Raw): DeliverableRow => ({
   fields: JSON.parse(r.fields) as Record<string, string>,
   ref: r.ref,
   runId: r.run_id,
-  idempotencyKey: r.idempotency_key,
   createdAt: r.created_at,
 });
 
 export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
   return {
-    insert(input): DeliverableRow {
+    /** R2: INSERT … ON CONFLICT(run_id, kind) DO NOTHING — atomic idempotency.
+     *  Returns { row, replay: true } when the row already exists. */
+    insert(input): { row: DeliverableRow; replay: boolean } {
       db.run(
-        `INSERT INTO deliverable (deliverable_id, issue_id, from_status, kind, fields, ref, run_id, idempotency_key, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO deliverable (deliverable_id, issue_id, from_status, kind, fields, ref, run_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(run_id, kind) WHERE run_id IS NOT NULL DO NOTHING`,
         [
           input.deliverableId,
           input.issueId,
@@ -40,34 +41,45 @@ export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
           JSON.stringify(input.fields),
           input.ref,
           input.runId,
-          input.idempotencyKey,
           input.createdAt,
         ],
       );
+      const { changes } = db.query("SELECT changes() AS changes").get() as { changes: number };
+      if (changes === 0 && input.runId) {
+        const existing = db
+          .query("SELECT * FROM deliverable WHERE run_id = ? AND kind = ?")
+          .get(input.runId, input.kind) as Raw | undefined;
+        if (existing) return { row: toRow(existing), replay: true };
+      }
       return {
-        deliverableId: input.deliverableId,
-        issueId: input.issueId,
-        fromStatus: input.fromStatus,
-        kind: input.kind,
-        fields: input.fields,
-        ref: input.ref,
-        runId: input.runId,
-        idempotencyKey: input.idempotencyKey,
-        createdAt: input.createdAt,
+        row: {
+          deliverableId: input.deliverableId,
+          issueId: input.issueId,
+          fromStatus: input.fromStatus,
+          kind: input.kind,
+          fields: input.fields,
+          ref: input.ref,
+          runId: input.runId,
+          createdAt: input.createdAt,
+        },
+        replay: false,
       };
     },
 
+    /** R5: ORDER BY created_at ASC, deliverable_id ASC — ulid tiebreaker for deterministic last-write-wins. */
     listByIssue(issueId: string): DeliverableRow[] {
       const rows = db
-        .query("SELECT * FROM deliverable WHERE issue_id = ? ORDER BY created_at ASC")
+        .query(
+          "SELECT * FROM deliverable WHERE issue_id = ? ORDER BY created_at ASC, deliverable_id ASC",
+        )
         .all(issueId) as Raw[];
       return rows.map(toRow);
     },
 
-    getByIdempotencyKey(key: string): DeliverableRow | null {
+    getByRunAndKind(runId: string, kind: string): DeliverableRow | null {
       const r = db
-        .query("SELECT * FROM deliverable WHERE idempotency_key = ?")
-        .get(key) as Raw | undefined;
+        .query("SELECT * FROM deliverable WHERE run_id = ? AND kind = ?")
+        .get(runId, kind) as Raw | undefined;
       return r ? toRow(r) : null;
     },
   };

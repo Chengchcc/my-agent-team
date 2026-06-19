@@ -93,6 +93,7 @@ export function createConversationFeature(
         traceId: trace.traceId,
         traceparent: trace.traceparent,
         idempotencyKey: `${ctx.conversationId}:${ctx.ledgerSeq}:run`,
+        fromStatus: "",
         createdAt: Date.now(),
       });
 

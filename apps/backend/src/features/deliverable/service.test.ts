@@ -13,10 +13,9 @@ function setup() {
     fields         TEXT NOT NULL,
     ref            TEXT,
     run_id         TEXT,
-    idempotency_key TEXT,
     created_at     INTEGER NOT NULL
   );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_deliverable_idem ON deliverable(idempotency_key) WHERE idempotency_key IS NOT NULL`);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_deliverable_run_kind ON deliverable(run_id, kind) WHERE run_id IS NOT NULL`);
   let idCounter = 0;
   const svc = createDeliverableService({
     port: sqliteDeliverableAdapter(db),
@@ -27,17 +26,17 @@ function setup() {
 }
 
 describe("DeliverableService", () => {
-  test("submit inserts a row and returns it", () => {
+  test("submit inserts a row and returns it with replay=false", () => {
     const { svc } = setup();
-    const row = svc.submit({
+    const { row, replay } = svc.submit({
       issueId: "iss_001",
       fromStatus: "planned",
       kind: "plan",
       fields: { summary: "Build a thing", url: "https://doc.example/plan" },
       ref: "https://doc.example/plan",
       runId: "run_001",
-      idempotencyKey: "issue:iss_001:planned:deliverable",
     });
+    expect(replay).toBe(false);
     expect(row.issueId).toBe("iss_001");
     expect(row.fromStatus).toBe("planned");
     expect(row.kind).toBe("plan");
@@ -46,7 +45,75 @@ describe("DeliverableService", () => {
     expect(row.runId).toBe("run_001");
   });
 
-  test("listByIssue returns rows ordered by created_at ASC", () => {
+  test("submit same (runId, kind) returns replay=true with existing row", () => {
+    const { svc } = setup();
+    const first = svc.submit({
+      issueId: "iss_001",
+      fromStatus: "planned",
+      kind: "plan",
+      fields: { v: "1" },
+      runId: "run_001",
+    });
+    expect(first.replay).toBe(false);
+
+    const second = svc.submit({
+      issueId: "iss_001",
+      fromStatus: "planned",
+      kind: "plan",
+      fields: { v: "2" },
+      runId: "run_001",
+    });
+    expect(second.replay).toBe(true);
+    // Returns the first row, not the second (ON CONFLICT DO NOTHING)
+    expect(second.row.fields).toEqual({ v: "1" });
+    expect(second.row.deliverableId).toBe(first.row.deliverableId);
+  });
+
+  test("different kind for same run inserts separately (no conflict)", () => {
+    const { svc } = setup();
+    const plan = svc.submit({
+      issueId: "iss_001",
+      fromStatus: "planned",
+      kind: "plan",
+      fields: { v: "1" },
+      runId: "run_001",
+    });
+    const mr = svc.submit({
+      issueId: "iss_001",
+      fromStatus: "planned",
+      kind: "mr",
+      fields: { v: "2" },
+      runId: "run_001",
+    });
+    expect(plan.replay).toBe(false);
+    expect(mr.replay).toBe(false);
+    const rows = svc.listByIssue("iss_001");
+    expect(rows).toHaveLength(2);
+  });
+
+  test("different run for same kind inserts separately (rework produces new row)", () => {
+    const { svc } = setup();
+    const first = svc.submit({
+      issueId: "iss_001",
+      fromStatus: "planned",
+      kind: "plan",
+      fields: { v: "1" },
+      runId: "run_001",
+    });
+    const second = svc.submit({
+      issueId: "iss_001",
+      fromStatus: "planned",
+      kind: "plan",
+      fields: { v: "2" },
+      runId: "run_002",
+    });
+    expect(first.replay).toBe(false);
+    expect(second.replay).toBe(false);
+    const rows = svc.listByIssue("iss_001");
+    expect(rows).toHaveLength(2);
+  });
+
+  test("listByIssue returns rows ordered by created_at ASC, deliverable_id ASC", () => {
     const { svc } = setup();
     svc.submit({ issueId: "iss_001", fromStatus: "planned", kind: "plan", fields: { v: "1" } });
     svc.submit({ issueId: "iss_001", fromStatus: "in_progress", kind: "mr", fields: { v: "2" } });
@@ -59,7 +126,7 @@ describe("DeliverableService", () => {
     expect(rows[0]!.createdAt).toBeLessThan(rows[1]!.createdAt);
   });
 
-  test("same (issueId, kind) can have multiple rows (append-only)", () => {
+  test("same (issueId, kind) without runId can have multiple rows (append-only, no unique conflict)", () => {
     const { svc } = setup();
     svc.submit({ issueId: "iss_001", fromStatus: "planned", kind: "plan", fields: { v: "1" } });
     svc.submit({ issueId: "iss_001", fromStatus: "planned", kind: "plan", fields: { v: "2" } });
@@ -69,24 +136,24 @@ describe("DeliverableService", () => {
     expect(rows[1]!.fields).toEqual({ v: "2" });
   });
 
-  test("getByIdempotencyKey finds existing row", () => {
+  test("getByRunAndKind finds existing row", () => {
     const { svc } = setup();
     svc.submit({
       issueId: "iss_001",
       fromStatus: "planned",
       kind: "plan",
       fields: { v: "1" },
-      idempotencyKey: "key_abc",
+      runId: "run_001",
     });
 
-    const found = svc.port.getByIdempotencyKey("key_abc");
+    const found = svc.port.getByRunAndKind("run_001", "plan");
     expect(found).not.toBeNull();
     expect(found!.issueId).toBe("iss_001");
   });
 
-  test("getByIdempotencyKey returns null for unknown key", () => {
+  test("getByRunAndKind returns null for unknown (runId, kind)", () => {
     const { svc } = setup();
-    expect(svc.port.getByIdempotencyKey("nonexistent")).toBeNull();
+    expect(svc.port.getByRunAndKind("nonexistent", "plan")).toBeNull();
   });
 
   test("fields JSON round-trips correctly", () => {
