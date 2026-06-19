@@ -1,9 +1,11 @@
 import type { AgentService } from "../agent/service.js";
 import type { ColumnConfigService } from "../column-config/service.js";
+import type { DeliverableRow } from "../deliverable/domain.js";
 import type { IssueRow } from "../issue/entities.js";
 import type { IssueService } from "../issue/service.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
+import type { PromptVars } from "./render.js";
 import { renderPrompt } from "./render.js";
 import { nextTransition } from "./transitions.js";
 
@@ -22,11 +24,22 @@ export interface OrchestratorDeps {
   buildSpec: (agentId: string, threadId: string, input: string) => Promise<Record<string, unknown>>;
   idGen: () => string;
   columnConfigSvc: ColumnConfigService;
+  deliverableSvc: { listByIssue(issueId: string): DeliverableRow[] };
   now?: () => number;
 }
 
 export function createOrchestrator(deps: OrchestratorDeps) {
-  const { issueSvc, agentSvc, supervisor, opsStore, buildSpec, idGen, columnConfigSvc } = deps;
+  const { issueSvc, agentSvc, supervisor, opsStore, buildSpec, idGen, columnConfigSvc, deliverableSvc } = deps;
+
+  /** Build a nested PromptVars dict from issue creation info + accumulated deliverables.
+   *  Same kind → latest wins (listByIssue returns created_at ASC → later items overwrite earlier). */
+  function buildPromptVars(issue: IssueRow, deliverables: DeliverableRow[]): PromptVars {
+    const byKind: Record<string, Record<string, string>> = {};
+    for (const d of deliverables) {
+      byKind[d.kind] = { ...d.fields, ...(d.ref ? { ref: d.ref } : {}) };
+    }
+    return { title: issue.title, issueId: issue.issueId, deliverables: byKind };
+  }
 
   /** 为某个 Issue 的当前 status 起对应转移的那一棒。
    *  缺转移（终态）→ 静默停止；缺 agent → 抛错、不起 run、Issue 不推进。 */
@@ -42,10 +55,19 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     }
 
     const runId = idGen();
-    const prompt = renderPrompt(t.promptTemplate, { title: issue.title, issueId: issue.issueId });
+    const vars = buildPromptVars(issue, deliverableSvc.listByIssue(issue.issueId));
+    const prompt = renderPrompt(t.promptTemplate, vars);
     const spec = await buildSpec(t.agentId, issue.threadId, prompt);
 
-    await supervisor.startMainRun(runId, issue.threadId, spec);
+    await supervisor.startMainRun(runId, issue.threadId, spec, {
+      surfaceContext: {
+        surface: "orchestrator",
+        conversationId: "",
+        runId,
+        capabilities: ["submit_deliverable"],
+        issue: { issueId: issue.issueId, fromStatus: issue.status },
+      },
+    });
 
     opsStore.insertRunOrigin({
       runId,

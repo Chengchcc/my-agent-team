@@ -29,6 +29,10 @@ import {
   getOrCreateAccumulator,
   onRunComplete,
 } from "./features/conversation/projection.js";
+import {
+  createDeliverableService,
+  sqliteDeliverableAdapter,
+} from "./features/deliverable/index.js";
 import { sqliteEventLog } from "./features/event-log/index.js";
 import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
@@ -275,6 +279,12 @@ const columnConfigSvc = createColumnConfigService({
   agentExists: (id) => agentSvc.exists(id),
 });
 
+// Deliverable service (M18.5) — structured hand-off artifacts
+const deliverableSvc = createDeliverableService({
+  port: sqliteDeliverableAdapter(db),
+  idGen: ulid,
+});
+
 // Issue service (M18.1) — projectExists hook wired for reference integrity (§3.2)
 const issueSvc = createIssueService({
   port: sqliteIssueAdapter(db),
@@ -310,6 +320,7 @@ const orchestrator = createOrchestrator({
   buildSpec: buildIssueSpec,
   idGen: ulid,
   columnConfigSvc,
+  deliverableSvc,
 });
 
 // Register orchestrator's backfill listener (alongside conversation's onRunComplete)
@@ -332,7 +343,9 @@ const router = createRouter(config.authToken, {
   threadProjections: threadProjectionRoutes(conv.threadProjectionSvc),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),
-  issues: issueRoutes(issueSvc, { onIssueStarted: (issue) => orchestrator.startStep(issue) }),
+  issues: issueRoutes(issueSvc, opsStore, deliverableSvc, {
+      onIssueStarted: (issue) => orchestrator.startStep(issue),
+    }),
   projects: projectRoutes(projectSvc),
   columnConfigs: columnConfigRoutes(columnConfigSvc),
 });
