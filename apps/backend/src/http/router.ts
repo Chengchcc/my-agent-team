@@ -1,4 +1,5 @@
 import type { agentRoutes } from "../features/agent/http.js";
+import type { columnConfigRoutes } from "../features/column-config/http.js";
 import type { conversationRoutes } from "../features/conversation/http.js";
 import type { issueRoutes } from "../features/issue/http.js";
 import type { projectRoutes } from "../features/project/http.js";
@@ -17,6 +18,7 @@ interface FeatureSet {
   ops?: ReturnType<typeof opsRoutes>;
   issues?: ReturnType<typeof issueRoutes>;
   projects?: ReturnType<typeof projectRoutes>;
+  columnConfigs?: ReturnType<typeof columnConfigRoutes>;
 }
 
 export function createRouter(token: string, features?: FeatureSet) {
@@ -38,7 +40,7 @@ export function createRouter(token: string, features?: FeatureSet) {
     };
   }
 
-  const { agents, runs, conversations, ops, issues, projects } = features;
+  const { agents, runs, conversations, ops, issues, projects, columnConfigs } = features;
 
   const agentList = withAuth((req) => agents.list(req), token);
   const agentCreate = withAuth((req) => agents.create(req), token);
@@ -176,10 +178,14 @@ export function createRouter(token: string, features?: FeatureSet) {
       // M18.1: Issue routes
       if (issues) {
         const issuesListMatch = path === "/api/issues";
+        const issueEventsMatch = path === "/api/issues/events";
         const issueTransitionMatch = path.match(/^\/api\/issues\/([^/]+)\/transition$/);
         const issueDetailMatch = path.match(/^\/api\/issues\/([^/]+)$/);
         const issueMetaMatch = path === "/api/issue-meta";
 
+        // SSE events must be matched before /:id regex
+        if (issueEventsMatch && method === "GET")
+          return withAuth(async (r) => issues.events(r), token)(req);
         if (issueMetaMatch && method === "GET")
           return withAuth(async () => issues.meta(), token)(req);
         if (issuesListMatch && method === "GET")
@@ -194,6 +200,7 @@ export function createRouter(token: string, features?: FeatureSet) {
 
         // 405 for known paths with wrong method
         if (issuesListMatch) return json({ error: "Method not allowed" }, 405);
+        if (issueEventsMatch) return json({ error: "Method not allowed" }, 405);
         if (issueMetaMatch) return json({ error: "Method not allowed" }, 405);
         if (issueTransitionMatch) return json({ error: "Method not allowed" }, 405);
         if (issueDetailMatch) return json({ error: "Method not allowed" }, 405);
@@ -215,6 +222,20 @@ export function createRouter(token: string, features?: FeatureSet) {
           return withAuth(async (r) => projects.remove(r, projectDetailMatch[1]!), token)(req);
         if (projectsListMatch) return json({ error: "Method not allowed" }, 405);
         if (projectDetailMatch) return json({ error: "Method not allowed" }, 405);
+      }
+
+      // M18.4: ColumnConfig routes
+      if (columnConfigs) {
+        const ccListMatch = path === "/api/column-configs";
+        const ccDetailMatch = path.match(/^\/api\/column-configs\/([^/]+)$/);
+        if (ccListMatch && method === "GET")
+          return withAuth(async (r) => columnConfigs.list(r), token)(req);
+        if (ccListMatch && method === "POST")
+          return withAuth(async (r) => columnConfigs.upsert(r), token)(req);
+        if (ccDetailMatch && method === "DELETE")
+          return withAuth(async (r) => columnConfigs.remove(r, ccDetailMatch[1]!), token)(req);
+        if (ccListMatch) return json({ error: "Method not allowed" }, 405);
+        if (ccDetailMatch) return json({ error: "Method not allowed" }, 405);
       }
 
       return withAuth(async () => notFound(req), token)(req);

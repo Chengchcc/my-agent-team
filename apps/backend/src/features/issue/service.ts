@@ -64,6 +64,52 @@ export function createIssueService(deps: IssueServiceDeps) {
       // 写后重读：保证返回对象等于库内真值，为 M18.2 多列写入预留
       return port.getIssue(issueId)!;
     },
+
+    // ─── SSE subscription ─────────────────────────────
+
+    async *subscribeIssues(opts?: {
+      signal?: AbortSignal;
+      pollMs?: number;
+    }): AsyncIterable<IssueRow | { _heartbeat: true }> {
+      const pollMs = opts?.pollMs ?? 500;
+      const lastUpdated = new Map<string, number>();
+      let silentPolls = 0;
+      const heartbeatInterval = 30; // ~15s at 500ms poll
+
+      // First, yield all existing issues (catch-up)
+      const initial = port.listIssues();
+      for (const issue of initial) {
+        yield issue;
+        lastUpdated.set(issue.issueId, issue.updatedAt);
+      }
+
+      // Then long-poll for changes
+      while (true) {
+        if (opts?.signal?.aborted) break;
+
+        const current = port.listIssues();
+        let changed = false;
+        for (const issue of current) {
+          const prev = lastUpdated.get(issue.issueId);
+          if (prev === undefined || issue.updatedAt > prev) {
+            yield issue;
+            changed = true;
+          }
+          lastUpdated.set(issue.issueId, issue.updatedAt);
+        }
+
+        if (!changed) {
+          if (pollMs === 0) break; // one-shot for tests
+          silentPolls++;
+          if (silentPolls % heartbeatInterval === 0) {
+            yield { _heartbeat: true };
+          }
+          await new Promise((r) => setTimeout(r, pollMs));
+        } else {
+          silentPolls = 0;
+        }
+      }
+    },
   };
 }
 

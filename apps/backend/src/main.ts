@@ -28,6 +28,11 @@ import { sqliteEventLog } from "./features/event-log/index.js";
 import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
+import {
+  createColumnConfigService,
+  columnConfigRoutes,
+  sqliteColumnConfigAdapter,
+} from "./features/column-config/index.js";
 import { createOrchestrator } from "./features/orchestrator/index.js";
 import {
   createProjectService,
@@ -257,6 +262,13 @@ const opsSvc = createRuntimeOpsService({
 // Project service (M18.3) — must be constructed before issueSvc so projectExists can be injected
 const projectSvc = createProjectService({ port: sqliteProjectAdapter(db), idGen: ulid });
 
+// ColumnConfig service (M18.4) — per-Project per-status execution config
+const columnConfigSvc = createColumnConfigService({
+  port: sqliteColumnConfigAdapter(db),
+  idGen: ulid,
+  agentExists: (id) => agentSvc.exists(id),
+});
+
 // Issue service (M18.1) — projectExists hook wired for reference integrity (§3.2)
 const issueSvc = createIssueService({
   port: sqliteIssueAdapter(db),
@@ -291,6 +303,7 @@ const orchestrator = createOrchestrator({
   opsStore,
   buildSpec: buildIssueSpec,
   idGen: ulid,
+  columnConfigSvc,
 });
 
 // Register orchestrator's backfill listener (alongside conversation's onRunComplete)
@@ -313,8 +326,9 @@ const router = createRouter(config.authToken, {
   threadProjections: threadProjectionRoutes(conv.threadProjectionSvc),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),
-  issues: issueRoutes(issueSvc, { onIssueCreated: (issue) => orchestrator.startStep(issue) }),
+  issues: issueRoutes(issueSvc, { onIssueStarted: (issue) => orchestrator.startStep(issue) }),
   projects: projectRoutes(projectSvc),
+  columnConfigs: columnConfigRoutes(columnConfigSvc),
 });
 
 // ─── Start ────────────────────────────────────────────────────

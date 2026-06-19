@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { json } from "../../http/response.js";
+import { json, sseResponse } from "../../http/response.js";
 import { ISSUE_STATUSES } from "../orchestrator/transitions.js";
 import type { IssueRow, IssueStatus } from "./entities.js";
 import {
@@ -74,6 +74,20 @@ export function issueRoutes(
     /** GET /api/issue-meta → 200 { statuses } */
     meta(): Response {
       return json({ statuses: ISSUE_STATUSES });
+    },
+
+    /** GET /api/issues/events → SSE */
+    async events(req: Request): Promise<Response> {
+      const stream = svc.subscribeIssues({ signal: req.signal });
+      return sseResponse(
+        stream,
+        (row) => ({
+          id: (row as IssueRow).issueId ?? "heartbeat",
+          event: "issue",
+          data: row,
+        }),
+        req.signal,
+      );
     },
   };
 }
