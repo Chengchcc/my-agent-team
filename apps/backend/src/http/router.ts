@@ -182,6 +182,11 @@ export function createRouter(token: string, features?: FeatureSet) {
         const issueTransitionMatch = path.match(/^\/api\/issues\/([^/]+)\/transition$/);
         const issueDeliverablesMatch = path.match(/^\/api\/issues\/([^/]+)\/deliverables$/);
         const issueReviewMatch = path.match(/^\/api\/issues\/([^/]+)\/review-decision$/);
+        const issueTimelineEventsMatch = path.match(
+          /^\/api\/issues\/([^/]+)\/timeline\/events$/,
+        );
+        const issueTimelineMatch = path.match(/^\/api\/issues\/([^/]+)\/timeline$/);
+        const issueDetailAggMatch = path.match(/^\/api\/issues\/([^/]+)\/detail$/);
         const issueDetailMatch = path.match(/^\/api\/issues\/([^/]+)$/);
         const issueMetaMatch = path === "/api/issue-meta";
 
@@ -206,6 +211,16 @@ export function createRouter(token: string, features?: FeatureSet) {
         // review-decision must be before detail to avoid /:id capturing /:id/review-decision
         if (issueReviewMatch && method === "POST")
           return withAuth(async (r) => issues.reviewDecision(r, issueReviewMatch[1]!), token)(req);
+        // timeline/events must be before timeline to avoid /:id/timeline capturing /:id/timeline/events
+        if (issueTimelineEventsMatch && method === "GET")
+          return withAuth(
+            async (r) => issues.timelineEvents(r, issueTimelineEventsMatch[1]!),
+            token,
+          )(req);
+        if (issueTimelineMatch && method === "GET")
+          return withAuth(async (r) => issues.timeline(r, issueTimelineMatch[1]!), token)(req);
+        if (issueDetailAggMatch && method === "GET")
+          return withAuth(async (r) => issues.detail(r, issueDetailAggMatch[1]!), token)(req);
         if (issueDetailMatch && method === "GET")
           return withAuth(async (r) => issues.get(r, issueDetailMatch[1]!), token)(req);
 
@@ -216,6 +231,9 @@ export function createRouter(token: string, features?: FeatureSet) {
         if (issueTransitionMatch) return json({ error: "Method not allowed" }, 405);
         if (issueDeliverablesMatch) return json({ error: "Method not allowed" }, 405);
         if (issueReviewMatch) return json({ error: "Method not allowed" }, 405);
+        if (issueTimelineEventsMatch) return json({ error: "Method not allowed" }, 405);
+        if (issueTimelineMatch) return json({ error: "Method not allowed" }, 405);
+        if (issueDetailAggMatch) return json({ error: "Method not allowed" }, 405);
         if (issueDetailMatch) return json({ error: "Method not allowed" }, 405);
       }
 
