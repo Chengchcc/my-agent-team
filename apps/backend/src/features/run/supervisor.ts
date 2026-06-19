@@ -40,10 +40,11 @@ export interface RunRequestOptions {
   /** M15.1: Surface context for injecting surface-specific extra tools.
    *  Threaded through to transport.send({ type: "start" }). */
   surfaceContext?: {
-    surface: "lark" | "web" | "cli";
+    surface: "lark" | "web" | "cli" | "orchestrator";
     conversationId: string;
     runId: string;
-    capabilities: Array<"start_new_conversation">;
+    capabilities: Array<"start_new_conversation" | "submit_deliverable">;
+    issue?: { issueId: string; fromStatus: string };
   };
   /** M16: Trace context propagated to runner daemon via transport start. */
   trace?: RuntimeTraceContext;
