@@ -28,7 +28,13 @@ const COLUMN_LABEL: Record<IssueStatus, string> = {
   done: "已完成",
 };
 
-function DraggableIssueCard({ issue }: { issue: IssueRow }) {
+function DraggableIssueCard({
+  issue,
+  onDecision,
+}: {
+  issue: IssueRow;
+  onDecision?: () => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: issue.issueId,
     data: { status: issue.status },
@@ -42,7 +48,7 @@ function DraggableIssueCard({ issue }: { issue: IssueRow }) {
 
   return (
     <div ref={setNodeRef} style={style} {...listeners} {...attributes}>
-      <IssueCard issue={issue} />
+      <IssueCard issue={issue} onDecision={onDecision} />
     </div>
   );
 }
@@ -50,9 +56,11 @@ function DraggableIssueCard({ issue }: { issue: IssueRow }) {
 function DroppableColumn({
   status,
   items,
+  onDecision,
 }: {
   status: IssueStatus | "unknown";
   items: IssueRow[];
+  onDecision?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const label = status === "unknown" ? "Other" : (COLUMN_LABEL[status] ?? status);
@@ -66,7 +74,7 @@ function DroppableColumn({
       </h2>
       <div className="space-y-2 min-h-[4rem]">
         {items.map((it) => (
-          <DraggableIssueCard key={it.issueId} issue={it} />
+          <DraggableIssueCard key={it.issueId} issue={it} onDecision={onDecision} />
         ))}
       </div>
     </section>
@@ -151,16 +159,22 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
     }
   }
 
+  function handleDecision() {
+    queryClient.invalidateQueries({ queryKey: ["issues"] });
+  }
+
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="flex gap-4 p-6 overflow-x-auto">
         {columns.map((s) => {
           const items = s === "unknown" ? unmatched : (byStatus.get(s) ?? []);
-          return <DroppableColumn key={s} status={s} items={items} />;
+          return <DroppableColumn key={s} status={s} items={items} onDecision={handleDecision} />;
         })}
       </div>
 
-      <DragOverlay>{activeIssue ? <IssueCard issue={activeIssue} /> : null}</DragOverlay>
+      <DragOverlay>
+        {activeIssue ? <IssueCard issue={activeIssue} onDecision={handleDecision} /> : null}
+      </DragOverlay>
     </DndContext>
   );
 }

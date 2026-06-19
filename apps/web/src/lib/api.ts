@@ -281,6 +281,8 @@ export const api = {
     apiFetch<{ issue: IssueRow }>("issues", { method: "POST", body }),
   applyTransition: (id: string, to: IssueStatus) =>
     apiFetch<{ issue: IssueRow }>(`issues/${id}/transition`, { method: "POST", body: { to } }),
+  reviewDecision: (id: string, body: { decision: "approve" | "reject"; note?: string }) =>
+    apiFetch<{ issue: IssueRow }>(`issues/${id}/review-decision`, { method: "POST", body }),
 
   // ── ColumnConfigs (M18.4) ──
   listColumnConfigs: (projectId: string) =>
