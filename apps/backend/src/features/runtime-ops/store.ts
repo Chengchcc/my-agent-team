@@ -151,7 +151,16 @@ export class RuntimeOpsStore {
     const ph = runIds.map(() => "?").join(", ");
     return this.#db
       .query(`SELECT ${RUN_COLS} FROM run WHERE run_id IN (${ph})`)
-      .all(...runIds) as any[];
+      .all(...runIds) as unknown as Array<{
+        runId: string;
+        threadId: string;
+        agentId: string;
+        status: string;
+        kind: string;
+        parentRunId: string | null;
+        startedAt: number;
+        endedAt: number | null;
+      }>;
   }
 
   listRunOrigins(): RunOriginRow[] {
