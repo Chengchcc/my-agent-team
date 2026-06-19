@@ -90,7 +90,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       surface: "orchestrator",
       traceId: "",
       traceparent: "",
-      idempotencyKey: `issue:${issue.issueId}:${issue.status}:run`,
+      idempotencyKey: runId,
       fromStatus: issue.status,
       createdAt: (deps.now ?? Date.now)(),
     });
@@ -124,7 +124,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     // Idempotency guard: if the issue has already moved past the status this run
     // was started at, a prior delivery already advanced it — skip (CAS alone can't
     // catch this because the current status is a valid from-state for the NEXT transition).
-    const fromStatus = origin.idempotencyKey?.split(":")[2];
+    const fromStatus = origin.fromStatus;
     if (fromStatus && issue.status !== fromStatus) return;
 
     const table = columnConfigSvc.transitionsForProject(issue.projectId);
