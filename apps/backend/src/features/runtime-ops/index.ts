@@ -20,3 +20,4 @@ export type {
   SurfaceHealthRow,
 } from "./types.js";
 export { computeRunnerStatus } from "./types.js";
+export { emitIssueEvent } from "./emit-issue-event.js";
