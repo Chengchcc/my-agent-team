@@ -90,6 +90,48 @@ function makeReviewRequest(issueId: string, body: unknown): Request {
   return makeRequest(`/api/issues/${issueId}/review-decision`, body);
 }
 
+describe("HTTP emission events", () => {
+  test("create handler emits created event", async () => {
+    const { opsStore, routes } = setup();
+    const res = await routes.create(
+      new Request("http://localhost/api/issues", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: "p1", title: "Emit Test" }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { issue: { issueId: string } };
+    const events = opsStore.getIssueEvents(body.issue.issueId);
+    const created = events.find((e) => e.kind === "created");
+    expect(created).toBeDefined();
+    expect(created!.payload.title).toBe("Emit Test");
+    expect(created!.payload.projectId).toBe("p1");
+  });
+
+  test("transition emits status.advanced(by:human) + started on draft→planned", async () => {
+    const { issueSvc, opsStore, routes } = setup();
+    const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
+
+    const res = await routes.transition(
+      new Request("http://localhost/api/issues/x/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: "planned" }),
+      }),
+      issue.issueId,
+    );
+    expect(res.status).toBe(200);
+    const events = opsStore.getIssueEvents(issue.issueId);
+    const adv = events.find((e) => e.kind === "status.advanced" && e.payload.by === "human" && e.payload.to === "planned");
+    expect(adv).toBeDefined();
+    const started = events.find((e) => e.kind === "started");
+    expect(started).toBeDefined();
+    expect(started!.payload.from).toBe("draft");
+    expect(started!.payload.to).toBe("planned");
+  });
+});
+
 describe("submitDeliverable", () => {
   test("creates a deliverable and returns 201 with replay=false", async () => {
     const { issueSvc, routes } = setup();
@@ -183,6 +225,24 @@ describe("submitDeliverable", () => {
       issue.issueId,
     );
     expect(res.status).toBe(409);
+  });
+
+  test("emits deliverable.submitted event (non-replay only)", async () => {
+    const { issueSvc, opsStore, routes } = setup();
+    const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
+
+    await routes.submitDeliverable(
+      makeDeliverableRequest(issue.issueId, {
+        kind: "plan",
+        fields: { x: "1" },
+      }),
+      issue.issueId,
+    );
+    const events = opsStore.getIssueEvents(issue.issueId);
+    const ds = events.filter((e) => e.kind === "deliverable.submitted");
+    expect(ds.length).toBe(1);
+    expect(ds[0]!.payload.kind).toBe("plan");
+    expect(ds[0]!.payload.deliverableId).toBeString();
   });
 
   test("returns 409 when runId's issueId mismatches (R3 cross-issue guard)", async () => {
@@ -302,6 +362,40 @@ describe("reviewDecision", () => {
       "issue_001",
     );
     expect(res.status).toBe(400);
+  });
+
+  test("approve emits human.decided + status.advanced(by:human)", async () => {
+    const { issueSvc, opsStore, routes } = setup();
+    const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
+    issueSvc.applyTransition(issue.issueId, "planned");
+    issueSvc.applyTransition(issue.issueId, "in_progress");
+    issueSvc.applyTransition(issue.issueId, "in_review");
+
+    await routes.reviewDecision(
+      makeReviewRequest(issue.issueId, { decision: "approve" }),
+      issue.issueId,
+    );
+    const events = opsStore.getIssueEvents(issue.issueId);
+    expect(events.find((e) => e.kind === "human.decided" && e.payload.decision === "approve")).toBeDefined();
+    expect(events.find((e) => e.kind === "status.advanced" && e.payload.by === "human" && e.payload.to === "done")).toBeDefined();
+  });
+
+  test("reject emits human.decided + status.advanced(by:rework) + deliverable.submitted for rework_feedback", async () => {
+    const { issueSvc, opsStore, routes } = setup();
+    const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
+    issueSvc.applyTransition(issue.issueId, "planned");
+    issueSvc.applyTransition(issue.issueId, "in_progress");
+    issueSvc.applyTransition(issue.issueId, "in_review");
+
+    await routes.reviewDecision(
+      makeReviewRequest(issue.issueId, { decision: "reject", note: "try again" }),
+      issue.issueId,
+    );
+    const events = opsStore.getIssueEvents(issue.issueId);
+    expect(events.find((e) => e.kind === "human.decided" && e.payload.decision === "reject")).toBeDefined();
+    expect(events.find((e) => e.kind === "status.advanced" && e.payload.by === "rework")).toBeDefined();
+    const ds = events.find((e) => e.kind === "deliverable.submitted" && e.payload.kind === "rework_feedback");
+    expect(ds).toBeDefined();
   });
 
   test("in_review→in_progress is a legal transition (backward edge belongs to LEGAL_TRANSITIONS)", async () => {

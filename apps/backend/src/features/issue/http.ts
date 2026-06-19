@@ -3,6 +3,7 @@ import { json, sseResponse } from "../../http/response.js";
 import type { DeliverableService } from "../deliverable/service.js";
 import { BACKWARD_EDGES, ISSUE_STATUSES, ORDER } from "../orchestrator/transitions.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
+import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { IssueRow, IssueStatus } from "./entities.js";
 import {
   IllegalTransitionError,
@@ -58,6 +59,10 @@ export function issueRoutes(
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       try {
         const issue = svc.createIssue(parsed.data);
+        emitIssueEvent(opsStore, issue.issueId, "created", {
+          projectId: issue.projectId,
+          title: issue.title,
+        });
         return json({ issue }, 201);
       } catch (err) {
         if (err instanceof ValidationError) return json({ error: err.message }, 400);
@@ -94,6 +99,18 @@ export function issueRoutes(
           );
         }
         const updated = svc.applyTransition(issueId, toStatus);
+        emitIssueEvent(opsStore, issueId, "status.advanced", {
+          from: fromStatus,
+          to: toStatus,
+          by: "human",
+        });
+        // draft→planned is the explicit start signal
+        if (fromStatus === "draft" && toStatus === "planned") {
+          emitIssueEvent(opsStore, issueId, "started", {
+            from: "draft",
+            to: "planned",
+          });
+        }
         // M18.4: forward transitions (excluding terminal done) trigger orchestrator.
         // This covers draft→planned (the original start signal) AND manual forward
         // drags like planned→in_progress (human takes over that step).
@@ -143,6 +160,15 @@ export function issueRoutes(
         runId: parsed.data.runId,
       });
 
+      if (!replay) {
+        emitIssueEvent(opsStore, issueId, "deliverable.submitted", {
+          kind: row.kind,
+          deliverableId: row.deliverableId,
+          runId: row.runId ?? null,
+          ref: row.ref ?? null,
+        });
+      }
+
       return json({ deliverable: row }, replay ? 200 : 201);
     },
 
@@ -162,16 +188,39 @@ export function issueRoutes(
       try {
         if (parsed.data.decision === "approve") {
           const updated = svc.applyTransition(issueId, "done");
+          emitIssueEvent(opsStore, issueId, "human.decided", {
+            decision: "approve",
+          });
+          emitIssueEvent(opsStore, issueId, "status.advanced", {
+            from: "in_review",
+            to: "done",
+            by: "human",
+          });
           return json({ issue: updated });
         }
         // reject: applyTransition first (CAS serializes concurrent rejects),
         // then write feedback, then await rework run start.
         const updated = svc.applyTransition(issueId, "in_progress");
-        deliverableSvc.submit({
+        emitIssueEvent(opsStore, issueId, "human.decided", {
+          decision: "reject",
+          note: parsed.data.note,
+        });
+        emitIssueEvent(opsStore, issueId, "status.advanced", {
+          from: "in_review",
+          to: "in_progress",
+          by: "rework",
+        });
+        const d = deliverableSvc.submit({
           issueId,
           fromStatus: "in_review",
           kind: "rework_feedback",
           fields: { note: parsed.data.note! },
+        });
+        emitIssueEvent(opsStore, issueId, "deliverable.submitted", {
+          kind: "rework_feedback",
+          deliverableId: d.row.deliverableId,
+          runId: null,
+          ref: null,
         });
         try {
           await onReviewRejected?.(updated);
