@@ -12,16 +12,15 @@ import {
 const createSchema = z.object({
   projectId: z.string().trim().min(1),
   title: z.string().trim().min(1),
-  threadId: z.string().trim().min(1),
 });
 
 const transitionSchema = z.object({ to: z.enum(ISSUE_STATUSES as readonly [string, ...string[]]) });
 
 export function issueRoutes(
   svc: IssueService,
-  opts?: { onIssueCreated?: (issue: IssueRow) => Promise<unknown> },
+  opts?: { onIssueStarted?: (issue: IssueRow) => Promise<unknown> },
 ) {
-  const { onIssueCreated } = opts ?? {};
+  const { onIssueStarted } = opts ?? {};
 
   return {
     /** POST /api/issues → 201 { issue } */
@@ -31,10 +30,6 @@ export function issueRoutes(
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       try {
         const issue = svc.createIssue(parsed.data);
-        // M18.2: best-effort start first step — failure does not block create response
-        void onIssueCreated?.(issue).catch((e) =>
-          console.error(`[orchestrator] startStep failed for ${issue.issueId}: ${String(e)}`),
-        );
         return json({ issue }, 201);
       } catch (err) {
         if (err instanceof ValidationError) return json({ error: err.message }, 400);
@@ -61,7 +56,14 @@ export function issueRoutes(
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       try {
-        return json({ issue: svc.applyTransition(issueId, parsed.data.to as IssueStatus) });
+        const updated = svc.applyTransition(issueId, parsed.data.to as IssueStatus);
+        // M18.4: draft→planned triggers orchestrator startStep
+        if (parsed.data.to === "planned") {
+          void onIssueStarted?.(updated).catch((e) =>
+            console.error(`[orchestrator] startStep failed for ${issueId}: ${String(e)}`),
+          );
+        }
+        return json({ issue: updated });
       } catch (err) {
         if (err instanceof IssueNotFoundError) return json({ error: err.message }, 404);
         if (err instanceof IllegalTransitionError) return json({ error: err.message }, 409);

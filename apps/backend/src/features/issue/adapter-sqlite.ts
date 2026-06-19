@@ -27,7 +27,7 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
     createIssue(input: CreateIssueInput): IssueRow {
       db.run(
         `INSERT INTO issue (issue_id, project_id, title, status, thread_id, created_at, updated_at)
-         VALUES (?, ?, ?, 'planned', ?, ?, ?)`,
+         VALUES (?, ?, ?, 'draft', ?, ?, ?)`,
         [
           input.issueId,
           input.projectId,

@@ -176,31 +176,45 @@ describe("Orchestrator reactor", () => {
     eventsDb.close();
   });
 
-  test("startStep creates run and writes run_origin for planned status", async () => {
-    const { orch, issueSvc, supervisor } = makeOrchestrator(issueDb, eventsDb);
+  test("startStep returns null for draft (no config → no auto-advance)", async () => {
+    const { orch, issueSvc } = makeOrchestrator(issueDb, eventsDb);
     const issue = issueSvc.createIssue({
       projectId: "proj-1",
-      title: "Test Issue",
-      threadId: "thread-1",
+      title: "Draft Issue",
     });
-    expect(issue.status).toBe("planned");
+    expect(issue.status).toBe("draft");
 
+    // draft has no ColumnConfig → no transition → startStep returns null
     const result = await orch.startStep(issue);
+    expect(result).toBeNull();
+  });
+
+  test("startStep creates run for planned status", async () => {
+    const { orch, issueSvc, supervisor } = makeOrchestrator(issueDb, eventsDb);
+    const issue = issueSvc.createIssue({
+      projectId: "proj-2",
+      title: "Test Issue",
+    });
+    // Move draft→planned (manual drag simulation)
+    const planned = issueSvc.applyTransition(issue.issueId, "planned");
+    expect(planned.status).toBe("planned");
+
+    const result = await orch.startStep(planned);
     expect(result).not.toBeNull();
     expect(result!.runId).toBeTruthy();
 
     expect(supervisor.startedRuns.length).toBe(1);
     expect(supervisor.startedRuns[0]!.spec.agentId).toBe("planner");
-    expect(supervisor.startedRuns[0]!.threadId).toBe("thread-1");
+    expect(supervisor.startedRuns[0]!.threadId).toBe(planned.threadId);
   });
 
   test("startStep returns null for done status (terminal)", async () => {
     const { orch, issueSvc } = makeOrchestrator(issueDb, eventsDb);
     const issue = issueSvc.createIssue({
-      projectId: "proj-2",
+      projectId: "proj-3",
       title: "Done Issue",
-      threadId: "thread-2",
     });
+    issueSvc.applyTransition(issue.issueId, "planned");
     issueSvc.applyTransition(issue.issueId, "in_progress");
     issueSvc.applyTransition(issue.issueId, "in_review");
     const done = issueSvc.applyTransition(issue.issueId, "done");
@@ -210,8 +224,8 @@ describe("Orchestrator reactor", () => {
     expect(result).toBeNull();
   });
 
-  test("startStep throws OrchestratorAgentMissingError when agent missing", async () => {
-    // Use a custom agents map without "planner"
+  test("startStep throws OrchestratorAgentMissingError when agent missing from config", async () => {
+    // Use a custom agents map without the required agents
     const missingAgents = new Map<string, AgentRow>();
     const issuePort = sqliteIssueAdapter(issueDb);
     const issueSvc = createIssueService({ port: issuePort, idGen: () => crypto.randomUUID() });
@@ -225,31 +239,32 @@ describe("Orchestrator reactor", () => {
       opsStore,
       buildSpec,
       idGen: () => crypto.randomUUID(),
-      columnConfigSvc: mockColumnConfigSvc(),
+      columnConfigSvc: mockColumnConfigSvc(), // still returns config with agentIds
     });
 
     const issue = issueSvc.createIssue({
-      projectId: "proj-3",
+      projectId: "proj-4",
       title: "Missing Agent Issue",
-      threadId: "thread-3",
     });
+    const planned = issueSvc.applyTransition(issue.issueId, "planned");
 
-    await expect(orch.startStep(issue)).rejects.toBeInstanceOf(OrchestratorAgentMissingError);
+    // mockColumnConfigSvc returns "planner" as agentId, but agents map is empty
+    await expect(orch.startStep(planned)).rejects.toBeInstanceOf(OrchestratorAgentMissingError);
   });
 
   test("onRunComplete: succeeded run advances status and starts next step", async () => {
     const { orch, issueSvc, supervisor } = makeOrchestrator(issueDb, eventsDb);
 
     const issue = issueSvc.createIssue({
-      projectId: "proj-4",
+      projectId: "proj-5",
       title: "Lifecycle Issue",
-      threadId: "thread-4",
     });
-    const step1 = await orch.startStep(issue);
+    const planned = issueSvc.applyTransition(issue.issueId, "planned");
+    const step1 = await orch.startStep(planned);
     expect(step1).not.toBeNull();
     const startCount = supervisor.startedRuns.length;
 
-    await orch.onRunComplete("thread-4", step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.threadId, step1!.runId, "succeeded", "main");
 
     const updated = issueSvc.port.getIssue(issue.issueId);
     expect(updated!.status).toBe("in_progress");
@@ -262,14 +277,14 @@ describe("Orchestrator reactor", () => {
     const { orch, issueSvc, supervisor } = makeOrchestrator(issueDb, eventsDb);
 
     const issue = issueSvc.createIssue({
-      projectId: "proj-5",
+      projectId: "proj-6",
       title: "Failed Run Issue",
-      threadId: "thread-5",
     });
-    const step1 = await orch.startStep(issue);
+    const planned = issueSvc.applyTransition(issue.issueId, "planned");
+    const step1 = await orch.startStep(planned);
     const startCount = supervisor.startedRuns.length;
 
-    await orch.onRunComplete("thread-5", step1!.runId, "error", "main");
+    await orch.onRunComplete(planned.threadId, step1!.runId, "error", "main");
 
     const updated = issueSvc.port.getIssue(issue.issueId);
     expect(updated!.status).toBe("planned"); // unchanged
@@ -291,20 +306,20 @@ describe("Orchestrator reactor", () => {
     const { orch, issueSvc, supervisor } = makeOrchestrator(issueDb, eventsDb);
 
     const issue = issueSvc.createIssue({
-      projectId: "proj-6",
+      projectId: "proj-7",
       title: "Idempotent Issue",
-      threadId: "thread-6",
     });
-    const step1 = await orch.startStep(issue);
+    const planned = issueSvc.applyTransition(issue.issueId, "planned");
+    const step1 = await orch.startStep(planned);
 
     // First delivery — advances to in_progress, starts developer run
-    await orch.onRunComplete("thread-6", step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.threadId, step1!.runId, "succeeded", "main");
     const after1 = issueSvc.port.getIssue(issue.issueId);
     expect(after1!.status).toBe("in_progress");
     const count1 = supervisor.startedRuns.length;
 
     // Second delivery of same run — should NOT advance again
-    await orch.onRunComplete("thread-6", step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.threadId, step1!.runId, "succeeded", "main");
     const after2 = issueSvc.port.getIssue(issue.issueId);
     expect(after2!.status).toBe("in_progress"); // still in_progress
     expect(supervisor.startedRuns.length).toBe(count1); // no new runs

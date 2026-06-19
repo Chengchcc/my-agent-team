@@ -27,31 +27,28 @@ export interface IssueServiceDeps {
   port: IssuePort;
   idGen: () => string;
   now?: () => number;
-  /** 可选：校验 threadId 是否真实存在。不存在则抛 ValidationError → 400。 */
-  threadExists?: (threadId: string) => boolean;
   /** 可选：校验 projectId 是否真实存在。不存在则抛 ValidationError → 400。 */
   projectExists?: (projectId: string) => boolean;
 }
 
 export function createIssueService(deps: IssueServiceDeps) {
-  const { port, idGen, threadExists, projectExists } = deps;
+  const { port, idGen, projectExists } = deps;
   const now = deps.now ?? Date.now;
 
   return {
     port,
 
-    createIssue(input: { projectId: string; title: string; threadId: string }): IssueRow {
-      if (threadExists && !threadExists(input.threadId)) {
-        throw new ValidationError(`thread not found: ${input.threadId}`);
-      }
+    createIssue(input: { projectId: string; title: string }): IssueRow {
       if (projectExists && !projectExists(input.projectId)) {
         throw new ValidationError(`project not found: ${input.projectId}`);
       }
+      const issueId = idGen();
+      const threadId = `issue:${issueId}`;
       return port.createIssue({
-        issueId: idGen(),
+        issueId,
         projectId: input.projectId,
         title: input.title,
-        threadId: input.threadId,
+        threadId,
         createdAt: now(),
       });
     },
