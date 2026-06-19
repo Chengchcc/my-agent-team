@@ -8,5 +8,5 @@ export {
   ISSUE_STATUSES,
   LEGAL_TRANSITIONS,
   nextTransition,
-  TRANSITIONS,
+  ORDER,
 } from "./transitions.js";
