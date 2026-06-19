@@ -11,7 +11,7 @@ describe("createSubmitDeliverableTool", () => {
     globalThis.fetch = mock(async (input: string, init?: RequestInit) => {
       fetches.push(new Request(input, init));
       return new Response('{"deliverable":{"deliverableId":"d_001"}}', { status: 201 });
-    });
+    }) as unknown as typeof fetch;
 
     const tool = createSubmitDeliverableTool({
       backendUrl: "http://localhost:3000",
@@ -45,7 +45,7 @@ describe("createSubmitDeliverableTool", () => {
   test("non-2xx returns isError:true (does not throw)", async () => {
     globalThis.fetch = mock(
       async () => new Response('{"error":"not found"}', { status: 404 }),
-    );
+    ) as unknown as typeof fetch;
 
     const tool = createSubmitDeliverableTool({
       backendUrl: "http://localhost:3000",
