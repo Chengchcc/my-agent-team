@@ -1,6 +1,6 @@
 import type { IssueStatus } from "../issue/entities.js";
 import type { Transition } from "../orchestrator/transitions.js";
-import { ORDER } from "../orchestrator/transitions.js";
+import { HUMAN_GATES, ORDER } from "../orchestrator/transitions.js";
 import type { ColumnConfigRow } from "./domain.js";
 import type { ColumnConfigPort } from "./ports.js";
 
@@ -72,6 +72,7 @@ export function createColumnConfigService(deps: ColumnConfigServiceDeps) {
       for (let i = 0; i < ORDER.length - 1; i++) {
         const from = ORDER[i]!;
         const to = ORDER[i + 1]!;
+        if (HUMAN_GATES.has(from)) continue; // gate columns never auto-advance
         const cfg = byStatus.get(from);
         if (!cfg) continue;
         out.push({ from, to, agentId: cfg.agentId, promptTemplate: cfg.promptTemplate });

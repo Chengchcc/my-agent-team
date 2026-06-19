@@ -126,6 +126,14 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
     const issue = issues.find((i) => i.issueId === issueId);
     if (!issue || issue.status === toStatus) return;
 
+    // Block reverse drag: rework must go through review-decision (approve/reject buttons)
+    if (issue.status === "in_review" && toStatus === "in_progress") {
+      toast.error("Review required", {
+        description: "Use Approve/Reject buttons instead of dragging back",
+      });
+      return;
+    }
+
     // Optimistic update: move locally first
     const prevStatus = issue.status;
     queryClient.setQueryData<{ issues: IssueRow[] }>(["issues"], (old) => {

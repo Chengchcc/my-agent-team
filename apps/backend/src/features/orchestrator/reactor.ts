@@ -125,7 +125,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     // was started at, a prior delivery already advanced it — skip (CAS alone can't
     // catch this because the current status is a valid from-state for the NEXT transition).
     const fromStatus = origin.fromStatus;
-    if (fromStatus && issue.status !== fromStatus) return;
+    if (fromStatus !== "" && issue.status !== fromStatus) return;
 
     const table = columnConfigSvc.transitionsForProject(issue.projectId);
     const t = nextTransition(table, issue.status);

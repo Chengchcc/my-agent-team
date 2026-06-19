@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { json, sseResponse } from "../../http/response.js";
 import type { DeliverableService } from "../deliverable/service.js";
-import { ISSUE_STATUSES, ORDER } from "../orchestrator/transitions.js";
+import { BACKWARD_EDGES, ISSUE_STATUSES, ORDER } from "../orchestrator/transitions.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { IssueRow, IssueStatus } from "./entities.js";
 import {
@@ -86,6 +86,13 @@ export function issueRoutes(
       try {
         const fromStatus = svc.port.getIssue(issueId)?.status;
         const toStatus = parsed.data.to as IssueStatus;
+        // Reject backward edges — rework must go through review-decision (single entry point)
+        if (fromStatus && BACKWARD_EDGES.some((e) => e.from === fromStatus && e.to === toStatus)) {
+          return json(
+            { error: `backward transition ${fromStatus}→${toStatus} requires review-decision` },
+            409,
+          );
+        }
         const updated = svc.applyTransition(issueId, toStatus);
         // M18.4: forward transitions (excluding terminal done) trigger orchestrator.
         // This covers draft→planned (the original start signal) AND manual forward
@@ -157,17 +164,20 @@ export function issueRoutes(
           const updated = svc.applyTransition(issueId, "done");
           return json({ issue: updated });
         }
-        // reject: write rework_feedback deliverable FIRST, then transition + start rework
+        // reject: applyTransition first (CAS serializes concurrent rejects),
+        // then write feedback, then await rework run start.
+        const updated = svc.applyTransition(issueId, "in_progress");
         deliverableSvc.submit({
           issueId,
           fromStatus: "in_review",
           kind: "rework_feedback",
           fields: { note: parsed.data.note! },
         });
-        const updated = svc.applyTransition(issueId, "in_progress");
-        void onReviewRejected?.(updated).catch((e) =>
-          console.error(`[orchestrator] rework startStep failed for ${issueId}: ${String(e)}`),
-        );
+        try {
+          await onReviewRejected?.(updated);
+        } catch (e) {
+          console.error(`[orchestrator] rework startStep failed for ${issueId}: ${String(e)}`);
+        }
         return json({ issue: updated });
       } catch (err) {
         if (err instanceof IssueNotFoundError) return json({ error: err.message }, 404);

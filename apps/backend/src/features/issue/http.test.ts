@@ -319,3 +319,40 @@ describe("reviewDecision", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("transition backward edge guard", () => {
+  test("in_review→in_progress via /transition is rejected (must use review-decision)", async () => {
+    const { issueSvc, routes } = setup();
+    const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
+    issueSvc.applyTransition(issue.issueId, "planned");
+    issueSvc.applyTransition(issue.issueId, "in_progress");
+    issueSvc.applyTransition(issue.issueId, "in_review");
+
+    const res = await routes.transition(
+      new Request("http://localhost/api/issues/x/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: "in_progress" }),
+      }),
+      issue.issueId,
+    );
+    expect(res.status).toBe(409);
+  });
+
+  test("forward transition via /transition still works (in_progress→in_review)", async () => {
+    const { issueSvc, routes } = setup();
+    const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
+    issueSvc.applyTransition(issue.issueId, "planned");
+    issueSvc.applyTransition(issue.issueId, "in_progress");
+
+    const res = await routes.transition(
+      new Request("http://localhost/api/issues/x/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: "in_review" }),
+      }),
+      issue.issueId,
+    );
+    expect(res.status).toBe(200);
+  });
+});
