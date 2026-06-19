@@ -1,3 +1,4 @@
+import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { AgentService } from "../agent/service.js";
 import type { ColumnConfigService } from "../column-config/service.js";
 import type { DeliverableRow } from "../deliverable/domain.js";
@@ -95,6 +96,12 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       createdAt: (deps.now ?? Date.now)(),
     });
 
+    emitIssueEvent(opsStore, issue.issueId, "run.started", {
+      runId,
+      fromStatus: issue.status,
+      agentId: t.agentId,
+    });
+
     return { runId };
   }
 
@@ -110,6 +117,12 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     const origin = opsStore.getRunOrigin(runId);
     const issueId = origin?.issueId;
     if (!issueId) return;
+
+    emitIssueEvent(opsStore, issueId, "run.ended", {
+      runId,
+      fromStatus: origin.fromStatus,
+      status,
+    });
 
     if (status !== "succeeded") {
       console.warn(
@@ -135,6 +148,11 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     let advanced: IssueRow;
     try {
       advanced = issueSvc.applyTransition(issueId, t.to);
+      emitIssueEvent(opsStore, issueId, "status.advanced", {
+        from: issue.status,
+        to: t.to,
+        by: "reactor",
+      });
     } catch (err) {
       console.warn(`[orchestrator] applyTransition skipped for ${issueId}: ${String(err)}`);
       return;
