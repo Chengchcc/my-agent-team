@@ -335,6 +335,58 @@ describe("RuntimeOpsStore", () => {
       });
     });
   });
+
+  describe("getRunOriginsByIssueId", () => {
+    test("returns runs for an issue ordered by created_at", () => {
+      store.insertRunOrigin({
+        runId: "r1", issueId: "i1", conversationId: "", sourceLedgerSeq: 0,
+        agentMemberId: "a1", surface: "orchestrator", traceId: "", traceparent: "",
+        idempotencyKey: "r1", fromStatus: "planned", createdAt: 1000,
+      });
+      store.insertRunOrigin({
+        runId: "r2", issueId: "i1", conversationId: "", sourceLedgerSeq: 0,
+        agentMemberId: "a2", surface: "orchestrator", traceId: "", traceparent: "",
+        idempotencyKey: "r2", fromStatus: "in_progress", createdAt: 2000,
+      });
+      store.insertRunOrigin({
+        runId: "r3", issueId: "i2", conversationId: "", sourceLedgerSeq: 0,
+        agentMemberId: "a1", surface: "orchestrator", traceId: "", traceparent: "",
+        idempotencyKey: "r3", fromStatus: "planned", createdAt: 1500,
+      });
+
+      const origins = store.getRunOriginsByIssueId("i1");
+      expect(origins.length).toBe(2);
+      expect(origins[0]!.runId).toBe("r1");
+      expect(origins[1]!.runId).toBe("r2");
+    });
+
+    test("returns empty array for unknown issue", () => {
+      expect(store.getRunOriginsByIssueId("nonexistent")).toEqual([]);
+    });
+  });
+
+  describe("getRuns", () => {
+    test("batch fetches runs by runIds", () => {
+      db.run(
+        `INSERT INTO run (run_id, thread_id, agent_id, status, started_at) VALUES ('r1', 't1', 'a1', 'succeeded', 1000)`,
+      );
+      db.run(
+        `INSERT INTO run (run_id, thread_id, agent_id, status, started_at) VALUES ('r2', 't2', 'a2', 'failed', 2000)`,
+      );
+      db.run(
+        `INSERT INTO run (run_id, thread_id, agent_id, status, started_at) VALUES ('r3', 't3', 'a1', 'running', 3000)`,
+      );
+
+      const runs = store.getRuns(["r1", "r3"]);
+      expect(runs.length).toBe(2);
+      expect(runs.find((r) => r.runId === "r1")!.status).toBe("succeeded");
+      expect(runs.find((r) => r.runId === "r3")!.status).toBe("running");
+    });
+
+    test("returns empty array for empty input", () => {
+      expect(store.getRuns([])).toEqual([]);
+    });
+  });
 });
 
 describe("computeRunnerStatus", () => {

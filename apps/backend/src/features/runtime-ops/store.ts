@@ -72,10 +72,12 @@ export class RuntimeOpsStore {
     kind: IssueEventKind;
     payload?: Record<string, unknown>;
   }): number {
-    this.#db.run(
-      `INSERT INTO issue_event (issue_id, kind, payload, ts) VALUES (?, ?, ?, ?)`,
-      [input.issueId, input.kind, JSON.stringify(input.payload ?? {}), Date.now()],
-    );
+    this.#db.run(`INSERT INTO issue_event (issue_id, kind, payload, ts) VALUES (?, ?, ?, ?)`, [
+      input.issueId,
+      input.kind,
+      JSON.stringify(input.payload ?? {}),
+      Date.now(),
+    ]);
     const row = this.#db.query("SELECT last_insert_rowid()").get() as {
       "last_insert_rowid()": number;
     };
@@ -127,6 +129,29 @@ export class RuntimeOpsStore {
       .query(`SELECT ${RUN_ORIGIN_COLS} FROM run_origin WHERE run_id = ?`)
       .get(runId) as RunOriginRow | undefined;
     return row ?? null;
+  }
+
+  getRunOriginsByIssueId(issueId: string): RunOriginRow[] {
+    return this.#db
+      .query(`SELECT ${RUN_ORIGIN_COLS} FROM run_origin WHERE issue_id = ? ORDER BY created_at`)
+      .all(issueId) as RunOriginRow[];
+  }
+
+  getRuns(runIds: string[]): Array<{
+    runId: string;
+    threadId: string;
+    agentId: string;
+    status: string;
+    kind: string;
+    parentRunId: string | null;
+    startedAt: number;
+    endedAt: number | null;
+  }> {
+    if (runIds.length === 0) return [];
+    const ph = runIds.map(() => "?").join(", ");
+    return this.#db
+      .query(`SELECT ${RUN_COLS} FROM run WHERE run_id IN (${ph})`)
+      .all(...runIds) as any[];
   }
 
   listRunOrigins(): RunOriginRow[] {
