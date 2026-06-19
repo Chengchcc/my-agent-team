@@ -1,23 +1,23 @@
 "use client";
 
-import type { IssueRow, IssueStatus } from "@/lib/api";
-import { api } from "@/lib/api";
 import {
   DndContext,
   type DragEndEvent,
-  type DragStartEvent,
   DragOverlay,
+  type DragStartEvent,
   MouseSensor,
   TouchSensor,
-  useSensor,
-  useSensors,
   useDraggable,
   useDroppable,
+  useSensor,
+  useSensors,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
+import type { IssueRow, IssueStatus } from "@/lib/api";
+import { api } from "@/lib/api";
 import { IssueCard } from "./IssueCard";
 
 const COLUMN_LABEL: Record<IssueStatus, string> = {
@@ -73,13 +73,7 @@ function DroppableColumn({
   );
 }
 
-export function IssueKanban({
-  statuses,
-  issues,
-}: {
-  statuses: IssueStatus[];
-  issues: IssueRow[];
-}) {
+export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; issues: IssueRow[] }) {
   const queryClient = useQueryClient();
   const [activeIssue, setActiveIssue] = useState<IssueRow | null>(null);
 
@@ -149,9 +143,7 @@ export function IssueKanban({
       queryClient.setQueryData<{ issues: IssueRow[] }>(["issues"], (old) => {
         if (!old) return old;
         return {
-          issues: old.issues.map((i) =>
-            i.issueId === issueId ? { ...i, status: prevStatus } : i,
-          ),
+          issues: old.issues.map((i) => (i.issueId === issueId ? { ...i, status: prevStatus } : i)),
         };
       });
       const msg = err instanceof Error ? err.message : "Failed to move issue";
@@ -168,9 +160,7 @@ export function IssueKanban({
         })}
       </div>
 
-      <DragOverlay>
-        {activeIssue ? <IssueCard issue={activeIssue} /> : null}
-      </DragOverlay>
+      <DragOverlay>{activeIssue ? <IssueCard issue={activeIssue} /> : null}</DragOverlay>
     </DndContext>
   );
 }

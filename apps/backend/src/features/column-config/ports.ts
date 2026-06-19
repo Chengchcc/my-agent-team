@@ -1,5 +1,5 @@
-import type { ColumnConfigRow } from "./domain.js";
 import type { IssueStatus } from "../issue/entities.js";
+import type { ColumnConfigRow } from "./domain.js";
 
 export interface CreateColumnConfigRecord {
   configId: string;

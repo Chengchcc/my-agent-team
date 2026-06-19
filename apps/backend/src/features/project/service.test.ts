@@ -139,9 +139,7 @@ describe("ProjectService", () => {
   test("update to duplicate name throws ValidationError", () => {
     const p1 = svc.createProject({ name: `dup-update-1-${Date.now()}` });
     const p2 = svc.createProject({ name: `dup-update-2-${Date.now()}` });
-    expect(() => svc.update(p2.projectId, { name: p1.name })).toThrow(
-      ValidationError,
-    );
+    expect(() => svc.update(p2.projectId, { name: p1.name })).toThrow(ValidationError);
   });
 
   test("remove succeeds when no issues", () => {

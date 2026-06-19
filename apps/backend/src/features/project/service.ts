@@ -95,10 +95,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
         return p;
       } catch (err) {
         // SQLite unique constraint on name → friendly 400
-        if (
-          err instanceof Error &&
-          err.message.includes("UNIQUE constraint failed")
-        ) {
+        if (err instanceof Error && err.message.includes("UNIQUE constraint failed")) {
           throw new ValidationError("project name already exists");
         }
         throw err;

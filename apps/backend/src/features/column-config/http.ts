@@ -1,12 +1,8 @@
 import { z } from "zod";
 import { json } from "../../http/response.js";
-import { ISSUE_STATUSES } from "../orchestrator/transitions.js";
 import type { IssueStatus } from "../issue/entities.js";
-import {
-  ColumnConfigNotFoundError,
-  type ColumnConfigService,
-  ValidationError,
-} from "./service.js";
+import { ISSUE_STATUSES } from "../orchestrator/transitions.js";
+import { ColumnConfigNotFoundError, type ColumnConfigService, ValidationError } from "./service.js";
 
 const upsertSchema = z.object({
   projectId: z.string().trim().min(1),

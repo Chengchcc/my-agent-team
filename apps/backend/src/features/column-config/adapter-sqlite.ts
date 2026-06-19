@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
+import type { IssueStatus } from "../issue/entities.js";
 import type { ColumnConfigRow } from "./domain.js";
 import type { ColumnConfigPort, CreateColumnConfigRecord } from "./ports.js";
-import type { IssueStatus } from "../issue/entities.js";
 
 type Raw = {
   config_id: string;

@@ -15,6 +15,11 @@ import { createAgentSvc } from "./features/agent/agent-svc-factory.js";
 import { createAgentIdentityStore } from "./features/agent/identity-store.js";
 import { agentRoutes } from "./features/agent/index.js";
 import {
+  columnConfigRoutes,
+  createColumnConfigService,
+  sqliteColumnConfigAdapter,
+} from "./features/column-config/index.js";
+import {
   buildAgentSpecV2,
   createConversationFeature,
 } from "./features/conversation/conv-svc-factory.js";
@@ -28,11 +33,6 @@ import { sqliteEventLog } from "./features/event-log/index.js";
 import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
-import {
-  createColumnConfigService,
-  columnConfigRoutes,
-  sqliteColumnConfigAdapter,
-} from "./features/column-config/index.js";
 import { createOrchestrator } from "./features/orchestrator/index.js";
 import {
   createProjectService,
