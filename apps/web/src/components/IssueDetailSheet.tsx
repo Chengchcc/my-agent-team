@@ -1,16 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { IssueStatusBadge } from "./IssueStatusBadge";
+import { useEffect, useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { IssueEvent, IssueRow, IssueRunSummary } from "@/lib/api";
 import { api } from "@/lib/api";
+import { IssueStatusBadge } from "./IssueStatusBadge";
 
 function formatRelativeTime(ts: number): string {
   const sec = Math.floor((Date.now() - ts) / 1000);
@@ -42,15 +37,9 @@ function eventLabel(kind: IssueEvent["kind"]): string {
 function TimelineEntry({ event }: { event: IssueEvent }) {
   return (
     <div className="flex gap-2 text-xs py-1 border-b border-border/30">
-      <span className="text-muted-foreground w-16 shrink-0">
-        {formatRelativeTime(event.ts)}
-      </span>
-      <span className="font-medium w-36 shrink-0">
-        {eventLabel(event.kind)}
-      </span>
-      <span className="text-muted-foreground truncate">
-        {JSON.stringify(event.payload)}
-      </span>
+      <span className="text-muted-foreground w-16 shrink-0">{formatRelativeTime(event.ts)}</span>
+      <span className="font-medium w-36 shrink-0">{eventLabel(event.kind)}</span>
+      <span className="text-muted-foreground truncate">{JSON.stringify(event.payload)}</span>
     </div>
   );
 }
@@ -58,9 +47,7 @@ function TimelineEntry({ event }: { event: IssueEvent }) {
 function RunEntry({ run }: { run: IssueRunSummary }) {
   return (
     <div className="flex items-center gap-2 text-xs py-1">
-      <span className="text-muted-foreground w-20 shrink-0">
-        {run.fromStatus} baton
-      </span>
+      <span className="text-muted-foreground w-20 shrink-0">{run.fromStatus} baton</span>
       <span className="w-12 shrink-0">{run.agentId}</span>
       <span
         className={`w-16 shrink-0 ${
@@ -100,7 +87,6 @@ export function IssueDetailSheet({
   useEffect(() => {
     if (!open) return;
     setLoading(true);
-    let es: EventSource | undefined;
 
     api.getIssueDetail(issue.issueId).then((data) => {
       setTimeline(data.timeline);
@@ -109,9 +95,7 @@ export function IssueDetailSheet({
     });
 
     // SSE for live timeline updates
-    es = new EventSource(
-      `/api/bff/issues/${issue.issueId}/timeline/events`,
-    );
+    const es = new EventSource(`/api/bff/issues/${issue.issueId}/timeline/events`);
     es.addEventListener("issue-event", (e) => {
       const event = JSON.parse(e.data) as IssueEvent;
       setTimeline((prev) => [...prev, event]);
@@ -121,7 +105,7 @@ export function IssueDetailSheet({
     };
 
     return () => {
-      es?.close();
+      es.close();
     };
   }, [issue.issueId, open]);
 
@@ -148,15 +132,12 @@ export function IssueDetailSheet({
         <div className="text-xs text-muted-foreground space-y-1 mb-4">
           <div>Project: {issue.projectId}</div>
           <div>Thread: {issue.threadId}</div>
-          <div>
-            Created: {new Date(issue.createdAt).toLocaleString()}
-          </div>
+          <div>Created: {new Date(issue.createdAt).toLocaleString()}</div>
         </div>
 
         {/* Section 2: Run summary */}
         <div className="mb-4 p-2 bg-muted/30 rounded text-xs">
-          Runs: {succeeded} succeeded &middot; {failed} failed &middot;{" "}
-          {running} running
+          Runs: {succeeded} succeeded &middot; {failed} failed &middot; {running} running
           {runs.length === 0 && " (none yet)"}
         </div>
         {runs.length > 0 && (
@@ -174,9 +155,7 @@ export function IssueDetailSheet({
           {loading ? (
             <div className="text-xs text-muted-foreground">Loading...</div>
           ) : timeline.length === 0 ? (
-            <div className="text-xs text-muted-foreground">
-              No events yet
-            </div>
+            <div className="text-xs text-muted-foreground">No events yet</div>
           ) : (
             timeline.map((e) => <TimelineEntry key={e.seq} event={e} />)
           )}
