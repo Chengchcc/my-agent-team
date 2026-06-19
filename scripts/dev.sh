@@ -42,11 +42,21 @@ if [ -z "${BACKEND_AUTH_TOKEN:-}" ] || [ "$BACKEND_AUTH_TOKEN" = "dev-token" ]; 
   echo "WARN: BACKEND_AUTH_TOKEN is 'dev-token' (default). Consider using a random value."
 fi
 
+# ── Portable: find pids listening on a TCP port (macOS lsof, Linux ss/awk) ──
+find_pids_on_port() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -tlnp "sport = :$port" 2>/dev/null | awk -F'pid=' '{if(NF>1){split($2,a,","); print a[1]}}'
+  else
+    lsof -ti ":$port" -sTCP:LISTEN 2>/dev/null
+  fi
+}
+
 # ── Cleanup stale ports ──
 echo ""
 echo "==> Killing any leftover processes on ports 3000/3001..."
 for port in 3000 3001; do
-  pids=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K\d+' | sort -u) || true
+  pids=$(find_pids_on_port "$port") || true
   if [ -n "$pids" ]; then
     echo "   Killing pid(s) $pids on port $port"
     echo "$pids" | xargs kill -9 2>/dev/null || true
@@ -68,8 +78,7 @@ cleanup() {
 
   # Only clean port residues — never pkill runner-daemon
   for port in 3000 3001; do
-    ss -tlnp "sport = :$port" 2>/dev/null \
-      | grep -oP 'pid=\K\d+' \
+    find_pids_on_port "$port" \
       | sort -u \
       | xargs kill -9 2>/dev/null || true
   done
