@@ -2,6 +2,7 @@ import type { IssueRow, IssueStatus } from "@/lib/api";
 import { IssueCard } from "./IssueCard";
 
 const COLUMN_LABEL: Record<IssueStatus, string> = {
+  draft: "草稿",
   planned: "计划中",
   in_progress: "开发中",
   in_review: "待 Review",

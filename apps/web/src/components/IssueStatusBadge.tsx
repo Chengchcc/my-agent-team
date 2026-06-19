@@ -5,6 +5,7 @@ const STATUS_MAP: Record<
   IssueStatus,
   { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
 > = {
+  draft: { label: "草稿", variant: "secondary" },
   planned: { label: "计划中", variant: "secondary" },
   in_progress: { label: "开发中", variant: "default" },
   in_review: { label: "待 Review", variant: "secondary" },

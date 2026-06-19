@@ -11,7 +11,7 @@ export interface IssueRow {
   updatedAt: number;
 }
 
-export type IssueStatus = "planned" | "in_progress" | "in_review" | "done";
+export type IssueStatus = "draft" | "planned" | "in_progress" | "in_review" | "done";
 
 // M18.2: TRANSITIONS / deriveStatuses / deriveLegalMap / ISSUE_STATUSES / LEGAL_TRANSITIONS
 // moved to ../orchestrator/transitions.js — the single source of truth for the state space.

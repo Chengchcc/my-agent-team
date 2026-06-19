@@ -264,6 +264,22 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_project_name ON project(name);`,
   },
+  // ─── M18.4 column_config — per-Project per-status execution config ──
+  {
+    name: "backend_v25_column_config",
+    id: 5011,
+    up: `CREATE TABLE IF NOT EXISTS column_config (
+      config_id       TEXT PRIMARY KEY,
+      project_id      TEXT NOT NULL,
+      status          TEXT NOT NULL,
+      agent_id        TEXT NOT NULL,
+      prompt_template TEXT NOT NULL,
+      created_at      INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_column_config_proj_status ON column_config(project_id, status);
+    CREATE INDEX IF NOT EXISTS idx_column_config_project ON column_config(project_id);`,
+  },
 ];
 
 /** Combined migrations: backend own + checkpointer (creates checkpoint_messages which

@@ -12,7 +12,7 @@ export interface ProjectRow {
 }
 
 // ── Issue types (M18.1) ──
-export type IssueStatus = "planned" | "in_progress" | "in_review" | "done";
+export type IssueStatus = "draft" | "planned" | "in_progress" | "in_review" | "done";
 export interface IssueRow {
   issueId: string;
   projectId: string;
