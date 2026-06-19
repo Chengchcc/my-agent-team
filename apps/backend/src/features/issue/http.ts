@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { json, sseResponse } from "../../http/response.js";
-import { ISSUE_STATUSES } from "../orchestrator/transitions.js";
+import { ISSUE_STATUSES, ORDER } from "../orchestrator/transitions.js";
 import type { IssueRow, IssueStatus } from "./entities.js";
 import {
   IllegalTransitionError,
@@ -56,9 +56,17 @@ export function issueRoutes(
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       try {
-        const updated = svc.applyTransition(issueId, parsed.data.to as IssueStatus);
-        // M18.4: draft→planned triggers orchestrator startStep
-        if (parsed.data.to === "planned") {
+        const fromStatus = svc.port.getIssue(issueId)?.status;
+        const toStatus = parsed.data.to as IssueStatus;
+        const updated = svc.applyTransition(issueId, toStatus);
+        // M18.4: forward transitions (excluding terminal done) trigger orchestrator.
+        // This covers draft→planned (the original start signal) AND manual forward
+        // drags like planned→in_progress (human takes over that step).
+        if (
+          fromStatus &&
+          ORDER.indexOf(toStatus) > ORDER.indexOf(fromStatus) &&
+          toStatus !== "done"
+        ) {
           void onIssueStarted?.(updated).catch((e) =>
             console.error(`[orchestrator] startStep failed for ${issueId}: ${String(e)}`),
           );
@@ -82,7 +90,7 @@ export function issueRoutes(
       return sseResponse(
         stream,
         (row) => ({
-          id: (row as IssueRow).issueId ?? "heartbeat",
+          id: (row as IssueRow).issueId,
           event: "issue",
           data: row,
         }),

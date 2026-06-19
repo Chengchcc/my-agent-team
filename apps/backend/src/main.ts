@@ -116,9 +116,11 @@ const runSvc = createRunService({
 
 // P2: onRunComplete is AWAITED by supervisor — critical sink (ledger terminal write).
 // P1: run_finalized already sent before this, so await doesn't block control signal.
-supervisor.onRunComplete((threadId, runId, status, kind) =>
-  onRunComplete(threadId, runId, status, conv.convPort, conv.convSvc, opsStore, kind),
-);
+supervisor.onRunComplete((threadId, runId, status, kind) => {
+  // M18.4 P2: skip issue threads in conversation projection.
+  if (threadId.startsWith("issue:")) return;
+  return onRunComplete(threadId, runId, status, conv.convPort, conv.convSvc, opsStore, kind);
+});
 
 // M17.5 P3: @mention regex cache — compile once per label, not per streaming revision.
 const mentionRegexCache = new Map<string, RegExp>();
@@ -137,6 +139,8 @@ function getMentionRegex(label: string): RegExp {
 // EventLog only receives non-message execution events.
 supervisor.onRunMessage(async (threadId, runId, revision, kind) => {
   if (kind === "reflect") return;
+  // M18.4 P2: issue runs use threadId="issue:<id>" — skip conversation ledger.
+  if (threadId.startsWith("issue:")) return;
   const cid = parseThreadId(threadId).conversationId;
   if (!cid) return;
   const senderMemberId = parseThreadId(threadId).memberId || threadId;
@@ -195,6 +199,8 @@ supervisor.onRunMessage(async (threadId, runId, revision, kind) => {
 // are handled by onRunMessage (authoritative ledger write). This callback only
 // sees non-message events (todo_update, tool_start, tool_end, text_delta).
 supervisor.onRunEvent((threadId, runId, event, _kind) => {
+  // M18.4 P2: skip issue threads — no conversation context to accumulate.
+  if (threadId.startsWith("issue:")) return;
   if (event.type === "todo_update") {
     const cid = parseThreadId(threadId).conversationId;
     if (!cid) return;
