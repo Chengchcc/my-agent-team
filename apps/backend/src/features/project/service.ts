@@ -16,10 +16,7 @@ export class ValidationError extends Error {
 }
 
 export class ProjectInUseError extends Error {
-  constructor(
-    id: string,
-    issueCount: number,
-  ) {
+  constructor(id: string, issueCount: number) {
     super(`Project ${id} still has ${issueCount} issue(s)`);
     this.name = "ProjectInUseError";
   }
@@ -55,10 +52,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
         });
       } catch (err) {
         // SQLite unique constraint on name → friendly 400
-        if (
-          err instanceof Error &&
-          err.message.includes("UNIQUE constraint failed")
-        ) {
+        if (err instanceof Error && err.message.includes("UNIQUE constraint failed")) {
           throw new ValidationError("project name already exists");
         }
         throw err;
@@ -90,14 +84,25 @@ export function createProjectService(deps: ProjectServiceDeps) {
       if (patch.name !== undefined && !patch.name.trim()) {
         throw new ValidationError("project name must not be empty");
       }
-      const p = port.updateProject(id, {
-        name: patch.name?.trim() || undefined,
-        repoUrl: patch.repoUrl,
-        defaultBranch: patch.defaultBranch,
-        updatedAt: now(),
-      });
-      if (!p) throw new ProjectNotFoundError(id);
-      return p;
+      try {
+        const p = port.updateProject(id, {
+          name: patch.name?.trim() || undefined,
+          repoUrl: patch.repoUrl,
+          defaultBranch: patch.defaultBranch,
+          updatedAt: now(),
+        });
+        if (!p) throw new ProjectNotFoundError(id);
+        return p;
+      } catch (err) {
+        // SQLite unique constraint on name → friendly 400
+        if (
+          err instanceof Error &&
+          err.message.includes("UNIQUE constraint failed")
+        ) {
+          throw new ValidationError("project name already exists");
+        }
+        throw err;
+      }
     },
 
     remove(id: string): void {

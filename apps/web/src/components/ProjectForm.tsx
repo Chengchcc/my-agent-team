@@ -114,11 +114,14 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogTrigger>
-        <Button className="bg-[var(--primary)] text-[var(--on-primary)] rounded-md px-5 py-2 text-sm font-semibold hover:opacity-90 transition-opacity duration-200">
-          + New Project
-        </Button>
-      </DialogTrigger>
+      {/* Edit mode: dialog opens via useEffect — no trigger button needed */}
+      {!isEdit && (
+        <DialogTrigger>
+          <Button className="bg-[var(--primary)] text-[var(--on-primary)] rounded-md px-5 py-2 text-sm font-semibold hover:opacity-90 transition-opacity duration-200">
+            + New Project
+          </Button>
+        </DialogTrigger>
+      )}
 
       <DialogContent className="sm:max-w-md">
         <DialogHeader>

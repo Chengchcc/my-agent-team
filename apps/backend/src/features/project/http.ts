@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { json } from "../../http/response.js";
-import { ProjectInUseError, ProjectNotFoundError, type ProjectService, ValidationError } from "./service.js";
+import {
+  ProjectInUseError,
+  ProjectNotFoundError,
+  type ProjectService,
+  ValidationError,
+} from "./service.js";
 
 const createSchema = z.object({
   name: z.string().trim().min(1),
@@ -10,8 +15,8 @@ const createSchema = z.object({
 
 const updateSchema = z.object({
   name: z.string().trim().optional(),
-  repoUrl: z.string().trim().optional(),
-  defaultBranch: z.string().trim().optional(),
+  repoUrl: z.string().trim().nullable().optional(),
+  defaultBranch: z.string().trim().nullable().optional(),
 });
 
 export function projectRoutes(svc: ProjectService) {

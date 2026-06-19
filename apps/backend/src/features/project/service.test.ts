@@ -1,14 +1,14 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { unlinkSync } from "node:fs";
 import { openDb } from "../../infra/sqlite/db.js";
+import { sqliteIssueAdapter } from "../issue/adapter-sqlite.js";
+import { sqliteProjectAdapter } from "./adapter-sqlite.js";
 import {
   createProjectService,
   ProjectInUseError,
   ProjectNotFoundError,
   ValidationError,
 } from "./service.js";
-import { sqliteProjectAdapter } from "./adapter-sqlite.js";
-import { sqliteIssueAdapter } from "../issue/adapter-sqlite.js";
 
 const dbPath = `/tmp/test-project-svc-${Date.now()}.db`;
 const db = openDb(dbPath);
@@ -48,7 +48,11 @@ const svc = createProjectService({ port, idGen: testIdGen });
 
 afterAll(() => {
   db.close();
-  try { unlinkSync(dbPath); } catch { /* best-effort */ }
+  try {
+    unlinkSync(dbPath);
+  } catch {
+    /* best-effort */
+  }
 });
 
 describe("ProjectService", () => {
@@ -130,6 +134,14 @@ describe("ProjectService", () => {
 
   test("update non-existent throws ProjectNotFoundError", () => {
     expect(() => svc.update("nonexistent", { name: "x" })).toThrow(ProjectNotFoundError);
+  });
+
+  test("update to duplicate name throws ValidationError", () => {
+    const p1 = svc.createProject({ name: `dup-update-1-${Date.now()}` });
+    const p2 = svc.createProject({ name: `dup-update-2-${Date.now()}` });
+    expect(() => svc.update(p2.projectId, { name: p1.name })).toThrow(
+      ValidationError,
+    );
   });
 
   test("remove succeeds when no issues", () => {

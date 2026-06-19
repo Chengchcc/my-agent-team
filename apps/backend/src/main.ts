@@ -26,10 +26,14 @@ import {
 } from "./features/conversation/projection.js";
 import { sqliteEventLog } from "./features/event-log/index.js";
 import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
-import { createProjectService, projectRoutes, sqliteProjectAdapter } from "./features/project/index.js";
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
 import { createOrchestrator } from "./features/orchestrator/index.js";
+import {
+  createProjectService,
+  projectRoutes,
+  sqliteProjectAdapter,
+} from "./features/project/index.js";
 import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
 import { createRunnerRegistry } from "./features/run/runner-registry-factory.js";

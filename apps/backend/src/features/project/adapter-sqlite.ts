@@ -46,23 +46,18 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
     },
 
     getProject(projectId: string): ProjectRow | null {
-      const r = db
-        .query("SELECT * FROM project WHERE project_id = ?")
-        .get(projectId) as Raw | undefined;
+      const r = db.query("SELECT * FROM project WHERE project_id = ?").get(projectId) as
+        | Raw
+        | undefined;
       return r ? toRow(r) : null;
     },
 
     listProjects(): ProjectRow[] {
-      const rows = db
-        .query("SELECT * FROM project ORDER BY created_at DESC")
-        .all() as Raw[];
+      const rows = db.query("SELECT * FROM project ORDER BY created_at DESC").all() as Raw[];
       return rows.map(toRow);
     },
 
-    updateProject(
-      projectId: string,
-      patch: UpdateProjectRecord,
-    ): ProjectRow | null {
+    updateProject(projectId: string, patch: UpdateProjectRecord): ProjectRow | null {
       const sets: string[] = [];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const params: any[] = [];
@@ -89,25 +84,20 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
       params.push(patch.updatedAt);
       params.push(projectId);
 
-      db.run(
-        `UPDATE project SET ${sets.join(", ")} WHERE project_id = ?`,
-        params,
-      );
+      db.run(`UPDATE project SET ${sets.join(", ")} WHERE project_id = ?`, params);
       // 写后重读：保证返回对象等于库内真值
       return this.getProject(projectId);
     },
 
     deleteProject(projectId: string): boolean {
-      const { changes } = db.run("DELETE FROM project WHERE project_id = ?", [
-        projectId,
-      ]);
+      const { changes } = db.run("DELETE FROM project WHERE project_id = ?", [projectId]);
       return changes > 0;
     },
 
     countIssuesByProject(projectId: string): number {
-      const r = db
-        .query("SELECT COUNT(*) AS n FROM issue WHERE project_id = ?")
-        .get(projectId) as { n: number };
+      const r = db.query("SELECT COUNT(*) AS n FROM issue WHERE project_id = ?").get(projectId) as {
+        n: number;
+      };
       return r.n;
     },
   };
