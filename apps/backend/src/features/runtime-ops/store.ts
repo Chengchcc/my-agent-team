@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type {
+  IssueEvent,
+  IssueEventKind,
   RunnerHealthRow,
   RunOpsEvent,
   RunOpsEventKind,
@@ -13,6 +15,8 @@ const RUN_OPS_COLS = `seq, run_id AS runId, attempt_id AS attemptId, kind, paylo
 const RUN_ORIGIN_COLS = `run_id AS runId, conversation_id AS conversationId, source_ledger_seq AS sourceLedgerSeq, agent_member_id AS agentMemberId, surface, trace_id AS traceId, traceparent, idempotency_key AS idempotencyKey, issue_id AS issueId, from_status AS fromStatus, created_at AS createdAt`;
 const RUNNER_HEALTH_COLS = `agent_id AS agentId, last_seen_at AS lastSeenAt, uptime_ms AS uptimeMs, active_run_count AS activeRunCount, active_run_ids AS activeRunIds, checkpointer_ok AS checkpointerOk, workspace_ok AS workspaceOk, last_error AS lastError, updated_at AS updatedAt`;
 const SURFACE_HEALTH_COLS = `agent_id AS agentId, surface, status, last_seen_at AS lastSeenAt, payload, last_error AS lastError, updated_at AS updatedAt`;
+const ISSUE_EVENT_COLS = `seq, issue_id AS issueId, kind, payload, ts`;
+const RUN_COLS = `run_id AS runId, thread_id AS threadId, agent_id AS agentId, status, kind, parent_run_id AS parentRunId, started_at AS startedAt, ended_at AS endedAt`;
 
 export class RuntimeOpsStore {
   #db: Database;
@@ -59,6 +63,35 @@ export class RuntimeOpsStore {
     return this.#db
       .query(`SELECT ${RUN_OPS_COLS} FROM run_ops_event WHERE trace_id = ? ORDER BY seq`)
       .all(traceId) as RunOpsEvent[];
+  }
+
+  // ─── issue_event (M18.7) ───
+
+  appendIssueEvent(input: {
+    issueId: string;
+    kind: IssueEventKind;
+    payload?: Record<string, unknown>;
+  }): number {
+    this.#db.run(
+      `INSERT INTO issue_event (issue_id, kind, payload, ts) VALUES (?, ?, ?, ?)`,
+      [input.issueId, input.kind, JSON.stringify(input.payload ?? {}), Date.now()],
+    );
+    const row = this.#db.query("SELECT last_insert_rowid()").get() as {
+      "last_insert_rowid()": number;
+    };
+    return row["last_insert_rowid()"];
+  }
+
+  getIssueEvents(issueId: string, afterSeq = 0): IssueEvent[] {
+    const rows = this.#db
+      .query(
+        `SELECT ${ISSUE_EVENT_COLS} FROM issue_event WHERE issue_id = ? AND seq > ? ORDER BY seq`,
+      )
+      .all(issueId, afterSeq) as Array<Omit<IssueEvent, "payload"> & { payload: string }>;
+    return rows.map((r) => ({
+      ...r,
+      payload: JSON.parse(r.payload) as Record<string, unknown>,
+    }));
   }
 
   // ─── run_origin ───

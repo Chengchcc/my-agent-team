@@ -63,6 +63,13 @@ function createTestDb() {
       updated_at     INTEGER NOT NULL,
       PRIMARY KEY (agent_id, surface)
     );
+    CREATE TABLE IF NOT EXISTS issue_event (
+      seq      INTEGER PRIMARY KEY AUTOINCREMENT,
+      issue_id TEXT NOT NULL,
+      kind     TEXT NOT NULL,
+      payload  TEXT NOT NULL DEFAULT '{}',
+      ts       INTEGER NOT NULL
+    );
   `);
   return db;
 }
@@ -277,6 +284,55 @@ describe("RuntimeOpsStore", () => {
       const health = store.getSurfaceHealth("agent_x", "lark");
       expect(health!.status).toBe("degraded");
       expect(health!.lastError).toBe("card update failed");
+    });
+  });
+
+  describe("issue_event", () => {
+    test("appendIssueEvent writes and returns seq", () => {
+      const seq = store.appendIssueEvent({
+        issueId: "i1",
+        kind: "created",
+        payload: { title: "Test" },
+      });
+      expect(typeof seq).toBe("number");
+      expect(seq).toBeGreaterThan(0);
+    });
+
+    test("getIssueEvents returns events ordered by seq", () => {
+      store.appendIssueEvent({ issueId: "i1", kind: "created" });
+      store.appendIssueEvent({ issueId: "i1", kind: "started" });
+      store.appendIssueEvent({ issueId: "i2", kind: "created" });
+
+      const events = store.getIssueEvents("i1");
+      expect(events.length).toBe(2);
+      expect(events[0]!.kind).toBe("created");
+      expect(events[1]!.kind).toBe("started");
+      expect(events[0]!.seq).toBeLessThan(events[1]!.seq);
+    });
+
+    test("getIssueEvents afterSeq filters incrementally", () => {
+      store.appendIssueEvent({ issueId: "i1", kind: "created" });
+      const s2 = store.appendIssueEvent({ issueId: "i1", kind: "started" });
+
+      const events = store.getIssueEvents("i1", s2);
+      expect(events.length).toBe(0);
+
+      const eventsAfterFirst = store.getIssueEvents("i1", 0);
+      expect(eventsAfterFirst.length).toBe(2);
+    });
+
+    test("payload round-trips through JSON", () => {
+      store.appendIssueEvent({
+        issueId: "i1",
+        kind: "run.started",
+        payload: { runId: "r1", fromStatus: "planned", agentId: "a1" },
+      });
+      const events = store.getIssueEvents("i1");
+      expect(events[0]!.payload).toEqual({
+        runId: "r1",
+        fromStatus: "planned",
+        agentId: "a1",
+      });
     });
   });
 });
