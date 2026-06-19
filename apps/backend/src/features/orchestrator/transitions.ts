@@ -11,6 +11,14 @@ import type { IssueStatus } from "../issue/entities.js";
  */
 export const ORDER: IssueStatus[] = ["draft", "planned", "in_progress", "in_review", "done"];
 
+/** 回退边：人工打回触发，reactor 绝不自动走。本棒只此一条（设计 ⑥）。 */
+export const BACKWARD_EDGES: ReadonlyArray<{ from: IssueStatus; to: IssueStatus }> = [
+  { from: "in_review", to: "in_progress" },
+];
+
+/** 人工闸门：这些 from 的「出」必须由人裁决，reactor 不自动推进。 */
+export const HUMAN_GATES: ReadonlySet<IssueStatus> = new Set<IssueStatus>(["in_review"]);
+
 /** ── 单一事实来源（M18.2 起归属 orchestrator）──────────────
  *  Transition 描述"从一个 status 到下一个 status 由谁干"。
  *  M18.4: 不再有全局 TRANSITIONS 常量。
@@ -60,17 +68,26 @@ export function deriveLegalMap(
   return map as Record<IssueStatus, IssueStatus[]>;
 }
 
-/** 查 from 状态对应的那条转移（线性表里 from 唯一）。无则返回 undefined（如终态 done）。 */
+/** 查 from 状态对应的那条转移。闸门 from 返回 undefined（不自动推进，§3.2/§3.6）。 */
 export function nextTransition(
   table: ReadonlyArray<Transition>,
   from: IssueStatus,
 ): Transition | undefined {
+  if (HUMAN_GATES.has(from)) return undefined;
   return table.find((t) => t.from === from);
 }
 
 /** Global: every Project has the same status set and legal transitions.
- *  Only "who does each step" varies per Project. */
+ *  Only "who does each step" varies per Project.
+ *  Backward edges (rework) are merged into LEGAL_TRANSITIONS so applyTransition
+ *  accepts them, but they do NOT appear in nextTransition's auto-advance path. */
 const FIXED = fixedTransitions();
 export const ISSUE_STATUSES: readonly IssueStatus[] = deriveStatuses(FIXED);
-export const LEGAL_TRANSITIONS: Readonly<Record<IssueStatus, IssueStatus[]>> =
-  deriveLegalMap(FIXED);
+export const LEGAL_TRANSITIONS: Readonly<Record<IssueStatus, IssueStatus[]>> = (() => {
+  const map = deriveLegalMap(FIXED);
+  for (const e of BACKWARD_EDGES) {
+    const arr = map[e.from];
+    if (arr) arr.push(e.to);
+  }
+  return map;
+})();

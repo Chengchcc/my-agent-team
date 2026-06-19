@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BACKWARD_EDGES,
   deriveLegalMap,
   deriveStatuses,
+  HUMAN_GATES,
   ISSUE_STATUSES,
   LEGAL_TRANSITIONS,
   nextTransition,
@@ -72,5 +74,59 @@ describe("derived constants", () => {
     expect(LEGAL_TRANSITIONS.draft).toEqual(["planned"]);
     expect(LEGAL_TRANSITIONS.planned).toEqual(["in_progress"]);
     expect(LEGAL_TRANSITIONS.done).toEqual([]);
+  });
+});
+
+describe("BACKWARD_EDGES", () => {
+  test("contains the single in_review→in_progress rework edge", () => {
+    expect(BACKWARD_EDGES).toEqual([{ from: "in_review", to: "in_progress" }]);
+  });
+});
+
+describe("HUMAN_GATES", () => {
+  test("in_review is a human gate", () => {
+    expect(HUMAN_GATES.has("in_review")).toBe(true);
+  });
+
+  test("other statuses are not human gates", () => {
+    expect(HUMAN_GATES.has("planned")).toBe(false);
+    expect(HUMAN_GATES.has("in_progress")).toBe(false);
+    expect(HUMAN_GATES.has("draft")).toBe(false);
+    expect(HUMAN_GATES.has("done")).toBe(false);
+  });
+});
+
+describe("LEGAL_TRANSITIONS with backward edges", () => {
+  test("in_review has two legal transitions: done + in_progress (rework)", () => {
+    expect(LEGAL_TRANSITIONS.in_review).toContain("done");
+    expect(LEGAL_TRANSITIONS.in_review).toContain("in_progress");
+    expect(LEGAL_TRANSITIONS.in_review).toHaveLength(2);
+  });
+
+  test("forward-only statuses still have exactly one legal target", () => {
+    expect(LEGAL_TRANSITIONS.draft).toEqual(["planned"]);
+    expect(LEGAL_TRANSITIONS.planned).toEqual(["in_progress"]);
+    expect(LEGAL_TRANSITIONS.in_progress).toEqual(["in_review"]);
+    expect(LEGAL_TRANSITIONS.done).toEqual([]);
+  });
+});
+
+describe("nextTransition with human gate", () => {
+  test("returns undefined for in_review (gate — must not auto-advance)", () => {
+    expect(nextTransition(FIXED, "in_review")).toBeUndefined();
+  });
+
+  test("returns transition for non-gate statuses (forward auto-advance)", () => {
+    const planned = nextTransition(FIXED, "planned");
+    expect(planned).toBeDefined();
+    expect(planned!.to).toBe("in_progress");
+
+    const ip = nextTransition(FIXED, "in_progress");
+    expect(ip).toBeDefined();
+    expect(ip!.to).toBe("in_review");
+  });
+
+  test("returns undefined for done (terminal)", () => {
+    expect(nextTransition(FIXED, "done")).toBeUndefined();
   });
 });
