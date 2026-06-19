@@ -1,7 +1,8 @@
-import type { Transition } from "../orchestrator/transitions.js";
 import type { IssueStatus } from "../issue/entities.js";
-import type { ColumnConfigPort } from "./ports.js";
+import type { Transition } from "../orchestrator/transitions.js";
+import { ORDER } from "../orchestrator/transitions.js";
 import type { ColumnConfigRow } from "./domain.js";
+import type { ColumnConfigPort } from "./ports.js";
 
 export class ColumnConfigNotFoundError extends Error {
   constructor(id: string) {
@@ -16,10 +17,6 @@ export class ValidationError extends Error {
     this.name = "ValidationError";
   }
 }
-
-/** Fixed lifecycle order — all Projects share this topology.
- *  Only "who does each step" varies per Project via ColumnConfig. */
-export const ORDER: IssueStatus[] = ["draft", "planned", "in_progress", "in_review", "done"];
 
 export interface ColumnConfigServiceDeps {
   port: ColumnConfigPort;

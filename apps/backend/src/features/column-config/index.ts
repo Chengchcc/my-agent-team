@@ -3,9 +3,8 @@ export type { ColumnConfigRow } from "./domain.js";
 export { columnConfigRoutes } from "./http.js";
 export type { ColumnConfigPort } from "./ports.js";
 export {
-  createColumnConfigService,
   ColumnConfigNotFoundError,
   type ColumnConfigService,
-  ORDER,
+  createColumnConfigService,
   ValidationError,
 } from "./service.js";

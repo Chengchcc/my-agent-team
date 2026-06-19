@@ -9,7 +9,7 @@ export interface CreateIssueInput {
 }
 
 export interface IssuePort {
-  createIssue(input: CreateIssueInput): IssueRow; // 初始 status = "planned"
+  createIssue(input: CreateIssueInput): IssueRow; // 初始 status = "draft"
   getIssue(issueId: string): IssueRow | null;
   listIssues(opts?: { projectId?: string }): IssueRow[];
   /** 唯一的 status 写入物理入口。调用方（service.applyTransition）已校验合法性。
