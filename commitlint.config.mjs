@@ -1,7 +1,10 @@
 /** @type {import("@commitlint/types").UserConfig} */
 export default {
   extends: ["@commitlint/config-conventional"],
+  plugins: [(await import("./commitlint-plugin-no-cjk.mjs")).default],
   rules: {
+    // Prohibit Chinese characters (CJK) in commit messages
+    "no-cjk": [2, "never"],
     // Mandatory scope
     "scope-enum": [
       2,

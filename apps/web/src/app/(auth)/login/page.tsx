@@ -1,9 +1,21 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { Button } from "@/components/ui/button";
+import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 
 export const dynamic = "force-dynamic";
+
+const formSchema = z.object({
+  password: z.string().min(1, "Password is required"),
+});
+
+type FormValues = z.infer<typeof formSchema>;
 
 export default function LoginPage() {
   return (
@@ -18,8 +30,45 @@ export default function LoginPage() {
 }
 
 function LoginForm() {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const error = searchParams.get("error");
+  const errorParam = searchParams.get("error");
+  const [serverError, setServerError] = useState<string | null>(
+    errorParam === "invalid_password"
+      ? "Invalid password. Please try again."
+      : errorParam
+        ? "Sign in failed. Please try again."
+        : null,
+  );
+
+  const form = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
+    defaultValues: { password: "" },
+  });
+
+  async function onSubmit(values: FormValues) {
+    setServerError(null);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: values.password }),
+      });
+      if (res.status === 401) {
+        const body = await res.json().catch(() => ({ error: "Invalid password" }));
+        setServerError(
+          body.error === "invalid_password"
+            ? "Invalid password. Please try again."
+            : "Sign in failed. Please try again.",
+        );
+        return;
+      }
+      // Successful login — navigate to trigger cookie processing
+      router.push("/agents");
+    } catch {
+      setServerError("Network error. Please try again.");
+    }
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[var(--canvas)]">
@@ -41,42 +90,52 @@ function LoginForm() {
 
         <p className="text-sm text-[var(--body)] mb-6">A terminal for working with agents</p>
 
-        {error && (
+        {serverError && (
           <div className="mb-6 p-3 rounded border border-destructive/30 bg-destructive/10 text-sm text-destructive">
-            {error === "invalid_password"
-              ? "Invalid password. Please try again."
-              : "Sign in failed. Please try again."}
+            {serverError}
           </div>
         )}
 
-        <form action="/api/auth/login" method="POST" className="space-y-5">
-          <div>
-            <label className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] block mb-2 font-[family-name:var(--font-sans)] font-semibold">
-              Password
-            </label>
-            <input
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+            <FormField
+              control={form.control}
               name="password"
-              type="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
-              className="w-full bg-transparent border-0 border-b border-[var(--hairline)]
-                         px-0 py-3 text-[var(--ink)] text-base
-                         placeholder:text-[var(--mute)]
-                         focus:outline-none focus:border-[var(--primary)] focus-visible:ring-0
-                         transition-colors duration-200"
+              render={({ field }) => (
+                <FormItem>
+                  <label className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] block mb-2 font-[family-name:var(--font-sans)] font-semibold">
+                    Password
+                  </label>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type="password"
+                      autoComplete="current-password"
+                      placeholder="••••••••"
+                      className="w-full bg-transparent border-0 border-b border-[var(--hairline)]
+                                 px-0 py-3 text-[var(--ink)] text-base
+                                 placeholder:text-[var(--mute)]
+                                 focus:outline-none focus:border-[var(--primary)] focus-visible:ring-0
+                                 transition-colors duration-200"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
             />
-          </div>
 
-          <button
-            type="submit"
-            className="w-full bg-[var(--primary)] text-[var(--on-primary)]
-                       rounded-md py-3 text-sm font-semibold
-                       hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]
-                       transition-opacity duration-200"
-          >
-            Enter &rarr;
-          </button>
-        </form>
+            <Button
+              type="submit"
+              disabled={form.formState.isSubmitting}
+              className="w-full bg-[var(--primary)] text-[var(--on-primary)]
+                         rounded-md py-3 text-sm font-semibold
+                         hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]
+                         transition-opacity duration-200"
+            >
+              {form.formState.isSubmitting ? "Signing in..." : "Enter →"}
+            </Button>
+          </form>
+        </Form>
 
         <div className="mt-12 pt-6 border-t border-[var(--hairline)]">
           <p className="text-[10px] tracking-[0.15em] text-[var(--mute)]">

@@ -11,6 +11,7 @@ depends_on:
 used_by:
   - backend.orchestrator
   - flows.e2e-issue-lifecycle
+  - foundations.issue-workflow
 ---
 
 # Issue

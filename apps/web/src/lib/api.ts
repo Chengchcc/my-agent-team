@@ -1,6 +1,16 @@
 import type { LedgerEntry, Member } from "@my-agent-team/conversation";
 import type { ContentBlock } from "@my-agent-team/message";
 
+// ── Project types (M18.3) ──
+export interface ProjectRow {
+  projectId: string;
+  name: string;
+  repoUrl: string | null;
+  defaultBranch: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ── Issue types (M18.1) ──
 export type IssueStatus = "planned" | "in_progress" | "in_review" | "done";
 export interface IssueRow {
@@ -240,6 +250,16 @@ export const api = {
     const qs = new URLSearchParams({ from: String(range.from), to: String(range.to) });
     return apiFetch<InsightsSummary>(`ops/insights/summary?${qs}`);
   },
+
+  // ── Projects (M18.3) ──
+  listProjects: () => apiFetch<{ projects: ProjectRow[] }>("projects"),
+  createProject: (body: { name: string; repoUrl?: string; defaultBranch?: string }) =>
+    apiFetch<{ project: ProjectRow }>("projects", { method: "POST", body }),
+  updateProject: (
+    id: string,
+    body: { name?: string; repoUrl?: string | null; defaultBranch?: string | null },
+  ) => apiFetch<{ project: ProjectRow }>(`projects/${id}`, { method: "PATCH", body }),
+  deleteProject: (id: string) => apiFetch<void>(`projects/${id}`, { method: "DELETE" }),
 
   // ── Issues (M18.1) ──
   getIssueMeta: () => apiFetch<{ statuses: IssueStatus[] }>("issue-meta"),

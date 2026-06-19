@@ -8,7 +8,7 @@ const COLUMN_LABEL: Record<IssueStatus, string> = {
   done: "已完成",
 };
 
-export function IssueBoard({ statuses, issues }: { statuses: IssueStatus[]; issues: IssueRow[] }) {
+export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; issues: IssueRow[] }) {
   // meta 失败时光降级为平铺列表（不分列），避免有效数据被错误态藏掉
   if (statuses.length === 0) {
     if (issues.length === 0)

@@ -17,6 +17,7 @@
 - `docs/architecture/flows/e2e-web-message.md`
 - `docs/architecture/foundations/facts-and-projections.md`
 - `docs/architecture/foundations/issue.md`
+- `docs/architecture/foundations/issue-workflow.md`
 - `docs/architecture/foundations/lifecycle-overview.md`
 - `docs/architecture/harness/harness.md`
 - `docs/architecture/index.llm.md`

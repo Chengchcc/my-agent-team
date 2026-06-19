@@ -26,6 +26,7 @@ import {
 } from "./features/conversation/projection.js";
 import { sqliteEventLog } from "./features/event-log/index.js";
 import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
+import { createProjectService, projectRoutes, sqliteProjectAdapter } from "./features/project/index.js";
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
 import { createOrchestrator } from "./features/orchestrator/index.js";
@@ -249,8 +250,15 @@ const opsSvc = createRuntimeOpsService({
   getAgentName: (agentId) => agentNames.get(agentId),
 });
 
-// Issue service (M18.1)
-const issueSvc = createIssueService({ port: sqliteIssueAdapter(db), idGen: ulid });
+// Project service (M18.3) — must be constructed before issueSvc so projectExists can be injected
+const projectSvc = createProjectService({ port: sqliteProjectAdapter(db), idGen: ulid });
+
+// Issue service (M18.1) — projectExists hook wired for reference integrity (§3.2)
+const issueSvc = createIssueService({
+  port: sqliteIssueAdapter(db),
+  idGen: ulid,
+  projectExists: (id) => projectSvc.exists(id),
+});
 
 // M18.2 Orchestrator: build spec by agentId directly (not via member table)
 const buildIssueSpec = async (agentId: string, threadId: string, input: string) => {
@@ -302,6 +310,7 @@ const router = createRouter(config.authToken, {
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),
   issues: issueRoutes(issueSvc, { onIssueCreated: (issue) => orchestrator.startStep(issue) }),
+  projects: projectRoutes(projectSvc),
 });
 
 // ─── Start ────────────────────────────────────────────────────

@@ -291,7 +291,19 @@ export function NavRail() {
                     : "text-foreground-muted hover:bg-muted hover:text-foreground"
                 }`}
               >
-                Board
+                Kanban
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/projects"
+                className={`block px-2 py-1.5 text-sm rounded-md transition-colors ${
+                  pathname.startsWith("/projects")
+                    ? "bg-muted text-foreground border-l-2 border-primary"
+                    : "text-foreground-muted hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Projects
               </Link>
             </li>
           </ul>

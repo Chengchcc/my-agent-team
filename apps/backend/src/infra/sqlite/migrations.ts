@@ -250,6 +250,20 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
     CREATE INDEX IF NOT EXISTS idx_issue_project ON issue(project_id);
     CREATE INDEX IF NOT EXISTS idx_issue_status  ON issue(status);`,
   },
+  // ─── M18.3 project — managed entity for Issue's project_id ──
+  {
+    name: "backend_v24_project",
+    id: 5010,
+    up: `CREATE TABLE IF NOT EXISTS project (
+      project_id     TEXT PRIMARY KEY,
+      name           TEXT NOT NULL,
+      repo_url       TEXT,
+      default_branch TEXT,
+      created_at     INTEGER NOT NULL,
+      updated_at     INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_project_name ON project(name);`,
+  },
 ];
 
 /** Combined migrations: backend own + checkpointer (creates checkpoint_messages which

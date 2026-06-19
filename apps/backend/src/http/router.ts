@@ -1,6 +1,7 @@
 import type { agentRoutes } from "../features/agent/http.js";
 import type { conversationRoutes } from "../features/conversation/http.js";
 import type { issueRoutes } from "../features/issue/http.js";
+import type { projectRoutes } from "../features/project/http.js";
 import type { runRoutes } from "../features/run/http.js";
 import type { opsRoutes } from "../features/runtime-ops/http.js";
 import type { threadProjectionRoutes } from "../features/thread-projection/http.js";
@@ -15,6 +16,7 @@ interface FeatureSet {
   conversations?: ReturnType<typeof conversationRoutes>;
   ops?: ReturnType<typeof opsRoutes>;
   issues?: ReturnType<typeof issueRoutes>;
+  projects?: ReturnType<typeof projectRoutes>;
 }
 
 export function createRouter(token: string, features?: FeatureSet) {
@@ -36,7 +38,7 @@ export function createRouter(token: string, features?: FeatureSet) {
     };
   }
 
-  const { agents, runs, conversations, ops, issues } = features;
+  const { agents, runs, conversations, ops, issues, projects } = features;
 
   const agentList = withAuth((req) => agents.list(req), token);
   const agentCreate = withAuth((req) => agents.create(req), token);
@@ -195,6 +197,24 @@ export function createRouter(token: string, features?: FeatureSet) {
         if (issueMetaMatch) return json({ error: "Method not allowed" }, 405);
         if (issueTransitionMatch) return json({ error: "Method not allowed" }, 405);
         if (issueDetailMatch) return json({ error: "Method not allowed" }, 405);
+      }
+
+      // M18.3: Project routes
+      if (projects) {
+        const projectsListMatch = path === "/api/projects";
+        const projectDetailMatch = path.match(/^\/api\/projects\/([^/]+)$/);
+        if (projectsListMatch && method === "GET")
+          return withAuth(async (r) => projects.list(r), token)(req);
+        if (projectsListMatch && method === "POST")
+          return withAuth(async (r) => projects.create(r), token)(req);
+        if (projectDetailMatch && method === "GET")
+          return withAuth(async (r) => projects.get(r, projectDetailMatch[1]!), token)(req);
+        if (projectDetailMatch && method === "PATCH")
+          return withAuth(async (r) => projects.update(r, projectDetailMatch[1]!), token)(req);
+        if (projectDetailMatch && method === "DELETE")
+          return withAuth(async (r) => projects.remove(r, projectDetailMatch[1]!), token)(req);
+        if (projectsListMatch) return json({ error: "Method not allowed" }, 405);
+        if (projectDetailMatch) return json({ error: "Method not allowed" }, 405);
       }
 
       return withAuth(async () => notFound(req), token)(req);

@@ -49,9 +49,11 @@ flowchart LR
 flowchart LR
   Issue[foundations/issue] -->|按 status 分组的视图| Kanban[Kanban 看板]
   Issue -->|projectId 归属| Project[Project = git 子目录]
+  WF[foundations/issue-workflow] -->|演进设计| Issue
+  WF -->|演进设计| Orch
   Orch[backend/orchestrator] -->|固定转移表 + status 回填| Issue
   Orch -->|复用起运行| RS[backend/run-supervisor]
   Flow[flows/e2e-issue-lifecycle] -.串起时间线.-> Orch
 ```
 
-`foundations/issue`（唯一新增本体）→ `backend/orchestrator`（驱动状态机的编排器）→ `backend/run-supervisor`（复用执行层）；`flows/e2e-issue-lifecycle` 把这条链路串成跨多次运行的时间线。
+`foundations/issue`（唯一新增本体）→ `backend/orchestrator`（驱动状态机的编排器）→ `backend/run-supervisor`（复用执行层）；`flows/e2e-issue-lifecycle` 把这条链路串成跨多次运行的时间线。`foundations/issue-workflow`（`status: design`）是下一版演进设计，把八处变化合成一版连贯的协作流。
