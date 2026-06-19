@@ -3,12 +3,47 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import type { AgentRow } from "../agent/domain.js";
 import type { AgentService } from "../agent/service.js";
+import type { ColumnConfigService } from "../column-config/service.js";
 import { sqliteIssueAdapter } from "../issue/adapter-sqlite.js";
 import { createIssueService } from "../issue/service.js";
 import { runEventsDbMigrations } from "../run/events-db-migrations.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { createOrchestrator, OrchestratorAgentMissingError } from "./reactor.js";
+import type { Transition } from "./transitions.js";
+
+// ── Mock ColumnConfig ──────────────────────────────────────
+
+/** Mirrors old TRANSITIONS behavior: planned→in_progress by planner,
+ *  in_progress→in_review by developer, in_review→done by reviewer. */
+function mockColumnConfigSvc(): ColumnConfigService {
+  const transitions: Transition[] = [
+    {
+      from: "planned",
+      to: "in_progress",
+      agentId: "planner",
+      promptTemplate: "Plan for {{title}}",
+    },
+    {
+      from: "in_progress",
+      to: "in_review",
+      agentId: "developer",
+      promptTemplate: "Work on {{title}}",
+    },
+    { from: "in_review", to: "done", agentId: "reviewer", promptTemplate: "Review {{title}}" },
+  ];
+  return {
+    port: {} as ColumnConfigService["port"],
+    listByProject: () => [],
+    upsert: async () => {
+      throw new Error("not implemented");
+    },
+    remove: () => {
+      throw new Error("not implemented");
+    },
+    transitionsForProject: (_projectId: string) => transitions,
+  };
+}
 
 // ── Fakes ─────────────────────────────────────────────────
 
@@ -40,6 +75,7 @@ function fakeAgentSvc(agents: Map<string, AgentRow>): AgentService {
       }
       return agent;
     },
+    exists: async (id: string) => agents.has(id),
     create: async () => {
       throw new Error("not implemented");
     },
@@ -115,6 +151,7 @@ function makeOrchestrator(issueDb: Database, eventsDb: Database) {
     opsStore,
     buildSpec,
     idGen: () => crypto.randomUUID(),
+    columnConfigSvc: mockColumnConfigSvc(),
     now: () => 1000000,
   });
 
@@ -188,6 +225,7 @@ describe("Orchestrator reactor", () => {
       opsStore,
       buildSpec,
       idGen: () => crypto.randomUUID(),
+      columnConfigSvc: mockColumnConfigSvc(),
     });
 
     const issue = issueSvc.createIssue({

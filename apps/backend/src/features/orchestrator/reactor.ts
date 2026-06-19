@@ -1,10 +1,11 @@
 import type { AgentService } from "../agent/service.js";
+import type { ColumnConfigService } from "../column-config/service.js";
 import type { IssueRow } from "../issue/entities.js";
 import type { IssueService } from "../issue/service.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { renderPrompt } from "./render.js";
-import { nextTransition, TRANSITIONS } from "./transitions.js";
+import { nextTransition } from "./transitions.js";
 
 export class OrchestratorAgentMissingError extends Error {
   constructor(agentId: string, issueId: string) {
@@ -20,16 +21,18 @@ export interface OrchestratorDeps {
   opsStore: RuntimeOpsStore;
   buildSpec: (agentId: string, threadId: string, input: string) => Promise<Record<string, unknown>>;
   idGen: () => string;
+  columnConfigSvc: ColumnConfigService;
   now?: () => number;
 }
 
 export function createOrchestrator(deps: OrchestratorDeps) {
-  const { issueSvc, agentSvc, supervisor, opsStore, buildSpec, idGen } = deps;
+  const { issueSvc, agentSvc, supervisor, opsStore, buildSpec, idGen, columnConfigSvc } = deps;
 
   /** 为某个 Issue 的当前 status 起对应转移的那一棒。
    *  缺转移（终态）→ 静默停止；缺 agent → 抛错、不起 run、Issue 不推进。 */
   async function startStep(issue: IssueRow): Promise<{ runId: string } | null> {
-    const t = nextTransition(TRANSITIONS, issue.status);
+    const table = columnConfigSvc.transitionsForProject(issue.projectId);
+    const t = nextTransition(table, issue.status);
     if (!t) return null;
 
     // getById 对 missing 或 archived 均抛 AgentNotFoundError；统一 catch 为 null
@@ -89,7 +92,8 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     const fromStatus = origin.idempotencyKey?.split(":")[2];
     if (fromStatus && issue.status !== fromStatus) return;
 
-    const t = nextTransition(TRANSITIONS, issue.status);
+    const table = columnConfigSvc.transitionsForProject(issue.projectId);
+    const t = nextTransition(table, issue.status);
     if (!t) return;
 
     let advanced: IssueRow;
