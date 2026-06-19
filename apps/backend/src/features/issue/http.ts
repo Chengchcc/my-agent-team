@@ -29,13 +29,26 @@ const deliverableSchema = z.object({
   runId: z.string().optional(),
 });
 
+const reviewDecisionSchema = z
+  .object({
+    decision: z.enum(["approve", "reject"]),
+    note: z.string().trim().optional(),
+  })
+  .refine((d) => d.decision === "approve" || (d.note && d.note.length > 0), {
+    message: "note is required when rejecting",
+    path: ["note"],
+  });
+
 export function issueRoutes(
   svc: IssueService,
   opsStore: RuntimeOpsStore,
   deliverableSvc: DeliverableService,
-  opts?: { onIssueStarted?: (issue: IssueRow) => Promise<unknown> },
+  opts?: {
+    onIssueStarted?: (issue: IssueRow) => Promise<unknown>;
+    onReviewRejected?: (issue: IssueRow) => Promise<unknown>;
+  },
 ) {
-  const { onIssueStarted } = opts ?? {};
+  const { onIssueStarted, onReviewRejected } = opts ?? {};
 
   return {
     /** POST /api/issues → 201 { issue } */
@@ -124,6 +137,43 @@ export function issueRoutes(
       });
 
       return json({ deliverable: row }, replay ? 200 : 201);
+    },
+
+    /** POST /api/issues/:id/review-decision → 200 { issue } | 400 | 404 | 409
+     *  approve → in_review→done (terminal, no run started).
+     *  reject  → write rework_feedback deliverable → in_review→in_progress → startStep (rework). */
+    async reviewDecision(req: Request, issueId: string): Promise<Response> {
+      const parsed = reviewDecisionSchema.safeParse(await req.json().catch(() => ({})));
+      if (!parsed.success)
+        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
+
+      const issue = svc.port.getIssue(issueId);
+      if (!issue) return json({ error: "Not found" }, 404);
+      if (issue.status !== "in_review")
+        return json({ error: `issue not awaiting review (status=${issue.status})` }, 409);
+
+      try {
+        if (parsed.data.decision === "approve") {
+          const updated = svc.applyTransition(issueId, "done");
+          return json({ issue: updated });
+        }
+        // reject: write rework_feedback deliverable FIRST, then transition + start rework
+        deliverableSvc.submit({
+          issueId,
+          fromStatus: "in_review",
+          kind: "rework_feedback",
+          fields: { note: parsed.data.note! },
+        });
+        const updated = svc.applyTransition(issueId, "in_progress");
+        void onReviewRejected?.(updated).catch((e) =>
+          console.error(`[orchestrator] rework startStep failed for ${issueId}: ${String(e)}`),
+        );
+        return json({ issue: updated });
+      } catch (err) {
+        if (err instanceof IssueNotFoundError) return json({ error: err.message }, 404);
+        if (err instanceof IllegalTransitionError) return json({ error: err.message }, 409);
+        throw err;
+      }
     },
 
     /** GET /api/issue-meta → 200 { statuses } */
