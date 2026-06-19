@@ -139,6 +139,19 @@ export const EVENTS_DB_MIGRATIONS = [
     id: 3013,
     up: `ALTER TABLE run_origin ADD COLUMN from_status TEXT NOT NULL DEFAULT '';`,
   },
+  // ─── M18.7 ⑦: Issue Timeline — issue 级工作事件流（独立于 run_ops_event / ledger）──
+  {
+    name: "events_v15_issue_event",
+    id: 3014,
+    up: `CREATE TABLE IF NOT EXISTS issue_event (
+      seq      INTEGER PRIMARY KEY AUTOINCREMENT,
+      issue_id TEXT NOT NULL,
+      kind     TEXT NOT NULL,
+      payload  TEXT NOT NULL DEFAULT '{}',
+      ts       INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_issue_event_issue ON issue_event(issue_id, seq);`,
+  },
 ];
 
 export function runEventsDbMigrations(db: Database): void {
