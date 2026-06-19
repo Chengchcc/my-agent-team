@@ -2,8 +2,10 @@ import { z } from "zod";
 import { json, sseResponse } from "../../http/response.js";
 import type { DeliverableService } from "../deliverable/service.js";
 import { BACKWARD_EDGES, ISSUE_STATUSES, ORDER } from "../orchestrator/transitions.js";
-import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
+import type { RuntimeOpsStore } from "../runtime-ops/store.js";
+import { subscribeIssueTimeline } from "../runtime-ops/subscribe-issue-timeline.js";
+import type { IssueEvent } from "../runtime-ops/types.js";
 import type { IssueRow, IssueStatus } from "./entities.js";
 import {
   IllegalTransitionError,
@@ -249,6 +251,49 @@ export function issueRoutes(
         if (err instanceof IllegalTransitionError) return json({ error: err.message }, 409);
         throw err;
       }
+    },
+
+    /** GET /api/issues/:id/timeline → 200 { events } */
+    timeline(_req: Request, issueId: string): Response {
+      if (!svc.port.getIssue(issueId)) return json({ error: "Not found" }, 404);
+      return json({ events: opsStore.getIssueEvents(issueId) });
+    },
+
+    /** GET /api/issues/:id/timeline/events → SSE */
+    async timelineEvents(req: Request, issueId: string): Promise<Response> {
+      if (!svc.port.getIssue(issueId)) return json({ error: "Not found" }, 404);
+      const stream = subscribeIssueTimeline(opsStore, issueId, { signal: req.signal });
+      return sseResponse(
+        stream,
+        (e) => ({
+          id: String((e as IssueEvent).seq ?? ""),
+          event: "issue-event",
+          data: e,
+        }),
+        req.signal,
+      );
+    },
+
+    /** GET /api/issues/:id/detail → 200 { issue, timeline, runs } */
+    detail(_req: Request, issueId: string): Response {
+      const issue = svc.port.getIssue(issueId);
+      if (!issue) return json({ error: "Not found" }, 404);
+      const timeline = opsStore.getIssueEvents(issueId);
+      const origins = opsStore.getRunOriginsByIssueId(issueId);
+      const runIds = origins.map((o) => o.runId);
+      const runMap = new Map(opsStore.getRuns(runIds).map((r) => [r.runId, r]));
+      const runs = origins.map((o) => {
+        const run = runMap.get(o.runId);
+        return {
+          runId: o.runId,
+          fromStatus: o.fromStatus,
+          agentId: o.agentMemberId,
+          createdAt: o.createdAt,
+          status: run?.status ?? "unknown",
+          endedAt: run?.endedAt ?? null,
+        };
+      });
+      return json({ issue, timeline, runs });
     },
 
     /** GET /api/issue-meta → 200 { statuses } */

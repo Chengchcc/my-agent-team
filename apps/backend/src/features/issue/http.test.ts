@@ -123,7 +123,9 @@ describe("HTTP emission events", () => {
     );
     expect(res.status).toBe(200);
     const events = opsStore.getIssueEvents(issue.issueId);
-    const adv = events.find((e) => e.kind === "status.advanced" && e.payload.by === "human" && e.payload.to === "planned");
+    const adv = events.find(
+      (e) => e.kind === "status.advanced" && e.payload.by === "human" && e.payload.to === "planned",
+    );
     expect(adv).toBeDefined();
     const started = events.find((e) => e.kind === "started");
     expect(started).toBeDefined();
@@ -376,8 +378,14 @@ describe("reviewDecision", () => {
       issue.issueId,
     );
     const events = opsStore.getIssueEvents(issue.issueId);
-    expect(events.find((e) => e.kind === "human.decided" && e.payload.decision === "approve")).toBeDefined();
-    expect(events.find((e) => e.kind === "status.advanced" && e.payload.by === "human" && e.payload.to === "done")).toBeDefined();
+    expect(
+      events.find((e) => e.kind === "human.decided" && e.payload.decision === "approve"),
+    ).toBeDefined();
+    expect(
+      events.find(
+        (e) => e.kind === "status.advanced" && e.payload.by === "human" && e.payload.to === "done",
+      ),
+    ).toBeDefined();
   });
 
   test("reject emits human.decided + status.advanced(by:rework) + deliverable.submitted for rework_feedback", async () => {
@@ -392,9 +400,15 @@ describe("reviewDecision", () => {
       issue.issueId,
     );
     const events = opsStore.getIssueEvents(issue.issueId);
-    expect(events.find((e) => e.kind === "human.decided" && e.payload.decision === "reject")).toBeDefined();
-    expect(events.find((e) => e.kind === "status.advanced" && e.payload.by === "rework")).toBeDefined();
-    const ds = events.find((e) => e.kind === "deliverable.submitted" && e.payload.kind === "rework_feedback");
+    expect(
+      events.find((e) => e.kind === "human.decided" && e.payload.decision === "reject"),
+    ).toBeDefined();
+    expect(
+      events.find((e) => e.kind === "status.advanced" && e.payload.by === "rework"),
+    ).toBeDefined();
+    const ds = events.find(
+      (e) => e.kind === "deliverable.submitted" && e.payload.kind === "rework_feedback",
+    );
     expect(ds).toBeDefined();
   });
 
@@ -439,6 +453,99 @@ describe("reject rollback", () => {
     // Issue must be back in in_review (compensation rollback succeeded)
     const reverted = issueSvc.port.getIssue(issue.issueId);
     expect(reverted!.status).toBe("in_review");
+  });
+});
+
+describe("timeline endpoint", () => {
+  test("GET /timeline returns events ordered by seq", async () => {
+    const { issueSvc, opsStore, routes } = setup();
+    const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
+    opsStore.appendIssueEvent({ issueId: issue.issueId, kind: "created" });
+    opsStore.appendIssueEvent({ issueId: issue.issueId, kind: "started" });
+
+    const res = await routes.timeline(
+      new Request("http://localhost/api/issues/x/timeline"),
+      issue.issueId,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { events: Array<{ kind: string }> };
+    expect(body.events.length).toBe(2);
+    expect(body.events[0]!.kind).toBe("created");
+    expect(body.events[1]!.kind).toBe("started");
+  });
+
+  test("GET /timeline returns 404 for unknown issue", async () => {
+    const { routes } = setup();
+    const res = await routes.timeline(
+      new Request("http://localhost/api/issues/x/timeline"),
+      "nonexistent",
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("detail endpoint", () => {
+  test("GET /detail returns {issue, timeline, runs}", async () => {
+    const { issueSvc, opsStore, routes } = setup();
+    const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
+    opsStore.appendIssueEvent({ issueId: issue.issueId, kind: "created" });
+
+    const res = await routes.detail(
+      new Request("http://localhost/api/issues/x/detail"),
+      issue.issueId,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      issue: { issueId: string };
+      timeline: unknown[];
+      runs: unknown[];
+    };
+    expect(body.issue.issueId).toBe(issue.issueId);
+    expect(body.timeline.length).toBe(1);
+    expect(Array.isArray(body.runs)).toBe(true);
+  });
+
+  test("GET /detail returns 404 for unknown issue", async () => {
+    const { routes } = setup();
+    const res = await routes.detail(
+      new Request("http://localhost/api/issues/x/detail"),
+      "nonexistent",
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test("GET /detail runs array includes run status from run table", async () => {
+    const { issueSvc, opsStore, eventsDb, routes } = setup();
+    const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
+
+    opsStore.insertRunOrigin({
+      runId: "r_detail",
+      issueId: issue.issueId,
+      conversationId: "",
+      sourceLedgerSeq: 0,
+      agentMemberId: "a1",
+      surface: "orchestrator",
+      traceId: "",
+      traceparent: "",
+      idempotencyKey: "r_detail",
+      fromStatus: "planned",
+      createdAt: 1000,
+    });
+    eventsDb.run(
+      `INSERT INTO run (run_id, thread_id, agent_id, status, started_at, ended_at) VALUES ('r_detail', 't1', 'a1', 'succeeded', 1000, 5000)`,
+    );
+
+    const res = await routes.detail(
+      new Request("http://localhost/api/issues/x/detail"),
+      issue.issueId,
+    );
+    const body = (await res.json()) as {
+      runs: Array<{ runId: string; status: string; endedAt: number | null }>;
+    };
+    expect(body.runs.length).toBe(1);
+    expect(body.runs[0]!.runId).toBe("r_detail");
+    expect(body.runs[0]!.status).toBe("succeeded");
+    expect(body.runs[0]!.endedAt).toBe(5000);
   });
 });
 
