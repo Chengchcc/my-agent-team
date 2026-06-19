@@ -9,7 +9,15 @@ import type { IssueRow } from "@/lib/api";
 import { api } from "@/lib/api";
 import { IssueStatusBadge } from "./IssueStatusBadge";
 
-export function IssueCard({ issue, onDecision }: { issue: IssueRow; onDecision?: () => void }) {
+export function IssueCard({
+  issue,
+  onDecision,
+  onOpenDetail,
+}: {
+  issue: IssueRow;
+  onDecision?: () => void;
+  onOpenDetail?: () => void;
+}) {
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
@@ -46,7 +54,7 @@ export function IssueCard({ issue, onDecision }: { issue: IssueRow; onDecision?:
   }
 
   return (
-    <Card size="sm">
+    <Card size="sm" className="cursor-pointer" onClick={onOpenDetail}>
       <CardHeader>
         <CardTitle>{issue.title}</CardTitle>
       </CardHeader>
@@ -61,7 +69,7 @@ export function IssueCard({ issue, onDecision }: { issue: IssueRow; onDecision?:
                   size="sm"
                   variant="outline"
                   className="text-xs h-7"
-                  onClick={handleApprove}
+                  onClick={(e) => { e.stopPropagation(); handleApprove(); }}
                   disabled={loading}
                 >
                   Approve
@@ -70,7 +78,7 @@ export function IssueCard({ issue, onDecision }: { issue: IssueRow; onDecision?:
                   size="sm"
                   variant="outline"
                   className="text-xs h-7 text-destructive"
-                  onClick={() => setRejecting(true)}
+                  onClick={(e) => { e.stopPropagation(); setRejecting(true); }}
                   disabled={loading}
                 >
                   Reject
@@ -96,7 +104,7 @@ export function IssueCard({ issue, onDecision }: { issue: IssueRow; onDecision?:
                   <Button
                     size="sm"
                     className="text-xs h-7"
-                    onClick={handleReject}
+                    onClick={(e) => { e.stopPropagation(); handleReject(); }}
                     disabled={loading || !note.trim()}
                   >
                     Confirm Reject
@@ -105,7 +113,8 @@ export function IssueCard({ issue, onDecision }: { issue: IssueRow; onDecision?:
                     size="sm"
                     variant="ghost"
                     className="text-xs h-7"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setRejecting(false);
                       setNote("");
                     }}

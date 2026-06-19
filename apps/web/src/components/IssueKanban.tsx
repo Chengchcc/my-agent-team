@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import type { IssueRow, IssueStatus } from "@/lib/api";
 import { api } from "@/lib/api";
 import { IssueCard } from "./IssueCard";
+import { IssueDetailSheet } from "./IssueDetailSheet";
 
 const COLUMN_LABEL: Record<IssueStatus, string> = {
   draft: "草稿",
@@ -28,7 +29,15 @@ const COLUMN_LABEL: Record<IssueStatus, string> = {
   done: "已完成",
 };
 
-function DraggableIssueCard({ issue, onDecision }: { issue: IssueRow; onDecision?: () => void }) {
+function DraggableIssueCard({
+  issue,
+  onDecision,
+  onOpenDetail,
+}: {
+  issue: IssueRow;
+  onDecision?: () => void;
+  onOpenDetail?: () => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: issue.issueId,
     data: { status: issue.status },
@@ -42,7 +51,7 @@ function DraggableIssueCard({ issue, onDecision }: { issue: IssueRow; onDecision
 
   return (
     <div ref={setNodeRef} style={style} {...listeners} {...attributes}>
-      <IssueCard issue={issue} onDecision={onDecision} />
+      <IssueCard issue={issue} onDecision={onDecision} onOpenDetail={onOpenDetail} />
     </div>
   );
 }
@@ -51,10 +60,12 @@ function DroppableColumn({
   status,
   items,
   onDecision,
+  onOpenDetail,
 }: {
   status: IssueStatus | "unknown";
   items: IssueRow[];
   onDecision?: () => void;
+  onOpenDetail?: (issueId: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const label = status === "unknown" ? "Other" : (COLUMN_LABEL[status] ?? status);
@@ -68,7 +79,7 @@ function DroppableColumn({
       </h2>
       <div className="space-y-2 min-h-[4rem]">
         {items.map((it) => (
-          <DraggableIssueCard key={it.issueId} issue={it} onDecision={onDecision} />
+          <DraggableIssueCard key={it.issueId} issue={it} onDecision={onDecision} onOpenDetail={() => onOpenDetail?.(it.issueId)} />
         ))}
       </div>
     </section>
@@ -78,6 +89,7 @@ function DroppableColumn({
 export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; issues: IssueRow[] }) {
   const queryClient = useQueryClient();
   const [activeIssue, setActiveIssue] = useState<IssueRow | null>(null);
+  const [openIssueId, setOpenIssueId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
@@ -170,13 +182,21 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
       <div className="flex gap-4 p-6 overflow-x-auto">
         {columns.map((s) => {
           const items = s === "unknown" ? unmatched : (byStatus.get(s) ?? []);
-          return <DroppableColumn key={s} status={s} items={items} onDecision={handleDecision} />;
+          return <DroppableColumn key={s} status={s} items={items} onDecision={handleDecision} onOpenDetail={setOpenIssueId} />;
         })}
       </div>
 
       <DragOverlay>
         {activeIssue ? <IssueCard issue={activeIssue} onDecision={handleDecision} /> : null}
       </DragOverlay>
+
+      {openIssueId && (
+        <IssueDetailSheet
+          issue={issues.find((i) => i.issueId === openIssueId)!}
+          open={true}
+          onClose={() => setOpenIssueId(null)}
+        />
+      )}
     </DndContext>
   );
 }
