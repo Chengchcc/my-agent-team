@@ -10,6 +10,8 @@ export type {
 export { createRuntimeOpsService } from "./service.js";
 export { RuntimeOpsStore } from "./store.js";
 export type {
+  IssueEvent,
+  IssueEventKind,
   RunnerHealthRow,
   RunnerHealthStatus,
   RunOpsEvent,

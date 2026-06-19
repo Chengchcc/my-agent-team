@@ -1,3 +1,22 @@
+// ─── M18.7 Issue Timeline types ───
+
+export type IssueEventKind =
+  | "created"
+  | "started"
+  | "run.started"
+  | "run.ended"
+  | "deliverable.submitted"
+  | "status.advanced"
+  | "human.decided";
+
+export interface IssueEvent {
+  seq: number;
+  issueId: string;
+  kind: IssueEventKind;
+  payload: Record<string, unknown>;
+  ts: number;
+}
+
 export type RunOpsEventKind =
   | "attempt_started"
   | "attempt_transport_seen"
