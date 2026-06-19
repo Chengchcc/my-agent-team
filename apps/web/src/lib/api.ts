@@ -23,6 +23,33 @@ export interface IssueRow {
   updatedAt: number;
 }
 
+// ── M18.7 Timeline types ──
+export type IssueEventKind =
+  | "created"
+  | "started"
+  | "run.started"
+  | "run.ended"
+  | "deliverable.submitted"
+  | "status.advanced"
+  | "human.decided";
+
+export interface IssueEvent {
+  seq: number;
+  issueId: string;
+  kind: IssueEventKind;
+  payload: Record<string, unknown>;
+  ts: number;
+}
+
+export interface IssueRunSummary {
+  runId: string;
+  fromStatus: string;
+  agentId: string;
+  createdAt: number;
+  status: string;
+  endedAt: number | null;
+}
+
 // ── ColumnConfig types (M18.4) ──
 export interface ColumnConfigRow {
   configId: string;
@@ -283,6 +310,12 @@ export const api = {
     apiFetch<{ issue: IssueRow }>(`issues/${id}/transition`, { method: "POST", body: { to } }),
   reviewDecision: (id: string, body: { decision: "approve" | "reject"; note?: string }) =>
     apiFetch<{ issue: IssueRow }>(`issues/${id}/review-decision`, { method: "POST", body }),
+
+  // ── M18.7: Issue detail aggregation ──
+  getIssueDetail: (id: string) =>
+    apiFetch<{ issue: IssueRow; timeline: IssueEvent[]; runs: IssueRunSummary[] }>(
+      `issues/${id}/detail`,
+    ),
 
   // ── ColumnConfigs (M18.4) ──
   listColumnConfigs: (projectId: string) =>
