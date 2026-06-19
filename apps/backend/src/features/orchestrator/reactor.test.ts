@@ -457,7 +457,7 @@ describe("Orchestrator reactor", () => {
       fromStatus: "in_progress",
       createdAt: 1000000,
     });
-    await orch.onRunComplete(current.threadId, runDev.runId, "succeeded", "main");
+    await orch.onRunComplete(current!.threadId, runDev.runId, "succeeded", "main");
     current = issueSvc.port.getIssue(issue.issueId);
     expect(current!.status).toBe("in_review");
 

@@ -114,11 +114,13 @@ renderPrompt 变量字典（设计）：
 
 `renderPrompt` 仍是**纯字符串 `{{}}` 插值**，不引入模板 DSL——这条 [Orchestrator](../backend/orchestrator.md) 不变量保留。变化只在「变量字典从哪来」：从两个写死变量，扩成从 Issue 上下文动态构建。缺失变量仍回退空串。
 
-## ⑥ 人工验收闸门 + 返工
+## ⑥ 人工验收闸门 + 返工（✅ 已落地 M18.6）
 
 「这件活算不算干完」是**人**的判断，不是某次 run succeeded 就等于完成。reviewer 交付 review 文档后，需要一个人来拍板：通过则进 `done`，不通过则**打回返工**。
 
-设计：在 `in_review` 上加一个**显式人工闸门**。打回意味着转移表不再是纯线性——它长出一条**回退边** `in_review → in_progress`，并带上打回反馈（作为下一棒上下文的一部分，见 ⑤）。转移表的形态从「线性」变成「图」（带回退边的有限图，仍非任意 DAG）。
+**status: current** — 已实现于 `orchestrator/transitions.ts`（`BACKWARD_EDGES` + `HUMAN_GATES`）、`reactor.ts`（`nextTransition` 闸门短路 + 幂等键 → 纯 `runId`）、`POST /api/issues/:id/review-decision` 端点。打回反馈复用 M18.5 交付物载体（`kind="rework_feedback"`），经 `{{deliverables.rework_feedback.fields.note}}` 进返工棒 prompt。
+
+实现：在 `in_review` 上加一个**显式人工闸门**。打回转移表长出**回退边** `in_review → in_progress`，打回反馈作为 `kind="rework_feedback"` 的交付物落库（复用 ⑤ 载体），经 `{{deliverables.rework_feedback.fields.note}}` 进返工棒 prompt。转移表的形态从「线性」变成「图」（带回退边的有限图，仍非任意 DAG）。幂等键改为纯 `runId` 根治返工重入同 status 撞键的死环。
 
 ```mermaid
 flowchart LR

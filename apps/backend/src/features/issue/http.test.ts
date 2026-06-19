@@ -103,7 +103,7 @@ describe("submitDeliverable", () => {
       issue.issueId,
     );
     expect(res.status).toBe(201);
-    const body = await res.json() as { deliverable: { kind: string } };
+    const body = (await res.json()) as { deliverable: { kind: string } };
     expect(body.deliverable.kind).toBe("plan");
   });
 
@@ -166,7 +166,7 @@ describe("submitDeliverable", () => {
       issue.issueId,
     );
     expect(res2.status).toBe(200);
-    const body = await res2.json() as { deliverable: { fields: Record<string, string> } };
+    const body = (await res2.json()) as { deliverable: { fields: Record<string, string> } };
     expect(body.deliverable.fields).toEqual({ v: "1" }); // first write wins
   });
 
@@ -230,7 +230,7 @@ describe("reviewDecision", () => {
       issue.issueId,
     );
     expect(res.status).toBe(200);
-    const body = await res.json() as { issue: { status: string } };
+    const body = (await res.json()) as { issue: { status: string } };
     expect(body.issue.status).toBe("done");
   });
 
@@ -246,7 +246,7 @@ describe("reviewDecision", () => {
       issue.issueId,
     );
     expect(res.status).toBe(200);
-    const body = await res.json() as { issue: { status: string } };
+    const body = (await res.json()) as { issue: { status: string } };
     expect(body.issue.status).toBe("in_progress");
 
     // rework_feedback deliverable written

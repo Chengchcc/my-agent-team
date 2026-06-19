@@ -2,20 +2,14 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { IssueRow } from "@/lib/api";
 import { api } from "@/lib/api";
 import { IssueStatusBadge } from "./IssueStatusBadge";
 
-export function IssueCard({
-  issue,
-  onDecision,
-}: {
-  issue: IssueRow;
-  onDecision?: () => void;
-}) {
+export function IssueCard({ issue, onDecision }: { issue: IssueRow; onDecision?: () => void }) {
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);

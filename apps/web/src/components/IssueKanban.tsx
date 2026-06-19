@@ -28,13 +28,7 @@ const COLUMN_LABEL: Record<IssueStatus, string> = {
   done: "已完成",
 };
 
-function DraggableIssueCard({
-  issue,
-  onDecision,
-}: {
-  issue: IssueRow;
-  onDecision?: () => void;
-}) {
+function DraggableIssueCard({ issue, onDecision }: { issue: IssueRow; onDecision?: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: issue.issueId,
     data: { status: issue.status },
