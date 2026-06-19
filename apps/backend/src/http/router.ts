@@ -180,6 +180,7 @@ export function createRouter(token: string, features?: FeatureSet) {
         const issuesListMatch = path === "/api/issues";
         const issueEventsMatch = path === "/api/issues/events";
         const issueTransitionMatch = path.match(/^\/api\/issues\/([^/]+)\/transition$/);
+        const issueDeliverablesMatch = path.match(/^\/api\/issues\/([^/]+)\/deliverables$/);
         const issueDetailMatch = path.match(/^\/api\/issues\/([^/]+)$/);
         const issueMetaMatch = path === "/api/issue-meta";
 
@@ -195,6 +196,9 @@ export function createRouter(token: string, features?: FeatureSet) {
         // transition must be before detail to avoid /:id capturing /:id/transition
         if (issueTransitionMatch && method === "POST")
           return withAuth(async (r) => issues.transition(r, issueTransitionMatch[1]!), token)(req);
+        // deliverables must be before detail to avoid /:id capturing /:id/deliverables
+        if (issueDeliverablesMatch && method === "POST")
+          return withAuth(async (r) => issues.submitDeliverable(r, issueDeliverablesMatch[1]!), token)(req);
         if (issueDetailMatch && method === "GET")
           return withAuth(async (r) => issues.get(r, issueDetailMatch[1]!), token)(req);
 
@@ -203,6 +207,7 @@ export function createRouter(token: string, features?: FeatureSet) {
         if (issueEventsMatch) return json({ error: "Method not allowed" }, 405);
         if (issueMetaMatch) return json({ error: "Method not allowed" }, 405);
         if (issueTransitionMatch) return json({ error: "Method not allowed" }, 405);
+        if (issueDeliverablesMatch) return json({ error: "Method not allowed" }, 405);
         if (issueDetailMatch) return json({ error: "Method not allowed" }, 405);
       }
 

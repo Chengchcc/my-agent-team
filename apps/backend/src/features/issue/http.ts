@@ -8,6 +8,8 @@ import {
   type IssueService,
   ValidationError,
 } from "./service.js";
+import type { RuntimeOpsStore } from "../runtime-ops/store.js";
+import type { DeliverableService } from "../deliverable/service.js";
 
 const createSchema = z.object({
   projectId: z.string().trim().min(1),
@@ -16,8 +18,19 @@ const createSchema = z.object({
 
 const transitionSchema = z.object({ to: z.enum(ISSUE_STATUSES as readonly [string, ...string[]]) });
 
+const deliverableSchema = z.object({
+  kind: z.string().trim().min(1),
+  fields: z.record(z.string()),
+  ref: z.string().optional(),
+  fromStatus: z.string().optional(),
+  runId: z.string().optional(),
+  idempotencyKey: z.string().optional(),
+});
+
 export function issueRoutes(
   svc: IssueService,
+  opsStore: RuntimeOpsStore,
+  deliverableSvc: DeliverableService,
   opts?: { onIssueStarted?: (issue: IssueRow) => Promise<unknown> },
 ) {
   const { onIssueStarted } = opts ?? {};
@@ -77,6 +90,37 @@ export function issueRoutes(
         if (err instanceof IllegalTransitionError) return json({ error: err.message }, 409);
         throw err;
       }
+    },
+
+    /** POST /api/issues/:id/deliverables → 201 { deliverable } | 404 | 409 */
+    async submitDeliverable(req: Request, issueId: string): Promise<Response> {
+      const parsed = deliverableSchema.safeParse(await req.json().catch(() => ({})));
+      if (!parsed.success)
+        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
+      if (!svc.port.getIssue(issueId)) return json({ error: "issue not found" }, 404);
+
+      let fromStatus = parsed.data.fromStatus ?? "";
+      if (parsed.data.runId) {
+        const origin = opsStore.getRunOrigin(parsed.data.runId);
+        if (origin?.issueId && origin.issueId !== issueId)
+          return json({ error: "run/issue mismatch" }, 409);
+        fromStatus = origin?.idempotencyKey?.split(":")[2] ?? fromStatus;
+      }
+
+      const key = parsed.data.idempotencyKey;
+      const existing = key ? deliverableSvc.port.getByIdempotencyKey(key) : null;
+      if (existing) return json({ deliverable: existing });
+
+      const row = deliverableSvc.submit({
+        issueId,
+        fromStatus,
+        kind: parsed.data.kind,
+        fields: parsed.data.fields,
+        ref: parsed.data.ref,
+        runId: parsed.data.runId,
+        idempotencyKey: key,
+      });
+      return json({ deliverable: row }, 201);
     },
 
     /** GET /api/issue-meta → 200 { statuses } */
