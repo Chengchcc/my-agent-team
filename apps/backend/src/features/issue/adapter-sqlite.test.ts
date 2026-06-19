@@ -17,7 +17,7 @@ afterAll(() => {
 });
 
 describe("Issue adapter CRUD", () => {
-  test("createIssue inserts a row with status=planned", () => {
+  test("createIssue inserts a row with status=draft", () => {
     const issue = adapter.createIssue({
       issueId: "iss-1",
       projectId: "proj-1",
@@ -26,7 +26,7 @@ describe("Issue adapter CRUD", () => {
       createdAt: 1700000000000,
     });
     expect(issue.issueId).toBe("iss-1");
-    expect(issue.status).toBe("planned");
+    expect(issue.status).toBe("draft");
     expect(issue.title).toBe("Fix login bug");
     expect(issue.createdAt).toBe(1700000000000);
     expect(issue.updatedAt).toBe(1700000000000);
@@ -67,7 +67,8 @@ describe("Issue adapter CRUD", () => {
   });
 
   test("setStatus updates status with CAS and returns true on match", () => {
-    const ok = adapter.setStatus("iss-1", "planned", "in_progress", 1700000100000);
+    // Issue starts as draft, CAS from draft→in_progress
+    const ok = adapter.setStatus("iss-1", "draft", "in_progress", 1700000100000);
     expect(ok).toBe(true);
     const issue = adapter.getIssue("iss-1");
     expect(issue?.status).toBe("in_progress");
@@ -75,14 +76,15 @@ describe("Issue adapter CRUD", () => {
   });
 
   test("setStatus returns false when expectFrom does not match (CAS fail)", () => {
-    const ok = adapter.setStatus("iss-1", "planned", "done", 1700000200000);
+    // Status is now in_progress, CAS from draft should fail
+    const ok = adapter.setStatus("iss-1", "draft", "done", 1700000200000);
     expect(ok).toBe(false);
     const issue = adapter.getIssue("iss-1");
     expect(issue?.status).toBe("in_progress");
   });
 
   test("setStatus returns false for nonexistent issue", () => {
-    const ok = adapter.setStatus("nope", "planned", "in_progress", 1700000300000);
+    const ok = adapter.setStatus("nope", "draft", "in_progress", 1700000300000);
     expect(ok).toBe(false);
   });
 });

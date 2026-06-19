@@ -37,7 +37,7 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
           input.createdAt,
         ],
       );
-      return { ...input, status: "planned", updatedAt: input.createdAt };
+      return { ...input, status: "draft", updatedAt: input.createdAt };
     },
 
     getIssue(issueId: string): IssueRow | null {
