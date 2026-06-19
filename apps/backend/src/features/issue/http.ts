@@ -176,7 +176,23 @@ export function issueRoutes(
         try {
           await onReviewRejected?.(updated);
         } catch (e) {
-          console.error(`[orchestrator] rework startStep failed for ${issueId}: ${String(e)}`);
+          // Rework run failed to start — compensation rollback to in_review
+          console.error(`[orchestrator] rework start failed for ${issueId}: ${String(e)}`);
+          try {
+            const reverted = svc.revertReviewReject(issueId);
+            return json(
+              {
+                error: "rework run failed to start; issue returned to in_review",
+                issue: reverted,
+              },
+              502,
+            );
+          } catch (rollbackErr) {
+            console.error(
+              `[orchestrator] rollback in_progress→in_review failed for ${issueId}: ${String(rollbackErr)}`,
+            );
+            return json({ error: "rework run failed and rollback failed", issue: updated }, 500);
+          }
         }
         return json({ issue: updated });
       } catch (err) {

@@ -65,6 +65,16 @@ export function createIssueService(deps: IssueServiceDeps) {
       return port.getIssue(issueId)!;
     },
 
+    /** 补偿性回滚：仅用于 reject 起棒失败的回退。绕过 LEGAL_TRANSITIONS
+     * （in_progress→in_review 是反向边、不在合法集里），CAS 以 in_progress 为
+     * 前置，防止与其它并发转移竞争。 */
+    revertReviewReject(issueId: string): IssueRow {
+      const ts = now();
+      const ok = port.setStatus(issueId, "in_progress", "in_review", ts);
+      if (!ok) throw new IllegalTransitionError(`revert in_progress → in_review (lost CAS)`);
+      return port.getIssue(issueId)!;
+    },
+
     // ─── SSE subscription ─────────────────────────────
 
     async *subscribeIssues(opts?: {

@@ -64,6 +64,12 @@ export class RuntimeOpsStore {
   // ─── run_origin ───
 
   insertRunOrigin(row: RunOriginRow): void {
+    // Invariant: issue-driven runs must carry a non-empty fromStatus
+    if (row.issueId != null && row.fromStatus === "") {
+      throw new Error(
+        `run_origin with issueId must carry a non-empty fromStatus (runId=${row.runId})`,
+      );
+    }
     this.#db.run(
       `INSERT OR IGNORE INTO run_origin (run_id, conversation_id, source_ledger_seq, agent_member_id, surface, trace_id, traceparent, idempotency_key, issue_id, from_status, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
