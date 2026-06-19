@@ -45,6 +45,31 @@ function mockColumnConfigSvc(): ColumnConfigService {
   };
 }
 
+function mockDeliverableSvc(
+  _rows: Array<{
+    kind: string;
+    fields: Record<string, string>;
+    ref?: string;
+    createdAt: number;
+  }> = [],
+) {
+  return {
+    listByIssue(_issueId: string) {
+      return _rows.map((r, i) => ({
+        deliverableId: `d_${i}`,
+        issueId: _issueId,
+        fromStatus: "planned",
+        kind: r.kind,
+        fields: r.fields,
+        ref: r.ref ?? null,
+        runId: `run_00${i}`,
+        idempotencyKey: null,
+        createdAt: r.createdAt,
+      }));
+    },
+  };
+}
+
 // ── Fakes ─────────────────────────────────────────────────
 
 interface FakeSupervisor extends RunSupervisor {
@@ -152,6 +177,7 @@ function makeOrchestrator(issueDb: Database, eventsDb: Database) {
     buildSpec,
     idGen: () => crypto.randomUUID(),
     columnConfigSvc: mockColumnConfigSvc(),
+    deliverableSvc: mockDeliverableSvc(),
     now: () => 1000000,
   });
 
@@ -240,6 +266,7 @@ describe("Orchestrator reactor", () => {
       buildSpec,
       idGen: () => crypto.randomUUID(),
       columnConfigSvc: mockColumnConfigSvc(), // still returns config with agentIds
+      deliverableSvc: mockDeliverableSvc(),
     });
 
     const issue = issueSvc.createIssue({
