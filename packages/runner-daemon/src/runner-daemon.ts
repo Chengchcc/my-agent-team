@@ -10,6 +10,7 @@ import { createGenericAgent, reflectionGuidance } from "@my-agent-team/harness";
 import type { HostToRunner, RunnerTransport } from "@my-agent-team/runner-protocol";
 import { AgentSpecV2 } from "./agent-spec.js";
 import { createStartNewConversationTool } from "./start-new-conversation-tool.js";
+import { createSubmitDeliverableTool } from "./submit-deliverable-tool.js";
 
 // ─── Types ───
 
@@ -188,6 +189,25 @@ export class RunnerDaemon {
           backendUrl: this.#backendUrl,
           backendAuthToken: this.#backendAuthToken,
           conversationId: sc.conversationId,
+          runId: sc.runId,
+        }),
+      );
+    }
+
+    // M18.5: Inject submit_deliverable tool for issue runs.
+    // Condition: capability present + issue info attached + not a reflect run.
+    // We don't bind on surface literal — the capability+issue combo is the signal.
+    if (
+      sc?.capabilities.includes("submit_deliverable") &&
+      sc.issue &&
+      spec.mode !== "reflect"
+    ) {
+      extraTools.push(
+        createSubmitDeliverableTool({
+          backendUrl: this.#backendUrl,
+          backendAuthToken: this.#backendAuthToken,
+          issueId: sc.issue.issueId,
+          fromStatus: sc.issue.fromStatus,
           runId: sc.runId,
         }),
       );
