@@ -350,4 +350,132 @@ describe("Orchestrator reactor", () => {
     expect(after2!.status).toBe("in_progress"); // still in_progress
     expect(supervisor.startedRuns.length).toBe(count1); // no new runs
   });
+
+  test("onRunComplete: succeeded reviewer run does NOT auto-advance from in_review (gate)", async () => {
+    const { orch, issueSvc, supervisor } = makeOrchestrator(issueDb, eventsDb);
+
+    const issue = issueSvc.createIssue({
+      projectId: "proj-gate",
+      title: "Gate Issue",
+    });
+    // Manually advance through all steps to in_review
+    issueSvc.applyTransition(issue.issueId, "planned");
+    issueSvc.applyTransition(issue.issueId, "in_progress");
+    const review = issueSvc.applyTransition(issue.issueId, "in_review");
+    expect(review.status).toBe("in_review");
+
+    // Simulate review run completion (startStep would have inserted the origin)
+    const reviewRunId = "run-review-1";
+    const opsStore = new RuntimeOpsStore(eventsDb);
+    opsStore.insertRunOrigin({
+      runId: reviewRunId,
+      issueId: issue.issueId,
+      conversationId: "",
+      sourceLedgerSeq: 0,
+      agentMemberId: "reviewer",
+      surface: "orchestrator",
+      traceId: "",
+      traceparent: "",
+      idempotencyKey: reviewRunId,
+      fromStatus: "in_review",
+      createdAt: 1000000,
+    });
+
+    const startCount = supervisor.startedRuns.length;
+    await orch.onRunComplete(review.threadId, reviewRunId, "succeeded", "main");
+
+    // Issue must STAY in in_review (gate — no auto-advance to done)
+    const updated = issueSvc.port.getIssue(issue.issueId);
+    expect(updated!.status).toBe("in_review");
+    // No new run started
+    expect(supervisor.startedRuns.length).toBe(startCount);
+  });
+
+  test("onRunComplete: fromStatus guard uses origin.fromStatus (not key parsing)", async () => {
+    const { orch, issueSvc, supervisor } = makeOrchestrator(issueDb, eventsDb);
+
+    const issue = issueSvc.createIssue({
+      projectId: "proj-guard",
+      title: "Guard Issue",
+    });
+    const planned = issueSvc.applyTransition(issue.issueId, "planned");
+    const step1 = await orch.startStep(planned);
+    expect(step1).not.toBeNull();
+
+    // First delivery advances normally
+    await orch.onRunComplete(planned.threadId, step1!.runId, "succeeded", "main");
+    const after1 = issueSvc.port.getIssue(issue.issueId);
+    expect(after1!.status).toBe("in_progress");
+    const count1 = supervisor.startedRuns.length;
+
+    // Second delivery of same run — fromStatus guard (origin.fromStatus === "planned" !== current "in_progress") prevents advance
+    await orch.onRunComplete(planned.threadId, step1!.runId, "succeeded", "main");
+    const after2 = issueSvc.port.getIssue(issue.issueId);
+    expect(after2!.status).toBe("in_progress"); // still in_progress
+    expect(supervisor.startedRuns.length).toBe(count1); // no new runs
+  });
+
+  test("onRunComplete: rework round-trip — second in_progress run writes origin without collision", async () => {
+    const { orch, issueSvc, supervisor } = makeOrchestrator(issueDb, eventsDb);
+
+    // Full cycle: planned → in_progress (run1) → in_review → reject back to in_progress → startStep (run2)
+    const issue = issueSvc.createIssue({
+      projectId: "proj-rework",
+      title: "Rework Issue",
+    });
+    const planned = issueSvc.applyTransition(issue.issueId, "planned");
+
+    // First developer run
+    const run1 = await orch.startStep(planned);
+    expect(run1).not.toBeNull();
+    const opsStore = new RuntimeOpsStore(eventsDb);
+
+    // Verify run1 origin exists and has correct fromStatus
+    const origin1 = opsStore.getRunOrigin(run1!.runId);
+    expect(origin1).not.toBeNull();
+    expect(origin1!.fromStatus).toBe("planned");
+    expect(origin1!.idempotencyKey).toBe(run1!.runId); // Q1→A: key IS runId
+
+    // Move to in_progress via successful run1
+    await orch.onRunComplete(planned.threadId, run1!.runId, "succeeded", "main");
+    let current = issueSvc.port.getIssue(issue.issueId);
+    expect(current!.status).toBe("in_progress");
+
+    // Move to in_review (simulate developer run completing via onRunComplete)
+    const runDev = supervisor.startedRuns[supervisor.startedRuns.length - 1]!;
+    // Insert origin for dev run
+    opsStore.insertRunOrigin({
+      runId: runDev.runId,
+      issueId: issue.issueId,
+      conversationId: "",
+      sourceLedgerSeq: 0,
+      agentMemberId: "developer",
+      surface: "orchestrator",
+      traceId: "",
+      traceparent: "",
+      idempotencyKey: runDev.runId,
+      fromStatus: "in_progress",
+      createdAt: 1000000,
+    });
+    await orch.onRunComplete(current.threadId, runDev.runId, "succeeded", "main");
+    current = issueSvc.port.getIssue(issue.issueId);
+    expect(current!.status).toBe("in_review");
+
+    // Now simulate reject: transition back to in_progress
+    const reworked = issueSvc.applyTransition(issue.issueId, "in_progress");
+    expect(reworked.status).toBe("in_progress");
+
+    // Start rework run — this is the SECOND in_progress run for this issue
+    const run2 = await orch.startStep(reworked);
+    expect(run2).not.toBeNull();
+
+    // ★ Critical assertion: run2's origin MUST be written (not silently dropped by INSERT OR IGNORE)
+    const origin2 = opsStore.getRunOrigin(run2!.runId);
+    expect(origin2).not.toBeNull();
+    expect(origin2!.issueId).toBe(issue.issueId);
+    expect(origin2!.fromStatus).toBe("in_progress");
+    // run2.idempotencyKey === run2.runId — different from runDev.runId, so no collision
+    expect(origin2!.idempotencyKey).toBe(run2!.runId);
+    expect(origin2!.idempotencyKey).not.toBe(runDev.runId);
+  });
 });
