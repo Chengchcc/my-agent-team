@@ -146,25 +146,6 @@ describe("RuntimeOpsStore", () => {
       expect(row!.sourceLedgerSeq).toBe(5);
     });
 
-    test("getRunOriginByIdempotencyKey", () => {
-      store.insertRunOrigin({
-        runId: "r1",
-        conversationId: "c1",
-        sourceLedgerSeq: 5,
-        agentMemberId: "agent:x",
-        surface: "web",
-        traceId: "t1",
-        traceparent: "00-t1-s1-01",
-        idempotencyKey: "ik-1",
-        fromStatus: "",
-        createdAt: 1000,
-      });
-
-      const row = store.getRunOriginByIdempotencyKey("ik-1");
-      expect(row).not.toBeNull();
-      expect(row!.runId).toBe("r1");
-    });
-
     test("idempotent on duplicate idempotencyKey (INSERT OR IGNORE)", () => {
       const row = {
         runId: "r1",
@@ -181,9 +162,12 @@ describe("RuntimeOpsStore", () => {
       store.insertRunOrigin(row);
       // Second insert with same idempotencyKey should be silently ignored
       expect(() => store.insertRunOrigin({ ...row, runId: "r2" })).not.toThrow();
-      // The original row is still there
-      const origin = store.getRunOriginByIdempotencyKey("ik-dup");
+      // The original row is still there — verify via getRunOrigin(runId)
+      const origin = store.getRunOrigin("r1");
+      expect(origin).not.toBeNull();
       expect(origin!.runId).toBe("r1");
+      // r2 never made it in (INSERT OR IGNORE blocked it, but run_origin PK is run_id so r2 would get its own row if key differed)
+      expect(store.getRunOrigin("r2")).toBeNull();
     });
 
     test("getRunOrigin returns null for missing run", () => {

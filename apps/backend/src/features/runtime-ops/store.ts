@@ -90,13 +90,6 @@ export class RuntimeOpsStore {
     return row ?? null;
   }
 
-  getRunOriginByIdempotencyKey(key: string): RunOriginRow | null {
-    const row = this.#db
-      .query(`SELECT ${RUN_ORIGIN_COLS} FROM run_origin WHERE idempotency_key = ?`)
-      .get(key) as RunOriginRow | undefined;
-    return row ?? null;
-  }
-
   listRunOrigins(): RunOriginRow[] {
     return this.#db
       .query(`SELECT ${RUN_ORIGIN_COLS} FROM run_origin ORDER BY created_at DESC`)
