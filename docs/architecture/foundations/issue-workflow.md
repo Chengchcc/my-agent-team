@@ -1,10 +1,10 @@
 ---
 id: foundations.issue-workflow
 title: Issue 协作工作流
-status: design (①②③④⑤⑥⑦⑧ current via M18.3-M18.7)
+status: design (①②③④⑤⑥⑦⑧ current via M18.3-M18.8)
 owners: architecture
 last_verified_against_code: 2026-06-19
-summary: "这页沉淀 Issue 协作工作流的下一版设计——在 Issue 本体已立、Orchestrator 已能固定线性推进的基础上，把它演进成「可被人发起、按配置驱动、交付物可结构化传递、可被人验收返工、可观测」的协作流。八处变化：①threadId 由 issueId 派生；②创建即草稿态、人工入列才启动；③列可配置（绑定已有 agent + prompt 模板）；④交付物结构化捕获；⑤Issue 上下文累积 + 模板变量提取；⑥人工验收闸门 + 返工（转移表线性→图）；⑦Issue Timeline；⑧复用 M16 的 Issue 级可观测。全部八节已落地（①~⑥ M18.3-M18.6，⑦⑧ M18.7）。"
+summary: "这页沉淀 Issue 协作工作流的下一版设计——在 Issue 本体已立、Orchestrator 已能固定线性推进的基础上，把它演进成「可被人发起、按配置驱动、交付物可结构化传递、可被人验收返工、可观测」的协作流。八处变化：①threadId 由 issueId 派生；②创建即草稿态、人工入列才启动；③列可配置（绑定已有 agent + prompt 模板，M18.8 补齐前端编辑入口）；④交付物结构化捕获；⑤Issue 上下文累积 + 模板变量提取；⑥人工验收闸门 + 返工（转移表线性→图）；⑦Issue Timeline；⑧复用 M16 的 Issue 级可观测。全部八节已落地（①~⑥ M18.3-M18.6 + M18.8 前端入口，⑦⑧ M18.7）。"
 depends_on:
   - foundations.issue
   - backend.orchestrator
@@ -62,7 +62,9 @@ stateDiagram-v2
 
 草稿态是状态机新增的**起点**，不是新本体——它仍是 Issue 的一个 `status` 取值。Kanban 多出一列「草稿」，拖拽语义不变（卡片入列 = 改 `status`，事实仍在 Issue 上）。
 
-## ③ 列可配置：绑定已有 Agent + prompt 模板
+## ③ 列可配置：绑定已有 Agent + prompt 模板（✅ 已落地 M18.4 后端 + M18.8 前端入口）
+
+**status: current** — 后端 ColumnConfig CRUD + `transitionsForProject` 派生已实现于 M18.4（`column-config/http.ts`、`service.ts`、`domain.ts`、`orchestrator/transitions.ts`）。前端编辑入口已实现于 M18.8（`ColumnConfigPanel.tsx`，Project 卡片 → Sheet 面板，list/upsert/delete）。前端入口限定 `planned`/`in_progress` 两个状态（`draft→planned` 是人工拖拽、`in_review` 是 HUMAN_GATES 闸门，reactor 永不读它们的 ColumnConfig）。
 
 现状转移表是写死的常量，每条转移的 `agentId` 是字面量（`"planner"` / `"developer"` / `"reviewer"`），而真实 Agent 拿的是 `idGen()` 生成的 id——两者对不上，`getById("planner")` 会抛错。这是现状的一处**结构性断裂**：没有播种数据时，Issue 一启动就卡在第一棒。
 
