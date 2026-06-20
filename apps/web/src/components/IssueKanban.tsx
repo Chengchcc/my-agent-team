@@ -79,7 +79,12 @@ function DroppableColumn({
       </h2>
       <div className="space-y-2 min-h-[4rem]">
         {items.map((it) => (
-          <DraggableIssueCard key={it.issueId} issue={it} onDecision={onDecision} onOpenDetail={() => onOpenDetail?.(it.issueId)} />
+          <DraggableIssueCard
+            key={it.issueId}
+            issue={it}
+            onDecision={onDecision}
+            onOpenDetail={() => onOpenDetail?.(it.issueId)}
+          />
         ))}
       </div>
     </section>
@@ -182,7 +187,15 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
       <div className="flex gap-4 p-6 overflow-x-auto">
         {columns.map((s) => {
           const items = s === "unknown" ? unmatched : (byStatus.get(s) ?? []);
-          return <DroppableColumn key={s} status={s} items={items} onDecision={handleDecision} onOpenDetail={setOpenIssueId} />;
+          return (
+            <DroppableColumn
+              key={s}
+              status={s}
+              items={items}
+              onDecision={handleDecision}
+              onOpenDetail={setOpenIssueId}
+            />
+          );
         })}
       </div>
 
@@ -190,13 +203,18 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
         {activeIssue ? <IssueCard issue={activeIssue} onDecision={handleDecision} /> : null}
       </DragOverlay>
 
-      {openIssueId && (
-        <IssueDetailSheet
-          issue={issues.find((i) => i.issueId === openIssueId)!}
-          open={true}
-          onClose={() => setOpenIssueId(null)}
-        />
-      )}
+      {(() => {
+        const openIssue = openIssueId
+          ? issues.find((i) => i.issueId === openIssueId)
+          : undefined;
+        // Guard: the issue may leave the list while the sheet is open (live
+        // refetch, approve→done filtered out, drag to a hidden column). Render
+        // nothing rather than passing undefined into the sheet and crashing.
+        if (!openIssue) return null;
+        return (
+          <IssueDetailSheet issue={openIssue} open={true} onClose={() => setOpenIssueId(null)} />
+        );
+      })()}
     </DndContext>
   );
 }

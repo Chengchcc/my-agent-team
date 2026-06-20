@@ -87,25 +87,38 @@ export function IssueDetailSheet({
   useEffect(() => {
     if (!open) return;
     setLoading(true);
+    let es: EventSource | null = null;
+    let cancelled = false;
 
     api.getIssueDetail(issue.issueId).then((data) => {
+      if (cancelled) return;
       setTimeline(data.timeline);
       setRuns(data.runs);
       setLoading(false);
-    });
 
-    // SSE for live timeline updates
-    const es = new EventSource(`/api/bff/issues/${issue.issueId}/timeline/events`);
-    es.addEventListener("issue-event", (e) => {
-      const event = JSON.parse(e.data) as IssueEvent;
-      setTimeline((prev) => [...prev, event]);
+      // Open SSE only AFTER the baseline timeline is loaded, otherwise the two
+      // setTimeline writes race (a live event appended before getIssueDetail
+      // resolves would be clobbered by the snapshot overwrite). The catch-up
+      // replay always starts at seq 0, so dedup by seq makes both the initial
+      // replay and any reconnect replay idempotent against what we already have.
+      es = new EventSource(`/api/bff/issues/${issue.issueId}/timeline/events`);
+      es.addEventListener("issue-event", (e) => {
+        let event: IssueEvent;
+        try {
+          event = JSON.parse(e.data) as IssueEvent;
+        } catch {
+          return; // ignore malformed / non-JSON frames instead of throwing in the handler
+        }
+        setTimeline((prev) => (prev.some((x) => x.seq === event.seq) ? prev : [...prev, event]));
+      });
+      es.onerror = () => {
+        // SSE connection lost — data already in timeline; reconnect replays are deduped above
+      };
     });
-    es.onerror = () => {
-      // SSE connection lost — data already in timeline from getIssueDetail
-    };
 
     return () => {
-      es.close();
+      cancelled = true;
+      es?.close();
     };
   }, [issue.issueId, open]);
 
