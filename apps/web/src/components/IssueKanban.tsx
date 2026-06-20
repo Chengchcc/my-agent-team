@@ -18,16 +18,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 import type { IssueRow, IssueStatus } from "@/lib/api";
 import { api } from "@/lib/api";
+import { COLUMN_LABEL } from "@/lib/issue-labels";
 import { IssueCard } from "./IssueCard";
 import { IssueDetailSheet } from "./IssueDetailSheet";
-
-const COLUMN_LABEL: Record<IssueStatus, string> = {
-  draft: "草稿",
-  planned: "计划中",
-  in_progress: "开发中",
-  in_review: "待 Review",
-  done: "已完成",
-};
 
 function DraggableIssueCard({
   issue,
@@ -204,9 +197,7 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
       </DragOverlay>
 
       {(() => {
-        const openIssue = openIssueId
-          ? issues.find((i) => i.issueId === openIssueId)
-          : undefined;
+        const openIssue = openIssueId ? issues.find((i) => i.issueId === openIssueId) : undefined;
         // Guard: the issue may leave the list while the sheet is open (live
         // refetch, approve→done filtered out, drag to a hidden column). Render
         // nothing rather than passing undefined into the sheet and crashing.

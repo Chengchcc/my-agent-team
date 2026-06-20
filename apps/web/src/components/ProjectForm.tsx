@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { api, type ProjectRow } from "@/lib/api";
+import { fieldClass, labelClass } from "@/lib/form-styles";
 
 const formSchema = z.object({
   name: z.string().trim().min(1, "Project name is required"),
@@ -106,10 +107,6 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
     }
   }
 
-  const fieldClass =
-    "w-full bg-[var(--canvas-soft)] border border-[var(--hairline)] rounded-md px-3 py-2.5 text-sm text-[var(--ink)] placeholder:text-[var(--mute)] focus:outline-none focus:border-[var(--primary)] transition-colors duration-200";
-  const labelClass =
-    "text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] font-[family-name:var(--font-sans)] font-semibold";
   const hintClass = "text-[10px] text-[var(--mute)]";
 
   return (

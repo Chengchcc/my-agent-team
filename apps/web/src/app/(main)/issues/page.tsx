@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
+import { fieldClass, labelClass } from "@/lib/form-styles";
 
 export const dynamic = "force-dynamic";
 
@@ -103,11 +104,6 @@ export default function IssuesPage() {
       setServerError(err instanceof Error ? err.message : "Failed to create issue");
     }
   }
-
-  const fieldClass =
-    "w-full bg-[var(--canvas-soft)] border border-[var(--hairline)] rounded-md px-3 py-2.5 text-sm text-[var(--ink)] placeholder:text-[var(--mute)] focus:outline-none focus:border-[var(--primary)] transition-colors duration-200";
-  const labelClass =
-    "text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] font-[family-name:var(--font-sans)] font-semibold";
 
   return (
     <div className="container mx-auto p-6 space-y-6">

@@ -5,12 +5,14 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { api, type ProjectRow } from "@/lib/api";
+import { ColumnConfigPanel } from "./ColumnConfigPanel";
 import { ProjectForm } from "./ProjectForm";
 
 export function ProjectList() {
   const queryClient = useQueryClient();
   const [editingProject, setEditingProject] = useState<ProjectRow | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [configuringProject, setConfiguringProject] = useState<ProjectRow | null>(null);
 
   const { data: projectsData, isLoading } = useQuery({
     queryKey: ["projects"],
@@ -116,6 +118,17 @@ export function ProjectList() {
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  setConfiguringProject(project);
+                }}
+              >
+                列配置
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   setEditingProject(project);
                 }}
               >
@@ -171,6 +184,16 @@ export function ProjectList() {
           key={editingProject.projectId}
           editProject={editingProject}
           onSuccess={() => setEditingProject(null)}
+        />
+      )}
+
+      {/* Column config panel — per-project Sheet slide-over */}
+      {configuringProject && (
+        <ColumnConfigPanel
+          key={configuringProject.projectId}
+          project={configuringProject}
+          open={true}
+          onClose={() => setConfiguringProject(null)}
         />
       )}
     </>
