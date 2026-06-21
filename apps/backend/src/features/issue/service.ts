@@ -67,8 +67,16 @@ export function createIssueService(deps: IssueServiceDeps) {
 
     /** 补偿性回滚：仅用于 reject 起棒失败的回退。绕过 LEGAL_TRANSITIONS
      * （in_progress→in_review 是反向边、不在合法集里），CAS 以 in_progress 为
-     * 前置，防止与其它并发转移竞争。 */
+     * 前置，防止与其它并发转移竞争。
+     * 前置条件：Issue 必须存在且当前 status 为 in_progress（双层防御）。 */
     revertReviewReject(issueId: string): IssueRow {
+      const issue = port.getIssue(issueId);
+      if (!issue) throw new IssueNotFoundError(issueId);
+      if (issue.status !== "in_progress") {
+        throw new IllegalTransitionError(
+          `revert requires in_progress, issue is ${issue.status}`,
+        );
+      }
       const ts = now();
       const ok = port.setStatus(issueId, "in_progress", "in_review", ts);
       if (!ok) throw new IllegalTransitionError(`revert in_progress → in_review (lost CAS)`);
@@ -109,7 +117,6 @@ export function createIssueService(deps: IssueServiceDeps) {
         }
 
         if (!changed) {
-          if (pollMs === 0) break; // one-shot for tests
           silentPolls++;
           if (silentPolls % heartbeatInterval === 0) {
             yield { _heartbeat: true };
