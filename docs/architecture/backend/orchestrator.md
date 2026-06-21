@@ -60,13 +60,23 @@ Orchestrator 的全部行为就两个纯函数，刻意保持小而无状态：
 
 ### ① prompt 模板插值
 
-给定一个 prompt 模板字符串和一个变量字典，把 `{{var}}` 占位符替换成实际值：
+给定一个 prompt 模板字符串和一个嵌套变量字典，把 `{{path.to.var}}` 占位符按点分路径替换成实际值：
 
 ```ts
-function renderPrompt(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? "");
+type PromptVars = { [k: string]: string | PromptVars };
+
+function renderPrompt(template: string, vars: PromptVars): string {
+  return template.replace(/\{\{([\w.]+)\}\}/g, (_, path: string) => {
+    const v = path.split(".").reduce<unknown>(
+      (acc, seg) => acc != null && typeof acc === "object"
+        ? (acc as Record<string, unknown>)[seg] : undefined,
+      vars,
+    );
+    return typeof v === "string" ? v : "";
+  });
 }
 ```
+变量路径示例：`{{title}}`, `{{issueId}}`, `{{deliverables.plan.fields.summary}}`, `{{deliverables.mr.ref}}`。
 
 **刻意不引入模板 DSL**：没有条件、没有循环、没有过滤器，就是字符串 + `{{}}` 替换。模板里要表达的逻辑，应该长在转移表或 Agent 自身，而不是塞进模板语言。这是按[设计哲学](../design-philosophy.md)「概念要少」做的减法——一个全功能模板引擎是又一层要学的心智，现在不需要。
 
