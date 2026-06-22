@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import type { TraceOpsDetail } from "@/lib/api";
 
 const MIN_BAR_W = 4;
@@ -52,10 +53,10 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
 
           return (
             <div key={`${e.runId}-${e.ts}-${i}`}>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
-                className="flex items-center gap-3 text-xs group w-full text-left py-0.5 hover:bg-muted/30 rounded transition-colors"
+                className="flex h-auto w-full items-center justify-start gap-3 rounded px-0 py-0.5 text-left text-xs font-normal group hover:bg-muted/30"
                 aria-expanded={expandedIdx === i}
               >
                 <span className="w-16 shrink-0 text-right font-mono text-muted-foreground">
@@ -82,7 +83,7 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
                 >
                   {e.runId.slice(0, 8)}…
                 </Link>
-              </button>
+              </Button>
               {expandedIdx === i && (
                 <div className="ml-[76px] mt-1 mb-2 p-2 rounded bg-muted/30 text-xs font-mono text-muted-foreground overflow-x-auto">
                   <div className="flex gap-4 mb-1">

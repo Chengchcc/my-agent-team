@@ -1,7 +1,17 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LogOutIcon, MoreHorizontalIcon, Trash2Icon } from "lucide-react";
+import {
+  ActivityIcon,
+  BotIcon,
+  FolderKanbanIcon,
+  ListTodoIcon,
+  LogOutIcon,
+  MessageSquareIcon,
+  MoreHorizontalIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -27,6 +37,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 
 function NavContent() {
@@ -91,6 +102,7 @@ function NavContent() {
                     router.push(`/agents/${agent.id}`);
                   }}
                 >
+                  <BotIcon />
                   <span className="truncate">{agent.name}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -104,8 +116,9 @@ function NavContent() {
         <SidebarGroup>
           <SidebarGroupLabel>
             Conversations
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon-xs"
               onClick={async () => {
                 try {
                   const agent = activeAgents.find((a) => a.id === selectedAgentId);
@@ -134,11 +147,11 @@ function NavContent() {
                   });
                 }
               }}
-              className="ml-auto text-primary hover:text-primary/80 text-xs"
+              className="ml-auto text-primary hover:text-primary/80"
               aria-label="New conversation"
             >
-              +
-            </button>
+              <PlusIcon />
+            </Button>
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -157,6 +170,7 @@ function NavContent() {
                         router.push(`/conversations/${conv.conversationId}`);
                       }}
                     >
+                      <MessageSquareIcon />
                       <span className="truncate">{title}</span>
                     </SidebarMenuButton>
                     <DropdownMenu>
@@ -198,7 +212,8 @@ function NavContent() {
                   router.push("/issues");
                 }}
               >
-                Issues
+                <ListTodoIcon />
+                <span className="truncate">Issues</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -210,7 +225,8 @@ function NavContent() {
                   router.push("/projects");
                 }}
               >
-                Projects
+                <FolderKanbanIcon />
+                <span className="truncate">Projects</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -231,7 +247,8 @@ function NavContent() {
                   router.push("/ops");
                 }}
               >
-                Observability
+                <ActivityIcon />
+                <span className="truncate">Observability</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
