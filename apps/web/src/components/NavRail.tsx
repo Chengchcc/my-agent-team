@@ -112,8 +112,18 @@ function NavContent() {
                   const humanId = `human-${crypto.randomUUID().slice(0, 8)}`;
                   const conv = await api.createConversation({
                     members: [
-                      { memberId: selectedAgentId, kind: "agent", agentId: selectedAgentId, displayName: agent?.name },
-                      { memberId: humanId, kind: "human", userRef: "__legacy__", displayName: "User" },
+                      {
+                        memberId: selectedAgentId,
+                        kind: "agent",
+                        agentId: selectedAgentId,
+                        displayName: agent?.name,
+                      },
+                      {
+                        memberId: humanId,
+                        kind: "human",
+                        userRef: "__legacy__",
+                        displayName: "User",
+                      },
                     ],
                   });
                   closeMobile();

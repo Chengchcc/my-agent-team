@@ -91,8 +91,7 @@ export function ColumnConfigPanel({ project, open, onClose }: ColumnConfigPanelP
       agentId: existing?.agentId ?? "",
       // Seed a working starter prompt for unconfigured columns so the editor is
       // never blank (which the min(1) guard would block from saving).
-      promptTemplate:
-        existing?.promptTemplate ?? DEFAULT_PROMPT[status] ?? FALLBACK_PROMPT,
+      promptTemplate: existing?.promptTemplate ?? DEFAULT_PROMPT[status] ?? FALLBACK_PROMPT,
     });
     setEditingStatus(status);
     setConfirmingStatus(null);
