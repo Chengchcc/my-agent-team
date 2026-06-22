@@ -176,11 +176,7 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
 
             {serverError && <p className="text-xs text-destructive">{serverError}</p>}
 
-            <Button
-              type="submit"
-              disabled={form.formState.isSubmitting}
-              className="w-full"
-            >
+            <Button type="submit" disabled={form.formState.isSubmitting} className="w-full">
               {form.formState.isSubmitting ? (
                 "Saving..."
               ) : isEdit ? (

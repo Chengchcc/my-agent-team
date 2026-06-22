@@ -124,11 +124,7 @@ function LoginForm() {
               )}
             />
 
-            <Button
-              type="submit"
-              disabled={form.formState.isSubmitting}
-              className="w-full"
-            >
+            <Button type="submit" disabled={form.formState.isSubmitting} className="w-full">
               {form.formState.isSubmitting ? "Signing in..." : "Enter →"}
             </Button>
           </form>

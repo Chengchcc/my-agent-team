@@ -40,7 +40,8 @@ function Section({
         {!editing && (
           <Button
             onClick={onEdit}
-            className="text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors inline-flex items-center gap-1"
+            variant="ghost"
+            size="xs"
           >
             <Pencil size={12} />
             <span className="text-[10px]">Edit</span>
@@ -55,17 +56,14 @@ function Section({
             className="w-full bg-[var(--canvas-soft)] border border-[var(--hairline)] rounded-md px-3 py-2 text-sm text-[var(--ink)] font-[family-name:var(--font-mono)] resize-y min-h-[200px] focus:outline-none focus:border-[var(--primary)] transition-colors"
           />
           <div className="flex gap-2">
-            <Button
-              onClick={onSave}
-              disabled={saving}
-              size="sm"
-            >
+            <Button onClick={onSave} disabled={saving} size="sm">
               {saving ? "Saving..." : "Save"}
             </Button>
             <Button
               onClick={onCancel}
               disabled={saving}
-              className="border border-[var(--hairline)] rounded-md px-3 py-1.5 text-xs text-[var(--body)] hover:text-[var(--ink)] disabled:opacity-40 transition-colors"
+              variant="outline"
+              size="sm"
             >
               Cancel
             </Button>
