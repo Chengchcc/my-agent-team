@@ -6,7 +6,7 @@
 
 agent 需要读写文件，但你不能把真实磁盘原样交给它。不同区域有不同的信任级别：共享区也许只读，私有区可写，外部区是临时内存。同时，agent 看到的路径应该是稳定、抽象的，不应暴露宿主机上随版本变化的真实目录。
 
-直接给模型一个 `node:fs` 既危险又僵硬。这个包在中间放一层挂载表：每条挂载声明一个路径前缀、绑定一个后端、标注一个信任域。所有访问都先经过路径归一化和挂载解析，再分派到对应后端。于是「能力」是显式声明出来的——没有挂载到的路径根本无法访问，没有 `write` 能力的后端天然只读。
+直接给模型一个 `node:fs` 危险且僵硬。这个包在中间放一层挂载表：每条挂载声明一个路径前缀、绑定一个后端、标注一个信任域。所有访问都先经过路径归一化和挂载解析，再分派到对应后端。于是「能力」是显式声明出来的——没有挂载到的路径根本无法访问，没有 `write` 能力的后端天然只读。
 
 职责边界：它只负责路径解析、挂载分派和访问控制，不提供工具，也不关心文件内容的语义。把它包装成 agent 工具是上层（tools-common / 各插件）的事。
 
@@ -55,4 +55,4 @@ const handle = makeAgentFsHandle({ sharedRoot: "/data/shared", privateRoot: "/da
 await handle.fs.write("/private/a.txt", "x");
 ```
 
-依赖关系：本包零运行时依赖（`LocalBackend` 使用 Node 内置 `node:fs`/`node:path`）。包内被 `harness`、`runner-daemon`、`apps/cli`、`apps/backend` 使用。
+依赖关系：本包零运行时依赖（`LocalBackend` 使用 Node 内置 `node:fs`/`node:path`）。包内被 `harness`、`runner-daemon`、`apps/backend` 使用。

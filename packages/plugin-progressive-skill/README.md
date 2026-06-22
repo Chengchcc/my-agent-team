@@ -22,7 +22,7 @@
 - 如果还有剩余，返回内容末尾会附上一行 `[Truncated. Call skill_load('名字', offset=下一个偏移) to continue.]`，模型据此用新的 `offset` 继续读。
 - 当 `offset` 已超出正文长度，返回 `Skill 名字 fully loaded.`。
 
-也就是说，模型先在索引里看到技能，再用 `skill_load(name)` 把全文一页页拉进来。
+模型先在索引里看到技能，再用 `skill_load(name)` 把全文一页页拉进来。
 
 ## 怎么用
 

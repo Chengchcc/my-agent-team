@@ -9,7 +9,6 @@
 **协议与类型(零运行时依赖)**
 
 - [`core`](./core/):定义 `Message`、`ContentBlock`、`ChatModel`、`Tool` 这套通用词汇,并提供最小的 `run()` 工具调用循环。整个系统的地基。
-- [`agent-spec`](./agent-spec/):agent 的声明式规格(zod schema),作为后端与 runner 之间传递 agent 定义的线缆格式。
 - [`conversation`](./conversation/):多方会话领域模型——会话、成员、账本条目、@mention 触发规则。
 
 **框架与插件**
@@ -45,4 +44,4 @@
 - **想理解整体**:`core` → `framework` → `harness`,顺着这条线就能看懂类型契约、插件组合、以及一切如何拼起来。
 - **想加插件**:先看 `framework` 的插件契约,再照着任一现有 `plugin-*` 抄结构。
 - **想接新模型厂商**:看 `core` 的 `ChatModel` 接口,照着 `adapter-anthropic` 写适配器。
-- **在做后端**:`agent-spec`(线缆格式)→ `runner-protocol`(消息与传输)→ `runner-daemon`(socket 另一端发生了什么)→ `event-log`(事件如何持久化与推流)。
+- **在做后端**:`runner-protocol`(消息与传输)→ `runner-daemon`(socket 另一端发生了什么)→ `event-log`(事件如何持久化与推流)。

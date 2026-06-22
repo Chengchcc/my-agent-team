@@ -57,8 +57,6 @@ Package map:
 | `@my-agent-team/core` | L1+L2 | `Message`, `ChatModel`, `Tool`, `run()`, `collectStream()` |
 | `@my-agent-team/framework` | L3 | `createAgent()`, `definePlugin()`, `pipeContextManagers()`, `InterruptSignal`, checkpointer impls |
 | `@my-agent-team/adapter-anthropic` | adapter | `AnthropicChatModel` (implements `ChatModel`) |
-| `@my-agent-team/agent-spec` | wire | `AgentSpecV1`, `AgentSpec`, `CURRENT_SCHEMA_VERSION` — backend ↔ runner contract |
-| `@my-agent-team/runner-stdio` | wire | `runEntry()`, `my-agent-runner` bin — stdio subprocess runner entry |
 | `@my-agent-team/tools-common` | tools | `createReadToolForWorkspace`, `createWriteToolForWorkspace`, `createEditToolForWorkspace`, `bashTool`, `grepTool`, `globTool`, `webFetchTool`, `createWebSearchTool`, `withWorkspace`, `SandboxError`, `AgentFsLike` |
 | `@my-agent-team/test-helpers` | test | `echoModel()` — deterministic test double for `ChatModel` |
 | `@my-agent-team/plugin-fs-memory` | plugin | `fsMemoryPlugin()` — file-backed memory with beforeModel bootstrap injection |

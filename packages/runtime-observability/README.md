@@ -6,7 +6,7 @@
 
 直接用裸 OpenTelemetry 有两个问题:一是 span 名和属性键会随处发散,排查时根本对不上;二是很容易把用户消息、工具输入、Lark 的 chat_id/open_id 这类敏感数据顺手写进 span,造成泄露。这个包用类型把这两件事都钉死。
 
-**Span 名是封闭枚举**(`RuntimeSpanName`),只允许这些:`backend.conversation.append`、`backend.run.schedule`、`backend.run.cancel`、`backend.run.recover`、`backend.run.retry`、`backend.eventlog.project`、`runner.daemon.start`、`runner.attempt.run`、`runner.model.call`、`runner.tool.call`、`runner.eventlog.append`、`lark.ingress.message`、`lark.surface.card.send`、`lark.surface.card.update`。属性键同样限定在 `RuntimeSpanAttributes` 里(`agent.id`、`run.id`、`tool.name`、`runner.transport` 等)。
+**Span 名是 fixed enum**(`RuntimeSpanName`),只允许这些:`backend.conversation.append`、`backend.run.schedule`、`backend.run.cancel`、`backend.run.recover`、`backend.run.retry`、`backend.eventlog.project`、`runner.daemon.start`、`runner.attempt.run`、`runner.model.call`、`runner.tool.call`、`runner.eventlog.append`、`lark.ingress.message`、`lark.surface.card.send`、`lark.surface.card.update`。属性键同样限定在 `RuntimeSpanAttributes` 里(`agent.id`、`run.id`、`tool.name`、`runner.transport` 等)。
 
 **脱敏是"丢弃 key",不是掩码。** `redactAttributes` 遍历属性,凡是命中敏感键集合(`message.text`、`tool.input`、`lark.chat_id`、`lark.open_id`、`profile.secret`、`api.key`)的条目会被整个跳过——结果里既没有值也没有这个 key,而不是替换成 `***`。tracer 在每次 `startSpan` 写属性前都会先跑一遍这个脱敏。指标侧也有类似的白名单:标签只保留 `agent_id`、`run_kind`、`status`,其余一律丢掉。
 

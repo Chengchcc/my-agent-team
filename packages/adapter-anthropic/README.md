@@ -45,4 +45,4 @@ for await (const chunk of model.stream(messages)) {
 
 ## 依赖关系
 
-adapter-anthropic 依赖 core（拿 `ChatModel` 等类型）和 `@anthropic-ai/sdk`。反向看，它被 runner-daemon 以及 backend、cli 两个 app 使用——它们在创建 agent 时把它作为模型实例传进去。
+adapter-anthropic 依赖 core（拿 `ChatModel` 等类型）和 `@anthropic-ai/sdk`。反向看，它被 runner-daemon 和 backend app 使用——它们在创建 agent 时把它作为模型实例传进去。

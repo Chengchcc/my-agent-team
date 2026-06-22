@@ -16,7 +16,7 @@
 
 **HostToRunner**(backend → daemon):
 
-- `start`:开一个 run。除 `runId` 和 `spec` 外,可带 `preloadedMessages`——这些消息已经被 backend 投影进自己的 checkpointer,daemon 拿到后用它们给 agent 播种对话上下文,从而省掉一次 save→load 往返。还可带 `surfaceContext`(仅 Lark 主 run,用于注入面向具体 surface 的额外工具)和 `trace`(从 backend 透传的 trace 上下文)。
+- `start`:开一个 run。除 `runId` 和 `spec` 外,可带 `preloadedMessages`——backend 已经把对话上下文写入 checkpointer,daemon 拿到后用它们给 agent 播种对话上下文。还可带 `surfaceContext`(仅 Lark 主 run,用于注入面向具体 surface 的额外工具)和 `trace`(从 backend 透传的 trace 上下文)。
 - `abort`:取消某个 run。
 - `run_finalized`:告诉 daemon 某个 run 已在 backend 侧落库完成,这是 daemon 决定是否发起反射(reflect)的触发信号。
 

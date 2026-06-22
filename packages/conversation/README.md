@@ -1,6 +1,6 @@
 # @my-agent-team/conversation
 
-对话领域模型的唯一本体。定义 Member（参与者身份）、Conversation（对话聚合）、LedgerEntry（账本条目的 zod schema + 类型）、projectForMember（成员视角投影），以及 resolveTriggerTargets（触发解析）。纯 Zod schema 加无状态辅助函数。
+对话领域模型的 canonical definition。定义 Member（参与者身份）、Conversation（对话聚合）、LedgerEntry（账本条目的 zod schema + 类型）、projectForMember（成员视角 projection），以及 resolveTriggerTargets（触发解析）。纯 Zod schema 加无状态辅助函数。
 
 ## 为什么它是一个独立包（尽管只有 ~220 行）
 
@@ -8,11 +8,11 @@
 
 | 消费者 | 用途 |
 |--------|------|
-| `apps/backend` | 账本存储、会话投影、广播 |
+| `apps/backend` | ledger 存储、conversation projection、broadcast |
 | `apps/web` | 前端 reducer、SSE 解析、UI 渲染 |
 | `apps/lark-bot` | SSE 监听、飞书消息投递 |
 
-如果把它塞进任一 app，另两个 app 就得各自复制一份 Member/LedgerEntry 的 zod schema 和投影逻辑——这正是之前 `LedgerEntry` 有三份手抄同形定义（backend `LedgerRow`、lark `LedgerEntry` interface、web `SenderRef`）的根源。它不是"因为有概念所以建包"——它是"因为有跨端共享的客观需求所以必须独立"。
+如果把它塞进任一 app，另两个 app 就得各自复制一份 Member/LedgerEntry 的 zod schema 和 projection 逻辑——这正是之前 `LedgerEntry` 有三份手抄同形定义（backend `LedgerRow`、lark `LedgerEntry` interface、web `SenderRef`）的根源。它不是"因为有概念所以建包"——它是"因为有跨端共享的客观需求所以必须独立"。
 
 判据（对照 `design-philosophy.md` §3.5）：**包是依赖边界，不是文件抽屉。** `agent-spec` 只有单一消费者（`runner-daemon`）→ 该并回去。`conversation` 有三个跨端消费者 → 必须独立。
 
@@ -35,9 +35,9 @@
 }
 ```
 
-`runId` 是领域本体字段（不是存储行附属），使消息可追溯到产出它的运行。
+`runId` 是 domain entity 字段（不是存储行附属），使消息可追溯到产出它的运行。
 
-**投影（projectForMember）。** `projectForMember(entry, viewerMemberId, conv)` → `{ role, text }`。规则：
+**projectForMember。** `projectForMember(entry, viewerMemberId, conv)` → `{ role, text }`。规则：
 - 自己发的 → `assistant` 角色，无前缀
 - `__system__` 发的 → `user` 角色，加 `[系统]` 前缀；`member.joined`/`member.left` 渲染成可读的成员变化说明
 - 其他成员发的 → `user` 角色，前缀 `[displayName]: `

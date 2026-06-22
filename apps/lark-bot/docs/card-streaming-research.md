@@ -1,5 +1,7 @@
 # 飞书卡片流式渲染 — 前期调研
 
+> **状态：已废弃（superseded）。** 本文描述的 `run-delta-watcher` / `card-sender` / `card-renderer` 路径从未进入生产代码。实际出站路径走 `sse-watcher.ts`，消费 conversation ledger SSE，经 `render.ts` 转为纯文本发送。卡片流式渲染方案保留为未来参考，但当前架构不沿此方向。
+>
 > 2026-06-14 · 基于 lark-cli v1.0.53 + 飞书卡片 JSON 2.0 文档
 
 ## 一、目标
