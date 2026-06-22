@@ -1,7 +1,6 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ExecutionPath } from "@/components/ops/ExecutionPath";
 import { QueryState } from "@/components/ops/QueryState";
@@ -42,13 +41,11 @@ export default function RunDetailPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/ops">Observability
-            </BreadcrumbLink>
+            <BreadcrumbLink href="/ops">Observability</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink href="/ops/runs">Runs
-            </BreadcrumbLink>
+            <BreadcrumbLink href="/ops/runs">Runs</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>

@@ -30,6 +30,11 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
       queryClient.invalidateQueries({ queryKey: ["conversations", agentId] });
       router.push(`/conversations/${conv.conversationId}`);
     },
+    onError: (err) => {
+      toast.error("Failed to create conversation", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
   });
 
   const deleteConversation = useMutation({

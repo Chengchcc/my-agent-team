@@ -1,7 +1,6 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AgentRuntimeCard } from "@/components/ops/AgentRuntimeCard";
 import { QueryState } from "@/components/ops/QueryState";
@@ -38,13 +37,11 @@ export default function AgentRuntimePage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/ops">Observability
-            </BreadcrumbLink>
+            <BreadcrumbLink href="/ops">Observability</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink href="/ops/agents">Agent Readiness
-            </BreadcrumbLink>
+            <BreadcrumbLink href="/ops/agents">Agent Readiness</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>

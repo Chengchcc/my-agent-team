@@ -1,7 +1,6 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import { QueryState } from "@/components/ops/QueryState";
 import { SurfaceHealthPanel } from "@/components/ops/SurfaceHealthPanel";
 import {
@@ -27,8 +26,7 @@ export default function SurfacesPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/ops">Observability
-            </BreadcrumbLink>
+            <BreadcrumbLink href="/ops">Observability</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>

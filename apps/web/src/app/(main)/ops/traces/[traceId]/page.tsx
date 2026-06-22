@@ -1,7 +1,6 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { QueryState } from "@/components/ops/QueryState";
 import { TraceWaterfall } from "@/components/ops/TraceWaterfall";
@@ -29,13 +28,11 @@ export default function TraceDetailPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/ops">Observability
-            </BreadcrumbLink>
+            <BreadcrumbLink href="/ops">Observability</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink href="/ops/traces">Trace Explorer
-            </BreadcrumbLink>
+            <BreadcrumbLink href="/ops/traces">Trace Explorer</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import { AgentRuntimeCard } from "@/components/ops/AgentRuntimeCard";
 import {
   Breadcrumb,
@@ -38,8 +37,7 @@ export default function AgentsPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/ops">Observability
-            </BreadcrumbLink>
+            <BreadcrumbLink href="/ops">Observability</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>

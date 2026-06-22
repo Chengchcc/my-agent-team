@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useShell } from "./ShellProvider";
@@ -212,6 +213,7 @@ export function NavRail() {
               <button
                 type="button"
                 onClick={async () => {
+                  try {
                   const agent = (agents ?? []).find((a) => a.id === selectedAgentId);
                   const humanId = `human-${crypto.randomUUID().slice(0, 8)}`;
                   const conv = await api.createConversation({
@@ -231,9 +233,14 @@ export function NavRail() {
                     ],
                   });
                   router.push(`/conversations/${conv.conversationId}`);
-                }}
-                className="text-primary hover:text-primary/80 transition-colors"
-                aria-label="New conversation"
+                } catch (err) {
+                  toast.error("Failed to create conversation", {
+                    description: err instanceof Error ? err.message : "Unknown error",
+                  });
+                }
+              }}
+              className="text-primary hover:text-primary/80 transition-colors"
+              aria-label="New conversation"
               >
                 <svg
                   width="12"
