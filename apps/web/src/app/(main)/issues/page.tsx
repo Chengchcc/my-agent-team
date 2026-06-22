@@ -110,7 +110,7 @@ export default function IssuesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Issues</h1>
         <Dialog open={open} onOpenChange={handleOpen}>
-          <DialogTrigger>
+          <DialogTrigger asChild>
             <Button variant="outline" size="sm">
               New Issue
             </Button>
