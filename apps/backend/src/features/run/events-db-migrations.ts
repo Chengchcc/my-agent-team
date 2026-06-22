@@ -152,6 +152,12 @@ export const EVENTS_DB_MIGRATIONS = [
     );
     CREATE INDEX IF NOT EXISTS idx_issue_event_issue ON issue_event(issue_id, seq);`,
   },
+  // ─── M19: run_origin.origin_kind — explicit run cause enum ──
+  {
+    name: "events_v16_run_origin_kind",
+    id: 3015,
+    up: `ALTER TABLE run_origin ADD COLUMN origin_kind TEXT NOT NULL DEFAULT 'manual';`,
+  },
 ];
 
 export function runEventsDbMigrations(db: Database): void {

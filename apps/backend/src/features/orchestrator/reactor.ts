@@ -3,6 +3,7 @@ import type { ColumnConfigService } from "../column-config/service.js";
 import type { DeliverableRow } from "../deliverable/domain.js";
 import type { IssueRow } from "../issue/entities.js";
 import type { IssueService } from "../issue/service.js";
+import type { RunDispatcher } from "../run/dispatcher.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
@@ -26,6 +27,9 @@ export interface OrchestratorDeps {
   idGen: () => string;
   columnConfigSvc: ColumnConfigService;
   deliverableSvc: { listByIssue(issueId: string): DeliverableRow[] };
+  dispatcher: RunDispatcher;
+  /** M19: Narrow interface for reading auto-orchestrate toggle. */
+  projectSvc: { getById(id: string): { autoOrchestrate: boolean; projectId: string } };
   now?: () => number;
 }
 
@@ -39,6 +43,8 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     idGen,
     columnConfigSvc,
     deliverableSvc,
+    dispatcher,
+    projectSvc,
   } = deps;
 
   /** Build a nested PromptVars dict from issue creation info + accumulated deliverables.
@@ -51,7 +57,25 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     for (const d of deliverables) {
       byKind[d.kind] = { fields: d.fields, ref: d.ref ?? "" };
     }
-    return { title: issue.title, issueId: issue.issueId, deliverables: byKind };
+    const isRework = !!byKind.rework_feedback;
+    return {
+      // Structured access for {{#if isRework}} / {{issue.title}} / {{deliverables.plan.fields.summary}}
+      issue: {
+        title: issue.title,
+        description: issue.description,
+        priority: issue.priority,
+        id: issue.issueId,
+        status: issue.status,
+        estimatedCompletionAt: issue.estimatedCompletionAt,
+      },
+      deliverables: byKind,
+      rework: { note: byKind.rework_feedback?.fields?.note ?? "" },
+      attempt: isRework ? 2 : 1,
+      isRework,
+      // Backward-compatible flat keys: existing templates ({{title}}/{{issueId}}) still work
+      title: issue.title,
+      issueId: issue.issueId,
+    };
   }
 
   /** 为某个 Issue 的当前 status 起对应转移的那一棒。
@@ -70,30 +94,35 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     const runId = idGen();
     const vars = buildPromptVars(issue, deliverableSvc.listByIssue(issue.issueId));
     const prompt = renderPrompt(t.promptTemplate, vars);
-    const spec = await buildSpec(t.agentId, issue.threadId, prompt);
+    // M19: threadId = <issueId>:<agentId> — runs through conversation projection
+    const threadId = `${issue.issueId}:${t.agentId}`;
+    const spec = await buildSpec(t.agentId, threadId, prompt);
 
-    await supervisor.startMainRun(runId, issue.threadId, spec, {
-      surfaceContext: {
-        surface: "orchestrator",
-        conversationId: "",
-        runId,
-        capabilities: ["submit_deliverable"],
-        issue: { issueId: issue.issueId, fromStatus: issue.status },
-      },
-    });
-
-    opsStore.insertRunOrigin({
+    await dispatcher.dispatch({
+      kind: "orchestrator",
       runId,
-      issueId: issue.issueId,
-      conversationId: "",
-      sourceLedgerSeq: 0,
-      agentMemberId: t.agentId,
-      surface: "orchestrator",
-      traceId: "",
-      traceparent: "",
-      idempotencyKey: runId,
-      fromStatus: issue.status,
-      createdAt: (deps.now ?? Date.now)(),
+      threadId,
+      spec,
+      opts: {
+        surfaceContext: {
+          surface: "orchestrator",
+          conversationId: "",
+          runId,
+          capabilities: ["submit_deliverable"],
+          issue: { issueId: issue.issueId, fromStatus: issue.status },
+        },
+      },
+      origin: {
+        issueId: issue.issueId,
+        conversationId: "",
+        sourceLedgerSeq: 0,
+        agentMemberId: t.agentId,
+        surface: "orchestrator",
+        traceId: "",
+        traceparent: "",
+        idempotencyKey: runId,
+        fromStatus: issue.status,
+      },
     });
 
     emitIssueEvent(opsStore, issue.issueId, "run.started", {
@@ -115,8 +144,9 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     if (kind === "reflect") return;
 
     const origin = opsStore.getRunOrigin(runId);
-    const issueId = origin?.issueId;
-    if (!issueId) return;
+    // M19: gate by explicit origin_kind — only orchestrator runs advance state
+    if (origin?.originKind !== "orchestrator" || !origin.issueId) return;
+    const issueId = origin.issueId;
 
     emitIssueEvent(opsStore, issueId, "run.ended", {
       runId,
@@ -133,6 +163,11 @@ export function createOrchestrator(deps: OrchestratorDeps) {
 
     const issue = issueSvc.port.getIssue(issueId);
     if (!issue) return;
+
+    // M19: Auto-orchestrate guard — if the project has auto-advance disabled,
+    // skip the entire state machine. Run still lands in ledger/Coding Thread.
+    const project = await projectSvc.getById(issue.projectId).catch(() => null);
+    if (!project?.autoOrchestrate) return;
 
     // Idempotency guard: if the issue has already moved past the status this run
     // was started at, a prior delivery already advanced it — skip (CAS alone can't

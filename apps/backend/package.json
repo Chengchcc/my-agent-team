@@ -20,6 +20,7 @@
     "@my-agent-team/message": "workspace:*",
     "@my-agent-team/runner-protocol": "workspace:*",
     "@my-agent-team/runtime-observability": "workspace:*",
+    "handlebars": "^4.7.9",
     "zod": "^3.23.0"
   },
   "devDependencies": {

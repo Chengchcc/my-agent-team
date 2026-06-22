@@ -2,12 +2,20 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { IssueRow } from "@/lib/api";
 import { api } from "@/lib/api";
 import { IssueStatusBadge } from "./IssueStatusBadge";
+
+const PRIORITY_COLORS: Record<string, string> = {
+  P0: "bg-red-600 text-white hover:bg-red-700",
+  P1: "bg-orange-500 text-white hover:bg-orange-600",
+  P2: "bg-blue-500 text-white hover:bg-blue-600",
+  P3: "bg-muted text-muted-foreground hover:bg-muted/80",
+};
 
 export function IssueCard({
   issue,
@@ -59,7 +67,13 @@ export function IssueCard({
         <CardTitle>{issue.title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <IssueStatusBadge status={issue.status} />
+        <div className="flex items-center gap-1.5 mb-1">
+          <IssueStatusBadge status={issue.status} />
+          <Badge className={PRIORITY_COLORS[issue.priority] ?? ""}>{issue.priority}</Badge>
+        </div>
+        {issue.description && (
+          <p className="text-xs text-muted-foreground line-clamp-2">{issue.description}</p>
+        )}
 
         {issue.status === "in_review" && (
           <div className="mt-2 space-y-2">

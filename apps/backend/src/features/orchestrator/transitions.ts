@@ -53,6 +53,9 @@ export interface Transition {
   agentId: string;
   /** 起 run 时的 prompt 模板，仅 {{var}} 字符串插值，无 DSL。 */
   promptTemplate: string;
+  /** M19: Approval posture — 'human' means reactor won't auto-advance.
+   *  Default 'auto' for most columns, 'human' for in_review. */
+  approvalPosture: "auto" | "human";
 }
 
 /** 从 ORDER 相邻对生成一个固定 Transition[]，仅用于派生 ISSUE_STATUSES
@@ -61,11 +64,14 @@ export interface Transition {
 function fixedTransitions(): Transition[] {
   const out: Transition[] = [];
   for (let i = 0; i < ORDER.length - 1; i++) {
+    const from = ORDER[i]!;
     out.push({
-      from: ORDER[i]!,
+      from,
       to: ORDER[i + 1]!,
       agentId: "",
       promptTemplate: "",
+      // M19: in_review defaults to 'human' gate; others auto
+      approvalPosture: HUMAN_GATES.has(from) ? "human" : "auto",
     });
   }
   return out;
@@ -90,13 +96,22 @@ export function deriveLegalMap(
   return map as Record<IssueStatus, IssueStatus[]>;
 }
 
-/** 查 from 状态对应的那条转移。闸门 from 返回 undefined（不自动推进，§3.2/§3.6）。 */
+/** 查 from 状态对应的那条转移。
+ *  M19: approval_posture drives gating — 'human' = no auto-advance.
+ *  HUMAN_GATES is a fallback for statuses with no ColumnConfig. */
 export function nextTransition(
   table: ReadonlyArray<Transition>,
   from: IssueStatus,
 ): Transition | undefined {
-  if (HUMAN_GATES.has(from)) return undefined;
-  return table.find((t) => t.from === from);
+  const t = table.find((t) => t.from === from);
+  if (!t) {
+    // No config for this status — use hardcoded HUMAN_GATES as fallback
+    if (HUMAN_GATES.has(from)) return undefined;
+    return undefined;
+  }
+  // Config exists — approval_posture drives gating
+  if (t.approvalPosture === "human") return undefined;
+  return t;
 }
 
 /** Global: every Project has the same status set and legal transitions.

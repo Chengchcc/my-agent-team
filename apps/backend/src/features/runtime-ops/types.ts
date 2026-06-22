@@ -44,6 +44,9 @@ export interface RunOpsEvent {
   ts: number;
 }
 
+/** M19: Explicit run cause — replaces implicit inference from surface + issueId combo. */
+export type RunOriginKind = "orchestrator" | "mention" | "manual";
+
 export interface RunOriginRow {
   runId: string;
   conversationId: string;
@@ -57,6 +60,8 @@ export interface RunOriginRow {
   issueId?: string | null;
   /** M18.5 R3: authoritative source for the issue status at run start — no more split(":"). */
   fromStatus: string;
+  /** M19: explicit run cause — orchestrator | mention | manual */
+  originKind: RunOriginKind;
   createdAt: number;
 }
 

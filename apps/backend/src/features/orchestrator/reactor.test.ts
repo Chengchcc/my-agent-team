@@ -19,18 +19,17 @@ import type { Transition } from "./transitions.js";
 function mockColumnConfigSvc(): ColumnConfigService {
   const transitions: Transition[] = [
     {
-      from: "planned",
-      to: "in_progress",
-      agentId: "planner",
-      promptTemplate: "Plan for {{title}}",
+      from: "planned", to: "in_progress", agentId: "planner",
+      promptTemplate: "Plan for {{title}}", approvalPosture: "auto",
     },
     {
-      from: "in_progress",
-      to: "in_review",
-      agentId: "developer",
-      promptTemplate: "Work on {{title}}",
+      from: "in_progress", to: "in_review", agentId: "developer",
+      promptTemplate: "Work on {{title}}", approvalPosture: "auto",
     },
-    { from: "in_review", to: "done", agentId: "reviewer", promptTemplate: "Review {{title}}" },
+    {
+      from: "in_review", to: "done", agentId: "reviewer",
+      promptTemplate: "Review {{title}}", approvalPosture: "human",
+    },
   ];
   return {
     port: {} as ColumnConfigService["port"],
@@ -177,6 +176,18 @@ function makeOrchestrator(issueDb: Database, eventsDb: Database) {
     idGen: () => crypto.randomUUID(),
     columnConfigSvc: mockColumnConfigSvc(),
     deliverableSvc: mockDeliverableSvc(),
+    // M19: mock dispatcher — delegates to supervisor + opsStore (same as before)
+    dispatcher: {
+      dispatch: async (cause) => {
+        const { attemptId } = await supervisor.startMainRun(cause.runId, cause.threadId, cause.spec, cause.opts as Parameters<RunSupervisor["startMainRun"]>[3]);
+        opsStore.insertRunOrigin({ ...cause.origin, runId: cause.runId, originKind: cause.kind, createdAt: 1000000 });
+        return { runId: cause.runId, attemptId };
+      },
+    },
+    // M19: projectSvc — mock that always returns autoOrchestrate: true
+    projectSvc: {
+      getById: async (_id: string) => ({ autoOrchestrate: true, projectId: _id }),
+    },
     now: () => 1000000,
   });
 
@@ -230,7 +241,8 @@ describe("Orchestrator reactor", () => {
 
     expect(supervisor.startedRuns.length).toBe(1);
     expect(supervisor.startedRuns[0]!.spec.agentId).toBe("planner");
-    expect(supervisor.startedRuns[0]!.threadId).toBe(planned.threadId);
+    // M19: threadId = <issueId>:<agentId>
+    expect(supervisor.startedRuns[0]!.threadId).toBe(`${planned.issueId}:planner`);
   });
 
   test("startStep returns null for done status (terminal)", async () => {
@@ -266,6 +278,16 @@ describe("Orchestrator reactor", () => {
       idGen: () => crypto.randomUUID(),
       columnConfigSvc: mockColumnConfigSvc(), // still returns config with agentIds
       deliverableSvc: mockDeliverableSvc(),
+      dispatcher: {
+        dispatch: async (cause) => {
+          const { attemptId } = await supervisor.startMainRun(cause.runId, cause.threadId, cause.spec, cause.opts as Parameters<RunSupervisor["startMainRun"]>[3]);
+          opsStore.insertRunOrigin({ ...cause.origin, runId: cause.runId, originKind: cause.kind, createdAt: 1000000 });
+          return { runId: cause.runId, attemptId };
+        },
+      },
+      projectSvc: {
+        getById: (_id2: string) => ({ autoOrchestrate: true, projectId: _id2 }),
+      },
     });
 
     const issue = issueSvc.createIssue({
@@ -377,6 +399,7 @@ describe("Orchestrator reactor", () => {
       traceId: "",
       traceparent: "",
       idempotencyKey: reviewRunId,
+      originKind: "orchestrator",
       fromStatus: "in_review",
       createdAt: 1000000,
     });
@@ -454,6 +477,7 @@ describe("Orchestrator reactor", () => {
       traceId: "",
       traceparent: "",
       idempotencyKey: runDev.runId,
+      originKind: "orchestrator",
       fromStatus: "in_progress",
       createdAt: 1000000,
     });
@@ -511,6 +535,7 @@ describe("Orchestrator reactor", () => {
       traceId: "",
       traceparent: "",
       idempotencyKey: step!.runId,
+      originKind: "orchestrator",
       fromStatus: "planned",
       createdAt: Date.now(),
     });
@@ -540,6 +565,7 @@ describe("Orchestrator reactor", () => {
       traceId: "",
       traceparent: "",
       idempotencyKey: step!.runId,
+      originKind: "orchestrator",
       fromStatus: "planned",
       createdAt: Date.now(),
     });

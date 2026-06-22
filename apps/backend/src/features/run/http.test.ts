@@ -56,6 +56,7 @@ describe("Run HTTP", () => {
       maxConcurrentRuns: 8,
       lock: new ConversationLock(),
       idGen: () => "run-1",
+      dispatcher: { dispatch: async (c: Record<string, unknown>) => ({ runId: c.runId as string, attemptId: "att-1" }) },
     });
     const routes = runRoutes(svc, async () => ({}));
 
@@ -114,6 +115,7 @@ describe("Run HTTP", () => {
       maxConcurrentRuns: 8,
       lock: new ConversationLock(),
       idGen: () => "run-1",
+      dispatcher: { dispatch: async (c: Record<string, unknown>) => ({ runId: c.runId as string, attemptId: "att-1" }) },
     });
     const routes = runRoutes(svc, async () => ({}));
 

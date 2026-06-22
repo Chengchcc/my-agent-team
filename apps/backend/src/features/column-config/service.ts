@@ -41,6 +41,7 @@ export function createColumnConfigService(deps: ColumnConfigServiceDeps) {
       status: IssueStatus;
       agentId: string;
       promptTemplate: string;
+      approvalPosture?: "auto" | "human";
     }): Promise<ColumnConfigRow> {
       if (!(await agentExists(input.agentId))) {
         throw new ValidationError(`agent not found or archived: ${input.agentId}`);
@@ -52,6 +53,7 @@ export function createColumnConfigService(deps: ColumnConfigServiceDeps) {
         status: input.status,
         agentId: input.agentId,
         promptTemplate: input.promptTemplate,
+        approvalPosture: input.approvalPosture,
         now: now(),
       });
     },
@@ -72,10 +74,14 @@ export function createColumnConfigService(deps: ColumnConfigServiceDeps) {
       for (let i = 0; i < ORDER.length - 1; i++) {
         const from = ORDER[i]!;
         const to = ORDER[i + 1]!;
-        if (HUMAN_GATES.has(from)) continue; // gate columns never auto-advance
+        // M19: no longer skip HUMAN_GATES here — approval_posture drives gating
+        // in nextTransition(). Include all configured columns (including in_review).
         const cfg = byStatus.get(from);
         if (!cfg) continue;
-        out.push({ from, to, agentId: cfg.agentId, promptTemplate: cfg.promptTemplate });
+        out.push({
+          from, to, agentId: cfg.agentId, promptTemplate: cfg.promptTemplate,
+          approvalPosture: cfg.approvalPosture,
+        });
       }
       return out;
     },

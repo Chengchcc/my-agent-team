@@ -15,11 +15,13 @@ import {
 function makeFixed(): Transition[] {
   const out: Transition[] = [];
   for (let i = 0; i < ORDER.length - 1; i++) {
+    const from = ORDER[i]!;
     out.push({
-      from: ORDER[i]!,
+      from,
       to: ORDER[i + 1]!,
       agentId: "test-agent",
       promptTemplate: "test prompt",
+      approvalPosture: HUMAN_GATES.has(from) ? "human" : "auto",
     });
   }
   return out;

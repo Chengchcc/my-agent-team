@@ -43,6 +43,7 @@ import {
   projectRoutes,
   sqliteProjectAdapter,
 } from "./features/project/index.js";
+import { createRunDispatcher } from "./features/run/dispatcher.js";
 import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
 import { createRunnerRegistry } from "./features/run/runner-registry-factory.js";
@@ -84,10 +85,13 @@ const supervisor = new RunSupervisor({
   db: eventsDb,
 });
 
+// M19: Unified run-start mechanism — single dispatcher for all three entry points
+const dispatcher = createRunDispatcher({ supervisor, opsStore });
+
 // Feature services
 const larkBotRegistry = createLarkBotRegistry(config);
 const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry);
-const conv = createConversationFeature(db, config, supervisor, agentSvc, opsStore, tracer);
+const conv = createConversationFeature(db, config, supervisor, agentSvc, opsStore, tracer, dispatcher);
 
 // Run service
 const runSvc = createRunService({
@@ -96,6 +100,7 @@ const runSvc = createRunService({
   maxConcurrentRuns: config.maxConcurrentRuns,
   lock: conv.lock,
   idGen: ulid,
+  dispatcher,
   autoTitle: {
     getThread: async (tid) => {
       const cid = parseThreadId(tid).conversationId || tid;
@@ -136,8 +141,7 @@ const runSvc = createRunService({
 // P2: onRunComplete is AWAITED by supervisor — critical sink (ledger terminal write).
 // P1: run_finalized already sent before this, so await doesn't block control signal.
 supervisor.onRunComplete((threadId, runId, status, kind) => {
-  // M18.4 P2: skip issue threads in conversation projection.
-  if (threadId.startsWith("issue:")) return;
+  // M19: issue-run isolation now handled by origin_kind in projection/reactor
   return onRunComplete(threadId, runId, status, conv.convPort, conv.convSvc, opsStore, kind);
 });
 
@@ -158,8 +162,7 @@ function getMentionRegex(label: string): RegExp {
 // EventLog only receives non-message execution events.
 supervisor.onRunMessage(async (threadId, runId, revision, kind) => {
   if (kind === "reflect") return;
-  // M18.4 P2: issue runs use threadId="issue:<id>" — skip conversation ledger.
-  if (threadId.startsWith("issue:")) return;
+  // M19: issue-run isolation now handled by origin_kind in projection
   const cid = parseThreadId(threadId).conversationId;
   if (!cid) return;
   const senderMemberId = parseThreadId(threadId).memberId || threadId;
@@ -218,8 +221,7 @@ supervisor.onRunMessage(async (threadId, runId, revision, kind) => {
 // are handled by onRunMessage (authoritative ledger write). This callback only
 // sees non-message events (todo_update, tool_start, tool_end, text_delta).
 supervisor.onRunEvent((threadId, runId, event, _kind) => {
-  // M18.4 P2: skip issue threads — no conversation context to accumulate.
-  if (threadId.startsWith("issue:")) return;
+  // M19: issue-run isolation now handled by origin_kind in projection
   if (event.type === "todo_update") {
     const cid = parseThreadId(threadId).conversationId;
     if (!cid) return;
@@ -336,6 +338,10 @@ const orchestrator = createOrchestrator({
   idGen: ulid,
   columnConfigSvc,
   deliverableSvc,
+  dispatcher,
+  projectSvc: {
+    getById: (id: string) => projectSvc.getById(id),
+  },
 });
 
 // Register orchestrator's backfill listener (alongside conversation's onRunComplete)

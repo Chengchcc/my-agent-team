@@ -299,6 +299,34 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
     CREATE INDEX IF NOT EXISTS idx_deliverable_issue_kind ON deliverable(issue_id, kind);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_deliverable_run_kind ON deliverable(run_id, kind) WHERE run_id IS NOT NULL;`,
   },
+  // ─── M19: Issue enrichment (description, priority, estimatedCompletionAt) ──
+  {
+    name: "backend_v27_issue_enrichment",
+    id: 5013,
+    up: `
+      ALTER TABLE issue ADD COLUMN description TEXT NOT NULL DEFAULT '';
+      ALTER TABLE issue ADD COLUMN priority TEXT NOT NULL DEFAULT 'P2';
+      ALTER TABLE issue ADD COLUMN estimated_completion_at INTEGER;
+    `,
+  },
+  // ─── M19: column_config.approval_posture ──
+  {
+    name: "backend_v28_column_config_approval_posture",
+    id: 5014,
+    up: `ALTER TABLE column_config ADD COLUMN approval_posture TEXT NOT NULL DEFAULT 'auto';`,
+  },
+  // ─── M19: project.auto_orchestrate ──
+  {
+    name: "backend_v29_project_auto_orchestrate",
+    id: 5015,
+    up: `ALTER TABLE project ADD COLUMN auto_orchestrate INTEGER NOT NULL DEFAULT 0;`,
+  },
+  // ─── M19: conversation.origin ──
+  {
+    name: "backend_v30_conversation_origin",
+    id: 5016,
+    up: `ALTER TABLE conversation ADD COLUMN origin TEXT NOT NULL DEFAULT 'user';`,
+  },
 ];
 
 /** Combined migrations: backend own + checkpointer (creates checkpoint_messages which

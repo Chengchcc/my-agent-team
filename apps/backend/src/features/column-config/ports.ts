@@ -7,6 +7,7 @@ export interface CreateColumnConfigRecord {
   status: IssueStatus;
   agentId: string;
   promptTemplate: string;
+  approvalPosture?: "auto" | "human";
   now: number;
 }
 
