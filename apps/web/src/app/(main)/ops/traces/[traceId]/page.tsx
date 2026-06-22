@@ -29,14 +29,12 @@ export default function TraceDetailPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/ops">Observability</Link>
+            <BreadcrumbLink href="/ops">Observability
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/ops/traces">Trace Explorer</Link>
+            <BreadcrumbLink href="/ops/traces">Trace Explorer
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

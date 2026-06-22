@@ -38,14 +38,12 @@ export default function AgentRuntimePage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/ops">Observability</Link>
+            <BreadcrumbLink href="/ops">Observability
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/ops/agents">Agent Readiness</Link>
+            <BreadcrumbLink href="/ops/agents">Agent Readiness
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

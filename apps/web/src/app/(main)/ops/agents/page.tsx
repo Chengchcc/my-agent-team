@@ -38,8 +38,7 @@ export default function AgentsPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/ops">Observability</Link>
+            <BreadcrumbLink href="/ops">Observability
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

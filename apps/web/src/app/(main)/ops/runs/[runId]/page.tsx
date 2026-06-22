@@ -42,14 +42,12 @@ export default function RunDetailPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/ops">Observability</Link>
+            <BreadcrumbLink href="/ops">Observability
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/ops/runs">Runs</Link>
+            <BreadcrumbLink href="/ops/runs">Runs
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

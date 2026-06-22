@@ -58,32 +58,23 @@ export default function AgentDetailPage() {
       {/* Header */}
       <div className="border-b border-[var(--hairline)] shrink-0">
         <div className="container mx-auto px-8 py-5">
-          <Breadcrumb className="mb-2">
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link href="/agents">Agents</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>{agent.name}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-
-          <div className="flex items-center gap-4 flex-wrap gap-y-2">
-            <h1
-              className="text-2xl font-normal text-[var(--ink-strong)] font-[family-name:var(--font-sans)]"
-              style={{ letterSpacing: "-0.65px" }}
-            >
-              {agent.name}
-            </h1>
-
-            <span className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] border border-[var(--hairline)] rounded px-2 py-0.5 font-[family-name:var(--font-sans)] font-semibold">
-              {agent.modelProvider}/{agent.modelName}
-            </span>
-
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink href="/agents">Agents</BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>{agent.name}</BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+              <span className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] border border-[var(--hairline)] rounded px-2 py-0.5 font-[family-name:var(--font-sans)] font-semibold">
+                {agent.modelProvider}/{agent.modelName}
+              </span>
+            </div>
             <AgentForm editAgent={agent} triggerLabel="Edit" />
           </div>
 
