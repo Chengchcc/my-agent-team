@@ -3,7 +3,7 @@ id: surfaces.web
 title: Web 端
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-18
+last_verified_against_code: 2026-06-22
 summary: "Web 端是浏览器里的对话界面。它只消费一条 SSE——会话/账本流——在 conversation-reducer 里按 ConversationMessageRevision 的 messageId upsert 到 items[]。items 是 UiItem 联合（message / notice 两种 kind）。不再有草稿、运行阶段、中断状态——busy 从 open message 的 state 字段推导。"
 depends_on:
   - conversation.ledger
@@ -75,13 +75,13 @@ export function isBusy(s: ConvState): boolean {
 
 ## 几个关键纯函数
 
-- `upsertAuthoritative`：有同 messageId 就替换；否则对自己的消息替换最近一条乐观消息（`opt-` 前缀）；再否则追加。revision 的 messageId 保证同 run 增量/终端写入 upsert 到同一 UiItem（`kind: "message"`）。
-- `isConclusionMessage`：从 `ConversationMessageRevision` 取 `text` 或 `blocks` 判断——有非空 text 且无 tool_use 块即为结论。纯 tool_result 不是结论。
+- `upsertAuthoritative`：有同 messageId 就替换；否则对自己的消息替换最近一条乐观消息（`opt-` 前缀）；再否则追加。revision 的 messageId 保证同 run 增量/终端写入 upsert 到同一 UiItem。
+- `isConclusionMessage`：从 `ConversationMessageRevision` 取 `text` 或 `blocks` 判断——有非空 text 且无 tool_use 块即为结论。
 - `groupTurns`：把连续同 Agent 消息收成一个 `turn` 段，`conclusion` 取该段最后一条结论，其余进 `rounds`。
 
 ## Timeline 锚点
 
-`Timeline` 调 `groupTurns`，`extractAnchors` 把锚点放在 `segmentSender(seg).kind === "human"` 的段上——**锚点按「人发言」边界**。Agent 的 `turn` 段经 `ReasoningTrace` 渲染、不带锚点。`notice` 段（成员变化）独立渲染、不参与 turn 分组。纯 Agent → Agent 链以 sender-change 边界兜底，`isTurnStart` 在 `prevSender.memberId !== sender.memberId` 时也视为 turn 起点。
+`Timeline` 调 `groupTurns`，`extractAnchors` 把锚点放在 `segmentSender(seg).kind === "human"` 的段上——**锚点按「人发言」边界**。Agent 的 `turn` 段经 `ReasoningTrace` 渲染、不带锚点。`notice` 段独立渲染、不参与 turn 分组。纯 Agent → Agent 链以 sender-change 边界兜底，`isTurnStart` 在 `prevSender.memberId !== sender.memberId` 时也视为 turn 起点。
 
 ## 失败模式
 
