@@ -116,7 +116,6 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
         <DialogTrigger className="bg-[var(--primary)] text-[var(--on-primary)] rounded-md px-5 py-2 text-sm font-semibold hover:opacity-90 transition-opacity duration-200">
           + New Project
         </DialogTrigger>
-        </DialogTrigger>
       )}
 
       <DialogContent className="sm:max-w-md">
