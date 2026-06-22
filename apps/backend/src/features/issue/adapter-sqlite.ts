@@ -91,12 +91,25 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
     updateIssue(issueId: string, patch: UpdateIssueInput, updatedAt: number): IssueRow | null {
       const sets: string[] = [];
       const params: unknown[] = [];
-      if (patch.title !== undefined) { sets.push("title = ?"); params.push(patch.title); }
-      if (patch.description !== undefined) { sets.push("description = ?"); params.push(patch.description); }
-      if (patch.priority !== undefined) { sets.push("priority = ?"); params.push(patch.priority); }
-      if (patch.estimatedCompletionAt !== undefined) { sets.push("estimated_completion_at = ?"); params.push(patch.estimatedCompletionAt); }
+      if (patch.title !== undefined) {
+        sets.push("title = ?");
+        params.push(patch.title);
+      }
+      if (patch.description !== undefined) {
+        sets.push("description = ?");
+        params.push(patch.description);
+      }
+      if (patch.priority !== undefined) {
+        sets.push("priority = ?");
+        params.push(patch.priority);
+      }
+      if (patch.estimatedCompletionAt !== undefined) {
+        sets.push("estimated_completion_at = ?");
+        params.push(patch.estimatedCompletionAt);
+      }
       if (sets.length === 0) return this.getIssue(issueId);
-      sets.push("updated_at = ?"); params.push(updatedAt);
+      sets.push("updated_at = ?");
+      params.push(updatedAt);
       params.push(issueId);
       db.run(`UPDATE issue SET ${sets.join(", ")} WHERE issue_id = ?`, params);
       return this.getIssue(issueId);

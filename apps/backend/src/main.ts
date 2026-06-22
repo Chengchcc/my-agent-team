@@ -91,7 +91,15 @@ const dispatcher = createRunDispatcher({ supervisor, opsStore });
 // Feature services
 const larkBotRegistry = createLarkBotRegistry(config);
 const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry);
-const conv = createConversationFeature(db, config, supervisor, agentSvc, opsStore, tracer, dispatcher);
+const conv = createConversationFeature(
+  db,
+  config,
+  supervisor,
+  agentSvc,
+  opsStore,
+  tracer,
+  dispatcher,
+);
 
 // Run service
 const runSvc = createRunService({

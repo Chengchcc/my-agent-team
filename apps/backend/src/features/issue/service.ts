@@ -94,12 +94,15 @@ export function createIssueService(deps: IssueServiceDeps) {
 
     // ─── M19: Update / Delete ─────────────────────────
 
-    updateIssue(issueId: string, patch: {
-      title?: string;
-      description?: string;
-      priority?: IssuePriority;
-      estimatedCompletionAt?: number | null;
-    }): IssueRow {
+    updateIssue(
+      issueId: string,
+      patch: {
+        title?: string;
+        description?: string;
+        priority?: IssuePriority;
+        estimatedCompletionAt?: number | null;
+      },
+    ): IssueRow {
       const updated = port.updateIssue(issueId, patch, now());
       if (!updated) throw new IssueNotFoundError(issueId);
       return updated;

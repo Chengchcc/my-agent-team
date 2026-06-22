@@ -37,7 +37,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
   const {
     issueSvc,
     agentSvc,
-    supervisor,
+    supervisor: _supervisor,
     opsStore,
     buildSpec,
     idGen,

@@ -44,13 +44,20 @@ function formatRelativeTime(ts: number): string {
 
 function eventLabel(kind: IssueEvent["kind"]): string {
   switch (kind) {
-    case "created": return "Created";
-    case "started": return "Started";
-    case "run.started": return "Run started";
-    case "run.ended": return "Run ended";
-    case "deliverable.submitted": return "Deliverable";
-    case "status.advanced": return "Advanced";
-    case "human.decided": return "Human decided";
+    case "created":
+      return "Created";
+    case "started":
+      return "Started";
+    case "run.started":
+      return "Run started";
+    case "run.ended":
+      return "Run ended";
+    case "deliverable.submitted":
+      return "Deliverable";
+    case "status.advanced":
+      return "Advanced";
+    case "human.decided":
+      return "Human decided";
   }
 }
 
@@ -69,12 +76,22 @@ function RunEntry({ run }: { run: IssueRunSummary }) {
     <div className="flex items-center gap-2 text-xs py-1">
       <span className="text-muted-foreground w-20 shrink-0">{run.fromStatus} baton</span>
       <span className="w-12 shrink-0">{run.agentId}</span>
-      <span className={`w-16 shrink-0 ${
-        run.status === "succeeded" ? "text-green-600" : run.status === "failed" ? "text-red-600" : "text-yellow-600"
-      }`}>
+      <span
+        className={`w-16 shrink-0 ${
+          run.status === "succeeded"
+            ? "text-green-600"
+            : run.status === "failed"
+              ? "text-red-600"
+              : "text-yellow-600"
+        }`}
+      >
         {run.status}
       </span>
-      <Link href={`/ops/runs/${run.runId}`} className="text-blue-600 hover:underline ml-auto" target="_blank">
+      <Link
+        href={`/ops/runs/${run.runId}`}
+        className="text-blue-600 hover:underline ml-auto"
+        target="_blank"
+      >
         View run &rarr;
       </Link>
     </div>
@@ -111,13 +128,20 @@ export function IssueDetailSheet({
       es = new EventSource(`/api/bff/issues/${issue.issueId}/timeline/events`);
       es.addEventListener("issue-event", (e) => {
         let event: IssueEvent;
-        try { event = JSON.parse(e.data) as IssueEvent; } catch { return; }
+        try {
+          event = JSON.parse(e.data) as IssueEvent;
+        } catch {
+          return;
+        }
         setTimeline((prev) => (prev.some((x) => x.seq === event.seq) ? prev : [...prev, event]));
       });
       es.onerror = () => {};
     });
 
-    return () => { cancelled = true; es?.close(); };
+    return () => {
+      cancelled = true;
+      es?.close();
+    };
   }, [issue.issueId, open]);
 
   const legalNext = LEGAL_TRANSITIONS[issue.status] ?? [];
@@ -157,7 +181,12 @@ export function IssueDetailSheet({
   const running = runs.filter((r) => r.status === "running").length;
 
   return (
-    <Sheet open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Sheet
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
       <SheetContent side="right" className="w-[480px] sm:max-w-[540px] overflow-y-auto">
         <SheetHeader>
           <SheetTitle className="flex items-center justify-between gap-2">
@@ -169,7 +198,13 @@ export function IssueDetailSheet({
               <Button size="sm" variant="outline" className="text-xs h-7" disabled={transitioning}>
                 编辑
               </Button>
-              <Button size="sm" variant="destructive" className="text-xs h-7" disabled={deleting} onClick={handleDelete}>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="text-xs h-7"
+                disabled={deleting}
+                onClick={handleDelete}
+              >
                 删除
               </Button>
             </div>
@@ -192,7 +227,11 @@ export function IssueDetailSheet({
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground w-20 shrink-0">预计完成</span>
-            <span>{issue.estimatedCompletionAt ? new Date(issue.estimatedCompletionAt).toLocaleDateString() : "未填写"}</span>
+            <span>
+              {issue.estimatedCompletionAt
+                ? new Date(issue.estimatedCompletionAt).toLocaleDateString()
+                : "未填写"}
+            </span>
           </div>
           {issue.description && (
             <div className="flex gap-2">
@@ -229,7 +268,9 @@ export function IssueDetailSheet({
           >
             <div className="text-sm font-medium">{issue.title}</div>
             <div className="flex items-center gap-2 mt-1">
-              <Badge variant="outline" className="text-xs">CLAUDE_CODE</Badge>
+              <Badge variant="outline" className="text-xs">
+                CLAUDE_CODE
+              </Badge>
               <span className="text-xs text-muted-foreground">Thread: {issue.issueId}</span>
             </div>
             <div className="text-xs text-blue-600 mt-1">查看 Coding &rarr;</div>
@@ -244,7 +285,9 @@ export function IssueDetailSheet({
         {runs.length > 0 && (
           <div className="mb-4">
             <h3 className="text-sm font-medium mb-1">Runs</h3>
-            {runs.map((r) => <RunEntry key={r.runId} run={r} />)}
+            {runs.map((r) => (
+              <RunEntry key={r.runId} run={r} />
+            ))}
           </div>
         )}
 

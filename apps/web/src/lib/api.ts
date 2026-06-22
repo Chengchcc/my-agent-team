@@ -300,7 +300,12 @@ export const api = {
     apiFetch<{ project: ProjectRow }>("projects", { method: "POST", body }),
   updateProject: (
     id: string,
-    body: { name?: string; repoUrl?: string | null; defaultBranch?: string | null; autoOrchestrate?: boolean },
+    body: {
+      name?: string;
+      repoUrl?: string | null;
+      defaultBranch?: string | null;
+      autoOrchestrate?: boolean;
+    },
   ) => apiFetch<{ project: ProjectRow }>(`projects/${id}`, { method: "PATCH", body }),
   deleteProject: (id: string) => apiFetch<void>(`projects/${id}`, { method: "DELETE" }),
 
@@ -310,16 +315,23 @@ export const api = {
     apiFetch<{ issues: IssueRow[] }>(`issues${projectId ? `?projectId=${projectId}` : ""}`),
   getIssue: (id: string) => apiFetch<{ issue: IssueRow }>(`issues/${id}`),
   createIssue: (body: {
-    projectId: string; title: string; description?: string;
-    priority?: IssuePriority; estimatedCompletionAt?: number | null;
-  }) => apiFetch<{ issue: IssueRow }>("issues", { method: "POST", body }),
-  updateIssue: (id: string, body: {
-    title?: string; description?: string; priority?: IssuePriority;
+    projectId: string;
+    title: string;
+    description?: string;
+    priority?: IssuePriority;
     estimatedCompletionAt?: number | null;
-  }) => apiFetch<{ issue: IssueRow }>(`issues/${id}`, { method: "PATCH", body }),
+  }) => apiFetch<{ issue: IssueRow }>("issues", { method: "POST", body }),
+  updateIssue: (
+    id: string,
+    body: {
+      title?: string;
+      description?: string;
+      priority?: IssuePriority;
+      estimatedCompletionAt?: number | null;
+    },
+  ) => apiFetch<{ issue: IssueRow }>(`issues/${id}`, { method: "PATCH", body }),
   deleteIssue: (id: string) => apiFetch<void>(`issues/${id}`, { method: "DELETE" }),
-  getIssueThread: (id: string) =>
-    apiFetch<{ entries: LedgerEntry[] }>(`issues/${id}/thread`),
+  getIssueThread: (id: string) => apiFetch<{ entries: LedgerEntry[] }>(`issues/${id}/thread`),
   applyTransition: (id: string, to: IssueStatus) =>
     apiFetch<{ issue: IssueRow }>(`issues/${id}/transition`, { method: "POST", body: { to } }),
   reviewDecision: (id: string, body: { decision: "approve" | "reject"; note?: string }) =>

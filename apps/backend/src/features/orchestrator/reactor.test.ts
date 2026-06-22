@@ -19,16 +19,25 @@ import type { Transition } from "./transitions.js";
 function mockColumnConfigSvc(): ColumnConfigService {
   const transitions: Transition[] = [
     {
-      from: "planned", to: "in_progress", agentId: "planner",
-      promptTemplate: "Plan for {{title}}", approvalPosture: "auto",
+      from: "planned",
+      to: "in_progress",
+      agentId: "planner",
+      promptTemplate: "Plan for {{title}}",
+      approvalPosture: "auto",
     },
     {
-      from: "in_progress", to: "in_review", agentId: "developer",
-      promptTemplate: "Work on {{title}}", approvalPosture: "auto",
+      from: "in_progress",
+      to: "in_review",
+      agentId: "developer",
+      promptTemplate: "Work on {{title}}",
+      approvalPosture: "auto",
     },
     {
-      from: "in_review", to: "done", agentId: "reviewer",
-      promptTemplate: "Review {{title}}", approvalPosture: "human",
+      from: "in_review",
+      to: "done",
+      agentId: "reviewer",
+      promptTemplate: "Review {{title}}",
+      approvalPosture: "human",
     },
   ];
   return {
@@ -179,8 +188,18 @@ function makeOrchestrator(issueDb: Database, eventsDb: Database) {
     // M19: mock dispatcher — delegates to supervisor + opsStore (same as before)
     dispatcher: {
       dispatch: async (cause) => {
-        const { attemptId } = await supervisor.startMainRun(cause.runId, cause.threadId, cause.spec, cause.opts as Parameters<RunSupervisor["startMainRun"]>[3]);
-        opsStore.insertRunOrigin({ ...cause.origin, runId: cause.runId, originKind: cause.kind, createdAt: 1000000 });
+        const { attemptId } = await supervisor.startMainRun(
+          cause.runId,
+          cause.threadId,
+          cause.spec,
+          cause.opts as Parameters<RunSupervisor["startMainRun"]>[3],
+        );
+        opsStore.insertRunOrigin({
+          ...cause.origin,
+          runId: cause.runId,
+          originKind: cause.kind,
+          createdAt: 1000000,
+        });
         return { runId: cause.runId, attemptId };
       },
     },
@@ -280,8 +299,18 @@ describe("Orchestrator reactor", () => {
       deliverableSvc: mockDeliverableSvc(),
       dispatcher: {
         dispatch: async (cause) => {
-          const { attemptId } = await supervisor.startMainRun(cause.runId, cause.threadId, cause.spec, cause.opts as Parameters<RunSupervisor["startMainRun"]>[3]);
-          opsStore.insertRunOrigin({ ...cause.origin, runId: cause.runId, originKind: cause.kind, createdAt: 1000000 });
+          const { attemptId } = await supervisor.startMainRun(
+            cause.runId,
+            cause.threadId,
+            cause.spec,
+            cause.opts as Parameters<RunSupervisor["startMainRun"]>[3],
+          );
+          opsStore.insertRunOrigin({
+            ...cause.origin,
+            runId: cause.runId,
+            originKind: cause.kind,
+            createdAt: 1000000,
+          });
           return { runId: cause.runId, attemptId };
         },
       },

@@ -39,7 +39,12 @@ describe("RunService", () => {
       supervisor: makeMockSupervisor(),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      dispatcher: { dispatch: async (c: Record<string, unknown>) => ({ runId: c.runId as string, attemptId: "att-1" }) },
+      dispatcher: {
+        dispatch: async (c: Record<string, unknown>) => ({
+          runId: c.runId as string,
+          attemptId: "att-1",
+        }),
+      },
       lock: new ConversationLock(),
       idGen: () => "run-1",
     });
@@ -56,7 +61,12 @@ describe("RunService", () => {
       supervisor: makeMockSupervisor(),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      dispatcher: { dispatch: async (c: Record<string, unknown>) => ({ runId: c.runId as string, attemptId: "att-1" }) },
+      dispatcher: {
+        dispatch: async (c: Record<string, unknown>) => ({
+          runId: c.runId as string,
+          attemptId: "att-1",
+        }),
+      },
       lock,
       idGen: () => "run-1",
     });
@@ -69,7 +79,12 @@ describe("RunService", () => {
       supervisor: makeMockSupervisor({ activeCount: 8 }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      dispatcher: { dispatch: async (c: Record<string, unknown>) => ({ runId: c.runId as string, attemptId: "att-1" }) },
+      dispatcher: {
+        dispatch: async (c: Record<string, unknown>) => ({
+          runId: c.runId as string,
+          attemptId: "att-1",
+        }),
+      },
       lock: new ConversationLock(),
       idGen: () => "run-1",
     });
@@ -88,7 +103,12 @@ describe("RunService", () => {
       }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      dispatcher: { dispatch: async (c: Record<string, unknown>) => ({ runId: c.runId as string, attemptId: "att-1" }) },
+      dispatcher: {
+        dispatch: async (c: Record<string, unknown>) => ({
+          runId: c.runId as string,
+          attemptId: "att-1",
+        }),
+      },
       lock: new ConversationLock(),
       idGen: () => "run-1",
     });
@@ -102,7 +122,12 @@ describe("RunService", () => {
       supervisor: makeMockSupervisor({ cancel: () => false }),
       eventLog: makeMockEventLog(),
       maxConcurrentRuns: 8,
-      dispatcher: { dispatch: async (c: Record<string, unknown>) => ({ runId: c.runId as string, attemptId: "att-1" }) },
+      dispatcher: {
+        dispatch: async (c: Record<string, unknown>) => ({
+          runId: c.runId as string,
+          attemptId: "att-1",
+        }),
+      },
       lock: new ConversationLock(),
       idGen: () => "run-1",
     });
@@ -128,7 +153,12 @@ describe("RunService", () => {
       supervisor: makeMockSupervisor(),
       eventLog: mockLog,
       maxConcurrentRuns: 8,
-      dispatcher: { dispatch: async (c: Record<string, unknown>) => ({ runId: c.runId as string, attemptId: "att-1" }) },
+      dispatcher: {
+        dispatch: async (c: Record<string, unknown>) => ({
+          runId: c.runId as string,
+          attemptId: "att-1",
+        }),
+      },
       lock: new ConversationLock(),
       idGen: () => "run-1",
     });

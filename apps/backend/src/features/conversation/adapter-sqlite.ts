@@ -20,7 +20,12 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     createConversation(input: CreateConversationInput): ConversationRow {
       db.run(
         "INSERT INTO conversation (conversation_id, trigger_mode, hop_count, origin, created_at) VALUES (?, ?, 0, ?, ?)",
-        [input.conversationId, input.triggerMode ?? "mention", input.origin ?? "user", input.createdAt],
+        [
+          input.conversationId,
+          input.triggerMode ?? "mention",
+          input.origin ?? "user",
+          input.createdAt,
+        ],
       );
       return {
         conversationId: input.conversationId,

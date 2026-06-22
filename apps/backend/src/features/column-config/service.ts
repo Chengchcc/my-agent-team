@@ -1,6 +1,6 @@
 import type { IssueStatus } from "../issue/entities.js";
 import type { Transition } from "../orchestrator/transitions.js";
-import { HUMAN_GATES, ORDER } from "../orchestrator/transitions.js";
+import { ORDER } from "../orchestrator/transitions.js";
 import type { ColumnConfigRow } from "./domain.js";
 import type { ColumnConfigPort } from "./ports.js";
 
@@ -79,7 +79,10 @@ export function createColumnConfigService(deps: ColumnConfigServiceDeps) {
         const cfg = byStatus.get(from);
         if (!cfg) continue;
         out.push({
-          from, to, agentId: cfg.agentId, promptTemplate: cfg.promptTemplate,
+          from,
+          to,
+          agentId: cfg.agentId,
+          promptTemplate: cfg.promptTemplate,
           approvalPosture: cfg.approvalPosture,
         });
       }

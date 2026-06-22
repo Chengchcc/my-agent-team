@@ -1,6 +1,6 @@
-import type { RunSupervisor } from "./supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { RunOriginKind, RunOriginRow } from "../runtime-ops/types.js";
+import type { RunSupervisor } from "./supervisor.js";
 
 /** Fields that must be provided per dispatch call — originKind, createdAt,
  *  and runId are filled by the dispatcher itself. */
@@ -21,9 +21,7 @@ export function createRunDispatcher(deps: {
   now?: () => number;
 }) {
   return {
-    async dispatch(
-      cause: DispatchCause,
-    ): Promise<{ runId: string; attemptId: string }> {
+    async dispatch(cause: DispatchCause): Promise<{ runId: string; attemptId: string }> {
       const { attemptId } = await deps.supervisor.startMainRun(
         cause.runId,
         cause.threadId,
