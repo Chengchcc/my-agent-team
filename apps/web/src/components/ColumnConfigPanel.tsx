@@ -123,7 +123,12 @@ export function ColumnConfigPanel({ project, open, onClose }: ColumnConfigPanelP
   const variableHintClass = "text-[10px] text-[var(--mute)] font-mono";
 
   return (
-    <Sheet open={open} onOpenChange={onClose}>
+    <Sheet
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+    >
       <SheetContent className="flex flex-col max-w-md" side="right">
         <SheetHeader>
           <SheetTitle>{project.name} — 列配置</SheetTitle>
@@ -147,7 +152,11 @@ export function ColumnConfigPanel({ project, open, onClose }: ColumnConfigPanelP
                       <div>
                         <span className="text-[var(--mute)]">Agent: </span>
                         {(() => {
-                          const name = agents?.find((a) => a.id === cfg.agentId)?.name;
+                          // Distinguish "still loading" from "genuinely archived".
+                          // While the agents query is in flight (agents === undefined)
+                          // every name lookup misses → would wrongly flash "(已归档)".
+                          if (!agents) return <span className="text-[var(--mute)]">…</span>;
+                          const name = agents.find((a) => a.id === cfg.agentId)?.name;
                           return name ? (
                             <span>{name}</span>
                           ) : (
@@ -234,6 +243,16 @@ export function ColumnConfigPanel({ project, open, onClose }: ColumnConfigPanelP
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
+                          {/* When editing a config whose bound agent has since been
+                              archived, field.value holds an id absent from activeAgents.
+                              Without a matching SelectItem the trigger renders blank and
+                              the form silently keeps the stale id. Surface it explicitly. */}
+                          {field.value && !activeAgents.some((a) => a.id === field.value) && (
+                            <SelectItem value={field.value}>
+                              {agents?.find((a) => a.id === field.value)?.name ?? field.value}{" "}
+                              (已归档)
+                            </SelectItem>
+                          )}
                           {activeAgents.map((a) => (
                             <SelectItem key={a.id} value={a.id}>
                               {a.name}
