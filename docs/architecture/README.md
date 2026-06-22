@@ -3,7 +3,7 @@ id: architecture.index
 title: 架构 Wiki 首页
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-16
+last_verified_against_code: 2026-06-22
 summary: "这是给人看的架构 Wiki 入口。它不是按里程碑流水账排的，而是按「你想干什么」组织阅读路线。先在这里选好路线，再去读具体实现页。"
 depends_on:
 used_by:
@@ -53,12 +53,12 @@ used_by:
 
 ### 想搞懂 Issue 与协作编排
 
-> 这条路线上的页面是 `status: design`——已锁定但尚未进代码的设计，不是现状。
+> `foundations/issue.md`、`backend/orchestrator.md`、`flows/e2e-issue-lifecycle.md` 已落地代码（`status: current`）。`foundations/issue-workflow.md`（`status: design`）是下一版演进设计。
 
 1. [Issue](./foundations/issue.md)
 2. [Orchestrator](./backend/orchestrator.md)
 3. [Issue 生命周期端到端](./flows/e2e-issue-lifecycle.md)
-4. [对话与成员](./conversation/conversation-and-members.md)（被取代的 @提及自动触发）
+4. [Issue 工作流演进](./foundations/issue-workflow.md)（`status: design`）
 
 ## 给 LLM 的入口
 

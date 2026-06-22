@@ -3,7 +3,7 @@ id: runtime.framework
 title: Framework 运行循环
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-16
+last_verified_against_code: 2026-06-22
 summary: "Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏是 runLoop：一个受 maxSteps 与 maxForceContinues 约束的循环，每一步可能调模型、可能调工具，并把过程拆成一串结构化 AgentEvent 往外吐。围绕循环还有一组生命周期钩子和一个 Checkpointer 接口，分别负责「在关键节点插手」和「断点存取」。"
 depends_on:
   - runner.resident-runner
@@ -29,7 +29,7 @@ Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏
 
 | 事件 | 含义 |
 |------|------|
-| `message` | 一条完整消息（会被上报、进而可能被投影到账本） |
+| `message` | 一条完整消息（被 Runner 上报后，由 Backend 的 `onRunMessage` [直写进账本](../conversation/ledger.md)，再由 `broadcastMessage` [扇出](../backend/conversation-projection.md)到前端） |
 | `interrupted` | 运行被中断 |
 | `error` | 运行出错 |
 | `text_delta` | 文本流式增量 |
@@ -67,7 +67,7 @@ run(input: string, opts?: AgentRunOptions): AsyncIterable<AgentEvent>
 
 ### continue(opts?)
 
-从断点消息恢复运行，**不追加**新的用户消息。适用于会话级触发场景：用户的输入已经由上层（如 `broadcastMessage()`）预投影到 checkpointer 中，`continue()` 直接拾取已有上下文继续执行。若无用户消息则抛错。
+从断点消息恢复运行，**不追加**新的用户消息。适用于会话级触发场景：用户的输入已经由上层 `buildPreloadedMessages` 从[账本](../conversation/ledger.md)构建为 Message[] 注入到 `preloadedMessages` 中，`continue()` 直接拾取已有上下文继续执行。若无用户消息则抛错。
 
 ```ts
 continue(opts?: AgentRunOptions): AsyncIterable<AgentEvent>
@@ -119,3 +119,5 @@ interface Checkpointer {
 - [运行时插件](plugin.md)
 - [防早停任务守卫](../plugins/task-guard.md)
 - [运行编排器](../backend/run-supervisor.md)
+- [对话账本](../conversation/ledger.md)
+- [会话投影](../backend/conversation-projection.md)

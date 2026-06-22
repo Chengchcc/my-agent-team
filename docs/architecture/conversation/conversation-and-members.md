@@ -3,7 +3,7 @@ id: conversation.members
 title: 对话与成员
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-16
+last_verified_against_code: 2026-06-22
 summary: "对话是共享协作空间，成员是人/Agent/系统在这个空间里的本地身份。触发模式、跳数上限、活动锁和 @提及解析，共同防止多 Agent 失控地互相触发。"
 depends_on:
 used_by:
@@ -37,9 +37,9 @@ used_by:
 ## 多 Agent 安全：四道闸
 
 1. **触发模式** 决定是「全部触发」还是「仅被 @ 才触发」。
-2. **活动锁**：`activeConversations: Set` + `pendingRuns: Map`。`forkAgentRuns` 加锁并把 pending 设为目标数；`completeRun` 递减、归零即解锁。对话已活动时 `postMessage` 抛 `ConversationBusyError`，而 `triggerMentionedAgents` 则静默跳过。
+2. **活动锁**：[`ConversationLock`](../backend/data-model.md)（M17.5 替换了旧的 `activeConversations` Set + `pendingRuns` Map）。`lock.acquire(conversationId, targetCount)` 加锁；`lock.releaseOne(conversationId)` 每完成一个 run 递减；归零自动解锁。对话锁未释放时 `postMessage` 抛 `ConversationBusyError`，而 `triggerMentionedAgents` 则静默跳过。
 3. **跳数（hop_count）**：人或 `__system__` 发送者把跳数重置为 0；已知 Agent 发送者 +1；上限 `maxConsecutiveAgentHops`（main.ts 设为 **8**）。超限不再 fork，改追加一条 `__system__` 消息说明触顶。
-4. **@提及解析**：在 `main.ts` 的 `onRunComplete` 里做（不在 service 里）。对每个 roster 成员，用 `` new RegExp(`@${escapeRegExp(label)}(?=\s|[,.!?;:]|$)`, "g") `` 扫 assistant 文本，外加 `text.includes("@"+memberId)`。
+4. **@提及解析**：在 `main.ts` 的 `onRunMessage` 回调里做（终端修订时扫描，不在 service 里）。对每个 roster 成员，用 `` new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g") `` 扫 assistant 文本，外加 `text.includes("@${memberId}")`。
 
 ## Agent 产出里的 @提及
 

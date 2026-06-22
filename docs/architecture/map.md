@@ -41,9 +41,9 @@ flowchart LR
 
 `operations/troubleshooting` 把症状指回正确的事实层：账本、事件日志、会话投影、Runner、Web 草稿或飞书投递。
 
-## 协作设计图（status: design）
+## 协作设计图
 
-下面两页是**已锁定但尚未进代码**的设计抽象，与现状页区分阅读。
+Issue 与 Orchestrator 已落地代码（`status: current`），与对话级 @提及自动触发是互补关系。`foundations/issue-workflow.md`（`status: design`）是下一版演进设计。
 
 ```mermaid
 flowchart LR

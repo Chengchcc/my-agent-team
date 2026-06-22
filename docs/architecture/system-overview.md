@@ -43,7 +43,7 @@ flowchart TB
   end
 
   subgraph Storage[存储]
-    BDB[(backend.db\nagents/conversation/member\nconversation_ledger/checkpoint_messages)]
+    BDB[(backend.db\nagents/conversation/member/issue\nconversation_ledger/projection_messages)]
     EDB[(events.db\nrun/attempt/event_log\nrun_ops_event/runner_health)]
   end
 
@@ -118,7 +118,7 @@ sequenceDiagram
 
 - EventLog 由后端 `RunSupervisor` 在收到 Runner 传输的**非消息**事件后追加；Runner 不直接打开 EventLog 库，message 事件根本不进 EventLog。
 - assistant 消息在 `apps/backend/src/main.ts` 的 `onRunMessage` 回调里经 `appendAssistantMessage` 直写 `ConversationMessageRevision` 信封（messageId, state=streaming/done/error），与人类消息共用同一条 `appendLedgerEntry` 入口；`onRunComplete` 取最新 assistant revision 写入最终 done/error 修订，再做放锁、todo 快照、@提及扫描。会话投影桥只剩 best-effort 扇出（broadcast/ops）。
-- Runner 本地的 `checkpointer.sqlite` 是给 Agent 执行恢复用的；后端侧的线程投影（`checkpoint_messages` 表）是给「下次运行前把对话喂给 Agent」用的——两者同名易混，但用途不同。
+- Runner 本地的 `checkpointer.sqlite` 是给 Agent 执行恢复用的；`buildPreloadedMessages` 从[账本](../conversation/ledger.md)直接构建 Message[] 喂给 Agent——不经过 `projection_messages` 中间表。两者名字不同但都涉及「运行前准备上下文」，用途不同要分清。
 - Web/飞书统一消费对话账本 SSE，按 `messageId` upsert 到同一个气泡/卡片中。不再有独立的 `/runs/:id/events` 或 `/runs/:id/stream` 连接。
 - delta 信道（text_delta/tool_start/tool_end）仅限后端内部日志/运维消费，不直接暴露给端。
 
@@ -128,7 +128,7 @@ sequenceDiagram
 2. 端可以展示数据，但不能成为事实来源。
 3. Runner 执行 AgentSpec、上报事件，它不决定对话语义。
 4. assistant 消息与人类消息经同一入口（`appendLedgerEntry`）写进账本，账本是对话消息的唯一事实来源；EventLog 只含非消息执行细节。
-5. 线程投影可以从账本重建；账本不能从线程投影重建。
+5. `projection_messages`（线程投影缓存）和 `buildPreloadedMessages` 的 Message[] 都从账本重建；账本不能从它们反向重建。
 
 ## 例子：Agent 在 Web 里回答一句话
 

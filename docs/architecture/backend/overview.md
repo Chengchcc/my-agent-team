@@ -22,7 +22,7 @@ used_by:
 | feature | 负责 | 关键符号 |
 |---|---|---|
 | `conversation` | 对话、成员、账本、触发、锁、跳数 | `appendLedgerEntry`、`broadcastMessage`、`deriveThreadId` |
-| `thread-projection` | 按成员把账本投影成 Agent 的 thread | `getMessages`、`appendMessages`（路由已定义但 router.ts 未派发 HTTP 请求，仅作为内部 service 使用） |
+| `thread-projection` | 按成员把账本投影成广播缓存 | `getMessages`、`appendMessages`（供 SSE 订阅者轮询；`buildPreloadedMessages` 从[账本](../conversation/ledger.md)直接构建 Message[]，不走此表） |
 | `run` | 运行/尝试生命周期、EventLog 写入、SSE | `RunSupervisor`、`runRoutes` |
 | `runtime-ops` | 运行可观测性查询 | run_ops_event / runner_health 查询层 |
 | `agent` | Agent 注册与配置 | agents 表 |
@@ -39,7 +39,7 @@ flowchart TB
     C[conversation]
     M[member]
     L[conversation_ledger]
-    TP[checkpoint_messages]
+    TP[projection_messages]
   end
   subgraph events.db
     R[run]
