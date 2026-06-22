@@ -127,10 +127,7 @@ function LoginForm() {
             <Button
               type="submit"
               disabled={form.formState.isSubmitting}
-              className="w-full bg-[var(--primary)] text-[var(--on-primary)]
-                         rounded-md py-3 text-sm font-semibold
-                         hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]
-                         transition-opacity duration-200"
+              className="w-full"
             >
               {form.formState.isSubmitting ? "Signing in..." : "Enter →"}
             </Button>

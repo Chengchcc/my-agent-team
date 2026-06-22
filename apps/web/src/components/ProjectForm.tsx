@@ -179,11 +179,7 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
             <Button
               type="submit"
               disabled={form.formState.isSubmitting}
-              className="w-full bg-[var(--primary)] text-[var(--on-primary)]
-                         rounded-md py-3 text-sm font-semibold
-                         hover:opacity-90
-                         disabled:opacity-40 disabled:cursor-not-allowed
-                         transition-opacity duration-200"
+              className="w-full"
             >
               {form.formState.isSubmitting ? (
                 "Saving..."

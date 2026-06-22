@@ -214,33 +214,33 @@ export function NavRail() {
                 type="button"
                 onClick={async () => {
                   try {
-                  const agent = (agents ?? []).find((a) => a.id === selectedAgentId);
-                  const humanId = `human-${crypto.randomUUID().slice(0, 8)}`;
-                  const conv = await api.createConversation({
-                    members: [
-                      {
-                        memberId: selectedAgentId,
-                        kind: "agent",
-                        agentId: selectedAgentId,
-                        displayName: agent?.name,
-                      },
-                      {
-                        memberId: humanId,
-                        kind: "human",
-                        userRef: "__legacy__",
-                        displayName: "User",
-                      },
-                    ],
-                  });
-                  router.push(`/conversations/${conv.conversationId}`);
-                } catch (err) {
-                  toast.error("Failed to create conversation", {
-                    description: err instanceof Error ? err.message : "Unknown error",
-                  });
-                }
-              }}
-              className="text-primary hover:text-primary/80 transition-colors"
-              aria-label="New conversation"
+                    const agent = (agents ?? []).find((a) => a.id === selectedAgentId);
+                    const humanId = `human-${crypto.randomUUID().slice(0, 8)}`;
+                    const conv = await api.createConversation({
+                      members: [
+                        {
+                          memberId: selectedAgentId,
+                          kind: "agent",
+                          agentId: selectedAgentId,
+                          displayName: agent?.name,
+                        },
+                        {
+                          memberId: humanId,
+                          kind: "human",
+                          userRef: "__legacy__",
+                          displayName: "User",
+                        },
+                      ],
+                    });
+                    router.push(`/conversations/${conv.conversationId}`);
+                  } catch (err) {
+                    toast.error("Failed to create conversation", {
+                      description: err instanceof Error ? err.message : "Unknown error",
+                    });
+                  }
+                }}
+                className="text-primary hover:text-primary/80 transition-colors"
+                aria-label="New conversation"
               >
                 <svg
                   width="12"

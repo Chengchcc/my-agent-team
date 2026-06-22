@@ -273,10 +273,8 @@ export function Composer({
         <Button
           onClick={handleSend}
           disabled={disabled || !value.trim()}
-          className="shrink-0 bg-[var(--primary)] text-[var(--on-primary)]
-                     rounded-md p-2.5 hover:opacity-90
-                     disabled:opacity-30 disabled:cursor-not-allowed
-                     transition-opacity duration-200 inline-flex items-center justify-center mb-0.5"
+          size="icon"
+          className="shrink-0 mb-0.5"
         >
           <ArrowUp size={16} className="shrink-0" aria-label="Send" />
         </Button>

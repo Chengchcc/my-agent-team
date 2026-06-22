@@ -168,12 +168,8 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
           setServerError("");
           setOpen(true);
         }}
-        variant={triggerLabel ? "outline" : undefined}
-        className={
-          triggerLabel
-            ? "text-xs"
-            : "bg-[var(--primary)] text-[var(--on-primary)] rounded-md px-5 py-2 text-sm font-semibold hover:opacity-90 transition-opacity duration-200"
-        }
+        variant={triggerLabel ? "outline" : "default"}
+        size="sm"
       >
         {triggerLabel ?? "+ New Agent"}
       </Button>
@@ -417,7 +413,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                                   setSetupLoading(false);
                                 }
                               }}
-                              className="px-4 py-2 text-xs font-medium bg-[var(--primary)] text-[var(--on-primary)] rounded-md hover:opacity-90 disabled:opacity-40"
+                              size="sm"
                             >
                               {setupLoading ? "Starting…" : "Set up Lark"}
                             </Button>
@@ -433,11 +429,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                 <Button
                   type="submit"
                   disabled={form.formState.isSubmitting || !form.getValues("name").trim()}
-                  className="w-full bg-[var(--primary)] text-[var(--on-primary)]
-                             rounded-md py-3 text-sm font-semibold
-                             hover:opacity-90
-                             disabled:opacity-40 disabled:cursor-not-allowed
-                             transition-opacity duration-200"
+                  className="w-full"
                 >
                   {form.formState.isSubmitting ? (
                     "Saving..."

@@ -58,7 +58,7 @@ function Section({
             <Button
               onClick={onSave}
               disabled={saving}
-              className="bg-[var(--primary)] text-[var(--on-primary)] rounded-md px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-40 transition-opacity"
+              size="sm"
             >
               {saving ? "Saving..." : "Save"}
             </Button>
