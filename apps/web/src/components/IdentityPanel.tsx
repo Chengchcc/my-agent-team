@@ -38,11 +38,7 @@ function Section({
           {title}
         </h3>
         {!editing && (
-          <Button
-            onClick={onEdit}
-            variant="ghost"
-            size="xs"
-          >
+          <Button onClick={onEdit} variant="ghost" size="xs">
             <Pencil size={12} />
             <span className="text-[10px]">Edit</span>
           </Button>
@@ -59,12 +55,7 @@ function Section({
             <Button onClick={onSave} disabled={saving} size="sm">
               {saving ? "Saving..." : "Save"}
             </Button>
-            <Button
-              onClick={onCancel}
-              disabled={saving}
-              variant="outline"
-              size="sm"
-            >
+            <Button onClick={onCancel} disabled={saving} variant="outline" size="sm">
               Cancel
             </Button>
           </div>
