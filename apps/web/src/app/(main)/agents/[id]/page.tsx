@@ -1,9 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { AgentForm } from "@/components/AgentForm";
 import { ConversationList } from "@/components/ConversationList";
 import { IdentityPanel } from "@/components/IdentityPanel";
 import { api } from "@/lib/api";
@@ -49,6 +50,13 @@ export default function AgentDetailPage() {
       {/* Header */}
       <div className="border-b border-[var(--hairline)] shrink-0">
         <div className="container mx-auto px-8 py-5">
+          <Link
+            href="/agents"
+            className="inline-flex items-center gap-1 text-xs text-[var(--mute)] hover:text-[var(--ink)] transition-colors mb-2"
+          >
+            <ArrowLeft size={12} />
+            Agents
+          </Link>
           <div className="flex items-center gap-4 flex-wrap gap-y-2">
             <h1
               className="text-2xl font-normal text-[var(--ink-strong)] font-[family-name:var(--font-sans)]"
@@ -60,8 +68,6 @@ export default function AgentDetailPage() {
             <span className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] border border-[var(--hairline)] rounded px-2 py-0.5 font-[family-name:var(--font-sans)] font-semibold">
               {agent.modelProvider}/{agent.modelName}
             </span>
-
-            <AgentForm editAgent={agent} triggerLabel="Edit" />
           </div>
 
           {/* Tabs */}
