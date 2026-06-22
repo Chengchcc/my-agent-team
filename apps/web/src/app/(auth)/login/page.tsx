@@ -139,7 +139,7 @@ function LoginForm() {
 
         <div className="mt-12 pt-6 border-t border-[var(--hairline)]">
           <p className="text-[10px] tracking-[0.15em] text-[var(--mute)]">
-            VoltAgent Terminal &copy; {new Date().getFullYear()}
+            my-agent-team &copy; {new Date().getFullYear()}
           </p>
         </div>
       </div>
