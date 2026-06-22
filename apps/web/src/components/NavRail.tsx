@@ -8,14 +8,6 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useShell } from "./ShellProvider";
 
-const OPS_LINKS = [
-  { label: "Overview", href: "/ops", exact: true },
-  { label: "Runs", href: "/ops/runs", exact: false },
-  { label: "Agents", href: "/ops/agents", exact: false },
-  { label: "Traces", href: "/ops/traces", exact: false },
-  { label: "Surfaces", href: "/ops/surfaces", exact: false },
-] as const;
-
 export function NavRail() {
   const { railCollapsed, toggleRail } = useShell();
   const pathname = usePathname();
@@ -42,9 +34,6 @@ export function NavRail() {
   const isConvActive = (convId: string) => pathname === `/conversations/${convId}`;
   const isAgentActive = (agentId: string) =>
     pathname === `/agents/${agentId}` || pathname.startsWith(`/agents/${agentId}`);
-
-  const isOpsActive = (href: string, exact: boolean) =>
-    exact ? pathname === href : pathname.startsWith(href);
 
   // ── Collapsed ──────────────────────────────────────────
 
@@ -318,25 +307,16 @@ export function NavRail() {
 
         {/* ── Operations section ── */}
         <div className="px-4 pt-4 pb-2 border-t border-border">
-          <h2 className="text-[10px] tracking-[2.52px] uppercase text-muted-foreground mb-2 font-[family-name:var(--font-sans)] font-semibold">
+          <Link
+            href="/ops"
+            className={`w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors ${
+              pathname.startsWith("/ops")
+                ? "bg-muted text-foreground border-l-2 border-primary"
+                : "text-foreground-muted hover:bg-muted hover:text-foreground"
+            }`}
+          >
             Operations
-          </h2>
-          <ul className="space-y-0.5">
-            {OPS_LINKS.map((link) => (
-              <li key={link.href}>
-                <Link
-                  href={link.href}
-                  className={`block px-2 py-1.5 text-sm rounded-md transition-colors ${
-                    isOpsActive(link.href, link.exact)
-                      ? "bg-muted text-foreground border-l-2 border-primary"
-                      : "text-foreground-muted hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  {link.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          </Link>
         </div>
       </div>
 
