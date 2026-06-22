@@ -1,10 +1,10 @@
-import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { AgentService } from "../agent/service.js";
 import type { ColumnConfigService } from "../column-config/service.js";
 import type { DeliverableRow } from "../deliverable/domain.js";
 import type { IssueRow } from "../issue/entities.js";
 import type { IssueService } from "../issue/service.js";
 import type { RunSupervisor } from "../run/supervisor.js";
+import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { PromptVars } from "./render.js";
 import { renderPrompt } from "./render.js";

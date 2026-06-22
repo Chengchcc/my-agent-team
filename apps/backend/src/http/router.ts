@@ -182,9 +182,7 @@ export function createRouter(token: string, features?: FeatureSet) {
         const issueTransitionMatch = path.match(/^\/api\/issues\/([^/]+)\/transition$/);
         const issueDeliverablesMatch = path.match(/^\/api\/issues\/([^/]+)\/deliverables$/);
         const issueReviewMatch = path.match(/^\/api\/issues\/([^/]+)\/review-decision$/);
-        const issueTimelineEventsMatch = path.match(
-          /^\/api\/issues\/([^/]+)\/timeline\/events$/,
-        );
+        const issueTimelineEventsMatch = path.match(/^\/api\/issues\/([^/]+)\/timeline\/events$/);
         const issueTimelineMatch = path.match(/^\/api\/issues\/([^/]+)\/timeline$/);
         const issueDetailAggMatch = path.match(/^\/api\/issues\/([^/]+)\/detail$/);
         const issueDetailMatch = path.match(/^\/api\/issues\/([^/]+)$/);

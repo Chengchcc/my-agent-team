@@ -69,7 +69,10 @@ export function IssueCard({
                   size="sm"
                   variant="outline"
                   className="text-xs h-7"
-                  onClick={(e) => { e.stopPropagation(); handleApprove(); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleApprove();
+                  }}
                   disabled={loading}
                 >
                   Approve
@@ -78,7 +81,10 @@ export function IssueCard({
                   size="sm"
                   variant="outline"
                   className="text-xs h-7 text-destructive"
-                  onClick={(e) => { e.stopPropagation(); setRejecting(true); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRejecting(true);
+                  }}
                   disabled={loading}
                 >
                   Reject
@@ -104,7 +110,10 @@ export function IssueCard({
                   <Button
                     size="sm"
                     className="text-xs h-7"
-                    onClick={(e) => { e.stopPropagation(); handleReject(); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleReject();
+                    }}
                     disabled={loading || !note.trim()}
                   >
                     Confirm Reject

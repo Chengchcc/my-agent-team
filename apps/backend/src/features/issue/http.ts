@@ -228,9 +228,7 @@ export function issueRoutes(
           await onReviewRejected?.(updated);
         } catch (e) {
           // Rework failed (submit or startStep) — compensation rollback to in_review
-          console.error(
-            `[orchestrator] rework reject failed for ${issueId}: ${String(e)}`,
-          );
+          console.error(`[orchestrator] rework reject failed for ${issueId}: ${String(e)}`);
           try {
             const reverted = svc.revertReviewReject(issueId);
             emitIssueEvent(opsStore, issueId, "status.advanced", {
@@ -249,10 +247,7 @@ export function issueRoutes(
             console.error(
               `[orchestrator] rollback in_progress→in_review failed for ${issueId}: ${String(rollbackErr)}`,
             );
-            return json(
-              { error: "rework failed and rollback failed", issue: updated },
-              500,
-            );
+            return json({ error: "rework failed and rollback failed", issue: updated }, 500);
           }
         }
         return json({ issue: updated });

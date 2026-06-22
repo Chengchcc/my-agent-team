@@ -9,6 +9,12 @@ import { z } from "zod";
 import { IssueKanban } from "@/components/IssueKanban";
 import { Button } from "@/components/ui/button";
 import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+} from "@/components/ui/breadcrumb";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -108,7 +114,13 @@ export default function IssuesPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Issues</h1>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbPage>Issues</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
         <Dialog open={open} onOpenChange={handleOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" size="sm">

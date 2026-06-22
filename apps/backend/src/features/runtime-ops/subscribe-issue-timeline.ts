@@ -1,5 +1,5 @@
-import type { IssueEvent } from "./types.js";
 import type { RuntimeOpsStore } from "./store.js";
+import type { IssueEvent } from "./types.js";
 
 /** SSE async generator: catch-up existing events + long-poll for new ones.
  *  Reuses the M18.4 subscribeIssues pattern — catch-up first, then poll loop with heartbeat. */

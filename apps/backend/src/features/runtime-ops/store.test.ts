@@ -339,19 +339,43 @@ describe("RuntimeOpsStore", () => {
   describe("getRunOriginsByIssueId", () => {
     test("returns runs for an issue ordered by created_at", () => {
       store.insertRunOrigin({
-        runId: "r1", issueId: "i1", conversationId: "", sourceLedgerSeq: 0,
-        agentMemberId: "a1", surface: "orchestrator", traceId: "", traceparent: "",
-        idempotencyKey: "r1", fromStatus: "planned", createdAt: 1000,
+        runId: "r1",
+        issueId: "i1",
+        conversationId: "",
+        sourceLedgerSeq: 0,
+        agentMemberId: "a1",
+        surface: "orchestrator",
+        traceId: "",
+        traceparent: "",
+        idempotencyKey: "r1",
+        fromStatus: "planned",
+        createdAt: 1000,
       });
       store.insertRunOrigin({
-        runId: "r2", issueId: "i1", conversationId: "", sourceLedgerSeq: 0,
-        agentMemberId: "a2", surface: "orchestrator", traceId: "", traceparent: "",
-        idempotencyKey: "r2", fromStatus: "in_progress", createdAt: 2000,
+        runId: "r2",
+        issueId: "i1",
+        conversationId: "",
+        sourceLedgerSeq: 0,
+        agentMemberId: "a2",
+        surface: "orchestrator",
+        traceId: "",
+        traceparent: "",
+        idempotencyKey: "r2",
+        fromStatus: "in_progress",
+        createdAt: 2000,
       });
       store.insertRunOrigin({
-        runId: "r3", issueId: "i2", conversationId: "", sourceLedgerSeq: 0,
-        agentMemberId: "a1", surface: "orchestrator", traceId: "", traceparent: "",
-        idempotencyKey: "r3", fromStatus: "planned", createdAt: 1500,
+        runId: "r3",
+        issueId: "i2",
+        conversationId: "",
+        sourceLedgerSeq: 0,
+        agentMemberId: "a1",
+        surface: "orchestrator",
+        traceId: "",
+        traceparent: "",
+        idempotencyKey: "r3",
+        fromStatus: "planned",
+        createdAt: 1500,
       });
 
       const origins = store.getRunOriginsByIssueId("i1");

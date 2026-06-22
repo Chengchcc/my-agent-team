@@ -6,6 +6,14 @@ import { useParams } from "next/navigation";
 import { AgentRuntimeCard } from "@/components/ops/AgentRuntimeCard";
 import { QueryState } from "@/components/ops/QueryState";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { api } from "@/lib/api";
 
 export default function AgentRuntimePage() {
@@ -27,13 +35,26 @@ export default function AgentRuntimePage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/ops">Observability</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/ops/agents">Agent Readiness</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>{runtimeQuery.data?.agentName ?? agentId}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
       <div className="flex items-center gap-3">
-        <Link
-          href="/ops"
-          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
-        >
-          ← Observability
-        </Link>
         <h1 className="text-2xl font-bold text-foreground">
           {runtimeQuery.data?.agentName ?? agentId} — Runtime
         </h1>

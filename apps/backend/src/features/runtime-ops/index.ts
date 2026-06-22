@@ -1,5 +1,4 @@
 export { emitIssueEvent } from "./emit-issue-event.js";
-export { subscribeIssueTimeline } from "./subscribe-issue-timeline.js";
 export { opsRoutes } from "./http.js";
 export type {
   AgentRuntimeStatus,
@@ -11,6 +10,7 @@ export type {
 } from "./service.js";
 export { createRuntimeOpsService } from "./service.js";
 export { RuntimeOpsStore } from "./store.js";
+export { subscribeIssueTimeline } from "./subscribe-issue-timeline.js";
 export type {
   IssueEvent,
   IssueEventKind,

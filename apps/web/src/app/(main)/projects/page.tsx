@@ -1,5 +1,11 @@
 import { ProjectForm } from "@/components/ProjectForm";
 import { ProjectList } from "@/components/ProjectList";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbPage,
+  BreadcrumbList,
+} from "@/components/ui/breadcrumb";
 
 export const dynamic = "force-dynamic";
 
@@ -8,9 +14,13 @@ export default function ProjectsPage() {
     <div className="h-full bg-[var(--canvas)]">
       <div className="border-b border-[var(--hairline)]">
         <div className="container mx-auto px-8 py-5 flex items-center justify-between">
-          <h1 className="text-lg font-normal text-[var(--ink-strong)] font-[family-name:var(--font-sans)]">
-            Projects
-          </h1>
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbPage>Projects</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
           <ProjectForm />
         </div>
       </div>

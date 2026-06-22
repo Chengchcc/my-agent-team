@@ -73,9 +73,7 @@ export function createIssueService(deps: IssueServiceDeps) {
       const issue = port.getIssue(issueId);
       if (!issue) throw new IssueNotFoundError(issueId);
       if (issue.status !== "in_progress") {
-        throw new IllegalTransitionError(
-          `revert requires in_progress, issue is ${issue.status}`,
-        );
+        throw new IllegalTransitionError(`revert requires in_progress, issue is ${issue.status}`);
       }
       const ts = now();
       const ok = port.setStatus(issueId, "in_progress", "in_review", ts);

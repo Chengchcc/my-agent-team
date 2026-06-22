@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { AgentForm } from "@/components/AgentForm";
+import { ConversationList } from "@/components/ConversationList";
+import { IdentityPanel } from "@/components/IdentityPanel";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -13,8 +15,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { ConversationList } from "@/components/ConversationList";
-import { IdentityPanel } from "@/components/IdentityPanel";
 import { api } from "@/lib/api";
 
 type Tab = "threads" | "identity";

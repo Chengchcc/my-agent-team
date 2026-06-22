@@ -5,6 +5,14 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { QueryState } from "@/components/ops/QueryState";
 import { TraceWaterfall } from "@/components/ops/TraceWaterfall";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { api } from "@/lib/api";
 
 export default function TraceDetailPage() {
@@ -18,13 +26,26 @@ export default function TraceDetailPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/ops">Observability</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/ops/traces">Trace Explorer</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage className="font-mono">{traceId}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
       <div className="flex items-center gap-3">
-        <Link
-          href="/ops/traces"
-          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
-        >
-          ← Traces
-        </Link>
         <h1 className="text-xl font-bold font-mono text-foreground">{traceId}</h1>
       </div>
 

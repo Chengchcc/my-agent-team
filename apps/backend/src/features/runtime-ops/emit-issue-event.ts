@@ -12,8 +12,6 @@ export function emitIssueEvent(
   try {
     opsStore.appendIssueEvent({ issueId, kind, payload });
   } catch (e) {
-    console.error(
-      `[timeline] emit ${kind} failed for ${issueId}: ${String(e)}`,
-    );
+    console.error(`[timeline] emit ${kind} failed for ${issueId}: ${String(e)}`);
   }
 }

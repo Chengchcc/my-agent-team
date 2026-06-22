@@ -3,6 +3,14 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { QueryState } from "@/components/ops/QueryState";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { SurfaceHealthPanel } from "@/components/ops/SurfaceHealthPanel";
 import { api } from "@/lib/api";
 
@@ -16,14 +24,19 @@ export default function SurfacesPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center gap-3">
-        <Link
-          href="/ops"
-          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
-        >
-          ← Observability
-        </Link>
-        <h1 className="text-2xl font-bold text-foreground">Surface Diagnostics</h1>
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/ops">Observability</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Surface Diagnostics</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
       </div>
 
       <QueryState query={surfacesQuery} empty={(data) => data.length === 0}>

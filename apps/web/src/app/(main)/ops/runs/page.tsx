@@ -5,6 +5,14 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback } from "react";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { api } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -76,12 +84,19 @@ function RunsPageInner() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center gap-3">
-        <Link href="/ops" className="text-muted-foreground hover:text-foreground text-sm">
-          ← Observability
-        </Link>
-        <h1 className="text-2xl font-bold text-foreground">Runs</h1>
-      </div>
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/ops">Observability</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Runs</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">

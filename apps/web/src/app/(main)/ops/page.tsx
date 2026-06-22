@@ -3,6 +3,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { CostBreakdownChart } from "@/components/ops/CostBreakdownChart";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+} from "@/components/ui/breadcrumb";
 import { HealthSummary } from "@/components/ops/HealthSummary";
 import { NeedsAttentionList } from "@/components/ops/NeedsAttentionList";
 import { QueryState } from "@/components/ops/QueryState";
@@ -73,7 +79,13 @@ export default function OpsPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-foreground">Observability</h1>
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbPage>Observability</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
 
       <QueryState query={overviewQuery}>
         {(data) => (
