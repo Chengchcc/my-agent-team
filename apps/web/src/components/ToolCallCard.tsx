@@ -2,11 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 export function ToolCallCard({ name, input }: { id?: string; name: string; input: unknown }) {
   const [open, setOpen] = useState(false);
@@ -22,9 +18,7 @@ export function ToolCallCard({ name, input }: { id?: string; name: string; input
           <span className="text-[10px] tracking-[0.15em] uppercase font-[family-name:var(--font-sans)] font-semibold text-[var(--primary)]">
             Tool: {name}
           </span>
-          <span className="text-[10px] text-[var(--mute)]">
-            {open ? "▲ collapse" : "▼ expand"}
-          </span>
+          <span className="text-[10px] text-[var(--mute)]">{open ? "▲ collapse" : "▼ expand"}</span>
         </CollapsibleTrigger>
         <CollapsibleContent>
           <pre className="px-4 pb-3 text-[13px] text-[var(--canvas-text-soft)] overflow-x-auto max-h-40 leading-relaxed font-[family-name:var(--font-mono)] bg-[var(--canvas-soft)] mx-2 mb-2 rounded p-3">
