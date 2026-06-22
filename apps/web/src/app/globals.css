@@ -39,6 +39,16 @@
   --color-input: var(--hairline);
   --color-ring: var(--primary);
 
+  /* ── Sidebar tokens (consumed by components/ui/sidebar.tsx) ── */
+  --color-sidebar: var(--canvas-soft);
+  --color-sidebar-foreground: var(--body);
+  --color-sidebar-primary: var(--primary);
+  --color-sidebar-primary-foreground: var(--on-primary);
+  --color-sidebar-accent: var(--primary-soft);
+  --color-sidebar-accent-foreground: var(--canvas);
+  --color-sidebar-border: var(--hairline);
+  --color-sidebar-ring: var(--primary);
+
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;

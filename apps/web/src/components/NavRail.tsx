@@ -6,12 +6,15 @@ import { toast } from "sonner";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
+  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { api } from "@/lib/api";
@@ -197,7 +200,25 @@ function NavContent() {
 export function NavRail() {
   return (
     <Sidebar collapsible="icon">
+      <SidebarHeader>
+        <div className="flex items-center justify-between gap-2 px-1 group-data-[collapsible=icon]:justify-center">
+          <span className="text-sm font-semibold tracking-tight text-sidebar-foreground group-data-[collapsible=icon]:hidden">
+            Observatory
+          </span>
+          <SidebarTrigger className="hidden md:flex" />
+        </div>
+      </SidebarHeader>
       <NavContent />
+      <SidebarFooter>
+        <form action="/api/auth/logout" method="POST">
+          <button
+            type="submit"
+            className="w-full rounded-md px-2 py-1.5 text-left text-xs text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
+          >
+            Sign Out
+          </button>
+        </form>
+      </SidebarFooter>
     </Sidebar>
   );
 }
