@@ -66,9 +66,7 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={<Button variant="ghost" size="icon-xs" title="Add agent" />}
-      >
+      <DialogTrigger render={<Button variant="ghost" size="icon-xs" title="Add agent" />}>
         <Plus size={14} />
       </DialogTrigger>
 

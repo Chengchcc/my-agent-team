@@ -4,8 +4,8 @@ import { ArrowUp, AtSign, Bot, CornerDownLeft } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { SenderRef } from "@/lib/conversation-reducer";
 
 function escapeRegExp(s: string): string {
