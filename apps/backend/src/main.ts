@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 import type { Message } from "@my-agent-team/message";
 import {
+  deserializeLedgerContent,
   extractText,
   isTerminalMessageState,
-  MessageSchema,
   serializeMessageRevision,
 } from "@my-agent-team/message";
 import {
@@ -104,9 +104,22 @@ const runSvc = createRunService({
       return c ? { title: null } : null;
     },
     getMessages: async (tid) => {
-      const msgs = await conv.threadProjectionSvc.getMessages(tid);
-      if (!msgs) return null;
-      return MessageSchema.array().parse(msgs) as Message[];
+      // Read from ledger (M17.5 P7 canonical source), not thread projection
+      const cid = parseThreadId(tid).conversationId || tid;
+      const entries = conv.convPort.getLedgerEntries(cid);
+      const folded = new Map<string, { role: "user" | "assistant"; text: string }>();
+      for (const entry of entries) {
+        if (entry.kind !== "message") continue;
+        const parsed = deserializeLedgerContent(entry.content);
+        if (!("messageId" in parsed)) continue;
+        const role = entry.senderMemberId && !entry.senderMemberId.startsWith("human")
+          ? "assistant" as const : "user" as const;
+        if (parsed.text) {
+          folded.set(parsed.messageId, { role, text: parsed.text });
+        }
+      }
+      const msgs = [...folded.values()];
+      return msgs.length > 0 ? msgs as Message[] : null;
     },
     setTitle: async (tid, title) => {
       const cid = parseThreadId(tid).conversationId || tid;
