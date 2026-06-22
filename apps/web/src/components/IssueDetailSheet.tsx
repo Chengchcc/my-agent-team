@@ -2,10 +2,37 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { IssueEvent, IssueRow, IssueRunSummary } from "@/lib/api";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import type { IssueEvent, IssueRow, IssueRunSummary, IssueStatus } from "@/lib/api";
 import { api } from "@/lib/api";
 import { IssueStatusBadge } from "./IssueStatusBadge";
+
+const PRIORITY_COLORS: Record<string, string> = {
+  P0: "bg-red-600 text-white hover:bg-red-700",
+  P1: "bg-orange-500 text-white hover:bg-orange-600",
+  P2: "bg-blue-500 text-white hover:bg-blue-600",
+  P3: "bg-muted text-muted-foreground hover:bg-muted/80",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: "草稿",
+  planned: "计划中",
+  in_progress: "开发中",
+  in_review: "待 Review",
+  done: "已完成",
+};
+
+// Legal transitions — mirrors backend LEGAL_TRANSITIONS
+const LEGAL_TRANSITIONS: Record<string, IssueStatus[]> = {
+  draft: ["planned"],
+  planned: ["in_progress"],
+  in_progress: ["in_review"],
+  in_review: ["done", "in_progress"],
+  done: [],
+};
 
 function formatRelativeTime(ts: number): string {
   const sec = Math.floor((Date.now() - ts) / 1000);
@@ -17,20 +44,13 @@ function formatRelativeTime(ts: number): string {
 
 function eventLabel(kind: IssueEvent["kind"]): string {
   switch (kind) {
-    case "created":
-      return "Created";
-    case "started":
-      return "Started";
-    case "run.started":
-      return "Run started";
-    case "run.ended":
-      return "Run ended";
-    case "deliverable.submitted":
-      return "Deliverable";
-    case "status.advanced":
-      return "Advanced";
-    case "human.decided":
-      return "Human decided";
+    case "created": return "Created";
+    case "started": return "Started";
+    case "run.started": return "Run started";
+    case "run.ended": return "Run ended";
+    case "deliverable.submitted": return "Deliverable";
+    case "status.advanced": return "Advanced";
+    case "human.decided": return "Human decided";
   }
 }
 
@@ -49,22 +69,12 @@ function RunEntry({ run }: { run: IssueRunSummary }) {
     <div className="flex items-center gap-2 text-xs py-1">
       <span className="text-muted-foreground w-20 shrink-0">{run.fromStatus} baton</span>
       <span className="w-12 shrink-0">{run.agentId}</span>
-      <span
-        className={`w-16 shrink-0 ${
-          run.status === "succeeded"
-            ? "text-green-600"
-            : run.status === "failed"
-              ? "text-red-600"
-              : "text-yellow-600"
-        }`}
-      >
+      <span className={`w-16 shrink-0 ${
+        run.status === "succeeded" ? "text-green-600" : run.status === "failed" ? "text-red-600" : "text-yellow-600"
+      }`}>
         {run.status}
       </span>
-      <Link
-        href={`/ops/runs/${run.runId}`}
-        className="text-blue-600 hover:underline ml-auto"
-        target="_blank"
-      >
+      <Link href={`/ops/runs/${run.runId}`} className="text-blue-600 hover:underline ml-auto" target="_blank">
         View run &rarr;
       </Link>
     </div>
@@ -83,6 +93,8 @@ export function IssueDetailSheet({
   const [timeline, setTimeline] = useState<IssueEvent[]>([]);
   const [runs, setRuns] = useState<IssueRunSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+  const [transitioning, setTransitioning] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -96,59 +108,135 @@ export function IssueDetailSheet({
       setRuns(data.runs);
       setLoading(false);
 
-      // Open SSE only AFTER the baseline timeline is loaded, otherwise the two
-      // setTimeline writes race (a live event appended before getIssueDetail
-      // resolves would be clobbered by the snapshot overwrite). The catch-up
-      // replay always starts at seq 0, so dedup by seq makes both the initial
-      // replay and any reconnect replay idempotent against what we already have.
       es = new EventSource(`/api/bff/issues/${issue.issueId}/timeline/events`);
       es.addEventListener("issue-event", (e) => {
         let event: IssueEvent;
-        try {
-          event = JSON.parse(e.data) as IssueEvent;
-        } catch {
-          return; // ignore malformed / non-JSON frames instead of throwing in the handler
-        }
+        try { event = JSON.parse(e.data) as IssueEvent; } catch { return; }
         setTimeline((prev) => (prev.some((x) => x.seq === event.seq) ? prev : [...prev, event]));
       });
-      es.onerror = () => {
-        // SSE connection lost — data already in timeline; reconnect replays are deduped above
-      };
+      es.onerror = () => {};
     });
 
-    return () => {
-      cancelled = true;
-      es?.close();
-    };
+    return () => { cancelled = true; es?.close(); };
   }, [issue.issueId, open]);
+
+  const legalNext = LEGAL_TRANSITIONS[issue.status] ?? [];
+
+  async function handleTransition(to: IssueStatus) {
+    setTransitioning(true);
+    try {
+      await api.applyTransition(issue.issueId, to);
+      onClose();
+    } catch (err) {
+      toast.error("Failed to transition", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setTransitioning(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm("确定删除此 Issue？")) return;
+    setDeleting(true);
+    try {
+      await api.deleteIssue(issue.issueId);
+      toast.success("Issue deleted");
+      onClose();
+    } catch (err) {
+      toast.error("Failed to delete", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   const succeeded = runs.filter((r) => r.status === "succeeded").length;
   const failed = runs.filter((r) => r.status === "failed").length;
   const running = runs.filter((r) => r.status === "running").length;
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) onClose();
-      }}
-    >
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {issue.title}
-            <IssueStatusBadge status={issue.status} />
-          </DialogTitle>
-        </DialogHeader>
+    <Sheet open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <SheetContent side="right" className="w-[480px] sm:max-w-[540px] overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2 truncate">
+              {issue.title}
+              <IssueStatusBadge status={issue.status} />
+            </span>
+            <div className="flex gap-1">
+              <Button size="sm" variant="outline" className="text-xs h-7" disabled={transitioning}>
+                编辑
+              </Button>
+              <Button size="sm" variant="destructive" className="text-xs h-7" disabled={deleting} onClick={handleDelete}>
+                删除
+              </Button>
+            </div>
+          </SheetTitle>
+        </SheetHeader>
 
-        {/* Section 1: Meta */}
-        <div className="text-xs text-muted-foreground space-y-1 mb-4">
-          <div>Project: {issue.projectId}</div>
-          <div>Thread: {issue.threadId}</div>
-          <div>Created: {new Date(issue.createdAt).toLocaleString()}</div>
+        {/* Property table */}
+        <div className="text-xs space-y-1.5 mb-4 mt-4">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-20 shrink-0">状态</span>
+            <IssueStatusBadge status={issue.status} />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-20 shrink-0">优先级</span>
+            <Badge className={PRIORITY_COLORS[issue.priority] ?? ""}>{issue.priority}</Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-20 shrink-0">创建时间</span>
+            <span>{new Date(issue.createdAt).toLocaleString()}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-20 shrink-0">预计完成</span>
+            <span>{issue.estimatedCompletionAt ? new Date(issue.estimatedCompletionAt).toLocaleDateString() : "未填写"}</span>
+          </div>
+          {issue.description && (
+            <div className="flex gap-2">
+              <span className="text-muted-foreground w-20 shrink-0">描述</span>
+              <span className="whitespace-pre-wrap">{issue.description}</span>
+            </div>
+          )}
         </div>
 
-        {/* Section 2: Run summary */}
+        {/* Status advance buttons */}
+        {legalNext.length > 0 && (
+          <div className="flex gap-2 mb-4">
+            {legalNext.map((toStatus) => (
+              <Button
+                key={toStatus}
+                size="sm"
+                variant="outline"
+                className="text-xs"
+                disabled={transitioning}
+                onClick={() => handleTransition(toStatus)}
+              >
+                移动到 {STATUS_LABELS[toStatus] ?? toStatus}
+              </Button>
+            ))}
+          </div>
+        )}
+
+        {/* Coding Thread card */}
+        <div className="mb-4">
+          <h3 className="text-sm font-medium mb-2">Coding Thread</h3>
+          <Link
+            href={`/conversations/${issue.issueId}`}
+            className="block p-3 rounded border border-border hover:bg-muted/30 transition-colors"
+          >
+            <div className="text-sm font-medium">{issue.title}</div>
+            <div className="flex items-center gap-2 mt-1">
+              <Badge variant="outline" className="text-xs">CLAUDE_CODE</Badge>
+              <span className="text-xs text-muted-foreground">Thread: {issue.issueId}</span>
+            </div>
+            <div className="text-xs text-blue-600 mt-1">查看 Coding &rarr;</div>
+          </Link>
+        </div>
+
+        {/* Run summary */}
         <div className="mb-4 p-2 bg-muted/30 rounded text-xs">
           Runs: {succeeded} succeeded &middot; {failed} failed &middot; {running} running
           {runs.length === 0 && " (none yet)"}
@@ -156,13 +244,11 @@ export function IssueDetailSheet({
         {runs.length > 0 && (
           <div className="mb-4">
             <h3 className="text-sm font-medium mb-1">Runs</h3>
-            {runs.map((r) => (
-              <RunEntry key={r.runId} run={r} />
-            ))}
+            {runs.map((r) => <RunEntry key={r.runId} run={r} />)}
           </div>
         )}
 
-        {/* Section 3: Timeline */}
+        {/* Timeline */}
         <div>
           <h3 className="text-sm font-medium mb-1">Timeline</h3>
           {loading ? (
@@ -173,7 +259,7 @@ export function IssueDetailSheet({
             timeline.map((e) => <TimelineEntry key={e.seq} event={e} />)
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

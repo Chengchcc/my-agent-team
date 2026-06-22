@@ -1,5 +1,5 @@
 import { LEGAL_TRANSITIONS } from "../orchestrator/transitions.js";
-import type { IssueRow, IssueStatus } from "./entities.js";
+import type { IssuePriority, IssueRow, IssueStatus } from "./entities.js";
 import type { IssuePort } from "./ports.js";
 
 export class IssueNotFoundError extends Error {
@@ -38,17 +38,28 @@ export function createIssueService(deps: IssueServiceDeps) {
   return {
     port,
 
-    createIssue(input: { projectId: string; title: string }): IssueRow {
+    createIssue(input: {
+      projectId: string;
+      title: string;
+      description?: string;
+      priority?: IssuePriority;
+      estimatedCompletionAt?: number | null;
+    }): IssueRow {
       if (projectExists && !projectExists(input.projectId)) {
         throw new ValidationError(`project not found: ${input.projectId}`);
       }
       const issueId = idGen();
-      const threadId = `issue:${issueId}`;
+      // M19: threadId uses conversation format (<conversationId>:<memberId>)
+      // instead of "issue:" prefix — so issue runs flow through projection.
+      const threadId = `${issueId}:owner`;
       return port.createIssue({
         issueId,
         projectId: input.projectId,
         title: input.title,
         threadId,
+        description: input.description,
+        priority: input.priority,
+        estimatedCompletionAt: input.estimatedCompletionAt,
         createdAt: now(),
       });
     },
@@ -79,6 +90,23 @@ export function createIssueService(deps: IssueServiceDeps) {
       const ok = port.setStatus(issueId, "in_progress", "in_review", ts);
       if (!ok) throw new IllegalTransitionError(`revert in_progress → in_review (lost CAS)`);
       return port.getIssue(issueId)!;
+    },
+
+    // ─── M19: Update / Delete ─────────────────────────
+
+    updateIssue(issueId: string, patch: {
+      title?: string;
+      description?: string;
+      priority?: IssuePriority;
+      estimatedCompletionAt?: number | null;
+    }): IssueRow {
+      const updated = port.updateIssue(issueId, patch, now());
+      if (!updated) throw new IssueNotFoundError(issueId);
+      return updated;
+    },
+
+    deleteIssue(issueId: string): void {
+      if (!port.deleteIssue(issueId)) throw new IssueNotFoundError(issueId);
     },
 
     // ─── SSE subscription ─────────────────────────────

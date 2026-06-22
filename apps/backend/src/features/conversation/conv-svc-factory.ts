@@ -3,6 +3,7 @@ import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
+import type { RunDispatcher } from "../run/dispatcher.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import {
@@ -34,6 +35,7 @@ export function createConversationFeature(
   agentSvc: AgentService,
   opsStore: RuntimeOpsStore,
   tracer: RuntimeTracer,
+  dispatcher: RunDispatcher,
 ): ConversationFeature {
   const threadProjectionPort = sqliteThreadProjectionReadAdapter(db);
   const threadProjectionWritePort = sqliteThreadProjectionWriteAdapter(db);
@@ -78,23 +80,28 @@ export function createConversationFeature(
 
       const trace = tracer.inject();
 
-      const { attemptId } = await supervisor.startMainRun(runId, threadId, spec, {
-        preloadedMessages,
-        surfaceContext,
-        trace,
-      });
-
-      opsStore.insertRunOrigin({
+      // M19: use dispatcher for unified run-start + origin_kind
+      const { attemptId } = await dispatcher!.dispatch({
+        kind: "mention",
         runId,
-        conversationId: ctx.conversationId,
-        sourceLedgerSeq: ctx.ledgerSeq,
-        agentMemberId: ctx.agentMemberId,
-        surface: surfaceContext?.surface ?? "web",
-        traceId: trace.traceId,
-        traceparent: trace.traceparent,
-        idempotencyKey: `${ctx.conversationId}:${ctx.ledgerSeq}:run`,
-        fromStatus: "",
-        createdAt: Date.now(),
+        threadId,
+        spec,
+        opts: {
+          preloadedMessages,
+          surfaceContext,
+          trace,
+        },
+        origin: {
+          conversationId: ctx.conversationId,
+          sourceLedgerSeq: ctx.ledgerSeq,
+          agentMemberId: ctx.agentMemberId,
+          surface: surfaceContext?.surface ?? "web",
+          traceId: trace.traceId,
+          traceparent: trace.traceparent,
+          idempotencyKey: `${ctx.conversationId}:${ctx.ledgerSeq}:run`,
+          issueId: null,
+          fromStatus: "",
+        },
       });
 
       return { runId, attemptId };

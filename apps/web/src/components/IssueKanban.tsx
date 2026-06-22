@@ -94,7 +94,9 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
   );
 
-  // meta 失败时光降级为平铺列表（不分列），避免有效数据被错误态藏掉
+  // M19: hide draft column — only show board statuses (planned+)
+  const boardStatuses = statuses.filter((s) => s !== "draft");
+
   if (statuses.length === 0) {
     if (issues.length === 0)
       return <div className="p-6 text-sm text-muted-foreground">暂无 Issue</div>;
@@ -108,7 +110,7 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
   }
 
   // 手动分组（替代 ES2024 的 Object.groupBy）
-  const byStatus = new Map<IssueStatus, IssueRow[]>(statuses.map((s) => [s, []]));
+  const byStatus = new Map<IssueStatus, IssueRow[]>(boardStatuses.map((s) => [s, []]));
   const unmatched: IssueRow[] = [];
   for (const it of issues) {
     const bucket = byStatus.get(it.status);
@@ -118,7 +120,7 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
 
   // 未知状态的 Issue 不被静默丢弃 — 收进兜底列显式提示
   const columns: readonly (IssueStatus | "unknown")[] =
-    unmatched.length > 0 ? [...statuses, "unknown"] : statuses;
+    unmatched.length > 0 ? [...boardStatuses, "unknown"] : boardStatuses;
 
   function handleDragStart(event: DragStartEvent) {
     const issueId = event.active.id as string;

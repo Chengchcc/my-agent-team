@@ -3,6 +3,7 @@ import type { ConversationLock } from "../conversation/lock.js";
 import { parseThreadId } from "../conversation/service.js";
 import { buildTitleContext, generateTitle } from "../conversation/title.js";
 import type { EventLog, EventRecord } from "../event-log/index.js";
+import type { RunDispatcher } from "./dispatcher.js";
 import type { RunSupervisor } from "./supervisor.js";
 
 export class ThreadBusyError extends Error {
@@ -40,6 +41,8 @@ export interface RunServiceDeps {
   /** M17.5 P11: ConversationLock replaces threads Set — merged into unified gate. */
   lock: ConversationLock;
   idGen: () => string;
+  /** M19: Unified run-start mechanism — replaces direct supervisor.startMainRun. */
+  dispatcher: RunDispatcher;
   /** Optional: generate thread title via LLM after first run (when thread has no title). */
   autoTitle?: {
     getThread: (threadId: string) => Promise<{ title: string | null } | null>;
@@ -50,7 +53,7 @@ export interface RunServiceDeps {
 }
 
 export function createRunService(deps: RunServiceDeps) {
-  const { supervisor, eventLog, maxConcurrentRuns, lock, idGen, autoTitle } = deps;
+  const { supervisor, eventLog, maxConcurrentRuns, lock, idGen, dispatcher, autoTitle } = deps;
 
   // M17.5 P11: Register cleanup callback — thread lock released via unified gate.
   supervisor.onRunComplete((threadId, _runId, status) => {
@@ -84,6 +87,7 @@ export function createRunService(deps: RunServiceDeps) {
     /** Fork subprocess + write ledger. Returns 202 payload immediately. */
     async start(threadId: string, spec: Record<string, unknown>) {
       const cid = parseThreadId(threadId).conversationId || threadId;
+      const memberId = parseThreadId(threadId).memberId || threadId;
       if (!lock.acquireThread(threadId, cid)) throw new ThreadBusyError(threadId);
       if (supervisor.activeCount >= maxConcurrentRuns) {
         lock.releaseThread(threadId, cid);
@@ -93,7 +97,23 @@ export function createRunService(deps: RunServiceDeps) {
       const runId = idGen();
 
       try {
-        const { attemptId } = await supervisor.startMainRun(runId, threadId, spec);
+        const { attemptId } = await dispatcher.dispatch({
+          kind: "manual",
+          runId,
+          threadId,
+          spec,
+          origin: {
+            conversationId: cid,
+            sourceLedgerSeq: 0,
+            agentMemberId: memberId,
+            surface: "web",
+            traceId: "",
+            traceparent: "",
+            idempotencyKey: runId,
+            issueId: null,
+            fromStatus: "",
+          },
+        });
         return { runId, attemptId };
       } catch (err) {
         lock.releaseThread(threadId, cid);

@@ -7,6 +7,7 @@ type Raw = {
   name: string;
   repo_url: string | null;
   default_branch: string | null;
+  auto_orchestrate: number;
   created_at: number;
   updated_at: number;
 };
@@ -16,6 +17,7 @@ const toRow = (r: Raw): ProjectRow => ({
   name: r.name,
   repoUrl: r.repo_url,
   defaultBranch: r.default_branch,
+  autoOrchestrate: r.auto_orchestrate === 1,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -24,13 +26,14 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
   return {
     createProject(input: CreateProjectRecord): ProjectRow {
       db.run(
-        `INSERT INTO project (project_id, name, repo_url, default_branch, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO project (project_id, name, repo_url, default_branch, auto_orchestrate, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           input.projectId,
           input.name,
           input.repoUrl,
           input.defaultBranch,
+          input.autoOrchestrate ? 1 : 0,
           input.createdAt,
           input.createdAt,
         ],
@@ -40,6 +43,7 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
         name: input.name,
         repoUrl: input.repoUrl,
         defaultBranch: input.defaultBranch,
+        autoOrchestrate: input.autoOrchestrate ?? false,
         createdAt: input.createdAt,
         updatedAt: input.createdAt,
       };
@@ -73,6 +77,10 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
       if (patch.defaultBranch !== undefined) {
         sets.push("default_branch = ?");
         params.push(patch.defaultBranch);
+      }
+      if (patch.autoOrchestrate !== undefined) {
+        sets.push("auto_orchestrate = ?");
+        params.push(patch.autoOrchestrate ? 1 : 0);
       }
 
       if (sets.length === 0) {

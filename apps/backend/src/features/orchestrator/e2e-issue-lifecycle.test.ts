@@ -15,6 +15,9 @@ function setupE2E() {
       title      TEXT NOT NULL,
       status     TEXT NOT NULL,
       thread_id  TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      priority   TEXT NOT NULL DEFAULT 'P2',
+      estimated_completion_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -24,6 +27,7 @@ function setupE2E() {
       status         TEXT NOT NULL,
       agent_id       TEXT NOT NULL,
       prompt_template TEXT NOT NULL DEFAULT '',
+      approval_posture TEXT NOT NULL DEFAULT 'auto',
       created_at     INTEGER NOT NULL,
       updated_at     INTEGER NOT NULL
     );
@@ -143,6 +147,7 @@ describe("e2e issue lifecycle with timeline", () => {
       traceId: "",
       traceparent: "",
       idempotencyKey: "run_dev1",
+      originKind: "orchestrator",
       fromStatus: "planned",
       createdAt: 2000,
     });

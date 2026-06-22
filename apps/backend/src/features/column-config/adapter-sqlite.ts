@@ -9,6 +9,7 @@ type Raw = {
   status: IssueStatus;
   agent_id: string;
   prompt_template: string;
+  approval_posture: string;
   created_at: number;
   updated_at: number;
 };
@@ -19,6 +20,7 @@ const toRow = (r: Raw): ColumnConfigRow => ({
   status: r.status,
   agentId: r.agent_id,
   promptTemplate: r.prompt_template,
+  approvalPosture: r.approval_posture as "auto" | "human",
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -51,16 +53,17 @@ export function sqliteColumnConfigAdapter(db: Database): ColumnConfigPort {
 
     upsert(input: CreateColumnConfigRecord): ColumnConfigRow {
       db.run(
-        `INSERT INTO column_config (config_id, project_id, status, agent_id, prompt_template, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO column_config (config_id, project_id, status, agent_id, prompt_template, approval_posture, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(project_id, status)
-         DO UPDATE SET agent_id = excluded.agent_id, prompt_template = excluded.prompt_template, updated_at = excluded.updated_at`,
+         DO UPDATE SET agent_id = excluded.agent_id, prompt_template = excluded.prompt_template, approval_posture = excluded.approval_posture, updated_at = excluded.updated_at`,
         [
           input.configId,
           input.projectId,
           input.status,
           input.agentId,
           input.promptTemplate,
+          input.approvalPosture ?? "auto",
           input.now,
           input.now,
         ],
@@ -71,6 +74,7 @@ export function sqliteColumnConfigAdapter(db: Database): ColumnConfigPort {
         status: input.status,
         agentId: input.agentId,
         promptTemplate: input.promptTemplate,
+        approvalPosture: (input.approvalPosture ?? "auto") as "auto" | "human",
         createdAt: input.now,
         updatedAt: input.now,
       };

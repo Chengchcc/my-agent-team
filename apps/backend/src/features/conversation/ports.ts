@@ -11,6 +11,8 @@ export interface ConversationRow {
   hopCount: number;
   createdAt: number;
   title: string | null;
+  /** M19: Origin — 'user' for user chats, 'issue' for issue-side conversations. */
+  origin: string;
 }
 
 export interface MemberRow {
@@ -31,6 +33,7 @@ export type { LedgerEntry };
 export interface CreateConversationInput {
   conversationId: string;
   triggerMode?: string;
+  origin?: string;
   createdAt: number;
 }
 

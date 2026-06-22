@@ -39,6 +39,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
       name: string;
       repoUrl?: string | null;
       defaultBranch?: string | null;
+      autoOrchestrate?: boolean;
     }): ProjectRow {
       const name = input.name.trim();
       if (!name) throw new ValidationError("project name required");
@@ -48,6 +49,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
           name,
           repoUrl: input.repoUrl ?? null,
           defaultBranch: input.defaultBranch ?? null,
+          autoOrchestrate: input.autoOrchestrate,
           createdAt: now(),
         });
       } catch (err) {
@@ -79,6 +81,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
         name?: string;
         repoUrl?: string | null;
         defaultBranch?: string | null;
+        autoOrchestrate?: boolean;
       },
     ): ProjectRow {
       if (patch.name !== undefined && !patch.name.trim()) {
@@ -89,6 +92,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
           name: patch.name?.trim() || undefined,
           repoUrl: patch.repoUrl,
           defaultBranch: patch.defaultBranch,
+          autoOrchestrate: patch.autoOrchestrate,
           updatedAt: now(),
         });
         if (!p) throw new ProjectNotFoundError(id);

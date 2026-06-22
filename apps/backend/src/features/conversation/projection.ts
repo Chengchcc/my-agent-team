@@ -166,8 +166,10 @@ export async function onRunComplete(
   const { conversationId: cid, memberId: senderMemberId } = parseThreadId(threadId);
   if (!cid) return;
 
-  // M18.2: issue-driven runs are handled by orchestrator — skip entire projection
-  if (opsStore.getRunOrigin(runId)?.issueId) {
+  // M19: issue-driven runs (origin_kind=orchestrator) are handled by reactor —
+  // skip projection and @mention cascade to avoid double-drive.
+  const origin = opsStore.getRunOrigin(runId);
+  if (origin?.originKind === "orchestrator") {
     clearAccumulator(runId);
     return;
   }

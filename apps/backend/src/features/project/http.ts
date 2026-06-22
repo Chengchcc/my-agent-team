@@ -11,12 +11,14 @@ const createSchema = z.object({
   name: z.string().trim().min(1),
   repoUrl: z.string().trim().optional(),
   defaultBranch: z.string().trim().optional(),
+  autoOrchestrate: z.boolean().optional(),
 });
 
 const updateSchema = z.object({
   name: z.string().trim().optional(),
   repoUrl: z.string().trim().nullable().optional(),
   defaultBranch: z.string().trim().nullable().optional(),
+  autoOrchestrate: z.boolean().optional(),
 });
 
 export function projectRoutes(svc: ProjectService) {

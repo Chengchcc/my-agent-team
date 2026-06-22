@@ -15,6 +15,9 @@ function setup() {
       title      TEXT NOT NULL,
       status     TEXT NOT NULL,
       thread_id  TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      priority   TEXT NOT NULL DEFAULT 'P2',
+      estimated_completion_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -189,6 +192,7 @@ describe("submitDeliverable", () => {
       traceId: "",
       traceparent: "",
       idempotencyKey: "run_001",
+      originKind: "orchestrator",
       fromStatus: "planned",
       createdAt: 1000,
     });
@@ -262,6 +266,7 @@ describe("submitDeliverable", () => {
       traceId: "",
       traceparent: "",
       idempotencyKey: "run_x",
+      originKind: "orchestrator",
       fromStatus: "planned",
       createdAt: 1000,
     });
@@ -528,6 +533,7 @@ describe("detail endpoint", () => {
       traceId: "",
       traceparent: "",
       idempotencyKey: "r_detail",
+      originKind: "orchestrator",
       fromStatus: "planned",
       createdAt: 1000,
     });

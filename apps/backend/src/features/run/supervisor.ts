@@ -43,7 +43,7 @@ export interface RunRequestOptions {
     surface: "lark" | "web" | "cli" | "orchestrator";
     conversationId: string;
     runId: string;
-    capabilities: Array<"start_new_conversation" | "submit_deliverable">;
+    capabilities: Array<"start_new_conversation" | "submit_deliverable" | "read_issues">;
     issue?: { issueId: string; fromStatus: string };
   };
   /** M16: Trace context propagated to runner daemon via transport start. */

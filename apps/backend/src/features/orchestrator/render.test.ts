@@ -49,13 +49,13 @@ describe("renderPrompt", () => {
     expect(result).toBe("MR: ");
   });
 
-  test("intermediate object (non-string leaf) resolves to empty string", () => {
+  test("intermediate object (non-string leaf) resolves to object string representation", () => {
     const vars = {
       deliverables: { plan: { fields: { summary: "X" }, ref: "" } },
     };
-    // {{deliverables.plan}} → { fields: { summary: "X" }, ref: "" } — non-string → ""
+    // {{deliverables.plan}} → [object Object] under Handlebars with noEscape
     const result = renderPrompt("{{deliverables.plan}}", vars);
-    expect(result).toBe("");
+    expect(result).toBe("[object Object]");
   });
 
   test("top-level missing key resolves to empty string", () => {
@@ -63,8 +63,9 @@ describe("renderPrompt", () => {
     expect(result).toBe("");
   });
 
-  test("spaces inside braces still not matched (regression)", () => {
+  test("spaces inside braces are handled by Handlebars (trims whitespace)", () => {
+    // Handlebars trims whitespace inside {{ }} by default
     const result = renderPrompt("{{ x }}", { x: "y" });
-    expect(result).toBe("{{ x }}");
+    expect(result).toBe("y");
   });
 });

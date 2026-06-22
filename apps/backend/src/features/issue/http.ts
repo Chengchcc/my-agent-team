@@ -17,6 +17,16 @@ import {
 const createSchema = z.object({
   projectId: z.string().trim().min(1),
   title: z.string().trim().min(1),
+  description: z.string().optional(),
+  priority: z.enum(["P0", "P1", "P2", "P3"]).optional(),
+  estimatedCompletionAt: z.number().nullable().optional(),
+});
+
+const updateSchema = z.object({
+  title: z.string().trim().min(1).optional(),
+  description: z.string().optional(),
+  priority: z.enum(["P0", "P1", "P2", "P3"]).optional(),
+  estimatedCompletionAt: z.number().nullable().optional(),
 });
 
 const transitionSchema = z.object({ to: z.enum(ISSUE_STATUSES as readonly [string, ...string[]]) });
@@ -83,6 +93,32 @@ export function issueRoutes(
       const issue = svc.port.getIssue(issueId);
       if (!issue) return json({ error: "Not found" }, 404);
       return json({ issue });
+    },
+
+    /** PATCH /api/issues/:id → 200 { issue } | 400 | 404 */
+    async update(req: Request, issueId: string): Promise<Response> {
+      const parsed = updateSchema.safeParse(await req.json().catch(() => ({})));
+      if (!parsed.success)
+        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
+      try {
+        const issue = svc.updateIssue(issueId, parsed.data);
+        return json({ issue });
+      } catch (err) {
+        if (err instanceof IssueNotFoundError) return json({ error: err.message }, 404);
+        if (err instanceof ValidationError) return json({ error: err.message }, 400);
+        throw err;
+      }
+    },
+
+    /** DELETE /api/issues/:id → 204 | 404 */
+    remove(_req: Request, issueId: string): Response {
+      try {
+        svc.deleteIssue(issueId);
+        return new Response(null, { status: 204 });
+      } catch (err) {
+        if (err instanceof IssueNotFoundError) return json({ error: err.message }, 404);
+        throw err;
+      }
     },
 
     /** POST /api/issues/:id/transition { to } → 200 { issue } | 404 | 409 */

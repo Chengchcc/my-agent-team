@@ -45,15 +45,16 @@ describe("IssueService", () => {
     expect(issue.issueId).toBe("test-iss-0");
     expect(issue.status).toBe("draft");
     expect(issue.title).toBe("Fix login bug");
-    expect(issue.threadId).toBe("issue:test-iss-0");
+    // M19: threadId uses conversation format <issueId>:owner
+    expect(issue.threadId).toBe("test-iss-0:owner");
   });
 
-  test("threadId is derived as issue:<id>", () => {
+  test("threadId is derived as <issueId>:owner", () => {
     const issue = svc.createIssue({
       projectId: "proj-1",
       title: "Thread check",
     });
-    expect(issue.threadId).toBe(`issue:${issue.issueId}`);
+    expect(issue.threadId).toBe(`${issue.issueId}:owner`);
   });
 
   test("applyTransition moves draft → planned", () => {
