@@ -4,6 +4,7 @@ import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
@@ -20,14 +21,20 @@ export function CopyButton({ text, label }: { text: string; label?: string }) {
   };
 
   return (
-    <Button
-      variant="ghost"
-      size="icon-xs"
-      onClick={handleCopy}
-      title={label ? `Copy ${label}` : "Copy"}
-      aria-label={label ? `Copy ${label}` : "Copy to clipboard"}
-    >
-      {copied ? <Check size={12} className="text-primary" /> : <Copy size={12} />}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={handleCopy}
+            aria-label={label ? `Copy ${label}` : "Copy to clipboard"}
+          >
+            {copied ? <Check size={12} className="text-primary" /> : <Copy size={12} />}
+          </Button>
+        }
+      />
+      <TooltipContent>{label ? `Copy ${label}` : "Copy"}</TooltipContent>
+    </Tooltip>
   );
 }

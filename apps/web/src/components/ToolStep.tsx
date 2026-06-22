@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { normalizeToolResultContent } from "@/lib/render-blocks";
 
 export function ToolStep({
@@ -16,31 +21,34 @@ export function ToolStep({
   const [open, setOpen] = useState(false);
   return (
     <div className="font-[family-name:var(--font-mono)] text-[12px]">
-      <Button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-left hover:text-[var(--ink)] transition-colors text-[var(--mute)]"
-      >
-        <span className="text-[var(--primary)]">→</span>
-        <span className="text-[var(--primary)]">{name}</span>
-        <span className="text-[var(--hairline-soft)]">{open ? "▲" : "▼"}</span>
-      </Button>
-      {open && (
-        <div className="pl-4 mt-1 flex flex-col gap-1">
-          <pre className="text-[var(--canvas-text-soft)] bg-[var(--canvas-soft)] rounded p-2 overflow-x-auto max-h-40">
-            {JSON.stringify(input, null, 2)}
-          </pre>
-          {result && (
-            <pre
-              className={`rounded p-2 overflow-x-auto max-h-40 ${
-                result.isError ? "text-red-400" : "text-[var(--body)]"
-              } bg-[var(--canvas-soft)]`}
-            >
-              {"⤷ "}
-              {normalizeToolResultContent(result.content)}
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger
+          render={
+            <Button className="flex items-center gap-1.5 text-left hover:text-[var(--ink)] transition-colors text-[var(--mute)]" />
+          }
+        >
+          <span className="text-[var(--primary)]">→</span>
+          <span className="text-[var(--primary)]">{name}</span>
+          <span className="text-[var(--hairline-soft)]">{open ? "▲" : "▼"}</span>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="pl-4 mt-1 flex flex-col gap-1">
+            <pre className="text-[var(--canvas-text-soft)] bg-[var(--canvas-soft)] rounded p-2 overflow-x-auto max-h-40">
+              {JSON.stringify(input, null, 2)}
             </pre>
-          )}
-        </div>
-      )}
+            {result && (
+              <pre
+                className={`rounded p-2 overflow-x-auto max-h-40 ${
+                  result.isError ? "text-red-400" : "text-[var(--body)]"
+                } bg-[var(--canvas-soft)]`}
+              >
+                {"⤷ "}
+                {normalizeToolResultContent(result.content)}
+              </pre>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Form,
   FormControl,
@@ -310,11 +311,9 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                     render={({ field }) => (
                       <FormItem>
                         <label className="flex items-center gap-2 cursor-pointer mb-4">
-                          <Input
-                            type="checkbox"
+                          <Checkbox
                             checked={field.value}
-                            onChange={(e) => field.onChange(e.target.checked)}
-                            className="w-4 h-4 rounded border-[var(--hairline)] accent-[var(--primary)]"
+                            onCheckedChange={(checked) => field.onChange(checked)}
                           />
                           <span className={`${labelClass} mb-0`}>Enable Lark Bot</span>
                           {editAgent?.lark?.status && (
