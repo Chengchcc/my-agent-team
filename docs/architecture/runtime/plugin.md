@@ -4,7 +4,7 @@ title: 运行时插件机制
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-16
-summary: "插件是往 Framework 运行循环里挂行为的标准方式。一个插件就是一个带名字、带一组钩子、可选带工具的对象；createAgent 收下所有插件，由 createPluginRunner 在循环的各个节点按顺序触发它们的钩子。记忆、技能、防早停都是用这套机制实现的，循环本体不需要知道它们的存在。"
+summary: "插件是往 Framework 运行循环里挂行为的标准方式。一个插件就是一个带名字、带一组钩子、可选带工具的对象；createAgent 收下所有插件，由 createPluginRunner 在循环的各个节点按顺序触发它们的钩子。记忆、技能、task-guard都是用这套机制实现的，循环本体不需要知道它们的存在。"
 depends_on:
   - runtime.framework
 used_by:
@@ -16,7 +16,7 @@ used_by:
 
 # 运行时插件机制
 
-插件是往 Framework 运行循环里挂行为的标准方式。一个插件就是一个带名字、带一组钩子、可选带工具的对象；createAgent 收下所有插件，由 createPluginRunner 在循环的各个节点按顺序触发它们的钩子。记忆、技能、防早停都是用这套机制实现的，循环本体不需要知道它们的存在。
+插件是往 Framework 运行循环里挂行为的标准方式。一个插件就是一个带名字、带一组钩子、可选带工具的对象；createAgent 收下所有插件，由 createPluginRunner 在循环的各个节点按顺序触发它们的钩子。记忆、技能、task-guard都是用这套机制实现的，循环本体不需要知道它们的存在。
 
 ## Plugin 的形状
 
@@ -104,4 +104,4 @@ interface HookContext {
 - [Harness 默认装配](../harness/harness.md)
 - [文件型记忆](../plugins/fs-memory.md)
 - [渐进式技能](../plugins/progressive-skill.md)
-- [防早停任务守卫](../plugins/task-guard.md)
+- [task-guard plugin](../plugins/task-guard.md)

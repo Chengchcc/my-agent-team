@@ -78,7 +78,7 @@ case "run_done": {
 | heartbeat | Runner 心跳 | 更新 attempt 心跳时间 |
 | run_done | Runner 终态消息 | 更新 run 状态、跑完成钩子、发 run_finalized |
 | cancel | runId | 向 Runner 发 abort |
-| resume | runId | 新 attempt，daemon 续跑 |
+| resume | runId | 新 attempt，daemon resume |
 
 ## 运行 vs 尝试
 

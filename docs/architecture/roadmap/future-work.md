@@ -27,7 +27,7 @@ used_by:
 
 > 以下为方向性条目，不代表已实现；落地前请以对应当前状态页为准。
 
-- **更细的投影可见性策略**　当前 assistant 消息经 `onRunMessage` 直写账本，投影桥只做 best-effort fan-out。未来可引入更细的可见性规则（按成员、按事件子类型），但任何扩展都应保持「assistant 消息与人类消息同一入口直写账本」「账本为唯一对话事实」这两条不变式。依赖：[会话投影](../backend/conversation-projection.md)、[事实与投影](../foundations/facts-and-projections.md)。
+- **更细的投影可见性策略**　当前 assistant 消息经 `onRunMessage` 直写账本，projection bridge只做 best-effort fan-out。未来可引入更细的可见性规则（按成员、按事件子类型），但任何扩展都应保持「assistant 消息与人类消息同一入口直写账本」「账本为唯一对话事实」这两条不变式。依赖：[会话投影](../backend/conversation-projection.md)、[事实与投影](../foundations/facts-and-projections.md)。
 - **端去重的统一化**　飞书侧的 `canSkipFinalLedgerText` 解决了终稿重发与首投必发的张力。若未来接入更多端，可考虑把「端去重」抽象成各适配器共享的一层，而非每个端各写一套。依赖：[飞书适配器](../surfaces/lark-adapter.md)。
 - **恢复语义的强化**　checkpointer 的 saveInterrupt / consumeInterrupt 已支撑中断恢复。可进一步明确多次中断、反思分叉（`reflect:<threadId>`）与主线恢复之间的交互边界。依赖：[Framework 运行循环](../runtime/framework.md)、[常驻 Runner](../runner/resident-runner.md)。
 - **Issue 协作工作流演进**　[Issue](../foundations/issue.md) 本体与 [Orchestrator](../backend/orchestrator.md) 固定线性推进已落地，下一版要把它演进成「可发起、按配置驱动、交付物可结构化传递、可验收返工、可观测」的协作流。完整设计抽象与不变量收拢在 [Issue 协作工作流](../foundations/issue-workflow.md)（`status: design`）；本节只记**落地顺序**。依赖：[Issue 协作工作流](../foundations/issue-workflow.md)、[Orchestrator](../backend/orchestrator.md)。

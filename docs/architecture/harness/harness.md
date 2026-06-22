@@ -4,7 +4,7 @@ title: Harness 默认装配
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-16
-summary: "Harness 把 Framework 这套底座装配成一个「开箱即用」的通用 Agent。它的入口是 createGenericAgent：在裸 Framework 之上，预置一组默认工具（基于 AgentFS 的 Read/Write/Edit，加上带工作区沙箱的 bash/glob/grep）和一组默认插件（文件型记忆、渐进式技能、防早停守卫），让上层不必每次都手工拼装。"
+summary: "Harness 把 Framework 这套底座装配成一个「开箱即用」的通用 Agent。它的入口是 createGenericAgent：在裸 Framework 之上，预置一组默认工具（基于 AgentFS 的 Read/Write/Edit，加上带工作区沙箱的 bash/glob/grep）和一组默认插件（文件型记忆、渐进式技能、task-guard守卫），让上层不必每次都手工拼装。"
 depends_on:
   - runtime.framework
   - runtime.plugin
@@ -14,7 +14,7 @@ used_by:
 
 # Harness 默认装配
 
-Harness 把 Framework 这套底座装配成一个「开箱即用」的通用 Agent。它的入口是 createGenericAgent：在裸 Framework 之上，预置一组默认工具（基于 AgentFS 的 Read/Write/Edit，加上带工作区沙箱的 bash/glob/grep）和一组默认插件（文件型记忆、渐进式技能、防早停守卫），让上层不必每次都手工拼装。
+Harness 把 Framework 这套底座装配成一个「开箱即用」的通用 Agent。它的入口是 createGenericAgent：在裸 Framework 之上，预置一组默认工具（基于 AgentFS 的 Read/Write/Edit，加上带工作区沙箱的 bash/glob/grep）和一组默认插件（文件型记忆、渐进式技能、task-guard守卫），让上层不必每次都手工拼装。
 
 ## 入口：createGenericAgent
 
@@ -59,7 +59,7 @@ progressiveSkillPlugin({                        // 渐进式技能，挂在 priv
   root: "/skills/",
   posixSkillRoot: `${workspace.privateRoot}/skills`,
 }),
-taskGuardPlugin({ model }),                     // 防早停守卫
+taskGuardPlugin({ model }),                     // task-guard守卫
 ```
 
 - `/memory/` 映射到 **shared** 域：记忆跨运行可见。

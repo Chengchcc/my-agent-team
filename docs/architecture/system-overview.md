@@ -14,7 +14,7 @@ used_by:
 
 # 系统总览
 
-整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。assistant 消息经 `RunSupervisor.onRunMessage` 直写对话账本（与人类消息共用同一条 `appendLedgerEntry` 入口），非消息执行事件（tool_start/tool_end/text_delta）单独进 EventLog；会话投影桥降级为 best-effort fan-out（broadcast 给前端、ops 记录）。对话账本 SSE 是用户可见输出的唯一通道。
+整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。assistant 消息经 `RunSupervisor.onRunMessage` 直写对话账本（与人类消息共用同一条 `appendLedgerEntry` 入口），非消息执行事件（tool_start/tool_end/text_delta）单独进 EventLog；会话projection bridge降级为 best-effort fan-out（broadcast 给前端、ops 记录）。对话账本 SSE 是用户可见输出的唯一通道。
 
 ## 这套架构在解决什么问题
 
@@ -77,7 +77,7 @@ flowchart TB
 | L2 | Framework | Agent 主循环、插件、上下文管理、Checkpointer | 成员关系、账本 |
 | L3 | Harness | 把文件/工具/插件装配成 Agent | 运行调度、团队路由 |
 | L4 | Runner | 进程/会话生命周期、心跳、中止/恢复 | 账本写入规则、飞书/Web 去重 |
-| L5 | Backend | agents / conversation / run / event / 账本 / 投影 | 模型与工具内部 |
+| L5 | Backend | agents / conversation / run / event / ledger / projection | 模型与工具内部 |
 | L6 | 端 | Web/飞书的输入与渲染 | 任何持久化事实 |
 
 ## 一次完整运行的时序
@@ -117,7 +117,7 @@ sequenceDiagram
 ## 当前实现的几条边界
 
 - EventLog 由后端 `RunSupervisor` 在收到 Runner 传输的**非消息**事件后追加；Runner 不直接打开 EventLog 库，message 事件根本不进 EventLog。
-- assistant 消息在 `apps/backend/src/main.ts` 的 `onRunMessage` 回调里经 `appendAssistantMessage` 直写 `ConversationMessageRevision` 信封（messageId, state=streaming/done/error），与人类消息共用同一条 `appendLedgerEntry` 入口；`onRunComplete` 取最新 assistant revision 写入最终 done/error 修订，再做放锁、todo 快照、@提及扫描。会话投影桥只剩 best-effort fan-out（broadcast/ops）。
+- assistant 消息在 `apps/backend/src/main.ts` 的 `onRunMessage` 回调里经 `appendAssistantMessage` 直写 `ConversationMessageRevision` 信封（messageId, state=streaming/done/error），与人类消息共用同一条 `appendLedgerEntry` 入口；`onRunComplete` 取最新 assistant revision 写入最终 done/error 修订，再做放锁、todo 快照、@提及扫描。会话projection bridge只剩 best-effort fan-out（broadcast/ops）。
 - Runner 本地的 `checkpointer.sqlite` 是给 Agent 执行恢复用的；`buildPreloadedMessages` 从[账本](../conversation/ledger.md)直接构建 Message[] 喂给 Agent——不经过 `projection_messages` 中间表。两者名字不同但都涉及「运行前准备上下文」，用途不同要分清。
 - Web/飞书统一消费对话账本 SSE，按 `messageId` upsert 到同一个气泡/卡片中。不再有独立的 `/runs/:id/events` 或 `/runs/:id/stream` 连接。
 - delta 信道（text_delta/tool_start/tool_end）仅限后端内部日志/运维消费，不直接暴露给端。
@@ -128,14 +128,14 @@ sequenceDiagram
 2. 端可以展示数据，但不能成为事实来源。
 3. Runner 执行 AgentSpec、上报事件，它不决定对话语义。
 4. assistant 消息与人类消息经同一入口（`appendLedgerEntry`）写进账本，账本是对话消息的唯一事实来源；EventLog 只含非消息执行细节。
-5. `projection_messages`（线程投影缓存）和 `buildPreloadedMessages` 的 Message[] 都从账本重建；账本不能从它们反向重建。
+5. `projection_messages`（projection_messages 表缓存）和 `buildPreloadedMessages` 的 Message[] 都从账本重建；账本不能从它们反向重建。
 
 ## 例子：Agent 在 Web 里回答一句话
 
 1. 用户在 Web 发「总结一下这个仓库」。
 2. 后端把用户消息（`ConversationMessageRevision`, state=done）追加进账本。
 3. 触发逻辑启动目标 Agent 成员的运行。
-4. Agent 开始流式产出，Runner 上发 message 事件；`onRunMessage` 把 state=streaming 的修订信封直写账本。
+4. Agent 开始streaming 产出，Runner 上发 message 事件；`onRunMessage` 把 state=streaming 的修订信封直写账本。
 5. 对话账本 SSE 推修订给 Web；Web 按 `messageId` upsert 进气泡，实时刷新内容。
 6. Runner 发出 `run_done`（succeeded）。
 7. `onRunComplete` 取最新 assistant revision 写入 state=done 修订，关闭该消息。

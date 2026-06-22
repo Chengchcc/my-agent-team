@@ -60,7 +60,7 @@ stateDiagram-v2
   done --> [*]
 ```
 
-草稿态是状态机新增的**起点**，不是新本体——它仍是 Issue 的一个 `status` 取值。Kanban 多出一列「草稿」，拖拽语义不变（卡片入列 = 改 `status`，事实仍在 Issue 上）。
+草稿态是状态机新增的**起点**，不是new entity——它仍是 Issue 的一个 `status` 取值。Kanban 多出一列「草稿」，拖拽语义不变（卡片入列 = 改 `status`，事实仍在 Issue 上）。
 
 ## ③ 列可配置：绑定已有 Agent + prompt 模板（✅ 已落地 M18.4 后端 + M18.8 前端入口）
 

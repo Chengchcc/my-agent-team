@@ -47,7 +47,7 @@
 3. `conversation/ledger.md`
 4. `backend/conversation-projection.md`
 
-## 如果问的是 Agent 执行内核 / 插件 / 记忆 / 技能 / 防早停
+## 如果问的是 Agent 执行内核 / 插件 / 记忆 / 技能 / task-guard
 
 1. `runtime/framework.md`
 2. `runtime/plugin.md`

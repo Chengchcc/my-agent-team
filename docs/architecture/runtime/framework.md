@@ -32,8 +32,8 @@ Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏
 | `message` | 一条完整消息（被 Runner 上报后，由 Backend 的 `onRunMessage` [直写进账本](../conversation/ledger.md)，再由 `broadcastMessage` [扇出](../backend/conversation-projection.md)到前端） |
 | `interrupted` | 运行被中断 |
 | `error` | 运行出错 |
-| `text_delta` | 文本流式增量 |
-| `reasoning_delta` | 推理过程流式增量 |
+| `text_delta` | 文本streaming 增量 |
+| `reasoning_delta` | 推理过程streaming 增量 |
 | `tool_start` | 工具开始执行 |
 | `tool_end` | 工具执行结束 |
 | `todo_update` | 待办/计划更新 |
@@ -49,7 +49,7 @@ Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏
 - `beforeRun` — 运行开始前
 - `beforeModel` / `afterModel` — 每次模型调用的前后
 - `beforeTool` / `afterTool` — 每次工具调用的前后
-- `beforeStop` — 循环准备停下前（防早停逻辑常挂在这里）
+- `beforeStop` — 循环准备停下前（task-guard逻辑常挂在这里）
 
 这套钩子是 task-guard、observability 等插件的接入点。
 
@@ -117,7 +117,7 @@ interface Checkpointer {
 
 - [常驻 Runner](../runner/resident-runner.md)
 - [运行时插件](plugin.md)
-- [防早停任务守卫](../plugins/task-guard.md)
+- [task-guard plugin](../plugins/task-guard.md)
 - [运行编排器](../backend/run-supervisor.md)
 - [对话账本](../conversation/ledger.md)
 - [会话投影](../backend/conversation-projection.md)

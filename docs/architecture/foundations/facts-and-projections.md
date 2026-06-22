@@ -4,7 +4,7 @@ title: 事实与投影
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-22
-summary: "Message 领域类型只有一处定义（@my-agent-team/message）。conversation_ledger 是对话的 canonical fact store。其余都是 infrastructure：EventLog 只存 execution detail、buildPreloadedMessages 是纯投影函数、projection_messages 是 broadcast cache、Checkpointer 存 recovery state、SSE 是 transport。没有任何层复制 Message 语义。"
+summary: "Message 领域类型只有一处定义（@my-agent-team/message）。conversation_ledger 是对话的 canonical fact store。其余都是 infrastructure：EventLog 只存 execution detail、buildPreloadedMessages 是pure projection function、projection_messages 是 broadcast cache、Checkpointer 存 recovery state、SSE 是 transport。没有任何层复制 Message 语义。"
 depends_on:
 used_by:
   - backend.conversation-projection
@@ -67,7 +67,7 @@ flowchart LR
 - **Agent 看到什么**：`buildPreloadedMessages` 从 ledger 读 → 按 memberId 折叠（self→assistant，other→user）→ 产出 `Message[]` 给 `preloadedMessages`
 - **UI 怎么更新**：`subscribeConversation` SSE 从 ledger 直接 poll
 
-## buildPreloadedMessages vs broadcastMessage：两个投影
+## buildPreloadedMessages vs broadcastMessage：two projections
 
 | | buildPreloadedMessages | broadcastMessage → projection_messages |
 |---|---|---|

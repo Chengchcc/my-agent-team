@@ -4,7 +4,7 @@ title: 后端总览
 status: current
 owners: backend-runtime
 last_verified_against_code: 2026-06-18
-summary: "后端（apps/backend）是整个系统的事实持有者：它拥有 agents、对话、成员、运行、事件、账本和投影。它对外是一组 HTTP/SSE 接口，对内由几个相互独立的 feature 模块组成，存储分成 backend.db 和 events.db 两个库。"
+summary: "后端（apps/backend）是整个系统的事实持有者：它拥有 agents、对话、成员、运行、事件, ledger and projection。它对外是一组 HTTP/SSE 接口，对内由几个相互独立的 feature 模块组成，存储分成 backend.db 和 events.db 两个库。"
 depends_on:
 used_by:
   - backend.run-supervisor
@@ -13,7 +13,7 @@ used_by:
 
 # 后端总览
 
-后端（apps/backend）是整个系统的事实持有者：它拥有 agents、对话、成员、运行、事件、账本和投影。它对外是一组 HTTP/SSE 接口，对内由几个相互独立的 feature 模块组成，存储分成 backend.db 和 events.db 两个库。
+后端（apps/backend）是整个系统的事实持有者：它拥有 agents、对话、成员、运行、事件, ledger and projection。它对外是一组 HTTP/SSE 接口，对内由几个相互独立的 feature 模块组成，存储分成 backend.db 和 events.db 两个库。
 
 ## 模块切分
 

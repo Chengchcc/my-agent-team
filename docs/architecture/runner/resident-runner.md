@@ -22,7 +22,7 @@ used_by:
 
 进程和 Agent 一一对应，state（checkpointer、surfaceContext）天然按 Agent 隔离。
 
-## 保活
+## keepalive
 
 两个定时器：
 

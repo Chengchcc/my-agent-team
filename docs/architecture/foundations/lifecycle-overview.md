@@ -4,7 +4,7 @@ title: 一次运行的生命周期
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-18
-summary: "这一页把一次 Agent 运行从「被发起」到「彻底收尾」串成一条时间线，标出每个阶段由谁负责、产出什么事实、触发什么投影。它是理解后端、Runner、Framework、各端如何咬合的总览——具体每一段的细节都另有专页，这里只给骨架和顺序。"
+summary: "这一页把一次 Agent 运行从「被发起」到「full completion」串成一条时间线，标出每个阶段由谁负责、产出什么事实、触发什么 projection。它是理解后端、Runner、Framework、各端如何咬合的总览——具体每一段的细节都另有专页，这里只给骨架和顺序。"
 depends_on:
   - foundations.facts-and-projections
   - backend.conversation-projection
@@ -15,7 +15,7 @@ used_by:
 
 # 一次运行的生命周期
 
-这一页把一次 Agent 运行从「被发起」到「彻底收尾」串成一条时间线，标出每个阶段由谁负责、产出什么事实、触发什么投影。它是理解后端、Runner、Framework、各端如何咬合的总览——具体每一段的细节都另有专页，这里只给骨架和顺序。
+这一页把一次 Agent 运行从「被发起」到「full completion」串成一条时间线，标出每个阶段由谁负责、产出什么事实、触发什么 projection。它是理解后端、Runner、Framework、各端如何咬合的总览——具体每一段的细节都另有专页，这里只给骨架和顺序。
 
 ## 时间线骨架
 

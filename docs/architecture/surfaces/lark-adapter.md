@@ -4,7 +4,7 @@ title: 飞书适配器
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-16
-summary: "飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，通过 sse-watcher 消费账本 ConversationMessageRevision 决定流式/最终可见文本。不再有 run-delta-watcher 和流式卡片——sse-watcher 是唯一出站流入口。去重依赖 revision 的 messageId + canSkipFinalLedgerText。"
+summary: "飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，通过 sse-watcher 消费账本 ConversationMessageRevision 决定流式/最终可见文本。不再有 run-delta-watcher 和streaming 卡片——sse-watcher 是唯一出站流入口。去重依赖 revision 的 messageId + canSkipFinalLedgerText。"
 depends_on:
   - conversation.ledger
   - backend.conversation-projection
@@ -15,7 +15,7 @@ used_by:
 
 # 飞书适配器
 
-飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，通过 sse-watcher 消费账本 ConversationMessageRevision 决定流式/最终可见文本。不再有 run-delta-watcher 和流式卡片——sse-watcher 是唯一出站流入口。去重依赖 revision 的 messageId + canSkipFinalLedgerText。
+飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，通过 sse-watcher 消费账本 ConversationMessageRevision 决定流式/最终可见文本。不再有 run-delta-watcher 和streaming 卡片——sse-watcher 是唯一出站流入口。去重依赖 revision 的 messageId + canSkipFinalLedgerText。
 
 ## 这页解决什么问题
 
@@ -67,7 +67,7 @@ sequenceDiagram
 
 `sse-watcher` 用 `parseRevision` 解析账本 entry 的 content 为 `ConversationMessageRevision`。`state` 字段驱动出站行为：
 
-- `state === "streaming"`：run 仍在进行。sse-watcher 可将文本渐进渲染为流式消息（更新同一 message），但不发最终文本。
+- `state === "streaming"`：run 仍在进行。sse-watcher 可将文本渐进渲染为streaming 消息（更新同一 message），但不发最终文本。
 - `state === "done"`：terminal revision。到达时查 `canSkipFinalLedgerText`——首次必发一次最终文本（`completeFromLedger` 尚为 0），重连重放时可跳过。
 - `state === "error"`：run 失败。发错误文本。
 
@@ -98,7 +98,7 @@ runId 匹配在调用方 `sse-watcher.processEntry` 做：解析 revision 的 `r
 ## 失败模式
 
 - 最终答案重复：terminal revision 重放 / `canSkipFinalLedgerText` 没命中。
-- 不支持的内容：纯工具块被投影进账本。
+- 不支持的内容：纯工具块projected into ledger。
 - 会话绑定错：飞书 chat 映射到了错误对话。
 - 缺成员：飞书用户没解析成 human 成员。
 

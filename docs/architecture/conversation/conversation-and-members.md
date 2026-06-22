@@ -49,7 +49,7 @@ used_by:
 
 - Agent 没被触发：提及没解析上、触发模式拦住了、有活动锁、或到了跳数上限。
 - Agent 被触发两次：完成处理重复或缺锁。
-- 错的 Agent 看到消息：成员→线程的投影映射错了。
+- 错的 Agent 看到消息：成员→thread projection mapping错了。
 
 ## 关联页面
 

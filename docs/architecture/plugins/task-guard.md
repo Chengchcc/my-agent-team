@@ -1,23 +1,23 @@
 ---
 id: plugins.task-guard
-title: 防早停任务守卫
+title: task-guard plugin
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-16
-summary: "防早停任务守卫（taskGuardPlugin）专治 Agent「活没干完就想收工」。它挂在 beforeStop 钩子上：当 Agent 准备停下时，守卫检查是否还有未解决的工具错误、是否还有未完成的待办步骤；只要有，就否决停止、返回「继续」并附上原因。这种强制继续受 Framework 的 maxForceContinues（默认 3）约束，不会无限续命。"
+summary: "task-guard plugin（taskGuardPlugin）专治 Agent「活没干完就想收工」。它挂在 beforeStop 钩子上：当 Agent 准备停下时，守卫检查是否还有未解决的工具错误、是否还有未完成的待办步骤；只要有，就否决停止、返回「继续」并附上原因。这种强制继续受 Framework 的 maxForceContinues（默认 3）约束，不会无限续命。"
 depends_on:
   - runtime.framework
   - runtime.plugin
 used_by:
 ---
 
-# 防早停任务守卫
+# task-guard plugin
 
-防早停任务守卫（taskGuardPlugin）专治 Agent「活没干完就想收工」。它挂在 beforeStop 钩子上：当 Agent 准备停下时，守卫检查是否还有未解决的工具错误、是否还有未完成的待办步骤；只要有，就否决停止、返回「继续」并附上原因。这种强制继续受 Framework 的 maxForceContinues（默认 3）约束，不会无限续命。
+task-guard plugin（taskGuardPlugin）专治 Agent「活没干完就想收工」。它挂在 beforeStop 钩子上：当 Agent 准备停下时，守卫检查是否还有未解决的工具错误、是否还有未完成的待办步骤；只要有，就否决停止、返回「继续」并附上原因。这种强制继续受 Framework 的 maxForceContinues（默认 3）约束，不会无限续命。
 
 ## 挂载点：四个钩子 + 一个工具
 
-防早停插件不止挂 `beforeStop`——它覆盖了运行循环的四个节点，并贡献一个工具：
+task-guard plugin不止挂 `beforeStop`——它覆盖了运行循环的四个节点，并贡献一个工具：
 
 | 钩子/工具 | 触发时机 | 做了什么 |
 |-----------|----------|----------|

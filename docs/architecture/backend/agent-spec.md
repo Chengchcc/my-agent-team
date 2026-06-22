@@ -58,7 +58,7 @@ Runner daemon 用 `AgentSpecV2.safeParse` 解析。V2 是按 `mode` 区分的可
 
 ```mermaid
 flowchart LR
-  Ledger[(账本)] --> TP[线程投影]
+  Ledger[(账本)] --> TP[projection_messages]
   TP --> Pre[preloadedMessages]
   Pre --> Start[transport.start]
   Spec[AgentSpec V2] --> Start

@@ -22,7 +22,7 @@ used_by:
 
 ## 对话层：线程隔离
 
-对话可见性的基本单位是**线程**，约定 `thread_id = conversationId:memberId`（由 `deriveThreadId` 推导）。同一个共享对话里，每个成员有自己的一条线程投影。这条约定决定了「账本是共享的事实，但每个成员看到的投影是按自己的 thread 切出来的」——成员之间不会串台。
+对话可见性的基本单位是**线程**，约定 `thread_id = conversationId:memberId`（由 `deriveThreadId` 推导）。同一个共享对话里，每个成员有自己的一条 projection_messages 记录。这条约定决定了「账本是共享的事实，但每个成员看到的投影是按自己的 thread 切出来的」——成员之间不会串台。
 
 在 Framework 内部，未显式指定时线程标识可退化为随机 UUID，保证每次运行至少有一个隔离的线程身份。
 

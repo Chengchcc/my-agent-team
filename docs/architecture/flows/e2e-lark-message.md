@@ -4,7 +4,7 @@ title: 飞书消息端到端
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-18
-summary: "这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、onRunMessage 直写账本、sse-watcher 解析 ConversationMessageRevision，到最终文本去重。不再有 run-delta-watcher 和流式卡片——sse-watcher 是唯一出站流入口。"
+summary: "这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、onRunMessage 直写账本、sse-watcher 解析 ConversationMessageRevision，到最终文本去重。不再有 run-delta-watcher 和streaming 卡片——sse-watcher 是唯一出站流入口。"
 depends_on:
   - surfaces.lark-adapter
   - backend.conversation-projection
@@ -13,7 +13,7 @@ used_by:
 
 # 飞书消息端到端
 
-这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、onRunMessage 直写账本、sse-watcher 解析 ConversationMessageRevision，到最终文本去重。不再有 run-delta-watcher 和流式卡片——sse-watcher 是唯一出站流入口。
+这条流追踪一条飞书消息：从会话绑定、成员映射、账本追加、Agent 运行、onRunMessage 直写账本、sse-watcher 解析 ConversationMessageRevision，到最终文本去重。不再有 run-delta-watcher 和streaming 卡片——sse-watcher 是唯一出站流入口。
 
 ## 时序图
 
@@ -36,7 +36,7 @@ sequenceDiagram
   D->>S: event(message)
   S->>L: onRunMessage 直写 ConversationMessageRevision（state: streaming）
   L-->>Bot: 账本 SSE → sse-watcher 解析 revision
-  Bot->>Bot: revision.state === "streaming" → 渲染流式文本
+  Bot->>Bot: revision.state === "streaming" → 渲染streaming 文本
   D->>S: event(message)（更多轮）
   S->>L: 更多直写（同 messageId，state: streaming）
   L-->>Bot: 账本 SSE → 同 messageId
@@ -57,7 +57,7 @@ sequenceDiagram
 
 飞书不再使用 `run-delta-watcher` 监听运行流。`sse-watcher` 是唯一出站流入口：它监听账本 SSE，通过 `parseRevision` 解析 `ConversationMessageRevision` 信封。
 
-`state === "streaming"` 的 revision 表示 run 仍在进行——sse-watcher 可将文本实时投递为流式消息。`state === "done"` 的 terminal revision 表示 run 已完成——这是最终答案投递时机。
+`state === "streaming"` 的 revision 表示 run 仍在进行——sse-watcher 可将文本实时投递为streaming 消息。`state === "done"` 的 terminal revision 表示 run 已完成——这是最终答案投递时机。
 
 不再有 `_preliminary` 标记：revision 的 `state` 字段本身就表达消息生命周期阶段（streaming / done / error / waiting），取代了旧的 `_preliminary: true` 压制机制。
 
