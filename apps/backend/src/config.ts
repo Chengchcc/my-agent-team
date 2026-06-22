@@ -21,7 +21,9 @@ export interface BackendConfig {
 }
 
 export function loadConfig(env: typeof process.env = process.env): BackendConfig {
-  const dataDir = env.BACKEND_DATA_DIR ?? "./.backend-data";
+  // Default relative to this source file (not CWD) so dev start from repo root
+  // and prod start from apps/backend both resolve to the same data directory.
+  const dataDir = env.BACKEND_DATA_DIR ?? `${import.meta.dir}/../.backend-data`;
 
   const authToken = env.BACKEND_AUTH_TOKEN;
   if (!authToken) throw new Error("BACKEND_AUTH_TOKEN is required");
