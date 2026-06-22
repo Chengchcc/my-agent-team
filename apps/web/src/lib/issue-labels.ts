@@ -3,9 +3,11 @@ import type { IssueStatus } from "@/lib/api";
 /**
  * Fixed lifecycle order — mirrors apps/backend/src/features/orchestrator/transitions.ts.
  * Keep in sync with backend ORDER and HUMAN_GATES.
+ * A parity test (apps/web/tests/lib/issue-labels.parity.test.ts) imports the
+ * backend module and fails CI if these drift out of sync.
  */
-const ORDER: IssueStatus[] = ["draft", "planned", "in_progress", "in_review", "done"];
-const HUMAN_GATES = new Set<IssueStatus>(["in_review"]);
+export const ORDER: IssueStatus[] = ["draft", "planned", "in_progress", "in_review", "done"];
+export const HUMAN_GATES = new Set<IssueStatus>(["in_review"]);
 
 export const COLUMN_LABEL: Record<IssueStatus, string> = {
   draft: "草稿",

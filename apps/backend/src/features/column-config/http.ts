@@ -1,12 +1,15 @@
 import { z } from "zod";
 import { json } from "../../http/response.js";
 import type { IssueStatus } from "../issue/entities.js";
-import { ISSUE_STATUSES } from "../orchestrator/transitions.js";
+import { configurableStatuses } from "../orchestrator/transitions.js";
 import { ColumnConfigNotFoundError, type ColumnConfigService, ValidationError } from "./service.js";
 
+// Only statuses the reactor can auto-advance are configurable. Accepting draft/
+// in_review/done would persist orphan configs that transitionsForProject silently
+// skips and the editor UI never surfaces. Keep the API in lock-step with the UI.
 const upsertSchema = z.object({
   projectId: z.string().trim().min(1),
-  status: z.enum(ISSUE_STATUSES as readonly [string, ...string[]]),
+  status: z.enum(configurableStatuses() as unknown as readonly [string, ...string[]]),
   agentId: z.string().trim().min(1),
   promptTemplate: z.string().trim().min(1),
 });

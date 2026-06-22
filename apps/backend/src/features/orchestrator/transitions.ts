@@ -19,6 +19,28 @@ export const BACKWARD_EDGES: ReadonlyArray<{ from: IssueStatus; to: IssueStatus 
 /** 人工闸门：这些 from 的「出」必须由人裁决，reactor 不自动推进。 */
 export const HUMAN_GATES: ReadonlySet<IssueStatus> = new Set<IssueStatus>(["in_review"]);
 
+/**
+ * The statuses a Project may bind a ColumnConfig to (reactor auto-advance steps).
+ * Single source of truth — the web UI mirrors this list in
+ * apps/web/src/lib/issue-labels.ts (guarded by a parity test).
+ * Excludes:
+ *  - draft   (draft→planned is human-triggered, never read by reactor)
+ *  - HUMAN_GATES (in_review — gate columns are human-decided)
+ *  - done    (terminal, ORDER.length-1 loop never reaches it as a `from`)
+ * A config for any excluded status is dead data: transitionsForProject skips it,
+ * so it can never auto-advance, yet it would be invisible in the editor UI.
+ */
+export function configurableStatuses(): IssueStatus[] {
+  const out: IssueStatus[] = [];
+  for (let i = 0; i < ORDER.length - 1; i++) {
+    const from = ORDER[i]!;
+    if (from === "draft") continue;
+    if (HUMAN_GATES.has(from)) continue;
+    out.push(from);
+  }
+  return out; // → ["planned", "in_progress"]
+}
+
 /** ── 单一事实来源（M18.2 起归属 orchestrator）──────────────
  *  Transition 描述"从一个 status 到下一个 status 由谁干"。
  *  M18.4: 不再有全局 TRANSITIONS 常量。
