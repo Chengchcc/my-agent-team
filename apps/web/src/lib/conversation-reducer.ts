@@ -86,7 +86,7 @@ export function getApprovalTarget(s: ConvState): {
   messageId: string;
   runId: string;
   text: string;
-  tools: Array<{ id: string; name: string }>;
+  tools: Array<{ id: string; name: string; input: unknown }>;
 } | null {
   for (const item of s.items) {
     if (item.kind !== "message") continue;
@@ -96,13 +96,25 @@ export function getApprovalTarget(s: ConvState): {
       isOpenMessageState(item.content.state) &&
       item.content.runId
     ) {
+      // The tool params live ONLY in blocks[] (tool_use blocks carry `input`).
+      // tools[] (MessageToolState) is identity+state only — reading params from
+      // there yields nothing, which is why the card rendered `{}`. Index the
+      // tool_use blocks by id and join them onto the running tool states.
+      const inputById = new Map<string, unknown>();
+      for (const b of item.content.blocks ?? []) {
+        if (b.type === "tool_use") inputById.set(b.id, b.input);
+      }
       return {
         messageId: item.content.id ?? "",
         runId: item.content.runId,
         text: item.content.text ?? "",
         tools: (item.content.tools ?? [])
           .filter((t: { state: string }) => t.state === "running")
-          .map((t: { id: string; name: string }) => ({ id: t.id, name: t.name })),
+          .map((t: { id: string; name: string }) => ({
+            id: t.id,
+            name: t.name,
+            input: inputById.get(t.id) ?? {},
+          })),
       };
     }
   }

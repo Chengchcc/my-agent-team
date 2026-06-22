@@ -258,7 +258,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
             tool={{
               id: approvalTarget.tools[0]?.id ?? "",
               name: approvalTarget.tools[0]?.name ?? "",
-              input: {},
+              input: approvalTarget.tools[0]?.input ?? {},
             }}
             onApprove={approve}
             onDeny={deny}
