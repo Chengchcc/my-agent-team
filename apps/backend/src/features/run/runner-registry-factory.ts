@@ -26,7 +26,7 @@ export function createRunnerRegistry(config: BackendConfig): RunnerRegistry {
   }
   return new DevRunnerRegistry({
     dataDir: config.dataDir,
-    daemonBin: `${import.meta.dir}/../../../../packages/runner-daemon/src/bin.ts`,
+    daemonBin: `${import.meta.dir}/../../../../../packages/runner-daemon/src/bin.ts`,
     transportFactory: (socket) =>
       createSocketClient({
         socketPath: socket,
