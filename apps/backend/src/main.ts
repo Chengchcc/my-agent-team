@@ -112,14 +112,16 @@ const runSvc = createRunService({
         if (entry.kind !== "message") continue;
         const parsed = deserializeLedgerContent(entry.content);
         if (!("messageId" in parsed)) continue;
-        const role = entry.senderMemberId && !entry.senderMemberId.startsWith("human")
-          ? "assistant" as const : "user" as const;
+        const role =
+          entry.senderMemberId && !entry.senderMemberId.startsWith("human")
+            ? ("assistant" as const)
+            : ("user" as const);
         if (parsed.text) {
           folded.set(parsed.messageId, { role, text: parsed.text });
         }
       }
       const msgs = [...folded.values()];
-      return msgs.length > 0 ? msgs as Message[] : null;
+      return msgs.length > 0 ? (msgs as Message[]) : null;
     },
     setTitle: async (tid, title) => {
       const cid = parseThreadId(tid).conversationId || tid;
