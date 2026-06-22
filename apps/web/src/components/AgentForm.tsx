@@ -168,9 +168,10 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
           setServerError("");
           setOpen(true);
         }}
+        variant={triggerLabel ? "outline" : undefined}
         className={
           triggerLabel
-            ? "text-xs text-[var(--primary)] hover:text-[var(--primary-soft)] transition-colors"
+            ? "text-xs"
             : "bg-[var(--primary)] text-[var(--on-primary)] rounded-md px-5 py-2 text-sm font-semibold hover:opacity-90 transition-opacity duration-200"
         }
       >
