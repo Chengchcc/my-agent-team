@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
 import {
   Sidebar,
   SidebarContent,
@@ -15,6 +14,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { api } from "@/lib/api";
 
 function NavContent() {
   const pathname = usePathname();
@@ -83,8 +83,18 @@ function NavContent() {
                   const humanId = `human-${crypto.randomUUID().slice(0, 8)}`;
                   const conv = await api.createConversation({
                     members: [
-                      { memberId: selectedAgentId, kind: "agent", agentId: selectedAgentId, displayName: agent?.name },
-                      { memberId: humanId, kind: "human", userRef: "__legacy__", displayName: "User" },
+                      {
+                        memberId: selectedAgentId,
+                        kind: "agent",
+                        agentId: selectedAgentId,
+                        displayName: agent?.name,
+                      },
+                      {
+                        memberId: humanId,
+                        kind: "human",
+                        userRef: "__legacy__",
+                        displayName: "User",
+                      },
                     ],
                   });
                   closeMobile();
@@ -116,7 +126,9 @@ function NavContent() {
                       router.push(`/conversations/${conv.conversationId}`);
                     }}
                   >
-                    <span className="truncate">{conv.title ?? `Conversation ${conv.conversationId.slice(0, 8)}`}</span>
+                    <span className="truncate">
+                      {conv.title ?? `Conversation ${conv.conversationId.slice(0, 8)}`}
+                    </span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
