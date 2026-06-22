@@ -35,6 +35,23 @@ const upsertSchema = z.object({
 
 type UpsertForm = z.infer<typeof upsertSchema>;
 
+/**
+ * Per-status starter prompt seeded into the editor when a column has no config
+ * yet. These are editable defaults — not enforced — so the operator gets a
+ * working reactor prompt out of the box instead of a blank Textarea that the
+ * zod min(1) guard refuses to save. Variables ({{title}}, {{issueId}},
+ * {{deliverables.*}}) are interpolated by transitionsForProject at run time.
+ */
+const DEFAULT_PROMPT: Partial<Record<IssueStatus, string>> = {
+  planned:
+    "你正在处理 issue「{{title}}」(id: {{issueId}})。\n请基于现有上下文制定实现计划：拆解任务、列出关键步骤与风险，并产出可执行的方案。完成后提交计划交付物。",
+  in_progress:
+    "你正在处理 issue「{{title}}」(id: {{issueId}})。\n请按既定计划完成开发：实现功能、自测验证，并把变更与结论整理为交付物。如遇阻塞请明确说明原因。",
+};
+
+/** Generic fallback when a status has no tailored starter prompt. */
+const FALLBACK_PROMPT = "完成任务：{{title}} (id: {{issueId}})";
+
 interface ColumnConfigPanelProps {
   project: ProjectRow;
   open: boolean;
@@ -72,7 +89,10 @@ export function ColumnConfigPanel({ project, open, onClose }: ColumnConfigPanelP
     const existing = configByStatus.get(status);
     form.reset({
       agentId: existing?.agentId ?? "",
-      promptTemplate: existing?.promptTemplate ?? "",
+      // Seed a working starter prompt for unconfigured columns so the editor is
+      // never blank (which the min(1) guard would block from saving).
+      promptTemplate:
+        existing?.promptTemplate ?? DEFAULT_PROMPT[status] ?? FALLBACK_PROMPT,
     });
     setEditingStatus(status);
     setConfirmingStatus(null);
@@ -129,7 +149,7 @@ export function ColumnConfigPanel({ project, open, onClose }: ColumnConfigPanelP
         if (!o) onClose();
       }}
     >
-      <SheetContent className="flex flex-col max-w-md" side="right">
+      <SheetContent className="flex flex-col w-full sm:max-w-md" side="right">
         <SheetHeader>
           <SheetTitle>{project.name} — 列配置</SheetTitle>
         </SheetHeader>
