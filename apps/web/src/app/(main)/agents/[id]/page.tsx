@@ -14,6 +14,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 
 type Tab = "threads" | "identity";
@@ -46,7 +47,7 @@ export default function AgentDetailPage() {
   }
 
   const tabClass = (t: Tab) =>
-    `pb-3 text-[10px] tracking-[2.52px] uppercase border-b transition-colors duration-300 font-[family-name:var(--font-sans)] font-semibold ${
+    `h-auto rounded-none border-0 border-b bg-transparent px-0 pb-3 text-[10px] tracking-[2.52px] uppercase transition-colors duration-300 font-[family-name:var(--font-sans)] font-semibold hover:bg-transparent ${
       tab === t
         ? "border-[var(--primary)] text-[var(--ink)]"
         : "border-transparent text-[var(--mute)] hover:text-[var(--body)]"
@@ -79,24 +80,24 @@ export default function AgentDetailPage() {
 
           {/* Tabs */}
           <div className="flex gap-8 mt-6" role="tablist">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               role="tab"
               aria-selected={tab === "threads"}
               className={tabClass("threads")}
               onClick={() => setTab("threads")}
             >
               Threads
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="ghost"
               role="tab"
               aria-selected={tab === "identity"}
               className={tabClass("identity")}
               onClick={() => setTab("identity")}
             >
               Persona &amp; Memory
-            </button>
+            </Button>
           </div>
         </div>
       </div>

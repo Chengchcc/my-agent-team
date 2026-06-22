@@ -13,6 +13,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -100,65 +101,49 @@ function RunsPageInner() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-1" role="group" aria-label="Status filter">
           {STATUS_FILTERS.map((f) => (
-            <button
+            <Button
               key={f.value}
-              type="button"
+              variant={status === f.value ? "default" : "outline"}
+              size="sm"
               aria-pressed={status === f.value}
               onClick={() => setParam("status", f.value)}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                status === f.value
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:text-foreground"
-              }`}
             >
               {f.label}
-            </button>
+            </Button>
           ))}
         </div>
         <div className="h-4 w-px bg-border" />
         <div className="flex gap-1" role="group" aria-label="Transport filter">
           {TRANSPORT_FILTERS.map((f) => (
-            <button
+            <Button
               key={f.value}
-              type="button"
+              variant={transport === f.value ? "default" : "outline"}
+              size="sm"
               aria-pressed={transport === f.value}
               onClick={() => setParam("transport", f.value)}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                transport === f.value
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:text-foreground"
-              }`}
             >
               {f.label}
-            </button>
+            </Button>
           ))}
         </div>
         <div className="h-4 w-px bg-border" />
         <div className="flex gap-1" role="group" aria-label="Heartbeat filter">
           {HEARTBEAT_FILTERS.map((f) => (
-            <button
+            <Button
               key={f.value}
-              type="button"
+              variant={heartbeat === f.value ? "default" : "outline"}
+              size="sm"
               aria-pressed={heartbeat === f.value}
               onClick={() => setParam("heartbeat", f.value)}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                heartbeat === f.value
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:text-foreground"
-              }`}
             >
               {f.label}
-            </button>
+            </Button>
           ))}
         </div>
         {hasFilters && (
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
+          <Button variant="link" size="sm" onClick={clearFilters}>
             Clear filters ({runs.length} result{runs.length !== 1 ? "s" : ""})
-          </button>
+          </Button>
         )}
       </div>
 
