@@ -221,7 +221,7 @@ supervisor.onRunEvent((threadId, runId, event, _kind) => {
 // ─── HTTP router ──────────────────────────────────────────────
 
 const getThreadIdForRun = async (runId: string) => {
-  const row = db.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as
+  const row = eventsDb.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as
     | { thread_id: string }
     | undefined;
   if (!row) throw new Error(`Run not found: ${runId}`);
