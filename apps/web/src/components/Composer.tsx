@@ -4,6 +4,7 @@ import { ArrowUp, AtSign, Bot, CornerDownLeft } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import type { SenderRef } from "@/lib/conversation-reducer";
 
@@ -257,17 +258,23 @@ export function Composer({
         </div>
 
         {showMentionButton && (
-          <Button
-            onClick={() => {
-              setShowMentions(!showMentions);
-              setMentionFilter("");
-              setMentionIndex(0);
-            }}
-            className="shrink-0 p-2 text-[var(--mute)] hover:text-[var(--body)] transition-colors mb-0.5"
-            title="Mention an agent"
-          >
-            <AtSign size={16} />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  onClick={() => {
+                    setShowMentions(!showMentions);
+                    setMentionFilter("");
+                    setMentionIndex(0);
+                  }}
+                  className="shrink-0 p-2 text-[var(--mute)] hover:text-[var(--body)] transition-colors mb-0.5"
+                >
+                  <AtSign size={16} />
+                </Button>
+              }
+            />
+            <TooltipContent>Mention an agent</TooltipContent>
+          </Tooltip>
         )}
 
         <Button
