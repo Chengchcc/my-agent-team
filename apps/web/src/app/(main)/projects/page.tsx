@@ -3,8 +3,8 @@ import { ProjectList } from "@/components/ProjectList";
 import {
   Breadcrumb,
   BreadcrumbItem,
-  BreadcrumbPage,
   BreadcrumbList,
+  BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 
 export const dynamic = "force-dynamic";

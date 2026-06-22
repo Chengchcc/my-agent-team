@@ -3,8 +3,8 @@ import { AgentList } from "@/components/AgentList";
 import {
   Breadcrumb,
   BreadcrumbItem,
-  BreadcrumbPage,
   BreadcrumbList,
+  BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 
 export default function AgentsPage() {

@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Input } from "@/components/ui/input";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -12,6 +11,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 
 export default function TracesPage() {

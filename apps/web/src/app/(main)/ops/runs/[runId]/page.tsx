@@ -4,6 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ExecutionPath } from "@/components/ops/ExecutionPath";
+import { QueryState } from "@/components/ops/QueryState";
+import { RunControlStrip } from "@/components/ops/RunControlStrip";
+import { RunDiagnosisHeader } from "@/components/ops/RunDiagnosisHeader";
+import { RunInsightsPanel } from "@/components/ops/RunInsightsPanel";
+import { RunOpsTimeline } from "@/components/ops/RunOpsTimeline";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -12,11 +17,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { QueryState } from "@/components/ops/QueryState";
-import { RunControlStrip } from "@/components/ops/RunControlStrip";
-import { RunDiagnosisHeader } from "@/components/ops/RunDiagnosisHeader";
-import { RunInsightsPanel } from "@/components/ops/RunInsightsPanel";
-import { RunOpsTimeline } from "@/components/ops/RunOpsTimeline";
 import { api } from "@/lib/api";
 
 export default function RunDetailPage() {

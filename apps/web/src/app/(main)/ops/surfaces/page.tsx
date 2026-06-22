@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { QueryState } from "@/components/ops/QueryState";
+import { SurfaceHealthPanel } from "@/components/ops/SurfaceHealthPanel";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -11,7 +12,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { SurfaceHealthPanel } from "@/components/ops/SurfaceHealthPanel";
 import { api } from "@/lib/api";
 
 export default function SurfacesPage() {

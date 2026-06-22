@@ -7,13 +7,13 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { IssueKanban } from "@/components/IssueKanban";
-import { Button } from "@/components/ui/button";
 import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -122,10 +122,8 @@ export default function IssuesPage() {
           </BreadcrumbList>
         </Breadcrumb>
         <Dialog open={open} onOpenChange={handleOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm">
-              New Issue
-            </Button>
+          <DialogTrigger className="group/button inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium border border-[var(--hairline)] bg-[var(--canvas)] text-[var(--ink)] hover:bg-[var(--canvas-soft)] h-9 px-3">
+            New Issue
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
