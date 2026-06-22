@@ -35,7 +35,7 @@ used_by:
 | `memory_write` | 写入/更新记忆 |
 | `memory_search` | 检索记忆 |
 
-被动注入解决「该记得的自动带上」，主动工具解决「Agent 想刻意存一条或翻一条」。两者配合，记忆既不全靠 Agent 自觉，也不死板地只能自动。
+被动注入解决自动带上，主动工具解决刻意存取。两者互补。
 
 `memory_read` 在不传 `path` 参数时，默认读取 `/memory/MEMORY.md`（`memory-read.ts` 第 14 行）。传入 `path` 则可读取指定 fact 文件。
 

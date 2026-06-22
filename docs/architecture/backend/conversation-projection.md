@@ -106,7 +106,7 @@ export async function onRunComplete(...) {
   } catch (err) {
     throw err;
   } finally {
-    // Phase 2 (CRITICAL): always release lock
+    // Phase 2 (CRITICAL): release ConversationLock
     convSvc.completeRun(cid, threadId, runId);
   }
   // Phase 3 (BEST-EFFORT): todo + @mentions fire-and-forget
@@ -144,7 +144,7 @@ LedgerEntry：
 4. Runner 不直接写 ledger。
 5. reflect 跑 `kind === "reflect"` 过滤；issue 跑 `threadId.startsWith("issue:")` 过滤。
 6. terminal 写入不依赖进程内存；restart 后从 ledger 重建 base revision。
-7. todo 和 @mention 是 best-effort，不阻塞 terminal 写入或锁释放。
+7. todo 和 @mention（Agent 在产出文本中 @另一个 Agent 的触发机制）是 best-effort，不阻塞 terminal 写入或 `ConversationLock` 释放。
 
 ## 失败模式
 

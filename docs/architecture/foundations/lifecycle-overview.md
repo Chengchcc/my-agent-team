@@ -33,7 +33,7 @@ sequenceDiagram
   后端->>后端: onRunMessage 直写账本（appendAssistantMessage）
   Runner-->>后端: event(其它类型 tool/delta)
   后端->>后端: 非消息事件写 EventLog
-  后端-->>端: 账本 SSE / best-effort 扇出
+  后端-->>端: 账本 SSE / best-effort fan-out
   Runner-->>后端: run_done(终态)
   后端->>后端: 收尾(更新状态→关订阅→出#active→await onRunComplete 写终端修订)
   后端-->>Runner: run_finalized

@@ -65,7 +65,7 @@ EventRecord = {
 |---|---|---|
 | 对话可见 | assistant/user message | `onRunMessage` 直写 ledger |
 | execution detail | tool_start/tool_end | EventLog |
-| 控制 | interrupted、error、todo_update | EventLog（todo 另由 onRunComplete 写 ledger 条目） |
+| 控制 | interrupted、error、todo_update | EventLog（todo 另由 [onRunComplete](./conversation-projection.md) 写 ledger 条目） |
 | streaming 增量 | text_delta | 不进 EventLog（走 `onRunEvent` best-effort） |
 
 ## 失败模式

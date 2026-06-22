@@ -4,7 +4,7 @@ title: 系统总览
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-18
-summary: "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。assistant 消息经 RunSupervisor.onRunMessage 直写对话账本（与人类消息同一入口），非消息执行事件单独进 EventLog；会话投影只做 best-effort 扇出（broadcast/ops）。对话账本 SSE 是用户可见输出的唯一通道。"
+summary: "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。assistant 消息经 RunSupervisor.onRunMessage 直写对话账本（与人类消息同一入口），非消息执行事件单独进 EventLog；会话投影只做 best-effort fan-out（broadcast/ops）。对话账本 SSE 是用户可见输出的唯一通道。"
 depends_on:
   - foundations.facts-and-projections
 used_by:
@@ -14,7 +14,7 @@ used_by:
 
 # 系统总览
 
-整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。assistant 消息经 `RunSupervisor.onRunMessage` 直写对话账本（与人类消息共用同一条 `appendLedgerEntry` 入口），非消息执行事件（tool_start/tool_end/text_delta）单独进 EventLog；会话投影桥降级为 best-effort 扇出（broadcast 给前端、ops 记录）。对话账本 SSE 是用户可见输出的唯一通道。
+整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实，Runner 在独立进程里执行 Agent，Framework 管 Agent 内部循环。assistant 消息经 `RunSupervisor.onRunMessage` 直写对话账本（与人类消息共用同一条 `appendLedgerEntry` 入口），非消息执行事件（tool_start/tool_end/text_delta）单独进 EventLog；会话投影桥降级为 best-effort fan-out（broadcast 给前端、ops 记录）。对话账本 SSE 是用户可见输出的唯一通道。
 
 ## 这套架构在解决什么问题
 
@@ -110,14 +110,14 @@ sequenceDiagram
 
 关键点：
 
-1. **消息直写账本、非消息进 EventLog。** 在 `RunSupervisor` 的 `"event"` 分支里，`message` 事件经 `onRunMessage`（critical, awaited）直接 `appendAssistantMessage` 写进账本；其它事件才走 `eventLog.append(...)`。直写失败会抛出、把 run 标记为 error；而 `onRunEvent` 扇出失败只记日志、不影响运行。
+1. **消息直写账本、非消息进 EventLog。** 在 `RunSupervisor` 的 `"event"` 分支里，`message` 事件经 `onRunMessage`（critical, awaited）直接 `appendAssistantMessage` 写进账本；其它事件才走 `eventLog.append(...)`。直写失败会抛出、把 run 标记为 error；而 `onRunEvent` fan-out 失败只记日志、不影响运行。
 2. **终端修订由 onRunComplete 直接写账本。** assistant 消息从 streaming 到 done/error 是同一 `messageId` 的多次直写。`onRunComplete` 取该 run 的最新 assistant revision 作为 base，写 state=done/error 的终端修订关闭消息——base 可从账本重建，不依赖进程内存。已删除 `projectionChain` / `projectRunMessageToLedger`。
 3. **对话账本 SSE 是用户可见输出的唯一通道。** `delta` 信道（text_delta/tool_start/tool_end）仍存在于 Runner→Host 协议中，但仅限后端内部（日志/运维）通过 `subscribeDelta()` 消费；`/runs/:id/events` 和 `/runs/:id/stream` HTTP 路由已删除，Web/飞书统一通过对话账本 SSE 接收所有用户可见更新。
 
 ## 当前实现的几条边界
 
 - EventLog 由后端 `RunSupervisor` 在收到 Runner 传输的**非消息**事件后追加；Runner 不直接打开 EventLog 库，message 事件根本不进 EventLog。
-- assistant 消息在 `apps/backend/src/main.ts` 的 `onRunMessage` 回调里经 `appendAssistantMessage` 直写 `ConversationMessageRevision` 信封（messageId, state=streaming/done/error），与人类消息共用同一条 `appendLedgerEntry` 入口；`onRunComplete` 取最新 assistant revision 写入最终 done/error 修订，再做放锁、todo 快照、@提及扫描。会话投影桥只剩 best-effort 扇出（broadcast/ops）。
+- assistant 消息在 `apps/backend/src/main.ts` 的 `onRunMessage` 回调里经 `appendAssistantMessage` 直写 `ConversationMessageRevision` 信封（messageId, state=streaming/done/error），与人类消息共用同一条 `appendLedgerEntry` 入口；`onRunComplete` 取最新 assistant revision 写入最终 done/error 修订，再做放锁、todo 快照、@提及扫描。会话投影桥只剩 best-effort fan-out（broadcast/ops）。
 - Runner 本地的 `checkpointer.sqlite` 是给 Agent 执行恢复用的；`buildPreloadedMessages` 从[账本](../conversation/ledger.md)直接构建 Message[] 喂给 Agent——不经过 `projection_messages` 中间表。两者名字不同但都涉及「运行前准备上下文」，用途不同要分清。
 - Web/飞书统一消费对话账本 SSE，按 `messageId` upsert 到同一个气泡/卡片中。不再有独立的 `/runs/:id/events` 或 `/runs/:id/stream` 连接。
 - delta 信道（text_delta/tool_start/tool_end）仅限后端内部日志/运维消费，不直接暴露给端。

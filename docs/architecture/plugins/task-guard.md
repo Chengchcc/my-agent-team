@@ -26,7 +26,7 @@ used_by:
 | `todo_write`（工具） | 模型调用工具时 | 模型标记步骤为 `in_progress` 或 `done`。只允许修改状态，不允许增删步骤。每次更新后发出 `todo_update` 事件 |
 | `beforeStop` | 循环准备停下前 | 守卫逻辑：检查未解决的错误 + 未完成的待办步骤。有问题就返回 `continue: true` 否决停止 |
 
-也就是说，**计划生成**（`beforeRun`）、**进度注入**（`beforeModel`）、**进度更新**（`todo_write`）和**停止裁决**（`beforeStop`）分属四个不同阶段，不是全挤在 `beforeStop` 里。
+**计划生成**（`beforeRun`）、**进度注入**（`beforeModel`）、**进度更新**（`todo_write`）和**停止裁决**（`beforeStop`）分属四个不同阶段，不是全挤在 `beforeStop` 里。
 
 ## 两类「不该停」的信号
 

@@ -1,23 +1,23 @@
 # my-agent-team
 
-`my-agent-team` 是一个用 TypeScript + Bun 写的多智能体协作运行时。它要解决的核心问题是：当一个对话里同时坐着「人」和「多个 Agent」，而且对话要在 Web 和飞书两个端上同时可见、Agent 又是在独立进程里异步执行时，怎么让所有人看到一致、不丢、不重的对话历史。
+`my-agent-team` 是一个 TypeScript + Bun 的多 Agent 协作运行时。解决的问题：一个对话里同时有「人」和「多个 Agent」，对话要在 Web 和飞书（Lark IM）两个端上同时可见，Agent 在独立进程里异步执行——怎么让所有人看到一致、不丢、不重的对话历史。
 
-整个仓库围绕一条主线展开：**把「对话事实」和「运行事实」彻底分开——assistant 消息直写对话账本，运行内部的执行细节单独进事件日志。**
+核心设计：**把「对话事实」和「运行事实」分开——assistant 消息直写对话账本，运行内部的 execution detail 单独进 EventLog。**
 
-- **对话账本（Conversation Ledger）** 记录一个共享对话里发生了什么——谁说了什么、@了谁。这是人能看到的历史，也是对话消息的唯一事实来源。
-- **事件日志（EventLog）** 记录一次 Agent 运行内部发生了什么——调了哪个模型、用了哪个工具、什么时候被中断。这是排障用的执行流水，只含非消息的执行事件。
-- **会话投影（Conversation Projection）** 是后端独占的那座桥：`message` 事件经 `RunSupervisor.onRunMessage` 直接写进账本（不经 EventLog），与人类消息共用同一条 `appendLedgerEntry` 入口；投影桥现在只做 best-effort 扇出（broadcast 给前端、ops 记录）和运行结束时的终端修订收尾。
-- **常驻 Runner** 只负责执行 Agent、上报事件，它不知道对话语义、不知道飞书的去重规则。
-- **Web 和飞书** 只是「端」：它们渲染账本、采集输入，但都不是事实来源。
+- **对话账本（conversation_ledger）** 记录共享对话里发生了什么——谁说了什么、@了谁。这是对话消息的 canonical store。
+- **EventLog（event_log）** 记录一次 Agent 运行内部发生了什么——调了哪个模型、用了哪个工具、什么时候被中断。这是排障用的 execution log，只含非 message 事件。
+- **会话投影（Conversation Projection）** 是后端的 infrastructure 层：`message` 事件经 `RunSupervisor.onRunMessage` 直写 ledger（不经 EventLog），与人类消息共用 `appendLedgerEntry` 入口；投影桥现在只做 best-effort fan-out（broadcast 给前端）和运行结束时的 terminal revision 写入。
+- **常驻 Runner** 只负责执行 Agent、上报事件。它不知道对话语义、不知道 Lark 的去重规则。
+- **Web 和 Lark** 只是「端」：渲染账本、采集输入，都不是事实来源。
 
 ## 一张图看懂
 
 ```mermaid
 flowchart LR
   Web[Web 控制台] --> Backend[Backend 团队运行时]
-  Lark[飞书 Bot] --> Backend
-  Backend -->|assistant 消息 onRunMessage 直写| Ledger[(对话账本)]
-  Backend -->|非消息执行事件| EventLog[(事件日志)]
+  Lark[Lark Bot] --> Backend
+  Backend -->|assistant 消息 onRunMessage 直写| Ledger[(conversation_ledger)]
+  Backend -->|非 message 执行事件| EventLog[(EventLog)]
   Backend <--> Runner[常驻 Runner]
   Runner --> Framework[Framework Agent]
   Framework --> AFS[Agent 文件系统]
@@ -46,15 +46,15 @@ bun run build
 
 ```text
 apps/
-  backend/    团队运行时，HTTP/SSE 服务，拥有对话、运行、事件、投影
+  backend/    团队运行时，HTTP/SSE（Server-Sent Events）服务，拥有对话、运行、事件、投影
   web/        Web 控制台与对话 UI
-  lark-bot/   飞书端适配器
+  lark-bot/   Lark 端适配器
   cli/        本地 CLI 入口
 
 packages/
   core/                   运行时原语：Message、Tool、ChatModel、Thread
   framework/              Agent 主循环、插件、上下文管理、Checkpointer
-  harness/               把文件/工具/插件装配成一个可运行 Agent
+  harness/               把文件/工具/插件装配成可运行 Agent
   adapter-anthropic/      Anthropic 模型适配
   conversation/           成员、@提及、按成员视角投影的纯函数
   event-log/              EventLog 持久化与订阅
@@ -82,10 +82,10 @@ packages/
 - 概念图谱：`docs/architecture/concepts.json`
 - 事实与投影：`docs/architecture/foundations/facts-and-projections.md`
 
-未来方向和已知缺口被有意从这份 README 里拿掉了，集中放在 `docs/architecture/roadmap/future-work.md`，以及每页的「当前缺口」小节。
+未来方向和已知缺口在 `docs/architecture/roadmap/future-work.md` 以及各页的「当前缺口」小节。
 
-## 给改代码的人三条底线
+## 三条底线
 
 1. 对话账本和 EventLog 是两类事实，不要混。
-2. 端（Web/飞书）可以展示，但不要让端把 Agent 产出直接当成对话历史写下去。
-3. Runner 的代码不要依赖 Web/飞书的展示规则。
+2. 端（Web/Lark）可以展示，但不要让端把 Agent 产出直接当对话历史写下去。
+3. Runner 的代码不要依赖 Web/Lark 的展示规则。

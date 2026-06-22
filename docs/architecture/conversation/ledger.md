@@ -69,7 +69,7 @@ conversation_ledger 是对话历史的 canonical store。它是一张 append-onl
 
 ## 失败模式
 
-- **重复 assistant 消息**：`hasLedgerContent` 幂等检查；`ledgerHasTerminalForMessage` 防重复 terminal 写入。
+- **重复 assistant 消息**：`hasLedgerContent(runId, content)` 按 runId + 序列化内容去重；`ledgerHasTerminalForMessage` 扫描 ledger 确认没有同 messageId 的 terminal 条目。
 - **缺失 assistant 消息**：直写失败是 critical path，上抛，run 标 error。
 - **preloadedMessages 重复**：`buildPreloadedMessages` 按 messageId 折叠。同一消息如果有两个 messageId 则折叠失效。
 - **草稿残留**：ledger 最终消息没到，或 messageId 没匹配上。

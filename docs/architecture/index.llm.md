@@ -68,7 +68,7 @@
 2. `backend/orchestrator.md`
 3. `flows/e2e-issue-lifecycle.md`
 4. `foundations/issue-workflow.md`（`status: design`，下一版演进）
-5. `conversation/conversation-and-members.md`（对话级 @提及自动触发，与 Issue 编排是互补关系）
+> `@提及自动触发` 和 `Issue 编排` 是两条独立路径，各自可触发 Agent 运行。
 
 ## 如果问的是未来方向
 

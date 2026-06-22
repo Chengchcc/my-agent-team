@@ -30,7 +30,7 @@ used_by:
 
 | 症状 | 先看哪里 | 根因方向 |
 |------|----------|----------|
-| 某成员看不到本该有的消息 | 该成员的线程投影（thread_id = conversationId:memberId） | `broadcastMessage` 扇出失败；thread 推导错；账本其实有、投影缓存没跟上 |
+| 某成员看不到本该有的消息 | 该成员的线程投影（thread_id = conversationId:memberId） | `broadcastMessage` fan-out 失败；thread 推导错；账本其实有、投影缓存没跟上 |
 | 所有人都缺同一条消息 | 对话账本 + 运行事件 | `onRunMessage` 直写失败（critical，会抛错）；或 Runner 没产出该 message 事件 |
 | 飞书收到重复消息 | 飞书适配器 `canSkipFinalLedgerText` | 首次投递必发的特性叠加终稿重发；去重条件未命中 |
 | Web 状态卡在 running 不收尾 | run_done → run_finalized 握手 | 收尾顺序某步未完成；delta 订阅未关闭 |

@@ -28,7 +28,7 @@ used_by:
 | `agent` | Agent 注册与配置 | agents 表 |
 | `lark-bot` | 后端侧飞书绑定与触发 | 见 [飞书适配器](../surfaces/lark-adapter.md) |
 
-`apps/backend/src/main.ts` 是组合根：它把这些 service 接起来，并在这里注册 **assistant 消息直写**（`supervisor.onRunMessage(...)`，critical, awaited）、**best-effort 扇出/todo 累积**（`supervisor.onRunEvent(...)`）和完成钩子（`supervisor.onRunComplete(...)`），把 `maxConsecutiveAgentHops` 设为 8。
+`apps/backend/src/main.ts` 是组合根：它把这些 service 接起来，并在这里注册 **assistant 消息直写**（`supervisor.onRunMessage(...)`，critical, awaited）、**best-effort fan-out/todo 累积**（`supervisor.onRunEvent(...)`）和完成钩子（`supervisor.onRunComplete(...)`），把 `maxConsecutiveAgentHops` 设为 8。
 
 ## 两个库的分工
 

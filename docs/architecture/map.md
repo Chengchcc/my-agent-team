@@ -11,7 +11,7 @@ flowchart LR
   FP --> EL[backend/event-log]
   RS[backend/run-supervisor] -->|onRunMessage 直写| Ledger
   RS -->|非消息事件| EL
-  CP[backend/conversation-projection] -.best-effort 扇出.-> Ledger
+  CP[backend/conversation-projection] -.best-effort fan-out.-> Ledger
   Ledger --> Web[surfaces/web]
   Ledger --> Lark[surfaces/lark-adapter]
 ```
@@ -31,7 +31,7 @@ flowchart LR
 
 ## Web 路径
 
-`flows/e2e-web-message` → `surfaces/web` → `conversation/ledger` → `backend/run-supervisor`（`onRunMessage` 直写账本）→ `runner/resident-runner`；非消息事件旁路进 `backend/event-log`，`backend/conversation-projection` 仅做 best-effort 扇出。
+`flows/e2e-web-message` → `surfaces/web` → `conversation/ledger` → `backend/run-supervisor`（`onRunMessage` 直写账本）→ `runner/resident-runner`；非消息事件旁路进 `backend/event-log`，`backend/conversation-projection` 仅做 best-effort fan-out。
 
 ## 飞书路径
 
@@ -56,4 +56,4 @@ flowchart LR
   Flow[flows/e2e-issue-lifecycle] -.串起时间线.-> Orch
 ```
 
-`foundations/issue`（唯一新增本体）→ `backend/orchestrator`（驱动状态机的编排器）→ `backend/run-supervisor`（复用执行层）；`flows/e2e-issue-lifecycle` 把这条链路串成跨多次运行的时间线。`foundations/issue-workflow`（`status: design`）是下一版演进设计，把八处变化合成一版连贯的协作流。
+`foundations/issue`（此次新增的业务概念）→ `backend/orchestrator`（驱动状态机的编排器）→ `backend/run-supervisor`（复用执行层）；`flows/e2e-issue-lifecycle` 把这条链路串成跨多次运行的时间线。`foundations/issue-workflow`（`status: design`）是下一版演进设计。

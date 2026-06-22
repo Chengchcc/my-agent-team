@@ -4,7 +4,7 @@ title: 数据模型
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-17
-summary: "持久状态分布在三处：backend.db 拥有 agents、对话、成员、账本、线程投影和 issue(M18.1)；events.db 拥有运行、尝试、事件日志和各类 ops/健康表；Runner 本地的 checkpointer.sqlite 拥有续跑检查点。下面给出与代码对齐的真实表结构。"
+summary: "持久状态分布在三处：backend.db 拥有 agents、对话、成员、账本、线程投影和 issue(M18.1)；events.db 拥有运行、尝试、事件日志和各类 ops/健康表；Runner 本地的 checkpointer.sqlite 拥有续跑 checkpoint。"
 depends_on:
   - foundations.facts-and-projections
 used_by:
@@ -14,7 +14,7 @@ used_by:
 
 # 数据模型
 
-持久状态分布在三处：backend.db 拥有 agents、对话、成员、账本和线程投影；events.db 拥有运行、尝试、事件日志和各类 ops/健康表；Runner 本地的 checkpointer.sqlite 拥有续跑检查点。
+持久状态分布在三处：backend.db 拥有 agents、对话、成员、账本和线程投影；events.db 拥有运行、尝试、事件日志和各类 ops/健康表；Runner 本地的 checkpointer.sqlite 拥有续跑 checkpoint。
 
 ## conversation_ledger（账本）
 
@@ -31,6 +31,7 @@ LedgerEntry = {
 }
 LedgerKind = "message" | "member.joined" | "member.left" | "todo" | "surface.control"
 ```
+`todo` 是 Agent 任务列表的 ledger 快照条目，`surface.control` 是端侧控制指令（如 Lark 的新对话请求）。详见到 [对话账本](../conversation/ledger.md)。
 
 类型已从后端本地手抄 `LedgerRow` 收敛为 `packages/conversation` 的 canonical `LedgerEntry` zod schema（单一本体）。`runId` 现在是 `LedgerEntry` 的可选字段——assistant 消息写入时携带，人类/系统消息不填。
 

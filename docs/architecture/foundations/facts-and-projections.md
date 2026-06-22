@@ -31,7 +31,7 @@ used_by:
 | conversation_ledger | 是 | 对话的 canonical store | ConvService（人）/ onRunMessage（assistant） | buildPreloadedMessages、SSE、Web | 否 |
 | **infrastructure** | | | | | |
 | EventLog | 是 | execution detail 记录 | RunSupervisor（非 message 事件） | Ops、排障 | 否 |
-| buildPreloadedMessages | 否（纯函数） | ledger → Message[] | forkRun closure | Runner 启动 | 是 |
+| buildPreloadedMessages | 否（纯函数） | ledger → Message[] | forkRun（触发 Agent 运行的 closure，见[对话与成员](../conversation/conversation-and-members.md)） | Runner 启动 | 是 |
 | projection_messages | 是 | broadcast cache | broadcastMessage（best-effort） | SSE subscriber 轮询 | 是 |
 | Runner Checkpointer | 是 | recovery state | Framework / Runner | Runner resume | 部分 |
 | SSE 流 | 否 | transport | RunSupervisor / ConvService | Web / Lark 实时 UI | 否 |
