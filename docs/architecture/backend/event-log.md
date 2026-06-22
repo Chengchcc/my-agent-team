@@ -4,7 +4,7 @@ title: EventLog
 status: current
 owners: backend-runtime
 last_verified_against_code: 2026-06-22
-summary: "EventLog（事件日志）是单次运行内部执行细节的持久记录。后端 RunSupervisor 把 Runner 上报的非消息事件（tool_start/tool_end/interrupted/error/todo_update）追加进来，用于排障。assistant 消息不再经它——message 事件经 onRunMessage 直写对话账本。text_delta 也不进 EventLog（走 onRunEvent best-effort 扇出）。Runner 自己不直接打开这个库。"
+summary: "EventLog 存单次运行的 execution detail。RunSupervisor 把 Runner 上报的非 message 事件（tool_start/tool_end/interrupted/error/todo_update）写进来。message 事件不进这里——走 onRunMessage 直写 ledger。text_delta 也不进。"
 depends_on:
   - backend.run-supervisor
 used_by:
@@ -13,11 +13,9 @@ used_by:
 
 # EventLog
 
-EventLog 是单次运行内部执行细节的持久记录——它只含非消息的执行事件（tool_start/tool_end/interrupted/error/todo_update）。后端 RunSupervisor 把 Runner 上报的非消息事件追加进来，供排障用。**assistant 消息和 text_delta 都不经它**：message 事件经 `onRunMessage` 直写对话账本；text_delta 经 `onRunEvent` 做 best-effort 扇出。Runner 自己不直接打开这个库。
+EventLog 只存 execution detail：tool_start、tool_end、interrupted、error、todo_update。这些是从 [Runner](../runner/resident-runner.md)（执行 Agent 的常驻进程）上报、由 [RunSupervisor](./run-supervisor.md)（后端运行生命周期管理器）写入的。
 
-## 这页解决什么问题
-
-一次运行产出的远不止最终文本：还有工具调用、中断、todo 更新、错误、可观测进度。这些必须挺过重连、支持排障。EventLog 就是某条 run/thread 的有序持久记录。
+message 事件不经过这里。assistant 产出经 `onRunMessage` 直写 [ledger](../conversation/ledger.md)，不走 EventLog。text_delta 也不进——走 `onRunEvent` 做 best-effort fan-out。
 
 ## 写入路径
 
@@ -31,56 +29,50 @@ sequenceDiagram
 
   A->>D: AgentEvent
   D->>S: transport event
-  alt 非消息事件 (tool_start/tool_end/interrupted/error/todo_update)
+  alt 非 message 事件 (tool_start/tool_end/interrupted/error/todo_update)
     S->>E: append(threadId, runId, event) → seq
     E-->>C: 按 seq read / subscribe
   else message 事件
-    S-->>S: onRunMessage 直写账本（绕过 EventLog）
+    S-->>S: onRunMessage 直写 ledger
   end
 ```
 
-写入由后端在收到 daemon 传输的**非消息**事件后完成。`EventLog` 接口同时是 `EventSink`（写）和 `EventSource`（读）。
-
-## 条目形状
+## 条目结构
 
 ```ts
 EventRecord = {
   seq: number,        // 自增 rowid
   threadId: string,
   runId: string,
-  event: AgentEvent,  // 以 JSON 存储
+  event: AgentEvent,  // JSON 存储
   ts: number
 }
 ```
 
-表 `event_log(seq PK AUTOINCREMENT, thread_id, run_id, event, ts)`，建有 `(run_id, seq)` 与 `(thread_id, seq)` 索引。
+表 `event_log(seq PK AUTOINCREMENT, thread_id, run_id, event, ts)`，索引 `(run_id, seq)` 和 `(thread_id, seq)`。
 
-## 读 / 订阅 API
+## API
 
-- `append(threadId, runId, event): Promise<number>` —— 返回新 seq。
-- `read({ runId?, threadId?, afterSeq?, limit? })` —— 一次性读。
-- `subscribe(query, opts?, signal?)` —— 异步可迭代：先重放历史，再以 250ms 轮询追尾。
+- `append(threadId, runId, event): Promise<number>` — 返回新 seq
+- `read({ runId?, threadId?, afterSeq?, limit? })` — 一次性读
+- `subscribe(query, opts?, signal?)` — async iterable，先回放历史，再 250ms 轮询
 
-实现有 `sqliteEventLog({db})` 与 `inMemoryEventLog()`。
+实现：`sqliteEventLog({db})`、`inMemoryEventLog()`。
 
-## 事件分类与去向
+## 事件去向
 
 | 类别 | 例子 | 去向 |
 |---|---|---|
-| 对话可见 | assistant/user 消息 | 经 `onRunMessage` 直写账本，**不进 EventLog** |
-| 执行细节 | tool_start/tool_end | EventLog |
-| 控制 | interrupted、error、todo_update | EventLog（todo 另由 onRunComplete 写账本条目） |
-| 流式增量 | text_delta | 不进 EventLog（经 `onRunEvent` best-effort 扇出） |
-
-## EventLog 与账本的关系
-
-assistant 消息已不再经 EventLog——它们经 `onRunMessage` 直写账本，账本是对话消息的唯一事实容器。EventLog 只保存运行内部的非消息执行细节，供 audit / replay / troubleshooting。两类事实物理分离，互不充当对方。
+| 对话可见 | assistant/user message | `onRunMessage` 直写 ledger |
+| execution detail | tool_start/tool_end | EventLog |
+| 控制 | interrupted、error、todo_update | EventLog（todo 另由 onRunComplete 写 ledger 条目） |
+| streaming 增量 | text_delta | 不进 EventLog（走 `onRunEvent` best-effort） |
 
 ## 失败模式
 
-- 非消息事件 append 失败：运行执行历史缺一条，run 不被当成完成（异常上抛）。
-- assistant 消息直写账本失败：属 `onRunMessage` critical 路径，run 标记为 error；与 EventLog 无关。
-- 事件重投递：EventLog 无幂等键时会产生重复执行事件行（仅影响排障视图，不影响对话事实）。
+- 非 message 事件 append 失败：execution history 缺一条，run 不标完成（上抛）。
+- message 直写 ledger 失败：`onRunMessage` critical path，run 标 error。和 EventLog 无关。
+- 事件重投：EventLog 无幂等键，可能产生重复行。只影响排障视图，不影响对话事实。
 
 ## 关联页面
 
