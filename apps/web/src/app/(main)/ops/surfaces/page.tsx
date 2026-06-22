@@ -37,7 +37,6 @@ export default function SurfacesPage() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      </div>
 
       <QueryState query={surfacesQuery} empty={(data) => data.length === 0}>
         {(surfaces) => (

@@ -58,7 +58,6 @@ export default function TracesPage() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      </div>
 
       <Input
         placeholder="Search by trace ID (recent 100 runs)…"

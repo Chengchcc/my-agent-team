@@ -59,8 +59,6 @@ export default function RunDetailPage() {
         </BreadcrumbList>
       </Breadcrumb>
       <div className="flex items-center gap-3">
-        <h1 className="text-xl font-bold font-mono text-foreground">{runId}</h1>
-        <h1 className="text-xl font-bold font-mono text-foreground">{runId}</h1>
         {detailQuery.dataUpdatedAt > 0 && (
           <span className="text-[10px] text-muted-foreground">
             updated {Math.floor((Date.now() - detailQuery.dataUpdatedAt) / 1000)}s ago

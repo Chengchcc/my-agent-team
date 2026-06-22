@@ -54,12 +54,6 @@ export default function AgentRuntimePage() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-bold text-foreground">
-          {runtimeQuery.data?.agentName ?? agentId} — Runtime
-        </h1>
-        <div className="text-xs text-muted-foreground font-mono">{agentId}</div>
-      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-1">

@@ -45,9 +45,6 @@ export default function TraceDetailPage() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <div className="flex items-center gap-3">
-        <h1 className="text-xl font-bold font-mono text-foreground">{traceId}</h1>
-      </div>
 
       <QueryState query={traceQuery}>
         {(detail) => (
