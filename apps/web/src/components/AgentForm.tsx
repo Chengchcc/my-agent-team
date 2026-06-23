@@ -172,6 +172,10 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   // state from the mutations instead, otherwise the submit button stays enabled
   // and double-submits create duplicate agents.
   const isSaving = createMutation.isPending || updateMutation.isPending;
+  // useWatch (not getValues) so the submit button re-evaluates as the user
+  // types: the Name field is an isolated Controller/FormField, so a
+  // non-reactive getValues("name") read leaves the button stuck disabled.
+  const nameValue = useWatch({ control: form.control, name: "name" });
 
   const fieldClass =
     "w-full bg-[var(--canvas-soft)] border border-[var(--hairline)] rounded-md px-3 py-2.5 text-sm text-[var(--ink)] placeholder:text-[var(--mute)] focus:outline-none focus:border-[var(--primary)] transition-colors duration-200";
@@ -403,7 +407,9 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                                 <Button
                                   onClick={() => {
                                     if (editAgent?.id && setupSession.setupId) {
-                                      api.larkSetupCancel(editAgent.id, setupSession.setupId);
+                                      api
+                                        .larkSetupCancel(editAgent.id, setupSession.setupId)
+                                        .catch(() => {});
                                       setSetupSession(null);
                                     }
                                   }}
@@ -445,7 +451,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
 
                 <Button
                   type="submit"
-                  disabled={isSaving || !form.getValues("name").trim()}
+                  disabled={isSaving || !(nameValue ?? "").trim()}
                   className="w-full"
                 >
                   {isSaving ? (

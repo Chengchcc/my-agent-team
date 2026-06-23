@@ -127,6 +127,10 @@ export function IssueDetailSheet({
   const [_timelineEvents, setTimelineEvents] = useState<IssueEvent[]>([]);
   useEffect(() => {
     if (!open) return;
+    // Reset accumulated SSE events when switching issues: the sheet instance is
+    // reused across issues (the call site renders it without a per-issue key),
+    // so without this the previous issue's events leak into the new timeline.
+    setTimelineEvents([]);
     const es = new EventSource(`/api/bff/issues/${issue.issueId}/timeline/events`);
     es.addEventListener("issue-event", (e) => {
       let event: IssueEvent;
@@ -234,7 +238,10 @@ export function IssueDetailSheet({
                 variant="destructive"
                 className="text-xs h-7"
                 disabled={deleteMutation.isPending}
-                onClick={deleteMutation.mutate}
+                onClick={() => {
+                  if (!confirm("确定删除此 Issue？")) return;
+                  deleteMutation.mutate();
+                }}
               >
                 删除
               </Button>
