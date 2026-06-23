@@ -111,6 +111,20 @@ export function IssueDetailSheet({
   const [transitioning, setTransitioning] = useState(false);
   const [editing, setEditing] = useState(false);
   const queryClient = useQueryClient();
+  const [agentNames, setAgentNames] = useState<Map<string, string>>(new Map());
+
+  // Lazy-load agent names for the Coding Thread badge
+  useEffect(() => {
+    if (!open) return;
+    api
+      .listAgents()
+      .then((agents) => {
+        const m = new Map<string, string>();
+        for (const a of agents) m.set(a.id, a.name);
+        setAgentNames(m);
+      })
+      .catch(() => {});
+  }, [open]);
 
   const editForm = useForm({
     defaultValues: {
@@ -399,7 +413,7 @@ export function IssueDetailSheet({
             <div className="text-sm font-medium">{issue.title}</div>
             <div className="flex items-center gap-2 mt-1">
               <Badge variant="outline" className="text-xs">
-                {runs[0]?.agentId ?? "CLAUDE_CODE"}
+                {agentNames.get(runs[0]?.agentId ?? "") ?? runs[0]?.agentId ?? "CLAUDE_CODE"}
               </Badge>
               <span className="text-xs text-muted-foreground">Conversation: {issue.issueId}</span>
             </div>
