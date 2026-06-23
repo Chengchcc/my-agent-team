@@ -31,6 +31,8 @@ export default {
         "backend",
         "web",
         "lark-bot",
+        // Features
+        "cron",
         // Meta
         "docs",
         "test",
