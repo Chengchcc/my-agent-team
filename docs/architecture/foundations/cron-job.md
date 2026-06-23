@@ -1,7 +1,7 @@
 ---
 id: foundations.cron-job
 title: CronJob
-status: design
+status: current
 owners: architecture
 last_verified_against_code: 2026-06-23
 summary: "CronJob 是「一条按时间表反复触发 Agent 运行的定时规则」。它是继 Issue 之后第二个有独立生命周期的触发型domain entity：Conversation 表达「谁在哪说话」、Issue 表达「一件按状态推进的活」、Run 表达「一次执行」，三者都表达不了「到点就自动起一棒」。CronJob 自带一张表做 CRUD，后端启动时（或单个 job 开启时）用 Bun.cron 在进程内注册定时器，到点经现有 dispatcher 起一次 main run，threadId 映射成 `<jobId>:owner` 复用 Issue 的「实体自带会话 + owner 成员」套路，使每一棒都能点进 `/conversations/<jobId>` 看详情。重试与超时是 job 上的两个策略字段，分别复用 retry ops 事件与 supervisor 取消/reaper 机制。"
