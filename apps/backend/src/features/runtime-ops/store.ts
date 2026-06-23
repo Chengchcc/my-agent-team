@@ -211,6 +211,7 @@ export class RuntimeOpsStore {
       .select()
       .from(schema.runOrigin)
       .where(eq(schema.runOrigin.cronJobId, cronJobId))
+      .orderBy(schema.runOrigin.createdAt)
       .all()
       .map(toRunOriginRow);
   }
