@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { openDb } from "../../infra/sqlite/db.js";
 import { createDeliverableService, sqliteDeliverableAdapter } from "../deliverable/index.js";
 import { runEventsDbMigrations } from "../run/events-db-migrations.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
@@ -7,32 +8,8 @@ import { issueRoutes } from "./http.js";
 import { createIssueService, sqliteIssueAdapter } from "./index.js";
 
 function setup() {
-  const db = new Database(":memory:");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS issue (
-      issue_id   TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      title      TEXT NOT NULL,
-      status     TEXT NOT NULL,
-      thread_id  TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      priority   TEXT NOT NULL DEFAULT 'P2',
-      estimated_completion_at INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS deliverable (
-      deliverable_id TEXT PRIMARY KEY,
-      issue_id       TEXT NOT NULL,
-      from_status    TEXT NOT NULL,
-      kind           TEXT NOT NULL,
-      fields         TEXT NOT NULL,
-      ref            TEXT,
-      run_id         TEXT,
-      created_at     INTEGER NOT NULL
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_deliverable_run_kind ON deliverable(run_id, kind) WHERE run_id IS NOT NULL;
-  `);
+  // backend.db tables (issue, deliverable, ...) from the canonical drizzle migrations.
+  const db = openDb(":memory:");
 
   const eventsDb = new Database(":memory:");
   runEventsDbMigrations(eventsDb);

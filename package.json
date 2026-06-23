@@ -11,9 +11,13 @@
   "scripts": {
     "build": "turbo run build",
     "create": "bun run scripts/create-package.ts",
+    "predev": "bash scripts/predev.sh",
     "dev": "bash scripts/dev.sh",
+    "predev:backend": "bash scripts/predev.sh",
     "dev:backend": "bun run --cwd apps/backend dev",
+    "predev:web": "bash scripts/predev.sh",
     "dev:web": "bun run --cwd apps/web dev",
+    "predev:turbo": "bash scripts/predev.sh",
     "dev:turbo": "turbo run dev --parallel",
     "format": "biome format --write .",
     "lint": "turbo run lint",

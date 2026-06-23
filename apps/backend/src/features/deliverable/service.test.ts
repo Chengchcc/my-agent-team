@@ -1,21 +1,12 @@
-import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteDeliverableAdapter } from "./adapter-sqlite.js";
 import { createDeliverableService } from "./service.js";
 
 function setup() {
-  const db = new Database(":memory:");
-  db.exec(`CREATE TABLE IF NOT EXISTS deliverable (
-    deliverable_id TEXT PRIMARY KEY,
-    issue_id       TEXT NOT NULL,
-    from_status    TEXT NOT NULL,
-    kind           TEXT NOT NULL,
-    fields         TEXT NOT NULL,
-    ref            TEXT,
-    run_id         TEXT,
-    created_at     INTEGER NOT NULL
-  );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_deliverable_run_kind ON deliverable(run_id, kind) WHERE run_id IS NOT NULL`);
+  // Use the canonical backend schema (openDb runs drizzle migrations) so the test
+  // DB carries the real deliverable indexes and never drifts from production.
+  const db = openDb(":memory:");
   let idCounter = 0;
   const svc = createDeliverableService({
     port: sqliteDeliverableAdapter(db),

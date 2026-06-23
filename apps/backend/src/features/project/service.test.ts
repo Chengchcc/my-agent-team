@@ -11,30 +11,8 @@ import {
 } from "./service.js";
 
 const dbPath = `/tmp/test-project-svc-${Date.now()}.db`;
+// openDb runs the drizzle migrations — the project + issue tables and indexes already exist.
 const db = openDb(dbPath);
-
-// Run migrations for both project and issue tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS project (
-    project_id     TEXT PRIMARY KEY,
-    name           TEXT NOT NULL,
-    repo_url       TEXT,
-    default_branch TEXT,
-    created_at     INTEGER NOT NULL,
-    updated_at     INTEGER NOT NULL
-  );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_project_name ON project(name);
-  CREATE TABLE IF NOT EXISTS issue (
-    issue_id   TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL,
-    title      TEXT NOT NULL,
-    status     TEXT NOT NULL,
-    thread_id  TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_issue_project ON issue(project_id);
-`);
 
 const port = sqliteProjectAdapter(db);
 const issuePort = sqliteIssueAdapter(db);

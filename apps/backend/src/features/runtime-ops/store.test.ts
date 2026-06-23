@@ -1,77 +1,15 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { runEventsDbMigrations } from "../run/events-db-migrations.js";
 import { RuntimeOpsStore } from "./store.js";
 import { computeRunnerStatus } from "./types.js";
 
 function createTestDb() {
   const db = new Database(":memory:");
   db.exec("PRAGMA journal_mode=WAL");
-  // Run events_db migrations inline for test isolation
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS run (
-      run_id     TEXT PRIMARY KEY,
-      thread_id  TEXT NOT NULL,
-      agent_id   TEXT NOT NULL DEFAULT '',
-      status     TEXT NOT NULL DEFAULT 'running',
-      kind       TEXT NOT NULL DEFAULT 'main',
-      parent_run_id TEXT,
-      started_at INTEGER NOT NULL,
-      ended_at   INTEGER
-    );
-    CREATE TABLE IF NOT EXISTS run_ops_event (
-      seq          INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id       TEXT NOT NULL,
-      attempt_id   TEXT,
-      kind         TEXT NOT NULL,
-      payload      TEXT NOT NULL DEFAULT '{}',
-      trace_id     TEXT,
-      ts           INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_run_ops_event_run ON run_ops_event(run_id, seq);
-    CREATE TABLE IF NOT EXISTS run_origin (
-      run_id            TEXT PRIMARY KEY,
-      conversation_id   TEXT NOT NULL,
-      source_ledger_seq INTEGER NOT NULL,
-      agent_member_id   TEXT NOT NULL,
-      surface           TEXT NOT NULL DEFAULT 'web',
-      trace_id          TEXT NOT NULL,
-      traceparent       TEXT NOT NULL,
-      idempotency_key   TEXT NOT NULL,
-      issue_id          TEXT,
-      from_status       TEXT NOT NULL DEFAULT '',
-      origin_kind       TEXT NOT NULL DEFAULT 'manual',
-      created_at        INTEGER NOT NULL
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_run_origin_idem ON run_origin(idempotency_key);
-    CREATE TABLE IF NOT EXISTS runner_health (
-      agent_id          TEXT PRIMARY KEY,
-      last_seen_at      INTEGER,
-      uptime_ms         INTEGER,
-      active_run_count  INTEGER NOT NULL DEFAULT 0,
-      active_run_ids    TEXT NOT NULL DEFAULT '[]',
-      checkpointer_ok   INTEGER NOT NULL DEFAULT 1,
-      workspace_ok      INTEGER NOT NULL DEFAULT 1,
-      last_error        TEXT,
-      updated_at        INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS surface_health (
-      agent_id       TEXT NOT NULL,
-      surface        TEXT NOT NULL,
-      status         TEXT NOT NULL,
-      last_seen_at   INTEGER,
-      payload        TEXT NOT NULL DEFAULT '{}',
-      last_error     TEXT,
-      updated_at     INTEGER NOT NULL,
-      PRIMARY KEY (agent_id, surface)
-    );
-    CREATE TABLE IF NOT EXISTS issue_event (
-      seq      INTEGER PRIMARY KEY AUTOINCREMENT,
-      issue_id TEXT NOT NULL,
-      kind     TEXT NOT NULL,
-      payload  TEXT NOT NULL DEFAULT '{}',
-      ts       INTEGER NOT NULL
-    );
-  `);
+  // Build schema from the canonical events_db drizzle migrations so the test DB
+  // never drifts from production (indexes, DESC ordering, columns, etc.).
+  runEventsDbMigrations(db);
   return db;
 }
 
