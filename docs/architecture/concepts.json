@@ -353,7 +353,7 @@
     {
       "id": "foundations.cron-job",
       "title": "CronJob",
-      "status": "design",
+      "status": "current",
       "owners": "architecture",
       "path": "docs/architecture/foundations/cron-job.md",
       "summary": "CronJob 是「一条按时间表反复触发 Agent 运行的定时规则」，是继 Issue 之后第二个触发型领域本体：Conversation/Issue/Run 都表达不了「到点就自动起一棒」。它自带 cron_job 表做 CRUD，后端启动时（或单 job 开启时）用 Bun.cron 在进程内注册定时器，到点经现有 dispatcher 起一次 main run，threadId 映射成 <jobId>:owner，复用 Issue 的「实体自带会话 + owner 成员」套路，使每一棒都能点进 /conversations/<jobId>。重试复用 retry ops 事件，超时分 per-job 看门狗 + 全局心跳 reaper 两层。本页 status: design，尚未进代码。",
