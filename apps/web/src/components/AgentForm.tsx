@@ -167,6 +167,12 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
     else createMutation.mutate(values);
   }
 
+  // onSubmit is now fire-and-forget (mutate, not await), so react-hook-form's
+  // formState.isSubmitting no longer tracks the request — derive the in-flight
+  // state from the mutations instead, otherwise the submit button stays enabled
+  // and double-submits create duplicate agents.
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
   const fieldClass =
     "w-full bg-[var(--canvas-soft)] border border-[var(--hairline)] rounded-md px-3 py-2.5 text-sm text-[var(--ink)] placeholder:text-[var(--mute)] focus:outline-none focus:border-[var(--primary)] transition-colors duration-200";
   const labelClass =
@@ -439,10 +445,10 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
 
                 <Button
                   type="submit"
-                  disabled={form.formState.isSubmitting || !form.getValues("name").trim()}
+                  disabled={isSaving || !form.getValues("name").trim()}
                   className="w-full"
                 >
-                  {form.formState.isSubmitting ? (
+                  {isSaving ? (
                     "Saving..."
                   ) : isEdit ? (
                     <span className="inline-flex items-center gap-1">

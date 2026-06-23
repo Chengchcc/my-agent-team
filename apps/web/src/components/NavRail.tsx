@@ -148,6 +148,7 @@ function NavContent() {
             <Button
               variant="ghost"
               size="icon-xs"
+              disabled={createConversation.isPending}
               onClick={() => {
                 const a = activeAgents.find((ag) => ag.id === selectedAgentId);
                 createConversation.mutate({ displayName: a?.name });
