@@ -32,6 +32,12 @@ import {
   onRunComplete,
 } from "./features/conversation/projection.js";
 import {
+  createCronJobService,
+  createCronScheduler,
+  cronJobRoutes,
+  sqliteCronJobAdapter,
+} from "./features/cron/index.js";
+import {
   createDeliverableService,
   sqliteDeliverableAdapter,
 } from "./features/deliverable/index.js";
@@ -335,6 +341,18 @@ const issueSvc = createIssueService({
   },
 });
 
+// M21: CronJob service
+const cronSvc = createCronJobService({
+  port: sqliteCronJobAdapter(db),
+  idGen: ulid,
+  agentExists: (id: string) => agentSvc.exists(id),
+  convPort: {
+    createConversation: (input) =>
+      conv.convPort.createConversation({ ...input, createdAt: Date.now() }),
+    addMember: (input) => conv.convPort.addMember({ ...input, joinedAt: Date.now() }),
+  },
+});
+
 // M18.2 Orchestrator: build spec by agentId directly (not via member table)
 const buildIssueSpec = async (agentId: string, threadId: string, input: string) => {
   const agent = await agentSvc.getById(agentId);
@@ -354,6 +372,18 @@ const buildIssueSpec = async (agentId: string, threadId: string, input: string) 
     maxSteps: agent.maxSteps ?? undefined,
   };
 };
+
+// M21: CronJob scheduler — register retry listener before orchestrator's onRunComplete
+const makeTrace = () => tracer.inject();
+const cronScheduler = createCronScheduler({
+  cronSvc,
+  dispatcher,
+  supervisor,
+  opsStore,
+  buildSpec: buildIssueSpec,
+  idGen: ulid,
+  trace: makeTrace,
+});
 
 const orchestrator = createOrchestrator({
   issueSvc,
@@ -403,6 +433,7 @@ const router = createRouter(config.authToken, {
   }),
   projects: projectRoutes(projectSvc),
   columnConfigs: columnConfigRoutes(columnConfigSvc),
+  cronJobs: cronJobRoutes(cronSvc, cronScheduler),
 });
 
 // ─── Start ────────────────────────────────────────────────────
@@ -410,6 +441,7 @@ const router = createRouter(config.authToken, {
 const server = createServer(config, router);
 await supervisor.rediscover(eventLog);
 server.start();
+cronScheduler.start();
 console.log(`[backend] listening on ${config.host}:${config.port}`);
 
 // Launch lark-bots for enabled agents
@@ -431,6 +463,7 @@ const shutdown = async (signal: string) => {
   supervisor.cancelAll();
   await new Promise((r) => setTimeout(r, config.cancelGraceMs));
   await supervisor.dispose();
+  cronScheduler.dispose();
   await registry.dispose?.();
   await larkBotRegistry.dispose();
   setupManager?.dispose();

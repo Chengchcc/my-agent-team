@@ -1,6 +1,7 @@
 import type { agentRoutes } from "../features/agent/http.js";
 import type { columnConfigRoutes } from "../features/column-config/http.js";
 import type { conversationRoutes } from "../features/conversation/http.js";
+import type { cronJobRoutes } from "../features/cron/http.js";
 import type { issueRoutes } from "../features/issue/http.js";
 import type { projectRoutes } from "../features/project/http.js";
 import type { runRoutes } from "../features/run/http.js";
@@ -19,6 +20,7 @@ interface FeatureSet {
   issues?: ReturnType<typeof issueRoutes>;
   projects?: ReturnType<typeof projectRoutes>;
   columnConfigs?: ReturnType<typeof columnConfigRoutes>;
+  cronJobs?: ReturnType<typeof cronJobRoutes>;
 }
 
 export function createRouter(token: string, features?: FeatureSet) {
@@ -40,7 +42,7 @@ export function createRouter(token: string, features?: FeatureSet) {
     };
   }
 
-  const { agents, runs, conversations, ops, issues, projects, columnConfigs } = features;
+  const { agents, runs, conversations, ops, issues, projects, columnConfigs, cronJobs } = features;
 
   const agentList = withAuth((req) => agents.list(req), token);
   const agentCreate = withAuth((req) => agents.create(req), token);
@@ -265,6 +267,29 @@ export function createRouter(token: string, features?: FeatureSet) {
           return withAuth(async (r) => columnConfigs.remove(r, ccDetailMatch[1]!), token)(req);
         if (ccListMatch) return json({ error: "Method not allowed" }, 405);
         if (ccDetailMatch) return json({ error: "Method not allowed" }, 405);
+      }
+
+      // M21: CronJob routes
+      if (cronJobs) {
+        const cronListMatch = path === "/api/cron-jobs";
+        const cronEnableMatch = path.match(/^\/api\/cron-jobs\/([^/]+)\/enable$/);
+        const cronDetailMatch = path.match(/^\/api\/cron-jobs\/([^/]+)$/);
+        // /:id/enable must be checked BEFORE /:id to avoid capturing "enable" as an id
+        if (cronEnableMatch && method === "POST")
+          return withAuth(async (r) => cronJobs.setEnabled(r, cronEnableMatch[1]!), token)(req);
+        if (cronListMatch && method === "GET")
+          return withAuth(async (r) => cronJobs.list(r), token)(req);
+        if (cronListMatch && method === "POST")
+          return withAuth(async (r) => cronJobs.create(r), token)(req);
+        if (cronDetailMatch && method === "GET")
+          return withAuth(async (r) => cronJobs.get(r, cronDetailMatch[1]!), token)(req);
+        if (cronDetailMatch && method === "PATCH")
+          return withAuth(async (r) => cronJobs.update(r, cronDetailMatch[1]!), token)(req);
+        if (cronDetailMatch && method === "DELETE")
+          return withAuth(async (r) => cronJobs.remove(r, cronDetailMatch[1]!), token)(req);
+        if (cronListMatch) return json({ error: "Method not allowed" }, 405);
+        if (cronEnableMatch) return json({ error: "Method not allowed" }, 405);
+        if (cronDetailMatch) return json({ error: "Method not allowed" }, 405);
       }
 
       return withAuth(async () => notFound(req), token)(req);

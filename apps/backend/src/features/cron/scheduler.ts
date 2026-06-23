@@ -8,7 +8,7 @@ export function createCronScheduler(deps: {
   cronSvc: CronJobService;
   dispatcher: RunDispatcher;
   supervisor: {
-    cancel(runId: string): Promise<void> | void;
+    cancel(runId: string): boolean | Promise<void> | void;
     onRunComplete(
       fn: (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>,
     ): void;

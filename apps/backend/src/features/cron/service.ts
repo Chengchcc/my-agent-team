@@ -18,7 +18,7 @@ export class CronJobValidationError extends Error {
 export interface CronJobServiceDeps {
   port: CronJobPort;
   idGen: () => string;
-  agentExists: (id: string) => boolean;
+  agentExists: (id: string) => Promise<boolean>;
   now?: () => number;
   convPort?: {
     createConversation: (input: {
@@ -48,7 +48,7 @@ export function createCronJobService(deps: CronJobServiceDeps) {
   return {
     port,
 
-    createCronJob(input: {
+    async createCronJob(input: {
       name: string;
       agentId: string;
       cronExpr: string;
@@ -56,8 +56,8 @@ export function createCronJobService(deps: CronJobServiceDeps) {
       timeoutMs?: number;
       maxRetries?: number;
       enabled?: boolean;
-    }): CronJobRow {
-      if (!agentExists(input.agentId)) {
+    }): Promise<CronJobRow> {
+      if (!(await agentExists(input.agentId))) {
         throw new CronJobValidationError(`agent not found: ${input.agentId}`);
       }
       const cronJobId = idGen();
@@ -105,7 +105,7 @@ export function createCronJobService(deps: CronJobServiceDeps) {
       return port.getCronJob(id) !== null;
     },
 
-    update(
+    async update(
       id: string,
       patch: {
         name?: string;
@@ -116,8 +116,8 @@ export function createCronJobService(deps: CronJobServiceDeps) {
         maxRetries?: number;
         enabled?: boolean;
       },
-    ): CronJobRow {
-      if (patch.agentId !== undefined && !agentExists(patch.agentId)) {
+    ): Promise<CronJobRow> {
+      if (patch.agentId !== undefined && !(await agentExists(patch.agentId))) {
         throw new CronJobValidationError(`agent not found: ${patch.agentId}`);
       }
       const result = port.updateCronJob(id, { ...patch, updatedAt: now() });

@@ -95,10 +95,22 @@ export function CronJobForm({ editCronJob, onSuccess }: CronJobFormProps) {
 
   function handleOpen(o: boolean) {
     if (!o) {
-      form.reset();
+      if (isEdit && editCronJob) {
+        form.reset({
+          name: editCronJob.name,
+          agentId: editCronJob.agentId,
+          cronExpr: editCronJob.cronExpr,
+          prompt: editCronJob.prompt,
+          timeoutMs: editCronJob.timeoutMs,
+          maxRetries: editCronJob.maxRetries,
+          enabled: editCronJob.enabled,
+        });
+      } else {
+        form.reset();
+      }
       setServerError(null);
     }
-    if (!isEdit) setOpen(o);
+    setOpen(o);
   }
 
   const createMu = useMutation({

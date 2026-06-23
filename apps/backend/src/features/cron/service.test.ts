@@ -37,25 +37,28 @@ function makeIdGen() {
   return () => `cj-${++n}`;
 }
 
+const agent1Exists = async (id: string) => id === "agent-1";
+const alwaysExists = async () => true;
+
 describe("createCronJobService", () => {
-  test("createCronJob validates agentId", () => {
+  test("createCronJob validates agentId", async () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: (id) => id === "agent-1",
+      agentExists: agent1Exists,
     });
-    expect(() =>
+    await expect(
       svc.createCronJob({ name: "test", agentId: "nonexistent", cronExpr: "0 9 * * *" }),
-    ).toThrow(CronJobValidationError);
+    ).rejects.toThrow(CronJobValidationError);
   });
 
-  test("createCronJob succeeds with valid agentId", () => {
+  test("createCronJob succeeds with valid agentId", async () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: (id) => id === "agent-1",
+      agentExists: agent1Exists,
     });
-    const job = svc.createCronJob({
+    const job = await svc.createCronJob({
       name: "test",
       agentId: "agent-1",
       cronExpr: "0 9 * * *",
@@ -69,13 +72,13 @@ describe("createCronJobService", () => {
     expect(job.maxRetries).toBe(0);
   });
 
-  test("createCronJob with enabled:true", () => {
+  test("createCronJob with enabled:true", async () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: () => true,
+      agentExists: alwaysExists,
     });
-    const job = svc.createCronJob({
+    const job = await svc.createCronJob({
       name: "enabled job",
       agentId: "agent-1",
       cronExpr: "* * * * *",
@@ -84,13 +87,13 @@ describe("createCronJobService", () => {
     expect(job.enabled).toBe(true);
   });
 
-  test("createCronJob with timeout and retries", () => {
+  test("createCronJob with timeout and retries", async () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: () => true,
+      agentExists: alwaysExists,
     });
-    const job = svc.createCronJob({
+    const job = await svc.createCronJob({
       name: "x",
       agentId: "agent-1",
       cronExpr: "0 9 * * *",
@@ -101,13 +104,17 @@ describe("createCronJobService", () => {
     expect(job.maxRetries).toBe(5);
   });
 
-  test("setEnabled toggles", () => {
+  test("setEnabled toggles", async () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: () => true,
+      agentExists: alwaysExists,
     });
-    const job = svc.createCronJob({ name: "toggle", agentId: "agent-1", cronExpr: "0 9 * * *" });
+    const job = await svc.createCronJob({
+      name: "toggle",
+      agentId: "agent-1",
+      cronExpr: "0 9 * * *",
+    });
     expect(svc.setEnabled(job.cronJobId, true).enabled).toBe(true);
     expect(svc.setEnabled(job.cronJobId, false).enabled).toBe(false);
   });
@@ -116,7 +123,7 @@ describe("createCronJobService", () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: () => true,
+      agentExists: alwaysExists,
     });
     expect(() => svc.setEnabled("nonexistent", true)).toThrow(CronJobNotFoundError);
   });
@@ -125,79 +132,83 @@ describe("createCronJobService", () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: () => true,
+      agentExists: alwaysExists,
     });
     expect(() => svc.getById("nonexistent")).toThrow(CronJobNotFoundError);
   });
 
-  test("list returns all", () => {
+  test("list returns all", async () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: () => true,
+      agentExists: alwaysExists,
     });
-    svc.createCronJob({ name: "a", agentId: "agent-1", cronExpr: "0 9 * * *" });
-    svc.createCronJob({ name: "b", agentId: "agent-1", cronExpr: "0 9 * * *" });
+    await svc.createCronJob({ name: "a", agentId: "agent-1", cronExpr: "0 9 * * *" });
+    await svc.createCronJob({ name: "b", agentId: "agent-1", cronExpr: "0 9 * * *" });
     expect(svc.list()).toHaveLength(2);
   });
 
-  test("exists returns true/false", () => {
+  test("exists returns true/false", async () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: () => true,
+      agentExists: alwaysExists,
     });
     expect(svc.exists("anything")).toBe(false);
-    const job = svc.createCronJob({ name: "x", agentId: "agent-1", cronExpr: "0 9 * * *" });
+    const job = await svc.createCronJob({ name: "x", agentId: "agent-1", cronExpr: "0 9 * * *" });
     expect(svc.exists(job.cronJobId)).toBe(true);
   });
 
-  test("update modifies fields", () => {
+  test("update modifies fields", async () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: () => true,
+      agentExists: alwaysExists,
     });
-    const job = svc.createCronJob({
+    const job = await svc.createCronJob({
       name: "old",
       agentId: "agent-1",
       cronExpr: "0 9 * * *",
       timeoutMs: 1000,
     });
-    const updated = svc.update(job.cronJobId, { name: "new", timeoutMs: 5000 });
+    const updated = await svc.update(job.cronJobId, { name: "new", timeoutMs: 5000 });
     expect(updated.name).toBe("new");
     expect(updated.timeoutMs).toBe(5000);
     expect(updated.cronExpr).toBe("0 9 * * *"); // unchanged
   });
 
-  test("update validates new agentId", () => {
+  test("update validates new agentId", async () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: (id) => id === "agent-1",
+      agentExists: agent1Exists,
     });
-    const job = svc.createCronJob({ name: "x", agentId: "agent-1", cronExpr: "0 9 * * *" });
-    expect(() => svc.update(job.cronJobId, { agentId: "nonexistent" })).toThrow(
+    const job = await svc.createCronJob({ name: "x", agentId: "agent-1", cronExpr: "0 9 * * *" });
+    await expect(svc.update(job.cronJobId, { agentId: "nonexistent" })).rejects.toThrow(
       CronJobValidationError,
     );
   });
 
-  test("update throws on missing", () => {
+  test("update throws on missing", async () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: () => true,
+      agentExists: alwaysExists,
     });
-    expect(() => svc.update("nonexistent", { name: "x" })).toThrow(CronJobNotFoundError);
+    await expect(svc.update("nonexistent", { name: "x" })).rejects.toThrow(CronJobNotFoundError);
   });
 
-  test("remove deletes", () => {
+  test("remove deletes", async () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: () => true,
+      agentExists: alwaysExists,
     });
-    const job = svc.createCronJob({ name: "to-delete", agentId: "agent-1", cronExpr: "0 9 * * *" });
+    const job = await svc.createCronJob({
+      name: "to-delete",
+      agentId: "agent-1",
+      cronExpr: "0 9 * * *",
+    });
     svc.remove(job.cronJobId);
     expect(() => svc.getById(job.cronJobId)).toThrow(CronJobNotFoundError);
   });
@@ -206,17 +217,17 @@ describe("createCronJobService", () => {
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: () => true,
+      agentExists: alwaysExists,
     });
     expect(() => svc.remove("nonexistent")).toThrow(CronJobNotFoundError);
   });
 
-  test("convPort failure does not block createCronJob", () => {
+  test("convPort failure does not block createCronJob", async () => {
     let called = false;
     const svc = createCronJobService({
       port: mockPort(),
       idGen: makeIdGen(),
-      agentExists: () => true,
+      agentExists: alwaysExists,
       convPort: {
         createConversation: () => {
           called = true;
@@ -225,17 +236,21 @@ describe("createCronJobService", () => {
         addMember: () => {},
       },
     });
-    const job = svc.createCronJob({ name: "conv-test", agentId: "agent-1", cronExpr: "0 9 * * *" });
+    const job = await svc.createCronJob({
+      name: "conv-test",
+      agentId: "agent-1",
+      cronExpr: "0 9 * * *",
+    });
     expect(job).not.toBeNull();
     expect(called).toBe(true); // tried but failed silently
   });
 
-  test("convPort success creates conversation and adds owner member", () => {
+  test("convPort success creates conversation and adds owner member", async () => {
     const calls: string[] = [];
     const svc = createCronJobService({
       port: mockPort(),
       idGen: () => "cj-conv",
-      agentExists: () => true,
+      agentExists: alwaysExists,
       convPort: {
         createConversation: (input) => {
           calls.push(`conv:${input.conversationId}:${input.title}:${input.origin}`);
@@ -247,7 +262,7 @@ describe("createCronJobService", () => {
         },
       },
     });
-    svc.createCronJob({ name: "My Job", agentId: "agent-1", cronExpr: "0 9 * * *" });
+    await svc.createCronJob({ name: "My Job", agentId: "agent-1", cronExpr: "0 9 * * *" });
     expect(calls).toEqual(["conv:cj-conv:My Job:cron", "member:cj-conv:owner:agent:agent-1"]);
   });
 });
