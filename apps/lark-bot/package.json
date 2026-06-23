@@ -10,6 +10,7 @@
     "lint": "biome check . && eslint ."
   },
   "dependencies": {
+    "drizzle-orm": "^0.44.0",
     "@my-agent-team/conversation": "workspace:*",
     "@my-agent-team/message": "workspace:*",
     "zod": "^3.23.0"

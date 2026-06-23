@@ -34,6 +34,7 @@
     "husky": "^9.1.7",
     "turbo": "^2.9.16",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.60.1"
+    "typescript-eslint": "^8.60.1",
+    "drizzle-kit": "^0.31.0"
   }
 }
