@@ -2,6 +2,13 @@ import { describe, expect, mock, test } from "bun:test";
 import type { CronJobRow } from "./domain.js";
 import { createCronScheduler } from "./scheduler.js";
 
+type ListenerFn = (
+  threadId: string,
+  runId: string,
+  status: string,
+  kind: string,
+) => void | Promise<void>;
+
 function makeJob(overrides: Partial<CronJobRow> = {}): CronJobRow {
   return {
     cronJobId: "cj-test",
@@ -21,14 +28,17 @@ function makeJob(overrides: Partial<CronJobRow> = {}): CronJobRow {
 /** Minimal deps for exercises that only call register/unregister/dispose/start.
  *  onRunComplete is always called at construction time, so supervisor is required.
  *  Returns `any` to avoid declaring full CronJobService/RunDispatcher shapes. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function minimalDeps(overrides: Record<string, unknown> = {}): any {
   return {
     cronSvc: { port: { listEnabledCronJobs: () => [] as CronJobRow[] } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     dispatcher: null as any,
     supervisor: {
       cancel: () => {},
       onRunComplete: () => {},
     },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     opsStore: null as any,
     buildSpec: async () => ({}) as Record<string, unknown>,
     idGen: () => "r",
@@ -103,12 +113,12 @@ describe("createCronScheduler", () => {
   });
 
   test("onRunComplete listener is registered with supervisor during construction", () => {
-    let registeredListener: Function | undefined;
+    let registeredListener: ListenerFn | undefined;
     const scheduler = createCronScheduler(
       minimalDeps({
         supervisor: {
           cancel: () => {},
-          onRunComplete: (fn: Function) => {
+          onRunComplete: (fn: ListenerFn) => {
             registeredListener = fn;
           },
         },
@@ -122,12 +132,12 @@ describe("createCronScheduler", () => {
 
   test("onRunComplete ignores non-cron origin", () => {
     const appendRunEvent = mock(() => 1);
-    let listener: Function | undefined;
+    let listener: ListenerFn | undefined;
     const scheduler = createCronScheduler(
       minimalDeps({
         supervisor: {
           cancel: () => {},
-          onRunComplete: (fn: Function) => {
+          onRunComplete: (fn: ListenerFn) => {
             listener = fn;
           },
         },
@@ -146,12 +156,12 @@ describe("createCronScheduler", () => {
 
   test("onRunComplete ignores completed cron run", () => {
     const appendRunEvent = mock(() => 1);
-    let listener: Function | undefined;
+    let listener: ListenerFn | undefined;
     const scheduler = createCronScheduler(
       minimalDeps({
         supervisor: {
           cancel: () => {},
-          onRunComplete: (fn: Function) => {
+          onRunComplete: (fn: ListenerFn) => {
             listener = fn;
           },
         },
@@ -176,12 +186,12 @@ describe("createCronScheduler", () => {
 
   test("onRunComplete records retry_requested event for failed cron run", () => {
     const appendRunEvent = mock(() => 1);
-    let listener: Function | undefined;
+    let listener: ListenerFn | undefined;
     const scheduler = createCronScheduler(
       minimalDeps({
         supervisor: {
           cancel: () => {},
-          onRunComplete: (fn: Function) => {
+          onRunComplete: (fn: ListenerFn) => {
             listener = fn;
           },
         },
@@ -202,6 +212,7 @@ describe("createCronScheduler", () => {
     listener!("thread-1", "r1", "error", "main");
     // retry_requested event must be recorded synchronously (before setTimeout fires)
     expect(appendRunEvent).toHaveBeenCalledTimes(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const call = (appendRunEvent as any).mock.calls[0][0];
     expect(call.kind).toBe("retry_requested");
     expect(call.payload.attempt).toBe(1);
@@ -210,13 +221,13 @@ describe("createCronScheduler", () => {
 
   test("onRunComplete does not retry beyond maxRetries", () => {
     const appendRunEvent = mock(() => 1);
-    let listener: Function | undefined;
+    let listener: ListenerFn | undefined;
     let callCount = 0;
     const scheduler = createCronScheduler(
       minimalDeps({
         supervisor: {
           cancel: () => {},
-          onRunComplete: (fn: Function) => {
+          onRunComplete: (fn: ListenerFn) => {
             listener = fn;
           },
         },
@@ -241,14 +252,18 @@ describe("createCronScheduler", () => {
     listener!("thread-1", "r2", "error", "main");
     callCount++;
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const retryEvents = (appendRunEvent as any).mock.calls.filter(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (c: any) => c[0].kind === "retry_requested",
     );
     expect(retryEvents).toHaveLength(2);
 
     // Third failure — maxRetries reached, no more retries
     listener!("thread-1", "r3", "error", "main");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const retryEventsAfter = (appendRunEvent as any).mock.calls.filter(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (c: any) => c[0].kind === "retry_requested",
     );
     expect(retryEventsAfter).toHaveLength(2); // still 2, no new one
@@ -258,12 +273,12 @@ describe("createCronScheduler", () => {
 
   test("onRunComplete does not retry when job has maxRetries=0", () => {
     const appendRunEvent = mock(() => 1);
-    let listener: Function | undefined;
+    let listener: ListenerFn | undefined;
     const scheduler = createCronScheduler(
       minimalDeps({
         supervisor: {
           cancel: () => {},
-          onRunComplete: (fn: Function) => {
+          onRunComplete: (fn: ListenerFn) => {
             listener = fn;
           },
         },
@@ -286,12 +301,12 @@ describe("createCronScheduler", () => {
   });
 
   test("onRunComplete cleans watchdog timer on run completion", () => {
-    let listener: Function | undefined;
+    let listener: ListenerFn | undefined;
     const scheduler = createCronScheduler(
       minimalDeps({
         supervisor: {
           cancel: () => {},
-          onRunComplete: (fn: Function) => {
+          onRunComplete: (fn: ListenerFn) => {
             listener = fn;
           },
         },

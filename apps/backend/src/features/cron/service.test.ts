@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import type { CronJobPort } from "./ports.js";
 import { CronJobNotFoundError, CronJobValidationError, createCronJobService } from "./service.js";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mockPort(initial: any[] = []): CronJobPort {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const store = new Map<string, any>();
   for (const r of initial) store.set(r.cronJobId, { ...r });
   return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     createCronJob(input: any) {
       const r = { ...input };
       store.set(input.cronJobId, r);
@@ -18,8 +21,10 @@ function mockPort(initial: any[] = []): CronJobPort {
       return [...store.values()];
     },
     listEnabledCronJobs() {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return [...store.values()].filter((r: any) => r.enabled);
     },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     updateCronJob(id: string, patch: any) {
       const r = store.get(id);
       if (!r) return null;
