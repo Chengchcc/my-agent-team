@@ -15,6 +15,7 @@
 - `docs/architecture/flows/e2e-issue-lifecycle.md`
 - `docs/architecture/flows/e2e-lark-message.md`
 - `docs/architecture/flows/e2e-web-message.md`
+- `docs/architecture/foundations/cron-job.md`
 - `docs/architecture/foundations/facts-and-projections.md`
 - `docs/architecture/foundations/issue.md`
 - `docs/architecture/foundations/issue-workflow.md`

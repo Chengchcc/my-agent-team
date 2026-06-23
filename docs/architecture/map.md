@@ -53,7 +53,9 @@ flowchart LR
   WF -->|演进设计| Orch
   Orch[backend/orchestrator] -->|固定转移表 + status 回填| Issue
   Orch -->|复用起运行| RS[backend/run-supervisor]
+  Cron[foundations/cron-job] -.同级触发型实体.-> Issue
+  Cron -->|Bun.cron 到点 dispatch 一棒| RS
   Flow[flows/e2e-issue-lifecycle] -.串起时间线.-> Orch
 ```
 
-`foundations/issue`（此次新增的业务概念）→ `backend/orchestrator`（驱动状态机的编排器）→ `backend/run-supervisor`（复用执行层）；`flows/e2e-issue-lifecycle` 把这条链路串成跨多次运行的时间线。`foundations/issue-workflow`（`status: design`）是下一版演进设计。
+`foundations/issue`（此次新增的业务概念）→ `backend/orchestrator`（驱动状态机的编排器）→ `backend/run-supervisor`（复用执行层）；`flows/e2e-issue-lifecycle` 把这条链路串成跨多次运行的时间线。`foundations/issue-workflow`（`status: design`）是下一版演进设计。`foundations/cron-job`（`status: design`）是 Issue 的兄弟触发型实体——同样自带 `threadId`、复用 `run-supervisor`，区别只在触发源是时钟而非人/编排器。

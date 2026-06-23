@@ -349,6 +349,16 @@
       "summary": "这条流把一个 Issue 从创建到完成串成一条时间线：每进入一个状态，Orchestrator 按固定转移表用对应 Agent 在 Issue 的 threadId 上起一次运行；run 终态经 status 回填监听器把 Issue 推进到下一状态，再起下一棒，直到 done。它把 Issue（结构）与 Orchestrator（机制）合起来才隐含的「时间维度」画出来——区别于现状的 @提及自动流。本页 status: design，尚未进代码。",
       "depends_on": ["foundations.issue", "backend.orchestrator", "backend.run-supervisor"],
       "used_by": []
+    },
+    {
+      "id": "foundations.cron-job",
+      "title": "CronJob",
+      "status": "design",
+      "owners": "architecture",
+      "path": "docs/architecture/foundations/cron-job.md",
+      "summary": "CronJob 是「一条按时间表反复触发 Agent 运行的定时规则」，是继 Issue 之后第二个触发型领域本体：Conversation/Issue/Run 都表达不了「到点就自动起一棒」。它自带 cron_job 表做 CRUD，后端启动时（或单 job 开启时）用 Bun.cron 在进程内注册定时器，到点经现有 dispatcher 起一次 main run，threadId 映射成 <jobId>:owner，复用 Issue 的「实体自带会话 + owner 成员」套路，使每一棒都能点进 /conversations/<jobId>。重试复用 retry ops 事件，超时分 per-job 看门狗 + 全局心跳 reaper 两层。本页 status: design，尚未进代码。",
+      "depends_on": ["foundations.issue", "backend.run-supervisor"],
+      "used_by": ["backend.orchestrator", "flows.e2e-issue-lifecycle"]
     }
   ]
 }
