@@ -56,6 +56,10 @@ import {
 import { threadProjectionRoutes } from "./features/thread-projection/index.js";
 import { createRouter } from "./http/router.js";
 import { ulid } from "./infra/ids.js";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { eq } from "drizzle-orm";
+import * as backendSchema from "./infra/db/schema.js";
+import * as eventsSchema from "./infra/db/events-schema.js";
 import { openDb } from "./infra/sqlite/db.js";
 import { createServer } from "./server.js";
 
@@ -245,12 +249,16 @@ supervisor.onRunEvent((threadId, runId, event, _kind) => {
 
 // ─── HTTP router ──────────────────────────────────────────────
 
+const eventsDrizzle = drizzle(eventsDb, { schema: eventsSchema });
+
 const getThreadIdForRun = async (runId: string) => {
-  const row = eventsDb.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as
-    | { thread_id: string }
-    | undefined;
+  const row = eventsDrizzle
+    .select({ threadId: eventsSchema.run.threadId })
+    .from(eventsSchema.run)
+    .where(eq(eventsSchema.run.runId, runId))
+    .get();
   if (!row) throw new Error(`Run not found: ${runId}`);
-  return row.thread_id;
+  return row.threadId;
 };
 
 const identityStore = createAgentIdentityStore({
@@ -279,9 +287,13 @@ function getSetupManager(): LarkSetupManager {
 }
 
 // Ops service
+const backendDrizzle = drizzle(db, { schema: backendSchema });
 const agentNames = new Map<string, string>();
 {
-  const rows = db.query("SELECT id, name FROM agents").all() as { id: string; name: string }[];
+  const rows = backendDrizzle
+    .select({ id: backendSchema.agents.id, name: backendSchema.agents.name })
+    .from(backendSchema.agents)
+    .all();
   for (const r of rows) agentNames.set(r.id, r.name);
 }
 const opsSvc = createRuntimeOpsService({

@@ -1,28 +1,40 @@
 import type { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { and, eq, gt, inArray } from "drizzle-orm";
+import * as schema from "../../infra/db/events-schema.js";
 import type {
-  IssueEvent,
+  IssueEvent as IssueEventType,
   IssueEventKind,
   RunnerHealthRow,
-  RunOpsEvent,
+  RunOpsEvent as RunOpsEventType,
   RunOpsEventKind,
   RunOriginRow,
   SurfaceHealthRow,
 } from "./types.js";
 
-// bun:sqlite returns column names exactly as written in SQL. Use aliases so
-// rows map to our camelCase interface types without a transform layer.
-const RUN_OPS_COLS = `seq, run_id AS runId, attempt_id AS attemptId, kind, payload, trace_id AS traceId, ts`;
-const RUN_ORIGIN_COLS = `run_id AS runId, conversation_id AS conversationId, source_ledger_seq AS sourceLedgerSeq, agent_member_id AS agentMemberId, surface, trace_id AS traceId, traceparent, idempotency_key AS idempotencyKey, issue_id AS issueId, from_status AS fromStatus, origin_kind AS originKind, created_at AS createdAt`;
-const RUNNER_HEALTH_COLS = `agent_id AS agentId, last_seen_at AS lastSeenAt, uptime_ms AS uptimeMs, active_run_count AS activeRunCount, active_run_ids AS activeRunIds, checkpointer_ok AS checkpointerOk, workspace_ok AS workspaceOk, last_error AS lastError, updated_at AS updatedAt`;
-const SURFACE_HEALTH_COLS = `agent_id AS agentId, surface, status, last_seen_at AS lastSeenAt, payload, last_error AS lastError, updated_at AS updatedAt`;
-const ISSUE_EVENT_COLS = `seq, issue_id AS issueId, kind, payload, ts`;
-const RUN_COLS = `run_id AS runId, thread_id AS threadId, agent_id AS agentId, status, kind, parent_run_id AS parentRunId, started_at AS startedAt, ended_at AS endedAt`;
+function toRunOpsEvent(r: typeof schema.runOpsEvent.$inferSelect): RunOpsEventType {
+  return { ...r, payload: JSON.parse(r.payload) as Record<string, unknown> };
+}
+
+function toRunOriginRow(r: typeof schema.runOrigin.$inferSelect): RunOriginRow {
+  return { ...r };
+}
+
+function toRunnerHealthRow(r: typeof schema.runnerHealth.$inferSelect): RunnerHealthRow {
+  return { ...r, activeRunIds: JSON.parse(r.activeRunIds) as string[] };
+}
+
+function toSurfaceHealthRow(r: typeof schema.surfaceHealth.$inferSelect): SurfaceHealthRow {
+  return { ...r, payload: JSON.parse(r.payload) as Record<string, unknown> };
+}
 
 export class RuntimeOpsStore {
   #db: Database;
+  #d: ReturnType<typeof drizzle<typeof schema>>;
 
   constructor(db: Database) {
     this.#db = db;
+    this.#d = drizzle(db, { schema });
   }
 
   // ─── run_ops_event ───
@@ -34,35 +46,38 @@ export class RuntimeOpsStore {
     traceId?: string;
     payload?: Record<string, unknown>;
   }): number {
-    const now = Date.now();
-    this.#db.run(
-      `INSERT INTO run_ops_event (run_id, attempt_id, kind, payload, trace_id, ts)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        input.runId,
-        input.attemptId ?? null,
-        input.kind,
-        JSON.stringify(input.payload ?? {}),
-        input.traceId ?? null,
-        now,
-      ],
-    );
-    const row = this.#db.query("SELECT last_insert_rowid()").get() as {
-      "last_insert_rowid()": number;
-    };
-    return row["last_insert_rowid()"];
+    const result = this.#d
+      .insert(schema.runOpsEvent)
+      .values({
+        runId: input.runId,
+        attemptId: input.attemptId ?? null,
+        kind: input.kind,
+        payload: JSON.stringify(input.payload ?? {}),
+        traceId: input.traceId ?? null,
+        ts: Date.now(),
+      })
+      .run();
+    return Number(result.lastInsertRowid);
   }
 
-  getRunEvents(runId: string): RunOpsEvent[] {
-    return this.#db
-      .query(`SELECT ${RUN_OPS_COLS} FROM run_ops_event WHERE run_id = ? ORDER BY seq`)
-      .all(runId) as RunOpsEvent[];
+  getRunEvents(runId: string): RunOpsEventType[] {
+    return this.#d
+      .select()
+      .from(schema.runOpsEvent)
+      .where(eq(schema.runOpsEvent.runId, runId))
+      .orderBy(schema.runOpsEvent.seq)
+      .all()
+      .map(toRunOpsEvent);
   }
 
-  getRunEventsByTrace(traceId: string): RunOpsEvent[] {
-    return this.#db
-      .query(`SELECT ${RUN_OPS_COLS} FROM run_ops_event WHERE trace_id = ? ORDER BY seq`)
-      .all(traceId) as RunOpsEvent[];
+  getRunEventsByTrace(traceId: string): RunOpsEventType[] {
+    return this.#d
+      .select()
+      .from(schema.runOpsEvent)
+      .where(eq(schema.runOpsEvent.traceId, traceId))
+      .orderBy(schema.runOpsEvent.seq)
+      .all()
+      .map(toRunOpsEvent);
   }
 
   // ─── issue_event (M18.7) ───
@@ -72,28 +87,39 @@ export class RuntimeOpsStore {
     kind: IssueEventKind;
     payload?: Record<string, unknown>;
   }): number {
-    this.#db.run(`INSERT INTO issue_event (issue_id, kind, payload, ts) VALUES (?, ?, ?, ?)`, [
-      input.issueId,
-      input.kind,
-      JSON.stringify(input.payload ?? {}),
-      Date.now(),
-    ]);
-    const row = this.#db.query("SELECT last_insert_rowid()").get() as {
-      "last_insert_rowid()": number;
-    };
-    return row["last_insert_rowid()"];
+    const result = this.#d
+      .insert(schema.issueEvent)
+      .values({
+        issueId: input.issueId,
+        kind: input.kind,
+        payload: JSON.stringify(input.payload ?? {}),
+        ts: Date.now(),
+      })
+      .run();
+    return Number(result.lastInsertRowid);
   }
 
-  getIssueEvents(issueId: string, afterSeq = 0): IssueEvent[] {
-    const rows = this.#db
-      .query(
-        `SELECT ${ISSUE_EVENT_COLS} FROM issue_event WHERE issue_id = ? AND seq > ? ORDER BY seq`,
+  getIssueEvents(issueId: string, afterSeq = 0): IssueEventType[] {
+    return this.#d
+      .select()
+      .from(schema.issueEvent)
+      .where(
+        and(
+          eq(schema.issueEvent.issueId, issueId),
+          gt(schema.issueEvent.seq, afterSeq),
+        ),
       )
-      .all(issueId, afterSeq) as Array<Omit<IssueEvent, "payload"> & { payload: string }>;
-    return rows.map((r) => ({
-      ...r,
-      payload: JSON.parse(r.payload) as Record<string, unknown>,
-    }));
+      .orderBy(schema.issueEvent.seq)
+      .all()
+      .map(
+        (r): IssueEventType => ({
+          seq: r.seq,
+          issueId: r.issueId,
+          kind: r.kind as IssueEventKind,
+          payload: JSON.parse(r.payload) as Record<string, unknown>,
+          ts: r.ts,
+        }),
+      );
   }
 
   // ─── run_origin ───
@@ -105,37 +131,43 @@ export class RuntimeOpsStore {
         `run_origin with issueId must carry a non-empty fromStatus (runId=${row.runId})`,
       );
     }
-    this.#db.run(
-      `INSERT OR IGNORE INTO run_origin (run_id, conversation_id, source_ledger_seq, agent_member_id, surface, trace_id, traceparent, idempotency_key, issue_id, from_status, origin_kind, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        row.runId,
-        row.conversationId,
-        row.sourceLedgerSeq,
-        row.agentMemberId,
-        row.surface,
-        row.traceId,
-        row.traceparent,
-        row.idempotencyKey,
-        row.issueId ?? null,
-        row.fromStatus,
-        row.originKind,
-        row.createdAt,
-      ],
-    );
+    this.#d
+      .insert(schema.runOrigin)
+      .values({
+        runId: row.runId,
+        conversationId: row.conversationId,
+        sourceLedgerSeq: row.sourceLedgerSeq,
+        agentMemberId: row.agentMemberId,
+        surface: row.surface,
+        traceId: row.traceId,
+        traceparent: row.traceparent,
+        idempotencyKey: row.idempotencyKey,
+        issueId: row.issueId ?? null,
+        fromStatus: row.fromStatus,
+        originKind: row.originKind,
+        createdAt: row.createdAt,
+      })
+      .onConflictDoNothing()
+      .run();
   }
 
   getRunOrigin(runId: string): RunOriginRow | null {
-    const row = this.#db
-      .query(`SELECT ${RUN_ORIGIN_COLS} FROM run_origin WHERE run_id = ?`)
-      .get(runId) as RunOriginRow | undefined;
-    return row ?? null;
+    const row = this.#d
+      .select()
+      .from(schema.runOrigin)
+      .where(eq(schema.runOrigin.runId, runId))
+      .get();
+    return row ? toRunOriginRow(row) : null;
   }
 
   getRunOriginsByIssueId(issueId: string): RunOriginRow[] {
-    return this.#db
-      .query(`SELECT ${RUN_ORIGIN_COLS} FROM run_origin WHERE issue_id = ? ORDER BY created_at`)
-      .all(issueId) as RunOriginRow[];
+    return this.#d
+      .select()
+      .from(schema.runOrigin)
+      .where(eq(schema.runOrigin.issueId, issueId))
+      .orderBy(schema.runOrigin.createdAt)
+      .all()
+      .map(toRunOriginRow);
   }
 
   getRuns(runIds: string[]): Array<{
@@ -149,25 +181,30 @@ export class RuntimeOpsStore {
     endedAt: number | null;
   }> {
     if (runIds.length === 0) return [];
-    const ph = runIds.map(() => "?").join(", ");
-    return this.#db
-      .query(`SELECT ${RUN_COLS} FROM run WHERE run_id IN (${ph})`)
-      .all(...runIds) as unknown as Array<{
-      runId: string;
-      threadId: string;
-      agentId: string;
-      status: string;
-      kind: string;
-      parentRunId: string | null;
-      startedAt: number;
-      endedAt: number | null;
-    }>;
+    return this.#d
+      .select()
+      .from(schema.run)
+      .where(inArray(schema.run.runId, runIds))
+      .all()
+      .map((r) => ({
+        runId: r.runId,
+        threadId: r.threadId,
+        agentId: r.agentId,
+        status: r.status,
+        kind: r.kind,
+        parentRunId: r.parentRunId,
+        startedAt: r.startedAt,
+        endedAt: r.endedAt,
+      }));
   }
 
   listRunOrigins(): RunOriginRow[] {
-    return this.#db
-      .query(`SELECT ${RUN_ORIGIN_COLS} FROM run_origin ORDER BY created_at DESC`)
-      .all() as RunOriginRow[];
+    return this.#d
+      .select()
+      .from(schema.runOrigin)
+      .orderBy(schema.runOrigin.createdAt)
+      .all()
+      .map(toRunOriginRow);
   }
 
   // ─── runner_health ───
@@ -181,42 +218,51 @@ export class RuntimeOpsStore {
     lastError?: string;
   }): void {
     const now = Date.now();
-    this.#db.run(
-      `INSERT INTO runner_health (agent_id, last_seen_at, uptime_ms, active_run_count, active_run_ids, checkpointer_ok, workspace_ok, last_error, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(agent_id) DO UPDATE SET
-         last_seen_at = excluded.last_seen_at,
-         uptime_ms = excluded.uptime_ms,
-         active_run_count = excluded.active_run_count,
-         active_run_ids = excluded.active_run_ids,
-         checkpointer_ok = excluded.checkpointer_ok,
-         workspace_ok = excluded.workspace_ok,
-         last_error = excluded.last_error,
-         updated_at = excluded.updated_at`,
-      [
-        input.agentId,
-        now,
-        input.uptimeMs,
-        input.activeRunIds.length,
-        JSON.stringify(input.activeRunIds),
-        input.checkpointerOk ? 1 : 0,
-        input.workspaceOk ? 1 : 0,
-        input.lastError ?? null,
-        now,
-      ],
-    );
+    this.#d
+      .insert(schema.runnerHealth)
+      .values({
+        agentId: input.agentId,
+        lastSeenAt: now,
+        uptimeMs: input.uptimeMs,
+        activeRunCount: input.activeRunIds.length,
+        activeRunIds: JSON.stringify(input.activeRunIds),
+        checkpointerOk: input.checkpointerOk ? 1 : 0,
+        workspaceOk: input.workspaceOk ? 1 : 0,
+        lastError: input.lastError ?? null,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: schema.runnerHealth.agentId,
+        set: {
+          lastSeenAt: now,
+          uptimeMs: input.uptimeMs,
+          activeRunCount: input.activeRunIds.length,
+          activeRunIds: JSON.stringify(input.activeRunIds),
+          checkpointerOk: input.checkpointerOk ? 1 : 0,
+          workspaceOk: input.workspaceOk ? 1 : 0,
+          lastError: input.lastError ?? null,
+          updatedAt: now,
+        },
+      })
+      .run();
   }
 
   getRunnerHealth(agentId: string): RunnerHealthRow | undefined {
-    return this.#db
-      .query(`SELECT ${RUNNER_HEALTH_COLS} FROM runner_health WHERE agent_id = ?`)
-      .get(agentId) as RunnerHealthRow | undefined;
+    const row = this.#d
+      .select()
+      .from(schema.runnerHealth)
+      .where(eq(schema.runnerHealth.agentId, agentId))
+      .get();
+    return row ? toRunnerHealthRow(row) : undefined;
   }
 
   listRunnerHealths(): RunnerHealthRow[] {
-    return this.#db
-      .query(`SELECT ${RUNNER_HEALTH_COLS} FROM runner_health ORDER BY agent_id`)
-      .all() as RunnerHealthRow[];
+    return this.#d
+      .select()
+      .from(schema.runnerHealth)
+      .orderBy(schema.runnerHealth.agentId)
+      .all()
+      .map(toRunnerHealthRow);
   }
 
   // ─── surface_health ───
@@ -229,42 +275,59 @@ export class RuntimeOpsStore {
     lastError?: string;
   }): void {
     const now = Date.now();
-    this.#db.run(
-      `INSERT INTO surface_health (agent_id, surface, status, last_seen_at, payload, last_error, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(agent_id, surface) DO UPDATE SET
-         status = excluded.status,
-         last_seen_at = excluded.last_seen_at,
-         payload = excluded.payload,
-         last_error = excluded.last_error,
-         updated_at = excluded.updated_at`,
-      [
-        input.agentId,
-        input.surface,
-        input.status,
-        now,
-        JSON.stringify(input.payload),
-        input.lastError ?? null,
-        now,
-      ],
-    );
+    this.#d
+      .insert(schema.surfaceHealth)
+      .values({
+        agentId: input.agentId,
+        surface: input.surface,
+        status: input.status,
+        lastSeenAt: now,
+        payload: JSON.stringify(input.payload),
+        lastError: input.lastError ?? null,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [schema.surfaceHealth.agentId, schema.surfaceHealth.surface],
+        set: {
+          status: input.status,
+          lastSeenAt: now,
+          payload: JSON.stringify(input.payload),
+          lastError: input.lastError ?? null,
+          updatedAt: now,
+        },
+      })
+      .run();
   }
 
   getSurfaceHealth(agentId: string, surface: string): SurfaceHealthRow | undefined {
-    return this.#db
-      .query(`SELECT ${SURFACE_HEALTH_COLS} FROM surface_health WHERE agent_id = ? AND surface = ?`)
-      .get(agentId, surface) as SurfaceHealthRow | undefined;
+    const row = this.#d
+      .select()
+      .from(schema.surfaceHealth)
+      .where(
+        and(
+          eq(schema.surfaceHealth.agentId, agentId),
+          eq(schema.surfaceHealth.surface, surface),
+        ),
+      )
+      .get();
+    return row ? toSurfaceHealthRow(row) : undefined;
   }
 
   getSurfaceHealthsForAgent(agentId: string): SurfaceHealthRow[] {
-    return this.#db
-      .query(`SELECT ${SURFACE_HEALTH_COLS} FROM surface_health WHERE agent_id = ?`)
-      .all(agentId) as SurfaceHealthRow[];
+    return this.#d
+      .select()
+      .from(schema.surfaceHealth)
+      .where(eq(schema.surfaceHealth.agentId, agentId))
+      .all()
+      .map(toSurfaceHealthRow);
   }
 
   listSurfaceHealths(): SurfaceHealthRow[] {
-    return this.#db
-      .query(`SELECT ${SURFACE_HEALTH_COLS} FROM surface_health ORDER BY agent_id, surface`)
-      .all() as SurfaceHealthRow[];
+    return this.#d
+      .select()
+      .from(schema.surfaceHealth)
+      .orderBy(schema.surfaceHealth.agentId, schema.surfaceHealth.surface)
+      .all()
+      .map(toSurfaceHealthRow);
   }
 }
