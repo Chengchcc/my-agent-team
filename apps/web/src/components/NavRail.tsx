@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ActivityIcon,
   BotIcon,
+  ClockIcon,
   FolderKanbanIcon,
   ListTodoIcon,
   LogOutIcon,
@@ -233,6 +234,19 @@ function NavContent() {
               >
                 <FolderKanbanIcon />
                 <span className="truncate">Projects</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/cron")}
+                tooltip="Schedules"
+                onClick={() => {
+                  closeMobile();
+                  router.push("/cron");
+                }}
+              >
+                <ClockIcon />
+                <span className="truncate">Schedules</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

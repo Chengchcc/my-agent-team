@@ -55,6 +55,20 @@ export interface IssueRunSummary {
   endedAt: number | null;
 }
 
+// ── CronJob (M21) ──
+export interface CronJobRow {
+  cronJobId: string;
+  name: string;
+  agentId: string;
+  cronExpr: string;
+  prompt: string;
+  enabled: boolean;
+  timeoutMs: number;
+  maxRetries: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ── ColumnConfig types (M18.4) ──
 export interface ColumnConfigRow {
   configId: string;
@@ -358,6 +372,35 @@ export const api = {
   }) => apiFetch<{ config: ColumnConfigRow }>("column-configs", { method: "POST", body }),
   deleteColumnConfig: (configId: string) =>
     apiFetch<void>(`column-configs/${configId}`, { method: "DELETE" }),
+
+  // ── CronJobs (M21) ──
+  listCronJobs: () => apiFetch<{ cronJobs: CronJobRow[] }>("cron-jobs"),
+  createCronJob: (body: {
+    name: string;
+    agentId: string;
+    cronExpr: string;
+    prompt?: string;
+    timeoutMs?: number;
+    maxRetries?: number;
+    enabled?: boolean;
+  }) => apiFetch<{ cronJob: CronJobRow }>("cron-jobs", { method: "POST", body }),
+  updateCronJob: (
+    id: string,
+    body: {
+      name?: string;
+      agentId?: string;
+      cronExpr?: string;
+      prompt?: string;
+      timeoutMs?: number;
+      maxRetries?: number;
+    },
+  ) => apiFetch<{ cronJob: CronJobRow }>(`cron-jobs/${id}`, { method: "PATCH", body }),
+  setCronJobEnabled: (id: string, enabled: boolean) =>
+    apiFetch<{ cronJob: CronJobRow }>(`cron-jobs/${id}/enable`, {
+      method: "POST",
+      body: { enabled },
+    }),
+  deleteCronJob: (id: string) => apiFetch<void>(`cron-jobs/${id}`, { method: "DELETE" }),
 };
 
 // ── M16 ops types ──
