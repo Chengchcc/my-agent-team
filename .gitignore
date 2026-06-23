@@ -10,3 +10,5 @@ coverage/
 !.env.example
 .backend-data/
 apps/web/tsconfig.tsbuildinfo
+.claude/skills
+.agents
