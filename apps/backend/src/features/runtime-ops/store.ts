@@ -35,6 +35,7 @@ function toRunOriginRow(r: typeof schema.runOrigin.$inferSelect): RunOriginRow {
     traceparent: r.traceparent,
     idempotencyKey: r.idempotencyKey,
     issueId: r.issueId,
+    cronJobId: r.cronJobId,
     fromStatus: r.fromStatus,
     originKind: r.originKind as RunOriginRow["originKind"],
     createdAt: r.createdAt,
@@ -177,6 +178,7 @@ export class RuntimeOpsStore {
         traceparent: row.traceparent,
         idempotencyKey: row.idempotencyKey,
         issueId: row.issueId ?? null,
+        cronJobId: row.cronJobId ?? null,
         fromStatus: row.fromStatus,
         originKind: row.originKind,
         createdAt: row.createdAt,
@@ -200,6 +202,15 @@ export class RuntimeOpsStore {
       .from(schema.runOrigin)
       .where(eq(schema.runOrigin.issueId, issueId))
       .orderBy(schema.runOrigin.createdAt)
+      .all()
+      .map(toRunOriginRow);
+  }
+
+  getRunOriginsByCronJobId(cronJobId: string): RunOriginRow[] {
+    return this.#d
+      .select()
+      .from(schema.runOrigin)
+      .where(eq(schema.runOrigin.cronJobId, cronJobId))
       .all()
       .map(toRunOriginRow);
   }

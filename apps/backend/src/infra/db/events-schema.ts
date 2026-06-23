@@ -73,6 +73,7 @@ export const runOrigin = sqliteTable(
     traceparent: text().notNull(),
     idempotencyKey: text().notNull(),
     issueId: text(),
+    cronJobId: text(),
     fromStatus: text().notNull().default(""),
     originKind: text().notNull().default("manual"),
     createdAt: integer({ mode: "number" }).notNull(),
@@ -81,6 +82,7 @@ export const runOrigin = sqliteTable(
     uniqueIndex("idx_run_origin_idem").on(table.idempotencyKey),
     index("idx_run_origin_trace").on(table.traceId),
     index("idx_run_origin_issue").on(table.issueId),
+    index("idx_run_origin_cron").on(table.cronJobId),
   ],
 );
 

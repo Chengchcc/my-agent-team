@@ -45,7 +45,7 @@ export interface RunOpsEvent {
 }
 
 /** M19: Explicit run cause — replaces implicit inference from surface + issueId combo. */
-export type RunOriginKind = "orchestrator" | "mention" | "manual";
+export type RunOriginKind = "orchestrator" | "mention" | "manual" | "cron";
 
 export interface RunOriginRow {
   runId: string;
@@ -58,6 +58,8 @@ export interface RunOriginRow {
   idempotencyKey: string;
   /** M18.2: non-null = issue-driven run (used for Issue back-link + @mention isolation) */
   issueId?: string | null;
+  /** M21: non-null = cron-driven run (back-link to cron_job + @mention isolation). */
+  cronJobId?: string | null;
   /** M18.5 R3: authoritative source for the issue status at run start — no more split(":"). */
   fromStatus: string;
   /** M19: explicit run cause — orchestrator | mention | manual */

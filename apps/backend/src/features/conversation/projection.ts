@@ -167,9 +167,10 @@ export async function onRunComplete(
   if (!cid) return;
 
   // M19: issue-driven runs (origin_kind=orchestrator) are handled by reactor —
-  // skip projection and @mention cascade to avoid double-drive.
+  // M21: cron runs also isolated — skip projection and @mention cascade to avoid double-drive.
+  const ISOLATED_ORIGINS = new Set(["orchestrator", "cron"]);
   const origin = opsStore.getRunOrigin(runId);
-  if (origin?.originKind === "orchestrator") {
+  if (origin && ISOLATED_ORIGINS.has(origin.originKind)) {
     clearAccumulator(runId);
     return;
   }
