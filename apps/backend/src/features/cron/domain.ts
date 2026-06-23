@@ -1,7 +1,8 @@
 /** CronJob — a recurring time-table rule that fires an Agent run.
  *  The only new domain ontology in M21. Sibling to Issue: a trigger-type
- *  entity that carries its own threadId and reuses the existing exec layer,
- *  differing only in trigger source (clock vs human/orchestrator). */
+ *  entity that derives threadId = "<cronJobId>:owner" on each fire and
+ *  reuses the existing exec layer, differing only in trigger source
+ *  (clock vs human/orchestrator). */
 export interface CronJobRow {
   cronJobId: string;
   name: string;
