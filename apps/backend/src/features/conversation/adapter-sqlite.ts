@@ -1,5 +1,8 @@
 import type { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
+import * as schema from "../../infra/db/schema.js";
 import type {
   AppendLedgerInput,
   ConversationPort,
@@ -14,19 +17,19 @@ import type {
 const addressedToSchema = z.array(z.string());
 
 export function sqliteConversationAdapter(db: Database): ConversationPort {
+  const d = drizzle(db, { schema });
+
   return {
     // ─── Conversation ──────────────────────────────
 
     createConversation(input: CreateConversationInput): ConversationRow {
-      db.run(
-        "INSERT INTO conversation (conversation_id, trigger_mode, hop_count, origin, created_at) VALUES (?, ?, 0, ?, ?)",
-        [
-          input.conversationId,
-          input.triggerMode ?? "mention",
-          input.origin ?? "user",
-          input.createdAt,
-        ],
-      );
+      d.insert(schema.conversation).values({
+        conversationId: input.conversationId,
+        triggerMode: input.triggerMode ?? "mention",
+        hopCount: 0,
+        origin: input.origin ?? "user",
+        createdAt: input.createdAt,
+      }).run();
       return {
         conversationId: input.conversationId,
         triggerMode: input.triggerMode ?? "mention",
@@ -38,119 +41,119 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     },
 
     getConversation(conversationId: string): ConversationRow | null {
-      const row = db
-        .query(
-          "SELECT conversation_id, trigger_mode, hop_count, origin, created_at, title FROM conversation WHERE conversation_id = ?",
-        )
-        .get(conversationId) as
-        | {
-            conversation_id: string;
-            trigger_mode: string;
-            hop_count: number;
-            origin: string;
-            created_at: number;
-            title: string | null;
-          }
-        | undefined;
+      const row = d
+        .select()
+        .from(schema.conversation)
+        .where(eq(schema.conversation.conversationId, conversationId))
+        .get();
       if (!row) return null;
       return {
-        conversationId: row.conversation_id,
-        triggerMode: row.trigger_mode,
-        hopCount: row.hop_count,
+        conversationId: row.conversationId,
+        triggerMode: row.triggerMode,
+        hopCount: row.hopCount,
         origin: row.origin,
-        createdAt: row.created_at,
+        createdAt: row.createdAt,
         title: row.title,
       };
     },
 
     setConversationTitle(conversationId: string, title: string): void {
-      db.run("UPDATE conversation SET title = ? WHERE conversation_id = ?", [
-        title,
-        conversationId,
-      ]);
+      d.update(schema.conversation)
+        .set({ title })
+        .where(eq(schema.conversation.conversationId, conversationId))
+        .run();
     },
 
     updateHopCount(conversationId: string, count: number): void {
-      db.run("UPDATE conversation SET hop_count = ? WHERE conversation_id = ?", [
-        count,
-        conversationId,
-      ]);
+      d.update(schema.conversation)
+        .set({ hopCount: count })
+        .where(eq(schema.conversation.conversationId, conversationId))
+        .run();
     },
 
     listConversations(): ConversationWithMembers[] {
-      const convs = db
-        .query(
-          "SELECT conversation_id, trigger_mode, hop_count, origin, created_at, title FROM conversation WHERE origin = 'user' ORDER BY created_at DESC",
-        )
-        .all() as Array<{
-        conversation_id: string;
-        trigger_mode: string;
-        hop_count: number;
-        origin: string;
-        created_at: number;
-        title: string | null;
-      }>;
+      const convs = d
+        .select()
+        .from(schema.conversation)
+        .where(eq(schema.conversation.origin, "user"))
+        .orderBy(schema.conversation.createdAt)
+        .all();
+      // N+1: members fetched per conversation — kept as-is for behavior equivalence.
+      // Performance optimization (join/batch) deferred to a separate PR.
       return convs.map((c) => ({
-        conversationId: c.conversation_id,
-        triggerMode: c.trigger_mode,
-        hopCount: c.hop_count,
+        conversationId: c.conversationId,
+        triggerMode: c.triggerMode,
+        hopCount: c.hopCount,
         origin: c.origin,
-        createdAt: c.created_at,
+        createdAt: c.createdAt,
         title: c.title,
-        members: db
-          .query(
-            `SELECT member_id AS memberId, conversation_id AS conversationId, kind,
-                    agent_id AS agentId, user_ref AS userRef,
-                    display_name AS displayName, joined_at AS joinedAt
-             FROM member WHERE conversation_id = ?`,
-          )
-          .all(c.conversation_id) as MemberRow[],
+        members: d
+          .select()
+          .from(schema.member)
+          .where(eq(schema.member.conversationId, c.conversationId))
+          .all()
+          .map(
+            (m): MemberRow => ({
+              memberId: m.memberId,
+              conversationId: m.conversationId,
+              kind: m.kind as MemberRow["kind"],
+              agentId: m.agentId,
+              userRef: m.userRef,
+              displayName: m.displayName,
+              joinedAt: m.joinedAt,
+            }),
+          ),
       }));
     },
 
     deleteConversation(conversationId: string): boolean {
-      // Clean up related thread rows first (conversation threads + agent_thread backfill)
-      db.run("DELETE FROM threads WHERE id LIKE ?", [`${conversationId}%`]);
-      const result = db.run("DELETE FROM conversation WHERE conversation_id = ?", [conversationId]);
+      // M20: Threads table was dropped in M14 (backend_v17_drop_threads_legacy).
+      // The old LIKE-prefix DELETE FROM threads is dead code — removed.
+      const result = d
+        .delete(schema.conversation)
+        .where(eq(schema.conversation.conversationId, conversationId))
+        .run();
       return result.changes > 0;
     },
 
     listConversationsByAgent(agentId: string): ConversationWithMembers[] {
-      const convIds = db
-        .query("SELECT DISTINCT conversation_id FROM member WHERE agent_id = ?")
-        .all(agentId) as Array<{ conversation_id: string }>;
-      return convIds
-        .map((r) => {
-          const c = db
-            .query(
-              "SELECT conversation_id, trigger_mode, hop_count, origin, created_at, title FROM conversation WHERE conversation_id = ?",
-            )
-            .get(r.conversation_id) as
-            | {
-                conversation_id: string;
-                trigger_mode: string;
-                hop_count: number;
-                origin: string;
-                created_at: number;
-                title: string | null;
-              }
-            | undefined;
+      const memberRows = d
+        .selectDistinct({ conversationId: schema.member.conversationId })
+        .from(schema.member)
+        .where(eq(schema.member.agentId, agentId))
+        .all();
+      // N+1: conversations and members fetched per conversation — kept as-is.
+      return memberRows
+        .map((mr) => {
+          const c = d
+            .select()
+            .from(schema.conversation)
+            .where(eq(schema.conversation.conversationId, mr.conversationId))
+            .get();
           if (!c) return null;
           return {
-            conversationId: c.conversation_id,
-            triggerMode: c.trigger_mode,
-            hopCount: c.hop_count,
+            conversationId: c.conversationId,
+            triggerMode: c.triggerMode,
+            hopCount: c.hopCount,
             origin: c.origin,
-            createdAt: c.created_at,
+            createdAt: c.createdAt,
             title: c.title,
-            members: db
-              .query(
-                `SELECT member_id AS memberId, conversation_id AS conversationId, kind,
-                        agent_id AS agentId, user_ref AS userRef,
-                        display_name AS displayName, joined_at AS joinedAt
-                 FROM member WHERE conversation_id = ?`,
-              )
-              .all(c.conversation_id) as MemberRow[],
+            members: d
+              .select()
+              .from(schema.member)
+              .where(eq(schema.member.conversationId, c.conversationId))
+              .all()
+              .map(
+                (m): MemberRow => ({
+                  memberId: m.memberId,
+                  conversationId: m.conversationId,
+                  kind: m.kind as MemberRow["kind"],
+                  agentId: m.agentId,
+                  userRef: m.userRef,
+                  displayName: m.displayName,
+                  joinedAt: m.joinedAt,
+                }),
+              ),
           };
         })
         .filter(Boolean) as ConversationWithMembers[];
@@ -159,20 +162,19 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     // ─── Member ────────────────────────────────────
 
     addMember(input: CreateMemberInput): { member: MemberRow; created: boolean } {
-      // INSERT OR IGNORE: if the same (conversation_id, member_id) already exists,
-      // silently no-op. Detect via result.changes to support idempotent addMember.
-      const result = db.run(
-        "INSERT OR IGNORE INTO member (member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [
-          input.memberId,
-          input.conversationId,
-          input.kind,
-          input.agentId ?? null,
-          input.userRef ?? null,
-          input.displayName ?? null,
-          input.joinedAt,
-        ],
-      );
+      const result = d
+        .insert(schema.member)
+        .values({
+          memberId: input.memberId,
+          conversationId: input.conversationId,
+          kind: input.kind,
+          agentId: input.agentId ?? null,
+          userRef: input.userRef ?? null,
+          displayName: input.displayName ?? null,
+          joinedAt: input.joinedAt,
+        })
+        .onConflictDoNothing()
+        .run();
       return {
         member: {
           memberId: input.memberId,
@@ -188,28 +190,23 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     },
 
     getMembers(conversationId: string): MemberRow[] {
-      const rows = db
-        .query(
-          "SELECT member_id, conversation_id, kind, agent_id, user_ref, display_name, joined_at FROM member WHERE conversation_id = ? ORDER BY joined_at",
-        )
-        .all(conversationId) as {
-        member_id: string;
-        conversation_id: string;
-        kind: "agent" | "human";
-        agent_id: string | null;
-        user_ref: string | null;
-        display_name: string | null;
-        joined_at: number;
-      }[];
-      return rows.map((r) => ({
-        memberId: r.member_id,
-        conversationId: r.conversation_id,
-        kind: r.kind,
-        agentId: r.agent_id,
-        userRef: r.user_ref,
-        displayName: r.display_name,
-        joinedAt: r.joined_at,
-      }));
+      return d
+        .select()
+        .from(schema.member)
+        .where(eq(schema.member.conversationId, conversationId))
+        .orderBy(schema.member.joinedAt)
+        .all()
+        .map(
+          (r): MemberRow => ({
+            memberId: r.memberId,
+            conversationId: r.conversationId,
+            kind: r.kind as MemberRow["kind"],
+            agentId: r.agentId,
+            userRef: r.userRef,
+            displayName: r.displayName,
+            joinedAt: r.joinedAt,
+          }),
+        );
     },
 
     getAgentMembers(conversationId: string): MemberRow[] {
@@ -217,70 +214,80 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     },
 
     removeMember(conversationId: string, memberId: string): boolean {
-      const result = db.run("DELETE FROM member WHERE member_id = ? AND conversation_id = ?", [
-        memberId,
-        conversationId,
-      ]);
+      const result = d
+        .delete(schema.member)
+        .where(
+          and(
+            eq(schema.member.conversationId, conversationId),
+            eq(schema.member.memberId, memberId),
+          ),
+        )
+        .run();
       return result.changes > 0;
     },
 
     // ─── Ledger ────────────────────────────────────
 
     appendLedgerEntry(input: AppendLedgerInput): number {
-      const result = db.run(
-        "INSERT INTO conversation_ledger (conversation_id, sender_member_id, addressed_to, kind, content, ts, run_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [
-          input.conversationId,
-          input.senderMemberId,
-          JSON.stringify(input.addressedTo ?? []),
-          input.kind,
-          input.content,
-          input.ts,
-          input.runId ?? null,
-        ],
-      );
+      const result = d
+        .insert(schema.conversationLedger)
+        .values({
+          conversationId: input.conversationId,
+          senderMemberId: input.senderMemberId,
+          addressedTo: JSON.stringify(input.addressedTo ?? []),
+          kind: input.kind,
+          content: input.content,
+          ts: input.ts,
+          runId: input.runId ?? null,
+        })
+        .run();
       return Number(result.lastInsertRowid);
     },
 
     hasLedgerContent(runId: string, content: string): boolean {
-      const row = db
-        .query("SELECT 1 FROM conversation_ledger WHERE run_id = ? AND content = ? LIMIT 1")
-        .get(runId, content);
-      return row !== null;
+      const row = d
+        .select({ one: sql`1` })
+        .from(schema.conversationLedger)
+        .where(
+          and(
+            eq(schema.conversationLedger.runId, runId),
+            eq(schema.conversationLedger.content, content),
+          ),
+        )
+        .limit(1)
+        .get();
+      return row !== undefined;
     },
 
     getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerEntry[] {
       const since = opts?.sinceSeq ?? 0;
-      const rows = db
-        .query(
-          "SELECT seq, conversation_id, sender_member_id, addressed_to, kind, content, ts, run_id FROM conversation_ledger WHERE conversation_id = ? AND seq > ? ORDER BY seq ASC",
+      const rows = d
+        .select()
+        .from(schema.conversationLedger)
+        .where(
+          and(
+            eq(schema.conversationLedger.conversationId, conversationId),
+            gt(schema.conversationLedger.seq, since),
+          ),
         )
-        .all(conversationId, since) as {
-        seq: number;
-        conversation_id: string;
-        sender_member_id: string;
-        addressed_to: string;
-        kind: "message" | "member.joined" | "member.left" | "todo" | "surface.control";
-        content: string;
-        ts: number;
-        run_id: string | null;
-      }[];
+        .orderBy(schema.conversationLedger.seq)
+        .all();
       return rows.map((r) => {
         let addressedTo: string[];
         try {
-          addressedTo = addressedToSchema.parse(JSON.parse(r.addressed_to));
+          addressedTo = addressedToSchema.parse(JSON.parse(r.addressedTo));
         } catch {
           addressedTo = [];
         }
         return {
           seq: r.seq,
-          conversationId: r.conversation_id,
-          senderMemberId: r.sender_member_id,
+          conversationId: r.conversationId,
+          senderMemberId: r.senderMemberId,
           addressedTo,
-          kind: r.kind,
+          kind: r.kind as LedgerEntry["kind"],
           content: r.content,
           ts: r.ts,
-          runId: r.run_id ?? undefined,
+          runId: r.runId ?? undefined,
         };
       });
     },

@@ -1,43 +1,36 @@
 import type { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { count, eq, sql } from "drizzle-orm";
+import * as schema from "../../infra/db/schema.js";
 import type { ProjectRow } from "./domain.js";
 import type { CreateProjectRecord, ProjectPort, UpdateProjectRecord } from "./ports.js";
 
-type Raw = {
-  project_id: string;
-  name: string;
-  repo_url: string | null;
-  default_branch: string | null;
-  auto_orchestrate: number;
-  created_at: number;
-  updated_at: number;
-};
-
-const toRow = (r: Raw): ProjectRow => ({
-  projectId: r.project_id,
+const toRow = (
+  r: typeof schema.project.$inferSelect,
+): ProjectRow => ({
+  projectId: r.projectId,
   name: r.name,
-  repoUrl: r.repo_url,
-  defaultBranch: r.default_branch,
-  autoOrchestrate: r.auto_orchestrate === 1,
-  createdAt: r.created_at,
-  updatedAt: r.updated_at,
+  repoUrl: r.repoUrl,
+  defaultBranch: r.defaultBranch,
+  autoOrchestrate: r.autoOrchestrate === 1,
+  createdAt: r.createdAt,
+  updatedAt: r.updatedAt,
 });
 
 export function sqliteProjectAdapter(db: Database): ProjectPort {
+  const d = drizzle(db, { schema });
+
   return {
     createProject(input: CreateProjectRecord): ProjectRow {
-      db.run(
-        `INSERT INTO project (project_id, name, repo_url, default_branch, auto_orchestrate, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-          input.projectId,
-          input.name,
-          input.repoUrl,
-          input.defaultBranch,
-          input.autoOrchestrate ? 1 : 0,
-          input.createdAt,
-          input.createdAt,
-        ],
-      );
+      d.insert(schema.project).values({
+        projectId: input.projectId,
+        name: input.name,
+        repoUrl: input.repoUrl,
+        defaultBranch: input.defaultBranch,
+        autoOrchestrate: input.autoOrchestrate ? 1 : 0,
+        createdAt: input.createdAt,
+        updatedAt: input.createdAt,
+      }).run();
       return {
         projectId: input.projectId,
         name: input.name,
@@ -50,63 +43,62 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
     },
 
     getProject(projectId: string): ProjectRow | null {
-      const r = db.query("SELECT * FROM project WHERE project_id = ?").get(projectId) as
-        | Raw
-        | undefined;
+      const r = d
+        .select()
+        .from(schema.project)
+        .where(eq(schema.project.projectId, projectId))
+        .get();
       return r ? toRow(r) : null;
     },
 
     listProjects(): ProjectRow[] {
-      const rows = db.query("SELECT * FROM project ORDER BY created_at DESC").all() as Raw[];
+      const rows = d
+        .select()
+        .from(schema.project)
+        .orderBy(sql`created_at DESC`)
+        .all();
       return rows.map(toRow);
     },
 
     updateProject(projectId: string, patch: UpdateProjectRecord): ProjectRow | null {
-      const sets: string[] = [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const params: any[] = [];
+      const sets: Record<string, unknown> = {};
 
-      if (patch.name !== undefined) {
-        sets.push("name = ?");
-        params.push(patch.name);
-      }
-      if (patch.repoUrl !== undefined) {
-        sets.push("repo_url = ?");
-        params.push(patch.repoUrl);
-      }
-      if (patch.defaultBranch !== undefined) {
-        sets.push("default_branch = ?");
-        params.push(patch.defaultBranch);
-      }
+      if (patch.name !== undefined) sets.name = patch.name;
+      if (patch.repoUrl !== undefined) sets.repoUrl = patch.repoUrl;
+      if (patch.defaultBranch !== undefined) sets.defaultBranch = patch.defaultBranch;
       if (patch.autoOrchestrate !== undefined) {
-        sets.push("auto_orchestrate = ?");
-        params.push(patch.autoOrchestrate ? 1 : 0);
+        sets.autoOrchestrate = patch.autoOrchestrate ? 1 : 0;
       }
 
-      if (sets.length === 0) {
-        // Nothing to update — return current row
+      if (Object.keys(sets).length === 0) {
         return this.getProject(projectId);
       }
 
-      sets.push("updated_at = ?");
-      params.push(patch.updatedAt);
-      params.push(projectId);
+      sets.updatedAt = patch.updatedAt;
 
-      db.run(`UPDATE project SET ${sets.join(", ")} WHERE project_id = ?`, params);
-      // 写后重读：保证返回对象等于库内真值
+      d.update(schema.project)
+        .set(sets)
+        .where(eq(schema.project.projectId, projectId))
+        .run();
+
       return this.getProject(projectId);
     },
 
     deleteProject(projectId: string): boolean {
-      const { changes } = db.run("DELETE FROM project WHERE project_id = ?", [projectId]);
+      const { changes } = d
+        .delete(schema.project)
+        .where(eq(schema.project.projectId, projectId))
+        .run();
       return changes > 0;
     },
 
     countIssuesByProject(projectId: string): number {
-      const r = db.query("SELECT COUNT(*) AS n FROM issue WHERE project_id = ?").get(projectId) as {
-        n: number;
-      };
-      return r.n;
+      const r = d
+        .select({ n: count() })
+        .from(schema.issue)
+        .where(eq(schema.issue.projectId, projectId))
+        .get();
+      return (r?.n ?? 0) as number;
     },
   };
 }

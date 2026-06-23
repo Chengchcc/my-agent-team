@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
+import path from "node:path";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import path from "node:path";
 import * as schema from "../../infra/db/events-schema.js";
 
 /**

@@ -1,12 +1,19 @@
 import type { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { eq } from "drizzle-orm";
+import * as schema from "../../infra/db/schema.js";
 import type { ThreadProjectionReadPort, ThreadProjectionWritePort } from "./ports.js";
 
 export function sqliteThreadProjectionReadAdapter(db: Database): ThreadProjectionReadPort {
+  const d = drizzle(db, { schema });
+
   return {
     async getMessages(threadId: string): Promise<unknown[] | null> {
-      const row = db
-        .query("SELECT messages FROM projection_messages WHERE thread_id = ?")
-        .get(threadId) as { messages: string } | undefined;
+      const row = d
+        .select({ messages: schema.projectionMessages.messages })
+        .from(schema.projectionMessages)
+        .where(eq(schema.projectionMessages.threadId, threadId))
+        .get();
       if (!row) return null;
       try {
         return JSON.parse(row.messages);
@@ -18,16 +25,25 @@ export function sqliteThreadProjectionReadAdapter(db: Database): ThreadProjectio
 }
 
 /** Write adapter for broadcast projection — load→merge→save.
- *  M17.4: Uses projection_messages table (no longer borrows checkpointer's table name). */
+ *  M17.4: Uses projection_messages table (no longer borrows checkpointer's table name).
+ *
+ *  M20: BEGIN IMMEDIATE write-lock transaction retained.
+ *  drizzle's default transaction is DEFERRED, which would risk lost updates under
+ *  concurrent load-merge-save. The raw IMMEDIATE lock is the correct semantic. */
 export function sqliteThreadProjectionWriteAdapter(db: Database): ThreadProjectionWritePort {
+  const d = drizzle(db, { schema });
+
   return {
     async appendMessages(threadId: string, msgs: unknown[]): Promise<void> {
-      // M4: Wrap read-write in transaction to prevent silent message loss
+      // BEGIN IMMEDIATE retained: must use write-lock, not DEFERRED.
+      // drizzle transaction() does not support IMMEDIATE — keep raw lock boundary.
       db.run("BEGIN IMMEDIATE");
       try {
-        const row = db
-          .query("SELECT messages FROM projection_messages WHERE thread_id = ?")
-          .get(threadId) as { messages: string } | undefined;
+        const row = d
+          .select({ messages: schema.projectionMessages.messages })
+          .from(schema.projectionMessages)
+          .where(eq(schema.projectionMessages.threadId, threadId))
+          .get();
 
         let existing: unknown[] = [];
         if (row) {
@@ -35,15 +51,27 @@ export function sqliteThreadProjectionWriteAdapter(db: Database): ThreadProjecti
             const parsed = JSON.parse(row.messages);
             existing = Array.isArray(parsed) ? (parsed as unknown[]) : [];
           } catch {
-            existing = []; // L2: corrupted JSON → start fresh
+            existing = []; // corrupted JSON → start fresh
           }
         }
 
         const merged = [...existing, ...msgs];
-        db.run(
-          "INSERT INTO projection_messages (thread_id, messages, updated_at) VALUES (?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET messages = excluded.messages, updated_at = excluded.updated_at",
-          [threadId, JSON.stringify(merged), Date.now()],
-        );
+        d
+          .insert(schema.projectionMessages)
+          .values({
+            threadId,
+            messages: JSON.stringify(merged),
+            updatedAt: Date.now(),
+          })
+          .onConflictDoUpdate({
+            target: schema.projectionMessages.threadId,
+            set: {
+              messages: JSON.stringify(merged),
+              updatedAt: Date.now(),
+            },
+          })
+          .run();
+
         db.run("COMMIT");
       } catch (err) {
         db.run("ROLLBACK");

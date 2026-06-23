@@ -37,6 +37,8 @@ export function createAgentSvc(
       await purgeRunnerWorkspace({ dataDir: config.dataDir, agentId });
     },
 
+    // M20: Kept as raw SQL — subquery DELETE on events.db tables (event_log, attempt, run).
+    // Safe to keep: drizzle subquery DELETE would be equally complex with no readability gain.
     purgeEventsForThreads: (threadIds) => {
       const edb = supervisor.getDb();
       const tx = edb.transaction((ids: string[]) => {
@@ -59,6 +61,9 @@ export function createAgentSvc(
           .all(agentId) as { id: string }[]
       ).map((r) => r.id),
 
+    // M20: Kept as raw SQL — dynamic IN with variable-length placeholders + subquery.
+    // drizzle's inArray() could handle this but the derived thread IDs + dynamic placeholders
+    // make the raw SQL clearer and less error-prone.
     assertNoActiveRun: (agentId) => {
       const edb = supervisor.getDb();
       const threadIds = (
