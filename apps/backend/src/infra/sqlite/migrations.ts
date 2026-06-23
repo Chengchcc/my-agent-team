@@ -327,6 +327,26 @@ export const BACKEND_MIGRATIONS: readonly { name: string; id: number; up: string
     id: 5016,
     up: `ALTER TABLE conversation ADD COLUMN origin TEXT NOT NULL DEFAULT 'user';`,
   },
+  // ─── M19 Fix 2: Backfill issue-side conversations for historical issues ──
+  {
+    name: "backend_v31_issue_conversation_backfill",
+    id: 5017,
+    up: `
+      INSERT OR IGNORE INTO conversation (conversation_id, trigger_mode, hop_count, origin, created_at)
+        SELECT i.issue_id, 'issue', 0, 'issue', MAX(i.created_at)
+        FROM issue i
+        WHERE NOT EXISTS (
+          SELECT 1 FROM conversation c WHERE c.conversation_id = i.issue_id
+        )
+        GROUP BY i.issue_id;
+      INSERT OR IGNORE INTO member (member_id, conversation_id, kind, display_name, joined_at)
+        SELECT 'owner', i.issue_id, 'human', 'Owner', i.created_at
+        FROM issue i
+        WHERE NOT EXISTS (
+          SELECT 1 FROM member m WHERE m.conversation_id = i.issue_id AND m.member_id = 'owner'
+        );
+    `,
+  },
 ];
 
 /** Combined migrations: backend own + checkpointer (creates checkpoint_messages which

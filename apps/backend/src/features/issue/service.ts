@@ -99,8 +99,11 @@ export function createIssueService(deps: IssueServiceDeps) {
             displayName: "Owner",
             joinedAt: now(),
           });
-        } catch {
-          // best-effort
+        } catch (err) {
+          console.error(
+            `[issue] failed to create issue-side conversation for ${issueId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
         }
       }
 

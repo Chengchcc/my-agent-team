@@ -146,8 +146,8 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           surface: "orchestrator",
           conversationId: "",
           runId,
-          capabilities: ["submit_deliverable"],
-          issue: { issueId: issue.issueId, fromStatus: issue.status },
+          capabilities: ["submit_deliverable", "read_issues"],
+          issue: { issueId: issue.issueId, fromStatus: issue.status, projectId: issue.projectId },
         },
       },
       origin: {
@@ -223,7 +223,15 @@ export function createOrchestrator(deps: OrchestratorDeps) {
 
     const table = columnConfigSvc.transitionsForProject(issue.projectId);
     const t = nextTransition(table, issue.status);
-    if (!t) return;
+    if (!t) {
+      // Fix 9: surface missing-config error on auto-advance path too
+      if ((configurableStatuses() as string[]).includes(issue.status)) {
+        console.error(
+          `[orchestrator] no ColumnConfig for configurable status "${issue.status}" on issue ${issueId} — auto-advance stalled`,
+        );
+      }
+      return;
+    }
 
     let advanced: IssueRow;
     try {

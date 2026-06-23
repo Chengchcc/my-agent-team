@@ -9,6 +9,7 @@ import { sqliteCheckpointer } from "@my-agent-team/framework";
 import { createGenericAgent, reflectionGuidance } from "@my-agent-team/harness";
 import type { HostToRunner, RunnerTransport } from "@my-agent-team/runner-protocol";
 import { AgentSpecV2 } from "./agent-spec.js";
+import { createReadIssuesTool } from "./read-issues-tool.js";
 import { createStartNewConversationTool } from "./start-new-conversation-tool.js";
 import { createSubmitDeliverableTool } from "./submit-deliverable-tool.js";
 
@@ -204,6 +205,19 @@ export class RunnerDaemon {
           backendAuthToken: this.#backendAuthToken,
           issueId: sc.issue.issueId,
           runId: sc.runId,
+        }),
+      );
+    }
+
+    // M19 Fix 8: Inject read_issues tool for issue runs.
+    // Condition: capability present + issue info attached + not a reflect run.
+    if (sc?.capabilities.includes("read_issues") && sc.issue && spec.mode !== "reflect") {
+      extraTools.push(
+        createReadIssuesTool({
+          backendUrl: this.#backendUrl,
+          backendAuthToken: this.#backendAuthToken,
+          issueId: sc.issue.issueId,
+          projectId: sc.issue.projectId,
         }),
       );
     }

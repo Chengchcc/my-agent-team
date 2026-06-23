@@ -317,6 +317,26 @@ export function IssueDetailSheet({
                   </FormItem>
                 )}
               />
+              <FormField
+                control={editForm.control}
+                name="estimatedCompletionAt"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Estimated Completion</FormLabel>
+                    <FormControl>
+                      <Input
+                        className="h-7 text-xs"
+                        type="date"
+                        value={field.value ? new Date(field.value).toISOString().slice(0, 10) : ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          field.onChange(v ? new Date(v).getTime() : null);
+                        }}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
               <div className="flex gap-2">
                 <Button size="sm" className="text-xs h-7" type="submit">
                   Save
