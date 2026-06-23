@@ -2,10 +2,21 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Form, FormControl, FormField, FormItem, FormLabel } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
 import type { IssueEvent, IssueRow, IssueRunSummary, IssueStatus } from "@/lib/api";
 import { api } from "@/lib/api";
 import { IssueStatusBadge } from "./IssueStatusBadge";
@@ -30,7 +41,7 @@ const LEGAL_TRANSITIONS: Record<string, IssueStatus[]> = {
   draft: ["planned"],
   planned: ["in_progress"],
   in_progress: ["in_review"],
-  in_review: ["done", "in_progress"],
+  in_review: ["done"], // rework must go through Approve/Reject, not this button
   done: [],
 };
 
@@ -112,6 +123,34 @@ export function IssueDetailSheet({
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
+  const [editing, setEditing] = useState(false);
+
+  const editForm = useForm({
+    defaultValues: {
+      title: issue.title,
+      description: issue.description,
+      priority: issue.priority,
+      estimatedCompletionAt: issue.estimatedCompletionAt,
+    },
+  });
+
+  async function handleSave(formData: {
+    title: string;
+    description: string;
+    priority: typeof issue.priority;
+    estimatedCompletionAt: number | null;
+  }) {
+    try {
+      await api.updateIssue(issue.issueId, formData);
+      toast.success("Issue updated");
+      setEditing(false);
+      onClose();
+    } catch (err) {
+      toast.error("Failed to save", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -195,7 +234,21 @@ export function IssueDetailSheet({
               <IssueStatusBadge status={issue.status} />
             </span>
             <div className="flex gap-1">
-              <Button size="sm" variant="outline" className="text-xs h-7" disabled={transitioning}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs h-7"
+                disabled={transitioning}
+                onClick={() => {
+                  editForm.reset({
+                    title: issue.title,
+                    description: issue.description,
+                    priority: issue.priority,
+                    estimatedCompletionAt: issue.estimatedCompletionAt,
+                  });
+                  setEditing(true);
+                }}
+              >
                 编辑
               </Button>
               <Button
@@ -210,6 +263,76 @@ export function IssueDetailSheet({
             </div>
           </SheetTitle>
         </SheetHeader>
+
+        {/* Edit form */}
+        {editing && (
+          <Form {...editForm}>
+            <form
+              onSubmit={editForm.handleSubmit(handleSave)}
+              className="space-y-3 mb-4 p-3 border rounded"
+            >
+              <FormField
+                control={editForm.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Title</FormLabel>
+                    <FormControl>
+                      <Input className="h-7 text-xs" {...field} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editForm.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Description</FormLabel>
+                    <FormControl>
+                      <Textarea className="text-xs min-h-[60px]" {...field} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editForm.control}
+                name="priority"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Priority</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="P0">P0</SelectItem>
+                        <SelectItem value="P1">P1</SelectItem>
+                        <SelectItem value="P2">P2</SelectItem>
+                        <SelectItem value="P3">P3</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormItem>
+                )}
+              />
+              <div className="flex gap-2">
+                <Button size="sm" className="text-xs h-7" type="submit">
+                  Save
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs h-7"
+                  onClick={() => setEditing(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </Form>
+        )}
 
         {/* Property table */}
         <div className="text-xs space-y-1.5 mb-4 mt-4">

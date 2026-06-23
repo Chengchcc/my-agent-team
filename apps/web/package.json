@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "biome check . && eslint .",
+    "format": "biome check --write .",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

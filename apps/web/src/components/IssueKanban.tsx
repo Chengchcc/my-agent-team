@@ -97,7 +97,8 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
   // M19: hide draft column — only show board statuses (planned+)
   const boardStatuses = statuses.filter((s) => s !== "draft");
 
-  if (statuses.length === 0) {
+  // Fix 6: use boardStatuses for empty check — avoids blank kanban when only draft exists
+  if (boardStatuses.length === 0) {
     if (issues.length === 0)
       return <div className="p-6 text-sm text-muted-foreground">暂无 Issue</div>;
     return (

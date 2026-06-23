@@ -104,11 +104,7 @@ export function nextTransition(
   from: IssueStatus,
 ): Transition | undefined {
   const t = table.find((t) => t.from === from);
-  if (!t) {
-    // No config for this status — use hardcoded HUMAN_GATES as fallback
-    if (HUMAN_GATES.has(from)) return undefined;
-    return undefined;
-  }
+  if (!t) return undefined; // no config = no auto-advance
   // Config exists — approval_posture drives gating
   if (t.approvalPosture === "human") return undefined;
   return t;

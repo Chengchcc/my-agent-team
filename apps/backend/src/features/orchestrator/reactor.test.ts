@@ -205,7 +205,7 @@ function makeOrchestrator(issueDb: Database, eventsDb: Database) {
     },
     // M19: projectSvc — mock that always returns autoOrchestrate: true
     projectSvc: {
-      getById: async (_id: string) => ({ autoOrchestrate: true, projectId: _id }),
+      getById: (_id: string) => ({ autoOrchestrate: true, projectId: _id }),
     },
     now: () => 1000000,
   });

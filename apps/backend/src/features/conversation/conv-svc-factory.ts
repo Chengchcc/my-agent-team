@@ -81,7 +81,7 @@ export function createConversationFeature(
       const trace = tracer.inject();
 
       // M19: use dispatcher for unified run-start + origin_kind
-      const { attemptId } = await dispatcher!.dispatch({
+      const { attemptId } = await dispatcher.dispatch({
         kind: "mention",
         runId,
         threadId,

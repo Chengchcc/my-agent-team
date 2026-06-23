@@ -47,8 +47,12 @@ const hostToRunnerSchema = z.discriminatedUnion("type", [
         surface: z.enum(["lark", "web", "cli", "orchestrator"]),
         conversationId: z.string(),
         runId: z.string(),
-        capabilities: z.array(z.enum(["start_new_conversation", "submit_deliverable"])),
-        issue: z.object({ issueId: z.string(), fromStatus: z.string() }).optional(),
+        capabilities: z.array(
+          z.enum(["start_new_conversation", "submit_deliverable", "read_issues"]),
+        ),
+        issue: z
+          .object({ issueId: z.string(), fromStatus: z.string(), projectId: z.string().optional() })
+          .optional(),
       })
       .optional(),
     trace: z.unknown().optional(),

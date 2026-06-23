@@ -315,6 +315,12 @@ const issueSvc = createIssueService({
   port: sqliteIssueAdapter(db),
   idGen: ulid,
   projectExists: (id) => projectSvc.exists(id),
+  // M19 Fix 2: Create issue-side conversation on issue creation
+  convPort: {
+    createConversation: (input) => conv.convPort.createConversation(input),
+    setConversationTitle: (id, title) => conv.convPort.setConversationTitle(id, title),
+    addMember: (input) => conv.convPort.addMember(input),
+  },
 });
 
 // M18.2 Orchestrator: build spec by agentId directly (not via member table)
@@ -349,6 +355,10 @@ const orchestrator = createOrchestrator({
   dispatcher,
   projectSvc: {
     getById: (id: string) => projectSvc.getById(id),
+  },
+  // M19 Fix 2: Lazy-add agent members to issue conversation before dispatch
+  convPort: {
+    addMember: (input) => conv.convPort.addMember(input),
   },
 });
 

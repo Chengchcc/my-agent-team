@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { json } from "../../http/response.js";
 import type { IssueStatus } from "../issue/entities.js";
+import { validateTemplate } from "../orchestrator/render.js";
 import { configurableStatuses } from "../orchestrator/transitions.js";
 import { ColumnConfigNotFoundError, type ColumnConfigService, ValidationError } from "./service.js";
 
@@ -28,6 +29,9 @@ export function columnConfigRoutes(svc: ColumnConfigService) {
       const parsed = upsertSchema.safeParse(await req.json().catch(() => ({})));
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
+      // M19 Fix 4: Validate Handlebars template at config-write time
+      const tmplErr = validateTemplate(parsed.data.promptTemplate);
+      if (tmplErr) return json({ error: `Invalid template: ${tmplErr}` }, 400);
       try {
         const config = await svc.upsert({
           ...parsed.data,

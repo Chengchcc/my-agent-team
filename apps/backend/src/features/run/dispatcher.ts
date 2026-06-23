@@ -22,18 +22,21 @@ export function createRunDispatcher(deps: {
 }) {
   return {
     async dispatch(cause: DispatchCause): Promise<{ runId: string; attemptId: string }> {
-      const { attemptId } = await deps.supervisor.startMainRun(
-        cause.runId,
-        cause.threadId,
-        cause.spec,
-        cause.opts as Parameters<RunSupervisor["startMainRun"]>[3] | undefined,
-      );
+      // Fix 7: Write origin FIRST (cheap + idempotent), then fork run (expensive).
+      // If startMainRun throws, the orphan origin is harmless — onRunComplete
+      // will never fire for a runId that was never started.
       deps.opsStore.insertRunOrigin({
         ...cause.origin,
         runId: cause.runId,
         originKind: cause.kind,
         createdAt: (deps.now ?? Date.now)(),
       });
+      const { attemptId } = await deps.supervisor.startMainRun(
+        cause.runId,
+        cause.threadId,
+        cause.spec,
+        cause.opts as Parameters<RunSupervisor["startMainRun"]>[3] | undefined,
+      );
       return { runId: cause.runId, attemptId };
     },
   };

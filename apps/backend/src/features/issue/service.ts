@@ -29,10 +29,28 @@ export interface IssueServiceDeps {
   now?: () => number;
   /** 可选：校验 projectId 是否真实存在。不存在则抛 ValidationError → 400。 */
   projectExists?: (projectId: string) => boolean;
+  /** M19: Conversation port — for creating issue-side conversations (Coding Thread). */
+  convPort?: {
+    createConversation(input: {
+      conversationId: string;
+      triggerMode?: string;
+      origin?: string;
+      createdAt: number;
+    }): unknown;
+    setConversationTitle(conversationId: string, title: string): void;
+    addMember(input: {
+      memberId: string;
+      conversationId: string;
+      kind: "agent" | "human";
+      agentId?: string | null;
+      displayName?: string | null;
+      joinedAt: number;
+    }): { created: boolean };
+  };
 }
 
 export function createIssueService(deps: IssueServiceDeps) {
-  const { port, idGen, projectExists } = deps;
+  const { port, idGen, projectExists, convPort } = deps;
   const now = deps.now ?? Date.now;
 
   return {
@@ -52,7 +70,7 @@ export function createIssueService(deps: IssueServiceDeps) {
       // M19: threadId uses conversation format (<conversationId>:<memberId>)
       // instead of "issue:" prefix — so issue runs flow through projection.
       const threadId = `${issueId}:owner`;
-      return port.createIssue({
+      const issue = port.createIssue({
         issueId,
         projectId: input.projectId,
         title: input.title,
@@ -62,6 +80,31 @@ export function createIssueService(deps: IssueServiceDeps) {
         estimatedCompletionAt: input.estimatedCompletionAt,
         createdAt: now(),
       });
+
+      // M19 Fix 2: Create issue-side conversation for Coding Thread.
+      // Best-effort — issue creation succeeds even if conversation setup fails.
+      if (convPort) {
+        try {
+          convPort.createConversation({
+            conversationId: issueId,
+            triggerMode: "issue",
+            origin: "issue",
+            createdAt: now(),
+          });
+          convPort.setConversationTitle(issueId, issue.title);
+          convPort.addMember({
+            memberId: "owner",
+            conversationId: issueId,
+            kind: "human",
+            displayName: "Owner",
+            joinedAt: now(),
+          });
+        } catch {
+          // best-effort
+        }
+      }
+
+      return issue;
     },
 
     applyTransition(issueId: string, to: IssueStatus): IssueRow {

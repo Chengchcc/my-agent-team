@@ -90,7 +90,8 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
 
     updateIssue(issueId: string, patch: UpdateIssueInput, updatedAt: number): IssueRow | null {
       const sets: string[] = [];
-      const params: unknown[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const params: any[] = [];
       if (patch.title !== undefined) {
         sets.push("title = ?");
         params.push(patch.title);

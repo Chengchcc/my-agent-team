@@ -9,12 +9,19 @@ import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { PromptVars } from "./render.js";
 import { renderPrompt } from "./render.js";
-import { nextTransition } from "./transitions.js";
+import { configurableStatuses, nextTransition } from "./transitions.js";
 
 export class OrchestratorAgentMissingError extends Error {
   constructor(agentId: string, issueId: string) {
     super(`Orchestrator: agent not found or archived: ${agentId} (issue ${issueId})`);
     this.name = "OrchestratorAgentMissingError";
+  }
+}
+
+export class OrchestratorColumnConfigMissingError extends Error {
+  constructor(from: string, issueId: string) {
+    super(`Orchestrator: no ColumnConfig for status "${from}" (issue ${issueId})`);
+    this.name = "OrchestratorColumnConfigMissingError";
   }
 }
 
@@ -30,6 +37,17 @@ export interface OrchestratorDeps {
   dispatcher: RunDispatcher;
   /** M19: Narrow interface for reading auto-orchestrate toggle. */
   projectSvc: { getById(id: string): { autoOrchestrate: boolean; projectId: string } };
+  /** M19 Fix 2: Conversation port for lazy agent membership. */
+  convPort?: {
+    addMember(input: {
+      memberId: string;
+      conversationId: string;
+      kind: "agent" | "human";
+      agentId?: string | null;
+      displayName?: string | null;
+      joinedAt: number;
+    }): { created: boolean };
+  };
   now?: () => number;
 }
 
@@ -45,6 +63,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     deliverableSvc,
     dispatcher,
     projectSvc,
+    convPort,
   } = deps;
 
   /** Build a nested PromptVars dict from issue creation info + accumulated deliverables.
@@ -83,7 +102,14 @@ export function createOrchestrator(deps: OrchestratorDeps) {
   async function startStep(issue: IssueRow): Promise<{ runId: string } | null> {
     const table = columnConfigSvc.transitionsForProject(issue.projectId);
     const t = nextTransition(table, issue.status);
-    if (!t) return null;
+    if (!t) {
+      // Fix 9: if status is configurable but has no transition, that's a
+      // missing-config error — surface it immediately instead of silently stopping.
+      if ((configurableStatuses() as string[]).includes(issue.status)) {
+        throw new OrchestratorColumnConfigMissingError(issue.status, issue.issueId);
+      }
+      return null;
+    }
 
     // getById 对 missing 或 archived 均抛 AgentNotFoundError；统一 catch 为 null
     const agent = await agentSvc.getById(t.agentId).catch(() => null);
@@ -97,6 +123,18 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     // M19: threadId = <issueId>:<agentId> — runs through conversation projection
     const threadId = `${issue.issueId}:${t.agentId}`;
     const spec = await buildSpec(t.agentId, threadId, prompt);
+
+    // M19 Fix 2: Ensure agent is a member of the issue conversation (idempotent).
+    if (convPort) {
+      convPort.addMember({
+        memberId: t.agentId,
+        conversationId: issue.issueId,
+        kind: "agent",
+        agentId: t.agentId,
+        displayName: agent.name,
+        joinedAt: (deps.now ?? Date.now)(),
+      });
+    }
 
     await dispatcher.dispatch({
       kind: "orchestrator",
@@ -166,7 +204,14 @@ export function createOrchestrator(deps: OrchestratorDeps) {
 
     // M19: Auto-orchestrate guard — if the project has auto-advance disabled,
     // skip the entire state machine. Run still lands in ledger/Coding Thread.
-    const project = await projectSvc.getById(issue.projectId).catch(() => null);
+    // getById is synchronous (returns or throws) — use try/catch, not .catch().
+    const project = (() => {
+      try {
+        return projectSvc.getById(issue.projectId);
+      } catch {
+        return null;
+      }
+    })();
     if (!project?.autoOrchestrate) return;
 
     // Idempotency guard: if the issue has already moved past the status this run
