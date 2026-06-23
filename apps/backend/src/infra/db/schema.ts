@@ -146,6 +146,24 @@ export const columnConfig = sqliteTable(
   ],
 );
 
+// ─── cron_job (M21) ──────────────────────────────────────────────
+export const cronJob = sqliteTable(
+  "cron_job",
+  {
+    cronJobId: text().primaryKey(),
+    name: text().notNull(),
+    agentId: text().notNull(),
+    cronExpr: text().notNull(),
+    prompt: text().notNull().default(""),
+    enabled: integer().notNull().default(0),
+    timeoutMs: integer({ mode: "number" }).notNull().default(0),
+    maxRetries: integer({ mode: "number" }).notNull().default(0),
+    createdAt: integer({ mode: "number" }).notNull(),
+    updatedAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [index("idx_cron_job_enabled").on(table.enabled)],
+);
+
 // ─── deliverable ───────────────────────────────────────────────────
 export const deliverable = sqliteTable(
   "deliverable",
