@@ -1,8 +1,8 @@
 import type { CronJob } from "bun";
-import type { CronJobService } from "./service.js";
-import type { CronJobRow } from "./domain.js";
 import type { RunDispatcher } from "../run/dispatcher.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
+import type { CronJobRow } from "./domain.js";
+import type { CronJobService } from "./service.js";
 
 export function createCronScheduler(deps: {
   cronSvc: CronJobService;
@@ -24,11 +24,10 @@ export function createCronScheduler(deps: {
   const retryTimers = new Set<ReturnType<typeof setTimeout>>();
   const retryCounts = new Map<string, number>();
 
-  async function fire(job: CronJobRow): Promise<void> {
+  async function fire(job: CronJobRow, fireKey?: string): Promise<void> {
     const n = deps.now ?? Date.now;
-    const firedAtUnix = Math.floor(n() / 1000);
-    const fireKey = `${job.cronJobId}:${firedAtUnix}`;
-    const attempt = retryCounts.get(fireKey) ?? 0;
+    const key = fireKey ?? `${job.cronJobId}:${Math.floor(n() / 1000)}`;
+    const attempt = retryCounts.get(key) ?? 0;
     const runId = deps.idGen();
     const threadId = `${job.cronJobId}:owner`;
     const t = deps.trace();
@@ -47,7 +46,7 @@ export function createCronScheduler(deps: {
         surface: "cron",
         traceId: t.traceId,
         traceparent: t.traceparent,
-        idempotencyKey: `${fireKey}:run:${attempt}`,
+        idempotencyKey: `${key}:run:${attempt}`,
         issueId: null,
         fromStatus: "",
         cronJobId: job.cronJobId,
@@ -81,7 +80,7 @@ export function createCronScheduler(deps: {
 
     // Only handle cron runs
     const origin = deps.opsStore.getRunOrigin(runId);
-    if (!origin || origin.originKind !== "cron" || !origin.cronJobId) return;
+    if (origin?.originKind !== "cron" || !origin.cronJobId) return;
 
     // No retry on success
     if (status === "completed") return;
@@ -115,7 +114,9 @@ export function createCronScheduler(deps: {
           kind: "retry_started",
           payload: { fireKey, attempt: attempts + 1 },
         });
-        await fire(job);
+        await fire(job, fireKey).catch((err) =>
+          console.error(`[cron] retry fire failed for ${job.cronJobId}:`, err),
+        );
       })();
     }, backoffMs);
     retryTimers.add(timer);
@@ -132,7 +133,7 @@ export function createCronScheduler(deps: {
       handles.set(
         job.cronJobId,
         Bun.cron(job.cronExpr, () => {
-          void fire(job);
+          fire(job).catch((err) => console.error(`[cron] fire failed for ${job.cronJobId}:`, err));
         }),
       );
     },
@@ -152,6 +153,7 @@ export function createCronScheduler(deps: {
       watchdogs.clear();
       for (const t of retryTimers) clearTimeout(t);
       retryTimers.clear();
+      retryCounts.clear();
     },
   };
 }

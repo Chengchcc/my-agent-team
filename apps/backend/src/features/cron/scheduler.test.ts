@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import { createCronScheduler } from "./scheduler.js";
 import type { CronJobRow } from "./domain.js";
+import { createCronScheduler } from "./scheduler.js";
 
 function makeJob(overrides: Partial<CronJobRow> = {}): CronJobRow {
   return {
@@ -30,7 +30,7 @@ function minimalDeps(overrides: Record<string, unknown> = {}): any {
       onRunComplete: () => {},
     },
     opsStore: null as any,
-    buildSpec: async () => ({} as Record<string, unknown>),
+    buildSpec: async () => ({}) as Record<string, unknown>,
     idGen: () => "r",
     trace: () => ({ traceId: "t", traceparent: "tp" }),
     ...overrides,
@@ -163,7 +163,9 @@ describe("createCronScheduler", () => {
           }),
           appendRunEvent,
         },
-        cronSvc: { port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 3 }) } },
+        cronSvc: {
+          port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 3 }) },
+        },
       }),
     );
     listener!("thread-1", "r1", "completed", "main");
@@ -191,7 +193,9 @@ describe("createCronScheduler", () => {
           }),
           appendRunEvent,
         },
-        cronSvc: { port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 3 }) } },
+        cronSvc: {
+          port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 3 }) },
+        },
       }),
     );
     // Simulate an errored cron run
@@ -224,7 +228,9 @@ describe("createCronScheduler", () => {
           }),
           appendRunEvent,
         },
-        cronSvc: { port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 2 }) } },
+        cronSvc: {
+          port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 2 }) },
+        },
       }),
     );
 
@@ -269,7 +275,9 @@ describe("createCronScheduler", () => {
           }),
           appendRunEvent,
         },
-        cronSvc: { port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 0 }) } },
+        cronSvc: {
+          port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 0 }) },
+        },
       }),
     );
     listener!("thread-1", "r1", "error", "main");
@@ -295,7 +303,9 @@ describe("createCronScheduler", () => {
           }),
           appendRunEvent: mock(() => 1),
         },
-        cronSvc: { port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 0 }) } },
+        cronSvc: {
+          port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 0 }) },
+        },
       }),
     );
     // Call onRunComplete for the watched run — watchdog cleanup path exercises
