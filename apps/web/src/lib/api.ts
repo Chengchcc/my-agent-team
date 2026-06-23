@@ -296,7 +296,7 @@ export const api = {
 
   // ── Projects (M18.3) ──
   listProjects: () => apiFetch<{ projects: ProjectRow[] }>("projects"),
-  createProject: (body: { name: string; repoUrl?: string; defaultBranch?: string }) =>
+  createProject: (body: { name: string; repoUrl?: string; defaultBranch?: string; autoOrchestrate?: boolean }) =>
     apiFetch<{ project: ProjectRow }>("projects", { method: "POST", body }),
   updateProject: (
     id: string,

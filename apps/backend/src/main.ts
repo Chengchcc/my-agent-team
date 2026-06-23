@@ -10,6 +10,8 @@ import {
   createRuntimeTracer,
   resolveObservabilityConfig,
 } from "@my-agent-team/runtime-observability";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { loadConfig } from "./config.js";
 import { createAgentSvc } from "./features/agent/agent-svc-factory.js";
 import { createAgentIdentityStore } from "./features/agent/identity-store.js";
@@ -55,11 +57,9 @@ import {
 } from "./features/runtime-ops/index.js";
 import { threadProjectionRoutes } from "./features/thread-projection/index.js";
 import { createRouter } from "./http/router.js";
-import { ulid } from "./infra/ids.js";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { eq } from "drizzle-orm";
-import * as backendSchema from "./infra/db/schema.js";
 import * as eventsSchema from "./infra/db/events-schema.js";
+import * as backendSchema from "./infra/db/schema.js";
+import { ulid } from "./infra/ids.js";
 import { openDb } from "./infra/sqlite/db.js";
 import { createServer } from "./server.js";
 

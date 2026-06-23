@@ -1,13 +1,13 @@
 import type { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import { and, eq, gt, inArray } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/events-schema.js";
 import type {
-  IssueEvent as IssueEventType,
   IssueEventKind,
+  IssueEvent as IssueEventType,
   RunnerHealthRow,
-  RunOpsEvent as RunOpsEventType,
   RunOpsEventKind,
+  RunOpsEvent as RunOpsEventType,
   RunOriginRow,
   SurfaceHealthRow,
 } from "./types.js";
@@ -29,11 +29,9 @@ function toSurfaceHealthRow(r: typeof schema.surfaceHealth.$inferSelect): Surfac
 }
 
 export class RuntimeOpsStore {
-  #db: Database;
   #d: ReturnType<typeof drizzle<typeof schema>>;
 
   constructor(db: Database) {
-    this.#db = db;
     this.#d = drizzle(db, { schema });
   }
 
@@ -103,12 +101,7 @@ export class RuntimeOpsStore {
     return this.#d
       .select()
       .from(schema.issueEvent)
-      .where(
-        and(
-          eq(schema.issueEvent.issueId, issueId),
-          gt(schema.issueEvent.seq, afterSeq),
-        ),
-      )
+      .where(and(eq(schema.issueEvent.issueId, issueId), gt(schema.issueEvent.seq, afterSeq)))
       .orderBy(schema.issueEvent.seq)
       .all()
       .map(
@@ -304,10 +297,7 @@ export class RuntimeOpsStore {
       .select()
       .from(schema.surfaceHealth)
       .where(
-        and(
-          eq(schema.surfaceHealth.agentId, agentId),
-          eq(schema.surfaceHealth.surface, surface),
-        ),
+        and(eq(schema.surfaceHealth.agentId, agentId), eq(schema.surfaceHealth.surface, surface)),
       )
       .get();
     return row ? toSurfaceHealthRow(row) : undefined;

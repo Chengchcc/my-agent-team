@@ -17,7 +17,9 @@
     "build": "tsc -p tsconfig.json",
     "lint": "biome check . && eslint .",
     "test": "bun test --pass-with-no-tests",
-    "typecheck": "tsc -p tsconfig.test.json --noEmit"
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:check": "drizzle-kit check --config drizzle.config.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.44.0",

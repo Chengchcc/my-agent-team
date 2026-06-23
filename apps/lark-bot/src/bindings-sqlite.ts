@@ -1,7 +1,12 @@
 import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { migrate } from "drizzle-orm/bun-sqlite/migrator";
+import { and, eq, or } from "drizzle-orm";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import path from "node:path";
 import { z } from "zod";
+import * as schema from "./db/schema.js";
 import { safeAgentId } from "./safe-agent-id.js";
 
 const typingStatusSchema = z.enum(["none", "active", "removed", "failed"]);
@@ -33,135 +38,59 @@ export interface InboundRecord {
   status: string;
 }
 
+// ─── Connection ────────────────────────────────────────────────────
+
 export function openBindings(agentId: string, stateRoot: string): Database {
   const dir = join(stateRoot, "lark-bot", safeAgentId(agentId));
   mkdirSync(dir, { recursive: true });
   const dbfile = join(dir, "bindings.sqlite");
   const db = new Database(dbfile);
   db.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON");
-  ensureSchema(db);
+
+  // M20: drizzle-kit migrate replaces ensureSchema() DDL + migrateRunStreamSchema() ALTER hack.
+  const d = drizzle(db, { schema });
+  const migrationsFolder = path.resolve(import.meta.dirname, "../drizzle");
+  migrate(d, { migrationsFolder });
+
   return db;
 }
 
-function ensureSchema(db: Database) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS chat_binding (
-      lark_chat_id    TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      chat_type       TEXT NOT NULL,
-      created_at      INTEGER NOT NULL,
-      pushed_seq      INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS member_binding (
-      lark_chat_id    TEXT NOT NULL,
-      lark_open_id    TEXT NOT NULL,
-      member_id       TEXT NOT NULL,
-      PRIMARY KEY (lark_chat_id, lark_open_id)
-    );
-    CREATE TABLE IF NOT EXISTS inbound_message (
-      lark_event_id   TEXT PRIMARY KEY,
-      lark_message_id TEXT NOT NULL,
-      lark_chat_id    TEXT NOT NULL,
-      conversation_id TEXT,
-      ledger_seq      INTEGER,
-      status          TEXT NOT NULL DEFAULT 'processing',
-      created_at      INTEGER NOT NULL,
-      UNIQUE(lark_message_id)
-    );
-    CREATE TABLE IF NOT EXISTS run_stream (
-      run_id              TEXT PRIMARY KEY,
-      lark_chat_id        TEXT NOT NULL,
-      conversation_id     TEXT NOT NULL,
-      lark_message_id     TEXT,
-      source_message_id   TEXT,
-      typing_reaction_id  TEXT,
-      typing_status       TEXT NOT NULL DEFAULT 'none',
-      status              TEXT NOT NULL DEFAULT 'starting',
-      accumulated         TEXT NOT NULL DEFAULT '',
-      card_send_failed    INTEGER NOT NULL DEFAULT 0,
-      card_update_failed  INTEGER NOT NULL DEFAULT 0,
-      final_ledger_seq    INTEGER,
-      last_error          TEXT,
-      complete_from_ledger INTEGER NOT NULL DEFAULT 0,
-      created_at          INTEGER NOT NULL,
-      updated_at          INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS message_delivery (
-      conversation_id   TEXT NOT NULL,
-      message_id        TEXT NOT NULL,
-      lark_chat_id      TEXT NOT NULL,
-      last_state        TEXT NOT NULL DEFAULT 'streaming',
-      last_seq          INTEGER NOT NULL DEFAULT 0,
-      updated_at        INTEGER NOT NULL,
-      PRIMARY KEY (conversation_id, message_id, lark_chat_id)
-    );
-  `);
+// ─── Helpers ───────────────────────────────────────────────────────
 
-  // M15.1 migration: add complete_from_ledger to existing run_stream tables
-  migrateRunStreamSchema(db);
+function d(db: Database) {
+  return drizzle(db, { schema });
 }
 
-function migrateRunStreamSchema(db: Database): void {
-  try {
-    const cols = db.query("PRAGMA table_info(run_stream)").all() as {
-      cid: number;
-      name: string;
-      type: string;
-      notnull: number;
-      dflt_value: string | null;
-      pk: number;
-    }[];
-    if (!cols.some((c) => c.name === "complete_from_ledger")) {
-      db.run("ALTER TABLE run_stream ADD COLUMN complete_from_ledger INTEGER NOT NULL DEFAULT 0");
-    }
-  } catch {
-    /* table doesn't exist yet — first run, schema will create it fresh */
-  }
-}
+// ─── chat_binding ──────────────────────────────────────────────────
 
 export function getChatBinding(db: Database, larkChatId: string): ChatBinding | null {
-  const row = db
-    .query(
-      "SELECT lark_chat_id, conversation_id, chat_type, created_at, pushed_seq FROM chat_binding WHERE lark_chat_id = ?",
-    )
-    .get(larkChatId) as
-    | {
-        lark_chat_id: string;
-        conversation_id: string;
-        chat_type: string;
-        created_at: number;
-        pushed_seq: number;
-      }
-    | undefined;
+  const row = d(db)
+    .select()
+    .from(schema.chatBinding)
+    .where(eq(schema.chatBinding.larkChatId, larkChatId))
+    .get();
   if (!row) return null;
   return {
-    larkChatId: row.lark_chat_id,
-    conversationId: row.conversation_id,
-    chatType: row.chat_type,
-    createdAt: row.created_at,
-    pushedSeq: row.pushed_seq,
+    larkChatId: row.larkChatId,
+    conversationId: row.conversationId,
+    chatType: row.chatType,
+    createdAt: row.createdAt,
+    pushedSeq: row.pushedSeq,
   };
 }
 
 export function getAllChatBindings(db: Database): ChatBinding[] {
-  const rows = db
-    .query(
-      "SELECT lark_chat_id, conversation_id, chat_type, created_at, pushed_seq FROM chat_binding",
-    )
-    .all() as {
-    lark_chat_id: string;
-    conversation_id: string;
-    chat_type: string;
-    created_at: number;
-    pushed_seq: number;
-  }[];
-  return rows.map((row) => ({
-    larkChatId: row.lark_chat_id,
-    conversationId: row.conversation_id,
-    chatType: row.chat_type,
-    createdAt: row.created_at,
-    pushedSeq: row.pushed_seq,
-  }));
+  return d(db)
+    .select()
+    .from(schema.chatBinding)
+    .all()
+    .map((row) => ({
+      larkChatId: row.larkChatId,
+      conversationId: row.conversationId,
+      chatType: row.chatType,
+      createdAt: row.createdAt,
+      pushedSeq: row.pushedSeq,
+    }));
 }
 
 export function putChatBinding(
@@ -171,25 +100,42 @@ export function putChatBinding(
   chatType: string,
   createdAt: number,
 ): void {
-  db.run(
-    "INSERT OR REPLACE INTO chat_binding (lark_chat_id, conversation_id, chat_type, created_at, pushed_seq) VALUES (?, ?, ?, ?, 0)",
-    [larkChatId, conversationId, chatType, createdAt],
-  );
+  d(db)
+    .insert(schema.chatBinding)
+    .values({ larkChatId, conversationId, chatType, createdAt, pushedSeq: 0 })
+    .onConflictDoUpdate({
+      target: schema.chatBinding.larkChatId,
+      set: { conversationId, chatType },
+    })
+    .run();
 }
 
 export function updatePushedSeq(db: Database, larkChatId: string, seq: number): void {
-  db.run("UPDATE chat_binding SET pushed_seq = ? WHERE lark_chat_id = ?", [seq, larkChatId]);
+  d(db)
+    .update(schema.chatBinding)
+    .set({ pushedSeq: seq })
+    .where(eq(schema.chatBinding.larkChatId, larkChatId))
+    .run();
 }
+
+// ─── member_binding ────────────────────────────────────────────────
 
 export function getMemberBinding(
   db: Database,
   larkChatId: string,
   larkOpenId: string,
 ): string | null {
-  const row = db
-    .query("SELECT member_id FROM member_binding WHERE lark_chat_id = ? AND lark_open_id = ?")
-    .get(larkChatId, larkOpenId) as { member_id: string } | undefined;
-  return row?.member_id ?? null;
+  const row = d(db)
+    .select({ memberId: schema.memberBinding.memberId })
+    .from(schema.memberBinding)
+    .where(
+      and(
+        eq(schema.memberBinding.larkChatId, larkChatId),
+        eq(schema.memberBinding.larkOpenId, larkOpenId),
+      ),
+    )
+    .get();
+  return row?.memberId ?? null;
 }
 
 export function putMemberBinding(
@@ -198,32 +144,40 @@ export function putMemberBinding(
   larkOpenId: string,
   memberId: string,
 ): void {
-  db.run(
-    "INSERT OR IGNORE INTO member_binding (lark_chat_id, lark_open_id, member_id) VALUES (?, ?, ?)",
-    [larkChatId, larkOpenId, memberId],
-  );
+  d(db)
+    .insert(schema.memberBinding)
+    .values({ larkChatId, larkOpenId, memberId })
+    .onConflictDoNothing()
+    .run();
 }
 
 export function getMemberBindingsForChat(db: Database, larkChatId: string): MemberBinding[] {
-  const rows = db
-    .query(
-      "SELECT lark_chat_id, lark_open_id, member_id FROM member_binding WHERE lark_chat_id = ?",
-    )
-    .all(larkChatId) as { lark_chat_id: string; lark_open_id: string; member_id: string }[];
-  return rows.map((row) => ({
-    larkChatId: row.lark_chat_id,
-    larkOpenId: row.lark_open_id,
-    memberId: row.member_id,
-  }));
+  return d(db)
+    .select()
+    .from(schema.memberBinding)
+    .where(eq(schema.memberBinding.larkChatId, larkChatId))
+    .all()
+    .map((row) => ({
+      larkChatId: row.larkChatId,
+      larkOpenId: row.larkOpenId,
+      memberId: row.memberId,
+    }));
 }
 
-// ─── inbound_message (reserve → confirm flow, see spec §4.3) ───
+// ─── inbound_message (reserve → confirm flow) ──────────────────────
 
 export function inboundExists(db: Database, larkEventId: string, larkMessageId: string): boolean {
-  const row = db
-    .query("SELECT 1 FROM inbound_message WHERE lark_event_id = ? OR lark_message_id = ?")
-    .get(larkEventId, larkMessageId) as unknown;
-  return !!row;
+  const row = d(db)
+    .select({ one: schema.inboundMessage.larkEventId })
+    .from(schema.inboundMessage)
+    .where(
+      or(
+        eq(schema.inboundMessage.larkEventId, larkEventId),
+        eq(schema.inboundMessage.larkMessageId, larkMessageId),
+      ),
+    )
+    .get();
+  return row !== undefined;
 }
 
 export function reserveInbound(
@@ -232,10 +186,16 @@ export function reserveInbound(
   messageId: string,
   chatId: string,
 ): void {
-  db.run(
-    "INSERT INTO inbound_message (lark_event_id, lark_message_id, lark_chat_id, status, created_at) VALUES (?, ?, ?, 'processing', ?)",
-    [eventId, messageId, chatId, Date.now()],
-  );
+  d(db)
+    .insert(schema.inboundMessage)
+    .values({
+      larkEventId: eventId,
+      larkMessageId: messageId,
+      larkChatId: chatId,
+      status: "processing",
+      createdAt: Date.now(),
+    })
+    .run();
 }
 
 export function confirmInbound(
@@ -244,13 +204,14 @@ export function confirmInbound(
   conversationId: string,
   ledgerSeq: number,
 ): void {
-  db.run(
-    "UPDATE inbound_message SET conversation_id = ?, ledger_seq = ?, status = 'posted' WHERE lark_event_id = ?",
-    [conversationId, ledgerSeq, eventId],
-  );
+  d(db)
+    .update(schema.inboundMessage)
+    .set({ conversationId, ledgerSeq, status: "posted" })
+    .where(eq(schema.inboundMessage.larkEventId, eventId))
+    .run();
 }
 
-// ─── run_stream (M15.1: card streaming state) ───
+// ─── run_stream (M15.1: card streaming state) ──────────────────────
 
 export interface RunStreamRecord {
   runId: string;
@@ -266,10 +227,6 @@ export interface RunStreamRecord {
   cardUpdateFailed: number;
   finalLedgerSeq: number | null;
   lastError: string | null;
-  /** Set when the card content was confirmed against the ledger final message.
-   *  Until this flag is set, the SSE watcher will NOT skip the final text —
-   *  even if status=done and all card ops succeeded. This prevents skipping
-   *  when the ephemeral /api/runs/:id/stream dropped early deltas. */
   completeFromLedger: number;
   createdAt: number;
   updatedAt: number;
@@ -285,61 +242,87 @@ export function canSkipFinalLedgerText(run: RunStreamRecord): boolean {
   );
 }
 
+function toRunStreamRecord(r: typeof schema.runStream.$inferSelect): RunStreamRecord {
+  return {
+    runId: r.runId,
+    larkChatId: r.larkChatId,
+    conversationId: r.conversationId,
+    larkMessageId: r.larkMessageId,
+    sourceMessageId: r.sourceMessageId,
+    typingReactionId: r.typingReactionId,
+    typingStatus: typingStatusSchema.parse(r.typingStatus),
+    status: runStatusSchema.parse(r.status),
+    accumulated: r.accumulated,
+    cardSendFailed: cardSendFailedSchema.parse(r.cardSendFailed),
+    cardUpdateFailed: cardUpdateFailedSchema.parse(r.cardUpdateFailed),
+    finalLedgerSeq: r.finalLedgerSeq,
+    lastError: r.lastError,
+    completeFromLedger: completeFromLedgerSchema.parse(r.completeFromLedger),
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
+
 export function insertRunStream(db: Database, rec: RunStreamRecord): void {
-  db.run(
-    `INSERT INTO run_stream (run_id, lark_chat_id, conversation_id, lark_message_id,
-      source_message_id, typing_reaction_id, typing_status, status, accumulated,
-      card_send_failed, card_update_failed, final_ledger_seq, last_error,
-      complete_from_ledger, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      rec.runId,
-      rec.larkChatId,
-      rec.conversationId,
-      rec.larkMessageId,
-      rec.sourceMessageId,
-      rec.typingReactionId,
-      rec.typingStatus,
-      rec.status,
-      rec.accumulated,
-      rec.cardSendFailed,
-      rec.cardUpdateFailed,
-      rec.finalLedgerSeq,
-      rec.lastError,
-      rec.completeFromLedger,
-      rec.createdAt,
-      rec.updatedAt,
-    ],
-  );
+  d(db)
+    .insert(schema.runStream)
+    .values({
+      runId: rec.runId,
+      larkChatId: rec.larkChatId,
+      conversationId: rec.conversationId,
+      larkMessageId: rec.larkMessageId,
+      sourceMessageId: rec.sourceMessageId,
+      typingReactionId: rec.typingReactionId,
+      typingStatus: rec.typingStatus,
+      status: rec.status,
+      accumulated: rec.accumulated,
+      cardSendFailed: rec.cardSendFailed,
+      cardUpdateFailed: rec.cardUpdateFailed,
+      finalLedgerSeq: rec.finalLedgerSeq,
+      lastError: rec.lastError,
+      completeFromLedger: rec.completeFromLedger,
+      createdAt: rec.createdAt,
+      updatedAt: rec.updatedAt,
+    })
+    .run();
 }
 
 export function getRunStream(db: Database, runId: string): RunStreamRecord | null {
-  const row = db.query("SELECT * FROM run_stream WHERE run_id = ?").get(runId) as
-    | RunStreamDbRow
-    | undefined;
+  const row = d(db)
+    .select()
+    .from(schema.runStream)
+    .where(eq(schema.runStream.runId, runId))
+    .get();
   return row ? toRunStreamRecord(row) : null;
 }
 
 export function getRunStreamsByChat(db: Database, larkChatId: string): RunStreamRecord[] {
-  const rows = db
-    .query("SELECT * FROM run_stream WHERE lark_chat_id = ?")
-    .all(larkChatId) as RunStreamDbRow[];
-  return rows.map(toRunStreamRecord);
+  return d(db)
+    .select()
+    .from(schema.runStream)
+    .where(eq(schema.runStream.larkChatId, larkChatId))
+    .all()
+    .map(toRunStreamRecord);
 }
 
 export function getRunStreamsByConversation(
   db: Database,
   conversationId: string,
 ): RunStreamRecord[] {
-  const rows = db
-    .query("SELECT * FROM run_stream WHERE conversation_id = ?")
-    .all(conversationId) as RunStreamDbRow[];
-  return rows.map(toRunStreamRecord);
+  return d(db)
+    .select()
+    .from(schema.runStream)
+    .where(eq(schema.runStream.conversationId, conversationId))
+    .all()
+    .map(toRunStreamRecord);
 }
 
 export function getAllRunStreams(db: Database): RunStreamRecord[] {
-  const rows = db.query("SELECT * FROM run_stream").all() as RunStreamDbRow[];
-  return rows.map(toRunStreamRecord);
+  return d(db)
+    .select()
+    .from(schema.runStream)
+    .all()
+    .map(toRunStreamRecord);
 }
 
 export function updateRunStream(
@@ -347,59 +330,27 @@ export function updateRunStream(
   runId: string,
   partial: Partial<RunStreamRecord>,
 ): void {
-  const fields: string[] = [];
-  const values: unknown[] = [];
-  if (partial.larkMessageId !== undefined) {
-    fields.push("lark_message_id = ?");
-    values.push(partial.larkMessageId);
-  }
-  if (partial.typingReactionId !== undefined) {
-    fields.push("typing_reaction_id = ?");
-    values.push(partial.typingReactionId);
-  }
-  if (partial.typingStatus !== undefined) {
-    fields.push("typing_status = ?");
-    values.push(partial.typingStatus);
-  }
-  if (partial.status !== undefined) {
-    fields.push("status = ?");
-    values.push(partial.status);
-  }
-  if (partial.accumulated !== undefined) {
-    fields.push("accumulated = ?");
-    values.push(partial.accumulated);
-  }
-  if (partial.cardSendFailed !== undefined) {
-    fields.push("card_send_failed = ?");
-    values.push(partial.cardSendFailed);
-  }
-  if (partial.cardUpdateFailed !== undefined) {
-    fields.push("card_update_failed = ?");
-    values.push(partial.cardUpdateFailed);
-  }
-  if (partial.finalLedgerSeq !== undefined) {
-    fields.push("final_ledger_seq = ?");
-    values.push(partial.finalLedgerSeq);
-  }
-  if (partial.lastError !== undefined) {
-    fields.push("last_error = ?");
-    values.push(partial.lastError);
-  }
-  if (partial.completeFromLedger !== undefined) {
-    fields.push("complete_from_ledger = ?");
-    values.push(partial.completeFromLedger);
-  }
-  if (fields.length === 0) return;
-  fields.push("updated_at = ?");
-  values.push(Date.now());
-  values.push(runId);
-  db.run(
-    `UPDATE run_stream SET ${fields.join(", ")} WHERE run_id = ?`,
-    values as Parameters<typeof db.run>[1],
-  );
+  const sets: Record<string, unknown> = {};
+  if (partial.larkMessageId !== undefined) sets.larkMessageId = partial.larkMessageId;
+  if (partial.typingReactionId !== undefined) sets.typingReactionId = partial.typingReactionId;
+  if (partial.typingStatus !== undefined) sets.typingStatus = partial.typingStatus;
+  if (partial.status !== undefined) sets.status = partial.status;
+  if (partial.accumulated !== undefined) sets.accumulated = partial.accumulated;
+  if (partial.cardSendFailed !== undefined) sets.cardSendFailed = partial.cardSendFailed;
+  if (partial.cardUpdateFailed !== undefined) sets.cardUpdateFailed = partial.cardUpdateFailed;
+  if (partial.finalLedgerSeq !== undefined) sets.finalLedgerSeq = partial.finalLedgerSeq;
+  if (partial.lastError !== undefined) sets.lastError = partial.lastError;
+  if (partial.completeFromLedger !== undefined) sets.completeFromLedger = partial.completeFromLedger;
+  if (Object.keys(sets).length === 0) return;
+  sets.updatedAt = Date.now();
+  d(db)
+    .update(schema.runStream)
+    .set(sets)
+    .where(eq(schema.runStream.runId, runId))
+    .run();
 }
 
-// ─── M15.1: Rebind chat to a new conversation ───
+// ─── Rebind chat to a new conversation ─────────────────────────────
 
 export function rebindChatConversation(
   db: Database,
@@ -407,14 +358,21 @@ export function rebindChatConversation(
   oldConversationId: string,
   newConversationId: string,
 ): boolean {
-  const result = db.run(
-    "UPDATE chat_binding SET conversation_id = ?, pushed_seq = 0 WHERE lark_chat_id = ? AND conversation_id = ?",
-    [newConversationId, larkChatId, oldConversationId],
-  );
-  return result.changes > 0;
+  const result = d(db)
+    .update(schema.chatBinding)
+    .set({ conversationId: newConversationId, pushedSeq: 0 })
+    .where(
+      and(
+        eq(schema.chatBinding.larkChatId, larkChatId),
+        eq(schema.chatBinding.conversationId, oldConversationId),
+      ),
+    )
+    .run();
+  // drizzle-orm 0.44 types .run() as void for SQLite; runtime returns { changes }.
+  return (result as unknown as { changes: number }).changes > 0;
 }
 
-// ─── M17: Message delivery tracking ───
+// ─── Message delivery tracking ─────────────────────────────────────
 
 export interface MessageDeliveryRecord {
   conversationId: string;
@@ -431,89 +389,50 @@ export function getMessageDelivery(
   messageId: string,
   larkChatId: string,
 ): MessageDeliveryRecord | null {
-  const row = db
-    .query(
-      "SELECT conversation_id, message_id, lark_chat_id, last_state, last_seq, updated_at FROM message_delivery WHERE conversation_id = ? AND message_id = ? AND lark_chat_id = ?",
+  const row = d(db)
+    .select()
+    .from(schema.messageDelivery)
+    .where(
+      and(
+        eq(schema.messageDelivery.conversationId, conversationId),
+        eq(schema.messageDelivery.messageId, messageId),
+        eq(schema.messageDelivery.larkChatId, larkChatId),
+      ),
     )
-    .get(conversationId, messageId, larkChatId) as
-    | {
-        conversation_id: string;
-        message_id: string;
-        lark_chat_id: string;
-        last_state: string;
-        last_seq: number;
-        updated_at: number;
-      }
-    | undefined;
+    .get();
   if (!row) return null;
   return {
-    conversationId: row.conversation_id,
-    messageId: row.message_id,
-    larkChatId: row.lark_chat_id,
-    lastState: row.last_state,
-    lastSeq: row.last_seq,
-    updatedAt: row.updated_at,
+    conversationId: row.conversationId,
+    messageId: row.messageId,
+    larkChatId: row.larkChatId,
+    lastState: row.lastState,
+    lastSeq: row.lastSeq,
+    updatedAt: row.updatedAt,
   };
 }
 
 export function upsertMessageDelivery(db: Database, rec: MessageDeliveryRecord): void {
-  db.run(
-    `INSERT INTO message_delivery (conversation_id, message_id, lark_chat_id, last_state, last_seq, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(conversation_id, message_id, lark_chat_id)
-     DO UPDATE SET last_state = ?, last_seq = ?, updated_at = ?`,
-    [
-      rec.conversationId,
-      rec.messageId,
-      rec.larkChatId,
-      rec.lastState,
-      rec.lastSeq,
-      rec.updatedAt,
-      rec.lastState,
-      rec.lastSeq,
-      rec.updatedAt,
-    ],
-  );
-}
-
-// ─── Internal helpers ───
-
-interface RunStreamDbRow {
-  run_id: string;
-  lark_chat_id: string;
-  conversation_id: string;
-  lark_message_id: string | null;
-  source_message_id: string | null;
-  typing_reaction_id: string | null;
-  typing_status: string;
-  status: string;
-  accumulated: string;
-  card_send_failed: number;
-  card_update_failed: number;
-  final_ledger_seq: number | null;
-  last_error: string | null;
-  complete_from_ledger: number;
-  created_at: number;
-  updated_at: number;
-}
-
-function toRunStreamRecord(row: RunStreamDbRow): RunStreamRecord {
-  return {
-    runId: row.run_id,
-    larkChatId: row.lark_chat_id,
-    conversationId: row.conversation_id,
-    larkMessageId: row.lark_message_id,
-    sourceMessageId: row.source_message_id,
-    typingReactionId: row.typing_reaction_id,
-    typingStatus: typingStatusSchema.parse(row.typing_status),
-    status: runStatusSchema.parse(row.status),
-    accumulated: row.accumulated,
-    cardSendFailed: cardSendFailedSchema.parse(row.card_send_failed),
-    cardUpdateFailed: cardUpdateFailedSchema.parse(row.card_update_failed),
-    finalLedgerSeq: row.final_ledger_seq,
-    lastError: row.last_error,
-    completeFromLedger: completeFromLedgerSchema.parse(row.complete_from_ledger),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+  d(db)
+    .insert(schema.messageDelivery)
+    .values({
+      conversationId: rec.conversationId,
+      messageId: rec.messageId,
+      larkChatId: rec.larkChatId,
+      lastState: rec.lastState,
+      lastSeq: rec.lastSeq,
+      updatedAt: rec.updatedAt,
+    })
+    .onConflictDoUpdate({
+      target: [
+        schema.messageDelivery.conversationId,
+        schema.messageDelivery.messageId,
+        schema.messageDelivery.larkChatId,
+      ],
+      set: {
+        lastState: rec.lastState,
+        lastSeq: rec.lastSeq,
+        updatedAt: rec.updatedAt,
+      },
+    })
+    .run();
 }
