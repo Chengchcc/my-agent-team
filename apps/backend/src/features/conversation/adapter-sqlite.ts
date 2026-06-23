@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import { and, eq, gt, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { z } from "zod";
 import * as schema from "../../infra/db/schema.js";
 import type {
@@ -23,13 +23,15 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     // ─── Conversation ──────────────────────────────
 
     createConversation(input: CreateConversationInput): ConversationRow {
-      d.insert(schema.conversation).values({
-        conversationId: input.conversationId,
-        triggerMode: input.triggerMode ?? "mention",
-        hopCount: 0,
-        origin: input.origin ?? "user",
-        createdAt: input.createdAt,
-      }).run();
+      d.insert(schema.conversation)
+        .values({
+          conversationId: input.conversationId,
+          triggerMode: input.triggerMode ?? "mention",
+          hopCount: 0,
+          origin: input.origin ?? "user",
+          createdAt: input.createdAt,
+        })
+        .run();
       return {
         conversationId: input.conversationId,
         triggerMode: input.triggerMode ?? "mention",

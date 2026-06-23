@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import { and, desc, eq, isNull } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { z } from "zod";
 import * as schema from "../../infra/db/schema.js";
 import type { AgentRow, CreateAgentInput, UpdateAgentInput } from "./domain.js";
@@ -63,30 +63,18 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
           updatedAt: input.now,
         })
         .run();
-      const raw = d
-        .select()
-        .from(schema.agents)
-        .where(eq(schema.agents.id, input.id))
-        .get();
+      const raw = d.select().from(schema.agents).where(eq(schema.agents.id, input.id)).get();
       return toRow(raw!);
     },
 
     async findById(id: string): Promise<AgentRow | null> {
-      const raw = d
-        .select()
-        .from(schema.agents)
-        .where(eq(schema.agents.id, id))
-        .get();
+      const raw = d.select().from(schema.agents).where(eq(schema.agents.id, id)).get();
       return raw ? toRow(raw) : null;
     },
 
     async list(includeArchived = false): Promise<AgentRow[]> {
       const rows = includeArchived
-        ? d
-            .select()
-            .from(schema.agents)
-            .orderBy(desc(schema.agents.createdAt))
-            .all()
+        ? d.select().from(schema.agents).orderBy(desc(schema.agents.createdAt)).all()
         : d
             .select()
             .from(schema.agents)
@@ -118,11 +106,7 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
         .run();
 
       if (result.changes === 0) return null;
-      const raw = d
-        .select()
-        .from(schema.agents)
-        .where(eq(schema.agents.id, id))
-        .get();
+      const raw = d.select().from(schema.agents).where(eq(schema.agents.id, id)).get();
       return raw ? toRow(raw) : null;
     },
 
@@ -133,11 +117,7 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
         .where(and(eq(schema.agents.id, id), isNull(schema.agents.archivedAt)))
         .run();
       if (result.changes === 0) return null;
-      const raw = d
-        .select()
-        .from(schema.agents)
-        .where(eq(schema.agents.id, id))
-        .get();
+      const raw = d.select().from(schema.agents).where(eq(schema.agents.id, id)).get();
       return raw ? toRow(raw) : null;
     },
 
@@ -146,9 +126,8 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
     async hardDelete(
       id: string,
     ): Promise<{ deletedAgent: boolean; deletedThreads: number; deletedMembers: number }> {
-      const prevFK = (
-        db.query("PRAGMA foreign_keys").get() as { foreign_keys: number }
-      ).foreign_keys;
+      const prevFK = (db.query("PRAGMA foreign_keys").get() as { foreign_keys: number })
+        .foreign_keys;
       // PRAGMA foreign_keys kept as raw db.exec — drizzle has no native PRAGMA abstraction.
       db.exec("PRAGMA foreign_keys = ON");
 
@@ -157,9 +136,7 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
         // Threads table is gone (M14) — conversation membership is the source of truth.
         // M20: Derived column kept as raw SQL — drizzle has no native || operator.
         const threadRows = db
-          .query(
-            "SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?",
-          )
+          .query("SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?")
           .all(id) as { id: string }[];
         const threadIds = threadRows.map((r) => r.id);
 

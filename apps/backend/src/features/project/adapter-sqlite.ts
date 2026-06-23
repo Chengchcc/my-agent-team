@@ -1,13 +1,11 @@
 import type { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import { count, eq, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import type { ProjectRow } from "./domain.js";
 import type { CreateProjectRecord, ProjectPort, UpdateProjectRecord } from "./ports.js";
 
-const toRow = (
-  r: typeof schema.project.$inferSelect,
-): ProjectRow => ({
+const toRow = (r: typeof schema.project.$inferSelect): ProjectRow => ({
   projectId: r.projectId,
   name: r.name,
   repoUrl: r.repoUrl,
@@ -22,15 +20,17 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
 
   return {
     createProject(input: CreateProjectRecord): ProjectRow {
-      d.insert(schema.project).values({
-        projectId: input.projectId,
-        name: input.name,
-        repoUrl: input.repoUrl,
-        defaultBranch: input.defaultBranch,
-        autoOrchestrate: input.autoOrchestrate ? 1 : 0,
-        createdAt: input.createdAt,
-        updatedAt: input.createdAt,
-      }).run();
+      d.insert(schema.project)
+        .values({
+          projectId: input.projectId,
+          name: input.name,
+          repoUrl: input.repoUrl,
+          defaultBranch: input.defaultBranch,
+          autoOrchestrate: input.autoOrchestrate ? 1 : 0,
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt,
+        })
+        .run();
       return {
         projectId: input.projectId,
         name: input.name,
@@ -52,11 +52,7 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
     },
 
     listProjects(): ProjectRow[] {
-      const rows = d
-        .select()
-        .from(schema.project)
-        .orderBy(sql`created_at DESC`)
-        .all();
+      const rows = d.select().from(schema.project).orderBy(sql`created_at DESC`).all();
       return rows.map(toRow);
     },
 
@@ -76,10 +72,7 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
 
       sets.updatedAt = patch.updatedAt;
 
-      d.update(schema.project)
-        .set(sets)
-        .where(eq(schema.project.projectId, projectId))
-        .run();
+      d.update(schema.project).set(sets).where(eq(schema.project.projectId, projectId)).run();
 
       return this.getProject(projectId);
     },

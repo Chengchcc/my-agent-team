@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import type { ThreadProjectionReadPort, ThreadProjectionWritePort } from "./ports.js";
 
@@ -56,8 +56,7 @@ export function sqliteThreadProjectionWriteAdapter(db: Database): ThreadProjecti
         }
 
         const merged = [...existing, ...msgs];
-        d
-          .insert(schema.projectionMessages)
+        d.insert(schema.projectionMessages)
           .values({
             threadId,
             messages: JSON.stringify(merged),

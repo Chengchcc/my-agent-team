@@ -43,9 +43,9 @@ export interface EventSource {
 
 export interface EventLog extends EventSink, EventSource {}
 
-// -- DDL (owned by runEventsDbMigrations; exported for test use) --
+// -- DDL safety-net (canonical DDL is managed by drizzle-kit baseline) --
 
-export const EVENT_LOG_DDL = `
+const DDL_SAFETY_NET = `
 CREATE TABLE IF NOT EXISTS event_log (
   seq        INTEGER PRIMARY KEY AUTOINCREMENT,
   thread_id  TEXT NOT NULL,
@@ -110,10 +110,13 @@ export function sqliteEventLog(opts: { db: SqliteDatabase | string }): EventLog 
   const db = openDatabase(opts.db);
   db.exec("PRAGMA journal_mode=WAL");
   db.exec("PRAGMA busy_timeout=5000");
-  // M17.4: Canonical DDL registration is in runEventsDbMigrations
-  // (events_v11_event_log, id 3010). This is a safety net for standalone
-  // or test usage that doesn't go through the full migration path.
-  db.exec(EVENT_LOG_DDL);
+  // M20: Canonical DDL is managed by drizzle-kit (events_v11_event_log baseline).
+  // Safety-net for standalone/test use (in-memory DBs bypass the main migration path).
+  db.exec(DDL_SAFETY_NET);
+
+  // M20: Kept as raw SQL — the dynamic WHERE builder (buildWhere) with optional
+  // runId/threadId/afterSeq/limit is clearer and more maintainable as a string builder.
+  // drizzle would add session overhead without improving readability here.
 
   const sink: EventSink = {
     async append(threadId: string, runId: string, event: AgentEvent): Promise<number> {

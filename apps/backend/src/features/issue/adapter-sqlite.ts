@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import { and, eq, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import type { IssueRow, IssueStatus } from "./entities.js";
 import type { CreateIssueInput, IssuePort, UpdateIssueInput } from "./ports.js";
@@ -23,18 +23,20 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
 
   return {
     createIssue(input: CreateIssueInput): IssueRow {
-      d.insert(schema.issue).values({
-        issueId: input.issueId,
-        projectId: input.projectId,
-        title: input.title,
-        status: "draft",
-        threadId: input.threadId,
-        description: input.description ?? "",
-        priority: input.priority ?? "P2",
-        estimatedCompletionAt: input.estimatedCompletionAt ?? null,
-        createdAt: input.createdAt,
-        updatedAt: input.createdAt,
-      }).run();
+      d.insert(schema.issue)
+        .values({
+          issueId: input.issueId,
+          projectId: input.projectId,
+          title: input.title,
+          status: "draft",
+          threadId: input.threadId,
+          description: input.description ?? "",
+          priority: input.priority ?? "P2",
+          estimatedCompletionAt: input.estimatedCompletionAt ?? null,
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt,
+        })
+        .run();
       return {
         ...input,
         status: "draft",
@@ -46,11 +48,7 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
     },
 
     getIssue(issueId: string): IssueRow | null {
-      const r = d
-        .select()
-        .from(schema.issue)
-        .where(eq(schema.issue.issueId, issueId))
-        .get();
+      const r = d.select().from(schema.issue).where(eq(schema.issue.issueId, issueId)).get();
       return r ? toRow(r) : null;
     },
 
@@ -71,12 +69,7 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
       const { changes } = d
         .update(schema.issue)
         .set({ status: to, updatedAt })
-        .where(
-          and(
-            eq(schema.issue.issueId, issueId),
-            eq(schema.issue.status, expectFrom),
-          ),
-        )
+        .where(and(eq(schema.issue.issueId, issueId), eq(schema.issue.status, expectFrom)))
         .run();
       return changes > 0;
     },
@@ -97,10 +90,7 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
     },
 
     deleteIssue(issueId: string): boolean {
-      const { changes } = d
-        .delete(schema.issue)
-        .where(eq(schema.issue.issueId, issueId))
-        .run();
+      const { changes } = d.delete(schema.issue).where(eq(schema.issue.issueId, issueId)).run();
       return changes > 0;
     },
   };

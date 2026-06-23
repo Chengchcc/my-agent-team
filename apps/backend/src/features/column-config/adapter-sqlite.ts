@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import { and, eq, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import type { IssueStatus } from "../issue/entities.js";
 import type { ColumnConfigRow } from "./domain.js";
@@ -45,10 +45,7 @@ export function sqliteColumnConfigAdapter(db: Database): ColumnConfigPort {
         .select()
         .from(schema.columnConfig)
         .where(
-          and(
-            eq(schema.columnConfig.projectId, projectId),
-            eq(schema.columnConfig.status, status),
-          ),
+          and(eq(schema.columnConfig.projectId, projectId), eq(schema.columnConfig.status, status)),
         )
         .get();
       return r ? toRow(r) : null;

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import { and, eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import type { DeliverableRow } from "./domain.js";
 import type { DeliverablePort } from "./ports.js";
@@ -48,10 +48,7 @@ export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
           .select()
           .from(schema.deliverable)
           .where(
-            and(
-              eq(schema.deliverable.runId, input.runId),
-              eq(schema.deliverable.kind, input.kind),
-            ),
+            and(eq(schema.deliverable.runId, input.runId), eq(schema.deliverable.kind, input.kind)),
           )
           .get();
         if (existing) return { row: toRow(existing), replay: true };
@@ -86,12 +83,7 @@ export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
       const r = d
         .select()
         .from(schema.deliverable)
-        .where(
-          and(
-            eq(schema.deliverable.runId, runId),
-            eq(schema.deliverable.kind, kind),
-          ),
-        )
+        .where(and(eq(schema.deliverable.runId, runId), eq(schema.deliverable.kind, kind)))
         .get();
       return r ? toRow(r) : null;
     },
