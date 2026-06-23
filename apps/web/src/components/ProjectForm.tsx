@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -80,37 +80,52 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
     }
   }
 
-  async function onSubmit(values: FormValues) {
-    setServerError("");
-    try {
-      if (isEdit) {
-        await api.updateProject(editProject!.projectId, {
-          name: values.name,
-          repoUrl: values.repoUrl || null,
-          defaultBranch: values.defaultBranch || null,
-          autoOrchestrate: values.autoOrchestrate,
-        });
-        toast.success("Project updated");
-        queryClient.invalidateQueries({ queryKey: ["projects"] });
-        setOpen(false);
-        onSuccess?.();
-      } else {
-        await api.createProject({
-          name: values.name,
-          autoOrchestrate: values.autoOrchestrate,
-          ...(values.repoUrl ? { repoUrl: values.repoUrl } : {}),
-          ...(values.defaultBranch ? { defaultBranch: values.defaultBranch } : {}),
-        });
-        toast.success("Project created");
-        queryClient.invalidateQueries({ queryKey: ["projects"] });
-        setOpen(false);
-        onSuccess?.();
-      }
-    } catch (err) {
+  const createMutation = useMutation({
+    mutationFn: (values: FormValues) =>
+      api.createProject({
+        name: values.name,
+        autoOrchestrate: values.autoOrchestrate,
+        ...(values.repoUrl ? { repoUrl: values.repoUrl } : {}),
+        ...(values.defaultBranch ? { defaultBranch: values.defaultBranch } : {}),
+      }),
+    onSuccess: () => {
+      toast.success("Project created");
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setOpen(false);
+      onSuccess?.();
+    },
+    onError: (err) => {
       const msg = err instanceof Error ? err.message : "Failed to save project";
       setServerError(msg);
       toast.error("Failed to save project", { description: msg });
-    }
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (values: FormValues) =>
+      api.updateProject(editProject!.projectId, {
+        name: values.name,
+        repoUrl: values.repoUrl || null,
+        defaultBranch: values.defaultBranch || null,
+        autoOrchestrate: values.autoOrchestrate,
+      }),
+    onSuccess: () => {
+      toast.success("Project updated");
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setOpen(false);
+      onSuccess?.();
+    },
+    onError: (err) => {
+      const msg = err instanceof Error ? err.message : "Failed to save project";
+      setServerError(msg);
+      toast.error("Failed to save project", { description: msg });
+    },
+  });
+
+  function onSubmit(values: FormValues) {
+    setServerError("");
+    if (isEdit) updateMutation.mutate(values);
+    else createMutation.mutate(values);
   }
 
   const hintClass = "text-[10px] text-[var(--mute)]";
@@ -201,8 +216,16 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
 
             {serverError && <p className="text-xs text-destructive">{serverError}</p>}
 
-            <Button type="submit" disabled={form.formState.isSubmitting} className="w-full">
-              {form.formState.isSubmitting ? (
+            <Button
+              type="submit"
+              disabled={
+                form.formState.isSubmitting || createMutation.isPending || updateMutation.isPending
+              }
+              className="w-full"
+            >
+              {form.formState.isSubmitting ||
+              createMutation.isPending ||
+              updateMutation.isPending ? (
                 "Saving..."
               ) : isEdit ? (
                 <span className="inline-flex items-center gap-1">

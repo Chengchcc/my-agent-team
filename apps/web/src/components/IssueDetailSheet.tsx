@@ -1,6 +1,6 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -104,27 +104,48 @@ export function IssueDetailSheet({
   open: boolean;
   onClose: () => void;
 }) {
-  const [timeline, setTimeline] = useState<IssueEvent[]>([]);
-  const [runs, setRuns] = useState<IssueRunSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [deleting, setDeleting] = useState(false);
-  const [transitioning, setTransitioning] = useState(false);
   const [editing, setEditing] = useState(false);
   const queryClient = useQueryClient();
-  const [agentNames, setAgentNames] = useState<Map<string, string>>(new Map());
 
-  // Lazy-load agent names for the Coding Thread badge
+  const { data: agents } = useQuery({
+    queryKey: ["agents"],
+    queryFn: api.listAgents,
+    enabled: open,
+    staleTime: 60_000,
+  });
+  const agentNames = new Map((agents ?? []).map((a) => [a.id, a.name]));
+
+  const { data: detail, isLoading } = useQuery({
+    queryKey: ["issueDetail", issue.issueId],
+    queryFn: () => api.getIssueDetail(issue.issueId),
+    enabled: open,
+  });
+  const timeline = detail?.timeline ?? [];
+  const runs = detail?.runs ?? [];
+
+  // SSE timeline updates
+  const [_timelineEvents, setTimelineEvents] = useState<IssueEvent[]>([]);
   useEffect(() => {
     if (!open) return;
-    api
-      .listAgents()
-      .then((agents) => {
-        const m = new Map<string, string>();
-        for (const a of agents) m.set(a.id, a.name);
-        setAgentNames(m);
-      })
-      .catch(() => {});
-  }, [open]);
+    const es = new EventSource(`/api/bff/issues/${issue.issueId}/timeline/events`);
+    es.addEventListener("issue-event", (e) => {
+      let event: IssueEvent;
+      try {
+        event = JSON.parse(e.data) as IssueEvent;
+      } catch {
+        return;
+      }
+      setTimelineEvents((prev) =>
+        prev.some((x) => x.seq === event.seq) ? prev : [...prev, event],
+      );
+    });
+    es.onerror = () => {};
+    return () => es.close();
+  }, [issue.issueId, open]);
+  const allTimeline = [
+    ...timeline,
+    ..._timelineEvents.filter((e) => !timeline.some((x) => x.seq === e.seq)),
+  ];
 
   const editForm = useForm({
     defaultValues: {
@@ -135,89 +156,42 @@ export function IssueDetailSheet({
     },
   });
 
-  async function handleSave(formData: {
-    title: string;
-    description: string;
-    priority: typeof issue.priority;
-    estimatedCompletionAt: number | null;
-  }) {
-    try {
-      await api.updateIssue(issue.issueId, formData);
-      toast.success("Issue updated");
+  const saveMutation = useMutation({
+    mutationFn: (formData: {
+      title: string;
+      description: string;
+      priority: typeof issue.priority;
+      estimatedCompletionAt: number | null;
+    }) => api.updateIssue(issue.issueId, formData),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
+      toast.success("Issue updated");
       setEditing(false);
       onClose();
-    } catch (err) {
-      toast.error("Failed to save", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    }
-  }
+    },
+    onError: (err: Error) => toast.error("Failed to save", { description: err.message }),
+  });
 
-  useEffect(() => {
-    if (!open) return;
-    setLoading(true);
-    let es: EventSource | null = null;
-    let cancelled = false;
-
-    api.getIssueDetail(issue.issueId).then((data) => {
-      if (cancelled) return;
-      setTimeline(data.timeline);
-      setRuns(data.runs);
-      setLoading(false);
-
-      es = new EventSource(`/api/bff/issues/${issue.issueId}/timeline/events`);
-      es.addEventListener("issue-event", (e) => {
-        let event: IssueEvent;
-        try {
-          event = JSON.parse(e.data) as IssueEvent;
-        } catch {
-          return;
-        }
-        setTimeline((prev) => (prev.some((x) => x.seq === event.seq) ? prev : [...prev, event]));
-      });
-      es.onerror = () => {};
-    });
-
-    return () => {
-      cancelled = true;
-      es?.close();
-    };
-  }, [issue.issueId, open]);
-
-  const legalNext = FORWARD_TRANSITIONS[issue.status] ?? [];
-
-  async function handleTransition(to: IssueStatus) {
-    setTransitioning(true);
-    try {
-      await api.applyTransition(issue.issueId, to);
+  const transitionMutation = useMutation({
+    mutationFn: (to: IssueStatus) => api.applyTransition(issue.issueId, to),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       onClose();
-    } catch (err) {
-      toast.error("Failed to transition", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    } finally {
-      setTransitioning(false);
-    }
-  }
+    },
+    onError: (err: Error) => toast.error("Failed to transition", { description: err.message }),
+  });
 
-  async function handleDelete() {
-    if (!confirm("确定删除此 Issue？")) return;
-    setDeleting(true);
-    try {
-      await api.deleteIssue(issue.issueId);
+  const deleteMutation = useMutation({
+    mutationFn: () => api.deleteIssue(issue.issueId),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["issues"] });
       toast.success("Issue deleted");
       onClose();
-    } catch (err) {
-      toast.error("Failed to delete", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    } finally {
-      setDeleting(false);
-    }
-  }
+    },
+    onError: (err: Error) => toast.error("Failed to delete", { description: err.message }),
+  });
+
+  const legalNext = FORWARD_TRANSITIONS[issue.status] ?? [];
 
   const succeeded = runs.filter((r) => r.status === "succeeded").length;
   const failed = runs.filter((r) => r.status === "failed").length;
@@ -242,7 +216,7 @@ export function IssueDetailSheet({
                 size="sm"
                 variant="outline"
                 className="text-xs h-7"
-                disabled={transitioning}
+                disabled={transitionMutation.isPending}
                 onClick={() => {
                   editForm.reset({
                     title: issue.title,
@@ -259,8 +233,8 @@ export function IssueDetailSheet({
                 size="sm"
                 variant="destructive"
                 className="text-xs h-7"
-                disabled={deleting}
-                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+                onClick={deleteMutation.mutate}
               >
                 删除
               </Button>
@@ -272,7 +246,7 @@ export function IssueDetailSheet({
         {editing && (
           <Form {...editForm}>
             <form
-              onSubmit={editForm.handleSubmit(handleSave)}
+              onSubmit={editForm.handleSubmit(saveMutation.mutate)}
               className="space-y-3 mb-4 p-3 border rounded"
             >
               <FormField
@@ -394,8 +368,8 @@ export function IssueDetailSheet({
                 size="sm"
                 variant="outline"
                 className="text-xs"
-                disabled={transitioning}
-                onClick={() => handleTransition(toStatus)}
+                disabled={transitionMutation.isPending}
+                onClick={() => transitionMutation.mutate(toStatus)}
               >
                 移动到 {COLUMN_LABEL[toStatus] ?? toStatus}
               </Button>
@@ -438,12 +412,12 @@ export function IssueDetailSheet({
         {/* Timeline */}
         <div>
           <h3 className="text-sm font-medium mb-1">Timeline</h3>
-          {loading ? (
+          {isLoading ? (
             <div className="text-xs text-muted-foreground">Loading...</div>
-          ) : timeline.length === 0 ? (
+          ) : allTimeline.length === 0 ? (
             <div className="text-xs text-muted-foreground">No events yet</div>
           ) : (
-            timeline.map((e) => <TimelineEntry key={e.seq} event={e} />)
+            allTimeline.map((e) => <TimelineEntry key={e.seq} event={e} />)
           )}
         </div>
       </SheetContent>

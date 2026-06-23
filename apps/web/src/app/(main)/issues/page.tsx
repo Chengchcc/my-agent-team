@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -107,23 +107,24 @@ export default function IssuesPage() {
     }
   }
 
-  async function onSubmit(values: FormValues) {
-    setServerError("");
-    try {
-      await api.createIssue({
+  const createMutation = useMutation({
+    mutationFn: (values: FormValues) =>
+      api.createIssue({
         projectId: values.projectId,
         title: values.title,
         ...(values.description ? { description: values.description } : {}),
         priority: values.priority,
         estimatedCompletionAt: values.estimatedCompletionAt,
-      });
-      await queryClient.invalidateQueries({ queryKey: ["issues"] });
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
       form.reset();
       setOpen(false);
-    } catch (err) {
+    },
+    onError: (err) => {
       setServerError(err instanceof Error ? err.message : "Failed to create issue");
-    }
-  }
+    },
+  });
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -145,7 +146,7 @@ export default function IssuesPage() {
             </DialogHeader>
 
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-2">
+              <form onSubmit={form.handleSubmit(createMutation.mutate)} className="space-y-4 mt-2">
                 {projects.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     No projects yet —{" "}
@@ -263,11 +264,15 @@ export default function IssuesPage() {
 
                 <Button
                   type="submit"
-                  disabled={form.formState.isSubmitting || !form.watch("projectId")}
+                  disabled={
+                    form.formState.isSubmitting ||
+                    createMutation.isPending ||
+                    !form.watch("projectId")
+                  }
                   size="sm"
                   className="w-full"
                 >
-                  {form.formState.isSubmitting ? "Creating..." : "Create Issue"}
+                  {createMutation.isPending ? "Creating..." : "Create Issue"}
                 </Button>
               </form>
             </Form>
