@@ -107,9 +107,7 @@
       "indexes": {
         "uq_inbound_lark_message_id": {
           "name": "uq_inbound_lark_message_id",
-          "columns": [
-            "lark_message_id"
-          ],
+          "columns": ["lark_message_id"],
           "isUnique": true
         }
       },
@@ -147,10 +145,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "member_binding_lark_chat_id_lark_open_id_pk": {
-          "columns": [
-            "lark_chat_id",
-            "lark_open_id"
-          ],
+          "columns": ["lark_chat_id", "lark_open_id"],
           "name": "member_binding_lark_chat_id_lark_open_id_pk"
         }
       },
@@ -209,11 +204,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "message_delivery_conversation_id_message_id_lark_chat_id_pk": {
-          "columns": [
-            "conversation_id",
-            "message_id",
-            "lark_chat_id"
-          ],
+          "columns": ["conversation_id", "message_id", "lark_chat_id"],
           "name": "message_delivery_conversation_id_message_id_lark_chat_id_pk"
         }
       },

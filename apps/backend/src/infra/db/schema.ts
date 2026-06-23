@@ -1,5 +1,12 @@
 import { sql } from "drizzle-orm";
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 // ─── agents ────────────────────────────────────────────────────────
 export const agents = sqliteTable(
@@ -72,9 +79,7 @@ export const conversationLedger = sqliteTable(
   },
   (table) => [
     index("idx_ledger_conv").on(table.conversationId, table.seq),
-    index("idx_ledger_run")
-      .on(table.runId)
-      .where(sql`run_id IS NOT NULL`),
+    index("idx_ledger_run").on(table.runId).where(sql`run_id IS NOT NULL`),
   ],
 );
 

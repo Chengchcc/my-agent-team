@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "5943e192-9722-4218-bc4e-00cb449ae686",
+  "id": "fc997934-e57c-4aea-879e-252ea5d549ee",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "attempt": {
@@ -271,7 +271,7 @@
           "name": "idx_run_thread",
           "columns": [
             "thread_id",
-            "started_at"
+            "\"started_at\" desc"
           ],
           "isUnique": false
         }
@@ -356,7 +356,7 @@
           "name": "idx_run_ops_event_kind",
           "columns": [
             "kind",
-            "ts"
+            "\"ts\" desc"
           ],
           "isUnique": false
         }
@@ -639,6 +639,21 @@
     "columns": {}
   },
   "internal": {
-    "indexes": {}
+    "indexes": {
+      "idx_run_thread": {
+        "columns": {
+          "\"started_at\" desc": {
+            "isExpression": true
+          }
+        }
+      },
+      "idx_run_ops_event_kind": {
+        "columns": {
+          "\"ts\" desc": {
+            "isExpression": true
+          }
+        }
+      }
+    }
   }
 }

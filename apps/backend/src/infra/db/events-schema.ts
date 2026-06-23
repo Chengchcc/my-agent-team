@@ -1,4 +1,12 @@
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { desc } from "drizzle-orm";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 // ─── run (events.db) ───────────────────────────────────────────────
 export const run = sqliteTable(
@@ -14,7 +22,7 @@ export const run = sqliteTable(
     startedAt: integer({ mode: "number" }).notNull(),
     endedAt: integer({ mode: "number" }),
   },
-  (table) => [index("idx_run_thread").on(table.threadId, table.startedAt)],
+  (table) => [index("idx_run_thread").on(table.threadId, desc(table.startedAt))],
 );
 
 // ─── attempt ───────────────────────────────────────────────────────
@@ -48,7 +56,7 @@ export const runOpsEvent = sqliteTable(
   (table) => [
     index("idx_run_ops_event_run").on(table.runId, table.seq),
     index("idx_run_ops_event_trace").on(table.traceId, table.seq),
-    index("idx_run_ops_event_kind").on(table.kind, table.ts),
+    index("idx_run_ops_event_kind").on(table.kind, desc(table.ts)),
   ],
 );
 

@@ -62,9 +62,7 @@ export const messageDelivery = sqliteTable(
     lastSeq: integer().notNull().default(0),
     updatedAt: integer({ mode: "number" }).notNull(),
   },
-  (table) => [
-    primaryKey({ columns: [table.conversationId, table.messageId, table.larkChatId] }),
-  ],
+  (table) => [primaryKey({ columns: [table.conversationId, table.messageId, table.larkChatId] })],
 );
 
 // drizzle-zod generated schemas for insert/update validation

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { and, eq, gt, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/events-schema.js";
 import type {
@@ -236,7 +236,7 @@ export class RuntimeOpsStore {
     return this.#d
       .select()
       .from(schema.runOrigin)
-      .orderBy(schema.runOrigin.createdAt)
+      .orderBy(desc(schema.runOrigin.createdAt))
       .all()
       .map(toRunOriginRow);
   }

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { z } from "zod";
 import * as schema from "../../infra/db/schema.js";
@@ -78,7 +78,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         .select()
         .from(schema.conversation)
         .where(eq(schema.conversation.origin, "user"))
-        .orderBy(schema.conversation.createdAt)
+        .orderBy(desc(schema.conversation.createdAt))
         .all();
       // N+1: members fetched per conversation — kept as-is for behavior equivalence.
       // Performance optimization (join/batch) deferred to a separate PR.

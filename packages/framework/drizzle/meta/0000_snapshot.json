@@ -39,10 +39,7 @@
       "indexes": {
         "idx_checkpoint_events_thread": {
           "name": "idx_checkpoint_events_thread",
-          "columns": [
-            "thread_id",
-            "id"
-          ],
+          "columns": ["thread_id", "id"],
           "isUnique": false
         }
       },

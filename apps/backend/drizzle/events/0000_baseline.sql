@@ -40,7 +40,7 @@ CREATE TABLE `run` (
 	`ended_at` integer
 );
 --> statement-breakpoint
-CREATE INDEX `idx_run_thread` ON `run` (`thread_id`,`started_at`);--> statement-breakpoint
+CREATE INDEX `idx_run_thread` ON `run` (`thread_id`,"started_at" desc);--> statement-breakpoint
 CREATE TABLE `run_ops_event` (
 	`seq` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`run_id` text NOT NULL,
@@ -53,7 +53,7 @@ CREATE TABLE `run_ops_event` (
 --> statement-breakpoint
 CREATE INDEX `idx_run_ops_event_run` ON `run_ops_event` (`run_id`,`seq`);--> statement-breakpoint
 CREATE INDEX `idx_run_ops_event_trace` ON `run_ops_event` (`trace_id`,`seq`);--> statement-breakpoint
-CREATE INDEX `idx_run_ops_event_kind` ON `run_ops_event` (`kind`,`ts`);--> statement-breakpoint
+CREATE INDEX `idx_run_ops_event_kind` ON `run_ops_event` (`kind`,"ts" desc);--> statement-breakpoint
 CREATE TABLE `run_origin` (
 	`run_id` text PRIMARY KEY NOT NULL,
 	`conversation_id` text NOT NULL,
