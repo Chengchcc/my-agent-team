@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -19,6 +20,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Textarea } from "@/components/ui/textarea";
 import type { IssueEvent, IssueRow, IssueRunSummary, IssueStatus } from "@/lib/api";
 import { api } from "@/lib/api";
+import { dateInputToEpoch, epochToDateInput } from "@/lib/date-input";
+import { COLUMN_LABEL, FORWARD_TRANSITIONS } from "@/lib/issue-labels";
 import { IssueStatusBadge } from "./IssueStatusBadge";
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -26,23 +29,6 @@ const PRIORITY_COLORS: Record<string, string> = {
   P1: "bg-orange-500 text-white hover:bg-orange-600",
   P2: "bg-blue-500 text-white hover:bg-blue-600",
   P3: "bg-muted text-muted-foreground hover:bg-muted/80",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: "草稿",
-  planned: "计划中",
-  in_progress: "开发中",
-  in_review: "待 Review",
-  done: "已完成",
-};
-
-// Legal transitions — mirrors backend LEGAL_TRANSITIONS
-const LEGAL_TRANSITIONS: Record<string, IssueStatus[]> = {
-  draft: ["planned"],
-  planned: ["in_progress"],
-  in_progress: ["in_review"],
-  in_review: ["done"], // rework must go through Approve/Reject, not this button
-  done: [],
 };
 
 function formatRelativeTime(ts: number): string {
@@ -124,6 +110,7 @@ export function IssueDetailSheet({
   const [deleting, setDeleting] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
   const [editing, setEditing] = useState(false);
+  const queryClient = useQueryClient();
 
   const editForm = useForm({
     defaultValues: {
@@ -143,6 +130,7 @@ export function IssueDetailSheet({
     try {
       await api.updateIssue(issue.issueId, formData);
       toast.success("Issue updated");
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
       setEditing(false);
       onClose();
     } catch (err) {
@@ -183,12 +171,13 @@ export function IssueDetailSheet({
     };
   }, [issue.issueId, open]);
 
-  const legalNext = LEGAL_TRANSITIONS[issue.status] ?? [];
+  const legalNext = FORWARD_TRANSITIONS[issue.status] ?? [];
 
   async function handleTransition(to: IssueStatus) {
     setTransitioning(true);
     try {
       await api.applyTransition(issue.issueId, to);
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
       onClose();
     } catch (err) {
       toast.error("Failed to transition", {
@@ -204,6 +193,7 @@ export function IssueDetailSheet({
     setDeleting(true);
     try {
       await api.deleteIssue(issue.issueId);
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
       toast.success("Issue deleted");
       onClose();
     } catch (err) {
@@ -322,16 +312,13 @@ export function IssueDetailSheet({
                 name="estimatedCompletionAt"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Estimated Completion</FormLabel>
+                    <FormLabel className="text-xs">预计完成</FormLabel>
                     <FormControl>
                       <Input
                         className="h-7 text-xs"
                         type="date"
-                        value={field.value ? new Date(field.value).toISOString().slice(0, 10) : ""}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          field.onChange(v ? new Date(v).getTime() : null);
-                        }}
+                        value={epochToDateInput(field.value)}
+                        onChange={(e) => field.onChange(dateInputToEpoch(e.target.value))}
                       />
                     </FormControl>
                   </FormItem>
@@ -396,7 +383,7 @@ export function IssueDetailSheet({
                 disabled={transitioning}
                 onClick={() => handleTransition(toStatus)}
               >
-                移动到 {STATUS_LABELS[toStatus] ?? toStatus}
+                移动到 {COLUMN_LABEL[toStatus] ?? toStatus}
               </Button>
             ))}
           </div>
@@ -412,9 +399,13 @@ export function IssueDetailSheet({
             <div className="text-sm font-medium">{issue.title}</div>
             <div className="flex items-center gap-2 mt-1">
               <Badge variant="outline" className="text-xs">
-                CLAUDE_CODE
+                {runs[0]?.agentId && (
+                  <Badge variant="outline" className="text-xs">
+                    {runs[0].agentId}
+                  </Badge>
+                )}
               </Badge>
-              <span className="text-xs text-muted-foreground">Thread: {issue.issueId}</span>
+              <span className="text-xs text-muted-foreground">Conversation: {issue.issueId}</span>
             </div>
             <div className="text-xs text-blue-600 mt-1">查看 Coding &rarr;</div>
           </Link>

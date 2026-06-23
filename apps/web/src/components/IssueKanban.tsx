@@ -94,8 +94,11 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
   );
 
-  // M19: hide draft column — only show board statuses (planned+)
-  const boardStatuses = statuses.filter((s) => s !== "draft");
+  // M19: hide the draft column by default — the board only shows planned+.
+  // Fix (Problem 3): but if draft issues actually exist, surface a proper
+  // "草稿" column instead of dumping them into the generic "Other" bucket.
+  const hasDraft = issues.some((i) => i.status === "draft");
+  const boardStatuses = statuses.filter((s) => s !== "draft" || hasDraft);
 
   // Fix 6: use boardStatuses for empty check — avoids blank kanban when only draft exists
   if (boardStatuses.length === 0) {

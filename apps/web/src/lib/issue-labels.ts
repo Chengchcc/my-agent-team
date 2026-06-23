@@ -34,3 +34,24 @@ export function configurableStatuses(): IssueStatus[] {
   }
   return out; // → ["planned", "in_progress"]
 }
+
+/**
+ * Forward-only legal transitions, keyed by from-status. Derived from ORDER
+ * (consecutive from→to pairs) so it can never drift from the backend status
+ * order — ORDER parity is enforced by issue-labels.parity.test.ts.
+ *
+ * Backward/rework edges (e.g. in_review→in_progress) are deliberately excluded:
+ * rework is driven by the Approve/Reject review-decision flow, not a plain
+ * "advance" button. This is the single source the IssueDetailSheet uses instead
+ * of hand-maintaining its own LEGAL_TRANSITIONS copy.
+ */
+export const FORWARD_TRANSITIONS: Record<IssueStatus, IssueStatus[]> = (() => {
+  const map = Object.fromEntries(ORDER.map((s) => [s, [] as IssueStatus[]])) as Record<
+    IssueStatus,
+    IssueStatus[]
+  >;
+  for (let i = 0; i < ORDER.length - 1; i++) {
+    map[ORDER[i]!]!.push(ORDER[i + 1]!);
+  }
+  return map;
+})();

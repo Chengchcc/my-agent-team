@@ -37,7 +37,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { dateInputToEpoch, epochToDateInput } from "@/lib/date-input";
 import { fieldClass, labelClass } from "@/lib/form-styles";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +47,9 @@ export const dynamic = "force-dynamic";
 const formSchema = z.object({
   projectId: z.string().trim().min(1, "Project is required"),
   title: z.string().trim().min(1, "Title is required"),
+  description: z.string().trim().optional().default(""),
+  priority: z.enum(["P0", "P1", "P2", "P3"]).default("P2"),
+  estimatedCompletionAt: z.number().nullable().default(null),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -56,7 +61,13 @@ export default function IssuesPage() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { projectId: "", title: "" },
+    defaultValues: {
+      projectId: "",
+      title: "",
+      description: "",
+      priority: "P2" as const,
+      estimatedCompletionAt: null,
+    },
   });
 
   const { data: meta } = useQuery({
@@ -102,6 +113,9 @@ export default function IssuesPage() {
       await api.createIssue({
         projectId: values.projectId,
         title: values.title,
+        ...(values.description ? { description: values.description } : {}),
+        priority: values.priority,
+        estimatedCompletionAt: values.estimatedCompletionAt,
       });
       await queryClient.invalidateQueries({ queryKey: ["issues"] });
       form.reset();
@@ -178,6 +192,67 @@ export default function IssuesPage() {
                       <FormLabel className={labelClass}>Title</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="Issue title" className={fieldClass} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className={labelClass}>Description</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          placeholder="What needs to be done?"
+                          className={`${fieldClass} min-h-[72px]`}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="priority"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className={labelClass}>Priority</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger className={fieldClass}>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="P0">P0</SelectItem>
+                          <SelectItem value="P1">P1</SelectItem>
+                          <SelectItem value="P2">P2</SelectItem>
+                          <SelectItem value="P3">P3</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="estimatedCompletionAt"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className={labelClass}>预计完成</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="date"
+                          className={fieldClass}
+                          value={epochToDateInput(field.value)}
+                          onChange={(e) => field.onChange(dateInputToEpoch(e.target.value))}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

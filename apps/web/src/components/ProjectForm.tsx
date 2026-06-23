@@ -8,6 +8,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +32,7 @@ const formSchema = z.object({
   name: z.string().trim().min(1, "Project name is required"),
   repoUrl: z.string().trim().optional().default(""),
   defaultBranch: z.string().trim().optional().default(""),
+  autoOrchestrate: z.boolean().default(false),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -52,6 +54,7 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
       name: editProject?.name ?? "",
       repoUrl: editProject?.repoUrl ?? "",
       defaultBranch: editProject?.defaultBranch ?? "",
+      autoOrchestrate: editProject?.autoOrchestrate ?? false,
     },
   });
 
@@ -62,6 +65,7 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
         name: editProject.name,
         repoUrl: editProject.repoUrl ?? "",
         defaultBranch: editProject.defaultBranch ?? "",
+        autoOrchestrate: editProject.autoOrchestrate ?? false,
       });
       setServerError("");
       setOpen(true);
@@ -84,6 +88,7 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
           name: values.name,
           repoUrl: values.repoUrl || null,
           defaultBranch: values.defaultBranch || null,
+          autoOrchestrate: values.autoOrchestrate,
         });
         toast.success("Project updated");
         queryClient.invalidateQueries({ queryKey: ["projects"] });
@@ -92,6 +97,7 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
       } else {
         await api.createProject({
           name: values.name,
+          autoOrchestrate: values.autoOrchestrate,
           ...(values.repoUrl ? { repoUrl: values.repoUrl } : {}),
           ...(values.defaultBranch ? { defaultBranch: values.defaultBranch } : {}),
         });
@@ -169,6 +175,25 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
                   <FormControl>
                     <Input {...field} placeholder="main" className={fieldClass} />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="autoOrchestrate"
+              render={({ field }) => (
+                <FormItem>
+                  <div className="flex items-center gap-2">
+                    <FormControl>
+                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                    <FormLabel className={labelClass}>自动推进开关</FormLabel>
+                  </div>
+                  <p className={hintClass}>
+                    开启后，Issue 交付完成会按列配置自动推进到下一状态；关闭则每步都需人工推进
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}
