@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { unlinkSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import type { AgentRow } from "../agent/domain.js";
@@ -220,6 +221,10 @@ describe("Orchestrator reactor", () => {
   let eventsDb: Database;
 
   beforeAll(() => {
+    // M20: Drizzle-kit migrations require fresh databases (no backward compat).
+    // Clean up stale databases from pre-M20 test runs.
+    try { unlinkSync("/tmp/test-orchestrator-issue.db"); } catch { /* doesn't exist */ }
+    try { unlinkSync("/tmp/test-orchestrator-events.db"); } catch { /* doesn't exist */ }
     issueDb = openDb("/tmp/test-orchestrator-issue.db");
     eventsDb = new Database("/tmp/test-orchestrator-events.db");
     eventsDb.exec("PRAGMA journal_mode=WAL");

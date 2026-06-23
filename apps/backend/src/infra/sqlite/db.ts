@@ -1,37 +1,26 @@
 import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { ALL_MIGRATIONS } from "./migrations.js";
+import * as schema from "../db/schema.js";
 
 export function openDb(dbPath: string): Database {
   // Ensure parent directory exists (SQLite doesn't create it)
   const dir = path.dirname(dbPath);
   mkdirSync(dir, { recursive: true });
 
-  const db = new Database(dbPath);
+  const sqlite = new Database(dbPath);
 
-  db.exec("PRAGMA journal_mode = WAL");
-  db.exec("PRAGMA synchronous = NORMAL");
+  sqlite.exec("PRAGMA journal_mode = WAL");
+  sqlite.exec("PRAGMA synchronous = NORMAL");
 
-  // Create migration tracking table (idempotent)
-  db.exec(
-    "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, id INTEGER NOT NULL, ran_at INTEGER NOT NULL)",
-  );
+  // Run drizzle-kit migrations (replaces hand-rolled ALL_MIGRATIONS + _migrations ledger).
+  // The schema is used only for the drizzle instance type; migrate() reads SQL files
+  // from the migrations folder and tracks applied migrations in __drizzle_migrations__.
+  const db = drizzle(sqlite, { schema });
+  const migrationsFolder = path.resolve(import.meta.dirname, "../../../drizzle/backend");
+  migrate(db, { migrationsFolder });
 
-  const ran = new Set(
-    (db.query("SELECT name FROM _migrations").all() as { name: string }[]).map((r) => r.name),
-  );
-
-  const ordered = [...ALL_MIGRATIONS].sort((a, b) => a.id - b.id);
-  for (const m of ordered) {
-    if (ran.has(m.name)) continue;
-    db.exec(m.up);
-    db.run("INSERT INTO _migrations (name, id, ran_at) VALUES (?, ?, ?)", [
-      m.name,
-      m.id,
-      Date.now(),
-    ]);
-  }
-
-  return db;
+  return sqlite;
 }

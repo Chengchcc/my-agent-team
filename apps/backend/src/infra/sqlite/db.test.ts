@@ -1,13 +1,14 @@
 import { expect, test } from "bun:test";
+import { unlinkSync } from "node:fs";
 import { openDb } from "./db.js";
 
-// ─── Test 1: openDb creates file and runs migrations ────────────
+// ─── Test 1: openDb creates file and runs drizzle-kit migrations ───
 
-test("openDb creates database file and runs migrations", () => {
+test("openDb creates database file and runs drizzle-kit migrations", () => {
   const tmpPath = `/tmp/test-backend-db-${Date.now()}.db`;
   const db = openDb(tmpPath);
 
-  // Verify tables exist (backend own)
+  // Verify tables exist (backend own, 9 domain tables)
   const tables = db
     .query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     .all() as { name: string }[];
@@ -17,12 +18,14 @@ test("openDb creates database file and runs migrations", () => {
   expect(names).not.toContain("threads");
   expect(names).not.toContain("run");
   expect(names).not.toContain("attempt");
-  // M17.4: projection_messages replaces checkpoint_messages after migration
+  // M17.4: projection_messages replaces checkpoint_messages
   expect(names).toContain("projection_messages");
-  expect(names).not.toContain("checkpoint_messages"); // Dropped by v22 migration
-  // Checkpointer tables (from SQLITE_CHECKPOINTER_MIGRATIONS) still created then dropped
-  expect(names).toContain("checkpoint_interrupts");
-  expect(names).toContain("checkpoint_events");
+  // M20: checkpoint_* tables are in checkpointer.sqlite, NOT backend.db
+  expect(names).not.toContain("checkpoint_messages");
+  expect(names).not.toContain("checkpoint_interrupts");
+  expect(names).not.toContain("checkpoint_events");
+  // drizzle-kit migration ledger (replaces old _migrations)
+  expect(names).toContain("__drizzle_migrations");
 
   db.close();
   try {
@@ -63,21 +66,16 @@ test("migrations are idempotent (calling openDb twice is safe)", () => {
   }
 });
 
-// ─── Test 3: _migrations table tracks applied migrations ────────
+// ─── Test 3: drizzle migration ledger is populated ──────────────
 
-test("_migrations table tracks applied migrations by name", () => {
+test("__drizzle_migrations table tracks applied migrations", () => {
   const tmpPath = `/tmp/test-backend-db-ver-${Date.now()}.db`;
   const db = openDb(tmpPath);
 
-  const rows = db.query("SELECT name, id FROM _migrations ORDER BY id").all() as {
-    name: string;
-    id: number;
+  const rows = db.query("SELECT hash FROM __drizzle_migrations").all() as {
+    hash: string;
   }[];
   expect(rows.length).toBeGreaterThan(0);
-  expect(rows.some((r) => r.name === "backend_v1_agents")).toBe(true);
-  expect(rows.some((r) => r.name === "checkpointer_v1_messages")).toBe(true);
-  // M17.4: projection_messages migration runs after checkpointer tables are created
-  expect(rows.some((r) => r.name === "backend_v22_projection_messages")).toBe(true);
 
   db.close();
   try {
@@ -105,7 +103,6 @@ test("WAL journal mode is enabled", () => {
 });
 
 // ─── Test 5: M10 conversation tables exist ─────────────────────
-import { unlinkSync } from "node:fs";
 
 test("M10 conversation/member/conversation_ledger tables exist after migration", () => {
   const tmpPath = `/tmp/test-backend-db-m10-${Date.now()}.db`;

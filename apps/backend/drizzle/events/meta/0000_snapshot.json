@@ -53,10 +53,7 @@
       "indexes": {
         "idx_attempt_run": {
           "name": "idx_attempt_run",
-          "columns": [
-            "run_id",
-            "started_at"
-          ],
+          "columns": ["run_id", "started_at"],
           "isUnique": false
         }
       },
@@ -65,12 +62,8 @@
           "name": "attempt_run_id_run_run_id_fk",
           "tableFrom": "attempt",
           "tableTo": "run",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "run_id"
-          ],
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["run_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -121,18 +114,12 @@
       "indexes": {
         "idx_event_log_run": {
           "name": "idx_event_log_run",
-          "columns": [
-            "run_id",
-            "seq"
-          ],
+          "columns": ["run_id", "seq"],
           "isUnique": false
         },
         "idx_event_log_thread": {
           "name": "idx_event_log_thread",
-          "columns": [
-            "thread_id",
-            "seq"
-          ],
+          "columns": ["thread_id", "seq"],
           "isUnique": false
         }
       },
@@ -184,10 +171,7 @@
       "indexes": {
         "idx_issue_event_issue": {
           "name": "idx_issue_event_issue",
-          "columns": [
-            "issue_id",
-            "seq"
-          ],
+          "columns": ["issue_id", "seq"],
           "isUnique": false
         }
       },
@@ -269,10 +253,7 @@
       "indexes": {
         "idx_run_thread": {
           "name": "idx_run_thread",
-          "columns": [
-            "thread_id",
-            "started_at"
-          ],
+          "columns": ["thread_id", "started_at"],
           "isUnique": false
         }
       },
@@ -338,26 +319,17 @@
       "indexes": {
         "idx_run_ops_event_run": {
           "name": "idx_run_ops_event_run",
-          "columns": [
-            "run_id",
-            "seq"
-          ],
+          "columns": ["run_id", "seq"],
           "isUnique": false
         },
         "idx_run_ops_event_trace": {
           "name": "idx_run_ops_event_trace",
-          "columns": [
-            "trace_id",
-            "seq"
-          ],
+          "columns": ["trace_id", "seq"],
           "isUnique": false
         },
         "idx_run_ops_event_kind": {
           "name": "idx_run_ops_event_kind",
-          "columns": [
-            "kind",
-            "ts"
-          ],
+          "columns": ["kind", "ts"],
           "isUnique": false
         }
       },
@@ -460,23 +432,17 @@
       "indexes": {
         "idx_run_origin_idem": {
           "name": "idx_run_origin_idem",
-          "columns": [
-            "idempotency_key"
-          ],
+          "columns": ["idempotency_key"],
           "isUnique": true
         },
         "idx_run_origin_trace": {
           "name": "idx_run_origin_trace",
-          "columns": [
-            "trace_id"
-          ],
+          "columns": ["trace_id"],
           "isUnique": false
         },
         "idx_run_origin_issue": {
           "name": "idx_run_origin_issue",
-          "columns": [
-            "issue_id"
-          ],
+          "columns": ["issue_id"],
           "isUnique": false
         }
       },
@@ -620,10 +586,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "surface_health_agent_id_surface_pk": {
-          "columns": [
-            "agent_id",
-            "surface"
-          ],
+          "columns": ["agent_id", "surface"],
           "name": "surface_health_agent_id_surface_pk"
         }
       },

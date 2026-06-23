@@ -33,7 +33,7 @@ export function createConversationFeature(
   _config: BackendConfig,
   supervisor: RunSupervisor,
   agentSvc: AgentService,
-  opsStore: RuntimeOpsStore,
+  _opsStore: RuntimeOpsStore,
   tracer: RuntimeTracer,
   dispatcher: RunDispatcher,
 ): ConversationFeature {
