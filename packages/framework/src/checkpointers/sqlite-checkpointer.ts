@@ -1,10 +1,10 @@
 import { Database } from "bun:sqlite";
+import path from "node:path";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { eq } from "drizzle-orm";
-import path from "node:path";
-import * as schema from "./schema.js";
 import type { CheckpointEvent, Checkpointer, InterruptState } from "../checkpointer.js";
+import * as schema from "./schema.js";
 
 export interface SqliteCheckpointerOptions {
   db: Database | string;
@@ -76,8 +76,7 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): Checkpointe
           .where(eq(schema.checkpointInterrupts.threadId, threadId))
           .get();
         if (!row) return null;
-        tx
-          .delete(schema.checkpointInterrupts)
+        tx.delete(schema.checkpointInterrupts)
           .where(eq(schema.checkpointInterrupts.threadId, threadId))
           .run();
         try {
@@ -92,9 +91,7 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): Checkpointe
     async appendEvent(threadId: string, event: CheckpointEvent): Promise<void> {
       const json = JSON.stringify(event);
       const ts = "ts" in event ? (event as { ts: number }).ts : Date.now();
-      d.insert(schema.checkpointEvents)
-        .values({ threadId, event: json, ts })
-        .run();
+      d.insert(schema.checkpointEvents).values({ threadId, event: json, ts }).run();
     },
 
     async *readEvents(threadId: string): AsyncIterable<CheckpointEvent> {

@@ -57,13 +57,15 @@ export const runStream = sqliteTable("run_stream", {
 });
 
 // ─── message_delivery ──────────────────────────────────────────────
-export const messageDelivery = sqliteTable("message_delivery", {
-  conversationId: text("conversation_id").notNull(),
-  messageId: text("message_id").notNull(),
-  larkChatId: text("lark_chat_id").notNull(),
-  lastState: text("last_state").notNull().default("streaming"),
-  lastSeq: integer("last_seq").notNull().default(0),
-  updatedAt: integer("updated_at", { mode: "number" }).notNull(),
-}, (table) => [
-  primaryKey({ columns: [table.conversationId, table.messageId, table.larkChatId] }),
-]);
+export const messageDelivery = sqliteTable(
+  "message_delivery",
+  {
+    conversationId: text("conversation_id").notNull(),
+    messageId: text("message_id").notNull(),
+    larkChatId: text("lark_chat_id").notNull(),
+    lastState: text("last_state").notNull().default("streaming"),
+    lastSeq: integer("last_seq").notNull().default(0),
+    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.conversationId, table.messageId, table.larkChatId] })],
+);

@@ -111,11 +111,12 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     deleteConversation(conversationId: string): boolean {
       // M20: Threads table was dropped in M14 (backend_v17_drop_threads_legacy).
       // The old LIKE-prefix DELETE FROM threads is dead code — removed.
-      const result = d
+      const rows = d
         .delete(schema.conversation)
         .where(eq(schema.conversation.conversationId, conversationId))
-        .run();
-      return result.changes > 0;
+        .returning()
+        .all();
+      return rows.length > 0;
     },
 
     listConversationsByAgent(agentId: string): ConversationWithMembers[] {
@@ -164,7 +165,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     // ─── Member ────────────────────────────────────
 
     addMember(input: CreateMemberInput): { member: MemberRow; created: boolean } {
-      const result = d
+      const rows = d
         .insert(schema.member)
         .values({
           memberId: input.memberId,
@@ -176,7 +177,8 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           joinedAt: input.joinedAt,
         })
         .onConflictDoNothing()
-        .run();
+        .returning()
+        .all();
       return {
         member: {
           memberId: input.memberId,
@@ -187,7 +189,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           displayName: input.displayName ?? null,
           joinedAt: input.joinedAt,
         },
-        created: result.changes > 0,
+        created: rows.length > 0,
       };
     },
 
@@ -216,7 +218,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     },
 
     removeMember(conversationId: string, memberId: string): boolean {
-      const result = d
+      const rows = d
         .delete(schema.member)
         .where(
           and(
@@ -224,14 +226,15 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
             eq(schema.member.memberId, memberId),
           ),
         )
-        .run();
-      return result.changes > 0;
+        .returning()
+        .all();
+      return rows.length > 0;
     },
 
     // ─── Ledger ────────────────────────────────────
 
     appendLedgerEntry(input: AppendLedgerInput): number {
-      const result = d
+      const row = d
         .insert(schema.conversationLedger)
         .values({
           conversationId: input.conversationId,
@@ -242,8 +245,9 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           ts: input.ts,
           runId: input.runId ?? null,
         })
-        .run();
-      return Number(result.lastInsertRowid);
+        .returning({ seq: schema.conversationLedger.seq })
+        .get();
+      return row!.seq;
     },
 
     hasLedgerContent(runId: string, content: string): boolean {

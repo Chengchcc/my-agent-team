@@ -1,10 +1,9 @@
 import { Database } from "bun:sqlite";
+import { mkdirSync } from "node:fs";
+import path, { join } from "node:path";
+import { and, eq, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { and, eq, or } from "drizzle-orm";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import path from "node:path";
 import { z } from "zod";
 import * as schema from "./db/schema.js";
 import { safeAgentId } from "./safe-agent-id.js";
@@ -288,11 +287,7 @@ export function insertRunStream(db: Database, rec: RunStreamRecord): void {
 }
 
 export function getRunStream(db: Database, runId: string): RunStreamRecord | null {
-  const row = d(db)
-    .select()
-    .from(schema.runStream)
-    .where(eq(schema.runStream.runId, runId))
-    .get();
+  const row = d(db).select().from(schema.runStream).where(eq(schema.runStream.runId, runId)).get();
   return row ? toRunStreamRecord(row) : null;
 }
 
@@ -318,11 +313,7 @@ export function getRunStreamsByConversation(
 }
 
 export function getAllRunStreams(db: Database): RunStreamRecord[] {
-  return d(db)
-    .select()
-    .from(schema.runStream)
-    .all()
-    .map(toRunStreamRecord);
+  return d(db).select().from(schema.runStream).all().map(toRunStreamRecord);
 }
 
 export function updateRunStream(
@@ -340,14 +331,11 @@ export function updateRunStream(
   if (partial.cardUpdateFailed !== undefined) sets.cardUpdateFailed = partial.cardUpdateFailed;
   if (partial.finalLedgerSeq !== undefined) sets.finalLedgerSeq = partial.finalLedgerSeq;
   if (partial.lastError !== undefined) sets.lastError = partial.lastError;
-  if (partial.completeFromLedger !== undefined) sets.completeFromLedger = partial.completeFromLedger;
+  if (partial.completeFromLedger !== undefined)
+    sets.completeFromLedger = partial.completeFromLedger;
   if (Object.keys(sets).length === 0) return;
   sets.updatedAt = Date.now();
-  d(db)
-    .update(schema.runStream)
-    .set(sets)
-    .where(eq(schema.runStream.runId, runId))
-    .run();
+  d(db).update(schema.runStream).set(sets).where(eq(schema.runStream.runId, runId)).run();
 }
 
 // ─── Rebind chat to a new conversation ─────────────────────────────

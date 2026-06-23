@@ -78,11 +78,12 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
     },
 
     deleteProject(projectId: string): boolean {
-      const { changes } = d
+      const rows = d
         .delete(schema.project)
         .where(eq(schema.project.projectId, projectId))
-        .run();
-      return changes > 0;
+        .returning()
+        .all();
+      return rows.length > 0;
     },
 
     countIssuesByProject(projectId: string): number {

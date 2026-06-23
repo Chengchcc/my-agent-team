@@ -66,12 +66,13 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
       to: IssueStatus,
       updatedAt: number,
     ): boolean {
-      const { changes } = d
+      const rows = d
         .update(schema.issue)
         .set({ status: to, updatedAt })
         .where(and(eq(schema.issue.issueId, issueId), eq(schema.issue.status, expectFrom)))
-        .run();
-      return changes > 0;
+        .returning()
+        .all();
+      return rows.length > 0;
     },
 
     updateIssue(issueId: string, patch: UpdateIssueInput, updatedAt: number): IssueRow | null {
@@ -90,8 +91,8 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
     },
 
     deleteIssue(issueId: string): boolean {
-      const { changes } = d.delete(schema.issue).where(eq(schema.issue.issueId, issueId)).run();
-      return changes > 0;
+      const rows = d.delete(schema.issue).where(eq(schema.issue.issueId, issueId)).returning().all();
+      return rows.length > 0;
     },
   };
 }

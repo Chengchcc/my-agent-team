@@ -66,7 +66,7 @@ describe("inMemoryEventLog", () => {
     setTimeout(() => ac.abort(), 100);
 
     const records = await collect(log.subscribe({ runId: "r1" }, {}, ac.signal));
-    expect(records.length).toBeGreaterThanOrEqual(1); // at least the historical event
+    expect(records.length).toBeGreaterThanOrEqual(1);
     expect(records[0]?.event).toBeDefined();
   });
 
@@ -74,10 +74,8 @@ describe("inMemoryEventLog", () => {
     const log = inMemoryEventLog();
 
     const ac = new AbortController();
-    // Append before subscription starts
     await log.append("t1", "r1", makeEvent("pre"));
 
-    // Append during subscription
     setTimeout(async () => {
       await log.append("t1", "r1", makeEvent("during"));
       setTimeout(() => ac.abort(), 50);
@@ -90,7 +88,9 @@ describe("inMemoryEventLog", () => {
 
 describe("sqliteEventLog", () => {
   test("append and read from real sqlite", async () => {
-    using db = new Database(":memory:");
+    // M20: Manual close instead of `using` — drizzle session's prepared statements
+    // conflict with Bun's Symbol.dispose() which calls db.close() eagerly.
+    const db = new Database(":memory:");
     const log = sqliteEventLog({ db });
     await log.append("t1", "r1", makeEvent("hello"));
 
@@ -100,16 +100,16 @@ describe("sqliteEventLog", () => {
     expect(rows[0]?.runId).toBe("r1");
     expect(typeof rows[0]?.seq).toBe("number");
     expect(typeof rows[0]?.ts).toBe("number");
+    db.close();
   });
 
   test("subscribe replays history then tails", async () => {
-    using db = new Database(":memory:");
+    const db = new Database(":memory:");
     const log = sqliteEventLog({ db });
     await log.append("t1", "r1", makeEvent("first"));
     const afterSeq = await log.append("t1", "r1", makeEvent("second"));
     await log.append("t1", "r1", makeEvent("third"));
 
-    // Simulate new append during subscribe
     setTimeout(async () => {
       await log.append("t1", "r1", makeEvent("fourth"));
     }, 50);
@@ -124,25 +124,28 @@ describe("sqliteEventLog", () => {
     if (records.length > 0) {
       expect(records[0]?.event).toBeDefined();
     }
+    db.close();
   });
 
   test("subscribe ends immediately on aborted signal", async () => {
-    using db = new Database(":memory:");
+    const db = new Database(":memory:");
     const log = sqliteEventLog({ db });
     const ac = new AbortController();
     ac.abort();
 
     const records = await collect(log.subscribe({}, {}, ac.signal));
     expect(records.length).toBe(0);
+    db.close();
   });
 
   test("indices are created", () => {
-    using db = new Database(":memory:");
+    const db = new Database(":memory:");
     sqliteEventLog({ db });
     const indexes = db
       .query("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_event_log_%'")
       .all() as { name: string }[];
     expect(indexes.length).toBeGreaterThanOrEqual(2);
+    db.close();
   });
 
   test("db: string mode works", async () => {
@@ -150,7 +153,6 @@ describe("sqliteEventLog", () => {
     const log = sqliteEventLog({ db: path });
     await log.append("t1", "r1", makeEvent("persisted"));
 
-    // Reopen and verify
     const log2 = sqliteEventLog({ db: path });
     const rows = await log2.read({});
     expect(rows.length).toBe(1);

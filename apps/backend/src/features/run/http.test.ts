@@ -23,6 +23,13 @@ function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
   } as unknown as RunSupervisor;
 }
 
+const noopDispatcher = {
+  dispatch: async (c: Record<string, unknown>) => ({
+    runId: c.runId as string,
+    attemptId: "att-1",
+  }),
+};
+
 function makeMockEventLog(): EventLog {
   const noopSubscribe: EventLog["subscribe"] = () =>
     (async function* () {})() as AsyncIterable<EventRecord>;
@@ -56,12 +63,7 @@ describe("Run HTTP", () => {
       maxConcurrentRuns: 8,
       lock: new ConversationLock(),
       idGen: () => "run-1",
-      dispatcher: {
-        dispatch: async (c: Record<string, unknown>) => ({
-          runId: c.runId as string,
-          attemptId: "att-1",
-        }),
-      },
+      dispatcher: noopDispatcher,
     });
     const routes = runRoutes(svc, async () => ({}));
 
@@ -86,6 +88,7 @@ describe("Run HTTP", () => {
         return l;
       })(),
       idGen: () => "run-1",
+      dispatcher: noopDispatcher,
     });
     const routes = runRoutes(svc, async () => ({}));
 
@@ -103,6 +106,7 @@ describe("Run HTTP", () => {
       maxConcurrentRuns: 8,
       lock: new ConversationLock(),
       idGen: () => "run-1",
+      dispatcher: noopDispatcher,
     });
     const routes = runRoutes(svc, async () => ({}));
 
@@ -120,12 +124,7 @@ describe("Run HTTP", () => {
       maxConcurrentRuns: 8,
       lock: new ConversationLock(),
       idGen: () => "run-1",
-      dispatcher: {
-        dispatch: async (c: Record<string, unknown>) => ({
-          runId: c.runId as string,
-          attemptId: "att-1",
-        }),
-      },
+      dispatcher: noopDispatcher,
     });
     const routes = runRoutes(svc, async () => ({}));
 
@@ -145,6 +144,7 @@ describe("Run HTTP", () => {
       maxConcurrentRuns: 8,
       lock: new ConversationLock(),
       idGen: () => "run-1",
+      dispatcher: noopDispatcher,
     });
     const routes = runRoutes(svc, async () => ({}));
 
@@ -159,6 +159,7 @@ describe("Run HTTP", () => {
       maxConcurrentRuns: 8,
       lock: new ConversationLock(),
       idGen: () => "run-1",
+      dispatcher: noopDispatcher,
     });
     const routes = runRoutes(svc, async () => ({}));
 
@@ -181,6 +182,7 @@ describe("Run HTTP", () => {
       maxConcurrentRuns: 8,
       lock: new ConversationLock(),
       idGen: () => "run-1",
+      dispatcher: noopDispatcher,
     });
     const routes = runRoutes(
       svc,
@@ -215,6 +217,7 @@ describe("Run HTTP", () => {
       maxConcurrentRuns: 8,
       lock: new ConversationLock(),
       idGen: () => "run-1",
+      dispatcher: noopDispatcher,
     });
     const routes = runRoutes(svc, async () => ({}));
 

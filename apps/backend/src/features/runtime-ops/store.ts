@@ -13,19 +13,58 @@ import type {
 } from "./types.js";
 
 function toRunOpsEvent(r: typeof schema.runOpsEvent.$inferSelect): RunOpsEventType {
-  return { ...r, payload: JSON.parse(r.payload) as Record<string, unknown> };
+  return {
+    seq: r.seq,
+    runId: r.runId,
+    attemptId: r.attemptId,
+    kind: r.kind as RunOpsEventType["kind"],
+    payload: JSON.parse(r.payload) as Record<string, unknown>,
+    traceId: r.traceId,
+    ts: r.ts,
+  };
 }
 
 function toRunOriginRow(r: typeof schema.runOrigin.$inferSelect): RunOriginRow {
-  return { ...r };
+  return {
+    runId: r.runId,
+    conversationId: r.conversationId,
+    sourceLedgerSeq: r.sourceLedgerSeq,
+    agentMemberId: r.agentMemberId,
+    surface: r.surface,
+    traceId: r.traceId,
+    traceparent: r.traceparent,
+    idempotencyKey: r.idempotencyKey,
+    issueId: r.issueId,
+    fromStatus: r.fromStatus,
+    originKind: r.originKind as RunOriginRow["originKind"],
+    createdAt: r.createdAt,
+  };
 }
 
 function toRunnerHealthRow(r: typeof schema.runnerHealth.$inferSelect): RunnerHealthRow {
-  return { ...r, activeRunIds: JSON.parse(r.activeRunIds) as string[] };
+  return {
+    agentId: r.agentId,
+    lastSeenAt: r.lastSeenAt,
+    uptimeMs: r.uptimeMs ?? 0,
+    activeRunCount: r.activeRunCount,
+    activeRunIds: r.activeRunIds,
+    checkpointerOk: r.checkpointerOk,
+    workspaceOk: r.workspaceOk,
+    lastError: r.lastError,
+    updatedAt: r.updatedAt,
+  };
 }
 
 function toSurfaceHealthRow(r: typeof schema.surfaceHealth.$inferSelect): SurfaceHealthRow {
-  return { ...r, payload: JSON.parse(r.payload) as Record<string, unknown> };
+  return {
+    agentId: r.agentId,
+    surface: r.surface,
+    status: r.status,
+    lastSeenAt: r.lastSeenAt,
+    payload: r.payload,
+    lastError: r.lastError,
+    updatedAt: r.updatedAt,
+  };
 }
 
 export class RuntimeOpsStore {
@@ -44,7 +83,7 @@ export class RuntimeOpsStore {
     traceId?: string;
     payload?: Record<string, unknown>;
   }): number {
-    const result = this.#d
+    const row = this.#d
       .insert(schema.runOpsEvent)
       .values({
         runId: input.runId,
@@ -54,8 +93,9 @@ export class RuntimeOpsStore {
         traceId: input.traceId ?? null,
         ts: Date.now(),
       })
-      .run();
-    return Number(result.lastInsertRowid);
+      .returning({ seq: schema.runOpsEvent.seq })
+      .get();
+    return row!.seq;
   }
 
   getRunEvents(runId: string): RunOpsEventType[] {
@@ -85,7 +125,7 @@ export class RuntimeOpsStore {
     kind: IssueEventKind;
     payload?: Record<string, unknown>;
   }): number {
-    const result = this.#d
+    const row = this.#d
       .insert(schema.issueEvent)
       .values({
         issueId: input.issueId,
@@ -93,8 +133,9 @@ export class RuntimeOpsStore {
         payload: JSON.stringify(input.payload ?? {}),
         ts: Date.now(),
       })
-      .run();
-    return Number(result.lastInsertRowid);
+      .returning({ seq: schema.issueEvent.seq })
+      .get();
+    return row!.seq;
   }
 
   getIssueEvents(issueId: string, afterSeq = 0): IssueEventType[] {
@@ -297,7 +338,10 @@ export class RuntimeOpsStore {
       .select()
       .from(schema.surfaceHealth)
       .where(
-        and(eq(schema.surfaceHealth.agentId, agentId), eq(schema.surfaceHealth.surface, surface)),
+        and(
+          eq(schema.surfaceHealth.agentId, agentId),
+          eq(schema.surfaceHealth.surface, surface),
+        ),
       )
       .get();
     return row ? toSurfaceHealthRow(row) : undefined;

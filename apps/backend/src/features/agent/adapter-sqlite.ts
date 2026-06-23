@@ -99,24 +99,26 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
       }
       if (input.lark?.profileRef !== undefined) sets.larkProfileRef = input.lark.profileRef;
 
-      const result = d
+      const rows = d
         .update(schema.agents)
         .set(sets)
         .where(and(eq(schema.agents.id, id), isNull(schema.agents.archivedAt)))
-        .run();
+        .returning()
+        .all();
 
-      if (result.changes === 0) return null;
+      if (rows.length === 0) return null;
       const raw = d.select().from(schema.agents).where(eq(schema.agents.id, id)).get();
       return raw ? toRow(raw) : null;
     },
 
     async archive(id: string, now: number): Promise<AgentRow | null> {
-      const result = d
+      const rows = d
         .update(schema.agents)
         .set({ archivedAt: now, updatedAt: now })
         .where(and(eq(schema.agents.id, id), isNull(schema.agents.archivedAt)))
-        .run();
-      if (result.changes === 0) return null;
+        .returning()
+        .all();
+      if (rows.length === 0) return null;
       const raw = d.select().from(schema.agents).where(eq(schema.agents.id, id)).get();
       return raw ? toRow(raw) : null;
     },

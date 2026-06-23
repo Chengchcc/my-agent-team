@@ -1,7 +1,9 @@
-import type { SQLQueryBindings } from "bun:sqlite";
 import { Database as SqliteDatabase } from "bun:sqlite";
+import { and, eq, gt } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
 import { safeParseAgentEvent } from "@my-agent-team/framework";
+import * as schema from "../../infra/db/events-schema.js";
 
 // -- Types --
 
@@ -64,45 +66,20 @@ function openDatabase(db: SqliteDatabase | string): SqliteDatabase {
   return db;
 }
 
-function buildWhere(query: ReadQuery): { clause: string; params: unknown[] } {
-  const conds: string[] = [];
-  const params: unknown[] = [];
-  if (query.runId) {
-    conds.push("run_id = ?");
-    params.push(query.runId);
-  }
-  if (query.threadId) {
-    conds.push("thread_id = ?");
-    params.push(query.threadId);
-  }
-  if (query.afterSeq !== undefined) {
-    conds.push("seq > ?");
-    params.push(query.afterSeq);
-  }
-  const clause = conds.length > 0 ? `WHERE ${conds.join(" AND ")}` : "";
-  return { clause, params };
-}
-
-function mapRow(row: {
-  seq: number;
-  thread_id: string;
-  run_id: string;
-  event: string;
-  ts: number;
-}): EventRecord | null {
-  const result = safeParseAgentEvent(JSON.parse(row.event));
+function toEventRecord(r: typeof schema.eventLog.$inferSelect): EventRecord | null {
+  const result = safeParseAgentEvent(JSON.parse(r.event));
   if (!result.success) {
     console.warn(
-      `[event-log] skipping unparseable event seq=${row.seq}: ${result.error.issues[0]?.message}`,
+      `[event-log] skipping unparseable event seq=${r.seq}: ${result.error.issues[0]?.message}`,
     );
     return null;
   }
   return {
-    seq: row.seq,
-    threadId: row.thread_id,
-    runId: row.run_id,
+    seq: r.seq,
+    threadId: r.threadId,
+    runId: r.runId,
     event: result.data,
-    ts: row.ts,
+    ts: r.ts,
   };
 }
 
@@ -114,40 +91,38 @@ export function sqliteEventLog(opts: { db: SqliteDatabase | string }): EventLog 
   // Safety-net for standalone/test use (in-memory DBs bypass the main migration path).
   db.exec(DDL_SAFETY_NET);
 
-  // M20: Kept as raw SQL — the dynamic WHERE builder (buildWhere) with optional
-  // runId/threadId/afterSeq/limit is clearer and more maintainable as a string builder.
-  // drizzle would add session overhead without improving readability here.
+  const d = drizzle(db, { schema });
 
   const sink: EventSink = {
     async append(threadId: string, runId: string, event: AgentEvent): Promise<number> {
       const ts = Date.now();
       const json = JSON.stringify(event);
-      const result = db.run(
-        "INSERT INTO event_log (thread_id, run_id, event, ts) VALUES (?, ?, ?, ?)",
-        [threadId, runId, json, ts],
-      );
-      return Number(result.lastInsertRowid);
+      const row = d
+        .insert(schema.eventLog)
+        .values({ threadId, runId, event: json, ts })
+        .returning({ seq: schema.eventLog.seq })
+        .get();
+      return row!.seq;
     },
   };
 
   const source: EventSource = {
     async read(query: ReadQuery): Promise<EventRecord[]> {
-      const { clause, params } = buildWhere(query);
-      const limit = query.limit ? `LIMIT ${query.limit}` : "";
-      return (
-        db
-          .query(
-            `SELECT seq, thread_id, run_id, event, ts FROM event_log ${clause} ORDER BY seq ASC ${limit}`,
-          )
-          .all(...(params as SQLQueryBindings[])) as {
-          seq: number;
-          thread_id: string;
-          run_id: string;
-          event: string;
-          ts: number;
-        }[]
-      )
-        .map(mapRow)
+      const conditions = [];
+      if (query.runId) conditions.push(eq(schema.eventLog.runId, query.runId));
+      if (query.threadId) conditions.push(eq(schema.eventLog.threadId, query.threadId));
+      if (query.afterSeq !== undefined) {
+        conditions.push(gt(schema.eventLog.seq, query.afterSeq));
+      }
+      let q = d
+        .select()
+        .from(schema.eventLog)
+        .orderBy(schema.eventLog.seq)
+        .$dynamic();
+      if (conditions.length > 0) q = q.where(and(...conditions));
+      if (query.limit) q = q.limit(query.limit);
+      return (q.all() as typeof schema.eventLog.$inferSelect[])
+        .map(toEventRecord)
         .filter((r): r is EventRecord => r !== null);
     },
 

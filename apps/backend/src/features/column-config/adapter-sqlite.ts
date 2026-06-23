@@ -86,11 +86,12 @@ export function sqliteColumnConfigAdapter(db: Database): ColumnConfigPort {
     },
 
     delete(configId: string): boolean {
-      const { changes } = d
+      const rows = d
         .delete(schema.columnConfig)
         .where(eq(schema.columnConfig.configId, configId))
-        .run();
-      return changes > 0;
+        .returning()
+        .all();
+      return rows.length > 0;
     },
   };
 }

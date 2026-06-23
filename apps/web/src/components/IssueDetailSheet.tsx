@@ -253,7 +253,7 @@ export function IssueDetailSheet({
         {editing && (
           <Form {...editForm}>
             <form
-              onSubmit={editForm.handleSubmit(saveMutation.mutate)}
+              onSubmit={editForm.handleSubmit((data) => saveMutation.mutate(data))}
               className="space-y-3 mb-4 p-3 border rounded"
             >
               <FormField

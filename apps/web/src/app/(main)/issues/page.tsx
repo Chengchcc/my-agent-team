@@ -146,7 +146,7 @@ export default function IssuesPage() {
             </DialogHeader>
 
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(createMutation.mutate)} className="space-y-4 mt-2">
+              <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="space-y-4 mt-2">
                 {projects.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     No projects yet —{" "}
