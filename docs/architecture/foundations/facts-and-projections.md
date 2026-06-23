@@ -45,19 +45,19 @@ used_by:
 ## 数据流
 
 ```mermaid
-flowchart LR
+graph LR
   Human[人的消息] --> Ledger[(conversation_ledger)]
-  Sup[RunSupervisor] -->|onRunMessage 直写| Ledger
+  Sup[RunSupervisor] -->|"onRunMessage"| Ledger
   Ledger --> BPM[buildPreloadedMessages]
-  BPM -->|Message[]| Spec[preloadedMessages]
+  BPM -->|"Message[]"| Spec[preloadedMessages]
   Spec --> Runner[Runner]
   Runner --> CKPT[(Runner Checkpointer)]
   Runner --> Sup
-  Sup -->|非 message 事件| EventLog[(EventLog)]
+  Sup -->|"execution events"| EventLog[(EventLog)]
   EventLog --> OpsUI[Ops / 排障]
-  Ledger -->|broadcastMessage best-effort| TP[(projection_messages)]
+  Ledger -->|"broadcast"| TP[(projection_messages)]
   TP --> SSE[SSE subscriber]
-  Ledger -->|SSE subscribeConversation| ConvUI[对话 UI]
+  Ledger -->|"SSE poll"| ConvUI[对话 UI]
 ```
 
 ## 关键路径
