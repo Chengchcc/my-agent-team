@@ -142,6 +142,12 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
     const issue = issues.find((i) => i.issueId === issueId);
     if (!issue || issue.status === toStatus) return;
 
+    // Block drops onto the draft column: there is no *→draft transition. The
+    // draft column only renders so existing draft issues are visible — it is
+    // not a valid move target, so reject the drag instead of firing a
+    // guaranteed-to-fail applyTransition + error toast + rollback.
+    if (toStatus === "draft") return;
+
     // Block reverse drag: rework must go through review-decision (approve/reject buttons)
     if (issue.status === "in_review" && toStatus === "in_progress") {
       toast.error("Review required", {

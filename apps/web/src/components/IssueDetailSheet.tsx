@@ -399,11 +399,7 @@ export function IssueDetailSheet({
             <div className="text-sm font-medium">{issue.title}</div>
             <div className="flex items-center gap-2 mt-1">
               <Badge variant="outline" className="text-xs">
-                {runs[0]?.agentId && (
-                  <Badge variant="outline" className="text-xs">
-                    {runs[0].agentId}
-                  </Badge>
-                )}
+                {runs[0]?.agentId ?? "CLAUDE_CODE"}
               </Badge>
               <span className="text-xs text-muted-foreground">Conversation: {issue.issueId}</span>
             </div>
