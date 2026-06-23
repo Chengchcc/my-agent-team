@@ -78,6 +78,35 @@ function NavContent() {
     },
   });
 
+  const createConversation = useMutation({
+    mutationFn: (input: { displayName?: string }) =>
+      api.createConversation({
+        members: [
+          {
+            memberId: selectedAgentId!,
+            kind: "agent" as const,
+            agentId: selectedAgentId!,
+            displayName: input.displayName,
+          },
+          {
+            memberId: `human-${crypto.randomUUID().slice(0, 8)}`,
+            kind: "human" as const,
+            userRef: "__legacy__",
+            displayName: "User",
+          },
+        ],
+      }),
+    onSuccess: (conv) => {
+      closeMobile();
+      router.push(`/conversations/${conv.conversationId}`);
+    },
+    onError: (err) => {
+      toast.error("Failed to create conversation", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
+  });
+
   function closeMobile() {
     setOpenMobile(false);
   }
@@ -119,33 +148,9 @@ function NavContent() {
             <Button
               variant="ghost"
               size="icon-xs"
-              onClick={async () => {
-                try {
-                  const agent = activeAgents.find((a) => a.id === selectedAgentId);
-                  const humanId = `human-${crypto.randomUUID().slice(0, 8)}`;
-                  const conv = await api.createConversation({
-                    members: [
-                      {
-                        memberId: selectedAgentId,
-                        kind: "agent",
-                        agentId: selectedAgentId,
-                        displayName: agent?.name,
-                      },
-                      {
-                        memberId: humanId,
-                        kind: "human",
-                        userRef: "__legacy__",
-                        displayName: "User",
-                      },
-                    ],
-                  });
-                  closeMobile();
-                  router.push(`/conversations/${conv.conversationId}`);
-                } catch (err) {
-                  toast.error("Failed to create conversation", {
-                    description: err instanceof Error ? err.message : "Unknown error",
-                  });
-                }
+              onClick={() => {
+                const a = activeAgents.find((ag) => ag.id === selectedAgentId);
+                createConversation.mutate({ displayName: a?.name });
               }}
               className="ml-auto text-primary hover:text-primary/80"
               aria-label="New conversation"

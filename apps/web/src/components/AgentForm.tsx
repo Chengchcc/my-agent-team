@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -109,50 +109,62 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
     return () => clearInterval(interval);
   }, [setupSession?.status, setupSession?.setupId, editAgent?.id, queryClient]);
 
-  async function onSubmit(values: FormValues) {
-    setServerError("");
-    try {
-      const body: Record<string, unknown> = {
-        name: values.name,
-        model: {
-          provider: "anthropic",
-          model: values.model,
-          ...(values.baseURL ? { baseURL: values.baseURL } : {}),
-        },
-        permissionMode: values.permissionMode,
-        ...(values.maxSteps ? { maxSteps: parseInt(values.maxSteps, 10) } : {}),
+  function buildBody(values: FormValues): Record<string, unknown> {
+    const body: Record<string, unknown> = {
+      name: values.name,
+      model: {
+        provider: "anthropic",
+        model: values.model,
+        ...(values.baseURL ? { baseURL: values.baseURL } : {}),
+      },
+      permissionMode: values.permissionMode,
+      ...(values.maxSteps ? { maxSteps: parseInt(values.maxSteps, 10) } : {}),
+    };
+    if (values.enableLark)
+      body.lark = {
+        enabled: true,
+        ...(values.botDisplayName ? { botDisplayName: values.botDisplayName } : {}),
       };
+    else if (isEdit && editAgent?.lark?.enabled) body.lark = { enabled: false };
+    return body;
+  }
 
-      if (values.enableLark) {
-        body.lark = {
-          enabled: true,
-          ...(values.botDisplayName ? { botDisplayName: values.botDisplayName } : {}),
-        };
-      } else if (isEdit && editAgent?.lark?.enabled) {
-        body.lark = { enabled: false };
-      }
-
-      if (isEdit) {
-        await api.updateAgent(editAgent!.id, body);
-        toast.success("Agent updated");
-        queryClient.invalidateQueries({ queryKey: ["agent", editAgent!.id] });
-        queryClient.invalidateQueries({ queryKey: ["agents"] });
-        setOpen(false);
-        onSuccess?.();
-      } else {
-        const agent = await api.createAgent(body);
-        toast.success("Agent created");
-        queryClient.invalidateQueries({ queryKey: ["agents"] });
-        form.reset();
-        setOpen(false);
-        router.push(`/agents/${agent.id}`);
-        return;
-      }
-    } catch (err) {
+  const createMutation = useMutation({
+    mutationFn: (values: FormValues) => api.createAgent(buildBody(values)),
+    onSuccess: (agent) => {
+      toast.success("Agent created");
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
+      form.reset();
+      setOpen(false);
+      router.push(`/agents/${(agent as AgentRow).id}`);
+    },
+    onError: (err) => {
       const msg = err instanceof Error ? err.message : "Failed to save agent";
       setServerError(msg);
       toast.error("Failed to save agent", { description: msg });
-    }
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (values: FormValues) => api.updateAgent(editAgent!.id, buildBody(values)),
+    onSuccess: () => {
+      toast.success("Agent updated");
+      queryClient.invalidateQueries({ queryKey: ["agent", editAgent!.id] });
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
+      setOpen(false);
+      onSuccess?.();
+    },
+    onError: (err) => {
+      const msg = err instanceof Error ? err.message : "Failed to save agent";
+      setServerError(msg);
+      toast.error("Failed to save agent", { description: msg });
+    },
+  });
+
+  function onSubmit(values: FormValues) {
+    setServerError("");
+    if (isEdit) updateMutation.mutate(values);
+    else createMutation.mutate(values);
   }
 
   const fieldClass =
