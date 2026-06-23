@@ -25,6 +25,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Generate drizzle migrations
+        run: bash scripts/gen-drizzle.sh
+
       - name: Lint
         run: bun run lint
 
