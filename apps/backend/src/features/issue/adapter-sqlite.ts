@@ -19,7 +19,7 @@ const toRow = (r: typeof schema.issue.$inferSelect): IssueRow => ({
 });
 
 export function sqliteIssueAdapter(db: Database): IssuePort {
-  const d = drizzle(db, { schema });
+  const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
     createIssue(input: CreateIssueInput): IssueRow {
@@ -91,7 +91,11 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
     },
 
     deleteIssue(issueId: string): boolean {
-      const rows = d.delete(schema.issue).where(eq(schema.issue.issueId, issueId)).returning().all();
+      const rows = d
+        .delete(schema.issue)
+        .where(eq(schema.issue.issueId, issueId))
+        .returning()
+        .all();
       return rows.length > 0;
     },
   };

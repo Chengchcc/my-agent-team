@@ -17,7 +17,7 @@ const toRow = (r: typeof schema.deliverable.$inferSelect): DeliverableRow => ({
 });
 
 export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
-  const d = drizzle(db, { schema });
+  const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
     /** R2: INSERT … ON CONFLICT(run_id, kind) WHERE run_id IS NOT NULL DO NOTHING — atomic idempotency.

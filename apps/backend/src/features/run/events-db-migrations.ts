@@ -9,7 +9,7 @@ import * as schema from "../../infra/db/events-schema.js";
  * Replaces the hand-rolled EVENTS_DB_MIGRATIONS array + _migrations ledger.
  */
 export function runEventsDbMigrations(db: Database): void {
-  const drizzleDb = drizzle(db, { schema });
+  const drizzleDb = drizzle(db, { schema, casing: "snake_case" });
   const migrationsFolder = path.resolve(import.meta.dirname, "../../../drizzle/events");
   migrate(drizzleDb, { migrationsFolder });
 }

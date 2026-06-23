@@ -30,7 +30,7 @@ function toRow(r: typeof schema.agents.$inferSelect): AgentRow {
 }
 
 export function sqliteAgentAdapter(db: Database): AgentPort {
-  const d = drizzle(db, { schema });
+  const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
     async create(

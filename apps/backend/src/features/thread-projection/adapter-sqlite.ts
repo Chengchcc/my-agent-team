@@ -5,7 +5,7 @@ import * as schema from "../../infra/db/schema.js";
 import type { ThreadProjectionReadPort, ThreadProjectionWritePort } from "./ports.js";
 
 export function sqliteThreadProjectionReadAdapter(db: Database): ThreadProjectionReadPort {
-  const d = drizzle(db, { schema });
+  const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
     async getMessages(threadId: string): Promise<unknown[] | null> {
@@ -31,7 +31,7 @@ export function sqliteThreadProjectionReadAdapter(db: Database): ThreadProjectio
  *  drizzle's default transaction is DEFERRED, which would risk lost updates under
  *  concurrent load-merge-save. The raw IMMEDIATE lock is the correct semantic. */
 export function sqliteThreadProjectionWriteAdapter(db: Database): ThreadProjectionWritePort {
-  const d = drizzle(db, { schema });
+  const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
     async appendMessages(threadId: string, msgs: unknown[]): Promise<void> {

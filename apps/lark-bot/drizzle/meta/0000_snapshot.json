@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a0385092-5015-4c25-8d4d-de4e428af58f",
+  "id": "6c8239d0-614b-4fad-9878-85c5cbc30a98",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "chat_binding": {
@@ -107,7 +107,9 @@
       "indexes": {
         "uq_inbound_lark_message_id": {
           "name": "uq_inbound_lark_message_id",
-          "columns": ["lark_message_id"],
+          "columns": [
+            "lark_message_id"
+          ],
           "isUnique": true
         }
       },
@@ -145,7 +147,10 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "member_binding_lark_chat_id_lark_open_id_pk": {
-          "columns": ["lark_chat_id", "lark_open_id"],
+          "columns": [
+            "lark_chat_id",
+            "lark_open_id"
+          ],
           "name": "member_binding_lark_chat_id_lark_open_id_pk"
         }
       },
@@ -204,7 +209,11 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "message_delivery_conversation_id_message_id_lark_chat_id_pk": {
-          "columns": ["conversation_id", "message_id", "lark_chat_id"],
+          "columns": [
+            "conversation_id",
+            "message_id",
+            "lark_chat_id"
+          ],
           "name": "message_delivery_conversation_id_message_id_lark_chat_id_pk"
         }
       },

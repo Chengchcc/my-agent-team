@@ -13,7 +13,7 @@ export interface SqliteCheckpointerOptions {
 /** Ensure the checkpointer tables exist. For standalone harness use.
  *  Uses drizzle-kit migrate() with ledger tracking. */
 export function ensureCheckpointerSchema(db: Database): void {
-  const d = drizzle(db, { schema });
+  const d = drizzle(db, { schema, casing: "snake_case" });
   const migrationsFolder = path.resolve(import.meta.dirname, "../../drizzle");
   migrate(d, { migrationsFolder });
 }
@@ -24,7 +24,7 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): Checkpointe
   // Run drizzle-kit migrations (replaces hand-rolled SQLITE_CHECKPOINTER_MIGRATIONS + _migrations ledger).
   ensureCheckpointerSchema(db);
 
-  const d = drizzle(db, { schema });
+  const d = drizzle(db, { schema, casing: "snake_case" });
 
   const cp: Checkpointer = {
     async save(threadId, messages) {

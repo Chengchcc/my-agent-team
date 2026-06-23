@@ -16,7 +16,7 @@ const toRow = (r: typeof schema.project.$inferSelect): ProjectRow => ({
 });
 
 export function sqliteProjectAdapter(db: Database): ProjectPort {
-  const d = drizzle(db, { schema });
+  const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
     createProject(input: CreateProjectRecord): ProjectRow {

@@ -18,7 +18,7 @@ export function openDb(dbPath: string): Database {
   // Run drizzle-kit migrations (replaces hand-rolled ALL_MIGRATIONS + _migrations ledger).
   // The schema is used only for the drizzle instance type; migrate() reads SQL files
   // from the migrations folder and tracks applied migrations in __drizzle_migrations__.
-  const db = drizzle(sqlite, { schema });
+  const db = drizzle(sqlite, { schema, casing: "snake_case" });
   const migrationsFolder = path.resolve(import.meta.dirname, "../../../drizzle/backend");
   migrate(db, { migrationsFolder });
 

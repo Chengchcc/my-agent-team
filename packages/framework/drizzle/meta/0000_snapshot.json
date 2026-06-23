@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8ccea792-7179-4a06-909b-99aaccbadb40",
+  "id": "5e2520db-1866-46cf-9fd2-cc30fee03fb9",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "checkpoint_events": {
@@ -39,7 +39,10 @@
       "indexes": {
         "idx_checkpoint_events_thread": {
           "name": "idx_checkpoint_events_thread",
-          "columns": ["thread_id", "id"],
+          "columns": [
+            "thread_id",
+            "id"
+          ],
           "isUnique": false
         }
       },

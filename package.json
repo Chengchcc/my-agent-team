@@ -36,5 +36,8 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.60.1",
     "drizzle-kit": "^0.31.0"
+  },
+  "dependencies": {
+    "drizzle-zod": "^0.8.3"
   }
 }

@@ -47,7 +47,7 @@ export function openBindings(agentId: string, stateRoot: string): Database {
   db.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON");
 
   // M20: drizzle-kit migrate replaces ensureSchema() DDL + migrateRunStreamSchema() ALTER hack.
-  const d = drizzle(db, { schema });
+  const d = drizzle(db, { schema, casing: "snake_case" });
   const migrationsFolder = path.resolve(import.meta.dirname, "../drizzle");
   migrate(d, { migrationsFolder });
 
@@ -57,7 +57,7 @@ export function openBindings(agentId: string, stateRoot: string): Database {
 // ─── Helpers ───────────────────────────────────────────────────────
 
 function d(db: Database) {
-  return drizzle(db, { schema });
+  return drizzle(db, { schema, casing: "snake_case" });
 }
 
 // ─── chat_binding ──────────────────────────────────────────────────

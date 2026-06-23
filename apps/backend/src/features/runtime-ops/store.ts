@@ -71,7 +71,7 @@ export class RuntimeOpsStore {
   #d: ReturnType<typeof drizzle<typeof schema>>;
 
   constructor(db: Database) {
-    this.#d = drizzle(db, { schema });
+    this.#d = drizzle(db, { schema, casing: "snake_case" });
   }
 
   // ─── run_ops_event ───
@@ -338,10 +338,7 @@ export class RuntimeOpsStore {
       .select()
       .from(schema.surfaceHealth)
       .where(
-        and(
-          eq(schema.surfaceHealth.agentId, agentId),
-          eq(schema.surfaceHealth.surface, surface),
-        ),
+        and(eq(schema.surfaceHealth.agentId, agentId), eq(schema.surfaceHealth.surface, surface)),
       )
       .get();
     return row ? toSurfaceHealthRow(row) : undefined;

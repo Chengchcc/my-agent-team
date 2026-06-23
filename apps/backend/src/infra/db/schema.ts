@@ -1,60 +1,53 @@
 import { sql } from "drizzle-orm";
-import {
-  index,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 // ─── agents ────────────────────────────────────────────────────────
 export const agents = sqliteTable(
   "agents",
   {
-    id: text("id").primaryKey(),
-    name: text("name").notNull(),
-    template: text("template"),
-    workspacePath: text("workspace_path").notNull().unique(),
-    modelProvider: text("model_provider").notNull(),
-    modelName: text("model_name").notNull(),
-    modelBaseUrl: text("model_base_url"),
-    permissionMode: text("permission_mode").notNull().default("ask"),
-    maxSteps: integer("max_steps"),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
-    archivedAt: integer("archived_at", { mode: "number" }),
-    larkEnabled: integer("lark_enabled").notNull().default(0),
-    larkAppId: text("lark_app_id"),
-    larkProfileRef: text("lark_profile_ref"),
-    larkBotDisplayName: text("lark_bot_display_name"),
+    id: text().primaryKey(),
+    name: text().notNull(),
+    template: text(),
+    workspacePath: text().notNull().unique(),
+    modelProvider: text().notNull(),
+    modelName: text().notNull(),
+    modelBaseUrl: text(),
+    permissionMode: text().notNull().default("ask"),
+    maxSteps: integer(),
+    createdAt: integer({ mode: "number" }).notNull(),
+    updatedAt: integer({ mode: "number" }).notNull(),
+    archivedAt: integer({ mode: "number" }),
+    larkEnabled: integer().notNull().default(0),
+    larkAppId: text(),
+    larkProfileRef: text(),
+    larkBotDisplayName: text(),
   },
   (table) => [index("idx_agents_archived").on(table.archivedAt)],
 );
 
 // ─── conversation ──────────────────────────────────────────────────
 export const conversation = sqliteTable("conversation", {
-  conversationId: text("conversation_id").primaryKey(),
-  triggerMode: text("trigger_mode").notNull().default("mention"),
-  hopCount: integer("hop_count").notNull().default(0),
-  title: text("title"),
-  origin: text("origin").notNull().default("user"),
-  createdAt: integer("created_at", { mode: "number" }).notNull(),
+  conversationId: text().primaryKey(),
+  triggerMode: text().notNull().default("mention"),
+  hopCount: integer().notNull().default(0),
+  title: text(),
+  origin: text().notNull().default("user"),
+  createdAt: integer({ mode: "number" }).notNull(),
 });
 
 // ─── member ────────────────────────────────────────────────────────
 export const member = sqliteTable(
   "member",
   {
-    memberId: text("member_id").notNull(),
-    conversationId: text("conversation_id")
+    memberId: text().notNull(),
+    conversationId: text()
       .notNull()
       .references(() => conversation.conversationId, { onDelete: "cascade" }),
-    kind: text("kind").notNull(),
-    agentId: text("agent_id"),
-    userRef: text("user_ref"),
-    displayName: text("display_name"),
-    joinedAt: integer("joined_at", { mode: "number" }).notNull(),
+    kind: text().notNull(),
+    agentId: text(),
+    userRef: text(),
+    displayName: text(),
+    joinedAt: integer({ mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.conversationId, table.memberId] }),
@@ -66,28 +59,30 @@ export const member = sqliteTable(
 export const conversationLedger = sqliteTable(
   "conversation_ledger",
   {
-    seq: integer("seq").primaryKey({ autoIncrement: true }),
-    conversationId: text("conversation_id")
+    seq: integer().primaryKey({ autoIncrement: true }),
+    conversationId: text()
       .notNull()
       .references(() => conversation.conversationId, { onDelete: "cascade" }),
-    senderMemberId: text("sender_member_id").notNull(),
-    addressedTo: text("addressed_to").notNull().default("[]"),
-    kind: text("kind").notNull(),
-    content: text("content").notNull(),
-    ts: integer("ts", { mode: "number" }).notNull(),
-    runId: text("run_id"),
+    senderMemberId: text().notNull(),
+    addressedTo: text().notNull().default("[]"),
+    kind: text().notNull(),
+    content: text().notNull(),
+    ts: integer({ mode: "number" }).notNull(),
+    runId: text(),
   },
   (table) => [
     index("idx_ledger_conv").on(table.conversationId, table.seq),
-    index("idx_ledger_run").on(table.runId).where(sql`run_id IS NOT NULL`),
+    index("idx_ledger_run")
+      .on(table.runId)
+      .where(sql`run_id IS NOT NULL`),
   ],
 );
 
 // ─── projection_messages ───────────────────────────────────────────
 export const projectionMessages = sqliteTable("projection_messages", {
-  threadId: text("thread_id").primaryKey(),
-  messages: text("messages").notNull(),
-  updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  threadId: text().primaryKey(),
+  messages: text().notNull(),
+  updatedAt: integer({ mode: "number" }).notNull(),
 });
 
 // ─── issue ─────────────────────────────────────────────────────────
@@ -95,16 +90,16 @@ export const projectionMessages = sqliteTable("projection_messages", {
 export const issue = sqliteTable(
   "issue",
   {
-    issueId: text("issue_id").primaryKey(),
-    projectId: text("project_id").notNull(),
-    title: text("title").notNull(),
-    status: text("status").notNull(),
-    threadId: text("thread_id").notNull(),
-    description: text("description").notNull().default(""),
-    priority: text("priority").notNull().default("P2"),
-    estimatedCompletionAt: integer("estimated_completion_at", { mode: "number" }),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    issueId: text().primaryKey(),
+    projectId: text().notNull(),
+    title: text().notNull(),
+    status: text().notNull(),
+    threadId: text().notNull(),
+    description: text().notNull().default(""),
+    priority: text().notNull().default("P2"),
+    estimatedCompletionAt: integer({ mode: "number" }),
+    createdAt: integer({ mode: "number" }).notNull(),
+    updatedAt: integer({ mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_issue_project").on(table.projectId),
@@ -116,13 +111,13 @@ export const issue = sqliteTable(
 export const project = sqliteTable(
   "project",
   {
-    projectId: text("project_id").primaryKey(),
-    name: text("name").notNull(),
-    repoUrl: text("repo_url"),
-    defaultBranch: text("default_branch"),
-    autoOrchestrate: integer("auto_orchestrate").notNull().default(0),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    projectId: text().primaryKey(),
+    name: text().notNull(),
+    repoUrl: text(),
+    defaultBranch: text(),
+    autoOrchestrate: integer().notNull().default(0),
+    createdAt: integer({ mode: "number" }).notNull(),
+    updatedAt: integer({ mode: "number" }).notNull(),
   },
   (table) => [uniqueIndex("idx_project_name").on(table.name)],
 );
@@ -131,14 +126,14 @@ export const project = sqliteTable(
 export const columnConfig = sqliteTable(
   "column_config",
   {
-    configId: text("config_id").primaryKey(),
-    projectId: text("project_id").notNull(),
-    status: text("status").notNull(),
-    agentId: text("agent_id").notNull(),
-    promptTemplate: text("prompt_template").notNull(),
-    approvalPosture: text("approval_posture").notNull().default("auto"),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    configId: text().primaryKey(),
+    projectId: text().notNull(),
+    status: text().notNull(),
+    agentId: text().notNull(),
+    promptTemplate: text().notNull(),
+    approvalPosture: text().notNull().default("auto"),
+    createdAt: integer({ mode: "number" }).notNull(),
+    updatedAt: integer({ mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("idx_column_config_proj_status").on(table.projectId, table.status),
@@ -150,14 +145,14 @@ export const columnConfig = sqliteTable(
 export const deliverable = sqliteTable(
   "deliverable",
   {
-    deliverableId: text("deliverable_id").primaryKey(),
-    issueId: text("issue_id").notNull(),
-    fromStatus: text("from_status").notNull(),
-    kind: text("kind").notNull(),
-    fields: text("fields").notNull(),
-    ref: text("ref"),
-    runId: text("run_id"),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    deliverableId: text().primaryKey(),
+    issueId: text().notNull(),
+    fromStatus: text().notNull(),
+    kind: text().notNull(),
+    fields: text().notNull(),
+    ref: text(),
+    runId: text(),
+    createdAt: integer({ mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_deliverable_issue").on(table.issueId),

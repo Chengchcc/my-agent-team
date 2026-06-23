@@ -17,7 +17,7 @@ CREATE TABLE `agents` (
 	`lark_bot_display_name` text
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `agents_workspace_path_unique` ON `agents` (`workspace_path`);--> statement-breakpoint
+CREATE UNIQUE INDEX `agents_workspacePath_unique` ON `agents` (`workspace_path`);--> statement-breakpoint
 CREATE INDEX `idx_agents_archived` ON `agents` (`archived_at`);--> statement-breakpoint
 CREATE TABLE `column_config` (
 	`config_id` text PRIMARY KEY NOT NULL,

@@ -287,7 +287,7 @@ function getSetupManager(): LarkSetupManager {
 }
 
 // Ops service
-const backendDrizzle = drizzle(db, { schema: backendSchema });
+const backendDrizzle = drizzle(db, { casing: "snake_case", schema: backendSchema });
 const agentNames = new Map<string, string>();
 {
   const rows = backendDrizzle

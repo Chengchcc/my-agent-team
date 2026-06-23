@@ -18,7 +18,7 @@ const toRow = (r: typeof schema.columnConfig.$inferSelect): ColumnConfigRow => (
 });
 
 export function sqliteColumnConfigAdapter(db: Database): ColumnConfigPort {
-  const d = drizzle(db, { schema });
+  const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
     listByProject(projectId: string): ColumnConfigRow[] {

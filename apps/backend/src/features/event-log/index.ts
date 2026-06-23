@@ -1,8 +1,8 @@
 import { Database as SqliteDatabase } from "bun:sqlite";
-import { and, eq, gt } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
 import { safeParseAgentEvent } from "@my-agent-team/framework";
+import { and, eq, gt } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/events-schema.js";
 
 // -- Types --
@@ -91,7 +91,7 @@ export function sqliteEventLog(opts: { db: SqliteDatabase | string }): EventLog 
   // Safety-net for standalone/test use (in-memory DBs bypass the main migration path).
   db.exec(DDL_SAFETY_NET);
 
-  const d = drizzle(db, { schema });
+  const d = drizzle(db, { schema, casing: "snake_case" });
 
   const sink: EventSink = {
     async append(threadId: string, runId: string, event: AgentEvent): Promise<number> {
@@ -114,14 +114,10 @@ export function sqliteEventLog(opts: { db: SqliteDatabase | string }): EventLog 
       if (query.afterSeq !== undefined) {
         conditions.push(gt(schema.eventLog.seq, query.afterSeq));
       }
-      let q = d
-        .select()
-        .from(schema.eventLog)
-        .orderBy(schema.eventLog.seq)
-        .$dynamic();
+      let q = d.select().from(schema.eventLog).orderBy(schema.eventLog.seq).$dynamic();
       if (conditions.length > 0) q = q.where(and(...conditions));
       if (query.limit) q = q.limit(query.limit);
-      return (q.all() as typeof schema.eventLog.$inferSelect[])
+      return (q.all() as (typeof schema.eventLog.$inferSelect)[])
         .map(toEventRecord)
         .filter((r): r is EventRecord => r !== null);
     },

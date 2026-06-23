@@ -17,7 +17,7 @@ import type {
 const addressedToSchema = z.array(z.string());
 
 export function sqliteConversationAdapter(db: Database): ConversationPort {
-  const d = drizzle(db, { schema });
+  const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
     // ─── Conversation ──────────────────────────────
