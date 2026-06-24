@@ -106,3 +106,84 @@ describe("summarizingContextManager", () => {
     expect(called.value).toBe(true);
   });
 });
+
+import { structuredSummarize } from "./summarizing.js";
+
+describe("structuredSummarize", () => {
+  test("returns a message with structured summary content", async () => {
+    let capturedMsgs: Message[] = [];
+    const model: any = {
+      id: "test",
+      stream: async function* (msgs: Message[]) {
+        capturedMsgs = msgs;
+        yield {
+          delta: {
+            type: "text",
+            text: "- 目标: test goal\n- 约束: none\n- 进度: halfway\n- 关键决策: decided A\n- 下一步: continue",
+          },
+          usage: { input: 10, output: 20 },
+        };
+        yield { delta: {}, stopReason: "end_turn", done: true };
+      },
+      countTokens: async () => 0,
+    };
+
+    const old: Message[] = [
+      { role: "user", text: "do something" },
+      { role: "assistant", text: "ok doing it" },
+    ];
+
+    const result = await structuredSummarize(old, model as any);
+
+    expect(result.role).toBe("user");
+    expect(result.text).toContain("[Earlier conversation summary]");
+    expect(result.text).toContain("目标: test goal");
+    expect(result.text).toContain("关键决策: decided A");
+    expect(capturedMsgs.length).toBeGreaterThan(old.length);
+    const lastMsg = capturedMsgs[capturedMsgs.length - 1];
+    expect(lastMsg?.text).toContain("Summarize the conversation");
+  });
+
+  test("tolerates missing sections in model output", async () => {
+    const model: any = {
+      id: "test",
+      stream: async function* () {
+        yield {
+          delta: { type: "text", text: "just a freeform summary, no structure" },
+          usage: { input: 5, output: 10 },
+        };
+        yield { delta: {}, stopReason: "end_turn", done: true };
+      },
+      countTokens: async () => 0,
+    };
+
+    const old: Message[] = [{ role: "user", text: "hi" }];
+    const result = await structuredSummarize(old, model as any);
+
+    expect(result.role).toBe("user");
+    expect(result.text).toContain("[Earlier conversation summary]");
+  });
+});
+
+describe("defaultSummarize", () => {
+  test("is exported and produces a summary message", async () => {
+    const { defaultSummarize } = await import("./summarizing.js");
+    const model: any = {
+      id: "test",
+      stream: async function* () {
+        yield {
+          delta: { type: "text", text: "The user said hi and the assistant replied." },
+          usage: { input: 5, output: 10 },
+        };
+        yield { delta: {}, stopReason: "end_turn", done: true };
+      },
+      countTokens: async () => 0,
+    };
+
+    const old: Message[] = [{ role: "user", text: "hi" }];
+    const result = await defaultSummarize(old, model as any);
+
+    expect(result.role).toBe("user");
+    expect(result.text).toContain("[Earlier conversation summary]");
+  });
+});
