@@ -9,7 +9,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -33,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { api, type CronJobRow } from "@/lib/api";
 import { fieldClass, labelClass } from "@/lib/form-styles";
@@ -276,7 +276,7 @@ export function CronJobForm({ editCronJob, onSuccess }: CronJobFormProps) {
               render={({ field }) => (
                 <FormItem className="flex flex-row items-center gap-2">
                   <FormControl>
-                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
                   </FormControl>
                   <FormLabel className="text-sm">Enabled</FormLabel>
                 </FormItem>
