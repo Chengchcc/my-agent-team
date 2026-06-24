@@ -12,7 +12,11 @@ export { passthroughContextManager } from "./context-managers/passthrough.js";
 export type { SlidingWindowOptions } from "./context-managers/sliding-window.js";
 export { slidingWindowContextManager } from "./context-managers/sliding-window.js";
 export type { SummarizingOptions } from "./context-managers/summarizing.js";
-export { summarizingContextManager } from "./context-managers/summarizing.js";
+export {
+  defaultSummarize,
+  structuredSummarize,
+  summarizingContextManager,
+} from "./context-managers/summarizing.js";
 export type { TokenBudgetOptions } from "./context-managers/token-budget.js";
 export { tokenBudgetContextManager } from "./context-managers/token-budget.js";
 export type { ToolResultTruncatorOptions } from "./context-managers/tool-result-truncator.js";
@@ -28,6 +32,8 @@ export {
   type ResumeCommand,
   safeParseAgentEvent,
 } from "./create-agent.js";
+export type { RunOneResult } from "./execute-one.js";
+export { runOneCollect } from "./execute-one.js";
 export { consoleLogger, type Logger, type LogLevel, noopLogger } from "./logger.js";
 export {
   definePlugin,
@@ -37,7 +43,5 @@ export {
   type StopDecision,
   validatePlugins,
 } from "./plugin.js";
-export { runOneCollect } from "./execute-one.js";
-export type { RunOneResult } from "./execute-one.js";
 export { repairToolPairs } from "./repair-tool-pairs.js";
 export type { Thread } from "./thread.js";
