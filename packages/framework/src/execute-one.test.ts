@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { Tool, ToolUseBlock } from "@my-agent-team/core";
-import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
 import type { AgentRuntime } from "./agent-options.js";
-import { createPluginRunner } from "./plugin-runner.js";
 import { runOneCollect } from "./execute-one.js";
+import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
+import { createPluginRunner } from "./plugin-runner.js";
 
 function makeRuntime(tools: Tool[] = []): AgentRuntime {
   const toolMap = new Map(tools.map((t) => [t.name, t]));
@@ -11,14 +11,18 @@ function makeRuntime(tools: Tool[] = []): AgentRuntime {
   const logger = consoleLogger({ level: "silent" });
   return {
     thread: { id: "t1", messages: [] },
-    plugins: createPluginRunner([], {
-      threadId: "t1",
-      signal: undefined,
+    plugins: createPluginRunner(
+      [],
+      {
+        threadId: "t1",
+        signal: undefined,
+        logger,
+        checkpointer,
+        contextManager: passthroughContextManager(),
+        emit: () => {},
+      },
       logger,
-      checkpointer,
-      contextManager: passthroughContextManager(),
-      emit: () => {},
-    }, logger),
+    ),
     toolMap,
     checkpointer,
     contextManager: passthroughContextManager(),
@@ -63,7 +67,9 @@ describe("runOneCollect", () => {
       name: "echo",
       description: "",
       inputSchema: {},
-      execute: async () => { throw new Error("boom"); },
+      execute: async () => {
+        throw new Error("boom");
+      },
     };
     const rt = makeRuntime([bad]);
 

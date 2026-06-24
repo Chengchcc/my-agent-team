@@ -9,7 +9,7 @@ import type {
 import { assistantMessageId } from "@my-agent-team/message";
 import type { AgentEvent } from "./agent-event.js";
 import type { AgentRuntime } from "./agent-options.js";
-import { executeOne } from "./execute-one.js";
+import { executeOne, runOneCollect } from "./execute-one.js";
 import { wrapToolResult } from "./plugin-runner.js";
 
 // ─── Pure helpers ──────────────────────────────────────────────
@@ -227,25 +227,92 @@ export async function* runLoop(
       return;
     }
 
-    // Execute tools — executeOne updates rt.toolStates in-place
-    let interrupted: boolean;
-    for (let i = 0; i < toolUses.length; i++) {
+    // Group tool_use blocks into batches: consecutive concurrent tools
+    // form a parallel batch; serial tools each get their own single-item batch.
+    const batches: ToolUseBlock[][] = [];
+    for (let i = 0; i < toolUses.length; ) {
       const call = toolUses[i]!;
-      interrupted = yield* executeOne(rt, call, opts, step);
-      if (interrupted) {
-        for (let j = i; j < toolUses.length; j++) {
-          const remaining = toolUses[j]!;
+      const mode = rt.toolMap.get(call.name)?.executionMode ?? "serial";
+      if (mode === "concurrent") {
+        const batch: ToolUseBlock[] = [call];
+        let j = i + 1;
+        while (j < toolUses.length) {
+          const next = toolUses[j]!;
+          const nextMode = rt.toolMap.get(next.name)?.executionMode ?? "serial";
+          if (nextMode !== "concurrent") break;
+          batch.push(next);
+          j++;
+        }
+        batches.push(batch);
+        i = j;
+      } else {
+        batches.push([call]);
+        i++;
+      }
+    }
+
+    let interrupted = false;
+    for (const batch of batches) {
+      if (batch.length === 1) {
+        // Single serial tool — use existing generator path
+        interrupted = yield* executeOne(rt, batch[0]!, opts, step);
+        if (interrupted) {
+          // executeOne does not push tool_result on interrupt — push it here
+          // so the interrupting tool gets a placeholder (matches old serial-loop cleanup)
           rt.thread.messages.push({
             role: "user",
-            blocks: [wrapToolResult(remaining, { content: "Interrupted", isError: true })],
+            blocks: [wrapToolResult(batch[0]!, { content: "Interrupted", isError: true })],
           });
-          updateToolState(rt, remaining.id, "error", true);
+          updateToolState(rt, batch[0]!.id, "error", true);
+        }
+      } else {
+        // Concurrent batch — run tools in parallel
+        const results = await Promise.all(
+          batch.map((call) =>
+            runOneCollect(rt, call, opts, step).catch((err) => {
+              // One tool crashed — return error result so other results are preserved
+              return {
+                resultBlock: wrapToolResult(call, { content: String(err), isError: true }),
+                events: [{
+                  type: "tool_call" as const,
+                  payload: { step, id: call.id, name: call.name, latencyMs: 0, isError: true },
+                }],
+                interrupted: false,
+              };
+            }),
+          ),
+        );
+
+        // Write tool_results in original tool_use order (not completion order)
+        for (let rIdx = 0; rIdx < batch.length; rIdx++) {
+          rt.thread.messages.push({ role: "user", blocks: [results[rIdx]!.resultBlock] });
+        }
+
+        // Yield events in original tool_use order
+        for (let rIdx = 0; rIdx < batch.length; rIdx++) {
+          for (const ev of results[rIdx]!.events) yield ev;
+        }
+
+        interrupted = results.some((r) => r.interrupted);
+      }
+
+      if (interrupted) {
+        // Mark remaining batches' tools as error (aborted/interrupted)
+        const batchIdx = batches.indexOf(batch);
+        for (let bi = batchIdx + 1; bi < batches.length; bi++) {
+          for (const call of batches[bi]!) {
+            rt.thread.messages.push({
+              role: "user",
+              blocks: [wrapToolResult(call, { content: "Interrupted", isError: true })],
+            });
+            updateToolState(rt, call.id, "error", true);
+          }
         }
         yield {
           type: "message",
           payload: buildAssistantRevision(
             rt.runId,
-            0,
+            assistantOrdinal,
             "waiting",
             rt.assistantBlocks,
             rt.toolStates,

@@ -233,7 +233,11 @@ export async function runOneCollect(
         type: "interrupted",
         payload: { pendingTool: call, reason: err.reason, meta: err.meta },
       });
-      return { resultBlock: wrapToolResult(call, { content: "Interrupted", isError: true }), events, interrupted: true };
+      return {
+        resultBlock: wrapToolResult(call, { content: "Interrupted", isError: true }),
+        events,
+        interrupted: true,
+      };
     }
     resultBlock = wrapToolResult(call, {
       content: err instanceof Error ? err.message : String(err),
