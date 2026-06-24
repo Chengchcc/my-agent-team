@@ -27,6 +27,12 @@ export function createCronScheduler(deps: {
   const timedOut = new Set<string>();
   const retryTimers = new Set<ReturnType<typeof setTimeout>>();
   const retryCounts = new Map<string, number>();
+  /** Single-flight lock per job. Held from a natural Bun.cron trigger until the
+   *  whole fire chain (the run + any retries) settles. A natural trigger that
+   *  arrives while the previous chain is still in flight is skipped, restoring
+   *  the no-overlap guarantee that the decoupled (setTimeout) retry path would
+   *  otherwise break. Retries do NOT re-acquire — they continue the held lock. */
+  const inFlight = new Set<string>();
 
   async function fire(job: CronJobRow, fireKey?: string): Promise<void> {
     const n = deps.now ?? Date.now;
@@ -35,27 +41,35 @@ export function createCronScheduler(deps: {
     const runId = deps.idGen();
     const threadId = `${job.cronJobId}:owner`;
     const t = deps.trace();
-    const spec = await deps.buildSpec(job.agentId, threadId, job.prompt);
 
-    await deps.dispatcher.dispatch({
-      kind: "cron",
-      runId,
-      threadId,
-      spec,
-      opts: { trace: t },
-      origin: {
-        conversationId: job.cronJobId,
-        sourceLedgerSeq: 0,
-        agentMemberId: "owner",
-        surface: "cron",
-        traceId: t.traceId,
-        traceparent: t.traceparent,
-        idempotencyKey: `${key}:run:${attempt}`,
-        issueId: null,
-        fromStatus: "",
-        cronJobId: job.cronJobId,
-      },
-    });
+    try {
+      const spec = await deps.buildSpec(job.agentId, threadId, job.prompt);
+      await deps.dispatcher.dispatch({
+        kind: "cron",
+        runId,
+        threadId,
+        spec,
+        opts: { trace: t },
+        origin: {
+          conversationId: job.cronJobId,
+          sourceLedgerSeq: 0,
+          agentMemberId: "owner",
+          surface: "cron",
+          traceId: t.traceId,
+          traceparent: t.traceparent,
+          idempotencyKey: `${key}:run:${attempt}`,
+          issueId: null,
+          fromStatus: "",
+          cronJobId: job.cronJobId,
+        },
+      });
+    } catch (err) {
+      // buildSpec or dispatch threw → no run was produced, so onRunComplete will
+      // never fire to release the single-flight lock. Release it here so the job
+      // isn't wedged forever.
+      inFlight.delete(job.cronJobId);
+      throw err;
+    }
 
     if (job.timeoutMs > 0) {
       const timer = setTimeout(() => {
@@ -90,9 +104,11 @@ export function createCronScheduler(deps: {
 
     const fireKey = origin.idempotencyKey.split(":run:")[0]!;
 
-    // No retry on success — clear any retry bookkeeping for this fire.
+    // No retry on success — clear any retry bookkeeping for this fire and
+    // release the single-flight lock so the next natural trigger can fire.
     if (status === "completed") {
       retryCounts.delete(fireKey);
+      inFlight.delete(origin.cronJobId);
       return;
     }
 
@@ -100,14 +116,19 @@ export function createCronScheduler(deps: {
     // don't burn maxRetries on the same deterministic timeout.
     if (wasTimedOut) {
       retryCounts.delete(fireKey);
+      inFlight.delete(origin.cronJobId);
       return;
     }
 
     const job = deps.cronSvc.port.getCronJob(origin.cronJobId);
-    if (!job || job.maxRetries <= 0) return;
+    if (!job || job.maxRetries <= 0) {
+      inFlight.delete(origin.cronJobId);
+      return;
+    }
     const attempts = retryCounts.get(fireKey) ?? 0;
     if (attempts >= job.maxRetries) {
       retryCounts.delete(fireKey);
+      inFlight.delete(origin.cronJobId);
       return;
     }
 
@@ -157,6 +178,14 @@ export function createCronScheduler(deps: {
       handles.set(
         job.cronJobId,
         Bun.cron(job.cronExpr, () => {
+          // Single-flight: a natural trigger that arrives while the previous
+          // fire chain (run + retries) is still in flight is skipped. This
+          // restores the no-overlap guarantee that the decoupled (setTimeout)
+          // retry path would otherwise break. The lock is released by the
+          // onRunComplete listener once the chain settles, or by fire()'s
+          // catch if buildSpec/dispatch never produced a run.
+          if (inFlight.has(job.cronJobId)) return;
+          inFlight.add(job.cronJobId);
           fire(job).catch((err) => console.error(`[cron] fire failed for ${job.cronJobId}:`, err));
         }),
       );
@@ -176,6 +205,8 @@ export function createCronScheduler(deps: {
           timedOut.delete(runId);
         }
       }
+      // Drop the single-flight lock so a re-registered job can fire immediately.
+      inFlight.delete(cronJobId);
     },
 
     dispose() {
@@ -187,6 +218,7 @@ export function createCronScheduler(deps: {
       for (const t of retryTimers) clearTimeout(t);
       retryTimers.clear();
       retryCounts.clear();
+      inFlight.clear();
     },
   };
 }

@@ -131,7 +131,9 @@ spec 的构造同构于 `main.ts` 的 `buildIssueSpec`（按 `agentId` 读 Agent
 
 挂载点是 `supervisor.onRunComplete`（`main.ts` 已注册了会话投影和 orchestrator 两个监听器，cron scheduler 再加一个）：监听器按 `origin.originKind === "cron"` 过滤，读该次触发已重试的次数，未达上限就 `dispatcher.dispatch` 重起（建议指数退避），并复用现成的 `retry_requested` / `retry_started` ops 事件（`features/runtime-ops/types.ts` 已有这两个 `RunOpsEventKind`）记录可观测。重试次数按「同一触发点」计数——以 `idempotencyKey` 里的 `firedAtUnix` 归并，或在内存维护 `Map<fireKey, attemptCount>`，落地时择一。
 
-> 与 Bun.cron 不重叠保证的关系：重试是**同一棒内**的重起，不是新的定时触发；定时器的下一次自然触发由 Bun 在 handler 落定后才排程。两者互不干扰——重试发生在 handler 的逻辑里，handler 等重试链落定（或放弃）后再返回，定时器才会算下一次点火。
+> 与 Bun.cron 不重叠保证的关系：重试是**同一棒内**的重起，不是新的定时触发。但实现上重试**不**阻塞 handler——`onRunComplete` 监听器被 supervisor 顺序 `await`，若在里面 `await sleep(backoff)` 会拖住别的监听器（账本终态写、锁释放），所以重试改用 `setTimeout` 退避**解耦**调度，handler 早早返回。这样一来 Bun 的「下一次触发在 handler 落定后才算」就不再覆盖整条重试链：高频 job 的下一次自然触发可能在重试还在飞时就到点，重叠会复现。
+>
+> 因此不重叠保证由 scheduler 自己的**单飞锁**（per-job `inFlight` 集合）补回：自然触发拿锁，拿不到（上一条 fire 链还在飞）就跳过；锁从自然触发起一直持有到整条链（run + 所有重试）落定，由 `onRunComplete` 的终态分支释放（成功 / 超时不重试 / 无重试配置 / 重试耗尽），或在 `fire()` 的 catch 里释放（buildSpec/dispatch 抛错、压根没产出 run）。重试**不**重新拿锁——它们续用已持有的锁。`unregister` / `dispose` 一并清锁，避免重注册的 job 被陈旧锁卡死。
 
 ## 不变量
 
@@ -140,6 +142,7 @@ spec 的构造同构于 `main.ts` 的 `buildIssueSpec`（按 `agentId` 读 Agent
 3. 每条 CronJob 自带 `conversationId = cronJobId` 的会话与 `threadId = "<cronJobId>:owner"`，每次触发一棒运行累积其中，故每棒都能点进 `/conversations/<cronJobId>`。
 4. 触发起运行复用现有 `dispatcher.dispatch`，新增 `originKind="cron"` 并在会话投影中按 orchestrator 同款隔离（不参与 @提及级联）。
 5. 超时分两层：per-job 看门狗主动 cancel + 全局心跳 reaper 兜底；重试在 `onRunComplete` 按触发点计数，上限 `maxRetries`，复用 retry ops 事件。
+6. 不重叠由 scheduler 的单飞锁保证：一条 job 在前一条 fire 链（run + 重试）落定前，自然触发一律跳过——重试解耦成 `setTimeout` 后，Bun 自带的不重叠不再覆盖整条链，由此锁补回。
 
 ## 关联页面
 
