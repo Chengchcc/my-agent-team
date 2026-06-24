@@ -10,6 +10,9 @@ export interface SkillMeta {
   /** Logical path to the SKILL.md file (e.g. /skills/my-skill/SKILL.md) */
   skillMdPath: string;
   bodyOffset: number;
+  /** When true, this skill is excluded from the model's skill index.
+   *  It can only be invoked via explicit /skill:name call, not by the model. */
+  disableModelInvocation?: boolean;
 }
 
 async function loadOneSkillFrontmatter(
@@ -29,6 +32,7 @@ async function loadOneSkillFrontmatter(
     dir: skillDir,
     skillMdPath,
     bodyOffset: raw.length - parsed.content.length,
+    disableModelInvocation: parsed.data["disable-model-invocation"] === true,
   };
 }
 
