@@ -11,7 +11,11 @@ import {
   inMemoryCheckpointer,
   type Logger,
   type Plugin,
+  pipeContextManagers,
   sqliteCheckpointer,
+  structuredSummarize,
+  summarizingContextManager,
+  toolResultTruncator,
 } from "@my-agent-team/framework";
 import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
 import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
@@ -157,5 +161,13 @@ export async function createGenericAgent(opts: GenericAgentOptions): Promise<Age
     logger: lg,
     checkpointer,
     messages: opts.messages,
+    contextManager: pipeContextManagers(
+      toolResultTruncator({ maxCharsPerResult: 4000 }),
+      summarizingContextManager({
+        triggerAt: 100_000,
+        keepRecent: 10,
+        summarizer: structuredSummarize,
+      }),
+    ),
   });
 }
