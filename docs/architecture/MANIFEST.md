@@ -33,6 +33,7 @@
 - `docs/architecture/runner/runner-protocol.md`
 - `docs/architecture/runtime/framework.md`
 - `docs/architecture/runtime/plugin.md`
+- `docs/architecture/runtime/context-manager.md`
 - `docs/architecture/security/overview.md`
 - `docs/architecture/surfaces/lark-adapter.md`
 - `docs/architecture/surfaces/overview.md`

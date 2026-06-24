@@ -90,7 +90,7 @@ interface HookContext {
 }
 ```
 
-`emit` 仅在携带事件（如 `todo_update`）时使用——不暴露模型，不改变消息流。框架在每次钩子触发前注入最新引用。
+`emit` 仅在携带事件（如 `todo_update`）时使用——不暴露模型，不改变消息流。`contextManager` 是循环在每次调模型前做历史整形的那道关口，[单独成页](context-manager.md)；插件一般不直接调用它，而是通过 `beforeModel` 在它整形之后注入内容。框架在每次钩子触发前注入最新引用。
 
 ## 注册与触发
 
@@ -101,6 +101,7 @@ interface HookContext {
 ## 关联页面
 
 - [Framework 运行循环](framework.md)
+- [上下文管理器](context-manager.md)
 - [Harness 默认装配](../harness/harness.md)
 - [文件型记忆](../plugins/fs-memory.md)
 - [渐进式技能](../plugins/progressive-skill.md)

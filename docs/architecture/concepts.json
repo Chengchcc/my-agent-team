@@ -208,7 +208,17 @@
       "path": "docs/architecture/runtime/framework.md",
       "summary": "Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏是 runLoop：一个受 maxSteps 与 maxForceContinues 约束的循环，每一步可能调模型、可能调工具，并把过程拆成一串结构化 AgentEvent 往外吐。围绕循环还有一组生命周期钩子和一个 Checkpointer 接口，分别负责「在关键节点插手」和「断点存取」。",
       "depends_on": ["runner.resident-runner"],
-      "used_by": ["runtime.plugin", "plugins.task-guard"]
+      "used_by": ["runtime.context-manager", "runtime.plugin", "plugins.task-guard"]
+    },
+    {
+      "id": "runtime.context-manager",
+      "title": "上下文管理器",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/architecture/runtime/context-manager.md",
+      "summary": "上下文管理器（ContextManager）是 runLoop 在每次调模型「之前」对消息历史做整形的那一道关口。它只有一个方法 shape：拿到完整线程消息，返回一份「这次该喂给模型」的消息。框架自带 5 种实现（透传、滑动窗口、token 预算、工具结果截断、摘要压缩），可用 pipeContextManagers 串联；但默认装的是透传，即「什么都不改」。它和插件的 beforeModel 钩子分工明确：先 shape 决定历史形状，再 beforeModel 注入记忆/技能。",
+      "depends_on": ["runtime.framework"],
+      "used_by": ["runtime.plugin", "harness.harness"]
     },
     {
       "id": "runtime.plugin",
@@ -219,6 +229,7 @@
       "summary": "插件是往 Framework 运行循环里挂行为的标准方式。一个插件就是一个带名字、带一组钩子、可选带工具的对象；createAgent 收下所有插件，由 createPluginRunner 在循环的各个节点按顺序触发它们的钩子。记忆、技能、防早停都是用这套机制实现的，循环本体不需要知道它们的存在。",
       "depends_on": ["runtime.framework"],
       "used_by": [
+        "runtime.context-manager",
         "harness.harness",
         "plugins.fs-memory",
         "plugins.progressive-skill",
@@ -232,7 +243,7 @@
       "owners": "architecture",
       "path": "docs/architecture/harness/harness.md",
       "summary": "Harness 把 Framework 这套底座装配成一个「开箱即用」的通用 Agent。它的入口是 createGenericAgent：在裸 Framework 之上，预置一组默认工具（基于 AgentFS 的 Read/Write/Edit，加上带工作区沙箱的 bash/glob/grep）和一组默认插件（文件型记忆、渐进式技能、防早停守卫），让上层不必每次都手工拼装。",
-      "depends_on": ["runtime.framework", "runtime.plugin", "runner.agent-file-system"],
+      "depends_on": ["runtime.framework", "runtime.plugin", "runtime.context-manager", "runner.agent-file-system"],
       "used_by": []
     },
     {
@@ -315,6 +326,7 @@
         "backend.conversation-projection",
         "surfaces.lark-adapter",
         "runtime.framework",
+        "runtime.context-manager",
         "backend.orchestrator",
         "foundations.issue"
       ],

@@ -23,8 +23,10 @@ flowchart LR
   RS[backend/run-supervisor] --> RP[runner/runner-protocol]
   RP --> RR[runner/resident-runner]
   RR --> FW[runtime/framework]
+  FW --> CM[runtime/context-manager]
   FW --> PL[runtime/plugin]
   PL --> HN[harness/harness]
+  CM --> HN
   FW --> AFS[runner/agent-file-system]
   RS --> EL[backend/event-log]
 ```
