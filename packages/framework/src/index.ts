@@ -27,10 +27,12 @@ export {
   type AgentEvent,
   type AgentRunOptions,
   createAgent,
+  type FollowUpQueue,
   type Interrupt,
   parseAgentEvent,
   type ResumeCommand,
   safeParseAgentEvent,
+  type SteeringQueue,
 } from "./create-agent.js";
 export type { RunOneResult } from "./execute-one.js";
 export { runOneCollect } from "./execute-one.js";

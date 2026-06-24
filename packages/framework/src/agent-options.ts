@@ -18,6 +18,19 @@ export interface ResumeCommand {
   message?: string;
 }
 
+/** Process-local queue for in-run steering messages.
+ *  Callers push messages externally; runLoop drains at each step boundary. */
+export interface SteeringQueue {
+  /** Non-blocking: returns all pending steering messages and clears the queue. */
+  drain(): Message[];
+}
+
+/** Process-local queue for follow-up messages.
+ *  Follow-ups are consumed after the inner step loop exhausts (end of current "task"). */
+export interface FollowUpQueue {
+  drain(): Message[];
+}
+
 export interface AgentRunOptions {
   signal?: AbortSignal;
   maxSteps?: number;
@@ -27,6 +40,10 @@ export interface AgentRunOptions {
    *  framework can emit MessageRevision with the correct messageId. Falls
    *  back to thread.id when not provided (standalone mode). */
   runId?: string;
+  /** Optional steering queue — messages pushed externally appear at the next step boundary. */
+  steering?: SteeringQueue;
+  /** Optional follow-up queue — messages consumed after inner steps exhaust. */
+  followUp?: FollowUpQueue;
 }
 
 export interface Agent {
