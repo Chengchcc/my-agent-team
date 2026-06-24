@@ -70,3 +70,32 @@ ${lines.join("\n")}
 Call \`skill_load(name)\` to load the full instructions for a skill before using it.
 </available-skills>`;
 }
+
+/** Find and load a skill by name, bypassing the model's tool_call path.
+ *  Works for ALL skills including those with disableModelInvocation: true.
+ *  Returns the skill body (with ${SKILL_DIR} resolved) or null if not found. */
+export async function findSkillByName(
+  opts: ProgressiveSkillOptions,
+  name: string,
+): Promise<{ skill: SkillMeta; body: string } | null> {
+  const ws = opts.ws;
+  const roots = opts.roots ?? [opts.root ?? "/skills/"];
+  const posixSkillRoot = opts.posixSkillRoot;
+
+  const skills = await loadSkillIndexWithMtimeCache(ws, roots);
+  const skill = skills.find((s) => s.name === name);
+  if (!skill) return null;
+
+  const raw = (await ws.read(skill.skillMdPath)) ?? "";
+  const body = raw.slice(skill.bodyOffset);
+
+  // Resolve ${SKILL_DIR}
+  let resolved = body;
+  if (posixSkillRoot) {
+    const posixRoot = posixSkillRoot.endsWith("/") ? posixSkillRoot.slice(0, -1) : posixSkillRoot;
+    const logicalRoot = (roots[roots.length - 1] ?? "/skills/").replace(/\/$/, "");
+    resolved = body.replaceAll("${SKILL_DIR}", skill.dir.replace(logicalRoot, posixRoot));
+  }
+
+  return { skill, body: resolved };
+}

@@ -1,1 +1,1 @@
-export { type ProgressiveSkillOptions, progressiveSkillPlugin } from "./progressive-skill.js";
+export { type ProgressiveSkillOptions, progressiveSkillPlugin, findSkillByName } from "./progressive-skill.js";
