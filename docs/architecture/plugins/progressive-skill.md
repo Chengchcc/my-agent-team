@@ -4,7 +4,7 @@ title: 渐进式技能插件
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-16
-summary: "渐进式技能插件（progressiveSkillPlugin）解决「技能很多但上下文有限」的矛盾。它不把所有技能正文一股脑塞进提示，而是先通过 beforeModel 只注入一份技能索引（元数据），等 Agent 判断需要某个技能时，再用 skill_load 工具按需把那一个技能的正文加载进来。技能存在 AgentFS 的 /skills/ 下，归 private 域。"
+summary: "渐进式技能插件（progressiveSkillPlugin）解决「技能很多但上下文有限」的矛盾。它不把所有技能正文一股脑塞进提示，而是先通过 beforeModel 只注入一份技能索引（元数据），等 Agent 判断需要某个技能时，再用 skill_load 工具按需把那一个技能的正文加载进来。M22 起支持双域发现（global + project 双 roots）、/skill:name 显式调用、以及 disableModelInvocation 关闭模型自动触发。"
 depends_on:
   - runtime.plugin
   - runner.agent-file-system
@@ -36,11 +36,24 @@ used_by:
 
 `skill_load` 支持 `offset` 参数用于分页续读：技能正文一次加载有字符上限（默认 8000），超出时在段落边界截断，并返回 `[Truncated. Call skill_load('name', offset=N) to continue.]` 提示。Agent 可以传 `offset` 继续读取剩余内容（`skill-load.ts` 第 44-63 行）。
 
-## 技能放在哪
+## 技能放在哪：双域发现（M22）
 
-技能文件落在 AgentFS 的 `/skills/` 前缀下。该前缀实际别名到 `/private/skills/*`，归 **private** 域——技能是这个 Agent 私有的能力集，不跨 Agent 共享。
+M22 之前插件仅扫描 `/skills/`（别名 `/private/skills/*`），即 single-domain。M22 起支持双域发现，通过 `roots` 配置数组定义多个技能根目录：
 
-每个技能是一个**目录**，内含 `SKILL.md` 文件。插件扫描 `/skills/*/SKILL.md`（`cache.ts` 第 49-50 行）。`SKILL.md` 须有 YAML frontmatter，包含 `name`（技能名）和 `description`（简介）字段。插件按 frontmatter 后的 `bodyOffset` 截取正文，使 `skill_load` 只返回技能正文而跳过 frontmatter 元数据（`cache.ts` 第 13-32 行）。
+- **global 域**：全局共享技能，通常落在系统级路径（如 `/global/skills/`），所有 Agent 可见。
+- **project 域**：项目级技能，落在项目工作区（如 `/workspace/.claude/skills/`），仅当前项目 Agent 可见。
+
+插件扫描所有 `roots` 下的 `SKILL.md` 文件，合并索引后注入 `beforeModel`。两个域的技能按 `name` 去重：project 域的同名技能覆盖 global 域（就近优先）。
+
+## 显式调用与模型调用控制（M22）
+
+### /skill:name 显式调用
+
+M22 新增 `findSkillByName` 能力，允许用户通过 `/skill:name` 语法显式触发某个技能，不依赖模型自动判断。Human 消息中的 `/skill:name` 被解析后，对应技能正文自动注入上下文，无需走 `skill_load` 工具。这解决了模型在长对话中「忘记调用技能」的问题——用户可直接点名。
+
+### disableModelInvocation
+
+`disableModelInvocation` 选项可将技能标记为「仅显式调用」。设为 `true` 的技能不会出现在索引中（即模型看不到它），只能通过 `/skill:name` 显式触发。适用于需要执行但不应由模型自主决策触发的技能（如敏感操作、确定性脚本）。
 
 ## 关联页面
 
