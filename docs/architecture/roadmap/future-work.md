@@ -50,7 +50,7 @@ used_by:
 
   | 子项 | 现状 | 方向 | 依赖 |
   |---|---|---|---|
-  | **上下文压缩转默认** | [上下文管理器](../runtime/context-manager.md) 五种实现已落地，但 `createGenericAgent` 默认仍是 `passthroughContextManager`（不裁剪）；摘要为自由文本。 | 把某种实现（如 token 预算 / 摘要）提为通用 Agent 默认，并把摘要从自由文本升级为「目标 / 约束 / 进度 / 决策 / 下一步」结构化分区。 | [上下文管理器](../runtime/context-manager.md) |
+  | **上下文压缩转默认** | [上下文管理器](../runtime/context-manager.md) 五种实现已落地，但 `createGenericAgent` 默认仍是 `passthroughContextManager`（不裁剪）；摘要为自由文本。**且整形顺序有缺陷**：`shape` 在 `beforeModel` 之前、预算只覆盖 `thread.messages`，而记忆/技能注入加在其后，压缩后仍可能超窗。 | 把某种实现（如 token 预算 / 摘要）提为通用 Agent 默认；把摘要从自由文本升级为「目标 / 约束 / 进度 / 决策 / 下一步」结构化分区；**修复预算对注入「瞎」的问题**——让整形覆盖最终 payload（如把 `beforeModel` 注入并入预算计算，或将整形移到注入之后再做总量校验）。 | [上下文管理器](../runtime/context-manager.md) |
   | **回合内工具并行** | runLoop 对一回合内的多个 `tool_use` 是**串行** for 循环逐个执行（`packages/framework/src/run-loop.ts`）。 | 为工具声明执行模式，对可并行的只读工具在同一回合内并发执行，串行/并行混跑时保持结果对账与 `tool_result` 配对正确。 | [Framework 运行循环](../runtime/framework.md) |
   | **运行中插话（steering / follow-up）** | `AgentRunOptions` 仅含 `{signal, maxSteps, stream, maxForceContinues, runId}`，消息集在入口固定；运行中无法追加用户输入。 | 引入 steering / follow-up 消息队列：循环每步去队列里取新输入插入上下文，让用户在长任务运行中途纠偏、补充，而无需打断重启。 | [Framework 运行循环](../runtime/framework.md) |
   | **Skill 双域 + 显式调用** | [渐进式技能](../plugins/progressive-skill.md) 仅单域 `/skills/`（private），只有 `skill_load` 工具；无全局/项目双域、无 `/skill:name` 显式调用、无 `disable-model-invocation`。 | 补全局 + 项目双域发现、`/skill:name` 显式调用入口、以及 `disable-model-invocation`（仅人工显式触发、模型不得自动调用）。 | [渐进式技能](../plugins/progressive-skill.md) |

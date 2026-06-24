@@ -55,6 +55,10 @@ flowchart LR
   B --> M[model.stream]
 ```
 
+### 当前局限：预算对注入是「瞎」的
+
+这个顺序有一个现状缺陷需要明确：`shape` 的 token 预算只对它收到的 `thread.messages` 计数，**而真正发给模型的是 `beforeModel` 注入之后的 `finalMsgs`**（记忆快照、技能索引等都加在 `shape` 之后）。也就是说，即使 `summarizingContextManager` / `tokenBudgetContextManager` 把历史压到了预算线以内，紧随其后的注入又会把体积加回去——最终 payload 仍可能超出上下文窗口。整形器看不到它自己之后被塞进来的那部分，预算因此是不准的。这一缺陷的修复方向收拢在[未来工作](../roadmap/future-work.md)（M22）。
+
 ## 自带的 5 种实现
 
 框架在 `packages/framework/src/context-managers/` 提供 5 种现成实现，各管一种「太长了怎么办」：
