@@ -46,16 +46,14 @@ used_by:
 
   原则：每个里程碑落地时，同步回填它所触及的 `status: current` 页（[Issue](../foundations/issue.md)、[Orchestrator](../backend/orchestrator.md)、[Issue 生命周期端到端](../flows/e2e-issue-lifecycle.md)），并把对应小节从 [Issue 协作工作流](../foundations/issue-workflow.md) 的 `design` 状态推进为现状。
 - **@提及收编进编排**　现状里 @提及自动触发（`onRunComplete` 扫描文本 → `forkAgentRuns`）和 Orchestrator 的状态机推进是两套驱动。未来可把对话内的 @提及招呼也统一交给编排器调度，让「下一步谁干」只有一个权威来源。依赖：[Orchestrator](../backend/orchestrator.md)、[对话与成员](../conversation/conversation-and-members.md)。
-- **Harness 运行时加固（M22）**　把底层 L2/L3 harness 在「长任务、并行、可干预、技能完备」四个维度补到与对标实现持平。四项各自依赖一个现有抽象，合并为一个里程碑推进：
+- **Harness 运行时加固（M22）**　**已落地。** 四项子任务全部完成，相关 `status: current` 页面已回填：
 
-  | 子项 | 现状 | 方向 | 依赖 |
-  |---|---|---|---|
-  | **上下文压缩转默认** | [上下文管理器](../runtime/context-manager.md) 五种实现已落地，但 `createGenericAgent` 默认仍是 `passthroughContextManager`（不裁剪）；摘要为自由文本。**且整形顺序有缺陷**：`shape` 在 `beforeModel` 之前、预算只覆盖 `thread.messages`，而记忆/技能注入加在其后，压缩后仍可能超窗。 | 把某种实现（如 token 预算 / 摘要）提为通用 Agent 默认；把摘要从自由文本升级为「目标 / 约束 / 进度 / 决策 / 下一步」结构化分区；**修复预算对注入「瞎」的问题**——让整形覆盖最终 payload（如把 `beforeModel` 注入并入预算计算，或将整形移到注入之后再做总量校验）。 | [上下文管理器](../runtime/context-manager.md) |
-  | **回合内工具并行** | runLoop 对一回合内的多个 `tool_use` 是**串行** for 循环逐个执行（`packages/framework/src/run-loop.ts`）。 | 为工具声明执行模式，对可并行的只读工具在同一回合内并发执行，串行/并行混跑时保持结果对账与 `tool_result` 配对正确。 | [Framework 运行循环](../runtime/framework.md) |
-  | **运行中插话（steering / follow-up）** | `AgentRunOptions` 仅含 `{signal, maxSteps, stream, maxForceContinues, runId}`，消息集在入口固定；运行中无法追加用户输入。 | 引入 steering / follow-up 消息队列：循环每步去队列里取新输入插入上下文，让用户在长任务运行中途纠偏、补充，而无需打断重启。 | [Framework 运行循环](../runtime/framework.md) |
-  | **Skill 双域 + 显式调用** | [渐进式技能](../plugins/progressive-skill.md) 仅单域 `/skills/`（private），只有 `skill_load` 工具；无全局/项目双域、无 `/skill:name` 显式调用、无 `disable-model-invocation`。 | 补全局 + 项目双域发现、`/skill:name` 显式调用入口、以及 `disable-model-invocation`（仅人工显式触发、模型不得自动调用）。 | [渐进式技能](../plugins/progressive-skill.md) |
-
-  内部落地顺序：① 回合内工具并行 → ② 上下文压缩转默认 → ③ 运行中插话 → ④ Skill 双域。原则同上：每项落地时回填它所依赖的 `status: current` 页。
+  | 子项 | 结果 | 回填页面 |
+  |---|---|---|
+  | **上下文压缩转默认** | shape/beforeModel 顺序反转（先注入再整形，预算不再「瞎」）；Harness 默认 `pipeContextManagers(toolResultTruncator, summarizingContextManager{structuredSummarize})`；引入 `structuredSummarize` 结构化摘要器。 | [上下文管理器](../runtime/context-manager.md) |
+  | **回合内工具并行** | 工具声明 `executionMode: "concurrent"`，同回合并发执行；串行/并行混跑，`tool_result` 按原始顺序插入保证消息合法。 | [Framework 运行循环](../runtime/framework.md) |
+  | **运行中插话（steering / follow-up）** | 引入 SteeringQueue（每步排出干预消息）+ FollowUpQueue（外层跟进循环），长任务中途可纠偏/补充而无需打断重启。 | [Framework 运行循环](../runtime/framework.md) |
+  | **Skill 双域 + 显式调用** | 双域发现（global + project 双 roots，project 同名覆盖 global）；`/skill:name` 显式调用；`disableModelInvocation` 关闭模型自动触发。 | [渐进式技能](../plugins/progressive-skill.md) |
 
 ## 处理原则
 
