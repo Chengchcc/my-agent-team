@@ -148,7 +148,8 @@ export function CronJobForm({ editCronJob, onSuccess }: CronJobFormProps) {
       // PATCH /cron-jobs/:id does not accept `enabled` (it is toggled via the
       // dedicated /enable endpoint). The server's updateSchema is .strict(), so
       // leaving `enabled` in the body makes every save 400. Strip it here.
-      const { enabled: _enabled, ...patch } = values;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { enabled, ...patch } = values;
       updateMu.mutate(patch);
     } else {
       createMu.mutate(values);
