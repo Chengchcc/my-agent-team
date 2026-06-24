@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk, ChatModel, Tool } from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
-import type { AgentRuntime } from "./agent-options.js";
+import type { AgentRuntime, FollowUpQueue, SteeringQueue } from "./agent-options.js";
 import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
 import { createPluginRunner } from "./plugin-runner.js";
 import { runLoop } from "./run-loop.js";
@@ -244,5 +244,102 @@ describe("runLoop tool parallel execution", () => {
     expect(s1Idx).toBeLessThan(Math.min(c1Idx, c2Idx));
     // s2 runs after c1/c2 (its own batch after concurrent batch)
     expect(s2Idx).toBeGreaterThan(Math.max(c1Idx, c2Idx));
+  });
+});
+
+describe("runLoop steering", () => {
+  test("steering messages appear in thread before model call", async () => {
+    let modelReceivedMsgs: Message[] = [];
+    const model: ChatModel = {
+      id: "test-steering",
+      stream: async function* (msgs: Message[]) {
+        modelReceivedMsgs = [...msgs];
+        yield { delta: { type: "text", text: "ok" }, stopReason: "end_turn", done: true, usage: { input: 10, output: 2 } };
+      },
+      countTokens: async () => 0,
+    };
+
+    const rt = makeRt();
+    rt.model = model;
+
+    const queue: Message[] = [{ role: "user", text: "steering: correct course" }];
+    const steering: SteeringQueue = {
+      drain: () => {
+        const items = [...queue];
+        queue.length = 0;
+        return items;
+      },
+    };
+
+    for await (const ev of runLoop(rt, { maxSteps: 1, steering })) {}
+
+    expect(modelReceivedMsgs.some((m) => (m as any).text?.includes("steering: correct course"))).toBe(true);
+  });
+
+  test("no steering → runLoop behaves identically to before", async () => {
+    const rt = makeRt();
+    rt.model = {
+      id: "test-no-steering",
+      stream: async function* () {
+        yield { delta: { type: "text", text: "ok" }, stopReason: "end_turn", done: true, usage: { input: 10, output: 2 } };
+      },
+      countTokens: async () => 0,
+    };
+
+    const events: any[] = [];
+    for await (const ev of runLoop(rt, { maxSteps: 1 })) {
+      events.push(ev);
+    }
+
+    expect(events.some((e) => e.type === "message")).toBe(true);
+  });
+
+  test("follow-up messages trigger a new inner loop iteration", async () => {
+    let callCount = 0;
+    const model: ChatModel = {
+      id: "test-followup",
+      stream: async function* () {
+        callCount++;
+        yield { delta: { type: "text", text: `turn-${callCount}` }, stopReason: "end_turn", done: true, usage: { input: 10, output: 5 } };
+      },
+      countTokens: async () => 0,
+    };
+
+    const rt = makeRt();
+    rt.model = model;
+
+    const followUpQueue: Message[] = [{ role: "user", text: "follow-up: do more" }];
+    const followUp: FollowUpQueue = {
+      drain: () => {
+        const items = [...followUpQueue];
+        followUpQueue.length = 0;
+        return items;
+      },
+    };
+
+    for await (const ev of runLoop(rt, { maxSteps: 1, followUp })) {}
+
+    // Model called twice: once for initial run, once for follow-up
+    expect(callCount).toBe(2);
+  });
+
+  test("no follow-up → single outer loop iteration (existing behavior)", async () => {
+    let callCount = 0;
+    const model: ChatModel = {
+      id: "test-no-followup",
+      stream: async function* () {
+        callCount++;
+        yield { delta: { type: "text", text: "done" }, stopReason: "end_turn", done: true, usage: { input: 10, output: 5 } };
+      },
+      countTokens: async () => 0,
+    };
+
+    const rt = makeRt();
+    rt.model = model;
+
+    for await (const ev of runLoop(rt, { maxSteps: 2 })) {}
+
+    // Without follow-up, model returns no tool_use blocks → stops at step 0
+    expect(callCount).toBe(1);
   });
 });

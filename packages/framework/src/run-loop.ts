@@ -61,6 +61,7 @@ export async function* runLoop(
   // accumulate across steps and are NOT reset per turn — resetting them
   // orphaned every non-final turn in a permanently-open (streaming) state.
   const assistantOrdinal = 0;
+  let doneNormally = false;
   while (true) {
     for (let step = 0; step < opts.maxSteps; step++) {
       if (opts.signal?.aborted) {
@@ -102,7 +103,13 @@ export async function* runLoop(
       // Mark all injected messages as preserved — shaper must not drop them.
       const preserve = { ranges: [{ start: 0, end: injected.length }] };
       const finalMsgs = await rt.contextManager.shape(
-        { threadId: rt.thread.id, signal: opts.signal, logger: rt.logger, model: rt.model, preserve },
+        {
+          threadId: rt.thread.id,
+          signal: opts.signal,
+          logger: rt.logger,
+          model: rt.model,
+          preserve,
+        },
         injected,
       );
 
@@ -180,7 +187,8 @@ export async function* runLoop(
           reason: "complete",
           ts: Date.now(),
         });
-        return;
+        doneNormally = true;
+        break;
       }
 
       // Push assistant message to thread (internal, for LLM context)
@@ -245,7 +253,8 @@ export async function* runLoop(
           reason: "complete",
           ts: Date.now(),
         });
-        return;
+        doneNormally = true;
+        break;
       }
 
       // Group tool_use blocks into batches: consecutive concurrent tools
@@ -368,28 +377,31 @@ export async function* runLoop(
     rt.thread.messages.push(...followUps);
     await rt.save(rt.thread.messages);
     forceContinues = 0;
+    doneNormally = false;
   }
 
-  // M17.2 fix: maxSteps reached — mark remaining running tools as error
-  markRunningToolsAsError(rt);
-  yield {
-    type: "message",
-    payload: {
-      ...buildAssistantRevision(
-        rt.runId,
-        assistantOrdinal,
-        "error",
-        rt.assistantBlocks,
-        rt.toolStates,
-      ),
-      error: { message: "Max steps reached" },
-    },
-  };
-  await rt.checkpointer.appendEvent?.(rt.thread.id, {
-    type: "run_end",
-    reason: "maxSteps",
-    ts: Date.now(),
-  });
+  if (!doneNormally) {
+    // M17.2 fix: maxSteps reached — mark remaining running tools as error
+    markRunningToolsAsError(rt);
+    yield {
+      type: "message",
+      payload: {
+        ...buildAssistantRevision(
+          rt.runId,
+          assistantOrdinal,
+          "error",
+          rt.assistantBlocks,
+          rt.toolStates,
+        ),
+        error: { message: "Max steps reached" },
+      },
+    };
+    await rt.checkpointer.appendEvent?.(rt.thread.id, {
+      type: "run_end",
+      reason: "maxSteps",
+      ts: Date.now(),
+    });
+  }
 }
 
 /** Mark any still-running tools as error (used at abort/maxSteps boundaries). */
