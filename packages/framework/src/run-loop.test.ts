@@ -53,7 +53,14 @@ function toolUseModel(calls: Array<{ id: string; name: string; input?: unknown }
             type: "tool_use",
             id: c.id,
             name: c.name,
-            input: JSON.stringify(c.input ?? {}),
+          },
+          usage: { input: 10, output: 5 },
+        };
+        yield {
+          delta: {
+            type: "input_json_delta",
+            id: c.id,
+            partial_json: JSON.stringify(c.input ?? {}),
           },
           usage: { input: 10, output: 5 },
         };
