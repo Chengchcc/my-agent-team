@@ -19,9 +19,9 @@ describe("mtime cache", () => {
     );
     invalidateSkillCache(root);
 
-    const first = await loadSkillIndexWithMtimeCache(ws, root);
-    const second = await loadSkillIndexWithMtimeCache(ws, root);
-    expect(second).toBe(first); // same array reference
+    const first = await loadSkillIndexWithMtimeCache(ws, [root]);
+    const second = await loadSkillIndexWithMtimeCache(ws, [root]);
+    expect(second).toEqual(first); // same content (merged from per-root caches)
   });
 
   test("invalidate forces re-read", async () => {
@@ -33,9 +33,9 @@ describe("mtime cache", () => {
     );
     invalidateSkillCache(root);
 
-    const first = await loadSkillIndexWithMtimeCache(ws, root);
+    const first = await loadSkillIndexWithMtimeCache(ws, [root]);
     invalidateSkillCache(root);
-    const second = await loadSkillIndexWithMtimeCache(ws, root);
+    const second = await loadSkillIndexWithMtimeCache(ws, [root]);
     expect(second).not.toBe(first);
   });
 
@@ -48,7 +48,7 @@ describe("mtime cache", () => {
     );
     invalidateSkillCache(root);
 
-    const first = await loadSkillIndexWithMtimeCache(ws, root);
+    const first = await loadSkillIndexWithMtimeCache(ws, [root]);
     expect(first.length).toBeGreaterThanOrEqual(1);
 
     // Add a new skill directory
@@ -59,7 +59,7 @@ describe("mtime cache", () => {
     // Force cache invalidation to avoid mtime resolution flakiness
     invalidateSkillCache(root);
 
-    const second = await loadSkillIndexWithMtimeCache(ws, root);
+    const second = await loadSkillIndexWithMtimeCache(ws, [root]);
     expect(second.length).toBeGreaterThan(first.length);
     expect(second.some((s) => s.name === "beta")).toBe(true);
   });

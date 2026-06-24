@@ -27,7 +27,7 @@ describe("frontmatter tolerance", () => {
       },
     };
 
-    const skills = await loadSkillIndexWithMtimeCache(ws, root, logger);
+    const skills = await loadSkillIndexWithMtimeCache(ws, [root], logger);
     expect(skills).toHaveLength(1);
     expect(skills[0]?.name).toBe("good-skill");
     expect(warnings.some((w) => w.msg.includes("bad-skill"))).toBe(true);
@@ -43,7 +43,7 @@ describe("frontmatter tolerance", () => {
     invalidateSkillCache(root);
 
     const logger = { warn: () => {} };
-    const skills = await loadSkillIndexWithMtimeCache(ws, root, logger);
+    const skills = await loadSkillIndexWithMtimeCache(ws, [root], logger);
     expect(skills).toHaveLength(0);
   });
 });

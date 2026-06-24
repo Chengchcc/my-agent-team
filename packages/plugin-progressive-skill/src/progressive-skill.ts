@@ -6,7 +6,10 @@ import { skillLoadTool } from "./skill-load.js";
 
 export interface ProgressiveSkillOptions {
   ws: AgentFsLike;
+  /** Single root (backward compat). Use `roots` for multi-domain. */
   root?: string;
+  /** Multiple roots in priority order (later overrides earlier on name collision). */
+  roots?: string[];
   maxCharsPerLoad?: number;
   /** POSIX path prefix for the skill root. When set, ${SKILL_DIR} is replaced
    *  with this prefix + relative path instead of the logical path.
@@ -17,18 +20,18 @@ export interface ProgressiveSkillOptions {
 
 export function progressiveSkillPlugin(options: ProgressiveSkillOptions): Plugin {
   const ws = options.ws;
-  const root = options.root ?? "/skills/";
+  const roots = options.roots ?? [options.root ?? "/skills/"];
   const maxCharsPerLoad = options.maxCharsPerLoad ?? 8000;
   const posixSkillRoot = options.posixSkillRoot;
 
   return {
     name: "progressive-skill",
-    tools: [skillLoadTool({ ws, root, maxCharsPerLoad, posixSkillRoot })],
+    tools: [skillLoadTool({ ws, roots, maxCharsPerLoad, posixSkillRoot })],
     hooks: {
       async beforeModel(ctx, messages: readonly Message[]) {
         let skills: SkillMeta[];
         try {
-          skills = await loadSkillIndexWithMtimeCache(ws, root, ctx.logger);
+          skills = await loadSkillIndexWithMtimeCache(ws, roots, ctx.logger);
         } catch (err) {
           ctx.logger.warn("progressive-skill: load failed, skipping injection", err);
           return [...messages];
@@ -42,7 +45,7 @@ export function progressiveSkillPlugin(options: ProgressiveSkillOptions): Plugin
           return [...messages];
         }
 
-        const indexBlock = renderIndex(skills);
+        const indexBlock = renderIndex(skills.filter((s) => !s.disableModelInvocation));
         const sys = messages[systemIdx];
         if (!sys) return messages as Message[];
         const newSys = {

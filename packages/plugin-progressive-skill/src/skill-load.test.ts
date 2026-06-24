@@ -33,7 +33,7 @@ describe("skill_load", () => {
     await ws.write("/skills/test-skill/SKILL.md", testSkillMd);
     invalidateSkillCache(root);
 
-    const tool = skillLoadTool({ ws, root });
+    const tool = skillLoadTool({ ws, roots: [root] });
     const result = await tool.execute({ name: "test-skill" });
     expect(result.content).toContain("This is the body of the test skill.");
     expect(result.content).not.toContain("---");
@@ -45,7 +45,7 @@ describe("skill_load", () => {
     const root = "/skills/";
     invalidateSkillCache(root);
 
-    const tool = skillLoadTool({ ws, root });
+    const tool = skillLoadTool({ ws, roots: [root] });
     const result = await tool.execute({ name: "nonexistent" });
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Skill not found");
@@ -57,7 +57,7 @@ describe("skill_load", () => {
     await ws.write("/skills/test-skill/SKILL.md", testSkillMd);
     invalidateSkillCache(root);
 
-    const tool = skillLoadTool({ ws, root, maxCharsPerLoad: 30 });
+    const tool = skillLoadTool({ ws, roots: [root], maxCharsPerLoad: 30 });
     const r1 = await tool.execute({ name: "test-skill" });
     expect(r1.content).toContain("[Truncated");
 
@@ -75,7 +75,7 @@ describe("skill_load", () => {
     await ws.write("/skills/test-skill/SKILL.md", testSkillMd);
     invalidateSkillCache(root);
 
-    const tool = skillLoadTool({ ws, root });
+    const tool = skillLoadTool({ ws, roots: [root] });
     const result = await tool.execute({ name: "test-skill", offset: 99999 });
     expect(result.content).toContain("fully loaded");
   });
@@ -98,7 +98,7 @@ describe("skill_load", () => {
     );
     invalidateSkillCache(root);
 
-    const tool = skillLoadTool({ ws, root, posixSkillRoot });
+    const tool = skillLoadTool({ ws, roots: [root], posixSkillRoot });
     const result = await tool.execute({ name: "demo" });
     expect(result.content).toContain("python /real/path/skills/demo/script.py");
     expect(result.content).toContain("bash /real/path/skills/demo/tools/helper.sh");
@@ -116,7 +116,7 @@ describe("skill_load", () => {
     );
     invalidateSkillCache(root);
 
-    const tool = skillLoadTool({ ws, root }); // no posixSkillRoot
+    const tool = skillLoadTool({ ws, roots: [root] }); // no posixSkillRoot
     const result = await tool.execute({ name: "demo" });
     expect(result.content).toContain("Use: /skills/demo/x");
     expect(result.content).not.toContain("${SKILL_DIR}");
