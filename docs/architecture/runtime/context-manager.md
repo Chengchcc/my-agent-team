@@ -4,7 +4,7 @@ title: 上下文管理器
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-24
-summary: "上下文管理器（ContextManager）是 runLoop 在每次调模型「之前」对消息历史做整形的那一道关口。它只有一个方法 shape：拿到完整线程消息，返回一份「这次该喂给模型」的消息。框架自带 5 种实现（透传、滑动窗口、token 预算、工具结果截断、摘要压缩），可用 pipeContextManagers 串联；但默认装的是透传，即「什么都不改」。它和插件的 beforeModel 钩子分工明确：先 shape 决定历史形状，再 beforeModel 注入记忆/技能。"
+summary: "上下文管理器（ContextManager）是 runLoop 在每次调模型「之前」对消息历史做整形的那一道关口。它只有一个方法 shape：拿到完整线程消息，返回一份「这次该喂给模型」的消息。框架自带 5 种实现（透传、滑动窗口、token 预算、工具结果截断、结构化摘要压缩），可用 pipeContextManagers 串联。Harness 默认装配为 toolResultTruncator + summarizingContextManager（含 structuredSummarize）。它和插件的 beforeModel 钩子分工明确：先 beforeModel 注入记忆/技能，再 shape 决定最终发送形状（M22 修复后 finalMsgs 就是 shaped 结果，预算不再「瞎」）。"
 depends_on:
   - runtime.framework
 used_by:
@@ -43,21 +43,21 @@ const finalMsgs = await rt.plugins.fireBeforeModel(shaped);
 // ... model.stream(finalMsgs, ...)
 ```
 
-顺序是关键：**先 `shape`，再 `beforeModel`**。上下文管理器先决定「历史保留成什么形状」，插件的 `beforeModel` 钩子再在这份形状之上注入临时内容（记忆、技能索引、系统提示）。两者职责不重叠：
+顺序是关键（M22 已修复为）：**先 `beforeModel`，再 `shape`**。插件的 `beforeModel` 钩子先把记忆、技能索引、系统提示等临时内容注入线程消息，上下文管理器再对注入后的完整消息做裁剪/压缩/截断，产出最终发送给模型的消息。两者职责不重叠：
 
-- `shape` 管**历史的形状**——裁剪、压缩、截断既有消息，对象是「过去」。
 - `beforeModel` 管**临时的注入**——把记忆/技能拼进去，对象是「这次额外要带的东西」。
+- `shape` 管**最终发送形状**——对注入后的完整消息做裁剪、压缩、截断，对象是「注入之后的整体」。
 
 ```mermaid
 flowchart LR
-  T[thread.messages<br/>完整历史] --> S[contextManager.shape<br/>裁剪/压缩历史]
-  S --> B[plugins.beforeModel<br/>注入记忆/技能]
-  B --> M[model.stream]
+  T[thread.messages<br/>完整历史] --> B[plugins.beforeModel<br/>注入记忆/技能]
+  B --> S[contextManager.shape<br/>裁剪/压缩最终payload]
+  S --> M[model.stream]
 ```
 
-### 当前局限：预算对注入是「瞎」的
+### M22 修复：预算不再「瞎」
 
-这个顺序有一个现状缺陷需要明确：`shape` 的 token 预算只对它收到的 `thread.messages` 计数，**而真正发给模型的是 `beforeModel` 注入之后的 `finalMsgs`**（记忆快照、技能索引等都加在 `shape` 之后）。也就是说，即使 `summarizingContextManager` / `tokenBudgetContextManager` 把历史压到了预算线以内，紧随其后的注入又会把体积加回去——最终 payload 仍可能超出上下文窗口。整形器看不到它自己之后被塞进来的那部分，预算因此是不准的。这一缺陷的修复方向收拢在[未来工作](../roadmap/future-work.md)（M22）。
+早期版本中 `shape` 在 `beforeModel` 之前执行，导致 token 预算只对 `thread.messages` 计数，而真正发给模型的 `finalMsgs` 还包含 `beforeModel` 注入的记忆/技能——整形器看不到注入的部分，预算不准。M22 将顺序反转：`beforeModel` 先注入，`shape` 再对完整 payload 做整形。现在 `finalMsgs` 就是 `shape` 的产出，整形器的预算覆盖了最终发给模型的一切，不再有「注入撑爆窗口」的风险。
 
 ## 自带的 5 种实现
 
@@ -73,15 +73,17 @@ flowchart LR
 
 后三种都涉及「删/改消息」，因此都用 `repairToolPairs` 兜底：压缩或裁剪可能把一对 `tool_use` / `tool_result` 拆散在边界两侧，`repairToolPairs` 负责修复这种悬空配对，避免给模型喂出不合法的消息序列。
 
-### 摘要是自由文本，不是结构化字段
+### 结构化摘要（M22 起为 Harness 默认）
 
-`summarizingContextManager` 的默认摘要器（`defaultSummarize`）做的是：把旧消息追加一句「concisely summarize…」的指令丢给模型，取回纯文本，包成一条 `user` 消息——
+M22 之前，`summarizingContextManager` 的默认摘要器（`defaultSummarize`）产出的是自由文本——把旧消息追加一句「concisely summarize…」的指令丢给模型，取回纯文本，包成一条 `user` 消息：
 
 ```ts
 return { role: "user", text: `[Earlier conversation summary]: ${text}` };
 ```
 
-也就是说，**当前的摘要是一段自由文本**，没有「目标 / 约束 / 进度 / 决策 / 下一步」这类结构化分区。`SummarizingOptions.summarizer` 留了注入点，调用方可以传自定义摘要器换掉默认实现。
+自由文本摘要没有「目标 / 约束 / 进度 / 决策 / 下一步」这类结构化分区，信息密度低且不易被下游提取。
+
+M22 引入了 `structuredSummarize` 摘要器，按固定分区（目标、约束、进度、决策、下一步）产出结构化摘要，信息密度和可提取性显著提升。Harness 的 `createGenericAgent` 默认装配 `summarizingContextManager` 时使用 `structuredSummarize`，不再依赖自由文本默认摘要器。`SummarizingOptions.summarizer` 仍可被调用方覆盖以换回自由文本或其他自定义实现。
 
 ## 组合：pipeContextManagers
 
@@ -96,11 +98,18 @@ pipeContextManagers(
 
 这让「先截断单条、再控总量」这类组合策略不必写成一个大实现——每个管理器只关心一件事。
 
-## 默认是透传：能力在、但没接上
+## Harness 默认装配（M22 起）
 
-需要强调的现状：尽管这套子系统完整存在，**`createAgent` 的默认上下文管理器是 `passthroughContextManager()`**（`packages/framework/src/create-agent.ts`），[Harness](../harness/harness.md) 的 `createGenericAgent` 也没有覆盖它。也就是说，**通用 Agent 当前跑的是「不裁剪」**——历史会一直原样喂给模型，直到撞上窗口上限。滑动窗口、token 预算、摘要压缩这些实现都已就绪，但要生效得由调用方显式传入 `config.contextManager`。
+M22 之前，`createAgent` 的默认上下文管理器是 `passthroughContextManager()`（即不裁剪），[Harness](../harness/harness.md) 的 `createGenericAgent` 也没有覆盖它。M22 起，Harness 默认装配了上下文压缩管道：
 
-这是一个「能力已落地、默认未启用」的状态。把哪种实现提为默认、摘要要不要升级成结构化分区，属于[未来工作](../roadmap/future-work.md)的范畴。
+```ts
+pipeContextManagers(
+  toolResultTruncator({ maxCharsPerResult: 4000 }),   // 先截断巨型工具结果
+  summarizingContextManager({ summarizer: structuredSummarize }),  // 再结构化摘要压缩
+);
+```
+
+这样通用 Agent 默认就具备上下文压缩能力：工具结果先被截断到合理长度，历史再被结构化摘要压进窗口。调用方仍可通过 `config.contextManager` 覆盖此默认值。
 
 ## 关联页面
 
