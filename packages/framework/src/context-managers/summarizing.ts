@@ -18,7 +18,7 @@ function approximateTokens(messages: readonly Message[]): number {
   return Math.ceil(JSON.stringify(messages).length / APPROX_CHARS_PER_TOKEN);
 }
 
-async function defaultSummarize(
+export async function defaultSummarize(
   old: Message[],
   model: ChatModel,
   signal?: AbortSignal,
@@ -33,6 +33,35 @@ async function defaultSummarize(
   const { blocks } = await collectStream(model.stream(promptMsgs, { signal }));
   const text = extractText({ blocks: blocks as readonly { type: string; text?: string }[] });
   return { role: "user", text: `[Earlier conversation summary]: ${text}` };
+}
+
+/** Structured summarizer: prompts the model to output a five-section summary
+ *  (目标/约束/进度/关键决策/下一步) instead of free-form text.
+ *  Missing sections are tolerated — the prompt is a strong hint, not a schema. */
+export async function structuredSummarize(
+  old: Message[],
+  model: ChatModel,
+  signal?: AbortSignal,
+): Promise<Message> {
+  const promptMsgs: Message[] = [
+    ...old,
+    {
+      role: "user",
+      text: [
+        "Summarize the conversation above in the following structured format. ",
+        "Output ONLY the summary in the exact format below, no preamble or commentary:\n",
+        "[对话摘要]",
+        "- 目标: (what the user is trying to achieve)",
+        "- 约束: (any constraints or limits mentioned)",
+        "- 进度: (what has been completed so far)",
+        "- 关键决策: (important decisions made)",
+        "- 下一步: (what needs to happen next)",
+      ].join("\n"),
+    },
+  ];
+  const { blocks } = await collectStream(model.stream(promptMsgs, { signal }));
+  const text = extractText({ blocks: blocks as readonly { type: string; text?: string }[] });
+  return { role: "user", text: `[Earlier conversation summary]:\n${text}` };
 }
 
 export function summarizingContextManager(opts: SummarizingOptions): ContextManager {
