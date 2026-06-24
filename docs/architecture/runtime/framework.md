@@ -56,7 +56,22 @@ Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏
 
 这套钩子是 task-guard、observability 等插件的接入点。
 
-## Agent API：run / continue / fork / resume
+## M22 增强：工具并行与运行中干预
+
+M22 为 runLoop 增加了两个关键能力：
+
+### 回合内工具并行
+
+工具可通过 `executionMode` 声明执行策略。标记为 `"concurrent"` 的只读工具在同一回合内并发执行，而非逐个串行。模型返回多个 `tool_use` 时，并发批次内的工具同步启动，待全部完成后统一收集 `tool_result` 并配对回消息历史。串行（`"sequential"`，默认）与并行工具可混合：同一回合内先跑完所有串行工具，再成批跑并行工具。并行工具的 `tool_result` 按 `tool_use` 原始顺序插入，保证消息序列合法。
+
+### 运行中干预（Steering + Follow-up）
+
+入 runLoop 时消息集不再固定。新增两个队列接口：
+
+- **SteeringQueue**：运行中每步开始时排出用户干预消息，注入当前回合上下文。适合中途纠偏、补充约束。
+- **FollowUpQueue**：外层循环在每次 run 自然结束后检查是否有待处理的跟进消息，有则触发新一轮 run 而非立刻停。适合「下一轮再收口」这类延迟干预。
+
+两者让长任务运行可被中途干预而无需打断重启，同时保持循环本体的单向推进语义。
 
 Framework 返回的 `Agent` 对象暴露四种执行入口：
 
