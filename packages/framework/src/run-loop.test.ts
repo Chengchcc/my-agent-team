@@ -1,29 +1,30 @@
 import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk, ChatModel, Tool } from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
-import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
 import type { AgentRuntime } from "./agent-options.js";
+import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
 import { createPluginRunner } from "./plugin-runner.js";
 import { runLoop } from "./run-loop.js";
 
-function makeRt(opts: {
-  tools?: Tool[];
-  messages?: Message[];
-} = {}): AgentRuntime {
+function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRuntime {
   const tools = opts.tools ?? [];
   const toolMap = new Map(tools.map((t) => [t.name, t]));
   const checkpointer = inMemoryCheckpointer();
   const logger = consoleLogger({ level: "silent" });
   return {
     thread: { id: "t1", messages: opts.messages ?? [] },
-    plugins: createPluginRunner([], {
-      threadId: "t1",
-      signal: undefined,
+    plugins: createPluginRunner(
+      [],
+      {
+        threadId: "t1",
+        signal: undefined,
+        logger,
+        checkpointer,
+        contextManager: passthroughContextManager(),
+        emit: () => {},
+      },
       logger,
-      checkpointer,
-      contextManager: passthroughContextManager(),
-      emit: () => {},
-    }, logger),
+    ),
     toolMap,
     checkpointer,
     contextManager: passthroughContextManager(),
@@ -57,7 +58,12 @@ function toolUseModel(calls: Array<{ id: string; name: string; input?: unknown }
           usage: { input: 10, output: 5 },
         };
       }
-      yield { delta: { type: "text", text: "" }, stopReason: "tool_use", done: true, usage: { input: 10, output: 10 } };
+      yield {
+        delta: { type: "text", text: "" },
+        stopReason: "tool_use",
+        done: true,
+        usage: { input: 10, output: 10 },
+      };
     },
     countTokens: async () => 0,
   };
@@ -67,14 +73,24 @@ describe("runLoop tool parallel execution", () => {
   test("serial tools execute in order via executeOne path", async () => {
     const calls: string[] = [];
     const t1: Tool = {
-      name: "t1", description: "", inputSchema: {},
+      name: "t1",
+      description: "",
+      inputSchema: {},
       executionMode: "serial",
-      execute: async () => { calls.push("t1"); return { content: "ok" }; },
+      execute: async () => {
+        calls.push("t1");
+        return { content: "ok" };
+      },
     };
     const t2: Tool = {
-      name: "t2", description: "", inputSchema: {},
+      name: "t2",
+      description: "",
+      inputSchema: {},
       executionMode: "serial",
-      execute: async () => { calls.push("t2"); return { content: "ok" }; },
+      execute: async () => {
+        calls.push("t2");
+        return { content: "ok" };
+      },
     };
 
     const rt = makeRt({ tools: [t1, t2] });
@@ -83,7 +99,8 @@ describe("runLoop tool parallel execution", () => {
       { id: "c2", name: "t2" },
     ]);
 
-    for await (const ev of runLoop(rt, { maxSteps: 1 })) {}
+    for await (const ev of runLoop(rt, { maxSteps: 1 })) {
+    }
 
     expect(calls).toEqual(["t1", "t2"]);
   });
@@ -93,7 +110,9 @@ describe("runLoop tool parallel execution", () => {
     const ends: number[] = [];
 
     const slow: Tool = {
-      name: "slow", description: "", inputSchema: {},
+      name: "slow",
+      description: "",
+      inputSchema: {},
       executionMode: "concurrent",
       execute: async () => {
         starts.push(Date.now());
@@ -109,7 +128,8 @@ describe("runLoop tool parallel execution", () => {
       { id: "c2", name: "slow" },
     ]);
 
-    for await (const ev of runLoop(rt, { maxSteps: 1 })) {}
+    for await (const ev of runLoop(rt, { maxSteps: 1 })) {
+    }
 
     expect(starts.length).toBe(2);
     expect(ends.length).toBe(2);
@@ -119,7 +139,9 @@ describe("runLoop tool parallel execution", () => {
 
   test("tool_results written in tool_use order, not completion order", async () => {
     const t1: Tool = {
-      name: "t1", description: "", inputSchema: {},
+      name: "t1",
+      description: "",
+      inputSchema: {},
       executionMode: "concurrent",
       execute: async () => {
         await new Promise((r) => setTimeout(r, 50));
@@ -127,7 +149,9 @@ describe("runLoop tool parallel execution", () => {
       },
     };
     const t2: Tool = {
-      name: "t2", description: "", inputSchema: {},
+      name: "t2",
+      description: "",
+      inputSchema: {},
       executionMode: "concurrent",
       execute: async () => {
         return { content: "t2-result" };
@@ -140,10 +164,11 @@ describe("runLoop tool parallel execution", () => {
       { id: "c2", name: "t2" },
     ]);
 
-    for await (const ev of runLoop(rt, { maxSteps: 1 })) {}
+    for await (const ev of runLoop(rt, { maxSteps: 1 })) {
+    }
 
-    const results = rt.thread.messages.filter((m) =>
-      Array.isArray(m.blocks) && m.blocks.some((b: any) => b.type === "tool_result")
+    const results = rt.thread.messages.filter(
+      (m) => Array.isArray(m.blocks) && m.blocks.some((b: any) => b.type === "tool_result"),
     );
     expect(results.length).toBe(2);
     expect((results[0]!.blocks as any[])[0]!.tool_use_id).toBe("c1");
@@ -153,24 +178,44 @@ describe("runLoop tool parallel execution", () => {
   test("mixed serial+concurrent → each serial gets own batch, concurrent grouped", async () => {
     const order: string[] = [];
     const s1: Tool = {
-      name: "s1", description: "", inputSchema: {},
+      name: "s1",
+      description: "",
+      inputSchema: {},
       executionMode: "serial",
-      execute: async () => { order.push("s1"); return { content: "ok" }; },
+      execute: async () => {
+        order.push("s1");
+        return { content: "ok" };
+      },
     };
     const c1: Tool = {
-      name: "c1", description: "", inputSchema: {},
+      name: "c1",
+      description: "",
+      inputSchema: {},
       executionMode: "concurrent",
-      execute: async () => { order.push("c1"); return { content: "ok" }; },
+      execute: async () => {
+        order.push("c1");
+        return { content: "ok" };
+      },
     };
     const c2: Tool = {
-      name: "c2", description: "", inputSchema: {},
+      name: "c2",
+      description: "",
+      inputSchema: {},
       executionMode: "concurrent",
-      execute: async () => { order.push("c2"); return { content: "ok" }; },
+      execute: async () => {
+        order.push("c2");
+        return { content: "ok" };
+      },
     };
     const s2: Tool = {
-      name: "s2", description: "", inputSchema: {},
+      name: "s2",
+      description: "",
+      inputSchema: {},
       executionMode: "serial",
-      execute: async () => { order.push("s2"); return { content: "ok" }; },
+      execute: async () => {
+        order.push("s2");
+        return { content: "ok" };
+      },
     };
 
     const rt = makeRt({ tools: [s1, c1, c2, s2] });
@@ -181,7 +226,8 @@ describe("runLoop tool parallel execution", () => {
       { id: "sc2", name: "s2" },
     ]);
 
-    for await (const ev of runLoop(rt, { maxSteps: 1 })) {}
+    for await (const ev of runLoop(rt, { maxSteps: 1 })) {
+    }
 
     const s1Idx = order.indexOf("s1");
     const s2Idx = order.indexOf("s2");
