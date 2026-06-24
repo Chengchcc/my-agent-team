@@ -788,7 +788,7 @@ describe("createAgent", () => {
       contextManager: {
         shape: (_ctx, msgs) => {
           calls.push("cm");
-          return msgs;
+          return [...msgs];
         },
       },
       plugins: [
@@ -797,7 +797,7 @@ describe("createAgent", () => {
           hooks: {
             beforeModel: (_ctx, msgs) => {
               calls.push("plugin");
-              return msgs;
+              return [...msgs];
             },
           },
         }),
