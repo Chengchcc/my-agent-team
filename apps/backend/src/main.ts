@@ -462,8 +462,10 @@ const shutdown = async (signal: string) => {
   server.stop();
   supervisor.cancelAll();
   await new Promise((r) => setTimeout(r, config.cancelGraceMs));
-  await supervisor.dispose();
+  // Stop cron timers/watchdogs BEFORE the supervisor closes eventsDb, so a
+  // watchdog or retry firing in the grace window can't touch a closed DB.
   cronScheduler.dispose();
+  await supervisor.dispose();
   await registry.dispose?.();
   await larkBotRegistry.dispose();
   setupManager?.dispose();

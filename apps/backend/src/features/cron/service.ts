@@ -15,6 +15,22 @@ export class CronJobValidationError extends Error {
   }
 }
 
+/** Semantic validation of a 5-field cron expression.
+ *  The HTTP/zod layer only checks field count; an expression like
+ *  "99 99 99 99 99" passes that but makes Bun.cron throw at register time,
+ *  which would 500 the request (after the row is already persisted) and,
+ *  worse, abort scheduler.start()'s registration loop on reboot. We reject
+ *  it up front by asking Bun to parse it. */
+function assertValidCronExpr(expr: string): void {
+  const parse = (Bun as unknown as { cron?: { parse?: (e: string) => unknown } }).cron?.parse;
+  if (typeof parse !== "function") return; // older Bun: fall back to register-time guard
+  try {
+    parse(expr);
+  } catch {
+    throw new CronJobValidationError(`invalid cron expression: ${expr}`);
+  }
+}
+
 export interface CronJobServiceDeps {
   port: CronJobPort;
   idGen: () => string;
@@ -60,6 +76,7 @@ export function createCronJobService(deps: CronJobServiceDeps) {
       if (!(await agentExists(input.agentId))) {
         throw new CronJobValidationError(`agent not found: ${input.agentId}`);
       }
+      assertValidCronExpr(input.cronExpr);
       const cronJobId = idGen();
       const ts = now();
       port.createCronJob({
@@ -120,6 +137,7 @@ export function createCronJobService(deps: CronJobServiceDeps) {
       if (patch.agentId !== undefined && !(await agentExists(patch.agentId))) {
         throw new CronJobValidationError(`agent not found: ${patch.agentId}`);
       }
+      if (patch.cronExpr !== undefined) assertValidCronExpr(patch.cronExpr);
       const result = port.updateCronJob(id, { ...patch, updatedAt: now() });
       if (!result) throw new CronJobNotFoundError(id);
       return result;

@@ -20,7 +20,11 @@ export function createCronScheduler(deps: {
   now?: () => number;
 }) {
   const handles = new Map<string, CronJob>();
-  const watchdogs = new Map<string, ReturnType<typeof setTimeout>>();
+  /** runId → { timer, cronJobId } so unregister() can clear in-flight watchdogs. */
+  const watchdogs = new Map<string, { timer: ReturnType<typeof setTimeout>; cronJobId: string }>();
+  /** runIds cancelled by their per-job watchdog — excluded from retry (a job that
+   *  always exceeds timeoutMs would otherwise burn every retry on the same timeout). */
+  const timedOut = new Set<string>();
   const retryTimers = new Set<ReturnType<typeof setTimeout>>();
   const retryCounts = new Map<string, number>();
 
@@ -54,10 +58,11 @@ export function createCronScheduler(deps: {
     });
 
     if (job.timeoutMs > 0) {
-      const wd = setTimeout(() => {
+      const timer = setTimeout(() => {
+        timedOut.add(runId);
         void deps.supervisor.cancel(runId);
       }, job.timeoutMs);
-      watchdogs.set(runId, wd);
+      watchdogs.set(runId, { timer, cronJobId: job.cronJobId });
     }
   }
 
@@ -74,21 +79,32 @@ export function createCronScheduler(deps: {
     // Clean watchdog timer if present
     const wd = watchdogs.get(runId);
     if (wd) {
-      clearTimeout(wd);
+      clearTimeout(wd.timer);
       watchdogs.delete(runId);
     }
+    const wasTimedOut = timedOut.delete(runId);
 
     // Only handle cron runs
     const origin = deps.opsStore.getRunOrigin(runId);
     if (origin?.originKind !== "cron" || !origin.cronJobId) return;
 
-    // No retry on success
-    if (status === "completed") return;
+    const fireKey = origin.idempotencyKey.split(":run:")[0]!;
+
+    // No retry on success — clear any retry bookkeeping for this fire.
+    if (status === "completed") {
+      retryCounts.delete(fireKey);
+      return;
+    }
+
+    // A run killed by its own per-job watchdog will time out again on retry;
+    // don't burn maxRetries on the same deterministic timeout.
+    if (wasTimedOut) {
+      retryCounts.delete(fireKey);
+      return;
+    }
 
     const job = deps.cronSvc.port.getCronJob(origin.cronJobId);
     if (!job || job.maxRetries <= 0) return;
-
-    const fireKey = origin.idempotencyKey.split(":run:")[0]!;
     const attempts = retryCounts.get(fireKey) ?? 0;
     if (attempts >= job.maxRetries) {
       retryCounts.delete(fireKey);
@@ -124,7 +140,15 @@ export function createCronScheduler(deps: {
 
   return {
     start() {
-      for (const job of deps.cronSvc.port.listEnabledCronJobs()) this.register(job);
+      for (const job of deps.cronSvc.port.listEnabledCronJobs()) {
+        // Isolate per-job registration: one bad cron expression must not abort
+        // the whole startup loop and leave every later job unscheduled.
+        try {
+          this.register(job);
+        } catch (err) {
+          console.error(`[cron] register failed for ${job.cronJobId}:`, err);
+        }
+      }
     },
 
     register(job: CronJobRow) {
@@ -144,13 +168,22 @@ export function createCronScheduler(deps: {
         h.stop();
         handles.delete(cronJobId);
       }
+      // Clear any in-flight watchdog timers owned by this job.
+      for (const [runId, wd] of watchdogs) {
+        if (wd.cronJobId === cronJobId) {
+          clearTimeout(wd.timer);
+          watchdogs.delete(runId);
+          timedOut.delete(runId);
+        }
+      }
     },
 
     dispose() {
       for (const h of handles.values()) h.stop();
       handles.clear();
-      for (const wd of watchdogs.values()) clearTimeout(wd);
+      for (const wd of watchdogs.values()) clearTimeout(wd.timer);
       watchdogs.clear();
+      timedOut.clear();
       for (const t of retryTimers) clearTimeout(t);
       retryTimers.clear();
       retryCounts.clear();
