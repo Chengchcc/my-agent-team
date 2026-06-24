@@ -780,24 +780,24 @@ describe("createAgent", () => {
 
   // ─── M4: ContextManager integration ──────────────────────────
 
-  test("ContextManager.shape called before plugin.beforeModel", async () => {
+  test("plugin.beforeModel called before ContextManager.shape", async () => {
     const calls: string[] = [];
 
     const agent = await createAgent({
       model: scriptedModel([{ type: "text", text: "ok" }]),
       contextManager: {
-        shape: () => {
+        shape: (_ctx, msgs) => {
           calls.push("cm");
-          return [];
+          return msgs;
         },
       },
       plugins: [
         definePlugin({
           name: "test",
           hooks: {
-            beforeModel: () => {
+            beforeModel: (_ctx, msgs) => {
               calls.push("plugin");
-              return [];
+              return msgs;
             },
           },
         }),
@@ -806,7 +806,7 @@ describe("createAgent", () => {
 
     await collect(agent.run("hi"));
 
-    expect(calls).toEqual(["cm", "plugin"]);
+    expect(calls).toEqual(["plugin", "cm"]);
   });
 
   test("shape result does not pollute thread.messages", async () => {

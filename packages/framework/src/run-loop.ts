@@ -9,6 +9,7 @@ import type {
 import { assistantMessageId } from "@my-agent-team/message";
 import type { AgentEvent } from "./agent-event.js";
 import type { AgentRuntime } from "./agent-options.js";
+import type { PreserveHint } from "./context-manager.js";
 import { executeOne, runOneCollect } from "./execute-one.js";
 import { wrapToolResult } from "./plugin-runner.js";
 
@@ -79,11 +80,16 @@ export async function* runLoop(
       return;
     }
 
-    const shaped = await rt.contextManager.shape(
-      { threadId: rt.thread.id, signal: opts.signal, logger: rt.logger, model: rt.model },
-      rt.thread.messages,
+    // P2.2 fix: beforeModel first so shape sees the final payload.
+    // Injected content (memory, skill index, system prompt) is marked as
+    // preserved so the shaper doesn't drop it.
+    const injected = await rt.plugins.fireBeforeModel(rt.thread.messages);
+    // Mark all injected messages as preserved — shaper must not drop them.
+    const preserve = { ranges: [{ start: 0, end: injected.length }] };
+    const finalMsgs = await rt.contextManager.shape(
+      { threadId: rt.thread.id, signal: opts.signal, logger: rt.logger, model: rt.model, preserve },
+      injected,
     );
-    const finalMsgs = await rt.plugins.fireBeforeModel(shaped);
 
     await rt.checkpointer.appendEvent?.(rt.thread.id, {
       type: "model_start",
