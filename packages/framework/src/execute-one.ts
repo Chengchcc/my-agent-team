@@ -169,8 +169,7 @@ export async function runOneCollect(
       content: decision.result ?? "Tool skipped",
       isError: decision.isError ?? (decision.result ? true : undefined),
     });
-    rt.thread.messages.push({ role: "user", blocks: [r] });
-    await rt.save(rt.thread.messages);
+    // NOTE: do NOT push to rt.thread.messages — caller handles ordering.
     events.push({
       type: "tool_call",
       payload: {
@@ -245,7 +244,9 @@ export async function runOneCollect(
     });
   }
 
-  rt.thread.messages.push({ role: "user", blocks: [resultBlock] });
+  // NOTE: do NOT push to rt.thread.messages here — the caller (runLoop batch
+  // handler) writes results in tool_use order to guarantee ordering regardless
+  // of which tool completes first in a parallel batch.
   await rt.plugins.fireAfterTool(call, resultBlock, rt.thread.messages);
   for (const ev of rt.pendingEvents.splice(0)) events.push(ev);
   await rt.checkpointer.appendEvent?.(rt.thread.id, {
@@ -270,6 +271,7 @@ export async function runOneCollect(
     resultBlock.is_error === true ? "error" : "done",
     resultBlock.is_error === true,
   );
-  await rt.save(rt.thread.messages);
+  // save is deferred to the caller (runLoop batch handler) so it can
+  // save once after all ordered results are pushed.
   return { resultBlock, events, interrupted: false };
 }

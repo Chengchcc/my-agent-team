@@ -273,10 +273,12 @@ export async function* runLoop(
               // One tool crashed — return error result so other results are preserved
               return {
                 resultBlock: wrapToolResult(call, { content: String(err), isError: true }),
-                events: [{
-                  type: "tool_call" as const,
-                  payload: { step, id: call.id, name: call.name, latencyMs: 0, isError: true },
-                }],
+                events: [
+                  {
+                    type: "tool_call" as const,
+                    payload: { step, id: call.id, name: call.name, latencyMs: 0, isError: true },
+                  },
+                ],
                 interrupted: false,
               };
             }),
@@ -287,6 +289,7 @@ export async function* runLoop(
         for (let rIdx = 0; rIdx < batch.length; rIdx++) {
           rt.thread.messages.push({ role: "user", blocks: [results[rIdx]!.resultBlock] });
         }
+        await rt.save(rt.thread.messages);
 
         // Yield events in original tool_use order
         for (let rIdx = 0; rIdx < batch.length; rIdx++) {
