@@ -37,5 +37,7 @@ export {
   type StopDecision,
   validatePlugins,
 } from "./plugin.js";
+export { runOneCollect } from "./execute-one.js";
+export type { RunOneResult } from "./execute-one.js";
 export { repairToolPairs } from "./repair-tool-pairs.js";
 export type { Thread } from "./thread.js";
