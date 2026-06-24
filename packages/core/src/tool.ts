@@ -7,5 +7,10 @@ export interface Tool {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
+  /** Declare whether a tool can safely run concurrently with other tools.
+   *  "serial" (default) = must run alone, preserving existing behaviour.
+   *  "concurrent" = read-only, no side effects, safe to run in parallel
+   *  with other concurrent tools in the same turn. */
+  readonly executionMode?: "serial" | "concurrent";
   execute(input: unknown, signal?: AbortSignal): ToolExecuteResult | Promise<ToolExecuteResult>;
 }
