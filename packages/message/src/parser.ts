@@ -68,6 +68,7 @@ export const MessageSchema = z.object({
   createdAt: z.number().optional(),
   updatedAt: z.number().optional(),
   error: MessageErrorSchema.optional(),
+  runStatus: z.enum(["running", "retrying", "compacting", "waiting"]).optional(),
 });
 
 export const MessageRevisionSchema = z.object({

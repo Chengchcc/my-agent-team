@@ -43,4 +43,6 @@ export interface Message {
   createdAt?: number;
   updatedAt?: number;
   error?: MessageError;
+  /** Transient run status indicator (retrying/compacting). Not persisted. */
+  runStatus?: "running" | "retrying" | "compacting" | "waiting";
 }

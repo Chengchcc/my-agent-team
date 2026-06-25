@@ -102,5 +102,6 @@ export function mergeMessageRevision(
     visibility: revision.visibility ?? base.visibility,
     updatedAt: revision.updatedAt,
     error: revision.error ?? base.error,
+    runStatus: revision.runStatus ?? base.runStatus,
   };
 }
