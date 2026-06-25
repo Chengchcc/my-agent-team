@@ -138,13 +138,7 @@ export class AgentSession {
 
   async prompt(text: string, opts?: { signal?: AbortSignal }): Promise<void> {
     if (this.#state === "running") {
-      this.#followUpQueue.push(text);
-      this.#emit({
-        type: "queue_update",
-        steering: [...this.#steeringQueue],
-        followUp: [...this.#followUpQueue],
-      });
-      return;
+      throw new Error("Agent is already running — steer/followUp not yet implemented");
     }
 
     // Initialize agent on first prompt
@@ -205,12 +199,12 @@ export class AgentSession {
 
   // ─── Runtime interventions ───────────────────────────
 
-  steer(text: string): void {
-    this.#steeringQueue.push(text);
+  steer(_text: string): void {
+    throw new Error("steer not yet implemented");
   }
 
-  followUp(text: string): void {
-    this.#followUpQueue.push(text);
+  followUp(_text: string): void {
+    throw new Error("followUp not yet implemented");
   }
 
   // ─── Configuration ───────────────────────────────────
