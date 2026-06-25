@@ -26,14 +26,6 @@ export default function RunDetailPage() {
     refetchInterval: (q) => (q.state.data?.run.status === "running" ? 10_000 : false),
   });
 
-  const runtimeQuery = useQuery({
-    queryKey: ["ops", "agentRuntime", detailQuery.data?.run.agentId],
-    queryFn: () => api.getAgentRuntime(detailQuery.data!.run.agentId),
-    enabled: !!detailQuery.data?.run.agentId,
-  });
-
-  const heartbeatTimeoutMs = runtimeQuery.data?.heartbeatTimeoutMs ?? 60_000;
-
   return (
     <div className="container mx-auto p-6 space-y-6">
       <Breadcrumb>
@@ -83,7 +75,6 @@ export default function RunDetailPage() {
                     </div>
                   </div>
                 </div>
-
               </div>
 
               <div className="space-y-6">

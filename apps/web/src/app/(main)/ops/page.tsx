@@ -6,7 +6,6 @@ import { CostBreakdownChart } from "@/components/ops/CostBreakdownChart";
 import { HealthSummary } from "@/components/ops/HealthSummary";
 import { NeedsAttentionList } from "@/components/ops/NeedsAttentionList";
 import { QueryState } from "@/components/ops/QueryState";
-import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import { TokenTrendChart } from "@/components/ops/TokenTrendChart";
 import { TopToolsChart } from "@/components/ops/TopToolsChart";
 import {
@@ -92,10 +91,7 @@ export default function OpsPage() {
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                 Health
               </h2>
-              <HealthSummary
-                runs={data.runs}
-                runtimes={data.runtimes}
-              />
+              <HealthSummary runs={data.runs} runtimes={data.runtimes} />
             </section>
 
             <section>
@@ -134,18 +130,14 @@ export default function OpsPage() {
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                 Needs Attention
               </h2>
-              <NeedsAttentionList
-                runs={data.runs}
-                runtimes={data.runtimes}
-              />
+              <NeedsAttentionList runs={data.runs} runtimes={data.runtimes} />
             </section>
 
             <section>
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                 Recent Activity
               </h2>
-              <div className="rounded-lg border">
-              </div>
+              <div className="rounded-lg border"></div>
             </section>
           </>
         )}

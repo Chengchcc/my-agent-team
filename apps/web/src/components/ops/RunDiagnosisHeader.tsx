@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { RunDiagnosis, RunOpsDetail } from "@/lib/api";
+import type { RunOpsDetail } from "@/lib/api";
 import { diagnoseRun } from "@/lib/ops-diagnosis";
 import { CopyButton } from "./CopyButton";
 

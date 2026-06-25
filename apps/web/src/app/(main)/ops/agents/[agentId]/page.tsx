@@ -66,11 +66,7 @@ export default function AgentRuntimePage() {
               Recent Runs
             </h2>
             <div className="rounded-lg border">
-              <QueryState query={runsQuery}>
-                {(runs) => (
-                  <RunOpsTable runs={runs} />
-                )}
-              </QueryState>
+              <QueryState query={runsQuery}>{(runs) => <RunOpsTable runs={runs} />}</QueryState>
             </div>
           </section>
         </div>
