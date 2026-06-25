@@ -27,6 +27,7 @@ export default {
         "plugin-fs-memory",
         "plugin-progressive-skill",
         "plugin-task-guard",
+        "plugin-conversation-context",
         // Apps
         "backend",
         "web",
