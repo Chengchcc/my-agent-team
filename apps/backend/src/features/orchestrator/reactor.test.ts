@@ -186,24 +186,6 @@ function makeOrchestrator(issueDb: Database, eventsDb: Database) {
     idGen: () => crypto.randomUUID(),
     columnConfigSvc: mockColumnConfigSvc(),
     deliverableSvc: mockDeliverableSvc(),
-    // M19: mock dispatcher — delegates to supervisor + opsStore (same as before)
-    dispatcher: {
-      dispatch: async (cause: any) => {
-        const { attemptId } = await supervisor.startMainRun(
-          cause.runId,
-          cause.threadId,
-          cause.spec,
-          cause.opts as Parameters<RunSupervisor["startMainRun"]>[3],
-        );
-        opsStore.insertRunOrigin({
-          ...cause.origin,
-          runId: cause.runId,
-          originKind: cause.kind,
-          createdAt: 1000000,
-        });
-        return { runId: cause.runId, attemptId };
-      },
-    },
     // M19: projectSvc — mock that always returns autoOrchestrate: true
     projectSvc: {
       getById: (_id: string) => ({ autoOrchestrate: true, projectId: _id }),
@@ -310,23 +292,6 @@ describe("Orchestrator reactor", () => {
       idGen: () => crypto.randomUUID(),
       columnConfigSvc: mockColumnConfigSvc(), // still returns config with agentIds
       deliverableSvc: mockDeliverableSvc(),
-      dispatcher: {
-        dispatch: async (cause: any) => {
-          const { attemptId } = await supervisor.startMainRun(
-            cause.runId,
-            cause.threadId,
-            cause.spec,
-            cause.opts as Parameters<RunSupervisor["startMainRun"]>[3],
-          );
-          opsStore.insertRunOrigin({
-            ...cause.origin,
-            runId: cause.runId,
-            originKind: cause.kind,
-            createdAt: 1000000,
-          });
-          return { runId: cause.runId, attemptId };
-        },
-      },
       projectSvc: {
         getById: (_id2: string) => ({ autoOrchestrate: true, projectId: _id2 }),
       },

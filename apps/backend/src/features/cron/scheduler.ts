@@ -5,8 +5,6 @@ import type { CronJobService } from "./service.js";
 
 export function createCronScheduler(deps: {
   cronSvc: CronJobService;
-  /** @deprecated removed — runs start via supervisor.startMainRun directly */
-  dispatcher?: unknown;
   supervisor: {
     startMainRun(
       runId: string,

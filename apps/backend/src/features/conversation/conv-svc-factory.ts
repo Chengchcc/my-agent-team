@@ -54,8 +54,6 @@ export function createConversationFeature(
   supervisor: RunSupervisor,
   agentSvc: AgentService,
   _opsStore: RuntimeOpsStore,
-  _tracer?: RuntimeTracer, // deprecated — removed in Phase 3
-  _dispatcher?: unknown, // deprecated — removed in Phase 3
 ): ConversationFeature {
   const convPort = sqliteConversationAdapter(db);
   const lock = new ConversationLock();
@@ -66,11 +64,9 @@ export function createConversationFeature(
     maxConsecutiveAgentHops: 8,
     idGen: ulid,
 
-    startAgentRun: async (runId, threadId, ctx) => {
+    startAgentRun: async (_runId, threadId, ctx) => {
       const members = convPort.getMembers(ctx.conversationId);
-      const isLark = members.some(
-        (m) => m.kind === "human" && m.userRef?.startsWith("lark:"),
-      );
+      const isLark = members.some((m) => m.kind === "human" && m.userRef?.startsWith("lark:"));
       return startAgentRun({
         threadId,
         agentId: ctx.agentId,

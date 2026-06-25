@@ -34,7 +34,6 @@ export interface OrchestratorDeps {
   columnConfigSvc: ColumnConfigService;
   deliverableSvc: { listByIssue(issueId: string): DeliverableRow[] };
   /** @deprecated removed — runs start via supervisor.startMainRun directly */
-  dispatcher?: unknown;
   /** M19: Narrow interface for reading auto-orchestrate toggle. */
   projectSvc: { getById(id: string): { autoOrchestrate: boolean; projectId: string } };
   /** M19 Fix 2: Conversation port for lazy agent membership. */

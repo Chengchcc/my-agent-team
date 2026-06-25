@@ -40,8 +40,8 @@ export interface RunServiceDeps {
   /** M17.5 P11: ConversationLock replaces threads Set — merged into unified gate. */
   lock: ConversationLock;
   idGen: () => string;
+  /** @deprecated removed — kept for test compat */
   /** @deprecated removed — runs start via supervisor.startMainRun directly */
-  dispatcher?: unknown;
   /** Optional: generate thread title via LLM after first run (when thread has no title). */
   autoTitle?: {
     getThread: (threadId: string) => Promise<{ title: string | null } | null>;

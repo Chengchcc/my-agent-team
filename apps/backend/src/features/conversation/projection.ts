@@ -1,10 +1,9 @@
-import type { Message, MessageRevision } from "@my-agent-team/message";
+import type { MessageRevision } from "@my-agent-team/message";
 import {
   assistantMessageId,
   deserializeLedgerContent,
   isSucceededMessageState,
   isTerminalMessageState,
-  type parseMessageRevision,
   serializeMessageRevision,
 } from "@my-agent-team/message";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
