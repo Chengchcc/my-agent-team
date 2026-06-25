@@ -188,7 +188,7 @@ function makeOrchestrator(issueDb: Database, eventsDb: Database) {
     deliverableSvc: mockDeliverableSvc(),
     // M19: mock dispatcher — delegates to supervisor + opsStore (same as before)
     dispatcher: {
-      dispatch: async (cause) => {
+      dispatch: async (cause: any) => {
         const { attemptId } = await supervisor.startMainRun(
           cause.runId,
           cause.threadId,
@@ -311,7 +311,7 @@ describe("Orchestrator reactor", () => {
       columnConfigSvc: mockColumnConfigSvc(), // still returns config with agentIds
       deliverableSvc: mockDeliverableSvc(),
       dispatcher: {
-        dispatch: async (cause) => {
+        dispatch: async (cause: any) => {
           const { attemptId } = await supervisor.startMainRun(
             cause.runId,
             cause.threadId,

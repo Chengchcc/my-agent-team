@@ -1,13 +1,19 @@
 import type { CronJob } from "bun";
-import type { RunDispatcher } from "../run/dispatcher.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { CronJobRow } from "./domain.js";
 import type { CronJobService } from "./service.js";
 
 export function createCronScheduler(deps: {
   cronSvc: CronJobService;
-  dispatcher: RunDispatcher;
+  /** @deprecated removed — runs start via supervisor.startMainRun directly */
+  dispatcher?: unknown;
   supervisor: {
+    startMainRun(
+      runId: string,
+      threadId: string,
+      spec: Record<string, unknown>,
+      opts?: Record<string, unknown>,
+    ): Promise<{ runId: string; attemptId: string }>;
     cancel(runId: string): boolean | Promise<void> | void;
     onRunComplete(
       fn: (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>,
@@ -44,25 +50,22 @@ export function createCronScheduler(deps: {
 
     try {
       const spec = await deps.buildSpec(job.agentId, threadId, job.prompt);
-      await deps.dispatcher.dispatch({
-        kind: "cron",
+      deps.opsStore.insertRunOrigin({
         runId,
-        threadId,
-        spec,
-        opts: { trace: t },
-        origin: {
-          conversationId: job.cronJobId,
-          sourceLedgerSeq: 0,
-          agentMemberId: "owner",
-          surface: "cron",
-          traceId: t.traceId,
-          traceparent: t.traceparent,
-          idempotencyKey: `${key}:run:${attempt}`,
-          issueId: null,
-          fromStatus: "",
-          cronJobId: job.cronJobId,
-        },
+        conversationId: job.cronJobId,
+        sourceLedgerSeq: 0,
+        agentMemberId: "owner",
+        surface: "cron",
+        traceId: t.traceId,
+        traceparent: t.traceparent,
+        idempotencyKey: `${key}:run:${attempt}`,
+        issueId: null,
+        fromStatus: "",
+        originKind: "cron",
+        createdAt: n(),
+        cronJobId: job.cronJobId,
       });
+      await deps.supervisor.startMainRun(runId, threadId, spec, { trace: t });
     } catch (err) {
       // buildSpec or dispatch threw → no run was produced, so onRunComplete will
       // never fire to release the single-flight lock. Release it here so the job

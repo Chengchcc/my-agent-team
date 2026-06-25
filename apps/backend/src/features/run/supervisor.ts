@@ -58,7 +58,7 @@ export interface RunRequestOptions {
     conversationId: string;
     runId: string;
     capabilities: Array<"start_new_conversation" | "submit_deliverable" | "read_issues">;
-    issue?: { issueId: string; fromStatus: string };
+    issue?: { issueId: string; fromStatus: string; projectId?: string };
   };
   /** M16: Trace context propagated to runner daemon via transport start. */
   trace?: RuntimeTraceContext;

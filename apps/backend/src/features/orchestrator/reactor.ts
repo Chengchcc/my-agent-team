@@ -3,7 +3,6 @@ import type { ColumnConfigService } from "../column-config/service.js";
 import type { DeliverableRow } from "../deliverable/domain.js";
 import type { IssueRow } from "../issue/entities.js";
 import type { IssueService } from "../issue/service.js";
-import type { RunDispatcher } from "../run/dispatcher.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
@@ -34,7 +33,8 @@ export interface OrchestratorDeps {
   idGen: () => string;
   columnConfigSvc: ColumnConfigService;
   deliverableSvc: { listByIssue(issueId: string): DeliverableRow[] };
-  dispatcher: RunDispatcher;
+  /** @deprecated removed — runs start via supervisor.startMainRun directly */
+  dispatcher?: unknown;
   /** M19: Narrow interface for reading auto-orchestrate toggle. */
   projectSvc: { getById(id: string): { autoOrchestrate: boolean; projectId: string } };
   /** M19 Fix 2: Conversation port for lazy agent membership. */
@@ -55,13 +55,12 @@ export function createOrchestrator(deps: OrchestratorDeps) {
   const {
     issueSvc,
     agentSvc,
-    supervisor: _supervisor,
+    supervisor,
     opsStore,
     buildSpec,
     idGen,
     columnConfigSvc,
     deliverableSvc,
-    dispatcher,
     projectSvc,
     convPort,
   } = deps;
@@ -136,30 +135,27 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       });
     }
 
-    await dispatcher.dispatch({
-      kind: "orchestrator",
+    opsStore.insertRunOrigin({
       runId,
-      threadId,
-      spec,
-      opts: {
-        surfaceContext: {
-          surface: "orchestrator",
-          conversationId: "",
-          runId,
-          capabilities: ["submit_deliverable", "read_issues"],
-          issue: { issueId: issue.issueId, fromStatus: issue.status, projectId: issue.projectId },
-        },
-      },
-      origin: {
-        issueId: issue.issueId,
-        conversationId: "",
-        sourceLedgerSeq: 0,
-        agentMemberId: t.agentId,
+      conversationId: "",
+      sourceLedgerSeq: 0,
+      agentMemberId: t.agentId,
+      surface: "orchestrator",
+      traceId: "",
+      traceparent: "",
+      idempotencyKey: runId,
+      issueId: issue.issueId,
+      fromStatus: issue.status,
+      originKind: "orchestrator",
+      createdAt: Date.now(),
+    });
+    await supervisor.startMainRun(runId, threadId, spec, {
+      surfaceContext: {
         surface: "orchestrator",
-        traceId: "",
-        traceparent: "",
-        idempotencyKey: runId,
-        fromStatus: issue.status,
+        conversationId: "",
+        runId,
+        capabilities: ["submit_deliverable", "read_issues"],
+        issue: { issueId: issue.issueId, fromStatus: issue.status, projectId: issue.projectId },
       },
     });
 

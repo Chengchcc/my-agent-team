@@ -59,11 +59,7 @@ describe("AgentIdentityStore", () => {
     const agentId = `mem-summary-${Date.now()}`;
     const root = agentRoot(agentId);
     await mkdir(path.join(root, "memory"), { recursive: true });
-    await writeFile(
-      path.join(root, "memory", "MEMORY.md"),
-      "dated summary text",
-      "utf-8",
-    );
+    await writeFile(path.join(root, "memory", "MEMORY.md"), "dated summary text", "utf-8");
 
     const store = makeStore();
     const identity = await store.getIdentity(agentId);

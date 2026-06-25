@@ -51,7 +51,6 @@ import {
   projectRoutes,
   sqliteProjectAdapter,
 } from "./features/project/index.js";
-import { createRunDispatcher } from "./features/run/dispatcher.js";
 import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
@@ -94,9 +93,6 @@ const supervisor = new RunSupervisor({
   db: eventsDb,
 });
 
-// M19: Unified run-start mechanism — single dispatcher for all three entry points
-const dispatcher = createRunDispatcher({ supervisor, opsStore });
-
 // Feature services
 const larkBotRegistry = createLarkBotRegistry(config);
 const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry);
@@ -107,7 +103,6 @@ const conv = createConversationFeature(
   agentSvc,
   opsStore,
   tracer,
-  dispatcher,
 );
 
 // Run service
@@ -117,7 +112,6 @@ const runSvc = createRunService({
   maxConcurrentRuns: config.maxConcurrentRuns,
   lock: conv.lock,
   idGen: ulid,
-  dispatcher,
   autoTitle: {
     getThread: async (tid) => {
       const cid = parseThreadId(tid).conversationId || tid;
@@ -375,7 +369,6 @@ const buildIssueSpec = async (agentId: string, threadId: string, input: string) 
 const makeTrace = () => tracer.inject();
 const cronScheduler = createCronScheduler({
   cronSvc,
-  dispatcher,
   supervisor,
   opsStore,
   buildSpec: buildIssueSpec,
@@ -392,7 +385,6 @@ const orchestrator = createOrchestrator({
   idGen: ulid,
   columnConfigSvc,
   deliverableSvc,
-  dispatcher,
   projectSvc: {
     getById: (id: string) => projectSvc.getById(id),
   },
