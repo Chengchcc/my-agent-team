@@ -23,7 +23,7 @@ import {
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
-
+import { registerSession, removeSession } from "../run/session-registry.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import {
@@ -36,7 +36,6 @@ import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
 import { createConversationService } from "./service.js";
-import { registerSession, removeSession } from "../run/session-registry.js";
 
 export interface ConversationFeature {
   convPort: ConversationPort;

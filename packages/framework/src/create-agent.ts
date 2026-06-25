@@ -3,6 +3,7 @@ import type { AgentEvent } from "./agent-event.js";
 import type {
   Agent,
   AgentConfig,
+  AgentEventListener,
   AgentRunOptions,
   AgentRuntime,
   ResumeCommand,
@@ -95,7 +96,7 @@ function createAgentInternal(
 
   const pluginRunner = createPluginRunner(plugins, ctx, logger);
 
-  const subscribers = new Set<import("./agent-options.js").AgentEventListener>();
+  const subscribers = new Set<AgentEventListener>();
 
   const rt: AgentRuntime = {
     thread,
@@ -150,7 +151,7 @@ function createAgentInternal(
       });
     },
 
-    subscribe(listener: import("./agent-options.js").AgentEventListener): () => void {
+    subscribe(listener: AgentEventListener): () => void {
       subscribers.add(listener);
       return () => {
         subscribers.delete(listener);
