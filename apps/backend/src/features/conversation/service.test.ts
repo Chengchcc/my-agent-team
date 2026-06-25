@@ -29,7 +29,7 @@ const svc = createConversationService({
   lock,
   maxConsecutiveAgentHops: 3,
   idGen: testIdGen,
-  forkRun: async (runId, threadId, _ctx) => {
+  startAgentRun: async (runId, threadId, _ctx) => {
     forkLog.push({ runId, threadId });
     return { runId, attemptId: `att-${runId}` };
   },
@@ -429,7 +429,7 @@ describe("P0-2: lock lifecycle", () => {
 import { unlinkSync } from "node:fs";
 
 describe("M14.4: triggerMentionedAgents", () => {
-  test("triggers @-mentioned agent via forkRun", async () => {
+  test("triggers @-mentioned agent via startAgentRun", async () => {
     // lock state managed internally by ConversationLock
     forkLog.length = 0;
     const { id } = setupConv("conv-at1");

@@ -26,6 +26,5 @@
     "@my-agent-team/tools-common": "workspace:*",
     "gray-matter": "^4.0.3"
   },
-  "devDependencies": {
-  }
+  "devDependencies": {}
 }

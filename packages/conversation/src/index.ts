@@ -1,22 +1,3 @@
-// ── Business domain ──
-
-// ── Re-export from @my-agent-team/message ──
-export {
-  assistantMessageId,
-  deserializeLedgerContent,
-  extractText,
-  humanMessageId,
-  isOpenMessageState,
-  isTerminalMessageState,
-  type Message,
-  type MessageRevision,
-  type MessageRole,
-  type MessageState,
-  mergeMessageRevision,
-  parseMessageRevision,
-  systemMessageId,
-} from "@my-agent-team/message";
-
 // ── Mechanism: ledger codec ──
 export {
   LedgerEntry,

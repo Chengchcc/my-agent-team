@@ -15,7 +15,7 @@ afterAll(async () => {
 });
 
 describe("materializeWorkspace (M11)", () => {
-  test("empty workspace → creates memory/ dir and writes BOOTSTRAP.md", async () => {
+  test("empty workspace → creates memory/ dir, BOOTSTRAP.md handled by identityPlugin", async () => {
     const agentId = `agent-${Date.now()}`;
     const wsPath = await materializeWorkspace({
       workspaceRoot: ROOT,
@@ -25,7 +25,9 @@ describe("materializeWorkspace (M11)", () => {
 
     expect(existsSync(wsPath)).toBe(true);
     expect(existsSync(path.join(wsPath, "memory"))).toBe(true);
-    expect(existsSync(path.join(wsPath, "BOOTSTRAP.md"))).toBe(true);
+    // BOOTSTRAP.md no longer written to disk — identityPlugin injects
+    // BOOTSTRAP_TEMPLATE via beforeModel when no SOUL.md exists.
+    expect(existsSync(path.join(wsPath, "BOOTSTRAP.md"))).toBe(false);
   });
 
   test("workspace with existing SOUL.md → no BOOTSTRAP.md written", async () => {

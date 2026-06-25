@@ -47,7 +47,7 @@ export interface ConversationServiceDeps {
   /** M17.5 P4: ConversationLock replaces ad-hoc activeConversations Set + pendingRuns Map. */
   lock: ConversationLock;
   maxConsecutiveAgentHops: number;
-  forkRun: (
+  startAgentRun: (
     runId: string,
     threadId: string,
     ctx: { conversationId: string; agentMemberId: string; agentId: string; ledgerSeq: number },
@@ -58,7 +58,7 @@ export interface ConversationServiceDeps {
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
-  const { port, lock, maxConsecutiveAgentHops, forkRun } = deps;
+  const { port, lock, maxConsecutiveAgentHops, startAgentRun } = deps;
 
   /** Load members and build Conversation for pure helpers. */
   function buildConversation(conversationId: string) {
@@ -88,7 +88,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     addressedTo: string[];
     kind: LedgerKind;
     content: unknown;
-    /** When false, skip thread_projection write (forkRun reads from ledger directly). */
+    /** When false, skip thread_projection write (startAgentRun reads from ledger directly). */
     broadcast?: boolean;
   }): Promise<number> {
     const ts = Date.now();
@@ -165,7 +165,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
       try {
         const runId = crypto.randomUUID();
         const threadId = deriveThreadId(conversationId, target.memberId);
-        const { runId: rId } = await forkRun(runId, threadId, {
+        const { runId: rId } = await startAgentRun(runId, threadId, {
           conversationId,
           agentMemberId: target.memberId,
           agentId: target.agentId,
@@ -174,7 +174,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
         triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
       } catch (err) {
         console.error(
-          `[conversation] forkRun failed for ${target.memberId}:`,
+          `[conversation] startAgentRun failed for ${target.memberId}:`,
           err instanceof Error ? err.message : String(err),
         );
         // Decrement pending count for failed fork
@@ -230,7 +230,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
         hopCapped = currentHop > maxConsecutiveAgentHops;
       }
 
-      // ── Append this message to ledger as a MessageRevision (no broadcast — forkRun reads from ledger) ──
+      // ── Append this message to ledger as a MessageRevision (no broadcast — startAgentRun reads from ledger) ──
       const userRev: MessageRevision = {
         // M17.2 fix: use UUID (not Date.now()) to prevent same-ms collision when
         // buildPreloadedMessages folds by messageId. Two posts in the same millisecond

@@ -67,7 +67,7 @@ export function createConversationFeature(
     maxConsecutiveAgentHops: 8,
     idGen: ulid,
 
-    forkRun: async (runId, threadId, ctx) => {
+    startAgentRun: async (runId, threadId, ctx) => {
       const spec = await buildAgentSpecV2(db, agentSvc, threadId, "", {
         runId,
         conversationId: ctx.conversationId,
@@ -185,6 +185,8 @@ export interface StartAgentRunOpts {
   agentSvc: AgentService;
   convPort: ConversationPort;
   conversationId: string;
+  supervisor: RunSupervisor;
+  opsStore: RuntimeOpsStore;
   surface?: string;
   senderName?: string;
   /** Called with each assistant message revision to write to ledger + SSE. */
@@ -195,10 +197,12 @@ export interface StartAgentRunOpts {
 
 /**
  * Create an AgentSession and run it to completion.
+ * Creates run/attempt rows via supervisor and returns tracking info.
+ *
  * Replaces the old forkRun → dispatcher → supervisor → daemon chain
  * with direct in-process AgentSession execution.
  */
-export async function startAgentRun(opts: StartAgentRunOpts): Promise<void> {
+export async function startAgentRun(opts: StartAgentRunOpts): Promise<{ runId: string; attemptId: string }> {
   const {
     threadId,
     agentId,
@@ -207,11 +211,32 @@ export async function startAgentRun(opts: StartAgentRunOpts): Promise<void> {
     agentSvc,
     convPort,
     conversationId,
+    supervisor,
+    opsStore,
     surface = "web",
     senderName = "unknown",
     onAssistantMessage,
     onComplete,
   } = opts;
+
+  const runId = crypto.randomUUID();
+
+  // Create run/attempt rows (was dispatcher → supervisor.startMainRun)
+  opsStore.insertRunOrigin({
+    runId,
+    conversationId,
+    sourceLedgerSeq: 0,
+    agentMemberId: agentId,
+    surface,
+    traceId: "",
+    traceparent: "",
+    idempotencyKey: runId,
+    issueId: null,
+    fromStatus: "",
+    originKind: "mention",
+    createdAt: Date.now(),
+  });
+  const { attemptId } = await supervisor.startMainRun(runId, threadId, { agentId, threadId });
 
   const agent = await agentSvc.getById(agentId);
   const cwd = join(config.dataDir, "agents", agentId);
@@ -289,4 +314,6 @@ export async function startAgentRun(opts: StartAgentRunOpts): Promise<void> {
 
   await session.prompt(input);
   session.dispose();
+
+  return { runId, attemptId };
 }

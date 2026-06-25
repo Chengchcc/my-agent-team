@@ -25,6 +25,5 @@
     "@my-agent-team/message": "workspace:*",
     "@my-agent-team/tools-common": "workspace:*"
   },
-  "devDependencies": {
-  }
+  "devDependencies": {}
 }

@@ -1,7 +1,5 @@
-import { existsSync } from "node:fs";
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { BOOTSTRAP_TEMPLATE } from "@my-agent-team/plugin-identity";
 
 export async function materializeWorkspace(opts: {
   workspaceRoot: string;
@@ -22,12 +20,8 @@ export async function materializeWorkspace(opts: {
     }
   }
 
-  // M11 genesis: if no SOUL.md exists after template copy, write BOOTSTRAP.md
-  const soulPath = path.join(wsPath, "SOUL.md");
-  if (!existsSync(soulPath)) {
-    const bootPath = path.join(wsPath, "BOOTSTRAP.md");
-    await writeFile(bootPath, BOOTSTRAP_TEMPLATE, "utf-8");
-  }
+  // BOOTSTRAP.md no longer written to disk — identityPlugin injects
+  // BOOTSTRAP_TEMPLATE via beforeModel when no SOUL.md exists (genesis mode).
 
   return wsPath;
 }
