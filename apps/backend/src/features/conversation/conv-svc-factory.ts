@@ -36,7 +36,6 @@ import {
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
-import { buildPreloadedMessages } from "./projection.js";
 import { createConversationService, parseThreadId } from "./service.js";
 
 export interface ConversationFeature {
@@ -55,7 +54,7 @@ export function createConversationFeature(
   supervisor: RunSupervisor,
   agentSvc: AgentService,
   _opsStore: RuntimeOpsStore,
-  tracer: RuntimeTracer,
+  _tracer?: RuntimeTracer, // deprecated — removed in Phase 3
   _dispatcher?: unknown, // deprecated — removed in Phase 3
 ): ConversationFeature {
   const convPort = sqliteConversationAdapter(db);
@@ -68,55 +67,23 @@ export function createConversationFeature(
     idGen: ulid,
 
     startAgentRun: async (runId, threadId, ctx) => {
-      const spec = await buildAgentSpecV2(db, agentSvc, threadId, "", {
-        runId,
-        conversationId: ctx.conversationId,
-        senderMemberId: ctx.agentMemberId,
-      });
-
-      const preloadedMessages = buildPreloadedMessages(
-        convPort,
-        ctx.conversationId,
-        ctx.agentMemberId,
-      );
-
       const members = convPort.getMembers(ctx.conversationId);
-      const isLarkConversation = members.some(
+      const isLark = members.some(
         (m) => m.kind === "human" && m.userRef?.startsWith("lark:"),
       );
-      const surfaceContext = isLarkConversation
-        ? {
-            surface: "lark" as const,
-            conversationId: ctx.conversationId,
-            runId,
-            capabilities: ["start_new_conversation" as const],
-          }
-        : undefined;
-
-      const trace = tracer.inject();
-
-      // Run dispatcher removed — write origin and start run directly
-      _opsStore.insertRunOrigin({
+      return startAgentRun({
+        threadId,
+        agentId: ctx.agentId,
+        input: "", // agent reads trigger from conversation context
+        config: _config,
+        agentSvc,
+        convPort,
         conversationId: ctx.conversationId,
-        sourceLedgerSeq: ctx.ledgerSeq,
-        agentMemberId: ctx.agentMemberId,
-        surface: surfaceContext?.surface ?? "web",
-        traceId: trace.traceId,
-        traceparent: trace.traceparent,
-        idempotencyKey: `${ctx.conversationId}:${ctx.ledgerSeq}:run`,
-        issueId: null,
-        fromStatus: "",
-        originKind: "mention",
-        runId,
-        createdAt: Date.now(),
+        supervisor,
+        opsStore: _opsStore,
+        surface: isLark ? "lark" : "web",
+        senderName: ctx.agentMemberId,
       });
-      const { attemptId } = await supervisor.startMainRun(runId, threadId, spec, {
-        preloadedMessages,
-        surfaceContext,
-        trace,
-      });
-
-      return { runId, attemptId };
     },
 
     verifyRunOwnsConversation: async (runId, conversationId) => {

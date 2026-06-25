@@ -24,40 +24,6 @@ export function escapeRegExp(s: string): string {
  *  Eliminates the thread_projection round-trip: the ledger is the canonical
  *  source, and materializing to thread_projection eagerly was a vestige of
  *  M9's checkpointer-only recovery path. */
-export function buildPreloadedMessages(
-  port: ConversationPort,
-  conversationId: string,
-  memberId: string,
-): Message[] {
-  const entries = port.getLedgerEntries(conversationId);
-  // M17.2 fix: fold by messageId (后写覆盖先写) so streaming/done revisions of the
-  // same assistant message collapse into one entry per messageId. Without folding,
-  // each revision row becomes a separate thread message, feeding duplicates to the model.
-  const folded = new Map<
-    string,
-    { role: "user" | "assistant"; rev: ReturnType<typeof parseMessageRevision> }
-  >();
-  for (const entry of entries) {
-    if (entry.kind !== "message") continue;
-    const parsed = deserializeLedgerContent(entry.content);
-    if (!("messageId" in parsed)) continue; // legacy or malformed — skip
-    const role = entry.senderMemberId === memberId ? "assistant" : "user";
-    folded.set(parsed.messageId, { role, rev: parsed });
-  }
-
-  // Output in ledger insertion order (Map guarantees insertion order)
-  const msgs: Message[] = [];
-  for (const { role, rev } of folded.values()) {
-    if (rev.text) {
-      msgs.push({ role, text: rev.text });
-    } else if (rev.blocks && rev.blocks.length > 0) {
-      msgs.push({ role, blocks: rev.blocks });
-    }
-  }
-  return msgs;
-}
-
-// ─── Per-run accumulator ──────────────────────────────────────
 
 export interface RunAccumulator {
   senderMemberId: string;
