@@ -113,8 +113,8 @@ export class RunSupervisor {
 
       await this.#opts.eventLog.append(row.thread_id, row.run_id, {
         type: "interrupted",
-        payload: { reason: `stale after ${age}ms`, attemptId: row.attempt_id },
-      } as any);
+        payload: { reason: `stale after ${age}ms`, pendingTool: undefined },
+      });
       this.#active.delete(row.run_id);
 
       // Fire completion listeners

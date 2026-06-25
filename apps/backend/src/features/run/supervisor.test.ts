@@ -26,9 +26,13 @@ function makeSupervisor(db: Database): RunSupervisor {
       workspaceRoot: "/tmp",
       templateDir: "/tmp",
     },
-    eventLog: { append: async () => 1, read: async () => [], subscribe: () => ({}) } as any,
-    opsStore: { appendRunEvent: () => {} } as any,
-    tracer: { inject: () => ({ traceId: "", traceparent: "" }) } as any,
+    eventLog: {
+      append: async () => 1,
+      read: () => Promise.resolve([] as never[]),
+      subscribe: () => ({}),
+    },
+    opsStore: { appendRunEvent: () => {} },
+    tracer: { inject: () => ({ traceId: "", traceparent: "" }) },
     db,
   });
 }
@@ -40,7 +44,7 @@ describe("RunSupervisor", () => {
     const { runId, attemptId } = await s.startMainRun("r1", "t1", { agentId: "a1" });
     expect(runId).toBe("r1");
     expect(attemptId).toBe("att-r1");
-    const run = db.query("SELECT * FROM run WHERE run_id = ?").get("r1") as any;
+    const run = db.query("SELECT * FROM run WHERE run_id = ?").get("r1") as { status: string };
     expect(run.status).toBe("running");
     s.dispose();
   });
