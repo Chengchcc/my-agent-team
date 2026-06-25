@@ -24,6 +24,7 @@ export { parseAgentEvent, safeParseAgentEvent } from "./agent-event.js";
 export type {
   Agent,
   AgentConfig,
+  AgentEventListener,
   AgentRunOptions,
   FollowUpQueue,
   ResumeCommand,
@@ -94,6 +95,8 @@ function createAgentInternal(
 
   const pluginRunner = createPluginRunner(plugins, ctx, logger);
 
+  const subscribers = new Set<import("./agent-options.js").AgentEventListener>();
+
   const rt: AgentRuntime = {
     thread,
     plugins: pluginRunner,
@@ -108,6 +111,7 @@ function createAgentInternal(
     runId: thread.id,
     toolStates: [],
     assistantBlocks: [],
+    subscribers,
   };
 
   function runLoopOpts(opts: AgentRunOptions) {
@@ -117,6 +121,16 @@ function createAgentInternal(
       stream: opts.stream,
       maxForceContinues: opts.maxForceContinues,
     };
+  }
+
+  /** Wraps a runLoop generator to notify subscribers on each yielded event. */
+  async function* withSubscribers(
+    gen: AsyncGenerator<AgentEvent>,
+  ): AsyncGenerator<AgentEvent> {
+    for await (const event of gen) {
+      yield event;
+      for (const sub of subscribers) sub(event);
+    }
   }
 
   return {
@@ -136,6 +150,13 @@ function createAgentInternal(
         checkpointer,
         _initialMessages: msgs ?? structuredClone(thread.messages),
       });
+    },
+
+    subscribe(listener: import("./agent-options.js").AgentEventListener): () => void {
+      subscribers.add(listener);
+      return () => {
+        subscribers.delete(listener);
+      };
     },
 
     async *run(input: string, opts: AgentRunOptions = {}) {
@@ -166,7 +187,7 @@ function createAgentInternal(
           await save(thread.messages);
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
-        yield* runLoop(rt, runLoopOpts(opts));
+        yield* withSubscribers(runLoop(rt, runLoopOpts(opts)));
       } finally {
         running = false;
         ctx.signal = undefined;
@@ -200,7 +221,7 @@ function createAgentInternal(
           await save(thread.messages);
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
-        yield* runLoop(rt, runLoopOpts(opts));
+        yield* withSubscribers(runLoop(rt, runLoopOpts(opts)));
       } finally {
         running = false;
         ctx.signal = undefined;
@@ -243,7 +264,7 @@ function createAgentInternal(
           thread.messages.push({ role: "user", blocks: [realResult] });
         }
         await save(thread.messages);
-        yield* runLoop(rt, runLoopOpts(opts));
+        yield* withSubscribers(runLoop(rt, runLoopOpts(opts)));
       } finally {
         running = false;
         ctx.signal = undefined;

@@ -46,6 +46,8 @@ export interface AgentRunOptions {
   followUp?: FollowUpQueue;
 }
 
+export type AgentEventListener = (event: AgentEvent) => void;
+
 export interface Agent {
   readonly thread: Thread;
   run(input: string, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
@@ -56,6 +58,9 @@ export interface Agent {
   continue(opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
   resume(command: ResumeCommand, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
   fork(messages?: Message[], id?: string): Agent;
+  /** Subscribe to agent events. Returns an unsubscribe function.
+   *  Subscribers are notified when events are yielded from run/continue/resume. */
+  subscribe(listener: AgentEventListener): () => void;
 }
 
 export interface AgentConfig {
@@ -113,4 +118,6 @@ export interface AgentRuntime {
    *  the full accumulated set so consumer mergeMessageRevision shows complete history.
    *  Per-step blocks are still pushed to thread.messages for LLM context. */
   assistantBlocks: ContentBlock[];
+  /** Subscribers notified after each event is yielded. */
+  subscribers: Set<AgentEventListener>;
 }

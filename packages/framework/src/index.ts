@@ -25,6 +25,7 @@ export {
   type Agent,
   type AgentConfig,
   type AgentEvent,
+  type AgentEventListener,
   type AgentRunOptions,
   createAgent,
   type FollowUpQueue,
