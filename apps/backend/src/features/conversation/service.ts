@@ -11,10 +11,6 @@ import {
   serializeMessageRevision,
   systemMessageId,
 } from "@my-agent-team/message";
-import type {
-  ThreadProjectionReadPort,
-  ThreadProjectionWritePort,
-} from "../thread-projection/ports.js";
 import type { ConversationLock } from "./lock.js";
 import type { ConversationPort, LedgerEntry, LedgerKind, MemberRow } from "./ports.js";
 
@@ -48,8 +44,6 @@ function isSystemSender(memberId: string): boolean {
 
 export interface ConversationServiceDeps {
   port: ConversationPort;
-  threadProjectionRead: ThreadProjectionReadPort;
-  threadProjectionWrite: ThreadProjectionWritePort;
   /** M17.5 P4: ConversationLock replaces ad-hoc activeConversations Set + pendingRuns Map. */
   lock: ConversationLock;
   maxConsecutiveAgentHops: number;
@@ -64,7 +58,7 @@ export interface ConversationServiceDeps {
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
-  const { port, threadProjectionWrite, lock, maxConsecutiveAgentHops, forkRun } = deps;
+  const { port, lock, maxConsecutiveAgentHops, forkRun } = deps;
 
   /** Load members and build Conversation for pure helpers. */
   function buildConversation(conversationId: string) {
@@ -156,9 +150,6 @@ export function createConversationService(deps: ConversationServiceDeps) {
         conv,
       );
 
-      await threadProjectionWrite.appendMessages(threadId, [
-        { role: projected.role, content: projected.text },
-      ]);
     }
   }
 

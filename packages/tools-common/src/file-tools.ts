@@ -26,8 +26,7 @@ export function createReadTool(opts: { cwd: string }): Tool {
   const { cwd } = opts;
   return {
     name: "read",
-    description:
-      "Read a file from the workspace. Returns the file contents as text.",
+    description: "Read a file from the workspace. Returns the file contents as text.",
     inputSchema: {
       type: "object",
       properties: {
@@ -41,8 +40,7 @@ export function createReadTool(opts: { cwd: string }): Tool {
     async execute(input: unknown) {
       const rec = input as InputRec;
       const full = safePath(cwd, String(rec.path ?? ""));
-      if (!full)
-        return { content: "Error: path escapes workspace", isError: true };
+      if (!full) return { content: "Error: path escapes workspace", isError: true };
       try {
         const content = readFileSync(full, "utf-8");
         return { content };
@@ -61,8 +59,7 @@ export function createWriteTool(opts: { cwd: string }): Tool {
   const { cwd } = opts;
   return {
     name: "write",
-    description:
-      "Write content to a file in the workspace. Creates parent directories as needed.",
+    description: "Write content to a file in the workspace. Creates parent directories as needed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -80,8 +77,7 @@ export function createWriteTool(opts: { cwd: string }): Tool {
     async execute(input: unknown) {
       const rec = input as InputRec;
       const full = safePath(cwd, String(rec.path ?? ""));
-      if (!full)
-        return { content: "Error: path escapes workspace", isError: true };
+      if (!full) return { content: "Error: path escapes workspace", isError: true };
       try {
         mkdirSync(resolve(full, ".."), { recursive: true });
         writeFileSync(full, String(rec.content ?? ""), "utf-8");
@@ -101,8 +97,7 @@ export function createEditTool(opts: { cwd: string }): Tool {
   const { cwd } = opts;
   return {
     name: "edit",
-    description:
-      "Perform exact string replacements in a file in the workspace.",
+    description: "Perform exact string replacements in a file in the workspace.",
     inputSchema: {
       type: "object",
       properties: {
@@ -124,8 +119,7 @@ export function createEditTool(opts: { cwd: string }): Tool {
     async execute(input: unknown) {
       const rec = input as InputRec;
       const full = safePath(cwd, String(rec.path ?? ""));
-      if (!full)
-        return { content: "Error: path escapes workspace", isError: true };
+      if (!full) return { content: "Error: path escapes workspace", isError: true };
       try {
         if (!existsSync(full)) {
           return {

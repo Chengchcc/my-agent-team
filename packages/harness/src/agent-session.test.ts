@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk, ChatModel } from "@my-agent-team/core";
 import { AgentSession } from "./agent-session.js";
 

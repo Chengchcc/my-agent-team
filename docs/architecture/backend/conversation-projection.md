@@ -1,13 +1,12 @@
 ---
 id: backend.conversation-projection
-title: 会话投影
+title: 会话消息流
 status: current
 owners: backend-runtime
-last_verified_against_code: 2026-06-22
-summary: "会话投影是后端 infrastructure 层，把已写进 ledger 的 assistant 消息 fan-out 到各端（Web 控制台、Lark IM 机器人）。message 事件经 onRunMessage → appendAssistantMessage 直写 ledger，broadcastMessage 是独立的 best-effort fan-out。buildPreloadedMessages 从 ledger 直接构建 Message[]。projectRunMessageToLedger、projectionChain、activeConversations 已删除。"
+last_verified_against_code: 2026-06-25
+summary: "会话消息流描述 assistant 消息如何从 AgentSession 的 onEvent 回调写入 conversation ledger，并 fan-out 到 Web 和 Lark Bot。消息不经过独立进程——AgentSession 在 Backend 进程内产生事件，回调直接写 ledger。"
 depends_on:
   - backend.event-log
-  - backend.run-supervisor
   - conversation.ledger
 used_by:
   - surfaces.web
@@ -17,148 +16,69 @@ used_by:
   - operations.troubleshooting
 ---
 
-# 会话投影
+# 会话消息流
 
-会话投影是后端的 infrastructure 层。它做两件事：把 assistant 消息 fan-out 到各端；从 ledger 给 Agent 构建上下文。
+会话消息流把 AgentSession 产生的 assistant 消息写入 conversation ledger，然后 fan-out 到各端。消息不经过 transport 或独立进程——AgentSession 在 Backend 进程内运行，通过 `onEvent` 回调直接写入。
 
-拿到这个 doc 需要先知道几个概念：[ledger](../conversation/ledger.md) 是对话的 canonical store；[RunSupervisor](./run-supervisor.md) 管运行生命周期；[EventLog](./event-log.md) 存 execution detail；`forkRun` 是 [conversation service](../conversation/conversation-and-members.md) 里触发 Agent 运行的 closure；`reflect` 是 Agent 自我反思的分叉运行模式；`issue:` 线程是 [Issue 工作流](../foundations/issue.md)的执行上下文，和对话线程隔离；SSE 是 Server-Sent Events，服务端推送协议。
+核心概念：[conversation ledger](../conversation/ledger.md) 是对话的 canonical store；[AgentSession](../harness/harness.md) 管理 Agent 运行；[EventLog](./event-log.md) 存 execution detail。
 
-会话投影以前负责"产生事实"——assistant 消息先落 event_log，再经 `projectRunMessageToLedger` 派生进 ledger。这条路已经拆了。现在：
+## startAgentRun：创建并监听 AgentSession
 
-- assistant 消息直写 ledger（`appendAssistantMessage`）
-- fan-out 是独立 fire-and-forget
-- `buildPreloadedMessages` 从 ledger 直接读，不经过 `projection_messages`
+Backend 的 `startAgentRun` 创建 AgentSession 并注册内部回调：
 
-删掉的旧概念：`projectRunMessageToLedger`、`projectionChain`、`activeConversations`。
+```typescript
+const session = new AgentSession({ threadId, plugins, checkpointer, ... });
 
-## onRunMessage：直写 ledger
-
-assistant 消息在 `supervisor.onRunMessage` 回调里直接写 ledger，在 EventLog 之前：
-
-```ts
-// main.ts
-supervisor.onRunMessage(async (threadId, runId, revision, kind) => {
-  if (kind === "reflect") return;
-  if (threadId.startsWith("issue:")) return;  // M18：issue 线程跳过
-  const cid = parseThreadId(threadId).conversationId;
-  const senderMemberId = parseThreadId(threadId).memberId || threadId;
-
-  // 直写 ledger（critical）
-  const seq = await conv.convSvc.appendAssistantMessage({
-    conversationId: cid, senderMemberId, runId, revision,
-  });
-
-  // 更新 accumulator
-  const acc = getOrCreateAccumulator(runId, senderMemberId);
-  if (revision.role === "assistant") {
-    acc.latestAssistantRevision = { ...revision, conversationId: cid };
-    if (isTerminalMessageState(revision.state)) { /* @mention 扫描 */ }
+session.subscribe((event) => {
+  if (event.type === "message") {
+    // 直写 conversation ledger（critical）
+    const seq = await convSvc.appendAssistantMessage({
+      conversationId: cid, senderMemberId, runId,
+      revision: event.payload,
+    });
+    // fan-out 到前端（best-effort, fire-and-forget）
+    void convSvc.broadcastMessage(entry, { excludeMemberId: senderMemberId });
   }
 
-  // fan-out 到前端（best-effort, fire-and-forget）
-  void conv.convSvc.broadcastMessage(entry, { excludeMemberId: senderMemberId }).catch(...);
+  if (event.type === "agent_end" && !event.willRetry) {
+    // terminal revision 写入
+    await convSvc.appendAssistantMessage({ ...terminal revision });
+    // 释放 ConversationLock
+    lock.releaseOne(conversationId);
+  }
 });
+
+await session.prompt(input);
+session.dispose();
 ```
 
-## buildPreloadedMessages：给 Agent 构建上下文
+消息直接写入 ledger——不经过 EventLog，不经过独立的 projection 步骤。EventLog 仅用于非消息事件（tool_start、tool_end 等）。
 
-在 `forkRun` 里调，从 ledger 直接读，产出 `Message[]`。不走 `projection_messages`。
+## 消息 revision upsert 模型
 
-```ts
-// conv-svc-factory.ts
-const preloadedMessages = buildPreloadedMessages(convPort, ctx.conversationId, ctx.agentMemberId);
-const { attemptId } = await supervisor.startMainRun(runId, threadId, spec, {
-  preloadedMessages,
-  ...
-});
-```
+assistant 消息从 streaming → done/error 是同一个 `messageId` 的多次 revision。`appendAssistantMessage` 每次写入同一 `messageId` 的不同 state，前端按 `messageId` upsert。`runStatus` 字段（"retrying"/"compacting"）在 revision 上传递，前端从最新 revision 读取。
 
-## Supervisor 事件分流
+## `broadcastMessage` 的 fan-out
 
-```ts
-case "event": {
-  if (event.type === "message" && this.#onRunMessage.length > 0) {
-    // message → onRunMessage（critical, awaited）
-    for (const fn of this.#onRunMessage) await fn(threadId, runId, event.payload, kind);
-    // onRunEvent fan-out（best-effort）
-    for (const fn of this.#onRunEvent) void Promise.resolve(fn(...)).catch(...);
-  } else {
-    // 非 message → EventLog（critical） + onRunEvent（best-effort）
-    await this.#opts.eventLog.append(threadId, runId, event);
-    for (const fn of this.#onRunEvent) void Promise.resolve(fn(...)).catch(...);
-  }
-}
-```
-
-## onRunComplete：terminal 写入
-
-分三层一致性：
-
-```ts
-export async function onRunComplete(...) {
-  if (opsStore.getRunOrigin(runId)?.issueId) { clearAccumulator(runId); return; }
-
-  const acc = runAccumulators.get(runId);
-  try {
-    // Phase 1 (CRITICAL): terminal revision write + broadcast
-    const baseRev = acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
-    // ... write terminal to ledger ...
-  } catch (err) {
-    throw err;
-  } finally {
-    // Phase 2 (CRITICAL): release ConversationLock
-    convSvc.completeRun(cid, threadId, runId);
-  }
-  // Phase 3 (BEST-EFFORT): todo + @mentions fire-and-forget
-}
-```
-
-## 关键数据结构
-
-```ts
-interface RunAccumulator {
-  senderMemberId: string;
-  mentionedMemberIds: Set<string>;
-  lastTodoUpdate: { todos: unknown } | null;
-  latestAssistantRevision: MessageRevision | null;
-}
-```
-
-LedgerEntry：
-```ts
-{
-  seq: number, conversationId: string, senderMemberId: string,
-  addressedTo: string[],
-  kind: "message",
-  content: string,   // MessageRevision JSON
-  ts: number,
-  runId?: string
-}
-```
+`broadcastMessage` 从 ledger 读取最新 entry，调用 `projectForMember` 为每个 agent member 构建视角投影，通过 SSE 推送到前端。SSE 直接从 ledger 读取 entry。
 
 ## 不变量
 
-1. assistant 消息和人类消息经同一 `appendLedgerEntry` 底层入口。
-2. ledger 是对话 canonical store；event_log 只含 execution detail。
-3. `buildPreloadedMessages` 从 ledger 直接构建 Message[]，不经过 `projection_messages`。
-4. Runner 不直接写 ledger。
-5. reflect 跑 `kind === "reflect"` 过滤；issue 跑 `threadId.startsWith("issue:")` 过滤。
-6. terminal 写入不依赖进程内存；restart 后从 ledger 重建 base revision。
-7. todo 和 @mention（Agent 在产出文本中 @另一个 Agent 的触发机制）是 best-effort，不阻塞 terminal 写入或 `ConversationLock` 释放。
+1. assistant 消息和人类消息经同一 `appendLedgerEntry` 底层入口写入 ledger。
+2. ledger 是对话 canonical store；EventLog 只含 execution detail（tool calls 等）。
+3. 消息从 AgentSession 的 `onEvent` 回调直接写入——不经过 transport。
+4. reflect 使用独立的 `threadId`（`reflect:{original}`），消息不进主流 conversation ledger。
+5. terminal 写入后释放 `ConversationLock`，不阻塞后续消息。
 
 ## 失败模式
 
-**直写失败**：`appendAssistantMessage` 是 critical path，失败上抛，run 标 error。
-
-**fan-out 失败不影响事实**：broadcast 失败只记日志。ledger 已持久化，重连从 SSE 重放。
-
-**restart 后 terminal 丢失**：`onRunComplete` 从 ledger 扫同 runId 的最新 assistant revision 做 base，不依赖内存。
+- **写入失败**：`appendAssistantMessage` 是 critical path，失败上报，run 标记 error。
+- **fan-out 失败**：不影响正确性——ledger 已持久化，客户端重连 SSE 后自动重放。
 
 ## 关联页面
 
-- [事实与投影](../foundations/facts-and-projections.md)
+- [Conversation Ledger](../conversation/ledger.md)
+- [AgentSession](../harness/harness.md)
 - [EventLog](./event-log.md)
-- [RunSupervisor](./run-supervisor.md)
-- [对话账本](../conversation/ledger.md)
-- [Web 端](../surfaces/web.md)
+- [Web 消息端到端](../flows/e2e-web-message.md)
 - [Lark 适配器](../surfaces/lark-adapter.md)

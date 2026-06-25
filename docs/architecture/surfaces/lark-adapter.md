@@ -4,7 +4,7 @@ title: 飞书适配器
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-16
-summary: "飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，通过 sse-watcher 消费账本 ConversationMessageRevision 决定流式/最终可见文本。不再有 run-delta-watcher 和streaming 卡片——sse-watcher 是唯一出站流入口。去重依赖 revision 的 messageId + canSkipFinalLedgerText。"
+summary: "飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，通过 sse-watcher 消费 conversation ledger SSE 中的 MessageRevision 决定流式/最终可见文本。sse-watcher 是唯一出站流入口。去重依赖 revision 的 messageId + canSkipFinalLedgerText。"
 depends_on:
   - conversation.ledger
   - backend.conversation-projection
@@ -15,7 +15,7 @@ used_by:
 
 # 飞书适配器
 
-飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，通过 sse-watcher 消费账本 ConversationMessageRevision 决定流式/最终可见文本。不再有 run-delta-watcher 和streaming 卡片——sse-watcher 是唯一出站流入口。去重依赖 revision 的 messageId + canSkipFinalLedgerText。
+飞书适配器把飞书的群/用户映射成对话/成员，把入站消息 POST 给后端，通过 sse-watcher 消费 conversation ledger SSE 中的 MessageRevision 决定流式/最终可见文本。sse-watcher 是唯一出站流入口。去重依赖 revision 的 messageId + canSkipFinalLedgerText。
 
 ## 这页解决什么问题
 
@@ -61,7 +61,7 @@ sequenceDiagram
   Bot->>L: 不能跳过则发最终文本
 ```
 
-`sse-watcher` 是唯一出站流入口。不再有 `run-delta-watcher.ts`、`card-renderer.ts`、`card-sender.ts`、`feedback-reaction.ts`——这些全部删除。ingest 的 `onTriggeredRun` 回调移除，不再为每个 run 启动独立的 delta watcher。
+`sse-watcher` 是唯一出站流入口。它连接到 conversation ledger SSE，解析每个 entry 的 MessageRevision，根据 `state` 字段决定出站行为。
 
 ## Revision state 驱动出站逻辑
 
@@ -71,7 +71,7 @@ sequenceDiagram
 - `state === "done"`：terminal revision。到达时查 `canSkipFinalLedgerText`——首次必发一次最终文本（`completeFromLedger` 尚为 0），重连重放时可跳过。
 - `state === "error"`：run 失败。发错误文本。
 
-不再有 `_preliminary` 标记。旧的 `_preliminary: true` 压制逻辑（卡片健康时跳过账本消息）被 revision state 替代——`streaming` 仅用于渐进渲染，`done`/`error` 触发最终投递。
+`streaming` 仅用于渐进渲染，`done`/`error` 触发最终投递。
 
 ## 去重难题与 canSkipFinalLedgerText
 

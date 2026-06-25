@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk, ChatModel } from "@my-agent-team/core";
 import { inMemoryCheckpointer } from "@my-agent-team/framework";
 import { compactThread, reflectionGuidance } from "./compaction.js";

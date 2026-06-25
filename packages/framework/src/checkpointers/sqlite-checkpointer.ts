@@ -117,9 +117,7 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): Checkpointe
       d.delete(schema.checkpointInterrupts)
         .where(eq(schema.checkpointInterrupts.threadId, threadId))
         .run();
-      d.delete(schema.checkpointEvents)
-        .where(eq(schema.checkpointEvents.threadId, threadId))
-        .run();
+      d.delete(schema.checkpointEvents).where(eq(schema.checkpointEvents.threadId, threadId)).run();
     },
   };
 

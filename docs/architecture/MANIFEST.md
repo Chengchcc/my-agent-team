@@ -2,13 +2,11 @@
 
 - `README.md`
 - `docs/architecture/README.md`
-- `docs/architecture/backend/agent-spec.md`
 - `docs/architecture/backend/conversation-projection.md`
 - `docs/architecture/backend/data-model.md`
 - `docs/architecture/backend/event-log.md`
 - `docs/architecture/backend/orchestrator.md`
 - `docs/architecture/backend/overview.md`
-- `docs/architecture/backend/run-supervisor.md`
 - `docs/architecture/concepts.json`
 - `docs/architecture/conversation/conversation-and-members.md`
 - `docs/architecture/conversation/ledger.md`
@@ -28,9 +26,6 @@
 - `docs/architecture/plugins/progressive-skill.md`
 - `docs/architecture/plugins/task-guard.md`
 - `docs/architecture/roadmap/future-work.md`
-- `docs/architecture/runner/agent-file-system.md`
-- `docs/architecture/runner/resident-runner.md`
-- `docs/architecture/runner/runner-protocol.md`
 - `docs/architecture/runtime/framework.md`
 - `docs/architecture/runtime/plugin.md`
 - `docs/architecture/runtime/context-manager.md`

@@ -1,10 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
-import {
-  sqliteThreadProjectionReadAdapter,
-  sqliteThreadProjectionWriteAdapter,
-} from "../thread-projection/adapter-sqlite.js";
 import { sqliteConversationAdapter } from "./adapter-sqlite.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
@@ -16,8 +12,6 @@ const fakeOpsStore = { getRunOrigin: () => null } as unknown as RuntimeOpsStore;
 const dbPath = `/tmp/test-projection-${Date.now()}.db`;
 const db = openDb(dbPath);
 const port = sqliteConversationAdapter(db);
-const threadProjectionRead = sqliteThreadProjectionReadAdapter(db);
-const threadProjectionWrite = sqliteThreadProjectionWriteAdapter(db);
 const lock = new ConversationLock();
 
 let idCount = 0;
@@ -27,8 +21,6 @@ function testIdGen(): string {
 
 const svc = createConversationService({
   port,
-  threadProjectionRead,
-  threadProjectionWrite,
   lock,
   maxConsecutiveAgentHops: 3,
   idGen: testIdGen,

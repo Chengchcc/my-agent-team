@@ -61,7 +61,6 @@ import {
   opsRoutes,
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
-import { threadProjectionRoutes } from "./features/thread-projection/index.js";
 import { createRouter } from "./http/router.js";
 import * as eventsSchema from "./infra/db/events-schema.js";
 import * as backendSchema from "./infra/db/schema.js";
@@ -421,7 +420,6 @@ const router = createRouter(config.authToken, {
     (threadId, input, overrides) => buildAgentSpecV2(db, agentSvc, threadId, input, overrides),
     getThreadIdForRun,
   ),
-  threadProjections: threadProjectionRoutes(conv.threadProjectionSvc),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),
   issues: issueRoutes(issueSvc, opsStore, deliverableSvc, {

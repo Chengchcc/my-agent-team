@@ -1,95 +1,153 @@
 ---
 id: harness.harness
-title: Harness 默认装配
+title: AgentSession — Agent 编排层
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-16
-summary: "Harness 把 Framework 这套底座装配成一个「开箱即用」的通用 Agent。它的入口是 createGenericAgent：在裸 Framework 之上，预置一组默认工具（基于 AgentFS 的 Read/Write/Edit，加上带工作区沙箱的 bash/glob/grep）和一组默认插件（文件型记忆、渐进式技能、task-guard守卫），让上层不必每次都手工拼装。"
+last_verified_against_code: 2026-06-25
+summary: "AgentSession 把 Framework 的 Agent + Checkpointer + PluginRunner + ContextManager 组成为一个有生命周期管理（prompt/continue/resume/abort）和自动化维护（retry/compaction）的运行时单元。"
 depends_on:
   - runtime.framework
   - runtime.plugin
   - runtime.context-manager
-  - runner.agent-file-system
 used_by:
+  - flows.e2e-web-message
+  - flows.e2e-lark-message
+  - flows.e2e-issue-lifecycle
+  - backend.overview
 ---
 
-# Harness 默认装配
+# AgentSession
 
-Harness 把 Framework 这套底座装配成一个「开箱即用」的通用 Agent。它的入口是 createGenericAgent：在裸 Framework 之上，预置一组默认工具（基于 AgentFS 的 Read/Write/Edit，加上带工作区沙箱的 bash/glob/grep）和一组默认插件（文件型记忆、渐进式技能、task-guard守卫），让上层不必每次都手工拼装。
+AgentSession 是 Agent 的运行时编排。它不是领域对象——它是已有领域对象的胶水，把构造、运行、事件分发、维护操作封装成一个类。Backend 直接创建 AgentSession 并调用 `prompt()`，Agent 在 Backend 进程内执行。
 
-## 入口：createGenericAgent
+## 构造
 
-```ts
-createGenericAgent(opts: GenericAgentOptions): Promise<Agent>
+```
+AgentSession(config):
+  → createAgent({ model, threadId, tools, plugins, checkpointer, contextManager, logger, systemPrompt })
+  → agent.subscribe(#handleEvent)
+  → 初始化 steer/followUp 队列 + retry/compaction 状态
 ```
 
-它做的事可以概括成「在 Framework 上铺一层有主张的默认值」：Framework 本身不假设你要哪些工具、挂哪些插件；Harness 替最常见的「通用助理」场景做了这些选择。
+构造参数：
 
-### GenericAgentOptions
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `workspace` | `AgentFsHandle` | 是 | Agent 文件系统句柄，提供虚拟文件视图 |
-| `model` | `ChatModel` | 是 | 预构造的 ChatModel 实例（由调用方选适配器） |
-| `threadId?` | `string` | 否 | 线程标识。相同 threadId 复用 checkpointer 历史。默认随机 uuid |
-| `permissionMode?` | `"ask" \| "auto" \| "deny"` | 否 | 权限模式。默认 `"ask"` |
-| `logger?` | `Logger` | 否 | 可注入的 Logger。默认 `consoleLogger()` |
-| `checkpointer?` | `Checkpointer \| "memory" \| "sqlite"` | 否 | Checkpointer 实例或别名。默认 sqlite |
-| `checkpointerDb?` | `Database` | 否 | 当 checkpointer 为 sqlite 时，使用此 Database 实例而非默认工作区文件 |
-| `messages?` | `Message[]` | 否 | 预载消息以引导线程初始状态。传入后绕过 checkpointer.load() |
-| `extraPlugins?` | `readonly Plugin[]` | 否 | 额外用户定义插件。与默认合并；重名则 fast-fail |
-| `extraTools?` | `readonly Tool[]` | 否 | 额外用户定义工具。与默认合并；重名则 fast-fail |
-
-## 默认工具
-
-| 工具 | 来源 | 说明 |
+| 参数 | 类型 | 来源 |
 |------|------|------|
-| `Read` / `Write` / `Edit` | `@my-agent-team/tools-common` — `createReadToolForWorkspace(ws)`, `createWriteToolForWorkspace(ws)`, `createEditToolForWorkspace(ws)` | 走 AgentFS 的文件读写编辑 |
-| `bash` / `glob` / `grep` | `@my-agent-team/tools-common` — `withWorkspace(bashTool, sandbox)`, `withWorkspace(grepTool, sandbox)`, `withWorkspace(globTool, sandbox)` | 带工作区沙箱（workspace root）约束的命令与检索 |
+| `model` | `ChatModel` | Backend 从 agent DB row 构造 |
+| `threadId` | `string` | `{conversationId}:{memberId}` |
+| `tools` | `Tool[]` | Backend 创建（闭包持有 cwd、convPort 等上下文） |
+| `plugins` | `Plugin[]` | `identityPlugin`, `ConversationContextPlugin`, `fsMemoryPlugin`, `progressiveSkillPlugin`, `taskGuardPlugin` |
+| `checkpointer` | `Checkpointer` | 全局 `dataDir/checkpointer.db`，按 `threadId` 分区 |
+| `contextManager` | `ContextManager` | `pipeContextManagers(toolResultTruncator, autoSummarize)` |
 
-所有默认工具从 `@my-agent-team/tools-common` 导入。bash 等工具被显式包进工作区沙箱（`withWorkspace`），避免 Agent 触碰沙箱之外的真实文件系统——这是执行层安全的一道边界。
+AgentSession 通过 `agent.subscribe()` 注册一个内部订阅者，在 Agent 发射每个事件时处理副作用：通知外部 listeners、检查 retry/compaction 条件、包装 `agent_end` 的 `willRetry` 字段。
 
-## 默认插件
+## 生命周期
 
-Harness 默认装上三个插件，正好覆盖「记得住、学得会、不早停」：
+一次 run 的完整生命周期：
 
-```ts
-fsMemoryPlugin({ ws, root: "/memory/" }),       // 长期记忆，挂在 shared 域
-progressiveSkillPlugin({                        // 渐进式技能，挂在 private 域
-  ws,
-  root: "/skills/",
-  posixSkillRoot: `${workspace.privateRoot}/skills`,
-}),
-taskGuardPlugin({ model }),                     // task-guard守卫
+```
+dispatch:
+  session = new AgentSession({...})
+  await session.prompt(input)
+  session.dispose()
+
+resume（工具触发 InterruptSignal 后暂停）:
+  session = sessions.get(runId)
+  await session.resume({ approved: true/false })
+  // agent_end（非中断）后 dispose
 ```
 
-- `/memory/` 映射到 **shared** 域：记忆跨运行可见。
-- `/skills/` 映射到 **private** 域（`/skills/*` 实际别名到 `/private/skills/*`）：技能是 Agent 私有的。
+Backend 维护 `Map<runId, AgentSession>` 以便 resume 时查找。Agent 被中断后 AgentSession 保持存活——只存在 `agent_end`（真正的结束，非中断）时才 dispose。
 
-插件从各自的包导入：`@my-agent-team/plugin-fs-memory`、`@my-agent-team/plugin-progressive-skill`、`@my-agent-team/plugin-task-guard`。
+## prompt() 流程
 
-## 上下文管理器：默认透传
+```
+prompt(text)
+  ├── Agent 正在 streaming? → 消息放入 steer/followUp 队列 → return
+  └── 非流式 → runAgentPrompt(messages)
+      ├── agent.prompt(messages)
+      ├── while (postRunNeedsContinue)
+      │   ├── retryable error? → backoff → agent.continue()
+      │   │   └── 当前 assistant message 的 MessageRevision.runStatus = "retrying"
+      │   ├── overflow? → compact() → agent.continue()
+      │   │   └── 当前 assistant message 的 MessageRevision.runStatus = "compacting"
+      │   ├── threshold? → compact() → return
+      │   └── queued messages (steer/followUp)? → agent.continue()
+      └── return
+```
 
-`createGenericAgent` 不覆盖 `contextManager`，因此沿用 Framework 的默认值 `passthroughContextManager()`——通用 Agent 当前**不裁剪历史**，消息原样喂给模型。滑动窗口、token 预算、摘要压缩等实现都已就绪（见[上下文管理器](../runtime/context-manager.md)），但要生效需调用方显式传入；把哪种提为默认属于[未来工作](../roadmap/future-work.md)。
+## 内部订阅者
 
-## 其他导出
+`#handleEvent` 处理 Agent 发射的每个事件：
 
-除 `createGenericAgent` 和 `GenericAgentOptions` 外，harness 包还导出：
+```
+#handleEvent(event):
+  ├── message_start (user) → 从 steer/followUp 队列中移除对应文本
+  ├── message_end → 通知外部 listeners
+  │   ├── role=assistant → 记录 #lastAssistantMessage（供 post-run 检查用）
+  │   └── terminal → 检查 retry/compaction 条件
+  ├── agent_end → 包装 willRetry 字段 → emit
+  ├── interrupted → 标记 run 暂停，等待 resume
+  └── tool_execution_start/update/end → 透传给外部 listeners
+```
 
-| 导出 | 说明 |
+## 事件
+
+AgentSession 发射给外部 listener 的事件类型：
+
+```typescript
+type AgentSessionEvent =
+  // Agent 核心事件（agent_end 被增强——加了 willRetry）
+  | Exclude<AgentEvent, { type: "agent_end" }>
+  | { type: "agent_end"; messages: Message[]; willRetry: boolean }
+
+  // 队列状态变更
+  | { type: "queue_update"; steering: string[]; followUp: string[] }
+
+  // 上下文压缩
+  | { type: "compaction_start"; reason: "manual" | "threshold" | "overflow" }
+  | { type: "compaction_end"; reason; result?; aborted; willRetry; errorMessage? }
+
+  // 自动重试
+  | { type: "auto_retry_start"; attempt; maxAttempts; delayMs; errorMessage }
+  | { type: "auto_retry_end"; success; attempt; finalError? }
+```
+
+外部 listener 由调用方（conversation、orchestrator、cron）在 `startAgentRun` 时提供。不同调用方根据事件类型执行不同的持久化和推进逻辑——conversation 写入消息到账本、orchestrator 推进 Issue 状态机、cron 标记任务完成。
+
+## compact()
+
+上下文压缩——调用 LLM 将老消息总结为一段摘要文本，替换原来的消息前缀：
+
+```
+compact(customInstructions?)
+  → checkpointer.load(threadId) → messages
+  → 计算 token 用量，确定压缩边界（保留最近 N 条，summarize 前面的）
+  → LLM summarize(messages[0..N-10])
+  → summaryMessage = { role: "user", text: "[Earlier summary]: ..." }
+  → thread.messages = [summaryMessage, ...messages[N-10:]]
+  → checkpointer.save(threadId, thread.messages)
+  → agent.state.messages 替换为新的消息列表
+  → emit compaction_end
+```
+
+与 `autoSummarize`（contextManager 管道里的自动预防）的区别：`compact()` 是 overflow 后的修复操作或用户手动触发的显式操作——两者在不同层协作，不互相替代。
+
+## 错误处理
+
+| 场景 | 行为 |
 |------|------|
-| `BOOTSTRAP_TEMPLATE` | Genesis 引导模板字符串。Agent 首次运行时若工作区为空，将其作为系统提示注入，引导 Agent 完成「出生」对话 |
-| `bootstrap(fs, logger, displayRoot?)` | 读取工作区文件（SOUL/USER/TOOLS/AGENTS/日志），组装系统提示。若工作区为空则返回 `BOOTSTRAP_TEMPLATE` |
-| `reflectionGuidance()` | 反射引导文本。在主线任务循环结束后注入，让 Agent 自行决定把哪些观察写到记忆文件里 |
-| `verificationGuidance()` | 冷审查验证引导文本。注入到分叉 Agent 中，让冷审阅者重新打开产物并逐项验证计划是否真的完成 |
-
-## 为什么要有 Harness 这一层
-
-Framework 追求「最小且无主张」，Harness 追求「最常用且能直接跑」。把默认装配单独抽一层，好处是：换默认工具集、调插件组合，只动 Harness，不动 Framework 内核；而需要极致定制的调用方，仍然可以绕过 Harness 直接用 Framework。
+| compact() 中 LLM 调用失败 | 保留原 messages，压缩放弃，日志告警 |
+| retry 耗尽（3次） | `agent_end` 携带 error + `willRetry: false` |
+| prompt() 期间 abort | `agent.abort()` 终止当前 run，跳过 post-run 处理 |
+| overflow → compact → 再次 overflow | 停止，告警 |
+| steer/followUp 在 retry 等待期间到达 | 保留在队列，retry 成功后注入 |
 
 ## 关联页面
 
 - [Framework 运行循环](../runtime/framework.md)
 - [上下文管理器](../runtime/context-manager.md)
 - [运行时插件机制](../runtime/plugin.md)
-- [Agent 文件系统](../runner/agent-file-system.md)
+- [Web 消息端到端](../flows/e2e-web-message.md)
+- [ConversationContextPlugin](conversation-context-plugin.md)

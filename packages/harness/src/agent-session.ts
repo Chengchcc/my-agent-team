@@ -9,8 +9,8 @@ import type {
 } from "@my-agent-team/framework";
 import { createAgent } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
-import { compactThread } from "./compaction.js";
 import type { CompactionResult } from "./compaction.js";
+import { compactThread } from "./compaction.js";
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -50,13 +50,7 @@ export interface ToolInfo {
   description: string;
 }
 
-export type AgentState =
-  | "idle"
-  | "running"
-  | "compacting"
-  | "retrying"
-  | "done"
-  | "error";
+export type AgentState = "idle" | "running" | "compacting" | "retrying" | "done" | "error";
 
 export interface ContextUsage {
   totalTokens?: number;
@@ -299,9 +293,7 @@ export class AgentSession {
       logger: this.#config.logger,
       systemPrompt: this.#config.systemPrompt,
     });
-    this.#unsubAgent = this.#agent.subscribe((event) =>
-      this.#handleAgentEvent(event),
-    );
+    this.#unsubAgent = this.#agent.subscribe((event) => this.#handleAgentEvent(event));
   }
 
   #handleAgentEvent(event: AgentEvent): void {
@@ -315,10 +307,7 @@ export class AgentSession {
     this.#emit(event);
   }
 
-  async #runLoop(
-    inputMessages?: Message[],
-    opts?: { signal?: AbortSignal },
-  ): Promise<void> {
+  async #runLoop(inputMessages?: Message[], opts?: { signal?: AbortSignal }): Promise<void> {
     if (!this.#agent) return;
 
     this.#state = "running";
@@ -330,13 +319,10 @@ export class AgentSession {
       while (true) {
         try {
           if (inputMessages) {
-            const generator = this.#agent.run(
-              inputMessages[0]?.text ?? "",
-              {
-                signal,
-                maxSteps: this.#config.maxSteps,
-              },
-            );
+            const generator = this.#agent.run(inputMessages[0]?.text ?? "", {
+              signal,
+              maxSteps: this.#config.maxSteps,
+            });
             for await (const _ of generator) {
               // events handled by agent subscriber → #handleAgentEvent
             }
@@ -351,15 +337,10 @@ export class AgentSession {
           }
 
           // Check if we need to retry
-          if (
-            this.#lastError &&
-            this.#retryCount < (this.#config.retry?.maxAttempts ?? 3)
-          ) {
+          if (this.#lastError && this.#retryCount < (this.#config.retry?.maxAttempts ?? 3)) {
             this.#retryCount++;
             this.#state = "retrying";
-            const delayMs =
-              (this.#config.retry?.backoffMs ?? 2000) *
-              Math.pow(2, this.#retryCount - 1);
+            const delayMs = (this.#config.retry?.backoffMs ?? 2000) * 2 ** (this.#retryCount - 1);
             this.#emit({
               type: "auto_retry_start",
               attempt: this.#retryCount,
@@ -422,9 +403,7 @@ export class AgentSession {
     if (!external) return this.#abortController?.signal;
     if (!this.#abortController) return external;
     const combined = new AbortController();
-    external.addEventListener("abort", () =>
-      combined.abort(external.reason),
-    );
+    external.addEventListener("abort", () => combined.abort(external.reason));
     this.#abortController.signal.addEventListener("abort", () =>
       combined.abort(this.#abortController!.signal.reason),
     );

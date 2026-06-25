@@ -6,11 +6,6 @@ import type { AgentService } from "../agent/index.js";
 import type { RunDispatcher } from "../run/dispatcher.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
-import {
-  sqliteThreadProjectionReadAdapter,
-  sqliteThreadProjectionWriteAdapter,
-} from "../thread-projection/adapter-sqlite.js";
-import { createThreadProjectionService } from "../thread-projection/index.js";
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
@@ -20,7 +15,6 @@ import { createConversationService, parseThreadId } from "./service.js";
 export interface ConversationFeature {
   convPort: ConversationPort;
   convSvc: ReturnType<typeof createConversationService>;
-  threadProjectionSvc: ReturnType<typeof createThreadProjectionService>;
   /** M17.5 P4+P11: ConversationLock replaces ad-hoc activeConversations Set + threads Set. */
   lock: ConversationLock;
 }
@@ -37,17 +31,11 @@ export function createConversationFeature(
   tracer: RuntimeTracer,
   dispatcher: RunDispatcher,
 ): ConversationFeature {
-  const threadProjectionPort = sqliteThreadProjectionReadAdapter(db);
-  const threadProjectionWritePort = sqliteThreadProjectionWriteAdapter(db);
-  const threadProjectionSvc = createThreadProjectionService({ port: threadProjectionPort });
-
   const convPort = sqliteConversationAdapter(db);
   const lock = new ConversationLock();
 
   const convSvc = createConversationService({
     port: convPort,
-    threadProjectionRead: threadProjectionPort,
-    threadProjectionWrite: threadProjectionWritePort,
     lock,
     maxConsecutiveAgentHops: 8,
     idGen: ulid,
@@ -119,7 +107,7 @@ export function createConversationFeature(
     },
   });
 
-  return { convPort, convSvc, threadProjectionSvc, lock };
+  return { convPort, convSvc, lock };
 }
 
 // ─── Spec builder (shared by forkRun and HTTP run routes) ──────

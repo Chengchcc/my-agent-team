@@ -6,7 +6,6 @@ import type { issueRoutes } from "../features/issue/http.js";
 import type { projectRoutes } from "../features/project/http.js";
 import type { runRoutes } from "../features/run/http.js";
 import type { opsRoutes } from "../features/runtime-ops/http.js";
-import type { threadProjectionRoutes } from "../features/thread-projection/http.js";
 import { HttpError } from "../infra/errors.js";
 import { withAuth } from "./middleware.js";
 import { json } from "./response.js";
@@ -14,7 +13,6 @@ import { json } from "./response.js";
 interface FeatureSet {
   agents: ReturnType<typeof agentRoutes>;
   runs: ReturnType<typeof runRoutes>;
-  threadProjections: ReturnType<typeof threadProjectionRoutes>;
   conversations?: ReturnType<typeof conversationRoutes>;
   ops?: ReturnType<typeof opsRoutes>;
   issues?: ReturnType<typeof issueRoutes>;

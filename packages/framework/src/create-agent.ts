@@ -124,9 +124,7 @@ function createAgentInternal(
   }
 
   /** Wraps a runLoop generator to notify subscribers on each yielded event. */
-  async function* withSubscribers(
-    gen: AsyncGenerator<AgentEvent>,
-  ): AsyncGenerator<AgentEvent> {
+  async function* withSubscribers(gen: AsyncGenerator<AgentEvent>): AsyncGenerator<AgentEvent> {
     for await (const event of gen) {
       yield event;
       for (const sub of subscribers) sub(event);

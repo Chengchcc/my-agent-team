@@ -8,10 +8,6 @@ import {
   sqliteConversationAdapter,
 } from "../features/conversation/index.js";
 import { ConversationLock } from "../features/conversation/lock.js";
-import {
-  sqliteThreadProjectionReadAdapter,
-  sqliteThreadProjectionWriteAdapter,
-} from "../features/thread-projection/adapter-sqlite.js";
 import { openDb } from "../infra/sqlite/db.js";
 import { createRouter } from "./router.js";
 
@@ -47,8 +43,6 @@ beforeAll(async () => {
   const convPort = sqliteConversationAdapter(db);
   const convSvc = createConversationService({
     port: convPort,
-    threadProjectionRead: sqliteThreadProjectionReadAdapter(db),
-    threadProjectionWrite: sqliteThreadProjectionWriteAdapter(db),
     lock: new ConversationLock(),
     maxConsecutiveAgentHops: 8,
     idGen: () => crypto.randomUUID().slice(0, 8),
@@ -58,7 +52,6 @@ beforeAll(async () => {
   router = createRouter(TOKEN, {
     agents: agentRoutes(agentSvc),
     runs: undefined!,
-    threadProjections: undefined!,
     conversations: conversationRoutes(convSvc, () => crypto.randomUUID().slice(0, 8)),
   });
 });
