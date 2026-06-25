@@ -202,7 +202,9 @@ export interface StartAgentRunOpts {
  * Replaces the old forkRun → dispatcher → supervisor → daemon chain
  * with direct in-process AgentSession execution.
  */
-export async function startAgentRun(opts: StartAgentRunOpts): Promise<{ runId: string; attemptId: string }> {
+export async function startAgentRun(
+  opts: StartAgentRunOpts,
+): Promise<{ runId: string; attemptId: string }> {
   const {
     threadId,
     agentId,
