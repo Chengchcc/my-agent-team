@@ -148,15 +148,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       originKind: "orchestrator",
       createdAt: Date.now(),
     });
-    await supervisor.startMainRun(runId, threadId, spec, {
-      surfaceContext: {
-        surface: "orchestrator",
-        conversationId: "",
-        runId,
-        capabilities: ["submit_deliverable", "read_issues"],
-        issue: { issueId: issue.issueId, fromStatus: issue.status, projectId: issue.projectId },
-      },
-    });
+    await supervisor.startMainRun(runId, threadId, spec);
 
     emitIssueEvent(opsStore, issue.issueId, "run.started", {
       runId,

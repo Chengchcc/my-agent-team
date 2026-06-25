@@ -163,7 +163,7 @@ export function createRuntimeOpsService(deps: {
           | undefined;
 
         const heartbeatAgeMs = attempt?.heartbeat_at ? Date.now() - attempt.heartbeat_at : null;
-        const session = supervisor.getActive(r.run_id);
+        const session = supervisor.getActive().get(r.run_id);
         const transport: RunOpsListItem["runnerTransport"] = session
           ? session.transportKind
           : "detached";
@@ -265,7 +265,7 @@ export function createRuntimeOpsService(deps: {
         // Bug 6 fix: only apply live session transport to unfinished attempts.
         // Historical (ended) attempts have no reliable real-time transport; mark as detached.
         attempts: attempts.map((a) => {
-          const session = a.ended_at == null ? supervisor.getActive(runId) : null;
+          const session = a.ended_at == null ? supervisor.getActive().get(runId) : null;
           const transport: "attached" | "noop" | "detached" = session
             ? session.transportKind
             : "detached";
@@ -303,7 +303,7 @@ export function createRuntimeOpsService(deps: {
         return { ok: true, state: "already_terminal", runId, status: run.status };
       }
 
-      const session = supervisor.getActive(runId);
+      const session = supervisor.getActive().get(runId);
       if (!session) return { ok: false, error: "not_found" };
 
       const cancelled = supervisor.cancel(runId);

@@ -105,8 +105,6 @@ export class AgentSession {
   #state: AgentState = "idle";
   #subscribers = new Set<SessionEventListener>();
   #abortController: AbortController | null = null;
-  #steeringQueue: string[] = [];
-  #followUpQueue: string[] = [];
   #lastError: string | null = null;
   #retryCount = 0;
   #unsubAgent: (() => void) | null = null;

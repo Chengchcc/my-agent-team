@@ -1,67 +1,19 @@
 import { Database } from "bun:sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
-import { type Message, type MessageRevision, parseMessageRevision } from "@my-agent-team/message";
-import type { RuntimeTraceContext, RuntimeTracer } from "@my-agent-team/runtime-observability";
-
-/** Minimal transport interface — was Transport from runner-protocol (deleted). */
-interface Transport {
-  ready(): Promise<void>;
-  send(msg: unknown): void;
-  onMessage(cb: (msg: unknown) => void): void;
-  onClose(cb: () => void): void;
-  close(): Promise<void>;
-}
+import { type MessageRevision, parseMessageRevision } from "@my-agent-team/message";
+import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 
 import type { BackendConfig } from "../../config.js";
-import type { EventLog, EventSource } from "../event-log/index.js";
+import type { EventLog } from "../event-log/index.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { runEventsDbMigrations } from "./events-db-migrations.js";
-
-/** Minimal registry interface — was RunnerRegistry (deleted). */
-interface Registry {
-  transportFor(agentId: string): Promise<Transport>;
-  attachExisting?(agentId: string): Promise<Transport | null>;
-}
 
 export interface RunSupervisorOptions {
   eventLog: EventLog;
   config: BackendConfig;
-  /** Optional transport registry. AgentSession runs in-process — transports are NOOP. */
-  registry?: Registry;
-  /** M16: Runtime ops store for diagnostic events. */
   opsStore: RuntimeOpsStore;
-  /** M16: Runtime tracer for span instrumentation. */
   tracer: RuntimeTracer;
-  /** M16: Optional pre-opened events DB (shared with opsStore). */
   db?: Database;
-}
-
-/** Data clump: parameters flowing through every run-start path. */
-interface RunRequest {
-  runId: string;
-  threadId: string;
-  agentId: string;
-  spec: Record<string, unknown>;
-  kind: "main" | "reflect";
-  /** Extra options that are threaded to transport.send({ type: "start" }). */
-  options?: RunRequestOptions;
-}
-
-export interface RunRequestOptions {
-  /** Messages already projected into the thread-projection store by broadcastMessage().
-   *  The daemon pre-seeds its own runtime checkpointer with these before createGenericAgent(). */
-  preloadedMessages?: readonly Message[];
-  /** M15.1: Surface context for injecting surface-specific extra tools.
-   *  Threaded through to transport.send({ type: "start" }). */
-  surfaceContext?: {
-    surface: "lark" | "web" | "cli" | "orchestrator";
-    conversationId: string;
-    runId: string;
-    capabilities: Array<"start_new_conversation" | "submit_deliverable" | "read_issues">;
-    issue?: { issueId: string; fromStatus: string; projectId?: string };
-  };
-  /** M16: Trace context propagated to runner daemon via transport start. */
-  trace?: RuntimeTraceContext;
 }
 
 export interface RunSession {
@@ -70,26 +22,10 @@ export interface RunSession {
   threadId: string;
   agentId: string;
   kind: "main" | "reflect";
-  transport: Transport;
-  /** M16.1: Whether the backend has a real control channel to the runner daemon.
-   *  "attached" = live transport; "noop" = NOOP_TRANSPORT placeholder (no control). */
-  transportKind: "attached" | "noop";
   abortController: AbortController;
+  /** @deprecated always "attached" — AgentSession runs in-process */
+  transportKind: "attached" | "noop" | "detached";
 }
-
-/** No-op transport stub — used when a real transport is unavailable
- *  (post-restart rediscover, testing). Cancel degrades to reaper timeout. */
-export const NOOP_TRANSPORT: Transport = {
-  ready() {
-    return Promise.resolve();
-  },
-  send() {},
-  onMessage() {},
-  onClose() {},
-  close() {
-    return Promise.resolve();
-  },
-};
 
 export class RunSupervisor {
   #active = new Map<string, RunSession>();
@@ -101,54 +37,94 @@ export class RunSupervisor {
   #onRunEvent: Array<
     (threadId: string, runId: string, event: AgentEvent, kind: string) => void | Promise<void>
   > = [];
-  /** M17.5 P7: Callbacks for assistant message events — invoked BEFORE EventLog.
-   *  This is the authoritative ledger write path (critical). Separate from
-   *  #onRunEvent which is now best-effort observability only. */
   #onRunMessage: Array<
     (threadId: string, runId: string, revision: MessageRevision, kind: string) => Promise<void>
   > = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
   #reaping = false;
-  #boundTransports = new Set<Transport>();
 
   constructor(opts: RunSupervisorOptions) {
     this.#opts = opts;
     this.#db = opts.db ?? new Database(`${opts.config.dataDir}/events.db`);
     this.#db.exec("PRAGMA journal_mode=WAL");
     this.#db.exec("PRAGMA busy_timeout=5000");
-    // Fix A + FIX-6: Ensure run/attempt tables exist in events.db via unified migration ledger
     runEventsDbMigrations(this.#db);
-
-    // M11: Start running reaper
     this.#startReaper();
   }
 
-  /** M11: Start periodic reaper to harvest stale runs. */
+  get activeCount(): number {
+    return this.#active.size;
+  }
+
+  getActive(): ReadonlyMap<string, RunSession> {
+    return this.#active;
+  }
+
+  getDb(): Database {
+    return this.#db;
+  }
+
+  // ─── Reaper ─────────────────────────────────────────
+
   #startReaper(): void {
     const interval =
       this.#opts.config.reaperIntervalMs > 0
         ? this.#opts.config.reaperIntervalMs
         : Math.min(this.#opts.config.heartbeatTimeoutMs / 2, 30_000);
     this.#reaperTimer = setInterval(() => {
-      if (this.#reaping) return; // concurrency guard: skip if previous tick still running
+      if (this.#reaping) return;
       this.#reaping = true;
       this.#reapStaleRuns()
-        .catch((err) => {
-          console.error(
-            `[supervisor] reaper error: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        })
+        .catch((err) =>
+          console.error(`[supervisor] reaper error: ${err instanceof Error ? err.message : String(err)}`),
+        )
         .finally(() => {
           this.#reaping = false;
         });
     }, interval);
   }
 
-  /** M11: Shared stale-run detection. Used by both reaper (periodic) and rediscover (startup).
-   *  Returns true if any runs were reaped. */
-  /** M17.5 P10: Single authoritative entry for run finalization.
-   *  CAS semantics — first writer wins, late arrivals are no-ops.
-   *  Returns true if this call was the first to finalize the run. */
+  async #reapStaleRuns(): Promise<boolean> {
+    const now = Date.now();
+    const stale = this.#db
+      .query(
+        `SELECT a.run_id, a.attempt_id, a.started_at, r.thread_id, r.kind
+         FROM attempt a JOIN run r ON a.run_id = r.run_id
+         WHERE a.ended_at IS NULL AND r.ended_at IS NULL`,
+      )
+      .all() as Array<{
+      run_id: string; attempt_id: string; started_at: number;
+      thread_id: string; kind: string;
+    }>;
+
+    let reaped = false;
+    for (const row of stale) {
+      const age = now - row.started_at;
+      if (age < this.#opts.config.stepStallTimeoutMs) continue;
+
+      const finalized = this.#finalizeRun(row.run_id, row.attempt_id, "interrupted");
+      if (!finalized) continue;
+      reaped = true;
+
+      await this.#opts.eventLog.append(row.thread_id, row.run_id, {
+        type: "interrupted",
+        payload: { reason: `stale after ${age}ms`, attemptId: row.attempt_id },
+      } as any);
+      this.#active.delete(row.run_id);
+
+      // Fire completion listeners
+      const kind = row.kind === "reflect" ? "reflect" : "main";
+      for (const listener of this.#onRunComplete) {
+        try { await listener(row.thread_id, row.run_id, "interrupted", kind); }
+        catch (err) { this.#markProjectionDegraded(row.run_id, row.attempt_id, err); }
+      }
+    }
+    return reaped;
+  }
+
+  // ─── Run/attempt lifecycle ─────────────────────────
+
+  /** CAS finalize: first writer wins. Returns true if this call finalized the run. */
   #finalizeRun(runId: string, attemptId: string | null, status: string): boolean {
     const now = Date.now();
     const result = this.#db.transaction(() => {
@@ -156,12 +132,9 @@ export class RunSupervisor {
         "UPDATE run SET status = ?, ended_at = ? WHERE run_id = ? AND ended_at IS NULL",
         [status, now, runId],
       );
-      // Attempt finalization is guarded too: late run_done must not overwrite
-      // attempt.ended_at if reaper already wrote it.
       if (attemptId) {
         this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ? AND ended_at IS NULL", [
-          now,
-          attemptId,
+          now, attemptId,
         ]);
       }
       return r.changes;
@@ -169,9 +142,6 @@ export class RunSupervisor {
     return result > 0;
   }
 
-  /** P2: mark a run as degraded when the critical projection sink failed.
-   *  Independent column — does NOT touch run.status (execution result stays
-   *  authoritative). Idempotent: only writes the first failure reason. */
   #markProjectionDegraded(runId: string, attemptId: string | null, err: unknown): void {
     const reason = err instanceof Error ? err.message : String(err);
     this.#db.run(
@@ -179,632 +149,120 @@ export class RunSupervisor {
       [reason, runId],
     );
     this.#opts.opsStore.appendRunEvent({
-      runId,
-      attemptId: attemptId ?? undefined,
-      kind: "projection_degraded",
-      payload: { reason },
+      runId, attemptId: attemptId ?? undefined,
+      kind: "projection_degraded", payload: { reason },
     });
-    console.error(
-      `[supervisor] run ${runId} marked DEGRADED: critical projection failed: ${reason}`,
-    );
+    console.error(`[supervisor] run ${runId} marked DEGRADED: ${reason}`);
   }
 
-  /** P2 + P3: run the critical onRunComplete listeners (ledger terminal write +
-   *  lock release). Each listener is awaited (critical sink). A failure is made
-   *  VISIBLE via #markProjectionDegraded instead of being swallowed — but does
-   *  not abort the loop, so remaining listeners (e.g. lock release) still run. */
   async #runCompletionListeners(
-    threadId: string,
-    runId: string,
-    attemptId: string | null,
-    status: string,
-    kind: string,
+    threadId: string, runId: string, attemptId: string | null,
   ): Promise<void> {
-    for (const fn of this.#onRunComplete) {
-      try {
-        await fn(threadId, runId, status, kind);
-      } catch (err) {
-        this.#markProjectionDegraded(runId, attemptId, err);
-      }
+    // Collect status from DB (may have been set by finalizeRun)
+    const row = this.#db
+      .query("SELECT status, kind FROM run WHERE run_id = ?")
+      .get(runId) as { status: string; kind: string } | undefined;
+    if (!row) return;
+    for (const listener of this.#onRunComplete) {
+      try { await listener(threadId, runId, row.status, row.kind); }
+      catch (err) { this.#markProjectionDegraded(runId, attemptId, err); }
     }
   }
 
-  async #reapStaleRuns(): Promise<boolean> {
-    // JOIN attempt with run to get thread_id for EventLog append
-    const rows = this.#db
-      .query(
-        `SELECT a.attempt_id, a.run_id, a.heartbeat_at, r.thread_id, r.kind
-         FROM attempt a JOIN run r ON a.run_id = r.run_id
-         WHERE a.ended_at IS NULL`,
-      )
-      .all() as {
-      attempt_id: string;
-      run_id: string;
-      heartbeat_at: number | null;
-      thread_id: string;
-      kind: string;
-    }[];
+  // ─── Public: start / cancel ────────────────────────
 
-    let reaped = false;
-    for (const row of rows) {
-      const age = row.heartbeat_at ? Math.max(0, Date.now() - row.heartbeat_at) : Infinity;
-      if (age < this.#opts.config.heartbeatTimeoutMs) continue; // fresh
+  async startMainRun(
+    runId: string, threadId: string, spec: Record<string, unknown>,
+    _opts?: Record<string, unknown>,
+  ): Promise<{ runId: string; attemptId: string }> {
+    const agentId = (spec.agentId as string) ?? threadId;
+    const attemptId = `att-${runId}`;
+    const now = Date.now();
 
-      // M14.7: daemon runs have no backend-visible pid — heartbeat timeout is the sole liveness signal.
-      // M16: Record ops event before marking interrupted
-      this.#opts.opsStore.appendRunEvent({
-        runId: row.run_id,
-        attemptId: row.attempt_id,
-        kind: "reaper_marked_interrupted",
-        payload: {
-          age,
-          heartbeatTimeoutMs: this.#opts.config.heartbeatTimeoutMs,
-          reason: "heartbeat_timeout",
-        },
-      });
-      // P10: CAS finalization — first writer wins, late arrivals no-op.
-      const finalized = this.#finalizeRun(row.run_id, row.attempt_id, "interrupted");
-      if (!finalized) {
-        console.log(`[supervisor] reaper skipped already-finalized run: ${row.run_id}`);
-        continue;
-      }
-
-      // Append terminal event to EventLog
-      try {
-        await this.#opts.eventLog.append(row.thread_id, row.run_id, {
-          type: "interrupted",
-          payload: { reason: "heartbeat_timeout" },
-        });
-      } catch {
-        // EventLog append is best-effort for reaper
-      }
-
-      // P2: critical sink — failures are made visible (run marked degraded), not swallowed.
-      await this.#runCompletionListeners(
-        row.thread_id,
-        row.run_id,
-        row.attempt_id,
-        "interrupted",
-        row.kind,
+    this.#db.transaction(() => {
+      this.#db.run(
+        "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
+        [runId, threadId, now],
       );
-
-      console.log(
-        `[supervisor] reaped stale run: ${row.run_id} (heartbeat age ${age}ms > timeout ${this.#opts.config.heartbeatTimeoutMs}ms)`,
+      this.#db.run(
+        "INSERT INTO attempt (attempt_id, run_id, started_at) VALUES (?, ?, ?)",
+        [attemptId, runId, now],
       );
-      reaped = true;
-    }
-    return reaped;
+    })();
+
+    const session: RunSession = {
+      runId, attemptId, threadId, agentId,
+      kind: "main", abortController: new AbortController(),
+      transportKind: "attached",
+    };
+    this.#active.set(runId, session);
+    return { runId, attemptId };
   }
 
-  /** Register callback invoked when any run completes (success/error/abort). Supports multiple listeners.
-   *  M17.4: kind parameter added (\"main\"|\"reflect\") so consumers can dispatch without string-prefix checks. */
-  /** Register callback invoked when any run completes (success/error/abort).
-   *  AWAITED by supervisor in run_done/reaper — failure propagated (critical sink).
-   *  P1: run_finalized is already sent before this, so await doesn't block control signal. */
+  cancel(runId: string): boolean {
+    const session = this.#active.get(runId);
+    if (!session) return false;
+    session.abortController.abort();
+    return true;
+  }
+
+  // ─── Public: event callbacks ───────────────────────
+
   onRunComplete(
     fn: (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>,
   ): void {
     this.#onRunComplete.push(fn);
   }
 
-  /** M17.5 P7: Register callback for assistant message revisions.
-   *  Invoked BEFORE EventLog — this is the authoritative ledger write path (critical).
-   *  Replaces the old event_log → projection → ledger indirection. */
   onRunMessage(
     fn: (threadId: string, runId: string, revision: MessageRevision, kind: string) => Promise<void>,
   ): void {
     this.#onRunMessage.push(fn);
   }
 
-  /** Register callback for mid-run events (observability/fan-out only post-P7).
-   *  M17.5: Demoted to best-effort — message events are now handled by onRunMessage.
-   *  This only receives non-message events (tool_start/tool_end/text_delta). */
   onRunEvent(
     fn: (threadId: string, runId: string, event: AgentEvent, kind: string) => void | Promise<void>,
   ): void {
     this.#onRunEvent.push(fn);
   }
 
-  /** M16.1: Trigger all onRunComplete listeners. Used by ops service recover() stale path.
-   *  Each listener individually caught — one failure doesn't skip others.
-   *  Failure is made visible via degraded_reason (same as #runCompletionListeners). */
-  notifyRunComplete(threadId: string, runId: string, status: string, kind: string): void {
-    for (const fn of this.#onRunComplete) {
-      try {
-        fn(threadId, runId, status, kind);
-      } catch (err) {
-        this.#markProjectionDegraded(runId, null, err);
-      }
-    }
-  }
-
-  get activeCount(): number {
-    return this.#active.size;
-  }
-
-  /** Expose active run session for test assertions (agentId/kind/threadId). */
-  getActive(runId: string): RunSession | undefined {
-    return this.#active.get(runId);
-  }
-
-  /** Expose DB for read queries (GET /runs/:id metadata). */
-  getDb(): Database {
-    return this.#db;
-  }
-
-  /** Dispose the supervisor's DB connection and stop reaper. */
-  async dispose(): Promise<void> {
-    // M11: Stop reaper first, then wait for in-flight tick, then close DB
-    if (this.#reaperTimer) {
-      clearInterval(this.#reaperTimer);
-      this.#reaperTimer = undefined;
-    }
-    // Wait for any in-flight #reapStaleRuns to complete before closing DB
-    while (this.#reaping) {
-      await new Promise((r) => setTimeout(r, 10));
-    }
-    // M15: clear transport message queues
-    this.#transportQueues.clear();
-    this.#db.close();
-  }
-
-  // ─── M14.7: Run lifecycle (registry-based) ──────────────────────
-
-  /**
-   * Start a NEW main run. Creates run + attempt rows.
-   */
-  async startMainRun(
-    runId: string,
-    threadId: string,
-    spec: Record<string, unknown>,
-    opts: RunRequestOptions = {},
-  ): Promise<{ runId: string; attemptId: string }> {
-    const req: RunRequest = {
-      runId,
-      threadId,
-      agentId: (spec.agentId as string) ?? "default",
-      spec,
-      kind: "main",
-      options: opts,
-    };
-    return this.#beginAndSend(req);
-  }
-
-  async resumeRun(
-    runId: string,
-    threadId: string,
-    spec: Record<string, unknown>,
-  ): Promise<{ runId: string; attemptId: string }> {
-    const req: RunRequest = {
-      runId,
-      threadId,
-      agentId: (spec.agentId as string) ?? "default",
-      spec,
-      kind: "main",
-    };
-    this.#db.run("UPDATE run SET status = 'running' WHERE run_id = ?", [runId]);
-    return this.#beginAttempt(req);
-  }
-
-  async beginReflectRun(
-    runId: string,
-    threadId: string,
-    parentRunId: string | null,
-    spec: Record<string, unknown>,
-  ): Promise<{ runId: string; attemptId: string }> {
-    const req: RunRequest = {
-      runId,
-      threadId,
-      agentId: (spec.agentId as string) ?? "default",
-      spec,
-      kind: "reflect",
-    };
-    const now = Date.now();
-    this.#db.run(
-      "INSERT INTO run (run_id, thread_id, agent_id, status, started_at, kind, parent_run_id) VALUES (?, ?, ?, 'running', ?, 'reflect', ?)",
-      [req.runId, req.threadId, req.agentId, now, parentRunId],
-    );
-    return this.#beginAttempt(req);
-  }
-
-  /** Register a reflect run that was already started by the daemon.
-   *  Unlike #beginAttempt(), this MUST NOT send HostToRunner.start —
-   *  the daemon already created and is driving the reflect run locally. */
-  async #registerDaemonStartedReflectRun(
-    runId: string,
-    threadId: string,
-    parentRunId: string | null,
-    spec: Record<string, unknown>,
-    sourceTransport: Transport,
-  ): Promise<{ runId: string; attemptId: string }> {
-    const agentId = (spec.agentId as string) ?? "default";
-    const now = Date.now();
-    this.#db.run(
-      "INSERT INTO run (run_id, thread_id, agent_id, status, started_at, kind, parent_run_id) VALUES (?, ?, ?, 'running', ?, 'reflect', ?)",
-      [runId, threadId, agentId, now, parentRunId],
-    );
-
-    const attemptId = crypto.randomUUID();
-    this.#db.run(
-      "INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)",
-      [attemptId, runId, now, now],
-    );
-
-    this.#bindTransport(sourceTransport);
-    this.#registerSession({
-      runId,
-      attemptId,
-      threadId,
-      agentId,
-      kind: "reflect",
-      transport: sourceTransport,
-    });
-
-    return { runId, attemptId };
-  }
-
-  /** Internal: create run row (main only; reflect uses beginReflectRun), then delegate to #beginAttempt. */
-  async #beginAndSend(req: RunRequest): Promise<{ runId: string; attemptId: string }> {
-    const now = Date.now();
-    this.#db.run(
-      "INSERT INTO run (run_id, thread_id, agent_id, status, started_at, kind) VALUES (?, ?, ?, 'running', ?, ?)",
-      [req.runId, req.threadId, req.agentId, now, req.kind],
-    );
-    return this.#beginAttempt(req);
-  }
-
-  /** Shared tail: get transport, create attempt, register in #active, send start. */
-  async #beginAttempt(req: RunRequest): Promise<{ runId: string; attemptId: string }> {
-    const transport = this.#opts.registry
-      ? await this.#opts.registry.transportFor(req.agentId)
-      : NOOP_TRANSPORT;
-    this.#bindTransport(transport);
-
-    const now = Date.now();
-    const attemptId = crypto.randomUUID();
-    this.#db.run(
-      "INSERT INTO attempt (attempt_id, run_id, heartbeat_at, started_at) VALUES (?, ?, ?, ?)",
-      [attemptId, req.runId, now, now],
-    );
-
-    this.#registerSession({
-      runId: req.runId,
-      attemptId,
-      threadId: req.threadId,
-      agentId: req.agentId,
-      kind: req.kind,
-      transport,
-    });
-
-    // M16: record ops event
-    this.#opts.opsStore.appendRunEvent({
-      runId: req.runId,
-      attemptId,
-      kind: "attempt_started",
-      traceId: req.options?.trace?.traceId,
-    });
-
-    transport.send({
-      type: "start",
-      runId: req.runId,
-      spec: req.spec,
-      preloadedMessages: req.options?.preloadedMessages as unknown[] | undefined,
-      surfaceContext: req.options?.surfaceContext,
-      trace: req.options?.trace,
-    });
-    return { runId: req.runId, attemptId };
-  }
-
-  /** Register an active session in #active (single source of truth for RunSession construction). */
-  #registerSession(o: {
-    runId: string;
-    attemptId: string;
-    threadId: string;
-    agentId: string;
-    kind: "main" | "reflect";
-    transport: Transport;
-    transportKind?: "attached" | "noop";
-  }): void {
-    const transportKind = o.transportKind ?? (o.transport === NOOP_TRANSPORT ? "noop" : "attached");
-    this.#active.set(o.runId, { ...o, transportKind, abortController: new AbortController() });
-  }
-
-  #transportQueues = new Map<Transport, Promise<void>>();
-
-  #bindTransport(transport: Transport): void {
-    if (this.#boundTransports.has(transport)) return;
-    this.#boundTransports.add(transport);
-
-    transport.onMessage((msg) => {
-      // Serialize message processing per transport — prevents race between
-      // run_started / event / run_done arriving faster than beginReflectRun can create DB row.
-      const prev = this.#transportQueues.get(transport) ?? Promise.resolve();
-      const next = prev
-        .catch(() => {}) // drain errors, don't block subsequent messages
-        .then(() => this.#handleRunnerMessage(msg, transport))
-        .catch((err: unknown) => {
-          console.error(
-            `[supervisor] runner message handling failed: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-        });
-      this.#transportQueues.set(transport, next);
-    });
-  }
-
-  async #handleRunnerMessage(raw: unknown, sourceTransport: Transport): Promise<void> {
-    const msg = raw as Record<string, unknown>;
-    const runId = msg.runId as string;
-    const session = this.#active.get(runId);
-    const transport = session?.transport ?? sourceTransport;
-    switch (msg.type) {
-      case "run_started": {
-        // Daemon-initiated reflect: register DB row + session WITHOUT sending
-        // HostToRunner.start (daemon is already driving the reflect run locally).
-        // Let errors propagate to transport queue — don't silently continue.
-        await this.#registerDaemonStartedReflectRun(
-          runId,
-          msg.threadId as string,
-          // M17.5 P10: null instead of "" — empty string is indistinguishable
-          // from "no parent" and breaks lineage queries. SQLite TEXT column
-          // accepts NULL, storing a proper missing-parent sentinel.
-          (msg.parentRunId as string) || null,
-          (msg.spec as Record<string, unknown>) ?? {},
-          sourceTransport,
-        );
-        break;
-      }
-      case "event": {
-        const threadId = this.#threadIdFor(runId);
-        const kind = this.#kindFor(runId);
-        const event = msg.event as AgentEvent;
-
-        // M17.5 P7: message events → onRunMessage (authoritative ledger write, critical).
-        // Non-message events → EventLog (execution detail) + onRunEvent (best-effort fan-out).
-        if (event.type === "message" && this.#onRunMessage.length > 0) {
-          for (const fn of this.#onRunMessage) {
-            const revision = parseMessageRevision(event.payload);
-            await fn(threadId, runId, revision, kind);
-          }
-          for (const fn of this.#onRunEvent) {
-            void Promise.resolve(fn(threadId, runId, event, kind)).catch((err: unknown) =>
-              console.error(
-                `[supervisor] onRunEvent listener failed for ${runId}: ${err instanceof Error ? err.message : String(err)}`,
-              ),
-            );
-          }
-        } else {
-          try {
-            await this.#opts.eventLog.append(
-              threadId,
-              runId,
-              event as Parameters<EventLog["append"]>[2],
-            );
-          } catch (err) {
-            console.error(
-              `[supervisor] append event failed for ${runId}: ${err instanceof Error ? err.message : String(err)}`,
-            );
-            throw err;
-          }
-          for (const fn of this.#onRunEvent) {
-            void Promise.resolve(fn(threadId, runId, event, kind)).catch((err: unknown) =>
-              console.error(
-                `[supervisor] onRunEvent listener failed for ${runId}: ${err instanceof Error ? err.message : String(err)}`,
-              ),
-            );
-          }
-        }
-        break;
-      }
-      case "heartbeat": {
-        this.#db.run("UPDATE attempt SET heartbeat_at = ? WHERE run_id = ? AND ended_at IS NULL", [
-          Date.now(),
-          runId,
-        ]);
-        break;
-      }
-      case "run_done": {
-        const status = msg.status as string;
-        this.#opts.opsStore.appendRunEvent({
-          runId,
-          attemptId: session?.attemptId,
-          kind: "run_done_received",
-          payload: { status },
-        });
-
-        // P10: CAS finalization — first writer wins. Late run_done after reaper
-        // has already marked the run interrupted will be a no-op.
-        const finalized = this.#finalizeRun(runId, session?.attemptId ?? null, status);
-        this.#active.delete(runId);
-        const threadId = this.#threadIdFor(runId);
-        const kind = this.#kindFor(runId);
-
-        if (finalized) {
-          // P1: Control signal first — send run_finalized BEFORE business listeners.
-          if (transport) transport.send({ type: "run_finalized", runId });
-          this.#opts.opsStore.appendRunEvent({
-            runId,
-            attemptId: session?.attemptId,
-            kind: "run_finalized_sent",
-          });
-          // P2: critical sink — failures are made visible (run marked degraded), not swallowed.
-          // P1: run_finalized already sent above, so awaiting here doesn't block the control signal.
-          await this.#runCompletionListeners(
-            threadId,
-            runId,
-            session?.attemptId ?? null,
-            status,
-            kind,
-          );
-        } else {
-          console.log(
-            `[supervisor] run_done skipped — run ${runId} already finalized (reaper beat daemon)`,
-          );
-        }
-        break;
-      }
-      case "daemon_health": {
-        // runner_health removed — AgentSession runs in-process, no daemon health tracking
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  #threadIdFor(runId: string): string {
-    const active = this.#active.get(runId);
-    if (active) return active.threadId;
-    const row = this.#db.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as
-      | { thread_id: string }
-      | undefined;
-    if (!row) throw new Error(`unknown runId: ${runId}`);
-    return row.thread_id;
-  }
-
-  /** M17.4: Look up run kind — used for reflect/main dispatch. */
-  #kindFor(runId: string): string {
-    const active = this.#active.get(runId);
-    if (active) return active.kind;
-    const row = this.#db.query("SELECT kind FROM run WHERE run_id = ?").get(runId) as
-      | { kind: string }
-      | undefined;
-    return row?.kind ?? "main";
-  }
-
-  /** Send abort to runner daemon; ops events track the control action. */
-  cancel(runId: string): boolean {
-    const session = this.#active.get(runId);
-    if (!session) return false;
-    this.#opts.opsStore.appendRunEvent({
-      runId,
-      attemptId: session.attemptId,
-      kind: "cancel_requested",
-    });
-    session.abortController.abort("cancelled");
-    session.transport.send({ type: "abort", runId });
-    this.#opts.opsStore.appendRunEvent({
-      runId,
-      attemptId: session.attemptId,
-      kind: "abort_sent",
-    });
-    return true;
-  }
-
-  /** M14.7: Cancel all active runs. Used during shutdown. */
-  cancelAll(): void {
-    for (const runId of this.#active.keys()) {
-      this.cancel(runId);
-    }
-  }
-
-  /** M16.1: Bind a transport to receive messages (used by recover reattach). */
-  bindTransport(transport: Transport): void {
-    this.#bindTransport(transport);
-  }
-
-  /** M16.1: Register a recovered session in #active after successful reattach. */
-  registerRecoveredSession(
-    runId: string,
-    agentId: string,
-    threadId: string,
-    transport: Transport,
-    attemptId: string,
-    kind: "main" | "reflect",
+  /** Fire a message event directly (called by AgentSession subscriber).
+   *  Replaces the old transport → supervisor message routing. */
+  notifyRunMessage(
+    threadId: string, runId: string, revision: MessageRevision, kind: string,
   ): void {
-    this.#registerSession({
-      runId,
-      attemptId,
-      threadId,
-      agentId,
-      kind,
-      transport,
-    });
+    for (const fn of this.#onRunMessage) {
+      void fn(threadId, runId, revision, kind).catch((err) =>
+        console.error(`[supervisor] onRunMessage error:`, err),
+      );
+    }
   }
 
-  /** On restart: discover live runs by heartbeat, re-register them for cancel support.
-   *  Stale runs are handled by the shared #reapStaleRuns() method. */
-  async rediscover(_eventSource: EventSource): Promise<void> {
-    // JOIN run table — agent_id, kind, thread_id live on run, not attempt
-    const rows = this.#db
-      .query(
-        `SELECT a.attempt_id, a.run_id, a.heartbeat_at,
-                r.agent_id, r.kind, r.thread_id
-         FROM attempt a JOIN run r ON a.run_id = r.run_id
-         WHERE a.ended_at IS NULL`,
-      )
-      .all() as {
-      attempt_id: string;
-      run_id: string;
-      heartbeat_at: number | null;
-      agent_id: string;
-      kind: "main" | "reflect";
-      thread_id: string;
-    }[];
-
-    // Phase 1: re-register live runs in #active for post-restart cancel support.
-    // M16: Try to reattach to existing daemon first; fall back to NOOP_TRANSPORT.
-    for (const row of rows) {
-      const age = row.heartbeat_at ? Math.max(0, Date.now() - row.heartbeat_at) : Infinity;
-      if (age < this.#opts.config.heartbeatTimeoutMs) {
-        this.#opts.opsStore.appendRunEvent({
-          runId: row.run_id,
-          attemptId: row.attempt_id,
-          kind: "reattach_started",
-        });
-
-        let transport: Transport = NOOP_TRANSPORT;
-        if (this.#opts.registry?.attachExisting) {
-          try {
-            const attached = await this.#opts.registry.attachExisting(row.agent_id);
-            if (attached) {
-              transport = attached;
-              this.#bindTransport(transport);
-              this.#opts.opsStore.appendRunEvent({
-                runId: row.run_id,
-                attemptId: row.attempt_id,
-                kind: "reattach_succeeded",
-              });
-            } else {
-              this.#opts.opsStore.appendRunEvent({
-                runId: row.run_id,
-                attemptId: row.attempt_id,
-                kind: "reattach_failed",
-                payload: { mode: "noop_until_reaper" },
-              });
-            }
-          } catch {
-            this.#opts.opsStore.appendRunEvent({
-              runId: row.run_id,
-              attemptId: row.attempt_id,
-              kind: "reattach_failed",
-              payload: { mode: "noop_until_reaper" },
-            });
-          }
-        }
-
-        this.#registerSession({
-          runId: row.run_id,
-          attemptId: row.attempt_id,
-          threadId: row.thread_id,
-          agentId: row.agent_id,
-          kind: row.kind,
-          transport,
-        });
-        console.log(
-          `[supervisor] re-discovered live run: ${row.run_id} (attempt ${row.attempt_id}, age ${age}ms)`,
-        );
-      }
+  /** Fire a run completion event directly (called by AgentSession subscriber).
+   *  Finalizes the run row and triggers onRunComplete listeners. */
+  async notifyRunComplete(
+    threadId: string, runId: string, status: string, kind: string,
+    attemptId: string | null = null,
+  ): Promise<void> {
+    this.#finalizeRun(runId, attemptId, status);
+    this.#active.delete(runId);
+    for (const listener of this.#onRunComplete) {
+      try { await listener(threadId, runId, status, kind); }
+      catch (err) { this.#markProjectionDegraded(runId, attemptId, err); }
     }
+  }
 
-    // Phase 2: delegate stale runs to shared reap logic (includes EventLog append + onRunComplete)
-    // Set #reaping to prevent concurrent timer-triggered reap during startup.
-    this.#reaping = true;
-    try {
-      await this.#reapStaleRuns();
-    } finally {
-      this.#reaping = false;
+  // ─── Shutdown ──────────────────────────────────────
+
+  cancelAll(): void {
+    for (const session of this.#active.values()) {
+      session.abortController.abort();
     }
+  }
+
+  async dispose(): Promise<void> {
+    if (this.#reaperTimer) clearInterval(this.#reaperTimer);
+    while (this.#reaping) await new Promise((r) => setTimeout(r, 10));
+    this.#active.clear();
   }
 }

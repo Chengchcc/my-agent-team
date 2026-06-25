@@ -359,7 +359,7 @@ const router = createRouter(config.authToken, {
 // ─── Start ────────────────────────────────────────────────────
 
 const server = createServer(config, router);
-await supervisor.rediscover(eventLog);
+// rediscover removed — AgentSession runs in-process, no daemon to reattach
 server.start();
 cronScheduler.start();
 console.log(`[backend] listening on ${config.host}:${config.port}`);
