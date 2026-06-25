@@ -254,7 +254,12 @@ describe("runLoop steering", () => {
       id: "test-steering",
       stream: async function* (msgs: Message[]) {
         modelReceivedMsgs = [...msgs];
-        yield { delta: { type: "text", text: "ok" }, stopReason: "end_turn", done: true, usage: { input: 10, output: 2 } };
+        yield {
+          delta: { type: "text", text: "ok" },
+          stopReason: "end_turn",
+          done: true,
+          usage: { input: 10, output: 2 },
+        };
       },
       countTokens: async () => 0,
     };
@@ -271,9 +276,12 @@ describe("runLoop steering", () => {
       },
     };
 
-    for await (const ev of runLoop(rt, { maxSteps: 1, steering })) {}
+    for await (const ev of runLoop(rt, { maxSteps: 1, steering })) {
+    }
 
-    expect(modelReceivedMsgs.some((m) => (m as any).text?.includes("steering: correct course"))).toBe(true);
+    expect(
+      modelReceivedMsgs.some((m) => (m as any).text?.includes("steering: correct course")),
+    ).toBe(true);
   });
 
   test("no steering → runLoop behaves identically to before", async () => {
@@ -281,7 +289,12 @@ describe("runLoop steering", () => {
     rt.model = {
       id: "test-no-steering",
       stream: async function* () {
-        yield { delta: { type: "text", text: "ok" }, stopReason: "end_turn", done: true, usage: { input: 10, output: 2 } };
+        yield {
+          delta: { type: "text", text: "ok" },
+          stopReason: "end_turn",
+          done: true,
+          usage: { input: 10, output: 2 },
+        };
       },
       countTokens: async () => 0,
     };
@@ -300,7 +313,12 @@ describe("runLoop steering", () => {
       id: "test-followup",
       stream: async function* () {
         callCount++;
-        yield { delta: { type: "text", text: `turn-${callCount}` }, stopReason: "end_turn", done: true, usage: { input: 10, output: 5 } };
+        yield {
+          delta: { type: "text", text: `turn-${callCount}` },
+          stopReason: "end_turn",
+          done: true,
+          usage: { input: 10, output: 5 },
+        };
       },
       countTokens: async () => 0,
     };
@@ -317,7 +335,8 @@ describe("runLoop steering", () => {
       },
     };
 
-    for await (const ev of runLoop(rt, { maxSteps: 1, followUp })) {}
+    for await (const ev of runLoop(rt, { maxSteps: 1, followUp })) {
+    }
 
     // Model called twice: once for initial run, once for follow-up
     expect(callCount).toBe(2);
@@ -329,7 +348,12 @@ describe("runLoop steering", () => {
       id: "test-no-followup",
       stream: async function* () {
         callCount++;
-        yield { delta: { type: "text", text: "done" }, stopReason: "end_turn", done: true, usage: { input: 10, output: 5 } };
+        yield {
+          delta: { type: "text", text: "done" },
+          stopReason: "end_turn",
+          done: true,
+          usage: { input: 10, output: 5 },
+        };
       },
       countTokens: async () => 0,
     };
@@ -337,7 +361,8 @@ describe("runLoop steering", () => {
     const rt = makeRt();
     rt.model = model;
 
-    for await (const ev of runLoop(rt, { maxSteps: 2 })) {}
+    for await (const ev of runLoop(rt, { maxSteps: 2 })) {
+    }
 
     // Without follow-up, model returns no tool_use blocks → stops at step 0
     expect(callCount).toBe(1);

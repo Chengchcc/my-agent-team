@@ -24,7 +24,7 @@ export function skillLoadTool(opts: {
     let best = "";
     for (const r of roots) {
       const normalised = r.replace(/\/$/, "");
-      if (skillDir.startsWith(normalised + "/") || skillDir === normalised) {
+      if (skillDir.startsWith(`${normalised}/`) || skillDir === normalised) {
         best = normalised;
       }
     }

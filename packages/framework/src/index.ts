@@ -31,8 +31,8 @@ export {
   type Interrupt,
   parseAgentEvent,
   type ResumeCommand,
-  safeParseAgentEvent,
   type SteeringQueue,
+  safeParseAgentEvent,
 } from "./create-agent.js";
 export type { RunOneResult } from "./execute-one.js";
 export { runOneCollect } from "./execute-one.js";

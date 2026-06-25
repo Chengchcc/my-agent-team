@@ -5,9 +5,7 @@ import type {
   AgentConfig,
   AgentRunOptions,
   AgentRuntime,
-  FollowUpQueue,
   ResumeCommand,
-  SteeringQueue,
 } from "./agent-options.js";
 import { type Checkpointer, validateCheckpointer } from "./checkpointer.js";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
@@ -23,7 +21,14 @@ import { createThread } from "./thread.js";
 
 export type { AgentEvent, Interrupt } from "./agent-event.js";
 export { parseAgentEvent, safeParseAgentEvent } from "./agent-event.js";
-export type { Agent, AgentConfig, AgentRunOptions, FollowUpQueue, ResumeCommand, SteeringQueue } from "./agent-options.js";
+export type {
+  Agent,
+  AgentConfig,
+  AgentRunOptions,
+  FollowUpQueue,
+  ResumeCommand,
+  SteeringQueue,
+} from "./agent-options.js";
 
 // ─── createAgent / createAgentInternal ──────────────────────────
 
