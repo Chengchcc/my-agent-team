@@ -96,14 +96,7 @@ const supervisor = new RunSupervisor({
 // Feature services
 const larkBotRegistry = createLarkBotRegistry(config);
 const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry);
-const conv = createConversationFeature(
-  db,
-  config,
-  supervisor,
-  agentSvc,
-  opsStore,
-  tracer,
-);
+const conv = createConversationFeature(db, config, supervisor, agentSvc, opsStore, tracer);
 
 // Run service
 const runSvc = createRunService({
