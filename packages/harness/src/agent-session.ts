@@ -50,7 +50,7 @@ export interface ToolInfo {
   description: string;
 }
 
-export type AgentState = "idle" | "running" | "compacting" | "retrying" | "done" | "error";
+export type AgentState = "idle" | "running" | "compacting" | "retrying" | "waiting" | "done" | "error";
 
 export interface ContextUsage {
   totalTokens?: number;
@@ -301,6 +301,8 @@ export class AgentSession {
       const payload = event.payload;
       if (payload.state === "done" || payload.state === "error") {
         this.#state = payload.state === "done" ? "done" : "error";
+      } else if (payload.state === "waiting") {
+        this.#state = "waiting";
       }
     }
     // Pass through all agent events to session subscribers

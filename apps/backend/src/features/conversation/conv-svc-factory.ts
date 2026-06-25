@@ -232,11 +232,21 @@ export async function startAgentRun(
     }
     if (event.type === "agent_end" && onComplete) {
       onComplete(event.willRetry ? "error" : "succeeded");
+      removeSession(runId);
     }
   });
 
+  // Register for resume (ToolApprovalCard interrupt flow)
+  const { registerSession, removeSession } = await import("../run/session-registry.js");
+  registerSession(runId, session);
+
   await session.prompt(input);
-  session.dispose();
+
+  // Keep alive if interrupted (waiting for approval). Otherwise dispose.
+  if (session.state !== "waiting") {
+    session.dispose();
+    removeSession(runId);
+  }
 
   return { runId, attemptId };
 }

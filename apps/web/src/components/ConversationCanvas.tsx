@@ -29,8 +29,7 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
       item.kind === "message" && item.sender.kind === "agent" && item.content.state === "waiting",
   );
   const runStatusLabel = state.items.find(
-    (item) =>
-      item.kind === "message" && item.sender.kind === "agent" && item.content.runStatus,
+    (item) => item.kind === "message" && item.sender.kind === "agent" && item.content.runStatus,
   )?.content?.runStatus;
   const label = isAwaiting
     ? "Awaiting Approval"

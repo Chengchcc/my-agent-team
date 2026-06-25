@@ -331,15 +331,8 @@ supervisor.onRunComplete((threadId, runId, status, kind) =>
   orchestrator.onRunComplete(threadId, runId, status, kind),
 );
 
-// Resume route for ToolApprovalCard interrupt flow
-const getThreadIdForRun = (runId: string) => {
-  const row = eventsDb.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as
-    | { thread_id: string }
-    | undefined;
-  if (!row) throw new Error(`Run not found: ${runId}`);
-  return Promise.resolve(row.thread_id);
-};
-const resumeHandler = resumeRoute(supervisor, getThreadIdForRun);
+// Resume route for ToolApprovalCard interrupt flow — uses AgentSession.resume()
+const resumeHandler = resumeRoute();
 
 const router = createRouter(config.authToken, {
   resumeRun: resumeHandler,
