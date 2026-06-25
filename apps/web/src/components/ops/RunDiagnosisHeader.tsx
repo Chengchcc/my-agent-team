@@ -24,7 +24,7 @@ const ownerLabel: Record<string, string> = {
   unknown: "Unknown",
 };
 
-const diagnosisBadgeVariant: Record<string, string> = {
+const diagnosisBadgeVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   running: "default",
   heartbeat_stale: "outline",
   detached_waiting_reaper: "secondary",
@@ -48,7 +48,7 @@ export function RunDiagnosisHeader({ detail }: { detail: RunOpsDetail }) {
         <span className="font-mono text-xs text-foreground">{detail.run.runId}</span>
         <CopyButton text={detail.run.runId} label="run ID" />
 
-        <Badge variant={diagnosisBadgeVariant[diagnosis.kind] as any}>{detail.run.status}</Badge>
+        <Badge variant={diagnosisBadgeVariant[diagnosis.kind]}>{detail.run.status}</Badge>
 
         <span className="text-muted-foreground">Diagnosis:</span>
         <span className="font-medium text-foreground">{diagnosisLabel[diagnosis.kind]}</span>

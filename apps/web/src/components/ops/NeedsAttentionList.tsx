@@ -8,7 +8,7 @@ import type { AgentRuntimeStatus, RunOpsListItem } from "@/lib/api";
 import { api } from "@/lib/api";
 
 interface NeedsAttentionProps {
-  runs: RunOpsListItem[];
+  runs?: RunOpsListItem[];
   runtimes: AgentRuntimeStatus[];
 }
 
@@ -59,7 +59,7 @@ function RecoverButton({ runId }: { runId: string }) {
   );
 }
 
-export function NeedsAttentionList({ runs: _runs, runtimes }: NeedsAttentionProps) {
+export function NeedsAttentionList({ runtimes }: NeedsAttentionProps) {
   const items: AttentionItem[] = [];
 
   // Runner removed — detached/stale detection disabled.
