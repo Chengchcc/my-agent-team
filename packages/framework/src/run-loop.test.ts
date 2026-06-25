@@ -14,7 +14,9 @@ import { runLoop } from "./run-loop.js";
 
 /** Consume an async iterable to completion (side-effect-only tests). */
 async function drain(iter: AsyncIterable<unknown>): Promise<void> {
-  for await (const _ of iter) { /* consume */ }
+  for await (const _ of iter) {
+    /* consume */
+  }
 }
 
 /** Type predicate: narrow ContentBlock → ToolResultBlock. */
