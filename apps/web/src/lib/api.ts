@@ -272,22 +272,17 @@ export const api = {
     }),
   deleteConversation: (id: string) => apiFetch<void>(`conversations/${id}`, { method: "DELETE" }),
 
-  // M16: Ops observability
-  // M16.2 G1: Backend now supports transport/heartbeat/traceId filters end-to-end
+  // M16: Ops observability (runner transport/heartbeat filters removed)
   listOpsRuns: (params?: {
     agentId?: string;
     status?: string;
     limit?: number;
-    transport?: "attached" | "noop" | "detached";
-    heartbeat?: "fresh" | "stale";
     traceId?: string;
   }) => {
     const qs = new URLSearchParams();
     if (params?.agentId) qs.set("agentId", params.agentId);
     if (params?.status) qs.set("status", params.status);
     if (params?.limit) qs.set("limit", String(params.limit));
-    if (params?.transport) qs.set("transport", params.transport);
-    if (params?.heartbeat) qs.set("heartbeat", params.heartbeat);
     if (params?.traceId) qs.set("traceId", params.traceId);
     const q = qs.toString();
     return apiFetch<RunOpsListItem[]>(`ops/runs${q ? `?${q}` : ""}`);
@@ -417,8 +412,6 @@ export interface RunOpsListItem {
   startedAt: number;
   endedAt: number | null;
   latestAttemptId: string | null;
-  heartbeatAgeMs: number | null;
-  runnerTransport: "attached" | "noop" | "detached";
   lastEventType: string | null;
   lastOpsEventKind: string | null;
 }
@@ -437,11 +430,11 @@ export interface RunOpsDetail {
   };
   attempts: Array<{
     attemptId: string;
-    heartbeatAt: number | null;
-    heartbeatAgeMs: number | null;
+    heartbeatAt?: number | null;
+    heartbeatAgeMs?: number | null;
     startedAt: number;
     endedAt: number | null;
-    transport: string;
+    transport?: string;
   }>;
   eventLog: { lastSeq: number | null; lastEventType: string | null; lastEventAt: number | null };
   ops: Array<{
@@ -457,15 +450,6 @@ export interface AgentRuntimeStatus {
   agentId: string;
   agentName: string;
   heartbeatTimeoutMs: number;
-  runner: {
-    status: string;
-    lastSeenAt: number | null;
-    uptimeMs: number;
-    activeRunCount: number;
-    checkpointerOk: boolean;
-    workspaceOk: boolean;
-    lastError: string | null;
-  };
   surfaces: Record<
     string,
     {

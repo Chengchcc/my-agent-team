@@ -1,5 +1,5 @@
 export {
   BOOTSTRAP_TEMPLATE,
-  identityPlugin,
   type IdentityPluginOptions,
+  identityPlugin,
 } from "./identity-plugin.js";

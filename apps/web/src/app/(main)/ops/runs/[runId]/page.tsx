@@ -75,20 +75,6 @@ export default function RunDetailPage() {
                   <h3 className="text-sm font-semibold text-foreground mb-3">Where it is stuck</h3>
                   <div className="text-sm space-y-1">
                     <div>
-                      <span className="text-muted-foreground">Runner connection: </span>
-                      <span className="text-foreground">
-                        {detail.attempts[0]?.transport ?? "unknown"}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Heartbeat: </span>
-                      <span className="text-foreground">
-                        {detail.attempts[0]?.heartbeatAgeMs != null
-                          ? `${Math.floor(detail.attempts[0].heartbeatAgeMs / 1000)}s ago`
-                          : "none"}
-                      </span>
-                    </div>
-                    <div>
                       <span className="text-muted-foreground">Last event: </span>
                       <span className="text-foreground">
                         {detail.eventLog.lastEventType ?? "—"}
@@ -114,13 +100,6 @@ export default function RunDetailPage() {
                     {detail.attempts.map((a) => (
                       <div key={a.attemptId} className="text-xs font-mono space-y-0.5">
                         <div className="text-muted-foreground">ID: {a.attemptId.slice(0, 16)}…</div>
-                        <div className="text-foreground">
-                          Heartbeat:{" "}
-                          {a.heartbeatAgeMs != null
-                            ? `${Math.floor(a.heartbeatAgeMs / 1000)}s ago`
-                            : "none"}
-                        </div>
-                        <div className="text-foreground">Runner connection: {a.transport}</div>
                       </div>
                     ))}
                   </div>

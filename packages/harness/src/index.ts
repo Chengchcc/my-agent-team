@@ -1,5 +1,5 @@
 // AgentSession + compaction
-export { AgentSession } from "./agent-session.js";
+
 export type {
   AgentSessionConfig,
   AgentSessionEvent,
@@ -11,6 +11,7 @@ export type {
   ThinkingLevel,
   ToolInfo,
 } from "./agent-session.js";
-export { compactThread, reflectionGuidance } from "./compaction.js";
+export { AgentSession } from "./agent-session.js";
 export type { CompactionOptions, CompactionResult } from "./compaction.js";
+export { compactThread, reflectionGuidance } from "./compaction.js";
 export { verificationGuidance } from "./verify.js";

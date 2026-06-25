@@ -27,6 +27,5 @@
     "gray-matter": "^4.0.3"
   },
   "devDependencies": {
-    "@my-agent-team/agent-fs": "workspace:*"
   }
 }

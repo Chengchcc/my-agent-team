@@ -1,5 +1,5 @@
-import { join } from "node:path";
 import type { Database } from "bun:sqlite";
+import { join } from "node:path";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import {
   autoSummarize,
@@ -8,9 +8,9 @@ import {
   toolResultTruncator,
 } from "@my-agent-team/framework";
 import { AgentSession } from "@my-agent-team/harness";
-import { identityPlugin } from "@my-agent-team/plugin-identity";
 import { conversationContextPlugin } from "@my-agent-team/plugin-conversation-context";
 import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
+import { identityPlugin } from "@my-agent-team/plugin-identity";
 import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
 import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 import {
@@ -290,4 +290,3 @@ export async function startAgentRun(opts: StartAgentRunOpts): Promise<void> {
   await session.prompt(input);
   session.dispose();
 }
-

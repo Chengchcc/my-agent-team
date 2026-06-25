@@ -26,6 +26,5 @@
     "@my-agent-team/tools-common": "workspace:*"
   },
   "devDependencies": {
-    "@my-agent-team/agent-fs": "workspace:*"
   }
 }
