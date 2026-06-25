@@ -11,11 +11,13 @@ export interface RunRow {
   degradedReason?: string | null;
 }
 
-/** Physical attempt — one per subprocess fork. */
+/** Physical attempt — AgentSession runs in-process, no subprocess. */
 export interface AttemptRow {
   attemptId: string;
   runId: string;
+  /** @deprecated AgentSession runs in-process — no longer written. Kept for historical data. */
   pid: number | null;
+  /** @deprecated No daemon heartbeat — no longer written. Kept for historical data. */
   heartbeatAt: number | null;
   startedAt: number;
   endedAt: number | null;

@@ -76,7 +76,6 @@ cleanup() {
   wait "$BACKEND_PID" 2>/dev/null || true
   wait "$WEB_PID" 2>/dev/null || true
 
-  # Only clean port residues — never pkill runner-daemon
   for port in 3000 3001; do
     find_pids_on_port "$port" \
       | sort -u \

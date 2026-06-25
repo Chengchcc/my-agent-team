@@ -18,5 +18,3 @@ export {
   resolveTriggerTargets,
   TriggerMode,
 } from "./member.js";
-// ── Projection ──
-export { projectForMember } from "./projection.js";

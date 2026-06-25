@@ -32,7 +32,6 @@ export interface RuntimeSpanAttributes {
   "eventlog.seq"?: number;
   "ledger.seq"?: number;
   "tool.name"?: string;
-  "runner.transport"?: "socket" | "memory" | "noop";
 }
 
 export interface RuntimeTracer {
@@ -50,7 +49,7 @@ export type ObservabilityMode = "off" | "console" | "otlp";
 
 export interface ObservabilityConfig {
   mode: ObservabilityMode;
-  serviceName: "backend" | "runner-daemon" | "lark-bot" | "web";
+  serviceName: "backend" | "lark-bot" | "web";
   otlpEndpoint?: string;
   sampleRatio: number;
   redact: "strict";

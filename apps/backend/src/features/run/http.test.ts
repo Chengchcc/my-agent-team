@@ -23,7 +23,6 @@ function makeMockSupervisor(overrides?: Partial<RunSupervisor>): RunSupervisor {
   } as unknown as RunSupervisor;
 }
 
-
 function makeMockEventLog(): EventLog {
   const noopSubscribe: EventLog["subscribe"] = () =>
     (async function* () {})() as AsyncIterable<EventRecord>;

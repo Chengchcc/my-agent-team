@@ -1,6 +1,5 @@
 import {
   Conversation as ConversationSchema,
-  projectForMember,
   resolveTriggerTargets,
 } from "@my-agent-team/conversation";
 import type { MessageRevision } from "@my-agent-team/message";
@@ -125,31 +124,10 @@ export function createConversationService(deps: ConversationServiceDeps) {
     entry: LedgerEntry,
     opts?: { excludeMemberId?: string },
   ): Promise<void> {
-    if (entry.kind === "todo" || entry.kind === "surface.control") return; // UI-only, never projected
+    if (entry.kind === "todo" || entry.kind === "surface.control") return;
 
-    const conv = buildConversation(entry.conversationId);
-    if (!conv) return;
-
-    const agentMembers = port.getAgentMembers(entry.conversationId);
-
-    for (const member of agentMembers) {
-      if (opts?.excludeMemberId && member.memberId === opts.excludeMemberId) continue;
-      const _threadId = deriveThreadId(entry.conversationId, member.memberId);
-      // M17.2: Pass raw string — projectForMember/formatContent handle parsing internally
-      const _projected = projectForMember(
-        {
-          seq: entry.seq,
-          conversationId: entry.conversationId,
-          senderMemberId: entry.senderMemberId,
-          addressedTo: entry.addressedTo,
-          kind: entry.kind,
-          content: entry.content,
-          ts: entry.ts,
-        },
-        member.memberId,
-        conv,
-      );
-    }
+    // broadcastMessage no longer writes to thread-projection.
+    // Agent members read directly from the ledger via conversation tools.
   }
 
   /** Shared fork-run loop: lock conversation, fork runs for targets, release when all complete.

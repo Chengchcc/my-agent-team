@@ -12,7 +12,6 @@ import { conversationContextPlugin } from "@my-agent-team/plugin-conversation-co
 import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
 import { identityPlugin } from "@my-agent-team/plugin-identity";
 import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
-import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 import {
   bashTool,
   createEditTool,
