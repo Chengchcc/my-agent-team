@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
-import { type MessageRevision, parseMessageRevision } from "@my-agent-team/message";
+import type { MessageRevision } from "@my-agent-team/message";
 import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 
 import type { BackendConfig } from "../../config.js";
@@ -76,7 +76,9 @@ export class RunSupervisor {
       this.#reaping = true;
       this.#reapStaleRuns()
         .catch((err) =>
-          console.error(`[supervisor] reaper error: ${err instanceof Error ? err.message : String(err)}`),
+          console.error(
+            `[supervisor] reaper error: ${err instanceof Error ? err.message : String(err)}`,
+          ),
         )
         .finally(() => {
           this.#reaping = false;
@@ -93,8 +95,11 @@ export class RunSupervisor {
          WHERE a.ended_at IS NULL AND r.ended_at IS NULL`,
       )
       .all() as Array<{
-      run_id: string; attempt_id: string; started_at: number;
-      thread_id: string; kind: string;
+      run_id: string;
+      attempt_id: string;
+      started_at: number;
+      thread_id: string;
+      kind: string;
     }>;
 
     let reaped = false;
@@ -115,8 +120,11 @@ export class RunSupervisor {
       // Fire completion listeners
       const kind = row.kind === "reflect" ? "reflect" : "main";
       for (const listener of this.#onRunComplete) {
-        try { await listener(row.thread_id, row.run_id, "interrupted", kind); }
-        catch (err) { this.#markProjectionDegraded(row.run_id, row.attempt_id, err); }
+        try {
+          await listener(row.thread_id, row.run_id, "interrupted", kind);
+        } catch (err) {
+          this.#markProjectionDegraded(row.run_id, row.attempt_id, err);
+        }
       }
     }
     return reaped;
@@ -134,7 +142,8 @@ export class RunSupervisor {
       );
       if (attemptId) {
         this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ? AND ended_at IS NULL", [
-          now, attemptId,
+          now,
+          attemptId,
         ]);
       }
       return r.changes;
@@ -149,30 +158,20 @@ export class RunSupervisor {
       [reason, runId],
     );
     this.#opts.opsStore.appendRunEvent({
-      runId, attemptId: attemptId ?? undefined,
-      kind: "projection_degraded", payload: { reason },
+      runId,
+      attemptId: attemptId ?? undefined,
+      kind: "projection_degraded",
+      payload: { reason },
     });
     console.error(`[supervisor] run ${runId} marked DEGRADED: ${reason}`);
-  }
-
-  async #runCompletionListeners(
-    threadId: string, runId: string, attemptId: string | null,
-  ): Promise<void> {
-    // Collect status from DB (may have been set by finalizeRun)
-    const row = this.#db
-      .query("SELECT status, kind FROM run WHERE run_id = ?")
-      .get(runId) as { status: string; kind: string } | undefined;
-    if (!row) return;
-    for (const listener of this.#onRunComplete) {
-      try { await listener(threadId, runId, row.status, row.kind); }
-      catch (err) { this.#markProjectionDegraded(runId, attemptId, err); }
-    }
   }
 
   // ─── Public: start / cancel ────────────────────────
 
   async startMainRun(
-    runId: string, threadId: string, spec: Record<string, unknown>,
+    runId: string,
+    threadId: string,
+    spec: Record<string, unknown>,
     _opts?: Record<string, unknown>,
   ): Promise<{ runId: string; attemptId: string }> {
     const agentId = (spec.agentId as string) ?? threadId;
@@ -184,15 +183,20 @@ export class RunSupervisor {
         "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
         [runId, threadId, now],
       );
-      this.#db.run(
-        "INSERT INTO attempt (attempt_id, run_id, started_at) VALUES (?, ?, ?)",
-        [attemptId, runId, now],
-      );
+      this.#db.run("INSERT INTO attempt (attempt_id, run_id, started_at) VALUES (?, ?, ?)", [
+        attemptId,
+        runId,
+        now,
+      ]);
     })();
 
     const session: RunSession = {
-      runId, attemptId, threadId, agentId,
-      kind: "main", abortController: new AbortController(),
+      runId,
+      attemptId,
+      threadId,
+      agentId,
+      kind: "main",
+      abortController: new AbortController(),
       transportKind: "attached",
     };
     this.#active.set(runId, session);
@@ -228,9 +232,7 @@ export class RunSupervisor {
 
   /** Fire a message event directly (called by AgentSession subscriber).
    *  Replaces the old transport → supervisor message routing. */
-  notifyRunMessage(
-    threadId: string, runId: string, revision: MessageRevision, kind: string,
-  ): void {
+  notifyRunMessage(threadId: string, runId: string, revision: MessageRevision, kind: string): void {
     for (const fn of this.#onRunMessage) {
       void fn(threadId, runId, revision, kind).catch((err) =>
         console.error(`[supervisor] onRunMessage error:`, err),
@@ -241,14 +243,20 @@ export class RunSupervisor {
   /** Fire a run completion event directly (called by AgentSession subscriber).
    *  Finalizes the run row and triggers onRunComplete listeners. */
   async notifyRunComplete(
-    threadId: string, runId: string, status: string, kind: string,
+    threadId: string,
+    runId: string,
+    status: string,
+    kind: string,
     attemptId: string | null = null,
   ): Promise<void> {
     this.#finalizeRun(runId, attemptId, status);
     this.#active.delete(runId);
     for (const listener of this.#onRunComplete) {
-      try { await listener(threadId, runId, status, kind); }
-      catch (err) { this.#markProjectionDegraded(runId, attemptId, err); }
+      try {
+        await listener(threadId, runId, status, kind);
+      } catch (err) {
+        this.#markProjectionDegraded(runId, attemptId, err);
+      }
     }
   }
 

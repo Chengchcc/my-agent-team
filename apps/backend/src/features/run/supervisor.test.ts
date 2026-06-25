@@ -10,7 +10,22 @@ function makeDB(): Database {
 
 function makeSupervisor(db: Database): RunSupervisor {
   return new RunSupervisor({
-    config: { dataDir: "/tmp", reaperIntervalMs: 0, heartbeatTimeoutMs: 30000, heartbeatIntervalMs: 5000, stepStallTimeoutMs: 120000, cancelGraceMs: 5000, port: 0, host: "", authToken: "", maxConcurrentRuns: 8, anthropicApiKey: "", shutdownTimeoutMs: 5000, workspaceRoot: "/tmp", templateDir: "/tmp" },
+    config: {
+      dataDir: "/tmp",
+      reaperIntervalMs: 0,
+      heartbeatTimeoutMs: 30000,
+      heartbeatIntervalMs: 5000,
+      stepStallTimeoutMs: 120000,
+      cancelGraceMs: 5000,
+      port: 0,
+      host: "",
+      authToken: "",
+      maxConcurrentRuns: 8,
+      anthropicApiKey: "",
+      shutdownTimeoutMs: 5000,
+      workspaceRoot: "/tmp",
+      templateDir: "/tmp",
+    },
     eventLog: { append: async () => 1, read: async () => [], subscribe: () => ({}) } as any,
     opsStore: { appendRunEvent: () => {} } as any,
     tracer: { inject: () => ({ traceId: "", traceparent: "" }) } as any,
@@ -43,7 +58,9 @@ describe("RunSupervisor", () => {
     const db = makeDB();
     const s = makeSupervisor(db);
     const done: string[] = [];
-    s.onRunComplete((_tid, _rid, status) => { done.push(status); });
+    s.onRunComplete((_tid, _rid, status) => {
+      done.push(status);
+    });
     await s.notifyRunComplete("t1", "r1", "succeeded", "main", null);
     expect(done).toEqual(["succeeded"]);
     s.dispose();

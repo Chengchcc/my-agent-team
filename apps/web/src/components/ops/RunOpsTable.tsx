@@ -52,12 +52,6 @@ const diagnosisColor: Record<string, string> = {
   terminal: "text-muted-foreground",
 };
 
-const transportLabel: Record<string, string> = {
-  attached: "Attached",
-  noop: "Detached placeholder",
-  detached: "Detached",
-};
-
 function ago(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
   if (s < 60) return `${s}s`;
@@ -75,8 +69,10 @@ export function RunOpsTable({ runs }: { runs: RunOpsListItem[] }) {
     }
   }, [runs.length]);
 
-  const sorted = [...runs].sort((_a, _b) => {
-    return scoreA - scoreB;
+  const sorted = [...runs].sort((a, b) => {
+    // Priority: running first, then by startedAt
+    const score = (r: RunOpsListItem) => (r.status === "running" ? 1 : 0);
+    return score(b) - score(a);
   });
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
