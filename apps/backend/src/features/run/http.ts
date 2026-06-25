@@ -6,7 +6,10 @@ const resumeSchema = z.object({ approved: z.boolean(), message: z.string().optio
 
 /** Minimal resume-only HTTP handler. Run start/cancel are handled by AgentSession,
  *  not HTTP. Resume is still needed for ToolApprovalCard interrupt flow. */
-export function resumeRoute(supervisor: RunSupervisor, getThreadIdForRun: (runId: string) => Promise<string>) {
+export function resumeRoute(
+  supervisor: RunSupervisor,
+  getThreadIdForRun: (runId: string) => Promise<string>,
+) {
   return async (req: Request, runId: string): Promise<Response> => {
     const body = await parseJsonBody(req);
     if ("error" in body) return body.error;

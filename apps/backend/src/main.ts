@@ -46,13 +46,13 @@ import {
   sqliteProjectAdapter,
 } from "./features/project/index.js";
 import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
+import { resumeRoute } from "./features/run/http.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
 import {
   createRuntimeOpsService,
   opsRoutes,
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
-import { resumeRoute } from "./features/run/http.js";
 import { createRouter } from "./http/router.js";
 import * as backendSchema from "./infra/db/schema.js";
 import { ulid } from "./infra/ids.js";

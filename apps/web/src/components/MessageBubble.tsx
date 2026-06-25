@@ -47,12 +47,14 @@ export function MessageBubble({
   kind,
   content,
   isStreaming,
+  runStatus,
 }: {
   align: "left" | "right";
   name?: string;
   kind?: "agent" | "human";
   content: string;
   isStreaming?: boolean;
+  runStatus?: "running" | "retrying" | "compacting" | "waiting";
 }) {
   const isSelf = align === "right";
   return (
@@ -64,6 +66,15 @@ export function MessageBubble({
           <Markdown text={content} />
           {isStreaming && <StreamingCursor />}
         </>
+      )}
+      {runStatus === "retrying" && (
+        <p className="text-xs text-amber-500 animate-pulse mt-1">Retrying...</p>
+      )}
+      {runStatus === "compacting" && (
+        <p className="text-xs text-blue-500 animate-pulse mt-1">Compacting context...</p>
+      )}
+      {runStatus === "waiting" && (
+        <p className="text-xs text-muted-foreground mt-1">Awaiting approval...</p>
       )}
     </MessageShell>
   );

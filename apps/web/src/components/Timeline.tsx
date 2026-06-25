@@ -233,6 +233,7 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                           name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
                           kind={m.sender.kind}
                           content={extractText(m.content)}
+                          runStatus={m.content.runStatus}
                         />
                       )}
                       {renderContentBlocks(m.content)}

@@ -23,12 +23,24 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
     useConversation(conversationId, snapshot);
   const { viewerMemberId, roster, items, streamConn, error, todos, triggerMode } = state;
 
-  // Derive status label from open-message state rather than a run phase.
+  // Derive status label from open-message state + runStatus.
   const isAwaiting = state.items.some(
     (item) =>
       item.kind === "message" && item.sender.kind === "agent" && item.content.state === "waiting",
   );
-  const label = isAwaiting ? "Awaiting Approval" : busy ? "Running" : null;
+  const runStatusLabel = state.items.find(
+    (item) =>
+      item.kind === "message" && item.sender.kind === "agent" && item.content.runStatus,
+  )?.content?.runStatus;
+  const label = isAwaiting
+    ? "Awaiting Approval"
+    : runStatusLabel === "retrying"
+      ? "Retrying..."
+      : runStatusLabel === "compacting"
+        ? "Compacting..."
+        : busy
+          ? "Running"
+          : null;
 
   const lastUserMessage = useMemo(() => {
     for (let i = items.length - 1; i >= 0; i--) {
