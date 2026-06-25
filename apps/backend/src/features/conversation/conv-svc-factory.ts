@@ -8,6 +8,12 @@ import {
   toolResultTruncator,
 } from "@my-agent-team/framework";
 import { AgentSession } from "@my-agent-team/harness";
+import type { MessageRevision } from "@my-agent-team/message";
+import {
+  extractText,
+  isTerminalMessageState,
+  serializeMessageRevision,
+} from "@my-agent-team/message";
 import { conversationContextPlugin } from "@my-agent-team/plugin-conversation-context";
 import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
 import { identityPlugin } from "@my-agent-team/plugin-identity";
@@ -23,8 +29,6 @@ import {
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
-import { registerSession, removeSession } from "../run/session-registry.js";
-import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import {
   createListMembersTool,
@@ -35,7 +39,15 @@ import {
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
-import { createConversationService } from "./service.js";
+import {
+  escapeRegExp,
+  getOrCreateAccumulator,
+  clearAccumulator,
+  onRunComplete as runOnRunComplete,
+} from "./projection.js";
+import { registerSession, removeSession } from "../run/session-registry.js";
+import type { RunSupervisor } from "../run/supervisor.js";
+import { createConversationService, parseThreadId } from "./service.js";
 
 export interface ConversationFeature {
   convPort: ConversationPort;
@@ -56,6 +68,67 @@ export function createConversationFeature(
 ): ConversationFeature {
   const convPort = sqliteConversationAdapter(db);
   const lock = new ConversationLock();
+
+  // @mention regex cache (same pattern as main.ts)
+  const mentionCache = new Map<string, RegExp>();
+  const getMentionRe = (label: string) => {
+    let re = mentionCache.get(label);
+    if (!re) {
+      re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
+      mentionCache.set(label, re);
+    }
+    return re;
+  };
+
+  // Message handling — writes to ledger, scans @mentions, broadcasts SSE
+  const handleAssistantMessage = async (
+    threadId: string, runId: string, rev: MessageRevision) => {
+    const cid = parseThreadId(threadId).conversationId;
+    if (!cid) return;
+    const sender = parseThreadId(threadId).memberId || threadId;
+
+    // Write to ledger (authoritative entry)
+    await convSvc.appendAssistantMessage({ conversationId: cid, senderMemberId: sender, runId, revision: rev });
+
+    // Update accumulator for @mention scanning
+    const acc = getOrCreateAccumulator(runId, sender);
+    if (rev.role === "assistant") {
+      acc.latestAssistantRevision = { ...rev, conversationId: cid };
+      if (isTerminalMessageState(rev.state)) {
+        const text = extractText(rev);
+        if (text) {
+          const roster = convPort.getMembers(cid);
+          for (const m of roster) {
+            if (m.kind !== "agent" || m.memberId === sender) continue;
+            const label = m.displayName ?? m.memberId;
+            if (getMentionRe(label).test(text) || text.includes(`@${m.memberId}`)) {
+              acc.mentionedMemberIds.add(m.memberId);
+            }
+          }
+        }
+      }
+    }
+
+    // Broadcast to frontend (best-effort)
+    const entry = {
+      seq: 0, // appendAssistantMessage already wrote; broadcastMessage gets seq from ledger
+      conversationId: cid,
+      senderMemberId: sender,
+      addressedTo: [] as string[],
+      kind: "message" as const,
+      content: serializeMessageRevision({ ...rev, conversationId: cid, runId }),
+      ts: Date.now(),
+    };
+    void convSvc.broadcastMessage(entry, { excludeMemberId: sender }).catch(() => {});
+  };
+
+  // Completion handler — terminal revision + lock release + @mention triggers
+  const handleRunComplete = async (threadId: string, runId: string, status: string) => {
+    const cid = parseThreadId(threadId).conversationId;
+    if (!cid) return;
+    await runOnRunComplete(threadId, runId, status, convPort, convSvc, _opsStore, "main");
+    clearAccumulator(runId);
+  };
 
   const convSvc = createConversationService({
     port: convPort,
@@ -78,6 +151,13 @@ export function createConversationFeature(
         opsStore: _opsStore,
         surface: isLark ? "lark" : "web",
         senderName: ctx.agentMemberId,
+        onAssistantMessage: (payload) => {
+          const rev = payload as unknown as MessageRevision;
+          void handleAssistantMessage(threadId, rev.runId ?? _runId, rev);
+        },
+        onComplete: (runId, status) => {
+          void handleRunComplete(threadId, runId, status);
+        },
       });
     },
 
@@ -113,7 +193,7 @@ export interface StartAgentRunOpts {
   /** Called with each assistant message revision to write to ledger + SSE. */
   onAssistantMessage?: (revision: Record<string, unknown>) => void;
   /** Called when run completes. */
-  onComplete?: (status: string) => void;
+  onComplete?: (runId: string, status: string) => void;
 }
 
 /**
@@ -232,7 +312,7 @@ export async function startAgentRun(
       onAssistantMessage(event.payload);
     }
     if (event.type === "agent_end" && onComplete) {
-      onComplete(event.willRetry ? "error" : "succeeded");
+      onComplete(runId, event.willRetry ? "error" : "succeeded");
     }
   });
 
