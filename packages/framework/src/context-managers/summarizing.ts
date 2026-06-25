@@ -64,7 +64,7 @@ export async function structuredSummarize(
   return { role: "user", text: `[Earlier conversation summary]:\n${text}` };
 }
 
-export function summarizingContextManager(opts: SummarizingOptions): ContextManager {
+export function autoSummarize(opts: SummarizingOptions): ContextManager {
   const keepRecent = opts.keepRecent;
   const triggerAt = opts.triggerAt;
   const summarizerModel = opts.summarizerModel;
@@ -89,4 +89,9 @@ export function summarizingContextManager(opts: SummarizingOptions): ContextMana
       return repairToolPairs([summary, ...recent]);
     },
   };
+}
+
+/** @deprecated Use {@link autoSummarize} instead. */
+export function summarizingContextManager(opts: SummarizingOptions): ContextManager {
+  return autoSummarize(opts);
 }

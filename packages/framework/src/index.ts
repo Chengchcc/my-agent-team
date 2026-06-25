@@ -13,6 +13,7 @@ export type { SlidingWindowOptions } from "./context-managers/sliding-window.js"
 export { slidingWindowContextManager } from "./context-managers/sliding-window.js";
 export type { SummarizingOptions } from "./context-managers/summarizing.js";
 export {
+  autoSummarize,
   defaultSummarize,
   structuredSummarize,
   summarizingContextManager,
