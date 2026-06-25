@@ -1,10 +1,26 @@
 import { describe, expect, test } from "bun:test";
-import type { AIMessageChunk, ChatModel, ContentBlock, Tool, ToolResultBlock } from "@my-agent-team/core";
+import type {
+  AIMessageChunk,
+  ChatModel,
+  ContentBlock,
+  Tool,
+  ToolResultBlock,
+} from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
 import type { AgentRuntime, FollowUpQueue, SteeringQueue } from "./agent-options.js";
 import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
 import { createPluginRunner } from "./plugin-runner.js";
 import { runLoop } from "./run-loop.js";
+
+/** Consume an async iterable to completion (side-effect-only tests). */
+async function drain(iter: AsyncIterable<unknown>): Promise<void> {
+  for await (const _ of iter) { /* consume */ }
+}
+
+/** Type predicate: narrow ContentBlock → ToolResultBlock. */
+function isToolResult(b: ContentBlock): b is ToolResultBlock {
+  return b.type === "tool_result";
+}
 
 function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRuntime {
   const tools = opts.tools ?? [];
@@ -106,9 +122,7 @@ describe("runLoop tool parallel execution", () => {
       { id: "c2", name: "t2" },
     ]);
 
-    // eslint-disable-next-line no-empty
-    for await (const _ev of runLoop(rt, { maxSteps: 1 })) {
-    }
+    await drain(runLoop(rt, { maxSteps: 1 }));
 
     expect(calls).toEqual(["t1", "t2"]);
   });
@@ -136,9 +150,7 @@ describe("runLoop tool parallel execution", () => {
       { id: "c2", name: "slow" },
     ]);
 
-    // eslint-disable-next-line no-empty
-    for await (const _ev of runLoop(rt, { maxSteps: 1 })) {
-    }
+    await drain(runLoop(rt, { maxSteps: 1 }));
 
     expect(starts.length).toBe(2);
     expect(ends.length).toBe(2);
@@ -173,16 +185,14 @@ describe("runLoop tool parallel execution", () => {
       { id: "c2", name: "t2" },
     ]);
 
-    // eslint-disable-next-line no-empty
-    for await (const _ev of runLoop(rt, { maxSteps: 1 })) {
-    }
+    await drain(runLoop(rt, { maxSteps: 1 }));
 
-    const results = rt.thread.messages.filter(
-      (m) => Array.isArray(m.blocks) && m.blocks.some((b: ContentBlock) => b.type === "tool_result"),
-    );
+    const results = rt.thread.messages
+      .filter((m) => Array.isArray(m.blocks))
+      .flatMap((m) => (m.blocks as ContentBlock[]).filter(isToolResult));
     expect(results.length).toBe(2);
-    expect((results[0]!.blocks as ToolResultBlock[])[0]!.tool_use_id).toBe("c1");
-    expect((results[1]!.blocks as ToolResultBlock[])[0]!.tool_use_id).toBe("c2");
+    expect(results[0]!.tool_use_id).toBe("c1");
+    expect(results[1]!.tool_use_id).toBe("c2");
   });
 
   test("mixed serial+concurrent → each serial gets own batch, concurrent grouped", async () => {
@@ -236,9 +246,7 @@ describe("runLoop tool parallel execution", () => {
       { id: "sc2", name: "s2" },
     ]);
 
-    // eslint-disable-next-line no-empty
-    for await (const _ev of runLoop(rt, { maxSteps: 1 })) {
-    }
+    await drain(runLoop(rt, { maxSteps: 1 }));
 
     const s1Idx = order.indexOf("s1");
     const s2Idx = order.indexOf("s2");
@@ -280,12 +288,12 @@ describe("runLoop steering", () => {
       },
     };
 
-    // eslint-disable-next-line no-empty
-    for await (const _ev of runLoop(rt, { maxSteps: 1, steering })) {
-    }
+    await drain(runLoop(rt, { maxSteps: 1, steering }));
 
     expect(
-      modelReceivedMsgs.some((m) => ((m as Message & { text?: string }).text?.includes("steering: correct course"))),
+      modelReceivedMsgs.some((m) =>
+        (m as Message & { text?: string }).text?.includes("steering: correct course"),
+      ),
     ).toBe(true);
   });
 
@@ -305,7 +313,7 @@ describe("runLoop steering", () => {
     };
 
     const events: Array<{ type: string }> = [];
-     
+
     for await (const _ev of runLoop(rt, { maxSteps: 1 })) {
       events.push(_ev);
     }
@@ -341,9 +349,7 @@ describe("runLoop steering", () => {
       },
     };
 
-    // eslint-disable-next-line no-empty
-    for await (const _ev of runLoop(rt, { maxSteps: 1, followUp })) {
-    }
+    await drain(runLoop(rt, { maxSteps: 1, followUp }));
 
     // Model called twice: once for initial run, once for follow-up
     expect(callCount).toBe(2);
@@ -368,9 +374,7 @@ describe("runLoop steering", () => {
     const rt = makeRt();
     rt.model = model;
 
-    // eslint-disable-next-line no-empty
-    for await (const _ev of runLoop(rt, { maxSteps: 2 })) {
-    }
+    await drain(runLoop(rt, { maxSteps: 2 }));
 
     // Without follow-up, model returns no tool_use blocks → stops at step 0
     expect(callCount).toBe(1);
