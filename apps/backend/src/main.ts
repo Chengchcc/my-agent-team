@@ -52,6 +52,7 @@ import {
   opsRoutes,
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
+import { resumeRoute } from "./features/run/http.js";
 import { createRouter } from "./http/router.js";
 import * as backendSchema from "./infra/db/schema.js";
 import { ulid } from "./infra/ids.js";
@@ -190,7 +191,6 @@ supervisor.onRunEvent((threadId, runId, event, _kind) => {
 });
 
 // ─── HTTP router ──────────────────────────────────────────────
-
 
 const identityStore = createAgentIdentityStore({
   dataDir: config.dataDir,
@@ -331,7 +331,18 @@ supervisor.onRunComplete((threadId, runId, status, kind) =>
   orchestrator.onRunComplete(threadId, runId, status, kind),
 );
 
+// Resume route for ToolApprovalCard interrupt flow
+const getThreadIdForRun = (runId: string) => {
+  const row = eventsDb.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as
+    | { thread_id: string }
+    | undefined;
+  if (!row) throw new Error(`Run not found: ${runId}`);
+  return Promise.resolve(row.thread_id);
+};
+const resumeHandler = resumeRoute(supervisor, getThreadIdForRun);
+
 const router = createRouter(config.authToken, {
+  resumeRun: resumeHandler,
   agents: agentRoutes(
     agentSvc,
     identityStore,

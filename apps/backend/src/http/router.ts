@@ -17,6 +17,8 @@ interface FeatureSet {
   projects?: ReturnType<typeof projectRoutes>;
   columnConfigs?: ReturnType<typeof columnConfigRoutes>;
   cronJobs?: ReturnType<typeof cronJobRoutes>;
+  /** POST /api/runs/:id/resume — ToolApprovalCard interrupt approval */
+  resumeRun?: (req: Request, runId: string) => Promise<Response>;
 }
 
 export function createRouter(token: string, features?: FeatureSet) {
@@ -90,7 +92,10 @@ export function createRouter(token: string, features?: FeatureSet) {
       if (agentLarkSetupMatch) return json({ error: "Method not allowed" }, 405);
 
       // Runs — cancel, resume, get
-      // /api/runs/* removed — AgentSession manages runs in-process, no HTTP run routes
+      // Runs — only resume (ToolApprovalCard interrupt). Start/cancel via AgentSession.
+      const resumeMatch = path.match(/^\/api\/runs\/([^/]+)\/resume$/);
+      if (resumeMatch && method === "POST" && features.resumeRun)
+        return withAuth((r) => features.resumeRun!(r, resumeMatch[1]!), token)(req);
 
       // Conversations — M10
       if (conversations) {
