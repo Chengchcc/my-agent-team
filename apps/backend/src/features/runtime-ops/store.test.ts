@@ -2,7 +2,6 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { runEventsDbMigrations } from "../run/events-db-migrations.js";
 import { RuntimeOpsStore } from "./store.js";
-import { computeRunnerStatus } from "./types.js";
 
 function createTestDb() {
   const db = new Database(":memory:");
@@ -123,64 +122,7 @@ describe("RuntimeOpsStore", () => {
     });
   });
 
-  describe("runner_health", () => {
-    test("upsert and get", () => {
-      store.upsertRunnerHealth({
-        agentId: "agent_x",
-        uptimeMs: 5000,
-        activeRunIds: ["r1"],
-        checkpointerOk: true,
-        workspaceOk: true,
-      });
-
-      const health = store.getRunnerHealth("agent_x");
-      expect(health).toBeDefined();
-      expect(health!.activeRunCount).toBe(1);
-      expect(health!.checkpointerOk).toBe(1);
-    });
-
-    test("upsert updates existing row", () => {
-      store.upsertRunnerHealth({
-        agentId: "agent_x",
-        uptimeMs: 5000,
-        activeRunIds: ["r1"],
-        checkpointerOk: true,
-        workspaceOk: true,
-      });
-      store.upsertRunnerHealth({
-        agentId: "agent_x",
-        uptimeMs: 10000,
-        activeRunIds: ["r1", "r2"],
-        checkpointerOk: false,
-        workspaceOk: true,
-        lastError: "db fail",
-      });
-
-      const health = store.getRunnerHealth("agent_x");
-      expect(health!.activeRunCount).toBe(2);
-      expect(health!.checkpointerOk).toBe(0);
-      expect(health!.lastError).toBe("db fail");
-    });
-
-    test("listRunnerHealths", () => {
-      store.upsertRunnerHealth({
-        agentId: "agent_a",
-        uptimeMs: 5000,
-        activeRunIds: [],
-        checkpointerOk: true,
-        workspaceOk: true,
-      });
-      store.upsertRunnerHealth({
-        agentId: "agent_b",
-        uptimeMs: 10000,
-        activeRunIds: ["r1"],
-        checkpointerOk: true,
-        workspaceOk: true,
-      });
-
-      expect(store.listRunnerHealths()).toHaveLength(2);
-    });
-  });
+  // runner_health tests removed — runner daemon deleted, health no longer tracked
 
   describe("surface_health", () => {
     test("upsert and get", () => {
@@ -354,91 +296,5 @@ describe("RuntimeOpsStore", () => {
     test("returns empty array for empty input", () => {
       expect(store.getRuns([])).toEqual([]);
     });
-  });
-});
-
-describe("computeRunnerStatus", () => {
-  test("returns unknown for undefined row", () => {
-    expect(computeRunnerStatus(undefined, 1000, 30000)).toBe("unknown");
-  });
-
-  test("returns offline when lastSeenAt is too old", () => {
-    expect(
-      computeRunnerStatus(
-        {
-          agentId: "a",
-          lastSeenAt: 1000,
-          uptimeMs: 0,
-          activeRunCount: 0,
-          activeRunIds: "[]",
-          checkpointerOk: 1,
-          workspaceOk: 1,
-          lastError: null,
-          updatedAt: 1000,
-        },
-        40000,
-        30000,
-      ),
-    ).toBe("offline");
-  });
-
-  test("returns degraded when checkpointer is not ok", () => {
-    expect(
-      computeRunnerStatus(
-        {
-          agentId: "a",
-          lastSeenAt: 1000,
-          uptimeMs: 0,
-          activeRunCount: 0,
-          activeRunIds: "[]",
-          checkpointerOk: 0,
-          workspaceOk: 1,
-          lastError: null,
-          updatedAt: 1000,
-        },
-        2000,
-        30000,
-      ),
-    ).toBe("degraded");
-  });
-
-  test("returns busy when activeRunCount > 0", () => {
-    expect(
-      computeRunnerStatus(
-        {
-          agentId: "a",
-          lastSeenAt: 1000,
-          uptimeMs: 0,
-          activeRunCount: 3,
-          activeRunIds: "[]",
-          checkpointerOk: 1,
-          workspaceOk: 1,
-          lastError: null,
-          updatedAt: 1000,
-        },
-        2000,
-        30000,
-      ),
-    ).toBe("busy");
-  });
-
-  test("returns idle when no active runs", () => {
-    expect(
-      computeRunnerStatus(
-        {
-          agentId: "a",
-          lastSeenAt: 1000,
-          uptimeMs: 0,
-          activeRunCount: 0,
-          activeRunIds: "[]",
-          checkpointerOk: 1,
-          workspaceOk: 1,
-          lastError: null,
-          updatedAt: 1000,
-        },
-        2000,
-        30000,
-      ),
-    ).toBe("idle");
   });
 });

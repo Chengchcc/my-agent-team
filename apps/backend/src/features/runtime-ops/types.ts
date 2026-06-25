@@ -67,18 +67,6 @@ export interface RunOriginRow {
   createdAt: number;
 }
 
-export interface RunnerHealthRow {
-  agentId: string;
-  lastSeenAt: number | null;
-  uptimeMs: number;
-  activeRunCount: number;
-  activeRunIds: string;
-  checkpointerOk: number;
-  workspaceOk: number;
-  lastError: string | null;
-  updatedAt: number;
-}
-
 export interface SurfaceHealthRow {
   agentId: string;
   surface: string;
@@ -87,17 +75,4 @@ export interface SurfaceHealthRow {
   payload: string;
   lastError: string | null;
   updatedAt: number;
-}
-
-export type RunnerHealthStatus = "idle" | "busy" | "degraded" | "offline" | "unknown";
-
-export function computeRunnerStatus(
-  row: RunnerHealthRow | undefined,
-  now: number,
-  offlineAfterMs: number,
-): RunnerHealthStatus {
-  if (!row) return "unknown";
-  if (!row.lastSeenAt || now - row.lastSeenAt > offlineAfterMs) return "offline";
-  if (!row.checkpointerOk || !row.workspaceOk || row.lastError) return "degraded";
-  return row.activeRunCount > 0 ? "busy" : "idle";
 }

@@ -14,11 +14,8 @@ export { subscribeIssueTimeline } from "./subscribe-issue-timeline.js";
 export type {
   IssueEvent,
   IssueEventKind,
-  RunnerHealthRow,
-  RunnerHealthStatus,
   RunOpsEvent,
   RunOpsEventKind,
   RunOriginRow,
   SurfaceHealthRow,
 } from "./types.js";
-export { computeRunnerStatus } from "./types.js";

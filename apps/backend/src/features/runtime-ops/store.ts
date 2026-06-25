@@ -5,7 +5,6 @@ import * as schema from "../../infra/db/events-schema.js";
 import type {
   IssueEventKind,
   IssueEvent as IssueEventType,
-  RunnerHealthRow,
   RunOpsEventKind,
   RunOpsEvent as RunOpsEventType,
   RunOriginRow,
@@ -39,20 +38,6 @@ function toRunOriginRow(r: typeof schema.runOrigin.$inferSelect): RunOriginRow {
     fromStatus: r.fromStatus,
     originKind: r.originKind as RunOriginRow["originKind"],
     createdAt: r.createdAt,
-  };
-}
-
-function toRunnerHealthRow(r: typeof schema.runnerHealth.$inferSelect): RunnerHealthRow {
-  return {
-    agentId: r.agentId,
-    lastSeenAt: r.lastSeenAt,
-    uptimeMs: r.uptimeMs ?? 0,
-    activeRunCount: r.activeRunCount,
-    activeRunIds: r.activeRunIds,
-    checkpointerOk: r.checkpointerOk,
-    workspaceOk: r.workspaceOk,
-    lastError: r.lastError,
-    updatedAt: r.updatedAt,
   };
 }
 
@@ -251,64 +236,6 @@ export class RuntimeOpsStore {
       .orderBy(desc(schema.runOrigin.createdAt))
       .all()
       .map(toRunOriginRow);
-  }
-
-  // ─── runner_health ───
-
-  upsertRunnerHealth(input: {
-    agentId: string;
-    uptimeMs: number;
-    activeRunIds: string[];
-    checkpointerOk: boolean;
-    workspaceOk: boolean;
-    lastError?: string;
-  }): void {
-    const now = Date.now();
-    this.#d
-      .insert(schema.runnerHealth)
-      .values({
-        agentId: input.agentId,
-        lastSeenAt: now,
-        uptimeMs: input.uptimeMs,
-        activeRunCount: input.activeRunIds.length,
-        activeRunIds: JSON.stringify(input.activeRunIds),
-        checkpointerOk: input.checkpointerOk ? 1 : 0,
-        workspaceOk: input.workspaceOk ? 1 : 0,
-        lastError: input.lastError ?? null,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: schema.runnerHealth.agentId,
-        set: {
-          lastSeenAt: now,
-          uptimeMs: input.uptimeMs,
-          activeRunCount: input.activeRunIds.length,
-          activeRunIds: JSON.stringify(input.activeRunIds),
-          checkpointerOk: input.checkpointerOk ? 1 : 0,
-          workspaceOk: input.workspaceOk ? 1 : 0,
-          lastError: input.lastError ?? null,
-          updatedAt: now,
-        },
-      })
-      .run();
-  }
-
-  getRunnerHealth(agentId: string): RunnerHealthRow | undefined {
-    const row = this.#d
-      .select()
-      .from(schema.runnerHealth)
-      .where(eq(schema.runnerHealth.agentId, agentId))
-      .get();
-    return row ? toRunnerHealthRow(row) : undefined;
-  }
-
-  listRunnerHealths(): RunnerHealthRow[] {
-    return this.#d
-      .select()
-      .from(schema.runnerHealth)
-      .orderBy(schema.runnerHealth.agentId)
-      .all()
-      .map(toRunnerHealthRow);
   }
 
   // ─── surface_health ───

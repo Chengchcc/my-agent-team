@@ -629,22 +629,7 @@ export class RunSupervisor {
         break;
       }
       case "daemon_health": {
-        const h = msg as {
-          agentId: string;
-          uptimeMs: number;
-          activeRunIds: string[];
-          checkpointer: { kind: string; ok: boolean; lastError?: string };
-          workspace: { ok: boolean; lastError?: string };
-          ts: number;
-        };
-        this.#opts.opsStore.upsertRunnerHealth({
-          agentId: h.agentId,
-          uptimeMs: h.uptimeMs,
-          activeRunIds: h.activeRunIds,
-          checkpointerOk: h.checkpointer.ok,
-          workspaceOk: h.workspace.ok,
-          lastError: h.checkpointer.lastError ?? h.workspace.lastError,
-        });
+        // runner_health removed — AgentSession runs in-process, no daemon health tracking
         break;
       }
       default:

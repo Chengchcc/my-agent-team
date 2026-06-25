@@ -5,8 +5,7 @@ import type { RunSupervisor } from "../run/supervisor.js";
 import type { InsightsSummary, RunInsights } from "./insights.js";
 import { getInsightsSummary, getRunInsights } from "./insights.js";
 import type { RuntimeOpsStore } from "./store.js";
-import type { RunnerHealthRow, RunnerHealthStatus } from "./types.js";
-import { computeRunnerStatus } from "./types.js";
+// runner_health removed (AgentSession runs in-process, no runner daemon)
 
 export interface RunOpsListItem {
   runId: string;
@@ -65,15 +64,6 @@ export interface AgentRuntimeStatus {
   agentId: string;
   agentName: string;
   heartbeatTimeoutMs: number;
-  runner: {
-    status: RunnerHealthStatus;
-    lastSeenAt: number | null;
-    uptimeMs: number;
-    activeRunCount: number;
-    checkpointerOk: boolean;
-    workspaceOk: boolean;
-    lastError: string | null;
-  };
   surfaces: Record<
     string,
     {
@@ -409,7 +399,6 @@ export function createRuntimeOpsService(deps: {
     },
 
     getAgentRuntime(agentId: string): AgentRuntimeStatus | null {
-      const runnerHealth = opsStore.getRunnerHealth(agentId);
       const surfaceHealths = opsStore.getSurfaceHealthsForAgent(agentId);
 
       const surfaces: AgentRuntimeStatus["surfaces"] = {};
@@ -428,33 +417,11 @@ export function createRuntimeOpsService(deps: {
         };
       }
 
-      const runnerRow: RunnerHealthRow | undefined = runnerHealth
-        ? {
-            agentId: runnerHealth.agentId,
-            lastSeenAt: runnerHealth.lastSeenAt,
-            uptimeMs: runnerHealth.uptimeMs,
-            activeRunCount: runnerHealth.activeRunCount,
-            activeRunIds: runnerHealth.activeRunIds,
-            checkpointerOk: runnerHealth.checkpointerOk,
-            workspaceOk: runnerHealth.workspaceOk,
-            lastError: runnerHealth.lastError,
-            updatedAt: runnerHealth.updatedAt,
-          }
-        : undefined;
-
+      // runner health removed — AgentSession runs in-process, no daemon health tracking
       return {
         agentId,
         agentName: resolveName(agentId),
         heartbeatTimeoutMs,
-        runner: {
-          status: computeRunnerStatus(runnerRow, Date.now(), OFFLINE_AFTER_MS),
-          lastSeenAt: runnerHealth?.lastSeenAt ?? null,
-          uptimeMs: runnerHealth?.uptimeMs ?? 0,
-          activeRunCount: runnerHealth?.activeRunCount ?? 0,
-          checkpointerOk: runnerHealth?.checkpointerOk === 1,
-          workspaceOk: runnerHealth?.workspaceOk === 1,
-          lastError: runnerHealth?.lastError ?? null,
-        },
         surfaces,
       };
     },
