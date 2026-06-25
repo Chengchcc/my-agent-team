@@ -36,6 +36,7 @@ import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
 import { createConversationService } from "./service.js";
+import { registerSession, removeSession } from "../run/session-registry.js";
 
 export interface ConversationFeature {
   convPort: ConversationPort;
@@ -187,12 +188,13 @@ export async function startAgentRun(
     createListMembersTool({ convPort, conversationId }),
   ];
 
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const convPrompt = `<conversation>
-  <id>${conversationId}</id>
-  <surface>${surface}</surface>
+  <id>${esc(conversationId)}</id>
+  <surface>${esc(surface)}</surface>
   <trigger>
-    <from>${senderName}</from>
-    <message>${input}</message>
+    <from>${esc(senderName)}</from>
+    <message>${esc(input)}</message>
   </trigger>
 </conversation>
 如需更多上下文，使用 read_conversation_history 等工具。`;
@@ -232,18 +234,18 @@ export async function startAgentRun(
     }
     if (event.type === "agent_end" && onComplete) {
       onComplete(event.willRetry ? "error" : "succeeded");
-      removeSession(runId);
     }
   });
 
   // Register for resume (ToolApprovalCard interrupt flow)
-  const { registerSession, removeSession } = await import("../run/session-registry.js");
   registerSession(runId, session);
 
   await session.prompt(input);
 
-  // Keep alive if interrupted (waiting for approval). Otherwise dispose.
-  if (session.state !== "waiting") {
+  // Keep alive if interrupted (waiting for approval). Otherwise dispose and unregister.
+  if (session.state === "waiting") {
+    // Session stays alive — resumeRoute will call session.resume()
+  } else {
     session.dispose();
     removeSession(runId);
   }

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Plugin } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
@@ -89,11 +90,10 @@ export interface IdentityPluginOptions {
 export function identityPlugin(opts: IdentityPluginOptions): Plugin {
   const { cwd } = opts;
 
-  function readFile(path: string): string | null {
+  async function readIdentityFile(path: string): Promise<string | null> {
     try {
       const full = join(cwd, path);
-      if (!existsSync(full)) return null;
-      return readFileSync(full, "utf-8");
+      return await readFile(full, "utf-8");
     } catch {
       return null;
     }
@@ -115,8 +115,8 @@ export function identityPlugin(opts: IdentityPluginOptions): Plugin {
           }
         }
 
-        const bootstrap = readFile("BOOTSTRAP.md");
-        const soul = readFile("SOUL.md");
+        const bootstrap = await readIdentityFile("BOOTSTRAP.md");
+        const soul = await readIdentityFile("SOUL.md");
 
         if (!soul) {
           // Genesis mode: inject BOOTSTRAP_TEMPLATE
@@ -126,11 +126,11 @@ export function identityPlugin(opts: IdentityPluginOptions): Plugin {
 
         // Normal mode: compose full system prompt
         const [userDoc, toolsDoc, agentsDoc, todayLog, yestLog] = await Promise.all([
-          Promise.resolve(readFile("USER.md")),
-          Promise.resolve(readFile("TOOLS.md")),
-          Promise.resolve(readFile("AGENTS.md")),
-          Promise.resolve(readFile(`memory/${today}.md`)),
-          Promise.resolve(readFile(`memory/${yesterday}.md`)),
+          readIdentityFile("USER.md"),
+          readIdentityFile("TOOLS.md"),
+          readIdentityFile("AGENTS.md"),
+          readIdentityFile(`memory/${today}.md`),
+          readIdentityFile(`memory/${yesterday}.md`),
         ]);
 
         const prompt = composeSystemPrompt({

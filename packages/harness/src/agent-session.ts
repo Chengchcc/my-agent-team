@@ -50,7 +50,14 @@ export interface ToolInfo {
   description: string;
 }
 
-export type AgentState = "idle" | "running" | "compacting" | "retrying" | "waiting" | "done" | "error";
+export type AgentState =
+  | "idle"
+  | "running"
+  | "compacting"
+  | "retrying"
+  | "waiting"
+  | "done"
+  | "error";
 
 export interface ContextUsage {
   totalTokens?: number;
