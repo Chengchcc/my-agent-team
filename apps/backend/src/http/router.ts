@@ -4,7 +4,6 @@ import type { conversationRoutes } from "../features/conversation/http.js";
 import type { cronJobRoutes } from "../features/cron/http.js";
 import type { issueRoutes } from "../features/issue/http.js";
 import type { projectRoutes } from "../features/project/http.js";
-import type { runRoutes } from "../features/run/http.js";
 import type { opsRoutes } from "../features/runtime-ops/http.js";
 import { HttpError } from "../infra/errors.js";
 import { withAuth } from "./middleware.js";
@@ -12,7 +11,6 @@ import { json } from "./response.js";
 
 interface FeatureSet {
   agents: ReturnType<typeof agentRoutes>;
-  runs: ReturnType<typeof runRoutes>;
   conversations?: ReturnType<typeof conversationRoutes>;
   ops?: ReturnType<typeof opsRoutes>;
   issues?: ReturnType<typeof issueRoutes>;
@@ -40,7 +38,7 @@ export function createRouter(token: string, features?: FeatureSet) {
     };
   }
 
-  const { agents, runs, conversations, ops, issues, projects, columnConfigs, cronJobs } = features;
+  const { agents, conversations, ops, issues, projects, columnConfigs, cronJobs } = features;
 
   const agentList = withAuth((req) => agents.list(req), token);
   const agentCreate = withAuth((req) => agents.create(req), token);
@@ -92,19 +90,7 @@ export function createRouter(token: string, features?: FeatureSet) {
       if (agentLarkSetupMatch) return json({ error: "Method not allowed" }, 405);
 
       // Runs — cancel, resume, get
-      const cancelMatch = path.match(/^\/api\/runs\/([^/]+)\/cancel$/);
-      const resumeMatch = path.match(/^\/api\/runs\/([^/]+)\/resume$/);
-      const runMatch = path.match(/^\/api\/runs\/([^/]+)$/);
-
-      if (cancelMatch && method === "POST")
-        return withAuth((r) => runs.cancel(r, cancelMatch[1]!), token)(req);
-      if (cancelMatch) return json({ error: "Method not allowed" }, 405);
-      if (resumeMatch && method === "POST")
-        return withAuth((r) => runs.resume(r, resumeMatch[1]!), token)(req);
-      if (resumeMatch) return json({ error: "Method not allowed" }, 405);
-      if (runMatch && method === "GET")
-        return withAuth((r) => runs.getById(r, runMatch[1]!), token)(req);
-      if (runMatch) return json({ error: "Method not allowed" }, 405);
+      // /api/runs/* removed — AgentSession manages runs in-process, no HTTP run routes
 
       // Conversations — M10
       if (conversations) {

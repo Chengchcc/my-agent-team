@@ -51,7 +51,6 @@ beforeAll(async () => {
 
   router = createRouter(TOKEN, {
     agents: agentRoutes(agentSvc),
-    runs: undefined!,
     conversations: conversationRoutes(convSvc, () => crypto.randomUUID().slice(0, 8)),
   });
 });

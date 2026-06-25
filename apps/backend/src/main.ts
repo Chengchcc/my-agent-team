@@ -1,7 +1,5 @@
 import { Database } from "bun:sqlite";
-import type { Message } from "@my-agent-team/message";
 import {
-  deserializeLedgerContent,
   extractText,
   isTerminalMessageState,
   serializeMessageRevision,
@@ -10,7 +8,6 @@ import {
   createRuntimeTracer,
   resolveObservabilityConfig,
 } from "@my-agent-team/runtime-observability";
-import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { loadConfig } from "./config.js";
 import { createAgentSvc } from "./features/agent/agent-svc-factory.js";
@@ -21,9 +18,7 @@ import {
   createColumnConfigService,
   sqliteColumnConfigAdapter,
 } from "./features/column-config/index.js";
-import {
-  createConversationFeature,
-} from "./features/conversation/conv-svc-factory.js";
+import { createConversationFeature } from "./features/conversation/conv-svc-factory.js";
 import { conversationRoutes, parseThreadId } from "./features/conversation/index.js";
 import {
   escapeRegExp,
@@ -51,7 +46,6 @@ import {
   sqliteProjectAdapter,
 } from "./features/project/index.js";
 import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
-import { createRunService, runRoutes } from "./features/run/index.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
 import {
   createRuntimeOpsService,
@@ -59,7 +53,6 @@ import {
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
 import { createRouter } from "./http/router.js";
-import * as eventsSchema from "./infra/db/events-schema.js";
 import * as backendSchema from "./infra/db/schema.js";
 import { ulid } from "./infra/ids.js";
 import { openDb } from "./infra/sqlite/db.js";
@@ -96,48 +89,6 @@ const supervisor = new RunSupervisor({
 const larkBotRegistry = createLarkBotRegistry(config);
 const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry);
 const conv = createConversationFeature(db, config, supervisor, agentSvc, opsStore);
-
-// Run service
-const runSvc = createRunService({
-  supervisor,
-  eventLog,
-  maxConcurrentRuns: config.maxConcurrentRuns,
-  lock: conv.lock,
-  idGen: ulid,
-  autoTitle: {
-    getThread: async (tid) => {
-      const cid = parseThreadId(tid).conversationId || tid;
-      const c = conv.convPort.getConversation(cid);
-      if (c?.title) return { title: c.title };
-      return c ? { title: null } : null;
-    },
-    getMessages: async (tid) => {
-      // Read from ledger (M17.5 P7 canonical source), not thread projection
-      const cid = parseThreadId(tid).conversationId || tid;
-      const entries = conv.convPort.getLedgerEntries(cid);
-      const folded = new Map<string, { role: "user" | "assistant"; text: string }>();
-      for (const entry of entries) {
-        if (entry.kind !== "message") continue;
-        const parsed = deserializeLedgerContent(entry.content);
-        if (!("messageId" in parsed)) continue;
-        const role =
-          entry.senderMemberId && !entry.senderMemberId.startsWith("human")
-            ? ("assistant" as const)
-            : ("user" as const);
-        if (parsed.text) {
-          folded.set(parsed.messageId, { role, text: parsed.text });
-        }
-      }
-      const msgs = [...folded.values()];
-      return msgs.length > 0 ? (msgs as Message[]) : null;
-    },
-    setTitle: async (tid, title) => {
-      const cid = parseThreadId(tid).conversationId || tid;
-      conv.convPort.setConversationTitle(cid, title);
-    },
-    llm: { apiKey: config.anthropicApiKey },
-  },
-});
 
 // ─── Event wiring ─────────────────────────────────────────────
 
@@ -240,17 +191,6 @@ supervisor.onRunEvent((threadId, runId, event, _kind) => {
 
 // ─── HTTP router ──────────────────────────────────────────────
 
-const eventsDrizzle = drizzle(eventsDb, { schema: eventsSchema });
-
-const getThreadIdForRun = async (runId: string) => {
-  const row = eventsDrizzle
-    .select({ threadId: eventsSchema.run.threadId })
-    .from(eventsSchema.run)
-    .where(eq(eventsSchema.run.runId, runId))
-    .get();
-  if (!row) throw new Error(`Run not found: ${runId}`);
-  return row.threadId;
-};
 
 const identityStore = createAgentIdentityStore({
   dataDir: config.dataDir,
@@ -398,7 +338,6 @@ const router = createRouter(config.authToken, {
     (id) => larkBotRegistry.statusOf(id),
     getSetupManager,
   ),
-  runs: runRoutes(runSvc, getThreadIdForRun),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),
   issues: issueRoutes(issueSvc, opsStore, deliverableSvc, {
