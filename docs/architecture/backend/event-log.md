@@ -13,7 +13,7 @@ used_by:
 
 # EventLog
 
-EventLog 只存 execution detail：tool_start、tool_end、interrupted、error、todo_update。这些是从 [Runner](../runner/resident-runner.md)（执行 Agent 的常驻进程）上报、由 [RunSupervisor](./run-supervisor.md)（后端运行生命周期管理器）写入的。
+EventLog 只存 execution detail：tool_start、tool_end、interrupted、error、todo_update。这些是由 AgentSession 在进程内执行期间触发的事件，由 supervisor 写入 EventLog。
 
 message 事件不经过这里。assistant 产出经 `onRunMessage` 直写 [ledger](../conversation/ledger.md)，不走 EventLog。text_delta 也不进——走 `onRunEvent` 做 best-effort fan-out。
 
@@ -22,13 +22,12 @@ message 事件不经过这里。assistant 产出经 `onRunMessage` 直写 [ledge
 ```mermaid
 sequenceDiagram
   participant A as Agent
-  participant D as Runner Daemon
+  participant D as AgentSession.onEvent
   participant S as RunSupervisor
   participant E as event_log
   participant C as 消费者
 
   A->>D: AgentEvent
-  D->>S: transport event
   alt 非 message 事件 (tool_start/tool_end/interrupted/error/todo_update)
     S->>E: append(threadId, runId, event) → seq
     E-->>C: 按 seq read / subscribe
@@ -79,4 +78,3 @@ EventRecord = {
 - [RunSupervisor](./run-supervisor.md)
 - [会话投影](./conversation-projection.md)
 - [事实与投影](../foundations/facts-and-projections.md)
-- [Runner 协议](../runner/runner-protocol.md)

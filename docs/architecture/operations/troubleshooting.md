@@ -4,7 +4,6 @@ title: 排障手册
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-22
-summary: "这一页把常见故障按「症状 → 该去哪条事实线查 → 根因方向」组织起来。核心心法是：先判断问题落在哪一层——是对话事实（账本）错了，还是 projection/流（projection_messages 表、SSE）错了，还是执行(Runner / 事件日志)错了——再顺着对应的存储和不变式去定位，而不是一上来就乱翻日志。"
 depends_on:
   - foundations.facts-and-projections
   - backend.conversation-projection
@@ -14,15 +13,14 @@ used_by:
 
 # 排障手册
 
-这一页把常见故障按「症状 → 该去哪条事实线查 → 根因方向」组织起来。核心心法是：先判断问题落在哪一层——是对话事实（账本）错了，还是 projection/流（projection_messages 表、SSE）错了，还是执行(Runner / 事件日志)错了——再顺着对应的存储和不变式去定位，而不是一上来就乱翻日志。
 
 ## 先分层，再定位
 
 遇到问题，先问一句：这是**事实**坏了，or the **projection** is broken？
 
 - 账本（conversation_ledger）和事件日志（event_log）是durable 事实；
-- projection_messages 表（projection_messages）、SSE 流是投影；
-- Runner 本地 checkpointer.sqlite 是执行恢复状态。
+- ledger entries、SSE 流是投影；
+- checkpointer.db (global).sqlite 是执行恢复状态。
 
 事实错了影响所有端，projection is wrong只影响某个端/某个成员的视图。这一刀切下去，排查范围立刻缩小。
 
@@ -30,12 +28,11 @@ used_by:
 
 | 症状 | 先看哪里 | 根因方向 |
 |------|----------|----------|
-| 某成员看不到本该有的消息 | 该成员的 projection_messages 表（thread_id = conversationId:memberId） | `broadcastMessage` fan-out 失败；thread 推导错；账本其实有、投影缓存没跟上 |
+| 某成员看不到本该有的消息 | 该成员的 ledger entries（thread_id = conversationId:memberId） | `broadcastMessage` fan-out 失败；thread 推导错；账本其实有、投影缓存没跟上 |
 | 所有人都缺同一条消息 | 对话账本 + 运行事件 | `onRunMessage` 直写失败（critical，会抛错）；或 Runner 没产出该 message 事件 |
 | 飞书收到重复消息 | 飞书适配器 `canSkipFinalLedgerText` | 首次投递必发的特性叠加终稿重发；去重条件未命中 |
 | Web 状态卡在 running doesn't complete | run_done → run_finalized 握手 | completion sequence某步未完成；delta 订阅未关闭 |
-| 运行崩溃后无法恢复 | Runner 本地 checkpointer.sqlite | 中断状态未 saveInterrupt，或被 consumeInterrupt 重复消费 |
-| Runner 被误判失联 | 心跳/健康周期 | 连续错过心跳（5000ms）超过 daemon 检查（10000ms）容忍 |
+| 运行崩溃后无法恢复 | checkpointer.db (global).sqlite | 中断状态未 saveInterrupt，或被 consumeInterrupt 重复消费 |
 | Agent 活没干完就停 | task-guard / maxForceContinues | 强制继续已用满 3 次；待办状态没正确标 done |
 
 ## 关键不变式（违反即 bug）

@@ -6,7 +6,6 @@ owners: architecture
 last_verified_against_code: 2026-06-22
 summary: "Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏是 runLoop：一个受 maxSteps 与 maxForceContinues 约束的循环，每一步可能调模型、可能调工具，并把过程拆成一串结构化 AgentEvent 往外吐。围绕循环还有一组生命周期钩子和一个 Checkpointer 接口，分别负责「在关键节点插手」和「断点存取」。"
 depends_on:
-  - runner.resident-runner
 used_by:
   - runtime.context-manager
   - runtime.plugin
@@ -85,7 +84,6 @@ run(input: string, opts?: AgentRunOptions): AsyncIterable<AgentEvent>
 
 ### continue(opts?)
 
-从断点消息恢复运行，**不追加**新的用户消息。适用于会话级触发场景：用户的输入已经由上层 `buildPreloadedMessages` 从[账本](../conversation/ledger.md)构建为 Message[] 注入到 `preloadedMessages` 中，`continue()` 直接拾取已有上下文继续执行。若无用户消息则抛错。
 
 ```ts
 continue(opts?: AgentRunOptions): AsyncIterable<AgentEvent>
@@ -133,7 +131,6 @@ interface Checkpointer {
 
 ## 关联页面
 
-- [常驻 Runner](../runner/resident-runner.md)
 - [上下文管理器](context-manager.md)
 - [运行时插件](plugin.md)
 - [task-guard plugin](../plugins/task-guard.md)
