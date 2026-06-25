@@ -8,7 +8,7 @@ import type { RunDiagnosis, RunOpsDetail } from "@/lib/api";
 import { diagnoseRun } from "@/lib/ops-diagnosis";
 import { CopyButton } from "./CopyButton";
 
-const diagnosisLabel: Record<RunDiagnosis["kind"], string> = {
+const diagnosisLabel: Record<string, string> = {
   running: "Running",
   heartbeat_stale: "Heartbeat stale",
   detached_waiting_reaper: "Detached placeholder",
@@ -16,7 +16,7 @@ const diagnosisLabel: Record<RunDiagnosis["kind"], string> = {
   terminal: "Terminal",
 };
 
-const ownerLabel: Record<RunDiagnosis["owner"], string> = {
+const ownerLabel: Record<string, string> = {
   none: "—",
   runner: "Runner",
   backend_runner_link: "Runner connection",
@@ -24,10 +24,7 @@ const ownerLabel: Record<RunDiagnosis["owner"], string> = {
   unknown: "Unknown",
 };
 
-const diagnosisBadgeVariant: Record<
-  RunDiagnosis["kind"],
-  "default" | "secondary" | "destructive" | "outline"
-> = {
+const diagnosisBadgeVariant: Record<string, string> = {
   running: "default",
   heartbeat_stale: "outline",
   detached_waiting_reaper: "secondary",
@@ -35,23 +32,11 @@ const diagnosisBadgeVariant: Record<
   terminal: "secondary",
 };
 
-export function RunDiagnosisHeader({
-  detail,
-  heartbeatTimeoutMs,
-}: {
-  detail: RunOpsDetail;
-  heartbeatTimeoutMs: number;
-}) {
+export function RunDiagnosisHeader({ detail }: { detail: RunOpsDetail }) {
   const diagnosis = diagnoseRun(detail);
   const [showEvidence, setShowEvidence] = useState(false);
 
   const evidence: string[] = [];
-  const a = detail.attempts[0];
-  if (a) {
-    evidence.push(`transport=${a.transport}`);
-    if (a.heartbeatAgeMs != null)
-      evidence.push(`heartbeatAgeMs=${a.heartbeatAgeMs}ms (timeout=${heartbeatTimeoutMs}ms)`);
-  }
   if (detail.eventLog.lastEventType)
     evidence.push(`lastEventType=${detail.eventLog.lastEventType}`);
   const lastOps = detail.ops.at(-1);
@@ -63,7 +48,7 @@ export function RunDiagnosisHeader({
         <span className="font-mono text-xs text-foreground">{detail.run.runId}</span>
         <CopyButton text={detail.run.runId} label="run ID" />
 
-        <Badge variant={diagnosisBadgeVariant[diagnosis.kind]}>{detail.run.status}</Badge>
+        <Badge variant={diagnosisBadgeVariant[diagnosis.kind] as any}>{detail.run.status}</Badge>
 
         <span className="text-muted-foreground">Diagnosis:</span>
         <span className="font-medium text-foreground">{diagnosisLabel[diagnosis.kind]}</span>

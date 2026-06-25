@@ -6,12 +6,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { AgentRuntimeStatus, RunOpsListItem } from "@/lib/api";
 import { api } from "@/lib/api";
-import { hasSurfaceError, isDetachedRun, isStaleRun, isUnhealthyAgent } from "@/lib/ops-diagnosis";
 
 interface NeedsAttentionProps {
   runs: RunOpsListItem[];
   runtimes: AgentRuntimeStatus[];
-  heartbeatTimeoutMs: number;
 }
 
 type Severity = "critical" | "warn";
@@ -61,38 +59,14 @@ function RecoverButton({ runId }: { runId: string }) {
   );
 }
 
-export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: NeedsAttentionProps) {
+export function NeedsAttentionList({ runs: _runs, runtimes }: NeedsAttentionProps) {
   const items: AttentionItem[] = [];
 
-  for (const r of runs) {
-    if (isDetachedRun(r)) {
-      items.push({
-        severity: "critical",
-        label: `Run ${r.runId.slice(0, 12)}… — Detached placeholder (agent ${r.agentName})`,
-        href: `/ops/runs/${r.runId}`,
-        runId: r.runId,
-        actionable: true,
-      });
-    } else if (isStaleRun(r, heartbeatTimeoutMs)) {
-      items.push({
-        severity: "critical",
-        href: `/ops/runs/${r.runId}`,
-        runId: r.runId,
-        actionable: true,
-      });
-    }
-  }
+  // Runner removed — detached/stale detection disabled.
+  // Kept: surface error detection still active.
 
   for (const rt of runtimes) {
-    if (isUnhealthyAgent(rt)) {
-      items.push({
-        severity: rt.runner.status === "offline" ? "critical" : "warn",
-        label: `Agent ${rt.agentName} — Runner ${rt.runner.status}${rt.runner.lastError ? `: ${rt.runner.lastError}` : ""}`,
-        href: `/ops/agents/${rt.agentId}`,
-        actionable: false,
-      });
-    }
-    if (hasSurfaceError(rt)) {
+    if (Object.values(rt.surfaces).some((s) => s.status !== "running")) {
       for (const [surface, health] of Object.entries(rt.surfaces)) {
         if (health.status !== "running") {
           items.push({

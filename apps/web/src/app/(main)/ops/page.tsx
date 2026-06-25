@@ -62,8 +62,6 @@ export default function OpsPage() {
 
   const runs = runsQuery.data ?? [];
   const runtimes = runtimesQuery.data ?? [];
-  const heartbeatTimeoutMs = runtimes[0]?.heartbeatTimeoutMs ?? 60_000;
-
   const rangeMs = WINDOWS[windowKey] ?? WINDOWS["24h"]!;
   const chartRange = useMemo(() => {
     const now = Math.floor(Date.now() / 60_000) * 60_000;
@@ -74,7 +72,7 @@ export default function OpsPage() {
     isLoading: runsQuery.isLoading || agentsQuery.isLoading || runtimesQuery.isLoading,
     isError: runsQuery.isError || agentsQuery.isError || runtimesQuery.isError,
     error: runsQuery.error ?? agentsQuery.error ?? runtimesQuery.error,
-    data: { runs, runtimes, heartbeatTimeoutMs } as const,
+    data: { runs, runtimes } as const,
   };
 
   return (
@@ -97,7 +95,6 @@ export default function OpsPage() {
               <HealthSummary
                 runs={data.runs}
                 runtimes={data.runtimes}
-                heartbeatTimeoutMs={data.heartbeatTimeoutMs}
               />
             </section>
 
@@ -140,7 +137,6 @@ export default function OpsPage() {
               <NeedsAttentionList
                 runs={data.runs}
                 runtimes={data.runtimes}
-                heartbeatTimeoutMs={data.heartbeatTimeoutMs}
               />
             </section>
 
@@ -149,7 +145,6 @@ export default function OpsPage() {
                 Recent Activity
               </h2>
               <div className="rounded-lg border">
-                <RunOpsTable runs={data.runs} heartbeatTimeoutMs={data.heartbeatTimeoutMs} />
               </div>
             </section>
           </>

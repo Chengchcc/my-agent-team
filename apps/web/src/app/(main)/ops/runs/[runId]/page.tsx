@@ -2,9 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { ExecutionPath } from "@/components/ops/ExecutionPath";
 import { QueryState } from "@/components/ops/QueryState";
-import { RunControlStrip } from "@/components/ops/RunControlStrip";
 import { RunDiagnosisHeader } from "@/components/ops/RunDiagnosisHeader";
 import { RunInsightsPanel } from "@/components/ops/RunInsightsPanel";
 import { RunOpsTimeline } from "@/components/ops/RunOpsTimeline";
@@ -64,8 +62,7 @@ export default function RunDetailPage() {
       <QueryState query={detailQuery}>
         {(detail) => (
           <>
-            <RunDiagnosisHeader detail={detail} heartbeatTimeoutMs={heartbeatTimeoutMs} />
-            <RunControlStrip detail={detail} heartbeatTimeoutMs={heartbeatTimeoutMs} />
+            <RunDiagnosisHeader detail={detail} />
 
             <RunInsightsPanel runId={runId} />
 
@@ -87,10 +84,6 @@ export default function RunDetailPage() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border p-4">
-                  <h3 className="text-sm font-semibold text-foreground mb-3">Execution path</h3>
-                  <ExecutionPath detail={detail} />
-                </div>
               </div>
 
               <div className="space-y-6">

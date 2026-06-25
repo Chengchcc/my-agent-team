@@ -1,7 +1,6 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { AgentRuntimeCard } from "@/components/ops/AgentRuntimeCard";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -50,7 +49,12 @@ export default function AgentsPage() {
         <p className="text-muted-foreground text-sm">No agent runtime data available.</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {runtimes.map((rt) => rt && <AgentRuntimeCard key={rt.agentId} runtime={rt} />)}
+          {runtimes.map((rt) => rt && (
+            <div key={rt.agentId} className="rounded-lg border p-4">
+              <p className="font-semibold text-sm">{rt.agentName}</p>
+              <p className="text-xs text-muted-foreground font-mono">{rt.agentId}</p>
+            </div>
+          ))}
         </div>
       )}
     </div>

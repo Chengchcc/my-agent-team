@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { AgentRuntimeCard } from "@/components/ops/AgentRuntimeCard";
 import { QueryState } from "@/components/ops/QueryState";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import {
@@ -53,7 +52,12 @@ export default function AgentRuntimePage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-1">
           <QueryState query={runtimeQuery}>
-            {(runtime) => <AgentRuntimeCard runtime={runtime} />}
+            {(runtime) => (
+              <div className="rounded-lg border p-4 space-y-2">
+                <p className="font-semibold text-sm">{runtime.agentName}</p>
+                <p className="text-xs text-muted-foreground font-mono">{runtime.agentId}</p>
+              </div>
+            )}
           </QueryState>
         </div>
         <div className="md:col-span-2">
@@ -64,10 +68,7 @@ export default function AgentRuntimePage() {
             <div className="rounded-lg border">
               <QueryState query={runsQuery}>
                 {(runs) => (
-                  <RunOpsTable
-                    runs={runs}
-                    heartbeatTimeoutMs={runtimeQuery.data?.heartbeatTimeoutMs}
-                  />
+                  <RunOpsTable runs={runs} />
                 )}
               </QueryState>
             </div>
