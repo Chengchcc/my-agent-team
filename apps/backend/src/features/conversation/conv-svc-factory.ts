@@ -1,11 +1,38 @@
+import { join } from "node:path";
 import type { Database } from "bun:sqlite";
+import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
+import {
+  autoSummarize,
+  pipeContextManagers,
+  sqliteCheckpointer,
+  toolResultTruncator,
+} from "@my-agent-team/framework";
+import { AgentSession } from "@my-agent-team/harness";
+import { identityPlugin } from "@my-agent-team/plugin-identity";
+import { conversationContextPlugin } from "@my-agent-team/plugin-conversation-context";
+import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
+import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
 import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
+import {
+  bashTool,
+  createEditTool,
+  createReadTool,
+  createWriteTool,
+  globTool,
+  grepTool,
+} from "@my-agent-team/tools-common";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
 
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
+import {
+  createListMembersTool,
+  createReadContextTool,
+  createReadHistoryTool,
+  createSearchTool,
+} from "./conv-tools.js";
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
@@ -147,3 +174,120 @@ export async function buildAgentSpecV2(
     ...overrides,
   };
 }
+
+// ─── startAgentRun (Phase 2: AgentSession integration) ──────
+
+export interface StartAgentRunOpts {
+  threadId: string;
+  agentId: string;
+  input: string;
+  config: BackendConfig;
+  agentSvc: AgentService;
+  convPort: ConversationPort;
+  conversationId: string;
+  surface?: string;
+  senderName?: string;
+  /** Called with each assistant message revision to write to ledger + SSE. */
+  onAssistantMessage?: (revision: Record<string, unknown>) => void;
+  /** Called when run completes. */
+  onComplete?: (status: string) => void;
+}
+
+/**
+ * Create an AgentSession and run it to completion.
+ * Replaces the old forkRun → dispatcher → supervisor → daemon chain
+ * with direct in-process AgentSession execution.
+ */
+export async function startAgentRun(opts: StartAgentRunOpts): Promise<void> {
+  const {
+    threadId,
+    agentId,
+    input,
+    config,
+    agentSvc,
+    convPort,
+    conversationId,
+    surface = "web",
+    senderName = "unknown",
+    onAssistantMessage,
+    onComplete,
+  } = opts;
+
+  const agent = await agentSvc.getById(agentId);
+  const cwd = join(config.dataDir, "agents", agentId);
+
+  // ── Model ──────────────────────────────────────────────
+  const model = new AnthropicChatModel({
+    apiKey: config.anthropicApiKey,
+    model: agent.modelName,
+  });
+
+  // ── Tools ──────────────────────────────────────────────
+  const baseTools = [
+    createReadTool({ cwd }),
+    createWriteTool({ cwd }),
+    createEditTool({ cwd }),
+    bashTool,
+    globTool,
+    grepTool,
+  ];
+
+  const convTools = [
+    createReadHistoryTool({ convPort, conversationId }),
+    createReadContextTool({ convPort, conversationId }),
+    createSearchTool({ convPort, conversationId }),
+    createListMembersTool({ convPort, conversationId }),
+  ];
+
+  const convPrompt = `<conversation>
+  <id>${conversationId}</id>
+  <surface>${surface}</surface>
+  <trigger>
+    <from>${senderName}</from>
+    <message>${input}</message>
+  </trigger>
+</conversation>
+如需更多上下文，使用 read_conversation_history 等工具。`;
+
+  // ── Plugins ────────────────────────────────────────────
+  const plugins = [
+    identityPlugin({ cwd }),
+    conversationContextPlugin({ tools: convTools, systemPrompt: convPrompt }),
+    fsMemoryPlugin({ cwd }),
+    progressiveSkillPlugin({ cwd }),
+  ];
+
+  // ── Checkpointer + ContextManager ──────────────────────
+  const checkpointer = sqliteCheckpointer({
+    db: join(config.dataDir, "checkpointer.db"),
+  });
+
+  const contextManager = pipeContextManagers(
+    toolResultTruncator({ maxCharsPerResult: 50_000 }),
+    autoSummarize({ triggerAt: 100_000, keepRecent: 10 }),
+  );
+
+  // ── Session ────────────────────────────────────────────
+  const session = new AgentSession({
+    model,
+    threadId,
+    plugins,
+    tools: baseTools,
+    checkpointer,
+    contextManager,
+  });
+
+  // Wire events → ledger + SSE
+  session.subscribe((event) => {
+    if (event.type === "message" && onAssistantMessage) {
+      onAssistantMessage(event.payload);
+    }
+    if (event.type === "agent_end" && onComplete) {
+      onComplete(event.willRetry ? "error" : "succeeded");
+    }
+  });
+
+  await session.prompt(input);
+  session.dispose();
+}
+

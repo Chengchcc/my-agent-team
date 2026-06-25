@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Plugin } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
-import { todayAndYesterday } from "../daily-log.js";
-import { composeSystemPrompt } from "../system-prompt.js";
+import { todayAndYesterday } from "./daily-log.js";
+import { composeSystemPrompt } from "./system-prompt.js";
 
 // M11: Genesis bootstrap template. identityPlugin fully owns genesis.
 export const BOOTSTRAP_TEMPLATE = [

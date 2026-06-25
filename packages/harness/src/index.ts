@@ -1,5 +1,5 @@
-// AgentSession + compaction + identityPlugin
-
+// AgentSession + compaction
+export { AgentSession } from "./agent-session.js";
 export type {
   AgentSessionConfig,
   AgentSessionEvent,
@@ -11,12 +11,6 @@ export type {
   ThinkingLevel,
   ToolInfo,
 } from "./agent-session.js";
-export { AgentSession } from "./agent-session.js";
-export type { CompactionOptions, CompactionResult } from "./compaction.js";
 export { compactThread, reflectionGuidance } from "./compaction.js";
-export type { IdentityPluginOptions } from "./plugins/identity-plugin.js";
-export {
-  BOOTSTRAP_TEMPLATE,
-  identityPlugin,
-} from "./plugins/identity-plugin.js";
+export type { CompactionOptions, CompactionResult } from "./compaction.js";
 export { verificationGuidance } from "./verify.js";

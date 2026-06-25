@@ -1,4 +1,5 @@
 // cwd-based tool factories (Phase 1)
+export { type AgentFsLike, pjoin } from "./agent-fs-like.js";
 
 // standalone tools
 export { bashTool } from "./bash.js";

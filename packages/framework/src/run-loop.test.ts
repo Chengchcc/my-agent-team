@@ -54,6 +54,7 @@ function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRunti
     runId: "run-1",
     toolStates: [],
     assistantBlocks: [],
+    subscribers: new Set(),
   };
 }
 

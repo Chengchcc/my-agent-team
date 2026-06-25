@@ -131,7 +131,8 @@ export async function findSkillByName(
   opts: ProgressiveSkillOptions,
   name: string,
 ): Promise<{ skill: SkillMeta; body: string } | null> {
-  const ws = opts.ws;
+  const ws = opts.ws ?? (opts.cwd ? nodeFsAdapter(opts.cwd) : undefined);
+  if (!ws) throw new Error("progressiveSkillPlugin: either ws or cwd must be provided");
   const roots = opts.roots ?? [opts.root ?? "/skills/"];
   const posixSkillRoot = opts.posixSkillRoot;
 

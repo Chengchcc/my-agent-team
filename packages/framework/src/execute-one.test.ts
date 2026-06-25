@@ -34,6 +34,7 @@ function makeRuntime(tools: Tool[] = []): AgentRuntime {
     runId: "run-1",
     toolStates: [],
     assistantBlocks: [],
+    subscribers: new Set(),
   };
 }
 

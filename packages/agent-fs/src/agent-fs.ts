@@ -1,4 +1,4 @@
-import type { AgentFsLike } from "@my-agent-team/core";
+import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { DefaultWorkspaceAliases } from "./aliases.js";
 import type {
   AgentFsDomain,

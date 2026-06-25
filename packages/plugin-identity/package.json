@@ -1,7 +1,7 @@
 {
-  "name": "@my-agent-team/agent-fs",
+  "name": "@my-agent-team/plugin-identity",
   "version": "0.1.0",
-  "description": "Agent File System — virtual file tree with mount table, capability-based backends, POSIX roots",
+  "description": "Agent identity plugin — reads SOUL/USER/TOOLS/AGENTS/memory, injects system prompt",
   "type": "module",
   "exports": {
     ".": {
@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@my-agent-team/core": "workspace:*",
-    "@my-agent-team/tools-common": "workspace:*"
+    "@my-agent-team/framework": "workspace:*",
+    "@my-agent-team/message": "workspace:*"
   }
 }

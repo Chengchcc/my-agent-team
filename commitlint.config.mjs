@@ -25,6 +25,7 @@ export default {
         "test-helpers",
         // Plugins
         "plugin-fs-memory",
+        "plugin-identity",
         "plugin-progressive-skill",
         "plugin-task-guard",
         "plugin-conversation-context",
