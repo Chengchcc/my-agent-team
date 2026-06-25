@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ChatModel } from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
 import { consoleLogger } from "../logger.js";
 import { summarizingContextManager } from "./summarizing.js";
@@ -112,7 +113,7 @@ import { structuredSummarize } from "./summarizing.js";
 describe("structuredSummarize", () => {
   test("returns a message with structured summary content", async () => {
     let capturedMsgs: Message[] = [];
-    const model: any = {
+    const model = {
       id: "test",
       stream: async function* (msgs: Message[]) {
         capturedMsgs = msgs;
@@ -133,7 +134,7 @@ describe("structuredSummarize", () => {
       { role: "assistant", text: "ok doing it" },
     ];
 
-    const result = await structuredSummarize(old, model as any);
+    const result = await structuredSummarize(old, model as unknown as ChatModel);
 
     expect(result.role).toBe("user");
     expect(result.text).toContain("[Earlier conversation summary]");
@@ -145,7 +146,7 @@ describe("structuredSummarize", () => {
   });
 
   test("tolerates missing sections in model output", async () => {
-    const model: any = {
+    const model = {
       id: "test",
       stream: async function* () {
         yield {
@@ -158,7 +159,7 @@ describe("structuredSummarize", () => {
     };
 
     const old: Message[] = [{ role: "user", text: "hi" }];
-    const result = await structuredSummarize(old, model as any);
+    const result = await structuredSummarize(old, model as unknown as ChatModel);
 
     expect(result.role).toBe("user");
     expect(result.text).toContain("[Earlier conversation summary]");
@@ -168,7 +169,7 @@ describe("structuredSummarize", () => {
 describe("defaultSummarize", () => {
   test("is exported and produces a summary message", async () => {
     const { defaultSummarize } = await import("./summarizing.js");
-    const model: any = {
+    const model = {
       id: "test",
       stream: async function* () {
         yield {
@@ -181,7 +182,7 @@ describe("defaultSummarize", () => {
     };
 
     const old: Message[] = [{ role: "user", text: "hi" }];
-    const result = await defaultSummarize(old, model as any);
+    const result = await defaultSummarize(old, model as unknown as ChatModel);
 
     expect(result.role).toBe("user");
     expect(result.text).toContain("[Earlier conversation summary]");

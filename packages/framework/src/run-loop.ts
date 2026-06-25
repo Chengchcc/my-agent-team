@@ -281,7 +281,7 @@ export async function* runLoop(
         }
       }
 
-      let interrupted = false;
+      let interrupted: boolean;
       for (const batch of batches) {
         if (batch.length === 1) {
           // Single serial tool — use existing generator path

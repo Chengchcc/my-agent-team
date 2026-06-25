@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AIMessageChunk, ChatModel, Tool } from "@my-agent-team/core";
+import type { AIMessageChunk, ChatModel, ContentBlock, Tool, ToolResultBlock } from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
 import type { AgentRuntime, FollowUpQueue, SteeringQueue } from "./agent-options.js";
 import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
@@ -106,7 +106,8 @@ describe("runLoop tool parallel execution", () => {
       { id: "c2", name: "t2" },
     ]);
 
-    for await (const ev of runLoop(rt, { maxSteps: 1 })) {
+    // eslint-disable-next-line no-empty
+    for await (const _ev of runLoop(rt, { maxSteps: 1 })) {
     }
 
     expect(calls).toEqual(["t1", "t2"]);
@@ -135,7 +136,8 @@ describe("runLoop tool parallel execution", () => {
       { id: "c2", name: "slow" },
     ]);
 
-    for await (const ev of runLoop(rt, { maxSteps: 1 })) {
+    // eslint-disable-next-line no-empty
+    for await (const _ev of runLoop(rt, { maxSteps: 1 })) {
     }
 
     expect(starts.length).toBe(2);
@@ -171,15 +173,16 @@ describe("runLoop tool parallel execution", () => {
       { id: "c2", name: "t2" },
     ]);
 
-    for await (const ev of runLoop(rt, { maxSteps: 1 })) {
+    // eslint-disable-next-line no-empty
+    for await (const _ev of runLoop(rt, { maxSteps: 1 })) {
     }
 
     const results = rt.thread.messages.filter(
-      (m) => Array.isArray(m.blocks) && m.blocks.some((b: any) => b.type === "tool_result"),
+      (m) => Array.isArray(m.blocks) && m.blocks.some((b: ContentBlock) => b.type === "tool_result"),
     );
     expect(results.length).toBe(2);
-    expect((results[0]!.blocks as any[])[0]!.tool_use_id).toBe("c1");
-    expect((results[1]!.blocks as any[])[0]!.tool_use_id).toBe("c2");
+    expect((results[0]!.blocks as ToolResultBlock[])[0]!.tool_use_id).toBe("c1");
+    expect((results[1]!.blocks as ToolResultBlock[])[0]!.tool_use_id).toBe("c2");
   });
 
   test("mixed serial+concurrent → each serial gets own batch, concurrent grouped", async () => {
@@ -233,7 +236,8 @@ describe("runLoop tool parallel execution", () => {
       { id: "sc2", name: "s2" },
     ]);
 
-    for await (const ev of runLoop(rt, { maxSteps: 1 })) {
+    // eslint-disable-next-line no-empty
+    for await (const _ev of runLoop(rt, { maxSteps: 1 })) {
     }
 
     const s1Idx = order.indexOf("s1");
@@ -276,11 +280,12 @@ describe("runLoop steering", () => {
       },
     };
 
-    for await (const ev of runLoop(rt, { maxSteps: 1, steering })) {
+    // eslint-disable-next-line no-empty
+    for await (const _ev of runLoop(rt, { maxSteps: 1, steering })) {
     }
 
     expect(
-      modelReceivedMsgs.some((m) => (m as any).text?.includes("steering: correct course")),
+      modelReceivedMsgs.some((m) => ((m as Message & { text?: string }).text?.includes("steering: correct course"))),
     ).toBe(true);
   });
 
@@ -299,9 +304,10 @@ describe("runLoop steering", () => {
       countTokens: async () => 0,
     };
 
-    const events: any[] = [];
-    for await (const ev of runLoop(rt, { maxSteps: 1 })) {
-      events.push(ev);
+    const events: Array<{ type: string }> = [];
+     
+    for await (const _ev of runLoop(rt, { maxSteps: 1 })) {
+      events.push(_ev);
     }
 
     expect(events.some((e) => e.type === "message")).toBe(true);
@@ -335,7 +341,8 @@ describe("runLoop steering", () => {
       },
     };
 
-    for await (const ev of runLoop(rt, { maxSteps: 1, followUp })) {
+    // eslint-disable-next-line no-empty
+    for await (const _ev of runLoop(rt, { maxSteps: 1, followUp })) {
     }
 
     // Model called twice: once for initial run, once for follow-up
@@ -361,7 +368,8 @@ describe("runLoop steering", () => {
     const rt = makeRt();
     rt.model = model;
 
-    for await (const ev of runLoop(rt, { maxSteps: 2 })) {
+    // eslint-disable-next-line no-empty
+    for await (const _ev of runLoop(rt, { maxSteps: 2 })) {
     }
 
     // Without follow-up, model returns no tool_use blocks → stops at step 0
