@@ -164,7 +164,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     for (const target of targets) {
       try {
         const runId = crypto.randomUUID();
-        const _threadId = deriveThreadId(conversationId, target.memberId);
+        const threadId = deriveThreadId(conversationId, target.memberId);
         const { runId: rId } = await forkRun(runId, threadId, {
           conversationId,
           agentMemberId: target.memberId,

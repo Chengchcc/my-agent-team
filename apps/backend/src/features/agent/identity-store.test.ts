@@ -7,6 +7,10 @@ import { createAgentIdentityStore } from "./identity-store.js";
 const tmpBase = `/tmp/identity-store-test-${Date.now()}`;
 const dataDir = path.join(tmpBase, "data");
 
+function agentRoot(agentId: string): string {
+  return path.join(dataDir, "agents", agentId);
+}
+
 function clean() {
   try {
     rmSync(tmpBase, { recursive: true, force: true });
@@ -24,14 +28,13 @@ function makeStore() {
   return createAgentIdentityStore({
     dataDir,
     getAgent: async (id) => {
-      // Return a legacy workspace path that may or may not exist
       return { workspacePath: path.join(tmpBase, "legacy", id) };
     },
   });
 }
 
 describe("AgentIdentityStore", () => {
-  test("getIdentity returns nulls for empty sharedRoot", async () => {
+  test("getIdentity returns nulls for empty workspace", async () => {
     const store = makeStore();
     const identity = await store.getIdentity(`agent-${Date.now()}`);
     expect(identity.soul).toBeNull();
@@ -39,16 +42,12 @@ describe("AgentIdentityStore", () => {
     expect(identity.memories).toEqual([]);
   });
 
-  test("getIdentity reads SOUL.md and USER.md from sharedRoot", async () => {
+  test("getIdentity reads SOUL.md and USER.md from workspace", async () => {
     const agentId = `soul-test-${Date.now()}`;
-    // Manually seed sharedRoot (simulating create flow or agent writing)
-    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import(
-      "../../infra/runner-workspace.js"
-    );
-    const paths = runnerWorkspacePaths(dataDir, agentId);
-    await ensureRunnerWorkspace(paths);
-    await writeFile(path.join(paths.sharedRoot, "SOUL.md"), "I am a tester", "utf-8");
-    await writeFile(path.join(paths.sharedRoot, "USER.md"), "human dev", "utf-8");
+    const root = agentRoot(agentId);
+    await mkdir(root, { recursive: true });
+    await writeFile(path.join(root, "SOUL.md"), "I am a tester", "utf-8");
+    await writeFile(path.join(root, "USER.md"), "human dev", "utf-8");
 
     const store = makeStore();
     const identity = await store.getIdentity(agentId);
@@ -58,14 +57,10 @@ describe("AgentIdentityStore", () => {
 
   test("getIdentity reads memory/MEMORY.md as summary", async () => {
     const agentId = `mem-summary-${Date.now()}`;
-    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import(
-      "../../infra/runner-workspace.js"
-    );
-    const paths = runnerWorkspacePaths(dataDir, agentId);
-    await ensureRunnerWorkspace(paths);
-    await mkdir(path.join(paths.sharedRoot, "memory"), { recursive: true });
+    const root = agentRoot(agentId);
+    await mkdir(path.join(root, "memory"), { recursive: true });
     await writeFile(
-      path.join(paths.sharedRoot, "memory", "MEMORY.md"),
+      path.join(root, "memory", "MEMORY.md"),
       "dated summary text",
       "utf-8",
     );
@@ -78,19 +73,15 @@ describe("AgentIdentityStore", () => {
 
   test("getIdentity reads memory/facts/*.md as facts", async () => {
     const agentId = `mem-facts-${Date.now()}`;
-    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import(
-      "../../infra/runner-workspace.js"
-    );
-    const paths = runnerWorkspacePaths(dataDir, agentId);
-    await ensureRunnerWorkspace(paths);
-    await mkdir(path.join(paths.sharedRoot, "memory", "facts"), { recursive: true });
+    const root = agentRoot(agentId);
+    await mkdir(path.join(root, "memory", "facts"), { recursive: true });
     await writeFile(
-      path.join(paths.sharedRoot, "memory", "facts", "2025-06-01.md"),
+      path.join(root, "memory", "facts", "2025-06-01.md"),
       "Today I learned X",
       "utf-8",
     );
     await writeFile(
-      path.join(paths.sharedRoot, "memory", "facts", "2025-06-02.md"),
+      path.join(root, "memory", "facts", "2025-06-02.md"),
       "Today I fixed Y",
       "utf-8",
     );
@@ -102,15 +93,12 @@ describe("AgentIdentityStore", () => {
     expect(dates).toEqual(["2025-06-01", "2025-06-02"]);
   });
 
-  test("reads identity files from sharedRoot workspace", async () => {
-    const agentId = `shared-${Date.now()}`;
-    const { runnerWorkspacePaths, ensureRunnerWorkspace } = await import(
-      "../../infra/runner-workspace.js"
-    );
-    const paths = runnerWorkspacePaths(dataDir, agentId);
-    await ensureRunnerWorkspace(paths);
-    await writeFile(path.join(paths.sharedRoot, "SOUL.md"), "shared soul", "utf-8");
-    await writeFile(path.join(paths.sharedRoot, "USER.md"), "shared user", "utf-8");
+  test("reads identity files from agent workspace", async () => {
+    const agentId = `workspace-${Date.now()}`;
+    const root = agentRoot(agentId);
+    await mkdir(root, { recursive: true });
+    await writeFile(path.join(root, "SOUL.md"), "shared soul", "utf-8");
+    await writeFile(path.join(root, "USER.md"), "shared user", "utf-8");
 
     const store = makeStore();
     const identity = await store.getIdentity(agentId);
@@ -119,7 +107,7 @@ describe("AgentIdentityStore", () => {
     expect(identity.user).toBe("shared user");
   });
 
-  test("updateIdentity writes SOUL.md and USER.md to sharedRoot", async () => {
+  test("updateIdentity writes SOUL.md and USER.md to workspace", async () => {
     const agentId = `update-${Date.now()}`;
     const store = makeStore();
 

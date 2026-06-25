@@ -10,8 +10,5 @@ export interface AgentFsLike {
 
 /** Join path segments with "/", collapsing duplicate slashes. */
 export function pjoin(...segments: string[]): string {
-  return segments
-    .join("/")
-    .replace(/\/+/g, "/")
-    .replace(/\/$/, "") || "/";
+  return segments.join("/").replace(/\/+/g, "/").replace(/\/$/, "") || "/";
 }
