@@ -149,7 +149,6 @@ export function createConversationService(deps: ConversationServiceDeps) {
         member.memberId,
         conv,
       );
-
     }
   }
 

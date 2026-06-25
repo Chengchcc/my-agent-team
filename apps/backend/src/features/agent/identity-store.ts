@@ -38,9 +38,7 @@ async function readTextOrNull(filePath: string): Promise<string | null> {
  *    memory/facts/*.md         — agent-written facts
  *
  *  Also reads flat memory/*.md for backward compat (legacy agents). */
-async function readMemoryFacts(
-  cwd: string,
-): Promise<Array<{ date: string; content: string }>> {
+async function readMemoryFacts(cwd: string): Promise<Array<{ date: string; content: string }>> {
   const memories: Array<{ date: string; content: string }> = [];
   const memoryRoot = path.join(cwd, "memory");
 

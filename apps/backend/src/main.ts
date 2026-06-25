@@ -54,7 +54,6 @@ import {
 import { createRunDispatcher } from "./features/run/dispatcher.js";
 import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
 import { createRunService, runRoutes } from "./features/run/index.js";
-import { createRunnerRegistry } from "./features/run/runner-registry-factory.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
 import {
   createRuntimeOpsService,
@@ -84,11 +83,12 @@ const obsConfig = resolveObservabilityConfig({ serviceName: "backend" });
 const tracer = createRuntimeTracer(obsConfig);
 const opsStore = new RuntimeOpsStore(eventsDb);
 
-const registry = createRunnerRegistry(config);
+// Runner daemon removed — AgentSession runs in-process. Supervisor manages
+// run/attempt rows without transport (NOOP_TRANSPORT is the internal default).
 const supervisor = new RunSupervisor({
   eventLog,
   config,
-  registry,
+  // registry omitted — no runner daemon, all transports are NOOP
   opsStore,
   tracer,
   db: eventsDb,
@@ -305,7 +305,6 @@ const opsSvc = createRuntimeOpsService({
   db: eventsDb,
   opsStore,
   supervisor,
-  registry,
   heartbeatTimeoutMs: config.heartbeatTimeoutMs,
   eventLog,
   getAgentName: (agentId) => agentNames.get(agentId),
@@ -464,7 +463,6 @@ const shutdown = async (signal: string) => {
   // watchdog or retry firing in the grace window can't touch a closed DB.
   cronScheduler.dispose();
   await supervisor.dispose();
-  await registry.dispose?.();
   await larkBotRegistry.dispose();
   setupManager?.dispose();
   db.close();

@@ -1,6 +1,6 @@
+import type { Database } from "bun:sqlite";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { Database } from "bun:sqlite";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { LarkBotRegistry } from "../lark-bot/index.js";

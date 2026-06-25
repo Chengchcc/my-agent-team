@@ -76,8 +76,7 @@ export function isBusy(s: ConvState): boolean {
     (item) =>
       item.kind === "message" &&
       item.sender.kind === "agent" &&
-      (item.content.state != null &&
-        isOpenMessageState(item.content.state) ||
+      ((item.content.state != null && isOpenMessageState(item.content.state)) ||
         item.content.runStatus === "retrying" ||
         item.content.runStatus === "compacting"),
   );

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { EventLog } from "../event-log/index.js";
-import type { RunnerRegistry } from "../run/runner-registry.js";
+// RunnerRegistry removed — AgentSession runs in-process
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { InsightsSummary, RunInsights } from "./insights.js";
 import { getInsightsSummary, getRunInsights } from "./insights.js";
@@ -91,13 +91,12 @@ export function createRuntimeOpsService(deps: {
   db: Database;
   opsStore: RuntimeOpsStore;
   supervisor: RunSupervisor;
-  registry: RunnerRegistry;
   heartbeatTimeoutMs: number;
   eventLog: EventLog;
   /** M16.2: Resolve agent display name for ops DTOs. Falls back to agentId if absent. */
   getAgentName?: (agentId: string) => string | undefined;
 }) {
-  const { db, opsStore, supervisor, registry, heartbeatTimeoutMs, eventLog, getAgentName } = deps;
+  const { db, opsStore, supervisor, heartbeatTimeoutMs, eventLog, getAgentName } = deps;
   const OFFLINE_AFTER_MS = heartbeatTimeoutMs * 2;
   const resolveName = (agentId: string) => getAgentName?.(agentId) ?? agentId;
 
@@ -362,38 +361,9 @@ export function createRuntimeOpsService(deps: {
         return { state: "marked_interrupted", reason: "heartbeat_timeout" };
       }
 
-      // M16.1: heartbeat fresh — try to reattach to existing daemon
-      if (registry.attachExisting) {
-        try {
-          const attached = await registry.attachExisting(run.agent_id);
-          if (attached) {
-            // Bind transport and register session
-            supervisor.bindTransport(attached);
-            supervisor.registerRecoveredSession(
-              runId,
-              run.agent_id,
-              run.thread_id,
-              attached,
-              attempt.attempt_id,
-              run.kind as "main" | "reflect",
-            );
-            opsStore.appendRunEvent({
-              runId,
-              attemptId: attempt.attempt_id,
-              kind: "reattach_succeeded",
-              payload: { source: "recover" },
-            });
-            return { state: "reattached", attemptId: attempt.attempt_id };
-          }
-        } catch {
-          opsStore.appendRunEvent({
-            runId,
-            attemptId: attempt.attempt_id,
-            kind: "reattach_failed",
-            payload: { source: "recover" },
-          });
-        }
-      }
+      // Runner daemon removed — AgentSession runs in-process, no reattachment
+      // Previously: try to reattach to existing daemon transport
+      // Now: stale runs are marked interrupted by the reaper
 
       return { state: "waiting", reason: "heartbeat_fresh_but_transport_detached" };
     },

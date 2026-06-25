@@ -12,8 +12,9 @@ import type { RunnerRegistry } from "./runner-registry.js";
 export interface RunSupervisorOptions {
   eventLog: EventLog;
   config: BackendConfig;
-  /** M14.7: Runner registry — the only way to reach runner daemons. */
-  registry: RunnerRegistry;
+  /** M14.7: Runner registry — optional. When absent, all transports are NOOP.
+   *  Phase 2: AgentSession runs in-process, transport is unused. */
+  registry?: RunnerRegistry;
   /** M16: Runtime ops store for diagnostic events. */
   opsStore: RuntimeOpsStore;
   /** M16: Runtime tracer for span instrumentation. */
@@ -441,7 +442,9 @@ export class RunSupervisor {
 
   /** Shared tail: get transport, create attempt, register in #active, send start. */
   async #beginAttempt(req: RunRequest): Promise<{ runId: string; attemptId: string }> {
-    const transport = await this.#opts.registry.transportFor(req.agentId);
+    const transport = this.#opts.registry
+      ? await this.#opts.registry.transportFor(req.agentId)
+      : NOOP_TRANSPORT;
     this.#bindTransport(transport);
 
     const now = Date.now();
@@ -739,7 +742,7 @@ export class RunSupervisor {
         });
 
         let transport: RunnerTransport = NOOP_TRANSPORT;
-        if (this.#opts.registry.attachExisting) {
+        if (this.#opts.registry?.attachExisting) {
           try {
             const attached = await this.#opts.registry.attachExisting(row.agent_id);
             if (attached) {
