@@ -22,7 +22,6 @@ import {
   sqliteColumnConfigAdapter,
 } from "./features/column-config/index.js";
 import {
-  buildAgentSpecV2,
   createConversationFeature,
 } from "./features/conversation/conv-svc-factory.js";
 import { conversationRoutes, parseThreadId } from "./features/conversation/index.js";
@@ -399,11 +398,7 @@ const router = createRouter(config.authToken, {
     (id) => larkBotRegistry.statusOf(id),
     getSetupManager,
   ),
-  runs: runRoutes(
-    runSvc,
-    (threadId, input, overrides) => buildAgentSpecV2(db, agentSvc, threadId, input, overrides),
-    getThreadIdForRun,
-  ),
+  runs: runRoutes(runSvc, getThreadIdForRun),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),
   issues: issueRoutes(issueSvc, opsStore, deliverableSvc, {

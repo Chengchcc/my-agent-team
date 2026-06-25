@@ -57,7 +57,7 @@ describe("Run HTTP", () => {
       lock: new ConversationLock(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => ({}));
+    const routes = runRoutes(svc);
 
     const res = await routes.run(
       makeRequest("/api/threads/t1/runs", { method: "POST", body: { input: "hello" } }),
@@ -81,7 +81,7 @@ describe("Run HTTP", () => {
       })(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => ({}));
+    const routes = runRoutes(svc);
 
     const res = await routes.run(
       makeRequest("/api/threads/t1/runs", { method: "POST", body: { input: "hello" } }),
@@ -98,7 +98,7 @@ describe("Run HTTP", () => {
       lock: new ConversationLock(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => ({}));
+    const routes = runRoutes(svc);
 
     const res = await routes.run(
       makeRequest("/api/threads/t1/runs", { method: "POST", body: { input: "hello" } }),
@@ -115,7 +115,7 @@ describe("Run HTTP", () => {
       lock: new ConversationLock(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => ({}));
+    const routes = runRoutes(svc);
 
     const res = await routes.run(
       makeRequest("/api/threads/t1/runs", { method: "POST", body: {} }),
@@ -134,7 +134,7 @@ describe("Run HTTP", () => {
       lock: new ConversationLock(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => ({}));
+    const routes = runRoutes(svc);
 
     const res = await routes.cancel(makeRequest("/api/runs/r1/cancel", { method: "POST" }), "r1");
     expect(res.status).toBe(204);
@@ -148,7 +148,7 @@ describe("Run HTTP", () => {
       lock: new ConversationLock(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => ({}));
+    const routes = runRoutes(svc);
 
     const res = await routes.cancel(makeRequest("/api/runs/x/cancel", { method: "POST" }), "x");
     expect(res.status).toBe(404);
@@ -172,7 +172,6 @@ describe("Run HTTP", () => {
     });
     const routes = runRoutes(
       svc,
-      async () => ({}),
       async () => "t1",
     );
 
@@ -204,7 +203,7 @@ describe("Run HTTP", () => {
       lock: new ConversationLock(),
       idGen: () => "run-1",
     });
-    const routes = runRoutes(svc, async () => ({}));
+    const routes = runRoutes(svc);
 
     const res = await routes.getById(makeRequest("/api/runs/r1"), "r1");
     expect(res.status).toBe(200);

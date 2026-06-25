@@ -35,7 +35,7 @@ import {
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
-import { createConversationService, parseThreadId } from "./service.js";
+import { createConversationService } from "./service.js";
 
 export interface ConversationFeature {
   convPort: ConversationPort;
@@ -94,47 +94,6 @@ export function createConversationFeature(
   });
 
   return { convPort, convSvc, lock };
-}
-
-// ─── Spec builder (shared by forkRun and HTTP run routes) ──────
-
-/** M14.7: Single spec builder for all run modes. Reads agent config for model/permission/maxSteps. */
-export async function buildAgentSpecV2(
-  db: Database,
-  agentSvc: AgentService,
-  threadId: string,
-  input: string,
-  overrides?: {
-    runId?: string;
-    mode?: "run" | "resume" | "reflect";
-    resumeCommand?: { approved: boolean; message?: string };
-    conversationId?: string;
-    senderMemberId?: string;
-    parentRunId?: string;
-  },
-): Promise<Record<string, unknown>> {
-  const { conversationId: cid, memberId } = parseThreadId(threadId);
-  const member = db
-    .query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
-    .get(cid, memberId) as { agent_id: string } | undefined;
-  const agentId = member?.agent_id ?? memberId;
-  const agent = await agentSvc.getById(agentId);
-  return {
-    schemaVersion: "2",
-    agentId,
-    threadId,
-    runId: overrides?.runId ?? crypto.randomUUID(),
-    mode: overrides?.mode ?? "run",
-    input,
-    model: {
-      provider: agent.modelProvider,
-      model: agent.modelName,
-      ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}),
-    },
-    permissionMode: agent.permissionMode ?? "ask",
-    maxSteps: agent.maxSteps ?? undefined,
-    ...overrides,
-  };
 }
 
 // ─── startAgentRun (Phase 2: AgentSession integration) ──────

@@ -122,7 +122,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
    *  (todo JSON would pollute the model's conversation context). */
   async function broadcastMessage(
     entry: LedgerEntry,
-    opts?: { excludeMemberId?: string },
+    _opts?: { excludeMemberId?: string },
   ): Promise<void> {
     if (entry.kind === "todo" || entry.kind === "surface.control") return;
 
