@@ -84,6 +84,7 @@ export const MessageRevisionSchema = z.object({
   visibility: z.enum(["internal", "conversation"]).nullable().optional(),
   updatedAt: z.number(),
   error: MessageErrorSchema.nullable().optional(),
+  runStatus: z.enum(["running", "retrying", "compacting", "waiting"]).nullable().optional(),
 });
 
 // ─── Public API (backward-compatible signatures, zod inside) ──

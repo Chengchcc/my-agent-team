@@ -13,4 +13,6 @@ export interface MessageRevision {
   visibility?: "internal" | "conversation";
   updatedAt: number;
   error?: MessageError;
+  /** Transient run status indicator (retrying/compacting). Not persisted to ledger. */
+  runStatus?: "running" | "retrying" | "compacting" | "waiting";
 }
