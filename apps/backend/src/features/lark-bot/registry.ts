@@ -1,6 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
-import { safeRunnerAgentId } from "../../infra/runner-workspace.js";
+import { safeAgentId } from "../../infra/agent-id.js";
 
 export type LarkBotStatus = "not_configured" | "configured" | "running" | "degraded" | "error";
 
@@ -71,7 +71,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
     botDisplayName?: string | null,
     larkProfile?: string | null,
   ): Promise<void> {
-    const key = safeRunnerAgentId(agentId);
+    const key = safeAgentId(agentId);
 
     // Always save desired config so restarts and updates don't lose args
     this.#desired.set(key, { agentId, botDisplayName, larkProfile });
@@ -169,7 +169,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
   }
 
   async stopLarkBot(agentId: string): Promise<void> {
-    const key = safeRunnerAgentId(agentId);
+    const key = safeAgentId(agentId);
     const bot = this.#bots.get(key);
     if (!bot) return;
     this.#bots.delete(key); // mark intentional — prevents restart
@@ -184,7 +184,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
   }
 
   statusOf(agentId: string): LarkBotStatus {
-    const key = safeRunnerAgentId(agentId);
+    const key = safeAgentId(agentId);
     const bot = this.#bots.get(key);
     if (!bot) return this.#lastError.has(key) ? "error" : "configured";
     if (bot.child.exitCode !== null) return "error";

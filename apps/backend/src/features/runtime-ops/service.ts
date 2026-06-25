@@ -97,7 +97,7 @@ export function createRuntimeOpsService(deps: {
   getAgentName?: (agentId: string) => string | undefined;
 }) {
   const { db, opsStore, supervisor, heartbeatTimeoutMs, eventLog, getAgentName } = deps;
-  const OFFLINE_AFTER_MS = heartbeatTimeoutMs * 2;
+  const _OFFLINE_AFTER_MS = heartbeatTimeoutMs * 2;
   const resolveName = (agentId: string) => getAgentName?.(agentId) ?? agentId;
 
   return {

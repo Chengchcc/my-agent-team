@@ -1,20 +1,33 @@
 import { Database } from "bun:sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
 import { type Message, type MessageRevision, parseMessageRevision } from "@my-agent-team/message";
-import type { RunnerTransport } from "@my-agent-team/runner-protocol";
 import type { RuntimeTraceContext, RuntimeTracer } from "@my-agent-team/runtime-observability";
+
+/** Minimal transport interface — was Transport from runner-protocol (deleted). */
+interface Transport {
+  ready(): Promise<void>;
+  send(msg: unknown): void;
+  onMessage(cb: (msg: unknown) => void): void;
+  onClose(cb: () => void): void;
+  close(): Promise<void>;
+}
+
 import type { BackendConfig } from "../../config.js";
 import type { EventLog, EventSource } from "../event-log/index.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { runEventsDbMigrations } from "./events-db-migrations.js";
-import type { RunnerRegistry } from "./runner-registry.js";
+
+/** Minimal registry interface — was RunnerRegistry (deleted). */
+interface Registry {
+  transportFor(agentId: string): Promise<Transport>;
+  attachExisting?(agentId: string): Promise<Transport | null>;
+}
 
 export interface RunSupervisorOptions {
   eventLog: EventLog;
   config: BackendConfig;
-  /** M14.7: Runner registry — optional. When absent, all transports are NOOP.
-   *  Phase 2: AgentSession runs in-process, transport is unused. */
-  registry?: RunnerRegistry;
+  /** Optional transport registry. AgentSession runs in-process — transports are NOOP. */
+  registry?: Registry;
   /** M16: Runtime ops store for diagnostic events. */
   opsStore: RuntimeOpsStore;
   /** M16: Runtime tracer for span instrumentation. */
@@ -57,7 +70,7 @@ export interface RunSession {
   threadId: string;
   agentId: string;
   kind: "main" | "reflect";
-  transport: RunnerTransport;
+  transport: Transport;
   /** M16.1: Whether the backend has a real control channel to the runner daemon.
    *  "attached" = live transport; "noop" = NOOP_TRANSPORT placeholder (no control). */
   transportKind: "attached" | "noop";
@@ -66,7 +79,7 @@ export interface RunSession {
 
 /** No-op transport stub — used when a real transport is unavailable
  *  (post-restart rediscover, testing). Cancel degrades to reaper timeout. */
-export const NOOP_TRANSPORT: RunnerTransport = {
+export const NOOP_TRANSPORT: Transport = {
   ready() {
     return Promise.resolve();
   },
@@ -96,7 +109,7 @@ export class RunSupervisor {
   > = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
   #reaping = false;
-  #boundTransports = new Set<RunnerTransport>();
+  #boundTransports = new Set<Transport>();
 
   constructor(opts: RunSupervisorOptions) {
     this.#opts = opts;
@@ -402,7 +415,7 @@ export class RunSupervisor {
     threadId: string,
     parentRunId: string | null,
     spec: Record<string, unknown>,
-    sourceTransport: RunnerTransport,
+    sourceTransport: Transport,
   ): Promise<{ runId: string; attemptId: string }> {
     const agentId = (spec.agentId as string) ?? "default";
     const now = Date.now();
@@ -489,16 +502,16 @@ export class RunSupervisor {
     threadId: string;
     agentId: string;
     kind: "main" | "reflect";
-    transport: RunnerTransport;
+    transport: Transport;
     transportKind?: "attached" | "noop";
   }): void {
     const transportKind = o.transportKind ?? (o.transport === NOOP_TRANSPORT ? "noop" : "attached");
     this.#active.set(o.runId, { ...o, transportKind, abortController: new AbortController() });
   }
 
-  #transportQueues = new Map<RunnerTransport, Promise<void>>();
+  #transportQueues = new Map<Transport, Promise<void>>();
 
-  #bindTransport(transport: RunnerTransport): void {
+  #bindTransport(transport: Transport): void {
     if (this.#boundTransports.has(transport)) return;
     this.#boundTransports.add(transport);
 
@@ -520,7 +533,7 @@ export class RunSupervisor {
     });
   }
 
-  async #handleRunnerMessage(raw: unknown, sourceTransport: RunnerTransport): Promise<void> {
+  async #handleRunnerMessage(raw: unknown, sourceTransport: Transport): Promise<void> {
     const msg = raw as Record<string, unknown>;
     const runId = msg.runId as string;
     const session = this.#active.get(runId);
@@ -687,7 +700,7 @@ export class RunSupervisor {
   }
 
   /** M16.1: Bind a transport to receive messages (used by recover reattach). */
-  bindTransport(transport: RunnerTransport): void {
+  bindTransport(transport: Transport): void {
     this.#bindTransport(transport);
   }
 
@@ -696,7 +709,7 @@ export class RunSupervisor {
     runId: string,
     agentId: string,
     threadId: string,
-    transport: RunnerTransport,
+    transport: Transport,
     attemptId: string,
     kind: "main" | "reflect",
   ): void {
@@ -741,7 +754,7 @@ export class RunSupervisor {
           kind: "reattach_started",
         });
 
-        let transport: RunnerTransport = NOOP_TRANSPORT;
+        let transport: Transport = NOOP_TRANSPORT;
         if (this.#opts.registry?.attachExisting) {
           try {
             const attached = await this.#opts.registry.attachExisting(row.agent_id);

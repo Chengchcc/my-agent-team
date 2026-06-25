@@ -23,7 +23,6 @@
     "@my-agent-team/framework": "workspace:*",
     "@my-agent-team/harness": "workspace:*",
     "@my-agent-team/message": "workspace:*",
-    "@my-agent-team/runner-protocol": "workspace:*",
     "@my-agent-team/runtime-observability": "workspace:*",
     "drizzle-orm": "^0.44.0",
     "handlebars": "^4.7.9",

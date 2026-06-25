@@ -134,9 +134,9 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
     for (const member of agentMembers) {
       if (opts?.excludeMemberId && member.memberId === opts.excludeMemberId) continue;
-      const threadId = deriveThreadId(entry.conversationId, member.memberId);
+      const _threadId = deriveThreadId(entry.conversationId, member.memberId);
       // M17.2: Pass raw string — projectForMember/formatContent handle parsing internally
-      const projected = projectForMember(
+      const _projected = projectForMember(
         {
           seq: entry.seq,
           conversationId: entry.conversationId,
@@ -164,7 +164,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     for (const target of targets) {
       try {
         const runId = crypto.randomUUID();
-        const threadId = deriveThreadId(conversationId, target.memberId);
+        const _threadId = deriveThreadId(conversationId, target.memberId);
         const { runId: rId } = await forkRun(runId, threadId, {
           conversationId,
           agentMemberId: target.memberId,

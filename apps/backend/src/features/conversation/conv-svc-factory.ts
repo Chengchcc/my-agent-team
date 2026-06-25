@@ -3,7 +3,7 @@ import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
-import type { RunDispatcher } from "../run/dispatcher.js";
+
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import { sqliteConversationAdapter } from "./index.js";
@@ -29,7 +29,7 @@ export function createConversationFeature(
   agentSvc: AgentService,
   _opsStore: RuntimeOpsStore,
   tracer: RuntimeTracer,
-  dispatcher: RunDispatcher,
+  _dispatcher?: unknown, // deprecated — removed in Phase 3
 ): ConversationFeature {
   const convPort = sqliteConversationAdapter(db);
   const lock = new ConversationLock();
@@ -68,28 +68,25 @@ export function createConversationFeature(
 
       const trace = tracer.inject();
 
-      // M19: use dispatcher for unified run-start + origin_kind
-      const { attemptId } = await dispatcher.dispatch({
-        kind: "mention",
+      // Run dispatcher removed — write origin and start run directly
+      _opsStore.insertRunOrigin({
+        conversationId: ctx.conversationId,
+        sourceLedgerSeq: ctx.ledgerSeq,
+        agentMemberId: ctx.agentMemberId,
+        surface: surfaceContext?.surface ?? "web",
+        traceId: trace.traceId,
+        traceparent: trace.traceparent,
+        idempotencyKey: `${ctx.conversationId}:${ctx.ledgerSeq}:run`,
+        issueId: null,
+        fromStatus: "",
+        originKind: "mention",
         runId,
-        threadId,
-        spec,
-        opts: {
-          preloadedMessages,
-          surfaceContext,
-          trace,
-        },
-        origin: {
-          conversationId: ctx.conversationId,
-          sourceLedgerSeq: ctx.ledgerSeq,
-          agentMemberId: ctx.agentMemberId,
-          surface: surfaceContext?.surface ?? "web",
-          traceId: trace.traceId,
-          traceparent: trace.traceparent,
-          idempotencyKey: `${ctx.conversationId}:${ctx.ledgerSeq}:run`,
-          issueId: null,
-          fromStatus: "",
-        },
+        createdAt: Date.now(),
+      });
+      const { attemptId } = await supervisor.startMainRun(runId, threadId, spec, {
+        preloadedMessages,
+        surfaceContext,
+        trace,
       });
 
       return { runId, attemptId };
