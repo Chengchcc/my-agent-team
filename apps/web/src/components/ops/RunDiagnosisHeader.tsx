@@ -42,7 +42,7 @@ export function RunDiagnosisHeader({
   detail: RunOpsDetail;
   heartbeatTimeoutMs: number;
 }) {
-  const diagnosis = diagnoseRun(detail, heartbeatTimeoutMs);
+  const diagnosis = diagnoseRun(detail);
   const [showEvidence, setShowEvidence] = useState(false);
 
   const evidence: string[] = [];

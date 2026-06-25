@@ -40,7 +40,6 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
 
 const diagnosisLabel: Record<string, string> = {
   running: "Healthy",
-  heartbeat_stale: "Stale",
   detached_waiting_reaper: "Detached",
   surface_projection_failed: "Surface fail",
   terminal: "Terminal",
@@ -48,7 +47,6 @@ const diagnosisLabel: Record<string, string> = {
 
 const diagnosisColor: Record<string, string> = {
   running: "text-primary",
-  heartbeat_stale: "text-[var(--chart-4)]",
   detached_waiting_reaper: "text-[var(--chart-3)]",
   surface_projection_failed: "text-destructive",
   terminal: "text-muted-foreground",
@@ -67,13 +65,7 @@ function ago(ts: number): string {
   return `${Math.floor(s / 3600)}h`;
 }
 
-export function RunOpsTable({
-  runs,
-  heartbeatTimeoutMs = 60_000,
-}: {
-  runs: RunOpsListItem[];
-  heartbeatTimeoutMs?: number;
-}) {
+export function RunOpsTable({ runs }: { runs: RunOpsListItem[] }) {
   const [page, setPage] = useState(0);
   const prevRunCount = useRef(runs.length);
   useEffect(() => {
@@ -83,9 +75,7 @@ export function RunOpsTable({
     }
   }, [runs.length]);
 
-  const sorted = [...runs].sort((a, b) => {
-    const scoreA = a.status === "running" ? (a.runnerTransport === "attached" ? 1 : 0) : 2;
-    const scoreB = b.status === "running" ? (b.runnerTransport === "attached" ? 1 : 0) : 2;
+  const sorted = [...runs].sort((_a, _b) => {
     return scoreA - scoreB;
   });
 
@@ -110,7 +100,7 @@ export function RunOpsTable({
         </TableHeader>
         <TableBody>
           {paged.map((r) => {
-            const d = diagnoseRunListItem(r, heartbeatTimeoutMs);
+            const d = diagnoseRunListItem(r);
             return (
               <TableRow key={r.runId}>
                 <TableCell>
@@ -134,12 +124,8 @@ export function RunOpsTable({
                     {r.status}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-xs text-foreground">
-                  {transportLabel[r.runnerTransport] ?? r.runnerTransport}
-                </TableCell>
-                <TableCell className="text-xs text-foreground">
-                  {r.heartbeatAgeMs != null ? `${Math.floor(r.heartbeatAgeMs / 1000)}s` : "—"}
-                </TableCell>
+                <TableCell className="text-xs text-foreground"></TableCell>
+                <TableCell className="text-xs text-foreground"></TableCell>
                 <TableCell className="text-xs text-foreground">
                   {r.lastOpsEventKind ?? r.lastEventType ?? "—"}
                 </TableCell>

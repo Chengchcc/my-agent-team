@@ -29,6 +29,8 @@ import {
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
+import { registerSession, removeSession } from "../run/session-registry.js";
+import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import {
   createListMembersTool,
@@ -40,13 +42,11 @@ import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
 import {
+  clearAccumulator,
   escapeRegExp,
   getOrCreateAccumulator,
-  clearAccumulator,
   onRunComplete as runOnRunComplete,
 } from "./projection.js";
-import { registerSession, removeSession } from "../run/session-registry.js";
-import type { RunSupervisor } from "../run/supervisor.js";
 import { createConversationService, parseThreadId } from "./service.js";
 
 export interface ConversationFeature {
@@ -81,14 +81,18 @@ export function createConversationFeature(
   };
 
   // Message handling — writes to ledger, scans @mentions, broadcasts SSE
-  const handleAssistantMessage = async (
-    threadId: string, runId: string, rev: MessageRevision) => {
+  const handleAssistantMessage = async (threadId: string, runId: string, rev: MessageRevision) => {
     const cid = parseThreadId(threadId).conversationId;
     if (!cid) return;
     const sender = parseThreadId(threadId).memberId || threadId;
 
     // Write to ledger (authoritative entry)
-    await convSvc.appendAssistantMessage({ conversationId: cid, senderMemberId: sender, runId, revision: rev });
+    await convSvc.appendAssistantMessage({
+      conversationId: cid,
+      senderMemberId: sender,
+      runId,
+      revision: rev,
+    });
 
     // Update accumulator for @mention scanning
     const acc = getOrCreateAccumulator(runId, sender);

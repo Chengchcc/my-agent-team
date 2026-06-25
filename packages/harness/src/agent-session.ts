@@ -166,6 +166,8 @@ export class AgentSession {
     opts?: { signal?: AbortSignal },
   ): Promise<void> {
     if (!this.#agent) throw new Error("Agent not initialized");
+    this.#state = "running";
+    this.#abortController = new AbortController();
     const signal = this.#combineSignal(opts?.signal);
     try {
       for await (const _ of this.#agent.resume(cmd, { signal })) {
@@ -173,6 +175,8 @@ export class AgentSession {
       }
     } catch (err) {
       this.#handleError(err);
+    } finally {
+      this.#abortController = null;
     }
   }
 
@@ -184,7 +188,8 @@ export class AgentSession {
     while (
       this.#state === "running" ||
       this.#state === "compacting" ||
-      this.#state === "retrying"
+      this.#state === "retrying" ||
+      this.#state === "waiting"
     ) {
       await new Promise((r) => setTimeout(r, 50));
     }
@@ -239,13 +244,17 @@ export class AgentSession {
     this.#emit({ type: "compaction_start", reason: "manual" });
 
     try {
-      const { result } = await compactThread({
+      const { messages, result } = await compactThread({
         model: this.#config.model,
         checkpointer: this.#config.checkpointer,
         threadId: this.#agent.thread.id,
         keepRecent: this.#config.compaction?.keepRecent,
         customInstructions,
       });
+
+      // Persist compacted messages
+      await this.#config.checkpointer.save(this.#agent.thread.id, messages);
+      this.#agent.thread.messages.splice(0, this.#agent.thread.messages.length, ...messages);
 
       this.#emit({
         type: "compaction_end",
@@ -321,6 +330,7 @@ export class AgentSession {
 
     this.#state = "running";
     this.#retryCount = 0;
+    this.#lastError = null;
     this.#abortController = new AbortController();
     const signal = this.#combineSignal(opts?.signal);
 

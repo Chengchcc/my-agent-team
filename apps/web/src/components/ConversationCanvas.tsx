@@ -28,9 +28,14 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
     (item) =>
       item.kind === "message" && item.sender.kind === "agent" && item.content.state === "waiting",
   );
-  const runStatusLabel = state.items.find(
-    (item) => item.kind === "message" && item.sender.kind === "agent" && item.content.runStatus,
-  )?.content?.runStatus;
+  const runStatusLabel = (() => {
+    for (const item of state.items) {
+      if (item.kind === "message" && item.sender.kind === "agent" && item.content.runStatus) {
+        return item.content.runStatus;
+      }
+    }
+    return undefined;
+  })();
   const label = isAwaiting
     ? "Awaiting Approval"
     : runStatusLabel === "retrying"

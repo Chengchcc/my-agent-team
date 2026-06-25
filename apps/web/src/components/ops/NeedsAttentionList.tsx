@@ -76,7 +76,6 @@ export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: Needs
     } else if (isStaleRun(r, heartbeatTimeoutMs)) {
       items.push({
         severity: "critical",
-        label: `Run ${r.runId.slice(0, 12)}… — Heartbeat stale (${Math.floor((r.heartbeatAgeMs ?? 0) / 1000)}s, agent ${r.agentName})`,
         href: `/ops/runs/${r.runId}`,
         runId: r.runId,
         actionable: true,
