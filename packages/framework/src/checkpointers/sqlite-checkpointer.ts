@@ -109,6 +109,18 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): Checkpointe
         }
       }
     },
+
+    async deleteThread(threadId: string): Promise<void> {
+      d.delete(schema.checkpointMessages)
+        .where(eq(schema.checkpointMessages.threadId, threadId))
+        .run();
+      d.delete(schema.checkpointInterrupts)
+        .where(eq(schema.checkpointInterrupts.threadId, threadId))
+        .run();
+      d.delete(schema.checkpointEvents)
+        .where(eq(schema.checkpointEvents.threadId, threadId))
+        .run();
+    },
   };
 
   return cp;

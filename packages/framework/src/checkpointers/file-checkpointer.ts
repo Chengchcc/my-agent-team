@@ -77,5 +77,11 @@ export function fileCheckpointer({ dir }: { dir: string }): Checkpointer {
         throw err;
       }
     },
+    async deleteThread(id) {
+      await ready;
+      await rm(path(id, ".state.json"), { force: true });
+      await rm(path(id, ".interrupt.json"), { force: true });
+      await rm(path(id, ".events.jsonl"), { force: true });
+    },
   };
 }

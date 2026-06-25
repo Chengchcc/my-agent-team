@@ -31,5 +31,11 @@ export function inMemoryCheckpointer(): Checkpointer {
     async *readEvents(id) {
       yield* events.get(id) ?? [];
     },
+
+    async deleteThread(id) {
+      messages.delete(id);
+      interrupts.delete(id);
+      events.delete(id);
+    },
   };
 }

@@ -58,6 +58,9 @@ export interface Checkpointer {
    * @deprecated 内部审计用途，UX 投影一律走 EventLog。
    */
   readEvents?(threadId: string): AsyncIterable<CheckpointEvent>;
+
+  /** Delete all data for a thread. Idempotent — no-op if thread doesn't exist. */
+  deleteThread?(threadId: string): Promise<void>;
 }
 
 export function validateCheckpointer(cp: Checkpointer): void {
