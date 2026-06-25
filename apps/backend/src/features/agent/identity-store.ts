@@ -1,6 +1,5 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { ensureRunnerWorkspace, runnerWorkspacePaths } from "../../infra/runner-workspace.js";
 
 export interface IdentityData {
   soul: string | null;
@@ -32,18 +31,18 @@ async function readTextOrNull(filePath: string): Promise<string | null> {
   }
 }
 
-/** Read memory facts from the runner sharedRoot.
+/** Read memory facts from the agent workspace.
  *
- *  Layout (M14.7 post-fix):
- *    shared/memory/MEMORY.md          — summary / dated memory
- *    shared/memory/facts/*.md         — agent-written facts
+ *  Layout:
+ *    memory/MEMORY.md          — summary / dated memory
+ *    memory/facts/*.md         — agent-written facts
  *
- *  Also reads flat shared/memory/*.md for backward compat (legacy agents). */
+ *  Also reads flat memory/*.md for backward compat (legacy agents). */
 async function readMemoryFacts(
-  sharedRoot: string,
+  cwd: string,
 ): Promise<Array<{ date: string; content: string }>> {
   const memories: Array<{ date: string; content: string }> = [];
-  const memoryRoot = path.join(sharedRoot, "memory");
+  const memoryRoot = path.join(cwd, "memory");
 
   // 1) MEMORY.md — dated summary
   const summary = await readTextOrNull(path.join(memoryRoot, "MEMORY.md"));
@@ -96,6 +95,11 @@ async function readMemoryFacts(
   return memories;
 }
 
+/** Simple layout: dataDir/agents/{agentId}/ — flat workspace, no shared/private split. */
+function agentDir(dataDir: string, agentId: string): string {
+  return path.join(dataDir, "agents", agentId);
+}
+
 export function createAgentIdentityStore(opts: {
   dataDir: string;
   getAgent: (agentId: string) => Promise<{ workspacePath: string }>;
@@ -103,13 +107,13 @@ export function createAgentIdentityStore(opts: {
   return {
     async getIdentity(agentId: string): Promise<IdentityData> {
       void (await opts.getAgent(agentId)); // validate agent exists
-      const paths = runnerWorkspacePaths(opts.dataDir, agentId);
-      await ensureRunnerWorkspace(paths);
+      const root = agentDir(opts.dataDir, agentId);
+      await mkdir(root, { recursive: true });
 
       const [soul, user, memories] = await Promise.all([
-        readTextOrNull(path.join(paths.sharedRoot, "SOUL.md")),
-        readTextOrNull(path.join(paths.sharedRoot, "USER.md")),
-        readMemoryFacts(paths.sharedRoot),
+        readTextOrNull(path.join(root, "SOUL.md")),
+        readTextOrNull(path.join(root, "USER.md")),
+        readMemoryFacts(root),
       ]);
 
       return { soul, user, memories };
@@ -117,17 +121,17 @@ export function createAgentIdentityStore(opts: {
 
     async updateIdentity(agentId: string, patch: IdentityPatch): Promise<void> {
       void (await opts.getAgent(agentId)); // validate agent exists
-      const paths = runnerWorkspacePaths(opts.dataDir, agentId);
-      await ensureRunnerWorkspace(paths);
+      const root = agentDir(opts.dataDir, agentId);
+      await mkdir(root, { recursive: true });
 
       // Ensure memory/facts/ directory exists so the agent can write
-      await mkdir(path.join(paths.sharedRoot, "memory", "facts"), { recursive: true });
+      await mkdir(path.join(root, "memory", "facts"), { recursive: true });
 
       if (typeof patch.soul === "string") {
-        await writeFile(path.join(paths.sharedRoot, "SOUL.md"), patch.soul, "utf-8");
+        await writeFile(path.join(root, "SOUL.md"), patch.soul, "utf-8");
       }
       if (typeof patch.user === "string") {
-        await writeFile(path.join(paths.sharedRoot, "USER.md"), patch.user, "utf-8");
+        await writeFile(path.join(root, "USER.md"), patch.user, "utf-8");
       }
     },
   };

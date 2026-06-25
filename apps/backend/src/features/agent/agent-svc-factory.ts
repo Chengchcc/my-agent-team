@@ -1,7 +1,8 @@
+import { mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import type { Database } from "bun:sqlite";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
-import { materializeRunnerWorkspace, purgeRunnerWorkspace } from "../../infra/runner-workspace.js";
 import type { LarkBotRegistry } from "../lark-bot/index.js";
 import { larkProfileInit } from "../lark-bot/index.js";
 import type { RunSupervisor } from "../run/supervisor.js";
@@ -19,22 +20,21 @@ export function createAgentSvc(
   larkBotRegistry: LarkBotRegistry,
 ): AgentService {
   const agentPort = sqliteAgentAdapter(db);
+  const agentsDir = join(config.dataDir, "agents");
 
   const agentSvcRaw = createAgentService({
     port: agentPort,
     idGen: ulid,
     workspaceRoot: config.workspaceRoot,
-    materializeWorkspace: async (agentId, template) => {
-      return materializeRunnerWorkspace({
-        dataDir: config.dataDir,
-        agentId,
-        template,
-        templateDir: config.templateDir,
-      });
+    materializeWorkspace: async (agentId) => {
+      const dir = join(agentsDir, agentId);
+      await mkdir(dir, { recursive: true });
+      return dir;
     },
 
     purgeWorkspace: async (agentId) => {
-      await purgeRunnerWorkspace({ dataDir: config.dataDir, agentId });
+      const dir = join(agentsDir, agentId);
+      await rm(dir, { recursive: true, force: true });
     },
 
     // M20: Kept as raw SQL — subquery DELETE on events.db tables (event_log, attempt, run).
