@@ -27,7 +27,7 @@ export async function compactThread(opts: CompactionOptions): Promise<{
   result: CompactionResult;
 }> {
   const keepRecent = opts.keepRecent ?? 10;
-  const allMessages = await opts.checkpointer.load(opts.threadId);
+  const allMessages = (await opts.checkpointer.load(opts.threadId)) ?? [];
 
   if (allMessages.length <= keepRecent) {
     return {
@@ -106,15 +106,30 @@ function formatMessages(messages: Message[]): string {
 
 // ─── Reflection guidance (moved from reflect.ts) ───────
 
-/** Prompt for fire-and-forget reflection runs. */
+/**
+ * M11 Growth: reflection guidance injected at the end of a normal run.
+ *
+ * The agent receives this as a follow-up input after its main task loop
+ * completes. It decides what (if anything) to save — model-driven, no
+ * fixed questionnaire.
+ */
 export function reflectionGuidance(): string {
-  return `You are in a reflection session. Review the conversation above and update your memory.
-
-1. Read the daily log at memory/{today}.md and memory/{yesterday}.md
-2. Identify new observations, patterns, or lessons
-3. Write observations to today's daily log
-4. If your understanding of yourself (SOUL.md) or the user (USER.md) should change, update those files
-5. Update MEMORY.md index if new fact files were created
-
-Be concise. Only write if there is something worth recording.`;
+  return [
+    "Reflect on the conversation you just had.",
+    "",
+    "What did you learn about the user, their task, or their preferences that",
+    "is worth remembering for future conversations?",
+    "",
+    "If you learned something worth saving:",
+    "- Use your **write tool** to append a note to `memory/YYYY-MM-DD.md`",
+    "  (use today's date). Keep it concise — what you observed, not a transcript.",
+    "- If you identified a **stable fact** about the user (who they are, how they",
+    "  work, a hard boundary they set), use your **edit tool** to append or",
+    "  micro-adjust `SOUL.md` or `USER.md`. Add new information, but **don't",
+    "  overwrite** core boundaries the user already set. Prefer adding a new line",
+    "  over replacing one.",
+    "",
+    "If nothing stood out as worth saving across conversations, that's fine —",
+    "you can choose to do nothing. Don't invent facts just to fill files.",
+  ].join("\n");
 }

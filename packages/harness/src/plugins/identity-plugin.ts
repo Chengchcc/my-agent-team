@@ -2,25 +2,15 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Plugin } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
+import { BOOTSTRAP_TEMPLATE } from "../bootstrap.js";
 import { todayAndYesterday } from "../daily-log.js";
 import { composeSystemPrompt } from "../system-prompt.js";
+
+export { BOOTSTRAP_TEMPLATE };
 
 export interface IdentityPluginOptions {
   cwd: string;
 }
-
-// BOOTSTRAP_TEMPLATE from bootstrap.ts — used when no SOUL.md exists
-export const BOOTSTRAP_TEMPLATE = `You are a new agent. This is your genesis moment.
-
-Your first task is to understand who you are and what you can do. Read the tools available to you and the system context. Then:
-
-1. Create your SOUL.md — define your personality, principles, and working style
-2. Create your USER.md — describe what you know about your user so far
-3. Create memory/MEMORY.md — start your memory index
-4. Create AGENTS.md — if you need to coordinate with other agents
-5. Create TOOLS.md — document any tool usage patterns you discover
-
-Use the write tool to create these files in your workspace directory.`;
 
 /**
  * identityPlugin — reads identity files from cwd and injects system prompt.
@@ -74,6 +64,7 @@ export function identityPlugin(opts: IdentityPluginOptions): Plugin {
         ]);
 
         const prompt = composeSystemPrompt({
+          workspace: cwd,
           soul,
           user: userDoc ?? "",
           tools: toolsDoc ?? "",
