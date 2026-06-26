@@ -32,7 +32,12 @@ function makeSupervisor(db: Database): RunSupervisor {
       subscribe: () => (async function* () {})() as AsyncIterable<any>,
     },
     opsStore: { appendRunEvent: () => {} } as unknown as any,
-    tracer: { inject: () => ({ traceId: "", traceparent: "" }), startSpan: () => ({}), currentTrace: () => null, link: () => {} } as any,
+    tracer: {
+      inject: () => ({ traceId: "", traceparent: "" }),
+      startSpan: () => ({}),
+      currentTrace: () => null,
+      link: () => {},
+    } as any,
     db,
   });
 }

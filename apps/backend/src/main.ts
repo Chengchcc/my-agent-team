@@ -47,6 +47,7 @@ import {
 } from "./features/project/index.js";
 import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
 import { resumeRoute } from "./features/run/http.js";
+import { disposeSession } from "./features/run/session-registry.js";
 import { RunSupervisor } from "./features/run/supervisor.js";
 import {
   createRuntimeOpsService,
@@ -80,10 +81,10 @@ const opsStore = new RuntimeOpsStore(eventsDb);
 const supervisor = new RunSupervisor({
   eventLog,
   config,
-  // registry omitted — no runner daemon, all transports are NOOP
   opsStore,
   tracer,
   db: eventsDb,
+  onReap: disposeSession,
 });
 
 // Feature services

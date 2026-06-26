@@ -8,6 +8,7 @@ import {
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
+import { executeAgentRun } from "../run/run-executor.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import { sqliteConversationAdapter } from "./index.js";
@@ -20,7 +21,6 @@ import {
   onRunComplete as runOnRunComplete,
 } from "./projection.js";
 import { createConversationService, parseThreadId } from "./service.js";
-import { executeAgentRun } from "../run/run-executor.js";
 
 export interface ConversationFeature {
   convPort: ConversationPort;
@@ -55,7 +55,12 @@ export function createConversationFeature(
     if (!cid) return;
     const sender = parseThreadId(threadId).memberId || threadId;
 
-    await convSvc.appendAssistantMessage({ conversationId: cid, senderMemberId: sender, runId, revision: rev });
+    await convSvc.appendAssistantMessage({
+      conversationId: cid,
+      senderMemberId: sender,
+      runId,
+      revision: rev,
+    });
 
     const acc = getOrCreateAccumulator(runId, sender);
     if (rev.role === "assistant") {

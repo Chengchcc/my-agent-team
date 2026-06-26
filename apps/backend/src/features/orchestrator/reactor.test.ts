@@ -147,7 +147,6 @@ function makeAgentRow(overrides?: Partial<AgentRow>): AgentRow {
   };
 }
 
-
 const agents = new Map<string, AgentRow>();
 agents.set("planner", makeAgentRow({ id: "planner", name: "planner" }));
 agents.set("developer", makeAgentRow({ id: "developer", name: "developer" }));

@@ -15,3 +15,13 @@ export function getSession(runId: string): AgentSession | undefined {
 export function removeSession(runId: string): void {
   sessions.delete(runId);
 }
+
+/** Dispose and remove a session. Called by reaper/cleanup paths. */
+export function disposeSession(runId: string): void {
+  const session = sessions.get(runId);
+  if (session) {
+    session.abort();
+    session.dispose();
+    sessions.delete(runId);
+  }
+}

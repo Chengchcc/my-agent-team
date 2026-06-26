@@ -7,7 +7,6 @@ import {
   toolResultTruncator,
 } from "@my-agent-team/framework";
 import { AgentSession } from "@my-agent-team/harness";
-import type { MessageRevision } from "@my-agent-team/message";
 import { conversationContextPlugin } from "@my-agent-team/plugin-conversation-context";
 import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
 import { identityPlugin } from "@my-agent-team/plugin-identity";
@@ -29,10 +28,10 @@ import {
   createSearchTool,
 } from "../conversation/conv-tools.js";
 import type { ConversationPort } from "../conversation/ports.js";
-import type { RunOriginKind } from "../runtime-ops/types.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
-import type { RunSupervisor } from "./supervisor.js";
+import type { RunOriginKind } from "../runtime-ops/types.js";
 import { registerSession, removeSession } from "./session-registry.js";
+import type { RunSupervisor } from "./supervisor.js";
 
 export interface ExecuteAgentRunOpts {
   runId: string;

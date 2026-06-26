@@ -14,6 +14,8 @@ export interface RunSupervisorOptions {
   opsStore: RuntimeOpsStore;
   tracer: RuntimeTracer;
   db?: Database;
+  /** Called when reaper harvests a stale run — allows session cleanup. */
+  onReap?: (runId: string) => void;
 }
 
 export interface RunSession {
@@ -87,35 +89,30 @@ export class RunSupervisor {
   }
 
   async #reapStaleRuns(): Promise<boolean> {
-    const now = Date.now();
-    const stale = this.#db
+    // AgentSession runs in-process — a run is "stale" only if it has
+    // DB state = running but NO active session in memory (process restart).
+    // Long-running agent sessions are NOT stale — only orphaned DB rows.
+    const orphans = this.#db
       .query(
-        `SELECT a.run_id, a.attempt_id, a.started_at, r.thread_id, r.kind
+        `SELECT a.run_id, a.attempt_id, r.thread_id, r.kind
          FROM attempt a JOIN run r ON a.run_id = r.run_id
          WHERE a.ended_at IS NULL AND r.ended_at IS NULL`,
       )
       .all() as Array<{
-      run_id: string;
-      attempt_id: string;
-      started_at: number;
-      thread_id: string;
-      kind: string;
+      run_id: string; attempt_id: string; thread_id: string; kind: string;
     }>;
 
     let reaped = false;
-    for (const row of stale) {
-      const age = now - row.started_at;
-      if (age < this.#opts.config.stepStallTimeoutMs) continue;
+    for (const row of orphans) {
+      // Skip if session is still running in this process
+      if (this.#active.has(row.run_id)) continue;
 
       const finalized = this.#finalizeRun(row.run_id, row.attempt_id, "interrupted");
       if (!finalized) continue;
       reaped = true;
 
-      await this.#opts.eventLog.append(row.thread_id, row.run_id, {
-        type: "interrupted",
-        payload: { reason: `stale after ${age}ms`, pendingTool: undefined },
-      });
-      this.#active.delete(row.run_id);
+      // Dispose AgentSession via callback (prevents zombie writes to ledger)
+      this.#opts.onReap?.(row.run_id);
 
       // Fire completion listeners
       const kind = row.kind === "reflect" ? "reflect" : "main";
