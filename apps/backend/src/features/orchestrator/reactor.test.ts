@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { unlinkSync } from "node:fs";
@@ -159,7 +160,7 @@ function makeOrchestrator(issueDb: Database, eventsDb: Database) {
   const opsStore = new RuntimeOpsStore(eventsDb);
 
   const orch = createOrchestrator({
-test" } as any, // eslint-disable-line
+    config: { dataDir: "/tmp", anthropicApiKey: "test" } as any,
     issueSvc,
     agentSvc: fakeAgentSvc(agents),
     supervisor: supervisor as unknown as RunSupervisor,
@@ -269,7 +270,7 @@ describe("Orchestrator reactor", () => {
       agentSvc: fakeAgentSvc(missingAgents), // empty — no agents
       supervisor: supervisor as unknown as RunSupervisor,
       opsStore,
-test" } as any, // eslint-disable-line
+      config: { dataDir: "/tmp", anthropicApiKey: "test" } as any,
       idGen: () => crypto.randomUUID(),
       columnConfigSvc: mockColumnConfigSvc(), // still returns config with agentIds
       deliverableSvc: mockDeliverableSvc(),

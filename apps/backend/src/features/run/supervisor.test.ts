@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { RunSupervisor } from "./supervisor.js";
@@ -29,15 +30,15 @@ function makeSupervisor(db: Database): RunSupervisor {
     eventLog: {
       append: async () => 1,
       read: () => Promise.resolve([] as never[]),
-      subscribe: () => (async function* () {})() as AsyncIterable<unknown> // eslint-disable-line,
+      subscribe: () => (async function* () {})() as AsyncIterable<any>,
     },
-    opsStore: { appendRunEvent: () => {} } as unknown as any // eslint-disable-line,
+    opsStore: { appendRunEvent: () => {} } as unknown as any,
     tracer: {
       inject: () => ({ traceId: "", traceparent: "" }),
       startSpan: () => ({}),
       currentTrace: () => null,
       link: () => {},
-    } as any, // eslint-disable-line
+    } as any,
     db,
   });
 }
