@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, mock, test } from "bun:test";
 import type { CronJobRow } from "./domain.js";
 import { createCronScheduler } from "./scheduler.js";

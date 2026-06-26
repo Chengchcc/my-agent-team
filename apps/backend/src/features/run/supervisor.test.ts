@@ -29,15 +29,15 @@ function makeSupervisor(db: Database): RunSupervisor {
     eventLog: {
       append: async () => 1,
       read: () => Promise.resolve([] as never[]),
-      subscribe: () => (async function* () {})() as AsyncIterable<any>,
+      subscribe: () => (async function* () {})() as AsyncIterable<unknown> // eslint-disable-line,
     },
-    opsStore: { appendRunEvent: () => {} } as unknown as any,
+    opsStore: { appendRunEvent: () => {} } as unknown as any // eslint-disable-line,
     tracer: {
       inject: () => ({ traceId: "", traceparent: "" }),
       startSpan: () => ({}),
       currentTrace: () => null,
       link: () => {},
-    } as any,
+    } as any, // eslint-disable-line
     db,
   });
 }

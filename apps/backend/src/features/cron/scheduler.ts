@@ -14,7 +14,6 @@ export function createCronScheduler(deps: {
   supervisor: RunSupervisor;
   opsStore: RuntimeOpsStore;
   idGen: () => string;
-  trace: () => { traceId: string; traceparent: string };
   now?: () => number;
 }) {
   const handles = new Map<string, CronJob>();
@@ -32,13 +31,9 @@ export function createCronScheduler(deps: {
    *  otherwise break. Retries do NOT re-acquire — they continue the held lock. */
   const inFlight = new Set<string>();
 
-  async function fire(job: CronJobRow, fireKey?: string): Promise<void> {
-    const n = deps.now ?? Date.now;
-    const key = fireKey ?? `${job.cronJobId}:${Math.floor(n() / 1000)}`;
-    const attempt = retryCounts.get(key) ?? 0;
+  async function fire(job: CronJobRow, _fireKey?: string): Promise<void> {
     const runId = deps.idGen();
     const threadId = `${job.cronJobId}:owner`;
-    const t = deps.trace();
 
     try {
       await executeAgentRun({

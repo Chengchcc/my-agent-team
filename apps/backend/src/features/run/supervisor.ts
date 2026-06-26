@@ -99,7 +99,10 @@ export class RunSupervisor {
          WHERE a.ended_at IS NULL AND r.ended_at IS NULL`,
       )
       .all() as Array<{
-      run_id: string; attempt_id: string; thread_id: string; kind: string;
+      run_id: string;
+      attempt_id: string;
+      thread_id: string;
+      kind: string;
     }>;
 
     let reaped = false;
