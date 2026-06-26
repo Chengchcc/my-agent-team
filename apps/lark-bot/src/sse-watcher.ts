@@ -15,6 +15,25 @@ import {
 } from "./bindings-sqlite.js";
 import { renderRevision } from "./render.js";
 
+// L2: throttle non-terminal lark sends (one timer per messageId, shared across watchers)
+const pendingSends = new Map<string, { text: string; idempotencyKey: string }>();
+const sendTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function flushSend(
+  key: string,
+  h: { onSend: (chatId: string, text: string, idempotencyKey: string) => Promise<void> },
+) {
+  const timer = sendTimers.get(key);
+  if (timer) { clearTimeout(timer); sendTimers.delete(key); }
+  const pending = pendingSends.get(key);
+  if (!pending) return;
+  pendingSends.delete(key);
+  const [larkChatId] = key.split(":", 1) as [string];
+  void h.onSend(larkChatId, pending.text, pending.idempotencyKey).catch((err) =>
+    console.error(`[lark] throttle flush failed for ${key}:`, err),
+  );
+}
+
 export interface SseWatcherDeps {
   db: Database;
   backendUrl: string;
@@ -250,13 +269,39 @@ async function processEntry(
     updatedAt: Date.now(),
   });
 
-  // Render and send (send errors are retryable — thrown to trigger reconnect)
+  // Render and send with L2 throttle + L6 retry
   const text = renderRevision(revision);
-  // L1: each revision gets a unique key so all streaming frames are delivered,
-  // not deduplicated by the create/update binary. Terminal frames still get
-  // the legacy create/update suffix for backward compat with lark-cli sender.
   const idempotencyKey = `${entry.conversationId}:${messageId}:${entry.seq}`;
-  await h.onSend(larkChatId, text, idempotencyKey);
+  const isTerminal = isTerminalMessageState(revision.state);
+
+  // L2: throttle non-terminal frames (≥500ms), flush terminal immediately
+  const sendKey = `${larkChatId}:${messageId}`;
+  if (!isTerminal) {
+    pendingSends.set(sendKey, { text, idempotencyKey });
+    if (!sendTimers.has(sendKey)) {
+      sendTimers.set(sendKey, setTimeout(() => flushSend(sendKey, h), 500));
+    }
+    updatePushedSeq(db, larkChatId, entry.seq);
+    return;
+  }
+  // Terminal: flush pending immediately, then send
+  flushSend(sendKey, h);
+
+  // L6: retry terminal send with exponential backoff, keep stream alive
+  let attempt = 0;
+  while (attempt < 3) {
+    try {
+      await h.onSend(larkChatId, text, idempotencyKey);
+      break;
+    } catch (err) {
+      attempt++;
+      if (attempt >= 3) {
+        console.error(`[lark] send failed after ${attempt} attempts, skip seq=${entry.seq}`, err);
+        break; // don't kill the SSE stream
+      }
+      await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+    }
+  }
 
   updatePushedSeq(db, larkChatId, entry.seq);
 }
