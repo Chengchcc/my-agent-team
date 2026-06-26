@@ -1,39 +1,49 @@
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
-import {
-  autoSummarize,
-  pipeContextManagers,
-  sqliteCheckpointer,
-  toolResultTruncator,
-} from "@my-agent-team/framework";
-import { AgentSession } from "@my-agent-team/harness";
-import { conversationContextPlugin } from "@my-agent-team/plugin-conversation-context";
-import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
-import { identityPlugin } from "@my-agent-team/plugin-identity";
-import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
-import {
-  bashTool,
-  createEditTool,
-  createReadTool,
-  createWriteTool,
-  globTool,
-  grepTool,
-} from "@my-agent-team/tools-common";
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
-import {
-  createListMembersTool,
-  createReadContextTool,
-  createReadHistoryTool,
-  createSearchTool,
-} from "../conversation/conv-tools.js";
 import type { ConversationPort } from "../conversation/ports.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import type { RunOriginKind } from "../runtime-ops/types.js";
-import { registerSession, removeSession } from "./session-registry.js";
+import { buildSessionSpec, type SessionFactory } from "./session-factory.js";
 import type { RunSupervisor } from "./supervisor.js";
 
+// ─── New types (PR-1) ─────────────────────────────────────
+
+/** Stable capabilities, assembled once at the composition root. */
+export interface RunDeps {
+  sessionFactory: SessionFactory;
+  supervisor: RunSupervisor;
+  opsStore: RuntimeOpsStore;
+  agentSvc: AgentService;
+  config: BackendConfig;
+  convPort?: ConversationPort;
+}
+
+/** Per-invocation data that changes on every run. */
+export interface RunRequest {
+  runId: string;
+  sessionId: string;
+  agentId: string;
+  input: string;
+  origin: RunOrigin;
+  onAssistantMessage?: (revision: Record<string, unknown>) => void;
+  onRunStatus?: (status: {
+    runId: string;
+    phase: string;
+    detail?: string;
+    updatedAt: number;
+  }) => void;
+  onComplete?: (runId: string, status: string) => void;
+}
+
+/** Discriminated union replacing surface/senderName/originKind/origin/conversationId. */
+export type RunOrigin =
+  | { kind: "conversation"; conversationId: string; surface: string; senderName: string }
+  | { kind: "cron"; cronJobId: string }
+  | { kind: "orchestrator"; issueId: string; fromStatus: string };
+
+// ─── Legacy wrapper (backward compat during migration) ─────
+
+/** @deprecated replaced by RunDeps + RunRequest. Kept for gradual migration of call sites. */
 export interface ExecuteAgentRunOpts {
   runId: string;
   threadId: string;
@@ -43,64 +53,110 @@ export interface ExecuteAgentRunOpts {
   agentSvc: AgentService;
   supervisor: RunSupervisor;
   opsStore: RuntimeOpsStore;
-  /** Set for conversation-triggered runs (enables conv tools + context plugin) */
   convPort?: ConversationPort;
   conversationId?: string;
   surface?: string;
   senderName?: string;
   originKind?: RunOriginKind;
   origin?: Record<string, unknown>;
-  /** Called with each assistant message revision to write to ledger + SSE */
   onAssistantMessage?: (revision: Record<string, unknown>) => void;
-  /** Called with run lifecycle status (compacting/retrying/running/interrupted).
-   *  Emitted as independent run_status frames, not disguised as message revisions. */
   onRunStatus?: (status: {
     runId: string;
     phase: string;
     detail?: string;
     updatedAt: number;
   }) => void;
-  /** Called when run completes (success/error/abort) */
   onComplete?: (runId: string, status: string) => void;
 }
 
+// ─── Origin helpers ───────────────────────────────────────
+
+function originFromLegacy(opts: ExecuteAgentRunOpts): {
+  origin: RunOrigin;
+  originKind: RunOriginKind;
+  conversationId: string;
+  surface: string;
+  senderName: string;
+} {
+  const { originKind, origin, conversationId, surface, senderName } = opts;
+  if (originKind === "cron") {
+    return {
+      origin: { kind: "cron", cronJobId: (origin?.cronJobId as string) ?? "" },
+      originKind: "cron",
+      conversationId: "",
+      surface: "cron",
+      senderName: "cron",
+    };
+  }
+  if (originKind === "orchestrator") {
+    return {
+      origin: {
+        kind: "orchestrator",
+        issueId: (origin?.issueId as string) ?? "",
+        fromStatus: (origin?.fromStatus as string) ?? "",
+      },
+      originKind: "orchestrator",
+      conversationId: "",
+      surface: "orchestrator",
+      senderName: "orchestrator",
+    };
+  }
+  return {
+    origin: {
+      kind: "conversation",
+      conversationId: conversationId ?? "",
+      surface: surface ?? "web",
+      senderName: senderName ?? "unknown",
+    },
+    originKind: originKind ?? "manual",
+    conversationId: conversationId ?? "",
+    surface: surface ?? "web",
+    senderName: senderName ?? "unknown",
+  };
+}
+
+// ─── executeAgentRun (new signature) ──────────────────────
+
 /**
- * Create an AgentSession and execute it asynchronously (fire-and-forget).
+ * Create an AgentSession (via SessionFactory) and execute it asynchronously.
+ * Returns immediately — the AgentSession runs in the background.
  *
- * Replaces the old forkRun → dispatcher → supervisor → daemon chain.
- * All three run paths (conversation / orchestrator / cron) call this.
- *
- * Returns immediately with {runId, attemptId} — the AgentSession runs
- * in the background. Output flows through the onAssistantMessage /
- * onComplete callbacks (wired to projection/ledger).
+ * Phase 1: no more `new AnthropicChatModel` / `sqliteCheckpointer` /
+ * `new AgentSession` / `mkdirSync` in this function body.
+ * Session materialization is delegated to sessionFactory.getOrCreate,
+ * and model/checkpointer/tools/plugins are assembled in buildSessionSpec.
  */
 export async function executeAgentRun(
-  opts: ExecuteAgentRunOpts,
+  deps: RunDeps,
+  req: RunRequest,
 ): Promise<{ runId: string; attemptId: string; attemptSeq: number }> {
-  const {
-    runId,
-    threadId,
-    agentId,
-    input,
-    config,
-    agentSvc,
-    supervisor,
-    opsStore,
-    convPort,
-    conversationId,
-    surface = "web",
-    senderName = "unknown",
-    originKind = "manual" as RunOriginKind,
-    origin = {},
-    onAssistantMessage,
-    onRunStatus,
-    onComplete,
-  } = opts;
+  const { runId, sessionId, agentId, input, origin } = req;
+  const { supervisor, opsStore, agentSvc, convPort, config, sessionFactory } = deps;
+
+  // ── Derive origin metadata for run_origin table ──────────
+  let originKind: RunOriginKind = "manual";
+  let conversationId = "";
+  let surface = "web";
+  let senderName = "unknown";
+  let originPayload: Record<string, unknown> = {};
+
+  if (origin.kind === "conversation") {
+    originKind = "manual";
+    conversationId = origin.conversationId;
+    surface = origin.surface;
+    senderName = origin.senderName;
+  } else if (origin.kind === "cron") {
+    originKind = "cron";
+    originPayload = { cronJobId: origin.cronJobId };
+  } else if (origin.kind === "orchestrator") {
+    originKind = "orchestrator";
+    originPayload = { issueId: origin.issueId, fromStatus: origin.fromStatus };
+  }
 
   // ── Create run/attempt rows ─────────────────────────────
   opsStore.insertRunOrigin({
     runId,
-    conversationId: conversationId ?? "",
+    conversationId,
     sourceLedgerSeq: 0,
     agentMemberId: agentId,
     surface,
@@ -111,149 +167,102 @@ export async function executeAgentRun(
     fromStatus: "",
     originKind,
     createdAt: Date.now(),
-    ...origin,
+    ...originPayload,
   });
 
-  const { attemptId, attemptSeq } = await supervisor.startMainRun(runId, threadId, { agentId, threadId });
+  const { attemptId, attemptSeq } = await supervisor.startMainRun(runId, sessionId, {
+    agentId,
+    sessionId,
+  });
 
-  // ── Model ──────────────────────────────────────────────
+  // ── Materialize session via factory ─────────────────────
   const agent = await agentSvc.getById(agentId);
-  const cwd = join(config.dataDir, "agents", agentId);
-  mkdirSync(cwd, { recursive: true });
-
-  const model = new AnthropicChatModel({
-    apiKey: config.anthropicApiKey,
-    model: agent.modelName,
+  const spec = buildSessionSpec({
+    agent,
+    agentId,
+    config,
+    convPort,
+    conversationId,
+    surface,
+    senderName,
+    input,
   });
+  const session = sessionFactory.getOrCreate(sessionId, spec);
 
-  // ── Tools ──────────────────────────────────────────────
-  const baseTools = [
-    createReadTool({ cwd }),
-    createWriteTool({ cwd }),
-    createEditTool({ cwd }),
-    bashTool,
-    globTool,
-    grepTool,
-  ];
-
-  const hasConversation = convPort && conversationId;
-
-  const convTools = hasConversation
-    ? [
-        createReadHistoryTool({ convPort, conversationId }),
-        createReadContextTool({ convPort, conversationId }),
-        createSearchTool({ convPort, conversationId }),
-        createListMembersTool({ convPort, conversationId }),
-      ]
-    : [];
-
-  // ── Plugins ────────────────────────────────────────────
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const plugins = [
-    identityPlugin({ cwd }),
-    ...(hasConversation
-      ? [
-          conversationContextPlugin({
-            tools: convTools,
-            systemPrompt: `<conversation>
-  <id>${esc(conversationId)}</id>
-  <surface>${esc(surface)}</surface>
-  <trigger>
-    <from>${esc(senderName)}</from>
-    <message>${esc(input)}</message>
-  </trigger>
-</conversation>
-如需更多上下文，使用 read_conversation_history 等工具。`,
-          }),
-        ]
-      : []),
-    fsMemoryPlugin({ cwd }),
-    progressiveSkillPlugin({ cwd }),
-  ];
-
-  // ── Checkpointer + ContextManager ──────────────────────
-  const checkpointer = sqliteCheckpointer({
-    db: join(config.dataDir, "checkpointer.db"),
-  });
-
-  const contextManager = pipeContextManagers(
-    toolResultTruncator({ maxCharsPerResult: 50_000 }),
-    autoSummarize({ triggerAt: 100_000, keepRecent: 10 }),
-  );
-
-  // ── Session ────────────────────────────────────────────
-  const session = new AgentSession({
-    model,
-    threadId,
-    plugins,
-    tools: baseTools,
-    checkpointer,
-    contextManager,
-  });
-
-  // ── Completion wiring ──────────────────────────────────
-  // Once-guard: prevent double-finalize from agent_end + abort/catch
+  // ── Completion wiring ───────────────────────────────────
   let finalized = false;
   const finalizeOnce = (status: string) => {
     if (finalized) return;
     finalized = true;
     void supervisor
-      .notifyRunComplete(threadId, runId, status, "main", attemptId)
+      .notifyRunComplete(sessionId, runId, status, "main", attemptId)
       .catch((err) => console.error(`[run-executor] notifyRunComplete failed for ${runId}:`, err));
-    if (onComplete) onComplete(runId, status);
-    if (session.state !== "waiting") {
-      session.dispose();
-      removeSession(runId);
-    }
+    if (req.onComplete) req.onComplete(runId, status);
+    // Phase 2: don't dispose session here (cross-run persistence)
   };
 
-  // Track ordinal for correct runStatus targeting
-  let lastAssistantOrdinal = 0;
-
   session.subscribe((event) => {
-    if (event.type === "message") {
-      if (event.payload?.role === "assistant") {
-        const m = /:assistant:(\d+)$/.exec(event.payload.messageId ?? "");
-        if (m) lastAssistantOrdinal = Math.max(lastAssistantOrdinal, Number(m[1]));
-      }
-      if (onAssistantMessage) onAssistantMessage(event.payload);
+    if (event.type === "message" && req.onAssistantMessage) {
+      req.onAssistantMessage(event.payload);
     }
     if (event.type === "agent_end") {
       finalizeOnce(event.status ?? "succeeded");
     }
-    // Emit run_status frames for transient lifecycle events (Phase 0 §1.2)
     const emitRunStatus = (phase: string, detail?: string) =>
-      onRunStatus?.({ runId, phase, detail, updatedAt: Date.now() });
+      req.onRunStatus?.({ runId, phase, detail, updatedAt: Date.now() });
 
     if (event.type === "compaction_start") emitRunStatus("compacting");
     if (event.type === "compaction_end") emitRunStatus("running");
-    if (event.type === "auto_retry_start") emitRunStatus("retrying", event.errorMessage);
+    if (event.type === "auto_retry_start")
+      emitRunStatus("retrying", `attempt ${(event as unknown as { attempt?: number }).attempt ?? "?"}`);
     if (event.type === "auto_retry_end") emitRunStatus("running");
-    if (event.type === "agent_end") {
-      const finalPhase =
-        event.status === "succeeded"
-          ? "succeeded"
-          : event.status === "interrupted"
-            ? "interrupted"
-            : "error";
-      emitRunStatus(finalPhase);
-    }
   });
 
-  registerSession(runId, session);
-
-  // ── Fire-and-forget execution ──────────────────────────
-  const runSession = supervisor.getActive().get(runId);
-  const signal = runSession?.abortController.signal;
-
-  void session.prompt(input, { signal }).catch((err) => {
-    const status = signal?.aborted ? "interrupted" : "error";
-    finalizeOnce(status);
-    console.error(
-      `[run-executor] AgentSession failed for ${runId}:`,
-      err instanceof Error ? err.message : String(err),
-    );
+  // ── Fire and forget (runId now flows into harness) ──────
+  void session.prompt(input, { signal: undefined, runId }).catch((err) => {
+    console.error(`[run-executor] prompt error for ${runId}:`, err);
+    finalizeOnce("error");
   });
 
   return { runId, attemptId, attemptSeq };
+}
+
+// ─── Backward-compat wrapper (call sites not yet migrated to RunDeps) ──
+
+/**
+ * @deprecated Use executeAgentRun(deps: RunDeps, req: RunRequest) instead.
+ * This wrapper builds a temporary SessionFactory from the legacy flat opts
+ * so existing call sites don't break. Migrate callers to receive RunDeps
+ * from the composition root (PR-5).
+ */
+export async function legacyExecuteAgentRun(
+  opts: ExecuteAgentRunOpts,
+): Promise<{ runId: string; attemptId: string; attemptSeq: number }> {
+  const { origin } = originFromLegacy(opts);
+
+  // Build a throwaway SessionFactory from opts.config
+  const { createSessionFactory } = await import("./session-factory.js");
+  const sessionFactory = createSessionFactory({ config: opts.config });
+
+  const deps: RunDeps = {
+    sessionFactory,
+    supervisor: opts.supervisor,
+    opsStore: opts.opsStore,
+    agentSvc: opts.agentSvc,
+    config: opts.config,
+    convPort: opts.convPort,
+  };
+
+  const req: RunRequest = {
+    runId: opts.runId,
+    sessionId: opts.threadId,
+    agentId: opts.agentId,
+    input: opts.input,
+    origin,
+    onAssistantMessage: opts.onAssistantMessage,
+    onRunStatus: opts.onRunStatus,
+    onComplete: opts.onComplete,
+  };
+
+  return executeAgentRun(deps, req);
 }

@@ -4,7 +4,7 @@ import type { ColumnConfigService } from "../column-config/service.js";
 import type { DeliverableRow } from "../deliverable/domain.js";
 import type { IssueRow } from "../issue/entities.js";
 import type { IssueService } from "../issue/service.js";
-import { executeAgentRun } from "../run/run-executor.js";
+import { legacyExecuteAgentRun as executeAgentRun } from "../run/run-executor.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";

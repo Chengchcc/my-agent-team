@@ -8,7 +8,7 @@ import {
   testDB,
   waitForFinalize,
 } from "../../../test-helpers/mock-deps.js";
-import { executeAgentRun } from "./run-executor.js";
+import { legacyExecuteAgentRun as executeAgentRun } from "./run-executor.js";
 import type { RunSupervisor } from "./supervisor.js";
 
 describe("executeAgentRun completion signal", () => {

@@ -312,7 +312,13 @@ export function createRuntimeOpsService(deps: {
       const cancelled = supervisor.cancel(runId);
       if (!cancelled) return { ok: false, error: "not_found" };
 
-      return { ok: true, state: "abort_sent", runId, attemptId: session.attemptId, attemptSeq: String(session.attemptSeq) };
+      return {
+        ok: true,
+        state: "abort_sent",
+        runId,
+        attemptId: session.attemptId,
+        attemptSeq: String(session.attemptSeq),
+      };
     },
 
     async recover(runId: string): Promise<RecoverRunResult> {

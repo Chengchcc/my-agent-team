@@ -8,7 +8,7 @@ import {
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
-import { executeAgentRun } from "../run/run-executor.js";
+import { legacyExecuteAgentRun as executeAgentRun } from "../run/run-executor.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import { sqliteConversationAdapter } from "./index.js";
