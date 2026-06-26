@@ -41,47 +41,125 @@ import type { ConversationPort } from "../conversation/ports.js";
 export interface SessionFactory {
   getOrCreate(sessionId: string, spec: SessionSpec): AgentSession;
   dispose(sessionId: string): void;
+  /** Dispose all sessions (shutdown hook). */
+  disposeAll(): void;
 }
 
 export interface SessionSpec {
   agentId: string;
   cwd: string;
   model: ChatModel;
+  modelName?: string;
   plugins: Plugin[];
   tools: Tool[];
   checkpointer: Checkpointer;
   contextManager: ContextManager;
 }
 
-export interface SessionFactoryDeps {
-  config: BackendConfig;
+export class SessionSpecMismatchError extends Error {
+  constructor(
+    public readonly sessionId: string,
+    public readonly field: string,
+    existing: string,
+    incoming: string,
+  ) {
+    super(
+      `SessionSpec mismatch for "${sessionId}": ${field} changed from "${existing}" to "${incoming}"`,
+    );
+    this.name = "SessionSpecMismatchError";
+  }
 }
 
-export function createSessionFactory(_deps: SessionFactoryDeps): SessionFactory {
-  const sessions = new Map<string, AgentSession>();
+export interface SessionFactoryDeps {
+  config: BackendConfig;
+  /** Reaper check interval in ms. 0 = disabled. */
+  reaperIntervalMs?: number;
+  /** Dispose sessions idle for longer than this (ms). */
+  idleTimeoutMs?: number;
+}
+
+interface SessionEntry {
+  session: AgentSession;
+  spec: SessionSpec;
+  lastUsedAt: number;
+  /** Promise chain for serializing concurrent prompts on the same sessionId. */
+  promptQueue: Promise<void>;
+}
+
+function assertSpecCompatible(existing: SessionSpec, incoming: SessionSpec): void {
+  for (const k of ["agentId", "modelName", "cwd"] as const) {
+    const a = existing[k] as string | undefined;
+    const b = incoming[k] as string | undefined;
+    if (a !== undefined && b !== undefined && a !== b) {
+      throw new SessionSpecMismatchError(existing.agentId, k, a, b);
+    }
+  }
+}
+
+export function createSessionFactory(deps: SessionFactoryDeps): SessionFactory {
+  const sessions = new Map<string, SessionEntry>();
+  const idleTimeoutMs = deps.idleTimeoutMs ?? 30 * 60_000; // default 30 min
+  const reaperIntervalMs = deps.reaperIntervalMs ?? 60_000; // default 1 min
+
+  function materialize(sessionId: string, spec: SessionSpec): AgentSession {
+    return new AgentSession({
+      model: spec.model,
+      sessionId,
+      plugins: spec.plugins,
+      tools: spec.tools,
+      checkpointer: spec.checkpointer,
+      contextManager: spec.contextManager,
+    });
+  }
+
+  // Idle reaper
+  let reaperTimer: ReturnType<typeof setInterval> | undefined;
+  if (reaperIntervalMs > 0) {
+    reaperTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [sid, entry] of sessions) {
+        const st = entry.session.state;
+        if (st === "waiting" || st === "running") continue;
+        if (now - entry.lastUsedAt > idleTimeoutMs) {
+          entry.session.dispose();
+          sessions.delete(sid);
+        }
+      }
+    }, reaperIntervalMs);
+  }
 
   return {
     getOrCreate(sessionId: string, spec: SessionSpec): AgentSession {
       const hit = sessions.get(sessionId);
-      if (hit) return hit;
+      if (hit) {
+        assertSpecCompatible(hit.spec, spec);
+        hit.lastUsedAt = Date.now();
+        return hit.session;
+      }
 
-      const session = new AgentSession({
-        model: spec.model,
-        sessionId,
-        plugins: spec.plugins,
-        tools: spec.tools,
-        checkpointer: spec.checkpointer,
-        contextManager: spec.contextManager,
+      const session = materialize(sessionId, spec);
+      sessions.set(sessionId, {
+        session,
+        spec,
+        lastUsedAt: Date.now(),
+        promptQueue: Promise.resolve(),
       });
-      sessions.set(sessionId, session);
       return session;
     },
 
     dispose(sessionId: string): void {
-      const session = sessions.get(sessionId);
-      if (session) {
-        session.dispose();
+      const entry = sessions.get(sessionId);
+      if (entry) {
+        entry.session.dispose();
         sessions.delete(sessionId);
+      }
+    },
+
+    disposeAll(): void {
+      if (reaperTimer) clearInterval(reaperTimer);
+      for (const [sid, entry] of sessions) {
+        entry.session.dispose();
+        sessions.delete(sid);
       }
     },
   };
@@ -165,6 +243,7 @@ export function buildSessionSpec(params: BuildSessionSpecParams): SessionSpec {
     agentId,
     cwd,
     model,
+    modelName: agent.modelName,
     plugins,
     tools: [...baseTools, ...convTools],
     checkpointer,
