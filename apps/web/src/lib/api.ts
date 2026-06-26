@@ -20,7 +20,7 @@ export interface IssueRow {
   projectId: string;
   title: string;
   status: IssueStatus;
-  threadId: string;
+  sessionId: string;
   description: string;
   priority: IssuePriority;
   estimatedCompletionAt: number | null;
@@ -402,7 +402,7 @@ export const api = {
 
 export interface RunOpsListItem {
   runId: string;
-  threadId: string;
+  sessionId: string;
   agentId: string;
   agentName: string;
   kind: string;
@@ -419,7 +419,7 @@ export interface RunOpsListItem {
 export interface RunOpsDetail {
   run: {
     runId: string;
-    threadId: string;
+    sessionId: string;
     agentId: string;
     kind: string;
     parentRunId: string | null;
