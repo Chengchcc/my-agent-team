@@ -121,7 +121,7 @@ export interface RecordingSupervisor {
     runId: string,
     threadId: string,
     spec: Record<string, unknown>,
-  ): Promise<{ runId: string; attemptId: string }>;
+  ): Promise<{ runId: string; attemptSeq: number }>;
   cancel(runId: string): boolean;
   onRunComplete(
     fn: (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>,
@@ -147,7 +147,7 @@ export function recordingSupervisor(): RecordingSupervisor {
     startMainRun: async (runId: string, threadId: string, spec: Record<string, unknown>) => {
       startedRuns.push({ runId, threadId, spec });
       active.set(runId, { abortController: new AbortController() });
-      return { runId, attemptId: `attempt-${runId}` };
+      return { runId, attemptSeq: 1 };
     },
     cancel: (runId: string) => {
       active.get(runId)?.abortController.abort();

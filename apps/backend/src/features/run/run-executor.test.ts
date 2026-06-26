@@ -5,6 +5,7 @@ import {
   mockConfig,
   mockOpsStore,
   mockSupervisor,
+  TID,
   testDB,
   waitForFinalize,
 } from "../../../test-helpers/mock-deps.js";
@@ -37,7 +38,7 @@ describe("executeAgentRun completion signal", () => {
     });
     const { runId } = await executeAgentRun(deps, {
       runId: `${opts.prefix}-${Date.now()}`,
-      sessionId: opts.threadId as string,
+      sessionId: (opts.sessionId as string) ?? TID.session(),
       agentId: opts.agentId as string,
       input: (opts.input as string) ?? "hi",
       origin: { kind: "conversation", conversationId: "", surface: "web", senderName: "unknown" },
@@ -49,9 +50,8 @@ describe("executeAgentRun completion signal", () => {
   test("conversation: completes, fires onRunComplete", async () => {
     const { calls } = await runAndWait({
       prefix: "c",
-      threadId: "c:test",
+      sessionId: TID.session("c", "test"),
       agentId: "a",
-      originKind: "manual",
     });
     expect(calls).toContain("succeeded");
   });
@@ -59,12 +59,8 @@ describe("executeAgentRun completion signal", () => {
   test("orchestrator: fires onRunComplete", async () => {
     const { calls } = await runAndWait({
       prefix: "o",
-      threadId: "i:a",
+      sessionId: TID.session("i", "a"),
       agentId: "a",
-      surface: "orchestrator",
-      senderName: "o",
-      originKind: "orchestrator",
-      origin: { issueId: "i1", fromStatus: "p" },
     });
     expect(calls).toContain("succeeded");
   });
@@ -72,11 +68,8 @@ describe("executeAgentRun completion signal", () => {
   test("cron: fires onRunComplete", async () => {
     const { calls } = await runAndWait({
       prefix: "cr",
-      threadId: "cr:o",
+      sessionId: TID.session("cr", "o"),
       agentId: "a",
-      surface: "cron",
-      senderName: "cr",
-      originKind: "cron",
     });
     expect(calls).toContain("succeeded");
   });
