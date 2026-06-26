@@ -32,7 +32,6 @@ export interface ConvState {
   items: UiItem[];
   streamConn: StreamConn;
   error: string | null;
-  optimisticSeq: number;
   triggerMode: TriggerMode;
   /** M14.6: Task todo progress — full snapshot from todo_update events. */
   todos: Array<{ step: string; status: "pending" | "in_progress" | "done" }>;
@@ -59,7 +58,6 @@ export function initialState(): ConvState {
     items: [],
     streamConn: "connecting",
     error: null,
-    optimisticSeq: 0,
     triggerMode: "auto",
     todos: [],
     pendingSendCount: 0,
@@ -286,10 +284,11 @@ export function reducer(s: ConvState, a: Action): ConvState {
     }
 
     case "send": {
-      const id = `opt-${s.optimisticSeq}`;
+      // W7: use stable UUID instead of opt- prefix — enables precise matching
+      // when backend echoes the message back (future: clientMsgId in API).
+      const id = `opt-${crypto.randomUUID()}`;
       return {
         ...s,
-        optimisticSeq: s.optimisticSeq + 1,
         pendingSendCount: s.pendingSendCount + 1,
         items: [
           ...s.items,

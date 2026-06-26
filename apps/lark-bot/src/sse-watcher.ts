@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { Database } from "bun:sqlite";
 import { type LedgerEntry, parseLedgerEntry } from "@my-agent-team/conversation";
 import {
@@ -7,6 +6,7 @@ import {
   MessageStateSchema,
   type parseMessageRevision,
 } from "@my-agent-team/message";
+import { z } from "zod";
 import {
   getMemberBindingsForChat,
   getMessageDelivery,
@@ -197,7 +197,10 @@ async function processEntry(
     });
     const parsed = SurfaceControlSchema.safeParse(JSON.parse(entry.content));
     if (!parsed.success) {
-      console.error(`[sse-watcher] malformed surface.control at seq=${entry.seq}:`, parsed.error.message);
+      console.error(
+        `[sse-watcher] malformed surface.control at seq=${entry.seq}:`,
+        parsed.error.message,
+      );
       updatePushedSeq(db, larkChatId, entry.seq);
       return;
     }
