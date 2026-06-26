@@ -32,7 +32,10 @@ export interface CompactionSettings {
 export interface AgentSessionConfig {
   // framework passthrough
   model: ChatModel;
+  /** @deprecated use sessionId instead */
   threadId?: string;
+  /** Persistent memory line key. Same as threadId, renamed. */
+  sessionId?: string;
   tools?: Tool[];
   plugins?: Plugin[];
   checkpointer?: Checkpointer;
@@ -336,7 +339,7 @@ export class AgentSession {
   async #initAgent(): Promise<void> {
     this.#agent = await createAgent({
       model: this.#config.model,
-      threadId: this.#config.threadId,
+      threadId: this.#config.sessionId ?? this.#config.threadId,
       tools: this.#config.tools,
       plugins: this.#config.plugins,
       checkpointer: this.#config.checkpointer,

@@ -71,7 +71,10 @@ export interface AgentConfig {
   checkpointer?: Checkpointer;
   contextManager?: ContextManager;
   logger?: Logger;
+  /** @deprecated use sessionId instead */
   threadId?: string;
+  /** Persistent memory line key. Same as threadId, renamed. */
+  sessionId?: string;
   /** Preloaded messages to bootstrap the thread. When provided, bypasses
    *  checkpointer.load() for the initial message state. The checkpointer
    *  is still used for subsequent saves during the run. */

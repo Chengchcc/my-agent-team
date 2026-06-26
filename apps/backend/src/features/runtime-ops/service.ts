@@ -40,6 +40,8 @@ export interface RunOpsDetail {
   };
   attempts: Array<{
     attemptId: string;
+    /** Phase 0: same value as attemptId, Phase 3 becomes int seq */
+    attemptSeq: string;
     heartbeatAt: number | null;
     heartbeatAgeMs: number | null;
     startedAt: number;
@@ -76,14 +78,14 @@ export interface AgentRuntimeStatus {
 }
 
 export type CancelRunResult =
-  | { ok: true; state: "abort_sent"; runId: string; attemptId: string }
+  | { ok: true; state: "abort_sent"; runId: string; attemptId: string; attemptSeq: string }
   | { ok: true; state: "already_terminal"; runId: string; status: string }
   | { ok: true; state: "detached_waiting_reaper"; runId: string; heartbeatAgeMs: number | null }
   | { ok: false; error: "not_found" };
 
 export type RecoverRunResult =
   | { state: "already_terminal"; status: string }
-  | { state: "reattached"; attemptId: string }
+  | { state: "reattached"; attemptId: string; attemptSeq: string }
   | { state: "marked_interrupted"; reason: "heartbeat_timeout" }
   | { state: "waiting"; reason: "heartbeat_fresh_but_transport_detached" };
 
@@ -271,6 +273,7 @@ export function createRuntimeOpsService(deps: {
             : "detached";
           return {
             attemptId: a.attempt_id,
+            attemptSeq: a.attempt_id,
             heartbeatAt: a.heartbeat_at,
             heartbeatAgeMs: a.heartbeat_at ? Date.now() - a.heartbeat_at : null,
             startedAt: a.started_at,
@@ -309,7 +312,7 @@ export function createRuntimeOpsService(deps: {
       const cancelled = supervisor.cancel(runId);
       if (!cancelled) return { ok: false, error: "not_found" };
 
-      return { ok: true, state: "abort_sent", runId, attemptId: session.attemptId };
+      return { ok: true, state: "abort_sent", runId, attemptId: session.attemptId, attemptSeq: String(session.attemptSeq) };
     },
 
     async recover(runId: string): Promise<RecoverRunResult> {
@@ -394,6 +397,7 @@ export function createRuntimeOpsService(deps: {
         ts: number;
         runId: string;
         attemptId: string | null;
+        attemptSeq: string | null;
         kind: string;
         payload: Record<string, unknown>;
       }>;
@@ -410,6 +414,7 @@ export function createRuntimeOpsService(deps: {
         ts: e.ts,
         runId: e.runId,
         attemptId: e.attemptId,
+        attemptSeq: e.attemptId,
         kind: e.kind,
         payload: e.payload,
       }));

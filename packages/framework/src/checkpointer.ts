@@ -43,24 +43,25 @@ export type CheckpointEvent =
   | { type: "force_continue"; reason: string; attempt: number; ts: number };
 
 export interface Checkpointer {
-  load(threadId: string): Promise<Message[] | null>;
-  save(threadId: string, messages: readonly Message[]): Promise<void>;
+  /** @param sessionId — logically sessionId (persistent memory line key), renamed from threadId */
+  load(sessionId: string): Promise<Message[] | null>;
+  save(sessionId: string, messages: readonly Message[]): Promise<void>;
 
-  saveInterrupt?(threadId: string, state: InterruptState): Promise<void>;
-  consumeInterrupt?(threadId: string): Promise<InterruptState | null>;
+  saveInterrupt?(sessionId: string, state: InterruptState): Promise<void>;
+  consumeInterrupt?(sessionId: string): Promise<InterruptState | null>;
 
   /**
    * @deprecated 内部审计用途，UX 投影一律走 EventLog。
    * 保留调用点不动；新部署可跳过 Tier 3。
    */
-  appendEvent?(threadId: string, event: CheckpointEvent): Promise<void>;
+  appendEvent?(sessionId: string, event: CheckpointEvent): Promise<void>;
   /**
    * @deprecated 内部审计用途，UX 投影一律走 EventLog。
    */
-  readEvents?(threadId: string): AsyncIterable<CheckpointEvent>;
+  readEvents?(sessionId: string): AsyncIterable<CheckpointEvent>;
 
   /** Delete all data for a thread. Idempotent — no-op if thread doesn't exist. */
-  deleteThread?(threadId: string): Promise<void>;
+  deleteThread?(sessionId: string): Promise<void>;
 }
 
 export function validateCheckpointer(cp: Checkpointer): void {

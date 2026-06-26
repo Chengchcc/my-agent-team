@@ -76,7 +76,7 @@ export interface ExecuteAgentRunOpts {
  */
 export async function executeAgentRun(
   opts: ExecuteAgentRunOpts,
-): Promise<{ runId: string; attemptId: string }> {
+): Promise<{ runId: string; attemptId: string; attemptSeq: number }> {
   const {
     runId,
     threadId,
@@ -114,7 +114,7 @@ export async function executeAgentRun(
     ...origin,
   });
 
-  const { attemptId } = await supervisor.startMainRun(runId, threadId, { agentId, threadId });
+  const { attemptId, attemptSeq } = await supervisor.startMainRun(runId, threadId, { agentId, threadId });
 
   // ── Model ──────────────────────────────────────────────
   const agent = await agentSvc.getById(agentId);
@@ -255,5 +255,5 @@ export async function executeAgentRun(
     );
   });
 
-  return { runId, attemptId };
+  return { runId, attemptId, attemptSeq };
 }

@@ -35,7 +35,7 @@ export type {
 // ─── createAgent / createAgentInternal ──────────────────────────
 
 export async function createAgent(config: AgentConfig): Promise<Agent> {
-  const threadId = config.threadId ?? crypto.randomUUID();
+  const threadId = config.sessionId ?? config.threadId ?? crypto.randomUUID();
   const checkpointer = config.checkpointer ?? inMemoryCheckpointer();
   validateCheckpointer(checkpointer);
 

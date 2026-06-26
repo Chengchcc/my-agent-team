@@ -20,7 +20,9 @@ export interface RunSupervisorOptions {
 
 export interface RunSession {
   runId: string;
+  /** @deprecated use attemptSeq instead */
   attemptId: string;
+  attemptSeq: number;
   threadId: string;
   agentId: string;
   kind: "main" | "reflect";
@@ -173,9 +175,11 @@ export class RunSupervisor {
     threadId: string,
     spec: Record<string, unknown>,
     _opts?: Record<string, unknown>,
-  ): Promise<{ runId: string; attemptId: string }> {
+  ): Promise<{ runId: string; attemptId: string; attemptSeq: number }> {
     const agentId = (spec.agentId as string) ?? threadId;
+    /** @deprecated use attemptSeq instead */
     const attemptId = `att-${runId}`;
+    const attemptSeq = 1; // Phase 3 replaces this with MAX(seq)+1 query
     const now = Date.now();
 
     this.#db.transaction(() => {
@@ -193,6 +197,7 @@ export class RunSupervisor {
     const session: RunSession = {
       runId,
       attemptId,
+      attemptSeq,
       threadId,
       agentId,
       kind: "main",
@@ -200,7 +205,7 @@ export class RunSupervisor {
       transportKind: "attached",
     };
     this.#active.set(runId, session);
-    return { runId, attemptId };
+    return { runId, attemptId, attemptSeq };
   }
 
   cancel(runId: string): boolean {
