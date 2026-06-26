@@ -16,6 +16,7 @@
 - `docs/architecture/foundations/cron-job.md`
 - `docs/architecture/foundations/dependency-injection.md`
 - `docs/architecture/foundations/facts-and-projections.md`
+- `docs/architecture/foundations/identifiers.md`
 - `docs/architecture/foundations/issue.md`
 - `docs/architecture/foundations/issue-workflow.md`
 - `docs/architecture/foundations/lifecycle-overview.md`

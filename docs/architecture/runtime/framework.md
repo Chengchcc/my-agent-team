@@ -134,6 +134,6 @@ interface Checkpointer {
 - [上下文管理器](context-manager.md)
 - [运行时插件](plugin.md)
 - [task-guard plugin](../plugins/task-guard.md)
-- [运行编排器](../backend/run-supervisor.md)
-- [对话账本](../conversation/ledger.md)
 - [会话投影](../backend/conversation-projection.md)
+- [依赖注入](../foundations/dependency-injection.md) —— DI 手法与 runLoopOpts 透传
+- [标识符体系](../foundations/identifiers.md) —— runId / threadId 的分工与回退

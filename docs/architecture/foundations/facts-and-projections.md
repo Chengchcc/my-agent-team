@@ -91,3 +91,4 @@ graph LR
 - [EventLog](../backend/event-log.md)
 - [会话投影](../backend/conversation-projection.md)
 - [Web 端](../surfaces/web.md)
+- [标识符体系](identifiers.md) —— sessionId / runId / attemptSeq 的派生链与层归属

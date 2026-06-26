@@ -54,7 +54,12 @@ export interface ExecuteAgentRunOpts {
   onAssistantMessage?: (revision: Record<string, unknown>) => void;
   /** Called with run lifecycle status (compacting/retrying/running/interrupted).
    *  Emitted as independent run_status frames, not disguised as message revisions. */
-  onRunStatus?: (status: { runId: string; phase: string; detail?: string; updatedAt: number }) => void;
+  onRunStatus?: (status: {
+    runId: string;
+    phase: string;
+    detail?: string;
+    updatedAt: number;
+  }) => void;
   /** Called when run completes (success/error/abort) */
   onComplete?: (runId: string, status: string) => void;
 }
@@ -225,9 +230,12 @@ export async function executeAgentRun(
     if (event.type === "auto_retry_start") emitRunStatus("retrying", event.errorMessage);
     if (event.type === "auto_retry_end") emitRunStatus("running");
     if (event.type === "agent_end") {
-      const finalPhase = event.status === "succeeded" ? "succeeded"
-        : event.status === "interrupted" ? "interrupted"
-        : "error";
+      const finalPhase =
+        event.status === "succeeded"
+          ? "succeeded"
+          : event.status === "interrupted"
+            ? "interrupted"
+            : "error";
       emitRunStatus(finalPhase);
     }
   });
@@ -249,4 +257,3 @@ export async function executeAgentRun(
 
   return { runId, attemptId };
 }
-

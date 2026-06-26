@@ -72,3 +72,5 @@ flowchart TB
 - [会话消息流](./conversation-projection.md)
 - [数据模型](./data-model.md)
 - [对话与成员](../conversation/conversation-and-members.md)
+- [依赖注入](../foundations/dependency-injection.md) —— 组合根与 executeAgentRun 的诊断
+- [标识符体系](../foundations/identifiers.md) —— sessionId/runId 的归属与 AgentSession 生命周期

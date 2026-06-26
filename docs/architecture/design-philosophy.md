@@ -438,3 +438,8 @@ Agent 做 code review 时，除了找 bug，还要找概念债：
 ```
 
 如果一个设计违反这三句话，即使它能跑，也应该被视为架构债。
+
+## 关联页面
+
+- [依赖注入](foundations/dependency-injection.md) —— DI 是这套哲学在协作关系上的投影
+- [标识符体系](foundations/identifiers.md) —— 两类 id、层归属准则、threadId→sessionId 正名

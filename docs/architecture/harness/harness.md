@@ -151,3 +151,5 @@ compact(customInstructions?)
 - [运行时插件机制](../runtime/plugin.md)
 - [Web 消息端到端](../flows/e2e-web-message.md)
 - [ConversationContextPlugin](conversation-context-plugin.md)
+- [依赖注入](../foundations/dependency-injection.md) —— DI 手法与 executeAgentRun 诊断
+- [标识符体系](../foundations/identifiers.md) —— sessionId 归属与 AgentSession 跨 run 持久
