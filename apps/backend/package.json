@@ -33,5 +33,7 @@
     "handlebars": "^4.7.9",
     "zod": "^3.23.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@my-agent-team/test-helpers": "workspace:*"
+  }
 }

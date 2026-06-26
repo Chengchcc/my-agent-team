@@ -161,7 +161,8 @@ export async function executeAgentRun(
   });
 
   // ── Fire and forget (runId flows into harness) ──────────
-  void session.prompt(input, { signal: undefined, runId }).catch((err) => {
+  // Enqueue via factory so concurrent prompts on the same sessionId serialize
+  void sessionFactory.enqueuePrompt(sessionId, input, { signal: undefined, runId }).catch((err) => {
     console.error(`[run-executor] prompt error for ${runId}:`, err);
     finalizeOnce("error");
   });

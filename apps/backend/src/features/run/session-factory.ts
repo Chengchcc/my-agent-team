@@ -40,6 +40,17 @@ import type { ConversationPort } from "../conversation/ports.js";
  */
 export interface SessionFactory {
   getOrCreate(sessionId: string, spec: SessionSpec): AgentSession;
+  /**
+   * Enqueue a prompt on the session, serialized per sessionId.
+   * If another prompt is already running on this sessionId, this one
+   * waits for it to settle before starting. Prevents silent task loss
+   * when conversation double-sends or cron collides with an active run.
+   */
+  enqueuePrompt(
+    sessionId: string,
+    input: string,
+    opts?: { signal?: AbortSignal; runId?: string },
+  ): Promise<void>;
   dispose(sessionId: string): void;
   /** Dispose all sessions (shutdown hook). */
   disposeAll(): void;
@@ -145,6 +156,25 @@ export function createSessionFactory(deps: SessionFactoryDeps): SessionFactory {
         promptQueue: Promise.resolve(),
       });
       return session;
+    },
+
+    async enqueuePrompt(
+      sessionId: string,
+      input: string,
+      opts?: { signal?: AbortSignal; runId?: string },
+    ): Promise<void> {
+      const entry = sessions.get(sessionId);
+      if (!entry) throw new Error(`Session not found: ${sessionId}`);
+      // Chain onto the existing queue so concurrent prompts serialize
+      const task = entry.promptQueue.then(() =>
+        entry.session.prompt(input, opts).finally(() => {
+          entry.lastUsedAt = Date.now();
+        }),
+      );
+      entry.promptQueue = task.catch(() => {
+        /* errors surface via session events, not queue chain */
+      });
+      return task;
     },
 
     dispose(sessionId: string): void {
