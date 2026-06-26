@@ -188,9 +188,7 @@ export async function executeAgentRun(
     finalized = true;
     void supervisor
       .notifyRunComplete(threadId, runId, status, "main", attemptId)
-      .catch((err) =>
-        console.error(`[run-executor] notifyRunComplete failed for ${runId}:`, err),
-      );
+      .catch((err) => console.error(`[run-executor] notifyRunComplete failed for ${runId}:`, err));
     if (onComplete) onComplete(runId, status);
     if (session.state !== "waiting") {
       session.dispose();
@@ -233,16 +231,14 @@ export async function executeAgentRun(
   const runSession = supervisor.getActive().get(runId);
   const signal = runSession?.abortController.signal;
 
-  void session
-    .prompt(input, { signal })
-    .catch((err) => {
-      const status = signal?.aborted ? "interrupted" : "error";
-      finalizeOnce(status);
-      console.error(
-        `[run-executor] AgentSession failed for ${runId}:`,
-        err instanceof Error ? err.message : String(err),
-      );
-    });
+  void session.prompt(input, { signal }).catch((err) => {
+    const status = signal?.aborted ? "interrupted" : "error";
+    finalizeOnce(status);
+    console.error(
+      `[run-executor] AgentSession failed for ${runId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  });
 
   return { runId, attemptId };
 }
@@ -260,4 +256,3 @@ function buildRunStatusRevision(
     updatedAt: Date.now(),
   };
 }
-

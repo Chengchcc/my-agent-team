@@ -14,10 +14,7 @@ import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
-import {
-  escapeRegExp,
-  getOrCreateAccumulator,
-} from "./projection.js";
+import { escapeRegExp, getOrCreateAccumulator } from "./projection.js";
 import { createConversationService, parseThreadId } from "./service.js";
 
 export interface ConversationFeature {
