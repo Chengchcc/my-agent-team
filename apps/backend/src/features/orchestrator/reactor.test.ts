@@ -87,13 +87,22 @@ interface FakeSupervisor extends RunSupervisor {
 
 function fakeSupervisor(): FakeSupervisor {
   const startedRuns: Array<{ runId: string; threadId: string; spec: Record<string, unknown> }> = [];
+  const active = new Map();
   const self = {
     startedRuns,
     startMainRun: async (runId: string, threadId: string, spec: Record<string, unknown>) => {
       startedRuns.push({ runId, threadId, spec });
+      active.set(runId, { abortController: new AbortController() });
       return { runId, attemptId: `attempt-${runId}` };
     },
+    getActive: () => active as ReadonlyMap<string, { abortController: AbortController }>,
+    cancel: (runId: string) => {
+      active.get(runId)?.abortController.abort();
+      return true;
+    },
     onRunComplete: () => {},
+    notifyRunComplete: async () => {},
+    getDb: () => ({ query: () => ({ get: () => null }) }),
   } as unknown as FakeSupervisor;
   return self;
 }

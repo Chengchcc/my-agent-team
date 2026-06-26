@@ -114,8 +114,8 @@ export class AgentSession {
   #abortController: AbortController | null = null;
   #lastError: string | null = null;
   #retryCount = 0;
-  #steeringBuf: import("@my-agent-team/message").Message[] = [];
-  #followUpBuf: import("@my-agent-team/message").Message[] = [];
+  #steeringBuf: Message[] = [];
+  #followUpBuf: Message[] = [];
 
   #steering: SteeringQueue = {
     drain: () => {
@@ -242,7 +242,8 @@ export class AgentSession {
   }
 
   followUp(text: string): void {
-    if (!this.#agent) throw new Error("followUp requires an initialized agent; call prompt() first");
+    if (!this.#agent)
+      throw new Error("followUp requires an initialized agent; call prompt() first");
     this.#followUpBuf.push({ role: "user", text });
     this.#emitQueueUpdate();
   }

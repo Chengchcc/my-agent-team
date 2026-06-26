@@ -33,17 +33,25 @@ function makeJob(overrides: Partial<CronJobRow> = {}): CronJobRow {
 function minimalDeps(overrides: Record<string, unknown> = {}): any {
   return {
     cronSvc: { port: { listEnabledCronJobs: () => [] as CronJobRow[] } },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dispatcher: null as any,
+    config: { dataDir: "/tmp", anthropicApiKey: "test" },
+    agentSvc: {
+      getById: async () => ({
+        modelName: "claude",
+        modelProvider: "anthropic",
+        modelBaseUrl: null,
+        permissionMode: "ask",
+        maxSteps: null,
+      }),
+    },
     supervisor: {
       cancel: () => {},
       onRunComplete: () => {},
+      startMainRun: async (id: string) => ({ runId: id, attemptId: `att-${id}` }),
+      getActive: () => new Map() as ReadonlyMap<string, { abortController: AbortController }>,
+      notifyRunComplete: async () => {},
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     opsStore: null as any,
-    buildSpec: async () => ({}) as Record<string, unknown>,
     idGen: () => "r",
-    trace: () => ({ traceId: "t", traceparent: "tp" }),
     ...overrides,
   };
 }
@@ -179,7 +187,7 @@ describe("createCronScheduler", () => {
         },
       }),
     );
-    listener!("thread-1", "r1", "completed", "main");
+    listener!("thread-1", "r1", "succeeded", "main");
     // No retry events for completed runs
     expect(appendRunEvent).not.toHaveBeenCalled();
     scheduler.dispose();
@@ -326,7 +334,7 @@ describe("createCronScheduler", () => {
     );
     // Call onRunComplete for the watched run — watchdog cleanup path exercises
     // without throwing even when no watchdog was pre-registered.
-    listener!("thread-1", "r-wd", "completed", "main");
+    listener!("thread-1", "r-wd", "succeeded", "main");
     scheduler.dispose();
   });
 });

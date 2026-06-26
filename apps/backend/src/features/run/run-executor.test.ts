@@ -1,95 +1,23 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  mockAgentSvc,
+  mockConfig,
+  mockOpsStore,
+  mockSupervisor,
+  testDB,
+  waitForFinalize,
+} from "../../../test-helpers/mock-deps.js";
 import { executeAgentRun } from "./run-executor.js";
-import { RunSupervisor } from "./supervisor.js";
-
-// ─── Helpers ──────────────────────────────────────────────
-
-function makeDB(): Database {
-  const db = new Database(":memory:");
-  db.exec("PRAGMA journal_mode=WAL");
-  return db;
-}
-
-function mockAgentSvc() {
-  return {
-    getById: async () => ({
-      modelName: "claude",
-      modelProvider: "anthropic",
-      modelBaseUrl: null,
-      permissionMode: "ask",
-      maxSteps: null,
-    }),
-    exists: async () => true,
-  };
-}
-
-function mockOpsStore() {
-  return {
-    insertRunOrigin: () => {},
-    getRunOrigin: () => null,
-    appendRunEvent: () => {},
-  };
-}
-
-function mockConfig() {
-  return {
-    dataDir: "/tmp",
-    anthropicApiKey: "test",
-    port: 0,
-    host: "",
-    authToken: "",
-    reaperIntervalMs: 0,
-    heartbeatTimeoutMs: 30000,
-    heartbeatIntervalMs: 5000,
-    stepStallTimeoutMs: 120_000,
-    cancelGraceMs: 5000,
-    maxConcurrentRuns: 8,
-    shutdownTimeoutMs: 5000,
-    workspaceRoot: "/tmp",
-    templateDir: "/tmp",
-  };
-}
-
-function makeSupervisor(db: Database): RunSupervisor {
-  return new RunSupervisor({
-    config: mockConfig(),
-    eventLog: {
-      append: async () => {
-        /* no-op */
-      },
-      read: async () => [] as any[],
-      subscribe: () => ({}) as any,
-    } as any,
-    opsStore: mockOpsStore() as any,
-    tracer: {
-      inject: () => ({ traceId: "", traceparent: "" }),
-      startSpan: () => ({}),
-      currentTrace: () => null,
-      link: () => {},
-    } as any,
-    db,
-    onReap: () => {},
-  });
-}
-
-async function waitForFinalize(s: RunSupervisor, runId: string, timeout = 5000): Promise<void> {
-  const start = Date.now();
-  while (s.getActive().has(runId) && Date.now() - start < timeout) {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
-
-// ─── Tests ────────────────────────────────────────────────
+import type { RunSupervisor } from "./supervisor.js";
 
 describe("executeAgentRun completion signal", () => {
-  let db: Database;
+  let db: ReturnType<typeof testDB>;
   let supervisor: RunSupervisor;
 
   beforeAll(() => {
-    db = makeDB();
-    supervisor = makeSupervisor(db);
+    db = testDB();
+    supervisor = mockSupervisor(db);
   });
   afterAll(() => {
     db.close();
@@ -118,11 +46,11 @@ describe("executeAgentRun completion signal", () => {
     return { runId, calls };
   }
 
-  test("conversation: completes, clears active, fires onRunComplete", async () => {
+  test("conversation: completes, fires onRunComplete", async () => {
     const { calls } = await runAndWait({
-      prefix: "conv",
-      threadId: "conv:agent-test",
-      agentId: "agent-test",
+      prefix: "c",
+      threadId: "c:test",
+      agentId: "a",
       originKind: "manual",
     });
     expect(calls).toContain("succeeded");
@@ -130,24 +58,24 @@ describe("executeAgentRun completion signal", () => {
 
   test("orchestrator: fires onRunComplete", async () => {
     const { calls } = await runAndWait({
-      prefix: "orch",
-      threadId: "issue:agent-orch",
-      agentId: "agent-orch",
+      prefix: "o",
+      threadId: "i:a",
+      agentId: "a",
       surface: "orchestrator",
-      senderName: "orchestrator",
+      senderName: "o",
       originKind: "orchestrator",
-      origin: { issueId: "i1", fromStatus: "planned" },
+      origin: { issueId: "i1", fromStatus: "p" },
     });
     expect(calls).toContain("succeeded");
   });
 
   test("cron: fires onRunComplete", async () => {
     const { calls } = await runAndWait({
-      prefix: "cron",
-      threadId: "cron:owner",
-      agentId: "agent-cron",
+      prefix: "cr",
+      threadId: "cr:o",
+      agentId: "a",
       surface: "cron",
-      senderName: "cron",
+      senderName: "cr",
       originKind: "cron",
     });
     expect(calls).toContain("succeeded");

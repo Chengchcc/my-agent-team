@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import {
@@ -109,6 +110,7 @@ export async function executeAgentRun(
   // ── Model ──────────────────────────────────────────────
   const agent = await agentSvc.getById(agentId);
   const cwd = join(config.dataDir, "agents", agentId);
+  mkdirSync(cwd, { recursive: true });
 
   const model = new AnthropicChatModel({
     apiKey: config.anthropicApiKey,
