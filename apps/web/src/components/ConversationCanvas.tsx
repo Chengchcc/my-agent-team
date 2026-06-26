@@ -23,13 +23,15 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
     useConversation(conversationId, snapshot);
   const { viewerMemberId, roster, items, streamConn, error, todos, triggerMode } = state;
 
-  // Derive status label from open-message state + runStatus.
+  // W3+W5: use the most recent agent run's status, not first-found.
+  // Scan from newest to oldest to get the current run's transient state.
   const isAwaiting = state.items.some(
     (item) =>
       item.kind === "message" && item.sender.kind === "agent" && item.content.state === "waiting",
   );
-  const runStatusLabel = (() => {
-    for (const item of state.items) {
+  const currentRunStatus = (() => {
+    for (let i = state.items.length - 1; i >= 0; i--) {
+      const item = state.items[i]!;
       if (item.kind === "message" && item.sender.kind === "agent" && item.content.runStatus) {
         return item.content.runStatus;
       }
@@ -38,9 +40,9 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
   })();
   const label = isAwaiting
     ? "Awaiting Approval"
-    : runStatusLabel === "retrying"
+    : currentRunStatus === "retrying"
       ? "Retrying..."
-      : runStatusLabel === "compacting"
+      : currentRunStatus === "compacting"
         ? "Compacting..."
         : busy
           ? "Running"

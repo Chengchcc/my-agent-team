@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { Database } from "bun:sqlite";
 import { type LedgerEntry, parseLedgerEntry } from "@my-agent-team/conversation";
 import {
@@ -74,12 +75,15 @@ export function watchConversation(
 
   const run = async () => {
     if (aborted) return;
+    // L5: use afterSeq query param + Last-Event-ID header for proper SSE reconnect
     const url = `${backendUrl}/api/conversations/${conversationId}/events?afterSeq=${afterSeq}`;
+    const headers = { ...reqHeaders };
+    if (afterSeq > 0) headers["Last-Event-ID"] = String(afterSeq);
 
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
     try {
-      const resp = await fetch(url, { headers: reqHeaders });
+      const resp = await fetch(url, { headers });
 
       if (!resp.ok || !resp.body) {
         console.error(`[sse-watcher] failed to connect: ${resp.status}`);
@@ -184,15 +188,20 @@ async function processEntry(
 ): Promise<void> {
   if (entry.seq <= currentSeq) return;
 
-  // ─── surface.control ───
+  // ─── surface.control (L8: validated with zod) ───
   if (entry.kind === "surface.control") {
-    let control: { type: string; oldConversationId: string; newConversationId: string };
-    try {
-      control = JSON.parse(entry.content);
-    } catch {
+    const SurfaceControlSchema = z.object({
+      type: z.string(),
+      oldConversationId: z.string(),
+      newConversationId: z.string(),
+    });
+    const parsed = SurfaceControlSchema.safeParse(JSON.parse(entry.content));
+    if (!parsed.success) {
+      console.error(`[sse-watcher] malformed surface.control at seq=${entry.seq}:`, parsed.error.message);
       updatePushedSeq(db, larkChatId, entry.seq);
       return;
     }
+    const control = parsed.data;
     if (
       control.type === "lark.start_new_conversation" &&
       control.oldConversationId &&
