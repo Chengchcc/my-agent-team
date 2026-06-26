@@ -153,11 +153,11 @@ export function createRuntimeOpsService(deps: {
       let items = rows.map((r) => {
         const attempt = db
           .query(
-            "SELECT attempt_id, heartbeat_at, started_at, ended_at FROM attempt WHERE run_id = ? ORDER BY started_at DESC LIMIT 1",
+            "SELECT seq, heartbeat_at, started_at, ended_at FROM attempt WHERE run_id = ? ORDER BY seq DESC LIMIT 1",
           )
           .get(r.run_id) as
           | {
-              attempt_id: string;
+              seq: number;
               heartbeat_at: number | null;
               started_at: number;
               ended_at: number | null;
@@ -192,7 +192,7 @@ export function createRuntimeOpsService(deps: {
           traceId: origin?.traceId ?? null,
           startedAt: r.started_at,
           endedAt: r.ended_at,
-          latestAttemptId: attempt?.attempt_id ?? null,
+          latestAttemptId: attempt?.seq?.toString() ?? null,
           heartbeatAgeMs,
           runnerTransport: transport,
           lastEventType: lastEvent?.type ?? null,
@@ -234,10 +234,10 @@ export function createRuntimeOpsService(deps: {
       // Aligns with listRuns (DESC LIMIT 1) and diagnoseRun which assumes [0] = latest.
       const attempts = db
         .query(
-          "SELECT attempt_id, heartbeat_at, started_at, ended_at FROM attempt WHERE run_id = ? ORDER BY started_at DESC",
+          "SELECT seq, heartbeat_at, started_at, ended_at FROM attempt WHERE run_id = ? ORDER BY seq DESC",
         )
         .all(runId) as Array<{
-        attempt_id: string;
+        seq: number;
         heartbeat_at: number | null;
         started_at: number;
         ended_at: number | null;
@@ -272,8 +272,8 @@ export function createRuntimeOpsService(deps: {
             ? session.transportKind
             : "detached";
           return {
-            attemptId: a.attempt_id,
-            attemptSeq: a.attempt_id,
+            attemptId: a.seq?.toString() ?? null,
+            attemptSeq: a.seq?.toString() ?? null,
             heartbeatAt: a.heartbeat_at,
             heartbeatAgeMs: a.heartbeat_at ? Date.now() - a.heartbeat_at : null,
             startedAt: a.started_at,

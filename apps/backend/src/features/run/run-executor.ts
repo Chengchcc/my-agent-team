@@ -195,7 +195,7 @@ export async function executeAgentRun(
     if (finalized) return;
     finalized = true;
     void supervisor
-      .notifyRunComplete(sessionId, runId, status, "main", attemptId)
+      .notifyRunComplete(sessionId, runId, status, "main", attemptSeq)
       .catch((err) => console.error(`[run-executor] notifyRunComplete failed for ${runId}:`, err));
     if (req.onComplete) req.onComplete(runId, status);
     // Phase 2: don't dispose session here (cross-run persistence)

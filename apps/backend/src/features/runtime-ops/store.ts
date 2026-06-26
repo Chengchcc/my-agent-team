@@ -15,7 +15,8 @@ function toRunOpsEvent(r: typeof schema.runOpsEvent.$inferSelect): RunOpsEventTy
   return {
     seq: r.seq,
     runId: r.runId,
-    attemptId: r.attemptId,
+    attemptId: r.attemptSeq?.toString() ?? null,
+    attemptSeq: r.attemptSeq?.toString() ?? null,
     kind: r.kind as RunOpsEventType["kind"],
     payload: JSON.parse(r.payload) as Record<string, unknown>,
     traceId: r.traceId,
@@ -65,6 +66,7 @@ export class RuntimeOpsStore {
   appendRunEvent(input: {
     runId: string;
     attemptId?: string;
+    attemptSeq?: number;
     kind: RunOpsEventKind;
     traceId?: string;
     payload?: Record<string, unknown>;
@@ -73,7 +75,7 @@ export class RuntimeOpsStore {
       .insert(schema.runOpsEvent)
       .values({
         runId: input.runId,
-        attemptId: input.attemptId ?? null,
+        attemptSeq: input.attemptSeq ?? null,
         kind: input.kind,
         payload: JSON.stringify(input.payload ?? {}),
         traceId: input.traceId ?? null,

@@ -37,7 +37,9 @@ export type RunOpsEventKind =
 export interface RunOpsEvent {
   seq: number;
   runId: string;
+  /** @deprecated use attemptSeq instead */
   attemptId: string | null;
+  attemptSeq: string | null;
   kind: RunOpsEventKind;
   payload: Record<string, unknown>;
   traceId: string | null;

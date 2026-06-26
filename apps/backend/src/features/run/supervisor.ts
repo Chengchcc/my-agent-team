@@ -96,13 +96,13 @@ export class RunSupervisor {
     // Long-running agent sessions are NOT stale — only orphaned DB rows.
     const orphans = this.#db
       .query(
-        `SELECT a.run_id, a.attempt_id, r.thread_id, r.kind
+        `SELECT a.run_id, a.seq, r.thread_id, r.kind
          FROM attempt a JOIN run r ON a.run_id = r.run_id
          WHERE a.ended_at IS NULL AND r.ended_at IS NULL`,
       )
       .all() as Array<{
       run_id: string;
-      attempt_id: string;
+      seq: number;
       thread_id: string;
       kind: string;
     }>;
@@ -112,7 +112,7 @@ export class RunSupervisor {
       // Skip if session is still running in this process
       if (this.#active.has(row.run_id)) continue;
 
-      const finalized = this.#finalizeRun(row.run_id, row.attempt_id, "interrupted");
+      const finalized = this.#finalizeRun(row.run_id, row.seq, "interrupted");
       if (!finalized) continue;
       reaped = true;
 
@@ -125,7 +125,7 @@ export class RunSupervisor {
         try {
           await listener(row.thread_id, row.run_id, "interrupted", kind);
         } catch (err) {
-          this.#markProjectionDegraded(row.run_id, row.attempt_id, err);
+          this.#markProjectionDegraded(row.run_id, row.seq, err);
         }
       }
     }
@@ -135,25 +135,25 @@ export class RunSupervisor {
   // ─── Run/attempt lifecycle ─────────────────────────
 
   /** CAS finalize: first writer wins. Returns true if this call finalized the run. */
-  #finalizeRun(runId: string, attemptId: string | null, status: string): boolean {
+  #finalizeRun(runId: string, attemptSeq: number | null, status: string): boolean {
     const now = Date.now();
     const result = this.#db.transaction(() => {
       const r = this.#db.run(
         "UPDATE run SET status = ?, ended_at = ? WHERE run_id = ? AND ended_at IS NULL",
         [status, now, runId],
       );
-      if (attemptId) {
-        this.#db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ? AND ended_at IS NULL", [
-          now,
-          attemptId,
-        ]);
+      if (attemptSeq != null) {
+        this.#db.run(
+          "UPDATE attempt SET ended_at = ? WHERE run_id = ? AND seq = ? AND ended_at IS NULL",
+          [now, runId, attemptSeq],
+        );
       }
       return r.changes;
     })();
     return result > 0;
   }
 
-  #markProjectionDegraded(runId: string, attemptId: string | null, err: unknown): void {
+  #markProjectionDegraded(runId: string, attemptSeq: number | null, err: unknown): void {
     const reason = err instanceof Error ? err.message : String(err);
     this.#db.run(
       "UPDATE run SET degraded_reason = ? WHERE run_id = ? AND degraded_reason IS NULL",
@@ -161,7 +161,7 @@ export class RunSupervisor {
     );
     this.#opts.opsStore.appendRunEvent({
       runId,
-      attemptId: attemptId ?? undefined,
+      attemptSeq: attemptSeq ?? undefined,
       kind: "projection_degraded",
       payload: { reason },
     });
@@ -177,22 +177,28 @@ export class RunSupervisor {
     _opts?: Record<string, unknown>,
   ): Promise<{ runId: string; attemptId: string; attemptSeq: number }> {
     const agentId = (spec.agentId as string) ?? threadId;
-    /** @deprecated use attemptSeq instead */
-    const attemptId = `att-${runId}`;
-    const attemptSeq = 1; // Phase 3 replaces this with MAX(seq)+1 query
     const now = Date.now();
 
+    let seq = 1;
     this.#db.transaction(() => {
       this.#db.run(
         "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
         [runId, threadId, now],
       );
-      this.#db.run("INSERT INTO attempt (attempt_id, run_id, started_at) VALUES (?, ?, ?)", [
-        attemptId,
+      const row = this.#db
+        .query("SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM attempt WHERE run_id = ?")
+        .get(runId) as { n: number } | undefined;
+      seq = row?.n ?? 1;
+      this.#db.run("INSERT INTO attempt (run_id, seq, started_at) VALUES (?, ?, ?)", [
         runId,
+        seq,
         now,
       ]);
     })();
+
+    /** @deprecated use attemptSeq instead */
+    const attemptId = `att-${runId}`;
+    const attemptSeq = seq;
 
     const session: RunSession = {
       runId,
@@ -252,15 +258,15 @@ export class RunSupervisor {
     runId: string,
     status: string,
     kind: string,
-    attemptId: string | null = null,
+    attemptSeq: number | null = null,
   ): Promise<void> {
-    this.#finalizeRun(runId, attemptId, status);
+    this.#finalizeRun(runId, attemptSeq, status);
     this.#active.delete(runId);
     for (const listener of this.#onRunComplete) {
       try {
         await listener(threadId, runId, status, kind);
       } catch (err) {
-        this.#markProjectionDegraded(runId, attemptId, err);
+        this.#markProjectionDegraded(runId, attemptSeq, err);
       }
     }
   }

@@ -26,19 +26,24 @@ export const run = sqliteTable(
 );
 
 // ─── attempt ───────────────────────────────────────────────────────
+// PR-3: PK changed from attemptId to composite (runId, seq).
+// attemptId column removed; seq is a run-scoped ordinal (1, 2, …).
 export const attempt = sqliteTable(
   "attempt",
   {
-    attemptId: text().primaryKey(),
     runId: text()
       .notNull()
       .references(() => run.runId, { onDelete: "cascade" }),
+    seq: integer().notNull(),
     pid: integer(),
     heartbeatAt: integer({ mode: "number" }),
     startedAt: integer({ mode: "number" }).notNull(),
     endedAt: integer({ mode: "number" }),
   },
-  (table) => [index("idx_attempt_run").on(table.runId, table.startedAt)],
+  (table) => [
+    primaryKey({ columns: [table.runId, table.seq] }),
+    index("idx_attempt_run").on(table.runId, table.startedAt),
+  ],
 );
 
 // ─── run_ops_event ─────────────────────────────────────────────────
@@ -47,7 +52,8 @@ export const runOpsEvent = sqliteTable(
   {
     seq: integer().primaryKey({ autoIncrement: true }),
     runId: text().notNull(),
-    attemptId: text(),
+    /** PR-3: changed from attemptId (text) to attemptSeq (integer). */
+    attemptSeq: integer(),
     kind: text().notNull(),
     payload: text().notNull().default("{}"),
     traceId: text(),

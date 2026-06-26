@@ -27,7 +27,7 @@ describe("RuntimeOpsStore", () => {
     test("appendRunEvent and getRunEvents round-trip", () => {
       store.appendRunEvent({
         runId: "r1",
-        attemptId: "a1",
+        attemptSeq: 1,
         kind: "attempt_started",
         traceId: "trace-abc",
         payload: { mode: "run" },
@@ -37,7 +37,7 @@ describe("RuntimeOpsStore", () => {
       expect(events).toHaveLength(1);
       expect(events[0]!.kind).toBe("attempt_started");
       expect(events[0]!.runId).toBe("r1");
-      expect(events[0]!.attemptId).toBe("a1");
+      expect(events[0]!.attemptSeq).toBe("1");
       expect(events[0]!.traceId).toBe("trace-abc");
     });
 
