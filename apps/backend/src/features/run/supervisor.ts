@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import type { AgentEvent } from "@my-agent-team/framework";
 import type { MessageRevision } from "@my-agent-team/message";
 import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
@@ -21,7 +21,10 @@ export interface RunSession {
   /** @deprecated use attemptSeq instead */
   attemptId: string;
   attemptSeq: number;
+  /** @deprecated use sessionId instead */
   threadId: string;
+  /** Persistent memory line key (same value as threadId). */
+  sessionId: string;
   agentId: string;
   kind: "main" | "reflect";
   abortController: AbortController;
@@ -94,14 +97,14 @@ export class RunSupervisor {
     // Long-running agent sessions are NOT stale — only orphaned DB rows.
     const orphans = this.#db
       .query(
-        `SELECT a.run_id, a.seq, r.thread_id, r.kind
+        `SELECT a.run_id, a.seq, r.session_id, r.kind
          FROM attempt a JOIN run r ON a.run_id = r.run_id
          WHERE a.ended_at IS NULL AND r.ended_at IS NULL`,
       )
       .all() as Array<{
       run_id: string;
       seq: number;
-      thread_id: string;
+      session_id: string;
       kind: string;
     }>;
 
@@ -121,7 +124,7 @@ export class RunSupervisor {
       const kind = row.kind === "reflect" ? "reflect" : "main";
       for (const listener of this.#onRunComplete) {
         try {
-          await listener(row.thread_id, row.run_id, "interrupted", kind);
+          await listener(row.session_id, row.run_id, "interrupted", kind);
         } catch (err) {
           this.#markProjectionDegraded(row.run_id, row.seq, err);
         }
@@ -180,7 +183,7 @@ export class RunSupervisor {
     let seq = 1;
     this.#db.transaction(() => {
       this.#db.run(
-        "INSERT INTO run (run_id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
+        "INSERT INTO run (run_id, session_id, status, started_at) VALUES (?, ?, 'running', ?)",
         [runId, threadId, now],
       );
       const row = this.#db
@@ -203,6 +206,7 @@ export class RunSupervisor {
       attemptId,
       attemptSeq,
       threadId,
+      sessionId: threadId,
       agentId,
       kind: "main",
       abortController: new AbortController(),

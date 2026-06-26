@@ -115,7 +115,7 @@ export function createRuntimeOpsService(deps: {
     }): RunOpsListItem[] {
       const raw = params.limit ?? 50;
       const limit = Number.isFinite(raw) && raw > 0 && raw <= 500 ? Math.floor(raw) : 50;
-      let sql = `SELECT r.run_id, r.thread_id, r.agent_id, r.kind, r.parent_run_id, r.status, r.started_at, r.ended_at
+      let sql = `SELECT r.run_id, r.session_id, r.agent_id, r.kind, r.parent_run_id, r.status, r.started_at, r.ended_at
                  FROM run r WHERE 1=1`;
       const args: (string | number)[] = [];
       if (params.agentId) {
@@ -123,13 +123,13 @@ export function createRuntimeOpsService(deps: {
         args.push(params.agentId);
       }
       if (params.threadId) {
-        sql += " AND r.thread_id = ?";
+        sql += " AND r.session_id = ?";
         args.push(params.threadId);
       }
       if (params.conversationId) {
         // Escape LIKE wildcards so user input doesn't get interpreted as patterns
         const escaped = params.conversationId.replace(/[%_]/g, "\\$&");
-        sql += " AND r.thread_id LIKE ? ESCAPE '\\'";
+        sql += " AND r.session_id LIKE ? ESCAPE '\\'";
         args.push(`${escaped}:%`);
       }
       if (params.status) {
@@ -141,7 +141,7 @@ export function createRuntimeOpsService(deps: {
 
       const rows = db.query(sql).all(...args) as Array<{
         run_id: string;
-        thread_id: string;
+        session_id: string;
         agent_id: string;
         kind: string;
         parent_run_id: string | null;
@@ -183,7 +183,7 @@ export function createRuntimeOpsService(deps: {
 
         return {
           runId: r.run_id,
-          threadId: r.thread_id,
+          threadId: r.session_id,
           agentId: r.agent_id,
           agentName: resolveName(r.agent_id),
           kind: r.kind,
@@ -223,7 +223,7 @@ export function createRuntimeOpsService(deps: {
     getRunDetail(runId: string): RunOpsDetail | null {
       const run = db
         .query(
-          "SELECT run_id, thread_id, agent_id, kind, parent_run_id, status, started_at, ended_at FROM run WHERE run_id = ?",
+          "SELECT run_id, session_id, agent_id, kind, parent_run_id, status, started_at, ended_at FROM run WHERE run_id = ?",
         )
         .get(runId) as Record<string, unknown> | undefined;
       if (!run) return null;
@@ -254,7 +254,7 @@ export function createRuntimeOpsService(deps: {
       return {
         run: {
           runId: run.run_id as string,
-          threadId: run.thread_id as string,
+          threadId: run.session_id as string,
           agentId: run.agent_id as string,
           agentName: resolveName(run.agent_id as string),
           kind: run.kind as string,
@@ -323,9 +323,9 @@ export function createRuntimeOpsService(deps: {
 
     async recover(runId: string): Promise<RecoverRunResult> {
       const run = db
-        .query("SELECT status, agent_id, thread_id, kind FROM run WHERE run_id = ?")
+        .query("SELECT status, agent_id, session_id, kind FROM run WHERE run_id = ?")
         .get(runId) as
-        | { status: string; agent_id: string; thread_id: string; kind: string }
+        | { status: string; agent_id: string; session_id: string; kind: string }
         | undefined;
       if (!run) return { state: "already_terminal", status: "not_found" };
       if (run.status !== "running") return { state: "already_terminal", status: run.status };
@@ -339,7 +339,7 @@ export function createRuntimeOpsService(deps: {
 
       // Run is DB-running but not in memory (process restart orphan).
       // Use notifyRunComplete for single-completion-authority finalization.
-      await supervisor.notifyRunComplete(run.thread_id, runId, "interrupted", run.kind);
+      await supervisor.notifyRunComplete(run.session_id, runId, "interrupted", run.kind);
       return { state: "marked_interrupted", reason: "heartbeat_timeout" };
     },
 
@@ -491,12 +491,12 @@ export function createRuntimeOpsService(deps: {
     async getRunInsights(runId: string): Promise<RunInsights | null> {
       const run = db
         .query(
-          "SELECT run_id, thread_id, agent_id, status, started_at, ended_at FROM run WHERE run_id = ?",
+          "SELECT run_id, session_id, agent_id, status, started_at, ended_at FROM run WHERE run_id = ?",
         )
         .get(runId) as
         | {
             run_id: string;
-            thread_id: string;
+            session_id: string;
             agent_id: string;
             status: string;
             started_at: number;
@@ -509,7 +509,7 @@ export function createRuntimeOpsService(deps: {
         { eventLog, getAgentName },
         {
           runId: run.run_id,
-          threadId: run.thread_id,
+          threadId: run.session_id,
           agentId: run.agent_id,
           status: run.status,
           startedAt: run.started_at,

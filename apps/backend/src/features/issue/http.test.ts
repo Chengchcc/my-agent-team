@@ -515,7 +515,7 @@ describe("detail endpoint", () => {
       createdAt: 1000,
     });
     eventsDb.run(
-      `INSERT INTO run (run_id, thread_id, agent_id, status, started_at, ended_at) VALUES ('r_detail', 't1', 'a1', 'succeeded', 1000, 5000)`,
+      `INSERT INTO run (run_id, session_id, agent_id, status, started_at, ended_at) VALUES ('r_detail', 't1', 'a1', 'succeeded', 1000, 5000)`,
     );
 
     const res = await routes.detail(

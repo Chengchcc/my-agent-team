@@ -221,7 +221,7 @@ export class RuntimeOpsStore {
       .all()
       .map((r) => ({
         runId: r.runId,
-        threadId: r.threadId,
+        threadId: r.sessionId,
         agentId: r.agentId,
         status: r.status,
         kind: r.kind,

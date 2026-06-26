@@ -152,10 +152,16 @@ export function createTransitionReactor(d: TransitionReactorDeps) {
     if (origin?.originKind !== "orchestrator" || !origin.issueId) return;
     const issueId = origin.issueId;
 
-    emitIssueEvent(d.opsStore, issueId, "run.ended", { runId, fromStatus: origin.fromStatus, status });
+    emitIssueEvent(d.opsStore, issueId, "run.ended", {
+      runId,
+      fromStatus: origin.fromStatus,
+      status,
+    });
 
     if (status !== "succeeded") {
-      console.warn(`[orchestrator] run ${runId} for issue ${issueId} ended ${status}; not advancing`);
+      console.warn(
+        `[orchestrator] run ${runId} for issue ${issueId} ended ${status}; not advancing`,
+      );
       return;
     }
 
@@ -163,7 +169,11 @@ export function createTransitionReactor(d: TransitionReactorDeps) {
     if (!issue) return;
 
     const project = (() => {
-      try { return d.projectSvc.getById(issue.projectId); } catch { return null; }
+      try {
+        return d.projectSvc.getById(issue.projectId);
+      } catch {
+        return null;
+      }
     })();
     if (!project?.autoOrchestrate) return;
 
@@ -185,7 +195,9 @@ export function createTransitionReactor(d: TransitionReactorDeps) {
     try {
       advanced = d.issueSvc.applyTransition(issueId, t.to);
       emitIssueEvent(d.opsStore, issueId, "status.advanced", {
-        from: issue.status, to: t.to, by: "reactor",
+        from: issue.status,
+        to: t.to,
+        by: "reactor",
       });
     } catch (err) {
       console.warn(`[orchestrator] applyTransition skipped for ${issueId}: ${String(err)}`);

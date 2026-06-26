@@ -278,13 +278,13 @@ describe("RuntimeOpsStore", () => {
   describe("getRuns", () => {
     test("batch fetches runs by runIds", () => {
       db.run(
-        `INSERT INTO run (run_id, thread_id, agent_id, status, started_at) VALUES ('r1', 't1', 'a1', 'succeeded', 1000)`,
+        `INSERT INTO run (run_id, session_id, agent_id, status, started_at) VALUES ('r1', 't1', 'a1', 'succeeded', 1000)`,
       );
       db.run(
-        `INSERT INTO run (run_id, thread_id, agent_id, status, started_at) VALUES ('r2', 't2', 'a2', 'failed', 2000)`,
+        `INSERT INTO run (run_id, session_id, agent_id, status, started_at) VALUES ('r2', 't2', 'a2', 'failed', 2000)`,
       );
       db.run(
-        `INSERT INTO run (run_id, thread_id, agent_id, status, started_at) VALUES ('r3', 't3', 'a1', 'running', 3000)`,
+        `INSERT INTO run (run_id, session_id, agent_id, status, started_at) VALUES ('r3', 't3', 'a1', 'running', 3000)`,
       );
 
       const runs = store.getRuns(["r1", "r3"]);

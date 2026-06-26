@@ -45,10 +45,10 @@ export function createAgentSvc(
         for (const tid of ids) {
           edb.run("DELETE FROM event_log WHERE thread_id = ?", [tid]);
           edb.run(
-            "DELETE FROM attempt WHERE run_id IN (SELECT run_id FROM run WHERE thread_id = ?)",
+            "DELETE FROM attempt WHERE run_id IN (SELECT run_id FROM run WHERE session_id = ?)",
             [tid],
           );
-          edb.run("DELETE FROM run WHERE thread_id = ?", [tid]);
+          edb.run("DELETE FROM run WHERE session_id = ?", [tid]);
         }
       });
       tx(threadIds);
@@ -76,7 +76,7 @@ export function createAgentSvc(
       const busy = edb
         .query(
           `SELECT 1 FROM attempt WHERE ended_at IS NULL
-           AND run_id IN (SELECT run_id FROM run WHERE thread_id IN (${placeholders})) LIMIT 1`,
+           AND run_id IN (SELECT run_id FROM run WHERE session_id IN (${placeholders})) LIMIT 1`,
         )
         .all(...threadIds);
       if (busy.length > 0) throw new AgentBusyError(agentId);

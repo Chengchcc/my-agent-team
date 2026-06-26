@@ -9,11 +9,12 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 // ─── run (events.db) ───────────────────────────────────────────────
+// PR-6: threadId renamed to sessionId (ID#1b column migration).
 export const run = sqliteTable(
   "run",
   {
     runId: text().primaryKey(),
-    threadId: text().notNull(),
+    sessionId: text().notNull(),
     status: text().notNull().default("running"),
     kind: text().notNull().default("main"),
     parentRunId: text(),
@@ -22,7 +23,7 @@ export const run = sqliteTable(
     startedAt: integer({ mode: "number" }).notNull(),
     endedAt: integer({ mode: "number" }),
   },
-  (table) => [index("idx_run_thread").on(table.threadId, desc(table.startedAt))],
+  (table) => [index("idx_run_thread").on(table.sessionId, desc(table.startedAt))],
 );
 
 // ─── attempt ───────────────────────────────────────────────────────
