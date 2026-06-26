@@ -24,14 +24,17 @@ function flushSend(
   h: { onSend: (chatId: string, text: string, idempotencyKey: string) => Promise<void> },
 ) {
   const timer = sendTimers.get(key);
-  if (timer) { clearTimeout(timer); sendTimers.delete(key); }
+  if (timer) {
+    clearTimeout(timer);
+    sendTimers.delete(key);
+  }
   const pending = pendingSends.get(key);
   if (!pending) return;
   pendingSends.delete(key);
   const [larkChatId] = key.split(":", 1) as [string];
-  void h.onSend(larkChatId, pending.text, pending.idempotencyKey).catch((err) =>
-    console.error(`[lark] throttle flush failed for ${key}:`, err),
-  );
+  void h
+    .onSend(larkChatId, pending.text, pending.idempotencyKey)
+    .catch((err) => console.error(`[lark] throttle flush failed for ${key}:`, err));
 }
 
 export interface SseWatcherDeps {
@@ -279,7 +282,10 @@ async function processEntry(
   if (!isTerminal) {
     pendingSends.set(sendKey, { text, idempotencyKey });
     if (!sendTimers.has(sendKey)) {
-      sendTimers.set(sendKey, setTimeout(() => flushSend(sendKey, h), 500));
+      sendTimers.set(
+        sendKey,
+        setTimeout(() => flushSend(sendKey, h), 500),
+      );
     }
     updatePushedSeq(db, larkChatId, entry.seq);
     return;
