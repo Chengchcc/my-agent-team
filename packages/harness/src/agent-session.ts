@@ -67,7 +67,12 @@ export interface ContextUsage {
 // Session-level events — extends AgentEvent with session lifecycle
 export type AgentSessionEvent =
   | Exclude<AgentEvent, { type: "agent_end" }>
-  | { type: "agent_end"; messages: Message[]; willRetry: boolean; status: "succeeded" | "error" | "interrupted" }
+  | {
+      type: "agent_end";
+      messages: Message[];
+      willRetry: boolean;
+      status: "succeeded" | "error" | "interrupted";
+    }
   | { type: "queue_update"; steering: string[]; followUp: string[] }
   | {
       type: "compaction_start";
