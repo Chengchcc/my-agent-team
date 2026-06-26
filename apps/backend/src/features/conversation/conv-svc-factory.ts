@@ -15,10 +15,8 @@ import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
 import {
-  clearAccumulator,
   escapeRegExp,
   getOrCreateAccumulator,
-  onRunComplete as runOnRunComplete,
 } from "./projection.js";
 import { createConversationService, parseThreadId } from "./service.js";
 
@@ -92,13 +90,6 @@ export function createConversationFeature(
     void convSvc.broadcastMessage(entry, { excludeMemberId: sender }).catch(() => {});
   };
 
-  const handleRunComplete = async (threadId: string, runId: string, status: string) => {
-    const cid = parseThreadId(threadId).conversationId;
-    if (!cid) return;
-    await runOnRunComplete(threadId, runId, status, convPort, convSvc, _opsStore, "main");
-    clearAccumulator(runId);
-  };
-
   const convSvc = createConversationService({
     port: convPort,
     lock,
@@ -125,9 +116,6 @@ export function createConversationFeature(
         onAssistantMessage: (payload) => {
           const rev = payload as unknown as MessageRevision;
           void handleAssistantMessage(threadId, rev.runId ?? _runId, rev);
-        },
-        onComplete: (runId, status) => {
-          void handleRunComplete(threadId, runId, status);
         },
       });
     },

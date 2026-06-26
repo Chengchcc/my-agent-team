@@ -180,52 +180,64 @@ export async function executeAgentRun(
     contextManager,
   });
 
-  // Wire events → caller callbacks
+  // ── Completion wiring ──────────────────────────────────
+  // Once-guard: prevent double-finalize from agent_end + abort/catch
+  let finalized = false;
+  const finalizeOnce = (status: string) => {
+    if (finalized) return;
+    finalized = true;
+    void supervisor
+      .notifyRunComplete(threadId, runId, status, "main", attemptId)
+      .catch((err) =>
+        console.error(`[run-executor] notifyRunComplete failed for ${runId}:`, err),
+      );
+    if (onComplete) onComplete(runId, status);
+    if (session.state !== "waiting") {
+      session.dispose();
+      removeSession(runId);
+    }
+  };
+
+  // Track ordinal for correct runStatus targeting
+  let lastAssistantOrdinal = 0;
+
   session.subscribe((event) => {
-    if (event.type === "message" && onAssistantMessage) {
-      onAssistantMessage(event.payload);
+    if (event.type === "message") {
+      if (event.payload?.role === "assistant") {
+        const m = /:assistant:(\d+)$/.exec(event.payload.messageId ?? "");
+        if (m) lastAssistantOrdinal = Math.max(lastAssistantOrdinal, Number(m[1]));
+      }
+      if (onAssistantMessage) onAssistantMessage(event.payload);
     }
-    if (event.type === "agent_end" && onComplete) {
-      onComplete(runId, event.willRetry ? "error" : "succeeded");
+    if (event.type === "agent_end") {
+      finalizeOnce(event.status ?? "succeeded");
     }
-    // Map session-level events → runStatus on MessageRevision (spec §6.4)
+    // Map session-level events → runStatus on MessageRevision
     if (event.type === "compaction_start" && onAssistantMessage) {
-      onAssistantMessage(buildRunStatusRevision(runId, "compacting"));
+      onAssistantMessage(buildRunStatusRevision(runId, "compacting", lastAssistantOrdinal));
     }
     if (event.type === "compaction_end" && onAssistantMessage) {
-      onAssistantMessage(buildRunStatusRevision(runId, undefined));
+      onAssistantMessage(buildRunStatusRevision(runId, undefined, lastAssistantOrdinal));
     }
     if (event.type === "auto_retry_start" && onAssistantMessage) {
-      onAssistantMessage(buildRunStatusRevision(runId, "retrying"));
+      onAssistantMessage(buildRunStatusRevision(runId, "retrying", lastAssistantOrdinal));
     }
     if (event.type === "auto_retry_end" && onAssistantMessage) {
-      onAssistantMessage(buildRunStatusRevision(runId, undefined));
+      onAssistantMessage(buildRunStatusRevision(runId, undefined, lastAssistantOrdinal));
     }
   });
 
-  // Register for resume (ToolApprovalCard interrupt flow)
   registerSession(runId, session);
 
   // ── Fire-and-forget execution ──────────────────────────
-  // Get the abort signal from supervisor's RunSession so cancel() works
   const runSession = supervisor.getActive().get(runId);
   const signal = runSession?.abortController.signal;
 
   void session
     .prompt(input, { signal })
-    .then(() => {
-      // Run completed normally — cleanup if not waiting for approval
-      if (session.state !== "waiting") {
-        session.dispose();
-        removeSession(runId);
-      }
-    })
     .catch((err) => {
-      // Run failed — ensure cleanup
-      if (session.state !== "waiting") {
-        session.dispose();
-        removeSession(runId);
-      }
+      const status = signal?.aborted ? "interrupted" : "error";
+      finalizeOnce(status);
       console.error(
         `[run-executor] AgentSession failed for ${runId}:`,
         err instanceof Error ? err.message : String(err),
@@ -235,18 +247,17 @@ export async function executeAgentRun(
   return { runId, attemptId };
 }
 
-/** Build a synthetic MessageRevision to carry runStatus to the frontend.
- *  Uses the well-known assistant messageId pattern so the frontend
- *  mergeMessageRevision applies runStatus to the correct message. */
 function buildRunStatusRevision(
   runId: string,
   runStatus: "retrying" | "compacting" | undefined,
+  ordinal = 0,
 ): Record<string, unknown> {
   return {
-    messageId: `run:${runId}:assistant:0`,
+    messageId: `run:${runId}:assistant:${ordinal}`,
     state: "streaming",
     role: "assistant",
     runStatus,
     updatedAt: Date.now(),
   };
 }
+

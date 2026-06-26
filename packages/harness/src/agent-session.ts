@@ -67,7 +67,7 @@ export interface ContextUsage {
 // Session-level events — extends AgentEvent with session lifecycle
 export type AgentSessionEvent =
   | Exclude<AgentEvent, { type: "agent_end" }>
-  | { type: "agent_end"; messages: Message[]; willRetry: boolean }
+  | { type: "agent_end"; messages: Message[]; willRetry: boolean; status: "succeeded" | "error" }
   | { type: "queue_update"; steering: string[]; followUp: string[] }
   | {
       type: "compaction_start";
@@ -365,14 +365,18 @@ export class AgentSession {
             continue;
           }
 
+          // Set state BEFORE emit so listeners see correct state
+          const finalStatus = this.#lastError ? "error" : "succeeded";
+          this.#state = this.#lastError ? "error" : "done";
+
           this.#emit({
             type: "agent_end",
             messages: this.#agent.thread.messages.slice(),
             willRetry: false,
+            status: finalStatus,
           });
 
           if (this.#lastError) {
-            this.#state = "error";
             this.#emit({
               type: "auto_retry_end",
               success: false,
@@ -380,7 +384,6 @@ export class AgentSession {
               finalError: this.#lastError,
             });
           } else {
-            this.#state = "done";
             if (this.#retryCount > 0) {
               this.#emit({
                 type: "auto_retry_end",
