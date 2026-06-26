@@ -210,8 +210,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
       // ── Append this message to ledger as a MessageRevision (no broadcast — startAgentRun reads from ledger) ──
       const userRev: MessageRevision = {
-        // M17.2 fix: use UUID (not Date.now()) to prevent same-ms collision when
-        // buildPreloadedMessages folds by messageId. Two posts in the same millisecond
+        // M17.2 fix: use UUID to prevent same-ms collision when
+        // the ledger is folded by messageId. Two posts in the same millisecond
         // would share an id and the second would silently overwrite the first.
         messageId: humanMessageId(input.conversationId, input.senderMemberId),
 
