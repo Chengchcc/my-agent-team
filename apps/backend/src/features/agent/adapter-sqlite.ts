@@ -140,12 +140,12 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
         const threadRows = db
           .query("SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?")
           .all(id) as { id: string }[];
-        const threadIds = threadRows.map((r) => r.id);
+        const sessionIds = threadRows.map((r) => r.id);
 
         // Delete projection_messages by thread ID
-        const deletedThreads = threadIds.length;
-        for (const tid of threadIds) {
-          db.run("DELETE FROM projection_messages WHERE thread_id = ?", [tid]);
+        const deletedThreads = sessionIds.length;
+        for (const tid of sessionIds) {
+          db.run("DELETE FROM projection_messages WHERE session_id = ?", [tid]);
           // M20: checkpoint_interrupts and checkpoint_events are NOT in backend.db.
           // They live in checkpointer.sqlite (independent physical database).
           // The old DELETE statements for these tables were dead code — removed.

@@ -20,17 +20,23 @@ export class ConversationBusyError extends Error {
   }
 }
 
-function deriveThreadId(conversationId: string, memberId: string): string {
+function deriveSessionId(conversationId: string, memberId: string): string {
   return `${conversationId}:${memberId}`;
 }
 
-/** Parse a threadId back into its constituent parts.
- *  Inverse of deriveThreadId. First colon separates conversationId from memberId;
+/** Reserved memberId for the conversation owner (the human who owns an
+ *  issue-/cron-spawned conversation). It is a member id, NOT an agent id —
+ *  sessionIds derived from it (`${conversationId}:${OWNER_MEMBER_ID}`) follow
+ *  the standard `${conversationId}:${memberId}` shape, not the agent shape. */
+export const OWNER_MEMBER_ID = "owner";
+
+/** Parse a sessionId back into its constituent parts.
+ *  Inverse of deriveSessionId. First colon separates conversationId from memberId;
  *  memberId may itself contain colons. */
-export function parseThreadId(threadId: string): { conversationId: string; memberId: string } {
-  const idx = threadId.indexOf(":");
-  if (idx < 0) return { conversationId: threadId, memberId: "" };
-  return { conversationId: threadId.slice(0, idx), memberId: threadId.slice(idx + 1) };
+export function parseSessionId(sessionId: string): { conversationId: string; memberId: string } {
+  const idx = sessionId.indexOf(":");
+  if (idx < 0) return { conversationId: sessionId, memberId: "" };
+  return { conversationId: sessionId.slice(0, idx), memberId: sessionId.slice(idx + 1) };
 }
 
 function isHumanMember(members: MemberRow[], memberId: string): boolean {
@@ -48,7 +54,7 @@ export interface ConversationServiceDeps {
   maxConsecutiveAgentHops: number;
   startAgentRun: (
     runId: string,
-    threadId: string,
+    sessionId: string,
     ctx: { conversationId: string; agentMemberId: string; agentId: string; ledgerSeq: number },
   ) => Promise<{ runId: string; attemptSeq: number }>;
   idGen: () => string;
@@ -142,8 +148,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
     for (const target of targets) {
       try {
         const runId = crypto.randomUUID();
-        const threadId = deriveThreadId(conversationId, target.memberId);
-        const { runId: rId } = await startAgentRun(runId, threadId, {
+        const sessionId = deriveSessionId(conversationId, target.memberId);
+        const { runId: rId } = await startAgentRun(runId, sessionId, {
           conversationId,
           agentMemberId: target.memberId,
           agentId: target.agentId,
@@ -391,7 +397,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     },
 
     /** Release the conversation lock when ALL triggered runs complete. */
-    completeRun(conversationId: string, _threadId: string, _runId: string): void {
+    completeRun(conversationId: string, _sessionId: string, _runId: string): void {
       lock.releaseOne(conversationId);
     },
 

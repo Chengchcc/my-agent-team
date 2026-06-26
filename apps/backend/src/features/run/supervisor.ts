@@ -32,13 +32,13 @@ export class RunSupervisor {
   #opts: RunSupervisorOptions;
   #db: Database;
   #onRunComplete: Array<
-    (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>
+    (sessionId: string, runId: string, status: string, kind: string) => void | Promise<void>
   > = [];
   #onRunEvent: Array<
-    (threadId: string, runId: string, event: AgentEvent, kind: string) => void | Promise<void>
+    (sessionId: string, runId: string, event: AgentEvent, kind: string) => void | Promise<void>
   > = [];
   #onRunMessage: Array<
-    (threadId: string, runId: string, revision: MessageRevision, kind: string) => Promise<void>
+    (sessionId: string, runId: string, revision: MessageRevision, kind: string) => Promise<void>
   > = [];
   #reaperTimer: ReturnType<typeof setInterval> | undefined;
   #reaping = false;
@@ -168,18 +168,18 @@ export class RunSupervisor {
 
   async startMainRun(
     runId: string,
-    threadId: string,
+    sessionId: string,
     spec: Record<string, unknown>,
     _opts?: Record<string, unknown>,
   ): Promise<{ runId: string; attemptSeq: number }> {
-    const agentId = (spec.agentId as string) ?? threadId;
+    const agentId = (spec.agentId as string) ?? sessionId;
     const now = Date.now();
 
     let seq = 1;
     this.#db.transaction(() => {
       this.#db.run(
         "INSERT INTO run (run_id, session_id, status, started_at) VALUES (?, ?, 'running', ?)",
-        [runId, threadId, now],
+        [runId, sessionId, now],
       );
       const row = this.#db
         .query("SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM attempt WHERE run_id = ?")
@@ -197,7 +197,7 @@ export class RunSupervisor {
     const session: RunSession = {
       runId,
       attemptSeq,
-      sessionId: threadId,
+      sessionId: sessionId,
       agentId,
       kind: "main",
       abortController: new AbortController(),
@@ -217,28 +217,38 @@ export class RunSupervisor {
   // ─── Public: event callbacks ───────────────────────
 
   onRunComplete(
-    fn: (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>,
+    fn: (sessionId: string, runId: string, status: string, kind: string) => void | Promise<void>,
   ): void {
     this.#onRunComplete.push(fn);
   }
 
   onRunMessage(
-    fn: (threadId: string, runId: string, revision: MessageRevision, kind: string) => Promise<void>,
+    fn: (
+      sessionId: string,
+      runId: string,
+      revision: MessageRevision,
+      kind: string,
+    ) => Promise<void>,
   ): void {
     this.#onRunMessage.push(fn);
   }
 
   onRunEvent(
-    fn: (threadId: string, runId: string, event: AgentEvent, kind: string) => void | Promise<void>,
+    fn: (sessionId: string, runId: string, event: AgentEvent, kind: string) => void | Promise<void>,
   ): void {
     this.#onRunEvent.push(fn);
   }
 
   /** Fire a message event directly (called by AgentSession subscriber).
    *  Replaces the old transport → supervisor message routing. */
-  notifyRunMessage(threadId: string, runId: string, revision: MessageRevision, kind: string): void {
+  notifyRunMessage(
+    sessionId: string,
+    runId: string,
+    revision: MessageRevision,
+    kind: string,
+  ): void {
     for (const fn of this.#onRunMessage) {
-      void fn(threadId, runId, revision, kind).catch((err) =>
+      void fn(sessionId, runId, revision, kind).catch((err) =>
         console.error(`[supervisor] onRunMessage error:`, err),
       );
     }
@@ -247,7 +257,7 @@ export class RunSupervisor {
   /** Fire a run completion event directly (called by AgentSession subscriber).
    *  Finalizes the run row and triggers onRunComplete listeners. */
   async notifyRunComplete(
-    threadId: string,
+    sessionId: string,
     runId: string,
     status: string,
     kind: string,
@@ -257,7 +267,7 @@ export class RunSupervisor {
     this.#active.delete(runId);
     for (const listener of this.#onRunComplete) {
       try {
-        await listener(threadId, runId, status, kind);
+        await listener(sessionId, runId, status, kind);
       } catch (err) {
         this.#markProjectionDegraded(runId, attemptSeq, err);
       }

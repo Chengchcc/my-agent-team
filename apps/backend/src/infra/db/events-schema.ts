@@ -111,14 +111,14 @@ export const eventLog = sqliteTable(
   "event_log",
   {
     seq: integer().primaryKey({ autoIncrement: true }),
-    threadId: text().notNull(),
+    sessionId: text().notNull(),
     runId: text().notNull(),
     event: text().notNull(),
     ts: integer({ mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_event_log_run").on(table.runId, table.seq),
-    index("idx_event_log_thread").on(table.threadId, table.seq),
+    index("idx_event_log_thread").on(table.sessionId, table.seq),
   ],
 );
 

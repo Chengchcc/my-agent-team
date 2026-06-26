@@ -1,3 +1,4 @@
+import { OWNER_MEMBER_ID } from "../conversation/index.js";
 import { LEGAL_TRANSITIONS } from "../orchestrator/transitions.js";
 import type { IssuePriority, IssueRow, IssueStatus } from "./entities.js";
 import type { IssuePort } from "./ports.js";
@@ -67,14 +68,16 @@ export function createIssueService(deps: IssueServiceDeps) {
         throw new ValidationError(`project not found: ${input.projectId}`);
       }
       const issueId = idGen();
-      // M19: threadId uses conversation format (<conversationId>:<memberId>)
-      // instead of "issue:" prefix — so issue runs flow through projection.
-      const threadId = `${issueId}:owner`;
+      // M19: the run line uses the standard conversation sessionId shape
+      // `${conversationId}:${memberId}` (here conversationId === issueId and the
+      // member is the human owner) — so issue runs flow through projection.
+      // It is persisted in the legacy `sessionId` field for compatibility.
+      const sessionId = `${issueId}:${OWNER_MEMBER_ID}`;
       const issue = port.createIssue({
         issueId,
         projectId: input.projectId,
         title: input.title,
-        threadId,
+        sessionId,
         description: input.description,
         priority: input.priority,
         estimatedCompletionAt: input.estimatedCompletionAt,
@@ -93,7 +96,7 @@ export function createIssueService(deps: IssueServiceDeps) {
           });
           convPort.setConversationTitle(issueId, issue.title);
           convPort.addMember({
-            memberId: "owner",
+            memberId: OWNER_MEMBER_ID,
             conversationId: issueId,
             kind: "human",
             displayName: "Owner",

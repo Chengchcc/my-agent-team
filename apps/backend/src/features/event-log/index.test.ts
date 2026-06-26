@@ -96,7 +96,7 @@ describe("sqliteEventLog", () => {
 
     const rows = await log.read({});
     expect(rows.length).toBe(1);
-    expect(rows[0]?.threadId).toBe("t1");
+    expect(rows[0]?.sessionId).toBe("t1");
     expect(rows[0]?.runId).toBe("r1");
     expect(typeof rows[0]?.seq).toBe("number");
     expect(typeof rows[0]?.ts).toBe("number");

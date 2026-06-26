@@ -22,7 +22,7 @@ describe("Issue adapter CRUD", () => {
       issueId: "iss-1",
       projectId: "proj-1",
       title: "Fix login bug",
-      threadId: "th-1",
+      sessionId: "th-1",
       createdAt: 1700000000000,
     });
     expect(issue.issueId).toBe("iss-1");
@@ -44,7 +44,7 @@ describe("Issue adapter CRUD", () => {
       issueId: "iss-2",
       projectId: "proj-1",
       title: "Add dark mode",
-      threadId: "th-2",
+      sessionId: "th-2",
       createdAt: 1700000001000,
     });
     const all = adapter.listIssues();
@@ -58,7 +58,7 @@ describe("Issue adapter CRUD", () => {
       issueId: "iss-3",
       projectId: "proj-2",
       title: "Other project",
-      threadId: "th-3",
+      sessionId: "th-3",
       createdAt: 1700000002000,
     });
     const proj1 = adapter.listIssues({ projectId: "proj-1" });

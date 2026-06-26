@@ -7,7 +7,7 @@ import { createConversationService } from "./service.js";
 // thread-projection removed — kept as local mock for test assertions that
 // verify projection behavior (these checks now observe the ledger directly)
 const threadProjectionRead = {
-  getMessages: async (_threadId: string) => [] as { role: string; content: string }[],
+  getMessages: async (_sessionId: string) => [] as { role: string; content: string }[],
 };
 
 const dbPath = `/tmp/test-conv-svc-${Date.now()}.db`;
@@ -15,7 +15,7 @@ const db = openDb(dbPath);
 const port = sqliteConversationAdapter(db);
 
 // Track fork calls for @ trigger verification
-const forkLog: Array<{ runId: string; threadId: string }> = [];
+const forkLog: Array<{ runId: string; sessionId: string }> = [];
 const _nextRunId = 0;
 const lock = new ConversationLock();
 
@@ -29,8 +29,8 @@ const svc = createConversationService({
   lock,
   maxConsecutiveAgentHops: 3,
   idGen: testIdGen,
-  startAgentRun: async (runId, threadId, _ctx) => {
-    forkLog.push({ runId, threadId });
+  startAgentRun: async (runId, sessionId, _ctx) => {
+    forkLog.push({ runId, sessionId });
     return { runId, attemptSeq: 1 };
   },
 });
@@ -173,7 +173,7 @@ describe("postMessage", () => {
 
     // @ trigger: X's fork was called
     expect(forkLog).toHaveLength(1);
-    expect(forkLog[0]?.threadId).toBe(`${id}:mem-x1-${id}`);
+    expect(forkLog[0]?.sessionId).toBe(`${id}:mem-x1-${id}`);
   });
 
   test("does NOT trigger agent not in addressedTo", async () => {
@@ -188,9 +188,9 @@ describe("postMessage", () => {
     });
 
     // X was triggered
-    expect(forkLog.some((f) => f.threadId === `${id}:mem-x1-${id}`)).toBe(true);
+    expect(forkLog.some((f) => f.sessionId === `${id}:mem-x1-${id}`)).toBe(true);
     // Y was NOT triggered
-    expect(forkLog.some((f) => f.threadId === `${id}:mem-y1-${id}`)).toBe(false);
+    expect(forkLog.some((f) => f.sessionId === `${id}:mem-y1-${id}`)).toBe(false);
   });
 
   test("no trigger for empty addressedTo", async () => {
@@ -443,7 +443,7 @@ describe("M14.4: triggerMentionedAgents", () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.agentMemberId).toBe(`mem-y1-${id}`);
     expect(forkLog).toHaveLength(1);
-    expect(forkLog[0]?.threadId).toBe(`${id}:mem-y1-${id}`);
+    expect(forkLog[0]?.sessionId).toBe(`${id}:mem-y1-${id}`);
   });
 
   test("skips when conversation is busy", async () => {

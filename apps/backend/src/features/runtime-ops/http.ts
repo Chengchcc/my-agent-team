@@ -10,7 +10,7 @@ export function opsRoutes(svc: RuntimeOpsService) {
       return json(
         svc.listRuns({
           agentId: url.searchParams.get("agentId") ?? undefined,
-          threadId: url.searchParams.get("threadId") ?? undefined,
+          sessionId: url.searchParams.get("sessionId") ?? undefined,
           conversationId: url.searchParams.get("conversationId") ?? undefined,
           status: url.searchParams.get("status") ?? undefined,
           transport:

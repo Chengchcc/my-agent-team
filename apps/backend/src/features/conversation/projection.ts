@@ -9,7 +9,7 @@ import {
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { ConversationPort } from "./ports.js";
 import type { ConversationService } from "./service.js";
-import { parseThreadId } from "./service.js";
+import { parseSessionId } from "./service.js";
 
 // ─── @mention helpers ─────────────────────────────────────────
 
@@ -121,7 +121,7 @@ function ledgerHasTerminalForMessage(
  *  Phase 2 (CRITICAL finally): lock release — always executes.
  *  Phase 3 (BEST-EFFORT): todo append + @mention triggers — fire-and-forget, each caught. */
 export async function onRunComplete(
-  threadId: string,
+  sessionId: string,
   runId: string,
   status: string,
   convPort: ConversationPort,
@@ -131,7 +131,7 @@ export async function onRunComplete(
 ): Promise<void> {
   if (kind === "reflect") return;
 
-  const { conversationId: cid, memberId: senderMemberId } = parseThreadId(threadId);
+  const { conversationId: cid, memberId: senderMemberId } = parseSessionId(sessionId);
   if (!cid) return;
 
   // M19: issue-driven runs (origin_kind=orchestrator) are handled by reactor —
@@ -209,7 +209,7 @@ export async function onRunComplete(
     throw err; // critical failure propagated — supervisor catches and logs
   } finally {
     // Phase 2: lock release always executes.
-    convSvc.completeRun(cid, threadId, runId);
+    convSvc.completeRun(cid, sessionId, runId);
   }
 
   // ── Phase 3: BEST-EFFORT — fire-and-forget, each catches independently ──

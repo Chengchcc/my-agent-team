@@ -39,11 +39,11 @@ export function createAgentSvc(
 
     // M20: Kept as raw SQL — subquery DELETE on events.db tables (event_log, attempt, run).
     // Safe to keep: drizzle subquery DELETE would be equally complex with no readability gain.
-    purgeEventsForThreads: (threadIds) => {
+    purgeEventsForSessions: (sessionIds) => {
       const edb = supervisor.getDb();
       const tx = edb.transaction((ids: string[]) => {
         for (const tid of ids) {
-          edb.run("DELETE FROM event_log WHERE thread_id = ?", [tid]);
+          edb.run("DELETE FROM event_log WHERE session_id = ?", [tid]);
           edb.run(
             "DELETE FROM attempt WHERE run_id IN (SELECT run_id FROM run WHERE session_id = ?)",
             [tid],
@@ -51,10 +51,10 @@ export function createAgentSvc(
           edb.run("DELETE FROM run WHERE session_id = ?", [tid]);
         }
       });
-      tx(threadIds);
+      tx(sessionIds);
     },
 
-    listThreadIds: async (agentId) =>
+    listSessionIds: async (agentId) =>
       (
         db
           .query("SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?")
@@ -66,19 +66,19 @@ export function createAgentSvc(
     // make the raw SQL clearer and less error-prone.
     assertNoActiveRun: (agentId) => {
       const edb = supervisor.getDb();
-      const threadIds = (
+      const sessionIds = (
         db
           .query("SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?")
           .all(agentId) as { id: string }[]
       ).map((r) => r.id);
-      if (threadIds.length === 0) return;
-      const placeholders = threadIds.map(() => "?").join(",");
+      if (sessionIds.length === 0) return;
+      const placeholders = sessionIds.map(() => "?").join(",");
       const busy = edb
         .query(
           `SELECT 1 FROM attempt WHERE ended_at IS NULL
            AND run_id IN (SELECT run_id FROM run WHERE session_id IN (${placeholders})) LIMIT 1`,
         )
-        .all(...threadIds);
+        .all(...sessionIds);
       if (busy.length > 0) throw new AgentBusyError(agentId);
     },
   });

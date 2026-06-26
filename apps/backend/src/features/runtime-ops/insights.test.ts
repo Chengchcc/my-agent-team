@@ -20,7 +20,7 @@ describe("getRunInsights", () => {
       { eventLog },
       {
         runId: "run1",
-        threadId: "thread1",
+        sessionId: "thread1",
         agentId: "agent1",
         status: "done",
         startedAt: 1000,
@@ -62,7 +62,7 @@ describe("getRunInsights", () => {
       { eventLog },
       {
         runId: "run1",
-        threadId: "t1",
+        sessionId: "t1",
         agentId: "a1",
         status: "done",
         startedAt: 1000,
@@ -103,7 +103,7 @@ describe("getRunInsights", () => {
       { eventLog },
       {
         runId: "run2",
-        threadId: "t1",
+        sessionId: "t1",
         agentId: "a1",
         status: "interrupted",
         startedAt: 1000,
@@ -146,7 +146,7 @@ describe("getRunInsights", () => {
       { eventLog },
       {
         runId: "run3",
-        threadId: "t1",
+        sessionId: "t1",
         agentId: "a1",
         status: "running",
         startedAt: 1000,
@@ -171,7 +171,7 @@ describe("getRunInsights", () => {
       { eventLog },
       {
         runId: "run4",
-        threadId: "t1",
+        sessionId: "t1",
         agentId: "a1",
         status: "done",
         startedAt: 1000,
@@ -190,7 +190,7 @@ describe("getRunInsights", () => {
       { eventLog, getAgentName: (id) => (id === "a1" ? "My Agent" : undefined) },
       {
         runId: "run5",
-        threadId: "t1",
+        sessionId: "t1",
         agentId: "a1",
         status: "done",
         startedAt: 1000,

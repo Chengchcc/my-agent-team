@@ -24,7 +24,7 @@ const svc = createConversationService({
   lock,
   maxConsecutiveAgentHops: 3,
   idGen: testIdGen,
-  startAgentRun: async (runId, _threadId) => {
+  startAgentRun: async (runId, _sessionId) => {
     return { runId, attemptSeq: 1 };
   },
 });
@@ -49,11 +49,11 @@ afterAll(() => {
 describe("P3: onRunComplete tiering", () => {
   test("Phase 1 (terminal write) throws → Phase 2 lock release still runs in finally", async () => {
     const cid = "c-p3-lock";
-    const threadId = `${cid}:agent-1`;
+    const sessionId = `${cid}:agent-1`;
     setupConv(cid);
 
     // Acquire lock to simulate active conversation
-    lock.acquireThread(threadId, cid);
+    lock.acquireSession(sessionId, cid);
     expect(lock.isActive(cid)).toBe(true);
 
     // Inject a port that throws on appendLedgerEntry (Phase 1 critical failure)
@@ -66,7 +66,7 @@ describe("P3: onRunComplete tiering", () => {
     } as ConversationPort;
 
     await expect(
-      onRunComplete(threadId, "r-p3-lock", "succeeded", failingPort, svc, fakeOpsStore),
+      onRunComplete(sessionId, "r-p3-lock", "succeeded", failingPort, svc, fakeOpsStore),
     ).rejects.toThrow("ledger down");
 
     // Phase 2 finally must have released the lock
@@ -79,10 +79,10 @@ describe("P3: onRunComplete tiering", () => {
 describe("P7: ledger single authority for assistant messages", () => {
   test("terminal assistant message lands in ledger via onRunComplete", async () => {
     const cid = "c-p7-term";
-    const threadId = `${cid}:agent-1`;
+    const sessionId = `${cid}:agent-1`;
     setupConv(cid);
 
-    await onRunComplete(threadId, "r-p7-term", "succeeded", port, svc, fakeOpsStore);
+    await onRunComplete(sessionId, "r-p7-term", "succeeded", port, svc, fakeOpsStore);
 
     const entries = port.getLedgerEntries(cid);
     const terminal = entries.find((e) => e.runId === "r-p7-term" && e.kind === "message");
@@ -92,12 +92,12 @@ describe("P7: ledger single authority for assistant messages", () => {
 
   test("projection broadcast failure does not block ledger write", async () => {
     const cid = "c-p7-bcast";
-    const threadId = `${cid}:agent-1`;
+    const sessionId = `${cid}:agent-1`;
     setupConv(cid);
 
     // Broadcast is best-effort; ledger write (Phase 1 critical) succeeds regardless.
     try {
-      await onRunComplete(threadId, "r-p7-bcast", "succeeded", port, svc, fakeOpsStore);
+      await onRunComplete(sessionId, "r-p7-bcast", "succeeded", port, svc, fakeOpsStore);
     } catch {
       // Should not throw — only broadcast is best-effort
     }

@@ -9,7 +9,7 @@ import * as schema from "../../infra/db/events-schema.js";
 
 export interface EventRecord {
   seq: number;
-  threadId: string;
+  sessionId: string;
   runId: string;
   event: AgentEvent;
   ts: number;
@@ -17,7 +17,7 @@ export interface EventRecord {
 
 export interface ReadQuery {
   runId?: string;
-  threadId?: string;
+  sessionId?: string;
   afterSeq?: number;
   limit?: number;
 }
@@ -30,7 +30,7 @@ export const DEFAULT_POLL_MS = 250;
 
 /** Write side: event producers (run subprocess). Only append. */
 export interface EventSink {
-  append(threadId: string, runId: string, event: AgentEvent): Promise<number>;
+  append(sessionId: string, runId: string, event: AgentEvent): Promise<number>;
 }
 
 /** Read side: event projectors (backend SSE / audit / replay). Only read. */
@@ -50,13 +50,13 @@ export interface EventLog extends EventSink, EventSource {}
 const DDL_SAFETY_NET = `
 CREATE TABLE IF NOT EXISTS event_log (
   seq        INTEGER PRIMARY KEY AUTOINCREMENT,
-  thread_id  TEXT NOT NULL,
+  session_id  TEXT NOT NULL,
   run_id     TEXT NOT NULL,
   event      TEXT NOT NULL,
   ts         INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_event_log_run    ON event_log(run_id, seq);
-CREATE INDEX IF NOT EXISTS idx_event_log_thread ON event_log(thread_id, seq);
+CREATE INDEX IF NOT EXISTS idx_event_log_thread ON event_log(session_id, seq);
 `;
 
 // -- SQLite --
@@ -76,7 +76,7 @@ function toEventRecord(r: typeof schema.eventLog.$inferSelect): EventRecord | nu
   }
   return {
     seq: r.seq,
-    threadId: r.threadId,
+    sessionId: r.sessionId,
     runId: r.runId,
     event: result.data,
     ts: r.ts,
@@ -94,12 +94,12 @@ export function sqliteEventLog(opts: { db: SqliteDatabase | string }): EventLog 
   const d = drizzle(db, { schema, casing: "snake_case" });
 
   const sink: EventSink = {
-    async append(threadId: string, runId: string, event: AgentEvent): Promise<number> {
+    async append(sessionId: string, runId: string, event: AgentEvent): Promise<number> {
       const ts = Date.now();
       const json = JSON.stringify(event);
       const row = d
         .insert(schema.eventLog)
-        .values({ threadId, runId, event: json, ts })
+        .values({ sessionId, runId, event: json, ts })
         .returning({ seq: schema.eventLog.seq })
         .get();
       return row!.seq;
@@ -110,7 +110,7 @@ export function sqliteEventLog(opts: { db: SqliteDatabase | string }): EventLog 
     async read(query: ReadQuery): Promise<EventRecord[]> {
       const conditions = [];
       if (query.runId) conditions.push(eq(schema.eventLog.runId, query.runId));
-      if (query.threadId) conditions.push(eq(schema.eventLog.threadId, query.threadId));
+      if (query.sessionId) conditions.push(eq(schema.eventLog.sessionId, query.sessionId));
       if (query.afterSeq !== undefined) {
         conditions.push(gt(schema.eventLog.seq, query.afterSeq));
       }
@@ -164,9 +164,9 @@ export function inMemoryEventLog(): EventLog {
   let listeners: Array<(rec: EventRecord) => void> = [];
 
   const sink: EventSink = {
-    async append(threadId: string, runId: string, event: AgentEvent): Promise<number> {
+    async append(sessionId: string, runId: string, event: AgentEvent): Promise<number> {
       const seq = nextSeq++;
-      const rec: EventRecord = { seq, threadId, runId, event, ts: Date.now() };
+      const rec: EventRecord = { seq, sessionId, runId, event, ts: Date.now() };
       records.push(rec);
       for (const fn of listeners) fn(rec);
       return seq;
@@ -177,7 +177,7 @@ export function inMemoryEventLog(): EventLog {
     async read(query: ReadQuery): Promise<EventRecord[]> {
       let result = [...records];
       if (query.runId) result = result.filter((r) => r.runId === query.runId);
-      if (query.threadId) result = result.filter((r) => r.threadId === query.threadId);
+      if (query.sessionId) result = result.filter((r) => r.sessionId === query.sessionId);
       if (query.afterSeq !== undefined) result = result.filter((r) => r.seq > query.afterSeq!);
       if (query.limit) result = result.slice(0, query.limit);
       return result;

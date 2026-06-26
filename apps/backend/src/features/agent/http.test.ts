@@ -62,8 +62,8 @@ function makeSvc() {
       workspaceRoot: "/tmp",
       materializeWorkspace: async (id) => `/tmp/ws/${id}`,
       purgeWorkspace: async () => {},
-      purgeEventsForThreads: () => {},
-      listThreadIds: async () => [],
+      purgeEventsForSessions: () => {},
+      listSessionIds: async () => [],
       assertNoActiveRun: () => {},
     }),
   );

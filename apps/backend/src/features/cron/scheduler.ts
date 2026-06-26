@@ -48,7 +48,7 @@ export function createCronScheduler(deps: {
 
   async function fire(job: CronJobRow, _fireKey?: string): Promise<void> {
     const runId = deps.idGen();
-    const threadId = `${job.cronJobId}:${job.agentId}`;
+    const sessionId = `${job.cronJobId}:${job.agentId}`;
 
     try {
       const runDeps = makeRunDeps({
@@ -59,7 +59,7 @@ export function createCronScheduler(deps: {
       });
       await executeAgentRun(runDeps, {
         runId,
-        sessionId: threadId,
+        sessionId: sessionId,
         agentId: job.agentId,
         input: job.prompt ?? "",
         origin: { kind: "cron", cronJobId: job.cronJobId },
@@ -87,7 +87,7 @@ export function createCronScheduler(deps: {
   // Strategy: synchronous checks + cleanup run immediately; if a retry
   // is needed, schedule it via setTimeout so this callback returns
   // without blocking the listener loop.
-  deps.supervisor.onRunComplete(async (_threadId, runId, status, _kind) => {
+  deps.supervisor.onRunComplete(async (_sessionId, runId, status, _kind) => {
     // Clean watchdog timer if present
     const wd = watchdogs.get(runId);
     if (wd) {

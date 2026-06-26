@@ -5,8 +5,8 @@ export interface IssueRow {
   projectId: string;
   title: string;
   status: IssueStatus;
-  /** The thread this Issue runs on. Reuses the existing run载体, no new exec mechanism. */
-  threadId: string;
+  /** Session this Issue runs on (= conversationId). */
+  sessionId: string;
   /** M19: Human-readable description (empty = not filled in). */
   description: string;
   /** M19: Priority level — P0 (critical) through P3 (low). */

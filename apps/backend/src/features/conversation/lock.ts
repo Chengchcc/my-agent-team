@@ -6,7 +6,7 @@ export class ConversationLock {
   #active = new Set<string>();
   #pending = new Map<string, number>();
   /** M17.5 P11: Active threads (direct HTTP starts). */
-  #activeThreads = new Set<string>();
+  #activeSessions = new Set<string>();
 
   /** Try to acquire the lock for `count` concurrent runs. Returns true if acquired. */
   acquire(conversationId: string, count: number): boolean {
@@ -18,10 +18,10 @@ export class ConversationLock {
 
   /** M17.5 P11: Acquire a specific thread for direct HTTP run start.
    *  Also acquires the conversation lock to block @-triggered runs. */
-  acquireThread(threadId: string, conversationId: string): boolean {
+  acquireSession(sessionId: string, conversationId: string): boolean {
     if (this.#active.has(conversationId)) return false;
-    if (this.#activeThreads.has(threadId)) return false;
-    this.#activeThreads.add(threadId);
+    if (this.#activeSessions.has(sessionId)) return false;
+    this.#activeSessions.add(sessionId);
     this.#active.add(conversationId);
     this.#pending.set(conversationId, 1);
     return true;
@@ -38,9 +38,9 @@ export class ConversationLock {
     }
   }
 
-  /** M17.5 P11: Release a thread acquired via acquireThread. */
-  releaseThread(threadId: string, conversationId: string): void {
-    this.#activeThreads.delete(threadId);
+  /** M17.5 P11: Release a thread acquired via acquireSession. */
+  releaseSession(sessionId: string, conversationId: string): void {
+    this.#activeSessions.delete(sessionId);
     this.releaseOne(conversationId);
   }
 
@@ -50,7 +50,7 @@ export class ConversationLock {
   }
 
   /** M17.5 P11: Check if a specific thread is active. */
-  isThreadActive(threadId: string): boolean {
-    return this.#activeThreads.has(threadId);
+  isSessionActive(sessionId: string): boolean {
+    return this.#activeSessions.has(sessionId);
   }
 }

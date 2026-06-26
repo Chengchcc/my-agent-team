@@ -95,7 +95,7 @@ export async function getRunInsights(
   deps: RunInsightsDeps,
   params: {
     runId: string;
-    threadId: string;
+    sessionId: string;
     agentId: string;
     status: string;
     startedAt: number;

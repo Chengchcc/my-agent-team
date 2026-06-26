@@ -19,7 +19,7 @@ import {
   sqliteColumnConfigAdapter,
 } from "./features/column-config/index.js";
 import { createConversationFeature } from "./features/conversation/conv-svc-factory.js";
-import { conversationRoutes, parseThreadId } from "./features/conversation/index.js";
+import { conversationRoutes, parseSessionId } from "./features/conversation/index.js";
 import {
   escapeRegExp,
   getOrCreateAccumulator,
@@ -95,9 +95,9 @@ const conv = createConversationFeature(db, config, supervisor, agentSvc, opsStor
 
 // P2: onRunComplete is AWAITED by supervisor — critical sink (ledger terminal write).
 // P1: run_finalized already sent before this, so await doesn't block control signal.
-supervisor.onRunComplete((threadId, runId, status, kind) => {
+supervisor.onRunComplete((sessionId, runId, status, kind) => {
   // M19: issue-run isolation now handled by origin_kind in projection/reactor
-  return onRunComplete(threadId, runId, status, conv.convPort, conv.convSvc, opsStore, kind);
+  return onRunComplete(sessionId, runId, status, conv.convPort, conv.convSvc, opsStore, kind);
 });
 
 // M17.5 P3: @mention regex cache — compile once per label, not per streaming revision.
@@ -115,12 +115,12 @@ function getMentionRegex(label: string): RegExp {
 // bypassing event_log. This replaces the old event_log → projection → ledger
 // indirection. Message events are now written to ledger BEFORE EventLog, and
 // EventLog only receives non-message execution events.
-supervisor.onRunMessage(async (threadId, runId, revision, kind) => {
+supervisor.onRunMessage(async (sessionId, runId, revision, kind) => {
   if (kind === "reflect") return;
   // M19: issue-run isolation now handled by origin_kind in projection
-  const cid = parseThreadId(threadId).conversationId;
+  const cid = parseSessionId(sessionId).conversationId;
   if (!cid) return;
-  const senderMemberId = parseThreadId(threadId).memberId || threadId;
+  const senderMemberId = parseSessionId(sessionId).memberId || sessionId;
 
   // Write directly to ledger (authoritative entry for assistant messages)
   const seq = await conv.convSvc.appendAssistantMessage({
@@ -175,12 +175,12 @@ supervisor.onRunMessage(async (threadId, runId, revision, kind) => {
 // M17.5 P7: onRunEvent is now best-effort observability only. Message events
 // are handled by onRunMessage (authoritative ledger write). This callback only
 // sees non-message events (todo_update, tool_start, tool_end, text_delta).
-supervisor.onRunEvent((threadId, runId, event, _kind) => {
+supervisor.onRunEvent((sessionId, runId, event, _kind) => {
   // M19: issue-run isolation now handled by origin_kind in projection
   if (event.type === "todo_update") {
-    const cid = parseThreadId(threadId).conversationId;
+    const cid = parseSessionId(sessionId).conversationId;
     if (!cid) return;
-    const senderMemberId = parseThreadId(threadId).memberId || threadId;
+    const senderMemberId = parseSessionId(sessionId).memberId || sessionId;
     const acc = getOrCreateAccumulator(runId, senderMemberId);
     const payload = (event as { payload?: { todos?: unknown } }).payload;
     if (payload?.todos) acc.lastTodoUpdate = { todos: payload.todos };
@@ -305,8 +305,8 @@ const orchestrator = createOrchestrator({
 });
 
 // Register orchestrator's backfill listener (alongside conversation's onRunComplete)
-supervisor.onRunComplete((threadId, runId, status, kind) =>
-  orchestrator.onRunComplete(threadId, runId, status, kind),
+supervisor.onRunComplete((sessionId, runId, status, kind) =>
+  orchestrator.onRunComplete(sessionId, runId, status, kind),
 );
 
 // Resume route for ToolApprovalCard interrupt flow — uses AgentSession.resume()

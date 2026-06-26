@@ -10,7 +10,7 @@ import type { RuntimeOpsStore } from "./store.js";
 
 export interface RunOpsListItem {
   runId: string;
-  threadId: string;
+  sessionId: string;
   agentId: string;
   agentName: string;
   kind: string;
@@ -29,7 +29,7 @@ export interface RunOpsListItem {
 export interface RunOpsDetail {
   run: {
     runId: string;
-    threadId: string;
+    sessionId: string;
     agentId: string;
     agentName: string;
     kind: string;
@@ -106,7 +106,7 @@ export function createRuntimeOpsService(deps: {
   return {
     listRuns(params: {
       agentId?: string;
-      threadId?: string;
+      sessionId?: string;
       conversationId?: string;
       status?: string;
       limit?: number;
@@ -120,7 +120,7 @@ export function createRuntimeOpsService(deps: {
       const { sql, args } = buildRunQuery(
         {
           agentId: params.agentId,
-          sessionId: params.threadId,
+          sessionId: params.sessionId,
           conversationId: params.conversationId,
           status: params.status,
         },
@@ -171,7 +171,7 @@ export function createRuntimeOpsService(deps: {
 
         return {
           runId: r.run_id,
-          threadId: r.session_id,
+          sessionId: r.session_id,
           agentId: r.agent_id,
           agentName: resolveName(r.agent_id),
           kind: r.kind,
@@ -242,7 +242,7 @@ export function createRuntimeOpsService(deps: {
       return {
         run: {
           runId: run.run_id as string,
-          threadId: run.session_id as string,
+          sessionId: run.session_id as string,
           agentId: run.agent_id as string,
           agentName: resolveName(run.agent_id as string),
           kind: run.kind as string,
@@ -497,7 +497,7 @@ export function createRuntimeOpsService(deps: {
         { eventLog, getAgentName },
         {
           runId: run.run_id,
-          threadId: run.session_id,
+          sessionId: run.session_id,
           agentId: run.agent_id,
           status: run.status,
           startedAt: run.started_at,

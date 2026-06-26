@@ -85,13 +85,14 @@ export const conversationLedger = sqliteTable(
 
 // ─── projection_messages ───────────────────────────────────────────
 export const projectionMessages = sqliteTable("projection_messages", {
-  threadId: text().primaryKey(),
+  sessionId: text().primaryKey(),
   messages: text().notNull(),
   updatedAt: integer({ mode: "number" }).notNull(),
 });
 
 // ─── issue ─────────────────────────────────────────────────────────
-// NOTE: project_id and thread_id are bare TEXT — no FK constraint.
+// NOTE: project_id and session_id are bare TEXT — no FK constraint.
+// PR-6: threadId renamed to sessionId (ID#1b).
 export const issue = sqliteTable(
   "issue",
   {
@@ -99,7 +100,7 @@ export const issue = sqliteTable(
     projectId: text().notNull(),
     title: text().notNull(),
     status: text().notNull(),
-    threadId: text().notNull(),
+    sessionId: text().notNull(),
     description: text().notNull().default(""),
     priority: text().notNull().default("P2"),
     estimatedCompletionAt: integer({ mode: "number" }),

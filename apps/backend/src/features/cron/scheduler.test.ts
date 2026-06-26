@@ -4,7 +4,7 @@ import type { CronJobRow } from "./domain.js";
 import { createCronScheduler } from "./scheduler.js";
 
 type ListenerFn = (
-  threadId: string,
+  sessionId: string,
   runId: string,
   status: string,
   kind: string,

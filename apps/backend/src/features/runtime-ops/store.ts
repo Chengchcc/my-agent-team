@@ -205,7 +205,7 @@ export class RuntimeOpsStore {
 
   getRuns(runIds: string[]): Array<{
     runId: string;
-    threadId: string;
+    sessionId: string;
     agentId: string;
     status: string;
     kind: string;
@@ -221,7 +221,7 @@ export class RuntimeOpsStore {
       .all()
       .map((r) => ({
         runId: r.runId,
-        threadId: r.sessionId,
+        sessionId: r.sessionId,
         agentId: r.agentId,
         status: r.status,
         kind: r.kind,

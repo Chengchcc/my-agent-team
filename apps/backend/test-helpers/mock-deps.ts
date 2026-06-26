@@ -121,7 +121,7 @@ export const TID = {
 // ═══════════════════════════════════════════════════════════════
 
 export interface RecordingSupervisor {
-  startedRuns: Array<{ runId: string; threadId: string; spec: Record<string, unknown> }>;
+  startedRuns: Array<{ runId: string; sessionId: string; spec: Record<string, unknown> }>;
   getActive(): ReadonlyMap<string, { abortController: AbortController }>;
   startMainRun(
     runId: string,
@@ -139,7 +139,7 @@ export interface RecordingSupervisor {
 export function recordingSupervisor(): RecordingSupervisor {
   const startedRuns: Array<{
     runId: string;
-    threadId: string;
+    sessionId: string;
     spec: Record<string, unknown>;
   }> = [];
   const active = new Map<string, { abortController: AbortController }>();
@@ -151,7 +151,7 @@ export function recordingSupervisor(): RecordingSupervisor {
     startedRuns,
     getActive: () => active as ReadonlyMap<string, { abortController: AbortController }>,
     startMainRun: async (runId: string, threadId: string, spec: Record<string, unknown>) => {
-      startedRuns.push({ runId, threadId, spec });
+      startedRuns.push({ runId, sessionId: threadId, spec });
       active.set(runId, { abortController: new AbortController() });
       return { runId, attemptSeq: 1 };
     },

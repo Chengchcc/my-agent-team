@@ -89,7 +89,7 @@ export function createStepRunner(d: StepRunnerDeps) {
     const runId = d.idGen();
     const vars = buildPromptVars(issue, d.deliverableSvc.listByIssue(issue.issueId));
     const prompt = renderPrompt(t.promptTemplate, vars);
-    const threadId = `${issue.issueId}:${t.agentId}`;
+    const sessionId = `${issue.issueId}:${t.agentId}`;
 
     if (d.convPort) {
       d.convPort.addMember({
@@ -110,7 +110,7 @@ export function createStepRunner(d: StepRunnerDeps) {
     });
     await executeAgentRun(runDeps, {
       runId,
-      sessionId: threadId,
+      sessionId: sessionId,
       agentId: t.agentId,
       input: prompt,
       origin: { kind: "orchestrator", issueId: issue.issueId, fromStatus: issue.status },
@@ -140,7 +140,7 @@ export interface TransitionReactorDeps {
 
 export function createTransitionReactor(d: TransitionReactorDeps) {
   async function onRunComplete(
-    _threadId: string,
+    _sessionId: string,
     runId: string,
     status: string,
     kind: string,

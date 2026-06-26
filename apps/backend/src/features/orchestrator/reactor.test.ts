@@ -82,7 +82,7 @@ describe("Orchestrator reactor", () => {
     expect(result!.runId).toBeTruthy();
     expect(supervisor.startedRuns.length).toBe(1);
     expect(supervisor.startedRuns[0]!.spec.agentId).toBe("planner");
-    expect(supervisor.startedRuns[0]!.threadId).toBe(TID.issueSession(planned.issueId, "planner"));
+    expect(supervisor.startedRuns[0]!.sessionId).toBe(TID.issueSession(planned.issueId, "planner"));
   });
 
   test("startStep returns null for done status (terminal)", async () => {
@@ -128,7 +128,7 @@ describe("Orchestrator reactor", () => {
     expect(step1).not.toBeNull();
     const startCount = supervisor.startedRuns.length;
 
-    await orch.onRunComplete(planned.threadId, step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step1!.runId, "succeeded", "main");
 
     const updated = issueSvc.port.getIssue(issue.issueId);
     expect(updated!.status).toBe("in_progress");
@@ -142,7 +142,7 @@ describe("Orchestrator reactor", () => {
     const planned = issueSvc.applyTransition(issue.issueId, "planned");
     const step1 = await orch.startStep(planned);
     const startCount = supervisor.startedRuns.length;
-    await orch.onRunComplete(planned.threadId, step1!.runId, "error", "main");
+    await orch.onRunComplete(planned.sessionId, step1!.runId, "error", "main");
     const updated = issueSvc.port.getIssue(issue.issueId);
     expect(updated!.status).toBe("planned");
     expect(supervisor.startedRuns.length).toBe(startCount);
@@ -160,11 +160,11 @@ describe("Orchestrator reactor", () => {
     const issue = issueSvc.createIssue({ projectId: "proj-7", title: "Idempotent Issue" });
     const planned = issueSvc.applyTransition(issue.issueId, "planned");
     const step1 = await orch.startStep(planned);
-    await orch.onRunComplete(planned.threadId, step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step1!.runId, "succeeded", "main");
     const after1 = issueSvc.port.getIssue(issue.issueId);
     expect(after1!.status).toBe("in_progress");
     const count1 = supervisor.startedRuns.length;
-    await orch.onRunComplete(planned.threadId, step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step1!.runId, "succeeded", "main");
     const after2 = issueSvc.port.getIssue(issue.issueId);
     expect(after2!.status).toBe("in_progress");
     expect(supervisor.startedRuns.length).toBe(count1);
@@ -196,7 +196,7 @@ describe("Orchestrator reactor", () => {
     });
 
     const startCount = supervisor.startedRuns.length;
-    await orch.onRunComplete(review.threadId, reviewRunId, "succeeded", "main");
+    await orch.onRunComplete(review.sessionId, reviewRunId, "succeeded", "main");
     const updated = issueSvc.port.getIssue(issue.issueId);
     expect(updated!.status).toBe("in_review");
     expect(supervisor.startedRuns.length).toBe(startCount);
@@ -208,11 +208,11 @@ describe("Orchestrator reactor", () => {
     const planned = issueSvc.applyTransition(issue.issueId, "planned");
     const step1 = await orch.startStep(planned);
     expect(step1).not.toBeNull();
-    await orch.onRunComplete(planned.threadId, step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step1!.runId, "succeeded", "main");
     const after1 = issueSvc.port.getIssue(issue.issueId);
     expect(after1!.status).toBe("in_progress");
     const count1 = supervisor.startedRuns.length;
-    await orch.onRunComplete(planned.threadId, step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step1!.runId, "succeeded", "main");
     const after2 = issueSvc.port.getIssue(issue.issueId);
     expect(after2!.status).toBe("in_progress");
     expect(supervisor.startedRuns.length).toBe(count1);
@@ -230,7 +230,7 @@ describe("Orchestrator reactor", () => {
     expect(origin1!.fromStatus).toBe("planned");
     expect(origin1!.idempotencyKey).toBe(run1!.runId);
 
-    await orch.onRunComplete(planned.threadId, run1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, run1!.runId, "succeeded", "main");
     let current = issueSvc.port.getIssue(issue.issueId);
     expect(current!.status).toBe("in_progress");
 
@@ -249,7 +249,7 @@ describe("Orchestrator reactor", () => {
       fromStatus: "in_progress",
       createdAt: 1000000,
     });
-    await orch.onRunComplete(current!.threadId, runDev.runId, "succeeded", "main");
+    await orch.onRunComplete(current!.sessionId, runDev.runId, "succeeded", "main");
     current = issueSvc.port.getIssue(issue.issueId);
     expect(current!.status).toBe("in_review");
 
@@ -298,7 +298,7 @@ describe("Orchestrator reactor", () => {
       fromStatus: "planned",
       createdAt: Date.now(),
     });
-    await orch.onRunComplete(planned.threadId, step!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step!.runId, "succeeded", "main");
     const events = opsStore.getIssueEvents(issue.issueId);
     const ended = events.find((e) => e.kind === "run.ended");
     expect(ended).toBeDefined();
@@ -326,7 +326,7 @@ describe("Orchestrator reactor", () => {
       fromStatus: "planned",
       createdAt: Date.now(),
     });
-    await orch.onRunComplete(planned.threadId, step!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step!.runId, "succeeded", "main");
     const events = opsStore.getIssueEvents(issue.issueId);
     const adv = events.find((e) => e.kind === "status.advanced");
     expect(adv).toBeDefined();

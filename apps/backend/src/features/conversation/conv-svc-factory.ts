@@ -15,7 +15,7 @@ import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
 import { escapeRegExp, getOrCreateAccumulator } from "./projection.js";
-import { createConversationService, parseThreadId } from "./service.js";
+import { createConversationService, parseSessionId } from "./service.js";
 
 export interface ConversationFeature {
   convPort: ConversationPort;
@@ -45,10 +45,10 @@ export function createConversationFeature(
   };
 
   // Message handling — writes to ledger, scans @mentions, broadcasts SSE
-  const handleAssistantMessage = async (threadId: string, runId: string, rev: MessageRevision) => {
-    const cid = parseThreadId(threadId).conversationId;
+  const handleAssistantMessage = async (sessionId: string, runId: string, rev: MessageRevision) => {
+    const cid = parseSessionId(sessionId).conversationId;
     if (!cid) return;
-    const sender = parseThreadId(threadId).memberId || threadId;
+    const sender = parseSessionId(sessionId).memberId || sessionId;
 
     await convSvc.appendAssistantMessage({
       conversationId: cid,
@@ -93,7 +93,7 @@ export function createConversationFeature(
     maxConsecutiveAgentHops: 8,
     idGen: ulid,
 
-    startAgentRun: async (_runId, threadId, ctx) => {
+    startAgentRun: async (_runId, sessionId, ctx) => {
       const members = convPort.getMembers(ctx.conversationId);
       const isLark = members.some((m) => m.kind === "human" && m.userRef?.startsWith("lark:"));
       const runDeps = makeRunDeps({
@@ -105,7 +105,7 @@ export function createConversationFeature(
       });
       return executeAgentRun(runDeps, {
         runId: crypto.randomUUID(),
-        sessionId: threadId,
+        sessionId: sessionId,
         agentId: ctx.agentId,
         input: "",
         origin: {
@@ -116,7 +116,7 @@ export function createConversationFeature(
         },
         onAssistantMessage: (payload) => {
           const rev = payload as unknown as MessageRevision;
-          void handleAssistantMessage(threadId, rev.runId ?? _runId, rev);
+          void handleAssistantMessage(sessionId, rev.runId ?? _runId, rev);
         },
       });
     },
@@ -139,7 +139,7 @@ export function createConversationFeature(
 // ─── startAgentRun (thin wrapper around executeAgentRun) ──
 
 export interface StartAgentRunOpts {
-  threadId: string;
+  sessionId: string;
   agentId: string;
   input: string;
   config: BackendConfig;
@@ -166,7 +166,7 @@ export async function startAgentRun(
   });
   return executeAgentRun(runDeps, {
     runId: crypto.randomUUID(),
-    sessionId: opts.threadId,
+    sessionId: opts.sessionId,
     agentId: opts.agentId,
     input: opts.input,
     origin: {
