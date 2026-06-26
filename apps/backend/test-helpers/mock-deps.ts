@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
