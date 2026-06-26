@@ -12,6 +12,7 @@ import type { DeliverableRow } from "../src/features/deliverable/domain.js";
 import type { OrchestratorDeps } from "../src/features/orchestrator/reactor.js";
 import type { Transition } from "../src/features/orchestrator/transitions.js";
 import { RunSupervisor } from "../src/features/run/supervisor.js";
+import { openDb } from "../src/infra/sqlite/db.js";
 
 // ═══════════════════════════════════════════════════════════════
 // Test directory & db
@@ -31,6 +32,11 @@ export function testDB(): Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA journal_mode=WAL");
   return db;
+}
+
+/** Like testDB but also runs the main backend drizzle migrations (schema.ts → issue table etc). */
+export function testMainDB(): Database {
+  return openDb(":memory:");
 }
 
 // ═══════════════════════════════════════════════════════════════

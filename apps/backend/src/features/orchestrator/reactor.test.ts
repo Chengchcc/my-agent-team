@@ -9,8 +9,8 @@ import {
   recordingSupervisor,
   TID,
   testDB,
+  testMainDB,
 } from "../../../test-helpers/mock-deps.js";
-import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteIssueAdapter } from "../issue/adapter-sqlite.js";
 import { createIssueService } from "../issue/service.js";
 import { runEventsDbMigrations } from "../run/events-db-migrations.js";
@@ -23,7 +23,10 @@ const DEFAULT_AGENTS = new Map([
   ["reviewer", makeAgentRow({ id: "reviewer", name: "reviewer" })],
 ]);
 
-function makeOrchestrator(issueDb: ReturnType<typeof openDb>, eventsDb: ReturnType<typeof testDB>) {
+function makeOrchestrator(
+  issueDb: ReturnType<typeof testMainDB>,
+  eventsDb: ReturnType<typeof testDB>,
+) {
   const issuePort = sqliteIssueAdapter(issueDb);
   const issueSvc = createIssueService({ port: issuePort, idGen: () => crypto.randomUUID() });
   const supervisor = recordingSupervisor();
@@ -46,11 +49,11 @@ function makeOrchestrator(issueDb: ReturnType<typeof openDb>, eventsDb: ReturnTy
 }
 
 describe("Orchestrator reactor", () => {
-  let issueDb: ReturnType<typeof openDb>;
+  let issueDb: ReturnType<typeof testMainDB>;
   let eventsDb: ReturnType<typeof testDB>;
 
   beforeAll(() => {
-    issueDb = openDb(":memory:");
+    issueDb = testMainDB();
     eventsDb = testDB();
     runEventsDbMigrations(eventsDb);
   });
