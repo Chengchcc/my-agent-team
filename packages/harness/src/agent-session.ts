@@ -67,7 +67,7 @@ export interface ContextUsage {
 // Session-level events — extends AgentEvent with session lifecycle
 export type AgentSessionEvent =
   | Exclude<AgentEvent, { type: "agent_end" }>
-  | { type: "agent_end"; messages: Message[]; willRetry: boolean; status: "succeeded" | "error" }
+  | { type: "agent_end"; messages: Message[]; willRetry: boolean; status: "succeeded" | "error" | "interrupted" }
   | { type: "queue_update"; steering: string[]; followUp: string[] }
   | {
       type: "compaction_start";
@@ -347,8 +347,12 @@ export class AgentSession {
             }
           }
 
-          // Check if we need to retry
-          if (this.#lastError && this.#retryCount < (this.#config.retry?.maxAttempts ?? 3)) {
+          // Check if we need to retry (skip if user-initiated abort)
+          if (
+            !this.#abortController?.signal.aborted &&
+            this.#lastError &&
+            this.#retryCount < (this.#config.retry?.maxAttempts ?? 3)
+          ) {
             this.#retryCount++;
             this.#state = "retrying";
             const delayMs = (this.#config.retry?.backoffMs ?? 2000) * 2 ** (this.#retryCount - 1);
@@ -366,8 +370,13 @@ export class AgentSession {
           }
 
           // Set state BEFORE emit so listeners see correct state
-          const finalStatus = this.#lastError ? "error" : "succeeded";
-          this.#state = this.#lastError ? "error" : "done";
+          const aborted = this.#abortController?.signal.aborted ?? false;
+          const finalStatus: "succeeded" | "error" | "interrupted" = aborted
+            ? "interrupted"
+            : this.#lastError
+              ? "error"
+              : "succeeded";
+          this.#state = aborted || this.#lastError ? "error" : "done";
 
           this.#emit({
             type: "agent_end",
