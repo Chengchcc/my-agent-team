@@ -121,6 +121,8 @@ function createAgentInternal(
       maxSteps: opts.maxSteps ?? 32,
       stream: opts.stream,
       maxForceContinues: opts.maxForceContinues,
+      steering: opts.steering,
+      followUp: opts.followUp,
     };
   }
 

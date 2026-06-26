@@ -4,8 +4,10 @@ import type {
   AgentEvent,
   Checkpointer,
   ContextManager,
+  FollowUpQueue,
   Logger,
   Plugin,
+  SteeringQueue,
 } from "@my-agent-team/framework";
 import { createAgent } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
@@ -112,6 +114,32 @@ export class AgentSession {
   #abortController: AbortController | null = null;
   #lastError: string | null = null;
   #retryCount = 0;
+  #steeringBuf: import("@my-agent-team/message").Message[] = [];
+  #followUpBuf: import("@my-agent-team/message").Message[] = [];
+
+  #steering: SteeringQueue = {
+    drain: () => {
+      const items = this.#steeringBuf.splice(0);
+      if (items.length) this.#emitQueueUpdate();
+      return items;
+    },
+  };
+  #followUp: FollowUpQueue = {
+    drain: () => {
+      const items = this.#followUpBuf.splice(0);
+      if (items.length) this.#emitQueueUpdate();
+      return items;
+    },
+  };
+
+  #emitQueueUpdate() {
+    this.#emit({
+      type: "queue_update",
+      steering: this.#steeringBuf.map((m) => m.text ?? ""),
+      followUp: this.#followUpBuf.map((m) => m.text ?? ""),
+    });
+  }
+
   #unsubAgent: (() => void) | null = null;
 
   constructor(config: AgentSessionConfig) {
@@ -140,8 +168,9 @@ export class AgentSession {
   // ─── Lifecycle ───────────────────────────────────────
 
   async prompt(text: string, opts?: { signal?: AbortSignal }): Promise<void> {
-    if (this.#state === "running") {
-      throw new Error("Agent is already running — steer/followUp not yet implemented");
+    if (this.#state === "running" || this.#state === "retrying" || this.#state === "compacting") {
+      this.steer(text);
+      return;
     }
 
     // Initialize agent on first prompt
@@ -198,16 +227,24 @@ export class AgentSession {
     this.#abortController?.abort();
     this.#agent = null;
     this.#state = "idle";
+    this.#steeringBuf.length = 0;
+    this.#followUpBuf.length = 0;
   }
 
   // ─── Runtime interventions ───────────────────────────
 
-  steer(_text: string): void {
-    throw new Error("steer not yet implemented");
+  steer(text: string): void {
+    if (this.#state !== "running" && this.#state !== "retrying" && this.#state !== "compacting") {
+      throw new Error("steer requires an in-flight run; call prompt() first");
+    }
+    this.#steeringBuf.push({ role: "user", text });
+    this.#emitQueueUpdate();
   }
 
-  followUp(_text: string): void {
-    throw new Error("followUp not yet implemented");
+  followUp(text: string): void {
+    if (!this.#agent) throw new Error("followUp requires an initialized agent; call prompt() first");
+    this.#followUpBuf.push({ role: "user", text });
+    this.#emitQueueUpdate();
   }
 
   // ─── Configuration ───────────────────────────────────
@@ -338,6 +375,8 @@ export class AgentSession {
             const generator = this.#agent.run(inputMessages[0]?.text ?? "", {
               signal,
               maxSteps: this.#config.maxSteps,
+              steering: this.#steering,
+              followUp: this.#followUp,
             });
             for await (const _ of generator) {
               // events handled by agent subscriber → #handleAgentEvent
@@ -346,6 +385,8 @@ export class AgentSession {
             const generator = this.#agent.continue({
               signal,
               maxSteps: this.#config.maxSteps,
+              steering: this.#steering,
+              followUp: this.#followUp,
             });
             for await (const _ of generator) {
               // events handled by agent subscriber → #handleAgentEvent
