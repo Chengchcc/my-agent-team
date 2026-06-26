@@ -28,7 +28,15 @@ export function collectHealth(
     profileRef,
     status: lastError ? "degraded" : "running",
     watchers: watcherCounts,
-    runStreams: { starting: 0, streaming: 0, done: 0, error: 0, fallbackText: 0, cardSendFailed: 0, cardUpdateFailed: 0 },
+    runStreams: {
+      starting: 0,
+      streaming: 0,
+      done: 0,
+      error: 0,
+      fallbackText: 0,
+      cardSendFailed: 0,
+      cardUpdateFailed: 0,
+    },
     lastError,
     ts: Date.now(),
   };
@@ -52,6 +60,8 @@ export async function postHeartbeat(
       console.error(`[lark-bot] heartbeat POST failed: ${res.status}`);
     }
   } catch (err) {
-    console.error(`[lark-bot] heartbeat POST error: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(
+      `[lark-bot] heartbeat POST error: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }

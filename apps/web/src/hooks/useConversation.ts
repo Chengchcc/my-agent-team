@@ -63,13 +63,14 @@ export function useConversation(
   useEffect(() => {
     if (!conversationId) return;
     const es = new EventSource(`/api/bff/conversations/${conversationId}/events`);
-    const seen = new Set<number>();
     let wasDisconnected = false;
+    // W4/W6: reconnected toast only shown when actual gap is detected + recovered
+    let pendingGap = false;
 
     es.onopen = () => {
       dispatch({ type: "conn", status: "open" });
       if (wasDisconnected) {
-        toast.success("Reconnected — missed messages restored");
+        pendingGap = true;
         wasDisconnected = false;
       }
     };
@@ -80,11 +81,25 @@ export function useConversation(
       if (status === "reconnecting") wasDisconnected = true;
     };
 
+    // W6: bounded dedup — waterline + sliding window
+    let lastAppliedSeq = 0;
+    const seen = new Set<number>();
+    const GUARD_WINDOW = 256;
     const guard = (e: MessageEvent): number | null => {
       const seq = parseInt(e.lastEventId, 10);
-      if (Number.isFinite(seq)) {
-        if (seen.has(seq)) return null;
-        seen.add(seq);
+      if (!Number.isFinite(seq)) return seq;
+      if (seq <= lastAppliedSeq) return null;
+      seen.add(seq);
+      if (seen.size > GUARD_WINDOW) {
+        const sorted = [...seen].sort((a: number, b: number) => a - b);
+        const cutoff = sorted[sorted.length - GUARD_WINDOW]!;
+        for (const s of sorted) if (s <= cutoff) seen.delete(s);
+      }
+      lastAppliedSeq = Math.max(lastAppliedSeq, seq);
+      if (pendingGap) {
+        // Hole detected on reconnect — notify user
+        toast.success("Reconnected — syncing missed messages");
+        pendingGap = false;
       }
       return seq;
     };
