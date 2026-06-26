@@ -321,51 +321,17 @@ export function createRuntimeOpsService(deps: {
       if (!run) return { state: "already_terminal", status: "not_found" };
       if (run.status !== "running") return { state: "already_terminal", status: run.status };
 
-      const attempt = db
-        .query(
-          "SELECT attempt_id, heartbeat_at FROM attempt WHERE run_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
-        )
-        .get(runId) as { attempt_id: string; heartbeat_at: number | null } | undefined;
-
-      if (!attempt) return { state: "already_terminal", status: "unknown" };
-
-      const age = attempt.heartbeat_at ? Math.max(0, Date.now() - attempt.heartbeat_at) : Infinity;
-      if (age >= heartbeatTimeoutMs) {
-        // M16.1: stale heartbeat → go through reaper terminal path (write EventLog + trigger onRunComplete)
-        const now = Date.now();
-        db.transaction(() => {
-          db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ?", [
-            now,
-            runId,
-          ]);
-          db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, attempt.attempt_id]);
-        })();
-        opsStore.appendRunEvent({
-          runId,
-          attemptId: attempt.attempt_id,
-          kind: "recover_requested",
-          payload: { reason: "heartbeat_timeout" },
-        });
-        // Append terminal event to EventLog (same as reaper path)
-        try {
-          await eventLog.append(run.thread_id, runId, {
-            type: "interrupted",
-            payload: { reason: "heartbeat_timeout" },
-          });
-        } catch {
-          // EventLog append is best-effort
-        }
-        // Trigger onRunComplete listeners
-        // Trigger onRunComplete listeners (same as reaper path)
-        supervisor.notifyRunComplete(run.thread_id, runId, "interrupted", run.kind);
-        return { state: "marked_interrupted", reason: "heartbeat_timeout" };
+      // heartbeat_at is never written post-daemon removal.
+      // Alive check: is the run still tracked by supervisor?
+      if (supervisor.getActive().has(runId)) {
+        // Session still active in this process — no recovery needed
+        return { state: "already_terminal", status: run.status };
       }
 
-      // Runner daemon removed — AgentSession runs in-process, no reattachment
-      // Previously: try to reattach to existing daemon transport
-      // Now: stale runs are marked interrupted by the reaper
-
-      return { state: "waiting", reason: "heartbeat_fresh_but_transport_detached" };
+      // Run is DB-running but not in memory (process restart orphan).
+      // Use notifyRunComplete for single-completion-authority finalization.
+      await supervisor.notifyRunComplete(run.thread_id, runId, "interrupted", run.kind);
+      return { state: "marked_interrupted", reason: "heartbeat_timeout" };
     },
 
     getAgentRuntime(agentId: string): AgentRuntimeStatus | null {
