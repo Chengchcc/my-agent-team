@@ -18,3 +18,6 @@ export {
   resolveTriggerTargets,
   TriggerMode,
 } from "./member.js";
+export type { ConversationFrame } from "./envelope.js";
+export type { RunPhase, RunStatus } from "./run-status.js";
+export { TERMINAL_RUN_PHASES } from "./run-status.js";

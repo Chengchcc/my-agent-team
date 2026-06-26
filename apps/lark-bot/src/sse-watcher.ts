@@ -252,7 +252,10 @@ async function processEntry(
 
   // Render and send (send errors are retryable — thrown to trigger reconnect)
   const text = renderRevision(revision);
-  const idempotencyKey = `${entry.conversationId}:${messageId}:${delivery ? "update" : "create"}`;
+  // L1: each revision gets a unique key so all streaming frames are delivered,
+  // not deduplicated by the create/update binary. Terminal frames still get
+  // the legacy create/update suffix for backward compat with lark-cli sender.
+  const idempotencyKey = `${entry.conversationId}:${messageId}:${entry.seq}`;
   await h.onSend(larkChatId, text, idempotencyKey);
 
   updatePushedSeq(db, larkChatId, entry.seq);

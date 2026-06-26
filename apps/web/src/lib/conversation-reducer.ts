@@ -258,7 +258,6 @@ export function reducer(s: ConvState, a: Action): ConvState {
     }
 
     case "message": {
-      // M17.1: isolate parse errors — a single bad entry must not crash the SSE stream
       let revision: MessageRevision;
       try {
         revision = parseMessageRevision(a.content);
@@ -267,16 +266,21 @@ export function reducer(s: ConvState, a: Action): ConvState {
           `[reducer] invalid message revision at seq=${a.seq}, skipping:`,
           err instanceof Error ? err.message : String(err),
         );
-        return s; // skip bad entry, keep state unchanged
+        return s;
       }
-      const message = mergeMessageRevision(null, revision);
+      // W1 fix: use existing message as merge base so incremental revisions
+      // (text-only, state-only, runStatus-only) don't overwrite prior content.
+      const existing = s.items.find(
+        (it): it is Extract<UiItem, { kind: "message" }> =>
+          it.kind === "message" && it.id === revision.messageId,
+      );
+      const message = mergeMessageRevision(existing?.content ?? null, revision);
       const id = message.id ?? "";
       const sender = s.roster[a.senderMemberId] ?? {
         memberId: a.senderMemberId,
         kind: "agent" as const,
       };
       const items = upsertAuthoritative(s.items, id, sender, message, s.viewerMemberId);
-      // First agent message confirms the POST — clear pending send count
       const cleared = sender.kind === "agent" && s.pendingSendCount > 0 ? 0 : s.pendingSendCount;
       return { ...s, items, pendingSendCount: cleared };
     }
