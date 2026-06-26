@@ -152,7 +152,7 @@ export interface StartAgentRunOpts {
 
 export async function startAgentRun(
   opts: StartAgentRunOpts,
-): Promise<{ runId: string; attemptId: string }> {
+): Promise<{ runId: string; attemptId: string; attemptSeq: number }> {
   return executeAgentRun({
     runId: crypto.randomUUID(),
     threadId: opts.threadId,

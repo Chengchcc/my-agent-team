@@ -83,11 +83,6 @@ export function mockAgentSvc() {
 export function mockSupervisor(db: Database): RunSupervisor {
   return new RunSupervisor({
     config: mockConfig(),
-    eventLog: {
-      append: async () => {},
-      read: async () => [] as any[],
-      subscribe: () => ({}) as any,
-    } as any,
     opsStore: mockOpsStore() as any,
     tracer: {
       inject: () => ({ traceId: "", traceparent: "" }),

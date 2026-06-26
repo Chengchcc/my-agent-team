@@ -79,7 +79,6 @@ const opsStore = new RuntimeOpsStore(eventsDb);
 // Runner daemon removed — AgentSession runs in-process. Supervisor manages
 // run/attempt rows without transport (NOOP_TRANSPORT is the internal default).
 const supervisor = new RunSupervisor({
-  eventLog,
   config,
   opsStore,
   tracer,
@@ -200,9 +199,8 @@ const identityStore = createAgentIdentityStore({
 
 // Lark-bot setup manager (lazy — created on first setup request)
 let setupManager: LarkSetupManager | undefined;
-function getSetupManager(): LarkSetupManager {
+function getSetupManager(provisioner = new CliSetupProvisioner()): LarkSetupManager {
   if (!setupManager) {
-    const provisioner = new CliSetupProvisioner();
     setupManager = new LarkSetupManager(provisioner, async (session) => {
       await agentSvc.update(session.agentId, {
         lark: { enabled: true, botDisplayName: session.botDisplayName ?? undefined },

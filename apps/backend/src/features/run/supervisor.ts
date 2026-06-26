@@ -4,16 +4,14 @@ import type { MessageRevision } from "@my-agent-team/message";
 import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 
 import type { BackendConfig } from "../../config.js";
-import type { EventLog } from "../event-log/index.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { runEventsDbMigrations } from "./events-db-migrations.js";
 
 export interface RunSupervisorOptions {
-  eventLog: EventLog;
   config: BackendConfig;
   opsStore: RuntimeOpsStore;
   tracer: RuntimeTracer;
-  db?: Database;
+  db: Database;
   /** Called when reaper harvests a stale run — allows session cleanup. */
   onReap?: (runId: string) => void;
 }
@@ -49,7 +47,7 @@ export class RunSupervisor {
 
   constructor(opts: RunSupervisorOptions) {
     this.#opts = opts;
-    this.#db = opts.db ?? new Database(`${opts.config.dataDir}/events.db`);
+    this.#db = opts.db;
     this.#db.exec("PRAGMA journal_mode=WAL");
     this.#db.exec("PRAGMA busy_timeout=5000");
     runEventsDbMigrations(this.#db);

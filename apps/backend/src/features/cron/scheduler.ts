@@ -1,4 +1,3 @@
-import type { CronJob } from "bun";
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
 import { legacyExecuteAgentRun as executeAgentRun } from "../run/run-executor.js";
@@ -6,6 +5,20 @@ import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { CronJobRow } from "./domain.js";
 import type { CronJobService } from "./service.js";
+
+/** Narrow interface for cron scheduling, injectable for testing. */
+export interface Scheduler {
+  schedule(cronExpr: string, fn: () => void): { stop(): void };
+}
+
+type CronHandle = ReturnType<Scheduler["schedule"]>;
+
+export const bunScheduler: Scheduler = {
+  schedule: (expr, fn) => {
+    const h = Bun.cron(expr, fn);
+    return { stop: () => h.stop() };
+  },
+};
 
 export function createCronScheduler(deps: {
   cronSvc: CronJobService;
@@ -15,8 +28,10 @@ export function createCronScheduler(deps: {
   opsStore: RuntimeOpsStore;
   idGen: () => string;
   now?: () => number;
+  scheduler?: Scheduler;
 }) {
-  const handles = new Map<string, CronJob>();
+  const sched = deps.scheduler ?? bunScheduler;
+  const handles = new Map<string, CronHandle>();
   /** runId → { timer, cronJobId } so unregister() can clear in-flight watchdogs. */
   const watchdogs = new Map<string, { timer: ReturnType<typeof setTimeout>; cronJobId: string }>();
   /** runIds cancelled by their per-job watchdog — excluded from retry (a job that
@@ -33,7 +48,7 @@ export function createCronScheduler(deps: {
 
   async function fire(job: CronJobRow, _fireKey?: string): Promise<void> {
     const runId = deps.idGen();
-    const threadId = `${job.cronJobId}:owner`;
+    const threadId = `${job.cronJobId}:${job.agentId}`;
 
     try {
       await executeAgentRun({
@@ -161,7 +176,7 @@ export function createCronScheduler(deps: {
       if (!job.enabled) return;
       handles.set(
         job.cronJobId,
-        Bun.cron(job.cronExpr, () => {
+        sched.schedule(job.cronExpr, () => {
           // Single-flight: a natural trigger that arrives while the previous
           // fire chain (run + retries) is still in flight is skipped. This
           // restores the no-overlap guarantee that the decoupled (setTimeout)
