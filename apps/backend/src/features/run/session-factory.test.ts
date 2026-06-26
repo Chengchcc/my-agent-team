@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { inMemoryCheckpointer, passthroughContextManager } from "@my-agent-team/framework";
 import type { AgentSession } from "@my-agent-team/harness";
-import { type EchoScript, echoModel } from "@my-agent-team/test-helpers";
+import { fakeModel } from "../../../test-helpers/mock-deps.js";
 import {
   createSessionFactory,
   type SessionFactory,
@@ -9,13 +9,11 @@ import {
   SessionSpecMismatchError,
 } from "./session-factory.js";
 
-const ECHO_SCRIPT: EchoScript = { turns: [{ text: "ok" }] };
-
 function makeSpec(overrides?: Partial<SessionSpec>): SessionSpec {
   return {
     agentId: "a1",
     cwd: "/tmp/test",
-    model: echoModel(ECHO_SCRIPT),
+    model: fakeModel(),
     modelName: "claude-test",
     plugins: [],
     tools: [],

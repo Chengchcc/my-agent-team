@@ -3,6 +3,8 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ChatModel } from "@my-agent-team/core";
+import { type EchoScript, echoModel } from "@my-agent-team/test-helpers";
 import type { AgentRow, CreateAgentInput, UpdateAgentInput } from "../src/features/agent/domain.js";
 import type { AgentService } from "../src/features/agent/service.js";
 import type { ColumnConfigService } from "../src/features/column-config/service.js";
@@ -424,4 +426,16 @@ export async function waitForFinalize(
   while (s.getActive().has(runId) && Date.now() - start < timeout) {
     await new Promise((r) => setTimeout(r, 50));
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// fakeModel (C — scripted ChatModel for deterministic tests)
+// ═══════════════════════════════════════════════════════════════
+
+const DEFAULT_ECHO_SCRIPT: EchoScript = { turns: [{ type: "text", text: "ok" }] };
+
+/** Return an echoModel preloaded with a default ok-response script.
+ *  Pass a custom EchoScript to control the assistant's output. */
+export function fakeModel(script?: EchoScript): ChatModel {
+  return echoModel(script ?? DEFAULT_ECHO_SCRIPT);
 }
