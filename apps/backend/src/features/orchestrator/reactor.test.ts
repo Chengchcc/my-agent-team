@@ -147,24 +147,6 @@ function makeAgentRow(overrides?: Partial<AgentRow>): AgentRow {
   };
 }
 
-async function buildSpec(
-  agentId: string,
-  threadId: string,
-  input: string,
-): Promise<Record<string, unknown>> {
-  return {
-    schemaVersion: "2",
-    agentId,
-    threadId,
-    runId: crypto.randomUUID(),
-    mode: "run",
-    input,
-    model: { provider: "anthropic", model: "claude-sonnet-4-6" },
-    permissionMode: "ask",
-  };
-}
-
-// ── Setup ─────────────────────────────────────────────────
 
 const agents = new Map<string, AgentRow>();
 agents.set("planner", makeAgentRow({ id: "planner", name: "planner" }));
@@ -178,11 +160,11 @@ function makeOrchestrator(issueDb: Database, eventsDb: Database) {
   const opsStore = new RuntimeOpsStore(eventsDb);
 
   const orch = createOrchestrator({
+    config: { dataDir: "/tmp", anthropicApiKey: "test" } as any,
     issueSvc,
     agentSvc: fakeAgentSvc(agents),
     supervisor: supervisor as unknown as RunSupervisor,
     opsStore,
-    buildSpec,
     idGen: () => crypto.randomUUID(),
     columnConfigSvc: mockColumnConfigSvc(),
     deliverableSvc: mockDeliverableSvc(),
@@ -288,7 +270,7 @@ describe("Orchestrator reactor", () => {
       agentSvc: fakeAgentSvc(missingAgents), // empty — no agents
       supervisor: supervisor as unknown as RunSupervisor,
       opsStore,
-      buildSpec,
+      config: { dataDir: "/tmp", anthropicApiKey: "test" } as any,
       idGen: () => crypto.randomUUID(),
       columnConfigSvc: mockColumnConfigSvc(), // still returns config with agentIds
       deliverableSvc: mockDeliverableSvc(),

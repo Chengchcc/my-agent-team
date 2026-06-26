@@ -277,43 +277,24 @@ const cronSvc = createCronJobService({
   },
 });
 
-// M18.2 Orchestrator: build spec by agentId directly (not via member table)
-const buildIssueSpec = async (agentId: string, threadId: string, input: string) => {
-  const agent = await agentSvc.getById(agentId);
-  return {
-    schemaVersion: "2",
-    agentId,
-    threadId,
-    runId: crypto.randomUUID(),
-    mode: "run",
-    input,
-    model: {
-      provider: agent.modelProvider,
-      model: agent.modelName,
-      ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}),
-    },
-    permissionMode: agent.permissionMode ?? "ask",
-    maxSteps: agent.maxSteps ?? undefined,
-  };
-};
-
 // M21: CronJob scheduler — register retry listener before orchestrator's onRunComplete
 const makeTrace = () => tracer.inject();
 const cronScheduler = createCronScheduler({
   cronSvc,
   supervisor,
   opsStore,
-  buildSpec: buildIssueSpec,
+  config,
+  agentSvc,
   idGen: ulid,
   trace: makeTrace,
 });
 
 const orchestrator = createOrchestrator({
+  config,
   issueSvc,
   agentSvc,
   supervisor,
   opsStore,
-  buildSpec: buildIssueSpec,
   idGen: ulid,
   columnConfigSvc,
   deliverableSvc,

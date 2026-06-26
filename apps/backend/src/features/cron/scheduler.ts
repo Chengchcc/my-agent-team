@@ -1,24 +1,18 @@
 import type { CronJob } from "bun";
+import type { AgentService } from "../agent/index.js";
+import type { BackendConfig } from "../../config.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
+import type { RunSupervisor } from "../run/supervisor.js";
+import { executeAgentRun } from "../run/run-executor.js";
 import type { CronJobRow } from "./domain.js";
 import type { CronJobService } from "./service.js";
 
 export function createCronScheduler(deps: {
   cronSvc: CronJobService;
-  supervisor: {
-    startMainRun(
-      runId: string,
-      threadId: string,
-      spec: Record<string, unknown>,
-      opts?: Record<string, unknown>,
-    ): Promise<{ runId: string; attemptId: string }>;
-    cancel(runId: string): boolean | Promise<void> | void;
-    onRunComplete(
-      fn: (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>,
-    ): void;
-  };
+  config: BackendConfig;
+  agentSvc: AgentService;
+  supervisor: RunSupervisor;
   opsStore: RuntimeOpsStore;
-  buildSpec: (agentId: string, threadId: string, input: string) => Promise<Record<string, unknown>>;
   idGen: () => string;
   trace: () => { traceId: string; traceparent: string };
   now?: () => number;
@@ -47,27 +41,21 @@ export function createCronScheduler(deps: {
     const t = deps.trace();
 
     try {
-      const spec = await deps.buildSpec(job.agentId, threadId, job.prompt);
-      deps.opsStore.insertRunOrigin({
+      await executeAgentRun({
         runId,
-        conversationId: job.cronJobId,
-        sourceLedgerSeq: 0,
-        agentMemberId: "owner",
+        threadId,
+        agentId: job.agentId,
+        input: job.prompt ?? "",
+        config: deps.config,
+        agentSvc: deps.agentSvc,
+        supervisor: deps.supervisor,
+        opsStore: deps.opsStore,
         surface: "cron",
-        traceId: t.traceId,
-        traceparent: t.traceparent,
-        idempotencyKey: `${key}:run:${attempt}`,
-        issueId: null,
-        fromStatus: "",
+        senderName: "cron",
         originKind: "cron",
-        createdAt: n(),
-        cronJobId: job.cronJobId,
+        origin: { cronJobId: job.cronJobId },
       });
-      await deps.supervisor.startMainRun(runId, threadId, spec, { trace: t });
     } catch (err) {
-      // buildSpec or dispatch threw → no run was produced, so onRunComplete will
-      // never fire to release the single-flight lock. Release it here so the job
-      // isn't wedged forever.
       inFlight.delete(job.cronJobId);
       throw err;
     }
@@ -107,7 +95,7 @@ export function createCronScheduler(deps: {
 
     // No retry on success — clear any retry bookkeeping for this fire and
     // release the single-flight lock so the next natural trigger can fire.
-    if (status === "completed") {
+    if (status === "succeeded") {
       retryCounts.delete(fireKey);
       inFlight.delete(origin.cronJobId);
       return;

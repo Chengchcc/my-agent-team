@@ -3,9 +3,11 @@ import type { ColumnConfigService } from "../column-config/service.js";
 import type { DeliverableRow } from "../deliverable/domain.js";
 import type { IssueRow } from "../issue/entities.js";
 import type { IssueService } from "../issue/service.js";
-import type { RunSupervisor } from "../run/supervisor.js";
+import type { BackendConfig } from "../../config.js";
 import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
+import { executeAgentRun } from "../run/run-executor.js";
+import type { RunSupervisor } from "../run/supervisor.js";
 import type { PromptVars } from "./render.js";
 import { renderPrompt } from "./render.js";
 import { configurableStatuses, nextTransition } from "./transitions.js";
@@ -25,11 +27,11 @@ export class OrchestratorColumnConfigMissingError extends Error {
 }
 
 export interface OrchestratorDeps {
+  config: BackendConfig;
   issueSvc: IssueService;
   agentSvc: AgentService;
   supervisor: RunSupervisor;
   opsStore: RuntimeOpsStore;
-  buildSpec: (agentId: string, threadId: string, input: string) => Promise<Record<string, unknown>>;
   idGen: () => string;
   columnConfigSvc: ColumnConfigService;
   deliverableSvc: { listByIssue(issueId: string): DeliverableRow[] };
@@ -56,7 +58,6 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     agentSvc,
     supervisor,
     opsStore,
-    buildSpec,
     idGen,
     columnConfigSvc,
     deliverableSvc,
@@ -118,9 +119,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     const runId = idGen();
     const vars = buildPromptVars(issue, deliverableSvc.listByIssue(issue.issueId));
     const prompt = renderPrompt(t.promptTemplate, vars);
-    // M19: threadId = <issueId>:<agentId> — runs through conversation projection
     const threadId = `${issue.issueId}:${t.agentId}`;
-    const spec = await buildSpec(t.agentId, threadId, prompt);
 
     // M19 Fix 2: Ensure agent is a member of the issue conversation (idempotent).
     if (convPort) {
@@ -134,21 +133,20 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       });
     }
 
-    opsStore.insertRunOrigin({
+    await executeAgentRun({
       runId,
-      conversationId: "",
-      sourceLedgerSeq: 0,
-      agentMemberId: t.agentId,
+      threadId,
+      agentId: t.agentId,
+      input: prompt,
+      config: deps.config,
+      agentSvc,
+      supervisor,
+      opsStore,
       surface: "orchestrator",
-      traceId: "",
-      traceparent: "",
-      idempotencyKey: runId,
-      issueId: issue.issueId,
-      fromStatus: issue.status,
+      senderName: "orchestrator",
       originKind: "orchestrator",
-      createdAt: Date.now(),
+      origin: { issueId: issue.issueId, fromStatus: issue.status },
     });
-    await supervisor.startMainRun(runId, threadId, spec);
 
     emitIssueEvent(opsStore, issue.issueId, "run.started", {
       runId,

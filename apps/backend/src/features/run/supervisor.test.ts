@@ -29,10 +29,10 @@ function makeSupervisor(db: Database): RunSupervisor {
     eventLog: {
       append: async () => 1,
       read: () => Promise.resolve([] as never[]),
-      subscribe: () => ({}),
+      subscribe: () => (async function* () {})() as AsyncIterable<any>,
     },
-    opsStore: { appendRunEvent: () => {} },
-    tracer: { inject: () => ({ traceId: "", traceparent: "" }) },
+    opsStore: { appendRunEvent: () => {} } as unknown as any,
+    tracer: { inject: () => ({ traceId: "", traceparent: "" }), startSpan: () => ({}), currentTrace: () => null, link: () => {} } as any,
     db,
   });
 }
