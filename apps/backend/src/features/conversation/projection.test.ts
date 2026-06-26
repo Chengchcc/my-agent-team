@@ -25,7 +25,7 @@ const svc = createConversationService({
   maxConsecutiveAgentHops: 3,
   idGen: testIdGen,
   startAgentRun: async (runId, _threadId) => {
-    return { runId, attemptId: `att-${runId}` };
+    return { runId, attemptSeq: 1 };
   },
 });
 

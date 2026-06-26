@@ -8,7 +8,7 @@ import {
   testDB,
   waitForFinalize,
 } from "../../../test-helpers/mock-deps.js";
-import { legacyExecuteAgentRun as executeAgentRun } from "./run-executor.js";
+import { executeAgentRun, makeRunDeps } from "./run-executor.js";
 import type { RunSupervisor } from "./supervisor.js";
 
 describe("executeAgentRun completion signal", () => {
@@ -28,19 +28,19 @@ describe("executeAgentRun completion signal", () => {
     supervisor.onRunComplete((_t, _r, status) => {
       calls.push(status);
     });
-    const { runId } = await executeAgentRun({
-      runId: `${opts.prefix}-${Date.now()}`,
-      threadId: opts.threadId as string,
-      agentId: opts.agentId as string,
-      input: (opts.input as string) ?? "hi",
-      config: mockConfig() as any,
-      agentSvc: mockAgentSvc() as any,
+    const config = mockConfig() as any;
+    const deps = makeRunDeps({
+      config,
       supervisor,
       opsStore: mockOpsStore() as any,
-      surface: opts.surface as string | undefined,
-      senderName: opts.senderName as string | undefined,
-      originKind: opts.originKind as any,
-      origin: (opts.origin || {}) as Record<string, unknown>,
+      agentSvc: mockAgentSvc() as any,
+    });
+    const { runId } = await executeAgentRun(deps, {
+      runId: `${opts.prefix}-${Date.now()}`,
+      sessionId: opts.threadId as string,
+      agentId: opts.agentId as string,
+      input: (opts.input as string) ?? "hi",
+      origin: { kind: "conversation", conversationId: "", surface: "web", senderName: "unknown" },
     });
     await waitForFinalize(supervisor, runId);
     return { runId, calls };

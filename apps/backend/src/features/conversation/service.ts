@@ -50,7 +50,7 @@ export interface ConversationServiceDeps {
     runId: string,
     threadId: string,
     ctx: { conversationId: string; agentMemberId: string; agentId: string; ledgerSeq: number },
-  ) => Promise<{ runId: string; attemptId: string }>;
+  ) => Promise<{ runId: string; attemptSeq: number }>;
   idGen: () => string;
   /** Verify a runId belongs to the given conversation. Throws if not. */
   verifyRunOwnsConversation?: (runId: string, conversationId: string) => Promise<void>;

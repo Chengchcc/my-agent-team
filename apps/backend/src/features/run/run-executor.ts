@@ -3,10 +3,10 @@ import type { AgentService } from "../agent/index.js";
 import type { ConversationPort } from "../conversation/ports.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import type { RunOriginKind } from "../runtime-ops/types.js";
-import { buildSessionSpec, type SessionFactory } from "./session-factory.js";
+import { buildSessionSpec, createSessionFactory, type SessionFactory } from "./session-factory.js";
 import type { RunSupervisor } from "./supervisor.js";
 
-// ─── New types (PR-1) ─────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────
 
 /** Stable capabilities, assembled once at the composition root. */
 export interface RunDeps {
@@ -41,95 +41,35 @@ export type RunOrigin =
   | { kind: "cron"; cronJobId: string }
   | { kind: "orchestrator"; issueId: string; fromStatus: string };
 
-// ─── Legacy wrapper (backward compat during migration) ─────
+// ─── makeRunDeps helper ────────────────────────────────────
 
-/** @deprecated replaced by RunDeps + RunRequest. Kept for gradual migration of call sites. */
-export interface ExecuteAgentRunOpts {
-  runId: string;
-  threadId: string;
-  agentId: string;
-  input: string;
+export function makeRunDeps(overrides: {
   config: BackendConfig;
-  agentSvc: AgentService;
   supervisor: RunSupervisor;
   opsStore: RuntimeOpsStore;
+  agentSvc: AgentService;
   convPort?: ConversationPort;
-  conversationId?: string;
-  surface?: string;
-  senderName?: string;
-  originKind?: RunOriginKind;
-  origin?: Record<string, unknown>;
-  onAssistantMessage?: (revision: Record<string, unknown>) => void;
-  onRunStatus?: (status: {
-    runId: string;
-    phase: string;
-    detail?: string;
-    updatedAt: number;
-  }) => void;
-  onComplete?: (runId: string, status: string) => void;
-}
-
-// ─── Origin helpers ───────────────────────────────────────
-
-function originFromLegacy(opts: ExecuteAgentRunOpts): {
-  origin: RunOrigin;
-  originKind: RunOriginKind;
-  conversationId: string;
-  surface: string;
-  senderName: string;
-} {
-  const { originKind, origin, conversationId, surface, senderName } = opts;
-  if (originKind === "cron") {
-    return {
-      origin: { kind: "cron", cronJobId: (origin?.cronJobId as string) ?? "" },
-      originKind: "cron",
-      conversationId: "",
-      surface: "cron",
-      senderName: "cron",
-    };
-  }
-  if (originKind === "orchestrator") {
-    return {
-      origin: {
-        kind: "orchestrator",
-        issueId: (origin?.issueId as string) ?? "",
-        fromStatus: (origin?.fromStatus as string) ?? "",
-      },
-      originKind: "orchestrator",
-      conversationId: "",
-      surface: "orchestrator",
-      senderName: "orchestrator",
-    };
-  }
+}): RunDeps {
   return {
-    origin: {
-      kind: "conversation",
-      conversationId: conversationId ?? "",
-      surface: surface ?? "web",
-      senderName: senderName ?? "unknown",
-    },
-    originKind: originKind ?? "manual",
-    conversationId: conversationId ?? "",
-    surface: surface ?? "web",
-    senderName: senderName ?? "unknown",
+    sessionFactory: createSessionFactory({ config: overrides.config }),
+    supervisor: overrides.supervisor,
+    opsStore: overrides.opsStore,
+    agentSvc: overrides.agentSvc,
+    config: overrides.config,
+    convPort: overrides.convPort,
   };
 }
 
-// ─── executeAgentRun (new signature) ──────────────────────
+// ─── executeAgentRun ──────────────────────────────────────
 
 /**
  * Create an AgentSession (via SessionFactory) and execute it asynchronously.
  * Returns immediately — the AgentSession runs in the background.
- *
- * Phase 1: no more `new AnthropicChatModel` / `sqliteCheckpointer` /
- * `new AgentSession` / `mkdirSync` in this function body.
- * Session materialization is delegated to sessionFactory.getOrCreate,
- * and model/checkpointer/tools/plugins are assembled in buildSessionSpec.
  */
 export async function executeAgentRun(
   deps: RunDeps,
   req: RunRequest,
-): Promise<{ runId: string; attemptId: string; attemptSeq: number }> {
+): Promise<{ runId: string; attemptSeq: number }> {
   const { runId, sessionId, agentId, input, origin } = req;
   const { supervisor, opsStore, agentSvc, convPort, config, sessionFactory } = deps;
 
@@ -170,7 +110,7 @@ export async function executeAgentRun(
     ...originPayload,
   });
 
-  const { attemptId, attemptSeq } = await supervisor.startMainRun(runId, sessionId, {
+  const { attemptSeq } = await supervisor.startMainRun(runId, sessionId, {
     agentId,
     sessionId,
   });
@@ -198,7 +138,6 @@ export async function executeAgentRun(
       .notifyRunComplete(sessionId, runId, status, "main", attemptSeq)
       .catch((err) => console.error(`[run-executor] notifyRunComplete failed for ${runId}:`, err));
     if (req.onComplete) req.onComplete(runId, status);
-    // Phase 2: don't dispose session here (cross-run persistence)
   };
 
   session.subscribe((event) => {
@@ -221,51 +160,11 @@ export async function executeAgentRun(
     if (event.type === "auto_retry_end") emitRunStatus("running");
   });
 
-  // ── Fire and forget (runId now flows into harness) ──────
+  // ── Fire and forget (runId flows into harness) ──────────
   void session.prompt(input, { signal: undefined, runId }).catch((err) => {
     console.error(`[run-executor] prompt error for ${runId}:`, err);
     finalizeOnce("error");
   });
 
-  return { runId, attemptId, attemptSeq };
-}
-
-// ─── Backward-compat wrapper (call sites not yet migrated to RunDeps) ──
-
-/**
- * @deprecated Use executeAgentRun(deps: RunDeps, req: RunRequest) instead.
- * This wrapper builds a temporary SessionFactory from the legacy flat opts
- * so existing call sites don't break. Migrate callers to receive RunDeps
- * from the composition root (PR-5).
- */
-export async function legacyExecuteAgentRun(
-  opts: ExecuteAgentRunOpts,
-): Promise<{ runId: string; attemptId: string; attemptSeq: number }> {
-  const { origin } = originFromLegacy(opts);
-
-  // Build a throwaway SessionFactory from opts.config
-  const { createSessionFactory } = await import("./session-factory.js");
-  const sessionFactory = createSessionFactory({ config: opts.config });
-
-  const deps: RunDeps = {
-    sessionFactory,
-    supervisor: opts.supervisor,
-    opsStore: opts.opsStore,
-    agentSvc: opts.agentSvc,
-    config: opts.config,
-    convPort: opts.convPort,
-  };
-
-  const req: RunRequest = {
-    runId: opts.runId,
-    sessionId: opts.threadId,
-    agentId: opts.agentId,
-    input: opts.input,
-    origin,
-    onAssistantMessage: opts.onAssistantMessage,
-    onRunStatus: opts.onRunStatus,
-    onComplete: opts.onComplete,
-  };
-
-  return executeAgentRun(deps, req);
+  return { runId, attemptSeq };
 }

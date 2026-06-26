@@ -18,12 +18,7 @@ export interface RunSupervisorOptions {
 
 export interface RunSession {
   runId: string;
-  /** @deprecated use attemptSeq instead */
-  attemptId: string;
   attemptSeq: number;
-  /** @deprecated use sessionId instead */
-  threadId: string;
-  /** Persistent memory line key (same value as threadId). */
   sessionId: string;
   agentId: string;
   kind: "main" | "reflect";
@@ -176,7 +171,7 @@ export class RunSupervisor {
     threadId: string,
     spec: Record<string, unknown>,
     _opts?: Record<string, unknown>,
-  ): Promise<{ runId: string; attemptId: string; attemptSeq: number }> {
+  ): Promise<{ runId: string; attemptSeq: number }> {
     const agentId = (spec.agentId as string) ?? threadId;
     const now = Date.now();
 
@@ -197,15 +192,11 @@ export class RunSupervisor {
       ]);
     })();
 
-    /** @deprecated use attemptSeq instead */
-    const attemptId = `att-${runId}`;
     const attemptSeq = seq;
 
     const session: RunSession = {
       runId,
-      attemptId,
       attemptSeq,
-      threadId,
       sessionId: threadId,
       agentId,
       kind: "main",
@@ -213,7 +204,7 @@ export class RunSupervisor {
       transportKind: "attached",
     };
     this.#active.set(runId, session);
-    return { runId, attemptId, attemptSeq };
+    return { runId, attemptSeq };
   }
 
   cancel(runId: string): boolean {

@@ -1,6 +1,6 @@
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
-import { legacyExecuteAgentRun as executeAgentRun } from "../run/run-executor.js";
+import { executeAgentRun, makeRunDeps } from "../run/run-executor.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { CronJobRow } from "./domain.js";
@@ -51,19 +51,18 @@ export function createCronScheduler(deps: {
     const threadId = `${job.cronJobId}:${job.agentId}`;
 
     try {
-      await executeAgentRun({
-        runId,
-        threadId,
-        agentId: job.agentId,
-        input: job.prompt ?? "",
+      const runDeps = makeRunDeps({
         config: deps.config,
-        agentSvc: deps.agentSvc,
         supervisor: deps.supervisor,
         opsStore: deps.opsStore,
-        surface: "cron",
-        senderName: "cron",
-        originKind: "cron",
-        origin: { cronJobId: job.cronJobId },
+        agentSvc: deps.agentSvc,
+      });
+      await executeAgentRun(runDeps, {
+        runId,
+        sessionId: threadId,
+        agentId: job.agentId,
+        input: job.prompt ?? "",
+        origin: { kind: "cron", cronJobId: job.cronJobId },
       });
     } catch (err) {
       inFlight.delete(job.cronJobId);

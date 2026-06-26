@@ -39,6 +39,8 @@ export interface ConvState {
    *  confirmed by the backend (POST in-flight). Cleared when the first
    *  authoritative agent revision arrives or on send error. */
   pendingSendCount: number;
+  /** W7: Monotonic sequence number for client-generated message IDs. */
+  optimisticSeq: number;
 }
 
 export type Action =

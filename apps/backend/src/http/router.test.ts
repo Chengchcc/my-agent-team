@@ -46,7 +46,7 @@ beforeAll(async () => {
     lock: new ConversationLock(),
     maxConsecutiveAgentHops: 8,
     idGen: () => crypto.randomUUID().slice(0, 8),
-    startAgentRun: async (runId) => ({ runId, attemptId: `att-${runId}` }),
+    startAgentRun: async (runId) => ({ runId, attemptSeq: 1 }),
   });
 
   router = createRouter(TOKEN, {

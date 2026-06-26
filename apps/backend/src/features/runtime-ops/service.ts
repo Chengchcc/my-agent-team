@@ -304,7 +304,7 @@ export function createRuntimeOpsService(deps: {
         ok: true,
         state: "abort_sent",
         runId,
-        attemptId: session.attemptId,
+        attemptId: String(session.attemptSeq),
         attemptSeq: String(session.attemptSeq),
       };
     },

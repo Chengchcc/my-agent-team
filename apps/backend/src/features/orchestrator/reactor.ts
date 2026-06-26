@@ -4,7 +4,7 @@ import type { ColumnConfigService } from "../column-config/service.js";
 import type { DeliverableRow } from "../deliverable/domain.js";
 import type { IssueRow } from "../issue/entities.js";
 import type { IssueService } from "../issue/service.js";
-import { legacyExecuteAgentRun as executeAgentRun } from "../run/run-executor.js";
+import { executeAgentRun, makeRunDeps } from "../run/run-executor.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
@@ -102,19 +102,18 @@ export function createStepRunner(d: StepRunnerDeps) {
       });
     }
 
-    await executeAgentRun({
-      runId,
-      threadId,
-      agentId: t.agentId,
-      input: prompt,
+    const runDeps = makeRunDeps({
       config: d.config,
-      agentSvc: d.agentSvc as AgentService,
       supervisor: d.supervisor,
       opsStore: d.opsStore,
-      surface: "orchestrator",
-      senderName: "orchestrator",
-      originKind: "orchestrator",
-      origin: { issueId: issue.issueId, fromStatus: issue.status },
+      agentSvc: d.agentSvc as AgentService,
+    });
+    await executeAgentRun(runDeps, {
+      runId,
+      sessionId: threadId,
+      agentId: t.agentId,
+      input: prompt,
+      origin: { kind: "orchestrator", issueId: issue.issueId, fromStatus: issue.status },
     });
 
     emitIssueEvent(d.opsStore, issue.issueId, "run.started", {

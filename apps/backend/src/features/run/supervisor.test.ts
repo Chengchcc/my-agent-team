@@ -5,9 +5,9 @@ describe("RunSupervisor", () => {
   test("startMainRun creates run and attempt rows", async () => {
     const db = testDB();
     const s = mockSupervisor(db);
-    const { runId, attemptId } = await s.startMainRun("r1", "t1", { agentId: "a1" });
+    const { runId, attemptSeq } = await s.startMainRun("r1", "t1", { agentId: "a1" });
     expect(runId).toBe("r1");
-    expect(attemptId).toBe("att-r1");
+    expect(attemptSeq).toBe(1);
     const run = db.query("SELECT * FROM run WHERE run_id = ?").get("r1") as { status: string };
     expect(run.status).toBe("running");
     s.dispose();

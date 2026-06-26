@@ -8,7 +8,7 @@ import {
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
-import { legacyExecuteAgentRun as executeAgentRun } from "../run/run-executor.js";
+import { executeAgentRun, makeRunDeps } from "../run/run-executor.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import { sqliteConversationAdapter } from "./index.js";
@@ -96,20 +96,24 @@ export function createConversationFeature(
     startAgentRun: async (_runId, threadId, ctx) => {
       const members = convPort.getMembers(ctx.conversationId);
       const isLark = members.some((m) => m.kind === "human" && m.userRef?.startsWith("lark:"));
-      return executeAgentRun({
-        runId: crypto.randomUUID(),
-        threadId,
-        agentId: ctx.agentId,
-        input: "",
+      const runDeps = makeRunDeps({
         config: _config,
-        agentSvc,
-        convPort,
-        conversationId: ctx.conversationId,
         supervisor,
         opsStore: _opsStore,
-        surface: isLark ? "lark" : "web",
-        senderName: ctx.agentMemberId,
-        originKind: "mention",
+        agentSvc,
+        convPort,
+      });
+      return executeAgentRun(runDeps, {
+        runId: crypto.randomUUID(),
+        sessionId: threadId,
+        agentId: ctx.agentId,
+        input: "",
+        origin: {
+          kind: "conversation",
+          conversationId: ctx.conversationId,
+          surface: isLark ? "lark" : "web",
+          senderName: ctx.agentMemberId,
+        },
         onAssistantMessage: (payload) => {
           const rev = payload as unknown as MessageRevision;
           void handleAssistantMessage(threadId, rev.runId ?? _runId, rev);
@@ -152,21 +156,25 @@ export interface StartAgentRunOpts {
 
 export async function startAgentRun(
   opts: StartAgentRunOpts,
-): Promise<{ runId: string; attemptId: string; attemptSeq: number }> {
-  return executeAgentRun({
-    runId: crypto.randomUUID(),
-    threadId: opts.threadId,
-    agentId: opts.agentId,
-    input: opts.input,
+): Promise<{ runId: string; attemptSeq: number }> {
+  const runDeps = makeRunDeps({
     config: opts.config,
-    agentSvc: opts.agentSvc,
-    convPort: opts.convPort,
-    conversationId: opts.conversationId,
     supervisor: opts.supervisor,
     opsStore: opts.opsStore,
-    surface: opts.surface,
-    senderName: opts.senderName,
-    originKind: "mention",
+    agentSvc: opts.agentSvc,
+    convPort: opts.convPort,
+  });
+  return executeAgentRun(runDeps, {
+    runId: crypto.randomUUID(),
+    sessionId: opts.threadId,
+    agentId: opts.agentId,
+    input: opts.input,
+    origin: {
+      kind: "conversation",
+      conversationId: opts.conversationId,
+      surface: opts.surface ?? "web",
+      senderName: opts.senderName ?? "unknown",
+    },
     onAssistantMessage: opts.onAssistantMessage,
     onComplete: opts.onComplete,
   });

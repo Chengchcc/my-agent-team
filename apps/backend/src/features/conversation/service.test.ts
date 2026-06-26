@@ -31,7 +31,7 @@ const svc = createConversationService({
   idGen: testIdGen,
   startAgentRun: async (runId, threadId, _ctx) => {
     forkLog.push({ runId, threadId });
-    return { runId, attemptId: `att-${runId}` };
+    return { runId, attemptSeq: 1 };
   },
 });
 
