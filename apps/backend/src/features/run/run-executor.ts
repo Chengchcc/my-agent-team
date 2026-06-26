@@ -52,6 +52,9 @@ export interface ExecuteAgentRunOpts {
   origin?: Record<string, unknown>;
   /** Called with each assistant message revision to write to ledger + SSE */
   onAssistantMessage?: (revision: Record<string, unknown>) => void;
+  /** Called with run lifecycle status (compacting/retrying/running/interrupted).
+   *  Emitted as independent run_status frames, not disguised as message revisions. */
+  onRunStatus?: (status: { runId: string; phase: string; detail?: string; updatedAt: number }) => void;
   /** Called when run completes (success/error/abort) */
   onComplete?: (runId: string, status: string) => void;
 }
@@ -85,6 +88,7 @@ export async function executeAgentRun(
     originKind = "manual" as RunOriginKind,
     origin = {},
     onAssistantMessage,
+    onRunStatus,
     onComplete,
   } = opts;
 
@@ -212,18 +216,19 @@ export async function executeAgentRun(
     if (event.type === "agent_end") {
       finalizeOnce(event.status ?? "succeeded");
     }
-    // Map session-level events → runStatus on MessageRevision
-    if (event.type === "compaction_start" && onAssistantMessage) {
-      onAssistantMessage(buildRunStatusRevision(runId, "compacting", lastAssistantOrdinal));
-    }
-    if (event.type === "compaction_end" && onAssistantMessage) {
-      onAssistantMessage(buildRunStatusRevision(runId, undefined, lastAssistantOrdinal));
-    }
-    if (event.type === "auto_retry_start" && onAssistantMessage) {
-      onAssistantMessage(buildRunStatusRevision(runId, "retrying", lastAssistantOrdinal));
-    }
-    if (event.type === "auto_retry_end" && onAssistantMessage) {
-      onAssistantMessage(buildRunStatusRevision(runId, undefined, lastAssistantOrdinal));
+    // Emit run_status frames for transient lifecycle events (Phase 0 §1.2)
+    const emitRunStatus = (phase: string, detail?: string) =>
+      onRunStatus?.({ runId, phase, detail, updatedAt: Date.now() });
+
+    if (event.type === "compaction_start") emitRunStatus("compacting");
+    if (event.type === "compaction_end") emitRunStatus("running");
+    if (event.type === "auto_retry_start") emitRunStatus("retrying", event.errorMessage);
+    if (event.type === "auto_retry_end") emitRunStatus("running");
+    if (event.type === "agent_end") {
+      const finalPhase = event.status === "succeeded" ? "succeeded"
+        : event.status === "interrupted" ? "interrupted"
+        : "error";
+      emitRunStatus(finalPhase);
     }
   });
 
@@ -245,16 +250,3 @@ export async function executeAgentRun(
   return { runId, attemptId };
 }
 
-function buildRunStatusRevision(
-  runId: string,
-  runStatus: "retrying" | "compacting" | undefined,
-  ordinal = 0,
-): Record<string, unknown> {
-  return {
-    messageId: `run:${runId}:assistant:${ordinal}`,
-    state: "streaming",
-    role: "assistant",
-    runStatus,
-    updatedAt: Date.now(),
-  };
-}
