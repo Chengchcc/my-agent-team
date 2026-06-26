@@ -29,9 +29,9 @@ export function createConversationFeature(
   supervisor: RunSupervisor,
   agentSvc: AgentService,
   _opsStore: RuntimeOpsStore,
+  lock: ConversationLock = new ConversationLock(),
 ): ConversationFeature {
   const convPort = sqliteConversationAdapter(db);
-  const lock = new ConversationLock();
 
   // @mention regex cache
   const mentionCache = new Map<string, RegExp>();

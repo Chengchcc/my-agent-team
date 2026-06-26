@@ -3,7 +3,12 @@ import type { AgentService } from "../agent/index.js";
 import type { ConversationPort } from "../conversation/ports.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import type { RunOriginKind } from "../runtime-ops/types.js";
-import { buildSessionSpec, createSessionFactory, type SessionFactory } from "./session-factory.js";
+import {
+  buildSessionSpec,
+  createSessionFactory,
+  type ModelFactory,
+  type SessionFactory,
+} from "./session-factory.js";
 import type { RunSupervisor } from "./supervisor.js";
 
 // ─── Types ────────────────────────────────────────────────
@@ -16,6 +21,8 @@ export interface RunDeps {
   agentSvc: AgentService;
   config: BackendConfig;
   convPort?: ConversationPort;
+  /** Injected model factory — passed through to buildSessionSpec. */
+  makeModel?: ModelFactory;
 }
 
 /** Per-invocation data that changes on every run. */
@@ -49,14 +56,19 @@ export function makeRunDeps(overrides: {
   opsStore: RuntimeOpsStore;
   agentSvc: AgentService;
   convPort?: ConversationPort;
+  makeModel?: ModelFactory;
 }): RunDeps {
   return {
-    sessionFactory: createSessionFactory({ config: overrides.config }),
+    sessionFactory: createSessionFactory({
+      config: overrides.config,
+      makeModel: overrides.makeModel,
+    }),
     supervisor: overrides.supervisor,
     opsStore: overrides.opsStore,
     agentSvc: overrides.agentSvc,
     config: overrides.config,
     convPort: overrides.convPort,
+    makeModel: overrides.makeModel,
   };
 }
 
@@ -126,6 +138,7 @@ export async function executeAgentRun(
     surface,
     senderName,
     input,
+    makeModel: deps.makeModel,
   });
   const session = sessionFactory.getOrCreate(sessionId, spec);
 

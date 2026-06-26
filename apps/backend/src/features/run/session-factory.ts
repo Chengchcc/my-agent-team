@@ -67,6 +67,13 @@ export interface SessionSpec {
   contextManager: ContextManager;
 }
 
+/** Factory signature for creating a ChatModel from agent profile. */
+export type ModelFactory = (agent: {
+  modelName: string;
+  modelProvider: string;
+  modelBaseUrl: string | null;
+}) => ChatModel;
+
 export class SessionSpecMismatchError extends Error {
   constructor(
     public readonly sessionId: string,
@@ -87,6 +94,8 @@ export interface SessionFactoryDeps {
   reaperIntervalMs?: number;
   /** Dispose sessions idle for longer than this (ms). */
   idleTimeoutMs?: number;
+  /** Injected model factory — replaces `new AnthropicChatModel` at call sites. */
+  makeModel?: ModelFactory;
 }
 
 interface SessionEntry {
@@ -206,6 +215,8 @@ export interface BuildSessionSpecParams {
   surface?: string;
   senderName?: string;
   input?: string;
+  /** Injected model factory — defaults to AnthropicChatModel. */
+  makeModel?: ModelFactory;
 }
 
 export function buildSessionSpec(params: BuildSessionSpecParams): SessionSpec {
@@ -214,10 +225,10 @@ export function buildSessionSpec(params: BuildSessionSpecParams): SessionSpec {
   const cwd = join(config.dataDir, "agents", agentId);
   mkdirSync(cwd, { recursive: true });
 
-  const model = new AnthropicChatModel({
-    apiKey: config.anthropicApiKey,
-    model: agent.modelName,
-  });
+  const makeModel =
+    params.makeModel ??
+    ((a) => new AnthropicChatModel({ apiKey: config.anthropicApiKey, model: a.modelName }));
+  const model = makeModel(agent);
 
   const baseTools = [
     createReadTool({ cwd }),
