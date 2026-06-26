@@ -61,6 +61,7 @@ export function initialState(): ConvState {
     triggerMode: "auto",
     todos: [],
     pendingSendCount: 0,
+    optimisticSeq: 0,
   };
 }
 

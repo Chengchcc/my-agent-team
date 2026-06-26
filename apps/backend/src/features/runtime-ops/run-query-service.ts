@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import type { RuntimeOpsStore } from "./store.js";
 import type { RunSupervisor } from "../run/supervisor.js";
+import type { RuntimeOpsStore } from "./store.js";
 
 // ─── RunSqlFilter (replaces sql+= if-chain) ──────────────
 
@@ -21,7 +21,10 @@ export function buildRunQuery(
 ): { sql: string; args: (string | number)[] } {
   const clauses: string[] = ["1=1"];
   const args: (string | number)[] = [];
-  const add = (cond: string, v: string | number) => { clauses.push(cond); args.push(v); };
+  const add = (cond: string, v: string | number) => {
+    clauses.push(cond);
+    args.push(v);
+  };
   if (f.agentId) add("r.agent_id = ?", f.agentId);
   if (f.sessionId) add("r.session_id = ?", f.sessionId);
   if (f.conversationId) add("r.session_id LIKE ? ESCAPE '\\'", `${escapeLike(f.conversationId)}:%`);
@@ -110,13 +113,20 @@ export function createRunQueryService(deps: {
           status: r.status,
           startedAt: r.started_at,
           endedAt: r.ended_at,
-          runnerTransport: (session?.transportKind ?? "detached") as "attached" | "noop" | "detached",
+          runnerTransport: (session?.transportKind ?? "detached") as
+            | "attached"
+            | "noop"
+            | "detached",
           heartbeatAt: null as number | null,
           traceId: undefined as string | undefined,
         };
       });
 
-      return applyPostFilters(items, { transport: params.transport, heartbeat: params.heartbeat, traceId: params.traceId });
+      return applyPostFilters(items, {
+        transport: params.transport,
+        heartbeat: params.heartbeat,
+        traceId: params.traceId,
+      });
     },
 
     cancel(runId: string): { ok: boolean; error?: string; state?: string } {
