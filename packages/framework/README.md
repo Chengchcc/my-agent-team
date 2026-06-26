@@ -59,4 +59,4 @@ for await (const event of agent.run("部署应用", { stream: true })) {
 
 ## 依赖关系
 
-`framework` 依赖 `core`。它是上层应用的基座，被 `harness`、`event-log`、`runner-protocol`、`runner-daemon`、各 `plugin-*`（`plugin-fs-memory`、`plugin-progressive-skill`、`plugin-task-guard`）以及 `apps/backend` 依赖。
+`framework` 依赖 `core`。它是上层应用的基座，被 `harness`、`event-log`、各 `plugin-*`（`plugin-fs-memory`、`plugin-progressive-skill`、`plugin-task-guard`）以及 `apps/backend` 依赖。
