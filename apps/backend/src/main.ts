@@ -279,7 +279,6 @@ const cronSvc = createCronJobService({
 });
 
 // M21: CronJob scheduler — register retry listener before orchestrator's onRunComplete
-const makeTrace = () => tracer.inject();
 const cronScheduler = createCronScheduler({
   cronSvc,
   supervisor,
@@ -287,7 +286,6 @@ const cronScheduler = createCronScheduler({
   config,
   agentSvc,
   idGen: ulid,
-  trace: makeTrace,
 });
 
 const orchestrator = createOrchestrator({

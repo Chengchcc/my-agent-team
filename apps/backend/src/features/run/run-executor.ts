@@ -188,6 +188,19 @@ export async function executeAgentRun(
     if (event.type === "agent_end" && onComplete) {
       onComplete(runId, event.willRetry ? "error" : "succeeded");
     }
+    // Map session-level events → runStatus on MessageRevision (spec §6.4)
+    if (event.type === "compaction_start" && onAssistantMessage) {
+      onAssistantMessage(buildRunStatusRevision(runId, "compacting"));
+    }
+    if (event.type === "compaction_end" && onAssistantMessage) {
+      onAssistantMessage(buildRunStatusRevision(runId, undefined));
+    }
+    if (event.type === "auto_retry_start" && onAssistantMessage) {
+      onAssistantMessage(buildRunStatusRevision(runId, "retrying"));
+    }
+    if (event.type === "auto_retry_end" && onAssistantMessage) {
+      onAssistantMessage(buildRunStatusRevision(runId, undefined));
+    }
   });
 
   // Register for resume (ToolApprovalCard interrupt flow)
@@ -220,4 +233,20 @@ export async function executeAgentRun(
     });
 
   return { runId, attemptId };
+}
+
+/** Build a synthetic MessageRevision to carry runStatus to the frontend.
+ *  Uses the well-known assistant messageId pattern so the frontend
+ *  mergeMessageRevision applies runStatus to the correct message. */
+function buildRunStatusRevision(
+  runId: string,
+  runStatus: "retrying" | "compacting" | undefined,
+): Record<string, unknown> {
+  return {
+    messageId: `run:${runId}:assistant:0`,
+    state: "streaming",
+    role: "assistant",
+    runStatus,
+    updatedAt: Date.now(),
+  };
 }

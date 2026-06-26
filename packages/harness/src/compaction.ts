@@ -74,10 +74,28 @@ async function summarizeMessages(
 ): Promise<string> {
   const instruction =
     customInstructions ??
-    "Summarize the conversation so far, capturing key decisions, progress, and open questions.";
+    [
+      "Summarize the conversation above in a structured format with five sections.",
+      "Leave a section empty if there is no content for it. Format:",
+      "",
+      "## 目标 (Goals)",
+      "What the user or agent is currently trying to accomplish.",
+      "",
+      "## 约束 (Constraints)",
+      "Hard boundaries, limitations, or rules that affect decisions.",
+      "",
+      "## 进度 (Progress)",
+      "What has been completed so far, including specific results.",
+      "",
+      "## 关键决策 (Key Decisions)",
+      "Important choices made and their rationale.",
+      "",
+      "## 下一步 (Next Steps)",
+      "Remaining work and the immediate next action to take.",
+    ].join("\n");
   const prompt: Message = {
     role: "user",
-    text: `<task>${instruction}</task>\n\n<conversation>\n${formatMessages(messages)}\n</conversation>\n\nProvide a concise summary.`,
+    text: `<task>${instruction}</task>\n\n<conversation>\n${formatMessages(messages)}\n</conversation>`,
   };
 
   const stream = model.stream([prompt], { signal });
