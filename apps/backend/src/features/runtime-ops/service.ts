@@ -4,6 +4,7 @@ import type { EventLog } from "../event-log/index.js";
 import type { RunSupervisor } from "../run/supervisor.js";
 import type { InsightsSummary, RunInsights } from "./insights.js";
 import { getInsightsSummary, getRunInsights } from "./insights.js";
+import { buildRunQuery } from "./run-query-service.js";
 import type { RuntimeOpsStore } from "./store.js";
 // runner_health removed (AgentSession runs in-process, no runner daemon)
 
@@ -115,29 +116,16 @@ export function createRuntimeOpsService(deps: {
     }): RunOpsListItem[] {
       const raw = params.limit ?? 50;
       const limit = Number.isFinite(raw) && raw > 0 && raw <= 500 ? Math.floor(raw) : 50;
-      let sql = `SELECT r.run_id, r.session_id, r.agent_id, r.kind, r.parent_run_id, r.status, r.started_at, r.ended_at
-                 FROM run r WHERE 1=1`;
-      const args: (string | number)[] = [];
-      if (params.agentId) {
-        sql += " AND r.agent_id = ?";
-        args.push(params.agentId);
-      }
-      if (params.threadId) {
-        sql += " AND r.session_id = ?";
-        args.push(params.threadId);
-      }
-      if (params.conversationId) {
-        // Escape LIKE wildcards so user input doesn't get interpreted as patterns
-        const escaped = params.conversationId.replace(/[%_]/g, "\\$&");
-        sql += " AND r.session_id LIKE ? ESCAPE '\\'";
-        args.push(`${escaped}:%`);
-      }
-      if (params.status) {
-        sql += " AND r.status = ?";
-        args.push(params.status);
-      }
-      sql += " ORDER BY r.started_at DESC LIMIT ?";
-      args.push(limit);
+      // DI#4: SQL building extracted to narrow query constructor (OCP fix)
+      const { sql, args } = buildRunQuery(
+        {
+          agentId: params.agentId,
+          sessionId: params.threadId,
+          conversationId: params.conversationId,
+          status: params.status,
+        },
+        limit,
+      );
 
       const rows = db.query(sql).all(...args) as Array<{
         run_id: string;
