@@ -29,7 +29,6 @@ function makeJob(overrides: Partial<CronJobRow> = {}): CronJobRow {
 /** Minimal deps for exercises that only call register/unregister/dispose/start.
  *  onRunComplete is always called at construction time, so supervisor is required.
  *  Returns `any` to avoid declaring full CronJobService/RunDispatcher shapes. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function minimalDeps(overrides: Record<string, unknown> = {}): any {
   return {
     cronSvc: { port: { listEnabledCronJobs: () => [] as CronJobRow[] } },
@@ -221,7 +220,6 @@ describe("createCronScheduler", () => {
     listener!("thread-1", "r1", "error", "main");
     // retry_requested event must be recorded synchronously (before setTimeout fires)
     expect(appendRunEvent).toHaveBeenCalledTimes(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const call = (appendRunEvent as any).mock.calls[0][0];
     expect(call.kind).toBe("retry_requested");
     expect(call.payload.attempt).toBe(1);
@@ -261,18 +259,14 @@ describe("createCronScheduler", () => {
     listener!("thread-1", "r2", "error", "main");
     callCount++;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const retryEvents = (appendRunEvent as any).mock.calls.filter(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (c: any) => c[0].kind === "retry_requested",
     );
     expect(retryEvents).toHaveLength(2);
 
     // Third failure — maxRetries reached, no more retries
     listener!("thread-1", "r3", "error", "main");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const retryEventsAfter = (appendRunEvent as any).mock.calls.filter(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (c: any) => c[0].kind === "retry_requested",
     );
     expect(retryEventsAfter).toHaveLength(2); // still 2, no new one
