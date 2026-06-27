@@ -30,7 +30,7 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
     <div className="space-y-4">
       {detail.mode === "local" && (
         <div className="text-xs text-muted-foreground px-3 py-2 rounded-md bg-muted">
-          Local trace only — assembled from run_ops_event data. No OTLP collector connected.
+          Local trace only — assembled from control_plane_event data. No OTLP collector connected.
         </div>
       )}
 
