@@ -288,7 +288,12 @@
       "owners": "backend-runtime",
       "path": "docs/architecture/backend/orchestrator.md",
       "summary": "Orchestrator 是驱动 Issue 状态机往前走的显式编排器。按固定转移表用对应 Agent 起 AgentSession 运行，run 终态经 status 回填把 Issue 推进到下一状态。",
-      "depends_on": ["foundations.issue", "backend.overview", "conversation.members", "harness.harness"],
+      "depends_on": [
+        "foundations.issue",
+        "backend.overview",
+        "conversation.members",
+        "harness.harness"
+      ],
       "used_by": ["roadmap.future-work", "flows.e2e-issue-lifecycle"]
     },
     {
