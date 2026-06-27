@@ -49,8 +49,13 @@ export interface SessionFactory {
   enqueuePrompt(
     sessionId: string,
     input: string,
-    opts?: { signal?: AbortSignal; runId?: string },
+    opts?: { signal?: AbortSignal; spanId?: string },
   ): Promise<void>;
+  /**
+   * Look up an existing live session without creating one.
+   * Returns undefined if the session doesn't exist — never materializes.
+   */
+  peek(sessionId: string): AgentSession | undefined;
   dispose(sessionId: string): void;
   /** Dispose all sessions (shutdown hook). */
   disposeAll(): void;
@@ -167,10 +172,14 @@ export function createSessionFactory(deps: SessionFactoryDeps): SessionFactory {
       return session;
     },
 
+    peek(sessionId: string): AgentSession | undefined {
+      return sessions.get(sessionId)?.session;
+    },
+
     async enqueuePrompt(
       sessionId: string,
       input: string,
-      opts?: { signal?: AbortSignal; runId?: string },
+      opts?: { signal?: AbortSignal; spanId?: string },
     ): Promise<void> {
       const entry = sessions.get(sessionId);
       if (!entry) throw new Error(`Session not found: ${sessionId}`);

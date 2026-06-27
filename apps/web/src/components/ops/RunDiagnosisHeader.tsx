@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,15 +56,9 @@ export function RunDiagnosisHeader({ detail }: { detail: RunOpsDetail }) {
         <span className="text-foreground">{ownerLabel[diagnosis.owner]}</span>
 
         {detail.run.traceId && (
-          <>
-            <span className="text-muted-foreground">Trace:</span>
-            <Link
-              href={`/ops/traces/${detail.run.traceId}`}
-              className="font-mono text-xs text-primary hover:underline"
-            >
-              {detail.run.traceId.slice(0, 16)}…
-            </Link>
-          </>
+          <span className="font-mono text-xs text-muted-foreground">
+            trace: {detail.run.traceId.slice(0, 16)}…
+          </span>
         )}
 
         <span className="text-muted-foreground">

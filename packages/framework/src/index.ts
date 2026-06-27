@@ -1,4 +1,9 @@
-export type { CheckpointEvent, Checkpointer, InterruptState } from "./checkpointer.js";
+export type {
+  CheckpointEvent,
+  CheckpointEventRow,
+  Checkpointer,
+  InterruptState,
+} from "./checkpointer.js";
 export { InterruptSignal, validateCheckpointer } from "./checkpointer.js";
 export { fileCheckpointer } from "./checkpointers/file-checkpointer.js";
 export { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
@@ -36,8 +41,8 @@ export {
   type SteeringQueue,
   safeParseAgentEvent,
 } from "./create-agent.js";
-export type { RunOneResult } from "./execute-one.js";
-export { runOneCollect } from "./execute-one.js";
+export type { RunOneResult as SpanOneResult } from "./execute-one.js";
+export { runOneCollect as spanOneCollect } from "./execute-one.js";
 export { consoleLogger, type Logger, type LogLevel, noopLogger } from "./logger.js";
 export {
   definePlugin,

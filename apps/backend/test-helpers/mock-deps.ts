@@ -11,7 +11,7 @@ import type { ColumnConfigService } from "../src/features/column-config/service.
 import type { DeliverableRow } from "../src/features/deliverable/domain.js";
 import type { OrchestratorDeps } from "../src/features/orchestrator/reactor.js";
 import type { Transition } from "../src/features/orchestrator/transitions.js";
-import { RunSupervisor } from "../src/features/run/supervisor.js";
+import { SpanSupervisor } from "../src/features/span/supervisor.js";
 import { openDb } from "../src/infra/sqlite/db.js";
 
 // ═══════════════════════════════════════════════════════════════
@@ -69,8 +69,8 @@ export function mockConfig() {
 
 export function mockOpsStore() {
   return {
-    insertRunOrigin: () => {},
-    getRunOrigin: () => null,
+    insertSpanOrigin: () => {},
+    getSpanOrigin: () => null,
     appendRunEvent: () => {},
   };
 }
@@ -88,8 +88,8 @@ export function mockAgentSvc() {
   };
 }
 
-export function mockSupervisor(db: Database): RunSupervisor {
-  return new RunSupervisor({
+export function mockSupervisor(db: Database): SpanSupervisor {
+  return new SpanSupervisor({
     config: mockConfig(),
     opsStore: mockOpsStore() as any,
     tracer: {
@@ -114,6 +114,8 @@ export const TID = {
   /** Phase 5 unified format (same shape as session, semantically distinct) */
   issueSession: (issue: string, agent: string) => `${issue}:${agent}`,
   run: (s = "r1") => s,
+  /** spanId = current spanId (product semantics: one prompt loop). */
+  span: (s = "sp1") => s,
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -121,52 +123,52 @@ export const TID = {
 // ═══════════════════════════════════════════════════════════════
 
 export interface RecordingSupervisor {
-  startedRuns: Array<{ runId: string; sessionId: string; spec: Record<string, unknown> }>;
+  startedRuns: Array<{ spanId: string; sessionId: string; spec: Record<string, unknown> }>;
   getActive(): ReadonlyMap<string, { abortController: AbortController }>;
   startMainRun(
-    runId: string,
+    spanId: string,
     threadId: string,
     spec: Record<string, unknown>,
-  ): Promise<{ runId: string; attemptSeq: number }>;
-  cancel(runId: string): boolean;
+  ): Promise<{ spanId: string; attemptSeq: number }>;
+  cancel(spanId: string): boolean;
   onRunComplete(
-    fn: (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>,
+    fn: (threadId: string, spanId: string, status: string, kind: string) => void | Promise<void>,
   ): void;
-  notifyRunComplete(runId: string, status: string): Promise<void>;
+  notifyRunComplete(spanId: string, status: string): Promise<void>;
   getDb(): { query: (_sql: string) => { get: () => unknown } };
 }
 
 export function recordingSupervisor(): RecordingSupervisor {
   const startedRuns: Array<{
-    runId: string;
+    spanId: string;
     sessionId: string;
     spec: Record<string, unknown>;
   }> = [];
   const active = new Map<string, { abortController: AbortController }>();
   const completeHandlers: Array<
-    (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>
+    (threadId: string, spanId: string, status: string, kind: string) => void | Promise<void>
   > = [];
 
   return {
     startedRuns,
     getActive: () => active as ReadonlyMap<string, { abortController: AbortController }>,
-    startMainRun: async (runId: string, threadId: string, spec: Record<string, unknown>) => {
-      startedRuns.push({ runId, sessionId: threadId, spec });
-      active.set(runId, { abortController: new AbortController() });
-      return { runId, attemptSeq: 1 };
+    startMainRun: async (spanId: string, threadId: string, spec: Record<string, unknown>) => {
+      startedRuns.push({ spanId, sessionId: threadId, spec });
+      active.set(spanId, { abortController: new AbortController() });
+      return { spanId, attemptSeq: 1 };
     },
-    cancel: (runId: string) => {
-      active.get(runId)?.abortController.abort();
+    cancel: (spanId: string) => {
+      active.get(spanId)?.abortController.abort();
       return true;
     },
     onRunComplete: (
-      fn: (threadId: string, runId: string, status: string, kind: string) => void | Promise<void>,
+      fn: (threadId: string, spanId: string, status: string, kind: string) => void | Promise<void>,
     ) => {
       completeHandlers.push(fn);
     },
-    notifyRunComplete: async (runId: string, status: string) => {
+    notifyRunComplete: async (spanId: string, status: string) => {
       for (const h of completeHandlers) {
-        await h("", runId, status, "main");
+        await h("", spanId, status, "main");
       }
     },
     getDb: () => ({ query: () => ({ get: () => null }) }),
@@ -178,14 +180,14 @@ export function recordingSupervisor(): RecordingSupervisor {
 // ═══════════════════════════════════════════════════════════════
 
 export function recordingRunStatus(): {
-  calls: Array<{ runId: string; phase: string; detail?: string }>;
-  onRunStatus: (s: { runId: string; phase: string; detail?: string; updatedAt: number }) => void;
+  calls: Array<{ spanId: string; phase: string; detail?: string }>;
+  onRunStatus: (s: { spanId: string; phase: string; detail?: string; updatedAt: number }) => void;
 } {
-  const calls: Array<{ runId: string; phase: string; detail?: string }> = [];
+  const calls: Array<{ spanId: string; phase: string; detail?: string }> = [];
   return {
     calls,
     onRunStatus: (s) => {
-      calls.push({ runId: s.runId, phase: s.phase, detail: s.detail });
+      calls.push({ spanId: s.spanId, phase: s.phase, detail: s.detail });
     },
   };
 }
@@ -307,7 +309,7 @@ export function fakeDeliverableSvc(
         kind: r.kind,
         fields: r.fields,
         ref: r.ref ?? null,
-        runId: `run_00${i}`,
+        spanId: `run_00${i}`,
         createdAt: r.createdAt,
       }));
     },
@@ -338,30 +340,38 @@ export interface FakeSessionFactory {
     sessionId: string,
     _spec: Record<string, unknown>,
   ): {
-    prompt: (input: string, opts?: { signal?: AbortSignal; runId?: string }) => Promise<void>;
+    prompt: (input: string, opts?: { signal?: AbortSignal; spanId?: string }) => Promise<void>;
+    resume: (opts: { approved: boolean; message?: string }) => Promise<void>;
     dispose: () => void;
     state: string;
   };
+  peek(sessionId: string): ReturnType<FakeSessionFactory["getOrCreate"]> | undefined;
   dispose(sessionId: string): void;
   created: Map<string, { session: ReturnType<FakeSessionFactory["getOrCreate"]> }>;
-  promptCalls: Array<{ sessionId: string; input: string; runId?: string }>;
+  promptCalls: Array<{ sessionId: string; input: string; spanId?: string }>;
+  resumeCalls: Array<{ sessionId: string; approved: boolean; message?: string }>;
 }
 
 export function fakeSessionFactory(): FakeSessionFactory {
   const created = new Map<string, { session: ReturnType<FakeSessionFactory["getOrCreate"]> }>();
-  const promptCalls: Array<{ sessionId: string; input: string; runId?: string }> = [];
+  const promptCalls: Array<{ sessionId: string; input: string; spanId?: string }> = [];
+  const resumeCalls: Array<{ sessionId: string; approved: boolean; message?: string }> = [];
 
   return {
     created,
     promptCalls,
+    resumeCalls,
     getOrCreate(sessionId: string, _spec: Record<string, unknown>) {
       const hit = created.get(sessionId);
       if (hit) return hit.session;
 
       const session = {
         state: "idle" as string,
-        prompt: async (_input: string, opts?: { signal?: AbortSignal; runId?: string }) => {
-          promptCalls.push({ sessionId, input: _input, runId: opts?.runId });
+        prompt: async (_input: string, opts?: { signal?: AbortSignal; spanId?: string }) => {
+          promptCalls.push({ sessionId, input: _input, spanId: opts?.spanId });
+        },
+        resume: async (opts: { approved: boolean; message?: string }) => {
+          resumeCalls.push({ sessionId, approved: opts.approved, message: opts.message });
         },
         dispose: () => {
           created.delete(sessionId);
@@ -370,9 +380,60 @@ export function fakeSessionFactory(): FakeSessionFactory {
       created.set(sessionId, { session });
       return session;
     },
+    peek(sessionId: string) {
+      return created.get(sessionId)?.session;
+    },
     dispose(sessionId: string) {
       created.get(sessionId)?.session.dispose();
       created.delete(sessionId);
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// fakeGetSessionIdByRunId (B — data stub for resume route DI)
+// ═══════════════════════════════════════════════════════════════
+
+/** Returns a (spanId: string) => string | null stub from a static map. */
+export function fakeGetSessionIdByRunId(
+  map: Record<string, string>,
+): (spanId: string) => string | null {
+  return (spanId: string) => map[spanId] ?? null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// fakeCheckpointEventsStore (C — memory stub for Ops tests, PR-3)
+// ═══════════════════════════════════════════════════════════════
+
+/** Spread event shape matching CheckpointEventRow from framework:
+ *  { ...CheckpointEvent, spanId, ts } — fields are flat, not nested. */
+export interface CheckpointEventRow {
+  type: string;
+  spanId: string | null;
+  ts: number;
+  sessionId?: string;
+  [key: string]: unknown;
+}
+
+export interface FakeCheckpointEventsStore {
+  readBySpan(sessionId: string, spanId: string): CheckpointEventRow[];
+  readBySession(sessionId: string): CheckpointEventRow[];
+  readWindow(_from: number, _to: number): CheckpointEventRow[];
+  appended: CheckpointEventRow[];
+}
+
+export function fakeCheckpointEventsStore(rows?: CheckpointEventRow[]): FakeCheckpointEventsStore {
+  const store: CheckpointEventRow[] = [...(rows ?? [])];
+  return {
+    appended: store,
+    readBySpan(sessionId: string, spanId: string) {
+      return store.filter((r) => r.sessionId === sessionId && r.spanId === spanId);
+    },
+    readBySession(sessionId: string) {
+      return store.filter((r) => r.sessionId === sessionId);
+    },
+    readWindow(_from: number, _to: number) {
+      return store.filter((r) => r.ts >= _from && r.ts <= _to);
     },
   };
 }
@@ -391,7 +452,7 @@ export function makeOrchestratorDeps(over?: Partial<OrchestratorDeps>): Orchestr
     config: mockConfig() as OrchestratorDeps["config"],
     issueSvc: over?.issueSvc ?? ({} as any), // caller must provide real issueSvc
     agentSvc: over?.agentSvc ?? fakeAgentSvc(DEFAULT_AGENTS),
-    supervisor: over?.supervisor ?? (recordingSupervisor() as unknown as RunSupervisor),
+    supervisor: over?.supervisor ?? (recordingSupervisor() as unknown as SpanSupervisor),
     opsStore: over?.opsStore ?? (mockOpsStore() as any),
     idGen: over?.idGen ?? (() => crypto.randomUUID()),
     columnConfigSvc:
@@ -403,13 +464,14 @@ export function makeOrchestratorDeps(over?: Partial<OrchestratorDeps>): Orchestr
   };
 }
 
-/** Placeholder — full RunDeps type lands in Phase 1. */
+/** Create test RunDeps. Pass sessionFactory to share the same instance across test paths. */
 export function makeRunDeps(over?: Record<string, unknown>): Record<string, unknown> {
   return {
-    sessionFactory: fakeSessionFactory(),
-    supervisor: recordingSupervisor(),
-    opsStore: mockOpsStore(),
-    agentSvc: fakeAgentSvc(DEFAULT_AGENTS),
+    sessionFactory: (over?.sessionFactory as FakeSessionFactory) ?? fakeSessionFactory(),
+    supervisor: over?.supervisor ?? recordingSupervisor(),
+    opsStore: over?.opsStore ?? mockOpsStore(),
+    agentSvc: over?.agentSvc ?? fakeAgentSvc(DEFAULT_AGENTS),
+    config: over?.config ?? mockConfig(),
     ...over,
   };
 }
@@ -424,12 +486,12 @@ export function testIdGen(): string {
 }
 
 export async function waitForFinalize(
-  s: RunSupervisor,
-  runId: string,
+  s: SpanSupervisor,
+  spanId: string,
   timeout = 5000,
 ): Promise<void> {
   const start = Date.now();
-  while (s.getActive().has(runId) && Date.now() - start < timeout) {
+  while (s.getActive().has(spanId) && Date.now() - start < timeout) {
     await new Promise((r) => setTimeout(r, 50));
   }
 }

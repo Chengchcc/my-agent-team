@@ -1,8 +1,9 @@
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
-import { executeAgentRun, makeRunDeps } from "../run/run-executor.js";
-import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
+import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
+import type { SessionFactory } from "../span/session-factory.js";
+import type { SpanSupervisor } from "../span/supervisor.js";
 import type { CronJobRow } from "./domain.js";
 import type { CronJobService } from "./service.js";
 
@@ -24,15 +25,16 @@ export function createCronScheduler(deps: {
   cronSvc: CronJobService;
   config: BackendConfig;
   agentSvc: AgentService;
-  supervisor: RunSupervisor;
+  supervisor: SpanSupervisor;
   opsStore: RuntimeOpsStore;
   idGen: () => string;
   now?: () => number;
   scheduler?: Scheduler;
+  sessionFactory?: SessionFactory;
 }) {
   const sched = deps.scheduler ?? bunScheduler;
   const handles = new Map<string, CronHandle>();
-  /** runId → { timer, cronJobId } so unregister() can clear in-flight watchdogs. */
+  /** spanId → { timer, cronJobId } so unregister() can clear in-flight watchdogs. */
   const watchdogs = new Map<string, { timer: ReturnType<typeof setTimeout>; cronJobId: string }>();
   /** runIds cancelled by their per-job watchdog — excluded from retry (a job that
    *  always exceeds timeoutMs would otherwise burn every retry on the same timeout). */
@@ -47,7 +49,7 @@ export function createCronScheduler(deps: {
   const inFlight = new Set<string>();
 
   async function fire(job: CronJobRow, _fireKey?: string): Promise<void> {
-    const runId = deps.idGen();
+    const spanId = deps.idGen();
     const sessionId = `${job.cronJobId}:${job.agentId}`;
 
     try {
@@ -56,9 +58,10 @@ export function createCronScheduler(deps: {
         supervisor: deps.supervisor,
         opsStore: deps.opsStore,
         agentSvc: deps.agentSvc,
+        sessionFactory: deps.sessionFactory,
       });
       await executeAgentRun(runDeps, {
-        runId,
+        spanId,
         sessionId: sessionId,
         agentId: job.agentId,
         input: job.prompt ?? "",
@@ -71,10 +74,10 @@ export function createCronScheduler(deps: {
 
     if (job.timeoutMs > 0) {
       const timer = setTimeout(() => {
-        timedOut.add(runId);
-        void deps.supervisor.cancel(runId);
+        timedOut.add(spanId);
+        void deps.supervisor.cancel(spanId);
       }, job.timeoutMs);
-      watchdogs.set(runId, { timer, cronJobId: job.cronJobId });
+      watchdogs.set(spanId, { timer, cronJobId: job.cronJobId });
     }
   }
 
@@ -87,17 +90,17 @@ export function createCronScheduler(deps: {
   // Strategy: synchronous checks + cleanup run immediately; if a retry
   // is needed, schedule it via setTimeout so this callback returns
   // without blocking the listener loop.
-  deps.supervisor.onRunComplete(async (_sessionId, runId, status, _kind) => {
+  deps.supervisor.onRunComplete(async (_sessionId, spanId, status, _kind) => {
     // Clean watchdog timer if present
-    const wd = watchdogs.get(runId);
+    const wd = watchdogs.get(spanId);
     if (wd) {
       clearTimeout(wd.timer);
-      watchdogs.delete(runId);
+      watchdogs.delete(spanId);
     }
-    const wasTimedOut = timedOut.delete(runId);
+    const wasTimedOut = timedOut.delete(spanId);
 
     // Only handle cron runs
-    const origin = deps.opsStore.getRunOrigin(runId);
+    const origin = deps.opsStore.getSpanOrigin(spanId);
     if (origin?.originKind !== "cron" || !origin.cronJobId) return;
 
     const fireKey = origin.idempotencyKey.split(":run:")[0]!;
@@ -132,7 +135,7 @@ export function createCronScheduler(deps: {
 
     retryCounts.set(fireKey, attempts + 1);
     deps.opsStore.appendRunEvent({
-      runId,
+      spanId,
       kind: "retry_requested",
       payload: { fireKey, attempt: attempts + 1 },
     });
@@ -145,7 +148,7 @@ export function createCronScheduler(deps: {
       retryTimers.delete(timer);
       void (async () => {
         deps.opsStore.appendRunEvent({
-          runId,
+          spanId,
           kind: "retry_started",
           payload: { fireKey, attempt: attempts + 1 },
         });
@@ -196,11 +199,11 @@ export function createCronScheduler(deps: {
         handles.delete(cronJobId);
       }
       // Clear any in-flight watchdog timers owned by this job.
-      for (const [runId, wd] of watchdogs) {
+      for (const [spanId, wd] of watchdogs) {
         if (wd.cronJobId === cronJobId) {
           clearTimeout(wd.timer);
-          watchdogs.delete(runId);
-          timedOut.delete(runId);
+          watchdogs.delete(spanId);
+          timedOut.delete(spanId);
         }
       }
       // Drop the single-flight lock so a re-registered job can fire immediately.

@@ -5,7 +5,7 @@ import { createCronScheduler } from "./scheduler.js";
 
 type ListenerFn = (
   sessionId: string,
-  runId: string,
+  spanId: string,
   status: string,
   kind: string,
 ) => void | Promise<void>;
@@ -46,7 +46,7 @@ function minimalDeps(overrides: Record<string, unknown> = {}): any {
     supervisor: {
       cancel: () => {},
       onRunComplete: () => {},
-      startMainRun: async (id: string) => ({ runId: id, attemptId: `att-${id}` }),
+      startMainRun: async (id: string) => ({ spanId: id, attemptId: `att-${id}` }),
       getActive: () => new Map() as ReadonlyMap<string, { abortController: AbortController }>,
       notifyRunComplete: async () => {},
     },
@@ -151,7 +151,7 @@ describe("createCronScheduler", () => {
           },
         },
         opsStore: {
-          getRunOrigin: () => ({ originKind: "manual", cronJobId: null }),
+          getSpanOrigin: () => ({ originKind: "manual", cronJobId: null }),
           appendRunEvent,
         },
         cronSvc: { port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob() } },
@@ -175,7 +175,7 @@ describe("createCronScheduler", () => {
           },
         },
         opsStore: {
-          getRunOrigin: () => ({
+          getSpanOrigin: () => ({
             originKind: "cron",
             cronJobId: "cj-test",
             idempotencyKey: "cj-test:1234567890:run:0",
@@ -205,7 +205,7 @@ describe("createCronScheduler", () => {
           },
         },
         opsStore: {
-          getRunOrigin: () => ({
+          getSpanOrigin: () => ({
             originKind: "cron",
             cronJobId: "cj-test",
             idempotencyKey: "cj-test:1234567890:run:0",
@@ -241,7 +241,7 @@ describe("createCronScheduler", () => {
           },
         },
         opsStore: {
-          getRunOrigin: () => ({
+          getSpanOrigin: () => ({
             originKind: "cron",
             cronJobId: "cj-test",
             idempotencyKey: `cj-test:1700000000:run:${callCount}`,
@@ -292,7 +292,7 @@ describe("createCronScheduler", () => {
           },
         },
         opsStore: {
-          getRunOrigin: () => ({
+          getSpanOrigin: () => ({
             originKind: "cron",
             cronJobId: "cj-test",
             idempotencyKey: "cj-test:1234567890:run:0",
@@ -320,7 +320,7 @@ describe("createCronScheduler", () => {
           },
         },
         opsStore: {
-          getRunOrigin: () => ({
+          getSpanOrigin: () => ({
             originKind: "cron",
             cronJobId: "cj-wd",
             idempotencyKey: "cj-wd:1234567890:run:0",

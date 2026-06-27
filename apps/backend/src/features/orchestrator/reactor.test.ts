@@ -13,8 +13,8 @@ import {
 } from "../../../test-helpers/mock-deps.js";
 import { sqliteIssueAdapter } from "../issue/adapter-sqlite.js";
 import { createIssueService } from "../issue/service.js";
-import { runEventsDbMigrations } from "../run/events-db-migrations.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
+import { runEventsDbMigrations } from "../span/events-db-migrations.js";
 import { createOrchestrator, OrchestratorAgentMissingError } from "./reactor.js";
 
 const DEFAULT_AGENTS = new Map([
@@ -79,7 +79,7 @@ describe("Orchestrator reactor", () => {
 
     const result = await orch.startStep(planned);
     expect(result).not.toBeNull();
-    expect(result!.runId).toBeTruthy();
+    expect(result!.spanId).toBeTruthy();
     expect(supervisor.startedRuns.length).toBe(1);
     expect(supervisor.startedRuns[0]!.spec.agentId).toBe("planner");
     expect(supervisor.startedRuns[0]!.sessionId).toBe(TID.issueSession(planned.issueId, "planner"));
@@ -128,7 +128,7 @@ describe("Orchestrator reactor", () => {
     expect(step1).not.toBeNull();
     const startCount = supervisor.startedRuns.length;
 
-    await orch.onRunComplete(planned.sessionId, step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step1!.spanId, "succeeded", "main");
 
     const updated = issueSvc.port.getIssue(issue.issueId);
     expect(updated!.status).toBe("in_progress");
@@ -142,7 +142,7 @@ describe("Orchestrator reactor", () => {
     const planned = issueSvc.applyTransition(issue.issueId, "planned");
     const step1 = await orch.startStep(planned);
     const startCount = supervisor.startedRuns.length;
-    await orch.onRunComplete(planned.sessionId, step1!.runId, "error", "main");
+    await orch.onRunComplete(planned.sessionId, step1!.spanId, "error", "main");
     const updated = issueSvc.port.getIssue(issue.issueId);
     expect(updated!.status).toBe("planned");
     expect(supervisor.startedRuns.length).toBe(startCount);
@@ -160,11 +160,11 @@ describe("Orchestrator reactor", () => {
     const issue = issueSvc.createIssue({ projectId: "proj-7", title: "Idempotent Issue" });
     const planned = issueSvc.applyTransition(issue.issueId, "planned");
     const step1 = await orch.startStep(planned);
-    await orch.onRunComplete(planned.sessionId, step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step1!.spanId, "succeeded", "main");
     const after1 = issueSvc.port.getIssue(issue.issueId);
     expect(after1!.status).toBe("in_progress");
     const count1 = supervisor.startedRuns.length;
-    await orch.onRunComplete(planned.sessionId, step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step1!.spanId, "succeeded", "main");
     const after2 = issueSvc.port.getIssue(issue.issueId);
     expect(after2!.status).toBe("in_progress");
     expect(supervisor.startedRuns.length).toBe(count1);
@@ -180,8 +180,8 @@ describe("Orchestrator reactor", () => {
 
     const reviewRunId = "run-review-1";
     const opsStore = new RuntimeOpsStore(eventsDb);
-    opsStore.insertRunOrigin({
-      runId: reviewRunId,
+    opsStore.insertSpanOrigin({
+      spanId: reviewRunId,
       issueId: issue.issueId,
       conversationId: "",
       sourceLedgerSeq: 0,
@@ -208,11 +208,11 @@ describe("Orchestrator reactor", () => {
     const planned = issueSvc.applyTransition(issue.issueId, "planned");
     const step1 = await orch.startStep(planned);
     expect(step1).not.toBeNull();
-    await orch.onRunComplete(planned.sessionId, step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step1!.spanId, "succeeded", "main");
     const after1 = issueSvc.port.getIssue(issue.issueId);
     expect(after1!.status).toBe("in_progress");
     const count1 = supervisor.startedRuns.length;
-    await orch.onRunComplete(planned.sessionId, step1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step1!.spanId, "succeeded", "main");
     const after2 = issueSvc.port.getIssue(issue.issueId);
     expect(after2!.status).toBe("in_progress");
     expect(supervisor.startedRuns.length).toBe(count1);
@@ -225,18 +225,18 @@ describe("Orchestrator reactor", () => {
     const run1 = await orch.startStep(planned);
     expect(run1).not.toBeNull();
     const opsStore = new RuntimeOpsStore(eventsDb);
-    const origin1 = opsStore.getRunOrigin(run1!.runId);
+    const origin1 = opsStore.getSpanOrigin(run1!.spanId);
     expect(origin1).not.toBeNull();
     expect(origin1!.fromStatus).toBe("planned");
-    expect(origin1!.idempotencyKey).toBe(run1!.runId);
+    expect(origin1!.idempotencyKey).toBe(run1!.spanId);
 
-    await orch.onRunComplete(planned.sessionId, run1!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, run1!.spanId, "succeeded", "main");
     let current = issueSvc.port.getIssue(issue.issueId);
     expect(current!.status).toBe("in_progress");
 
     const runDev = supervisor.startedRuns[supervisor.startedRuns.length - 1]!;
-    opsStore.insertRunOrigin({
-      runId: runDev.runId,
+    opsStore.insertSpanOrigin({
+      spanId: runDev.spanId,
       issueId: issue.issueId,
       conversationId: "",
       sourceLedgerSeq: 0,
@@ -244,12 +244,12 @@ describe("Orchestrator reactor", () => {
       surface: "orchestrator",
       traceId: "",
       traceparent: "",
-      idempotencyKey: runDev.runId,
+      idempotencyKey: runDev.spanId,
       originKind: "orchestrator",
       fromStatus: "in_progress",
       createdAt: 1000000,
     });
-    await orch.onRunComplete(current!.sessionId, runDev.runId, "succeeded", "main");
+    await orch.onRunComplete(current!.sessionId, runDev.spanId, "succeeded", "main");
     current = issueSvc.port.getIssue(issue.issueId);
     expect(current!.status).toBe("in_review");
 
@@ -257,12 +257,12 @@ describe("Orchestrator reactor", () => {
     expect(reworked.status).toBe("in_progress");
     const run2 = await orch.startStep(reworked);
     expect(run2).not.toBeNull();
-    const origin2 = opsStore.getRunOrigin(run2!.runId);
+    const origin2 = opsStore.getSpanOrigin(run2!.spanId);
     expect(origin2).not.toBeNull();
     expect(origin2!.issueId).toBe(issue.issueId);
     expect(origin2!.fromStatus).toBe("in_progress");
-    expect(origin2!.idempotencyKey).toBe(run2!.runId);
-    expect(origin2!.idempotencyKey).not.toBe(runDev.runId);
+    expect(origin2!.idempotencyKey).toBe(run2!.spanId);
+    expect(origin2!.idempotencyKey).not.toBe(runDev.spanId);
   });
 
   test("startStep emits run.started event", async () => {
@@ -274,7 +274,7 @@ describe("Orchestrator reactor", () => {
     const started = events.find((e) => e.kind === "run.started");
     expect(started).toBeDefined();
     expect(started!.payload.fromStatus).toBe("planned");
-    expect(typeof started!.payload.runId).toBe("string");
+    expect(typeof started!.payload.spanId).toBe("string");
     expect(started!.payload.agentId).toBe("planner");
   });
 
@@ -284,8 +284,8 @@ describe("Orchestrator reactor", () => {
     const planned = issueSvc.applyTransition(issue.issueId, "planned");
     const step = await orch.startStep(planned);
     expect(step).not.toBeNull();
-    opsStore.insertRunOrigin({
-      runId: step!.runId,
+    opsStore.insertSpanOrigin({
+      spanId: step!.spanId,
       issueId: issue.issueId,
       conversationId: "",
       sourceLedgerSeq: 0,
@@ -293,16 +293,16 @@ describe("Orchestrator reactor", () => {
       surface: "orchestrator",
       traceId: "",
       traceparent: "",
-      idempotencyKey: step!.runId,
+      idempotencyKey: step!.spanId,
       originKind: "orchestrator",
       fromStatus: "planned",
       createdAt: Date.now(),
     });
-    await orch.onRunComplete(planned.sessionId, step!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step!.spanId, "succeeded", "main");
     const events = opsStore.getIssueEvents(issue.issueId);
     const ended = events.find((e) => e.kind === "run.ended");
     expect(ended).toBeDefined();
-    expect(ended!.payload.runId).toBe(step!.runId);
+    expect(ended!.payload.spanId).toBe(step!.spanId);
     expect(ended!.payload.status).toBe("succeeded");
   });
 
@@ -312,8 +312,8 @@ describe("Orchestrator reactor", () => {
     const planned = issueSvc.applyTransition(issue.issueId, "planned");
     const step = await orch.startStep(planned);
     expect(step).not.toBeNull();
-    opsStore.insertRunOrigin({
-      runId: step!.runId,
+    opsStore.insertSpanOrigin({
+      spanId: step!.spanId,
       issueId: issue.issueId,
       conversationId: "",
       sourceLedgerSeq: 0,
@@ -321,12 +321,12 @@ describe("Orchestrator reactor", () => {
       surface: "orchestrator",
       traceId: "",
       traceparent: "",
-      idempotencyKey: step!.runId,
+      idempotencyKey: step!.spanId,
       originKind: "orchestrator",
       fromStatus: "planned",
       createdAt: Date.now(),
     });
-    await orch.onRunComplete(planned.sessionId, step!.runId, "succeeded", "main");
+    await orch.onRunComplete(planned.sessionId, step!.spanId, "succeeded", "main");
     const events = opsStore.getIssueEvents(issue.issueId);
     const adv = events.find((e) => e.kind === "status.advanced");
     expect(adv).toBeDefined();
@@ -341,7 +341,7 @@ describe("Orchestrator reactor", () => {
     const planned = issueSvc.applyTransition(issue.issueId, "planned");
     const result = await orch.startStep(planned);
     expect(result).not.toBeNull();
-    expect(result!.runId).toBeString();
+    expect(result!.spanId).toBeString();
     const events = opsStore.getIssueEvents(issue.issueId);
     expect(events.some((e) => e.kind === "run.started")).toBe(true);
   });

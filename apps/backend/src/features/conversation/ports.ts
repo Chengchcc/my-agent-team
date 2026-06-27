@@ -27,7 +27,7 @@ export interface MemberRow {
 }
 
 // M17.5: LedgerEntry is imported from the canonical @my-agent-team/conversation
-// package (single ontology). runId was added to the canonical LedgerEntry schema.
+// package (single ontology). spanId was added to the canonical LedgerEntry schema.
 export type { LedgerEntry };
 
 export interface CreateConversationInput {
@@ -55,7 +55,7 @@ export interface AppendLedgerInput {
   content: string; // JSON-encoded
   ts: number;
   /** Optional: run ID for dedup (incremental projection). */
-  runId?: string;
+  spanId?: string;
 }
 
 export interface ConversationWithMembers {
@@ -83,6 +83,6 @@ export interface ConversationPort {
 
   appendLedgerEntry(input: AppendLedgerInput): number; // returns seq
   getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerEntry[];
-  /** Dedup guard: check if (runId, content) already exists in the ledger. */
-  hasLedgerContent?(runId: string, content: string): boolean;
+  /** Dedup guard: check if (spanId, content) already exists in the ledger. */
+  hasLedgerContent?(spanId: string, content: string): boolean;
 }

@@ -130,7 +130,7 @@ export function RunOpsTable({ runs }: { runs: RunOpsListItem[] }) {
                 </TableCell>
                 <TableCell>
                   <Link
-                    href={`/ops/runs/${r.runId}`}
+                    href={`/ops/sessions/${r.sessionId}`}
                     className="text-primary text-xs hover:underline"
                   >
                     Detail

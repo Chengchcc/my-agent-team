@@ -7,7 +7,7 @@ import type { ConversationPort } from "./ports.js";
 import { onRunComplete } from "./projection.js";
 import { createConversationService } from "./service.js";
 
-const fakeOpsStore = { getRunOrigin: () => null } as unknown as RuntimeOpsStore;
+const fakeOpsStore = { getSpanOrigin: () => null } as unknown as RuntimeOpsStore;
 
 const dbPath = `/tmp/test-projection-${Date.now()}.db`;
 const db = openDb(dbPath);
@@ -24,8 +24,8 @@ const svc = createConversationService({
   lock,
   maxConsecutiveAgentHops: 3,
   idGen: testIdGen,
-  startAgentRun: async (runId, _sessionId) => {
-    return { runId, attemptSeq: 1 };
+  startAgentRun: async (spanId, _sessionId) => {
+    return { spanId, attemptSeq: 1 };
   },
 });
 
@@ -85,7 +85,7 @@ describe("P7: ledger single authority for assistant messages", () => {
     await onRunComplete(sessionId, "r-p7-term", "succeeded", port, svc, fakeOpsStore);
 
     const entries = port.getLedgerEntries(cid);
-    const terminal = entries.find((e) => e.runId === "r-p7-term" && e.kind === "message");
+    const terminal = entries.find((e) => e.spanId === "r-p7-term" && e.kind === "message");
     expect(terminal).toBeTruthy();
     expect(terminal!.content).toContain('"state":"done"');
   });
@@ -104,7 +104,7 @@ describe("P7: ledger single authority for assistant messages", () => {
 
     // Ledger has the terminal entry regardless
     const entries = port.getLedgerEntries(cid);
-    const terminal = entries.find((e) => e.runId === "r-p7-bcast" && e.kind === "message");
+    const terminal = entries.find((e) => e.spanId === "r-p7-bcast" && e.kind === "message");
     expect(terminal).toBeTruthy();
   });
 });

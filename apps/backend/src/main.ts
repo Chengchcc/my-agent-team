@@ -35,7 +35,6 @@ import {
   createDeliverableService,
   sqliteDeliverableAdapter,
 } from "./features/deliverable/index.js";
-import { sqliteEventLog } from "./features/event-log/index.js";
 import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
@@ -45,15 +44,15 @@ import {
   projectRoutes,
   sqliteProjectAdapter,
 } from "./features/project/index.js";
-import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
-import { resumeRoute } from "./features/run/http.js";
-import { disposeSession } from "./features/run/session-registry.js";
-import { RunSupervisor } from "./features/run/supervisor.js";
 import {
   createRuntimeOpsService,
   opsRoutes,
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
+import { runEventsDbMigrations } from "./features/span/events-db-migrations.js";
+import { resumeRoute } from "./features/span/http.js";
+import { createSessionFactory } from "./features/span/session-factory.js";
+import { SpanSupervisor } from "./features/span/supervisor.js";
 import { createRouter } from "./http/router.js";
 import * as backendSchema from "./infra/db/schema.js";
 import { ulid } from "./infra/ids.js";
@@ -71,33 +70,46 @@ eventsDb.exec("PRAGMA journal_mode=WAL");
 eventsDb.exec("PRAGMA busy_timeout=5000");
 runEventsDbMigrations(eventsDb);
 
-const eventLog = sqliteEventLog({ db: `${config.dataDir}/events.db` });
 const obsConfig = resolveObservabilityConfig({ serviceName: "backend" });
 const tracer = createRuntimeTracer(obsConfig);
 const opsStore = new RuntimeOpsStore(eventsDb);
 
 // Runner daemon removed — AgentSession runs in-process. Supervisor manages
 // run/attempt rows without transport (NOOP_TRANSPORT is the internal default).
-const supervisor = new RunSupervisor({
+
+// Shared SessionFactory — all execution paths (conversation, cron, orchestrator)
+// and the resume route share the same instance so sessions are visible across
+// the process. Replaces the per-run session-registry.ts.
+const sessionFactory = createSessionFactory({ config });
+
+const supervisor = new SpanSupervisor({
   config,
   opsStore,
   tracer,
   db: eventsDb,
-  onReap: disposeSession,
+  onReap: (_runId, sessionId) => sessionFactory.dispose(sessionId),
 });
 
 // Feature services
 const larkBotRegistry = createLarkBotRegistry(config);
 const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry);
-const conv = createConversationFeature(db, config, supervisor, agentSvc, opsStore);
+const conv = createConversationFeature(
+  db,
+  config,
+  supervisor,
+  agentSvc,
+  opsStore,
+  undefined,
+  sessionFactory,
+);
 
 // ─── Event wiring ─────────────────────────────────────────────
 
 // P2: onRunComplete is AWAITED by supervisor — critical sink (ledger terminal write).
 // P1: run_finalized already sent before this, so await doesn't block control signal.
-supervisor.onRunComplete((sessionId, runId, status, kind) => {
+supervisor.onRunComplete((sessionId, spanId, status, kind) => {
   // M19: issue-run isolation now handled by origin_kind in projection/reactor
-  return onRunComplete(sessionId, runId, status, conv.convPort, conv.convSvc, opsStore, kind);
+  return onRunComplete(sessionId, spanId, status, conv.convPort, conv.convSvc, opsStore, kind);
 });
 
 // M17.5 P3: @mention regex cache — compile once per label, not per streaming revision.
@@ -115,7 +127,7 @@ function getMentionRegex(label: string): RegExp {
 // bypassing event_log. This replaces the old event_log → projection → ledger
 // indirection. Message events are now written to ledger BEFORE EventLog, and
 // EventLog only receives non-message execution events.
-supervisor.onRunMessage(async (sessionId, runId, revision, kind) => {
+supervisor.onRunMessage(async (sessionId, spanId, revision, kind) => {
   if (kind === "reflect") return;
   // M19: issue-run isolation now handled by origin_kind in projection
   const cid = parseSessionId(sessionId).conversationId;
@@ -126,12 +138,12 @@ supervisor.onRunMessage(async (sessionId, runId, revision, kind) => {
   const seq = await conv.convSvc.appendAssistantMessage({
     conversationId: cid,
     senderMemberId,
-    runId,
+    spanId,
     revision,
   });
 
   // Update accumulator for terminal processing (onRunComplete)
-  const acc = getOrCreateAccumulator(runId, senderMemberId);
+  const acc = getOrCreateAccumulator(spanId, senderMemberId);
   if (revision.role === "assistant") {
     acc.latestAssistantRevision = { ...revision, conversationId: cid };
 
@@ -159,35 +171,17 @@ supervisor.onRunMessage(async (sessionId, runId, revision, kind) => {
     senderMemberId,
     addressedTo: [] as string[],
     kind: "message" as const,
-    content: serializeMessageRevision({ ...revision, conversationId: cid, runId }),
+    content: serializeMessageRevision({ ...revision, conversationId: cid, spanId }),
     ts: Date.now(),
   };
   void conv.convSvc
     .broadcastMessage(entry, { excludeMemberId: senderMemberId })
     .catch((err) =>
       console.error(
-        `[main] broadcastMessage failed for ${runId}:`,
+        `[main] broadcastMessage failed for ${spanId}:`,
         err instanceof Error ? err.message : String(err),
       ),
     );
-});
-
-// M17.5 P7: onRunEvent is now best-effort observability only. Message events
-// are handled by onRunMessage (authoritative ledger write). This callback only
-// sees non-message events (todo_update, tool_start, tool_end, text_delta).
-supervisor.onRunEvent((sessionId, runId, event, _kind) => {
-  // M19: issue-run isolation now handled by origin_kind in projection
-  if (event.type === "todo_update") {
-    const cid = parseSessionId(sessionId).conversationId;
-    if (!cid) return;
-    const senderMemberId = parseSessionId(sessionId).memberId || sessionId;
-    const acc = getOrCreateAccumulator(runId, senderMemberId);
-    const payload = (event as { payload?: { todos?: unknown } }).payload;
-    if (payload?.todos) acc.lastTodoUpdate = { todos: payload.todos };
-    return;
-  }
-  // Non-message, non-todo events (tool_start, tool_end, etc.) — no-op.
-  // Observability is handled by the EventLog append in supervisor.
 });
 
 // ─── HTTP router ──────────────────────────────────────────────
@@ -216,7 +210,12 @@ function getSetupManager(provisioner = new CliSetupProvisioner()): LarkSetupMana
   return setupManager;
 }
 
-// Ops service
+// Ops service — read-only access to checkpoint_events (run-loop is the writer)
+import { createCheckpointEventsStore } from "./features/runtime-ops/checkpoint-events-store.js";
+
+const checkpointDb = new Database(`${config.dataDir}/checkpointer.db`, { readonly: true });
+const checkpointEventsStore = createCheckpointEventsStore(checkpointDb);
+
 const backendDrizzle = drizzle(db, { casing: "snake_case", schema: backendSchema });
 const agentNames = new Map<string, string>();
 {
@@ -231,7 +230,7 @@ const opsSvc = createRuntimeOpsService({
   opsStore,
   supervisor,
   heartbeatTimeoutMs: config.heartbeatTimeoutMs,
-  eventLog,
+  checkpointEventsStore,
   getAgentName: (agentId) => agentNames.get(agentId),
 });
 
@@ -284,6 +283,7 @@ const cronScheduler = createCronScheduler({
   config,
   agentSvc,
   idGen: ulid,
+  sessionFactory,
 });
 
 const orchestrator = createOrchestrator({
@@ -302,15 +302,20 @@ const orchestrator = createOrchestrator({
   convPort: {
     addMember: (input) => conv.convPort.addMember(input),
   },
+  sessionFactory,
 });
 
 // Register orchestrator's backfill listener (alongside conversation's onRunComplete)
-supervisor.onRunComplete((sessionId, runId, status, kind) =>
-  orchestrator.onRunComplete(sessionId, runId, status, kind),
+supervisor.onRunComplete((sessionId, spanId, status, kind) =>
+  orchestrator.onRunComplete(sessionId, spanId, status, kind),
 );
 
 // Resume route for ToolApprovalCard interrupt flow — uses AgentSession.resume()
-const resumeHandler = resumeRoute();
+// spanId → sessionId lookup via opsStore (run table); live session via SessionFactory.peek
+const resumeHandler = resumeRoute({
+  sessionFactory,
+  getSessionIdByRunId: (spanId) => opsStore.getRuns([spanId])[0]?.sessionId ?? null,
+});
 
 const router = createRouter(config.authToken, {
   resumeRun: resumeHandler,

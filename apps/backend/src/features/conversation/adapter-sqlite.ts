@@ -243,20 +243,20 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           kind: input.kind,
           content: input.content,
           ts: input.ts,
-          runId: input.runId ?? null,
+          spanId: input.spanId ?? null,
         })
         .returning({ seq: schema.conversationLedger.seq })
         .get();
       return row!.seq;
     },
 
-    hasLedgerContent(runId: string, content: string): boolean {
+    hasLedgerContent(spanId: string, content: string): boolean {
       const row = d
         .select({ one: sql`1` })
         .from(schema.conversationLedger)
         .where(
           and(
-            eq(schema.conversationLedger.runId, runId),
+            eq(schema.conversationLedger.spanId, spanId),
             eq(schema.conversationLedger.content, content),
           ),
         )
@@ -293,7 +293,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           kind: r.kind as LedgerEntry["kind"],
           content: r.content,
           ts: r.ts,
-          runId: r.runId ?? undefined,
+          spanId: r.spanId ?? undefined,
         };
       });
     },

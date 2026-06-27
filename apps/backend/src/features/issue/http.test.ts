@@ -2,8 +2,8 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createDeliverableService, sqliteDeliverableAdapter } from "../deliverable/index.js";
-import { runEventsDbMigrations } from "../run/events-db-migrations.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
+import { runEventsDbMigrations } from "../span/events-db-migrations.js";
 import { issueRoutes } from "./http.js";
 import { createIssueService, sqliteIssueAdapter } from "./index.js";
 
@@ -154,13 +154,13 @@ describe("submitDeliverable", () => {
     expect(res.status).toBe(404);
   });
 
-  test("returns 200(replay) on duplicate (runId, kind)", async () => {
+  test("returns 200(replay) on duplicate (spanId, kind)", async () => {
     const { issueSvc, opsStore, routes } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
 
     // Insert run_origin so R3 validation passes
-    opsStore.insertRunOrigin({
-      runId: "run_001",
+    opsStore.insertSpanOrigin({
+      spanId: "run_001",
       issueId: issue.issueId,
       conversationId: "",
       sourceLedgerSeq: 0,
@@ -178,7 +178,7 @@ describe("submitDeliverable", () => {
       makeDeliverableRequest(issue.issueId, {
         kind: "plan",
         fields: { v: "1" },
-        runId: "run_001",
+        spanId: "run_001",
       }),
       issue.issueId,
     );
@@ -186,7 +186,7 @@ describe("submitDeliverable", () => {
       makeDeliverableRequest(issue.issueId, {
         kind: "plan",
         fields: { v: "2" },
-        runId: "run_001",
+        spanId: "run_001",
       }),
       issue.issueId,
     );
@@ -195,7 +195,7 @@ describe("submitDeliverable", () => {
     expect(body.deliverable.fields).toEqual({ v: "1" }); // first write wins
   });
 
-  test("returns 409 when runId refers to unknown run (R3)", async () => {
+  test("returns 409 when spanId refers to unknown run (R3)", async () => {
     const { issueSvc, routes } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
 
@@ -203,7 +203,7 @@ describe("submitDeliverable", () => {
       makeDeliverableRequest(issue.issueId, {
         kind: "plan",
         fields: {},
-        runId: "nonexistent_run",
+        spanId: "nonexistent_run",
       }),
       issue.issueId,
     );
@@ -228,13 +228,13 @@ describe("submitDeliverable", () => {
     expect(ds[0]!.payload.deliverableId).toBeString();
   });
 
-  test("returns 409 when runId's issueId mismatches (R3 cross-issue guard)", async () => {
+  test("returns 409 when spanId's issueId mismatches (R3 cross-issue guard)", async () => {
     const { issueSvc, opsStore, routes } = setup();
     const issue1 = issueSvc.createIssue({ projectId: "p1", title: "Issue 1" });
     const issue2 = issueSvc.createIssue({ projectId: "p1", title: "Issue 2" });
 
-    opsStore.insertRunOrigin({
-      runId: "run_x",
+    opsStore.insertSpanOrigin({
+      spanId: "run_x",
       issueId: issue2.issueId,
       conversationId: "",
       sourceLedgerSeq: 0,
@@ -252,7 +252,7 @@ describe("submitDeliverable", () => {
       makeDeliverableRequest(issue1.issueId, {
         kind: "plan",
         fields: {},
-        runId: "run_x",
+        spanId: "run_x",
       }),
       issue1.issueId,
     );
@@ -298,7 +298,7 @@ describe("reviewDecision", () => {
     const feedback = deliverables.find((d) => d.kind === "rework_feedback");
     expect(feedback).toBeDefined();
     expect(feedback!.fields.note).toBe("Needs more tests");
-    expect(feedback!.runId).toBeNull(); // human-produced, no runId
+    expect(feedback!.spanId).toBeNull(); // human-produced, no spanId
 
     // onReviewRejected called
     expect(getRejectedIssue()).not.toBeNull();
@@ -500,8 +500,8 @@ describe("detail endpoint", () => {
     const { issueSvc, opsStore, eventsDb, routes } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
 
-    opsStore.insertRunOrigin({
-      runId: "r_detail",
+    opsStore.insertSpanOrigin({
+      spanId: "r_detail",
       issueId: issue.issueId,
       conversationId: "",
       sourceLedgerSeq: 0,
@@ -515,7 +515,7 @@ describe("detail endpoint", () => {
       createdAt: 1000,
     });
     eventsDb.run(
-      `INSERT INTO run (run_id, session_id, agent_id, status, started_at, ended_at) VALUES ('r_detail', 't1', 'a1', 'succeeded', 1000, 5000)`,
+      `INSERT INTO run (span_id, session_id, agent_id, status, started_at, ended_at) VALUES ('r_detail', 't1', 'a1', 'succeeded', 1000, 5000)`,
     );
 
     const res = await routes.detail(
@@ -523,10 +523,10 @@ describe("detail endpoint", () => {
       issue.issueId,
     );
     const body = (await res.json()) as {
-      runs: Array<{ runId: string; status: string; endedAt: number | null }>;
+      runs: Array<{ spanId: string; status: string; endedAt: number | null }>;
     };
     expect(body.runs.length).toBe(1);
-    expect(body.runs[0]!.runId).toBe("r_detail");
+    expect(body.runs[0]!.spanId).toBe("r_detail");
     expect(body.runs[0]!.status).toBe("succeeded");
     expect(body.runs[0]!.endedAt).toBe(5000);
   });

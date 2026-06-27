@@ -61,13 +61,13 @@ function RunsPageInner() {
       const params = new URLSearchParams(searchParams.toString());
       if (value) params.set(key, value);
       else params.delete(key);
-      router.replace(`/ops/runs?${params.toString()}`, { scroll: false });
+      router.replace(`/ops/sessions?${params.toString()}`, { scroll: false });
     },
     [router, searchParams],
   );
 
   const clearFilters = useCallback(() => {
-    router.replace("/ops/runs", { scroll: false });
+    router.replace("/ops/sessions", { scroll: false });
   }, [router]);
 
   const { data: runs = [] } = useQuery({
@@ -92,7 +92,7 @@ function RunsPageInner() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Runs</BreadcrumbPage>
+            <BreadcrumbPage>Sessions</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>

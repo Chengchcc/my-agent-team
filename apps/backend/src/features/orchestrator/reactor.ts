@@ -4,10 +4,11 @@ import type { ColumnConfigService } from "../column-config/service.js";
 import type { DeliverableRow } from "../deliverable/domain.js";
 import type { IssueRow } from "../issue/entities.js";
 import type { IssueService } from "../issue/service.js";
-import { executeAgentRun, makeRunDeps } from "../run/run-executor.js";
-import type { RunSupervisor } from "../run/supervisor.js";
 import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
+import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
+import type { SessionFactory } from "../span/session-factory.js";
+import type { SpanSupervisor } from "../span/supervisor.js";
 import type { PromptVars } from "./render.js";
 import { renderPrompt } from "./render.js";
 import { configurableStatuses, nextTransition } from "./transitions.js";
@@ -65,13 +66,14 @@ export interface StepRunnerDeps {
   opsStore: RuntimeOpsStore;
   idGen: () => string;
   config: BackendConfig;
-  supervisor: RunSupervisor;
+  supervisor: SpanSupervisor;
   convPort?: OrchestratorDeps["convPort"];
   now?: () => number;
+  sessionFactory?: SessionFactory;
 }
 
 export function createStepRunner(d: StepRunnerDeps) {
-  async function startStep(issue: IssueRow): Promise<{ runId: string } | null> {
+  async function startStep(issue: IssueRow): Promise<{ spanId: string } | null> {
     const table = d.columnConfigSvc.transitionsForProject(issue.projectId);
     const t = nextTransition(table, issue.status);
     if (!t) {
@@ -86,7 +88,7 @@ export function createStepRunner(d: StepRunnerDeps) {
       throw new OrchestratorAgentMissingError(t.agentId, issue.issueId);
     }
 
-    const runId = d.idGen();
+    const spanId = d.idGen();
     const vars = buildPromptVars(issue, d.deliverableSvc.listByIssue(issue.issueId));
     const prompt = renderPrompt(t.promptTemplate, vars);
     const sessionId = `${issue.issueId}:${t.agentId}`;
@@ -107,9 +109,10 @@ export function createStepRunner(d: StepRunnerDeps) {
       supervisor: d.supervisor,
       opsStore: d.opsStore,
       agentSvc: d.agentSvc as AgentService,
+      sessionFactory: d.sessionFactory,
     });
     await executeAgentRun(runDeps, {
-      runId,
+      spanId,
       sessionId: sessionId,
       agentId: t.agentId,
       input: prompt,
@@ -117,12 +120,12 @@ export function createStepRunner(d: StepRunnerDeps) {
     });
 
     emitIssueEvent(d.opsStore, issue.issueId, "run.started", {
-      runId,
+      spanId,
       fromStatus: issue.status,
       agentId: t.agentId,
     });
 
-    return { runId };
+    return { spanId };
   }
 
   return { startStep };
@@ -135,31 +138,31 @@ export interface TransitionReactorDeps {
   projectSvc: { getById(id: string): { autoOrchestrate: boolean; projectId: string } };
   opsStore: RuntimeOpsStore;
   columnConfigSvc: ColumnConfigService;
-  stepRunner: { startStep(i: IssueRow): Promise<{ runId: string } | null> };
+  stepRunner: { startStep(i: IssueRow): Promise<{ spanId: string } | null> };
 }
 
 export function createTransitionReactor(d: TransitionReactorDeps) {
   async function onRunComplete(
     _sessionId: string,
-    runId: string,
+    spanId: string,
     status: string,
     kind: string,
   ): Promise<void> {
     if (kind === "reflect") return;
 
-    const origin = d.opsStore.getRunOrigin(runId);
+    const origin = d.opsStore.getSpanOrigin(spanId);
     if (origin?.originKind !== "orchestrator" || !origin.issueId) return;
     const issueId = origin.issueId;
 
     emitIssueEvent(d.opsStore, issueId, "run.ended", {
-      runId,
+      spanId,
       fromStatus: origin.fromStatus,
       status,
     });
 
     if (status !== "succeeded") {
       console.warn(
-        `[orchestrator] run ${runId} for issue ${issueId} ended ${status}; not advancing`,
+        `[orchestrator] run ${spanId} for issue ${issueId} ended ${status}; not advancing`,
       );
       return;
     }
@@ -219,7 +222,7 @@ export interface OrchestratorDeps {
   config: BackendConfig;
   issueSvc: IssueService;
   agentSvc: AgentService;
-  supervisor: RunSupervisor;
+  supervisor: SpanSupervisor;
   opsStore: RuntimeOpsStore;
   idGen: () => string;
   columnConfigSvc: ColumnConfigService;
@@ -236,6 +239,7 @@ export interface OrchestratorDeps {
     }): { created: boolean };
   };
   now?: () => number;
+  sessionFactory?: SessionFactory;
 }
 
 export function createOrchestrator(deps: OrchestratorDeps) {
@@ -249,6 +253,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     supervisor: deps.supervisor,
     convPort: deps.convPort,
     now: deps.now,
+    sessionFactory: deps.sessionFactory,
   });
 
   const reactor = createTransitionReactor({

@@ -221,7 +221,7 @@ export const api = {
   getRun: (runId: string) => apiFetch<RunMeta>(`runs/${runId}`),
   cancelRun: (runId: string) => apiFetch<void>(`runs/${runId}/cancel`, { method: "POST" }),
   resumeRun: (runId: string, approved: boolean, message?: string) =>
-    apiFetch<{ runId: string; attemptId: string }>(`runs/${runId}/resume`, {
+    apiFetch<{ runId: string; resumed: boolean }>(`runs/${runId}/resume`, {
       method: "POST",
       body: { approved, message },
     }),
@@ -411,7 +411,7 @@ export interface RunOpsListItem {
   traceId: string | null;
   startedAt: number;
   endedAt: number | null;
-  latestAttemptId: string | null;
+  latestAttemptSeq: number | null;
   lastEventType: string | null;
   lastOpsEventKind: string | null;
 }
@@ -429,7 +429,7 @@ export interface RunOpsDetail {
     endedAt: number | null;
   };
   attempts: Array<{
-    attemptId: string;
+    attemptSeq: number;
     heartbeatAt?: number | null;
     heartbeatAgeMs?: number | null;
     startedAt: number;
@@ -478,21 +478,21 @@ export interface TraceOpsDetail {
   events: Array<{
     ts: number;
     runId: string;
-    attemptId: string | null;
+    attemptSeq: number | null;
     kind: string;
     payload: Record<string, unknown>;
   }>;
 }
 
 export type CancelRunResult =
-  | { ok: true; state: "abort_sent"; runId: string; attemptId: string }
+  | { ok: true; state: "abort_sent"; runId: string; attemptSeq: number }
   | { ok: true; state: "already_terminal"; runId: string; status: string }
   | { ok: true; state: "detached_waiting_reaper"; runId: string; heartbeatAgeMs: number | null }
   | { ok: false; error: "not_found" };
 
 export type RecoverRunResult =
   | { state: "already_terminal"; status: string }
-  | { state: "reattached"; attemptId: string }
+  | { state: "reattached"; attemptSeq: number }
   | { state: "marked_interrupted"; reason: "heartbeat_timeout" }
   | { state: "waiting"; reason: "heartbeat_fresh_but_transport_detached" };
 

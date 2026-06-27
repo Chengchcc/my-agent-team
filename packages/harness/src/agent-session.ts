@@ -170,7 +170,7 @@ export class AgentSession {
 
   // ─── Lifecycle ───────────────────────────────────────
 
-  async prompt(text: string, opts?: { signal?: AbortSignal; runId?: string }): Promise<void> {
+  async prompt(text: string, opts?: { signal?: AbortSignal; spanId?: string }): Promise<void> {
     if (this.#state === "running" || this.#state === "retrying" || this.#state === "compacting") {
       this.steer(text);
       return;
@@ -185,21 +185,21 @@ export class AgentSession {
     await this.#runLoop(inputMessages, opts);
   }
 
-  async continue(opts?: { signal?: AbortSignal; runId?: string }): Promise<void> {
+  async continue(opts?: { signal?: AbortSignal; spanId?: string }): Promise<void> {
     if (!this.#agent) throw new Error("Agent not initialized — call prompt() first");
     await this.#runLoop(undefined, opts);
   }
 
   async resume(
     cmd: { approved: boolean; message?: string },
-    opts?: { signal?: AbortSignal; runId?: string },
+    opts?: { signal?: AbortSignal; spanId?: string },
   ): Promise<void> {
     if (!this.#agent) throw new Error("Agent not initialized");
     this.#state = "running";
     this.#abortController = new AbortController();
     const signal = this.#combineSignal(opts?.signal);
     try {
-      for await (const _ of this.#agent.resume(cmd, { signal, runId: opts?.runId })) {
+      for await (const _ of this.#agent.resume(cmd, { signal, spanId: opts?.spanId })) {
         // events handled by agent subscriber
       }
     } catch (err) {
@@ -365,7 +365,7 @@ export class AgentSession {
 
   async #runLoop(
     inputMessages?: Message[],
-    opts?: { signal?: AbortSignal; runId?: string },
+    opts?: { signal?: AbortSignal; spanId?: string },
   ): Promise<void> {
     if (!this.#agent) return;
 
@@ -384,7 +384,7 @@ export class AgentSession {
               maxSteps: this.#config.maxSteps,
               steering: this.#steering,
               followUp: this.#followUp,
-              runId: opts?.runId,
+              spanId: opts?.spanId,
             });
             for await (const _ of generator) {
               // events handled by agent subscriber → #handleAgentEvent
@@ -395,7 +395,7 @@ export class AgentSession {
               maxSteps: this.#config.maxSteps,
               steering: this.#steering,
               followUp: this.#followUp,
-              runId: opts?.runId,
+              spanId: opts?.spanId,
             });
             for await (const _ of generator) {
               // events handled by agent subscriber → #handleAgentEvent

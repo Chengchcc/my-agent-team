@@ -16,6 +16,6 @@ export type {
   IssueEventKind,
   RunOpsEvent,
   RunOpsEventKind,
-  RunOriginRow,
+  SpanOriginRow,
   SurfaceHealthRow,
 } from "./types.js";

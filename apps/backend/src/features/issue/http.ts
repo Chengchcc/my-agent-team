@@ -39,7 +39,7 @@ const deliverableSchema = z.object({
     .regex(/^[a-z][a-z0-9_]*$/, "kind must be lowercase alphanumeric"),
   fields: z.record(z.string()),
   ref: z.string().optional(),
-  runId: z.string().optional(),
+  spanId: z.string().optional(),
 });
 
 const reviewDecisionSchema = z
@@ -171,17 +171,17 @@ export function issueRoutes(
 
     /** POST /api/issues/:id/deliverables → 201 | 200(replay) | 400 | 404 | 409
      *  R3: fromStatus is read from run_origin.from_status (authoritative), never parsed from a string.
-     *  R1: idempotency is (runId, kind) — INSERT … ON CONFLICT in adapter. */
+     *  R1: idempotency is (spanId, kind) — INSERT … ON CONFLICT in adapter. */
     async submitDeliverable(req: Request, issueId: string): Promise<Response> {
       const parsed = deliverableSchema.safeParse(await req.json().catch(() => ({})));
       if (!parsed.success)
         return json({ error: "Validation failed", details: parsed.error.issues }, 400);
       if (!svc.port.getIssue(issueId)) return json({ error: "issue not found" }, 404);
 
-      // R3: runId provided → origin must exist and issueId must match (hard 409, no fallback)
+      // R3: spanId provided → origin must exist and issueId must match (hard 409, no fallback)
       let fromStatus = "";
-      if (parsed.data.runId) {
-        const origin = opsStore.getRunOrigin(parsed.data.runId);
+      if (parsed.data.spanId) {
+        const origin = opsStore.getSpanOrigin(parsed.data.spanId);
         if (!origin) return json({ error: "run not found" }, 409);
         if (origin.issueId && origin.issueId !== issueId)
           return json({ error: "run/issue mismatch" }, 409);
@@ -195,14 +195,14 @@ export function issueRoutes(
         kind: parsed.data.kind,
         fields: parsed.data.fields,
         ref: parsed.data.ref,
-        runId: parsed.data.runId,
+        spanId: parsed.data.spanId,
       });
 
       if (!replay) {
         emitIssueEvent(opsStore, issueId, "deliverable.submitted", {
           kind: row.kind,
           deliverableId: row.deliverableId,
-          runId: row.runId ?? null,
+          spanId: row.spanId ?? null,
           ref: row.ref ?? null,
         });
       }
@@ -258,7 +258,7 @@ export function issueRoutes(
           emitIssueEvent(opsStore, issueId, "deliverable.submitted", {
             kind: "rework_feedback",
             deliverableId: d.row.deliverableId,
-            runId: null,
+            spanId: null,
             ref: null,
           });
           await onReviewRejected?.(updated);
@@ -320,13 +320,13 @@ export function issueRoutes(
       const issue = svc.port.getIssue(issueId);
       if (!issue) return json({ error: "Not found" }, 404);
       const timeline = opsStore.getIssueEvents(issueId);
-      const origins = opsStore.getRunOriginsByIssueId(issueId);
-      const runIds = origins.map((o) => o.runId);
-      const runMap = new Map(opsStore.getRuns(runIds).map((r) => [r.runId, r]));
+      const origins = opsStore.getSpanOriginsByIssueId(issueId);
+      const runIds = origins.map((o) => o.spanId);
+      const runMap = new Map(opsStore.getRuns(runIds).map((r) => [r.spanId, r]));
       const runs = origins.map((o) => {
-        const run = runMap.get(o.runId);
+        const run = runMap.get(o.spanId);
         return {
-          runId: o.runId,
+          spanId: o.spanId,
           fromStatus: o.fromStatus,
           agentId: o.agentMemberId,
           createdAt: o.createdAt,

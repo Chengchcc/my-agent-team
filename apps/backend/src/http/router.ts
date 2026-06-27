@@ -18,7 +18,7 @@ interface FeatureSet {
   columnConfigs?: ReturnType<typeof columnConfigRoutes>;
   cronJobs?: ReturnType<typeof cronJobRoutes>;
   /** POST /api/runs/:id/resume — ToolApprovalCard interrupt approval */
-  resumeRun?: (req: Request, runId: string) => Promise<Response>;
+  resumeRun?: (req: Request, spanId: string) => Promise<Response>;
 }
 
 export function createRouter(token: string, features?: FeatureSet) {

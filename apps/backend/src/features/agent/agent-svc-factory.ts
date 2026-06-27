@@ -5,7 +5,7 @@ import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { LarkBotRegistry } from "../lark-bot/index.js";
 import { larkProfileInit } from "../lark-bot/index.js";
-import type { RunSupervisor } from "../run/supervisor.js";
+import type { SpanSupervisor } from "../span/supervisor.js";
 import { sqliteAgentAdapter } from "./adapter-sqlite.js";
 import type { AgentService } from "./index.js";
 import { AgentBusyError, createAgentService } from "./index.js";
@@ -16,7 +16,7 @@ import { withLarkOrchestration } from "./with-lark-orchestration.js";
 export function createAgentSvc(
   db: Database,
   config: BackendConfig,
-  supervisor: RunSupervisor,
+  supervisor: SpanSupervisor,
   larkBotRegistry: LarkBotRegistry,
 ): AgentService {
   const agentPort = sqliteAgentAdapter(db);
@@ -37,15 +37,13 @@ export function createAgentSvc(
       await rm(dir, { recursive: true, force: true });
     },
 
-    // M20: Kept as raw SQL — subquery DELETE on events.db tables (event_log, attempt, run).
-    // Safe to keep: drizzle subquery DELETE would be equally complex with no readability gain.
+    // event_log table removed — execution facts in checkpointer.db
     purgeEventsForSessions: (sessionIds) => {
       const edb = supervisor.getDb();
       const tx = edb.transaction((ids: string[]) => {
         for (const tid of ids) {
-          edb.run("DELETE FROM event_log WHERE session_id = ?", [tid]);
           edb.run(
-            "DELETE FROM attempt WHERE run_id IN (SELECT run_id FROM run WHERE session_id = ?)",
+            "DELETE FROM attempt WHERE span_id IN (SELECT span_id FROM run WHERE session_id = ?)",
             [tid],
           );
           edb.run("DELETE FROM run WHERE session_id = ?", [tid]);
@@ -76,7 +74,7 @@ export function createAgentSvc(
       const busy = edb
         .query(
           `SELECT 1 FROM attempt WHERE ended_at IS NULL
-           AND run_id IN (SELECT run_id FROM run WHERE session_id IN (${placeholders})) LIMIT 1`,
+           AND span_id IN (SELECT span_id FROM run WHERE session_id IN (${placeholders})) LIMIT 1`,
         )
         .all(...sessionIds);
       if (busy.length > 0) throw new AgentBusyError(agentId);

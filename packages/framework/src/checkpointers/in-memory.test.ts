@@ -43,17 +43,40 @@ describe("inMemoryCheckpointer", () => {
   test("appendEvent/readEvents roundtrip", async () => {
     const cp = inMemoryCheckpointer();
 
-    await cp.appendEvent?.("t1", { type: "user_input", content: "hi", ts: 1 });
-    await cp.appendEvent?.("t1", { type: "model_start", messageCount: 2, ts: 2 });
+    await cp.appendEvent?.("t1", "sp1", { type: "user_input", content: "hi", ts: 1 });
+    await cp.appendEvent?.("t1", "sp1", { type: "model_start", messageCount: 2, ts: 2 });
 
-    const events: { type: string }[] = [];
+    const events: { type: string; spanId: string | null }[] = [];
     if (cp.readEvents) {
       for await (const e of cp.readEvents("t1")) {
-        events.push({ type: e.type });
+        events.push({ type: e.type, spanId: e.spanId });
       }
     }
 
-    expect(events).toEqual([{ type: "user_input" }, { type: "model_start" }]);
+    expect(events).toEqual([
+      { type: "user_input", spanId: "sp1" },
+      { type: "model_start", spanId: "sp1" },
+    ]);
+  });
+
+  test("readEvents with spanId filter", async () => {
+    const cp = inMemoryCheckpointer();
+
+    await cp.appendEvent?.("s1", "span-a", { type: "user_input", content: "a", ts: 1 });
+    await cp.appendEvent?.("s1", "span-b", { type: "user_input", content: "b", ts: 2 });
+
+    const all: { type: string; spanId: string | null }[] = [];
+    if (cp.readEvents) {
+      for await (const e of cp.readEvents("s1")) all.push({ type: e.type, spanId: e.spanId });
+    }
+    expect(all).toHaveLength(2);
+
+    const filtered: { type: string }[] = [];
+    if (cp.readEvents) {
+      for await (const e of cp.readEvents("s1", { spanId: "span-a" }))
+        filtered.push({ type: e.type });
+    }
+    expect(filtered).toEqual([{ type: "user_input" }]);
   });
 
   test("thread isolation", async () => {

@@ -15,7 +15,7 @@ import { consoleLogger } from "./logger.js";
 import type { HookContext } from "./plugin.js";
 import { validatePlugins } from "./plugin.js";
 import { createPluginRunner } from "./plugin-runner.js";
-import { runLoop } from "./run-loop.js";
+import { runLoop } from "./span-loop.js";
 import { createThread } from "./thread.js";
 
 // ─── Public exports (thin re-exports from extracted modules) ──
@@ -109,7 +109,7 @@ function createAgentInternal(
     tools,
     pendingEvents,
     save,
-    runId: thread.id,
+    spanId: thread.id,
     toolStates: [],
     assistantBlocks: [],
     subscribers,
@@ -165,7 +165,7 @@ function createAgentInternal(
         throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       running = true;
       ctx.signal = opts.signal;
-      rt.runId = opts.runId ?? thread.id;
+      rt.spanId = opts.spanId ?? thread.id;
       rt.toolStates = [];
       rt.assistantBlocks = [];
       try {
@@ -175,7 +175,7 @@ function createAgentInternal(
         }
         thread.messages.push({ role: "user", text: input });
         await save(thread.messages);
-        await checkpointer.appendEvent?.(thread.id, {
+        await checkpointer.appendEvent?.(thread.id, rt.spanId, {
           type: "user_input",
           content: input,
           ts: Date.now(),
@@ -205,7 +205,7 @@ function createAgentInternal(
       }
       running = true;
       ctx.signal = opts.signal;
-      rt.runId = opts.runId ?? thread.id;
+      rt.spanId = opts.spanId ?? thread.id;
       rt.toolStates = [];
       rt.assistantBlocks = [];
       try {
@@ -234,14 +234,14 @@ function createAgentInternal(
         throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       running = true;
       ctx.signal = opts.signal;
-      rt.runId = opts.runId ?? thread.id;
+      rt.spanId = opts.spanId ?? thread.id;
       rt.toolStates = [];
       rt.assistantBlocks = [];
       try {
         const it = await checkpointer.consumeInterrupt?.(thread.id);
         if (!it) throw new Error("No pending interrupt for this thread");
 
-        await checkpointer.appendEvent?.(thread.id, { type: "resume", ts: Date.now() });
+        await checkpointer.appendEvent?.(thread.id, rt.spanId, { type: "resume", ts: Date.now() });
 
         const placeholderIdx = thread.messages.findLastIndex(
           (m) =>

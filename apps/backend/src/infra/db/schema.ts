@@ -75,11 +75,11 @@ export const conversationLedger = sqliteTable(
     kind: text().notNull(),
     content: text().notNull(),
     ts: integer({ mode: "number" }).notNull(),
-    runId: text(),
+    spanId: text("span_id"),
   },
   (table) => [
     index("idx_ledger_conv").on(table.conversationId, table.seq),
-    index("idx_ledger_run").on(table.runId).where(sql`run_id IS NOT NULL`),
+    index("idx_ledger_run").on(table.spanId).where(sql`span_id IS NOT NULL`),
   ],
 );
 
@@ -175,14 +175,14 @@ export const deliverable = sqliteTable(
     kind: text().notNull(),
     fields: text().notNull(),
     ref: text(),
-    runId: text(),
+    spanId: text("span_id"),
     createdAt: integer({ mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_deliverable_issue").on(table.issueId),
     index("idx_deliverable_issue_kind").on(table.issueId, table.kind),
     uniqueIndex("idx_deliverable_run_kind")
-      .on(table.runId, table.kind)
-      .where(sql`run_id IS NOT NULL`),
+      .on(table.spanId, table.kind)
+      .where(sql`span_id IS NOT NULL`),
   ],
 );

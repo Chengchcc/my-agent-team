@@ -15,19 +15,19 @@ import { wrapToolResult } from "./plugin-runner.js";
 // ─── Pure helpers ──────────────────────────────────────────────
 
 export function buildAssistantRevision(
-  runId: string,
+  spanId: string,
   ordinal: number,
   state: MessageState,
   blocks: ContentBlock[],
   tools: MessageToolState[],
 ): MessageRevision {
   return {
-    messageId: assistantMessageId(runId, ordinal),
+    messageId: assistantMessageId(spanId, ordinal),
     role: "assistant",
     state,
     blocks: blocks.slice(),
     tools: tools.length > 0 ? tools.map((t) => ({ ...t })) : undefined,
-    runId,
+    spanId,
     visibility: "conversation",
     updatedAt: Date.now(),
   };
@@ -71,7 +71,7 @@ export async function* runLoop(
           type: "message",
           payload: {
             ...buildAssistantRevision(
-              rt.runId,
+              rt.spanId,
               assistantOrdinal,
               "error",
               rt.assistantBlocks,
@@ -80,7 +80,7 @@ export async function* runLoop(
             error: { message: "Run aborted" },
           },
         };
-        await rt.checkpointer.appendEvent?.(rt.thread.id, {
+        await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
           type: "run_end",
           reason: "aborted",
           ts: Date.now(),
@@ -113,7 +113,7 @@ export async function* runLoop(
         injected,
       );
 
-      await rt.checkpointer.appendEvent?.(rt.thread.id, {
+      await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
         type: "model_start",
         messageCount: finalMsgs.length,
         ts: Date.now(),
@@ -147,10 +147,16 @@ export async function* runLoop(
         if (collected.stopReason) stopReason = collected.stopReason;
       }
 
-      await rt.checkpointer.appendEvent?.(rt.thread.id, {
+      const latencyMs = Date.now() - llmStart;
+      await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
         type: "model_end",
         blocks: blocks.slice(),
         usage,
+        model: rt.model.id ?? "unknown",
+        step,
+        latencyMs,
+        ttftMs,
+        stopReason,
         ts: Date.now(),
       });
 
@@ -175,14 +181,14 @@ export async function* runLoop(
         yield {
           type: "message",
           payload: buildAssistantRevision(
-            rt.runId,
+            rt.spanId,
             assistantOrdinal,
             "done",
             rt.assistantBlocks,
             rt.toolStates,
           ),
         };
-        await rt.checkpointer.appendEvent?.(rt.thread.id, {
+        await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
           type: "run_end",
           reason: "complete",
           ts: Date.now(),
@@ -211,7 +217,7 @@ export async function* runLoop(
       yield {
         type: "message",
         payload: buildAssistantRevision(
-          rt.runId,
+          rt.spanId,
           assistantOrdinal,
           "streaming",
           rt.assistantBlocks,
@@ -227,7 +233,7 @@ export async function* runLoop(
           if (verdict?.continue) {
             forceContinues++;
             rt.thread.messages.push({ role: "user", text: verdict.reason });
-            await rt.checkpointer.appendEvent?.(rt.thread.id, {
+            await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
               type: "force_continue",
               reason: verdict.reason,
               attempt: forceContinues,
@@ -241,14 +247,14 @@ export async function* runLoop(
         yield {
           type: "message",
           payload: buildAssistantRevision(
-            rt.runId,
+            rt.spanId,
             assistantOrdinal,
             "done",
             rt.assistantBlocks,
             rt.toolStates,
           ),
         };
-        await rt.checkpointer.appendEvent?.(rt.thread.id, {
+        await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
           type: "run_end",
           reason: "complete",
           ts: Date.now(),
@@ -344,7 +350,7 @@ export async function* runLoop(
           yield {
             type: "message",
             payload: buildAssistantRevision(
-              rt.runId,
+              rt.spanId,
               assistantOrdinal,
               "waiting",
               rt.assistantBlocks,
@@ -360,7 +366,7 @@ export async function* runLoop(
       yield {
         type: "message",
         payload: buildAssistantRevision(
-          rt.runId,
+          rt.spanId,
           assistantOrdinal,
           "streaming",
           rt.assistantBlocks,
@@ -387,7 +393,7 @@ export async function* runLoop(
       type: "message",
       payload: {
         ...buildAssistantRevision(
-          rt.runId,
+          rt.spanId,
           assistantOrdinal,
           "error",
           rt.assistantBlocks,
@@ -396,7 +402,7 @@ export async function* runLoop(
         error: { message: "Max steps reached" },
       },
     };
-    await rt.checkpointer.appendEvent?.(rt.thread.id, {
+    await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
       type: "run_end",
       reason: "maxSteps",
       ts: Date.now(),

@@ -23,20 +23,20 @@ export function opsRoutes(svc: RuntimeOpsService) {
       );
     },
 
-    async getRunDetail(_req: Request, runId: string): Promise<Response> {
-      const detail = svc.getRunDetail(runId);
+    async getRunDetail(_req: Request, spanId: string): Promise<Response> {
+      const detail = svc.getRunDetail(spanId);
       if (!detail) return json({ error: "Run not found" }, 404);
       return json(detail);
     },
 
-    async cancelRun(_req: Request, runId: string): Promise<Response> {
-      const result = svc.cancel(runId);
+    async cancelRun(_req: Request, spanId: string): Promise<Response> {
+      const result = svc.cancel(spanId);
       if (!result.ok) return json({ error: result.error }, 404);
       return json(result);
     },
 
-    async recoverRun(_req: Request, runId: string): Promise<Response> {
-      const result = await svc.recover(runId);
+    async recoverRun(_req: Request, spanId: string): Promise<Response> {
+      const result = await svc.recover(spanId);
       return json(result);
     },
 
@@ -57,8 +57,8 @@ export function opsRoutes(svc: RuntimeOpsService) {
 
     // ─── M16.3: Run Insights ───
 
-    async getRunInsights(_req: Request, runId: string): Promise<Response> {
-      const insights = await svc.getRunInsights(runId);
+    async getRunInsights(_req: Request, spanId: string): Promise<Response> {
+      const insights = await svc.getRunInsights(spanId);
       if (!insights) return json({ error: "Run not found" }, 404);
       return json(insights);
     },

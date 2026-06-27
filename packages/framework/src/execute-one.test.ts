@@ -31,7 +31,7 @@ function makeRuntime(tools: Tool[] = []): AgentRuntime {
     tools,
     pendingEvents: [],
     save: async () => {},
-    runId: "run-1",
+    spanId: "run-1",
     toolStates: [],
     assistantBlocks: [],
     subscribers: new Set(),

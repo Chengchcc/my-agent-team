@@ -85,7 +85,7 @@ function RunEntry({ run }: { run: IssueRunSummary }) {
         {run.status}
       </span>
       <Link
-        href={`/ops/runs/${run.runId}`}
+        href={`/ops/sessions/${run.runId}`}
         className="text-blue-600 hover:underline ml-auto"
         target="_blank"
       >

@@ -76,13 +76,9 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
                   </span>
                 </div>
 
-                <Link
-                  href={`/ops/runs/${e.runId}`}
-                  className="font-mono text-muted-foreground hover:text-primary transition-colors shrink-0"
-                  onClick={(ev) => ev.stopPropagation()}
-                >
+                <span className="font-mono text-muted-foreground shrink-0">
                   {e.runId.slice(0, 8)}…
-                </Link>
+                </span>
               </Button>
               {expandedIdx === i && (
                 <div className="ml-[76px] mt-1 mb-2 p-2 rounded bg-muted/30 text-xs font-mono text-muted-foreground overflow-x-auto">
@@ -90,7 +86,7 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
                     <span>kind: {e.kind}</span>
                     <span>ts: {new Date(e.ts).toISOString()}</span>
                     <span>runId: {e.runId}</span>
-                    {e.attemptId && <span>attemptId: {e.attemptId}</span>}
+                    {e.attemptSeq != null && <span>attempt #{e.attemptSeq}</span>}
                   </div>
                   {Object.keys(e.payload).length > 0 && (
                     <pre className="mt-1 text-[11px] max-h-48 overflow-y-auto">
@@ -111,7 +107,7 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
             {detail.runs.map((r) => (
               <Link
                 key={r.runId}
-                href={`/ops/runs/${r.runId}`}
+                href={`/ops/sessions/${r.sessionId}`}
                 className="flex items-center gap-3 text-sm py-1 px-2 rounded-md hover:bg-muted transition-colors"
               >
                 <span className="font-mono text-xs text-muted-foreground">

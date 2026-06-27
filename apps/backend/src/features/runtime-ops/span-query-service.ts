@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { RunSupervisor } from "../run/supervisor.js";
+import type { SpanSupervisor } from "../span/supervisor.js";
 import type { RuntimeOpsStore } from "./store.js";
 
 // ─── RunSqlFilter (replaces sql+= if-chain) ──────────────
@@ -30,7 +30,7 @@ export function buildRunQuery(
   if (f.conversationId) add("r.session_id LIKE ? ESCAPE '\\'", `${escapeLike(f.conversationId)}:%`);
   if (f.status) add("r.status = ?", f.status);
   return {
-    sql: `SELECT r.run_id, r.session_id, r.agent_id, r.kind, r.parent_run_id, r.status, r.started_at, r.ended_at FROM run r WHERE ${clauses.join(" AND ")} ORDER BY r.started_at DESC LIMIT ?`,
+    sql: `SELECT r.span_id, r.session_id, r.agent_id, r.kind, r.parent_span_id, r.status, r.started_at, r.ended_at FROM run r WHERE ${clauses.join(" AND ")} ORDER BY r.started_at DESC LIMIT ?`,
     args: [...args, limit],
   };
 }
@@ -65,7 +65,7 @@ export function applyPostFilters(items: RunItem[], f: PostFilter): RunItem[] {
 export function createRunQueryService(deps: {
   db: Database;
   opsStore: RuntimeOpsStore;
-  supervisor: RunSupervisor;
+  supervisor: SpanSupervisor;
 }) {
   return {
     listRuns(params: {
@@ -92,24 +92,24 @@ export function createRunQueryService(deps: {
       );
 
       const rows = deps.db.query(sql).all(...args) as Array<{
-        run_id: string;
+        span_id: string;
         session_id: string;
         agent_id: string;
         kind: string;
-        parent_run_id: string | null;
+        parent_span_id: string | null;
         status: string;
         started_at: number;
         ended_at: number | null;
       }>;
 
       const items = rows.map((r) => {
-        const session = deps.supervisor.getActive().get(r.run_id);
+        const session = deps.supervisor.getActive().get(r.span_id);
         return {
-          runId: r.run_id,
+          spanId: r.span_id,
           sessionId: r.session_id,
           agentId: r.agent_id,
           kind: r.kind,
-          parentRunId: r.parent_run_id,
+          parentSpanId: r.parent_span_id,
           status: r.status,
           startedAt: r.started_at,
           endedAt: r.ended_at,
@@ -129,10 +129,10 @@ export function createRunQueryService(deps: {
       });
     },
 
-    cancel(runId: string): { ok: boolean; error?: string; state?: string } {
-      const session = deps.supervisor.getActive().get(runId);
+    cancel(spanId: string): { ok: boolean; error?: string; state?: string } {
+      const session = deps.supervisor.getActive().get(spanId);
       if (!session) return { ok: false, error: "not_found" };
-      const cancelled = deps.supervisor.cancel(runId);
+      const cancelled = deps.supervisor.cancel(spanId);
       if (!cancelled) return { ok: false, error: "not_found" };
       return { ok: true, state: "abort_sent" };
     },

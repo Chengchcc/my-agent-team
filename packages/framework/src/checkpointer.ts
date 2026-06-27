@@ -24,6 +24,16 @@ export type CheckpointEvent =
       type: "model_end";
       blocks: ContentBlock[];
       usage?: { input: number; output: number };
+      /** Model identifier (e.g. "claude-sonnet-4-6"). */
+      model: string;
+      /** Step number within the run loop. */
+      step: number;
+      /** Total LLM call latency in ms (from stream start to end). */
+      latencyMs: number;
+      /** Time-to-first-token in ms (undefined if not measured). */
+      ttftMs?: number;
+      /** Model stop reason (e.g. "end_turn", "tool_use", "max_tokens"). */
+      stopReason?: string;
       ts: number;
     }
   | { type: "tool_start"; call: ToolUseBlock; ts: number }
@@ -31,19 +41,24 @@ export type CheckpointEvent =
       type: "tool_end";
       result: ToolResultBlock;
       durationMs: number;
+      /** Step number within the run loop. */
+      step: number;
+      /** Tool name (e.g. "bash", "read"). */
+      name: string;
+      /** Whether the tool execution resulted in an error. */
+      isError: boolean;
       ts: number;
     }
   | { type: "interrupt"; pendingTool: ToolUseBlock; reason: string; ts: number }
   | { type: "resume"; ts: number }
   | { type: "run_end"; reason: "complete" | "aborted" | "maxSteps"; ts: number }
-  // M14.6: Emitted by runLoop when beforeStop vetoes stop and force-continues the loop.
-  // Additional audit events (plan_injected / verify_round / verify_exhausted) would need
-  // emit sites crossing the runner/framework boundary — not wired yet. Add only when a
-  // real Checkpointer-backed emit site exists.
   | { type: "force_continue"; reason: string; attempt: number; ts: number };
 
+/** Row shape returned by readEvents — includes spanId and ts from the storage layer. */
+export type CheckpointEventRow = CheckpointEvent & { spanId: string | null; ts: number };
+
 export interface Checkpointer {
-  /** @param sessionId — logically sessionId (persistent memory line key), renamed from threadId */
+  /** @param sessionId — sessionId (persistent memory line key), renamed from threadId */
   load(sessionId: string): Promise<Message[] | null>;
   save(sessionId: string, messages: readonly Message[]): Promise<void>;
 
@@ -51,14 +66,18 @@ export interface Checkpointer {
   consumeInterrupt?(sessionId: string): Promise<InterruptState | null>;
 
   /**
-   * @deprecated 内部审计用途，UX 投影一律走 EventLog。
-   * 保留调用点不动；新部署可跳过 Tier 3。
+   * Append an execution fact event. spanId identifies the current prompt loop
+   * (runId in backend terms); pass undefined for events outside a span context.
    */
-  appendEvent?(sessionId: string, event: CheckpointEvent): Promise<void>;
+  appendEvent?(
+    sessionId: string,
+    spanId: string | undefined,
+    event: CheckpointEvent,
+  ): Promise<void>;
   /**
-   * @deprecated 内部审计用途，UX 投影一律走 EventLog。
+   * Read execution fact events. Pass { spanId } to filter to a single span.
    */
-  readEvents?(sessionId: string): AsyncIterable<CheckpointEvent>;
+  readEvents?(sessionId: string, opts?: { spanId?: string }): AsyncIterable<CheckpointEventRow>;
 
   /** Delete all data for a thread. Idempotent — no-op if thread doesn't exist. */
   deleteThread?(sessionId: string): Promise<void>;

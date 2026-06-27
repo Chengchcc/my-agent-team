@@ -15,7 +15,7 @@ export const TERMINAL_RUN_PHASES: ReadonlySet<RunPhase> = new Set([
 ]);
 
 export interface RunStatus {
-  runId: string;
+  spanId: string;
   phase: RunPhase;
   /** Detail text for terminal phases (error message, etc.). Empty for non-terminal. */
   detail?: string;

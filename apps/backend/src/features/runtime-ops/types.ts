@@ -36,10 +36,8 @@ export type RunOpsEventKind =
 
 export interface RunOpsEvent {
   seq: number;
-  runId: string;
-  /** @deprecated use attemptSeq instead */
-  attemptId: string | null;
-  attemptSeq: string | null;
+  spanId: string;
+  attemptSeq: number | null;
   kind: RunOpsEventKind;
   payload: Record<string, unknown>;
   traceId: string | null;
@@ -47,10 +45,10 @@ export interface RunOpsEvent {
 }
 
 /** M19: Explicit run cause — replaces implicit inference from surface + issueId combo. */
-export type RunOriginKind = "orchestrator" | "mention" | "manual" | "cron";
+export type SpanOriginKind = "orchestrator" | "mention" | "manual" | "cron";
 
-export interface RunOriginRow {
-  runId: string;
+export interface SpanOriginRow {
+  spanId: string;
   conversationId: string;
   sourceLedgerSeq: number;
   agentMemberId: string;
@@ -65,7 +63,7 @@ export interface RunOriginRow {
   /** M18.5 R3: authoritative source for the issue status at run start — no more split(":"). */
   fromStatus: string;
   /** M19: explicit run cause — orchestrator | mention | manual */
-  originKind: RunOriginKind;
+  originKind: SpanOriginKind;
   createdAt: number;
 }
 

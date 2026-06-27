@@ -9,12 +9,12 @@ import {
   testDB,
   waitForFinalize,
 } from "../../../test-helpers/mock-deps.js";
-import { executeAgentRun, makeRunDeps } from "./run-executor.js";
-import type { RunSupervisor } from "./supervisor.js";
+import { executeAgentRun, makeRunDeps } from "./span-executor.js";
+import type { SpanSupervisor } from "./supervisor.js";
 
 describe("executeAgentRun completion signal", () => {
   let db: ReturnType<typeof testDB>;
-  let supervisor: RunSupervisor;
+  let supervisor: SpanSupervisor;
 
   beforeAll(() => {
     db = testDB();
@@ -36,15 +36,15 @@ describe("executeAgentRun completion signal", () => {
       opsStore: mockOpsStore() as any,
       agentSvc: mockAgentSvc() as any,
     });
-    const { runId } = await executeAgentRun(deps, {
-      runId: `${opts.prefix}-${Date.now()}`,
+    const { spanId } = await executeAgentRun(deps, {
+      spanId: `${opts.prefix}-${Date.now()}`,
       sessionId: (opts.sessionId as string) ?? TID.session(),
       agentId: opts.agentId as string,
       input: (opts.input as string) ?? "hi",
       origin: { kind: "conversation", conversationId: "", surface: "web", senderName: "unknown" },
     });
-    await waitForFinalize(supervisor, runId);
-    return { runId, calls };
+    await waitForFinalize(supervisor, spanId);
+    return { spanId, calls };
   }
 
   test("conversation: completes, fires onRunComplete", async () => {

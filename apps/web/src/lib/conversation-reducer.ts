@@ -96,7 +96,7 @@ export function getApprovalTarget(s: ConvState): {
       item.sender.kind === "agent" &&
       item.content.state != null &&
       isOpenMessageState(item.content.state) &&
-      item.content.runId
+      item.content.spanId
     ) {
       // The tool params live ONLY in blocks[] (tool_use blocks carry `input`).
       // tools[] (MessageToolState) is identity+state only — reading params from
@@ -108,7 +108,7 @@ export function getApprovalTarget(s: ConvState): {
       }
       return {
         messageId: item.content.id ?? "",
-        runId: item.content.runId,
+        runId: item.content.spanId,
         text: item.content.text ?? "",
         tools: (item.content.tools ?? [])
           .filter((t: { state: string }) => t.state === "running")

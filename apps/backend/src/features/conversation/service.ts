@@ -53,13 +53,13 @@ export interface ConversationServiceDeps {
   lock: ConversationLock;
   maxConsecutiveAgentHops: number;
   startAgentRun: (
-    runId: string,
+    spanId: string,
     sessionId: string,
     ctx: { conversationId: string; agentMemberId: string; agentId: string; ledgerSeq: number },
-  ) => Promise<{ runId: string; attemptSeq: number }>;
+  ) => Promise<{ spanId: string; attemptSeq: number }>;
   idGen: () => string;
-  /** Verify a runId belongs to the given conversation. Throws if not. */
-  verifyRunOwnsConversation?: (runId: string, conversationId: string) => Promise<void>;
+  /** Verify a spanId belongs to the given conversation. Throws if not. */
+  verifyRunOwnsConversation?: (spanId: string, conversationId: string) => Promise<void>;
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
@@ -142,20 +142,20 @@ export function createConversationService(deps: ConversationServiceDeps) {
     conversationId: string,
     targets: Array<{ memberId: string; agentId: string }>,
     ledgerSeq: number,
-  ): Promise<Array<{ agentMemberId: string; runId: string }>> {
-    const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
+  ): Promise<Array<{ agentMemberId: string; spanId: string }>> {
+    const triggeredRuns: Array<{ agentMemberId: string; spanId: string }> = [];
     lock.acquire(conversationId, targets.length);
     for (const target of targets) {
       try {
-        const runId = crypto.randomUUID();
+        const spanId = crypto.randomUUID();
         const sessionId = deriveSessionId(conversationId, target.memberId);
-        const { runId: rId } = await startAgentRun(runId, sessionId, {
+        const { spanId: rId } = await startAgentRun(spanId, sessionId, {
           conversationId,
           agentMemberId: target.memberId,
           agentId: target.agentId,
           ledgerSeq,
         });
-        triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
+        triggeredRuns.push({ agentMemberId: target.memberId, spanId: rId });
       } catch (err) {
         console.error(
           `[conversation] startAgentRun failed for ${target.memberId}:`,
@@ -179,13 +179,13 @@ export function createConversationService(deps: ConversationServiceDeps) {
       senderMemberId: string;
       addressedTo: string[];
       content: unknown;
-    }): Promise<{ seq: number; triggeredRuns: Array<{ agentMemberId: string; runId: string }> }> {
+    }): Promise<{ seq: number; triggeredRuns: Array<{ agentMemberId: string; spanId: string }> }> {
       const conv = buildConversation(input.conversationId);
       if (!conv) throw new Error(`Conversation not found: ${input.conversationId}`);
 
       const members = port.getMembers(input.conversationId);
       const targets = resolveTriggerTargets(conv, input.addressedTo);
-      const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
+      const triggeredRuns: Array<{ agentMemberId: string; spanId: string }> = [];
 
       // ── Hop count: reset on human/external, increment only for known agent members ──
       const convRow = port.getConversation(input.conversationId);
@@ -407,13 +407,13 @@ export function createConversationService(deps: ConversationServiceDeps) {
     async appendAssistantMessage(input: {
       conversationId: string;
       senderMemberId: string;
-      runId: string;
+      spanId: string;
       revision: MessageRevision;
     }): Promise<number> {
       const stamped: MessageRevision = {
         ...input.revision,
         conversationId: input.conversationId,
-        runId: input.runId,
+        spanId: input.spanId,
       };
       const serialized = serializeMessageRevision(stamped);
       const ts = Date.now();
@@ -424,7 +424,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
         kind: "message",
         content: serialized,
         ts,
-        runId: input.runId,
+        spanId: input.spanId,
       });
       return seq;
     },
@@ -436,8 +436,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
       conversationId: string;
       senderMemberId: string;
       addressedTo: string[];
-    }): Promise<Array<{ agentMemberId: string; runId: string }>> {
-      const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
+    }): Promise<Array<{ agentMemberId: string; spanId: string }>> {
+      const triggeredRuns: Array<{ agentMemberId: string; spanId: string }> = [];
       if (input.addressedTo.length === 0) return triggeredRuns;
 
       const members = port.getMembers(input.conversationId);

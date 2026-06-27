@@ -7,7 +7,7 @@ const VALID_ID = /^(?!\.)[A-Za-z0-9_\-.]{1,128}$/;
 
 function assertId(id: string): void {
   if (!VALID_ID.test(id) || /^\.+$/.test(id)) {
-    throw new Error(`Invalid threadId: ${JSON.stringify(id)}`);
+    throw new Error(`Invalid sessionId: ${JSON.stringify(id)}`);
   }
 }
 
@@ -22,6 +22,11 @@ async function atomicWriteJSON(target: string, data: unknown): Promise<void> {
   }
 }
 
+interface FileEventRow {
+  spanId: string | null;
+  event: CheckpointEvent;
+}
+
 export function fileCheckpointer({ dir }: { dir: string }): Checkpointer {
   const ready = mkdir(dir, { recursive: true });
 
@@ -31,27 +36,27 @@ export function fileCheckpointer({ dir }: { dir: string }): Checkpointer {
   };
 
   return {
-    async save(id, messages) {
+    async save(sessionId, messages) {
       await ready;
-      await atomicWriteJSON(path(id, ".state.json"), messages);
+      await atomicWriteJSON(path(sessionId, ".state.json"), messages);
     },
-    async load(id) {
+    async load(sessionId) {
       await ready;
       try {
-        const buf = await readFile(path(id, ".state.json"), "utf8");
+        const buf = await readFile(path(sessionId, ".state.json"), "utf8");
         return MessageSchema.array().parse(JSON.parse(buf)) as Message[];
       } catch (err: unknown) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
         throw err;
       }
     },
-    async saveInterrupt(id, state) {
+    async saveInterrupt(sessionId, state) {
       await ready;
-      await atomicWriteJSON(path(id, ".interrupt.json"), state);
+      await atomicWriteJSON(path(sessionId, ".interrupt.json"), state);
     },
-    async consumeInterrupt(id) {
+    async consumeInterrupt(sessionId) {
       await ready;
-      const p = path(id, ".interrupt.json");
+      const p = path(sessionId, ".interrupt.json");
       try {
         const buf = await readFile(p, "utf8");
         await rm(p);
@@ -61,27 +66,35 @@ export function fileCheckpointer({ dir }: { dir: string }): Checkpointer {
         throw err;
       }
     },
-    async appendEvent(id, event) {
+    async appendEvent(sessionId, spanId, event) {
       await ready;
-      await appendFile(path(id, ".events.jsonl"), `${JSON.stringify(event)}\n`);
+      const row: FileEventRow = { spanId: spanId ?? null, event };
+      await appendFile(path(sessionId, ".events.jsonl"), `${JSON.stringify(row)}\n`);
     },
-    async *readEvents(id) {
+    async *readEvents(sessionId, opts?) {
       await ready;
       try {
-        const buf = await readFile(path(id, ".events.jsonl"), "utf8");
+        const buf = await readFile(path(sessionId, ".events.jsonl"), "utf8");
         for (const line of buf.split("\n")) {
-          if (line) yield JSON.parse(line) as CheckpointEvent;
+          if (!line) continue;
+          try {
+            const row = JSON.parse(line) as FileEventRow;
+            if (opts?.spanId && row.spanId !== opts.spanId) continue;
+            yield { ...row.event, spanId: row.spanId, ts: row.event.ts };
+          } catch {
+            /* skip corrupted lines */
+          }
         }
       } catch (err: unknown) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
         throw err;
       }
     },
-    async deleteThread(id) {
+    async deleteThread(sessionId) {
       await ready;
-      await rm(path(id, ".state.json"), { force: true });
-      await rm(path(id, ".interrupt.json"), { force: true });
-      await rm(path(id, ".events.jsonl"), { force: true });
+      await rm(path(sessionId, ".state.json"), { force: true });
+      await rm(path(sessionId, ".interrupt.json"), { force: true });
+      await rm(path(sessionId, ".events.jsonl"), { force: true });
     },
   };
 }

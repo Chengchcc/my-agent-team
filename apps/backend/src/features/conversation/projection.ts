@@ -41,8 +41,8 @@ const runAccumulators = new Map<string, RunAccumulator>();
 /** Origins that should not participate in @mention cascade. */
 const ISOLATED_ORIGINS = new Set(["orchestrator", "cron"]);
 
-export function getOrCreateAccumulator(runId: string, senderMemberId: string): RunAccumulator {
-  let acc = runAccumulators.get(runId);
+export function getOrCreateAccumulator(spanId: string, senderMemberId: string): RunAccumulator {
+  let acc = runAccumulators.get(spanId);
   if (!acc) {
     acc = {
       senderMemberId,
@@ -50,29 +50,29 @@ export function getOrCreateAccumulator(runId: string, senderMemberId: string): R
       lastTodoUpdate: null,
       latestAssistantRevision: null,
     };
-    runAccumulators.set(runId, acc);
+    runAccumulators.set(spanId, acc);
   }
   return acc;
 }
 
-export function clearAccumulator(runId: string): void {
-  runAccumulators.delete(runId);
+export function clearAccumulator(spanId: string): void {
+  runAccumulators.delete(spanId);
 }
 
 // ─── Terminal projection helpers ──────────────────────────────
 
-/** Scan the ledger for the latest assistant MessageRevision produced by `runId`.
+/** Scan the ledger for the latest assistant MessageRevision produced by `spanId`.
  *  Used as a fallback when the in-memory RunAccumulator is gone (process restart).
  *  Returns null if no matching revision is found. */
 function findLatestAssistantRevision(
   port: ConversationPort,
   conversationId: string,
-  runId: string,
+  spanId: string,
 ): MessageRevision | null {
   const entries = port.getLedgerEntries(conversationId);
   let latest: { rev: MessageRevision; seq: number } | null = null;
   for (const entry of entries) {
-    if (entry.kind !== "message" || entry.runId !== runId) continue;
+    if (entry.kind !== "message" || entry.spanId !== spanId) continue;
     const parsed = deserializeLedgerContent(entry.content);
     if (!("messageId" in parsed)) continue;
     if (parsed.role === "assistant" && (!latest || entry.seq > latest.seq)) {
@@ -83,17 +83,17 @@ function findLatestAssistantRevision(
 }
 
 /** Check if a terminal revision (done/error) already exists in the ledger
- *  for the given (runId, messageId). Avoids repeated terminal writes when
+ *  for the given (spanId, messageId). Avoids repeated terminal writes when
  *  onRunComplete is invoked multiple times (reaper re-invocation, restart). */
 function ledgerHasTerminalForMessage(
   port: ConversationPort,
   conversationId: string,
-  runId: string,
+  spanId: string,
   messageId: string,
 ): boolean {
   const entries = port.getLedgerEntries(conversationId);
   for (const entry of entries) {
-    if (entry.kind !== "message" || entry.runId !== runId) continue;
+    if (entry.kind !== "message" || entry.spanId !== spanId) continue;
     const parsed = deserializeLedgerContent(entry.content);
     if (!("messageId" in parsed)) continue;
     if (parsed.messageId === messageId && isTerminalMessageState(parsed.state)) {
@@ -122,7 +122,7 @@ function ledgerHasTerminalForMessage(
  *  Phase 3 (BEST-EFFORT): todo append + @mention triggers — fire-and-forget, each caught. */
 export async function onRunComplete(
   sessionId: string,
-  runId: string,
+  spanId: string,
   status: string,
   convPort: ConversationPort,
   convSvc: ConversationService,
@@ -136,18 +136,18 @@ export async function onRunComplete(
 
   // M19: issue-driven runs (origin_kind=orchestrator) are handled by reactor —
   // M21: cron runs also isolated — skip projection and @mention cascade to avoid double-drive.
-  const origin = opsStore.getRunOrigin(runId);
+  const origin = opsStore.getSpanOrigin(spanId);
   if (origin && ISOLATED_ORIGINS.has(origin.originKind)) {
-    clearAccumulator(runId);
+    clearAccumulator(spanId);
     return;
   }
 
-  const acc = runAccumulators.get(runId);
+  const acc = runAccumulators.get(spanId);
 
   // ── Phase 1: CRITICAL — terminal revision write + broadcast ──
   try {
     const baseRev =
-      acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
+      acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, spanId);
     const frameworkSentTerminal = baseRev != null && isTerminalMessageState(baseRev.state);
     const statusConflict =
       baseRev != null && isSucceededMessageState(baseRev.state) && status !== "succeeded";
@@ -161,11 +161,11 @@ export async function onRunComplete(
             updatedAt: Date.now(),
           }
         : {
-            messageId: assistantMessageId(runId, 0),
+            messageId: assistantMessageId(spanId, 0),
             role: "assistant",
             state: status === "succeeded" ? "done" : "error",
             text: status === "succeeded" ? "" : `Run failed: ${status}`,
-            runId,
+            spanId,
             conversationId: cid,
             visibility: "conversation",
             updatedAt: Date.now(),
@@ -173,9 +173,9 @@ export async function onRunComplete(
           };
 
       const messageId = finalRev.messageId;
-      if (!ledgerHasTerminalForMessage(convPort, cid, runId, messageId)) {
+      if (!ledgerHasTerminalForMessage(convPort, cid, spanId, messageId)) {
         const serialized = serializeMessageRevision(finalRev);
-        if (!convPort.hasLedgerContent?.(runId, serialized)) {
+        if (!convPort.hasLedgerContent?.(spanId, serialized)) {
           const ts = Date.now();
           const seq = convPort.appendLedgerEntry({
             conversationId: cid,
@@ -184,7 +184,7 @@ export async function onRunComplete(
             kind: "message",
             content: serialized,
             ts,
-            runId,
+            spanId,
           });
           await convSvc.broadcastMessage(
             {
@@ -203,24 +203,24 @@ export async function onRunComplete(
     }
   } catch (err) {
     console.error(
-      `[conversation] terminal projection failed for ${runId}:`,
+      `[conversation] terminal projection failed for ${spanId}:`,
       err instanceof Error ? err.message : String(err),
     );
     throw err; // critical failure propagated — supervisor catches and logs
   } finally {
     // Phase 2: lock release always executes.
-    convSvc.completeRun(cid, sessionId, runId);
+    convSvc.completeRun(cid, sessionId, spanId);
   }
 
   // ── Phase 3: BEST-EFFORT — fire-and-forget, each catches independently ──
   if (acc) {
-    clearAccumulator(runId);
+    clearAccumulator(spanId);
     if (acc.lastTodoUpdate) {
       void convSvc
         .appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos)
         .catch((err) =>
           console.error(
-            `[conversation] appendTodo failed for ${runId}:`,
+            `[conversation] appendTodo failed for ${spanId}:`,
             err instanceof Error ? err.message : String(err),
           ),
         );
@@ -234,7 +234,7 @@ export async function onRunComplete(
         })
         .catch((err) =>
           console.error(
-            `[conversation] triggerMentionedAgents failed for ${runId}:`,
+            `[conversation] triggerMentionedAgents failed for ${spanId}:`,
             err instanceof Error ? err.message : String(err),
           ),
         );

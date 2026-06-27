@@ -10,7 +10,7 @@ import type { Message } from "@my-agent-team/message";
 import type { AgentRuntime, FollowUpQueue, SteeringQueue } from "./agent-options.js";
 import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
 import { createPluginRunner } from "./plugin-runner.js";
-import { runLoop } from "./run-loop.js";
+import { runLoop } from "./span-loop.js";
 
 /** Consume an async iterable to completion (side-effect-only tests). */
 async function drain(iter: AsyncIterable<unknown>): Promise<void> {
@@ -51,7 +51,7 @@ function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRunti
     tools,
     pendingEvents: [],
     save: async () => {},
-    runId: "run-1",
+    spanId: "run-1",
     toolStates: [],
     assistantBlocks: [],
     subscribers: new Set(),

@@ -39,7 +39,7 @@ export interface AgentRunOptions {
   /** M17.2: The run's identity, assigned by the runner/backend. Injected so
    *  framework can emit MessageRevision with the correct messageId. Falls
    *  back to thread.id when not provided (standalone mode). */
-  runId?: string;
+  spanId?: string;
   /** Optional steering queue — messages pushed externally appear at the next step boundary. */
   steering?: SteeringQueue;
   /** Optional follow-up queue — messages consumed after inner steps exhaust. */
@@ -113,7 +113,7 @@ export interface AgentRuntime {
   pendingEvents: AgentEvent[];
   save: (msgs: Message[]) => Promise<void>;
   /** M17.2: The run's identity — set at run/continue/resume start. */
-  runId: string;
+  spanId: string;
   /** M17.2: Accumulated tool states for the current assistant message.
    *  Updated in-place by executeOne; read when emitting message revisions. */
   toolStates: MessageToolState[];

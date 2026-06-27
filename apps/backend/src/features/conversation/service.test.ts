@@ -15,7 +15,7 @@ const db = openDb(dbPath);
 const port = sqliteConversationAdapter(db);
 
 // Track fork calls for @ trigger verification
-const forkLog: Array<{ runId: string; sessionId: string }> = [];
+const forkLog: Array<{ spanId: string; sessionId: string }> = [];
 const _nextRunId = 0;
 const lock = new ConversationLock();
 
@@ -29,9 +29,9 @@ const svc = createConversationService({
   lock,
   maxConsecutiveAgentHops: 3,
   idGen: testIdGen,
-  startAgentRun: async (runId, sessionId, _ctx) => {
-    forkLog.push({ runId, sessionId });
-    return { runId, attemptSeq: 1 };
+  startAgentRun: async (spanId, sessionId, _ctx) => {
+    forkLog.push({ spanId, sessionId });
+    return { spanId, attemptSeq: 1 };
   },
 });
 
@@ -409,7 +409,7 @@ describe("P0-2: lock lifecycle", () => {
 
     // Simulate run completion (P0-2: this must NOT hang)
     const start = Date.now();
-    svc.completeRun(id, `${id}:mem-x1-${id}`, r1.triggeredRuns[0]!.runId);
+    svc.completeRun(id, `${id}:mem-x1-${id}`, r1.triggeredRuns[0]!.spanId);
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(1000); // must complete near-instantly, not hang
     expect(lock.isActive(id)).toBe(false);

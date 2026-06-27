@@ -7,16 +7,15 @@ import type {
   IssueEvent as IssueEventType,
   RunOpsEventKind,
   RunOpsEvent as RunOpsEventType,
-  RunOriginRow,
+  SpanOriginRow,
   SurfaceHealthRow,
 } from "./types.js";
 
 function toRunOpsEvent(r: typeof schema.runOpsEvent.$inferSelect): RunOpsEventType {
   return {
     seq: r.seq,
-    runId: r.runId,
-    attemptId: r.attemptSeq?.toString() ?? null,
-    attemptSeq: r.attemptSeq?.toString() ?? null,
+    spanId: r.spanId,
+    attemptSeq: r.attemptSeq,
     kind: r.kind as RunOpsEventType["kind"],
     payload: JSON.parse(r.payload) as Record<string, unknown>,
     traceId: r.traceId,
@@ -24,9 +23,9 @@ function toRunOpsEvent(r: typeof schema.runOpsEvent.$inferSelect): RunOpsEventTy
   };
 }
 
-function toRunOriginRow(r: typeof schema.runOrigin.$inferSelect): RunOriginRow {
+function toSpanOriginRow(r: typeof schema.runOrigin.$inferSelect): SpanOriginRow {
   return {
-    runId: r.runId,
+    spanId: r.spanId,
     conversationId: r.conversationId,
     sourceLedgerSeq: r.sourceLedgerSeq,
     agentMemberId: r.agentMemberId,
@@ -37,7 +36,7 @@ function toRunOriginRow(r: typeof schema.runOrigin.$inferSelect): RunOriginRow {
     issueId: r.issueId,
     cronJobId: r.cronJobId,
     fromStatus: r.fromStatus,
-    originKind: r.originKind as RunOriginRow["originKind"],
+    originKind: r.originKind as SpanOriginRow["originKind"],
     createdAt: r.createdAt,
   };
 }
@@ -64,8 +63,7 @@ export class RuntimeOpsStore {
   // ─── run_ops_event ───
 
   appendRunEvent(input: {
-    runId: string;
-    attemptId?: string;
+    spanId: string;
     attemptSeq?: number;
     kind: RunOpsEventKind;
     traceId?: string;
@@ -74,7 +72,7 @@ export class RuntimeOpsStore {
     const row = this.#d
       .insert(schema.runOpsEvent)
       .values({
-        runId: input.runId,
+        spanId: input.spanId,
         attemptSeq: input.attemptSeq ?? null,
         kind: input.kind,
         payload: JSON.stringify(input.payload ?? {}),
@@ -86,11 +84,11 @@ export class RuntimeOpsStore {
     return row!.seq;
   }
 
-  getRunEvents(runId: string): RunOpsEventType[] {
+  getRunEvents(spanId: string): RunOpsEventType[] {
     return this.#d
       .select()
       .from(schema.runOpsEvent)
-      .where(eq(schema.runOpsEvent.runId, runId))
+      .where(eq(schema.runOpsEvent.spanId, spanId))
       .orderBy(schema.runOpsEvent.seq)
       .all()
       .map(toRunOpsEvent);
@@ -146,17 +144,17 @@ export class RuntimeOpsStore {
 
   // ─── run_origin ───
 
-  insertRunOrigin(row: RunOriginRow): void {
+  insertSpanOrigin(row: SpanOriginRow): void {
     // Invariant: issue-driven runs must carry a non-empty fromStatus
     if (row.issueId != null && row.fromStatus === "") {
       throw new Error(
-        `run_origin with issueId must carry a non-empty fromStatus (runId=${row.runId})`,
+        `run_origin with issueId must carry a non-empty fromStatus (spanId=${row.spanId})`,
       );
     }
     this.#d
       .insert(schema.runOrigin)
       .values({
-        runId: row.runId,
+        spanId: row.spanId,
         conversationId: row.conversationId,
         sourceLedgerSeq: row.sourceLedgerSeq,
         agentMemberId: row.agentMemberId,
@@ -174,42 +172,42 @@ export class RuntimeOpsStore {
       .run();
   }
 
-  getRunOrigin(runId: string): RunOriginRow | null {
+  getSpanOrigin(spanId: string): SpanOriginRow | null {
     const row = this.#d
       .select()
       .from(schema.runOrigin)
-      .where(eq(schema.runOrigin.runId, runId))
+      .where(eq(schema.runOrigin.spanId, spanId))
       .get();
-    return row ? toRunOriginRow(row) : null;
+    return row ? toSpanOriginRow(row) : null;
   }
 
-  getRunOriginsByIssueId(issueId: string): RunOriginRow[] {
+  getSpanOriginsByIssueId(issueId: string): SpanOriginRow[] {
     return this.#d
       .select()
       .from(schema.runOrigin)
       .where(eq(schema.runOrigin.issueId, issueId))
       .orderBy(schema.runOrigin.createdAt)
       .all()
-      .map(toRunOriginRow);
+      .map(toSpanOriginRow);
   }
 
-  getRunOriginsByCronJobId(cronJobId: string): RunOriginRow[] {
+  getSpanOriginsByCronJobId(cronJobId: string): SpanOriginRow[] {
     return this.#d
       .select()
       .from(schema.runOrigin)
       .where(eq(schema.runOrigin.cronJobId, cronJobId))
       .orderBy(schema.runOrigin.createdAt)
       .all()
-      .map(toRunOriginRow);
+      .map(toSpanOriginRow);
   }
 
   getRuns(runIds: string[]): Array<{
-    runId: string;
+    spanId: string;
     sessionId: string;
     agentId: string;
     status: string;
     kind: string;
-    parentRunId: string | null;
+    parentSpanId: string | null;
     startedAt: number;
     endedAt: number | null;
   }> {
@@ -217,27 +215,27 @@ export class RuntimeOpsStore {
     return this.#d
       .select()
       .from(schema.run)
-      .where(inArray(schema.run.runId, runIds))
+      .where(inArray(schema.run.spanId, runIds))
       .all()
       .map((r) => ({
-        runId: r.runId,
+        spanId: r.spanId,
         sessionId: r.sessionId,
         agentId: r.agentId,
         status: r.status,
         kind: r.kind,
-        parentRunId: r.parentRunId,
+        parentSpanId: r.parentSpanId,
         startedAt: r.startedAt,
         endedAt: r.endedAt,
       }));
   }
 
-  listRunOrigins(): RunOriginRow[] {
+  listSpanOrigins(): SpanOriginRow[] {
     return this.#d
       .select()
       .from(schema.runOrigin)
       .orderBy(desc(schema.runOrigin.createdAt))
       .all()
-      .map(toRunOriginRow);
+      .map(toSpanOriginRow);
   }
 
   // ─── surface_health ───

@@ -8,9 +8,10 @@ import {
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
-import { executeAgentRun, makeRunDeps } from "../run/run-executor.js";
-import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
+import type { SessionFactory } from "../span/session-factory.js";
+import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
+import type { SpanSupervisor } from "../span/supervisor.js";
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
@@ -26,10 +27,11 @@ export interface ConversationFeature {
 export function createConversationFeature(
   db: Database,
   _config: BackendConfig,
-  supervisor: RunSupervisor,
+  supervisor: SpanSupervisor,
   agentSvc: AgentService,
   _opsStore: RuntimeOpsStore,
   lock: ConversationLock = new ConversationLock(),
+  _sessionFactory?: SessionFactory,
 ): ConversationFeature {
   const convPort = sqliteConversationAdapter(db);
 
@@ -45,7 +47,11 @@ export function createConversationFeature(
   };
 
   // Message handling — writes to ledger, scans @mentions, broadcasts SSE
-  const handleAssistantMessage = async (sessionId: string, runId: string, rev: MessageRevision) => {
+  const handleAssistantMessage = async (
+    sessionId: string,
+    spanId: string,
+    rev: MessageRevision,
+  ) => {
     const cid = parseSessionId(sessionId).conversationId;
     if (!cid) return;
     const sender = parseSessionId(sessionId).memberId || sessionId;
@@ -53,11 +59,11 @@ export function createConversationFeature(
     await convSvc.appendAssistantMessage({
       conversationId: cid,
       senderMemberId: sender,
-      runId,
+      spanId,
       revision: rev,
     });
 
-    const acc = getOrCreateAccumulator(runId, sender);
+    const acc = getOrCreateAccumulator(spanId, sender);
     if (rev.role === "assistant") {
       acc.latestAssistantRevision = { ...rev, conversationId: cid };
       if (isTerminalMessageState(rev.state)) {
@@ -81,7 +87,7 @@ export function createConversationFeature(
       senderMemberId: sender,
       addressedTo: [] as string[],
       kind: "message" as const,
-      content: serializeMessageRevision({ ...rev, conversationId: cid, runId }),
+      content: serializeMessageRevision({ ...rev, conversationId: cid, spanId }),
       ts: Date.now(),
     };
     void convSvc.broadcastMessage(entry, { excludeMemberId: sender }).catch(() => {});
@@ -102,9 +108,10 @@ export function createConversationFeature(
         opsStore: _opsStore,
         agentSvc,
         convPort,
+        sessionFactory: _sessionFactory,
       });
       return executeAgentRun(runDeps, {
-        runId: crypto.randomUUID(),
+        spanId: crypto.randomUUID(),
         sessionId: sessionId,
         agentId: ctx.agentId,
         input: "",
@@ -116,19 +123,19 @@ export function createConversationFeature(
         },
         onAssistantMessage: (payload) => {
           const rev = payload as unknown as MessageRevision;
-          void handleAssistantMessage(sessionId, rev.runId ?? _runId, rev);
+          void handleAssistantMessage(sessionId, rev.spanId ?? _runId, rev);
         },
       });
     },
 
-    verifyRunOwnsConversation: async (runId, conversationId) => {
+    verifyRunOwnsConversation: async (spanId, conversationId) => {
       const runDb = supervisor.getDb();
-      const row = runDb.query("SELECT session_id FROM run WHERE run_id = ?").get(runId) as
+      const row = runDb.query("SELECT session_id FROM run WHERE span_id = ?").get(spanId) as
         | { session_id: string }
         | undefined;
-      if (!row) throw new Error(`run not found: ${runId}`);
+      if (!row) throw new Error(`run not found: ${spanId}`);
       if (!row.session_id.startsWith(`${conversationId}:`)) {
-        throw new Error(`run ${runId} does not belong to conversation ${conversationId}`);
+        throw new Error(`run ${spanId} does not belong to conversation ${conversationId}`);
       }
     },
   });
@@ -146,26 +153,28 @@ export interface StartAgentRunOpts {
   agentSvc: AgentService;
   convPort: ConversationPort;
   conversationId: string;
-  supervisor: RunSupervisor;
+  supervisor: SpanSupervisor;
   opsStore: RuntimeOpsStore;
   surface?: string;
   senderName?: string;
   onAssistantMessage?: (revision: Record<string, unknown>) => void;
-  onComplete?: (runId: string, status: string) => void;
+  onComplete?: (spanId: string, status: string) => void;
+  sessionFactory?: SessionFactory;
 }
 
 export async function startAgentRun(
   opts: StartAgentRunOpts,
-): Promise<{ runId: string; attemptSeq: number }> {
+): Promise<{ spanId: string; attemptSeq: number }> {
   const runDeps = makeRunDeps({
     config: opts.config,
     supervisor: opts.supervisor,
     opsStore: opts.opsStore,
     agentSvc: opts.agentSvc,
     convPort: opts.convPort,
+    sessionFactory: opts.sessionFactory,
   });
   return executeAgentRun(runDeps, {
-    runId: crypto.randomUUID(),
+    spanId: crypto.randomUUID(),
     sessionId: opts.sessionId,
     agentId: opts.agentId,
     input: opts.input,

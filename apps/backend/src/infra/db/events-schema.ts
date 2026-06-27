@@ -9,32 +9,31 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 // ─── run (events.db) ───────────────────────────────────────────────
-// PR-6: threadId renamed to sessionId (ID#1b column migration).
+// run→span rename: TS spanId, DB span_id (snake_case casing).
+// threadId→sessionId: TS sessionId, DB session_id.
 export const run = sqliteTable(
   "run",
   {
-    runId: text().primaryKey(),
+    spanId: text().primaryKey(),
     sessionId: text().notNull(),
     status: text().notNull().default("running"),
     kind: text().notNull().default("main"),
-    parentRunId: text(),
+    parentSpanId: text("parent_span_id"), // explicit: drizzle can't auto-name parentSpanId
     agentId: text().notNull().default(""),
     degradedReason: text(),
     startedAt: integer({ mode: "number" }).notNull(),
     endedAt: integer({ mode: "number" }),
   },
-  (table) => [index("idx_run_thread").on(table.sessionId, desc(table.startedAt))],
+  (table) => [index("idx_run_session").on(table.sessionId, desc(table.startedAt))],
 );
 
 // ─── attempt ───────────────────────────────────────────────────────
-// PR-3: PK changed from attemptId to composite (runId, seq).
-// attemptId column removed; seq is a run-scoped ordinal (1, 2, …).
 export const attempt = sqliteTable(
   "attempt",
   {
-    runId: text()
+    spanId: text()
       .notNull()
-      .references(() => run.runId, { onDelete: "cascade" }),
+      .references(() => run.spanId, { onDelete: "cascade" }),
     seq: integer().notNull(),
     pid: integer(),
     heartbeatAt: integer({ mode: "number" }),
@@ -42,8 +41,8 @@ export const attempt = sqliteTable(
     endedAt: integer({ mode: "number" }),
   },
   (table) => [
-    primaryKey({ columns: [table.runId, table.seq] }),
-    index("idx_attempt_run").on(table.runId, table.startedAt),
+    primaryKey({ columns: [table.spanId, table.seq] }),
+    index("idx_attempt_span").on(table.spanId, table.startedAt),
   ],
 );
 
@@ -52,8 +51,7 @@ export const runOpsEvent = sqliteTable(
   "run_ops_event",
   {
     seq: integer().primaryKey({ autoIncrement: true }),
-    runId: text().notNull(),
-    /** PR-3: changed from attemptId (text) to attemptSeq (integer). */
+    spanId: text().notNull(),
     attemptSeq: integer(),
     kind: text().notNull(),
     payload: text().notNull().default("{}"),
@@ -61,7 +59,7 @@ export const runOpsEvent = sqliteTable(
     ts: integer({ mode: "number" }).notNull(),
   },
   (table) => [
-    index("idx_run_ops_event_run").on(table.runId, table.seq),
+    index("idx_run_ops_event_span").on(table.spanId, table.seq),
     index("idx_run_ops_event_trace").on(table.traceId, table.seq),
     index("idx_run_ops_event_kind").on(table.kind, desc(table.ts)),
   ],
@@ -71,7 +69,7 @@ export const runOpsEvent = sqliteTable(
 export const runOrigin = sqliteTable(
   "run_origin",
   {
-    runId: text().primaryKey(),
+    spanId: text().primaryKey(),
     conversationId: text().notNull(),
     sourceLedgerSeq: integer().notNull(),
     agentMemberId: text().notNull(),
@@ -106,21 +104,7 @@ export const runnerHealth = sqliteTable("runner_health", {
   updatedAt: integer({ mode: "number" }).notNull(),
 });
 
-// ─── event_log ─────────────────────────────────────────────────────
-export const eventLog = sqliteTable(
-  "event_log",
-  {
-    seq: integer().primaryKey({ autoIncrement: true }),
-    sessionId: text().notNull(),
-    runId: text().notNull(),
-    event: text().notNull(),
-    ts: integer({ mode: "number" }).notNull(),
-  },
-  (table) => [
-    index("idx_event_log_run").on(table.runId, table.seq),
-    index("idx_event_log_thread").on(table.sessionId, table.seq),
-  ],
-);
+// event_log table removed — execution facts now live in checkpointer.db
 
 // ─── surface_health ────────────────────────────────────────────────
 export const surfaceHealth = sqliteTable(

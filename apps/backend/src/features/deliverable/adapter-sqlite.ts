@@ -12,7 +12,7 @@ const toRow = (r: typeof schema.deliverable.$inferSelect): DeliverableRow => ({
   kind: r.kind,
   fields: JSON.parse(r.fields) as Record<string, string>,
   ref: r.ref,
-  runId: r.runId,
+  spanId: r.spanId,
   createdAt: r.createdAt,
 });
 
@@ -20,7 +20,7 @@ export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
   const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
-    /** R2: INSERT … ON CONFLICT(run_id, kind) WHERE run_id IS NOT NULL DO NOTHING — atomic idempotency.
+    /** R2: INSERT … ON CONFLICT(span_id, kind) WHERE span_id IS NOT NULL DO NOTHING — atomic idempotency.
      *  Returns { row, replay: true } when the row already exists.
      *
      *  M20: Kept as raw SQL because drizzle's onConflictDoNothing({ target, targetWhere })
@@ -28,9 +28,9 @@ export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
      *  indexes across all drizzle-orm versions. The raw SQL is well-tested and simpler. */
     insert(input): { row: DeliverableRow; replay: boolean } {
       db.run(
-        `INSERT INTO deliverable (deliverable_id, issue_id, from_status, kind, fields, ref, run_id, created_at)
+        `INSERT INTO deliverable (deliverable_id, issue_id, from_status, kind, fields, ref, span_id, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(run_id, kind) WHERE run_id IS NOT NULL DO NOTHING`,
+         ON CONFLICT(span_id, kind) WHERE span_id IS NOT NULL DO NOTHING`,
         [
           input.deliverableId,
           input.issueId,
@@ -38,17 +38,20 @@ export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
           input.kind,
           JSON.stringify(input.fields),
           input.ref,
-          input.runId,
+          input.spanId,
           input.createdAt,
         ],
       );
       const { changes } = db.query("SELECT changes() AS changes").get() as { changes: number };
-      if (changes === 0 && input.runId) {
+      if (changes === 0 && input.spanId) {
         const existing = d
           .select()
           .from(schema.deliverable)
           .where(
-            and(eq(schema.deliverable.runId, input.runId), eq(schema.deliverable.kind, input.kind)),
+            and(
+              eq(schema.deliverable.spanId, input.spanId),
+              eq(schema.deliverable.kind, input.kind),
+            ),
           )
           .get();
         if (existing) return { row: toRow(existing), replay: true };
@@ -61,7 +64,7 @@ export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
           kind: input.kind,
           fields: input.fields,
           ref: input.ref,
-          runId: input.runId,
+          spanId: input.spanId,
           createdAt: input.createdAt,
         },
         replay: false,
@@ -79,11 +82,11 @@ export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
       return rows.map(toRow);
     },
 
-    getByRunAndKind(runId: string, kind: string): DeliverableRow | null {
+    getByRunAndKind(spanId: string, kind: string): DeliverableRow | null {
       const r = d
         .select()
         .from(schema.deliverable)
-        .where(and(eq(schema.deliverable.runId, runId), eq(schema.deliverable.kind, kind)))
+        .where(and(eq(schema.deliverable.spanId, spanId), eq(schema.deliverable.kind, kind)))
         .get();
       return r ? toRow(r) : null;
     },

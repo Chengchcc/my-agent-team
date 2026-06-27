@@ -63,8 +63,8 @@ describe("fileCheckpointer", () => {
   test("appendEvent/readEvents roundtrip", async () => {
     const cp = fileCheckpointer({ dir: tmpDir });
 
-    await cp.appendEvent?.("t3", { type: "user_input", content: "hi", ts: 1 });
-    await cp.appendEvent?.("t3", { type: "model_start", messageCount: 2, ts: 2 });
+    await cp.appendEvent?.("t3", "sp1", { type: "user_input", content: "hi", ts: 1 });
+    await cp.appendEvent?.("t3", "sp1", { type: "model_start", messageCount: 2, ts: 2 });
 
     const events: { type: string }[] = [];
     if (cp.readEvents) {
@@ -79,10 +79,10 @@ describe("fileCheckpointer", () => {
   test("invalid threadId throws", () => {
     const cp = fileCheckpointer({ dir: tmpDir });
 
-    expect(cp.save("../../etc/passwd", [])).rejects.toThrow("Invalid threadId");
-    expect(cp.save("..", [])).rejects.toThrow("Invalid threadId");
-    expect(cp.save("....", [])).rejects.toThrow("Invalid threadId");
-    expect(cp.save(".hidden", [])).rejects.toThrow("Invalid threadId");
+    expect(cp.save("../../etc/passwd", [])).rejects.toThrow("Invalid sessionId");
+    expect(cp.save("..", [])).rejects.toThrow("Invalid sessionId");
+    expect(cp.save("....", [])).rejects.toThrow("Invalid sessionId");
+    expect(cp.save(".hidden", [])).rejects.toThrow("Invalid sessionId");
     // valid ids resolve
     expect(cp.save("ok-id", [])).resolves.toBeUndefined();
   });

@@ -95,15 +95,15 @@ describe("parseMessageRevision", () => {
     expect(() => parseMessageRevision({ text: "legacy" })).toThrow(MessageParseError);
   });
 
-  test("fails on old { text, runId } shape", () => {
-    expect(() => parseMessageRevision({ text: "legacy", runId: "r1" })).toThrow(MessageParseError);
+  test("fails on old { text, spanId } shape", () => {
+    expect(() => parseMessageRevision({ text: "legacy", spanId: "r1" })).toThrow(MessageParseError);
   });
 
   test("fails on old blocks-only shape", () => {
     expect(() =>
       parseMessageRevision({
         blocks: [{ type: "text", text: "x" }],
-        runId: "r1",
+        spanId: "r1",
       }),
     ).toThrow(MessageParseError);
   });
@@ -123,7 +123,7 @@ describe("parseMessageRevision", () => {
       role: "assistant" as const,
       blocks: [{ type: "tool_use" as const, id: "t1", name: "bash", input: {} }],
       tools: [{ id: "t1", name: "bash", state: "running" as const }],
-      runId: "r2",
+      spanId: "r2",
       updatedAt: 2000,
     };
     const result = parseMessageRevision(rev);

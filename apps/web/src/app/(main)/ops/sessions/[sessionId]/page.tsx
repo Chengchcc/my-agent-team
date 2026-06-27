@@ -16,13 +16,13 @@ import {
 } from "@/components/ui/breadcrumb";
 import { api } from "@/lib/api";
 
-export default function RunDetailPage() {
-  const { runId } = useParams<{ runId: string }>();
+export default function SessionDetailPage() {
+  const { sessionId } = useParams<{ sessionId: string }>();
 
   const detailQuery = useQuery({
-    queryKey: ["ops", "runDetail", runId],
-    queryFn: () => api.getOpsRunDetail(runId),
-    enabled: !!runId,
+    queryKey: ["ops", "sessionDetail", sessionId],
+    queryFn: () => api.getOpsRunDetail(sessionId),
+    enabled: !!sessionId,
     refetchInterval: (q) => (q.state.data?.run.status === "running" ? 10_000 : false),
   });
 
@@ -35,11 +35,11 @@ export default function RunDetailPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink href="/ops/runs">Runs</BreadcrumbLink>
+            <BreadcrumbLink href="/ops/sessions">Sessions</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage className="font-mono">{runId}</BreadcrumbPage>
+            <BreadcrumbPage className="font-mono">{sessionId}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -56,7 +56,7 @@ export default function RunDetailPage() {
           <>
             <RunDiagnosisHeader detail={detail} />
 
-            <RunInsightsPanel runId={runId} />
+            <RunInsightsPanel runId={sessionId} />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-6">
@@ -82,8 +82,8 @@ export default function RunDetailPage() {
                   <h3 className="text-sm font-semibold text-foreground mb-3">Attempts</h3>
                   <div className="space-y-2">
                     {detail.attempts.map((a) => (
-                      <div key={a.attemptId} className="text-xs font-mono space-y-0.5">
-                        <div className="text-muted-foreground">ID: {a.attemptId.slice(0, 16)}…</div>
+                      <div key={a.attemptSeq} className="text-xs font-mono space-y-0.5">
+                        <div className="text-muted-foreground">Seq: {a.attemptSeq}</div>
                       </div>
                     ))}
                   </div>
