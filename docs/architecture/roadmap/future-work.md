@@ -29,7 +29,7 @@ used_by:
 
 - **更细的投影可见性策略**　当前 assistant 消息经 `onRunMessage` 直写账本，projection bridge只做 best-effort fan-out。未来可引入更细的可见性规则（按成员、按事件子类型），但任何扩展都应保持「assistant 消息与人类消息同一入口直写账本」「账本为唯一对话事实」这两条不变式。依赖：[会话投影](../backend/conversation-projection.md)、[事实与投影](../foundations/facts-and-projections.md)。
 - **端去重的统一化**　飞书侧的 `canSkipFinalLedgerText` 解决了终稿重发与首投必发的张力。若未来接入更多端，可考虑把「端去重」抽象成各适配器共享的一层，而非每个端各写一套。依赖：[飞书适配器](../surfaces/lark-adapter.md)。
-- **恢复语义的强化**　checkpointer 的 saveInterrupt / consumeInterrupt 已支撑中断恢复。可进一步明确多次中断、反思分叉（`reflect:<threadId>`）与主线恢复之间的交互边界。依赖：[Framework 运行循环](../runtime/framework.md)、[常驻 Runner](../runner/resident-runner.md)。
+- **恢复语义的强化**　checkpointer 的 saveInterrupt / consumeInterrupt 已支撑中断恢复。可进一步明确多次中断、反思分叉（`reflect:<threadId>`）与主线恢复之间的交互边界。依赖：[Framework 运行循环](../runtime/framework.md)、[后端总览](../backend/overview.md)。
 - **Issue 协作工作流演进**　[Issue](../foundations/issue.md) 本体与 [Orchestrator](../backend/orchestrator.md) 固定线性推进已落地，下一版要把它演进成「可发起、按配置驱动、交付物可结构化传递、可验收返工、可观测」的协作流。完整设计抽象与不变量收拢在 [Issue 协作工作流](../foundations/issue-workflow.md)（`status: design`）；本节只记**落地顺序**。依赖：[Issue 协作工作流](../foundations/issue-workflow.md)、[Orchestrator](../backend/orchestrator.md)。
 
   里程碑切法（前置依赖优先，从 M18.3 起算）：
@@ -46,6 +46,8 @@ used_by:
 
   原则：每个里程碑落地时，同步回填它所触及的 `status: current` 页（[Issue](../foundations/issue.md)、[Orchestrator](../backend/orchestrator.md)、[Issue 生命周期端到端](../flows/e2e-issue-lifecycle.md)），并把对应小节从 [Issue 协作工作流](../foundations/issue-workflow.md) 的 `design` 状态推进为现状。
 - **@提及收编进编排**　现状里 @提及自动触发（`onRunComplete` 扫描文本 → `forkAgentRuns`）和 Orchestrator 的状态机推进是两套驱动。未来可把对话内的 @提及招呼也统一交给编排器调度，让「下一步谁干」只有一个权威来源。依赖：[Orchestrator](../backend/orchestrator.md)、[对话与成员](../conversation/conversation-and-members.md)。
+- **Ops 导航转 session / trace 中心**　现状 Ops 面以 run 为中心列举（run 列表 → run 详情），词汇与分区都停在 daemon 时代的 `run`。[标识符体系](../foundations/identifiers.md) 把本体收敛为「session（一条 trace）→ span（root span）→ attempt（重试序号）」后，Ops 导航也应顺着这条链改：顶层按 **session** 聚合（一个 agent 在一个上下文里的整条记忆线），点进去看这条线上的 **span 序列**（每次 prompt loop 一段，按 spanId 切的 `checkpoint_events` 即其执行事实流），再下钻到 **attempt / child span**。这让「这条线到底跑过几轮、第 3 轮前是什么状态」成为一次自然的层层下钻，而不是在扁平 run 列表里靠 `idempotencyKey` 反推。依赖：[标识符体系](../foundations/identifiers.md)、[数据模型](../backend/data-model.md)。
+- **删除 transport / heartbeat 残骸**　`pid` / `heartbeat_at`（`attempt` 表）和心跳 reaper 是 runner daemon 时代的产物：跨进程执行需要一个进程外存活信号，backend 靠扫心跳判断 daemon 是否卡死。AgentSession 改为进程内执行后，这个前提消失——进程内执行要么在跑、要么随进程一起没了，没有「独立进程失联」这种中间态需要心跳来探。这两列已标 `deprecated`，未来应连同 reaper 的心跳分支一并删除，超时统一由 per-span 看门狗（主动 cancel）表达，不再保留 daemon 式的被动心跳兜底。依赖：[数据模型](../backend/data-model.md)、[标识符体系](../foundations/identifiers.md)。
 - **Harness 运行时加固（M22）**　**已落地。** 四项子任务全部完成，相关 `status: current` 页面已回填：
 
   | 子项 | 结果 | 回填页面 |

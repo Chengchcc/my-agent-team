@@ -16,7 +16,7 @@
       "status": "current",
       "owners": "architecture",
       "path": "docs/architecture/system-overview.md",
-      "summary": "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实并直接在进程内通过 AgentSession 驱动 Agent。assistant 消息经 onEvent 回调直写 conversation ledger，非消息执行事件经 run-loop 写 checkpointer 的执行事实流（按 spanId）。conversation ledger SSE 是用户可见输出的唯一通道。",
+      "summary": "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实并直接在进程内通过 AgentSession 驱动 Agent。assistant 消息经 onEvent 回调直写 conversation ledger，非消息事件进 EventLog。conversation ledger SSE 是用户可见输出的唯一通道。",
       "depends_on": ["foundations.facts-and-projections"],
       "used_by": ["flows.e2e-web-message", "flows.e2e-lark-message"]
     },
@@ -26,7 +26,7 @@
       "status": "current",
       "owners": "architecture",
       "path": "docs/architecture/foundations/facts-and-projections.md",
-      "summary": "系统里有好几个结构都叫「messages」，但它们回答的是不同的问题。conversation ledger 和 checkpointer 的执行事实流（checkpoint_events，按 spanId）是持久的「事实」；SSE 流是从事实推导出来的「投影」；checkpointer 同时还持有执行恢复用的状态。把它们混为一谈，正是重复消息、检查点污染、UI 丢事件这类 bug 的根源。",
+      "summary": "系统里有好几个结构都叫「messages」，但它们回答的是不同的问题。conversation ledger 和 EventLog 是持久的「事实」；SSE 流是从事实推导出来的「投影」；Agent 本地的 Checkpointer 是执行恢复用的状态。把它们混为一谈，正是重复消息、检查点污染、UI 丢事件这类 bug 的根源。",
       "depends_on": [],
       "used_by": [
         "backend.conversation-projection",
@@ -41,7 +41,7 @@
       "owners": "backend-runtime",
       "path": "docs/architecture/backend/conversation-projection.md",
       "summary": "会话消息流把 AgentSession 产生的 assistant 消息写入 conversation ledger，然后 fan-out 到 Web 和 Lark Bot。消息不经过 transport——AgentSession 在 Backend 进程内运行，通过 onEvent 回调直接写 ledger。",
-      "depends_on": ["conversation.ledger"],
+      "depends_on": ["backend.event-log", "conversation.ledger"],
       "used_by": [
         "surfaces.web",
         "surfaces.lark-adapter",
@@ -62,13 +62,13 @@
     },
     {
       "id": "backend.event-log",
-      "title": "EventLog（已废止）",
-      "status": "deprecated",
+      "title": "EventLog",
+      "status": "current",
       "owners": "backend-runtime",
       "path": "docs/architecture/backend/event-log.md",
-      "summary": "EventLog（event_log 表）是 runner daemon 时代从 checkpointer 剥离出去的「执行事实流」临时容身处。daemon 删除后它失去写入方、成为死表。执行事实流职责已归还 checkpointer（checkpoint_events，按 spanId 切）。本页保留为 tombstone，新设计不要再引用 EventLog。",
-      "depends_on": ["foundations.identifiers", "foundations.facts-and-projections"],
-      "used_by": []
+      "summary": "EventLog 是单次运行内部执行细节的持久事实，只含非消息事件（tool_start/tool_end/interrupted/error/todo_update），供 audit/replay/troubleshooting。assistant 消息不再经它——message 事件经 AgentSession 的 onEvent 回调直写账本。",
+      "depends_on": [],
+      "used_by": ["backend.conversation-projection", "surfaces.web", "operations.troubleshooting"]
     },
     {
       "id": "backend.data-model",
@@ -76,7 +76,7 @@
       "status": "current",
       "owners": "architecture",
       "path": "docs/architecture/backend/data-model.md",
-      "summary": "持久状态分布在三处：backend.db 拥有 agents、对话、成员和账本；events.db 拥有运行、尝试和各类 ops 表；checkpointer.db 拥有 session 的完整运行档案——恢复用的 messages/interrupts，以及执行事实流 checkpoint_events（按 spanId 切）。",
+      "summary": "持久状态分布在三处：backend.db 拥有 agents、对话、成员和账本；events.db 拥有运行、尝试、事件日志和各类 ops 表；checkpointer.db 拥有续跑检查点。",
       "depends_on": ["foundations.facts-and-projections"],
       "used_by": ["backend.conversation-projection", "operations.troubleshooting"]
     },
@@ -288,7 +288,7 @@
       "owners": "backend-runtime",
       "path": "docs/architecture/backend/orchestrator.md",
       "summary": "Orchestrator 是驱动 Issue 状态机往前走的显式编排器。按固定转移表用对应 Agent 起 AgentSession 运行，run 终态经 status 回填把 Issue 推进到下一状态。",
-      "depends_on": ["foundations.issue", "backend.overview", "conversation.members", "harness.harness"],
+      "depends_on": ["foundations.issue", "conversation.members", "harness.harness"],
       "used_by": ["roadmap.future-work", "flows.e2e-issue-lifecycle"]
     },
     {

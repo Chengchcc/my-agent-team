@@ -116,7 +116,7 @@ Tool
 
 ```text
 Ledger
-EventLog
+执行事实流
 Projection
 Checkpoint
 Delivery
@@ -309,7 +309,7 @@ Message 或 Conversation control 表达 waiting approval。
 **反例**：
 
 ```text
-因为 执行事实流里有 message event，所以 Web 直接消费 EventLog。
+因为执行事实流里有 message event，所以 Web 直接消费执行事实流。
 ```
 
 问题：调试事实和用户事实混在一起，surface 被 run 内部细节污染。

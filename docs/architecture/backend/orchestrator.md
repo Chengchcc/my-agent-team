@@ -91,7 +91,7 @@ run 终态(succeeded) 命中某个 Issue
   → 非闸门 → 写 Issue.status = transition.to → startStep 起下一棒
 ```
 
-`in_review` 是唯一的人工闸门——reviewer 棒成功后 reactor **不自动**迈进 `done`，Issue 停在 `in_review` 等人类通过 `POST /api/issues/:id/review-decision` 裁决。打回时裁决端点先写 `rework_feedback` 交付物，再 `applyTransition(in_review→in_progress)` 并调用 `startStep` 起返工棒。返工棒完全复用现有 `startStep` 逻辑，区别仅上下文多了 `{{deliverables.rework_feedback.fields.note}}`。这是个纯粹的「事件 → 状态推进」回填器：它不持有自己的状态，所有事实都落在 Issue 上。run 怎么起、怎么收尾，完全复用 [run feature](./overview.md) 现有机制。
+`in_review` 是唯一的人工闸门——reviewer 棒成功后 reactor **不自动**迈进 `done`，Issue 停在 `in_review` 等人类通过 `POST /api/issues/:id/review-decision` 裁决。打回时裁决端点先写 `rework_feedback` 交付物，再 `applyTransition(in_review→in_progress)` 并调用 `startStep` 起返工棒。返工棒完全复用现有 `startStep` 逻辑，区别仅上下文多了 `{{deliverables.rework_feedback.fields.note}}`。这是个纯粹的「事件 → 状态推进」回填器：它不持有自己的状态，所有事实都落在 Issue 上。run 怎么起、怎么收尾，完全复用 [run feature](./overview.md) 的 `startAgentRun` 现有机制。
 
 ## 与 @提及的关系
 
@@ -127,7 +127,7 @@ Orchestrator **取代** @提及自动触发作为 Issue 推进的驱动方式：
 1. 「下一步是什么」由显式转移表决定，不从 Agent 自由文本里推断。
 2. Issue 的状态推进只经 status 回填监听器写入，单一写者。
 3. prompt 模板仅做 `{{}}` 字符串插值，不引入模板 DSL。
-4. Orchestrator 不发明执行机制，run 的发起与收尾全复用 RunSupervisor。
+4. Orchestrator 不发明执行机制，run 的发起与收尾全复用 run feature 的 `startAgentRun`。
 5. `in_review` 是唯一人工闸门：reactor 不自动推进，去向由 `review-decision` 端点裁决。
 6. 回退边 `in_review→in_progress` 只由人工裁决触发，reactor 的 `nextTransition` 绝不返回它。
 7. 幂等键 = `runId`（非 `issue:<id>:<status>:run`），根治返工重入同 status 撞键的死环。
@@ -135,7 +135,7 @@ Orchestrator **取代** @提及自动触发作为 Issue 推进的驱动方式：
 ## 关联页面
 
 - [Issue](../foundations/issue.md)
-- [run feature](./overview.md)
+- [后端总览](./overview.md)
 - [对话与成员](../conversation/conversation-and-members.md)
 - [未来工作](../roadmap/future-work.md)
 - [架构设计哲学](../design-philosophy.md)

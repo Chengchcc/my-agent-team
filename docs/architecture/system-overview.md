@@ -4,7 +4,7 @@ title: 系统总览
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-25
-summary: "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实并直接在进程内通过 AgentSession 驱动 Agent。assistant 消息经 onEvent 回调直写 conversation ledger，非消息事件进 backend 执行事实流。conversation ledger SSE 是用户可见输出的唯一通道。"
+summary: "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实并直接在进程内通过 AgentSession 驱动 Agent。assistant 消息经 onEvent 回调直写 conversation ledger，非消息执行事件经 run-loop 写 checkpointer 的执行事实流（按 spanId）。conversation ledger SSE 是用户可见输出的唯一通道。"
 depends_on:
   - foundations.facts-and-projections
 used_by:
@@ -14,7 +14,7 @@ used_by:
 
 # 系统总览
 
-整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实并直接在进程内通过 AgentSession 驱动 Agent 执行。assistant 消息经 `AgentSession.subscribe` 的 `onEvent` 回调直写 conversation ledger，与人类消息共用同一条 `appendLedgerEntry` 入口。非消息执行事件（tool_start/tool_end）进 backend 执行事实流。conversation ledger SSE 是用户可见输出的唯一通道。
+整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实并直接在进程内通过 AgentSession 驱动 Agent 执行。assistant 消息经 `AgentSession.subscribe` 的 `onEvent` 回调直写 conversation ledger，与人类消息共用同一条 `appendLedgerEntry` 入口。非消息执行事件（tool_start/tool_end/llm_call）经 framework run-loop 写入 checkpointer 的执行事实流（`checkpoint_events`，按 spanId 切）。conversation ledger SSE 是用户可见输出的唯一通道。
 
 ## 容器视图
 
@@ -34,8 +34,8 @@ flowchart TB
 
   subgraph Storage[存储]
     BDB[(backend.db\nagents/conversation/member/issue\nconversation_ledger)]
-    EDB[(events.db\nrun/attempt/event_log\nrun_ops_event)]
-    CKPT[(checkpointer.db\nthread messages/interrupts/events)]
+    EDB[(events.db\nrun/attempt\nrun_ops_event/run_origin)]
+    CKPT[(checkpointer.db\nmessages/interrupts\nevents 按 spanId)]
   end
 
   subgraph Packages[共享包]
@@ -66,7 +66,7 @@ flowchart TB
 | L1 | Core 原语 | Message / Tool / ChatModel | 后端、端、租户语义 |
 | L2 | Framework | Agent 主循环、插件、上下文管理、Checkpointer | 成员关系、账本 |
 | L3 | Harness | AgentSession 编排、identityPlugin、compaction | 运行调度、团队路由 |
-| L4 | Backend | agents / conversation / run / event / ledger | 模型与工具内部 |
+| L4 | Backend | agents / conversation / run / ops / ledger | 模型与工具内部 |
 | L5 | 端 | Web/飞书的输入与渲染 | 任何持久化事实 |
 
 ## 一次完整运行的时序
@@ -79,7 +79,6 @@ sequenceDiagram
   participant AS as AgentSession
   participant CK as Checkpointer
   participant L as Conversation Ledger
-  participant E as EventLog
 
   H->>S: 发消息
   S->>B: POST 会话消息
@@ -95,7 +94,7 @@ sequenceDiagram
   AS-->>B: onEvent("agent_end", willRetry=false)
   B->>L: terminal revision（state=done）
   L-->>S: 会话 SSE → UI 终态
-  B->>E: 非消息事件（tool_call 等）
+  AS->>CK: run-loop appendEvent（非消息执行事件, 按 spanId）
 ```
 
 ## 关键事实
@@ -110,7 +109,7 @@ sequenceDiagram
 2. 端可以展示数据，但不能成为事实来源。
 3. AgentSession 执行 Agent、发射事件，不决定对话语义。
 4. assistant 消息与人类消息经同一入口（`appendLedgerEntry`）写进账本。账本是对话消息的唯一事实来源。
-5. Checkpointer 是运行时恢复状态——canonical 在 ledger，不在 checkpointer。
+5. Checkpointer 同时持有 session 的运行时恢复状态与执行事实流（按 spanId）——但对话消息的 canonical 在 ledger，不在 checkpointer。
 
 ## 关联页面
 

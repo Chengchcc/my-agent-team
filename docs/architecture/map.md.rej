@@ -1,0 +1,20 @@
+--- map.md
++++ map.md
+@@ -21,13 +21,13 @@
+ ```mermaid
+ flowchart TB
+   DP[design-philosophy] -->|名字就是架构/概念要少| ID[foundations/identifiers]
+-  FP[foundations/facts-and-projections] -->|checkpointer 存状态 vs EventLog 存事实流| ID
++  FP[foundations/facts-and-projections] -->|checkpointer 同时存恢复状态与执行事实流| ID
+   ID -->|sessionId = 持久记忆线本体| Harness[harness/harness - AgentSession]
+-  ID -->|runId / attemptSeq 调度| Framework[runtime/framework]
+-  ID -->|run/attempt 生命周期| Backend[backend/overview]
++  ID -->|spanId / attemptSeq 调度| Framework[runtime/framework]
++  ID -->|span/attempt 生命周期| Backend[backend/overview]
+ ```
+ 
+-`foundations/identifiers` 把「id 到底有几个、谁派生谁、各归哪一层」立成准则：实体主键独立，运行上下文 id（sessionId → runId → attemptSeq）沿一条链收束；本体是 session，最底层 checkpointer 只认这一个 key。
++`foundations/identifiers` 把「id 到底有几个、谁派生谁、各归哪一层」立成准则：实体主键独立，运行上下文 id（sessionId → spanId → attemptSeq）沿一条链收束；本体是 session，最底层 checkpointer 只认这一个 key。
+ 
+ ## 执行图
+ 

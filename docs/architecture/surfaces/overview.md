@@ -13,13 +13,13 @@ used_by:
 
 # 端总览
 
-端是面向用户的适配器，目前是 Web 和飞书。它们采集输入、渲染 conversation ledger SSE 推送的消息、把外部身份映射成成员、处理 UX 层的去重。端不拥有任何持久事实——事实存在于 conversation ledger 和 EventLog 中。
+端是面向用户的适配器，目前是 Web 和飞书。它们采集输入、渲染 conversation ledger SSE 推送的消息、把外部身份映射成成员、处理 UX 层的去重。端不拥有任何持久事实——事实存在于 conversation ledger 和 checkpointer 的执行事实流（checkpoint_events）中。
 
 ## 端拥有什么、不拥有什么
 
 端拥有：输入采集、对话历史渲染、外部身份映射、UX 级去重与重试展示。
 
-端不拥有：账本真相、EventLog 真相、Agent 触发语义。
+端不拥有：账本真相、执行事实流真相、Agent 触发语义。
 
 ## 通用模式
 

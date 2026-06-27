@@ -28,18 +28,18 @@ used_by:
 ### 在后端运行时上干活
 
 1. [后端总览](./backend/overview.md)
-2. [RunSupervisor](./backend.overview.md)
+2. [AgentSession](./harness/harness.md)
 3. [EventLog（已废止）](./backend/event-log.md)
 4. [会话投影](./backend/conversation-projection.md)
 5. [数据模型](./backend/data-model.md)
 
-### 在 Runner / Agent 运行时上干活
+### 在 Agent 运行时上干活
 
-1. [常驻 Runner](./runner/resident-runner.md)
-2. [Runner 协议](./runner/runner-protocol.md)
-3. [AgentSpec](./backend/agent-spec.md)
-4. [Framework 运行时](./runtime/framework.md)
-5. [Agent 文件系统](./不对——该文件已不存在.md)
+1. [AgentSession](./harness/harness.md)
+2. [Framework 运行循环](./runtime/framework.md)
+3. [上下文管理器](./runtime/context-manager.md)
+4. [运行时插件机制](./runtime/plugin.md)
+5. [标识符体系](./foundations/identifiers.md)
 
 ### 在 Web 或飞书端干活
 

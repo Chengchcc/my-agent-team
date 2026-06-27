@@ -33,7 +33,7 @@ used_by:
 
 ## ① threadId 由 issueId 派生，不再人填
 
-`threadId` 是 [Runner checkpointer](../backend.overview.md) 的分区键，决定一段执行历史落在哪。[Issue](./issue.md) 创建时数据库已经分配了稳定的 `issueId`，再让用户额外填一个 `threadId`，既冗余又易错（填错就把两件活的执行历史搅到一个分区里）。
+`threadId` 是 [checkpointer](../foundations/identifiers.md) 的分区键（即 sessionId），决定一段执行历史落在哪。[Issue](./issue.md) 创建时数据库已经分配了稳定的 `issueId`，再让用户额外填一个 `threadId`，既冗余又易错（填错就把两件活的执行历史搅到一个分区里）。
 
 设计：**`threadId` 从 `issueId` 派生**，不进创建表单。
 
@@ -180,7 +180,7 @@ Issue 级可观测 = **Issue Timeline（活的视角）** + **复用 M16 的 run
 5. `renderPrompt` 仍只做 `{{}}` 字符串插值，变量字典从 Issue 上下文构建，不引入模板 DSL。
 6. 「是否完成」由人工闸门裁决；返工是转移表上的显式回退边，而非旁路。
 7. ✅ Issue Timeline 与会话账本是两套事实，互不混入；Timeline 按 issue 聚合、装工作事件。（M18.7 已落地）
-8. ✅ 不发明新的执行/可观测机制：run 复用 [run feature](../backend/overview.md) 与 checkpointer，可观测复用 M16 经 `run_origin.issue_id`。（M18.7 已落地）
+8. ✅ 不发明新的执行/可观测机制：run 复用 [run feature](../backend/overview.md) 的 `startAgentRun` 与 checkpointer，可观测复用 M16 经 `run_origin.issue_id`。（M18.7 已落地）
 
 ## 关联页面
 
@@ -188,5 +188,5 @@ Issue 级可观测 = **Issue Timeline（活的视角）** + **复用 M16 的 run
 - [Orchestrator](../backend/orchestrator.md)
 - [Issue 生命周期端到端](../flows/e2e-issue-lifecycle.md)
 - [会话账本](../conversation/ledger.md)
-- [run feature](../backend/overview.md)
+- [后端总览](../backend/overview.md)
 - [未来工作](../roadmap/future-work.md)

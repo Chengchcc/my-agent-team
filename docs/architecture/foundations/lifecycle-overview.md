@@ -25,7 +25,6 @@ sequenceDiagram
   participant AS as AgentSession
   participant CK as Checkpointer
   participant L as Conversation Ledger
-  participant E as EventLog
 
   B->>AS: startAgentRun(input) → 创建 AgentSession
   AS->>CK: agent.run(input)
@@ -36,7 +35,7 @@ sequenceDiagram
   CK-->>AS: message（更多轮 → 同 messageId）
   AS-->>B: onEvent("message")
   B->>L: 同 messageId 更新 revision
-  B->>E: 非消息事件（tool_call 等）
+  AS->>CK: run-loop appendEvent（非消息执行事件, 按 spanId）
   CK-->>AS: agent_end
   AS-->>B: onEvent("agent_end", willRetry: false)
   B->>L: terminal revision（state: done/error）
@@ -49,7 +48,7 @@ sequenceDiagram
 
 **2. 执行**　AgentSession 委托给 Framework 的 `runLoop`，按步骤推进（受 maxSteps 约束）。每步可能调模型或调工具。过程拆成 AgentEvent 流。
 
-**3. 固化事实**　AgentSession 的内部订阅者将事件通知给 Backend 注册的 listener。listener 按事件类型分流：消息事件直接 `appendAssistantMessage` 写 conversation ledger；非消息事件（tool_call 等）写入 EventLog。
+**3. 固化事实**　AgentSession 的内部订阅者将事件通知给 Backend 注册的 listener，消息事件直接 `appendAssistantMessage` 写 conversation ledger。非消息执行事件（tool_call 等）不走这条回调，而由 Framework run-loop 经 `appendEvent` 写入 checkpointer 的执行事实流（`checkpoint_events`，按 spanId 切）。
 
 **4. 收尾**　Run 结束时（`agent_end`），Backend 的 listener 写入 terminal revision 关闭消息，释放 ConversationLock。若被中断（InterruptSignal），AgentSession 保持存活，等待 `resume()` 调用后继续。
 

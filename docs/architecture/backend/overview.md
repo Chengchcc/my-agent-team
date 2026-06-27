@@ -21,7 +21,7 @@ used_by:
 | feature | 负责 | 关键符号 |
 |---|---|---|
 | `conversation` | 对话、成员、账本、触发、锁、跳数 | `appendLedgerEntry`、`broadcastMessage`、`deriveThreadId`、`startAgentRun` |
-| `run` | 运行/尝试生命周期、EventLog 写入 | `startAgentRun`、`runRoutes`、`RunLifecycleTracker` |
+| `run` | 运行/尝试生命周期 | `startAgentRun`、`runRoutes`、`RunLifecycleTracker` |
 | `runtime-ops` | 运行可观测性查询 | ops 事件和 run origin 查询 |
 | `agent` | Agent 注册与配置 | agents 表 |
 | `lark-bot` | 后端侧飞书绑定与触发 | 见 [飞书适配器](../surfaces/lark-adapter.md) |
@@ -41,7 +41,6 @@ flowchart TB
   subgraph events.db
     R[run]
     AT[attempt]
-    EL[event_log]
     OPS[run_ops_event]
     RO[run_origin]
     SH[surface_health]
@@ -62,7 +61,7 @@ flowchart TB
 1. `conversation/http.ts` 收到 `POST /api/conversations/:id/messages`，把人类消息 `appendLedgerEntry` 写入账本。
 2. Conversation Service 按触发模式（`mention`/`all`）、`addressedTo`、锁与跳数，决定要触发哪些 Agent。
 3. 对每个目标 Agent，`startAgentRun` 创建 AgentSession，注入 ConversationContextPlugin（含触发上下文和渐进加载工具）。
-4. AgentSession 的 `onEvent("message")` 回调将 assistant 消息经 `appendAssistantMessage` 直写账本。非消息事件（tool_call 等）写入 EventLog。
+4. AgentSession 的 `onEvent("message")` 回调将 assistant 消息经 `appendAssistantMessage` 直写账本。非消息执行事件（tool_call 等）经 framework run-loop 写入 checkpointer 的执行事实流（`checkpoint_events`，按 spanId 切）。
 5. `agent_end` 时回调写入 terminal revision、释放 ConversationLock。成功则 fire-and-forget 启动 reflection run。
 
 ## 关联页面

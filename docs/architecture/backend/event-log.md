@@ -8,7 +8,7 @@ summary: "EventLog（event_log 表）是 runner daemon 时代从 checkpointer �
 depends_on:
   - foundations.identifiers
   - foundations.facts-and-projections
-used_by: []
+used_by:
 ---
 
 # EventLog（已废止）

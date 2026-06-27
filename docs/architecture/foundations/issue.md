@@ -7,7 +7,7 @@ last_verified_against_code: 2026-06-18
 summary: "Issue 是「一个有独立状态机生命周期的工作单元」——计划中→开发中→待 Review→已完成。它是这套设计里唯一新增的domain entity：Conversation 表达「谁在哪说话」、Run 表达「一次执行」、Message 表达「一条话」，三者都表达不了「一件需要跨多次运行、按状态推进的活」。Issue 直接绑定一个 threadId、复用现有 supervisor / checkpointer，与 Conversation 解耦。Kanban 是 Issue 按状态分组的视图，Project 是 Issue 所属的 git 仓库子目录——两者都不是new entity。"
 depends_on:
   - foundations.facts-and-projections
-  - backend.overview
+  - backend.run-supervisor
 used_by:
   - backend.orchestrator
   - flows.e2e-issue-lifecycle
@@ -46,7 +46,7 @@ Issue = {
 }
 ```
 
-关键设计点：**Issue 直接绑定一个 `threadId`**。它不发明新的执行机制——一旦某个状态需要 Agent 干活，就用这个 `threadId` 经现有 [run feature](../backend/overview.md) 起运行、用现有 Runner checkpointer resume。Issue 只新增「工作态」这一层语义，执行层完全复用。
+关键设计点：**Issue 直接绑定一个 `threadId`**。它不发明新的执行机制——一旦某个状态需要 Agent 干活，就用这个 `threadId` 经现有 [run feature](../backend/overview.md) 的 `startAgentRun` 起运行、用现有 checkpointer resume。Issue 只新增「工作态」这一层语义，执行层完全复用。
 
 ## 生命周期
 
@@ -104,6 +104,5 @@ Project = Issue 的归属标记（`projectId` + `name` + `repoUrl` + `defaultBra
 
 - [Orchestrator](../backend/orchestrator.md)
 - [事实与投影](../foundations/facts-and-projections.md)
-- [run feature](../backend/overview.md)
-- [Agent 文件系统](../不对——该文件已不存在.md)
+- [后端总览](../backend/overview.md)
 - [架构设计哲学](../design-philosophy.md)

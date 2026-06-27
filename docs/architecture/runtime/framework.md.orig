@@ -31,7 +31,7 @@ Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏
 
 | 事件 | 含义 |
 |------|------|
-| `message` | 一条完整消息（经进程内 AgentSession 透出后，由 Backend 的 `onRunMessage` [直写进账本](../conversation/ledger.md)，再由 `broadcastMessage` [扇出](../backend/conversation-projection.md)到前端） |
+| `message` | 一条完整消息（被 Runner 上报后，由 Backend 的 `onRunMessage` [直写进账本](../conversation/ledger.md)，再由 `broadcastMessage` [扇出](../backend/conversation-projection.md)到前端） |
 | `interrupted` | 运行被中断 |
 | `error` | 运行出错 |
 | `text_delta` | 文本streaming 增量 |
@@ -42,7 +42,7 @@ Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏
 | `llm_call` | 一次模型调用 |
 | `tool_call` | 一次工具调用 |
 
-注意 `message` 与 `text_delta` 的分工：`message` 是事实候选（落账本），`*_delta` 是给实时渲染看的流。
+注意 `message` 与 `text_delta` 的分工，和 Runner 协议里 `event` 与 `delta` 的分工是一脉相承的：`message` 是事实候选，`*_delta` 是给实时渲染看的流。
 
 ## 生命周期钩子
 
@@ -116,7 +116,7 @@ interface ResumeCommand {
 
 ## Checkpointer 接口
 
-断点能力被抽象成一个接口，由具体后端（进程内全局 `checkpointer.db`，见[标识符体系](../foundations/identifiers.md)）实现：
+断点能力被抽象成一个接口，由具体后端（如 Runner 本地的 checkpointer.sqlite）实现：
 
 ```ts
 interface Checkpointer {

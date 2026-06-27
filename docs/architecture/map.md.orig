@@ -8,9 +8,9 @@
 flowchart LR
   SO[system-overview] --> FP[foundations/facts-and-projections]
   FP --> Ledger[conversation/ledger]
-  FP --> CE[checkpointer/checkpoint_events]
+  FP --> EL[backend/event-log]
   AS[harness/harness] -->|onEvent 消息回调| Ledger
-  RL[runtime/framework - run-loop] -->|appendEvent 按 spanId| CE
+  AS -->|非消息事件| EL
   CP[backend/conversation-projection] -.best-effort fan-out.-> Ledger
   Ledger --> Web[surfaces/web]
   Ledger --> Lark[surfaces/lark-adapter]
@@ -32,7 +32,7 @@ flowchart LR
 
 ## Web 路径
 
-`flows/e2e-web-message` → `surfaces/web` → `conversation/ledger` → `harness/harness`（AgentSession 的 onEvent 回调直写账本）；非消息执行事件旁路由 run-loop 写入 checkpointer 的 `checkpoint_events`（按 spanId），`backend/conversation-projection` 仅做 best-effort fan-out。
+`flows/e2e-web-message` → `surfaces/web` → `conversation/ledger` → `harness/harness`（AgentSession 的 onEvent 回调直写账本）；非消息事件旁路进 `backend/event-log`，`backend/conversation-projection` 仅做 best-effort fan-out。
 
 ## 飞书路径
 

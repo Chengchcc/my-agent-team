@@ -7,7 +7,6 @@ last_verified_against_code: 2026-06-16
 summary: "文件型记忆插件（fsMemoryPlugin）让 Agent 拥有「跨运行记得住」的长期记忆。它把记忆落在 AgentFS 的 /memory/ 路径下（shared 域），通过 beforeModel 钩子在每次模型调用前把相关记忆注入系统提示，并向 Agent 暴露 memory_read / memory_write / memory_search 这组工具来主动读写。"
 depends_on:
   - runtime.plugin
-  - runner.agent-file-system
 used_by:
 ---
 
@@ -42,5 +41,4 @@ used_by:
 ## 关联页面
 
 - [运行时插件机制](../runtime/plugin.md)
-- [Agent 文件系统](../不对——该文件已不存在.md)
 - [Harness 默认装配](../harness/harness.md)
