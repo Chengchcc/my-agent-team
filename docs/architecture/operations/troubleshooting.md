@@ -7,7 +7,7 @@ last_verified_against_code: 2026-06-22
 depends_on:
   - foundations.facts-and-projections
   - backend.conversation-projection
-  - backend.run-supervisor
+  - backend.overview
 used_by:
 ---
 
@@ -47,5 +47,5 @@ used_by:
 
 - [事实与投影](../foundations/facts-and-projections.md)
 - [会话投影](../backend/conversation-projection.md)
-- [运行编排器](../backend/run-supervisor.md)
+- [运行编排器](../backend.overview.md)
 - [飞书适配器](../surfaces/lark-adapter.md)

@@ -21,7 +21,7 @@
 
 ## 如果问的是运行生命周期 / 取消 / 恢复 / 卡住的运行
 
-1. `backend/run-supervisor.md`
+1. `backend.overview.md`
 2. `runner/resident-runner.md`
 3. `runner/runner-protocol.md`
 4. `foundations/lifecycle-overview.md`
@@ -64,7 +64,7 @@
 ## 如果问的是安全 / 隔离
 
 1. `security/overview.md`
-2. `runner/agent-file-system.md`
+2. `不对——该文件已不存在.md`
 3. `conversation/conversation-and-members.md`
 
 ## 如果问的是 Issue / 看板 / 多 Agent 协作编排
