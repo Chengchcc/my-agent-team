@@ -33,6 +33,7 @@ export interface RunRequest {
   input: string;
   origin: SpanOrigin;
   onAssistantMessage?: (revision: Record<string, unknown>) => void;
+  onTodoUpdate?: (todos: Array<{ step: string; status: string }>) => void;
   onRunStatus?: (status: {
     spanId: string;
     phase: string;
@@ -160,6 +161,9 @@ export async function executeAgentRun(
   session.subscribe((event) => {
     if (event.type === "message" && req.onAssistantMessage) {
       req.onAssistantMessage(event.payload);
+    }
+    if (event.type === "todo_update" && req.onTodoUpdate) {
+      req.onTodoUpdate(event.payload.todos);
     }
     if (event.type === "agent_end") {
       finalizeOnce(event.status ?? "succeeded");

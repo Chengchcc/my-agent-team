@@ -110,8 +110,9 @@ export function createConversationFeature(
         convPort,
         sessionFactory: _sessionFactory,
       });
+      const spanId = crypto.randomUUID();
       return executeAgentRun(runDeps, {
-        spanId: crypto.randomUUID(),
+        spanId,
         sessionId: sessionId,
         agentId: ctx.agentId,
         input: "",
@@ -123,7 +124,13 @@ export function createConversationFeature(
         },
         onAssistantMessage: (payload) => {
           const rev = payload as unknown as MessageRevision;
-          void handleAssistantMessage(sessionId, rev.spanId ?? _runId, rev);
+          void handleAssistantMessage(sessionId, rev.spanId ?? spanId, rev);
+        },
+        onTodoUpdate: (todos) => {
+          // lastTodoUpdate is consumed by onRunComplete Phase 3 appendTodo
+          const senderMemberId = parseSessionId(sessionId).memberId || sessionId;
+          const acc = getOrCreateAccumulator(spanId, senderMemberId);
+          acc.lastTodoUpdate = { todos };
         },
       });
     },
@@ -158,6 +165,7 @@ export interface StartAgentRunOpts {
   surface?: string;
   senderName?: string;
   onAssistantMessage?: (revision: Record<string, unknown>) => void;
+  onTodoUpdate?: (todos: Array<{ step: string; status: string }>) => void;
   onComplete?: (spanId: string, status: string) => void;
   sessionFactory?: SessionFactory;
 }
@@ -185,6 +193,7 @@ export async function startAgentRun(
       senderName: opts.senderName ?? "unknown",
     },
     onAssistantMessage: opts.onAssistantMessage,
+    onTodoUpdate: opts.onTodoUpdate,
     onComplete: opts.onComplete,
   });
 }

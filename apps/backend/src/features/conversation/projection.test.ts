@@ -4,7 +4,7 @@ import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { sqliteConversationAdapter } from "./adapter-sqlite.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
-import { onRunComplete } from "./projection.js";
+import { getOrCreateAccumulator, onRunComplete } from "./projection.js";
 import { createConversationService } from "./service.js";
 
 const fakeOpsStore = { getSpanOrigin: () => null } as unknown as RuntimeOpsStore;
@@ -106,5 +106,48 @@ describe("P7: ledger single authority for assistant messages", () => {
     const entries = port.getLedgerEntries(cid);
     const terminal = entries.find((e) => e.spanId === "r-p7-bcast" && e.kind === "message");
     expect(terminal).toBeTruthy();
+  });
+});
+
+// ─── B1: todo_update projection ───
+
+describe("B1: todo_update accumulates to onRunComplete appendTodo", () => {
+  test("appendTodo fires when lastTodoUpdate was accumulated", async () => {
+    const cid = "c-b1-todo";
+    const sessionId = `${cid}:agent-1`;
+    setupConv(cid);
+
+    // Simulate what onTodoUpdate does in conv-svc-factory.ts
+    const acc = getOrCreateAccumulator("r-b1-todo", "agent-1");
+    acc.lastTodoUpdate = { todos: [{ step: "1", status: "in_progress" }] };
+
+    // Phase 3 should now call appendTodo (which writes a ledger entry with kind=todo)
+    await onRunComplete(sessionId, "r-b1-todo", "succeeded", port, svc, fakeOpsStore);
+
+    // Verify a todo ledger entry was written
+    const entries = port.getLedgerEntries(cid);
+    const todoEntry = entries.find((e) => e.kind === "todo");
+    expect(todoEntry).toBeTruthy();
+    expect(todoEntry!.senderMemberId).toBe("agent-1");
+    expect(JSON.parse(todoEntry!.content)).toMatchObject({
+      todos: [{ step: "1", status: "in_progress" }],
+    });
+  });
+
+  test("appendTodo does NOT fire when lastTodoUpdate is null", async () => {
+    const cid = "c-b1-no-todo";
+    const sessionId = `${cid}:agent-1`;
+    setupConv(cid);
+
+    // Accumulator created but lastTodoUpdate stays null
+    getOrCreateAccumulator("r-b1-no-todo", "agent-1");
+
+    // Phase 3 should NOT call appendTodo
+    await onRunComplete(sessionId, "r-b1-no-todo", "succeeded", port, svc, fakeOpsStore);
+
+    // Verify no todo ledger entry was written
+    const entries = port.getLedgerEntries(cid);
+    const todoEntry = entries.find((e) => e.kind === "todo");
+    expect(todoEntry).toBeUndefined();
   });
 });

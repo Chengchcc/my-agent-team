@@ -13,8 +13,8 @@ export interface CheckpointEventsStore {
 }
 
 export function createCheckpointEventsStore(db: Database): CheckpointEventsStore {
-  // Ensure schema exists (idempotent — uses IF NOT EXISTS or migrate)
-  db.exec("PRAGMA journal_mode=WAL");
+  // WAL mode is set and persisted by the framework checkpointer (the writer).
+  // This store opens the DB readonly — executing write PRAGMAs would throw SQLITE_READONLY.
   // The checkpointer.db schema is managed by framework's ensureCheckpointerSchema.
   // We just open a read-only connection.
 
