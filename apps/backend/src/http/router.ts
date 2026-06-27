@@ -145,6 +145,14 @@ export function createRouter(token: string, features?: FeatureSet) {
         const opsTracesMatch = path.match(/^\/api\/ops\/traces\/([^/]+)$/);
         const opsSurfacesMatch = path === "/api/ops/surfaces";
 
+        // ─── B2: Session routes (/api/ops/sessions) ───
+        const opsSessionsMatch = path === "/api/ops/sessions";
+        const opsSessionDetailMatch = path.match(/^\/api\/ops\/sessions\/([^/]+)$/);
+        if (opsSessionsMatch && method === "GET")
+          return withAuth((r) => ops.listSessions(r), token)(req);
+        if (opsSessionDetailMatch && method === "GET")
+          return withAuth((r) => ops.getSessionDetail(r, opsSessionDetailMatch[1]!), token)(req);
+
         if (opsRunsMatch && method === "GET") return withAuth((r) => ops.listRuns(r), token)(req);
         if (opsRunDetailMatch && method === "GET")
           return withAuth((r) => ops.getRunDetail(r, opsRunDetailMatch[1]!), token)(req);

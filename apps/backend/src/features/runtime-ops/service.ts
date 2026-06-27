@@ -519,6 +519,104 @@ export function createRuntimeOpsService(deps: {
         range,
       );
     },
+
+    // -─ Session-level aggregation (B2: /ops/sessions) ──────────
+
+    listSessions(params: {
+      agentId?: string;
+      status?: string;
+      limit?: number;
+    }): Array<{
+      sessionId: string;
+      agentId: string;
+      spanCount: number;
+      lastSpanAt: number | null;
+      status: "running" | "done";
+    }> {
+      const limit = Number.isFinite(params.limit) && (params.limit ?? 0) > 0 ? Math.floor(params.limit!) : 100;
+      const conditions: string[] = [];
+      const bindings: Array<string | number> = [];
+      if (params.agentId) {
+        conditions.push("agent_id = ?");
+        bindings.push(params.agentId);
+      }
+      if (params.status) {
+        conditions.push("status = ?");
+        bindings.push(params.status);
+      }
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      const rows = db
+        .query(
+          `SELECT session_id, MAX(started_at) AS last_span_at, COUNT(*) AS span_count,
+                  MAX(agent_id) AS agent_id
+             FROM run ${where}
+            GROUP BY session_id
+            ORDER BY last_span_at DESC
+            LIMIT ?`,
+        )
+        .all(...bindings, limit) as Array<{
+        session_id: string;
+        last_span_at: number | null;
+        span_count: number;
+        agent_id: string;
+      }>;
+      return rows.map((r) => {
+        const running = db
+          .query("SELECT 1 FROM run WHERE session_id = ? AND status = 'running' LIMIT 1")
+          .get(r.session_id);
+        return {
+          sessionId: r.session_id,
+          agentId: r.agent_id,
+          spanCount: r.span_count,
+          lastSpanAt: r.last_span_at,
+          status: running ? "running" : "done",
+        };
+      });
+    },
+
+    getSessionDetail(sessionId: string): {
+      sessionId: string;
+      agentId: string;
+      status: "running" | "done";
+      spanCount: number;
+      spans: Array<{
+        spanId: string;
+        status: string;
+        kind: string;
+        agentId: string;
+        startedAt: number | null;
+        endedAt: number | null;
+      }>;
+    } | null {
+      const spans = db
+        .query(
+          `SELECT span_id, status, kind, agent_id, started_at, ended_at
+             FROM run WHERE session_id = ? ORDER BY started_at DESC`,
+        )
+        .all(sessionId) as Array<{
+        span_id: string;
+        status: string;
+        kind: string;
+        agent_id: string;
+        started_at: number | null;
+        ended_at: number | null;
+      }>;
+      if (spans.length === 0) return null;
+      return {
+        sessionId,
+        agentId: spans[0]!.agent_id,
+        status: spans.some((s) => s.status === "running") ? "running" : "done",
+        spanCount: spans.length,
+        spans: spans.map((s) => ({
+          spanId: s.span_id,
+          status: s.status,
+          kind: s.kind,
+          agentId: s.agent_id,
+          startedAt: s.started_at,
+          endedAt: s.ended_at,
+        })),
+      };
+    },
   };
 }
 

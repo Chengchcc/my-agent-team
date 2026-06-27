@@ -29,6 +29,27 @@ export function opsRoutes(svc: RuntimeOpsService) {
       return json(detail);
     },
 
+    // ─── B2: Session-level routes ───
+
+    async listSessions(req: Request): Promise<Response> {
+      const url = new URL(req.url);
+      const raw = url.searchParams.get("limit");
+      const limit = raw ? parseInt(raw, 10) : undefined;
+      return json(
+        svc.listSessions({
+          agentId: url.searchParams.get("agentId") ?? undefined,
+          status: url.searchParams.get("status") ?? undefined,
+          limit: limit != null && Number.isFinite(limit) && limit > 0 ? limit : undefined,
+        }),
+      );
+    },
+
+    async getSessionDetail(_req: Request, sessionId: string): Promise<Response> {
+      const detail = svc.getSessionDetail(sessionId);
+      if (!detail) return json({ error: "Session not found" }, 404);
+      return json(detail);
+    },
+
     async cancelRun(_req: Request, spanId: string): Promise<Response> {
       const result = svc.cancel(spanId);
       if (!result.ok) return json({ error: result.error }, 404);

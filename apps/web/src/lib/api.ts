@@ -288,6 +288,21 @@ export const api = {
     return apiFetch<RunOpsListItem[]>(`ops/runs${q ? `?${q}` : ""}`);
   },
   getOpsRunDetail: (runId: string) => apiFetch<RunOpsDetail>(`ops/runs/${runId}`),
+
+  // B2: Session-level endpoints
+  listOpsSessions: (params?: {
+    agentId?: string;
+    status?: string;
+    limit?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.agentId) qs.set("agentId", params.agentId);
+    if (params?.status) qs.set("status", params.status);
+    if (params?.limit) qs.set("limit", String(params.limit));
+    const q = qs.toString();
+    return apiFetch<SessionRow[]>(`ops/sessions${q ? `?${q}` : ""}`);
+  },
+  getOpsSessionDetail: (sessionId: string) => apiFetch<SessionDetail>(`ops/sessions/${sessionId}`),
   opsCancelRun: (runId: string) =>
     apiFetch<CancelRunResult>(`ops/runs/${runId}/cancel`, { method: "POST" }),
   opsRecoverRun: (runId: string) =>
@@ -397,6 +412,33 @@ export const api = {
     }),
   deleteCronJob: (id: string) => apiFetch<void>(`cron-jobs/${id}`, { method: "DELETE" }),
 };
+
+// ── B2: Session types ──
+
+export interface SessionRow {
+  sessionId: string;
+  agentId: string;
+  spanCount: number;
+  lastSpanAt: number | null;
+  status: "running" | "done";
+}
+
+export interface SessionDetail {
+  sessionId: string;
+  agentId: string;
+  status: "running" | "done";
+  spanCount: number;
+  spans: SessionSpan[];
+}
+
+export interface SessionSpan {
+  spanId: string;
+  status: string;
+  kind: string;
+  agentId: string;
+  startedAt: number | null;
+  endedAt: number | null;
+}
 
 // ── M16 ops types ──
 

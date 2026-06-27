@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback } from "react";
-import { RunOpsTable } from "@/components/ops/RunOpsTable";
+import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -14,6 +14,14 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { api } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -21,40 +29,22 @@ export const dynamic = "force-dynamic";
 const STATUS_FILTERS = [
   { label: "All", value: "" },
   { label: "Running", value: "running" },
-  { label: "Succeeded", value: "succeeded" },
-  { label: "Error", value: "error" },
-  { label: "Aborted", value: "aborted" },
-  { label: "Interrupted", value: "interrupted" },
+  { label: "Done", value: "done" },
 ] as const;
 
-const TRANSPORT_FILTERS = [
-  { label: "Any", value: "" },
-  { label: "Attached", value: "attached" },
-  { label: "Noop", value: "noop" },
-  { label: "Detached", value: "detached" },
-] as const;
-
-const HEARTBEAT_FILTERS = [
-  { label: "Any", value: "" },
-  { label: "Fresh", value: "fresh" },
-  { label: "Stale", value: "stale" },
-] as const;
-
-export default function RunsPage() {
+export default function SessionsPage() {
   return (
     <Suspense fallback={<div className="container mx-auto p-6" />}>
-      <RunsPageInner />
+      <SessionsPageInner />
     </Suspense>
   );
 }
 
-function RunsPageInner() {
+function SessionsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const status = searchParams.get("status") ?? "";
-  const transport = searchParams.get("transport") ?? "";
-  const heartbeat = searchParams.get("heartbeat") ?? "";
-  const hasFilters = !!(status || transport || heartbeat);
+  const hasFilters = !!status;
 
   const setParam = useCallback(
     (key: string, value: string) => {
@@ -70,14 +60,12 @@ function RunsPageInner() {
     router.replace("/ops/sessions", { scroll: false });
   }, [router]);
 
-  const { data: runs = [] } = useQuery({
-    queryKey: ["ops", "runs", { status, transport, heartbeat }],
+  const { data: sessions = [] } = useQuery({
+    queryKey: ["ops", "sessions", { status }],
     queryFn: () =>
-      api.listOpsRuns({
+      api.listOpsSessions({
         limit: 100,
         ...(status ? { status } : {}),
-        ...(transport ? { transport: transport as "attached" | "noop" | "detached" } : {}),
-        ...(heartbeat ? { heartbeat: heartbeat as "fresh" | "stale" } : {}),
       }),
     staleTime: 10_000,
     refetchInterval: 30_000,
@@ -112,46 +100,18 @@ function RunsPageInner() {
             </Button>
           ))}
         </div>
-        <div className="h-4 w-px bg-border" />
-        <div className="flex gap-1" role="group" aria-label="Transport filter">
-          {TRANSPORT_FILTERS.map((f) => (
-            <Button
-              key={f.value}
-              variant={transport === f.value ? "default" : "outline"}
-              size="sm"
-              aria-pressed={transport === f.value}
-              onClick={() => setParam("transport", f.value)}
-            >
-              {f.label}
-            </Button>
-          ))}
-        </div>
-        <div className="h-4 w-px bg-border" />
-        <div className="flex gap-1" role="group" aria-label="Heartbeat filter">
-          {HEARTBEAT_FILTERS.map((f) => (
-            <Button
-              key={f.value}
-              variant={heartbeat === f.value ? "default" : "outline"}
-              size="sm"
-              aria-pressed={heartbeat === f.value}
-              onClick={() => setParam("heartbeat", f.value)}
-            >
-              {f.label}
-            </Button>
-          ))}
-        </div>
         {hasFilters && (
           <Button variant="link" size="sm" onClick={clearFilters}>
-            Clear filters ({runs.length} result{runs.length !== 1 ? "s" : ""})
+            Clear filters ({sessions.length} result{sessions.length !== 1 ? "s" : ""})
           </Button>
         )}
       </div>
 
       <div className="rounded-lg border">
-        {runs.length === 0 ? (
+        {sessions.length === 0 ? (
           <div className="p-8 text-center space-y-2">
             <p className="text-sm text-muted-foreground">
-              {hasFilters ? "No runs match the current filters." : "No runs recorded yet."}
+              {hasFilters ? "No sessions match the current filters." : "No sessions recorded yet."}
             </p>
             {hasFilters ? null : (
               <Link href="/agents" className="inline-block text-xs text-primary hover:underline">
@@ -160,7 +120,34 @@ function RunsPageInner() {
             )}
           </div>
         ) : (
-          <RunOpsTable runs={runs} />
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Session</TableHead>
+                <TableHead>Agent</TableHead>
+                <TableHead>Spans</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sessions.map((s) => (
+                <TableRow key={s.sessionId}>
+                  <TableCell>
+                    <Link href={`/ops/sessions/${s.sessionId}`} className="font-mono text-primary hover:underline">
+                      {s.sessionId}
+                    </Link>
+                  </TableCell>
+                  <TableCell>{s.agentId}</TableCell>
+                  <TableCell>{s.spanCount}</TableCell>
+                  <TableCell>
+                    <Badge variant={s.status === "running" ? "default" : "secondary"}>
+                      {s.status}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </div>
     </div>
