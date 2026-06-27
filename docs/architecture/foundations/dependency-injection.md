@@ -150,7 +150,7 @@ new AgentSession({ model, threadId, plugins, tools, checkpointer, contextManager
 
 ### 其余 bad case
 
-- **`RunSupervisor`**（`run/supervisor.ts:32`）：一个类同时管生命周期、events.db 迁移与直接 SQL、reaper 定时器、三组监听器；构造里默认 `new Database(...events.db)`。SRP + DIP 双踩。
+- **`SpanSupervisor`**（`span/supervisor.ts`）：一个类同时管生命周期、直接 SQL、reaper 定时器、三组监听器。SRP + DIP 双踩。**S1 已修复**：不再管理独立 events.db 连接及迁移（统一由 `openDb` 注入）。
 - **`RunSupervisorOptions`**（`supervisor.ts:11`）：6 字段 fat options，其中 `eventLog` 重构后类内**从不 `.append()`**——声明了依赖却不用。
 - **`RuntimeOpsService`**（`runtime-ops/service.ts:104` 起）：12 方法上帝对象，运行管理 / 监控 / 诊断 / 报表四类关注点挤一处；`listRuns` 内 if 链拼 SQL 过滤（OCP）。
 - **`getSetupManager`**（`main.ts:203`）：函数体内 `new CliSetupProvisioner()`（`:205`），焊死具体 provisioner。

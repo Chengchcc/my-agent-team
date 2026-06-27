@@ -12,7 +12,7 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
     "db:generate:backend": "drizzle-kit generate --config drizzle.backend.config.ts",
     "db:migrate:backend": "bun run src/main.ts",
-    "db:check:backend": "drizzle-kit check --config drizzle.backend.config.ts",
+    "db:check:backend": "drizzle-kit check --config drizzle.backend.config.ts"
   },
   "dependencies": {
     "@my-agent-team/adapter-anthropic": "workspace:*",

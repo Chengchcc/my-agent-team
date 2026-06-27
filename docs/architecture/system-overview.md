@@ -33,8 +33,7 @@ flowchart TB
   end
 
   subgraph Storage[存储]
-    BDB[(backend.db\nagents/conversation/member/issue\nconversation_ledger)]
-    EDB[(events.db\nrun/attempt\nrun_ops_event/run_origin)]
+    BDB[(backend.db\nagents/conversation/member/issue\nledger/run/attempt/control_plane_event)]
     CKPT[(checkpointer.db\nmessages/interrupts\nevents 按 spanId)]
   end
 

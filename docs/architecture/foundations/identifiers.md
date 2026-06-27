@@ -137,7 +137,7 @@ span     →  这条线「按一次次输入切分的执行事实流」（checkp
 
 - 全仓**只有一个** `INSERT INTO attempt` 站点（`supervisor.ts:186`），值恒为 `att-${runId}`。今天 attempt 与 span 是 **1:1**，`attemptId` 完全由 spanId 派生，不携带任何额外信息。
 - `attempt` 表的索引 `idx_attempt_run` 建在 `(runId, startedAt)` 上；reattach 取「最新活着的 attempt」用的是 `WHERE run_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1`（`runtime-ops/service.ts`）。这正是「span 下的有序子项」语义。
-- `run_ops_event.attemptId` 是 **nullable text，没有 `.references()`**（`events-schema.ts`）——它不是外键，只是审计标注列。没有任何强引用绑死 `attemptId` 的字符串形态。
+- `control_plane_event.attemptSeq` 是 **nullable integer，没有 `.references()`**（`schema.ts`，S4 改名原 `run_ops_event`）——它不是外键，只是审计标注列。没有任何强引用绑死 attempt 的字符串形态。
 
 结论：attempt 的真正身份是 `(spanId, seq)` 复合键，`seq` 在 span 内单调递增。它本来就是个序号，不值得拥有一个全局 id。`att-${runId}` 应退化成 `seq=1`。这样消掉一个冗余 id，符合[设计哲学](../design-philosophy.md)「概念要少」。
 

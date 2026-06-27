@@ -4,7 +4,7 @@ title: 后端总览
 status: current
 owners: backend-runtime
 last_verified_against_code: 2026-06-25
-summary: "后端（apps/backend）是整个系统的事实持有者：它拥有 agents、对话、成员、运行、事件、conversation ledger。它对外是一组 HTTP/SSE 接口，对内由几个相互独立的 feature 模块组成，存储分成 backend.db、events.db 和 checkpointer.db。"
+summary: "后端（apps/backend）是整个系统的事实持有者：它拥有 agents、对话、成员、运行、事件、conversation ledger。它对外是一组 HTTP/SSE 接口，对内由几个相互独立的 feature 模块组成，存储分成 backend.db 和 checkpointer.db（S1 合库后 events.db 已并入 backend.db）。"
 depends_on:
 used_by:
   - backend.data-model
@@ -38,10 +38,9 @@ flowchart TB
     M[member]
     L[conversation_ledger]
   end
-  subgraph events.db
     R[run]
     AT[attempt]
-    OPS[run_ops_event]
+    CP[control_plane_event]
     RO[run_origin]
     SH[surface_health]
   end
@@ -52,9 +51,8 @@ flowchart TB
   end
 ```
 
-- **backend.db**：对话域的持久事实——谁在对话里、说了什么。
-- **events.db**：运行域的持久事实——哪次运行、几次尝试、产生了哪些事件。
-- **checkpointer.db**：Agent 运行时恢复状态，按 threadId 分区。不属于对话事实，可从 ledger 重建。
+- **backend.db**：对话域的持久事实（agents/conversation/member/ledger）+ 运行运维域（run/attempt/control_plane_event/run_origin/surface_health/issue_event）。S1 合库后 events 表已并入。
+- **checkpointer.db**：Agent 运行时恢复状态，按 sessionId 分区。不属于对话事实，可从 ledger 重建。
 
 ## 一条消息的处理流程
 
