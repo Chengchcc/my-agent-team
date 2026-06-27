@@ -29,7 +29,7 @@ used_by:
 
 1. [后端总览](./backend/overview.md)
 2. [RunSupervisor](./backend/run-supervisor.md)
-3. [EventLog](./backend/event-log.md)
+3. [EventLog（已废止）](./backend/event-log.md)
 4. [会话投影](./backend/conversation-projection.md)
 5. [数据模型](./backend/data-model.md)
 

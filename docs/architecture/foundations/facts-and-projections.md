@@ -88,7 +88,7 @@ graph LR
 ## 关联页面
 
 - [对话账本](../conversation/ledger.md)
-- [EventLog](../backend/event-log.md)
+- [EventLog（已废止）](../backend/event-log.md)
 - [会话投影](../backend/conversation-projection.md)
 - [Web 端](../surfaces/web.md)
 - [标识符体系](identifiers.md) —— sessionId / runId / attemptSeq 的派生链与层归属

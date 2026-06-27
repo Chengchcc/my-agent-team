@@ -68,7 +68,7 @@ flowchart TB
 ## 关联页面
 
 - [AgentSession](../harness/harness.md)
-- [EventLog](./event-log.md)
+- [EventLog（已废止）](./event-log.md)
 - [会话消息流](./conversation-projection.md)
 - [数据模型](./data-model.md)
 - [对话与成员](../conversation/conversation-and-members.md)

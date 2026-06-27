@@ -95,6 +95,6 @@ erDiagram
 ## 关联页面
 
 - [对话账本](../conversation/ledger.md)
-- [EventLog](./event-log.md)
+- [EventLog（已废止）](./event-log.md)
 - [事实与投影](../foundations/facts-and-projections.md)
 - [AgentSpec](./agent-spec.md)

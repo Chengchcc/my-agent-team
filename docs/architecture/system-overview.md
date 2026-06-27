@@ -4,7 +4,7 @@ title: 系统总览
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-25
-summary: "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实并直接在进程内通过 AgentSession 驱动 Agent。assistant 消息经 onEvent 回调直写 conversation ledger，非消息事件进 EventLog。conversation ledger SSE 是用户可见输出的唯一通道。"
+summary: "整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实并直接在进程内通过 AgentSession 驱动 Agent。assistant 消息经 onEvent 回调直写 conversation ledger，非消息事件进 backend 执行事实流。conversation ledger SSE 是用户可见输出的唯一通道。"
 depends_on:
   - foundations.facts-and-projections
 used_by:
@@ -14,7 +14,7 @@ used_by:
 
 # 系统总览
 
-整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实并直接在进程内通过 AgentSession 驱动 Agent 执行。assistant 消息经 `AgentSession.subscribe` 的 `onEvent` 回调直写 conversation ledger，与人类消息共用同一条 `appendLedgerEntry` 入口。非消息执行事件（tool_start/tool_end）进 EventLog。conversation ledger SSE 是用户可见输出的唯一通道。
+整个系统是一个「团队 Agent」运行时：端负责输入与渲染，后端持有事实并直接在进程内通过 AgentSession 驱动 Agent 执行。assistant 消息经 `AgentSession.subscribe` 的 `onEvent` 回调直写 conversation ledger，与人类消息共用同一条 `appendLedgerEntry` 入口。非消息执行事件（tool_start/tool_end）进 backend 执行事实流。conversation ledger SSE 是用户可见输出的唯一通道。
 
 ## 容器视图
 

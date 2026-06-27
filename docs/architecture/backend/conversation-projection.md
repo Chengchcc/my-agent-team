@@ -20,7 +20,7 @@ used_by:
 
 会话消息流把 AgentSession 产生的 assistant 消息写入 conversation ledger，然后 fan-out 到各端。消息不经过 transport 或独立进程——AgentSession 在 Backend 进程内运行，通过 `onEvent` 回调直接写入。
 
-核心概念：[conversation ledger](../conversation/ledger.md) 是对话的 canonical store；[AgentSession](../harness/harness.md) 管理 Agent 运行；[EventLog](./event-log.md) 存 execution detail。
+核心概念：[conversation ledger](../conversation/ledger.md) 是对话的 canonical store；[AgentSession](../harness/harness.md) 管理 Agent 运行；[EventLog（已废止）](./event-log.md) 存 execution detail。
 
 ## startAgentRun：创建并监听 AgentSession
 
@@ -79,6 +79,6 @@ assistant 消息从 streaming → done/error 是同一个 `messageId` 的多次 
 
 - [Conversation Ledger](../conversation/ledger.md)
 - [AgentSession](../harness/harness.md)
-- [EventLog](./event-log.md)
+- [EventLog（已废止）](./event-log.md)
 - [Web 消息端到端](../flows/e2e-web-message.md)
 - [Lark 适配器](../surfaces/lark-adapter.md)
