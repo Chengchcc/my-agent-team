@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -83,12 +83,8 @@ export const conversationLedger = sqliteTable(
   ],
 );
 
-// ─── projection_messages ───────────────────────────────────────────
-export const projectionMessages = sqliteTable("projection_messages", {
-  sessionId: text().primaryKey(),
-  messages: text().notNull(),
-  updatedAt: integer({ mode: "number" }).notNull(),
-});
+// projection_messages table removed — redundant third copy of messages.
+// Canonical stores: conversation_ledger (product truth) + checkpoint_messages (framework working state).
 
 // ─── issue ─────────────────────────────────────────────────────────
 // NOTE: project_id and session_id are bare TEXT — no FK constraint.
@@ -185,4 +181,111 @@ export const deliverable = sqliteTable(
       .on(table.spanId, table.kind)
       .where(sql`span_id IS NOT NULL`),
   ],
+);
+
+// ── Tables migrated from events-schema.ts (formerly events.db, now part of backend.db) ──
+// S1 storage convergence: events.db merged into backend.db.
+
+export const run = sqliteTable(
+  "run",
+  {
+    spanId: text().primaryKey(),
+    sessionId: text().notNull(),
+    status: text().notNull().default("running"),
+    kind: text().notNull().default("main"),
+    parentSpanId: text("parent_span_id"),
+    agentId: text().notNull().default(""),
+    degradedReason: text(),
+    startedAt: integer({ mode: "number" }).notNull(),
+    endedAt: integer({ mode: "number" }),
+  },
+  (table) => [index("idx_run_session").on(table.sessionId, desc(table.startedAt))],
+);
+
+export const attempt = sqliteTable(
+  "attempt",
+  {
+    spanId: text()
+      .notNull()
+      .references(() => run.spanId, { onDelete: "cascade" }),
+    seq: integer().notNull(),
+    pid: integer(),
+    heartbeatAt: integer({ mode: "number" }),
+    startedAt: integer({ mode: "number" }).notNull(),
+    endedAt: integer({ mode: "number" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.spanId, table.seq] }),
+    index("idx_attempt_span").on(table.spanId, table.startedAt),
+  ],
+);
+
+// S4: run_ops_event → control_plane_event rename
+export const controlPlaneEvent = sqliteTable(
+  "control_plane_event",
+  {
+    seq: integer().primaryKey({ autoIncrement: true }),
+    spanId: text().notNull(),
+    attemptSeq: integer(),
+    kind: text().notNull(),
+    payload: text().notNull().default("{}"),
+    traceId: text(),
+    ts: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("idx_control_plane_event_span").on(table.spanId, table.seq),
+    index("idx_control_plane_event_trace").on(table.traceId, table.seq),
+    index("idx_control_plane_event_kind").on(table.kind, desc(table.ts)),
+  ],
+);
+
+export const runOrigin = sqliteTable(
+  "run_origin",
+  {
+    spanId: text().primaryKey(),
+    conversationId: text().notNull(),
+    sourceLedgerSeq: integer().notNull(),
+    agentMemberId: text().notNull(),
+    surface: text().notNull().default("web"),
+    traceId: text().notNull(),
+    traceparent: text().notNull(),
+    idempotencyKey: text().notNull(),
+    issueId: text(),
+    cronJobId: text(),
+    fromStatus: text().notNull().default(""),
+    originKind: text().notNull().default("manual"),
+    createdAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_run_origin_idem").on(table.idempotencyKey),
+    index("idx_run_origin_trace").on(table.traceId),
+    index("idx_run_origin_issue").on(table.issueId),
+    index("idx_run_origin_cron").on(table.cronJobId),
+  ],
+);
+
+export const surfaceHealth = sqliteTable(
+  "surface_health",
+  {
+    agentId: text().notNull(),
+    surface: text().notNull(),
+    status: text().notNull(),
+    lastSeenAt: integer({ mode: "number" }),
+    payload: text().notNull().default("{}"),
+    lastError: text(),
+    updatedAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.agentId, table.surface] })],
+);
+
+export const issueEvent = sqliteTable(
+  "issue_event",
+  {
+    seq: integer().primaryKey({ autoIncrement: true }),
+    issueId: text().notNull(),
+    kind: text().notNull(),
+    payload: text().notNull().default("{}"),
+    ts: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [index("idx_issue_event_issue").on(table.issueId, table.seq)],
 );

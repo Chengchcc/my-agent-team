@@ -134,23 +134,6 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
       db.exec("PRAGMA foreign_keys = ON");
 
       const delAgent = db.transaction(() => {
-        // Collect derived thread IDs (cid:memberId) for projection cleanup.
-        // Threads table is gone (M14) — conversation membership is the source of truth.
-        // M20: Derived column kept as raw SQL — drizzle has no native || operator.
-        const threadRows = db
-          .query("SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?")
-          .all(id) as { id: string }[];
-        const sessionIds = threadRows.map((r) => r.id);
-
-        // Delete projection_messages by thread ID
-        const deletedThreads = sessionIds.length;
-        for (const tid of sessionIds) {
-          db.run("DELETE FROM projection_messages WHERE session_id = ?", [tid]);
-          // M20: checkpoint_interrupts and checkpoint_events are NOT in backend.db.
-          // They live in checkpointer.sqlite (independent physical database).
-          // The old DELETE statements for these tables were dead code — removed.
-        }
-
         // Delete member rows (no FK, must be explicit; ledger messages preserved)
         const memberResult = db.run("DELETE FROM member WHERE agent_id = ?", [id]);
         const deletedMembers = memberResult.changes;
@@ -159,7 +142,10 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
         const agentResult = db.run("DELETE FROM agents WHERE id = ?", [id]);
         const deletedAgent = agentResult.changes > 0;
 
-        return { deletedAgent, deletedThreads, deletedMembers };
+        // projection_messages table removed (S2) — it was a redundant third copy of messages.
+        // Canonical stores: conversation_ledger + checkpoint_messages.
+
+        return { deletedAgent, deletedThreads: 0, deletedMembers };
       });
 
       const result = delAgent();

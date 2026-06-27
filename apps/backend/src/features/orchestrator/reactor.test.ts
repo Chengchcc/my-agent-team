@@ -1,3 +1,4 @@
+import { openDb } from "../../infra/sqlite/db.js";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
@@ -14,7 +15,6 @@ import {
 import { sqliteIssueAdapter } from "../issue/adapter-sqlite.js";
 import { createIssueService } from "../issue/service.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
-import { runEventsDbMigrations } from "../span/events-db-migrations.js";
 import { createOrchestrator, OrchestratorAgentMissingError } from "./reactor.js";
 
 const DEFAULT_AGENTS = new Map([
@@ -55,7 +55,6 @@ describe("Orchestrator reactor", () => {
   beforeAll(() => {
     issueDb = testMainDB();
     eventsDb = testDB();
-    runEventsDbMigrations(eventsDb);
   });
 
   afterAll(() => {

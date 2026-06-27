@@ -1,15 +1,11 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { runEventsDbMigrations } from "../span/events-db-migrations.js";
+import { openDb } from "../../infra/sqlite/db.js";
 import { RuntimeOpsStore } from "./store.js";
 
 function createTestDb() {
-  const db = new Database(":memory:");
-  db.exec("PRAGMA journal_mode=WAL");
-  // Build schema from the canonical events_db drizzle migrations so the test DB
-  // never drifts from production (indexes, DESC ordering, columns, etc.).
-  runEventsDbMigrations(db);
-  return db;
+  // S1: events.db merged into backend.db — use openDb to run unified migrations.
+  return openDb(":memory:");
 }
 
 describe("RuntimeOpsStore", () => {
@@ -23,46 +19,46 @@ describe("RuntimeOpsStore", () => {
 
   afterEach(() => db.close());
 
-  describe("run_ops_event", () => {
+  describe("control_plane_event", () => {
     test("appendRunEvent and getRunEvents round-trip", () => {
       store.appendRunEvent({
         spanId: "r1",
         attemptSeq: 1,
-        kind: "attempt_started",
+        kind: "retry_requested",
         traceId: "trace-abc",
         payload: { mode: "run" },
       });
 
       const events = store.getRunEvents("r1");
       expect(events).toHaveLength(1);
-      expect(events[0]!.kind).toBe("attempt_started");
+      expect(events[0]!.kind).toBe("retry_requested");
       expect(events[0]!.spanId).toBe("r1");
       expect(events[0]!.attemptSeq).toBe(1);
       expect(events[0]!.traceId).toBe("trace-abc");
     });
 
     test("getRunEvents returns events ordered by seq", () => {
-      store.appendRunEvent({ spanId: "r1", kind: "attempt_started" });
-      store.appendRunEvent({ spanId: "r1", kind: "run_done_received" });
-      store.appendRunEvent({ spanId: "r1", kind: "run_finalized_sent" });
+      store.appendRunEvent({ spanId: "r1", kind: "retry_requested" });
+      store.appendRunEvent({ spanId: "r1", kind: "retry_started" });
+      store.appendRunEvent({ spanId: "r1", kind: "projection_degraded" });
 
       const events = store.getRunEvents("r1");
       expect(events).toHaveLength(3);
-      expect(events[0]!.kind).toBe("attempt_started");
-      expect(events[2]!.kind).toBe("run_finalized_sent");
+      expect(events[0]!.kind).toBe("retry_requested");
+      expect(events[2]!.kind).toBe("projection_degraded");
     });
 
     test("getRunEventsByTrace filters correctly", () => {
-      store.appendRunEvent({ spanId: "r1", kind: "attempt_started", traceId: "t1" });
-      store.appendRunEvent({ spanId: "r2", kind: "attempt_started", traceId: "t1" });
-      store.appendRunEvent({ spanId: "r3", kind: "attempt_started", traceId: "t2" });
+      store.appendRunEvent({ spanId: "r1", kind: "retry_requested", traceId: "t1" });
+      store.appendRunEvent({ spanId: "r2", kind: "retry_requested", traceId: "t1" });
+      store.appendRunEvent({ spanId: "r3", kind: "retry_requested", traceId: "t2" });
 
       expect(store.getRunEventsByTrace("t1")).toHaveLength(2);
       expect(store.getRunEventsByTrace("t2")).toHaveLength(1);
     });
 
     test("appendRunEvent without optional fields", () => {
-      store.appendRunEvent({ spanId: "r1", kind: "reaper_marked_interrupted" });
+      store.appendRunEvent({ spanId: "r1", kind: "projection_degraded" });
       const events = store.getRunEvents("r1");
       expect(events).toHaveLength(1);
       expect(events[0]!.attemptSeq).toBeNull();

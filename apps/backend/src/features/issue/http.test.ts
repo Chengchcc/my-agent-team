@@ -3,17 +3,13 @@ import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createDeliverableService, sqliteDeliverableAdapter } from "../deliverable/index.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
-import { runEventsDbMigrations } from "../span/events-db-migrations.js";
 import { issueRoutes } from "./http.js";
 import { createIssueService, sqliteIssueAdapter } from "./index.js";
 
 function setup() {
-  // backend.db tables (issue, deliverable, ...) from the canonical drizzle migrations.
+  // S1: events.db merged into backend.db — single openDb call creates all tables.
   const db = openDb(":memory:");
-
-  const eventsDb = new Database(":memory:");
-  runEventsDbMigrations(eventsDb);
-  const opsStore = new RuntimeOpsStore(eventsDb);
+  const opsStore = new RuntimeOpsStore(db);
 
   let idCounter = 0;
   const idGen = () => `id_${String(++idCounter).padStart(3, "0")}`;
@@ -44,7 +40,6 @@ function setup() {
 
   return {
     db,
-    eventsDb,
     opsStore,
     issueSvc,
     deliverableSvc,
@@ -497,7 +492,7 @@ describe("detail endpoint", () => {
   });
 
   test("GET /detail runs array includes run status from run table", async () => {
-    const { issueSvc, opsStore, eventsDb, routes } = setup();
+    const { db, issueSvc, opsStore, routes } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
 
     opsStore.insertSpanOrigin({
@@ -514,7 +509,7 @@ describe("detail endpoint", () => {
       fromStatus: "planned",
       createdAt: 1000,
     });
-    eventsDb.run(
+    db.run(
       `INSERT INTO run (span_id, session_id, agent_id, status, started_at, ended_at) VALUES ('r_detail', 't1', 'a1', 'succeeded', 1000, 5000)`,
     );
 

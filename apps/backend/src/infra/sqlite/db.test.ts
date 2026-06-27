@@ -16,10 +16,11 @@ test("openDb creates database file and runs drizzle-kit migrations", () => {
   const names = tables.map((t) => t.name);
   expect(names).toContain("agents");
   expect(names).not.toContain("threads");
-  expect(names).not.toContain("run");
-  expect(names).not.toContain("attempt");
-  // M17.4: projection_messages replaces checkpoint_messages
-  expect(names).toContain("projection_messages");
+  // S1: events.db merged — run/attempt are now in backend.db
+  expect(names).toContain("run");
+  expect(names).toContain("attempt");
+  // S2: projection_messages deleted (redundant third copy of messages)
+  expect(names).not.toContain("projection_messages");
   // M20: checkpoint_* tables are in checkpointer.sqlite, NOT backend.db
   expect(names).not.toContain("checkpoint_messages");
   expect(names).not.toContain("checkpoint_interrupts");

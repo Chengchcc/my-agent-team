@@ -5,17 +5,11 @@ import { createColumnConfigService, sqliteColumnConfigAdapter } from "../column-
 import { createDeliverableService, sqliteDeliverableAdapter } from "../deliverable/index.js";
 import { createIssueService, sqliteIssueAdapter } from "../issue/index.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
-import { runEventsDbMigrations } from "../span/events-db-migrations.js";
 
 function setupE2E() {
-  // backend.db tables (issue, column_config, deliverable, ...) from the canonical
-  // drizzle migrations so the e2e DB never drifts from production schema.
+  // S1: events.db merged into backend.db — single openDb creates all tables.
   const db = openDb(":memory:");
-
-  const eventsDb = new Database(":memory:");
-  runEventsDbMigrations(eventsDb);
-
-  const opsStore = new RuntimeOpsStore(eventsDb);
+  const opsStore = new RuntimeOpsStore(db);
 
   let idCounter = 0;
   const idGen = () => `e2e_${String(++idCounter).padStart(3, "0")}`;
@@ -67,7 +61,6 @@ function setupE2E() {
 
   return {
     db,
-    eventsDb,
     opsStore,
     issueSvc,
     deliverableSvc,

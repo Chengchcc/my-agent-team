@@ -17,22 +17,12 @@ export interface IssueEvent {
   ts: number;
 }
 
+// RunOpsEventKind narrowed to only the 3 values actually emitted (S3 storage convergence).
+// The 12 removed values were runner/reattach-era vocabulary never written to the database.
 export type RunOpsEventKind =
-  | "attempt_started"
-  | "attempt_transport_seen"
-  | "delta_pushed"
-  | "run_done_received"
-  | "run_finalized_sent"
-  | "cancel_requested"
-  | "abort_sent"
-  | "reattach_started"
-  | "reattach_succeeded"
-  | "reattach_failed"
-  | "reaper_marked_interrupted"
-  | "projection_degraded" // P2: critical sink (ledger terminal write) failed
-  | "recover_requested"
-  | "retry_requested"
-  | "retry_started";
+  | "projection_degraded" // supervisor.ts:157 — critical sink (ledger terminal write) failed
+  | "retry_requested"     // scheduler.ts:139
+  | "retry_started";      // scheduler.ts:152
 
 export interface RunOpsEvent {
   seq: number;

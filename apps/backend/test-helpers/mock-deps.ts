@@ -29,9 +29,8 @@ export function testDir(...parts: string[]): string {
 }
 
 export function testDB(): Database {
-  const db = new Database(":memory:");
-  db.exec("PRAGMA journal_mode=WAL");
-  return db;
+  // S1: events.db merged into backend.db — openDb runs unified migration (all tables).
+  return openDb(":memory:");
 }
 
 /** Like testDB but also runs the main backend drizzle migrations (schema.ts → issue table etc). */

@@ -4,7 +4,6 @@ import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 
 import type { BackendConfig } from "../../config.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
-import { runEventsDbMigrations } from "./events-db-migrations.js";
 
 export interface SpanSupervisorOptions {
   config: BackendConfig;
@@ -42,9 +41,7 @@ export class SpanSupervisor {
   constructor(opts: SpanSupervisorOptions) {
     this.#opts = opts;
     this.#db = opts.db;
-    this.#db.exec("PRAGMA journal_mode=WAL");
-    this.#db.exec("PRAGMA busy_timeout=5000");
-    runEventsDbMigrations(this.#db);
+    // WAL + schema migrations are managed by openDb() in main.ts (S1 storage convergence).
     this.#startReaper();
   }
 

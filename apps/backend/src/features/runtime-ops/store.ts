@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import * as schema from "../../infra/db/events-schema.js";
+import * as schema from "../../infra/db/schema.js";
 import type {
   IssueEventKind,
   IssueEvent as IssueEventType,
@@ -11,7 +11,7 @@ import type {
   SurfaceHealthRow,
 } from "./types.js";
 
-function toRunOpsEvent(r: typeof schema.runOpsEvent.$inferSelect): RunOpsEventType {
+function toControlPlaneEvent(r: typeof schema.controlPlaneEvent.$inferSelect): RunOpsEventType {
   return {
     seq: r.seq,
     spanId: r.spanId,
@@ -70,7 +70,7 @@ export class RuntimeOpsStore {
     payload?: Record<string, unknown>;
   }): number {
     const row = this.#d
-      .insert(schema.runOpsEvent)
+      .insert(schema.controlPlaneEvent)
       .values({
         spanId: input.spanId,
         attemptSeq: input.attemptSeq ?? null,
@@ -79,7 +79,7 @@ export class RuntimeOpsStore {
         traceId: input.traceId ?? null,
         ts: Date.now(),
       })
-      .returning({ seq: schema.runOpsEvent.seq })
+      .returning({ seq: schema.controlPlaneEvent.seq })
       .get();
     return row!.seq;
   }
@@ -87,21 +87,21 @@ export class RuntimeOpsStore {
   getRunEvents(spanId: string): RunOpsEventType[] {
     return this.#d
       .select()
-      .from(schema.runOpsEvent)
-      .where(eq(schema.runOpsEvent.spanId, spanId))
-      .orderBy(schema.runOpsEvent.seq)
+      .from(schema.controlPlaneEvent)
+      .where(eq(schema.controlPlaneEvent.spanId, spanId))
+      .orderBy(schema.controlPlaneEvent.seq)
       .all()
-      .map(toRunOpsEvent);
+      .map(toControlPlaneEvent);
   }
 
   getRunEventsByTrace(traceId: string): RunOpsEventType[] {
     return this.#d
       .select()
-      .from(schema.runOpsEvent)
-      .where(eq(schema.runOpsEvent.traceId, traceId))
-      .orderBy(schema.runOpsEvent.seq)
+      .from(schema.controlPlaneEvent)
+      .where(eq(schema.controlPlaneEvent.traceId, traceId))
+      .orderBy(schema.controlPlaneEvent.seq)
       .all()
-      .map(toRunOpsEvent);
+      .map(toControlPlaneEvent);
   }
 
   // ─── issue_event (M18.7) ───

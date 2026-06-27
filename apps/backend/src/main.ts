@@ -49,7 +49,6 @@ import {
   opsRoutes,
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
-import { runEventsDbMigrations } from "./features/span/events-db-migrations.js";
 import { resumeRoute } from "./features/span/http.js";
 import { createSessionFactory } from "./features/span/session-factory.js";
 import { SpanSupervisor } from "./features/span/supervisor.js";
@@ -63,16 +62,12 @@ import { createServer } from "./server.js";
 
 const config = loadConfig();
 const db = openDb(`${config.dataDir}/backend.db`);
-
-// EventLog + Supervisor
-const eventsDb = new Database(`${config.dataDir}/events.db`);
-eventsDb.exec("PRAGMA journal_mode=WAL");
-eventsDb.exec("PRAGMA busy_timeout=5000");
-runEventsDbMigrations(eventsDb);
+// S1 storage convergence: events.db tables are now part of backend.db.
+// The single db connection serves all backend-package-owned tables.
 
 const obsConfig = resolveObservabilityConfig({ serviceName: "backend" });
 const tracer = createRuntimeTracer(obsConfig);
-const opsStore = new RuntimeOpsStore(eventsDb);
+const opsStore = new RuntimeOpsStore(db);
 
 // Runner daemon removed — AgentSession runs in-process. Supervisor manages
 // run/attempt rows without transport (NOOP_TRANSPORT is the internal default).
@@ -86,7 +81,7 @@ const supervisor = new SpanSupervisor({
   config,
   opsStore,
   tracer,
-  db: eventsDb,
+  db: db,
   onReap: (_runId, sessionId) => sessionFactory.dispose(sessionId),
 });
 
@@ -226,7 +221,7 @@ const agentNames = new Map<string, string>();
   for (const r of rows) agentNames.set(r.id, r.name);
 }
 const opsSvc = createRuntimeOpsService({
-  db: eventsDb,
+  db: db,
   opsStore,
   supervisor,
   heartbeatTimeoutMs: config.heartbeatTimeoutMs,
@@ -365,8 +360,8 @@ const shutdown = async (signal: string) => {
   server.stop();
   supervisor.cancelAll();
   await new Promise((r) => setTimeout(r, config.cancelGraceMs));
-  // Stop cron timers/watchdogs BEFORE the supervisor closes eventsDb, so a
-  // watchdog or retry firing in the grace window can't touch a closed DB.
+  // Stop cron timers/watchdogs before supervisor dispose, so a watchdog
+  // or retry firing in the grace window can't touch a closed DB.
   cronScheduler.dispose();
   await supervisor.dispose();
   await larkBotRegistry.dispose();
