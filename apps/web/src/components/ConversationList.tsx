@@ -1,20 +1,22 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  conversationKeys,
+  useConversationList,
+  useDeleteConversation,
+} from "@/features/conversations/hooks";
 import { api } from "@/lib/api";
 
 export function ConversationList({ agentId, agentName }: { agentId: string; agentName?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const { data: conversations, isLoading } = useQuery({
-    queryKey: ["conversations", agentId],
-    queryFn: () => api.listConversations(agentId),
-  });
+  const { data: conversations, isLoading } = useConversationList(agentId);
 
   const createConversation = useMutation({
     mutationFn: async () => {
@@ -27,7 +29,7 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
       });
     },
     onSuccess: (conv) => {
-      queryClient.invalidateQueries({ queryKey: ["conversations", agentId] });
+      queryClient.invalidateQueries({ queryKey: conversationKeys.byAgent(agentId) });
       router.push(`/conversations/${conv.conversationId}`);
     },
     onError: (err) => {
@@ -37,18 +39,7 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
     },
   });
 
-  const deleteConversation = useMutation({
-    mutationFn: (convId: string) => api.deleteConversation(convId),
-    onSuccess: () => {
-      toast.success("Conversation deleted");
-      queryClient.invalidateQueries({ queryKey: ["conversations", agentId] });
-    },
-    onError: (err) => {
-      toast.error("Failed to delete conversation", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    },
-  });
+  const deleteConversation = useDeleteConversation();
 
   if (isLoading) {
     return (
@@ -119,7 +110,19 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
                   onClick={(e) => {
                     e.stopPropagation();
                     if (confirm("Delete this conversation?")) {
-                      deleteConversation.mutate(conv.conversationId);
+                      deleteConversation.mutate(conv.conversationId, {
+                        onSuccess: () => {
+                          toast.success("Conversation deleted");
+                          queryClient.invalidateQueries({
+                            queryKey: conversationKeys.byAgent(agentId),
+                          });
+                        },
+                        onError: (err) => {
+                          toast.error("Failed to delete conversation", {
+                            description: err instanceof Error ? err.message : "Unknown error",
+                          });
+                        },
+                      });
                     }
                   }}
                   title="Delete conversation"

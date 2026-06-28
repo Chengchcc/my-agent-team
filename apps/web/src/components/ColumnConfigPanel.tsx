@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { useAgentList } from "@/features/agents/hooks";
+import { useUpsertColumnConfig } from "@/features/column-configs/hooks";
 import { api, type IssueStatus, type ProjectRow } from "@/lib/api";
 import { fieldClass, labelClass } from "@/lib/form-styles";
 import { COLUMN_LABEL, configurableStatuses } from "@/lib/issue-labels";
@@ -71,12 +73,7 @@ export function ColumnConfigPanel({ project, open, onClose }: ColumnConfigPanelP
   const configs = configsData?.configs ?? [];
   const configByStatus = new Map(configs.map((c) => [c.status, c]));
 
-  const { data: agents } = useQuery({
-    queryKey: ["agents"],
-    queryFn: api.listAgents,
-    enabled: open,
-    staleTime: 30_000,
-  });
+  const { data: agents } = useAgentList();
   const activeAgents = (agents ?? []).filter((a) => a.archivedAt == null);
 
   const form = useForm<UpsertForm>({
@@ -102,24 +99,7 @@ export function ColumnConfigPanel({ project, open, onClose }: ColumnConfigPanelP
     setConfirmingStatus(null);
   }
 
-  const upsert = useMutation({
-    mutationFn: (values: UpsertForm & { status: IssueStatus }) =>
-      api.upsertColumnConfig({
-        projectId: project.projectId,
-        status: values.status,
-        agentId: values.agentId,
-        promptTemplate: values.promptTemplate,
-      }),
-    onSuccess: () => {
-      toast.success("Column config saved");
-      queryClient.invalidateQueries({ queryKey: ["column-configs", project.projectId] });
-      closeEditor();
-    },
-    onError: (err) => {
-      const msg = err instanceof Error ? err.message : "Failed to save config";
-      toast.error("Failed to save config", { description: msg });
-    },
-  });
+  const upsert = useUpsertColumnConfig();
 
   const remove = useMutation({
     mutationFn: (configId: string) => api.deleteColumnConfig(configId),
@@ -136,7 +116,24 @@ export function ColumnConfigPanel({ project, open, onClose }: ColumnConfigPanelP
 
   function onSubmit(values: UpsertForm) {
     if (!editingStatus) return;
-    upsert.mutate({ ...values, status: editingStatus });
+    upsert.mutate(
+      {
+        projectId: project.projectId,
+        status: editingStatus,
+        agentId: values.agentId,
+        promptTemplate: values.promptTemplate,
+      },
+      {
+        onSuccess: () => {
+          toast.success("Column config saved");
+          closeEditor();
+        },
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Failed to save config";
+          toast.error("Failed to save config", { description: msg });
+        },
+      },
+    );
   }
 
   const variableHintClass = "text-[10px] text-[var(--mute)] font-mono";

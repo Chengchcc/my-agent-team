@@ -1,7 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { issueBoardEvents } from "@my-agent-team/api-contract";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -38,11 +39,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { issueKeys, useIssueList, useIssueMeta } from "@/features/issues/hooks";
+import { issueKeys, useCreateIssue, useIssueList, useIssueMeta } from "@/features/issues/hooks";
 import { useProjectList } from "@/features/projects/hooks";
-import { api } from "@/lib/api";
 import { dateInputToEpoch, epochToDateInput } from "@/lib/date-input";
 import { fieldClass, labelClass } from "@/lib/form-styles";
+import { typedSource } from "@/lib/typed-source";
 
 export const dynamic = "force-dynamic";
 
@@ -79,11 +80,11 @@ export default function IssuesPage() {
 
   // M18.4: SSE real-time updates
   useEffect(() => {
-    const es = new EventSource("/api/bff/issues/events");
-    es.addEventListener("issue", () => {
+    const source = typedSource("/api/bff/issues/events", issueBoardEvents);
+    source.on("issue", () => {
       queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
     });
-    return () => es.close();
+    return () => source.close();
   }, [queryClient]);
 
   function handleOpen(open: boolean) {
@@ -94,24 +95,7 @@ export default function IssuesPage() {
     }
   }
 
-  const createMutation = useMutation({
-    mutationFn: (values: FormValues) =>
-      api.createIssue({
-        projectId: values.projectId,
-        title: values.title,
-        ...(values.description ? { description: values.description } : {}),
-        priority: values.priority,
-        estimatedCompletionAt: values.estimatedCompletionAt,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
-      form.reset();
-      setOpen(false);
-    },
-    onError: (err) => {
-      setServerError(err instanceof Error ? err.message : "Failed to create issue");
-    },
-  });
+  const createMutation = useCreateIssue();
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -134,7 +118,28 @@ export default function IssuesPage() {
 
             <Form {...form}>
               <form
-                onSubmit={form.handleSubmit((data) => createMutation.mutate(data))}
+                onSubmit={form.handleSubmit((data) =>
+                  createMutation.mutate(
+                    {
+                      projectId: data.projectId,
+                      title: data.title,
+                      ...(data.description ? { description: data.description } : {}),
+                      priority: data.priority,
+                      estimatedCompletionAt: data.estimatedCompletionAt,
+                    },
+                    {
+                      onSuccess: () => {
+                        form.reset();
+                        setOpen(false);
+                      },
+                      onError: (err) => {
+                        setServerError(
+                          err instanceof Error ? err.message : "Failed to create issue",
+                        );
+                      },
+                    },
+                  ),
+                )}
                 className="space-y-4 mt-2"
               >
                 {projects.length === 0 ? (

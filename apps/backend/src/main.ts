@@ -50,7 +50,7 @@ import {
   opsRoutes,
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
-import { resumeRoute } from "./features/span/http.js";
+import { resumeRoutes } from "./features/span/http.js";
 import { createSessionFactory } from "./features/span/session-factory.js";
 import { SpanSupervisor } from "./features/span/supervisor.js";
 import * as backendSchema from "./infra/db/schema.js";
@@ -305,13 +305,13 @@ supervisor.onRunComplete((sessionId, spanId, status, kind) =>
 
 // Resume route for ToolApprovalCard interrupt flow — uses AgentSession.resume()
 // spanId → sessionId lookup via opsStore (run table); live session via SessionFactory.peek
-const resumeHandler = resumeRoute({
+const resumeRun = resumeRoutes({
   sessionFactory,
   getSessionIdByRunId: (spanId) => opsStore.getRuns([spanId])[0]?.sessionId ?? null,
 });
 
 const app = createApp(config.authToken, {
-  resumeRun: resumeHandler,
+  resumeRun,
   agents: agentRoutes(
     agentSvc,
     identityStore,

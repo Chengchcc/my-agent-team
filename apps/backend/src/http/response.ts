@@ -1,27 +1,4 @@
-/** Shared utilities for HTTP feature files. */
-
-/** Shared JSON response helper — single source across all HTTP feature files. */
-export function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
-
-/** Parse JSON body, returning 400 on syntax error. Empty body → {}. */
-export async function parseJsonBody(
-  req: Request,
-): Promise<{ data: unknown } | { error: Response }> {
-  const text = await req.text().catch(() => "");
-  if (text.trim() === "") return { data: {} };
-  try {
-    return { data: JSON.parse(text) };
-  } catch {
-    return { error: json({ error: "Invalid JSON" }, 400) };
-  }
-}
-
-/** Shared SSE response constructor.
+/** SSE response constructor.
  *
  *  Heartbeat: when a yielded item has `_heartbeat: true`, it's emitted as
  *  an SSE comment `: ping\n\n` which browsers use for keepalive but do not

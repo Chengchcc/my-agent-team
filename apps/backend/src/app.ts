@@ -6,6 +6,7 @@ import type { cronJobRoutes } from "./features/cron/http.js";
 import type { issueRoutes } from "./features/issue/http.js";
 import type { projectRoutes } from "./features/project/http.js";
 import type { opsRoutes } from "./features/runtime-ops/http.js";
+import type { resumeRoutes } from "./features/span/http.js";
 import { checkAuthToken } from "./infra/auth.js";
 import { HttpError } from "./infra/errors.js";
 
@@ -17,7 +18,7 @@ export interface FeatureSet {
   projects: ReturnType<typeof projectRoutes>;
   columnConfigs: ReturnType<typeof columnConfigRoutes>;
   cronJobs: ReturnType<typeof cronJobRoutes>;
-  resumeRun?: (req: Request, spanId: string) => Promise<Response>;
+  resumeRun: ReturnType<typeof resumeRoutes>; // Elysia plugin
 }
 
 // ── Auth plugin ──
@@ -49,12 +50,7 @@ export function createApp(token: string, features: FeatureSet) {
     .use(issues);
 
   return app
-    .post(
-      "/api/runs/:id/resume",
-      ({ request, params: { id } }) =>
-        features.resumeRun?.(request, id) ??
-        new Response(JSON.stringify({ error: "Not found" }), { status: 404 }),
-    )
+    .use(features.resumeRun)
     .use(projects)
     .use(columnConfigs)
     .use(cronJobs)

@@ -9,14 +9,11 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { useAgentList } from "@/features/agents/hooks";
 import { api } from "@/lib/api";
 
 export default function AgentsPage() {
-  const { data: agents = [] } = useQuery({
-    queryKey: ["agents"],
-    queryFn: api.listAgents,
-    staleTime: 30_000,
-  });
+  const { data: agents = [] } = useAgentList();
 
   const { data: runtimes = [] } = useQuery({
     queryKey: ["ops", "agentRuntime", agents.map((a) => a.id)],

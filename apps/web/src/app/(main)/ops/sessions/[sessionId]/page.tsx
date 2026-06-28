@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { RunInsightsPanel } from "@/components/ops/RunInsightsPanel";
@@ -21,7 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api } from "@/lib/api";
+import { useOpsSessionDetail } from "@/features/ops/hooks";
 
 export const dynamic = "force-dynamic";
 
@@ -29,12 +28,7 @@ export default function SessionDetailPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
 
-  const detailQuery = useQuery({
-    queryKey: ["ops", "sessionDetail", sessionId],
-    queryFn: () => api.getOpsSessionDetail(sessionId),
-    enabled: !!sessionId,
-    refetchInterval: (q) => (q.state.data?.status === "running" ? 10_000 : false),
-  });
+  const detailQuery = useOpsSessionDetail(sessionId);
 
   const detail = detailQuery.data;
 

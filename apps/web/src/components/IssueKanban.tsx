@@ -16,6 +16,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
+import { issueKeys } from "@/features/issues/hooks";
 import type { IssueRow, IssueStatus } from "@/lib/api";
 import { api } from "@/lib/api";
 import { COLUMN_LABEL } from "@/lib/issue-labels";
@@ -158,7 +159,7 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
 
     // Optimistic update: move locally first
     const prevStatus = issue.status;
-    queryClient.setQueryData<{ issues: IssueRow[] }>(["issues"], (old) => {
+    queryClient.setQueryData<{ issues: IssueRow[] }>(issueKeys.lists(), (old) => {
       if (!old) return old;
       return {
         issues: old.issues.map((i) =>
@@ -169,10 +170,10 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
 
     try {
       await api.applyTransition(issueId, toStatus as IssueStatus);
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
     } catch (err) {
       // Rollback on failure
-      queryClient.setQueryData<{ issues: IssueRow[] }>(["issues"], (old) => {
+      queryClient.setQueryData<{ issues: IssueRow[] }>(issueKeys.lists(), (old) => {
         if (!old) return old;
         return {
           issues: old.issues.map((i) => (i.issueId === issueId ? { ...i, status: prevStatus } : i)),
@@ -184,7 +185,7 @@ export function IssueKanban({ statuses, issues }: { statuses: IssueStatus[]; iss
   }
 
   function handleDecision() {
-    queryClient.invalidateQueries({ queryKey: ["issues"] });
+    queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
   }
 
   return (

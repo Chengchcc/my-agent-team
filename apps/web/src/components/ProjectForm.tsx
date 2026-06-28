@@ -25,6 +25,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { projectKeys, useCreateProject } from "@/features/projects/hooks";
 import { api, type ProjectRow } from "@/lib/api";
 import { fieldClass, labelClass } from "@/lib/form-styles";
 
@@ -80,26 +81,7 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
     }
   }
 
-  const createMutation = useMutation({
-    mutationFn: (values: FormValues) =>
-      api.createProject({
-        name: values.name,
-        autoOrchestrate: values.autoOrchestrate,
-        ...(values.repoUrl ? { repoUrl: values.repoUrl } : {}),
-        ...(values.defaultBranch ? { defaultBranch: values.defaultBranch } : {}),
-      }),
-    onSuccess: () => {
-      toast.success("Project created");
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      setOpen(false);
-      onSuccess?.();
-    },
-    onError: (err) => {
-      const msg = err instanceof Error ? err.message : "Failed to save project";
-      setServerError(msg);
-      toast.error("Failed to save project", { description: msg });
-    },
-  });
+  const createMutation = useCreateProject();
 
   const updateMutation = useMutation({
     mutationFn: (values: FormValues) =>
@@ -111,7 +93,7 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
       }),
     onSuccess: () => {
       toast.success("Project updated");
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: projectKeys.all });
       setOpen(false);
       onSuccess?.();
     },
@@ -124,8 +106,30 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
 
   function onSubmit(values: FormValues) {
     setServerError("");
-    if (isEdit) updateMutation.mutate(values);
-    else createMutation.mutate(values);
+    if (isEdit) {
+      updateMutation.mutate(values);
+    } else {
+      createMutation.mutate(
+        {
+          name: values.name,
+          autoOrchestrate: values.autoOrchestrate,
+          ...(values.repoUrl ? { repoUrl: values.repoUrl } : {}),
+          ...(values.defaultBranch ? { defaultBranch: values.defaultBranch } : {}),
+        },
+        {
+          onSuccess: () => {
+            toast.success("Project created");
+            setOpen(false);
+            onSuccess?.();
+          },
+          onError: (err) => {
+            const msg = err instanceof Error ? err.message : "Failed to save project";
+            setServerError(msg);
+            toast.error("Failed to save project", { description: msg });
+          },
+        },
+      );
+    }
   }
 
   const hintClass = "text-[10px] text-[var(--mute)]";

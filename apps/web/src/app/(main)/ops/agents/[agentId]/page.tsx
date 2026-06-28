@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { QueryState } from "@/components/ops/QueryState";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
@@ -12,24 +11,14 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { api } from "@/lib/api";
+import { useOpsAgentRuntime, useOpsRuns } from "@/features/ops/hooks";
 
 export default function AgentRuntimePage() {
   const { agentId } = useParams<{ agentId: string }>();
 
-  const runtimeQuery = useQuery({
-    queryKey: ["ops", "agentRuntime", agentId],
-    queryFn: () => api.getAgentRuntime(agentId),
-    enabled: !!agentId,
-    refetchInterval: 10_000,
-  });
+  const runtimeQuery = useOpsAgentRuntime(agentId);
 
-  const runsQuery = useQuery({
-    queryKey: ["ops", "runs", agentId],
-    queryFn: () => api.listOpsRuns({ agentId, limit: 20 }),
-    enabled: !!agentId,
-    refetchInterval: 10_000,
-  });
+  const runsQuery = useOpsRuns({ agentId });
 
   return (
     <div className="container mx-auto p-6 space-y-6">

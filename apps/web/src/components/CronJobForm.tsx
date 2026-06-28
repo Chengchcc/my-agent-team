@@ -1,13 +1,12 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,6 +33,8 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { useAgentList } from "@/features/agents/hooks";
+import { cronKeys, useCreateCronJob } from "@/features/cron/hooks";
 import { api, type CronJobRow } from "@/lib/api";
 import { fieldClass, labelClass } from "@/lib/form-styles";
 
@@ -62,7 +63,7 @@ export function CronJobForm({ editCronJob, onSuccess }: CronJobFormProps) {
   const [open, setOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
-  const { data: agentsData } = useQuery({ queryKey: ["agents"], queryFn: api.listAgents });
+  const { data: agentsData } = useAgentList();
   const agents = (agentsData ?? []).filter((a) => !a.archivedAt);
 
   const form = useForm<FormValues>({
@@ -113,25 +114,13 @@ export function CronJobForm({ editCronJob, onSuccess }: CronJobFormProps) {
     setOpen(o);
   }
 
-  const createMu = useMutation({
-    mutationFn: api.createCronJob,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cron-jobs"] });
-      toast.success("Schedule created");
-      setOpen(false);
-      onSuccess?.();
-    },
-    onError: (e) => {
-      setServerError(String(e));
-      toast.error("Failed to create schedule");
-    },
-  });
+  const createMu = useCreateCronJob();
 
   const updateMu = useMutation({
     mutationFn: (body: Parameters<typeof api.updateCronJob>[1]) =>
       api.updateCronJob(editCronJob!.cronJobId, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cron-jobs"] });
+      qc.invalidateQueries({ queryKey: cronKeys.all });
       toast.success("Schedule updated");
       setOpen(false);
       onSuccess?.();
@@ -152,7 +141,17 @@ export function CronJobForm({ editCronJob, onSuccess }: CronJobFormProps) {
       const { enabled, ...patch } = values;
       updateMu.mutate(patch);
     } else {
-      createMu.mutate(values);
+      createMu.mutate(values, {
+        onSuccess: () => {
+          toast.success("Schedule created");
+          setOpen(false);
+          onSuccess?.();
+        },
+        onError: (e) => {
+          setServerError(String(e));
+          toast.error("Failed to create schedule");
+        },
+      });
     }
   }
 

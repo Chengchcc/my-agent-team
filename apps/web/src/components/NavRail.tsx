@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ActivityIcon,
   BotIcon,
@@ -39,6 +39,12 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { useAgentList } from "@/features/agents/hooks";
+import {
+  conversationKeys,
+  useConversationList,
+  useDeleteConversation,
+} from "@/features/conversations/hooks";
 import { api } from "@/lib/api";
 
 function NavContent() {
@@ -47,37 +53,14 @@ function NavContent() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const { data: agents } = useQuery({
-    queryKey: ["agents"],
-    queryFn: api.listAgents,
-    staleTime: 30_000,
-  });
+  const { data: agents } = useAgentList();
 
   const activeAgents = (agents ?? []).filter((a) => !a.archivedAt);
   const agentIdMatch = pathname.match(/\/agents\/([^/]+)/);
   const selectedAgentId = agentIdMatch?.[1] ?? null;
 
-  const { data: conversations } = useQuery({
-    queryKey: ["conversations", selectedAgentId],
-    queryFn: () => api.listConversations(selectedAgentId!),
-    enabled: !!selectedAgentId,
-    staleTime: 10_000,
-  });
-
-  const deleteConversation = useMutation({
-    mutationFn: (id: string) => api.deleteConversation(id),
-    onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: ["conversations", selectedAgentId] });
-      if (pathname === `/conversations/${id}`) {
-        router.push(selectedAgentId ? `/agents/${selectedAgentId}` : "/");
-      }
-    },
-    onError: (err) => {
-      toast.error("Failed to delete conversation", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    },
-  });
+  const { data: conversations } = useConversationList(selectedAgentId!);
+  const deleteConversation = useDeleteConversation();
 
   const createConversation = useMutation({
     mutationFn: (input: { displayName?: string }) =>
@@ -190,7 +173,23 @@ function NavContent() {
                         <DropdownMenuItem
                           variant="destructive"
                           disabled={deleteConversation.isPending}
-                          onClick={() => deleteConversation.mutate(conv.conversationId)}
+                          onClick={() =>
+                            deleteConversation.mutate(conv.conversationId, {
+                              onSuccess: () => {
+                                queryClient.invalidateQueries({
+                                  queryKey: conversationKeys.byAgent(selectedAgentId!),
+                                });
+                                if (pathname === `/conversations/${conv.conversationId}`) {
+                                  router.push(selectedAgentId ? `/agents/${selectedAgentId}` : "/");
+                                }
+                              },
+                              onError: (err) => {
+                                toast.error("Failed to delete conversation", {
+                                  description: err instanceof Error ? err.message : "Unknown error",
+                                });
+                              },
+                            })
+                          }
                         >
                           <Trash2Icon />
                           Delete conversation

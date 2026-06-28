@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { AgentForm } from "@/components/AgentForm";
@@ -15,17 +14,14 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
+import { useAgentDetail } from "@/features/agents/hooks";
 
 type Tab = "threads" | "identity";
 
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [tab, setTab] = useState<Tab>("threads");
-  const { data: agent, isLoading } = useQuery({
-    queryKey: ["agent", id],
-    queryFn: () => api.getAgent(id),
-  });
+  const { data: agent, isLoading } = useAgentDetail(id);
 
   if (isLoading) {
     return (

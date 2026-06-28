@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { agentKeys, useCreateAgent, useUpdateAgent } from "@/features/agents/hooks";
 import { type AgentRow, api, type LarkSetupSession } from "@/lib/api";
 
 const formSchema = z.object({
@@ -99,8 +100,8 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
         setSetupSession(session);
         if (session.status !== "pending") {
           clearInterval(interval);
-          queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
-          queryClient.invalidateQueries({ queryKey: ["agents"] });
+          queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
+          queryClient.invalidateQueries({ queryKey: agentKeys.lists() });
         }
       } catch {
         clearInterval(interval);
@@ -129,42 +130,39 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
     return body;
   }
 
-  const createMutation = useMutation({
-    mutationFn: (values: FormValues) => api.createAgent(buildBody(values)),
-    onSuccess: (agent) => {
-      toast.success("Agent created");
-      queryClient.invalidateQueries({ queryKey: ["agents"] });
-      form.reset();
-      setOpen(false);
-      router.push(`/agents/${(agent as AgentRow).id}`);
-    },
-    onError: (err) => {
-      const msg = err instanceof Error ? err.message : "Failed to save agent";
-      setServerError(msg);
-      toast.error("Failed to save agent", { description: msg });
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: (values: FormValues) => api.updateAgent(editAgent!.id, buildBody(values)),
-    onSuccess: () => {
-      toast.success("Agent updated");
-      queryClient.invalidateQueries({ queryKey: ["agent", editAgent!.id] });
-      queryClient.invalidateQueries({ queryKey: ["agents"] });
-      setOpen(false);
-      onSuccess?.();
-    },
-    onError: (err) => {
-      const msg = err instanceof Error ? err.message : "Failed to save agent";
-      setServerError(msg);
-      toast.error("Failed to save agent", { description: msg });
-    },
-  });
+  const createMutation = useCreateAgent();
+  const updateMutation = useUpdateAgent(editAgent?.id ?? "");
 
   function onSubmit(values: FormValues) {
     setServerError("");
-    if (isEdit) updateMutation.mutate(values);
-    else createMutation.mutate(values);
+    if (isEdit) {
+      updateMutation.mutate(buildBody(values), {
+        onSuccess: () => {
+          toast.success("Agent updated");
+          setOpen(false);
+          onSuccess?.();
+        },
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Failed to save agent";
+          setServerError(msg);
+          toast.error("Failed to save agent", { description: msg });
+        },
+      });
+    } else {
+      createMutation.mutate(buildBody(values), {
+        onSuccess: (agent) => {
+          toast.success("Agent created");
+          form.reset();
+          setOpen(false);
+          router.push(`/agents/${(agent as AgentRow).id}`);
+        },
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Failed to save agent";
+          setServerError(msg);
+          toast.error("Failed to save agent", { description: msg });
+        },
+      });
+    }
   }
 
   // onSubmit is now fire-and-forget (mutate, not await), so react-hook-form's

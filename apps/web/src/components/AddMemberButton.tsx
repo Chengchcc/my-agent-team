@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bot, Check, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { conversationKeys } from "@/features/conversations/hooks";
+import { useAgentList } from "@/features/agents/hooks";
 import { type AgentRow, api } from "@/lib/api";
 import type { SenderRef } from "@/lib/conversation-reducer";
 
@@ -23,11 +25,7 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
 
-  const { data: agents } = useQuery({
-    queryKey: ["agents"],
-    queryFn: api.listAgents,
-    staleTime: 60_000,
-  });
+  const { data: agents } = useAgentList();
 
   const presentMemberIds = useMemo(
     () =>
@@ -60,7 +58,7 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
       }),
     onSuccess: () => {
       setOpen(false);
-      qc.invalidateQueries({ queryKey: ["conv", conversationId] });
+      qc.invalidateQueries({ queryKey: conversationKeys.detail(conversationId) });
     },
   });
 

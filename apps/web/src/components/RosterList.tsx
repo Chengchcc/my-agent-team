@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bot, UserCircle, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { conversationKeys } from "@/features/conversations/hooks";
 import { api } from "@/lib/api";
 import type { SenderRef } from "@/lib/conversation-reducer";
 import { AddMemberButton } from "./AddMemberButton";
@@ -23,7 +24,7 @@ export function RosterList({ conversationId, roster, viewerMemberId, onClose }: 
     mutationFn: (memberId: string) => api.removeConversationMember(conversationId, memberId),
     onSuccess: () => {
       toast.success("Member removed");
-      qc.invalidateQueries({ queryKey: ["conv", conversationId] });
+      qc.invalidateQueries({ queryKey: conversationKeys.detail(conversationId) });
     },
     onError: (err) => {
       toast.error("Failed to remove member", {

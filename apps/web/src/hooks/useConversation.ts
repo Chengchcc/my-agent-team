@@ -4,6 +4,7 @@ import { safeParseLedgerEntry } from "@my-agent-team/conversation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useReducer } from "react";
 import { toast } from "sonner";
+import { conversationKeys } from "@/features/conversations/hooks";
 import { api, type ConversationSnapshot } from "@/lib/api";
 import {
   type ConvState,
@@ -43,7 +44,7 @@ export function useConversation(
 
   // 1) Snapshot bootstrap (roster + viewerMemberId)
   const snap = useQuery({
-    queryKey: ["conv", conversationId],
+    queryKey: conversationKeys.detail(conversationId),
     queryFn: () => api.getConversation(conversationId),
     initialData: preFetchedSnapshot ?? undefined,
   });

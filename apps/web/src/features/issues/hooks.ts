@@ -9,7 +9,7 @@ function issueListQuery(filters?: Record<string, unknown>) {
   });
 }
 function issueDetailQuery(id: string) {
-  return queryOptions({ queryKey: issueKeys.detail(id), queryFn: () => api.getIssue(id) });
+  return queryOptions({ queryKey: issueKeys.detail(id), queryFn: () => api.getIssueDetail(id) });
 }
 function issueMetaQuery() {
   return queryOptions({ queryKey: issueKeys.meta(), queryFn: api.getIssueMeta });

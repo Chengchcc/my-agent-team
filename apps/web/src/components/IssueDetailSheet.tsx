@@ -18,7 +18,9 @@ import {
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
-import type { IssueEvent, IssueRow, IssueRunSummary, IssueStatus } from "@/lib/api";
+import { useAgentList } from "@/features/agents/hooks";
+import { issueKeys, useApplyTransition } from "@/features/issues/hooks";
+import type { IssueEvent, IssueRow, IssueRunSummary } from "@/lib/api";
 import { api } from "@/lib/api";
 import { dateInputToEpoch, epochToDateInput } from "@/lib/date-input";
 import { COLUMN_LABEL, FORWARD_TRANSITIONS } from "@/lib/issue-labels";
@@ -107,12 +109,7 @@ export function IssueDetailSheet({
   const [editing, setEditing] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data: agents } = useQuery({
-    queryKey: ["agents"],
-    queryFn: api.listAgents,
-    enabled: open,
-    staleTime: 60_000,
-  });
+  const { data: agents } = useAgentList({ enabled: open });
   const agentNames = new Map((agents ?? []).map((a) => [a.id, a.name]));
 
   const { data: detail, isLoading } = useQuery({
@@ -168,7 +165,7 @@ export function IssueDetailSheet({
       estimatedCompletionAt: number | null;
     }) => api.updateIssue(issue.issueId, formData),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
       toast.success("Issue updated");
       setEditing(false);
       onClose();
@@ -176,19 +173,12 @@ export function IssueDetailSheet({
     onError: (err: Error) => toast.error("Failed to save", { description: err.message }),
   });
 
-  const transitionMutation = useMutation({
-    mutationFn: (to: IssueStatus) => api.applyTransition(issue.issueId, to),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
-      onClose();
-    },
-    onError: (err: Error) => toast.error("Failed to transition", { description: err.message }),
-  });
+  const transitionMutation = useApplyTransition(issue.issueId);
 
   const deleteMutation = useMutation({
     mutationFn: () => api.deleteIssue(issue.issueId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
       toast.success("Issue deleted");
       onClose();
     },
@@ -376,7 +366,17 @@ export function IssueDetailSheet({
                 variant="outline"
                 className="text-xs"
                 disabled={transitionMutation.isPending}
-                onClick={() => transitionMutation.mutate(toStatus)}
+                onClick={() =>
+                  transitionMutation.mutate(toStatus, {
+                    onSuccess: () => {
+                      onClose();
+                    },
+                    onError: (err) =>
+                      toast.error("Failed to transition", {
+                        description: err instanceof Error ? err.message : "Unknown error",
+                      }),
+                  })
+                }
               >
                 移动到 {COLUMN_LABEL[toStatus] ?? toStatus}
               </Button>

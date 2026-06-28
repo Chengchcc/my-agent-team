@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback } from "react";
@@ -22,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api } from "@/lib/api";
+import { useOpsSessions } from "@/features/ops/hooks";
 
 export const dynamic = "force-dynamic";
 
@@ -60,16 +59,9 @@ function SessionsPageInner() {
     router.replace("/ops/sessions", { scroll: false });
   }, [router]);
 
-  const { data: sessions = [] } = useQuery({
-    queryKey: ["ops", "sessions", { status }],
-    queryFn: () =>
-      api.listOpsSessions({
-        limit: 100,
-        ...(status ? { status } : {}),
-      }),
-    staleTime: 10_000,
-    refetchInterval: 30_000,
-  });
+  const sessionsQueryParams: Record<string, string> = {};
+  if (status) sessionsQueryParams.status = status;
+  const { data: sessions = [] } = useOpsSessions(sessionsQueryParams);
 
   return (
     <div className="container mx-auto p-6 space-y-6">
