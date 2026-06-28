@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@my-agent-team/conversation": "workspace:*",
     "zod": "^3.23.0"
   },
   "peerDependencies": {

@@ -122,6 +122,7 @@
       "name": "@my-agent-team/api-contract",
       "version": "0.1.0",
       "dependencies": {
+        "@my-agent-team/conversation": "workspace:*",
         "zod": "^3.23.0",
       },
       "peerDependencies": {

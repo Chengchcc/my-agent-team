@@ -1,32 +1,88 @@
-import type { z } from "zod";
+import { z } from "zod";
+import { LedgerEntry } from "@my-agent-team/conversation";
+
+// ── SSE payload schemas (single source for backend encoder + frontend decoder) ──
+
+/** Issue board event payload — the full IssueRow as seen by the frontend. */
+export const IssueRowSchema = z.object({
+  issueId: z.string().min(1),
+  projectId: z.string().min(1),
+  title: z.string(),
+  status: z.enum(["draft", "planned", "in_progress", "in_review", "done"]),
+  sessionId: z.string().min(1),
+  description: z.string(),
+  priority: z.enum(["P0", "P1", "P2", "P3"]),
+  estimatedCompletionAt: z.number().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+/** Issue timeline event payload. */
+export const IssueEventSchema = z.object({
+  seq: z.number().int().positive(),
+  issueId: z.string().min(1),
+  kind: z.enum([
+    "created",
+    "started",
+    "run.started",
+    "run.ended",
+    "deliverable.submitted",
+    "status.advanced",
+    "human.decided",
+  ]),
+  payload: z.record(z.unknown()),
+  ts: z.number(),
+});
+
+// ── SSE event maps (event name → zod schema) ──
+
+/** Conversation SSE events — reuse LedgerEntry from @my-agent-team/conversation. */
+export const conversationEvents = {
+  message: LedgerEntry,
+  "member.joined": LedgerEntry,
+  "member.left": LedgerEntry,
+  todo: LedgerEntry,
+} as const satisfies SSEEventMap;
+
+/** Issue board SSE events — each event carries an IssueRow. */
+export const issueBoardEvents = {
+  issue: IssueRowSchema,
+} as const satisfies SSEEventMap;
+
+/** Issue timeline SSE events — each event carries an IssueEvent. */
+export const issueTimelineEvents = {
+  "issue-event": IssueEventSchema,
+} as const satisfies SSEEventMap;
+
+// ── SSE endpoint registry (path template + event map, single source) ──
 
 /**
- * SSE event-name → zod-schema map.
- *
- * Single source of truth for both:
- *  - backend sseEncoder (parse → serialize → sseResponse)
- *  - frontend typedSource (EventSource addEventListener → JSON.parse → safeParse)
- *
- * Every key is an SSE `event:` string; every value is the zod schema for its `data:` payload.
- * Adding a new event without a corresponding schema entry is a compile error.
+ * Registry of all SSE endpoints — binds path template to its event map.
+ * Backend: matches for Elysia route mounting.
+ * Frontend: `openSSE("conversationEvents", { id })` → typedSource with correct map.
  */
+export const sseEndpoints = {
+  conversationEvents: {
+    path: (p: { id: string }) => `/conversations/${p.id}/events`,
+    events: conversationEvents,
+  },
+  issueBoard: {
+    path: () => `/issues/events`,
+    events: issueBoardEvents,
+  },
+  issueTimeline: {
+    path: (p: { id: string }) => `/issues/${p.id}/timeline/events`,
+    events: issueTimelineEvents,
+  },
+} as const;
+
+// ── Types ──
+
 export type SSEEventMap = Record<string, z.ZodType<unknown>>;
 
-/**
- * SSE endpoint descriptor — binds a path template to its event map.
- * Both the URL builder (openSSE) and the typed consumer (typedSource) read from the same entry.
- */
 export interface SSEEndpoint<M extends SSEEventMap> {
-  /** Path template function — returns the relative path (without /api/bff prefix). */
   path: (...args: unknown[]) => string;
-  /** Event map for this endpoint — event names → zod schemas. */
   events: M;
 }
 
-/**
- * Registry of all SSE endpoints.
- *
- * Frontend: `openSSE("conversationEvents", { id })` → typedSource with the correct map.
- * Backend: matches against registered paths for Elysia route mounting.
- */
 export type SSEEndpoints = Record<string, SSEEndpoint<SSEEventMap>>;
