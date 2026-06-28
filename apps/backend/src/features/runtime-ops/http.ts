@@ -1,5 +1,5 @@
-import { json } from "../../http/response.js";
 import { z } from "zod";
+import { json } from "../../http/response.js";
 import type { RuntimeOpsService } from "./service.js";
 
 const larkHeartbeatSchema = z.object({
@@ -100,7 +100,11 @@ export function opsRoutes(svc: RuntimeOpsService) {
     /** M16: Internal surface heartbeat endpoint. Payload pre-sanitized by lark-bot. */
     async larkHeartbeat(req: Request): Promise<Response> {
       let body: unknown;
-      try { body = await req.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+      try {
+        body = await req.json();
+      } catch {
+        return json({ error: "Invalid JSON body" }, 400);
+      }
       const parsed = larkHeartbeatSchema.safeParse(body);
       if (!parsed.success) return json({ error: parsed.error.issues }, 400);
       svc.ingestLarkHeartbeat(parsed.data);
