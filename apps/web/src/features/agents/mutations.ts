@@ -5,7 +5,7 @@ import { agentKeys } from "./query-keys";
 export function useCreateAgent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.createAgent(body),
+    mutationFn: (body: Parameters<typeof api.createAgent>[0]) => api.createAgent(body),
     onSuccess: () => qc.invalidateQueries({ queryKey: agentKeys.lists() }),
   });
 }

@@ -87,7 +87,7 @@ describe("P7: ledger single authority for assistant messages", () => {
     const entries = port.getLedgerEntries(cid);
     const terminal = entries.find((e) => e.spanId === "r-p7-term" && e.kind === "message");
     expect(terminal).toBeTruthy();
-    expect(terminal!.content).toContain('"state":"done"');
+    expect((terminal!.content as unknown as Record<string, unknown>).state).toBe("done");
   });
 
   test("projection broadcast failure does not block ledger write", async () => {
@@ -129,7 +129,7 @@ describe("B1: todo_update accumulates to onRunComplete appendTodo", () => {
     const todoEntry = entries.find((e) => e.kind === "todo");
     expect(todoEntry).toBeTruthy();
     expect(todoEntry!.senderMemberId).toBe("agent-1");
-    expect(JSON.parse(todoEntry!.content)).toMatchObject({
+    expect(todoEntry!.content as unknown as Record<string, unknown>).toMatchObject({
       todos: [{ step: "1", status: "in_progress" }],
     });
   });

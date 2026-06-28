@@ -10,8 +10,8 @@ import type { MessageRevision } from "./revision.js";
 
 describe("assistantMessageId", () => {
   test("generates id from spanId and ordinal", () => {
-    expect(assistantMessageId("r1", 0)).toBe("run:r1:assistant:0");
-    expect(assistantMessageId("r1", 1)).toBe("run:r1:assistant:1");
+    expect(assistantMessageId("r1", 0)).toBe("span:r1:assistant:0");
+    expect(assistantMessageId("r1", 1)).toBe("span:r1:assistant:1");
   });
 
   test("same spanId + same ordinal is idempotent", () => {

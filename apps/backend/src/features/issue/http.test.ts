@@ -126,17 +126,17 @@ describe("submitDeliverable", () => {
     expect(body.deliverable.kind).toBe("plan");
   });
 
-  test("returns 400 on invalid kind", async () => {
+  test("returns 201 for any non-empty kind (deliverable kinds are user-defined)", async () => {
     const { issueSvc, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
 
     const res = await app.handle(
       makeDeliverableRequest(issue.issueId, {
-        kind: "INVALID_KIND",
+        kind: "custom_deliverable_kind",
         fields: {},
       }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(201);
   });
 
   test("returns 404 for unknown issue", async () => {
@@ -288,15 +288,15 @@ describe("reviewDecision", () => {
     expect(getRejectedIssue()).not.toBeNull();
   });
 
-  test("reject without note → 400", async () => {
+  test("reject without note → 422", async () => {
     const { issueSvc, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     issueSvc.applyTransition(issue.issueId, "planned");
     issueSvc.applyTransition(issue.issueId, "in_progress");
     issueSvc.applyTransition(issue.issueId, "in_review");
 
-    const res = await app.handle(makeReviewRequest(issue.issueId, { decision: "reject" }));
-    expect(res.status).toBe(400);
+    const res = await app.handle(makeReviewRequest(issue.issueId, { decision: "reject" } as Record<string, unknown>));
+    expect(res.status).toBe(422);
   });
 
   test("non-in_review status → 409", async () => {
@@ -314,10 +314,15 @@ describe("reviewDecision", () => {
     expect(res.status).toBe(404);
   });
 
-  test("invalid decision → 400", async () => {
-    const { app } = setup();
-    const res = await app.handle(makeReviewRequest("issue_001", { decision: "invalid" }));
-    expect(res.status).toBe(400);
+  test("invalid decision → 422", async () => {
+    const { issueSvc, app } = setup();
+    const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
+    issueSvc.applyTransition(issue.issueId, "planned");
+    issueSvc.applyTransition(issue.issueId, "in_progress");
+    issueSvc.applyTransition(issue.issueId, "in_review");
+
+    const res = await app.handle(makeReviewRequest(issue.issueId, { decision: "invalid" } as Record<string, unknown>));
+    expect(res.status).toBe(422);
   });
 
   test("approve emits human.decided + status.advanced(by:human)", async () => {

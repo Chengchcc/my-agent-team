@@ -216,14 +216,14 @@ export async function onRunComplete(
   if (acc) {
     clearAccumulator(spanId);
     if (acc.lastTodoUpdate) {
-      void convSvc
-        .appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos)
-        .catch((err) =>
-          console.error(
-            `[conversation] appendTodo failed for ${spanId}:`,
-            err instanceof Error ? err.message : String(err),
-          ),
+      try {
+        await convSvc.appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos);
+      } catch (err) {
+        console.error(
+          `[conversation] appendTodo failed for ${spanId}:`,
+          err instanceof Error ? err.message : String(err),
         );
+      }
     }
     if (acc.mentionedMemberIds.size > 0) {
       void convSvc

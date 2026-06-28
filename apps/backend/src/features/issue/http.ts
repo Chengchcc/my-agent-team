@@ -1,9 +1,9 @@
+import type { IssueEvent } from "@my-agent-team/api-contract";
 import {
   createSseEncoder,
   issueBoardEvents,
   issueTimelineEvents,
 } from "@my-agent-team/api-contract";
-import type { IssueEvent } from "@my-agent-team/api-contract";
 import { Elysia, t } from "elysia";
 import { sseResponse } from "../../http/response.js";
 import type { DeliverableService } from "../deliverable/service.js";
@@ -227,7 +227,7 @@ export function issueRoutes(
                 issueId,
                 fromStatus: "in_review",
                 kind: "rework_feedback",
-                fields: { note: body.note! },
+                fields: { note: body.note },
               });
               emitIssueEvent(opsStore, issueId, "deliverable.submitted", {
                 kind: "rework_feedback",
@@ -269,10 +269,10 @@ export function issueRoutes(
           }
         },
         {
-          body: t.Object({
-            decision: t.Union([t.Literal("approve"), t.Literal("reject")]),
-            note: t.Optional(t.String()),
-          }),
+          body: t.Union([
+            t.Object({ decision: t.Literal("approve") }),
+            t.Object({ decision: t.Literal("reject"), note: t.String({ minLength: 1 }) }),
+          ]),
         },
       )
       .get("/api/issues/:id/timeline", ({ params: { id: issueId } }) => {
@@ -304,22 +304,32 @@ export function issueRoutes(
       .get("/api/issues/events", ({ request }) => {
         const stream = svc.subscribeIssues({ signal: request.signal });
         const encodeIssue = createSseEncoder(issueBoardEvents);
-        return sseResponse(stream, (item) => {
-          if ("_heartbeat" in item) throw new Error("unreachable: heartbeat filtered by sseResponse");
-          const row: IssueRow = item;
-          return encodeIssue("issue", row, row.issueId);
-        }, request.signal);
+        return sseResponse(
+          stream,
+          (item) => {
+            if ("_heartbeat" in item)
+              throw new Error("unreachable: heartbeat filtered by sseResponse");
+            const row: IssueRow = item;
+            return encodeIssue("issue", row, row.issueId);
+          },
+          request.signal,
+        );
       })
       .get("/api/issues/:id/timeline/events", ({ request, params: { id: issueId } }) => {
         if (!svc.port.getIssue(issueId))
           return Response.json({ error: "Not found" }, { status: 404 });
         const stream = subscribeIssueTimeline(opsStore, issueId, { signal: request.signal });
         const encodeTimeline = createSseEncoder(issueTimelineEvents);
-        return sseResponse(stream, (item) => {
-          if ("_heartbeat" in item) throw new Error("unreachable: heartbeat filtered by sseResponse");
-          const event: IssueEvent = item;
-          return encodeTimeline("issue-event", event, String(event.seq));
-        }, request.signal);
+        return sseResponse(
+          stream,
+          (item) => {
+            if ("_heartbeat" in item)
+              throw new Error("unreachable: heartbeat filtered by sseResponse");
+            const event: IssueEvent = item;
+            return encodeTimeline("issue-event", event, String(event.seq));
+          },
+          request.signal,
+        );
       })
   );
 }

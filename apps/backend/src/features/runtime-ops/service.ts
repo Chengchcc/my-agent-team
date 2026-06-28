@@ -255,37 +255,43 @@ export function createRuntimeOpsService(deps: {
       return { agentId, agentName: resolveName(agentId), surfaces: result };
     },
 
-    getTraceDetail(traceId: string): unknown {
+    getTraceDetail(
+      traceId: string,
+    ): { origins: { spanId: string; traceId: string }[]; events: ControlPlaneEvent[] } | null {
       const origins = opsStore.listSpanOrigins().filter((o) => o.traceId === traceId);
       if (origins.length === 0) {
         const opsEvents = opsStore.getControlPlaneEventsByTrace(traceId);
         if (opsEvents.length === 0) return null;
       }
-      const events = opsStore.getControlPlaneEventsByTrace(traceId).map((e) => ({
-        seq: e.seq,
-        spanId: e.spanId,
-        kind: e.kind,
-        ts: e.ts,
-        traceId: e.traceId,
-        attemptSeq: e.attemptSeq,
-      }));
+      const events = opsStore.getControlPlaneEventsByTrace(traceId);
       return { origins: origins.map((o) => ({ spanId: o.spanId, traceId: o.traceId })), events };
     },
 
     listSurfaces(): Array<{
       agentId: string;
+      agentName: string;
       surface: string;
       status: string;
       lastSeenAt: number | null;
       lastError: string | null;
+      counters: Record<string, number>;
     }> {
-      return opsStore.listSurfaceHealths().map((sh) => ({
-        agentId: sh.agentId,
-        surface: sh.surface,
-        status: sh.status,
-        lastSeenAt: sh.lastSeenAt,
-        lastError: sh.lastError,
-      }));
+      return opsStore.listSurfaceHealths().map((sh) => {
+        const counters: Record<string, number> = {};
+        const payload = sh.payload as Record<string, unknown>;
+        for (const [k, v] of Object.entries(payload)) {
+          if (typeof v === "number") counters[k] = v;
+        }
+        return {
+          agentId: sh.agentId,
+          agentName: resolveName(sh.agentId),
+          surface: sh.surface,
+          status: sh.status,
+          lastSeenAt: sh.lastSeenAt,
+          lastError: sh.lastError,
+          counters,
+        };
+      });
     },
 
     async getRunInsights(spanId: string): Promise<RunInsights | null> {

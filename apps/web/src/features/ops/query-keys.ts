@@ -5,7 +5,7 @@ export const opsKeys = {
   runInsights: (id: string) => [...opsKeys.all, "runInsights", id] as const,
   insightsSummary: (range: { from: number; to: number }) =>
     [...opsKeys.all, "insights", "summary", range] as const,
-  sessions: (params?: Record<string, string>) =>
+  sessions: (params?: Record<string, unknown>) =>
     [...opsKeys.all, "sessions", params ?? {}] as const,
   sessionDetail: (id: string) => [...opsKeys.all, "sessionDetail", id] as const,
   agentRuntime: (id: string) => [...opsKeys.all, "agentRuntime", id] as const,

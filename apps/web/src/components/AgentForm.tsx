@@ -110,7 +110,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
     return () => clearInterval(interval);
   }, [setupSession?.status, setupSession?.setupId, editAgent?.id, queryClient]);
 
-  function buildBody(values: FormValues): Record<string, unknown> {
+  function buildBody(values: FormValues): Parameters<typeof api.createAgent>[0] {
     const body: Record<string, unknown> = {
       name: values.name,
       model: {
@@ -127,7 +127,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
         ...(values.botDisplayName ? { botDisplayName: values.botDisplayName } : {}),
       };
     else if (isEdit && editAgent?.lark?.enabled) body.lark = { enabled: false };
-    return body;
+    return body as Parameters<typeof api.createAgent>[0];
   }
 
   const createMutation = useCreateAgent();

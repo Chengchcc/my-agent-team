@@ -45,7 +45,9 @@ export const api = {
   // Agents
   listAgents: () => unwrap(client.api.agents.get()),
   getAgent: (id: string) => unwrap(client.api.agents({ id }).get()),
-  createAgent: (body: Record<string, unknown>) => unwrap(client.api.agents.post(body)),
+  createAgent: (
+    body: Parameters<typeof client.api.agents.post>[0],
+  ) => unwrap(client.api.agents.post(body)),
   updateAgent: (id: string, body: Record<string, unknown>) =>
     unwrap(client.api.agents({ id }).patch(body)),
   archiveAgent: (id: string) => unwrap(client.api.agents({ id }).delete()),
@@ -89,10 +91,28 @@ export const api = {
   deleteConversation: (id: string) => unwrap(client.api.conversations({ id }).delete()),
   // Ops
   listOpsRuns: (params?: { agentId?: string; status?: string; limit?: number; traceId?: string }) =>
-    unwrap(client.api.ops.runs.get({ query: params as Record<string, string> })),
+    unwrap(
+      client.api.ops.runs.get({
+        query: params
+          ? ({ ...params, limit: params.limit != null ? String(params.limit) : undefined } as Record<
+              string,
+              string | undefined
+            >)
+          : undefined,
+      }),
+    ),
   getOpsRunDetail: (spanId: string) => unwrap(client.api.ops.runs({ id: spanId }).get()),
   listOpsSessions: (params?: { agentId?: string; status?: string; limit?: number }) =>
-    unwrap(client.api.ops.sessions.get({ query: params as Record<string, string> })),
+    unwrap(
+      client.api.ops.sessions.get({
+        query: params
+          ? ({ ...params, limit: params.limit != null ? String(params.limit) : undefined } as Record<
+              string,
+              string | undefined
+            >)
+          : undefined,
+      }),
+    ),
   getOpsSessionDetail: (sessionId: string) =>
     unwrap(client.api.ops.sessions({ id: sessionId }).get()),
   opsCancelRun: (spanId: string) => unwrap(client.api.ops.runs({ id: spanId }).cancel.post()),
@@ -150,8 +170,10 @@ export const api = {
   deleteIssue: (id: string) => unwrap(client.api.issues({ id }).delete()),
   applyTransition: (id: string, to: IssueStatus) =>
     unwrap(client.api.issues({ id }).transition.post({ to })),
-  reviewDecision: (id: string, body: { decision: "approve" | "reject"; note?: string }) =>
-    unwrap(client.api.issues({ id })["review-decision"].post(body)),
+  reviewDecision: (
+    id: string,
+    body: { decision: "approve" } | { decision: "reject"; note: string },
+  ) => unwrap(client.api.issues({ id })["review-decision"].post(body)),
   getIssueDetail: (id: string) => unwrap(client.api.issues({ id }).detail.get()),
   // Column Configs
   listColumnConfigs: (projectId: string) =>

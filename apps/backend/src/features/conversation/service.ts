@@ -485,12 +485,14 @@ export function createConversationService(deps: ConversationServiceDeps) {
       for (const entry of existingEntries) {
         if (entry.kind !== "surface.control") continue;
         try {
-          const c = JSON.parse(entry.content) as {
+          const raw = typeof entry.content === "string" ? JSON.parse(entry.content) : entry.content;
+          const c = raw as {
             type: string;
             requestedByRunId: string;
             newConversationId: string;
+            idempotencyKey?: string;
           };
-          if (c.type === "lark.start_new_conversation" && c.requestedByRunId === requestedByRunId) {
+          if (c.type === "lark.start_new_conversation" && c.idempotencyKey === idempotencyKey) {
             return {
               oldConversationId,
               newConversationId: c.newConversationId,
