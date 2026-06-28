@@ -1,5 +1,8 @@
+import type { IssuePriority, IssueStatus } from "@my-agent-team/api-contract";
 import type { LedgerEntry, Member } from "@my-agent-team/conversation";
 import type { ContentBlock } from "@my-agent-team/message";
+
+export type { IssuePriority, IssueStatus };
 
 // ── Project types (M18.3) ──
 export interface ProjectRow {
@@ -13,8 +16,7 @@ export interface ProjectRow {
 }
 
 // ── Issue types (M18.1) ──
-export type IssueStatus = "draft" | "planned" | "in_progress" | "in_review" | "done";
-export type IssuePriority = "P0" | "P1" | "P2" | "P3";
+// IssueStatus / IssuePriority now imported from @my-agent-team/api-contract (single source)
 export interface IssueRow {
   issueId: string;
   projectId: string;

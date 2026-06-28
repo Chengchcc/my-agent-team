@@ -20,7 +20,5 @@
   "peerDependencies": {
     "elysia": "^1.0.0"
   },
-  "devDependencies": {
-    "@my-agent-team/backend": "workspace:*"
-  }
+  "devDependencies": {}
 }

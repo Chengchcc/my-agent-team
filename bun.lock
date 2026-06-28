@@ -29,6 +29,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@my-agent-team/adapter-anthropic": "workspace:*",
+        "@my-agent-team/api-contract": "workspace:*",
         "@my-agent-team/config": "workspace:*",
         "@my-agent-team/conversation": "workspace:*",
         "@my-agent-team/core": "workspace:*",
@@ -56,6 +57,7 @@
       "dependencies": {
         "@elysiajs/eden": "^1.0.0",
         "@my-agent-team/api-contract": "workspace:*",
+        "@my-agent-team/backend": "workspace:*",
         "@my-agent-team/config": "workspace:*",
         "@my-agent-team/conversation": "workspace:*",
         "@my-agent-team/message": "workspace:*",
@@ -70,7 +72,9 @@
         "@base-ui/react": "^1.5.0",
         "@dnd-kit/core": "^6.3.1",
         "@dnd-kit/utilities": "^3.2.2",
+        "@elysiajs/eden": "^1.0.0",
         "@hookform/resolvers": "^4",
+        "@my-agent-team/api-contract": "workspace:*",
         "@my-agent-team/config": "workspace:*",
         "@my-agent-team/conversation": "workspace:*",
         "@my-agent-team/message": "workspace:*",
@@ -79,6 +83,7 @@
         "@tanstack/react-query": "^5.60.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
+        "elysia": "^1.0.0",
         "lucide-react": "^1.17.0",
         "next": "^15.2.0",
         "next-themes": "^0.4.6",
@@ -117,11 +122,10 @@
       "name": "@my-agent-team/api-contract",
       "version": "0.1.0",
       "dependencies": {
-        "elysia": "^1.0.0",
         "zod": "^3.23.0",
       },
-      "devDependencies": {
-        "@my-agent-team/backend": "workspace:*",
+      "peerDependencies": {
+        "elysia": "^1.0.0",
       },
     },
     "packages/config": {
