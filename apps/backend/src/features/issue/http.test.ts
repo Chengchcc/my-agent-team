@@ -1,4 +1,3 @@
-import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createDeliverableService, sqliteDeliverableAdapter } from "../deliverable/index.js";

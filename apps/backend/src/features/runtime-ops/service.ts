@@ -393,7 +393,7 @@ export function createRuntimeOpsService(deps: {
       // Find all runs with this trace ID
       const origins = opsStore.listSpanOrigins().filter((o) => o.traceId === traceId);
       if (origins.length === 0) {
-        // Also check run_ops_event for trace_id
+        // Also check control_plane_event for trace_id
         const opsEvents = opsStore.getRunEventsByTrace(traceId);
         if (opsEvents.length === 0) return null;
       }
@@ -522,18 +522,15 @@ export function createRuntimeOpsService(deps: {
 
     // -─ Session-level aggregation (B2: /ops/sessions) ──────────
 
-    listSessions(params: {
-      agentId?: string;
-      status?: string;
-      limit?: number;
-    }): Array<{
+    listSessions(params: { agentId?: string; status?: string; limit?: number }): Array<{
       sessionId: string;
       agentId: string;
       spanCount: number;
       lastSpanAt: number | null;
       status: "running" | "done";
     }> {
-      const limit = Number.isFinite(params.limit) && (params.limit ?? 0) > 0 ? Math.floor(params.limit!) : 100;
+      const limit =
+        Number.isFinite(params.limit) && (params.limit ?? 0) > 0 ? Math.floor(params.limit!) : 100;
       const conditions: string[] = [];
       const bindings: Array<string | number> = [];
       if (params.agentId) {

@@ -60,7 +60,7 @@ export class RuntimeOpsStore {
     this.#d = drizzle(db, { schema, casing: "snake_case" });
   }
 
-  // ─── run_ops_event ───
+  // ─── control_plane_event ───
 
   appendRunEvent(input: {
     spanId: string;

@@ -290,11 +290,7 @@ export const api = {
   getOpsRunDetail: (runId: string) => apiFetch<RunOpsDetail>(`ops/runs/${runId}`),
 
   // B2: Session-level endpoints
-  listOpsSessions: (params?: {
-    agentId?: string;
-    status?: string;
-    limit?: number;
-  }) => {
+  listOpsSessions: (params?: { agentId?: string; status?: string; limit?: number }) => {
     const qs = new URLSearchParams();
     if (params?.agentId) qs.set("agentId", params.agentId);
     if (params?.status) qs.set("status", params.status);

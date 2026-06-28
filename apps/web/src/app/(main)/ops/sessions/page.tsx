@@ -133,7 +133,10 @@ function SessionsPageInner() {
               {sessions.map((s) => (
                 <TableRow key={s.sessionId}>
                   <TableCell>
-                    <Link href={`/ops/sessions/${s.sessionId}`} className="font-mono text-primary hover:underline">
+                    <Link
+                      href={`/ops/sessions/${s.sessionId}`}
+                      className="font-mono text-primary hover:underline"
+                    >
                       {s.sessionId}
                     </Link>
                   </TableCell>

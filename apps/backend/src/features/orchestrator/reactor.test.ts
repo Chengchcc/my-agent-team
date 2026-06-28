@@ -1,4 +1,3 @@
-import { openDb } from "../../infra/sqlite/db.js";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {

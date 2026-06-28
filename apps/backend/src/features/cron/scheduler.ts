@@ -1,8 +1,8 @@
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
-import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
 import type { SessionFactory } from "../span/session-factory.js";
+import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
 import type { CronJobRow } from "./domain.js";
 import type { CronJobService } from "./service.js";

@@ -1,7 +1,6 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { RunInsightsPanel } from "@/components/ops/RunInsightsPanel";
@@ -34,8 +33,7 @@ export default function SessionDetailPage() {
     queryKey: ["ops", "sessionDetail", sessionId],
     queryFn: () => api.getOpsSessionDetail(sessionId),
     enabled: !!sessionId,
-    refetchInterval: (q) =>
-      q.state.data?.status === "running" ? 10_000 : false,
+    refetchInterval: (q) => (q.state.data?.status === "running" ? 10_000 : false),
   });
 
   const detail = detailQuery.data;
@@ -58,12 +56,8 @@ export default function SessionDetailPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      {detailQuery.isLoading && (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      )}
-      {detailQuery.isError && (
-        <p className="text-sm text-destructive">Failed to load session.</p>
-      )}
+      {detailQuery.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {detailQuery.isError && <p className="text-sm text-destructive">Failed to load session.</p>}
       {!detail && !detailQuery.isLoading && (
         <p className="text-sm text-muted-foreground">Session not found.</p>
       )}
@@ -104,9 +98,7 @@ export default function SessionDetailPage() {
                     <TableCell>
                       <button
                         onClick={() =>
-                          setSelectedSpanId(
-                            selectedSpanId === span.spanId ? null : span.spanId,
-                          )
+                          setSelectedSpanId(selectedSpanId === span.spanId ? null : span.spanId)
                         }
                         className="font-mono text-primary hover:underline text-left"
                       >
@@ -137,9 +129,7 @@ export default function SessionDetailPage() {
           </div>
 
           {/* Selected span insights */}
-          {selectedSpanId && (
-            <RunInsightsPanel runId={selectedSpanId} />
-          )}
+          {selectedSpanId && <RunInsightsPanel runId={selectedSpanId} />}
         </>
       )}
     </div>

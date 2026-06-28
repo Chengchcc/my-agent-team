@@ -21,8 +21,8 @@ export interface IssueEvent {
 // The 12 removed values were runner/reattach-era vocabulary never written to the database.
 export type RunOpsEventKind =
   | "projection_degraded" // supervisor.ts:157 — critical sink (ledger terminal write) failed
-  | "retry_requested"     // scheduler.ts:139
-  | "retry_started";      // scheduler.ts:152
+  | "retry_requested" // scheduler.ts:139
+  | "retry_started"; // scheduler.ts:152
 
 export interface RunOpsEvent {
   seq: number;
