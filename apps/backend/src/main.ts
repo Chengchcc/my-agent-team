@@ -9,6 +9,7 @@ import {
   resolveObservabilityConfig,
 } from "@my-agent-team/runtime-observability";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createAgentSvc } from "./features/agent/agent-svc-factory.js";
 import { createAgentIdentityStore } from "./features/agent/identity-store.js";
@@ -52,7 +53,6 @@ import {
 import { resumeRoute } from "./features/span/http.js";
 import { createSessionFactory } from "./features/span/session-factory.js";
 import { SpanSupervisor } from "./features/span/supervisor.js";
-import { createRouter } from "./http/router.js";
 import * as backendSchema from "./infra/db/schema.js";
 import { ulid } from "./infra/ids.js";
 import { openDb } from "./infra/sqlite/db.js";
@@ -310,7 +310,7 @@ const resumeHandler = resumeRoute({
   getSessionIdByRunId: (spanId) => opsStore.getRuns([spanId])[0]?.sessionId ?? null,
 });
 
-const router = createRouter(config.authToken, {
+const app = createApp(config.authToken, {
   resumeRun: resumeHandler,
   agents: agentRoutes(
     agentSvc,
@@ -334,7 +334,7 @@ const router = createRouter(config.authToken, {
 
 // ─── Start ────────────────────────────────────────────────────
 
-const server = createServer(config, router);
+const server = createServer(config, app);
 // rediscover removed — AgentSession runs in-process, no daemon to reattach
 server.start();
 cronScheduler.start();
