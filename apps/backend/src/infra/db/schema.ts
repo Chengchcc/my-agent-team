@@ -295,8 +295,6 @@ import { createSelectSchema } from "drizzle-zod";
 
 // ── Simple tables (drizzle-zod auto-generate) ──
 
-export const runSelectSchema = createSelectSchema(run);
-export const attemptSelectSchema = createSelectSchema(attempt);
 export const runOriginSelectSchema = createSelectSchema(runOrigin);
 export const issueSelectSchema = createSelectSchema(issue, {
   status: (s) =>
@@ -346,3 +344,7 @@ export const projectSelectSchema = createSelectSchema(project, {
 export const cronJobSelectSchema = createSelectSchema(cronJob, {
   enabled: (s) => s.transform((v: number) => v !== 0),
 });
+
+// Compile-time alignment between drizzle `issue` table and shared IssueRow type
+// is enforced by issue/adapter-sqlite.ts — issueSelectSchema.parse() return type
+// must satisfy IssueRow, so any drizzle column drift fails tsc at the adapter.

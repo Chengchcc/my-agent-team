@@ -4,7 +4,7 @@ import { z } from "zod";
 // ── SSE payload schemas (single source for backend encoder + frontend decoder) ──
 
 /** Issue board event payload — the full IssueRow as seen by the frontend. */
-export const IssueRowSchema = z.object({
+export const issueRowSchema = z.object({
   issueId: z.string().min(1),
   projectId: z.string().min(1),
   title: z.string(),
@@ -17,8 +17,10 @@ export const IssueRowSchema = z.object({
   updatedAt: z.number(),
 });
 
+export type IssueRow = z.infer<typeof issueRowSchema>;
+
 /** Issue timeline event payload. */
-export const IssueEventSchema = z.object({
+export const issueEventSchema = z.object({
   seq: z.number().int().positive(),
   issueId: z.string().min(1),
   kind: z.enum([
@@ -34,6 +36,8 @@ export const IssueEventSchema = z.object({
   ts: z.number(),
 });
 
+export type IssueEvent = z.infer<typeof issueEventSchema>;
+
 // ── SSE event maps (event name → zod schema) ──
 
 /** Conversation SSE events — reuse LedgerEntry from @my-agent-team/conversation. */
@@ -46,12 +50,12 @@ export const conversationEvents = {
 
 /** Issue board SSE events — each event carries an IssueRow. */
 export const issueBoardEvents = {
-  issue: IssueRowSchema,
+  issue: issueRowSchema,
 } as const satisfies SSEEventMap;
 
 /** Issue timeline SSE events — each event carries an IssueEvent. */
 export const issueTimelineEvents = {
-  "issue-event": IssueEventSchema,
+  "issue-event": issueEventSchema,
 } as const satisfies SSEEventMap;
 
 // ── SSE endpoint registry (path template + event map, single source) ──

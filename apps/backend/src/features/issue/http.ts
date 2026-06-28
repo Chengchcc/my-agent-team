@@ -3,6 +3,7 @@ import {
   issueBoardEvents,
   issueTimelineEvents,
 } from "@my-agent-team/api-contract";
+import type { IssueEvent } from "@my-agent-team/api-contract";
 import { Elysia, t } from "elysia";
 import { sseResponse } from "../../http/response.js";
 import type { DeliverableService } from "../deliverable/service.js";
@@ -303,22 +304,22 @@ export function issueRoutes(
       .get("/api/issues/events", ({ request }) => {
         const stream = svc.subscribeIssues({ signal: request.signal });
         const encodeIssue = createSseEncoder(issueBoardEvents);
-        return sseResponse(
-          stream,
-          (row) => encodeIssue("issue", row, (row as { issueId: string }).issueId),
-          request.signal,
-        );
+        return sseResponse(stream, (item) => {
+          if ("_heartbeat" in item) throw new Error("unreachable: heartbeat filtered by sseResponse");
+          const row: IssueRow = item;
+          return encodeIssue("issue", row, row.issueId);
+        }, request.signal);
       })
       .get("/api/issues/:id/timeline/events", ({ request, params: { id: issueId } }) => {
         if (!svc.port.getIssue(issueId))
           return Response.json({ error: "Not found" }, { status: 404 });
         const stream = subscribeIssueTimeline(opsStore, issueId, { signal: request.signal });
         const encodeTimeline = createSseEncoder(issueTimelineEvents);
-        return sseResponse(
-          stream,
-          (e) => encodeTimeline("issue-event", e, String((e as { seq?: number }).seq ?? "")),
-          request.signal,
-        );
+        return sseResponse(stream, (item) => {
+          if ("_heartbeat" in item) throw new Error("unreachable: heartbeat filtered by sseResponse");
+          const event: IssueEvent = item;
+          return encodeTimeline("issue-event", event, String(event.seq));
+        }, request.signal);
       })
   );
 }
