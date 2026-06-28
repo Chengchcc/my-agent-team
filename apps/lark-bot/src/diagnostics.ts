@@ -55,7 +55,12 @@ export async function postHeartbeat(
     const { error } = await client.api.internal.surfaces.lark.heartbeat.post({
       agentId: health.agentId,
       status: health.status,
-      payload: { profileRef: health.profileRef, watchers: health.watchers, runStreams: health.runStreams, ts: health.ts },
+      payload: {
+        profileRef: health.profileRef,
+        watchers: health.watchers,
+        runStreams: health.runStreams,
+        ts: health.ts,
+      },
       lastError: health.lastError ?? undefined,
     });
     if (error) {
