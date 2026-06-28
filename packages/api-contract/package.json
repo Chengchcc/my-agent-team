@@ -15,8 +15,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "elysia": "^1.0.0",
     "zod": "^3.23.0"
   },
-  "devDependencies": {}
+  "peerDependencies": {
+    "elysia": "^1.0.0"
+  },
+  "devDependencies": {
+    "@my-agent-team/backend": "workspace:*"
+  }
 }

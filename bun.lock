@@ -29,7 +29,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@my-agent-team/adapter-anthropic": "workspace:*",
-        "@my-agent-team/api-contract": "workspace:*",
         "@my-agent-team/config": "workspace:*",
         "@my-agent-team/conversation": "workspace:*",
         "@my-agent-team/core": "workspace:*",
@@ -55,6 +54,8 @@
       "name": "@my-agent-team/lark-bot",
       "version": "0.1.0",
       "dependencies": {
+        "@elysiajs/eden": "^1.0.0",
+        "@my-agent-team/api-contract": "workspace:*",
         "@my-agent-team/config": "workspace:*",
         "@my-agent-team/conversation": "workspace:*",
         "@my-agent-team/message": "workspace:*",
@@ -118,6 +119,9 @@
       "dependencies": {
         "elysia": "^1.0.0",
         "zod": "^3.23.0",
+      },
+      "devDependencies": {
+        "@my-agent-team/backend": "workspace:*",
       },
     },
     "packages/config": {
@@ -380,6 +384,8 @@
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.10.2", "", {}, "sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w=="],
 
     "@ecies/ciphers": ["@ecies/ciphers@0.2.6", "https://registry.npmmirror.com/@ecies/ciphers/-/ciphers-0.2.6.tgz", { "peerDependencies": { "@noble/ciphers": "^1.0.0" } }, "sha512-patgsRPKGkhhoBjETV4XxD0En4ui5fbX0hzayqI3M8tvNMGUoUvmyYAIWwlxBc1KX5cturfqByYdj5bYGRpN9g=="],
+
+    "@elysiajs/eden": ["@elysiajs/eden@1.4.9", "", { "peerDependencies": { "elysia": ">=1.4.19" } }, "sha512-3CKVD4ycVjB8nCNssfmhnUuq3SzSHkUES3v5PNCFr9LxIrx39/HVRAZ8z2sLxrFqzUs48dCBZaxoZzJ5UUVHDA=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.11.0", "https://registry.npmmirror.com/@emnapi/runtime/-/runtime-1.11.0.tgz", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-55coeOFKHv1ywEcUXJtWU5f+Jr/W5tZDvZig8DLKSwUN1JpROQ4rk/SNOQiFWmaR/VKF4zuFyW1B8JduOSv6Pg=="],
 

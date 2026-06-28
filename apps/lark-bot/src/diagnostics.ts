@@ -42,22 +42,19 @@ export function collectHealth(
   };
 }
 
+import { createClient } from "./client.js";
+
 export async function postHeartbeat(
   health: LarkBotHealth,
   backendUrl: string,
   backendAuthToken: string | null,
 ): Promise<void> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (backendAuthToken) headers["x-auth-token"] = backendAuthToken;
+  const client = createClient(backendUrl, backendAuthToken);
 
   try {
-    const res = await fetch(`${backendUrl}/api/internal/surfaces/lark/heartbeat`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(health),
-    });
-    if (!res.ok) {
-      console.error(`[lark-bot] heartbeat POST failed: ${res.status}`);
+    const { error } = await client.api.internal.surfaces.lark.heartbeat.post(health);
+    if (error) {
+      console.error(`[lark-bot] heartbeat POST failed: ${JSON.stringify(error)}`);
     }
   } catch (err) {
     console.error(
