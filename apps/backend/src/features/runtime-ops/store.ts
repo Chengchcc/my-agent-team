@@ -243,11 +243,7 @@ export class RuntimeOpsStore {
     startedAt: number;
     endedAt: number | null;
   } | null {
-    const row = this.#d
-      .select()
-      .from(schema.run)
-      .where(eq(schema.run.spanId, spanId))
-      .get();
+    const row = this.#d.select().from(schema.run).where(eq(schema.run.spanId, spanId)).get();
     if (!row) return null;
     return {
       spanId: row.spanId,

@@ -1,8 +1,11 @@
 import type { Database } from "bun:sqlite";
 import type { MessageRevision } from "@my-agent-team/message";
 import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
+import { and, eq, isNull } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import type { BackendConfig } from "../../config.js";
+import * as schema from "../../infra/db/schema.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 
 export interface SpanSupervisorOptions {
@@ -29,6 +32,7 @@ export class SpanSupervisor {
   #active = new Map<string, RunSession>();
   #opts: SpanSupervisorOptions;
   #db: Database;
+  #d: ReturnType<typeof drizzle<typeof schema>>;
   #onRunComplete: Array<
     (sessionId: string, spanId: string, status: string, kind: string) => void | Promise<void>
   > = [];
@@ -41,21 +45,14 @@ export class SpanSupervisor {
   constructor(opts: SpanSupervisorOptions) {
     this.#opts = opts;
     this.#db = opts.db;
-    // WAL + schema migrations are managed by openDb() in main.ts (S1 storage convergence).
+    this.#d = drizzle(opts.db, { schema, casing: "snake_case" });
     this.#startReaper();
   }
 
-  get activeCount(): number {
-    return this.#active.size;
-  }
-
-  getActive(): ReadonlyMap<string, RunSession> {
-    return this.#active;
-  }
-
-  getDb(): Database {
-    return this.#db;
-  }
+  get activeCount(): number { return this.#active.size; }
+  getActive(): ReadonlyMap<string, RunSession> { return this.#active; }
+  getDb(): Database { return this.#db; }
+  getDrizzle(): ReturnType<typeof drizzle<typeof schema>> { return this.#d; }
 
   // ─── Reaper ─────────────────────────────────────────
 
@@ -83,38 +80,37 @@ export class SpanSupervisor {
     // AgentSession runs in-process — a run is "stale" only if it has
     // DB state = running but NO active session in memory (process restart).
     // Long-running agent sessions are NOT stale — only orphaned DB rows.
-    const orphans = this.#db
-      .query(
-        `SELECT a.span_id, a.seq, r.session_id, r.kind
-         FROM attempt a JOIN run r ON a.span_id = r.span_id
-         WHERE a.ended_at IS NULL AND r.ended_at IS NULL`,
-      )
-      .all() as Array<{
-      span_id: string;
-      seq: number;
-      session_id: string;
-      kind: string;
-    }>;
+    const orphans = this.#d
+      .select({
+        spanId: schema.attempt.spanId,
+        seq: schema.attempt.seq,
+        sessionId: schema.run.sessionId,
+        kind: schema.run.kind,
+      })
+      .from(schema.attempt)
+      .innerJoin(schema.run, eq(schema.attempt.spanId, schema.run.spanId))
+      .where(and(isNull(schema.attempt.endedAt), isNull(schema.run.endedAt)))
+      .all();
 
     let reaped = false;
     for (const row of orphans) {
       // Skip if session is still running in this process
-      if (this.#active.has(row.span_id)) continue;
+      if (this.#active.has(row.spanId)) continue;
 
-      const finalized = this.#finalizeRun(row.span_id, row.seq, "interrupted");
+      const finalized = this.#finalizeRun(row.spanId, row.seq, "interrupted");
       if (!finalized) continue;
       reaped = true;
 
       // Dispose AgentSession via callback (prevents zombie writes to ledger)
-      this.#opts.onReap?.(row.span_id, row.session_id);
+      this.#opts.onReap?.(row.spanId, row.sessionId);
 
       // Fire completion listeners
       const kind = row.kind === "reflect" ? "reflect" : "main";
       for (const listener of this.#onRunComplete) {
         try {
-          await listener(row.session_id, row.span_id, "interrupted", kind);
+          await listener(row.sessionId, row.spanId, "interrupted", kind);
         } catch (err) {
-          this.#markProjectionDegraded(row.span_id, row.seq, err);
+          this.#markProjectionDegraded(row.spanId, row.seq, err);
         }
       }
     }
@@ -123,7 +119,8 @@ export class SpanSupervisor {
 
   // ─── Run/attempt lifecycle ─────────────────────────
 
-  /** CAS finalize: first writer wins. Returns true if this call finalized the run. */
+  /** CAS finalize: first writer wins. Returns true if this call finalized the run.
+   *  Uses raw bun:sqlite — drizzle's .run() doesn't expose changes count for CAS. */
   #finalizeRun(spanId: string, attemptSeq: number | null, status: string): boolean {
     const now = Date.now();
     const result = this.#db.transaction(() => {
@@ -144,10 +141,11 @@ export class SpanSupervisor {
 
   #markProjectionDegraded(spanId: string, attemptSeq: number | null, err: unknown): void {
     const reason = err instanceof Error ? err.message : String(err);
-    this.#db.run(
-      "UPDATE run SET degraded_reason = ? WHERE span_id = ? AND degraded_reason IS NULL",
-      [reason, spanId],
-    );
+    this.#d
+      .update(schema.run)
+      .set({ degradedReason: reason })
+      .where(and(eq(schema.run.spanId, spanId), isNull(schema.run.degradedReason)))
+      .run();
     this.#opts.opsStore.appendControlPlaneEvent({
       spanId,
       attemptSeq: attemptSeq ?? undefined,
@@ -168,22 +166,30 @@ export class SpanSupervisor {
     const agentId = (spec.agentId as string) ?? sessionId;
     const now = Date.now();
 
-    let seq = 1;
-    this.#db.transaction(() => {
-      this.#db.run(
-        "INSERT INTO run (span_id, session_id, status, started_at) VALUES (?, ?, 'running', ?)",
-        [spanId, sessionId, now],
-      );
-      const row = this.#db
-        .query("SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM attempt WHERE span_id = ?")
-        .get(spanId) as { n: number } | undefined;
-      seq = row?.n ?? 1;
-      this.#db.run("INSERT INTO attempt (span_id, seq, started_at) VALUES (?, ?, ?)", [
+    const seq = await this.#d.transaction(async (tx) => {
+      await tx.insert(schema.run).values({
         spanId,
-        seq,
-        now,
-      ]);
-    })();
+        sessionId,
+        status: "running",
+        startedAt: now,
+      }).run();
+
+      const rows = tx
+        .select({ maxSeq: schema.attempt.seq })
+        .from(schema.attempt)
+        .where(eq(schema.attempt.spanId, spanId))
+        .all();
+      const maxSeq = rows.reduce((max, r) => Math.max(max, r.maxSeq ?? 0), 0);
+      const nextSeq = maxSeq + 1;
+
+      await tx.insert(schema.attempt).values({
+        spanId,
+        seq: nextSeq,
+        startedAt: now,
+      }).run();
+
+      return nextSeq;
+    });
 
     const attemptSeq = seq;
 
