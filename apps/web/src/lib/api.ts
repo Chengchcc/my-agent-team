@@ -304,7 +304,8 @@ export const api = {
   // Agents
   listAgents: () => unwrap<AgentRow[]>(client.api.agents.get()),
   getAgent: (id: string) => unwrap<AgentRow>(client.api.agents({ id }).get()),
-  createAgent: (body: Record<string, unknown>) => unwrap<AgentRow>(client.api.agents.post(body as any)),
+  createAgent: (body: Record<string, unknown>) =>
+    unwrap<AgentRow>(client.api.agents.post(body as any)),
   updateAgent: (id: string, body: Record<string, unknown>) =>
     unwrap<AgentRow>(client.api.agents({ id }).patch(body as any)),
   archiveAgent: (id: string) => unwrap<void>(client.api.agents({ id }).delete()),

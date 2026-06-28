@@ -30,8 +30,12 @@ function makeSvc() {
       rows.set(input.id, row);
       return row;
     },
-    async findById(id) { return rows.get(id) ?? null; },
-    async list() { return [...rows.values()].filter((r) => r.archivedAt === null); },
+    async findById(id) {
+      return rows.get(id) ?? null;
+    },
+    async list() {
+      return [...rows.values()].filter((r) => r.archivedAt === null);
+    },
     async update(id, input) {
       const r = rows.get(id);
       if (!r || r.archivedAt) return null;
@@ -52,18 +56,20 @@ function makeSvc() {
       return { deletedAgent: existed, deletedThreads: 0, deletedMembers: 0 };
     },
   };
-  return new Elysia().use(agentRoutes(
-    createAgentService({
-      port,
-      idGen: () => crypto.randomUUID().slice(0, 8),
-      workspaceRoot: "/tmp",
-      materializeWorkspace: async (id) => `/tmp/ws/${id}`,
-      purgeWorkspace: async () => {},
-      purgeEventsForSessions: async () => {},
-      listSessionIds: async () => [],
-      assertNoActiveRun: () => {},
-    }),
-  ));
+  return new Elysia().use(
+    agentRoutes(
+      createAgentService({
+        port,
+        idGen: () => crypto.randomUUID().slice(0, 8),
+        workspaceRoot: "/tmp",
+        materializeWorkspace: async (id) => `/tmp/ws/${id}`,
+        purgeWorkspace: async () => {},
+        purgeEventsForSessions: async () => {},
+        listSessionIds: async () => [],
+        assertNoActiveRun: () => {},
+      }),
+    ),
+  );
 }
 
 async function readJson(resp: Response): Promise<unknown> {
@@ -98,11 +104,13 @@ describe("agent HTTP routes", () => {
   test("GET /api/agents returns list", async () => {
     const app = makeSvc();
     // Create first
-    await app.handle(new Request("http://localhost/api/agents", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "a1", model: { provider: "a", model: "m" } }),
-    }));
+    await app.handle(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "a1", model: { provider: "a", model: "m" } }),
+      }),
+    );
     const resp = await app.handle(new Request("http://localhost/api/agents"));
     expect(resp.status).toBe(200);
     const body = (await readJson(resp)) as unknown[];
@@ -117,17 +125,21 @@ describe("agent HTTP routes", () => {
 
   test("PATCH /api/agents/:id updates agent", async () => {
     const app = makeSvc();
-    const createResp = await app.handle(new Request("http://localhost/api/agents", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "old", model: { provider: "a", model: "m" } }),
-    }));
+    const createResp = await app.handle(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "old", model: { provider: "a", model: "m" } }),
+      }),
+    );
     const created = (await readJson(createResp)) as { id: string };
-    const resp = await app.handle(new Request(`http://localhost/api/agents/${created.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "new" }),
-    }));
+    const resp = await app.handle(
+      new Request(`http://localhost/api/agents/${created.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "new" }),
+      }),
+    );
     expect(resp.status).toBe(200);
     const body = (await readJson(resp)) as { name: string };
     expect(body.name).toBe("new");
@@ -135,15 +147,19 @@ describe("agent HTTP routes", () => {
 
   test("DELETE /api/agents/:id archives agent", async () => {
     const app = makeSvc();
-    const createResp = await app.handle(new Request("http://localhost/api/agents", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "a", model: { provider: "a", model: "m" } }),
-    }));
+    const createResp = await app.handle(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "a", model: { provider: "a", model: "m" } }),
+      }),
+    );
     const created = (await readJson(createResp)) as { id: string };
-    const resp = await app.handle(new Request(`http://localhost/api/agents/${created.id}`, {
-      method: "DELETE",
-    }));
+    const resp = await app.handle(
+      new Request(`http://localhost/api/agents/${created.id}`, {
+        method: "DELETE",
+      }),
+    );
     expect(resp.status).toBe(200);
   });
 });

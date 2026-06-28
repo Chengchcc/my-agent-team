@@ -109,35 +109,6 @@ function issuePlugin(issues: NonNullable<FeatureSet["issues"]>) {
     .get("/api/issues/:id/detail", ({ request, params: { id } }) => issues.detail(request, id));
 }
 
-function projectPlugin(projects: NonNullable<FeatureSet["projects"]>) {
-  return new Elysia()
-    .get("/api/projects", ({ request }) => projects.list(request))
-    .post("/api/projects", ({ request }) => projects.create(request))
-    .get("/api/projects/:id", ({ request, params: { id } }) => projects.get(request, id))
-    .patch("/api/projects/:id", ({ request, params: { id } }) => projects.update(request, id))
-    .delete("/api/projects/:id", ({ request, params: { id } }) => projects.remove(request, id));
-}
-
-function columnConfigPlugin(columnConfigs: NonNullable<FeatureSet["columnConfigs"]>) {
-  return new Elysia()
-    .get("/api/column-configs", ({ request }) => columnConfigs.list(request))
-    .post("/api/column-configs", ({ request }) => columnConfigs.upsert(request))
-    .delete("/api/column-configs/:id", ({ request, params: { id } }) =>
-      columnConfigs.remove(request, id),
-    );
-}
-
-function cronPlugin(cronJobs: NonNullable<FeatureSet["cronJobs"]>) {
-  return new Elysia()
-    .post("/api/cron-jobs/:id/enable", ({ request, params: { id } }) =>
-      cronJobs.setEnabled(request, id),
-    )
-    .get("/api/cron-jobs", ({ request }) => cronJobs.list(request))
-    .post("/api/cron-jobs", ({ request }) => cronJobs.create(request))
-    .get("/api/cron-jobs/:id", ({ request, params: { id } }) => cronJobs.get(request, id))
-    .patch("/api/cron-jobs/:id", ({ request, params: { id } }) => cronJobs.update(request, id))
-    .delete("/api/cron-jobs/:id", ({ request, params: { id } }) => cronJobs.remove(request, id));
-}
 
 // ── App factory ──
 
@@ -164,9 +135,9 @@ export function createApp(token: string, features: FeatureSet) {
     .post("/api/runs/:id/cancel", ({ request, params: { id } }) => ops.cancelRun(request, id));
 
   return withRuns
-    .use(projectPlugin(projects))
-    .use(columnConfigPlugin(columnConfigs))
-    .use(cronPlugin(cronJobs))
+    .use(projects)
+    .use(columnConfigs)
+    .use(cronJobs)
     .onError(({ code, error, set }) => {
       if (error instanceof HttpError) {
         set.status = (error as HttpError).status;

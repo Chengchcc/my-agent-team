@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { Elysia } from "elysia";
 import { unlinkSync } from "node:fs";
+import { Elysia } from "elysia";
 import { sqliteAgentAdapter } from "../../src/features/agent/adapter-sqlite.js";
 import { agentRoutes } from "../../src/features/agent/http.js";
 import { createAgentService } from "../../src/features/agent/service.js";
@@ -30,20 +30,26 @@ const app = new Elysia().use(agentRoutes(svc));
 
 afterAll(() => {
   db.close();
-  try { unlinkSync(dbPath); } catch { /* best-effort */ }
+  try {
+    unlinkSync(dbPath);
+  } catch {
+    /* best-effort */
+  }
 });
 
 describe("E2E Agent CRUD", () => {
   test("full agent lifecycle: create → get → list → update → archive → 404", async () => {
     // Create
-    const cResp = await app.handle(new Request("http://localhost/api/agents", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: "e2e-agent",
-        model: { provider: "anthropic", model: "claude" },
+    const cResp = await app.handle(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "e2e-agent",
+          model: { provider: "anthropic", model: "claude" },
+        }),
       }),
-    }));
+    );
     expect(cResp.status).toBe(201);
     const created = (await cResp.json()) as { id: string; name: string };
     expect(created.name).toBe("e2e-agent");
@@ -58,18 +64,22 @@ describe("E2E Agent CRUD", () => {
     expect(list.length).toBeGreaterThanOrEqual(1);
 
     // Update
-    const uResp = await app.handle(new Request(`http://localhost/api/agents/${created.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "renamed" }),
-    }));
+    const uResp = await app.handle(
+      new Request(`http://localhost/api/agents/${created.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "renamed" }),
+      }),
+    );
     const updated = (await uResp.json()) as { name: string };
     expect(updated.name).toBe("renamed");
 
     // Archive
-    const aResp = await app.handle(new Request(`http://localhost/api/agents/${created.id}`, {
-      method: "DELETE",
-    }));
+    const aResp = await app.handle(
+      new Request(`http://localhost/api/agents/${created.id}`, {
+        method: "DELETE",
+      }),
+    );
     expect(aResp.status).toBe(200);
 
     // Get after archive → 404

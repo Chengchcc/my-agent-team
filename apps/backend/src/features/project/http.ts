@@ -1,5 +1,4 @@
-import { z } from "zod";
-import { json } from "../../http/response.js";
+import { Elysia, t } from "elysia";
 import {
   ProjectInUseError,
   ProjectNotFoundError,
@@ -7,76 +6,74 @@ import {
   ValidationError,
 } from "./service.js";
 
-const createSchema = z.object({
-  name: z.string().trim().min(1),
-  repoUrl: z.string().trim().optional(),
-  defaultBranch: z.string().trim().optional(),
-  autoOrchestrate: z.boolean().optional(),
-});
-
-const updateSchema = z.object({
-  name: z.string().trim().optional(),
-  repoUrl: z.string().trim().nullable().optional(),
-  defaultBranch: z.string().trim().nullable().optional(),
-  autoOrchestrate: z.boolean().optional(),
-});
-
 export function projectRoutes(svc: ProjectService) {
-  return {
-    /** GET /api/projects → 200 { projects } */
-    list(_req: Request): Response {
-      return json({ projects: svc.list() });
-    },
-
-    /** POST /api/projects → 201 { project } | 400 */
-    async create(req: Request): Promise<Response> {
-      const parsed = createSchema.safeParse(await req.json().catch(() => ({})));
-      if (!parsed.success)
-        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
+  return new Elysia()
+    .get("/api/projects", () => ({ projects: svc.list() }))
+    .post(
+      "/api/projects",
+      ({ body, set }) => {
+        try {
+          const project = svc.createProject(body);
+          set.status = 201;
+          return { project };
+        } catch (err) {
+          if (err instanceof ValidationError)
+            return Response.json({ error: err.message }, { status: 400 });
+          throw err;
+        }
+      },
+      {
+        body: t.Object({
+          name: t.String({ minLength: 1 }),
+          repoUrl: t.Optional(t.String()),
+          defaultBranch: t.Optional(t.String()),
+          autoOrchestrate: t.Optional(t.Boolean()),
+        }),
+      },
+    )
+    .get("/api/projects/:id", ({ params: { id } }) => {
       try {
-        const project = svc.createProject(parsed.data);
-        return json({ project }, 201);
+        return { project: svc.getById(id) };
       } catch (err) {
-        if (err instanceof ValidationError) return json({ error: err.message }, 400);
+        if (err instanceof ProjectNotFoundError)
+          return Response.json({ error: err.message }, { status: 404 });
         throw err;
       }
-    },
-
-    /** GET /api/projects/:id → 200 { project } | 404 */
-    get(_req: Request, id: string): Response {
-      try {
-        return json({ project: svc.getById(id) });
-      } catch (err) {
-        if (err instanceof ProjectNotFoundError) return json({ error: err.message }, 404);
-        throw err;
-      }
-    },
-
-    /** PATCH /api/projects/:id → 200 { project } | 400 | 404 */
-    async update(req: Request, id: string): Promise<Response> {
-      const parsed = updateSchema.safeParse(await req.json().catch(() => ({})));
-      if (!parsed.success)
-        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
-      try {
-        const project = svc.update(id, parsed.data);
-        return json({ project });
-      } catch (err) {
-        if (err instanceof ProjectNotFoundError) return json({ error: err.message }, 404);
-        if (err instanceof ValidationError) return json({ error: err.message }, 400);
-        throw err;
-      }
-    },
-
-    /** DELETE /api/projects/:id → 204 | 404 | 409 */
-    remove(_req: Request, id: string): Response {
+    })
+    .patch(
+      "/api/projects/:id",
+      ({ params: { id }, body }) => {
+        try {
+          const project = svc.update(id, body);
+          return { project };
+        } catch (err) {
+          if (err instanceof ProjectNotFoundError)
+            return Response.json({ error: err.message }, { status: 404 });
+          if (err instanceof ValidationError)
+            return Response.json({ error: err.message }, { status: 400 });
+          throw err;
+        }
+      },
+      {
+        body: t.Object({
+          name: t.Optional(t.String()),
+          repoUrl: t.Optional(t.Union([t.String(), t.Null()])),
+          defaultBranch: t.Optional(t.Union([t.String(), t.Null()])),
+          autoOrchestrate: t.Optional(t.Boolean()),
+        }),
+      },
+    )
+    .delete("/api/projects/:id", ({ params: { id }, set }) => {
       try {
         svc.remove(id);
-        return new Response(null, { status: 204 });
+        set.status = 204;
+        return "";
       } catch (err) {
-        if (err instanceof ProjectInUseError) return json({ error: err.message }, 409);
-        if (err instanceof ProjectNotFoundError) return json({ error: err.message }, 404);
+        if (err instanceof ProjectInUseError)
+          return Response.json({ error: err.message }, { status: 409 });
+        if (err instanceof ProjectNotFoundError)
+          return Response.json({ error: err.message }, { status: 404 });
         throw err;
       }
-    },
-  };
+    });
 }
