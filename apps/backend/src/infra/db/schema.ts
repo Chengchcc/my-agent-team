@@ -293,8 +293,6 @@ export const issueEvent = sqliteTable(
 // ── Zod schemas (type chain: drizzle table → Zod → z.infer → TS type) ──
 
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
-import { z } from "zod";
-
 
 // ── Simple tables (drizzle-zod auto-generate) ──
 

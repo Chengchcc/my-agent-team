@@ -243,17 +243,19 @@ export class RuntimeOpsStore {
     startedAt: number;
     endedAt: number | null;
   } | null {
-    return this.#d
-      .select({
-        seq: schema.attempt.seq,
-        startedAt: schema.attempt.startedAt,
-        endedAt: schema.attempt.endedAt,
-      })
-      .from(schema.attempt)
-      .where(eq(schema.attempt.spanId, spanId))
-      .orderBy(desc(schema.attempt.seq))
-      .limit(1)
-      .get() ?? null;
+    return (
+      this.#d
+        .select({
+          seq: schema.attempt.seq,
+          startedAt: schema.attempt.startedAt,
+          endedAt: schema.attempt.endedAt,
+        })
+        .from(schema.attempt)
+        .where(eq(schema.attempt.spanId, spanId))
+        .orderBy(desc(schema.attempt.seq))
+        .limit(1)
+        .get() ?? null
+    );
   }
 
   getSpansBySession(sessionId: string): Array<{

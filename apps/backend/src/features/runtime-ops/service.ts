@@ -7,6 +7,7 @@ import type { CheckpointEventsStore } from "./checkpoint-events-store.js";
 import type { InsightsSummary, RunInsights } from "./insights.js";
 import { getInsightsSummary, getRunInsights } from "./insights.js";
 import { buildRunQuery } from "./span-query-service.js";
+import type { ControlPlaneEvent } from "./types.js";
 import type { RuntimeOpsStore } from "./store.js";
 
 export interface RunOpsListItem {
@@ -48,13 +49,7 @@ export interface RunOpsDetail {
     lastEventType: string | null;
     lastEventAt: number | null;
   };
-  ops: Array<{
-    seq: number;
-    kind: string;
-    payload: Record<string, unknown>;
-    traceId: string | null;
-    ts: number;
-  }>;
+  ops: Pick<ControlPlaneEvent, "seq" | "kind" | "payload" | "traceId" | "ts">[]
 }
 
 export interface AgentRuntimeStatus {
