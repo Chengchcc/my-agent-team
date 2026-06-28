@@ -3,7 +3,8 @@ import { clearCookieHeader, createSession, readSession, sessionCookieHeader } fr
 
 let _env: ReturnType<typeof parseEnv> | undefined;
 function env() {
-  return _env ?? (_env = parseEnv(process.env));
+  if (!_env) _env = parseEnv(process.env);
+  return _env;
 }
 
 function mockUserId() {
