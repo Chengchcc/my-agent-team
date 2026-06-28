@@ -221,7 +221,7 @@ const agentNames = new Map<string, string>();
   for (const r of rows) agentNames.set(r.id, r.name);
 }
 const opsSvc = createRuntimeOpsService({
-  db: db,
+  
   opsStore,
   supervisor,
   heartbeatTimeoutMs: config.heartbeatTimeoutMs,

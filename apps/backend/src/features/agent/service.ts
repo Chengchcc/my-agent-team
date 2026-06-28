@@ -20,7 +20,7 @@ export function createAgentService(opts: {
   materializeWorkspace: (agentId: string, template?: string) => Promise<string>;
   // M11 hardDelete dependencies — all closures from composition root (main.ts)
   purgeWorkspace: (agentId: string) => Promise<void>;
-  purgeEventsForSessions: (sessionIds: string[]) => void;
+  purgeEventsForSessions: (sessionIds: string[]) => Promise<void>;
   listSessionIds: (agentId: string) => Promise<string[]>;
   assertNoActiveRun: (agentId: string) => void;
 }): AgentService {
@@ -102,7 +102,7 @@ export function createAgentService(opts: {
       await port.hardDelete(id);
 
       // 4. events.db: purge run/attempt/event_log for this agent's threads
-      opts.purgeEventsForSessions(sessionIds);
+      await opts.purgeEventsForSessions(sessionIds);
 
       // 5. workspace: physical rm -rf (idempotent)
       await opts.purgeWorkspace(id);

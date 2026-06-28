@@ -49,10 +49,18 @@ export class SpanSupervisor {
     this.#startReaper();
   }
 
-  get activeCount(): number { return this.#active.size; }
-  getActive(): ReadonlyMap<string, RunSession> { return this.#active; }
-  getDb(): Database { return this.#db; }
-  getDrizzle(): ReturnType<typeof drizzle<typeof schema>> { return this.#d; }
+  get activeCount(): number {
+    return this.#active.size;
+  }
+  getActive(): ReadonlyMap<string, RunSession> {
+    return this.#active;
+  }
+  getDb(): Database {
+    return this.#db;
+  }
+  getDrizzle(): ReturnType<typeof drizzle<typeof schema>> {
+    return this.#d;
+  }
 
   // ─── Reaper ─────────────────────────────────────────
 
@@ -97,7 +105,7 @@ export class SpanSupervisor {
       // Skip if session is still running in this process
       if (this.#active.has(row.spanId)) continue;
 
-      const finalized = this.#finalizeRun(row.spanId, row.seq, "interrupted");
+      const finalized = await this.#finalizeRun(row.spanId, row.seq, "interrupted");
       if (!finalized) continue;
       reaped = true;
 
@@ -119,24 +127,31 @@ export class SpanSupervisor {
 
   // ─── Run/attempt lifecycle ─────────────────────────
 
-  /** CAS finalize: first writer wins. Returns true if this call finalized the run.
-   *  Uses raw bun:sqlite — drizzle's .run() doesn't expose changes count for CAS. */
-  #finalizeRun(spanId: string, attemptSeq: number | null, status: string): boolean {
+  /** CAS finalize: first writer wins. Returns true if this call finalized the run. */
+  async #finalizeRun(spanId: string, attemptSeq: number | null, status: string): Promise<boolean> {
     const now = Date.now();
-    const result = this.#db.transaction(() => {
-      const r = this.#db.run(
-        "UPDATE run SET status = ?, ended_at = ? WHERE span_id = ? AND ended_at IS NULL",
-        [status, now, spanId],
-      );
-      if (attemptSeq != null) {
-        this.#db.run(
-          "UPDATE attempt SET ended_at = ? WHERE span_id = ? AND seq = ? AND ended_at IS NULL",
-          [now, spanId, attemptSeq],
-        );
+    const updated = await this.#d.transaction((tx) => {
+      const rows = tx
+        .update(schema.run)
+        .set({ status, endedAt: now })
+        .where(and(eq(schema.run.spanId, spanId), isNull(schema.run.endedAt)))
+        .returning({ spanId: schema.run.spanId })
+        .all();
+      if (rows.length > 0 && attemptSeq != null) {
+        tx.update(schema.attempt)
+          .set({ endedAt: now })
+          .where(
+            and(
+              eq(schema.attempt.spanId, spanId),
+              eq(schema.attempt.seq, attemptSeq),
+              isNull(schema.attempt.endedAt),
+            ),
+          )
+          .run();
       }
-      return r.changes;
-    })();
-    return result > 0;
+      return rows;
+    });
+    return updated.length > 0;
   }
 
   #markProjectionDegraded(spanId: string, attemptSeq: number | null, err: unknown): void {
@@ -167,12 +182,15 @@ export class SpanSupervisor {
     const now = Date.now();
 
     const seq = await this.#d.transaction(async (tx) => {
-      await tx.insert(schema.run).values({
-        spanId,
-        sessionId,
-        status: "running",
-        startedAt: now,
-      }).run();
+      await tx
+        .insert(schema.run)
+        .values({
+          spanId,
+          sessionId,
+          status: "running",
+          startedAt: now,
+        })
+        .run();
 
       const rows = tx
         .select({ maxSeq: schema.attempt.seq })
@@ -182,11 +200,14 @@ export class SpanSupervisor {
       const maxSeq = rows.reduce((max, r) => Math.max(max, r.maxSeq ?? 0), 0);
       const nextSeq = maxSeq + 1;
 
-      await tx.insert(schema.attempt).values({
-        spanId,
-        seq: nextSeq,
-        startedAt: now,
-      }).run();
+      await tx
+        .insert(schema.attempt)
+        .values({
+          spanId,
+          seq: nextSeq,
+          startedAt: now,
+        })
+        .run();
 
       return nextSeq;
     });
@@ -256,7 +277,7 @@ export class SpanSupervisor {
     kind: string,
     attemptSeq: number | null = null,
   ): Promise<void> {
-    this.#finalizeRun(spanId, attemptSeq, status);
+    await this.#finalizeRun(spanId, attemptSeq, status);
     this.#active.delete(spanId);
     for (const listener of this.#onRunComplete) {
       try {

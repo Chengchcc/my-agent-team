@@ -1,8 +1,10 @@
 import type { Database } from "bun:sqlite";
+import { eq, inArray } from "drizzle-orm";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
+import * as schema from "../../infra/db/schema.js";
 import type { LarkBotRegistry } from "../lark-bot/index.js";
 import { larkProfileInit } from "../lark-bot/index.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
@@ -37,19 +39,23 @@ export function createAgentSvc(
       await rm(dir, { recursive: true, force: true });
     },
 
-    // event_log table removed — execution facts in checkpointer.db
-    purgeEventsForSessions: (sessionIds) => {
-      const edb = supervisor.getDb();
-      const tx = edb.transaction((ids: string[]) => {
-        for (const tid of ids) {
-          edb.run(
-            "DELETE FROM attempt WHERE span_id IN (SELECT span_id FROM run WHERE session_id = ?)",
-            [tid],
-          );
-          edb.run("DELETE FROM run WHERE session_id = ?", [tid]);
+    purgeEventsForSessions: async (sessionIds) => {
+      const d = supervisor.getDrizzle();
+      await d.transaction(async (tx) => {
+        for (const tid of sessionIds) {
+          tx.delete(schema.attempt)
+            .where(
+              inArray(
+                schema.attempt.spanId,
+                tx.select({ spanId: schema.run.spanId })
+                  .from(schema.run)
+                  .where(eq(schema.run.sessionId, tid)),
+              ),
+            )
+            .run();
+          tx.delete(schema.run).where(eq(schema.run.sessionId, tid)).run();
         }
       });
-      tx(sessionIds);
     },
 
     listSessionIds: async (agentId) =>

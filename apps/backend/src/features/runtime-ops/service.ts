@@ -90,7 +90,6 @@ export type RecoverRunResult =
   | { state: "waiting"; reason: "heartbeat_fresh_but_transport_detached" };
 
 export function createRuntimeOpsService(deps: {
-  db: Database;
   opsStore: RuntimeOpsStore;
   supervisor: SpanSupervisor;
   heartbeatTimeoutMs: number;
@@ -98,7 +97,7 @@ export function createRuntimeOpsService(deps: {
   /** M16.2: Resolve agent display name for ops DTOs. Falls back to agentId if absent. */
   getAgentName?: (agentId: string) => string | undefined;
 }) {
-  const { db, opsStore, supervisor, heartbeatTimeoutMs, checkpointEventsStore, getAgentName } =
+  const { opsStore, supervisor, heartbeatTimeoutMs, checkpointEventsStore, getAgentName } =
     deps;
   const _OFFLINE_AFTER_MS = heartbeatTimeoutMs * 2;
   const resolveName = (agentId: string) => getAgentName?.(agentId) ?? agentId;
@@ -127,7 +126,7 @@ export function createRuntimeOpsService(deps: {
         limit,
       );
 
-      const rows = db.query(sql).all(...args) as Array<{
+      const rows = opsStore.getRawDb().query(sql).all(...args) as Array<{
         span_id: string;
         session_id: string;
         agent_id: string;
@@ -139,7 +138,7 @@ export function createRuntimeOpsService(deps: {
       }>;
 
       let items = rows.map((r) => {
-        const attempt = db
+        const attempt = opsStore.getRawDb()
           .query(
             "SELECT seq, heartbeat_at, started_at, ended_at FROM attempt WHERE span_id = ? ORDER BY seq DESC LIMIT 1",
           )
@@ -207,18 +206,14 @@ export function createRuntimeOpsService(deps: {
     },
 
     getRunDetail(spanId: string): RunOpsDetail | null {
-      const run = db
-        .query(
-          "SELECT span_id, session_id, agent_id, kind, parent_span_id, status, started_at, ended_at FROM run WHERE span_id = ?",
-        )
-        .get(spanId) as Record<string, unknown> | undefined;
+      const run = opsStore.getRunBySpanId(spanId);
       if (!run) return null;
 
       const origin = opsStore.getSpanOrigin(spanId);
 
       // Bug 2 fix: ORDER BY started_at DESC so attempts[0] is the latest attempt.
       // Aligns with listRuns (DESC LIMIT 1) and diagnoseRun which assumes [0] = latest.
-      const attempts = db
+      const attempts = opsStore.getRawDb()
         .query(
           "SELECT seq, heartbeat_at, started_at, ended_at FROM attempt WHERE span_id = ? ORDER BY seq DESC",
         )
@@ -230,7 +225,7 @@ export function createRuntimeOpsService(deps: {
       }>;
 
       // Read execution facts from checkpoint_events (live source, replaces dead event_log)
-      const sessionId = run.session_id as string;
+      const sessionId = run.sessionId;
       const factEvents = checkpointEventsStore?.readBySpan(sessionId, spanId) ?? [];
       const lastFact = factEvents.at(-1);
 
@@ -238,16 +233,16 @@ export function createRuntimeOpsService(deps: {
 
       return {
         run: {
-          spanId: run.span_id as string,
+          spanId: run.spanId as string,
           sessionId,
-          agentId: run.agent_id as string,
-          agentName: resolveName(run.agent_id as string),
+          agentId: run.agentId as string,
+          agentName: resolveName(run.agentId as string),
           kind: run.kind as string,
-          parentSpanId: run.parent_span_id as string | null,
+          parentSpanId: run.parentSpanId as string | null,
           status: run.status as string,
           traceId: origin?.traceId ?? null,
-          startedAt: run.started_at as number,
-          endedAt: run.ended_at as number | null,
+          startedAt: run.startedAt as number,
+          endedAt: run.endedAt as number | null,
         },
         // Bug 6 fix: only apply live session transport to unfinished attempts.
         // Historical (ended) attempts have no reliable real-time transport; mark as detached.
@@ -281,9 +276,7 @@ export function createRuntimeOpsService(deps: {
     },
 
     cancel(spanId: string): CancelRunResult {
-      const run = db.query("SELECT status FROM run WHERE span_id = ?").get(spanId) as
-        | { status: string }
-        | undefined;
+      const run = opsStore.getRunBySpanId(spanId);
       if (!run) return { ok: false, error: "not_found" };
 
       if (run.status !== "running") {
@@ -305,11 +298,7 @@ export function createRuntimeOpsService(deps: {
     },
 
     async recover(spanId: string): Promise<RecoverRunResult> {
-      const run = db
-        .query("SELECT status, agent_id, session_id, kind FROM run WHERE span_id = ?")
-        .get(spanId) as
-        | { status: string; agent_id: string; session_id: string; kind: string }
-        | undefined;
+      const run = opsStore.getRunBySpanId(spanId);
       if (!run) return { state: "already_terminal", status: "not_found" };
       if (run.status !== "running") return { state: "already_terminal", status: run.status };
 
@@ -322,7 +311,7 @@ export function createRuntimeOpsService(deps: {
 
       // Run is DB-running but not in memory (process restart orphan).
       // Use notifyRunComplete for single-completion-authority finalization.
-      await supervisor.notifyRunComplete(run.session_id, spanId, "interrupted", run.kind);
+      await supervisor.notifyRunComplete(run.sessionId, spanId, "interrupted", run.kind);
       return { state: "marked_interrupted", reason: "heartbeat_timeout" };
     },
 
@@ -470,38 +459,25 @@ export function createRuntimeOpsService(deps: {
     // ─── M16.3: Run Insights ───
 
     async getRunInsights(spanId: string): Promise<RunInsights | null> {
-      const run = db
-        .query(
-          "SELECT span_id, session_id, agent_id, status, started_at, ended_at FROM run WHERE span_id = ?",
-        )
-        .get(spanId) as
-        | {
-            span_id: string;
-            session_id: string;
-            agent_id: string;
-            status: string;
-            started_at: number;
-            ended_at: number | null;
-          }
-        | undefined;
+      const run = opsStore.getRunBySpanId(spanId);
       if (!run) return null;
 
       return getRunInsights(
         { checkpointEventsStore, getAgentName },
         {
-          spanId: run.span_id,
-          sessionId: run.session_id,
-          agentId: run.agent_id,
+          spanId: run.spanId,
+          sessionId: run.sessionId,
+          agentId: run.agentId,
           status: run.status,
-          startedAt: run.started_at,
-          endedAt: run.ended_at,
+          startedAt: run.startedAt,
+          endedAt: run.endedAt,
         },
       );
     },
 
     async getInsightsSummary(range: { from: number; to: number }): Promise<InsightsSummary> {
       // Scope to runs in the time window (avoid full scan)
-      const runRows = db
+      const runRows = opsStore.getRawDb()
         .query(
           "SELECT span_id, agent_id FROM run WHERE started_at <= ? AND (ended_at IS NULL OR ended_at >= ?) LIMIT 500",
         )
@@ -542,7 +518,7 @@ export function createRuntimeOpsService(deps: {
         bindings.push(params.status);
       }
       const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-      const rows = db
+      const rows = opsStore.getRawDb()
         .query(
           `SELECT session_id, MAX(started_at) AS last_span_at, COUNT(*) AS span_count,
                   MAX(agent_id) AS agent_id
@@ -558,7 +534,7 @@ export function createRuntimeOpsService(deps: {
         agent_id: string;
       }>;
       return rows.map((r) => {
-        const running = db
+        const running = opsStore.getRawDb()
           .query("SELECT 1 FROM run WHERE session_id = ? AND status = 'running' LIMIT 1")
           .get(r.session_id);
         return {
@@ -585,7 +561,7 @@ export function createRuntimeOpsService(deps: {
         endedAt: number | null;
       }>;
     } | null {
-      const spans = db
+      const spans = opsStore.getRawDb()
         .query(
           `SELECT span_id, status, kind, agent_id, started_at, ended_at
              FROM run WHERE session_id = ? ORDER BY started_at DESC`,

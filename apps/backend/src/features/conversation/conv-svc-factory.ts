@@ -136,12 +136,9 @@ export function createConversationFeature(
     },
 
     verifyRunOwnsConversation: async (spanId, conversationId) => {
-      const runDb = supervisor.getDb();
-      const row = runDb.query("SELECT session_id FROM run WHERE span_id = ?").get(spanId) as
-        | { session_id: string }
-        | undefined;
-      if (!row) throw new Error(`run not found: ${spanId}`);
-      if (!row.session_id.startsWith(`${conversationId}:`)) {
+      const sessionId = _opsStore.getSessionIdBySpanId(spanId);
+      if (!sessionId) throw new Error(`run not found: ${spanId}`);
+      if (!sessionId.startsWith(`${conversationId}:`)) {
         throw new Error(`run ${spanId} does not belong to conversation ${conversationId}`);
       }
     },
