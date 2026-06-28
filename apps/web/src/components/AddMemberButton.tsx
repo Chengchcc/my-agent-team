@@ -11,8 +11,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { conversationKeys } from "@/features/conversations/hooks";
 import { useAgentList } from "@/features/agents/hooks";
+import { conversationKeys } from "@/features/conversations/hooks";
 import { type AgentRow, api } from "@/lib/api";
 import type { SenderRef } from "@/lib/conversation-reducer";
 

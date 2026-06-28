@@ -1,8 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { agentDetailQuery, agentIdentityQuery, agentListQuery } from "./queries";
 
-import type { UseQueryOptions } from "@tanstack/react-query";
-
 export function useAgentList(opts?: { enabled?: boolean }) {
   return useQuery({ ...agentListQuery(), ...opts });
 }
