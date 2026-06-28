@@ -1,6 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import {
   opsAgentRuntimeQuery,
+  opsAgentRuntimesQuery,
   opsInsightsSummaryQuery,
   opsRunDetailQuery,
   opsRunInsightsQuery,
@@ -10,6 +12,7 @@ import {
   opsSurfacesQuery,
   opsTraceDetailQuery,
 } from "./queries";
+import { opsKeys } from "./query-keys";
 
 export function useOpsRuns(params?: Record<string, string>) {
   return useQuery(opsRunsQuery(params));
@@ -49,6 +52,21 @@ export function useOpsSurfaces() {
 
 export function useOpsTraceDetail(id: string) {
   return useQuery(opsTraceDetailQuery(id));
+}
+
+export function useAgentRuntimes(agentIds: string[], opts?: { refetchInterval?: number }) {
+  return useQuery({ ...opsAgentRuntimesQuery(agentIds), refetchInterval: opts?.refetchInterval });
+}
+
+export function useRecoverRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => api.opsRecoverRun(runId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: opsKeys.runs() });
+      qc.invalidateQueries({ queryKey: opsKeys.all });
+    },
+  });
 }
 
 export { opsKeys } from "./query-keys";

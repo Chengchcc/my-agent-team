@@ -2,21 +2,9 @@ import type { Database } from "bun:sqlite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
+import { cronJobSelectSchema } from "../../infra/db/schema.js";
 import type { CronJobRow } from "./domain.js";
 import type { CreateCronJobRecord, CronJobPort, UpdateCronJobRecord } from "./ports.js";
-
-const toRow = (r: typeof schema.cronJob.$inferSelect): CronJobRow => ({
-  cronJobId: r.cronJobId,
-  name: r.name,
-  agentId: r.agentId,
-  cronExpr: r.cronExpr,
-  prompt: r.prompt,
-  enabled: r.enabled === 1,
-  timeoutMs: r.timeoutMs,
-  maxRetries: r.maxRetries,
-  createdAt: r.createdAt,
-  updatedAt: r.updatedAt,
-});
 
 export function sqliteCronJobAdapter(db: Database): CronJobPort {
   const d = drizzle(db, { schema, casing: "snake_case" });
@@ -37,7 +25,7 @@ export function sqliteCronJobAdapter(db: Database): CronJobPort {
           updatedAt: input.updatedAt,
         })
         .run();
-      return toRow(
+      return cronJobSelectSchema.parse(
         d.select().from(schema.cronJob).where(eq(schema.cronJob.cronJobId, input.cronJobId)).get()!,
       );
     },
@@ -48,15 +36,24 @@ export function sqliteCronJobAdapter(db: Database): CronJobPort {
         .from(schema.cronJob)
         .where(eq(schema.cronJob.cronJobId, cronJobId))
         .get();
-      return r ? toRow(r) : null;
+      return r ? cronJobSelectSchema.parse(r) : null;
     },
 
     listCronJobs(): CronJobRow[] {
-      return d.select().from(schema.cronJob).all().map(toRow);
+      return d
+        .select()
+        .from(schema.cronJob)
+        .all()
+        .map((r) => cronJobSelectSchema.parse(r));
     },
 
     listEnabledCronJobs(): CronJobRow[] {
-      return d.select().from(schema.cronJob).where(eq(schema.cronJob.enabled, 1)).all().map(toRow);
+      return d
+        .select()
+        .from(schema.cronJob)
+        .where(eq(schema.cronJob.enabled, 1))
+        .all()
+        .map((r) => cronJobSelectSchema.parse(r));
     },
 
     updateCronJob(cronJobId: string, patch: UpdateCronJobRecord): CronJobRow | null {

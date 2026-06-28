@@ -1,25 +1,13 @@
-import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { issueDetailQuery, issueListQuery, issueMetaQuery } from "./queries";
 import { issueKeys } from "./query-keys";
-
-function issueListQuery(filters?: Record<string, unknown>) {
-  return queryOptions({
-    queryKey: issueKeys.list(filters),
-    queryFn: () => api.listIssues(filters?.projectId as string),
-  });
-}
-function issueDetailQuery(id: string) {
-  return queryOptions({ queryKey: issueKeys.detail(id), queryFn: () => api.getIssueDetail(id) });
-}
-function issueMetaQuery() {
-  return queryOptions({ queryKey: issueKeys.meta(), queryFn: api.getIssueMeta });
-}
 
 export function useIssueList(filters?: Record<string, unknown>) {
   return useQuery(issueListQuery(filters));
 }
-export function useIssueDetail(id: string) {
-  return useQuery(issueDetailQuery(id));
+export function useIssueDetail(issueId: string, opts?: { enabled?: boolean }) {
+  return useQuery({ ...issueDetailQuery(issueId), ...opts });
 }
 export function useIssueMeta() {
   return useQuery(issueMetaQuery());
@@ -30,6 +18,24 @@ export function useCreateIssue() {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) => api.createIssue(body as any),
     onSuccess: () => qc.invalidateQueries({ queryKey: issueKeys.lists() }),
+  });
+}
+export function useUpdateIssue(issueId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Parameters<typeof api.updateIssue>[1]) => api.updateIssue(issueId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: issueKeys.lists() });
+    },
+  });
+}
+export function useDeleteIssue(issueId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.deleteIssue(issueId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: issueKeys.lists() });
+    },
   });
 }
 export function useApplyTransition(id: string) {

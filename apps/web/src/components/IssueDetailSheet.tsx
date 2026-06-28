@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { issueTimelineEvents } from "@my-agent-team/api-contract";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -19,11 +19,16 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { useAgentList } from "@/features/agents/hooks";
-import { issueKeys, useApplyTransition } from "@/features/issues/hooks";
+import {
+  useApplyTransition,
+  useDeleteIssue,
+  useIssueDetail,
+  useUpdateIssue,
+} from "@/features/issues/hooks";
 import type { IssueEvent, IssueRow, IssueRunSummary } from "@/lib/api";
-import { api } from "@/lib/api";
 import { dateInputToEpoch, epochToDateInput } from "@/lib/date-input";
 import { COLUMN_LABEL, FORWARD_TRANSITIONS } from "@/lib/issue-labels";
+import { typedSource } from "@/lib/typed-source";
 import { IssueStatusBadge } from "./IssueStatusBadge";
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -107,16 +112,11 @@ export function IssueDetailSheet({
   onClose: () => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const queryClient = useQueryClient();
 
   const { data: agents } = useAgentList({ enabled: open });
   const agentNames = new Map((agents ?? []).map((a) => [a.id, a.name]));
 
-  const { data: detail, isLoading } = useQuery({
-    queryKey: ["issueDetail", issue.issueId],
-    queryFn: () => api.getIssueDetail(issue.issueId),
-    enabled: open,
-  });
+  const { data: detail, isLoading } = useIssueDetail(issue.issueId, { enabled: open });
   const timeline = detail?.timeline ?? [];
   const runs = detail?.runs ?? [];
 
@@ -128,20 +128,14 @@ export function IssueDetailSheet({
     // reused across issues (the call site renders it without a per-issue key),
     // so without this the previous issue's events leak into the new timeline.
     setTimelineEvents([]);
-    const es = new EventSource(`/api/bff/issues/${issue.issueId}/timeline/events`);
-    es.addEventListener("issue-event", (e) => {
-      let event: IssueEvent;
-      try {
-        event = JSON.parse(e.data) as IssueEvent;
-      } catch {
-        return;
-      }
+    const ts = typedSource(`/api/bff/issues/${issue.issueId}/timeline/events`, issueTimelineEvents);
+    ts.on("issue-event", (event) => {
       setTimelineEvents((prev) =>
         prev.some((x) => x.seq === event.seq) ? prev : [...prev, event],
       );
     });
-    es.onerror = () => {};
-    return () => es.close();
+    ts.es.onerror = () => {};
+    return () => ts.close();
   }, [issue.issueId, open]);
   const allTimeline = [
     ...timeline,
@@ -157,33 +151,11 @@ export function IssueDetailSheet({
     },
   });
 
-  const saveMutation = useMutation({
-    mutationFn: (formData: {
-      title: string;
-      description: string;
-      priority: typeof issue.priority;
-      estimatedCompletionAt: number | null;
-    }) => api.updateIssue(issue.issueId, formData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
-      toast.success("Issue updated");
-      setEditing(false);
-      onClose();
-    },
-    onError: (err: Error) => toast.error("Failed to save", { description: err.message }),
-  });
+  const saveMutation = useUpdateIssue(issue.issueId);
 
   const transitionMutation = useApplyTransition(issue.issueId);
 
-  const deleteMutation = useMutation({
-    mutationFn: () => api.deleteIssue(issue.issueId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
-      toast.success("Issue deleted");
-      onClose();
-    },
-    onError: (err: Error) => toast.error("Failed to delete", { description: err.message }),
-  });
+  const deleteMutation = useDeleteIssue(issue.issueId);
 
   const legalNext = FORWARD_TRANSITIONS[issue.status] ?? [];
 
@@ -230,7 +202,16 @@ export function IssueDetailSheet({
                 disabled={deleteMutation.isPending}
                 onClick={() => {
                   if (!confirm("确定删除此 Issue？")) return;
-                  deleteMutation.mutate();
+                  deleteMutation.mutate(undefined, {
+                    onSuccess: () => {
+                      toast.success("Issue deleted");
+                      onClose();
+                    },
+                    onError: (err) =>
+                      toast.error("Failed to delete", {
+                        description: err instanceof Error ? err.message : "Unknown error",
+                      }),
+                  });
                 }}
               >
                 删除
@@ -243,7 +224,19 @@ export function IssueDetailSheet({
         {editing && (
           <Form {...editForm}>
             <form
-              onSubmit={editForm.handleSubmit((data) => saveMutation.mutate(data))}
+              onSubmit={editForm.handleSubmit((data) =>
+                saveMutation.mutate(data, {
+                  onSuccess: () => {
+                    toast.success("Issue updated");
+                    setEditing(false);
+                    onClose();
+                  },
+                  onError: (err) =>
+                    toast.error("Failed to save", {
+                      description: err instanceof Error ? err.message : "Unknown error",
+                    }),
+                }),
+              )}
               className="space-y-3 mb-4 p-3 border rounded"
             >
               <FormField

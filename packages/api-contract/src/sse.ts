@@ -76,6 +76,25 @@ export const sseEndpoints = {
   },
 } as const;
 
+// ── SSE encoder (backend send side — validate payload before wire) ──
+
+/**
+ * Create an SSE encoder bound to an event map. The returned `encode` function
+ * validates `data` against the schema for `event` before formatting as an
+ * `{ id, event, data }` object suitable for `sseResponse()`.
+ */
+export function createSseEncoder<M extends SSEEventMap>(_map: M) {
+  return function encode<K extends keyof M & string>(
+    event: K,
+    data: unknown,
+    id: string,
+  ): { id: string; event: string; data: z.infer<M[K]> } {
+    const schema = _map[event] as z.ZodType;
+    const validated = schema.parse(data) as z.infer<M[K]>;
+    return { id, event, data: validated };
+  };
+}
+
 // ── Types ──
 
 export type SSEEventMap = Record<string, z.ZodType<unknown>>;

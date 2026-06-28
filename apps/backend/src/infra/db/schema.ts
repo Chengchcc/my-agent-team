@@ -183,8 +183,7 @@ export const deliverable = sqliteTable(
   ],
 );
 
-// ── Tables migrated from events-schema.ts (formerly events.db, now part of backend.db) ──
-// S1 storage convergence: events.db merged into backend.db.
+// ── Execution-related tables (merged into single-db under S1 storage convergence) ──
 
 export const run = sqliteTable(
   "run",
@@ -292,22 +291,27 @@ export const issueEvent = sqliteTable(
 
 // ── Zod schemas (type chain: drizzle table → Zod → z.infer → TS type) ──
 
-import { createInsertSchema, createSelectSchema } from "drizzle-zod";
+import { createSelectSchema } from "drizzle-zod";
 
 // ── Simple tables (drizzle-zod auto-generate) ──
 
 export const runSelectSchema = createSelectSchema(run);
-export const runInsertSchema = createInsertSchema(run);
 export const attemptSelectSchema = createSelectSchema(attempt);
-export const attemptInsertSchema = createInsertSchema(attempt);
 export const runOriginSelectSchema = createSelectSchema(runOrigin);
-export const runOriginInsertSchema = createInsertSchema(runOrigin);
-export const issueSelectSchema = createSelectSchema(issue);
-export const issueInsertSchema = createInsertSchema(issue);
-export const columnConfigSelectSchema = createSelectSchema(columnConfig);
-export const columnConfigInsertSchema = createInsertSchema(columnConfig);
-export const agentsSelectSchema = createSelectSchema(agents);
-export const agentsInsertSchema = createInsertSchema(agents);
+export const issueSelectSchema = createSelectSchema(issue, {
+  status: (s) =>
+    s.transform((v) => v as "draft" | "planned" | "in_progress" | "in_review" | "done"),
+  priority: (s) => s.transform((v) => v as "P0" | "P1" | "P2" | "P3"),
+});
+export const columnConfigSelectSchema = createSelectSchema(columnConfig, {
+  status: (s) =>
+    s.transform((v) => v as "draft" | "planned" | "in_progress" | "in_review" | "done"),
+  approvalPosture: (s) => s.transform((v) => v as "auto" | "human"),
+});
+export const agentsSelectSchema = createSelectSchema(agents, {
+  larkEnabled: (s) => s.transform((v: number) => v !== 0),
+  permissionMode: (s) => s.transform((v) => v as "ask" | "auto" | "deny"),
+});
 export const conversationSelectSchema = createSelectSchema(conversation);
 export const memberSelectSchema = createSelectSchema(member);
 
@@ -317,22 +321,13 @@ export const memberSelectSchema = createSelectSchema(member);
 export const controlPlaneEventSelectSchema = createSelectSchema(controlPlaneEvent, {
   payload: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, unknown>),
 });
-export const controlPlaneEventInsertSchema = createInsertSchema(controlPlaneEvent, {
-  payload: (s) => s.transform((v) => JSON.stringify(v ?? {})),
-});
 
 export const surfaceHealthSelectSchema = createSelectSchema(surfaceHealth, {
   payload: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, unknown>),
 });
-export const surfaceHealthInsertSchema = createInsertSchema(surfaceHealth, {
-  payload: (s) => s.transform((v) => JSON.stringify(v ?? {})),
-});
 
 export const issueEventSelectSchema = createSelectSchema(issueEvent, {
   payload: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, unknown>),
-});
-export const issueEventInsertSchema = createInsertSchema(issueEvent, {
-  payload: (s) => s.transform((v) => JSON.stringify(v ?? {})),
 });
 
 export const deliverableSelectSchema = createSelectSchema(deliverable, {
@@ -347,13 +342,7 @@ export const conversationLedgerSelectSchema = createSelectSchema(conversationLed
 export const projectSelectSchema = createSelectSchema(project, {
   autoOrchestrate: (s) => s.transform((v: number) => v !== 0),
 });
-export const projectInsertSchema = createInsertSchema(project, {
-  autoOrchestrate: (s) => s.transform((v) => (v ? 1 : 0)),
-});
 
 export const cronJobSelectSchema = createSelectSchema(cronJob, {
   enabled: (s) => s.transform((v: number) => v !== 0),
-});
-export const cronJobInsertSchema = createInsertSchema(cronJob, {
-  enabled: (s) => s.transform((v) => (v ? 1 : 0)),
 });

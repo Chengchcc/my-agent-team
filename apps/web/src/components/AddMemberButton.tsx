@@ -1,6 +1,5 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bot, Check, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -12,8 +11,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useAgentList } from "@/features/agents/hooks";
-import { conversationKeys } from "@/features/conversations/hooks";
-import { type AgentRow, api } from "@/lib/api";
+import { useAddConversationMember } from "@/features/conversations/hooks";
 import type { SenderRef } from "@/lib/conversation-reducer";
 
 interface AddMemberButtonProps {
@@ -23,7 +21,6 @@ interface AddMemberButtonProps {
 
 export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps) {
   const [open, setOpen] = useState(false);
-  const qc = useQueryClient();
 
   const { data: agents } = useAgentList();
 
@@ -48,19 +45,7 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
     });
   }, [agents, presentMemberIds]);
 
-  const add = useMutation({
-    mutationFn: (a: AgentRow) =>
-      api.addConversationMember(conversationId, {
-        memberId: a.id,
-        kind: "agent",
-        agentId: a.id,
-        displayName: a.name,
-      }),
-    onSuccess: () => {
-      setOpen(false);
-      qc.invalidateQueries({ queryKey: conversationKeys.detail(conversationId) });
-    },
-  });
+  const add = useAddConversationMember(conversationId);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -85,7 +70,12 @@ export function AddMemberButton({ conversationId, roster }: AddMemberButtonProps
                   <li key={a.id}>
                     <Button
                       variant="ghost"
-                      onClick={() => add.mutate(a)}
+                      onClick={() =>
+                        add.mutate(
+                          { memberId: a.id, kind: "agent", agentId: a.id, displayName: a.name },
+                          { onSuccess: () => setOpen(false) },
+                        )
+                      }
                       disabled={isPresent || add.isPending}
                       className="w-full flex items-center justify-start gap-2 px-2 py-1.5 h-auto rounded text-xs font-normal disabled:opacity-30 text-left"
                       title={isPresent ? "Already in this conversation" : undefined}

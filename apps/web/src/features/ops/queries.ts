@@ -52,6 +52,20 @@ export function opsAgentRuntimeQuery(id: string) {
   });
 }
 
+export function opsAgentRuntimesQuery(agentIds: string[]) {
+  return queryOptions({
+    queryKey: opsKeys.agentRuntimes(agentIds),
+    queryFn: async () => {
+      const results = await Promise.all(
+        agentIds.map((id) => api.getAgentRuntime(id).catch(() => null)),
+      );
+      return results.filter((r): r is NonNullable<typeof r> => r != null);
+    },
+    enabled: agentIds.length > 0,
+    staleTime: 10_000,
+  });
+}
+
 export function opsSurfacesQuery() {
   return queryOptions({
     queryKey: opsKeys.surfaces(),

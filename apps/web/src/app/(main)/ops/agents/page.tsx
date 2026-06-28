@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -10,23 +9,17 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { useAgentList } from "@/features/agents/hooks";
-import { api } from "@/lib/api";
+import { useAgentRuntimes } from "@/features/ops/hooks";
 
 export default function AgentsPage() {
   const { data: agents = [] } = useAgentList();
 
-  const { data: runtimes = [] } = useQuery({
-    queryKey: ["ops", "agentRuntime", agents.map((a) => a.id)],
-    queryFn: async () => {
-      const results = await Promise.all(
-        agents.map((a) => api.getAgentRuntime(a.id).catch(() => null)),
-      );
-      return results.filter(Boolean);
+  const { data: runtimes = [] } = useAgentRuntimes(
+    agents.map((a) => a.id),
+    {
+      refetchInterval: 30_000,
     },
-    enabled: agents.length > 0,
-    staleTime: 10_000,
-    refetchInterval: 30_000,
-  });
+  );
 
   return (
     <div className="container mx-auto p-6 space-y-6">

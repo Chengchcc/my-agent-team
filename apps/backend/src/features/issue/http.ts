@@ -1,3 +1,8 @@
+import {
+  createSseEncoder,
+  issueBoardEvents,
+  issueTimelineEvents,
+} from "@my-agent-team/api-contract";
 import { Elysia, t } from "elysia";
 import { sseResponse } from "../../http/response.js";
 import type { DeliverableService } from "../deliverable/service.js";
@@ -5,7 +10,6 @@ import { BACKWARD_EDGES, ISSUE_STATUSES, ORDER } from "../orchestrator/transitio
 import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { subscribeIssueTimeline } from "../runtime-ops/subscribe-issue-timeline.js";
-import type { IssueEvent } from "../runtime-ops/types.js";
 import type { IssueRow, IssueStatus } from "./entities.js";
 import {
   IllegalTransitionError,
@@ -298,9 +302,10 @@ export function issueRoutes(
       // SSE — returns raw Response (stream)
       .get("/api/issues/events", ({ request }) => {
         const stream = svc.subscribeIssues({ signal: request.signal });
+        const encodeIssue = createSseEncoder(issueBoardEvents);
         return sseResponse(
           stream,
-          (row) => ({ id: (row as IssueRow).issueId, event: "issue", data: row }),
+          (row) => encodeIssue("issue", row, (row as { issueId: string }).issueId),
           request.signal,
         );
       })
@@ -308,9 +313,10 @@ export function issueRoutes(
         if (!svc.port.getIssue(issueId))
           return Response.json({ error: "Not found" }, { status: 404 });
         const stream = subscribeIssueTimeline(opsStore, issueId, { signal: request.signal });
+        const encodeTimeline = createSseEncoder(issueTimelineEvents);
         return sseResponse(
           stream,
-          (e) => ({ id: String((e as IssueEvent).seq ?? ""), event: "issue-event", data: e }),
+          (e) => encodeTimeline("issue-event", e, String((e as { seq?: number }).seq ?? "")),
           request.signal,
         );
       })

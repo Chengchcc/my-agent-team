@@ -5,25 +5,13 @@ import * as schema from "../../infra/db/schema.js";
 import type { IssueRow, IssueStatus } from "./entities.js";
 import type { CreateIssueInput, IssuePort, UpdateIssueInput } from "./ports.js";
 
-const toRow = (r: typeof schema.issue.$inferSelect): IssueRow => ({
-  issueId: r.issueId,
-  projectId: r.projectId,
-  title: r.title,
-  status: r.status as IssueStatus,
-  sessionId: r.sessionId,
-  description: r.description,
-  priority: r.priority as IssueRow["priority"],
-  estimatedCompletionAt: r.estimatedCompletionAt,
-  createdAt: r.createdAt,
-  updatedAt: r.updatedAt,
-});
-
 export function sqliteIssueAdapter(db: Database): IssuePort {
   const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
     createIssue(input: CreateIssueInput): IssueRow {
-      d.insert(schema.issue)
+      const rows = d
+        .insert(schema.issue)
         .values({
           issueId: input.issueId,
           projectId: input.projectId,
@@ -36,20 +24,14 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
           createdAt: input.createdAt,
           updatedAt: input.createdAt,
         })
-        .run();
-      return {
-        ...input,
-        status: "draft",
-        description: input.description ?? "",
-        priority: input.priority ?? "P2",
-        estimatedCompletionAt: input.estimatedCompletionAt ?? null,
-        updatedAt: input.createdAt,
-      };
+        .returning()
+        .all();
+      return schema.issueSelectSchema.parse(rows[0]!);
     },
 
     getIssue(issueId: string): IssueRow | null {
       const r = d.select().from(schema.issue).where(eq(schema.issue.issueId, issueId)).get();
-      return r ? toRow(r) : null;
+      return r ? schema.issueSelectSchema.parse(r) : null;
     },
 
     listIssues(opts?: { projectId?: string }): IssueRow[] {
@@ -57,7 +39,7 @@ export function sqliteIssueAdapter(db: Database): IssuePort {
       if (opts?.projectId) {
         q = q.where(eq(schema.issue.projectId, opts.projectId));
       }
-      return q.all().map(toRow);
+      return q.all().map((r) => schema.issueSelectSchema.parse(r));
     },
 
     setStatus(

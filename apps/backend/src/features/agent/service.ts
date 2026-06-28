@@ -9,7 +9,7 @@ export interface AgentService {
   list(includeArchived?: boolean): Promise<AgentRow[]>;
   update(id: string, input: UpdateAgentInput): Promise<AgentRow>;
   archive(id: string): Promise<AgentRow>;
-  /** M11: Permanently delete agent across backend.db + events.db + workspace. Requires no active runs. */
+  /** M11: Permanently delete agent across backend.db + workspace. Requires no active runs. */
   hardDelete(id: string): Promise<void>;
 }
 
@@ -87,7 +87,7 @@ export function createAgentService(opts: {
       return row;
     },
 
-    // M11: Hard delete across three stores — backend.db (transactional), events.db, workspace
+    // M11: Hard delete across stores — backend.db (transactional), workspace
     async hardDelete(id: string): Promise<void> {
       // 0. Verify agent exists (throws AgentNotFoundError if not)
       await this.getById(id);
@@ -95,13 +95,13 @@ export function createAgentService(opts: {
       // 1. Guard: assert no active runs (throws AgentBusyError if busy)
       opts.assertNoActiveRun(id);
 
-      // 2. Collect thread IDs for events.db cleanup
+      // 2. Collect session IDs for checkpointer cleanup
       const sessionIds = await opts.listSessionIds(id);
 
       // 3. backend.db: single transaction — agent + threads + checkpoint + member
       await port.hardDelete(id);
 
-      // 4. events.db: purge run/attempt/event_log for this agent's threads
+      // 4. checkpointer: purge execution data for this agent's sessions
       await opts.purgeEventsForSessions(sessionIds);
 
       // 5. workspace: physical rm -rf (idempotent)

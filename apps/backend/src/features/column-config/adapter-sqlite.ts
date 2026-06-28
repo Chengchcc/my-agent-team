@@ -2,20 +2,10 @@ import type { Database } from "bun:sqlite";
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
+import { columnConfigSelectSchema } from "../../infra/db/schema.js";
 import type { IssueStatus } from "../issue/entities.js";
 import type { ColumnConfigRow } from "./domain.js";
 import type { ColumnConfigPort, CreateColumnConfigRecord } from "./ports.js";
-
-const toRow = (r: typeof schema.columnConfig.$inferSelect): ColumnConfigRow => ({
-  configId: r.configId,
-  projectId: r.projectId,
-  status: r.status as IssueStatus,
-  agentId: r.agentId,
-  promptTemplate: r.promptTemplate,
-  approvalPosture: r.approvalPosture as "auto" | "human",
-  createdAt: r.createdAt,
-  updatedAt: r.updatedAt,
-});
 
 export function sqliteColumnConfigAdapter(db: Database): ColumnConfigPort {
   const d = drizzle(db, { schema, casing: "snake_case" });
@@ -37,7 +27,7 @@ export function sqliteColumnConfigAdapter(db: Database): ColumnConfigPort {
           END`,
         )
         .all();
-      return rows.map(toRow);
+      return rows.map((r) => columnConfigSelectSchema.parse(r));
     },
 
     getByProjectStatus(projectId: string, status: IssueStatus): ColumnConfigRow | null {
@@ -48,7 +38,7 @@ export function sqliteColumnConfigAdapter(db: Database): ColumnConfigPort {
           and(eq(schema.columnConfig.projectId, projectId), eq(schema.columnConfig.status, status)),
         )
         .get();
-      return r ? toRow(r) : null;
+      return r ? columnConfigSelectSchema.parse(r) : null;
     },
 
     upsert(input: CreateColumnConfigRecord): ColumnConfigRow {
@@ -79,7 +69,7 @@ export function sqliteColumnConfigAdapter(db: Database): ColumnConfigPort {
         status: input.status,
         agentId: input.agentId,
         promptTemplate: input.promptTemplate,
-        approvalPosture: (input.approvalPosture ?? "auto") as "auto" | "human",
+        approvalPosture: input.approvalPosture ?? "auto",
         createdAt: input.now,
         updatedAt: input.now,
       };

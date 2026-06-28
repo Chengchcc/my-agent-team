@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { CostBreakdownChart } from "@/components/ops/CostBreakdownChart";
 import { HealthSummary } from "@/components/ops/HealthSummary";
@@ -22,8 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAgentList } from "@/features/agents/hooks";
-import { useOpsRuns } from "@/features/ops/hooks";
-import { api } from "@/lib/api";
+import { useAgentRuntimes, useOpsRuns } from "@/features/ops/hooks";
 
 const WINDOWS: Record<string, number> = {
   "1h": 3_600_000,
@@ -38,17 +36,7 @@ export default function OpsPage() {
   const agentsQuery = useAgentList();
   const agents = agentsQuery.data ?? [];
 
-  const runtimesQuery = useQuery({
-    queryKey: ["ops", "agentRuntime", agents.map((a) => a.id)],
-    queryFn: async () => {
-      const results = await Promise.all(
-        agents.map((a) => api.getAgentRuntime(a.id).catch(() => null)),
-      );
-      return results.filter((r): r is NonNullable<typeof r> => r != null);
-    },
-    enabled: agents.length > 0,
-    staleTime: 10_000,
-  });
+  const runtimesQuery = useAgentRuntimes(agents.map((a) => a.id));
 
   const runs = runsQuery.data ?? [];
   const runtimes = runtimesQuery.data ?? [];

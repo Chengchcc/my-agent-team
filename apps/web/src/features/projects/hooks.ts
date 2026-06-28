@@ -20,4 +20,12 @@ export function useDeleteProject() {
     onSuccess: () => qc.invalidateQueries({ queryKey: projectKeys.all }),
   });
 }
+export function useUpdateProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Parameters<typeof api.updateProject>[1] }) =>
+      api.updateProject(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: projectKeys.all }),
+  });
+}
 export { projectKeys };

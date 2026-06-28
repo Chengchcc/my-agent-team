@@ -134,7 +134,7 @@ export async function getRunInsights(
   const { checkpointEventsStore, getAgentName } = deps;
   const resolveName = (agentId: string) => getAgentName?.(agentId) ?? agentId;
 
-  // Read execution facts from checkpoint_events (live source, replaces dead event_log)
+  // Read execution facts from checkpoint_events
   const events = checkpointEventsStore?.readBySpan(params.sessionId, params.spanId) ?? [];
 
   const calls: CallItem[] = [];

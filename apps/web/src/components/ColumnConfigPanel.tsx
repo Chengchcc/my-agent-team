@@ -1,7 +1,6 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -25,8 +24,12 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { useAgentList } from "@/features/agents/hooks";
-import { useUpsertColumnConfig } from "@/features/column-configs/hooks";
-import { api, type IssueStatus, type ProjectRow } from "@/lib/api";
+import {
+  useColumnConfigList,
+  useDeleteColumnConfig,
+  useUpsertColumnConfig,
+} from "@/features/column-configs/hooks";
+import type { IssueStatus, ProjectRow } from "@/lib/api";
 import { fieldClass, labelClass } from "@/lib/form-styles";
 import { COLUMN_LABEL, configurableStatuses } from "@/lib/issue-labels";
 
@@ -61,15 +64,10 @@ interface ColumnConfigPanelProps {
 }
 
 export function ColumnConfigPanel({ project, open, onClose }: ColumnConfigPanelProps) {
-  const queryClient = useQueryClient();
   const [editingStatus, setEditingStatus] = useState<IssueStatus | null>(null);
   const [confirmingStatus, setConfirmingStatus] = useState<IssueStatus | null>(null);
 
-  const { data: configsData } = useQuery({
-    queryKey: ["column-configs", project.projectId],
-    queryFn: () => api.listColumnConfigs(project.projectId),
-    enabled: open,
-  });
+  const { data: configsData } = useColumnConfigList(project.projectId, { enabled: open });
   const configs = configsData?.configs ?? [];
   const configByStatus = new Map(configs.map((c) => [c.status, c]));
 
@@ -101,18 +99,7 @@ export function ColumnConfigPanel({ project, open, onClose }: ColumnConfigPanelP
 
   const upsert = useUpsertColumnConfig();
 
-  const remove = useMutation({
-    mutationFn: (configId: string) => api.deleteColumnConfig(configId),
-    onSuccess: () => {
-      toast.success("Column config deleted");
-      queryClient.invalidateQueries({ queryKey: ["column-configs", project.projectId] });
-      setConfirmingStatus(null);
-    },
-    onError: (err) => {
-      const msg = err instanceof Error ? err.message : "Failed to delete config";
-      toast.error("Failed to delete config", { description: msg });
-    },
-  });
+  const remove = useDeleteColumnConfig(project.projectId);
 
   function onSubmit(values: UpsertForm) {
     if (!editingStatus) return;
@@ -196,7 +183,19 @@ export function ColumnConfigPanel({ project, open, onClose }: ColumnConfigPanelP
                           <Button
                             size="xs"
                             variant="secondary"
-                            onClick={() => remove.mutate(cfg.configId)}
+                            onClick={() =>
+                              remove.mutate(cfg.configId, {
+                                onSuccess: () => {
+                                  toast.success("Column config deleted");
+                                  setConfirmingStatus(null);
+                                },
+                                onError: (err) => {
+                                  const msg =
+                                    err instanceof Error ? err.message : "Failed to delete config";
+                                  toast.error("Failed to delete config", { description: msg });
+                                },
+                              })
+                            }
                             disabled={remove.isPending}
                           >
                             Confirm

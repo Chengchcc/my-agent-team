@@ -2,19 +2,9 @@ import type { Database } from "bun:sqlite";
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
+import { deliverableSelectSchema } from "../../infra/db/schema.js";
 import type { DeliverableRow } from "./domain.js";
 import type { DeliverablePort } from "./ports.js";
-
-const toRow = (r: typeof schema.deliverable.$inferSelect): DeliverableRow => ({
-  deliverableId: r.deliverableId,
-  issueId: r.issueId,
-  fromStatus: r.fromStatus,
-  kind: r.kind,
-  fields: JSON.parse(r.fields) as Record<string, string>,
-  ref: r.ref,
-  spanId: r.spanId,
-  createdAt: r.createdAt,
-});
 
 export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
   const d = drizzle(db, { schema, casing: "snake_case" });
@@ -54,19 +44,19 @@ export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
             ),
           )
           .get();
-        if (existing) return { row: toRow(existing), replay: true };
+        if (existing) return { row: deliverableSelectSchema.parse(existing), replay: true };
       }
       return {
-        row: {
+        row: deliverableSelectSchema.parse({
           deliverableId: input.deliverableId,
           issueId: input.issueId,
           fromStatus: input.fromStatus,
           kind: input.kind,
-          fields: input.fields,
+          fields: JSON.stringify(input.fields),
           ref: input.ref,
           spanId: input.spanId,
           createdAt: input.createdAt,
-        },
+        }),
         replay: false,
       };
     },
@@ -79,7 +69,7 @@ export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
         .where(eq(schema.deliverable.issueId, issueId))
         .orderBy(schema.deliverable.createdAt, schema.deliverable.deliverableId)
         .all();
-      return rows.map(toRow);
+      return rows.map((r) => deliverableSelectSchema.parse(r));
     },
 
     getByRunAndKind(spanId: string, kind: string): DeliverableRow | null {
@@ -88,7 +78,7 @@ export function sqliteDeliverableAdapter(db: Database): DeliverablePort {
         .from(schema.deliverable)
         .where(and(eq(schema.deliverable.spanId, spanId), eq(schema.deliverable.kind, kind)))
         .get();
-      return r ? toRow(r) : null;
+      return r ? deliverableSelectSchema.parse(r) : null;
     },
   };
 }

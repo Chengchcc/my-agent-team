@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import {
   conversationKeys,
   useConversationList,
+  useCreateConversation,
   useDeleteConversation,
 } from "@/features/conversations/hooks";
-import { api } from "@/lib/api";
 
 export function ConversationList({ agentId, agentName }: { agentId: string; agentName?: string }) {
   const router = useRouter();
@@ -18,26 +18,30 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
 
   const { data: conversations, isLoading } = useConversationList(agentId);
 
-  const createConversation = useMutation({
-    mutationFn: async () => {
-      const humanId = `human-${crypto.randomUUID().slice(0, 8)}`;
-      return api.createConversation({
+  const createConversation = useCreateConversation();
+
+  const makeConversation = () => {
+    const humanId = `human-${crypto.randomUUID().slice(0, 8)}`;
+    createConversation.mutate(
+      {
         members: [
           { memberId: agentId, kind: "agent", agentId, displayName: agentName },
           { memberId: humanId, kind: "human", userRef: "__legacy__", displayName: "User" },
         ],
-      });
-    },
-    onSuccess: (conv) => {
-      queryClient.invalidateQueries({ queryKey: conversationKeys.byAgent(agentId) });
-      router.push(`/conversations/${conv.conversationId}`);
-    },
-    onError: (err) => {
-      toast.error("Failed to create conversation", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    },
-  });
+      },
+      {
+        onSuccess: (conv) => {
+          queryClient.invalidateQueries({ queryKey: conversationKeys.byAgent(agentId) });
+          router.push(`/conversations/${conv.conversationId}`);
+        },
+        onError: (err) => {
+          toast.error("Failed to create conversation", {
+            description: err instanceof Error ? err.message : "Unknown error",
+          });
+        },
+      },
+    );
+  };
 
   const deleteConversation = useDeleteConversation();
 
@@ -60,7 +64,7 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
         <Button
           variant="link"
           size="sm"
-          onClick={() => createConversation.mutate()}
+          onClick={() => makeConversation()}
           disabled={createConversation.isPending}
           className="text-xs h-auto p-0"
         >
@@ -72,7 +76,7 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
       {(conversations ?? []).length === 0 ? (
         <div className="text-center py-12">
           <p className="text-sm text-[var(--mute)] mb-2">No conversations yet</p>
-          <Button variant="link" size="sm" onClick={() => createConversation.mutate()}>
+          <Button variant="link" size="sm" onClick={() => makeConversation()}>
             Create your first conversation
           </Button>
         </div>

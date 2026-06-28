@@ -1,7 +1,6 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -34,8 +33,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useAgentList } from "@/features/agents/hooks";
-import { cronKeys, useCreateCronJob } from "@/features/cron/hooks";
-import { api, type CronJobRow } from "@/lib/api";
+import { useCreateCronJob, useUpdateCronJob } from "@/features/cron/hooks";
+import type { CronJobRow } from "@/lib/api";
 import { fieldClass, labelClass } from "@/lib/form-styles";
 
 const formSchema = z.object({
@@ -58,7 +57,6 @@ interface CronJobFormProps {
 }
 
 export function CronJobForm({ editCronJob, onSuccess }: CronJobFormProps) {
-  const qc = useQueryClient();
   const isEdit = !!editCronJob;
   const [open, setOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -115,21 +113,7 @@ export function CronJobForm({ editCronJob, onSuccess }: CronJobFormProps) {
   }
 
   const createMu = useCreateCronJob();
-
-  const updateMu = useMutation({
-    mutationFn: (body: Parameters<typeof api.updateCronJob>[1]) =>
-      api.updateCronJob(editCronJob!.cronJobId, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: cronKeys.all });
-      toast.success("Schedule updated");
-      setOpen(false);
-      onSuccess?.();
-    },
-    onError: (e) => {
-      setServerError(String(e));
-      toast.error("Failed to update schedule");
-    },
-  });
+  const updateMu = useUpdateCronJob();
 
   function onSubmit(values: FormValues) {
     setServerError(null);
@@ -139,7 +123,20 @@ export function CronJobForm({ editCronJob, onSuccess }: CronJobFormProps) {
       // leaving `enabled` in the body makes every save 400. Strip it here.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { enabled, ...patch } = values;
-      updateMu.mutate(patch);
+      updateMu.mutate(
+        { id: editCronJob!.cronJobId, body: patch },
+        {
+          onSuccess: () => {
+            toast.success("Schedule updated");
+            setOpen(false);
+            onSuccess?.();
+          },
+          onError: (e) => {
+            setServerError(String(e));
+            toast.error("Failed to update schedule");
+          },
+        },
+      );
     } else {
       createMu.mutate(values, {
         onSuccess: () => {

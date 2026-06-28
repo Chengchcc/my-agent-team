@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ActivityIcon,
   BotIcon,
@@ -43,9 +43,9 @@ import { useAgentList } from "@/features/agents/hooks";
 import {
   conversationKeys,
   useConversationList,
+  useCreateConversation,
   useDeleteConversation,
 } from "@/features/conversations/hooks";
-import { api } from "@/lib/api";
 
 function NavContent() {
   const pathname = usePathname();
@@ -62,34 +62,7 @@ function NavContent() {
   const { data: conversations } = useConversationList(selectedAgentId!);
   const deleteConversation = useDeleteConversation();
 
-  const createConversation = useMutation({
-    mutationFn: (input: { displayName?: string }) =>
-      api.createConversation({
-        members: [
-          {
-            memberId: selectedAgentId!,
-            kind: "agent" as const,
-            agentId: selectedAgentId!,
-            displayName: input.displayName,
-          },
-          {
-            memberId: `human-${crypto.randomUUID().slice(0, 8)}`,
-            kind: "human" as const,
-            userRef: "__legacy__",
-            displayName: "User",
-          },
-        ],
-      }),
-    onSuccess: (conv) => {
-      closeMobile();
-      router.push(`/conversations/${conv.conversationId}`);
-    },
-    onError: (err) => {
-      toast.error("Failed to create conversation", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    },
-  });
+  const createConversation = useCreateConversation();
 
   function closeMobile() {
     setOpenMobile(false);
@@ -135,7 +108,35 @@ function NavContent() {
               disabled={createConversation.isPending}
               onClick={() => {
                 const a = activeAgents.find((ag) => ag.id === selectedAgentId);
-                createConversation.mutate({ displayName: a?.name });
+                createConversation.mutate(
+                  {
+                    members: [
+                      {
+                        memberId: selectedAgentId!,
+                        kind: "agent" as const,
+                        agentId: selectedAgentId!,
+                        displayName: a?.name,
+                      },
+                      {
+                        memberId: `human-${crypto.randomUUID().slice(0, 8)}`,
+                        kind: "human" as const,
+                        userRef: "__legacy__",
+                        displayName: "User",
+                      },
+                    ],
+                  },
+                  {
+                    onSuccess: (conv) => {
+                      closeMobile();
+                      router.push(`/conversations/${conv.conversationId}`);
+                    },
+                    onError: (err) => {
+                      toast.error("Failed to create conversation", {
+                        description: err instanceof Error ? err.message : "Unknown error",
+                      });
+                    },
+                  },
+                );
               }}
               className="ml-auto text-primary hover:text-primary/80"
               aria-label="New conversation"

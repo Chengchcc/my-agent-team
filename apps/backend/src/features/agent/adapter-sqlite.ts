@@ -1,33 +1,9 @@
 import type { Database } from "bun:sqlite";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { z } from "zod";
 import * as schema from "../../infra/db/schema.js";
 import type { AgentRow, CreateAgentInput, UpdateAgentInput } from "./domain.js";
 import type { AgentPort } from "./ports.js";
-
-const permissionModeSchema = z.enum(["ask", "auto", "deny"]);
-
-function toRow(r: typeof schema.agents.$inferSelect): AgentRow {
-  return {
-    id: r.id,
-    name: r.name,
-    template: r.template,
-    workspacePath: r.workspacePath,
-    modelProvider: r.modelProvider,
-    modelName: r.modelName,
-    modelBaseUrl: r.modelBaseUrl,
-    permissionMode: permissionModeSchema.parse(r.permissionMode),
-    maxSteps: r.maxSteps,
-    larkEnabled: r.larkEnabled === 1,
-    larkAppId: r.larkAppId,
-    larkProfileRef: r.larkProfileRef,
-    larkBotDisplayName: r.larkBotDisplayName,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
-    archivedAt: r.archivedAt,
-  };
-}
 
 export function sqliteAgentAdapter(db: Database): AgentPort {
   const d = drizzle(db, { schema, casing: "snake_case" });
@@ -64,12 +40,12 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
         })
         .run();
       const raw = d.select().from(schema.agents).where(eq(schema.agents.id, input.id)).get();
-      return toRow(raw!);
+      return schema.agentsSelectSchema.parse(raw!);
     },
 
     async findById(id: string): Promise<AgentRow | null> {
       const raw = d.select().from(schema.agents).where(eq(schema.agents.id, id)).get();
-      return raw ? toRow(raw) : null;
+      return raw ? schema.agentsSelectSchema.parse(raw) : null;
     },
 
     async list(includeArchived = false): Promise<AgentRow[]> {
@@ -81,7 +57,7 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
             .where(isNull(schema.agents.archivedAt))
             .orderBy(desc(schema.agents.createdAt))
             .all();
-      return rows.map(toRow);
+      return rows.map((r) => schema.agentsSelectSchema.parse(r));
     },
 
     async update(
@@ -108,7 +84,7 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
 
       if (rows.length === 0) return null;
       const raw = d.select().from(schema.agents).where(eq(schema.agents.id, id)).get();
-      return raw ? toRow(raw) : null;
+      return raw ? schema.agentsSelectSchema.parse(raw) : null;
     },
 
     async archive(id: string, now: number): Promise<AgentRow | null> {
@@ -120,7 +96,7 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
         .all();
       if (rows.length === 0) return null;
       const raw = d.select().from(schema.agents).where(eq(schema.agents.id, id)).get();
-      return raw ? toRow(raw) : null;
+      return raw ? schema.agentsSelectSchema.parse(raw) : null;
     },
 
     // M11: Permanent hard delete — all in single backend.db transaction.

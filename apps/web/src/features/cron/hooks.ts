@@ -30,4 +30,12 @@ export function useSetCronEnabled() {
     onSuccess: () => qc.invalidateQueries({ queryKey: cronKeys.all }),
   });
 }
+export function useUpdateCronJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Parameters<typeof api.updateCronJob>[1] }) =>
+      api.updateCronJob(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: cronKeys.all }),
+  });
+}
 export { cronKeys };

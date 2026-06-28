@@ -10,5 +10,6 @@ export const opsKeys = {
   sessionDetail: (id: string) => [...opsKeys.all, "sessionDetail", id] as const,
   agentRuntime: (id: string) => [...opsKeys.all, "agentRuntime", id] as const,
   surfaces: () => [...opsKeys.all, "surfaces"] as const,
+  agentRuntimes: (agentIds: string[]) => [...opsKeys.all, "agentRuntimes", agentIds] as const,
   traceDetail: (id: string) => [...opsKeys.all, "traceDetail", id] as const,
 };

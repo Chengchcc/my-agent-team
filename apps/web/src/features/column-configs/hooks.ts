@@ -1,15 +1,10 @@
-import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { columnConfigListQuery } from "./queries";
 import { columnConfigKeys } from "./query-keys";
 
-function listQuery(projectId: string) {
-  return queryOptions({
-    queryKey: columnConfigKeys.byProject(projectId),
-    queryFn: () => api.listColumnConfigs(projectId),
-  });
-}
-export function useColumnConfigList(projectId: string) {
-  return useQuery(listQuery(projectId));
+export function useColumnConfigList(projectId: string, opts?: { enabled?: boolean }) {
+  return useQuery({ ...columnConfigListQuery(projectId), ...opts });
 }
 export function useUpsertColumnConfig() {
   const qc = useQueryClient();
@@ -19,6 +14,15 @@ export function useUpsertColumnConfig() {
       qc.invalidateQueries({
         queryKey: columnConfigKeys.byProject((v as any).projectId as string),
       }),
+  });
+}
+export function useDeleteColumnConfig(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (configId: string) => api.deleteColumnConfig(configId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: columnConfigKeys.byProject(projectId) });
+    },
   });
 }
 export { columnConfigKeys };

@@ -29,7 +29,7 @@ export function createConversationFeature(
   _config: BackendConfig,
   supervisor: SpanSupervisor,
   agentSvc: AgentService,
-  _opsStore: RuntimeOpsStore,
+  opsStore: RuntimeOpsStore,
   lock: ConversationLock = new ConversationLock(),
   _sessionFactory?: SessionFactory,
 ): ConversationFeature {
@@ -105,7 +105,7 @@ export function createConversationFeature(
       const runDeps = makeRunDeps({
         config: _config,
         supervisor,
-        opsStore: _opsStore,
+        opsStore,
         agentSvc,
         convPort,
         sessionFactory: _sessionFactory,
@@ -136,7 +136,7 @@ export function createConversationFeature(
     },
 
     verifyRunOwnsConversation: async (spanId, conversationId) => {
-      const sessionId = _opsStore.getSessionIdBySpanId(spanId);
+      const sessionId = opsStore.getSessionIdBySpanId(spanId);
       if (!sessionId) throw new Error(`run not found: ${spanId}`);
       if (!sessionId.startsWith(`${conversationId}:`)) {
         throw new Error(`run ${spanId} does not belong to conversation ${conversationId}`);

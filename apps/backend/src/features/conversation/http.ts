@@ -1,3 +1,4 @@
+import { conversationEvents, createSseEncoder } from "@my-agent-team/api-contract";
 import { Elysia, t } from "elysia";
 import { sseResponse } from "../../http/response.js";
 import type { ConversationService } from "./service.js";
@@ -145,9 +146,11 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
           ? parseInt(qsAfterSeq, 10) || 0
           : parseInt(req.headers.get("Last-Event-ID") ?? "0", 10) || 0;
         const stream = svc.subscribeConversation(conversationId, { afterSeq, signal: req.signal });
+        const encodeConv = createSseEncoder(conversationEvents);
         return sseResponse(
           stream,
-          (entry) => ({ id: String(entry.seq), event: entry.kind, data: entry }),
+          (entry) =>
+            encodeConv(entry.kind as keyof typeof conversationEvents, entry, String(entry.seq)),
           req.signal,
         );
       })

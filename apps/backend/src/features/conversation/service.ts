@@ -402,8 +402,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     },
 
     /** M17.5 P7: Write an assistant message revision directly to the ledger.
-     *  This is the SOLE authoritative entry for assistant messages in the conversation.
-     *  Replaces the old path of event_log → projection → ledger. */
+     *  This is the SOLE authoritative entry for assistant messages in the conversation. */
     async appendAssistantMessage(input: {
       conversationId: string;
       senderMemberId: string;

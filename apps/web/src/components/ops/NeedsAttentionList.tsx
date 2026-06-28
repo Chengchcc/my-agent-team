@@ -1,11 +1,10 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useRecoverRun } from "@/features/ops/hooks";
 import type { AgentRuntimeStatus, RunOpsListItem } from "@/lib/api";
-import { api } from "@/lib/api";
 
 interface NeedsAttentionProps {
   runs?: RunOpsListItem[];
@@ -28,20 +27,7 @@ const severityColor: Record<Severity, string> = {
 };
 
 function RecoverButton({ runId }: { runId: string }) {
-  const qc = useQueryClient();
-  const mut = useMutation({
-    mutationFn: () => api.opsRecoverRun(runId),
-    onSuccess: () => {
-      toast.success("Recovery initiated");
-      qc.invalidateQueries({ queryKey: ["ops", "runs"] });
-      qc.invalidateQueries({ queryKey: ["ops", "agentRuntime"] });
-    },
-    onError: (err) => {
-      toast.error("Recover failed", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    },
-  });
+  const mut = useRecoverRun();
 
   return (
     <Button
@@ -50,7 +36,13 @@ function RecoverButton({ runId }: { runId: string }) {
       disabled={mut.isPending}
       onClick={(e) => {
         e.preventDefault();
-        mut.mutate();
+        mut.mutate(runId, {
+          onSuccess: () => toast.success("Recovery initiated"),
+          onError: (err) =>
+            toast.error("Recover failed", {
+              description: err instanceof Error ? err.message : "Unknown error",
+            }),
+        });
       }}
       className="ml-auto text-xs h-auto py-0 shrink-0"
     >

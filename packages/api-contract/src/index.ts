@@ -3,6 +3,7 @@ export { larkContentSchema, larkMessageEventSchema } from "./lark.js";
 export type { SSEEndpoint, SSEEndpoints, SSEEventMap } from "./sse.js";
 export {
   conversationEvents,
+  createSseEncoder,
   IssueEventSchema,
   IssueRowSchema,
   issueBoardEvents,

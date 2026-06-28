@@ -1,4 +1,4 @@
-// event_log removed — execution facts now in checkpointer.db
+// Execution facts sourced from checkpointer.db
 // RunnerRegistry removed — AgentSession runs in-process
 // heartbeat/transport removed — AgentSession runs in-process, no runner daemon
 
@@ -330,17 +330,22 @@ export function createRuntimeOpsService(deps: {
     }> {
       const limit =
         Number.isFinite(params.limit) && (params.limit ?? 0) > 0 ? Math.floor(params.limit!) : 100;
-      const conditions: string[] = [];
+      const whereConditions: string[] = [];
+      const havingConditions: string[] = [];
       const bindings: (string | number)[] = [];
       if (params.agentId) {
-        conditions.push("agent_id = ?");
+        whereConditions.push("agent_id = ?");
         bindings.push(params.agentId);
       }
-      if (params.status) {
-        conditions.push("status = ?");
-        bindings.push(params.status);
+      if (params.status === "running") {
+        // Filter after aggregation: only sessions that have at least one running span
+        havingConditions.push("MAX(CASE WHEN status = 'running' THEN 1 ELSE 0 END) = 1");
+      } else if (params.status === "done") {
+        // Filter after aggregation: only sessions where all spans are done (no running)
+        havingConditions.push("MAX(CASE WHEN status = 'running' THEN 1 ELSE 0 END) = 0");
       }
-      const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      const where = whereConditions.length > 0 ? `WHERE ${whereConditions.join(" AND ")}` : "";
+      const having = havingConditions.length > 0 ? `HAVING ${havingConditions.join(" AND ")}` : "";
       const rows = opsStore
         .getRawDb()
         .query(
@@ -348,6 +353,7 @@ export function createRuntimeOpsService(deps: {
                   MAX(agent_id) AS agent_id
              FROM run ${where}
             GROUP BY session_id
+            ${having}
             ORDER BY last_span_at DESC
             LIMIT ?`,
         )

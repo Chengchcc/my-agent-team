@@ -1,11 +1,9 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bot, UserCircle, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { conversationKeys } from "@/features/conversations/hooks";
-import { api } from "@/lib/api";
+import { useRemoveConversationMember } from "@/features/conversations/hooks";
 import type { SenderRef } from "@/lib/conversation-reducer";
 import { AddMemberButton } from "./AddMemberButton";
 
@@ -18,20 +16,7 @@ interface RosterListProps {
 }
 
 export function RosterList({ conversationId, roster, viewerMemberId, onClose }: RosterListProps) {
-  const qc = useQueryClient();
-
-  const removeMember = useMutation({
-    mutationFn: (memberId: string) => api.removeConversationMember(conversationId, memberId),
-    onSuccess: () => {
-      toast.success("Member removed");
-      qc.invalidateQueries({ queryKey: conversationKeys.detail(conversationId) });
-    },
-    onError: (err) => {
-      toast.error("Failed to remove member", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    },
-  });
+  const removeMember = useRemoveConversationMember(conversationId);
 
   const members = Object.values(roster);
   const memberCount = members.length;
@@ -78,7 +63,13 @@ export function RosterList({ conversationId, roster, viewerMemberId, onClose }: 
                   size="icon-xs"
                   onClick={() => {
                     if (confirm(`Remove ${m.displayName ?? m.memberId} from conversation?`)) {
-                      removeMember.mutate(m.memberId);
+                      removeMember.mutate(m.memberId, {
+                        onSuccess: () => toast.success("Member removed"),
+                        onError: (err) =>
+                          toast.error("Failed to remove member", {
+                            description: err instanceof Error ? err.message : "Unknown error",
+                          }),
+                      });
                     }
                   }}
                   disabled={removeMember.isPending}

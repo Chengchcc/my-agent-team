@@ -62,8 +62,7 @@ import { createServer } from "./server.js";
 
 const config = loadConfig();
 const db = openDb(`${config.dataDir}/backend.db`);
-// S1 storage convergence: events.db tables are now part of backend.db.
-// The single db connection serves all backend-package-owned tables.
+// Single database — all backend-package-owned tables live in one SQLite file.
 
 const obsConfig = resolveObservabilityConfig({ serviceName: "backend" });
 const tracer = createRuntimeTracer(obsConfig);
@@ -118,10 +117,9 @@ function getMentionRegex(label: string): RegExp {
   return re;
 }
 
-// M17.5 P7: Authoritative ledger write for assistant messages — direct path,
-// bypassing event_log. This replaces the old event_log → projection → ledger
-// indirection. Message events are now written to ledger BEFORE EventLog, and
-// EventLog only receives non-message execution events.
+// M17.5 P7: Authoritative ledger write for assistant messages — direct path.
+// Message events are written to ledger before checkpointer; the checkpointer
+// only receives non-message execution events.
 supervisor.onRunMessage(async (sessionId, spanId, revision, kind) => {
   if (kind === "reflect") return;
   // M19: issue-run isolation now handled by origin_kind in projection
