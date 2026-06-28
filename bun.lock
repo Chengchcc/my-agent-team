@@ -29,6 +29,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@my-agent-team/adapter-anthropic": "workspace:*",
+        "@my-agent-team/config": "workspace:*",
         "@my-agent-team/conversation": "workspace:*",
         "@my-agent-team/core": "workspace:*",
         "@my-agent-team/framework": "workspace:*",
@@ -52,6 +53,7 @@
       "name": "@my-agent-team/lark-bot",
       "version": "0.1.0",
       "dependencies": {
+        "@my-agent-team/config": "workspace:*",
         "@my-agent-team/conversation": "workspace:*",
         "@my-agent-team/message": "workspace:*",
         "drizzle-orm": "^0.44.0",
@@ -66,6 +68,7 @@
         "@dnd-kit/core": "^6.3.1",
         "@dnd-kit/utilities": "^3.2.2",
         "@hookform/resolvers": "^4",
+        "@my-agent-team/config": "workspace:*",
         "@my-agent-team/conversation": "workspace:*",
         "@my-agent-team/message": "workspace:*",
         "@radix-ui/react-label": "^2.1.10",
@@ -105,6 +108,13 @@
         "@anthropic-ai/sdk": "^0.100.1",
         "@my-agent-team/core": "workspace:*",
         "@my-agent-team/message": "workspace:*",
+      },
+    },
+    "packages/config": {
+      "name": "@my-agent-team/config",
+      "version": "0.1.0",
+      "dependencies": {
+        "zod": "^3.23.0",
       },
     },
     "packages/conversation": {
@@ -560,6 +570,8 @@
     "@my-agent-team/adapter-anthropic": ["@my-agent-team/adapter-anthropic@workspace:packages/adapter-anthropic"],
 
     "@my-agent-team/backend": ["@my-agent-team/backend@workspace:apps/backend"],
+
+    "@my-agent-team/config": ["@my-agent-team/config@workspace:packages/config"],
 
     "@my-agent-team/conversation": ["@my-agent-team/conversation@workspace:packages/conversation"],
 

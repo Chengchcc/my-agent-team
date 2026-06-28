@@ -1,0 +1,21 @@
+{
+  "name": "@my-agent-team/config",
+  "version": "0.1.0",
+  "description": "Shared envSchema + parseEnv — single source of truth for all process environment variables",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check . && eslint .",
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {}
+}

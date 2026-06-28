@@ -1,6 +1,9 @@
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
+import { parseEnv } from "@my-agent-team/config";
 import { safeAgentId } from "../../infra/agent-id.js";
+
+const _env = parseEnv(process.env);
 
 export type LarkBotStatus = "not_configured" | "configured" | "running" | "degraded" | "error";
 
@@ -95,9 +98,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
       args.push("--lark-profile", larkProfile);
     }
     // Pass backend auth token so lark-bot can authenticate its HTTP requests
-    if (process.env.BACKEND_AUTH_TOKEN) {
-      args.push("--backend-auth-token", process.env.BACKEND_AUTH_TOKEN);
-    }
+    args.push("--backend-auth-token", _env.BACKEND_AUTH_TOKEN);
 
     const child = spawn("bun", args, {
       stdio: ["pipe", "pipe", "pipe"],

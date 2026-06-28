@@ -13,6 +13,7 @@ export default {
         // Packages
         "core",
         "message",
+        "config",
         "conversation",
         "framework",
         "adapter-anthropic",

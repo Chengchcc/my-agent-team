@@ -1,3 +1,5 @@
+import { parseEnv } from "@my-agent-team/config";
+
 export interface LarkBotArgs {
   agentId: string;
   backendUrl: string;
@@ -22,13 +24,16 @@ export function parseArgs(raw: string[]): LarkBotArgs {
   }
   const agentId = args["agent-id"];
   if (!agentId) throw new Error("--agent-id is required");
+
+  const env = parseEnv(process.env);
+
   return {
     agentId,
-    backendUrl: args["backend-url"] ?? process.env.BACKEND_URL ?? "http://localhost:3000",
-    stateRoot: args["state-root"] ?? process.env.BACKEND_DATA_DIR ?? "./.data",
+    backendUrl: args["backend-url"] ?? env.BACKEND_URL,
+    stateRoot: args["state-root"] ?? env.BACKEND_DATA_DIR ?? "./.data",
     botDisplayName: args["bot-display-name"] ?? null,
     agentName: args["agent-name"] ?? null,
     larkProfile: args["lark-profile"] ?? null,
-    backendAuthToken: args["backend-auth-token"] ?? process.env.BACKEND_AUTH_TOKEN ?? null,
+    backendAuthToken: args["backend-auth-token"] ?? env.BACKEND_AUTH_TOKEN,
   };
 }

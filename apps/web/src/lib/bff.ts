@@ -1,13 +1,14 @@
+import { parseEnv } from "@my-agent-team/config";
+
+// Parse once at module load — fail-fast if misconfigured.
+const _env = parseEnv(process.env);
+
 function getBackendUrl(): string {
-  const url = process.env.BACKEND_URL;
-  if (!url) throw new Error("BACKEND_URL env is required");
-  return url;
+  return _env.BACKEND_URL;
 }
 
 function getBackendToken(): string {
-  const token = process.env.BACKEND_TOKEN;
-  if (!token) throw new Error("BACKEND_TOKEN env is required");
-  return token;
+  return _env.BACKEND_AUTH_TOKEN;
 }
 
 const HOP_BY_HOP = new Set([

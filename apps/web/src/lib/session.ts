@@ -1,5 +1,9 @@
+import { parseEnv } from "@my-agent-team/config";
+
+const _env = parseEnv(process.env);
+
 function getSessionSecret(): string {
-  const secret = process.env.SESSION_SECRET;
+  const secret = _env.SESSION_SECRET;
   if (!secret) throw new Error("SESSION_SECRET env is required");
   return secret;
 }
@@ -81,8 +85,7 @@ export async function readSession(cookieHeader: string | null): Promise<SessionP
 }
 
 function isSecureEnv(): boolean {
-  // Skip Secure flag in dev (localhost HTTP). In production behind HTTPS, enable it.
-  return process.env.NODE_ENV === "production";
+  return _env.NODE_ENV === "production";
 }
 
 export function sessionCookieHeader(value: string, maxAge: number = MAX_AGE_MS / 1000): string {

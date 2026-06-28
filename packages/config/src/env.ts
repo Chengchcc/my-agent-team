@@ -1,0 +1,68 @@
+import { z } from "zod";
+
+/**
+ * Single source of truth for ALL process environment variables.
+ *
+ * Every process (backend / web / lark-bot) calls `parseEnv(process.env)`.
+ * Missing or malformed vars → fail-fast at startup, not silent runtime.
+ *
+ * Naming convention: all vars prefixed with BACKEND_ (auth token, URL, etc.)
+ *   The old web-only name BACKEND_TOKEN was normalized to BACKEND_AUTH_TOKEN.
+ */
+
+export const envSchema = z.object({
+  // ── Auth (shared across all processes) ──
+  BACKEND_AUTH_TOKEN: z.string().min(1).describe("Shared secret for x-auth-token header"),
+
+  // ── Backend URL (lark-bot + web need this) ──
+  BACKEND_URL: z.string().default("http://localhost:3000"),
+
+  // ── Backend server config ──
+  BACKEND_PORT: z.coerce.number().int().positive().default(3000),
+  BACKEND_HOST: z.string().default("127.0.0.1"),
+  BACKEND_DATA_DIR: z.string().optional(),
+  BACKEND_WORKSPACE_ROOT: z.string().optional(),
+  BACKEND_TEMPLATE_DIR: z.string().optional(),
+  BACKEND_MAX_CONCURRENT: z.coerce.number().int().positive().default(8),
+  BACKEND_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  BACKEND_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().positive().default(5_000),
+  BACKEND_HEARTBEAT_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+  BACKEND_CANCEL_GRACE_MS: z.coerce.number().int().positive().default(5_000),
+  BACKEND_REAPER_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+  BACKEND_STEP_STALL_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+
+  // ── Anthropic API ──
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_AUTH_TOKEN: z.string().optional(),
+
+  // ── Web-specific ──
+  SESSION_SECRET: z.string().optional().describe("HMAC secret for session cookies"),
+  NODE_ENV: z.string().optional(),
+  MOCK_USER_ID: z.string().optional().describe("Dev-only: mock login user id"),
+  MOCK_PASSWORD: z.string().optional().describe("Dev-only: mock login password"),
+
+  // ── Lark-bot runner ──
+  RUNNER_ENV: z
+    .string()
+    .optional()
+    .describe("'dev' | 'prod' — selects lark-bot registry implementation"),
+});
+
+export type Env = z.infer<typeof envSchema>;
+
+/**
+ * Parse and validate environment variables.
+ *
+ * Throws with a human-readable error listing all invalid/missing vars.
+ * Call once at process startup.
+ */
+export function parseEnv(raw: Record<string, string | undefined>): Env {
+  const result = envSchema.safeParse(raw);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
+      .join("\n");
+    throw new Error(`Invalid environment variables:\n${issues}`);
+  }
+  return result.data;
+}
