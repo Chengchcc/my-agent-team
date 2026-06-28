@@ -40,7 +40,6 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { api } from "@/lib/api";
-import { useAgentList } from "@/features/agents/hooks";
 
 function NavContent() {
   const pathname = usePathname();

@@ -12,10 +12,7 @@ export function typedSource<M extends SSEEventMap>(
 
   return {
     es,
-    on<K extends keyof M & string>(
-      name: K,
-      cb: (data: z.infer<M[K]>) => void,
-    ) {
+    on<K extends keyof M & string>(name: K, cb: (data: z.infer<M[K]>) => void) {
       es.addEventListener(name, (e: Event) => {
         const me = e as MessageEvent;
         try {
