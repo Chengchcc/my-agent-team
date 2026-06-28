@@ -9,17 +9,26 @@ import { QueryState } from "@/components/ops/QueryState";
 import { TokenTrendChart } from "@/components/ops/TokenTrendChart";
 import { TopToolsChart } from "@/components/ops/TopToolsChart";
 import {
-  Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage,
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { useAgentList } from "@/features/agents/hooks";
-import { useOpsRuns, useOpsAgentRuntime } from "@/features/ops/hooks";
+import { useOpsRuns } from "@/features/ops/hooks";
 import { api } from "@/lib/api";
 
 const WINDOWS: Record<string, number> = {
-  "1h": 3_600_000, "24h": 86_400_000, "7d": 604_800_000,
+  "1h": 3_600_000,
+  "24h": 86_400_000,
+  "7d": 604_800_000,
 };
 
 export default function OpsPage() {

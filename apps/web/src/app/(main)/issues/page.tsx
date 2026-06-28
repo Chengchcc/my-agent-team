@@ -38,11 +38,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { issueKeys, useIssueList, useIssueMeta } from "@/features/issues/hooks";
+import { useProjectList } from "@/features/projects/hooks";
 import { api } from "@/lib/api";
 import { dateInputToEpoch, epochToDateInput } from "@/lib/date-input";
 import { fieldClass, labelClass } from "@/lib/form-styles";
-import { useIssueList, useIssueMeta, useCreateIssue, issueKeys } from "@/features/issues/hooks";
-import { useProjectList } from "@/features/projects/hooks";
 
 export const dynamic = "force-dynamic";
 
