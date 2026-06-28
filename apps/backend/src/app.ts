@@ -35,33 +35,6 @@ function authPlugin(token: string) {
 
 // ── Feature route plugins ──
 
-function conversationPlugin(conversations: NonNullable<FeatureSet["conversations"]>) {
-  return new Elysia()
-    .get("/api/conversations", ({ request }) => conversations.list(request))
-    .post("/api/conversations", ({ request }) => conversations.create(request))
-    .get("/api/conversations/:id", ({ request, params: { id } }) =>
-      conversations.snapshot(request, id),
-    )
-    .delete("/api/conversations/:id", ({ request, params: { id } }) =>
-      conversations.delete(request, id),
-    )
-    .post("/api/conversations/:id/messages", ({ request, params: { id } }) =>
-      conversations.postMessage(request, id),
-    )
-    .post("/api/conversations/:id/members", ({ request, params: { id } }) =>
-      conversations.addMember(request, id),
-    )
-    .delete("/api/conversations/:id/members", ({ request, params: { id } }) =>
-      conversations.removeMember(request, id),
-    )
-    .get("/api/conversations/:id/events", ({ request, params: { id } }) =>
-      conversations.events(request, id),
-    )
-    .post("/api/conversations/:id/start-new", ({ request, params: { id } }) =>
-      conversations.startNew(request, id),
-    );
-}
-
 function opsPlugin(ops: NonNullable<FeatureSet["ops"]>) {
   return new Elysia()
     .get("/api/ops/sessions", ({ request }) => ops.listSessions(request))
@@ -109,7 +82,6 @@ function issuePlugin(issues: NonNullable<FeatureSet["issues"]>) {
     .get("/api/issues/:id/detail", ({ request, params: { id } }) => issues.detail(request, id));
 }
 
-
 // ── App factory ──
 
 export function createApp(token: string, features: FeatureSet) {
@@ -119,7 +91,7 @@ export function createApp(token: string, features: FeatureSet) {
     .get("/health", () => ({ status: "ok" }))
     .use(authPlugin(token))
     .use(agents) // agentRoutes now returns Elysia plugin directly
-    .use(conversationPlugin(conversations))
+    .use(conversations)
     .use(opsPlugin(ops))
     .use(issuePlugin(issues));
 

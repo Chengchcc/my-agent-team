@@ -1,5 +1,5 @@
-import { Elysia, t } from "elysia";
 import type { IssueStatus } from "@my-agent-team/api-contract";
+import { Elysia, t } from "elysia";
 import { validateTemplate } from "../orchestrator/render.js";
 import { ColumnConfigNotFoundError, type ColumnConfigService, ValidationError } from "./service.js";
 
@@ -13,7 +13,8 @@ export function columnConfigRoutes(svc: ColumnConfigService) {
       "/api/column-configs",
       ({ body, set }) => {
         const tmplErr = validateTemplate(body.promptTemplate);
-        if (tmplErr) return Response.json({ error: `Invalid template: ${tmplErr}` }, { status: 400 });
+        if (tmplErr)
+          return Response.json({ error: `Invalid template: ${tmplErr}` }, { status: 400 });
         try {
           const config = svc.upsert({ ...body, status: body.status as IssueStatus });
           set.status = 201;
