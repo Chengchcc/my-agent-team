@@ -35,53 +35,6 @@ function authPlugin(token: string) {
 
 // ── Feature route plugins ──
 
-function opsPlugin(ops: NonNullable<FeatureSet["ops"]>) {
-  return new Elysia()
-    .get("/api/ops/sessions", ({ request }) => ops.listSessions(request))
-    .get("/api/ops/sessions/:id", ({ request, params: { id } }) =>
-      ops.getSessionDetail(request, id),
-    )
-    .get("/api/ops/runs", ({ request }) => ops.listRuns(request))
-    .get("/api/ops/runs/:id", ({ request, params: { id } }) => ops.getRunDetail(request, id))
-    .post("/api/ops/runs/:id/cancel", ({ request, params: { id } }) => ops.cancelRun(request, id))
-    .post("/api/ops/runs/:id/recover", ({ request, params: { id } }) => ops.recoverRun(request, id))
-    .get("/api/ops/runs/:id/insights", ({ request, params: { id } }) =>
-      ops.getRunInsights(request, id),
-    )
-    .get("/api/ops/insights/summary", ({ request }) => ops.getInsightsSummary(request))
-    .get("/api/ops/agents/:id/runtime", ({ request, params: { id } }) =>
-      ops.getAgentRuntime(request, id),
-    )
-    .get("/api/ops/traces/:id", ({ request, params: { id } }) => ops.getTraceDetail(request, id))
-    .get("/api/ops/surfaces", ({ request }) => ops.listSurfaces(request))
-    .post("/api/internal/surfaces/lark/heartbeat", ({ request }) => ops.larkHeartbeat(request));
-}
-
-function issuePlugin(issues: NonNullable<FeatureSet["issues"]>) {
-  return new Elysia()
-    .get("/api/issue-meta", () => issues.meta())
-    .get("/api/issues/events", ({ request }) => issues.events(request))
-    .get("/api/issues", ({ request }) => issues.list(request))
-    .post("/api/issues", ({ request }) => issues.create(request))
-    .get("/api/issues/:id", ({ request, params: { id } }) => issues.get(request, id))
-    .patch("/api/issues/:id", ({ request, params: { id } }) => issues.update(request, id))
-    .delete("/api/issues/:id", ({ request, params: { id } }) => issues.remove(request, id))
-    .post("/api/issues/:id/transition", ({ request, params: { id } }) =>
-      issues.transition(request, id),
-    )
-    .post("/api/issues/:id/deliverables", ({ request, params: { id } }) =>
-      issues.submitDeliverable(request, id),
-    )
-    .post("/api/issues/:id/review-decision", ({ request, params: { id } }) =>
-      issues.reviewDecision(request, id),
-    )
-    .get("/api/issues/:id/timeline/events", ({ request, params: { id } }) =>
-      issues.timelineEvents(request, id),
-    )
-    .get("/api/issues/:id/timeline", ({ request, params: { id } }) => issues.timeline(request, id))
-    .get("/api/issues/:id/detail", ({ request, params: { id } }) => issues.detail(request, id));
-}
-
 // ── App factory ──
 
 export function createApp(token: string, features: FeatureSet) {
@@ -92,21 +45,16 @@ export function createApp(token: string, features: FeatureSet) {
     .use(authPlugin(token))
     .use(agents) // agentRoutes now returns Elysia plugin directly
     .use(conversations)
-    .use(opsPlugin(ops))
-    .use(issuePlugin(issues));
+    .use(ops)
+    .use(issues);
 
-  // Alias: GET /api/runs/:id → ops.getRunDetail, POST resume/cancel (backward compat)
-  const withRuns = app
+  return app
     .post(
       "/api/runs/:id/resume",
       ({ request, params: { id } }) =>
         features.resumeRun?.(request, id) ??
         new Response(JSON.stringify({ error: "Not found" }), { status: 404 }),
     )
-    .get("/api/runs/:id", ({ request, params: { id } }) => ops.getRunDetail(request, id))
-    .post("/api/runs/:id/cancel", ({ request, params: { id } }) => ops.cancelRun(request, id));
-
-  return withRuns
     .use(projects)
     .use(columnConfigs)
     .use(cronJobs)

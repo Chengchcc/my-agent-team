@@ -52,7 +52,12 @@ export async function postHeartbeat(
   const client = createClient(backendUrl, backendAuthToken);
 
   try {
-    const { error } = await client.api.internal.surfaces.lark.heartbeat.post(health);
+    const { error } = await client.api.internal.surfaces.lark.heartbeat.post({
+      agentId: health.agentId,
+      status: health.status,
+      payload: { profileRef: health.profileRef, watchers: health.watchers, runStreams: health.runStreams, ts: health.ts },
+      lastError: health.lastError ?? undefined,
+    });
     if (error) {
       console.error(`[lark-bot] heartbeat POST failed: ${JSON.stringify(error)}`);
     }

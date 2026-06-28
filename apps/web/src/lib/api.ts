@@ -354,7 +354,9 @@ export const api = {
     body: { memberId: string; kind: "agent" | "human"; agentId?: string; displayName?: string },
   ) => unwrap<{ members: MemberInfo[] }>(client.api.conversations({ id }).members.post(body)),
   removeConversationMember: (id: string, memberId: string) =>
-    unwrap<{ members: MemberInfo[] }>(client.api.conversations({ id }).members.delete({ memberId })),
+    unwrap<{ members: MemberInfo[] }>(
+      client.api.conversations({ id }).members.delete({ memberId }),
+    ),
   deleteConversation: (id: string) => unwrap<void>(client.api.conversations({ id }).delete()),
   // Ops
   listOpsRuns: (params?: { agentId?: string; status?: string; limit?: number; traceId?: string }) =>
