@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
-import { useAgentList, useArchiveAgent } from "@/features/agents/hooks";
 import { Button } from "@/components/ui/button";
+import { useAgentList, useArchiveAgent } from "@/features/agents/hooks";
 
 export function AgentList() {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -15,8 +15,15 @@ export function AgentList() {
   function handleArchive(id: string) {
     setConfirmingId(id);
     archive.mutate(id, {
-      onSuccess: () => { toast.success("Agent archived"); setConfirmingId(null); },
-      onError: (err) => { toast.error("Failed to archive agent", { description: err instanceof Error ? err.message : "Unknown error" }); },
+      onSuccess: () => {
+        toast.success("Agent archived");
+        setConfirmingId(null);
+      },
+      onError: (err) => {
+        toast.error("Failed to archive agent", {
+          description: err instanceof Error ? err.message : "Unknown error",
+        });
+      },
     });
   }
 
