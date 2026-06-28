@@ -7,6 +7,7 @@ export type { IssuePriority, IssueStatus };
 
 // ── Types derived from API treaty (single source: backend App type) ──
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ApiReturn<F extends (...args: any[]) => any> = Awaited<ReturnType<F>>;
 
 export type ProjectRow = ApiReturn<typeof api.listProjects>["projects"][number];

@@ -11,7 +11,7 @@ export function useCronList() {
 export function useCreateCronJob() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.createCronJob(body as any),
+    mutationFn: (body: Parameters<typeof api.createCronJob>[0]) => api.createCronJob(body),
     onSuccess: () => qc.invalidateQueries({ queryKey: cronKeys.all }),
   });
 }

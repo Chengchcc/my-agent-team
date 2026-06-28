@@ -15,7 +15,6 @@ export function useConversationList(agentId: string) {
 }
 
 export function useDeleteConversation() {
-  const qc = useQueryClient();
   return useMutation({ mutationFn: (id: string) => api.deleteConversation(id) });
 }
 

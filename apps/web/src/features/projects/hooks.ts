@@ -9,7 +9,7 @@ export function useProjectList() {
 export function useCreateProject() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.createProject(body as any),
+    mutationFn: (body: Parameters<typeof api.createProject>[0]) => api.createProject(body),
     onSuccess: () => qc.invalidateQueries({ queryKey: projectKeys.all }),
   });
 }

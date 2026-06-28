@@ -9,10 +9,11 @@ export function useColumnConfigList(projectId: string, opts?: { enabled?: boolea
 export function useUpsertColumnConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.upsertColumnConfig(body as any),
+    mutationFn: (body: Parameters<typeof api.upsertColumnConfig>[0]) =>
+      api.upsertColumnConfig(body),
     onSuccess: (_d, v) =>
       qc.invalidateQueries({
-        queryKey: columnConfigKeys.byProject((v as any).projectId as string),
+        queryKey: columnConfigKeys.byProject(v.projectId),
       }),
   });
 }

@@ -2,10 +2,10 @@ import { queryOptions } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { opsKeys } from "./query-keys";
 
-export function opsRunsQuery(params?: Record<string, string>) {
+export function opsRunsQuery(params?: Parameters<typeof api.listOpsRuns>[0]) {
   return queryOptions({
     queryKey: opsKeys.runs(),
-    queryFn: () => api.listOpsRuns(params as any),
+    queryFn: () => api.listOpsRuns(params),
   });
 }
 
@@ -31,10 +31,10 @@ export function opsInsightsSummaryQuery(range: { from: number; to: number }) {
   });
 }
 
-export function opsSessionsQuery(params?: Record<string, string>) {
+export function opsSessionsQuery(params?: Parameters<typeof api.listOpsSessions>[0]) {
   return queryOptions({
     queryKey: opsKeys.sessions(params),
-    queryFn: () => api.listOpsSessions(params as any),
+    queryFn: () => api.listOpsSessions(params),
   });
 }
 

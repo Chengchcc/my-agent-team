@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { IssueStatus } from "@my-agent-team/api-contract";
 import { api } from "@/lib/api";
 import { issueDetailQuery, issueListQuery, issueMetaQuery } from "./queries";
 import { issueKeys } from "./query-keys";
@@ -16,7 +17,7 @@ export function useIssueMeta() {
 export function useCreateIssue() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.createIssue(body as any),
+    mutationFn: (body: Parameters<typeof api.createIssue>[0]) => api.createIssue(body),
     onSuccess: () => qc.invalidateQueries({ queryKey: issueKeys.lists() }),
   });
 }
@@ -41,7 +42,7 @@ export function useDeleteIssue(issueId: string) {
 export function useApplyTransition(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (to: string) => api.applyTransition(id, to as any),
+    mutationFn: (to: IssueStatus) => api.applyTransition(id, to),
     onSuccess: () => qc.invalidateQueries({ queryKey: issueKeys.lists() }),
   });
 }
