@@ -13,6 +13,7 @@ export default {
         // Packages
         "core",
         "message",
+        "api-contract",
         "config",
         "conversation",
         "framework",
