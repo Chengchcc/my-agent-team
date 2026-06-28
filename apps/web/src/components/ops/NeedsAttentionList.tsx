@@ -18,7 +18,7 @@ interface AttentionItem {
   severity: Severity;
   label: string;
   href: string;
-  runId?: string;
+  spanId?: string;
   actionable: boolean;
 }
 
@@ -97,7 +97,7 @@ export function NeedsAttentionList({ runtimes }: NeedsAttentionProps) {
           >
             <span className={`w-2 h-2 rounded-full shrink-0 ${severityColor[item.severity]}`} />
             <span className="text-foreground">{item.label}</span>
-            {item.actionable && item.runId && <RecoverButton runId={item.runId} />}
+            {item.actionable && item.spanId && <RecoverButton runId={item.spanId} />}
           </Link>
         </li>
       ))}

@@ -10,7 +10,7 @@ import { checkAuthToken } from "./infra/auth.js";
 import { HttpError } from "./infra/errors.js";
 
 export interface FeatureSet {
-  agents: ReturnType<typeof agentRoutes>;
+  agents: ReturnType<typeof agentRoutes>; // Elysia plugin (typed handlers)
   conversations: ReturnType<typeof conversationRoutes>;
   ops: ReturnType<typeof opsRoutes>;
   issues: ReturnType<typeof issueRoutes>;
@@ -34,28 +34,6 @@ function authPlugin(token: string) {
 }
 
 // ── Feature route plugins ──
-
-function agentPlugin(agents: FeatureSet["agents"]) {
-  return new Elysia()
-    .get("/api/agents", ({ request }) => agents.list(request))
-    .post("/api/agents", ({ request }) => agents.create(request))
-    .get("/api/agents/:id", ({ request, params: { id } }) => agents.getById(request, id))
-    .patch("/api/agents/:id", ({ request, params: { id } }) => agents.update(request, id))
-    .delete("/api/agents/:id", ({ request, params: { id } }) => agents.archive(request, id))
-    .get("/api/agents/:id/identity", ({ request, params: { id } }) => agents.identity(request, id))
-    .put("/api/agents/:id/identity", ({ request, params: { id } }) =>
-      agents.updateIdentity(request, id),
-    )
-    .post("/api/agents/:id/lark/setup", ({ request, params: { id } }) =>
-      agents.larkSetup(request, id),
-    )
-    .get("/api/agents/:id/lark/setup/:setupId", ({ request, params: { id, setupId } }) =>
-      agents.larkSetupStatus(request, id, setupId),
-    )
-    .delete("/api/agents/:id/lark/setup/:setupId", ({ request, params: { id, setupId } }) =>
-      agents.larkSetupCancel(request, id, setupId),
-    );
-}
 
 function conversationPlugin(conversations: NonNullable<FeatureSet["conversations"]>) {
   return new Elysia()
@@ -169,15 +147,18 @@ export function createApp(token: string, features: FeatureSet) {
   const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
     .use(authPlugin(token))
-    .use(agentPlugin(agents))
+    .use(agents) // agentRoutes now returns Elysia plugin directly
     .use(conversationPlugin(conversations))
     .use(opsPlugin(ops))
     .use(issuePlugin(issues));
 
   // Alias: GET /api/runs/:id → ops.getRunDetail, POST resume/cancel (backward compat)
   const withRuns = app
-    .post("/api/runs/:id/resume", ({ request, params: { id } }) =>
-      features.resumeRun?.(request, id) ?? new Response(JSON.stringify({ error: "Not found" }), { status: 404 }),
+    .post(
+      "/api/runs/:id/resume",
+      ({ request, params: { id } }) =>
+        features.resumeRun?.(request, id) ??
+        new Response(JSON.stringify({ error: "Not found" }), { status: 404 }),
     )
     .get("/api/runs/:id", ({ request, params: { id } }) => ops.getRunDetail(request, id))
     .post("/api/runs/:id/cancel", ({ request, params: { id } }) => ops.cancelRun(request, id));

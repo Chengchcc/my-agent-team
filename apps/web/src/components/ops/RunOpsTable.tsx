@@ -98,7 +98,7 @@ export function RunOpsTable({ runs }: { runs: RunOpsListItem[] }) {
           {paged.map((r) => {
             const d = diagnoseRunListItem(r);
             return (
-              <TableRow key={r.runId}>
+              <TableRow key={r.spanId}>
                 <TableCell>
                   <span
                     className={`text-xs font-medium ${diagnosisColor[d.kind] ?? "text-muted-foreground"}`}
@@ -107,7 +107,7 @@ export function RunOpsTable({ runs }: { runs: RunOpsListItem[] }) {
                   </span>
                 </TableCell>
                 <TableCell className="font-mono text-xs text-foreground">
-                  {r.runId.slice(0, 12)}…
+                  {r.spanId.slice(0, 12)}…
                 </TableCell>
                 <TableCell
                   className="text-foreground text-xs max-w-[160px] truncate"

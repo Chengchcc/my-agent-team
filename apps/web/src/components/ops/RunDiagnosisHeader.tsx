@@ -44,8 +44,8 @@ export function RunDiagnosisHeader({ detail }: { detail: RunOpsDetail }) {
   return (
     <div className="rounded-lg border p-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-        <span className="font-mono text-xs text-foreground">{detail.run.runId}</span>
-        <CopyButton text={detail.run.runId} label="run ID" />
+        <span className="font-mono text-xs text-foreground">{detail.run.spanId}</span>
+        <CopyButton text={detail.run.spanId} label="span ID" />
 
         <Badge variant={diagnosisBadgeVariant[diagnosis.kind]}>{detail.run.status}</Badge>
 

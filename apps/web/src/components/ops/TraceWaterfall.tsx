@@ -52,7 +52,7 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
           const barWidth = `${widthPct}%`;
 
           return (
-            <div key={`${e.runId}-${e.ts}-${i}`}>
+            <div key={`${e.spanId}-${e.ts}-${i}`}>
               <Button
                 variant="ghost"
                 onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
@@ -77,7 +77,7 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
                 </div>
 
                 <span className="font-mono text-muted-foreground shrink-0">
-                  {e.runId.slice(0, 8)}…
+                  {e.spanId.slice(0, 8)}…
                 </span>
               </Button>
               {expandedIdx === i && (
@@ -85,7 +85,7 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
                   <div className="flex gap-4 mb-1">
                     <span>kind: {e.kind}</span>
                     <span>ts: {new Date(e.ts).toISOString()}</span>
-                    <span>runId: {e.runId}</span>
+                    <span>runId: {e.spanId}</span>
                     {e.attemptSeq != null && <span>attempt #{e.attemptSeq}</span>}
                   </div>
                   {Object.keys(e.payload).length > 0 && (
@@ -106,12 +106,12 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
           <div className="space-y-1">
             {detail.runs.map((r) => (
               <Link
-                key={r.runId}
+                key={r.spanId}
                 href={`/ops/sessions/${r.sessionId}`}
                 className="flex items-center gap-3 text-sm py-1 px-2 rounded-md hover:bg-muted transition-colors"
               >
                 <span className="font-mono text-xs text-muted-foreground">
-                  {r.runId.slice(0, 12)}…
+                  {r.spanId.slice(0, 12)}…
                 </span>
                 <span className="text-foreground" title={r.agentId}>
                   {r.agentName}

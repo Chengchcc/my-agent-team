@@ -85,7 +85,7 @@ function RunEntry({ run }: { run: IssueRunSummary }) {
         {run.status}
       </span>
       <Link
-        href={`/ops/sessions/${run.runId}`}
+        href={`/ops/sessions/${run.spanId}`}
         className="text-blue-600 hover:underline ml-auto"
         target="_blank"
       >
@@ -411,7 +411,7 @@ export function IssueDetailSheet({
           <div className="mb-4">
             <h3 className="text-sm font-medium mb-1">Runs</h3>
             {runs.map((r) => (
-              <RunEntry key={r.runId} run={r} />
+              <RunEntry key={r.spanId} run={r} />
             ))}
           </div>
         )}

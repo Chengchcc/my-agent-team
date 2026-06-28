@@ -44,7 +44,7 @@ export interface IssueEvent {
   ts: number;
 }
 export interface IssueRunSummary {
-  runId: string;
+  spanId: string;
   fromStatus: string;
   agentId: string;
   createdAt: number;
@@ -113,7 +113,7 @@ export interface IdentityData {
   memories: Array<{ date: string; content: string }>;
 }
 export interface RunMeta {
-  runId: string;
+  spanId: string;
   status: string;
   startedAt?: number | null;
   endedAt?: number | null;
@@ -155,12 +155,12 @@ export interface SessionSpan {
 
 // M16 ops types
 export interface RunOpsListItem {
-  runId: string;
+  spanId: string;
   sessionId: string;
   agentId: string;
   agentName: string;
   kind: string;
-  parentRunId: string | null;
+  parentSpanId: string | null;
   status: string;
   traceId: string | null;
   startedAt: number;
@@ -171,11 +171,11 @@ export interface RunOpsListItem {
 }
 export interface RunOpsDetail {
   run: {
-    runId: string;
+    spanId: string;
     sessionId: string;
     agentId: string;
     kind: string;
-    parentRunId: string | null;
+    parentSpanId: string | null;
     status: string;
     traceId: string | null;
     startedAt: number;
@@ -219,22 +219,22 @@ export interface TraceOpsDetail {
   runs: RunOpsListItem[];
   events: Array<{
     ts: number;
-    runId: string;
+    spanId: string;
     attemptSeq: number | null;
     kind: string;
     payload: Record<string, unknown>;
   }>;
 }
 export type CancelRunResult =
-  | { ok: true; state: "abort_sent"; runId: string; attemptSeq: number }
-  | { ok: true; state: "already_terminal"; runId: string; status: string }
+  | { ok: true; state: "abort_sent"; spanId: string; attemptSeq: number }
+  | { ok: true; state: "already_terminal"; spanId: string; status: string }
   | { ok: false; error: "not_found" };
 export type RecoverRunResult =
   | { state: "already_terminal"; status: string }
   | { state: "marked_interrupted"; reason: "heartbeat_timeout" }
   | { state: "waiting"; reason: "session_not_found" };
 export interface RunInsights {
-  runId: string;
+  spanId: string;
   agentId: string;
   agentName: string;
   root: {
@@ -304,9 +304,9 @@ export const api = {
   // Agents
   listAgents: () => unwrap<AgentRow[]>(client.api.agents.get()),
   getAgent: (id: string) => unwrap<AgentRow>(client.api.agents({ id }).get()),
-  createAgent: (body: unknown) => unwrap<AgentRow>(client.api.agents.post(body)),
-  updateAgent: (id: string, body: unknown) =>
-    unwrap<AgentRow>(client.api.agents({ id }).patch(body)),
+  createAgent: (body: Record<string, unknown>) => unwrap<AgentRow>(client.api.agents.post(body as any)),
+  updateAgent: (id: string, body: Record<string, unknown>) =>
+    unwrap<AgentRow>(client.api.agents({ id }).patch(body as any)),
   archiveAgent: (id: string) => unwrap<void>(client.api.agents({ id }).delete()),
   getIdentity: (id: string) => unwrap<IdentityData>(client.api.agents({ id }).identity.get()),
   setIdentity: (id: string, body: { soul?: string; user?: string }) =>
@@ -319,9 +319,9 @@ export const api = {
   larkSetupCancel: (id: string, setupId: string) =>
     unwrap<{ cancelled: boolean }>(client.api.agents({ id }).lark.setup({ setupId }).delete()),
   // Runs (only resume — used by approval card)
-  resumeRun: (runId: string, approved: boolean, message?: string) =>
-    unwrap<{ runId: string; resumed: boolean }>(
-      client.api.runs({ id: runId }).resume.post({ approved, message }),
+  resumeRun: (spanId: string, approved: boolean, message?: string) =>
+    unwrap<{ spanId: string; resumed: boolean }>(
+      client.api.runs({ id: spanId }).resume.post({ approved, message }),
     ),
   // Conversations
   listConversations: (agentId?: string) =>
@@ -358,23 +358,23 @@ export const api = {
   // Ops
   listOpsRuns: (params?: { agentId?: string; status?: string; limit?: number; traceId?: string }) =>
     unwrap<RunOpsListItem[]>(client.api.ops.runs.get({ query: params as Record<string, string> })),
-  getOpsRunDetail: (runId: string) =>
-    unwrap<RunOpsDetail>(client.api.ops.runs({ id: runId }).get()),
+  getOpsRunDetail: (spanId: string) =>
+    unwrap<RunOpsDetail>(client.api.ops.runs({ id: spanId }).get()),
   listOpsSessions: (params?: { agentId?: string; status?: string; limit?: number }) =>
     unwrap<SessionRow[]>(client.api.ops.sessions.get({ query: params as Record<string, string> })),
   getOpsSessionDetail: (sessionId: string) =>
     unwrap<SessionDetail>(client.api.ops.sessions({ id: sessionId }).get()),
-  opsCancelRun: (runId: string) =>
-    unwrap<CancelRunResult>(client.api.ops.runs({ id: runId }).cancel.post()),
-  opsRecoverRun: (runId: string) =>
-    unwrap<RecoverRunResult>(client.api.ops.runs({ id: runId }).recover.post()),
+  opsCancelRun: (spanId: string) =>
+    unwrap<CancelRunResult>(client.api.ops.runs({ id: spanId }).cancel.post()),
+  opsRecoverRun: (spanId: string) =>
+    unwrap<RecoverRunResult>(client.api.ops.runs({ id: spanId }).recover.post()),
   getAgentRuntime: (agentId: string) =>
     unwrap<AgentRuntimeStatus>(client.api.ops.agents({ id: agentId }).runtime.get()),
   getTraceOpsDetail: (traceId: string) =>
     unwrap<TraceOpsDetail>(client.api.ops.traces({ id: traceId }).get()),
   listSurfaces: () => unwrap<SurfaceOpsItem[]>(client.api.ops.surfaces.get()),
-  getRunInsights: (runId: string) =>
-    unwrap<RunInsights>(client.api.ops.runs({ id: runId }).insights.get()),
+  getRunInsights: (spanId: string) =>
+    unwrap<RunInsights>(client.api.ops.runs({ id: spanId }).insights.get()),
   getInsightsSummary: (range: { from: number; to: number }) =>
     unwrap<InsightsSummary>(
       client.api.ops.insights.summary.get({

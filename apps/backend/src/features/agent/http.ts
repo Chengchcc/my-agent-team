@@ -1,60 +1,35 @@
-import { z } from "zod";
-import { json, parseJsonBody } from "../../http/response.js";
+import { Elysia, t } from "elysia";
 import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
 import type { AgentRow } from "./domain.js";
 import type { AgentIdentityStore } from "./identity-store.js";
 import type { AgentService } from "./service.js";
 import { AgentBusyError, AgentNotFoundError } from "./service.js";
 
-const larkCreateSchema = z
-  .object({
-    enabled: z.boolean(),
-    appId: z.string().min(1).optional(),
-    appSecret: z.string().min(1).optional(),
-    botDisplayName: z.string().optional(),
-  })
-  .optional()
-  .refine(
-    (data) => {
-      if (!data) return true;
-      if (data.enabled) return !!data.appId && !!data.appSecret;
-      return true;
+// ── Response types (inferred by Elysia from handler return values) ──
+
+function toAgentResponse(row: AgentRow, status: string) {
+  return {
+    id: row.id,
+    name: row.name,
+    template: row.template,
+    workspacePath: row.workspacePath,
+    modelProvider: row.modelProvider,
+    modelName: row.modelName,
+    modelBaseUrl: row.modelBaseUrl,
+    permissionMode: row.permissionMode,
+    maxSteps: row.maxSteps,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    archivedAt: row.archivedAt,
+    lark: {
+      enabled: row.larkEnabled,
+      appId: row.larkAppId,
+      profileRef: row.larkProfileRef,
+      botDisplayName: row.larkBotDisplayName,
+      status,
     },
-    { message: "lark.enabled=true requires lark.appId and lark.appSecret" },
-  );
-
-const larkUpdateSchema = z
-  .object({
-    enabled: z.boolean().optional(),
-    appId: z.string().min(1).optional(),
-    appSecret: z.string().min(1).optional(),
-    botDisplayName: z.string().optional(),
-    // profileRef is intentionally NOT accepted from clients —
-    // it is a server-generated internal reference to lark-cli profile
-  })
-  .optional();
-// Note: enabled=true validation is done at route level (update handler)
-// to check whether the agent already has an existing larkProfileRef.
-
-const createSchema = z.object({
-  name: z.string().min(1),
-  template: z.string().optional(),
-  model: z.object({
-    provider: z.string().min(1),
-    model: z.string().min(1),
-    baseURL: z.string().url().optional(),
-  }),
-  permissionMode: z.enum(["ask", "auto", "deny"]).optional(),
-  maxSteps: z.number().int().positive().optional(),
-  lark: larkCreateSchema,
-});
-
-const updateSchema = z.object({
-  name: z.string().min(1).optional(),
-  permissionMode: z.enum(["ask", "auto", "deny"]).optional(),
-  maxSteps: z.number().int().positive().optional(),
-  lark: larkUpdateSchema,
-});
+  };
+}
 
 function deriveLarkStatus(row: AgentRow, registryStatus?: string): string {
   if (!row.larkEnabled || !row.larkProfileRef) return "not_configured";
@@ -64,207 +39,188 @@ function deriveLarkStatus(row: AgentRow, registryStatus?: string): string {
   return "configured";
 }
 
+// ── Elysia plugin ──
+
 export function agentRoutes(
   svc: AgentService,
   identityStore?: AgentIdentityStore,
   larkStatusOf?: (agentId: string) => string,
   getSetupManager?: () => LarkSetupManager,
 ) {
-  return {
-    async create(req: Request): Promise<Response> {
-      const body = await parseJsonBody(req);
-      if ("error" in body) return body.error;
-      const parsed = createSchema.safeParse(body.data);
-      if (!parsed.success)
-        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
-      const row = await svc.create(parsed.data);
-      return json(
-        {
-          ...row,
-          lark: {
-            enabled: row.larkEnabled,
-            appId: row.larkAppId,
-            profileRef: row.larkProfileRef,
-            botDisplayName: row.larkBotDisplayName,
-            status: deriveLarkStatus(row, larkStatusOf?.(row.id)),
-          },
-        },
-        201,
-      );
-    },
+  const statusOf = (row: AgentRow) => deriveLarkStatus(row, larkStatusOf?.(row.id));
 
-    async list(_req: Request): Promise<Response> {
+  return new Elysia()
+    .get("/api/agents", async () => {
       const rows = await svc.list();
-      return json(
-        rows.map((row) => ({
-          ...row,
-          lark: {
-            enabled: row.larkEnabled,
-            appId: row.larkAppId,
-            profileRef: row.larkProfileRef,
-            botDisplayName: row.larkBotDisplayName,
-            status: deriveLarkStatus(row, larkStatusOf?.(row.id)),
-          },
-        })),
-      );
-    },
-
-    async getById(_req: Request, id: string): Promise<Response> {
+      return rows.map((row) => toAgentResponse(row, statusOf(row)));
+    })
+    .post(
+      "/api/agents",
+      async ({ body, set }) => {
+        const row = await svc.create(body);
+        set.status = 201;
+        return toAgentResponse(row, statusOf(row));
+      },
+      {
+        body: t.Object({
+          name: t.String({ minLength: 1 }),
+          template: t.Optional(t.String()),
+          model: t.Object({
+            provider: t.String({ minLength: 1 }),
+            model: t.String({ minLength: 1 }),
+            baseURL: t.Optional(t.String()),
+          }),
+          permissionMode: t.Optional(t.Union([t.Literal("ask"), t.Literal("auto"), t.Literal("deny")])),
+          maxSteps: t.Optional(t.Integer({ minimum: 1 })),
+          lark: t.Optional(
+            t.Object({
+              enabled: t.Boolean(),
+              appId: t.Optional(t.String({ minLength: 1 })),
+              appSecret: t.Optional(t.String({ minLength: 1 })),
+              botDisplayName: t.Optional(t.String()),
+            }),
+          ),
+        }),
+      },
+    )
+    .get("/api/agents/:id", async ({ params: { id } }) => {
       try {
         const row = await svc.getById(id);
-        return json({
-          ...row,
-          lark: {
-            enabled: row.larkEnabled,
-            appId: row.larkAppId,
-            profileRef: row.larkProfileRef,
-            botDisplayName: row.larkBotDisplayName,
-            status: deriveLarkStatus(row, larkStatusOf?.(row.id)),
-          },
-        });
+        return toAgentResponse(row, statusOf(row));
       } catch (err) {
-        if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
+        if (err instanceof AgentNotFoundError)
+          return Response.json({ error: err.message }, { status: 404 });
         throw err;
       }
-    },
-
-    async update(req: Request, id: string): Promise<Response> {
-      const body = await parseJsonBody(req);
-      if ("error" in body) return body.error;
-      const parsed = updateSchema.safeParse(body.data);
-      if (!parsed.success)
-        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
-      try {
-        // Validate lark.enabled=true: either existing profile exists, or fresh credentials required
-        if (parsed.data.lark?.enabled === true) {
-          const existing = await svc.getById(id);
-          const hasExistingProfile = !!existing.larkProfileRef;
-          const hasFreshCredentials = !!(parsed.data.lark?.appId && parsed.data.lark?.appSecret);
-          if (!hasExistingProfile && !hasFreshCredentials) {
-            return json(
-              {
-                error: "lark.enabled=true requires appId+appSecret when no existing profile exists",
-              },
-              400,
-            );
+    })
+    .patch(
+      "/api/agents/:id",
+      async ({ params: { id }, body }) => {
+        try {
+          // Validate lark.enabled=true
+          if (body.lark?.enabled === true) {
+            const existing = await svc.getById(id);
+            const hasExistingProfile = !!existing.larkProfileRef;
+            const hasFreshCredentials = !!(body.lark?.appId && body.lark?.appSecret);
+            if (!hasExistingProfile && !hasFreshCredentials) {
+              return Response.json(
+                { error: "lark.enabled=true requires appId+appSecret when no existing profile exists" },
+                { status: 400 },
+              );
+            }
           }
+          const row = await svc.update(id, body);
+          return toAgentResponse(row, statusOf(row));
+        } catch (err) {
+          if (err instanceof AgentNotFoundError)
+            return Response.json({ error: err.message }, { status: 404 });
+          throw err;
         }
-        const row = await svc.update(id, parsed.data);
-        return json({
-          ...row,
-          lark: {
-            enabled: row.larkEnabled,
-            appId: row.larkAppId,
-            profileRef: row.larkProfileRef,
-            botDisplayName: row.larkBotDisplayName,
-            status: deriveLarkStatus(row, larkStatusOf?.(row.id)),
-          },
-        });
-      } catch (err) {
-        if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
-        throw err;
-      }
-    },
-
-    async archive(req: Request, id: string): Promise<Response> {
+      },
+      {
+        body: t.Object({
+          name: t.Optional(t.String({ minLength: 1 })),
+          permissionMode: t.Optional(t.Union([t.Literal("ask"), t.Literal("auto"), t.Literal("deny")])),
+          maxSteps: t.Optional(t.Integer({ minimum: 1 })),
+          lark: t.Optional(
+            t.Object({
+              enabled: t.Optional(t.Boolean()),
+              appId: t.Optional(t.String({ minLength: 1 })),
+              appSecret: t.Optional(t.String({ minLength: 1 })),
+              botDisplayName: t.Optional(t.String()),
+            }),
+          ),
+        }),
+      },
+    )
+    .delete("/api/agents/:id", async ({ params: { id }, query }) => {
       try {
-        const url = new URL(req.url);
-        const hard = url.searchParams.get("hard");
-        if (hard === "true") {
+        if (query.hard === "true") {
           await svc.hardDelete(id);
-          return json({ deleted: true, id });
+          return { deleted: true, id };
         }
-        return json(await svc.archive(id));
+        return svc.archive(id);
       } catch (err) {
-        if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
-        if (err instanceof AgentBusyError) return json({ error: err.message }, 409);
+        if (err instanceof AgentNotFoundError)
+          return Response.json({ error: err.message }, { status: 404 });
+        if (err instanceof AgentBusyError)
+          return Response.json({ error: err.message }, { status: 409 });
         throw err;
       }
-    },
-
-    /** D11: GET /api/agents/:id/identity — read SOUL.md, USER.md,
-     *  memory/MEMORY.md and memory/facts/*.md from runner sharedRoot
-     *  (single source of truth after M14.7).
-     *  Falls back to empty if identityStore is not configured. */
-    async identity(_req: Request, agentId: string): Promise<Response> {
-      if (!identityStore) return json({ soul: null, user: null, memories: [] });
+    })
+    // Identity
+    .get("/api/agents/:id/identity", async ({ params: { id } }) => {
+      if (!identityStore) return { soul: null, user: null, memories: [] };
       try {
-        const data = await identityStore.getIdentity(agentId);
-        return json(data);
+        return identityStore.getIdentity(id);
       } catch (err) {
-        if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
+        if (err instanceof AgentNotFoundError)
+          return Response.json({ error: err.message }, { status: 404 });
         throw err;
       }
-    },
-
-    /** PUT /api/agents/:id/identity — write SOUL.md and/or USER.md to runner sharedRoot. */
-    async updateIdentity(req: Request, agentId: string): Promise<Response> {
-      if (!identityStore) return json({ error: "Identity store not available" }, 501);
+    })
+    .put("/api/agents/:id/identity", async ({ params: { id }, body }) => {
+      if (!identityStore)
+        return Response.json({ error: "Identity store not available" }, { status: 501 });
       try {
-        const body = (await req.json().catch(() => ({}))) as {
-          soul?: string;
-          user?: string;
-        };
-        await identityStore.updateIdentity(agentId, {
+        await identityStore.updateIdentity(id, {
           soul: typeof body.soul === "string" ? body.soul : undefined,
           user: typeof body.user === "string" ? body.user : undefined,
         });
-        return json({ ok: true });
+        return { ok: true };
       } catch (err) {
-        if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
+        if (err instanceof AgentNotFoundError)
+          return Response.json({ error: err.message }, { status: 404 });
         throw err;
       }
-    },
-
-    // ─── M15.1: Lark profile setup ───
-
-    /** POST /api/agents/:id/lark/setup */
-    async larkSetup(req: Request, id: string): Promise<Response> {
+    }, {
+      body: t.Object({
+        soul: t.Optional(t.String()),
+        user: t.Optional(t.String()),
+      }),
+    })
+    // Lark setup
+    .post("/api/agents/:id/lark/setup", async ({ params: { id }, body }) => {
       const m = getSetupManager?.();
-      if (!m) return json({ error: "Lark setup not available" }, 501);
-      const body = (await req.json().catch(() => ({}))) as {
-        botDisplayName?: string;
-        brand?: "feishu" | "lark";
-      };
+      if (!m) return Response.json({ error: "Lark setup not available" }, { status: 501 });
       try {
         const existing = await svc.getById(id);
         const pending = m.getByAgentId(id);
-        if (pending && pending.status === "pending") {
-          return json({ ...pending }, 200);
-        }
+        if (pending && pending.status === "pending") return pending;
         const session = await m.create({
           agentId: id,
-          botDisplayName:
-            typeof body.botDisplayName === "string"
-              ? body.botDisplayName
-              : (existing.larkBotDisplayName ?? undefined),
+          botDisplayName: typeof body.botDisplayName === "string"
+            ? body.botDisplayName
+            : (existing.larkBotDisplayName ?? undefined),
           brand: body.brand === "lark" ? "lark" : "feishu",
         });
-        return json(session, 201);
+        return session;
       } catch (err) {
-        if (err instanceof AgentNotFoundError) return json({ error: err.message }, 404);
+        if (err instanceof AgentNotFoundError)
+          return Response.json({ error: err.message }, { status: 404 });
         throw err;
       }
-    },
-
-    /** GET /api/agents/:id/lark/setup/:setupId */
-    async larkSetupStatus(_req: Request, id: string, setupId: string): Promise<Response> {
+    }, {
+      body: t.Object({
+        botDisplayName: t.Optional(t.String()),
+        brand: t.Optional(t.Union([t.Literal("feishu"), t.Literal("lark")])),
+      }),
+    })
+    .get("/api/agents/:id/lark/setup/:setupId", ({ params: { id, setupId } }) => {
       const m = getSetupManager?.();
-      if (!m) return json({ error: "Lark setup not available" }, 501);
+      if (!m) return Response.json({ error: "Lark setup not available" }, { status: 501 });
       const session = m.get(setupId);
-      if (!session) return json({ error: "Setup session not found" }, 404);
-      if (session.agentId !== id) return json({ error: "Not found" }, 404);
-      return json(session);
-    },
-
-    /** DELETE /api/agents/:id/lark/setup/:setupId */
-    async larkSetupCancel(_req: Request, id: string, setupId: string): Promise<Response> {
+      if (!session || session.agentId !== id)
+        return Response.json({ error: "Not found" }, { status: 404 });
+      return session;
+    })
+    .delete("/api/agents/:id/lark/setup/:setupId", ({ params: { id, setupId } }) => {
       const m = getSetupManager?.();
-      if (!m) return json({ error: "Lark setup not available" }, 501);
+      if (!m) return Response.json({ error: "Lark setup not available" }, { status: 501 });
       const session = m.get(setupId);
-      if (!session || session.agentId !== id) return json({ error: "Not found" }, 404);
+      if (!session || session.agentId !== id)
+        return Response.json({ error: "Not found" }, { status: 404 });
       m.cancel(setupId);
-      return json({ cancelled: true });
-    },
-  };
+      return { cancelled: true };
+    });
 }

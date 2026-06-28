@@ -1,7 +1,9 @@
 import { parseEnv } from "@my-agent-team/config";
 
 let _env: ReturnType<typeof parseEnv> | undefined;
-function env() { return _env ?? (_env = parseEnv(process.env)); }
+function env() {
+  return _env ?? (_env = parseEnv(process.env));
+}
 
 function getSessionSecret(): string {
   const secret = env().SESSION_SECRET;
