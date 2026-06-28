@@ -1,5 +1,13 @@
 import { json } from "../../http/response.js";
+import { z } from "zod";
 import type { RuntimeOpsService } from "./service.js";
+
+const larkHeartbeatSchema = z.object({
+  agentId: z.string(),
+  status: z.string(),
+  payload: z.record(z.unknown()).optional(),
+  lastError: z.string().optional(),
+});
 
 export function opsRoutes(svc: RuntimeOpsService) {
   return {
@@ -91,19 +99,11 @@ export function opsRoutes(svc: RuntimeOpsService) {
 
     /** M16: Internal surface heartbeat endpoint. Payload pre-sanitized by lark-bot. */
     async larkHeartbeat(req: Request): Promise<Response> {
-      let body: Record<string, unknown>;
-      try {
-        body = await req.json();
-      } catch {
-        return json({ error: "Invalid JSON body" }, 400);
-      }
-      if (!body.agentId || typeof body.agentId !== "string") {
-        return json({ error: "Missing required field: agentId" }, 400);
-      }
-      if (!body.status || typeof body.status !== "string") {
-        return json({ error: "Missing required field: status" }, 400);
-      }
-      svc.ingestLarkHeartbeat(body as Parameters<typeof svc.ingestLarkHeartbeat>[0]);
+      let body: unknown;
+      try { body = await req.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+      const parsed = larkHeartbeatSchema.safeParse(body);
+      if (!parsed.success) return json({ error: parsed.error.issues }, 400);
+      svc.ingestLarkHeartbeat(parsed.data);
       return json({ ok: true });
     },
   };
