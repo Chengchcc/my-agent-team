@@ -189,7 +189,11 @@ export interface ConversationSnapshot {
 
 export type { LedgerEntry };
 
-// ── Typed API ──
+import { client, unwrap } from "./client";
+
+// ── Typed API (treaty-based — single source: backend App type) ──
+
+export { ApiError } from "./client";
 
 export const api = {
   // Agents

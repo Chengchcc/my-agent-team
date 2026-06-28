@@ -18,6 +18,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@hookform/resolvers": "^4",
     "@my-agent-team/api-contract": "workspace:*",
+    "@my-agent-team/backend": "workspace:*",
     "@my-agent-team/config": "workspace:*",
     "@my-agent-team/conversation": "workspace:*",
     "@elysiajs/eden": "^1.0.0",

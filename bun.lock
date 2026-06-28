@@ -75,6 +75,7 @@
         "@elysiajs/eden": "^1.0.0",
         "@hookform/resolvers": "^4",
         "@my-agent-team/api-contract": "workspace:*",
+        "@my-agent-team/backend": "workspace:*",
         "@my-agent-team/config": "workspace:*",
         "@my-agent-team/conversation": "workspace:*",
         "@my-agent-team/message": "workspace:*",
