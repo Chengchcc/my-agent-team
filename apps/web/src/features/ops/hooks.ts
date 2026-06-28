@@ -1,7 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  opsRunsQuery, opsRunDetailQuery, opsRunInsightsQuery, opsInsightsSummaryQuery,
-  opsSessionsQuery, opsSessionDetailQuery, opsAgentRuntimeQuery, opsSurfacesQuery,
+  opsAgentRuntimeQuery,
+  opsInsightsSummaryQuery,
+  opsRunDetailQuery,
+  opsRunInsightsQuery,
+  opsRunsQuery,
+  opsSessionDetailQuery,
+  opsSessionsQuery,
+  opsSurfacesQuery,
   opsTraceDetailQuery,
 } from "./queries";
 
@@ -18,7 +24,10 @@ export function useOpsRunInsights(id: string) {
 }
 
 /** Single hook for insights summary — 3 chart components share the same cache. */
-export function useOpsInsightsSummary(range: { from: number; to: number }, opts?: { refetchInterval?: number }) {
+export function useOpsInsightsSummary(
+  range: { from: number; to: number },
+  opts?: { refetchInterval?: number },
+) {
   return useQuery({ ...opsInsightsSummaryQuery(range), refetchInterval: opts?.refetchInterval });
 }
 
