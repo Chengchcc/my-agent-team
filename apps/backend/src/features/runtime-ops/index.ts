@@ -16,6 +16,7 @@ export type {
   ControlPlaneEventKind,
   IssueEvent,
   IssueEventKind,
+  SpanOriginInsert,
   SpanOriginRow,
   SurfaceHealthRow,
 } from "./types.js";

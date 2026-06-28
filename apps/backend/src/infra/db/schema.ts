@@ -295,15 +295,6 @@ export const issueEvent = sqliteTable(
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Helpers — use `as any` to bypass ZodEffects vs ZodType incompatibility in z.object({})
-const json = <T>(fallback: T): any =>
-  z.unknown().transform((s) => {
-    if (typeof s === "string") { try { return JSON.parse(s) as T; } catch { return fallback; } }
-    return (s as T) ?? fallback;
-  });
-const jsonStr: any = z.unknown().transform((v) => JSON.stringify(v ?? {}));
-const toBool: any = z.unknown().transform((v) => (typeof v === "number" ? v !== 0 : !!v));
-const toInt: any = z.unknown().transform((v) => (v ? 1 : 0));
 
 // ── Simple tables (drizzle-zod auto-generate) ──
 
@@ -322,67 +313,49 @@ export const agentsInsertSchema = createInsertSchema(agents);
 export const conversationSelectSchema = createSelectSchema(conversation);
 export const memberSelectSchema = createSelectSchema(member);
 
-// ── Tables with JSON/bool columns (manual Zod for transform fields) ──
+// ── Tables with JSON/bool columns — drizzle-zod refine callback pattern ──
+// callback (schema) => schema.transform(...) adds transforms while preserving drizzle-zod types
 
-export const controlPlaneEventSelectSchema = z.object({
-  seq: z.number(), spanId: z.string(), attemptSeq: z.number().nullable(), kind: z.string(),
-  payload: json<Record<string, unknown>>({}), traceId: z.string().nullable(), ts: z.number(),
+export const controlPlaneEventSelectSchema = createSelectSchema(controlPlaneEvent, {
+  payload: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, unknown>),
 });
-export const controlPlaneEventInsertSchema = z.object({
-  seq: z.number().optional(), spanId: z.string(), attemptSeq: z.number().nullable().optional(), kind: z.string(),
-  payload: jsonStr, traceId: z.string().nullable().optional(), ts: z.number().optional(),
-});
-
-export const surfaceHealthSelectSchema = z.object({
-  agentId: z.string(), surface: z.string(), status: z.string(),
-  lastSeenAt: z.number().nullable(), payload: json<Record<string, unknown>>({}),
-  lastError: z.string().nullable(), updatedAt: z.number(),
-});
-export const surfaceHealthInsertSchema = z.object({
-  agentId: z.string(), surface: z.string(), status: z.string(),
-  lastSeenAt: z.number().nullable().optional(), payload: jsonStr,
-  lastError: z.string().nullable().optional(), updatedAt: z.number().optional(),
+export const controlPlaneEventInsertSchema = createInsertSchema(controlPlaneEvent, {
+  payload: (s) => s.transform((v) => JSON.stringify(v ?? {})),
 });
 
-export const issueEventSelectSchema = z.object({
-  seq: z.number(), issueId: z.string(), kind: z.string(),
-  payload: json<Record<string, unknown>>({}), ts: z.number(),
+export const surfaceHealthSelectSchema = createSelectSchema(surfaceHealth, {
+  payload: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, unknown>),
 });
-export const issueEventInsertSchema = z.object({
-  seq: z.number().optional(), issueId: z.string(), kind: z.string(),
-  payload: jsonStr, ts: z.number().optional(),
+export const surfaceHealthInsertSchema = createInsertSchema(surfaceHealth, {
+  payload: (s) => s.transform((v) => JSON.stringify(v ?? {})),
 });
 
-export const deliverableSelectSchema = z.object({
-  deliverableId: z.string(), issueId: z.string(), fromStatus: z.string(), kind: z.string(),
-  fields: json<Record<string, string>>({}), ref: z.string().nullable(),
-  spanId: z.string().nullable(), createdAt: z.number(),
+export const issueEventSelectSchema = createSelectSchema(issueEvent, {
+  payload: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, unknown>),
+});
+export const issueEventInsertSchema = createInsertSchema(issueEvent, {
+  payload: (s) => s.transform((v) => JSON.stringify(v ?? {})),
 });
 
-export const conversationLedgerSelectSchema = z.object({
-  seq: z.number(), conversationId: z.string(), senderMemberId: z.string(),
-  addressedTo: json<string[]>([]), kind: z.string(),
-  content: json<unknown>(null), ts: z.number(), spanId: z.string().nullable(),
+export const deliverableSelectSchema = createSelectSchema(deliverable, {
+  fields: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, string>),
 });
 
-export const projectSelectSchema = z.object({
-  projectId: z.string(), name: z.string(), repoUrl: z.string().nullable(),
-  defaultBranch: z.string().nullable(), autoOrchestrate: toBool,
-  createdAt: z.number(), updatedAt: z.number(),
-});
-export const projectInsertSchema = z.object({
-  projectId: z.string().optional(), name: z.string(), repoUrl: z.string().nullable().optional(),
-  defaultBranch: z.string().nullable().optional(), autoOrchestrate: toInt,
-  createdAt: z.number().optional(), updatedAt: z.number().optional(),
+export const conversationLedgerSelectSchema = createSelectSchema(conversationLedger, {
+  addressedTo: (s) => s.transform((v: string) => JSON.parse(v) as string[]),
+  content: (s) => s.transform((v: string) => JSON.parse(v) as unknown),
 });
 
-export const cronJobSelectSchema = z.object({
-  cronJobId: z.string(), name: z.string(), agentId: z.string(), cronExpr: z.string(),
-  prompt: z.string(), enabled: toBool, timeoutMs: z.number(), maxRetries: z.number(),
-  createdAt: z.number(), updatedAt: z.number(),
+export const projectSelectSchema = createSelectSchema(project, {
+  autoOrchestrate: (s) => s.transform((v: number) => v !== 0),
 });
-export const cronJobInsertSchema = z.object({
-  cronJobId: z.string().optional(), name: z.string(), agentId: z.string(), cronExpr: z.string(),
-  prompt: z.string().optional(), enabled: toInt, timeoutMs: z.number().optional(),
-  maxRetries: z.number().optional(), createdAt: z.number().optional(), updatedAt: z.number().optional(),
+export const projectInsertSchema = createInsertSchema(project, {
+  autoOrchestrate: (s) => s.transform((v) => (v ? 1 : 0)),
+});
+
+export const cronJobSelectSchema = createSelectSchema(cronJob, {
+  enabled: (s) => s.transform((v: number) => v !== 0),
+});
+export const cronJobInsertSchema = createInsertSchema(cronJob, {
+  enabled: (s) => s.transform((v) => (v ? 1 : 0)),
 });

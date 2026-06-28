@@ -1,59 +1,22 @@
 import type { Database } from "bun:sqlite";
-import { and, count, desc, eq, gt, inArray, max } from "drizzle-orm";
+import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
+import {
+  controlPlaneEventSelectSchema,
+  issueEventSelectSchema,
+  runOriginSelectSchema,
+  surfaceHealthSelectSchema,
+} from "../../infra/db/schema.js";
 import type {
   ControlPlaneEvent,
   ControlPlaneEventKind,
+  IssueEvent,
   IssueEventKind,
-  IssueEvent as IssueEventType,
+  SpanOriginInsert,
   SpanOriginRow,
   SurfaceHealthRow,
 } from "./types.js";
-
-function toControlPlaneEventRecord(
-  r: typeof schema.controlPlaneEvent.$inferSelect,
-): ControlPlaneEvent {
-  return {
-    seq: r.seq,
-    spanId: r.spanId,
-    attemptSeq: r.attemptSeq,
-    kind: r.kind as ControlPlaneEvent["kind"],
-    payload: JSON.parse(r.payload) as Record<string, unknown>,
-    traceId: r.traceId,
-    ts: r.ts,
-  };
-}
-
-function toSpanOriginRow(r: typeof schema.runOrigin.$inferSelect): SpanOriginRow {
-  return {
-    spanId: r.spanId,
-    conversationId: r.conversationId,
-    sourceLedgerSeq: r.sourceLedgerSeq,
-    agentMemberId: r.agentMemberId,
-    surface: r.surface,
-    traceId: r.traceId,
-    traceparent: r.traceparent,
-    idempotencyKey: r.idempotencyKey,
-    issueId: r.issueId,
-    cronJobId: r.cronJobId,
-    fromStatus: r.fromStatus,
-    originKind: r.originKind as SpanOriginRow["originKind"],
-    createdAt: r.createdAt,
-  };
-}
-
-function toSurfaceHealthRow(r: typeof schema.surfaceHealth.$inferSelect): SurfaceHealthRow {
-  return {
-    agentId: r.agentId,
-    surface: r.surface,
-    status: r.status,
-    lastSeenAt: r.lastSeenAt,
-    payload: r.payload,
-    lastError: r.lastError,
-    updatedAt: r.updatedAt,
-  };
-}
 
 export class RuntimeOpsStore {
   #d: ReturnType<typeof drizzle<typeof schema>>;
@@ -95,7 +58,7 @@ export class RuntimeOpsStore {
       .where(eq(schema.controlPlaneEvent.spanId, spanId))
       .orderBy(schema.controlPlaneEvent.seq)
       .all()
-      .map(toControlPlaneEventRecord);
+      .map((r) => controlPlaneEventSelectSchema.parse(r) as ControlPlaneEvent);
   }
 
   getControlPlaneEventsByTrace(traceId: string): ControlPlaneEvent[] {
@@ -105,7 +68,7 @@ export class RuntimeOpsStore {
       .where(eq(schema.controlPlaneEvent.traceId, traceId))
       .orderBy(schema.controlPlaneEvent.seq)
       .all()
-      .map(toControlPlaneEventRecord);
+      .map((r) => controlPlaneEventSelectSchema.parse(r) as ControlPlaneEvent);
   }
 
   // ─── issue_event (M18.7) ───
@@ -128,27 +91,19 @@ export class RuntimeOpsStore {
     return row!.seq;
   }
 
-  getIssueEvents(issueId: string, afterSeq = 0): IssueEventType[] {
+  getIssueEvents(issueId: string, afterSeq = 0): IssueEvent[] {
     return this.#d
       .select()
       .from(schema.issueEvent)
       .where(and(eq(schema.issueEvent.issueId, issueId), gt(schema.issueEvent.seq, afterSeq)))
       .orderBy(schema.issueEvent.seq)
       .all()
-      .map(
-        (r): IssueEventType => ({
-          seq: r.seq,
-          issueId: r.issueId,
-          kind: r.kind as IssueEventKind,
-          payload: JSON.parse(r.payload) as Record<string, unknown>,
-          ts: r.ts,
-        }),
-      );
+      .map((r) => issueEventSelectSchema.parse(r) as IssueEvent);
   }
 
   // ─── run_origin ───
 
-  insertSpanOrigin(row: SpanOriginRow): void {
+  insertSpanOrigin(row: SpanOriginInsert): void {
     // Invariant: issue-driven runs must carry a non-empty fromStatus
     if (row.issueId != null && row.fromStatus === "") {
       throw new Error(
@@ -182,7 +137,7 @@ export class RuntimeOpsStore {
       .from(schema.runOrigin)
       .where(eq(schema.runOrigin.spanId, spanId))
       .get();
-    return row ? toSpanOriginRow(row) : null;
+    return row ? runOriginSelectSchema.parse(row) : null;
   }
 
   getSpanOriginsByIssueId(issueId: string): SpanOriginRow[] {
@@ -192,7 +147,7 @@ export class RuntimeOpsStore {
       .where(eq(schema.runOrigin.issueId, issueId))
       .orderBy(schema.runOrigin.createdAt)
       .all()
-      .map(toSpanOriginRow);
+      .map((r) => runOriginSelectSchema.parse(r));
   }
 
   getSpanOriginsByCronJobId(cronJobId: string): SpanOriginRow[] {
@@ -202,7 +157,7 @@ export class RuntimeOpsStore {
       .where(eq(schema.runOrigin.cronJobId, cronJobId))
       .orderBy(schema.runOrigin.createdAt)
       .all()
-      .map(toSpanOriginRow);
+      .map((r) => runOriginSelectSchema.parse(r));
   }
 
   getRuns(runIds: string[]): Array<{
@@ -335,7 +290,7 @@ export class RuntimeOpsStore {
       .from(schema.runOrigin)
       .orderBy(desc(schema.runOrigin.createdAt))
       .all()
-      .map(toSpanOriginRow);
+      .map((r) => runOriginSelectSchema.parse(r));
   }
 
   // ─── surface_health ───
@@ -380,7 +335,7 @@ export class RuntimeOpsStore {
         and(eq(schema.surfaceHealth.agentId, agentId), eq(schema.surfaceHealth.surface, surface)),
       )
       .get();
-    return row ? toSurfaceHealthRow(row) : undefined;
+    return row ? surfaceHealthSelectSchema.parse(row) : undefined;
   }
 
   getSurfaceHealthsForAgent(agentId: string): SurfaceHealthRow[] {
@@ -389,7 +344,7 @@ export class RuntimeOpsStore {
       .from(schema.surfaceHealth)
       .where(eq(schema.surfaceHealth.agentId, agentId))
       .all()
-      .map(toSurfaceHealthRow);
+      .map((r) => surfaceHealthSelectSchema.parse(r));
   }
 
   listSurfaceHealths(): SurfaceHealthRow[] {
@@ -398,6 +353,6 @@ export class RuntimeOpsStore {
       .from(schema.surfaceHealth)
       .orderBy(schema.surfaceHealth.agentId, schema.surfaceHealth.surface)
       .all()
-      .map(toSurfaceHealthRow);
+      .map((r) => surfaceHealthSelectSchema.parse(r));
   }
 }

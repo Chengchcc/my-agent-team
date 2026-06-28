@@ -243,8 +243,7 @@ export function createRuntimeOpsService(deps: {
       const surfaces = opsStore.getSurfaceHealthsForAgent(agentId);
       const result: AgentRuntimeStatus["surfaces"] = {};
       for (const sh of surfaces) {
-        let raw: Record<string, unknown> = {};
-        try { raw = JSON.parse(sh.payload) as Record<string, unknown>; } catch { /* ignore */ }
+        const raw = sh.payload; // Already parsed by Zod transform
         const flatten = (obj: Record<string, unknown>, prefix: string) => {
           for (const [k, v] of Object.entries(obj)) {
             if (typeof v === "number") result[sh.surface]!.counters[`${prefix}${k}`] = v;
@@ -322,26 +321,20 @@ export function createRuntimeOpsService(deps: {
       const runAgentMap = new Map<string, string>();
       for (const r of runRows) runAgentMap.set(r.span_id, r.agent_id);
 
-      return getInsightsSummary(
-        { checkpointEventsStore, getAgentName, runAgentMap },
-        range,
-      );
+      return getInsightsSummary({ checkpointEventsStore, getAgentName, runAgentMap }, range);
     },
 
     // ── Session-level aggregation (B2: /ops/sessions) ──────────
 
-    listSessions(params: {
-      agentId?: string;
-      status?: string;
-      limit?: number;
-    }): Array<{
+    listSessions(params: { agentId?: string; status?: string; limit?: number }): Array<{
       sessionId: string;
       agentId: string;
       spanCount: number;
       lastSpanAt: number | null;
       status: "running" | "done";
     }> {
-      const limit = Number.isFinite(params.limit) && (params.limit ?? 0) > 0 ? Math.floor(params.limit!) : 100;
+      const limit =
+        Number.isFinite(params.limit) && (params.limit ?? 0) > 0 ? Math.floor(params.limit!) : 100;
       const conditions: string[] = [];
       const bindings: (string | number)[] = [];
       if (params.agentId) {
@@ -403,13 +396,20 @@ export function createRuntimeOpsService(deps: {
       return {
         sessionId,
         agentId: spans[0]!.agentId,
-        status: spans.some((s) => s.status === "running") ? ("running" as const) : ("done" as const),
+        status: spans.some((s) => s.status === "running")
+          ? ("running" as const)
+          : ("done" as const),
         spanCount: spans.length,
         spans,
       };
     },
 
-    ingestLarkHeartbeat(body: { agentId: string; status: string; payload?: Record<string, unknown>; lastError?: string }): void {
+    ingestLarkHeartbeat(body: {
+      agentId: string;
+      status: string;
+      payload?: Record<string, unknown>;
+      lastError?: string;
+    }): void {
       opsStore.upsertSurfaceHealth({
         agentId: body.agentId,
         surface: "lark",
