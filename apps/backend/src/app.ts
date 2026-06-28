@@ -113,6 +113,8 @@ function issuePlugin(issues: NonNullable<FeatureSet["issues"]>) {
     .get("/api/issues", ({ request }) => issues.list(request))
     .post("/api/issues", ({ request }) => issues.create(request))
     .get("/api/issues/:id", ({ request, params: { id } }) => issues.get(request, id))
+    .patch("/api/issues/:id", ({ request, params: { id } }) => issues.update(request, id))
+    .delete("/api/issues/:id", ({ request, params: { id } }) => issues.remove(request, id))
     .post("/api/issues/:id/transition", ({ request, params: { id } }) =>
       issues.transition(request, id),
     )
@@ -164,13 +166,23 @@ function cronPlugin(cronJobs: NonNullable<FeatureSet["cronJobs"]>) {
 export function createApp(token: string, features: FeatureSet) {
   const { agents, conversations, ops, issues, projects, columnConfigs, cronJobs } = features;
 
-  return new Elysia()
+  const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
     .use(authPlugin(token))
     .use(agentPlugin(agents))
     .use(conversationPlugin(conversations))
     .use(opsPlugin(ops))
-    .use(issuePlugin(issues))
+    .use(issuePlugin(issues));
+
+  // Alias: GET /api/runs/:id → ops.getRunDetail, POST resume/cancel (backward compat)
+  const withRuns = app
+    .post("/api/runs/:id/resume", ({ request, params: { id } }) =>
+      features.resumeRun?.(request, id) ?? new Response(JSON.stringify({ error: "Not found" }), { status: 404 }),
+    )
+    .get("/api/runs/:id", ({ request, params: { id } }) => ops.getRunDetail(request, id))
+    .post("/api/runs/:id/cancel", ({ request, params: { id } }) => ops.cancelRun(request, id));
+
+  return withRuns
     .use(projectPlugin(projects))
     .use(columnConfigPlugin(columnConfigs))
     .use(cronPlugin(cronJobs))

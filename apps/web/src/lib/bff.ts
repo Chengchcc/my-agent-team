@@ -1,14 +1,17 @@
 import { parseEnv } from "@my-agent-team/config";
 
-// Parse once at module load — fail-fast if misconfigured.
-const _env = parseEnv(process.env);
+let _env: ReturnType<typeof parseEnv> | undefined;
+
+function env() {
+  return _env ?? (_env = parseEnv(process.env));
+}
 
 function getBackendUrl(): string {
-  return _env.BACKEND_URL;
+  return env().BACKEND_URL;
 }
 
 function getBackendToken(): string {
-  return _env.BACKEND_AUTH_TOKEN;
+  return env().BACKEND_AUTH_TOKEN;
 }
 
 const HOP_BY_HOP = new Set([

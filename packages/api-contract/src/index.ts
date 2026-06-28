@@ -1,14 +1,14 @@
 export type { LarkContent, LarkMessageEvent } from "./lark.js";
 export { larkContentSchema, larkMessageEventSchema } from "./lark.js";
+export type { SSEEndpoint, SSEEndpoints, SSEEventMap } from "./sse.js";
 export {
   conversationEvents,
-  issueBoardEvents,
-  issueTimelineEvents,
   IssueEventSchema,
   IssueRowSchema,
+  issueBoardEvents,
+  issueTimelineEvents,
   sseEndpoints,
 } from "./sse.js";
-export type { SSEEndpoint, SSEEndpoints, SSEEventMap } from "./sse.js";
 
 // ── Shared domain enums (single source, consumed by backend + web + lark-bot) ──
 

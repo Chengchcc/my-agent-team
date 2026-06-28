@@ -1,9 +1,10 @@
 import { parseEnv } from "@my-agent-team/config";
 
-const _env = parseEnv(process.env);
+let _env: ReturnType<typeof parseEnv> | undefined;
+function env() { return _env ?? (_env = parseEnv(process.env)); }
 
 function getSessionSecret(): string {
-  const secret = _env.SESSION_SECRET;
+  const secret = env().SESSION_SECRET;
   if (!secret) throw new Error("SESSION_SECRET env is required");
   return secret;
 }
@@ -85,7 +86,7 @@ export async function readSession(cookieHeader: string | null): Promise<SessionP
 }
 
 function isSecureEnv(): boolean {
-  return _env.NODE_ENV === "production";
+  return env().NODE_ENV === "production";
 }
 
 export function sessionCookieHeader(value: string, maxAge: number = MAX_AGE_MS / 1000): string {

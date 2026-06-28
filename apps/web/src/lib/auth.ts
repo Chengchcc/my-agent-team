@@ -1,13 +1,15 @@
 import { parseEnv } from "@my-agent-team/config";
 import { clearCookieHeader, createSession, readSession, sessionCookieHeader } from "./session";
 
-const _env = parseEnv(process.env);
-const MOCK_USER_ID = _env.MOCK_USER_ID ?? "user-001";
-const MOCK_PASSWORD = _env.MOCK_PASSWORD ?? "admin";
+let _env: ReturnType<typeof parseEnv> | undefined;
+function env() { return _env ?? (_env = parseEnv(process.env)); }
+
+function mockUserId() { return env().MOCK_USER_ID ?? "user-001"; }
+function mockPassword() { return env().MOCK_PASSWORD ?? "admin"; }
 
 export async function login(password: string): Promise<{ cookie: string } | { error: string }> {
-  if (password !== MOCK_PASSWORD) return { error: "Invalid password" };
-  const session = await createSession(MOCK_USER_ID);
+  if (password !== mockPassword()) return { error: "Invalid password" };
+  const session = await createSession(mockUserId());
   return { cookie: sessionCookieHeader(session) };
 }
 

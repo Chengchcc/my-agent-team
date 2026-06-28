@@ -48,6 +48,10 @@ Three iron rules:
 2. **暴露业务，隐藏机制** — Ledger/EventLog/Projection/Checkpoint 是实现细节，不能上浮成主心智
 3. **边界要硬，概念要少** — 业务边界 5-6 个（Conversation/Run/Message/Agent/Memory/Tool），机制边界可以多但必须低调
 
+**`docs/architecture/e2e-contract-rules.md`** — 铁律 1 在传输/跨进程层的**可执行版**。凡在 backend / web / lark-bot 之间加字段、调接口、消费 SSE、加 react-query、读环境变量、跨进程传结构前，先过其 §1 触发器决策表与 §2 真源地图，写完跑 §3 grep 自检。核心：每类契约只有**一个真源**，两端都从它推导——`tsc 通过` 不是「对」的证据（手抄 interface / `as` / 各写一份 queryKey 都能过编译）。
+
+**`docs/architecture/db-typesafe-rules.md`** — 铁律 1 在 backend **内部**类型链的**可执行版**（drizzle → `$inferSelect` → service → http）。凡在 backend 内加列、改表结构、写 service 返回类型、读写 JSON/int-bool 列、加枚举前，先过其 §1 触发器决策表与 §2 真源地图，写完跑 §3 grep 自检。drizzle 表在 `schema.ts` 是**唯一真源**——**禁止**手写 `interface XxxRow`、`JSON.parse(row.x) as T`、`!!row.enabled`、各 feature 重抄枚举字面量。两套规则互补（内部 + 跨进程），打通后改一个 drizzle 列 → 全链 `tsc` 标红。
+
 Before adding a new type/interface/table/endpoint: ask which existing domain object it belongs to. If the answer creates a new layer-specific variant of the same thing, don't.
 
 Package map:
