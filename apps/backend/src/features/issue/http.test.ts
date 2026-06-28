@@ -1,5 +1,5 @@
-// @ts-nocheck
 import { describe, expect, test } from "bun:test";
+import { Elysia } from "elysia";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createDeliverableService, sqliteDeliverableAdapter } from "../deliverable/index.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
@@ -29,21 +29,23 @@ function setup() {
   let startedIssue: unknown = null;
   let rejectedIssue: unknown = null;
 
-  const routes = issueRoutes(issueSvc, opsStore, deliverableSvc, {
-    onIssueStarted: async (issue) => {
-      startedIssue = issue;
-    },
-    onReviewRejected: async (issue) => {
-      rejectedIssue = issue;
-    },
-  });
+  const app = new Elysia().use(
+    issueRoutes(issueSvc, opsStore, deliverableSvc, {
+      onIssueStarted: async (issue) => {
+        startedIssue = issue;
+      },
+      onReviewRejected: async (issue) => {
+        rejectedIssue = issue;
+      },
+    }),
+  );
 
   return {
     db,
     opsStore,
     issueSvc,
     deliverableSvc,
-    routes,
+    app,
     getStartedIssue: () => startedIssue,
     getRejectedIssue: () => rejectedIssue,
   };
@@ -67,8 +69,8 @@ function makeReviewRequest(issueId: string, body: unknown): Request {
 
 describe("HTTP emission events", () => {
   test("create handler emits created event", async () => {
-    const { opsStore, routes } = setup();
-    const res = await routes.create(
+    const { opsStore, app } = setup();
+    const res = await app.handle(
       new Request("http://localhost/api/issues", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -85,16 +87,15 @@ describe("HTTP emission events", () => {
   });
 
   test("transition emits status.advanced(by:human) + started on draft→planned", async () => {
-    const { issueSvc, opsStore, routes } = setup();
+    const { issueSvc, opsStore, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
 
-    const res = await routes.transition(
-      new Request("http://localhost/api/issues/x/transition", {
+    const res = await app.handle(
+      new Request(`http://localhost/api/issues/${issue.issueId}/transition`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: "planned" }),
       }),
-      issue.issueId,
     );
     expect(res.status).toBe(200);
     const events = opsStore.getIssueEvents(issue.issueId);
@@ -111,15 +112,14 @@ describe("HTTP emission events", () => {
 
 describe("submitDeliverable", () => {
   test("creates a deliverable and returns 201 with replay=false", async () => {
-    const { issueSvc, routes } = setup();
+    const { issueSvc, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
 
-    const res = await routes.submitDeliverable(
+    const res = await app.handle(
       makeDeliverableRequest(issue.issueId, {
         kind: "plan",
         fields: { summary: "hello" },
       }),
-      issue.issueId,
     );
     expect(res.status).toBe(201);
     const body = (await res.json()) as { deliverable: { kind: string } };
@@ -127,30 +127,28 @@ describe("submitDeliverable", () => {
   });
 
   test("returns 400 on invalid kind", async () => {
-    const { issueSvc, routes } = setup();
+    const { issueSvc, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
 
-    const res = await routes.submitDeliverable(
+    const res = await app.handle(
       makeDeliverableRequest(issue.issueId, {
         kind: "INVALID_KIND",
         fields: {},
       }),
-      issue.issueId,
     );
     expect(res.status).toBe(400);
   });
 
   test("returns 404 for unknown issue", async () => {
-    const { routes } = setup();
-    const res = await routes.submitDeliverable(
+    const { app } = setup();
+    const res = await app.handle(
       makeDeliverableRequest("nonexistent", { kind: "plan", fields: {} }),
-      "nonexistent",
     );
     expect(res.status).toBe(404);
   });
 
   test("returns 200(replay) on duplicate (spanId, kind)", async () => {
-    const { issueSvc, opsStore, routes } = setup();
+    const { issueSvc, opsStore, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
 
     // Insert run_origin so R3 validation passes
@@ -169,21 +167,19 @@ describe("submitDeliverable", () => {
       createdAt: 1000,
     });
 
-    await routes.submitDeliverable(
+    await app.handle(
       makeDeliverableRequest(issue.issueId, {
         kind: "plan",
         fields: { v: "1" },
         spanId: "run_001",
       }),
-      issue.issueId,
     );
-    const res2 = await routes.submitDeliverable(
+    const res2 = await app.handle(
       makeDeliverableRequest(issue.issueId, {
         kind: "plan",
         fields: { v: "2" },
         spanId: "run_001",
       }),
-      issue.issueId,
     );
     expect(res2.status).toBe(200);
     const body = (await res2.json()) as { deliverable: { fields: Record<string, string> } };
@@ -191,30 +187,28 @@ describe("submitDeliverable", () => {
   });
 
   test("returns 409 when spanId refers to unknown run (R3)", async () => {
-    const { issueSvc, routes } = setup();
+    const { issueSvc, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
 
-    const res = await routes.submitDeliverable(
+    const res = await app.handle(
       makeDeliverableRequest(issue.issueId, {
         kind: "plan",
         fields: {},
         spanId: "nonexistent_run",
       }),
-      issue.issueId,
     );
     expect(res.status).toBe(409);
   });
 
   test("emits deliverable.submitted event (non-replay only)", async () => {
-    const { issueSvc, opsStore, routes } = setup();
+    const { issueSvc, opsStore, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
 
-    await routes.submitDeliverable(
+    await app.handle(
       makeDeliverableRequest(issue.issueId, {
         kind: "plan",
         fields: { x: "1" },
       }),
-      issue.issueId,
     );
     const events = opsStore.getIssueEvents(issue.issueId);
     const ds = events.filter((e) => e.kind === "deliverable.submitted");
@@ -224,7 +218,7 @@ describe("submitDeliverable", () => {
   });
 
   test("returns 409 when spanId's issueId mismatches (R3 cross-issue guard)", async () => {
-    const { issueSvc, opsStore, routes } = setup();
+    const { issueSvc, opsStore, app } = setup();
     const issue1 = issueSvc.createIssue({ projectId: "p1", title: "Issue 1" });
     const issue2 = issueSvc.createIssue({ projectId: "p1", title: "Issue 2" });
 
@@ -243,13 +237,12 @@ describe("submitDeliverable", () => {
       createdAt: 1000,
     });
 
-    const res = await routes.submitDeliverable(
+    const res = await app.handle(
       makeDeliverableRequest(issue1.issueId, {
         kind: "plan",
         fields: {},
         spanId: "run_x",
       }),
-      issue1.issueId,
     );
     expect(res.status).toBe(409);
   });
@@ -257,32 +250,28 @@ describe("submitDeliverable", () => {
 
 describe("reviewDecision", () => {
   test("approve: in_review → done, 200", async () => {
-    const { issueSvc, routes } = setup();
+    const { issueSvc, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     issueSvc.applyTransition(issue.issueId, "planned");
     issueSvc.applyTransition(issue.issueId, "in_progress");
     const review = issueSvc.applyTransition(issue.issueId, "in_review");
     expect(review.status).toBe("in_review");
 
-    const res = await routes.reviewDecision(
-      makeReviewRequest(issue.issueId, { decision: "approve" }),
-      issue.issueId,
-    );
+    const res = await app.handle(makeReviewRequest(issue.issueId, { decision: "approve" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { issue: { status: string } };
     expect(body.issue.status).toBe("done");
   });
 
   test("reject with note: writes rework_feedback + in_review→in_progress + triggers onReviewRejected", async () => {
-    const { issueSvc, deliverableSvc, routes, getRejectedIssue } = setup();
+    const { issueSvc, deliverableSvc, app, getRejectedIssue } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     issueSvc.applyTransition(issue.issueId, "planned");
     issueSvc.applyTransition(issue.issueId, "in_progress");
     issueSvc.applyTransition(issue.issueId, "in_review");
 
-    const res = await routes.reviewDecision(
+    const res = await app.handle(
       makeReviewRequest(issue.issueId, { decision: "reject", note: "Needs more tests" }),
-      issue.issueId,
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { issue: { status: string } };
@@ -300,60 +289,45 @@ describe("reviewDecision", () => {
   });
 
   test("reject without note → 400", async () => {
-    const { issueSvc, routes } = setup();
+    const { issueSvc, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     issueSvc.applyTransition(issue.issueId, "planned");
     issueSvc.applyTransition(issue.issueId, "in_progress");
     issueSvc.applyTransition(issue.issueId, "in_review");
 
-    const res = await routes.reviewDecision(
-      makeReviewRequest(issue.issueId, { decision: "reject" }),
-      issue.issueId,
-    );
+    const res = await app.handle(makeReviewRequest(issue.issueId, { decision: "reject" }));
     expect(res.status).toBe(400);
   });
 
   test("non-in_review status → 409", async () => {
-    const { issueSvc, routes } = setup();
+    const { issueSvc, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     // still draft — not in_review
 
-    const res = await routes.reviewDecision(
-      makeReviewRequest(issue.issueId, { decision: "approve" }),
-      issue.issueId,
-    );
+    const res = await app.handle(makeReviewRequest(issue.issueId, { decision: "approve" }));
     expect(res.status).toBe(409);
   });
 
   test("nonexistent issue → 404", async () => {
-    const { routes } = setup();
-    const res = await routes.reviewDecision(
-      makeReviewRequest("nonexistent", { decision: "approve" }),
-      "nonexistent",
-    );
+    const { app } = setup();
+    const res = await app.handle(makeReviewRequest("nonexistent", { decision: "approve" }));
     expect(res.status).toBe(404);
   });
 
   test("invalid decision → 400", async () => {
-    const { routes } = setup();
-    const res = await routes.reviewDecision(
-      makeReviewRequest("issue_001", { decision: "invalid" }),
-      "issue_001",
-    );
+    const { app } = setup();
+    const res = await app.handle(makeReviewRequest("issue_001", { decision: "invalid" }));
     expect(res.status).toBe(400);
   });
 
   test("approve emits human.decided + status.advanced(by:human)", async () => {
-    const { issueSvc, opsStore, routes } = setup();
+    const { issueSvc, opsStore, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     issueSvc.applyTransition(issue.issueId, "planned");
     issueSvc.applyTransition(issue.issueId, "in_progress");
     issueSvc.applyTransition(issue.issueId, "in_review");
 
-    await routes.reviewDecision(
-      makeReviewRequest(issue.issueId, { decision: "approve" }),
-      issue.issueId,
-    );
+    await app.handle(makeReviewRequest(issue.issueId, { decision: "approve" }));
     const events = opsStore.getIssueEvents(issue.issueId);
     expect(
       events.find((e) => e.kind === "human.decided" && e.payload.decision === "approve"),
@@ -366,16 +340,13 @@ describe("reviewDecision", () => {
   });
 
   test("reject emits human.decided + status.advanced(by:rework) + deliverable.submitted for rework_feedback", async () => {
-    const { issueSvc, opsStore, routes } = setup();
+    const { issueSvc, opsStore, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     issueSvc.applyTransition(issue.issueId, "planned");
     issueSvc.applyTransition(issue.issueId, "in_progress");
     issueSvc.applyTransition(issue.issueId, "in_review");
 
-    await routes.reviewDecision(
-      makeReviewRequest(issue.issueId, { decision: "reject", note: "try again" }),
-      issue.issueId,
-    );
+    await app.handle(makeReviewRequest(issue.issueId, { decision: "reject", note: "try again" }));
     const events = opsStore.getIssueEvents(issue.issueId);
     expect(
       events.find((e) => e.kind === "human.decided" && e.payload.decision === "reject"),
@@ -390,16 +361,15 @@ describe("reviewDecision", () => {
   });
 
   test("in_review→in_progress is a legal transition (backward edge belongs to LEGAL_TRANSITIONS)", async () => {
-    const { issueSvc, routes } = setup();
+    const { issueSvc, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     issueSvc.applyTransition(issue.issueId, "planned");
     issueSvc.applyTransition(issue.issueId, "in_progress");
     issueSvc.applyTransition(issue.issueId, "in_review");
 
     // This must NOT throw IllegalTransitionError
-    const res = await routes.reviewDecision(
+    const res = await app.handle(
       makeReviewRequest(issue.issueId, { decision: "reject", note: "Redo" }),
-      issue.issueId,
     );
     expect(res.status).toBe(200);
   });
@@ -410,20 +380,21 @@ describe("reject rollback", () => {
     const { issueSvc, opsStore, deliverableSvc } = setup();
 
     // Build routes with a throwing onReviewRejected callback
-    const routes = issueRoutes(issueSvc, opsStore, deliverableSvc, {
-      onReviewRejected: async () => {
-        throw new Error("agent archived");
-      },
-    });
+    const app = new Elysia().use(
+      issueRoutes(issueSvc, opsStore, deliverableSvc, {
+        onReviewRejected: async () => {
+          throw new Error("agent archived");
+        },
+      }),
+    );
 
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     issueSvc.applyTransition(issue.issueId, "planned");
     issueSvc.applyTransition(issue.issueId, "in_progress");
     issueSvc.applyTransition(issue.issueId, "in_review");
 
-    const res = await routes.reviewDecision(
+    const res = await app.handle(
       makeReviewRequest(issue.issueId, { decision: "reject", note: "try again" }),
-      issue.issueId,
     );
     expect(res.status).toBe(502);
 
@@ -435,14 +406,13 @@ describe("reject rollback", () => {
 
 describe("timeline endpoint", () => {
   test("GET /timeline returns events ordered by seq", async () => {
-    const { issueSvc, opsStore, routes } = setup();
+    const { issueSvc, opsStore, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     opsStore.appendIssueEvent({ issueId: issue.issueId, kind: "created" });
     opsStore.appendIssueEvent({ issueId: issue.issueId, kind: "started" });
 
-    const res = await routes.timeline(
-      new Request("http://localhost/api/issues/x/timeline"),
-      issue.issueId,
+    const res = await app.handle(
+      new Request(`http://localhost/api/issues/${issue.issueId}/timeline`),
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { events: Array<{ kind: string }> };
@@ -452,24 +422,20 @@ describe("timeline endpoint", () => {
   });
 
   test("GET /timeline returns 404 for unknown issue", async () => {
-    const { routes } = setup();
-    const res = await routes.timeline(
-      new Request("http://localhost/api/issues/x/timeline"),
-      "nonexistent",
-    );
+    const { app } = setup();
+    const res = await app.handle(new Request("http://localhost/api/issues/nonexistent/timeline"));
     expect(res.status).toBe(404);
   });
 });
 
 describe("detail endpoint", () => {
   test("GET /detail returns {issue, timeline, runs}", async () => {
-    const { issueSvc, opsStore, routes } = setup();
+    const { issueSvc, opsStore, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     opsStore.appendIssueEvent({ issueId: issue.issueId, kind: "created" });
 
-    const res = await routes.detail(
-      new Request("http://localhost/api/issues/x/detail"),
-      issue.issueId,
+    const res = await app.handle(
+      new Request(`http://localhost/api/issues/${issue.issueId}/detail`),
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -483,16 +449,13 @@ describe("detail endpoint", () => {
   });
 
   test("GET /detail returns 404 for unknown issue", async () => {
-    const { routes } = setup();
-    const res = await routes.detail(
-      new Request("http://localhost/api/issues/x/detail"),
-      "nonexistent",
-    );
+    const { app } = setup();
+    const res = await app.handle(new Request("http://localhost/api/issues/nonexistent/detail"));
     expect(res.status).toBe(404);
   });
 
   test("GET /detail runs array includes run status from run table", async () => {
-    const { db, issueSvc, opsStore, routes } = setup();
+    const { db, issueSvc, opsStore, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
 
     opsStore.insertSpanOrigin({
@@ -513,9 +476,8 @@ describe("detail endpoint", () => {
       `INSERT INTO run (span_id, session_id, agent_id, status, started_at, ended_at) VALUES ('r_detail', 't1', 'a1', 'succeeded', 1000, 5000)`,
     );
 
-    const res = await routes.detail(
-      new Request("http://localhost/api/issues/x/detail"),
-      issue.issueId,
+    const res = await app.handle(
+      new Request(`http://localhost/api/issues/${issue.issueId}/detail`),
     );
     const body = (await res.json()) as {
       runs: Array<{ spanId: string; status: string; endedAt: number | null }>;
@@ -529,36 +491,34 @@ describe("detail endpoint", () => {
 
 describe("transition backward edge guard", () => {
   test("in_review→in_progress via /transition is rejected (must use review-decision)", async () => {
-    const { issueSvc, routes } = setup();
+    const { issueSvc, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     issueSvc.applyTransition(issue.issueId, "planned");
     issueSvc.applyTransition(issue.issueId, "in_progress");
     issueSvc.applyTransition(issue.issueId, "in_review");
 
-    const res = await routes.transition(
-      new Request("http://localhost/api/issues/x/transition", {
+    const res = await app.handle(
+      new Request(`http://localhost/api/issues/${issue.issueId}/transition`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: "in_progress" }),
       }),
-      issue.issueId,
     );
     expect(res.status).toBe(409);
   });
 
   test("forward transition via /transition still works (in_progress→in_review)", async () => {
-    const { issueSvc, routes } = setup();
+    const { issueSvc, app } = setup();
     const issue = issueSvc.createIssue({ projectId: "p1", title: "Test" });
     issueSvc.applyTransition(issue.issueId, "planned");
     issueSvc.applyTransition(issue.issueId, "in_progress");
 
-    const res = await routes.transition(
-      new Request("http://localhost/api/issues/x/transition", {
+    const res = await app.handle(
+      new Request(`http://localhost/api/issues/${issue.issueId}/transition`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: "in_review" }),
       }),
-      issue.issueId,
     );
     expect(res.status).toBe(200);
   });
