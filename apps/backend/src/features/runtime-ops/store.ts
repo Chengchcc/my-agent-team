@@ -5,18 +5,18 @@ import * as schema from "../../infra/db/schema.js";
 import type {
   IssueEventKind,
   IssueEvent as IssueEventType,
-  RunOpsEventKind,
-  RunOpsEvent as RunOpsEventType,
+  ControlPlaneEventKind,
+  ControlPlaneEvent,
   SpanOriginRow,
   SurfaceHealthRow,
 } from "./types.js";
 
-function toControlPlaneEvent(r: typeof schema.controlPlaneEvent.$inferSelect): RunOpsEventType {
+function toControlPlaneEventRecord(r: typeof schema.controlPlaneEvent.$inferSelect): ControlPlaneEvent {
   return {
     seq: r.seq,
     spanId: r.spanId,
     attemptSeq: r.attemptSeq,
-    kind: r.kind as RunOpsEventType["kind"],
+    kind: r.kind as ControlPlaneEvent["kind"],
     payload: JSON.parse(r.payload) as Record<string, unknown>,
     traceId: r.traceId,
     ts: r.ts,
@@ -62,10 +62,10 @@ export class RuntimeOpsStore {
 
   // ─── control_plane_event ───
 
-  appendRunEvent(input: {
+  appendControlPlaneEvent(input: {
     spanId: string;
     attemptSeq?: number;
-    kind: RunOpsEventKind;
+    kind: ControlPlaneEventKind;
     traceId?: string;
     payload?: Record<string, unknown>;
   }): number {
@@ -84,24 +84,24 @@ export class RuntimeOpsStore {
     return row!.seq;
   }
 
-  getRunEvents(spanId: string): RunOpsEventType[] {
+  getControlPlaneEvents(spanId: string): ControlPlaneEvent[] {
     return this.#d
       .select()
       .from(schema.controlPlaneEvent)
       .where(eq(schema.controlPlaneEvent.spanId, spanId))
       .orderBy(schema.controlPlaneEvent.seq)
       .all()
-      .map(toControlPlaneEvent);
+      .map(toControlPlaneEventRecord);
   }
 
-  getRunEventsByTrace(traceId: string): RunOpsEventType[] {
+  getControlPlaneEventsByTrace(traceId: string): ControlPlaneEvent[] {
     return this.#d
       .select()
       .from(schema.controlPlaneEvent)
       .where(eq(schema.controlPlaneEvent.traceId, traceId))
       .orderBy(schema.controlPlaneEvent.seq)
       .all()
-      .map(toControlPlaneEvent);
+      .map(toControlPlaneEventRecord);
   }
 
   // ─── issue_event (M18.7) ───

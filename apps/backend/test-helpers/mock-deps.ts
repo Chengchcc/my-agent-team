@@ -70,7 +70,7 @@ export function mockOpsStore() {
   return {
     insertSpanOrigin: () => {},
     getSpanOrigin: () => null,
-    appendRunEvent: () => {},
+    appendControlPlaneEvent: () => {},
   };
 }
 

@@ -148,7 +148,7 @@ export class SpanSupervisor {
       "UPDATE run SET degraded_reason = ? WHERE span_id = ? AND degraded_reason IS NULL",
       [reason, spanId],
     );
-    this.#opts.opsStore.appendRunEvent({
+    this.#opts.opsStore.appendControlPlaneEvent({
       spanId,
       attemptSeq: attemptSeq ?? undefined,
       kind: "projection_degraded",

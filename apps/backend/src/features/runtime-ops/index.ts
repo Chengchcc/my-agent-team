@@ -14,8 +14,8 @@ export { subscribeIssueTimeline } from "./subscribe-issue-timeline.js";
 export type {
   IssueEvent,
   IssueEventKind,
-  RunOpsEvent,
-  RunOpsEventKind,
+  ControlPlaneEvent,
+  ControlPlaneEventKind,
   SpanOriginRow,
   SurfaceHealthRow,
 } from "./types.js";

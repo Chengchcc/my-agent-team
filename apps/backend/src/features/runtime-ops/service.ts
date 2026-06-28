@@ -162,7 +162,7 @@ export function createRuntimeOpsService(deps: {
         const factEvents = checkpointEventsStore?.readBySpan(r.session_id, r.span_id) ?? [];
         const lastFact = factEvents.at(-1);
 
-        const lastOps = opsStore.getRunEvents(r.span_id).pop();
+        const lastOps = opsStore.getControlPlaneEvents(r.span_id).pop();
 
         // Trace ID from run_origin
         const origin = opsStore.getSpanOrigin(r.span_id);
@@ -234,7 +234,7 @@ export function createRuntimeOpsService(deps: {
       const factEvents = checkpointEventsStore?.readBySpan(sessionId, spanId) ?? [];
       const lastFact = factEvents.at(-1);
 
-      const ops = opsStore.getRunEvents(spanId);
+      const ops = opsStore.getControlPlaneEvents(spanId);
 
       return {
         run: {
@@ -394,11 +394,11 @@ export function createRuntimeOpsService(deps: {
       const origins = opsStore.listSpanOrigins().filter((o) => o.traceId === traceId);
       if (origins.length === 0) {
         // Also check control_plane_event for trace_id
-        const opsEvents = opsStore.getRunEventsByTrace(traceId);
+        const opsEvents = opsStore.getControlPlaneEventsByTrace(traceId);
         if (opsEvents.length === 0) return null;
       }
 
-      const events = opsStore.getRunEventsByTrace(traceId).map((e) => ({
+      const events = opsStore.getControlPlaneEventsByTrace(traceId).map((e) => ({
         ts: e.ts,
         spanId: e.spanId,
         attemptSeq: e.attemptSeq,

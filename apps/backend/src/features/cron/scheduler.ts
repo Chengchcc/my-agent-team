@@ -134,7 +134,7 @@ export function createCronScheduler(deps: {
     }
 
     retryCounts.set(fireKey, attempts + 1);
-    deps.opsStore.appendRunEvent({
+    deps.opsStore.appendControlPlaneEvent({
       spanId,
       kind: "retry_requested",
       payload: { fireKey, attempt: attempts + 1 },
@@ -147,7 +147,7 @@ export function createCronScheduler(deps: {
     const timer = setTimeout(() => {
       retryTimers.delete(timer);
       void (async () => {
-        deps.opsStore.appendRunEvent({
+        deps.opsStore.appendControlPlaneEvent({
           spanId,
           kind: "retry_started",
           payload: { fireKey, attempt: attempts + 1 },

@@ -17,18 +17,18 @@ export interface IssueEvent {
   ts: number;
 }
 
-// RunOpsEventKind narrowed to only the 3 values actually emitted (S3 storage convergence).
+// ControlPlaneEventKind narrowed to only the 3 values actually emitted (S3 storage convergence).
 // The 12 removed values were runner/reattach-era vocabulary never written to the database.
-export type RunOpsEventKind =
+export type ControlPlaneEventKind =
   | "projection_degraded" // supervisor.ts:157 — critical sink (ledger terminal write) failed
   | "retry_requested" // scheduler.ts:139
   | "retry_started"; // scheduler.ts:152
 
-export interface RunOpsEvent {
+export interface ControlPlaneEvent {
   seq: number;
   spanId: string;
   attemptSeq: number | null;
-  kind: RunOpsEventKind;
+  kind: ControlPlaneEventKind;
   payload: Record<string, unknown>;
   traceId: string | null;
   ts: number;

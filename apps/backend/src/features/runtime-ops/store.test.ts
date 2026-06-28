@@ -20,8 +20,8 @@ describe("RuntimeOpsStore", () => {
   afterEach(() => db.close());
 
   describe("control_plane_event", () => {
-    test("appendRunEvent and getRunEvents round-trip", () => {
-      store.appendRunEvent({
+    test("appendControlPlaneEvent and getControlPlaneEvents round-trip", () => {
+      store.appendControlPlaneEvent({
         spanId: "r1",
         attemptSeq: 1,
         kind: "retry_requested",
@@ -29,7 +29,7 @@ describe("RuntimeOpsStore", () => {
         payload: { mode: "run" },
       });
 
-      const events = store.getRunEvents("r1");
+      const events = store.getControlPlaneEvents("r1");
       expect(events).toHaveLength(1);
       expect(events[0]!.kind).toBe("retry_requested");
       expect(events[0]!.spanId).toBe("r1");
@@ -37,29 +37,29 @@ describe("RuntimeOpsStore", () => {
       expect(events[0]!.traceId).toBe("trace-abc");
     });
 
-    test("getRunEvents returns events ordered by seq", () => {
-      store.appendRunEvent({ spanId: "r1", kind: "retry_requested" });
-      store.appendRunEvent({ spanId: "r1", kind: "retry_started" });
-      store.appendRunEvent({ spanId: "r1", kind: "projection_degraded" });
+    test("getControlPlaneEvents returns events ordered by seq", () => {
+      store.appendControlPlaneEvent({ spanId: "r1", kind: "retry_requested" });
+      store.appendControlPlaneEvent({ spanId: "r1", kind: "retry_started" });
+      store.appendControlPlaneEvent({ spanId: "r1", kind: "projection_degraded" });
 
-      const events = store.getRunEvents("r1");
+      const events = store.getControlPlaneEvents("r1");
       expect(events).toHaveLength(3);
       expect(events[0]!.kind).toBe("retry_requested");
       expect(events[2]!.kind).toBe("projection_degraded");
     });
 
-    test("getRunEventsByTrace filters correctly", () => {
-      store.appendRunEvent({ spanId: "r1", kind: "retry_requested", traceId: "t1" });
-      store.appendRunEvent({ spanId: "r2", kind: "retry_requested", traceId: "t1" });
-      store.appendRunEvent({ spanId: "r3", kind: "retry_requested", traceId: "t2" });
+    test("getControlPlaneEventsByTrace filters correctly", () => {
+      store.appendControlPlaneEvent({ spanId: "r1", kind: "retry_requested", traceId: "t1" });
+      store.appendControlPlaneEvent({ spanId: "r2", kind: "retry_requested", traceId: "t1" });
+      store.appendControlPlaneEvent({ spanId: "r3", kind: "retry_requested", traceId: "t2" });
 
-      expect(store.getRunEventsByTrace("t1")).toHaveLength(2);
-      expect(store.getRunEventsByTrace("t2")).toHaveLength(1);
+      expect(store.getControlPlaneEventsByTrace("t1")).toHaveLength(2);
+      expect(store.getControlPlaneEventsByTrace("t2")).toHaveLength(1);
     });
 
-    test("appendRunEvent without optional fields", () => {
-      store.appendRunEvent({ spanId: "r1", kind: "projection_degraded" });
-      const events = store.getRunEvents("r1");
+    test("appendControlPlaneEvent without optional fields", () => {
+      store.appendControlPlaneEvent({ spanId: "r1", kind: "projection_degraded" });
+      const events = store.getControlPlaneEvents("r1");
       expect(events).toHaveLength(1);
       expect(events[0]!.attemptSeq).toBeNull();
       expect(events[0]!.traceId).toBeNull();
