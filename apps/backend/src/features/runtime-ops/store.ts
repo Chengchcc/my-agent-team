@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { and, desc, eq, gt, inArray } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, max } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import type {
@@ -266,7 +266,65 @@ export class RuntimeOpsStore {
     return row?.sessionId ?? null;
   }
 
-  /** Expose the raw bun:sqlite connection for dynamic SQL (buildRunQuery). */
+  getAttemptsBySpanId(spanId: string): Array<{
+    seq: number;
+    startedAt: number;
+    endedAt: number | null;
+  }> {
+    return this.#d
+      .select({
+        seq: schema.attempt.seq,
+        startedAt: schema.attempt.startedAt,
+        endedAt: schema.attempt.endedAt,
+      })
+      .from(schema.attempt)
+      .where(eq(schema.attempt.spanId, spanId))
+      .orderBy(desc(schema.attempt.seq))
+      .all();
+  }
+
+  getLatestAttempt(spanId: string): {
+    seq: number;
+    startedAt: number;
+    endedAt: number | null;
+  } | null {
+    return this.#d
+      .select({
+        seq: schema.attempt.seq,
+        startedAt: schema.attempt.startedAt,
+        endedAt: schema.attempt.endedAt,
+      })
+      .from(schema.attempt)
+      .where(eq(schema.attempt.spanId, spanId))
+      .orderBy(desc(schema.attempt.seq))
+      .limit(1)
+      .get() ?? null;
+  }
+
+  getSpansBySession(sessionId: string): Array<{
+    spanId: string;
+    status: string;
+    kind: string;
+    agentId: string;
+    startedAt: number;
+    endedAt: number | null;
+  }> {
+    return this.#d
+      .select({
+        spanId: schema.run.spanId,
+        status: schema.run.status,
+        kind: schema.run.kind,
+        agentId: schema.run.agentId,
+        startedAt: schema.run.startedAt,
+        endedAt: schema.run.endedAt,
+      })
+      .from(schema.run)
+      .where(eq(schema.run.sessionId, sessionId))
+      .orderBy(desc(schema.run.startedAt))
+      .all();
+  }
+
+  /** Expose the raw bun:sqlite connection for dynamic SQL (buildRunQuery, listSessions aggregate). */
   getRawDb(): Database {
     return this.#db;
   }

@@ -221,10 +221,8 @@ const agentNames = new Map<string, string>();
   for (const r of rows) agentNames.set(r.id, r.name);
 }
 const opsSvc = createRuntimeOpsService({
-  
   opsStore,
   supervisor,
-  heartbeatTimeoutMs: config.heartbeatTimeoutMs,
   checkpointEventsStore,
   getAgentName: (agentId) => agentNames.get(agentId),
 });

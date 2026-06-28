@@ -1,13 +1,13 @@
-import type { Database } from "bun:sqlite";
 // event_log removed — execution facts now in checkpointer.db
 // RunnerRegistry removed — AgentSession runs in-process
+// heartbeat/transport removed — AgentSession runs in-process, no runner daemon
+
 import type { SpanSupervisor } from "../span/supervisor.js";
 import type { CheckpointEventsStore } from "./checkpoint-events-store.js";
 import type { InsightsSummary, RunInsights } from "./insights.js";
 import { getInsightsSummary, getRunInsights } from "./insights.js";
 import { buildRunQuery } from "./span-query-service.js";
 import type { RuntimeOpsStore } from "./store.js";
-// runner_health removed (AgentSession runs in-process, no runner daemon)
 
 export interface RunOpsListItem {
   spanId: string;
@@ -21,8 +21,6 @@ export interface RunOpsListItem {
   startedAt: number;
   endedAt: number | null;
   latestAttemptSeq: number | null;
-  heartbeatAgeMs: number | null;
-  runnerTransport: "attached" | "noop" | "detached";
   lastEventType: string | null;
   lastOpsEventKind: string | null;
 }
@@ -42,11 +40,8 @@ export interface RunOpsDetail {
   };
   attempts: Array<{
     attemptSeq: number;
-    heartbeatAt: number | null;
-    heartbeatAgeMs: number | null;
     startedAt: number;
     endedAt: number | null;
-    transport: "attached" | "noop" | "detached";
   }>;
   eventLog: {
     lastSeq: number | null;
@@ -65,7 +60,6 @@ export interface RunOpsDetail {
 export interface AgentRuntimeStatus {
   agentId: string;
   agentName: string;
-  heartbeatTimeoutMs: number;
   surfaces: Record<
     string,
     {
@@ -80,26 +74,21 @@ export interface AgentRuntimeStatus {
 export type CancelRunResult =
   | { ok: true; state: "abort_sent"; spanId: string; attemptSeq: number }
   | { ok: true; state: "already_terminal"; spanId: string; status: string }
-  | { ok: true; state: "detached_waiting_reaper"; spanId: string; heartbeatAgeMs: number | null }
   | { ok: false; error: "not_found" };
 
 export type RecoverRunResult =
   | { state: "already_terminal"; status: string }
-  | { state: "reattached"; attemptSeq: number }
   | { state: "marked_interrupted"; reason: "heartbeat_timeout" }
-  | { state: "waiting"; reason: "heartbeat_fresh_but_transport_detached" };
+  | { state: "waiting"; reason: "session_not_found" };
 
 export function createRuntimeOpsService(deps: {
   opsStore: RuntimeOpsStore;
   supervisor: SpanSupervisor;
-  heartbeatTimeoutMs: number;
   checkpointEventsStore?: CheckpointEventsStore;
   /** M16.2: Resolve agent display name for ops DTOs. Falls back to agentId if absent. */
   getAgentName?: (agentId: string) => string | undefined;
 }) {
-  const { opsStore, supervisor, heartbeatTimeoutMs, checkpointEventsStore, getAgentName } =
-    deps;
-  const _OFFLINE_AFTER_MS = heartbeatTimeoutMs * 2;
+  const { opsStore, supervisor, checkpointEventsStore, getAgentName } = deps;
   const resolveName = (agentId: string) => getAgentName?.(agentId) ?? agentId;
 
   return {
@@ -109,13 +98,10 @@ export function createRuntimeOpsService(deps: {
       conversationId?: string;
       status?: string;
       limit?: number;
-      transport?: "attached" | "noop" | "detached";
-      heartbeat?: "fresh" | "stale";
       traceId?: string;
     }): RunOpsListItem[] {
       const raw = params.limit ?? 50;
       const limit = Number.isFinite(raw) && raw > 0 && raw <= 500 ? Math.floor(raw) : 50;
-      // DI#4: SQL building extracted to narrow query constructor (OCP fix)
       const { sql, args } = buildRunQuery(
         {
           agentId: params.agentId,
@@ -126,7 +112,10 @@ export function createRuntimeOpsService(deps: {
         limit,
       );
 
-      const rows = opsStore.getRawDb().query(sql).all(...args) as Array<{
+      const rows = opsStore
+        .getRawDb()
+        .query(sql)
+        .all(...args) as Array<{
         span_id: string;
         session_id: string;
         agent_id: string;
@@ -138,32 +127,13 @@ export function createRuntimeOpsService(deps: {
       }>;
 
       let items = rows.map((r) => {
-        const attempt = opsStore.getRawDb()
-          .query(
-            "SELECT seq, heartbeat_at, started_at, ended_at FROM attempt WHERE span_id = ? ORDER BY seq DESC LIMIT 1",
-          )
-          .get(r.span_id) as
-          | {
-              seq: number;
-              heartbeat_at: number | null;
-              started_at: number;
-              ended_at: number | null;
-            }
-          | undefined;
+        const attempt = opsStore.getLatestAttempt(r.span_id);
 
-        const heartbeatAgeMs = attempt?.heartbeat_at ? Date.now() - attempt.heartbeat_at : null;
-        const session = supervisor.getActive().get(r.span_id);
-        const transport: RunOpsListItem["runnerTransport"] = session
-          ? session.transportKind
-          : "detached";
-
-        // Read last execution fact from checkpoint_events (live source, replaces dead event_log)
         const factEvents = checkpointEventsStore?.readBySpan(r.session_id, r.span_id) ?? [];
         const lastFact = factEvents.at(-1);
 
         const lastOps = opsStore.getControlPlaneEvents(r.span_id).pop();
 
-        // Trace ID from run_origin
         const origin = opsStore.getSpanOrigin(r.span_id);
 
         return {
@@ -178,27 +148,11 @@ export function createRuntimeOpsService(deps: {
           startedAt: r.started_at,
           endedAt: r.ended_at,
           latestAttemptSeq: attempt?.seq ?? null,
-          heartbeatAgeMs,
-          runnerTransport: transport,
           lastEventType: lastFact?.type ?? null,
           lastOpsEventKind: lastOps?.kind ?? null,
         };
       });
 
-      // M16.2 G1: Post-query filtering for transport/heartbeat/traceId
-      if (params.transport) {
-        items = items.filter((i) => i.runnerTransport === params.transport);
-      }
-      if (params.heartbeat === "stale") {
-        items = items.filter(
-          (i) => i.heartbeatAgeMs != null && i.heartbeatAgeMs > heartbeatTimeoutMs,
-        );
-      }
-      if (params.heartbeat === "fresh") {
-        items = items.filter(
-          (i) => i.heartbeatAgeMs != null && i.heartbeatAgeMs <= heartbeatTimeoutMs,
-        );
-      }
       if (params.traceId) {
         items = items.filter((i) => i.traceId === params.traceId);
       }
@@ -211,20 +165,8 @@ export function createRuntimeOpsService(deps: {
 
       const origin = opsStore.getSpanOrigin(spanId);
 
-      // Bug 2 fix: ORDER BY started_at DESC so attempts[0] is the latest attempt.
-      // Aligns with listRuns (DESC LIMIT 1) and diagnoseRun which assumes [0] = latest.
-      const attempts = opsStore.getRawDb()
-        .query(
-          "SELECT seq, heartbeat_at, started_at, ended_at FROM attempt WHERE span_id = ? ORDER BY seq DESC",
-        )
-        .all(spanId) as Array<{
-        seq: number;
-        heartbeat_at: number | null;
-        started_at: number;
-        ended_at: number | null;
-      }>;
+      const attempts = opsStore.getAttemptsBySpanId(spanId);
 
-      // Read execution facts from checkpoint_events (live source, replaces dead event_log)
       const sessionId = run.sessionId;
       const factEvents = checkpointEventsStore?.readBySpan(sessionId, spanId) ?? [];
       const lastFact = factEvents.at(-1);
@@ -233,44 +175,33 @@ export function createRuntimeOpsService(deps: {
 
       return {
         run: {
-          spanId: run.spanId as string,
-          sessionId,
-          agentId: run.agentId as string,
-          agentName: resolveName(run.agentId as string),
-          kind: run.kind as string,
-          parentSpanId: run.parentSpanId as string | null,
-          status: run.status as string,
+          spanId: run.spanId,
+          sessionId: run.sessionId,
+          agentId: run.agentId,
+          agentName: resolveName(run.agentId),
+          kind: run.kind,
+          parentSpanId: run.parentSpanId,
+          status: run.status,
           traceId: origin?.traceId ?? null,
-          startedAt: run.startedAt as number,
-          endedAt: run.endedAt as number | null,
+          startedAt: run.startedAt,
+          endedAt: run.endedAt,
         },
-        // Bug 6 fix: only apply live session transport to unfinished attempts.
-        // Historical (ended) attempts have no reliable real-time transport; mark as detached.
-        attempts: attempts.map((a) => {
-          const session = a.ended_at == null ? supervisor.getActive().get(spanId) : null;
-          const transport: "attached" | "noop" | "detached" = session
-            ? session.transportKind
-            : "detached";
-          return {
-            attemptSeq: a.seq,
-            heartbeatAt: a.heartbeat_at,
-            heartbeatAgeMs: a.heartbeat_at ? Date.now() - a.heartbeat_at : null,
-            startedAt: a.started_at,
-            endedAt: a.ended_at,
-            transport,
-          };
-        }),
+        attempts: attempts.map((a) => ({
+          attemptSeq: a.seq,
+          startedAt: a.startedAt,
+          endedAt: a.endedAt,
+        })),
         eventLog: {
-          lastSeq: factEvents.length > 0 ? factEvents.length : null,
+          lastSeq: null,
           lastEventType: lastFact?.type ?? null,
           lastEventAt: lastFact?.ts ?? null,
         },
-        ops: ops.map((o) => ({
-          seq: o.seq,
-          kind: o.kind,
-          payload: o.payload,
-          traceId: o.traceId,
-          ts: o.ts,
+        ops: ops.map((e) => ({
+          seq: e.seq,
+          kind: e.kind,
+          payload: e.payload,
+          traceId: e.traceId,
+          ts: e.ts,
         })),
       };
     },
@@ -283,9 +214,6 @@ export function createRuntimeOpsService(deps: {
         return { ok: true, state: "already_terminal", spanId, status: run.status };
       }
 
-      const session = supervisor.getActive().get(spanId);
-      if (!session) return { ok: false, error: "not_found" };
-
       const cancelled = supervisor.cancel(spanId);
       if (!cancelled) return { ok: false, error: "not_found" };
 
@@ -293,7 +221,7 @@ export function createRuntimeOpsService(deps: {
         ok: true,
         state: "abort_sent",
         spanId,
-        attemptSeq: session.attemptSeq,
+        attemptSeq: 1,
       };
     },
 
@@ -302,110 +230,53 @@ export function createRuntimeOpsService(deps: {
       if (!run) return { state: "already_terminal", status: "not_found" };
       if (run.status !== "running") return { state: "already_terminal", status: run.status };
 
-      // heartbeat_at is never written post-daemon removal.
-      // Alive check: is the run still tracked by supervisor?
-      if (supervisor.getActive().has(spanId)) {
-        // Session still active in this process — no recovery needed
-        return { state: "already_terminal", status: run.status };
+      const session = supervisor.getActive().get(spanId);
+      if (!session) {
+        await supervisor.notifyRunComplete(run.sessionId, spanId, "interrupted", run.kind);
+        return { state: "marked_interrupted", reason: "heartbeat_timeout" };
       }
 
-      // Run is DB-running but not in memory (process restart orphan).
-      // Use notifyRunComplete for single-completion-authority finalization.
-      await supervisor.notifyRunComplete(run.sessionId, spanId, "interrupted", run.kind);
-      return { state: "marked_interrupted", reason: "heartbeat_timeout" };
+      return { state: "waiting", reason: "session_not_found" };
     },
 
-    getAgentRuntime(agentId: string): AgentRuntimeStatus | null {
-      const surfaceHealths = opsStore.getSurfaceHealthsForAgent(agentId);
-
-      const surfaces: AgentRuntimeStatus["surfaces"] = {};
-      for (const sh of surfaceHealths) {
-        let payload: Record<string, unknown> = {};
-        try {
-          payload = JSON.parse(sh.payload);
-        } catch {
-          /* keep empty */
-        }
-        surfaces[sh.surface] = {
+    getAgentRuntime(agentId: string): AgentRuntimeStatus {
+      const surfaces = opsStore.getSurfaceHealthsForAgent(agentId);
+      const result: AgentRuntimeStatus["surfaces"] = {};
+      for (const sh of surfaces) {
+        let raw: Record<string, unknown> = {};
+        try { raw = JSON.parse(sh.payload) as Record<string, unknown>; } catch { /* ignore */ }
+        const flatten = (obj: Record<string, unknown>, prefix: string) => {
+          for (const [k, v] of Object.entries(obj)) {
+            if (typeof v === "number") result[sh.surface]!.counters[`${prefix}${k}`] = v;
+          }
+        };
+        result[sh.surface] = {
           status: sh.status,
           lastSeenAt: sh.lastSeenAt,
-          lastError: sh.lastError,
-          counters: payload as Record<string, number>,
+          lastError: sh.lastError ?? null,
+          counters: {},
         };
+        flatten(raw, "");
       }
-
-      // runner health removed — AgentSession runs in-process, no daemon health tracking
-      return {
-        agentId,
-        agentName: resolveName(agentId),
-        heartbeatTimeoutMs,
-        surfaces,
-      };
+      return { agentId, agentName: resolveName(agentId), surfaces: result };
     },
 
-    ingestLarkHeartbeat(body: {
-      agentId: string;
-      profileRef: string;
-      status: string;
-      watchers: { conversation: number; runDelta: number };
-      runStreams: Record<string, number>;
-      lastError: string | null;
-      ts: number;
-    }): void {
-      opsStore.upsertSurfaceHealth({
-        agentId: body.agentId,
-        surface: "lark",
-        status: body.status,
-        payload: {
-          watchers: body.watchers,
-          runStreams: body.runStreams,
-          profileRef: body.profileRef,
-        },
-        lastError: body.lastError ?? undefined,
-      });
-    },
-
-    // ─── M16.1: Trace detail (local waterfall) ───
-
-    getTraceDetail(traceId: string): {
-      traceId: string;
-      mode: "local" | "otlp";
-      runs: RunOpsListItem[];
-      events: Array<{
-        ts: number;
-        spanId: string;
-        attemptSeq: number | null;
-        kind: string;
-        payload: Record<string, unknown>;
-      }>;
-    } | null {
-      // Find all runs with this trace ID
+    getTraceDetail(traceId: string): unknown {
       const origins = opsStore.listSpanOrigins().filter((o) => o.traceId === traceId);
       if (origins.length === 0) {
-        // Also check control_plane_event for trace_id
         const opsEvents = opsStore.getControlPlaneEventsByTrace(traceId);
         if (opsEvents.length === 0) return null;
       }
-
       const events = opsStore.getControlPlaneEventsByTrace(traceId).map((e) => ({
-        ts: e.ts,
+        seq: e.seq,
         spanId: e.spanId,
-        attemptSeq: e.attemptSeq,
         kind: e.kind,
-        payload: e.payload,
+        ts: e.ts,
+        traceId: e.traceId,
+        attemptSeq: e.attemptSeq,
       }));
-
-      const runs = this.listRuns({ limit: 500 }).filter((r) => r.traceId === traceId);
-
-      return {
-        traceId,
-        mode: "local",
-        runs,
-        events: events.sort((a, b) => a.ts - b.ts),
-      };
+      return { origins: origins.map((o) => ({ spanId: o.spanId, traceId: o.traceId })), events };
     },
-
-    // ─── M16.1: Surface diagnostics ───
 
     listSurfaces(): Array<{
       agentId: string;
@@ -413,50 +284,15 @@ export function createRuntimeOpsService(deps: {
       status: string;
       lastSeenAt: number | null;
       lastError: string | null;
-      counters: Record<string, number>;
     }> {
-      const all = opsStore.listSurfaceHealths();
-      return all.map((sh) => {
-        let raw: Record<string, unknown> = {};
-        try {
-          raw = JSON.parse(sh.payload);
-        } catch {
-          /* keep empty */
-        }
-
-        // Flatten nested payload into single-level Record<string, number>.
-        // Nested objects become dot-separated keys (e.g. watchers.conversation).
-        // Non-number values and sensitive identifiers (profileRef, chat_id, open_id)
-        // are discarded, ensuring redaction at every nesting level.
-        const counters: Record<string, number> = {};
-        const flatten = (obj: unknown, prefix: string) => {
-          if (!obj || typeof obj !== "object") return;
-          for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-            if (k === "profileRef" || k === "chat_id" || k === "open_id") continue;
-            const key = prefix ? `${prefix}.${k}` : k;
-            if (typeof v === "number") {
-              counters[key] = v;
-            } else if (v && typeof v === "object") {
-              flatten(v, key);
-            }
-            // String/boolean/null values are intentionally dropped
-          }
-        };
-        flatten(raw, "");
-
-        return {
-          agentId: sh.agentId,
-          agentName: resolveName(sh.agentId),
-          surface: sh.surface,
-          status: sh.status,
-          lastSeenAt: sh.lastSeenAt,
-          lastError: sh.lastError,
-          counters,
-        };
-      });
+      return opsStore.listSurfaceHealths().map((sh) => ({
+        agentId: sh.agentId,
+        surface: sh.surface,
+        status: sh.status,
+        lastSeenAt: sh.lastSeenAt,
+        lastError: sh.lastError,
+      }));
     },
-
-    // ─── M16.3: Run Insights ───
 
     async getRunInsights(spanId: string): Promise<RunInsights | null> {
       const run = opsStore.getRunBySpanId(spanId);
@@ -476,8 +312,8 @@ export function createRuntimeOpsService(deps: {
     },
 
     async getInsightsSummary(range: { from: number; to: number }): Promise<InsightsSummary> {
-      // Scope to runs in the time window (avoid full scan)
-      const runRows = opsStore.getRawDb()
+      const runRows = opsStore
+        .getRawDb()
         .query(
           "SELECT span_id, agent_id FROM run WHERE started_at <= ? AND (ended_at IS NULL OR ended_at >= ?) LIMIT 500",
         )
@@ -487,28 +323,27 @@ export function createRuntimeOpsService(deps: {
       for (const r of runRows) runAgentMap.set(r.span_id, r.agent_id);
 
       return getInsightsSummary(
-        {
-          checkpointEventsStore,
-          getAgentName,
-          runAgentMap,
-        },
+        { checkpointEventsStore, getAgentName, runAgentMap },
         range,
       );
     },
 
-    // -─ Session-level aggregation (B2: /ops/sessions) ──────────
+    // ── Session-level aggregation (B2: /ops/sessions) ──────────
 
-    listSessions(params: { agentId?: string; status?: string; limit?: number }): Array<{
+    listSessions(params: {
+      agentId?: string;
+      status?: string;
+      limit?: number;
+    }): Array<{
       sessionId: string;
       agentId: string;
       spanCount: number;
       lastSpanAt: number | null;
       status: "running" | "done";
     }> {
-      const limit =
-        Number.isFinite(params.limit) && (params.limit ?? 0) > 0 ? Math.floor(params.limit!) : 100;
+      const limit = Number.isFinite(params.limit) && (params.limit ?? 0) > 0 ? Math.floor(params.limit!) : 100;
       const conditions: string[] = [];
-      const bindings: Array<string | number> = [];
+      const bindings: (string | number)[] = [];
       if (params.agentId) {
         conditions.push("agent_id = ?");
         bindings.push(params.agentId);
@@ -518,7 +353,8 @@ export function createRuntimeOpsService(deps: {
         bindings.push(params.status);
       }
       const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-      const rows = opsStore.getRawDb()
+      const rows = opsStore
+        .getRawDb()
         .query(
           `SELECT session_id, MAX(started_at) AS last_span_at, COUNT(*) AS span_count,
                   MAX(agent_id) AS agent_id
@@ -534,7 +370,8 @@ export function createRuntimeOpsService(deps: {
         agent_id: string;
       }>;
       return rows.map((r) => {
-        const running = opsStore.getRawDb()
+        const running = opsStore
+          .getRawDb()
           .query("SELECT 1 FROM run WHERE session_id = ? AND status = 'running' LIMIT 1")
           .get(r.session_id);
         return {
@@ -542,7 +379,7 @@ export function createRuntimeOpsService(deps: {
           agentId: r.agent_id,
           spanCount: r.span_count,
           lastSpanAt: r.last_span_at,
-          status: running ? "running" : "done",
+          status: running ? ("running" as const) : ("done" as const),
         };
       });
     },
@@ -561,34 +398,25 @@ export function createRuntimeOpsService(deps: {
         endedAt: number | null;
       }>;
     } | null {
-      const spans = opsStore.getRawDb()
-        .query(
-          `SELECT span_id, status, kind, agent_id, started_at, ended_at
-             FROM run WHERE session_id = ? ORDER BY started_at DESC`,
-        )
-        .all(sessionId) as Array<{
-        span_id: string;
-        status: string;
-        kind: string;
-        agent_id: string;
-        started_at: number | null;
-        ended_at: number | null;
-      }>;
+      const spans = opsStore.getSpansBySession(sessionId);
       if (spans.length === 0) return null;
       return {
         sessionId,
-        agentId: spans[0]!.agent_id,
-        status: spans.some((s) => s.status === "running") ? "running" : "done",
+        agentId: spans[0]!.agentId,
+        status: spans.some((s) => s.status === "running") ? ("running" as const) : ("done" as const),
         spanCount: spans.length,
-        spans: spans.map((s) => ({
-          spanId: s.span_id,
-          status: s.status,
-          kind: s.kind,
-          agentId: s.agent_id,
-          startedAt: s.started_at,
-          endedAt: s.ended_at,
-        })),
+        spans,
       };
+    },
+
+    ingestLarkHeartbeat(body: { agentId: string; status: string; payload?: Record<string, unknown>; lastError?: string }): void {
+      opsStore.upsertSurfaceHealth({
+        agentId: body.agentId,
+        surface: "lark",
+        status: body.status,
+        payload: body.payload ?? {},
+        lastError: body.lastError,
+      });
     },
   };
 }

@@ -1,10 +1,10 @@
 import type { Database } from "bun:sqlite";
-import { eq, inArray } from "drizzle-orm";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { eq, inArray } from "drizzle-orm";
 import type { BackendConfig } from "../../config.js";
-import { ulid } from "../../infra/ids.js";
 import * as schema from "../../infra/db/schema.js";
+import { ulid } from "../../infra/ids.js";
 import type { LarkBotRegistry } from "../lark-bot/index.js";
 import { larkProfileInit } from "../lark-bot/index.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
@@ -47,7 +47,8 @@ export function createAgentSvc(
             .where(
               inArray(
                 schema.attempt.spanId,
-                tx.select({ spanId: schema.run.spanId })
+                tx
+                  .select({ spanId: schema.run.spanId })
                   .from(schema.run)
                   .where(eq(schema.run.sessionId, tid)),
               ),
