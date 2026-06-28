@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -41,6 +41,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { dateInputToEpoch, epochToDateInput } from "@/lib/date-input";
 import { fieldClass, labelClass } from "@/lib/form-styles";
+import { useIssueList, useIssueMeta, useCreateIssue, issueKeys } from "@/features/issues/hooks";
+import { useProjectList } from "@/features/projects/hooks";
 
 export const dynamic = "force-dynamic";
 
@@ -70,34 +72,19 @@ export default function IssuesPage() {
     },
   });
 
-  const { data: meta } = useQuery({
-    queryKey: ["issue-meta"],
-    queryFn: api.getIssueMeta,
-    staleTime: 60_000,
-  });
-
-  const { data: issues } = useQuery({
-    queryKey: ["issues"],
-    queryFn: () => api.listIssues(),
-    staleTime: 10_000,
-    refetchInterval: 60_000, // SSE fallback
-  });
+  const { data: meta } = useIssueMeta();
+  const { data: issues } = useIssueList();
+  const { data: projectsData } = useProjectList();
+  const projects = projectsData?.projects ?? [];
 
   // M18.4: SSE real-time updates
   useEffect(() => {
     const es = new EventSource("/api/bff/issues/events");
     es.addEventListener("issue", () => {
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
     });
     return () => es.close();
   }, [queryClient]);
-
-  const { data: projectsData } = useQuery({
-    queryKey: ["projects"],
-    queryFn: api.listProjects,
-    staleTime: 30_000,
-  });
-  const projects = projectsData?.projects ?? [];
 
   function handleOpen(open: boolean) {
     setOpen(open);
@@ -117,7 +104,7 @@ export default function IssuesPage() {
         estimatedCompletionAt: values.estimatedCompletionAt,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
       form.reset();
       setOpen(false);
     },

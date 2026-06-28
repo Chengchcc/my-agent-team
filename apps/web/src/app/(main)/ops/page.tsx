@@ -9,42 +9,24 @@ import { QueryState } from "@/components/ops/QueryState";
 import { TokenTrendChart } from "@/components/ops/TokenTrendChart";
 import { TopToolsChart } from "@/components/ops/TopToolsChart";
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
+  Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { useAgentList } from "@/features/agents/hooks";
+import { useOpsRuns, useOpsAgentRuntime } from "@/features/ops/hooks";
 import { api } from "@/lib/api";
 
 const WINDOWS: Record<string, number> = {
-  "1h": 3_600_000,
-  "24h": 86_400_000,
-  "7d": 604_800_000,
+  "1h": 3_600_000, "24h": 86_400_000, "7d": 604_800_000,
 };
 
 export default function OpsPage() {
   const [windowKey, setWindowKey] = useState("24h");
 
-  const runsQuery = useQuery({
-    queryKey: ["ops", "runs"],
-    queryFn: () => api.listOpsRuns({ limit: 100 }),
-    staleTime: 10_000,
-    refetchInterval: 30_000,
-  });
-
-  const agentsQuery = useQuery({
-    queryKey: ["agents"],
-    queryFn: api.listAgents,
-    staleTime: 30_000,
-  });
-
+  const runsQuery = useOpsRuns();
+  const agentsQuery = useAgentList();
   const agents = agentsQuery.data ?? [];
 
   const runtimesQuery = useQuery({
