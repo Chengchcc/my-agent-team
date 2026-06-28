@@ -3,15 +3,17 @@ import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import type {
+  ControlPlaneEvent,
+  ControlPlaneEventKind,
   IssueEventKind,
   IssueEvent as IssueEventType,
-  ControlPlaneEventKind,
-  ControlPlaneEvent,
   SpanOriginRow,
   SurfaceHealthRow,
 } from "./types.js";
 
-function toControlPlaneEventRecord(r: typeof schema.controlPlaneEvent.$inferSelect): ControlPlaneEvent {
+function toControlPlaneEventRecord(
+  r: typeof schema.controlPlaneEvent.$inferSelect,
+): ControlPlaneEvent {
   return {
     seq: r.seq,
     spanId: r.spanId,
@@ -55,8 +57,10 @@ function toSurfaceHealthRow(r: typeof schema.surfaceHealth.$inferSelect): Surfac
 
 export class RuntimeOpsStore {
   #d: ReturnType<typeof drizzle<typeof schema>>;
+  #db: Database;
 
   constructor(db: Database) {
+    this.#db = db;
     this.#d = drizzle(db, { schema, casing: "snake_case" });
   }
 
@@ -227,6 +231,48 @@ export class RuntimeOpsStore {
         startedAt: r.startedAt,
         endedAt: r.endedAt,
       }));
+  }
+
+  getRunBySpanId(spanId: string): {
+    spanId: string;
+    sessionId: string;
+    agentId: string;
+    status: string;
+    kind: string;
+    parentSpanId: string | null;
+    startedAt: number;
+    endedAt: number | null;
+  } | null {
+    const row = this.#d
+      .select()
+      .from(schema.run)
+      .where(eq(schema.run.spanId, spanId))
+      .get();
+    if (!row) return null;
+    return {
+      spanId: row.spanId,
+      sessionId: row.sessionId,
+      agentId: row.agentId,
+      status: row.status,
+      kind: row.kind,
+      parentSpanId: row.parentSpanId,
+      startedAt: row.startedAt,
+      endedAt: row.endedAt,
+    };
+  }
+
+  getSessionIdBySpanId(spanId: string): string | null {
+    const row = this.#d
+      .select({ sessionId: schema.run.sessionId })
+      .from(schema.run)
+      .where(eq(schema.run.spanId, spanId))
+      .get();
+    return row?.sessionId ?? null;
+  }
+
+  /** Expose the raw bun:sqlite connection for dynamic SQL (buildRunQuery). */
+  getRawDb(): Database {
+    return this.#db;
   }
 
   listSpanOrigins(): SpanOriginRow[] {

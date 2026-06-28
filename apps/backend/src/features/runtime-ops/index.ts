@@ -12,10 +12,10 @@ export { createRuntimeOpsService } from "./service.js";
 export { RuntimeOpsStore } from "./store.js";
 export { subscribeIssueTimeline } from "./subscribe-issue-timeline.js";
 export type {
-  IssueEvent,
-  IssueEventKind,
   ControlPlaneEvent,
   ControlPlaneEventKind,
+  IssueEvent,
+  IssueEventKind,
   SpanOriginRow,
   SurfaceHealthRow,
 } from "./types.js";
