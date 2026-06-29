@@ -1,73 +1,8 @@
-import { memo, type ReactNode, useMemo } from "react";
-import { Markdown } from "./Markdown";
+import type { ReactNode } from "react";
 import { StreamingCursor } from "./StreamingCursor";
+import { StreamingMarkdown } from "./StreamingMarkdown";
 
-// ── Block-aware streaming splitter ────────────────────────────
-
-/**
- * Split streaming markdown into stable blocks (fully-completed, won't
- * change) and the active trailing block (still being written by the
- * model). Uses double-newline as the primary block boundary, with
- * code-fence awareness so fenced spans across newlines stay intact.
- *
- * Stable blocks render once (memo) via react-markdown; the active block
- * re-renders on every chunk — but it's only the last paragraph/block,
- * not the entire document.
- */
-function splitBlocks(raw: string): { stable: string[]; active: string } {
-  if (!raw) return { stable: [], active: "" };
-
-  const lines = raw.split("\n");
-  const stable: string[] = [];
-  let blockStart = 0;
-  let inFence = false;
-  let fenceMarker = "";
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const trimmed = line.trim();
-
-    // ── Code fence tracking ──
-    // Fenced blocks may span multiple "paragraphs" (contain \n\n inside).
-    // Track fence open/close so we don't split inside a fenced block.
-    if (!inFence && /^(```|~~~)/.test(trimmed)) {
-      inFence = true;
-      fenceMarker = trimmed.match(/^(```|~~~)/)![1]!;
-      continue;
-    }
-    if (inFence && trimmed.startsWith(fenceMarker)) {
-      inFence = false;
-      fenceMarker = "";
-      continue;
-    }
-    if (inFence) continue;
-
-    // ── Block boundary detection ──
-    // Empty line after accumulated content → stable block boundary.
-    if (trimmed === "" && i > blockStart) {
-      const block = lines.slice(blockStart, i).join("\n");
-      if (block.trim()) stable.push(block);
-      blockStart = i + 1;
-    }
-
-    // Heading — single-line stable block
-    if (/^#{1,6}\s/.test(trimmed) && blockStart === i) {
-      stable.push(line);
-      blockStart = i + 1;
-    }
-  }
-
-  const active = lines.slice(blockStart).join("\n");
-  return { stable, active };
-}
-
-// Memoized stable block — never re-renders.
-const StableBlock = memo(function StableBlock({ raw }: { raw: string }) {
-  return <Markdown text={raw} />;
-});
-
-// ── MessageShell ───────────────────────────────────────────────
-
+/** Shared message shell: alignment + optional name badge + streaming border. */
 export function MessageShell({
   align,
   name,
@@ -106,8 +41,6 @@ export function MessageShell({
   );
 }
 
-// ── MessageBubble ──────────────────────────────────────────────
-
 export function MessageBubble({
   align,
   name,
@@ -124,22 +57,15 @@ export function MessageBubble({
   runStatus?: "running" | "retrying" | "compacting" | "waiting";
 }) {
   const isSelf = align === "right";
-  const { stable, active } = useMemo(() => splitBlocks(content), [content]);
-
   return (
     <MessageShell align={align} name={name} kind={kind} isStreaming={isStreaming}>
       {isSelf ? (
         <p className="whitespace-pre-wrap break-words text-[var(--ink)]">{content}</p>
-      ) : isStreaming ? (
-        <>
-          {stable.map((raw, i) => (
-            <StableBlock key={i} raw={raw} />
-          ))}
-          {active && <Markdown text={active} />}
-          <StreamingCursor />
-        </>
       ) : (
-        <Markdown text={content} />
+        <>
+          <StreamingMarkdown text={content} streaming={isStreaming ?? false} />
+          {isStreaming && <StreamingCursor />}
+        </>
       )}
       {runStatus === "retrying" && (
         <p className="text-xs text-amber-500 animate-pulse mt-1">Retrying...</p>
