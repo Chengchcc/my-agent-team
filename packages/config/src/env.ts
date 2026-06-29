@@ -15,10 +15,10 @@ export const envSchema = z.object({
   BACKEND_AUTH_TOKEN: z.string().min(1).describe("Shared secret for x-auth-token header"),
 
   // ── Backend URL (lark-bot + web need this) ──
-  BACKEND_URL: z.string().default("http://localhost:3000"),
+  BACKEND_URL: z.string().default("http://127.0.0.1:3001"),
 
   // ── Backend server config ──
-  BACKEND_PORT: z.coerce.number().int().positive().default(3000),
+  BACKEND_PORT: z.coerce.number().int().positive().default(3001),
   BACKEND_HOST: z.string().default("127.0.0.1"),
   BACKEND_DATA_DIR: z.string().optional(),
   BACKEND_WORKSPACE_ROOT: z.string().optional(),
