@@ -33,7 +33,6 @@ export interface RunRequest {
   input: string;
   origin: SpanOrigin;
   onAssistantMessage?: (revision: Record<string, unknown>) => void;
-  onAssistantMessageUpdate?: (revision: Record<string, unknown>) => void;
   onToolExecutionStart?: (payload: { id: string; name: string; step: number }) => void;
   onTodoUpdate?: (todos: Array<{ step: string; status: string }>) => void;
   onRunStatus?: (status: {
@@ -161,8 +160,8 @@ export async function executeAgentRun(
   };
 
   session.subscribe((event) => {
-    if (event.type === "message_update" && req.onAssistantMessageUpdate) {
-      req.onAssistantMessageUpdate(event.payload);
+    if (event.type === "message_update" && req.onAssistantMessage) {
+      req.onAssistantMessage(event.payload);
     }
     if (event.type === "message" && req.onAssistantMessage) {
       req.onAssistantMessage(event.payload);

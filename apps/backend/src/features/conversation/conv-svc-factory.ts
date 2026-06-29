@@ -122,25 +122,6 @@ export function createConversationFeature(
           surface: isLark ? "lark" : "web",
           senderName: ctx.agentMemberId,
         },
-        onAssistantMessageUpdate: (payload) => {
-          const rev = payload as unknown as MessageRevision;
-          const cid = parseSessionId(sessionId).conversationId;
-          if (!cid) return;
-          const entry = {
-            seq: -1, // streaming — not persisted
-            conversationId: cid,
-            senderMemberId: parseSessionId(sessionId).memberId || sessionId,
-            addressedTo: [] as string[],
-            kind: "message" as const,
-            content: serializeMessageRevision({
-              ...rev,
-              conversationId: cid,
-              spanId: rev.spanId ?? spanId,
-            }),
-            ts: Date.now(),
-          };
-          convSvc.pushSseEvent(cid, entry);
-        },
         onAssistantMessage: (payload) => {
           const rev = payload as unknown as MessageRevision;
           void handleAssistantMessage(sessionId, rev.spanId ?? spanId, rev);
