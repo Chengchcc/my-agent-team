@@ -40,6 +40,103 @@ describe("AgentSession", () => {
     session.dispose();
   });
 
+  test("model that always throws → retry with backoff → ends with error", async () => {
+    let callCount = 0;
+    const model: ChatModel = {
+      id: "failing",
+      async *stream() {
+        callCount++;
+        throw new Error("API unavailable");
+      },
+    };
+    const session = new AgentSession({ model, retry: { maxAttempts: 2, backoffMs: 10 } });
+    const events: unknown[] = [];
+    session.subscribe((e) => events.push(e));
+
+    await session.prompt("hi");
+
+    // Retry events emitted
+    const retryStarts = events.filter((e) => (e as { type: string }).type === "auto_retry_start");
+    expect(retryStarts.length).toBeGreaterThanOrEqual(1);
+    // Attempt numbers should be sequential
+    const attempt1 = retryStarts[0] as { attempt: number };
+    expect(attempt1.attempt).toBe(1);
+
+    const agentEnd = events.find((e) => (e as { type: string }).type === "agent_end") as {
+      status: string;
+    };
+    expect(agentEnd).toBeDefined();
+    expect(agentEnd.status).toBe("error");
+
+    const retryEnd = events.find((e) => (e as { type: string }).type === "auto_retry_end") as {
+      success: boolean;
+    };
+    expect(retryEnd).toBeDefined();
+    expect(retryEnd.success).toBe(false);
+
+    // Model was called multiple times (initial + retries)
+    expect(callCount).toBeGreaterThanOrEqual(2);
+
+    session.dispose();
+  });
+
+  test("model that succeeds after one failure → retry then succeed", async () => {
+    let calls = 0;
+    const model: ChatModel = {
+      id: "flaky",
+      async *stream() {
+        calls++;
+        if (calls === 1) throw new Error("temporary failure");
+        yield { delta: { type: "text", text: "recovered!" } };
+        yield { done: true, stopReason: "end_turn" };
+      },
+    };
+    const session = new AgentSession({ model, retry: { maxAttempts: 3, backoffMs: 10 } });
+    const events: unknown[] = [];
+    session.subscribe((e) => events.push(e));
+
+    await session.prompt("hi");
+
+    const retryStart = events.find((e) => (e as { type: string }).type === "auto_retry_start");
+    expect(retryStart).toBeDefined();
+
+    const agentEnd = events.find((e) => (e as { type: string }).type === "agent_end") as {
+      status: string;
+    };
+    expect(agentEnd.status).toBe("succeeded");
+
+    const retryEnd = events.find((e) => (e as { type: string }).type === "auto_retry_end") as {
+      success: boolean;
+    };
+    expect(retryEnd.success).toBe(true);
+
+    session.dispose();
+  });
+
+  test("model with zero blocks → treated as error after retries", async () => {
+    const model: ChatModel = {
+      id: "empty",
+      async *stream() {
+        // Stream ends immediately without any content blocks
+        yield { done: true, stopReason: "end_turn" };
+      },
+    };
+    const session = new AgentSession({ model, retry: { maxAttempts: 2, backoffMs: 10 } });
+    const events: unknown[] = [];
+    session.subscribe((e) => events.push(e));
+
+    await session.prompt("hi");
+
+    // Should end with error (zero blocks → span-loop throws)
+    const agentEnd = events.find((e) => (e as { type: string }).type === "agent_end") as {
+      status: string;
+    };
+    expect(agentEnd).toBeDefined();
+    expect(agentEnd.status).toBe("error");
+
+    session.dispose();
+  });
+
   test("state transitions idle → running → done", async () => {
     const model = echoModel("ok");
     const session = new AgentSession({ model });
