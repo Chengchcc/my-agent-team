@@ -51,7 +51,7 @@ function nodeFsAdapter(cwd: string): AgentFsLike {
     },
     async mkdirp(path: string) {
       const full = resolve(cwd, path);
-      if (!full.startsWith(cwd)) throw new Error("Path escapes workspace");
+      if (!full.startsWith(cwd)) throw new Error(`Path escapes workspace: cwd=${cwd} path=${path} resolved=${full}`);
       mkdirSync(full, { recursive: true });
     },
   };
