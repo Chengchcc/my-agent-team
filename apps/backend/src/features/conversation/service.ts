@@ -400,14 +400,15 @@ export function createConversationService(deps: ConversationServiceDeps) {
         while (true) {
           if (opts?.signal?.aborted) break;
 
-          // Drain push buffer first (entries delivered via notify)
+          // Drain push buffer first (entries delivered via notify).
+          // Push entries are always yielded — seq filtering only applies to
+          // polled ledger entries. Streaming revisions use seq=-1 which
+          // would never pass the >lastSeq guard.
           while (pushBuffer.length > 0) {
             const entry = pushBuffer.shift()!;
-            if (entry.seq > lastSeq) {
-              yield entry;
-              lastSeq = entry.seq;
-              silentPolls = 0;
-            }
+            yield entry;
+            if (entry.seq > lastSeq) lastSeq = entry.seq;
+            silentPolls = 0;
           }
 
           const entries = port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });

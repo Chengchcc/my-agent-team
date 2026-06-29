@@ -181,8 +181,7 @@ export async function executeAgentRun(
 
     if (event.type === "compaction_start") emitRunStatus("compacting");
     if (event.type === "compaction_end") emitRunStatus("running");
-    if (event.type === "auto_retry_start")
-      emitRunStatus("retrying", `attempt ${event.attempt}`);
+    if (event.type === "auto_retry_start") emitRunStatus("retrying", `attempt ${event.attempt}`);
     if (event.type === "auto_retry_end") emitRunStatus("running");
   });
 

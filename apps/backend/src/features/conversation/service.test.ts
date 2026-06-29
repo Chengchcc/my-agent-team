@@ -612,3 +612,58 @@ describe("startNewConversationForSurface", () => {
     expect(second.controlSeq).toBe(first.controlSeq);
   });
 });
+
+// ─── SSE push delivery ─────────────────────────────────────
+
+describe("pushSseEvent — real-time SSE delivery", () => {
+  test("pushSseEvent → subscriber receives entry before poll", async () => {
+    const db2 = openDb(`/tmp/test-push-${Date.now()}.db`);
+    const port2 = sqliteConversationAdapter(db2);
+    const lock2 = new ConversationLock();
+    let id2 = 0;
+    const svc2 = createConversationService({
+      port: port2,
+      lock: lock2,
+      maxConsecutiveAgentHops: 3,
+      idGen: () => `push-id-${id2++}`,
+      startAgentRun: async (spanId, _sessionId) => ({ spanId, attemptSeq: 1 }),
+    });
+
+    const cid = "push-test-cid";
+    port2.createConversation({ conversationId: cid, triggerMode: "mention", createdAt: Date.now() });
+
+    // Start generator — subscriber is registered synchronously at function entry.
+    // Use a longer poll so the generator stays alive while we push.
+    const ac = new AbortController();
+    const stream = svc2.subscribeConversation(cid, { pollMs: 200, signal: ac.signal });
+    const results: unknown[] = [];
+    const collect = (async () => {
+      for await (const entry of stream) {
+        const e = entry as Record<string, unknown>;
+        // Skip heartbeat sentinels
+        if (e._heartbeat) continue;
+        results.push(e);
+        ac.abort();
+      }
+    })();
+
+    // Small delay to let generator register subscriber and enter first sleep
+    await new Promise((r) => setTimeout(r, 20));
+
+    svc2.pushSseEvent(cid, {
+      seq: -1,
+      conversationId: cid,
+      senderMemberId: "agent-1",
+      addressedTo: [] as string[],
+      kind: "message" as const,
+      content: "streaming push content",
+      ts: Date.now(),
+    });
+
+    await collect;
+    expect(results.length).toBe(1);
+    expect((results[0] as Record<string, unknown>).content).toBe("streaming push content");
+
+    db2.close();
+  });
+});
