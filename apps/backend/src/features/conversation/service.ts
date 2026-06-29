@@ -345,10 +345,10 @@ export function createConversationService(deps: ConversationServiceDeps) {
       opts?: { afterSeq?: number; signal?: AbortSignal; pollMs?: number },
     ): AsyncIterable<LedgerEntry> {
       const since = opts?.afterSeq ?? 0;
-      const pollMs = opts?.pollMs ?? 500;
+      const pollMs = opts?.pollMs ?? 100;
       let lastSeq = since;
       let silentPolls = 0;
-      const heartbeatInterval = 30; // ~15s at 500ms poll
+      const heartbeatInterval = 150; // ~15s at 100ms poll
 
       // First, yield all existing entries (catch up)
       const initial = port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
