@@ -10,6 +10,7 @@ export interface BackendConfig {
   authToken: string;
   maxConcurrentRuns: number;
   anthropicApiKey: string;
+  anthropicBaseUrl?: string;
   shutdownTimeoutMs: number;
   /** M9: heartbeat write interval in ms (runner entry) */
   heartbeatIntervalMs: number;
@@ -42,6 +43,7 @@ export function loadConfig(env: Env = parseEnv(process.env)): BackendConfig {
     authToken: env.BACKEND_AUTH_TOKEN,
     maxConcurrentRuns: env.BACKEND_MAX_CONCURRENT,
     anthropicApiKey,
+    anthropicBaseUrl: env.ANTHROPIC_BASE_URL,
     shutdownTimeoutMs: env.BACKEND_SHUTDOWN_TIMEOUT_MS,
     heartbeatIntervalMs: env.BACKEND_HEARTBEAT_INTERVAL_MS,
     heartbeatTimeoutMs: env.BACKEND_HEARTBEAT_TIMEOUT_MS,

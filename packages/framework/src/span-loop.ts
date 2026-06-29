@@ -178,23 +178,9 @@ export async function* runLoop(
       };
 
       if (blocks.length === 0) {
-        yield {
-          type: "message",
-          payload: buildAssistantRevision(
-            rt.spanId,
-            assistantOrdinal,
-            "done",
-            rt.assistantBlocks,
-            rt.toolStates,
-          ),
-        };
-        await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
-          type: "run_end",
-          reason: "complete",
-          ts: Date.now(),
-        });
-        doneNormally = true;
-        break;
+        throw new Error(
+          `Model returned zero content blocks (model=${rt.model.id ?? "unknown"}, messages=${finalMsgs.length}). Check API key, base URL, and network connectivity.`,
+        );
       }
 
       // Push assistant message to thread (internal, for LLM context)

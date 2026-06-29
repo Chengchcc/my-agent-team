@@ -236,7 +236,12 @@ export function buildSessionSpec(params: BuildSessionSpecParams): SessionSpec {
 
   const makeModel =
     params.makeModel ??
-    ((a) => new AnthropicChatModel({ apiKey: config.anthropicApiKey, model: a.modelName }));
+    ((a) =>
+      new AnthropicChatModel({
+        apiKey: config.anthropicApiKey,
+        model: a.modelName,
+        baseUrl: config.anthropicBaseUrl,
+      }));
   const model = makeModel(agent);
 
   const baseTools = [

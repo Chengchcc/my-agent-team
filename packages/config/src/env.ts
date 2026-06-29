@@ -34,6 +34,7 @@ export const envSchema = z.object({
   // ── Anthropic API ──
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_AUTH_TOKEN: z.string().optional(),
+  ANTHROPIC_BASE_URL: z.string().optional().describe("API proxy / alternative endpoint"),
 
   // ── Web-specific ──
   SESSION_SECRET: z.string().optional().describe("HMAC secret for session cookies"),

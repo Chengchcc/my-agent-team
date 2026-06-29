@@ -402,7 +402,24 @@ export class AgentSession {
             }
           }
 
-          // Check if we need to retry (skip if user-initiated abort)
+          // Normal completion (no error thrown)
+          this.#state = "done";
+          this.#emit({
+            type: "agent_end",
+            messages: this.#agent.thread.messages.slice(),
+            willRetry: false,
+            status: "succeeded",
+          });
+          if (this.#retryCount > 0) {
+            this.#emit({ type: "auto_retry_end", success: true, attempt: this.#retryCount });
+          }
+          break;
+        } catch (err) {
+          this.#handleError(err);
+          inputMessages = undefined;
+
+          // Apply retry with exponential backoff (same logic for both
+          // thrown errors and #lastError set by handleError).
           if (
             !this.#abortController?.signal.aborted &&
             this.#lastError &&
@@ -420,11 +437,10 @@ export class AgentSession {
             });
             await new Promise((r) => setTimeout(r, delayMs));
             this.#lastError = null;
-            inputMessages = undefined;
             continue;
           }
 
-          // Set state BEFORE emit so listeners see correct state
+          // Exhausted retries or user abort — emit final error and break
           const aborted = this.#abortController?.signal.aborted ?? false;
           const finalStatus: "succeeded" | "error" | "interrupted" = aborted
             ? "interrupted"
@@ -440,27 +456,13 @@ export class AgentSession {
             status: finalStatus,
           });
 
-          if (this.#lastError) {
-            this.#emit({
-              type: "auto_retry_end",
-              success: false,
-              attempt: this.#retryCount,
-              finalError: this.#lastError,
-            });
-          } else {
-            if (this.#retryCount > 0) {
-              this.#emit({
-                type: "auto_retry_end",
-                success: true,
-                attempt: this.#retryCount,
-              });
-            }
-          }
+          this.#emit({
+            type: "auto_retry_end",
+            success: false,
+            attempt: this.#retryCount,
+            finalError: this.#lastError ?? "unknown",
+          });
           break;
-        } catch (err) {
-          this.#handleError(err);
-          inputMessages = undefined;
-          // continue the retry loop
         }
       }
     } finally {
