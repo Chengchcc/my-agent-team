@@ -196,6 +196,13 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       return row!.seq;
     },
 
+    updateLedgerContent(seq: number, content: string, ts: number): void {
+      d.update(schema.conversationLedger)
+        .set({ content, ts })
+        .where(eq(schema.conversationLedger.seq, seq))
+        .run();
+    },
+
     hasLedgerContent(spanId: string, content: string): boolean {
       const row = d
         .select({ one: sql`1` })

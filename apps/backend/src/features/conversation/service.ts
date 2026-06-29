@@ -465,7 +465,13 @@ export function createConversationService(deps: ConversationServiceDeps) {
     },
 
     /** M17.5 P7: Write an assistant message revision directly to the ledger.
-     *  This is the SOLE authoritative entry for assistant messages in the conversation. */
+     *  This is the SOLE authoritative entry for assistant messages in the conversation.
+     *
+     *  Streaming revisions: first write gets a real seq, subsequent writes for the
+     *  same spanId update the row in-place (same messageId → same seq). Done state
+     *  always writes a fresh row. */
+    const streamingSeq = new Map<string, number>();
+
     async appendAssistantMessage(input: {
       conversationId: string;
       senderMemberId: string;
@@ -479,15 +485,39 @@ export function createConversationService(deps: ConversationServiceDeps) {
       };
       const serialized = serializeMessageRevision(stamped);
       const ts = Date.now();
-      const seq = port.appendLedgerEntry({
-        conversationId: input.conversationId,
-        senderMemberId: input.senderMemberId,
-        addressedTo: [],
-        kind: "message",
-        content: serialized,
-        ts,
-        spanId: input.spanId,
-      });
+      const isStreaming = input.revision.state === "streaming";
+
+      let seq: number;
+      if (isStreaming) {
+        const existing = streamingSeq.get(input.spanId);
+        if (existing !== undefined) {
+          port.updateLedgerContent?.(existing, serialized, ts);
+          seq = existing;
+        } else {
+          seq = port.appendLedgerEntry({
+            conversationId: input.conversationId,
+            senderMemberId: input.senderMemberId,
+            addressedTo: [],
+            kind: "message",
+            content: serialized,
+            ts,
+            spanId: input.spanId,
+          });
+          streamingSeq.set(input.spanId, seq);
+        }
+      } else {
+        seq = port.appendLedgerEntry({
+          conversationId: input.conversationId,
+          senderMemberId: input.senderMemberId,
+          addressedTo: [],
+          kind: "message",
+          content: serialized,
+          ts,
+          spanId: input.spanId,
+        });
+        streamingSeq.delete(input.spanId);
+      }
+
       notify(input.conversationId, {
         seq,
         conversationId: input.conversationId,

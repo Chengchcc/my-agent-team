@@ -45,7 +45,7 @@
   --color-sidebar-primary: var(--primary);
   --color-sidebar-primary-foreground: var(--on-primary);
   --color-sidebar-accent: var(--primary-soft);
-  --color-sidebar-accent-foreground: var(--canvas);
+  --color-sidebar-accent-foreground: var(--ink-strong);
   --color-sidebar-border: var(--hairline);
   --color-sidebar-ring: var(--primary);
 

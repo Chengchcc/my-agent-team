@@ -94,8 +94,7 @@ export function getApprovalTarget(s: ConvState): {
     if (item.kind !== "message") continue;
     if (
       item.sender.kind === "agent" &&
-      item.content.state != null &&
-      isOpenMessageState(item.content.state) &&
+      item.content.state === "waiting" &&
       item.content.spanId
     ) {
       // The tool params live ONLY in blocks[] (tool_use blocks carry `input`).

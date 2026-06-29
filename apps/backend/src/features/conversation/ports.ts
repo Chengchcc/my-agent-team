@@ -83,6 +83,8 @@ export interface ConversationPort {
 
   appendLedgerEntry(input: AppendLedgerInput): number; // returns seq
   getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerEntry[];
+  /** Update content of an existing ledger row by seq (in-place streaming refresh). */
+  updateLedgerContent?(seq: number, content: string, ts: number): void;
   /** Dedup guard: check if (spanId, content) already exists in the ledger. */
   hasLedgerContent?(spanId: string, content: string): boolean;
 }
