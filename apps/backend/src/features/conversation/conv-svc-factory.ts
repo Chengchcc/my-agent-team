@@ -1,10 +1,12 @@
+import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import type { Database } from "bun:sqlite";
-import type { MessageRevision } from "@my-agent-team/message";
+import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
   extractText,
   isTerminalMessageState,
   serializeMessageRevision,
 } from "@my-agent-team/message";
+import { buildTitleContext, generateTitle } from "./title.js";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
@@ -46,6 +48,32 @@ export function createConversationFeature(
     return re;
   };
 
+  // Auto-title: fire-and-forget on first terminal response
+  const autoTitle = async (cid: string) => {
+    const model = new AnthropicChatModel({
+      apiKey: _config.anthropicApiKey,
+      baseUrl: _config.anthropicBaseUrl,
+      model: "claude",
+    });
+    const entries = convPort.getLedgerEntries(cid).filter((e) => e.kind === "message");
+    const msgs: Message[] = entries.slice(0, 6).map((e) => {
+      const parsed =
+        typeof e.content === "string"
+          ? (JSON.parse(e.content) as Record<string, unknown>)
+          : (e.content as Record<string, unknown>);
+      return {
+        role: (parsed.role as Message["role"]) ?? "user",
+        text: extractText({
+          text: (parsed.text as string) ?? "",
+          blocks: (parsed.blocks as Message["blocks"]) ?? [],
+        }),
+      };
+    });
+    const ctx = buildTitleContext(msgs);
+    const title = await generateTitle(() => model, ctx);
+    if (title) convPort.setConversationTitle(cid, title);
+  };
+
   // Message handling — writes to ledger, scans @mentions, broadcasts SSE
   const handleAssistantMessage = async (
     sessionId: string,
@@ -67,6 +95,13 @@ export function createConversationFeature(
     if (rev.role === "assistant") {
       acc.latestAssistantRevision = { ...rev, conversationId: cid };
       if (isTerminalMessageState(rev.state)) {
+        // Auto-title: generate on first terminal response if no title yet
+        const conv = convPort.getConversation(cid);
+        if (conv && !conv.title) {
+          void autoTitle(cid).catch(() => {
+            /* best-effort */
+          });
+        }
         const text = extractText(rev);
         if (text) {
           const roster = convPort.getMembers(cid);

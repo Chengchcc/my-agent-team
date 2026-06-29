@@ -4,6 +4,7 @@ import {
   isTerminalMessageState,
   serializeMessageRevision,
 } from "@my-agent-team/message";
+import type { Message } from "@my-agent-team/message";
 import {
   createRuntimeTracer,
   resolveObservabilityConfig,
