@@ -385,15 +385,18 @@ describe("runLoop steering", () => {
       events.push(ev);
     }
 
-    const messageEvents = events.filter((e) => e.type === "message");
+    const messageEvents = events.filter(
+      (e): e is { type: "message"; payload: { state: string } } =>
+        e.type === "message",
+    );
     // Should yield at least one streaming revision AND a final done revision
     expect(messageEvents.length).toBeGreaterThanOrEqual(2);
     const streamingEvents = messageEvents.filter(
-      (e) => (e as { payload: { state: string } }).payload.state === "streaming",
+      (e) => e.payload.state === "streaming",
     );
     expect(streamingEvents.length).toBeGreaterThanOrEqual(1);
     const doneEvent = messageEvents.find(
-      (e) => (e as { payload: { state: string } }).payload.state === "done",
+      (e) => e.payload.state === "done",
     );
     expect(doneEvent).toBeDefined();
   });

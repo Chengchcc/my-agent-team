@@ -72,6 +72,23 @@ export interface ConversationServiceDeps {
 export function createConversationService(deps: ConversationServiceDeps) {
   const { port, lock, maxConsecutiveAgentHops, startAgentRun } = deps;
 
+  // Push-based SSE: subscribers are notified immediately when new ledger
+  // entries are appended, so streaming revisions arrive without poll delay.
+  type Subscriber = (entry: LedgerEntry) => void;
+  const subscribers = new Map<string, Set<Subscriber>>();
+
+  function notify(conversationId: string, entry: LedgerEntry) {
+    const subs = subscribers.get(conversationId);
+    if (!subs) return;
+    for (const sub of subs) {
+      try {
+        sub(entry);
+      } catch (e) {
+        console.error(`[conversation] subscriber error for ${conversationId}:`, e);
+      }
+    }
+  }
+
   /** Load members and build Conversation for pure helpers. */
   function buildConversation(conversationId: string) {
     const convRow = port.getConversation(conversationId);
@@ -116,17 +133,19 @@ export function createConversationService(deps: ConversationServiceDeps) {
       content: serialized,
       ts,
     });
+    const entry: LedgerEntry = {
+      seq,
+      conversationId: input.conversationId,
+      senderMemberId: input.senderMemberId,
+      addressedTo: input.addressedTo,
+      kind: input.kind,
+      content: serialized,
+      ts,
+    };
     if (input.broadcast !== false) {
-      await broadcastMessage({
-        seq,
-        conversationId: input.conversationId,
-        senderMemberId: input.senderMemberId,
-        addressedTo: input.addressedTo,
-        kind: input.kind,
-        content: serialized,
-        ts,
-      });
+      await broadcastMessage(entry);
     }
+    notify(input.conversationId, entry);
     return seq;
   }
 
@@ -350,45 +369,70 @@ export function createConversationService(deps: ConversationServiceDeps) {
       let silentPolls = 0;
       const heartbeatInterval = 150; // ~15s at 100ms poll
 
-      // First, yield all existing entries (catch up)
-      const initial = port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
-      for (const entry of initial) {
-        yield entry;
-        lastSeq = entry.seq;
-      }
+      // Push buffer — drained before each poll so streaming revisions
+      // delivered via notify() are yielded without ~100ms poll delay.
+      const pushBuffer: LedgerEntry[] = [];
+      const onPush = (entry: LedgerEntry) => { pushBuffer.push(entry); };
+      const subs = subscribers.get(conversationId) ?? new Set();
+      subs.add(onPush);
+      subscribers.set(conversationId, subs);
 
-      // Then long-poll for new entries — no idle timeout.
-      // pollMs=0 means one-shot (tests); otherwise stay alive indefinitely.
-      while (true) {
-        if (opts?.signal?.aborted) break;
-
-        const entries = port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
-        for (const entry of entries) {
+      try {
+        // First, yield all existing entries (catch up)
+        const initial = port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
+        for (const entry of initial) {
           yield entry;
           lastSeq = entry.seq;
-          silentPolls = 0;
         }
 
-        if (entries.length === 0) {
-          if (pollMs === 0) break; // one-shot — exit immediately
-          silentPolls++;
-          // Heartbeat: yield a sentinel row every ~15s so sseResponse
-          // can emit an SSE comment to keep the connection alive.
-          // Frontend EventSource ignores SSE comments (not a business event).
-          if (silentPolls % heartbeatInterval === 0) {
-            yield {
-              seq: 0,
-              conversationId,
-              senderMemberId: "",
-              addressedTo: [],
-              kind: "message" as const,
-              content: "",
-              ts: Date.now(),
-              _heartbeat: true as const,
-            } as LedgerEntry & { _heartbeat: true }; // sentinel — not persisted, only yielded to SSE handler
+        // Then long-poll for new entries — no idle timeout.
+        // pollMs=0 means one-shot (tests); otherwise stay alive indefinitely.
+        // Push buffer is drained BEFORE each poll so notify()-delivered
+        // entries beat the poll interval.
+        while (true) {
+          if (opts?.signal?.aborted) break;
+
+          // Drain push buffer first (entries delivered via notify)
+          while (pushBuffer.length > 0) {
+            const entry = pushBuffer.shift()!;
+            if (entry.seq > lastSeq) {
+              yield entry;
+              lastSeq = entry.seq;
+              silentPolls = 0;
+            }
           }
-          await new Promise((r) => setTimeout(r, pollMs));
+
+          const entries = port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
+          for (const entry of entries) {
+            yield entry;
+            lastSeq = entry.seq;
+            silentPolls = 0;
+          }
+
+          if (entries.length === 0) {
+            if (pollMs === 0) break; // one-shot — exit immediately
+            silentPolls++;
+            // Heartbeat: yield a sentinel row every ~15s so sseResponse
+            // can emit an SSE comment to keep the connection alive.
+            // Frontend EventSource ignores SSE comments (not a business event).
+            if (silentPolls % heartbeatInterval === 0) {
+              yield {
+                seq: 0,
+                conversationId,
+                senderMemberId: "",
+                addressedTo: [],
+                kind: "message" as const,
+                content: "",
+                ts: Date.now(),
+                _heartbeat: true as const,
+              } as LedgerEntry & { _heartbeat: true };
+            }
+            await new Promise((r) => setTimeout(r, pollMs));
+          }
         }
+      } finally {
+        subs.delete(onPush);
+        if (subs.size === 0) subscribers.delete(conversationId);
       }
     },
     /** M14.6: Append a todo snapshot to the conversation ledger (UI-only, not projected to agents). */
@@ -431,6 +475,16 @@ export function createConversationService(deps: ConversationServiceDeps) {
         senderMemberId: input.senderMemberId,
         addressedTo: [],
         kind: "message",
+        content: serialized,
+        ts,
+        spanId: input.spanId,
+      });
+      notify(input.conversationId, {
+        seq,
+        conversationId: input.conversationId,
+        senderMemberId: input.senderMemberId,
+        addressedTo: [],
+        kind: "message" as const,
         content: serialized,
         ts,
         spanId: input.spanId,
