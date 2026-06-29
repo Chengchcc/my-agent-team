@@ -128,7 +128,10 @@ export function IssueDetailSheet({
     // reused across issues (the call site renders it without a per-issue key),
     // so without this the previous issue's events leak into the new timeline.
     setTimelineEvents([]);
-    const ts = typedSource(`/api/bff/api/issues/${issue.issueId}/timeline/events`, issueTimelineEvents);
+    const ts = typedSource(
+      `/api/bff/api/issues/${issue.issueId}/timeline/events`,
+      issueTimelineEvents,
+    );
     ts.on("issue-event", (event) => {
       setTimelineEvents((prev) =>
         prev.some((x) => x.seq === event.seq) ? prev : [...prev, event],

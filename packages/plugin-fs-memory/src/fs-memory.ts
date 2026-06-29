@@ -69,7 +69,7 @@ export interface FsMemoryOptions {
 export function fsMemoryPlugin(options: FsMemoryOptions): Plugin {
   const ws = options.ws ?? (options.cwd ? nodeFsAdapter(options.cwd) : undefined);
   if (!ws) throw new Error("fsMemoryPlugin: either ws or cwd must be provided");
-  const root = options.root ?? "/memory/";
+  const root = options.root ?? "./memory/";
   const enableWrite = options.enableWrite ?? true;
   const searchLimit = options.searchLimit ?? 5;
   let initialized = false;
@@ -83,8 +83,12 @@ export function fsMemoryPlugin(options: FsMemoryOptions): Plugin {
     hooks: {
       async beforeModel(ctx, messages: readonly Message[]) {
         if (!initialized) {
-          await ws.mkdirp(root);
-          await ws.mkdirp(pjoin(root, "facts"));
+          try {
+            await ws.mkdirp(root);
+            await ws.mkdirp(pjoin(root, "facts"));
+          } catch (err) {
+            ctx.logger.warn("fs-memory: init failed, skipping memory injection", err);
+          }
           initialized = true;
         }
         let memContent: string;

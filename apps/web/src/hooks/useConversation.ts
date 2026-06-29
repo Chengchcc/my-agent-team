@@ -62,11 +62,15 @@ export function useConversation(
   //    No more run EventSource; all message output arrives via the conversation SSE.
   useEffect(() => {
     if (!conversationId) return;
-    const ts = typedSource(`/api/bff/api/conversations/${conversationId}/events`, conversationEvents, {
-      onError: (_event, _err) => {
-        /* skip malformed entries */
+    const ts = typedSource(
+      `/api/bff/api/conversations/${conversationId}/events`,
+      conversationEvents,
+      {
+        onError: (_event, _err) => {
+          /* skip malformed entries */
+        },
       },
-    });
+    );
     let wasDisconnected = false;
     // W4/W6: reconnected toast only shown when actual gap is detected + recovered
     let pendingGap = false;

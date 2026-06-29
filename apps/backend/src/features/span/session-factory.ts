@@ -276,7 +276,7 @@ export function buildSessionSpec(params: BuildSessionSpecParams): SessionSpec {
           }),
         ]
       : []),
-    fsMemoryPlugin({ cwd }),
+    fsMemoryPlugin({ cwd: config.workspaceRoot, root: "./memory/" }),
     progressiveSkillPlugin({ cwd }),
   ];
 
