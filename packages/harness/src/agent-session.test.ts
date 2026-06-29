@@ -1,3 +1,4 @@
+/* eslint-disable require-yield */
 import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk, ChatModel } from "@my-agent-team/core";
 import { AgentSession } from "./agent-session.js";
@@ -42,10 +43,9 @@ describe("AgentSession", () => {
 
   test("model that always throws → retry with backoff → ends with error", async () => {
     let callCount = 0;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const model: ChatModel = {
       id: "failing",
-      async *stream(): any {
+      async *stream() {
         callCount++;
         throw new Error("API unavailable");
       },
