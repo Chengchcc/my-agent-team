@@ -1,12 +1,11 @@
-import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import type { Database } from "bun:sqlite";
+import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
   extractText,
   isTerminalMessageState,
   serializeMessageRevision,
 } from "@my-agent-team/message";
-import { buildTitleContext, generateTitle } from "./title.js";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
@@ -19,6 +18,7 @@ import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
 import { escapeRegExp, getOrCreateAccumulator } from "./projection.js";
 import { createConversationService, parseSessionId } from "./service.js";
+import { buildTitleContext, generateTitle } from "./title.js";
 
 export interface ConversationFeature {
   convPort: ConversationPort;
