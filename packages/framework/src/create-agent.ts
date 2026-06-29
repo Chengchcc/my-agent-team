@@ -173,13 +173,19 @@ function createAgentInternal(
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
           thread.messages.unshift({ role: "system", text: systemPrompt });
         }
-        thread.messages.push({ role: "user", text: input });
-        await save(thread.messages);
-        await checkpointer.appendEvent?.(thread.id, rt.spanId, {
-          type: "user_input",
-          content: input,
-          ts: Date.now(),
-        });
+        // Conversation-triggered runs pass input="" because the user message
+        // is already in _initialMessages (loaded from the conversation ledger —
+        // the single source of truth). Only push a user message when the caller
+        // provides actual text (manual / direct API runs).
+        if (input.trim()) {
+          thread.messages.push({ role: "user", text: input });
+          await save(thread.messages);
+          await checkpointer.appendEvent?.(thread.id, rt.spanId, {
+            type: "user_input",
+            content: input,
+            ts: Date.now(),
+          });
+        }
 
         const seeded = await pluginRunner.fireBeforeRun(thread.messages);
         if (seeded !== thread.messages) {
