@@ -46,6 +46,7 @@ describe("AgentSession", () => {
       id: "failing",
       async *stream() {
         callCount++;
+        if (false as boolean) yield;
         throw new Error("API unavailable");
       },
     };
