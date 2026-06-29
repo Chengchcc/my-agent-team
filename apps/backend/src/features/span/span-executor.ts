@@ -33,6 +33,8 @@ export interface RunRequest {
   input: string;
   origin: SpanOrigin;
   onAssistantMessage?: (revision: Record<string, unknown>) => void;
+  onAssistantMessageUpdate?: (revision: Record<string, unknown>) => void;
+  onToolExecutionStart?: (payload: { id: string; name: string; step: number }) => void;
   onTodoUpdate?: (todos: Array<{ step: string; status: string }>) => void;
   onRunStatus?: (status: {
     spanId: string;
@@ -159,14 +161,20 @@ export async function executeAgentRun(
   };
 
   session.subscribe((event) => {
+    if (event.type === "message_update" && req.onAssistantMessageUpdate) {
+      req.onAssistantMessageUpdate(event.payload);
+    }
     if (event.type === "message" && req.onAssistantMessage) {
       req.onAssistantMessage(event.payload);
+    }
+    if (event.type === "tool_execution_start" && req.onToolExecutionStart) {
+      req.onToolExecutionStart(event.payload);
     }
     if (event.type === "todo_update" && req.onTodoUpdate) {
       req.onTodoUpdate(event.payload.todos);
     }
     if (event.type === "agent_end") {
-      finalizeOnce(event.status ?? "succeeded", event.errorMessage);
+      finalizeOnce(event.status, event.errorMessage);
     }
     const emitRunStatus = (phase: string, detail?: string) =>
       req.onRunStatus?.({ spanId, phase, detail, updatedAt: Date.now() });
@@ -174,10 +182,7 @@ export async function executeAgentRun(
     if (event.type === "compaction_start") emitRunStatus("compacting");
     if (event.type === "compaction_end") emitRunStatus("running");
     if (event.type === "auto_retry_start")
-      emitRunStatus(
-        "retrying",
-        `attempt ${(event as unknown as { attempt?: number }).attempt ?? "?"}`,
-      );
+      emitRunStatus("retrying", `attempt ${event.attempt}`);
     if (event.type === "auto_retry_end") emitRunStatus("running");
   });
 

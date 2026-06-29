@@ -200,6 +200,12 @@ export function createConversationService(deps: ConversationServiceDeps) {
     port, // Expose port for HTTP layer (thin adapter pattern)
     broadcastMessage,
 
+    /** Push an SSE event directly to active subscribers without writing to the ledger.
+     *  Used for streaming message_update revisions that don't need persistence. */
+    pushSseEvent(conversationId: string, entry: LedgerEntry) {
+      notify(conversationId, entry);
+    },
+
     // ─── postMessage ────────────────────────────────
 
     async postMessage(input: {
