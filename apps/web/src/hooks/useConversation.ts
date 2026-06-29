@@ -113,9 +113,12 @@ export function useConversation(
     };
 
     ts.on("message", (entry) => {
-      const seq = guard(entry);
-      if (seq === null) return;
       const content = typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
+      // Streaming revisions are ephemeral push events — skip seq dedup
+      const isStreaming =
+        content && typeof content === "object" && (content as Record<string, unknown>).state === "streaming";
+      const seq = isStreaming ? 0 : guard(entry);
+      if (seq === null) return;
       if (entry.senderMemberId === "__system__") {
         dispatch({
           type: "member",
