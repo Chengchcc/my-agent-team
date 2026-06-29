@@ -92,11 +92,7 @@ export function getApprovalTarget(s: ConvState): {
 } | null {
   for (const item of s.items) {
     if (item.kind !== "message") continue;
-    if (
-      item.sender.kind === "agent" &&
-      item.content.state === "waiting" &&
-      item.content.spanId
-    ) {
+    if (item.sender.kind === "agent" && item.content.state === "waiting" && item.content.spanId) {
       // The tool params live ONLY in blocks[] (tool_use blocks carry `input`).
       // tools[] (MessageToolState) is identity+state only — reading params from
       // there yields nothing, which is why the card rendered `{}`. Index the

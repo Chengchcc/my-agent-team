@@ -77,6 +77,10 @@ export function createConversationService(deps: ConversationServiceDeps) {
   type Subscriber = (entry: LedgerEntry) => void;
   const subscribers = new Map<string, Set<Subscriber>>();
 
+  // Track seq per spanId so streaming revisions UPDATE the same row
+  // instead of INSERTing a new row for every model chunk.
+  const streamingSeq = new Map<string, number>();
+
   function notify(conversationId: string, entry: LedgerEntry) {
     const subs = subscribers.get(conversationId);
     if (!subs) return;
@@ -470,8 +474,6 @@ export function createConversationService(deps: ConversationServiceDeps) {
      *  Streaming revisions: first write gets a real seq, subsequent writes for the
      *  same spanId update the row in-place (same messageId → same seq). Done state
      *  always writes a fresh row. */
-    const streamingSeq = new Map<string, number>();
-
     async appendAssistantMessage(input: {
       conversationId: string;
       senderMemberId: string;
