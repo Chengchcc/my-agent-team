@@ -372,7 +372,9 @@ export function createConversationService(deps: ConversationServiceDeps) {
       // Push buffer — drained before each poll so streaming revisions
       // delivered via notify() are yielded without ~100ms poll delay.
       const pushBuffer: LedgerEntry[] = [];
-      const onPush = (entry: LedgerEntry) => { pushBuffer.push(entry); };
+      const onPush = (entry: LedgerEntry) => {
+        pushBuffer.push(entry);
+      };
       const subs = subscribers.get(conversationId) ?? new Set();
       subs.add(onPush);
       subscribers.set(conversationId, subs);

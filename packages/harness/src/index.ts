@@ -2,7 +2,6 @@
 
 export type {
   AgentSessionConfig,
-  AgentSessionEvent,
   AgentState,
   CompactionSettings,
   ContextUsage,

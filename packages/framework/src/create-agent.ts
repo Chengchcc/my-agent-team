@@ -168,7 +168,9 @@ function createAgentInternal(
       rt.spanId = opts.spanId ?? thread.id;
       rt.toolStates = [];
       rt.assistantBlocks = [];
+      let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";
       try {
+        yield { type: "agent_start" as const, spanId: rt.spanId };
         opts.signal?.throwIfAborted();
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
           thread.messages.unshift({ role: "system", text: systemPrompt });
@@ -195,7 +197,11 @@ function createAgentInternal(
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
         yield* withSubscribers(runLoop(rt, runLoopOpts(opts)));
+      } catch (err) {
+        runStatus = opts.signal?.aborted ? "interrupted" : "error";
+        throw err;
       } finally {
+        yield { type: "agent_end" as const, spanId: rt.spanId, status: runStatus };
         running = false;
         ctx.signal = undefined;
       }
@@ -214,7 +220,9 @@ function createAgentInternal(
       rt.spanId = opts.spanId ?? thread.id;
       rt.toolStates = [];
       rt.assistantBlocks = [];
+      let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";
       try {
+        yield { type: "agent_start" as const, spanId: rt.spanId };
         opts.signal?.throwIfAborted();
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
           thread.messages.unshift({ role: "system", text: systemPrompt });
@@ -229,7 +237,11 @@ function createAgentInternal(
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
         yield* withSubscribers(runLoop(rt, runLoopOpts(opts)));
+      } catch (err) {
+        runStatus = opts.signal?.aborted ? "interrupted" : "error";
+        throw err;
       } finally {
+        yield { type: "agent_end" as const, spanId: rt.spanId, status: runStatus };
         running = false;
         ctx.signal = undefined;
       }
@@ -243,7 +255,9 @@ function createAgentInternal(
       rt.spanId = opts.spanId ?? thread.id;
       rt.toolStates = [];
       rt.assistantBlocks = [];
+      let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";
       try {
+        yield { type: "agent_start" as const, spanId: rt.spanId };
         const it = await checkpointer.consumeInterrupt?.(thread.id);
         if (!it) throw new Error("No pending interrupt for this thread");
 
@@ -272,7 +286,11 @@ function createAgentInternal(
         }
         await save(thread.messages);
         yield* withSubscribers(runLoop(rt, runLoopOpts(opts)));
+      } catch (err) {
+        runStatus = opts.signal?.aborted ? "interrupted" : "error";
+        throw err;
       } finally {
+        yield { type: "agent_end" as const, spanId: rt.spanId, status: runStatus };
         running = false;
         ctx.signal = undefined;
       }

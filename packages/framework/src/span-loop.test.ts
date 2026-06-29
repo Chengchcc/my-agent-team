@@ -385,20 +385,12 @@ describe("runLoop steering", () => {
       events.push(ev);
     }
 
-    const messageEvents = events.filter(
-      (e): e is { type: "message"; payload: { state: string } } =>
-        e.type === "message",
-    );
-    // Should yield at least one streaming revision AND a final done revision
-    expect(messageEvents.length).toBeGreaterThanOrEqual(2);
-    const streamingEvents = messageEvents.filter(
-      (e) => e.payload.state === "streaming",
-    );
-    expect(streamingEvents.length).toBeGreaterThanOrEqual(1);
-    const doneEvent = messageEvents.find(
-      (e) => e.payload.state === "done",
-    );
-    expect(doneEvent).toBeDefined();
+    const messageUpdates = events.filter((e) => e.type === "message_update");
+    // Should yield at least one progressive streaming update
+    expect(messageUpdates.length).toBeGreaterThanOrEqual(1);
+    const messageEvents = events.filter((e) => e.type === "message");
+    // Should yield at least one final message (done state)
+    expect(messageEvents.length).toBeGreaterThanOrEqual(1);
   });
 
   test("non-streaming model yields only final message", async () => {

@@ -17,9 +17,11 @@ export async function* executeOne(
     call,
     ts: Date.now(),
   });
-  // M17.2: tool_start/tool_end no longer top-level events — tool state lives in
-  // MessageRevision.tools[] (updated below). Render-layer reads tools[]; observability
-  // reads tool_call.
+
+  yield {
+    type: "tool_execution_start" as const,
+    payload: { id: call.id, name: call.name, step },
+  };
 
   const toolStart = Date.now();
   const decision = await rt.plugins.fireBeforeTool(call, rt.thread.messages);
@@ -123,6 +125,8 @@ export async function* executeOne(
       name: call.name,
       latencyMs: Date.now() - toolStart,
       isError: resultBlock.is_error === true,
+      args: call.input,
+      result: resultBlock,
     },
   };
   // Update tool state in the running revision
@@ -171,6 +175,11 @@ export async function runOneCollect(
     type: "tool_start",
     call,
     ts: Date.now(),
+  });
+
+  events.push({
+    type: "tool_execution_start" as const,
+    payload: { id: call.id, name: call.name, step },
   });
 
   const decision = await rt.plugins.fireBeforeTool(call, rt.thread.messages);
@@ -277,6 +286,8 @@ export async function runOneCollect(
       name: call.name,
       latencyMs: Date.now() - toolStart,
       isError: resultBlock.is_error === true,
+      args: call.input,
+      result: resultBlock,
     },
   });
   updateToolState(

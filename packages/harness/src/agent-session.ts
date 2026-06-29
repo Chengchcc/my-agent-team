@@ -69,44 +69,7 @@ export interface ContextUsage {
   messageCount: number;
 }
 
-// Session-level events — extends AgentEvent with session lifecycle
-export type AgentSessionEvent =
-  | Exclude<AgentEvent, { type: "agent_end" }>
-  | {
-      type: "agent_end";
-      messages: Message[];
-      willRetry: boolean;
-      status: "succeeded" | "error" | "interrupted";
-      errorMessage?: string;
-    }
-  | { type: "queue_update"; steering: string[]; followUp: string[] }
-  | {
-      type: "compaction_start";
-      reason: "manual" | "threshold" | "overflow";
-    }
-  | {
-      type: "compaction_end";
-      reason: "manual" | "threshold" | "overflow";
-      result?: CompactionResult;
-      aborted: boolean;
-      willRetry: boolean;
-      errorMessage?: string;
-    }
-  | {
-      type: "auto_retry_start";
-      attempt: number;
-      maxAttempts: number;
-      delayMs: number;
-      errorMessage: string;
-    }
-  | {
-      type: "auto_retry_end";
-      success: boolean;
-      attempt: number;
-      finalError?: string;
-    };
-
-export type SessionEventListener = (event: AgentSessionEvent) => void;
+export type SessionEventListener = (event: AgentEvent) => void;
 
 // ─── AgentSession ────────────────────────────────────────
 
@@ -492,7 +455,7 @@ export class AgentSession {
     return combined.signal;
   }
 
-  #emit(event: AgentSessionEvent): void {
+  #emit(event: AgentEvent): void {
     for (const sub of this.#subscribers) {
       try {
         sub(event);

@@ -4,7 +4,8 @@ export function writeSseEvent(
   controller: ReadableStreamDefaultController,
   event: AgentEvent,
 ): void {
-  controller.enqueue(`event: ${event.type}\ndata: ${JSON.stringify(event.payload)}\n\n`);
+  const { type, ...data } = event as Record<string, unknown>;
+  controller.enqueue(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
 export function writeSseDone(controller: ReadableStreamDefaultController): void {

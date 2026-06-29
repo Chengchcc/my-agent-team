@@ -433,9 +433,11 @@ describe("createAgent", () => {
 
     for await (const ev of agent.run("hi")) {
       expect(ev).toHaveProperty("type");
-      expect(ev).toHaveProperty("payload");
-      if (ev.type === "message") {
-        expect(ev.payload).toHaveProperty("role");
+      // agent_start, agent_end, and session events don't have payload
+      if ("payload" in ev) {
+        if (ev.type === "message") {
+          expect(ev.payload).toHaveProperty("role");
+        }
       }
     }
   });
