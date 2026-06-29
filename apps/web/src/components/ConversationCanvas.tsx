@@ -21,7 +21,7 @@ interface ConversationCanvasProps {
 export function ConversationCanvas({ conversationId, snapshot }: ConversationCanvasProps) {
   const { state, busy, send, toggleTriggerMode, approvalTarget, approve, deny, resuming } =
     useConversation(conversationId, snapshot);
-  const { viewerMemberId, roster, items, streamConn, error, todos, triggerMode } = state;
+  const { viewerMemberId, roster, items, error, todos, triggerMode } = state;
 
   // W3+W5: use the most recent agent run's status, not first-found.
   // Scan from newest to oldest to get the current run's transient state.
