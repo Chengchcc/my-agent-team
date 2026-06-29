@@ -92,7 +92,6 @@ export function TraceWaterfall({ detail }: { detail: TraceOpsDetail }) {
           );
         })}
       </div>
-
     </div>
   );
 }

@@ -45,9 +45,8 @@ export const api = {
   // Agents
   listAgents: () => unwrap(client.api.agents.get()),
   getAgent: (id: string) => unwrap(client.api.agents({ id }).get()),
-  createAgent: (
-    body: Parameters<typeof client.api.agents.post>[0],
-  ) => unwrap(client.api.agents.post(body)),
+  createAgent: (body: Parameters<typeof client.api.agents.post>[0]) =>
+    unwrap(client.api.agents.post(body)),
   updateAgent: (id: string, body: Record<string, unknown>) =>
     unwrap(client.api.agents({ id }).patch(body)),
   archiveAgent: (id: string) => unwrap(client.api.agents({ id }).delete()),
@@ -94,10 +93,10 @@ export const api = {
     unwrap(
       client.api.ops.runs.get({
         query: params
-          ? ({ ...params, limit: params.limit != null ? String(params.limit) : undefined } as Record<
-              string,
-              string | undefined
-            >)
+          ? ({
+              ...params,
+              limit: params.limit != null ? String(params.limit) : undefined,
+            } as Record<string, string | undefined>)
           : undefined,
       }),
     ),
@@ -106,10 +105,10 @@ export const api = {
     unwrap(
       client.api.ops.sessions.get({
         query: params
-          ? ({ ...params, limit: params.limit != null ? String(params.limit) : undefined } as Record<
-              string,
-              string | undefined
-            >)
+          ? ({
+              ...params,
+              limit: params.limit != null ? String(params.limit) : undefined,
+            } as Record<string, string | undefined>)
           : undefined,
       }),
     ),

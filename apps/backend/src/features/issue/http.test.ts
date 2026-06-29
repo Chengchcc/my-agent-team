@@ -295,7 +295,9 @@ describe("reviewDecision", () => {
     issueSvc.applyTransition(issue.issueId, "in_progress");
     issueSvc.applyTransition(issue.issueId, "in_review");
 
-    const res = await app.handle(makeReviewRequest(issue.issueId, { decision: "reject" } as Record<string, unknown>));
+    const res = await app.handle(
+      makeReviewRequest(issue.issueId, { decision: "reject" } as Record<string, unknown>),
+    );
     expect(res.status).toBe(422);
   });
 
@@ -321,7 +323,9 @@ describe("reviewDecision", () => {
     issueSvc.applyTransition(issue.issueId, "in_progress");
     issueSvc.applyTransition(issue.issueId, "in_review");
 
-    const res = await app.handle(makeReviewRequest(issue.issueId, { decision: "invalid" } as Record<string, unknown>));
+    const res = await app.handle(
+      makeReviewRequest(issue.issueId, { decision: "invalid" } as Record<string, unknown>),
+    );
     expect(res.status).toBe(422);
   });
 

@@ -85,7 +85,13 @@ function DroppableColumn({
   );
 }
 
-export function IssueKanban({ statuses, issues }: { statuses: readonly IssueStatus[]; issues: IssueRow[] }) {
+export function IssueKanban({
+  statuses,
+  issues,
+}: {
+  statuses: readonly IssueStatus[];
+  issues: IssueRow[];
+}) {
   const queryClient = useQueryClient();
   const [activeIssue, setActiveIssue] = useState<IssueRow | null>(null);
   const [openIssueId, setOpenIssueId] = useState<string | null>(null);

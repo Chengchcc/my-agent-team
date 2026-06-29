@@ -206,8 +206,25 @@ function getSetupManager(provisioner = new CliSetupProvisioner()): LarkSetupMana
 // Ops service — read-only access to checkpoint_events (run-loop is the writer)
 import { createCheckpointEventsStore } from "./features/runtime-ops/checkpoint-events-store.js";
 
-const checkpointDb = new Database(`${config.dataDir}/checkpointer.db`, { readonly: true });
-const checkpointEventsStore = createCheckpointEventsStore(checkpointDb);
+let checkpointEventsStore: ReturnType<typeof createCheckpointEventsStore>;
+try {
+  const checkpointDb = new Database(`${config.dataDir}/checkpointer.db`, { readonly: true });
+  checkpointEventsStore = createCheckpointEventsStore(checkpointDb);
+} catch (err) {
+  if ((err as { code?: string }).code === "SQLITE_CANTOPEN") {
+    const noop = () => [];
+    checkpointEventsStore = {
+      readBySpan: noop,
+      readBySession: noop,
+      readWindow: noop,
+    };
+    console.warn(
+      `[bootstrap] checkpointer.db not found at ${config.dataDir} — ops fact-events will be empty until the first agent run`,
+    );
+  } else {
+    throw err;
+  }
+}
 
 const backendDrizzle = drizzle(db, { casing: "snake_case", schema: backendSchema });
 const agentNames = new Map<string, string>();
