@@ -154,9 +154,7 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
             const normalized = {
               ...entry,
               content:
-                typeof entry.content === "string"
-                  ? entry.content
-                  : JSON.stringify(entry.content),
+                typeof entry.content === "string" ? entry.content : JSON.stringify(entry.content),
               spanId: entry.spanId ?? undefined,
             };
             return encodeConv(

@@ -88,7 +88,10 @@ export async function proxyRequest(
       method: req.method,
       headers: upstreamHeaders,
       body: hasBody(req.method) ? await req.arrayBuffer() : undefined,
-      signal: req.signal,
+      // SSE connections must stay open independently of the incoming request
+      // lifecycle — passing req.signal causes Next.js dev-mode abort to kill
+      // the upstream SSE, triggering EventSource reconnect storms.
+      signal: isSsePath(pathSegments) ? undefined : req.signal,
     });
 
     const responseHeaders = passthroughHeaders(upstream.headers);
