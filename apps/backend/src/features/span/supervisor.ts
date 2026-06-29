@@ -34,7 +34,13 @@ export class SpanSupervisor {
   #db: Database;
   #d: ReturnType<typeof drizzle<typeof schema>>;
   #onRunComplete: Array<
-    (sessionId: string, spanId: string, status: string, kind: string) => void | Promise<void>
+    (
+      sessionId: string,
+      spanId: string,
+      status: string,
+      kind: string,
+      errorMessage?: string,
+    ) => void | Promise<void>
   > = [];
   #onRunMessage: Array<
     (sessionId: string, spanId: string, revision: MessageRevision, kind: string) => Promise<void>
@@ -237,7 +243,13 @@ export class SpanSupervisor {
   // ─── Public: event callbacks ───────────────────────
 
   onRunComplete(
-    fn: (sessionId: string, spanId: string, status: string, kind: string) => void | Promise<void>,
+    fn: (
+      sessionId: string,
+      spanId: string,
+      status: string,
+      kind: string,
+      errorMessage?: string,
+    ) => void | Promise<void>,
   ): void {
     this.#onRunComplete.push(fn);
   }
@@ -276,12 +288,13 @@ export class SpanSupervisor {
     status: string,
     kind: string,
     attemptSeq: number | null = null,
+    errorMessage?: string,
   ): Promise<void> {
     await this.#finalizeRun(spanId, attemptSeq, status);
     this.#active.delete(spanId);
     for (const listener of this.#onRunComplete) {
       try {
-        await listener(sessionId, spanId, status, kind);
+        await listener(sessionId, spanId, status, kind, errorMessage);
       } catch (err) {
         this.#markProjectionDegraded(spanId, attemptSeq, err);
       }

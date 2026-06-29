@@ -42,11 +42,11 @@ describe("AgentSession", () => {
 
   test("model that always throws → retry with backoff → ends with error", async () => {
     let callCount = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const model: ChatModel = {
       id: "failing",
-      async *stream() {
+      async *stream(): any {
         callCount++;
-        if (false as boolean) yield;
         throw new Error("API unavailable");
       },
     };

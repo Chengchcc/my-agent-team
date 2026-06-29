@@ -149,11 +149,11 @@ export async function executeAgentRun(
 
   // ── Completion wiring ───────────────────────────────────
   let finalized = false;
-  const finalizeOnce = (status: string) => {
+  const finalizeOnce = (status: string, errorMessage?: string) => {
     if (finalized) return;
     finalized = true;
     void supervisor
-      .notifyRunComplete(sessionId, spanId, status, "main", attemptSeq)
+      .notifyRunComplete(sessionId, spanId, status, "main", attemptSeq, errorMessage)
       .catch((err) => console.error(`[run-executor] notifyRunComplete failed for ${spanId}:`, err));
     if (req.onComplete) req.onComplete(spanId, status);
   };
@@ -166,7 +166,7 @@ export async function executeAgentRun(
       req.onTodoUpdate(event.payload.todos);
     }
     if (event.type === "agent_end") {
-      finalizeOnce(event.status ?? "succeeded");
+      finalizeOnce(event.status ?? "succeeded", event.errorMessage);
     }
     const emitRunStatus = (phase: string, detail?: string) =>
       req.onRunStatus?.({ spanId, phase, detail, updatedAt: Date.now() });

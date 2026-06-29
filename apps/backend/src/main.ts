@@ -101,9 +101,18 @@ const conv = createConversationFeature(
 
 // P2: onRunComplete is AWAITED by supervisor — critical sink (ledger terminal write).
 // P1: run_finalized already sent before this, so await doesn't block control signal.
-supervisor.onRunComplete((sessionId, spanId, status, kind) => {
+supervisor.onRunComplete((sessionId, spanId, status, kind, errorMessage) => {
   // M19: issue-run isolation now handled by origin_kind in projection/reactor
-  return onRunComplete(sessionId, spanId, status, conv.convPort, conv.convSvc, opsStore, kind);
+  return onRunComplete(
+    sessionId,
+    spanId,
+    status,
+    conv.convPort,
+    conv.convSvc,
+    opsStore,
+    kind,
+    errorMessage,
+  );
 });
 
 // M17.5 P3: @mention regex cache — compile once per label, not per streaming revision.

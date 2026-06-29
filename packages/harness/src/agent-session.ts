@@ -77,6 +77,7 @@ export type AgentSessionEvent =
       messages: Message[];
       willRetry: boolean;
       status: "succeeded" | "error" | "interrupted";
+      errorMessage?: string;
     }
   | { type: "queue_update"; steering: string[]; followUp: string[] }
   | {
@@ -454,6 +455,7 @@ export class AgentSession {
             messages: this.#agent.thread.messages.slice(),
             willRetry: false,
             status: finalStatus,
+            errorMessage: this.#lastError ?? undefined,
           });
 
           this.#emit({

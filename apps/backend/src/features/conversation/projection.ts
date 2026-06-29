@@ -128,6 +128,7 @@ export async function onRunComplete(
   convSvc: ConversationService,
   opsStore: RuntimeOpsStore,
   kind?: string,
+  errorMessage?: string,
 ): Promise<void> {
   if (kind === "reflect") return;
 
@@ -153,23 +154,24 @@ export async function onRunComplete(
       baseRev != null && isSucceededMessageState(baseRev.state) && status !== "succeeded";
 
     if (!frameworkSentTerminal || statusConflict) {
+      const errMsg = errorMessage || status;
       const finalRev: MessageRevision = baseRev
         ? {
             ...baseRev,
             state: status === "succeeded" ? "done" : "error",
-            error: status === "succeeded" ? undefined : { message: status },
+            error: status === "succeeded" ? undefined : { message: errMsg },
             updatedAt: Date.now(),
           }
         : {
             messageId: assistantMessageId(spanId, 0),
             role: "assistant",
             state: status === "succeeded" ? "done" : "error",
-            text: status === "succeeded" ? "" : `Run failed: ${status}`,
+            text: status === "succeeded" ? "" : `Run failed: ${errMsg}`,
             spanId,
             conversationId: cid,
             visibility: "conversation",
             updatedAt: Date.now(),
-            error: status === "succeeded" ? undefined : { message: status },
+            error: status === "succeeded" ? undefined : { message: errMsg },
           };
 
       const messageId = finalRev.messageId;

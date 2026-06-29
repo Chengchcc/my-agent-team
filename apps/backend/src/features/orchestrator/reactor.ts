@@ -147,6 +147,7 @@ export function createTransitionReactor(d: TransitionReactorDeps) {
     spanId: string,
     status: string,
     kind: string,
+    _errorMessage?: string,
   ): Promise<void> {
     if (kind === "reflect") return;
 
