@@ -62,7 +62,7 @@ export function useConversation(
   //    No more run EventSource; all message output arrives via the conversation SSE.
   useEffect(() => {
     if (!conversationId) return;
-    const ts = typedSource(`/api/bff/conversations/${conversationId}/events`, conversationEvents, {
+    const ts = typedSource(`/api/bff/api/conversations/${conversationId}/events`, conversationEvents, {
       onError: (_event, _err) => {
         /* skip malformed entries */
       },

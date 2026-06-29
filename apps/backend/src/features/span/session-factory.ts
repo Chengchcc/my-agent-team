@@ -295,7 +295,7 @@ export function buildSessionSpec(params: BuildSessionSpecParams): SessionSpec {
     model,
     modelName: agent.modelName,
     plugins,
-    tools: [...baseTools, ...convTools],
+    tools: baseTools,
     checkpointer,
     contextManager,
   };

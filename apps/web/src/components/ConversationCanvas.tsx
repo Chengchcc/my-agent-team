@@ -90,25 +90,6 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
 
   return (
     <div className="h-full flex flex-col bg-[var(--canvas)]">
-      {/* Connection status */}
-      {streamConn === "reconnecting" && (
-        <div className="shrink-0 bg-[var(--chart-4)]/10 border-b border-[var(--chart-4)]/30 px-6 py-1 text-center">
-          <span className="text-[10px] text-[var(--chart-4)]">Connection lost — reconnecting…</span>
-        </div>
-      )}
-      {streamConn === "closed" && (
-        <div className="shrink-0 bg-destructive/10 border-b border-destructive/30 px-6 py-1 text-center flex items-center justify-center gap-3">
-          <span className="text-[10px] text-destructive">Connection closed</span>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="text-[10px] text-primary hover:underline"
-          >
-            Reload
-          </button>
-        </div>
-      )}
-
       {/* Header */}
       <div className="shrink-0 border-b border-[var(--hairline)] px-6 py-3">
         <div className="flex items-center justify-between">

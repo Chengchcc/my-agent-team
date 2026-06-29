@@ -80,7 +80,7 @@ export default function IssuesPage() {
 
   // M18.4: SSE real-time updates
   useEffect(() => {
-    const source = typedSource("/api/bff/issues/events", issueBoardEvents);
+    const source = typedSource("/api/bff/api/issues/events", issueBoardEvents);
     source.on("issue", () => {
       queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
     });
