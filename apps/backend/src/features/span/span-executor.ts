@@ -161,10 +161,7 @@ export async function executeAgentRun(
   };
 
   session.subscribe((event) => {
-    if (event.type === "message_update" && req.onAssistantMessageUpdate) {
-      req.onAssistantMessageUpdate(event.payload);
-    }
-    if (event.type === "message" && req.onAssistantMessage) {
+    if ((event.type === "message_update" || event.type === "message") && req.onAssistantMessage) {
       req.onAssistantMessage(event.payload);
     }
     if (event.type === "tool_execution_start" && req.onToolExecutionStart) {

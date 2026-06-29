@@ -122,27 +122,29 @@ export function createConversationFeature(
           surface: isLark ? "lark" : "web",
           senderName: ctx.agentMemberId,
         },
-        onAssistantMessageUpdate: (payload) => {
+        onAssistantMessage: (payload) => {
           const rev = payload as unknown as MessageRevision;
           const cid = parseSessionId(sessionId).conversationId;
           if (!cid) return;
-          convSvc.pushSseEvent(cid, {
-            seq: 0, // streaming — ephemeral push, no ledger seq
-            conversationId: cid,
-            senderMemberId: parseSessionId(sessionId).memberId || sessionId,
-            addressedTo: [] as string[],
-            kind: "message" as const,
-            content: serializeMessageRevision({
-              ...rev,
+          if (rev.state === "streaming") {
+            // Streaming revision — push directly to SSE, no ledger write.
+            // Use updatedAt as seq for ordering (no DB auto-increment needed).
+            convSvc.pushSseEvent(cid, {
+              seq: rev.updatedAt ?? Date.now(),
               conversationId: cid,
-              spanId: rev.spanId ?? spanId,
-            }),
-            ts: Date.now(),
-          });
-        },
-        onAssistantMessage: (payload) => {
-          const rev = payload as unknown as MessageRevision;
-          void handleAssistantMessage(sessionId, rev.spanId ?? spanId, rev);
+              senderMemberId: parseSessionId(sessionId).memberId || sessionId,
+              addressedTo: [] as string[],
+              kind: "message" as const,
+              content: serializeMessageRevision({
+                ...rev,
+                conversationId: cid,
+                spanId: rev.spanId ?? spanId,
+              }),
+              ts: Date.now(),
+            });
+          } else {
+            void handleAssistantMessage(sessionId, rev.spanId ?? spanId, rev);
+          }
         },
         onTodoUpdate: (todos) => {
           // lastTodoUpdate is consumed by onRunComplete Phase 3 appendTodo
