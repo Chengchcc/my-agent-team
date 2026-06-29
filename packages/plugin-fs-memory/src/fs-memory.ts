@@ -10,26 +10,27 @@ import { memorySearchTool } from "./memory-search.js";
 import { memoryWriteTool } from "./memory-write.js";
 
 function nodeFsAdapter(cwd: string): AgentFsLike {
+  const root = resolve(cwd); // normalize away src/.. etc.
   return {
     async read(path: string) {
       try {
-        const full = resolve(cwd, path);
-        if (!full.startsWith(cwd)) return null;
+        const full = resolve(root, path);
+        if (!full.startsWith(root)) return null;
         return readFileSync(full, "utf-8");
       } catch {
         return null;
       }
     },
     async write(path: string, content: string) {
-      const full = resolve(cwd, path);
-      if (!full.startsWith(cwd)) throw new Error("Path escapes workspace");
+      const full = resolve(root, path);
+      if (!full.startsWith(root)) throw new Error("Path escapes workspace");
       mkdirSync(resolve(full, ".."), { recursive: true });
       writeFileSync(full, content, "utf-8");
     },
     async list(path: string) {
       try {
-        const full = resolve(cwd, path);
-        if (!full.startsWith(cwd)) return [];
+        const full = resolve(root, path);
+        if (!full.startsWith(root)) return [];
         return readdirSync(full);
       } catch {
         return [];
@@ -37,8 +38,8 @@ function nodeFsAdapter(cwd: string): AgentFsLike {
     },
     async stat(path: string) {
       try {
-        const full = resolve(cwd, path);
-        if (!full.startsWith(cwd)) return null;
+        const full = resolve(root, path);
+        if (!full.startsWith(root)) return null;
         const s = statSync(full);
         return { mtimeMs: s.mtimeMs, size: s.size };
       } catch {
@@ -46,12 +47,13 @@ function nodeFsAdapter(cwd: string): AgentFsLike {
       }
     },
     async exists(path: string) {
-      const full = resolve(cwd, path);
-      return full.startsWith(cwd) && existsSync(full);
+      const full = resolve(root, path);
+      return full.startsWith(root) && existsSync(full);
     },
     async mkdirp(path: string) {
-      const full = resolve(cwd, path);
-      if (!full.startsWith(cwd)) throw new Error(`Path escapes workspace: cwd=${cwd} path=${path} resolved=${full}`);
+      const full = resolve(root, path);
+      if (!full.startsWith(root))
+        throw new Error(`Path escapes workspace: root=${root} path=${path} resolved=${full}`);
       mkdirSync(full, { recursive: true });
     },
   };
