@@ -3,6 +3,7 @@ import type { App } from "@my-agent-team/backend/app";
 
 /** Client-side treaty — through BFF (cookie → x-auth-token translation). */
 export const client = treaty<App>("/api/bff", {
+  keepDomain: true,
   fetch: { credentials: "include" },
 });
 
