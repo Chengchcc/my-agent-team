@@ -150,8 +150,21 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
         const encodeConv = createSseEncoder(conversationEvents);
         return sseResponse(
           stream,
-          (entry) =>
-            encodeConv(entry.kind as keyof typeof conversationEvents, entry, String(entry.seq)),
+          (entry) => {
+            const normalized = {
+              ...entry,
+              content:
+                typeof entry.content === "string"
+                  ? entry.content
+                  : JSON.stringify(entry.content),
+              spanId: entry.spanId ?? undefined,
+            };
+            return encodeConv(
+              entry.kind as keyof typeof conversationEvents,
+              normalized,
+              String(entry.seq),
+            );
+          },
           req.signal,
         );
       })
