@@ -130,6 +130,8 @@ export async function* runLoop(
       if (opts.stream) {
         blocks = [];
         const partialJson = new Map<string, string>();
+        let lastYield = 0;
+        const YIELD_INTERVAL_MS = 80; // throttle — avoid flooding SSE with every ~5ms chunk
         for await (const chunk of modelStream) {
           if (chunk.delta?.type === "text" && ttftMs === undefined) {
             ttftMs = Date.now() - llmStart;
@@ -138,6 +140,24 @@ export async function* runLoop(
           if (chunk.usage !== undefined) usage = chunk.usage;
           if (chunk.stopReason) stopReason = chunk.stopReason;
           if (chunk.done) break;
+          // Yield progressive streaming revisions so the frontend renders
+          // text incrementally instead of all at once at model_end.
+          const now = Date.now();
+          if (now - lastYield >= YIELD_INTERVAL_MS) {
+            lastYield = now;
+            yield {
+              type: "message",
+              payload: buildAssistantRevision(
+                rt.spanId,
+                assistantOrdinal,
+                "streaming",
+                // Combine previous turn blocks with current streaming blocks
+                // so the frontend sees the full accumulated text so far.
+                [...rt.assistantBlocks, ...blocks],
+                rt.toolStates,
+              ),
+            };
+          }
         }
         finalizeToolUseInputs(blocks, partialJson);
       } else {

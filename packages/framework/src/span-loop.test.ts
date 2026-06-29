@@ -358,6 +358,73 @@ describe("runLoop steering", () => {
     expect(callCount).toBe(2);
   });
 
+  test("streaming model yields progressive message events", async () => {
+    const model: ChatModel = {
+      id: "test-streaming",
+      stream: async function* (): AsyncGenerator<AIMessageChunk> {
+        yield { delta: { type: "text", text: "Hello" }, usage: { input: 10, output: 1 } };
+        // Simulate inter-chunk delay so throttling allows multiple yields
+        await new Promise((r) => setTimeout(r, 100));
+        yield { delta: { type: "text", text: " world" }, usage: { input: 10, output: 2 } };
+        await new Promise((r) => setTimeout(r, 100));
+        yield {
+          delta: { type: "text", text: "!" },
+          stopReason: "end_turn",
+          done: true,
+          usage: { input: 10, output: 3 },
+        };
+      },
+      countTokens: async () => 0,
+    };
+
+    const rt = makeRt();
+    rt.model = model;
+
+    const events: Array<{ type: string }> = [];
+    for await (const ev of runLoop(rt, { maxSteps: 1, stream: true })) {
+      events.push(ev);
+    }
+
+    const messageEvents = events.filter((e) => e.type === "message");
+    // Should yield at least one streaming revision AND a final done revision
+    expect(messageEvents.length).toBeGreaterThanOrEqual(2);
+    const streamingEvents = messageEvents.filter(
+      (e) => (e as { payload: { state: string } }).payload.state === "streaming",
+    );
+    expect(streamingEvents.length).toBeGreaterThanOrEqual(1);
+    const doneEvent = messageEvents.find(
+      (e) => (e as { payload: { state: string } }).payload.state === "done",
+    );
+    expect(doneEvent).toBeDefined();
+  });
+
+  test("non-streaming model yields only final message", async () => {
+    const model: ChatModel = {
+      id: "test-non-streaming",
+      stream: async function* () {
+        yield {
+          delta: { type: "text", text: "full response" },
+          stopReason: "end_turn",
+          done: true,
+          usage: { input: 10, output: 5 },
+        };
+      },
+      countTokens: async () => 0,
+    };
+
+    const rt = makeRt();
+    rt.model = model;
+
+    const events: Array<{ type: string }> = [];
+    for await (const ev of runLoop(rt, { maxSteps: 1, stream: true })) {
+      events.push(ev);
+    }
+
+    const messageEvents = events.filter((e) => e.type === "message");
+    // One-shot model → one streaming yield (on first chunk) + final done
+    expect(messageEvents.length).toBeGreaterThanOrEqual(2);
+  });
+
   test("no follow-up → single outer loop iteration (existing behavior)", async () => {
     let callCount = 0;
     const model: ChatModel = {
