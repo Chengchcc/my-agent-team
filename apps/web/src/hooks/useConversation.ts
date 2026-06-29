@@ -96,6 +96,9 @@ export function useConversation(
     const guard = (entry: { seq: number }): number | null => {
       const seq = entry.seq;
       if (!Number.isFinite(seq)) return seq;
+      // Negative seq = streaming push entry (not persisted to ledger).
+      // Allow through — dedup only applies to persistent ledger entries.
+      if (seq < 0) return seq;
       if (seq <= lastAppliedSeq) return null;
       seen.add(seq);
       if (seen.size > GUARD_WINDOW) {
