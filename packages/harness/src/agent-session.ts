@@ -345,6 +345,7 @@ export class AgentSession {
           if (inputMessages) {
             const generator = this.#agent.run(inputMessages[0]?.text ?? "", {
               signal,
+              stream: true,
               maxSteps: this.#config.maxSteps,
               steering: this.#steering,
               followUp: this.#followUp,
@@ -356,6 +357,7 @@ export class AgentSession {
           } else {
             const generator = this.#agent.continue({
               signal,
+              stream: true,
               maxSteps: this.#config.maxSteps,
               steering: this.#steering,
               followUp: this.#followUp,

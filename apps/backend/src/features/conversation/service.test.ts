@@ -630,7 +630,11 @@ describe("pushSseEvent — real-time SSE delivery", () => {
     });
 
     const cid = "push-test-cid";
-    port2.createConversation({ conversationId: cid, triggerMode: "mention", createdAt: Date.now() });
+    port2.createConversation({
+      conversationId: cid,
+      triggerMode: "mention",
+      createdAt: Date.now(),
+    });
 
     // Start generator — subscriber is registered synchronously at function entry.
     // Use a longer poll so the generator stays alive while we push.
