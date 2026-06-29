@@ -55,7 +55,14 @@ export interface ConversationServiceDeps {
   startAgentRun: (
     spanId: string,
     sessionId: string,
-    ctx: { conversationId: string; agentMemberId: string; agentId: string; ledgerSeq: number },
+    ctx: {
+      conversationId: string;
+      agentMemberId: string;
+      agentId: string;
+      ledgerSeq: number;
+      /** The user's input text — passed through to AgentSession.prompt() so the agent receives the actual message. */
+      input?: string;
+    },
   ) => Promise<{ spanId: string; attemptSeq: number }>;
   idGen: () => string;
   /** Verify a spanId belongs to the given conversation. Throws if not. */
@@ -142,6 +149,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     conversationId: string,
     targets: Array<{ memberId: string; agentId: string }>,
     ledgerSeq: number,
+    input?: string,
   ): Promise<Array<{ agentMemberId: string; spanId: string }>> {
     const triggeredRuns: Array<{ agentMemberId: string; spanId: string }> = [];
     lock.acquire(conversationId, targets.length);
@@ -154,6 +162,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
           agentMemberId: target.memberId,
           agentId: target.agentId,
           ledgerSeq,
+          input,
         });
         triggeredRuns.push({ agentMemberId: target.memberId, spanId: rId });
       } catch (err) {
@@ -242,7 +251,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
       // ── @ trigger: fork agent run for each target (skip if hop-capped) ──
       if (targets.length > 0 && !hopCapped) {
-        const runs = await forkAgentRuns(input.conversationId, targets, seq);
+        const userText = typeof input.content === "string" ? input.content : "";
+        const runs = await forkAgentRuns(input.conversationId, targets, seq, userText);
         triggeredRuns.push(...runs);
       } else if (hopCapped) {
         // Broadcast system message about the cap (no fork)

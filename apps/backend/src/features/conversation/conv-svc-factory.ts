@@ -115,7 +115,7 @@ export function createConversationFeature(
         spanId,
         sessionId: sessionId,
         agentId: ctx.agentId,
-        input: "",
+        input: ctx.input ?? "",
         origin: {
           kind: "conversation",
           conversationId: ctx.conversationId,
