@@ -76,7 +76,7 @@ export async function proxyRequest(
   const BACKEND_TOKEN = getBackendToken();
 
   const url = new URL(req.url);
-  const upstreamUrl = `${BACKEND_URL}/api/${pathSegments.join("/")}${url.search}`;
+  const upstreamUrl = `${BACKEND_URL}/${pathSegments.join("/")}${url.search}`;
 
   const upstreamHeaders = stripHopByHop(req.headers);
   upstreamHeaders.set("x-auth-token", BACKEND_TOKEN);
