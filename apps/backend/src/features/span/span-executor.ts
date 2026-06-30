@@ -1,3 +1,5 @@
+import { getSkillPackPort } from "../skill-pack/registry.js";
+import { buildSkillRoots } from "./skill-roots.js";
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
 import type { ConversationPort } from "../conversation/ports.js";
@@ -136,6 +138,10 @@ export async function executeAgentRun(
 
   // ── Materialize session via factory ─────────────────────
   const agent = await agentSvc.getById(agentId);
+  const port = getSkillPackPort();
+  const skillRoots = port
+    ? await buildSkillRoots(agentId, port, config.dataDir)
+    : undefined;
   const spec = buildSessionSpec({
     agent,
     agentId,
@@ -146,6 +152,7 @@ export async function executeAgentRun(
     senderName,
     input,
     makeModel: deps.makeModel,
+    skillRoots,
   });
   const session = sessionFactory.getOrCreate(sessionId, spec);
 

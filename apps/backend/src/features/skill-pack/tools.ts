@@ -2,73 +2,25 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import type { Tool } from "@my-agent-team/core";
 import { loadSkillIndexWithMtimeCache } from "@my-agent-team/plugin-progressive-skill";
 import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { posixSkillRoot } from "./entities.js";
+import { nodeFsAdapter } from "./fs-adapter.js";
 import type { SkillPackPort } from "./ports.js";
-
-// ─── cwd-locked fs adapter (same logic as progressive-skill's internal helper) ───
-
-function nodeFsAdapter(cwd: string): AgentFsLike {
-  return {
-    async read(path: string) {
-      try {
-        const full = resolve(cwd, path);
-        if (!full.startsWith(cwd)) return null;
-        return readFileSync(full, "utf-8");
-      } catch {
-        return null;
-      }
-    },
-    async write(path: string, content: string) {
-      const full = resolve(cwd, path);
-      if (!full.startsWith(cwd)) throw new Error("Path escapes workspace");
-      mkdirSync(resolve(full, ".."), { recursive: true });
-      writeFileSync(full, content, "utf-8");
-    },
-    async list(dir: string) {
-      try {
-        const full = resolve(cwd, dir);
-        if (!full.startsWith(cwd)) return [];
-        return readdirSync(full, { withFileTypes: true }).map((d) => d.name);
-      } catch {
-        return [];
-      }
-    },
-    async stat(path: string) {
-      try {
-        const full = resolve(cwd, path);
-        if (!full.startsWith(cwd)) return null;
-        const s = statSync(full);
-        return { mtimeMs: s.mtimeMs, size: s.size };
-      } catch {
-        return null;
-      }
-    },
-    async exists(path: string) {
-      try {
-        const full = resolve(cwd, path);
-        return full.startsWith(cwd) && existsSync(full);
-      } catch {
-        return false;
-      }
-    },
-    async mkdirp(path: string) {
-      const full = resolve(cwd, path);
-      if (!full.startsWith(cwd)) throw new Error("Path escapes workspace");
-      mkdirSync(full, { recursive: true });
-    },
-  };
-}
 
 // ─── validation helpers ──────────────────────────────────────────────────────────
 
@@ -99,6 +51,34 @@ function computeDirChecksum(cwd: string, dir: string): string {
   }
   walk(dir);
   return hash.digest("hex");
+}
+
+/**
+ * Validate extracted zip entries: reject symlinks (not allowed in skill packs)
+ * and ensure no path escapes the extract root via ../ or absolute path.
+ * Called BEFORE atomic rename from temp to the final targetDir.
+ */
+function validateExtractedEntries(root: string, dir: string): void {
+  const entries = readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = resolve(dir, entry.name);
+    const stat = lstatSync(fullPath);
+
+    if (stat.isSymbolicLink()) {
+      throw new Error(`Symlinks are not allowed in skill packs: ${entry.name}`);
+    }
+
+    // For regular files/dirs, verify realpath is within root
+    const real = realpathSync(fullPath);
+    const normalizedRoot = resolve(root);
+    if (!real.startsWith(normalizedRoot + "/") && real !== normalizedRoot) {
+      throw new Error(`Path escape detected: ${entry.name} → ${real}`);
+    }
+
+    if (entry.isDirectory()) {
+      validateExtractedEntries(root, fullPath);
+    }
+  }
 }
 
 // ─── git helpers ─────────────────────────────────────────────────────────────────
@@ -187,53 +167,39 @@ export function createPackUnzipTool(deps: PackToolsDeps): Tool {
 
       const buffer = Buffer.from(bufferB64, "base64");
 
-      // Find and extract central directory (simple ZIP parser)
-      // For full zip support, use a proper library. Here we shell out to unzip.
-      const { mkdtempSync, rmSync } = await import("node:fs");
-      const { join } = await import("node:path");
-      const { tmpdir } = await import("node:os");
 
       const tmpDir = mkdtempSync(join(tmpdir(), "pack-unzip-"));
       const zipPath = join(tmpDir, "upload.zip");
       writeFileSync(zipPath, buffer);
 
       try {
-        // Use system unzip with -d flag
-        const { spawn: sp } = await import("node:child_process");
+        // Step 1: unzip to isolated temp directory
+        const extractDir = join(tmpDir, "extract");
         const result = await new Promise<{ exitCode: number; stderr: string }>((resolve) => {
-          const proc = sp("unzip", ["-o", zipPath, "-d", join(cwd, targetDir)], {
+          const proc = spawn("unzip", ["-o", zipPath, "-d", extractDir], {
             stdio: ["ignore", "pipe", "pipe"],
           });
           let stderr = "";
-          proc.stderr?.on("data", (d: Buffer) => {
-            stderr += d.toString();
-          });
+          proc.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
           proc.on("close", (code) => resolve({ exitCode: code ?? 1, stderr }));
         });
         if (result.exitCode !== 0) {
           return { content: `unzip failed: ${result.stderr}`, isError: true };
         }
+
+        // Step 2: validate every entry — reject symlinks (not allowed in skill packs)
+        // and ensure no path escapes the extract directory.
+        validateExtractedEntries(extractDir, extractDir);
+
+        // Step 3: atomic rename to target
+        const targetFull = resolve(cwd, targetDir);
+        renameSync(extractDir, targetFull);
+
+        const checksum = computeDirChecksum(cwd, targetDir);
+        return { content: `Unzipped to ${targetDir} (checksum: ${checksum})` };
       } finally {
-        try {
-          rmSync(tmpDir, { recursive: true });
-        } catch {
-          /* ignore */
-        }
+        try { rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
       }
-
-      // Verify no files escaped
-      const targetFull = resolve(cwd, targetDir);
-      function checkEscape(dir: string) {
-        for (const entry of readdirSync(dir, { withFileTypes: true })) {
-          const p = resolve(dir, entry.name);
-          if (!p.startsWith(targetFull)) throw new Error(`Path escape detected: ${entry.name}`);
-          if (entry.isDirectory()) checkEscape(p);
-        }
-      }
-      checkEscape(targetFull);
-
-      const checksum = computeDirChecksum(cwd, targetDir);
-      return { content: `Unzipped to ${targetDir} (checksum: ${checksum})` };
     },
   };
 }
@@ -265,9 +231,8 @@ export function createPackGitSyncTool(deps: PackToolsDeps): Tool {
         return { content: `git fetch failed: ${fetchResult.stderr}`, isError: true };
       }
 
-      // Reset
-      const resetTarget = ref ? `FETCH_HEAD` : `origin/${ref ?? "HEAD"}`;
-      const resetResult = await git(["reset", "--hard", resetTarget], packDir);
+      // Reset to FETCH_HEAD (always correct after fetch, works on shallow clones)
+      const resetResult = await git(["reset", "--hard", "FETCH_HEAD"], packDir);
       if (resetResult.exitCode !== 0) {
         return { content: `git reset failed: ${resetResult.stderr}`, isError: true };
       }

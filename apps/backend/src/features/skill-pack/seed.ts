@@ -55,15 +55,14 @@ export async function seedSkillPacks(deps: SeedSkillPacksDeps): Promise<void> {
   const builtinTarget = join(dataDir, "skill-packs", BUILTIN_PACK_ID);
 
   // Copy from repo root if available
-  if (existsSync(SKILLS_SOURCE)) {
-    // Remove any stale directory first
+  if (!existsSync(SKILLS_SOURCE)) {
+    console.error(`[seed] builtin skills source not found at ${SKILLS_SOURCE} — builtin pack will be empty`);
+    mkdirSync(builtinTarget, { recursive: true });
+  } else {
     if (existsSync(builtinTarget)) {
       rmSync(builtinTarget, { recursive: true, force: true });
     }
     copyDir(SKILLS_SOURCE, builtinTarget);
-  } else {
-    // Fallback: create empty directory (skills content not found)
-    mkdirSync(builtinTarget, { recursive: true });
   }
 
   await port.register({

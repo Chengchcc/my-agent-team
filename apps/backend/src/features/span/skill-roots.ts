@@ -1,62 +1,8 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import type { AgentFsLike } from "@my-agent-team/tools-common";
+import { join } from "node:path";
 import { BUILTIN_PACK_ID } from "../skill-pack/entities.js";
+import { nodeFsAdapter } from "../skill-pack/fs-adapter.js";
 import type { SkillPackPort } from "../skill-pack/ports.js";
-
-// ─── Shared FS adapter ────────────────────────────────────────────────────────────
-
-function nodeFsAdapter(cwd: string): AgentFsLike {
-  return {
-    async read(path: string) {
-      try {
-        const full = resolve(cwd, path);
-        if (!full.startsWith(cwd)) return null;
-        return readFileSync(full, "utf-8");
-      } catch {
-        return null;
-      }
-    },
-    async write(path: string, content: string) {
-      const full = resolve(cwd, path);
-      if (!full.startsWith(cwd)) throw new Error("Path escapes workspace");
-      mkdirSync(resolve(full, ".."), { recursive: true });
-      writeFileSync(full, content, "utf-8");
-    },
-    async list(dir: string) {
-      try {
-        const full = resolve(cwd, dir);
-        if (!full.startsWith(cwd)) return [];
-        return readdirSync(full, { withFileTypes: true }).map((d) => d.name);
-      } catch {
-        return [];
-      }
-    },
-    async stat(path: string) {
-      try {
-        const full = resolve(cwd, path);
-        if (!full.startsWith(cwd)) return null;
-        const s = statSync(full);
-        return { mtimeMs: s.mtimeMs, size: s.size };
-      } catch {
-        return null;
-      }
-    },
-    async exists(path: string) {
-      try {
-        const full = resolve(cwd, path);
-        return full.startsWith(cwd) && existsSync(full);
-      } catch {
-        return false;
-      }
-    },
-    async mkdirp(path: string) {
-      const full = resolve(cwd, path);
-      if (!full.startsWith(cwd)) throw new Error("Path escapes workspace");
-      mkdirSync(full, { recursive: true });
-    },
-  };
-}
+import type { AgentFsLike } from "@my-agent-team/tools-common";
 
 // ─── Build skill roots ────────────────────────────────────────────────────────────
 

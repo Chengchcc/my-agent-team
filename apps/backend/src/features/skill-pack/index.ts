@@ -21,4 +21,11 @@ export {
   type SkillPackService,
   type SkillPackServiceDeps,
 } from "./service.js";
+export {
+  type InstallSessionDeps,
+  type InstallSource,
+  runInstall,
+  runSync,
+} from "./install-session.js";
 export { assertSafeEntry, createAllPackTools, type PackToolsDeps } from "./tools.js";
+export { getSkillPackPort, setSkillPackPort } from "./registry.js";

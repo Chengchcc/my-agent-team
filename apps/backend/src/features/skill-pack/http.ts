@@ -1,75 +1,14 @@
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, rmSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { loadSkillIndexWithMtimeCache } from "@my-agent-team/plugin-progressive-skill";
-import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { Elysia, t } from "elysia";
+import { loadSkillIndexWithMtimeCache } from "@my-agent-team/plugin-progressive-skill";
 import type { SkillPackRow } from "./entities.js";
 import { installPath, posixSkillRoot } from "./entities.js";
+import { nodeFsAdapter } from "./fs-adapter.js";
 import type { SkillPackService } from "./service.js";
 import { BuiltinPackImmutableError } from "./service.js";
 import { assertSafeEntry } from "./tools.js";
 
-// ─── Shared FS adapter ────────────────────────────────────────────────────────────
-
-function nodeFsAdapter(cwd: string): AgentFsLike {
-  return {
-    async read(path: string) {
-      try {
-        const full = resolve(cwd, path);
-        if (!full.startsWith(cwd)) return null;
-        return readFileSync(full, "utf-8");
-      } catch {
-        return null;
-      }
-    },
-    async write(path: string, content: string) {
-      const full = resolve(cwd, path);
-      if (!full.startsWith(cwd)) throw new Error("Path escapes workspace");
-      mkdirSync(resolve(full, ".."), { recursive: true });
-      writeFileSync(full, content, "utf-8");
-    },
-    async list(dir: string) {
-      try {
-        const full = resolve(cwd, dir);
-        if (!full.startsWith(cwd)) return [];
-        return readdirSync(full, { withFileTypes: true }).map((d) => d.name);
-      } catch {
-        return [];
-      }
-    },
-    async stat(path: string) {
-      try {
-        const full = resolve(cwd, path);
-        if (!full.startsWith(cwd)) return null;
-        const s = statSync(full);
-        return { mtimeMs: s.mtimeMs, size: s.size };
-      } catch {
-        return null;
-      }
-    },
-    async exists(path: string) {
-      try {
-        const full = resolve(cwd, path);
-        return full.startsWith(cwd) && existsSync(full);
-      } catch {
-        return false;
-      }
-    },
-    async mkdirp(path: string) {
-      const full = resolve(cwd, path);
-      if (!full.startsWith(cwd)) throw new Error("Path escapes workspace");
-      mkdirSync(full, { recursive: true });
-    },
-  };
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────────
 
@@ -157,10 +96,9 @@ export function skillPackRoutes(svc: SkillPackService, dataDir: string) {
 
     .delete("/api/skill-packs/:id", async ({ params: { id }, set }) => {
       try {
+        await svc.uninstall(id);
         const dir = installPath(dataDir, id);
         if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
-
-        await svc.uninstall(id);
         set.status = 204;
         return "";
       } catch (err) {

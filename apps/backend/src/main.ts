@@ -1,8 +1,6 @@
 import { Database } from "bun:sqlite";
-import {
-  createRuntimeTracer,
-  resolveObservabilityConfig,
-} from "@my-agent-team/runtime-observability";
+import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
+import { createRuntimeTracer, resolveObservabilityConfig } from "@my-agent-team/runtime-observability";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
@@ -43,7 +41,10 @@ import {
 } from "./features/runtime-ops/index.js";
 import {
   createSkillPackService as createSkillPackServiceFn,
+  runInstall,
+  runSync,
   seedSkillPacks,
+  setSkillPackPort,
   skillPackRoutes,
   sqliteSkillPackAdapter,
 } from "./features/skill-pack/index.js";
@@ -84,14 +85,22 @@ const supervisor = new SpanSupervisor({
 // ─── Skill Pack Management (before agentSvc — onCreate depends on it) ──
 
 const skillPackPort = sqliteSkillPackAdapter(db);
-await seedSkillPacks({ port: skillPackPort, dataDir: config.dataDir });
-
+setSkillPackPort(skillPackPort);
 const skillPackSvc = createSkillPackServiceFn({
   port: skillPackPort,
   idGen: ulid,
-  // Stub triggers — wired in PR-E
-  triggerInstall: (packId) => console.log(`[skill-pack] install triggered for ${packId} (pending)`),
-  triggerSync: (packId) => console.log(`[skill-pack] sync triggered for ${packId} (pending)`),
+  triggerInstall: (packId, ctx) => {
+    void runInstall(
+      { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
+      { model: new AnthropicChatModel({ apiKey: config.anthropicApiKey, model: "claude-sonnet-4-6", baseUrl: config.anthropicBaseUrl }), dataDir: config.dataDir, port: skillPackPort },
+    ).catch((err) => console.error(`[skill-pack] install failed for ${packId}:`, err));
+  },
+  triggerSync: (packId, ctx) => {
+    void runSync(
+      { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
+      { model: new AnthropicChatModel({ apiKey: config.anthropicApiKey, model: "claude-sonnet-4-6", baseUrl: config.anthropicBaseUrl }), dataDir: config.dataDir, port: skillPackPort },
+    ).catch((err) => console.error(`[skill-pack] sync failed for ${packId}:`, err));
+  },
 });
 
 // Feature services

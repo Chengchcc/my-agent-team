@@ -67,7 +67,7 @@ export function applyInstallTransition(
   return {
     next,
     installedRef: patch?.installedRef,
-    error: patch?.error ?? (next === "failed" ? undefined : null),
+    error: patch?.error ?? null,
   };
 }
 
