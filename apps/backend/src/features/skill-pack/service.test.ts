@@ -2,8 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteSkillPackAdapter } from "./adapter-sqlite.js";
 import { BUILTIN_PACK_ID } from "./entities.js";
-import { createSkillPackService, type InstallSessionCtx, BuiltinPackImmutableError } from "./service.js";
 import type { SkillPackPort } from "./ports.js";
+import {
+  BuiltinPackImmutableError,
+  createSkillPackService,
+  type InstallSessionCtx,
+} from "./service.js";
 
 function makeSvc() {
   const db = openDb(":memory:");
@@ -15,8 +19,12 @@ function makeSvc() {
   const svc = createSkillPackService({
     port,
     idGen: () => `pack-${++idCounter}`,
-    triggerInstall: (packId, ctx) => { installCalls.push({ packId, ctx }); },
-    triggerSync: (packId, ctx) => { syncCalls.push({ packId, ctx }); },
+    triggerInstall: (packId, ctx) => {
+      installCalls.push({ packId, ctx });
+    },
+    triggerSync: (packId, ctx) => {
+      syncCalls.push({ packId, ctx });
+    },
   });
 
   return { svc, port, installCalls, syncCalls };

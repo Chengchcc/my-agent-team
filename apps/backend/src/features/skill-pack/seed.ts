@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BUILTIN_PACK_ID, applyInstallTransition } from "./entities.js";
+import { BUILTIN_PACK_ID } from "./entities.js";
 import type { SkillPackPort } from "./ports.js";
 
 const __filename = fileURLToPath(import.meta.url);

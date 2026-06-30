@@ -1,13 +1,21 @@
-import { Elysia, t } from "elysia";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
-import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { loadSkillIndexWithMtimeCache } from "@my-agent-team/plugin-progressive-skill";
+import type { AgentFsLike } from "@my-agent-team/tools-common";
+import { Elysia, t } from "elysia";
+import type { SkillPackRow } from "./entities.js";
 import { installPath, posixSkillRoot } from "./entities.js";
-import { assertSafeEntry } from "./tools.js";
 import type { SkillPackService } from "./service.js";
 import { BuiltinPackImmutableError } from "./service.js";
-import type { SkillPackRow } from "./entities.js";
+import { assertSafeEntry } from "./tools.js";
 
 // ─── Shared FS adapter ────────────────────────────────────────────────────────────
 
@@ -18,7 +26,9 @@ function nodeFsAdapter(cwd: string): AgentFsLike {
         const full = resolve(cwd, path);
         if (!full.startsWith(cwd)) return null;
         return readFileSync(full, "utf-8");
-      } catch { return null; }
+      } catch {
+        return null;
+      }
     },
     async write(path: string, content: string) {
       const full = resolve(cwd, path);
@@ -31,7 +41,9 @@ function nodeFsAdapter(cwd: string): AgentFsLike {
         const full = resolve(cwd, dir);
         if (!full.startsWith(cwd)) return [];
         return readdirSync(full, { withFileTypes: true }).map((d) => d.name);
-      } catch { return []; }
+      } catch {
+        return [];
+      }
     },
     async stat(path: string) {
       try {
@@ -39,13 +51,17 @@ function nodeFsAdapter(cwd: string): AgentFsLike {
         if (!full.startsWith(cwd)) return null;
         const s = statSync(full);
         return { mtimeMs: s.mtimeMs, size: s.size };
-      } catch { return null; }
+      } catch {
+        return null;
+      }
     },
     async exists(path: string) {
       try {
         const full = resolve(cwd, path);
         return full.startsWith(cwd) && existsSync(full);
-      } catch { return false; }
+      } catch {
+        return false;
+      }
     },
     async mkdirp(path: string) {
       const full = resolve(cwd, path);

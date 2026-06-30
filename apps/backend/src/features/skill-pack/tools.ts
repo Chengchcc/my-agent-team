@@ -1,11 +1,19 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { resolve } from "node:path";
 import type { Tool } from "@my-agent-team/core";
-import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { loadSkillIndexWithMtimeCache } from "@my-agent-team/plugin-progressive-skill";
-import { applyInstallTransition, installPath, posixSkillRoot } from "./entities.js";
+import type { AgentFsLike } from "@my-agent-team/tools-common";
+import { posixSkillRoot } from "./entities.js";
 import type { SkillPackPort } from "./ports.js";
 
 // ─── cwd-locked fs adapter (same logic as progressive-skill's internal helper) ───
@@ -50,7 +58,9 @@ function nodeFsAdapter(cwd: string): AgentFsLike {
       try {
         const full = resolve(cwd, path);
         return full.startsWith(cwd) && existsSync(full);
-      } catch { return false; }
+      } catch {
+        return false;
+      }
     },
     async mkdirp(path: string) {
       const full = resolve(cwd, path);
@@ -93,14 +103,23 @@ function computeDirChecksum(cwd: string, dir: string): string {
 
 // ─── git helpers ─────────────────────────────────────────────────────────────────
 
-function git(args: string[], cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+function git(
+  args: string[],
+  cwd: string,
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
     const proc = spawn("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
-    proc.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
-    proc.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
-    proc.on("close", (code) => resolve({ stdout: stdout.trim(), stderr: stderr.trim(), exitCode: code ?? 1 }));
+    proc.stdout?.on("data", (d: Buffer) => {
+      stdout += d.toString();
+    });
+    proc.stderr?.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
+    proc.on("close", (code) =>
+      resolve({ stdout: stdout.trim(), stderr: stderr.trim(), exitCode: code ?? 1 }),
+    );
   });
 }
 
@@ -183,16 +202,24 @@ export function createPackUnzipTool(deps: PackToolsDeps): Tool {
         // Use system unzip with -d flag
         const { spawn: sp } = await import("node:child_process");
         const result = await new Promise<{ exitCode: number; stderr: string }>((resolve) => {
-          const proc = sp("unzip", ["-o", zipPath, "-d", join(cwd, targetDir)], { stdio: ["ignore", "pipe", "pipe"] });
+          const proc = sp("unzip", ["-o", zipPath, "-d", join(cwd, targetDir)], {
+            stdio: ["ignore", "pipe", "pipe"],
+          });
           let stderr = "";
-          proc.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+          proc.stderr?.on("data", (d: Buffer) => {
+            stderr += d.toString();
+          });
           proc.on("close", (code) => resolve({ exitCode: code ?? 1, stderr }));
         });
         if (result.exitCode !== 0) {
           return { content: `unzip failed: ${result.stderr}`, isError: true };
         }
       } finally {
-        try { rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
+        try {
+          rmSync(tmpDir, { recursive: true });
+        } catch {
+          /* ignore */
+        }
       }
 
       // Verify no files escaped
@@ -272,7 +299,13 @@ export function createPackValidateTool(deps: PackToolsDeps): Tool {
       if (valid) {
         const ws = nodeFsAdapter(cwd);
         const skills = await loadSkillIndexWithMtimeCache(ws, [targetDir]);
-        return { content: JSON.stringify({ valid: true, count: skills.length, skills: skills.map((s) => s.name) }) };
+        return {
+          content: JSON.stringify({
+            valid: true,
+            count: skills.length,
+            skills: skills.map((s) => s.name),
+          }),
+        };
       }
       return { content: JSON.stringify({ valid: false, count: 0 }), isError: true };
     },
@@ -312,7 +345,10 @@ export function createPackUpdateStatusTool(deps: PackToolsDeps): Tool {
       properties: {
         packId: { type: "string", description: "The pack ID." },
         status: { type: "string", description: "The new status." },
-        installedRef: { type: "string", description: "The git commit or zip checksum (for ready status)." },
+        installedRef: {
+          type: "string",
+          description: "The git commit or zip checksum (for ready status).",
+        },
         error: { type: "string", description: "Error message (for failed status)." },
       },
       required: ["packId", "status"],

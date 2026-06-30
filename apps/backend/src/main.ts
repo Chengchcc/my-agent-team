@@ -41,19 +41,20 @@ import {
   opsRoutes,
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
-import { resumeRoutes } from "./features/span/http.js";
-import { createSessionFactory } from "./features/span/session-factory.js";
-import { SpanSupervisor } from "./features/span/supervisor.js";
 import {
   createSkillPackService as createSkillPackServiceFn,
   seedSkillPacks,
   skillPackRoutes,
   sqliteSkillPackAdapter,
 } from "./features/skill-pack/index.js";
+import { resumeRoutes } from "./features/span/http.js";
+import { createSessionFactory } from "./features/span/session-factory.js";
+import { SpanSupervisor } from "./features/span/supervisor.js";
 import * as backendSchema from "./infra/db/schema.js";
 import { ulid } from "./infra/ids.js";
 import { openDb } from "./infra/sqlite/db.js";
 import { createServer } from "./server.js";
+
 // ─── Bootstrap ─────────────────────────────────────────────────
 
 const config = loadConfig();
@@ -282,9 +283,10 @@ const app = createApp(config.authToken, {
     (id) => larkBotRegistry.statusOf(id),
     getSetupManager,
     {
-      listForAgent: (id) => skillPackSvc.listForAgent(id).then((rows) =>
-        rows.map((r) => ({ id: r.id, name: r.name, status: r.status })),
-      ),
+      listForAgent: (id) =>
+        skillPackSvc
+          .listForAgent(id)
+          .then((rows) => rows.map((r) => ({ id: r.id, name: r.name, status: r.status }))),
       setAgentPacks: (id, packIds) => skillPackSvc.setAgentPacks(id, packIds),
     },
   ),

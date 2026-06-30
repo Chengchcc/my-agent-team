@@ -1,8 +1,8 @@
 import type { Database } from "bun:sqlite";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
-import { applyInstallTransition, type SkillPackRow, type TransitionPatch } from "./entities.js";
+import { applyInstallTransition, type SkillPackRow } from "./entities.js";
 import type { SkillPackPort } from "./ports.js";
 
 export function sqliteSkillPackAdapter(db: Database): SkillPackPort {
@@ -59,7 +59,11 @@ export function sqliteSkillPackAdapter(db: Database): SkillPackPort {
     },
 
     async remove(id: string): Promise<boolean> {
-      const result = d.delete(schema.skillPack).where(eq(schema.skillPack.id, id)).returning().all();
+      const result = d
+        .delete(schema.skillPack)
+        .where(eq(schema.skillPack.id, id))
+        .returning()
+        .all();
       return result.length > 0;
     },
 

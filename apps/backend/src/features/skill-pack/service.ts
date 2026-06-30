@@ -1,5 +1,4 @@
-import type { SkillPackRow } from "./entities.js";
-import { applyInstallTransition, type SkillPackSource } from "./entities.js";
+import type { SkillPackRow, SkillPackSource } from "./entities.js";
 import type { SkillPackPort } from "./ports.js";
 
 // ─── Service ─────────────────────────────────────────────────────────────────────

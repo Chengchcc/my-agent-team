@@ -1,7 +1,24 @@
-export { type SkillPackRow, type SkillPackSource, type SkillPackStatus, applyInstallTransition, BUILTIN_PACK_ID, InvalidInstallTransitionError, installPath, posixSkillRoot, type TransitionPatch, type AgentSkillPackRow } from "./entities.js";
-export { type SkillPackPort } from "./ports.js";
 export { sqliteSkillPackAdapter } from "./adapter-sqlite.js";
-export { createSkillPackService, type SkillPackService, type SkillPackServiceDeps, type InstallSessionCtx, BuiltinPackImmutableError } from "./service.js";
-export { createAllPackTools, type PackToolsDeps, assertSafeEntry } from "./tools.js";
-export { seedSkillPacks, type SeedSkillPacksDeps } from "./seed.js";
+export {
+  type AgentSkillPackRow,
+  applyInstallTransition,
+  BUILTIN_PACK_ID,
+  InvalidInstallTransitionError,
+  installPath,
+  posixSkillRoot,
+  type SkillPackRow,
+  type SkillPackSource,
+  type SkillPackStatus,
+  type TransitionPatch,
+} from "./entities.js";
 export { skillPackRoutes } from "./http.js";
+export type { SkillPackPort } from "./ports.js";
+export { type SeedSkillPacksDeps, seedSkillPacks } from "./seed.js";
+export {
+  BuiltinPackImmutableError,
+  createSkillPackService,
+  type InstallSessionCtx,
+  type SkillPackService,
+  type SkillPackServiceDeps,
+} from "./service.js";
+export { assertSafeEntry, createAllPackTools, type PackToolsDeps } from "./tools.js";

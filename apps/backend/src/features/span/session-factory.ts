@@ -32,6 +32,7 @@ import {
   createSearchTool,
 } from "../conversation/conv-tools.js";
 import type { ConversationPort } from "../conversation/ports.js";
+import type { SkillRoots } from "./skill-roots.js";
 
 /**
  * Narrow interface: consumers declare "give me a runnable session" without
@@ -226,10 +227,22 @@ export interface BuildSessionSpecParams {
   input?: string;
   /** Injected model factory — defaults to AnthropicChatModel. */
   makeModel?: ModelFactory;
+  /** Pre-resolved skill roots for progressiveSkillPlugin. When set, overrides the default cwd-based setup. */
+  skillRoots?: SkillRoots;
 }
 
 export function buildSessionSpec(params: BuildSessionSpecParams): SessionSpec {
-  const { agent, agentId, config, convPort, conversationId, surface, senderName, input } = params;
+  const {
+    agent,
+    agentId,
+    config,
+    convPort,
+    conversationId,
+    surface,
+    senderName,
+    input,
+    skillRoots,
+  } = params;
   const hasConversation = Boolean(convPort && conversationId);
   const cwd = join(config.dataDir, "agents", agentId);
   mkdirSync(cwd, { recursive: true });
@@ -282,7 +295,11 @@ export function buildSessionSpec(params: BuildSessionSpecParams): SessionSpec {
         ]
       : []),
     fsMemoryPlugin({ cwd: config.workspaceRoot, root: "./memory/" }),
-    progressiveSkillPlugin({ cwd }),
+    progressiveSkillPlugin(
+      skillRoots
+        ? { ws: skillRoots.ws, roots: skillRoots.roots, posixSkillRoot: skillRoots.posixSkillRoot }
+        : { cwd },
+    ),
   ];
 
   const checkpointer = sqliteCheckpointer({

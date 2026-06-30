@@ -41,7 +41,8 @@ function authPlugin(token: string) {
 // ── App factory ──
 
 export function createApp(token: string, features: FeatureSet) {
-  const { agents, conversations, ops, issues, projects, columnConfigs, cronJobs, skillPacks } = features;
+  const { agents, conversations, ops, issues, projects, columnConfigs, cronJobs, skillPacks } =
+    features;
 
   const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
@@ -50,7 +51,6 @@ export function createApp(token: string, features: FeatureSet) {
     .use(conversations)
     .use(ops)
     .use(issues);
-
 
   return app
     .use(features.resumeRun)

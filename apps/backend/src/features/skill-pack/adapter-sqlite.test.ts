@@ -50,8 +50,24 @@ describe("sqliteSkillPackAdapter", () => {
   // ─── list ─────────────────────────────────────────────────────────
 
   test("list returns all packs", async () => {
-    await port.register({ id: "a", name: "A", description: "d", sourceKind: "git", sourceUrl: null, versionRef: null, now });
-    await port.register({ id: "b", name: "B", description: "d", sourceKind: "zip", sourceUrl: "file.zip", versionRef: null, now });
+    await port.register({
+      id: "a",
+      name: "A",
+      description: "d",
+      sourceKind: "git",
+      sourceUrl: null,
+      versionRef: null,
+      now,
+    });
+    await port.register({
+      id: "b",
+      name: "B",
+      description: "d",
+      sourceKind: "zip",
+      sourceUrl: "file.zip",
+      versionRef: null,
+      now,
+    });
     const list = await port.list();
     expect(list).toHaveLength(2);
   });
@@ -59,7 +75,15 @@ describe("sqliteSkillPackAdapter", () => {
   // ─── state transitions ────────────────────────────────────────────
 
   test("applyInstallTransition: pending → installing → ready", async () => {
-    await port.register({ id: "p1", name: "X", description: "d", sourceKind: "git", sourceUrl: null, versionRef: null, now });
+    await port.register({
+      id: "p1",
+      name: "X",
+      description: "d",
+      sourceKind: "git",
+      sourceUrl: null,
+      versionRef: null,
+      now,
+    });
 
     let row = await port.applyInstallTransition("p1", "installing", { now });
     expect(row!.status).toBe("installing");
@@ -70,7 +94,15 @@ describe("sqliteSkillPackAdapter", () => {
   });
 
   test("applyInstallTransition: installing → failed with error", async () => {
-    await port.register({ id: "p1", name: "X", description: "d", sourceKind: "git", sourceUrl: null, versionRef: null, now });
+    await port.register({
+      id: "p1",
+      name: "X",
+      description: "d",
+      sourceKind: "git",
+      sourceUrl: null,
+      versionRef: null,
+      now,
+    });
     await port.applyInstallTransition("p1", "installing", { now });
 
     const row = await port.applyInstallTransition("p1", "failed", { error: "clone failed", now });
@@ -90,8 +122,24 @@ describe("sqliteSkillPackAdapter", () => {
   // ─── agent assignments ────────────────────────────────────────────
 
   test("setAgentPacks + listForAgent full cycle", async () => {
-    await port.register({ id: "p1", name: "P1", description: "d", sourceKind: "builtin", sourceUrl: null, versionRef: null, now });
-    await port.register({ id: "p2", name: "P2", description: "d", sourceKind: "git", sourceUrl: "url", versionRef: null, now });
+    await port.register({
+      id: "p1",
+      name: "P1",
+      description: "d",
+      sourceKind: "builtin",
+      sourceUrl: null,
+      versionRef: null,
+      now,
+    });
+    await port.register({
+      id: "p2",
+      name: "P2",
+      description: "d",
+      sourceKind: "git",
+      sourceUrl: "url",
+      versionRef: null,
+      now,
+    });
 
     // initially empty
     expect(await port.listForAgent("agent-1")).toHaveLength(0);
@@ -112,8 +160,24 @@ describe("sqliteSkillPackAdapter", () => {
   });
 
   test("listForAgent returns all assigned regardless of status", async () => {
-    await port.register({ id: "p1", name: "P1", description: "d", sourceKind: "git", sourceUrl: null, versionRef: null, now });
-    await port.register({ id: "p2", name: "P2", description: "d", sourceKind: "zip", sourceUrl: null, versionRef: null, now });
+    await port.register({
+      id: "p1",
+      name: "P1",
+      description: "d",
+      sourceKind: "git",
+      sourceUrl: null,
+      versionRef: null,
+      now,
+    });
+    await port.register({
+      id: "p2",
+      name: "P2",
+      description: "d",
+      sourceKind: "zip",
+      sourceUrl: null,
+      versionRef: null,
+      now,
+    });
     await port.applyInstallTransition("p1", "installing", { now });
     await port.applyInstallTransition("p1", "ready", { installedRef: "abc", now });
     await port.setAgentPacks("agent-1", ["p1", "p2"], now);
@@ -125,7 +189,15 @@ describe("sqliteSkillPackAdapter", () => {
   // ─── remove + cascade ─────────────────────────────────────────────
 
   test("remove + removeAgentPack cascade", async () => {
-    await port.register({ id: "p1", name: "P1", description: "d", sourceKind: "git", sourceUrl: null, versionRef: null, now });
+    await port.register({
+      id: "p1",
+      name: "P1",
+      description: "d",
+      sourceKind: "git",
+      sourceUrl: null,
+      versionRef: null,
+      now,
+    });
     await port.setAgentPacks("agent-1", ["p1"], now);
     await port.setAgentPacks("agent-2", ["p1"], now);
 
@@ -141,7 +213,15 @@ describe("sqliteSkillPackAdapter", () => {
   });
 
   test("applyInstallTransition: ready → syncing → ready (git pack)", async () => {
-    await port.register({ id: "git1", name: "G", description: "d", sourceKind: "git", sourceUrl: "url", versionRef: null, now });
+    await port.register({
+      id: "git1",
+      name: "G",
+      description: "d",
+      sourceKind: "git",
+      sourceUrl: "url",
+      versionRef: null,
+      now,
+    });
     await port.applyInstallTransition("git1", "installing", { now });
     await port.applyInstallTransition("git1", "ready", { installedRef: "old", now });
 
@@ -154,7 +234,15 @@ describe("sqliteSkillPackAdapter", () => {
   });
 
   test("applyInstallTransition: failed → installing retry", async () => {
-    await port.register({ id: "p1", name: "X", description: "d", sourceKind: "git", sourceUrl: null, versionRef: null, now });
+    await port.register({
+      id: "p1",
+      name: "X",
+      description: "d",
+      sourceKind: "git",
+      sourceUrl: null,
+      versionRef: null,
+      now,
+    });
     await port.applyInstallTransition("p1", "installing", { now });
     await port.applyInstallTransition("p1", "failed", { error: "boom", now });
 
