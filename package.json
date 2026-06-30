@@ -23,7 +23,7 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "ci": "turbo run build && turbo run typecheck --concurrency=1 && turbo run test --concurrency=1",
+    "ci": "turbo run build --concurrency=1 && turbo run typecheck --concurrency=1 && turbo run test --concurrency=1",
     "prepare": "husky"
   },
   "devDependencies": {
