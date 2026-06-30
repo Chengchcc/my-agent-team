@@ -1,15 +1,26 @@
 import type { Database } from "bun:sqlite";
 import type { CheckpointEvent, CheckpointEventRow } from "@my-agent-team/framework";
 
+/** Map of every CheckpointEvent type variant. Using `satisfies Record<...>`
+ *  ensures tsc catches missing variants when the union grows. */
+const CHECKPOINT_EVENT_TYPES = {
+  user_input: true,
+  model_start: true,
+  model_end: true,
+  tool_start: true,
+  tool_end: true,
+  interrupt: true,
+  resume: true,
+  run_end: true,
+  force_continue: true,
+} satisfies Record<CheckpointEvent["type"], true>;
+
 /** Lightweight type guard: validates that a parsed JSON value has the shape
  *  of a CheckpointEvent (discriminated union on `type`). */
 function isCheckpointEvent(v: unknown): v is CheckpointEvent {
   if (typeof v !== "object" || v === null) return false;
   const obj = v as Record<string, unknown>;
-  return typeof obj.type === "string" && [
-    "user_input", "model_start", "model_end", "tool_start", "tool_end",
-    "interrupt", "resume", "run_end", "force_continue",
-  ].includes(obj.type);
+  return typeof obj.type === "string" && obj.type in CHECKPOINT_EVENT_TYPES;
 }
 
 /** Read-only accessor for checkpoint_events in checkpointer.db.

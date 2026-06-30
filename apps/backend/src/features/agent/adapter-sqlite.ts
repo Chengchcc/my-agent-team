@@ -68,13 +68,12 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
       if (input.name !== undefined) sets.name = input.name;
       if (input.permissionMode !== undefined) sets.permissionMode = input.permissionMode;
       if (input.maxSteps !== undefined) sets.maxSteps = input.maxSteps;
-      if (input.lark?.enabled !== undefined) sets.larkEnabled = schema.boolToInt(input.lark.enabled);
+      if (input.lark?.enabled !== undefined)
+        sets.larkEnabled = schema.boolToInt(input.lark.enabled);
       if (input.lark?.appId !== undefined) sets.larkAppId = input.lark.appId;
       if (input.lark?.botDisplayName !== undefined) {
         sets.larkBotDisplayName = input.lark.botDisplayName;
       }
-      if (input.lark?.profileRef !== undefined) sets.larkProfileRef = input.lark.profileRef;
-      if (input.lark?.enabled !== undefined) sets.larkEnabled = schema.boolToInt(input.lark.enabled);
       const rows = d
         .update(schema.agents)
         .set(sets)

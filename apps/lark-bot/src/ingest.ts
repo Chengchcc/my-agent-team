@@ -112,6 +112,7 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
       return { action: "error", triggered: false, triggeredRuns: [] };
     }
     conversationId = (convData as Record<string, unknown>).conversationId as string;
+    memberId = `human:lark:${event.sender_id}`;
 
     // Add the human member via API FIRST (idempotent per §7.3).
     try {

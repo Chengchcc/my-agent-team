@@ -291,7 +291,7 @@ export const issueEvent = sqliteTable(
 
 // ── Zod schemas (type chain: drizzle table → Zod → z.infer → TS type) ──
 
-import { createInsertSchema, createSelectSchema } from "drizzle-zod";
+import { createSelectSchema } from "drizzle-zod";
 
 // ── Simple tables (drizzle-zod auto-generate) ──
 
@@ -344,7 +344,6 @@ export const projectSelectSchema = createSelectSchema(project, {
 export const cronJobSelectSchema = createSelectSchema(cronJob, {
   enabled: (s) => s.transform((v: number) => v !== 0),
 });
-
 
 /** Convert boolean to 0|1 for integer columns. Single source of truth
  *  for the bool→int conversion used by adapters. */

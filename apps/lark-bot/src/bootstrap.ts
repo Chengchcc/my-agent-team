@@ -72,7 +72,8 @@ export async function bootstrap(args: LarkBotArgs): Promise<BootstrapState> {
       console.error(`[lark-bot] agent ${args.agentId} lark disabled — graceful exit`);
       process.exit(0);
     }
-    selfAgentName = args.agentName ?? (typeof record.name === "string" ? record.name : String(record.name));
+    selfAgentName =
+      args.agentName ?? (typeof record.name === "string" ? record.name : String(record.name));
   } catch (err) {
     if (err instanceof TypeError) {
       console.error(`[lark-bot] backend unreachable: ${err.message}`);

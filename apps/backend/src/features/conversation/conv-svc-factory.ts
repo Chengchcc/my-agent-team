@@ -1,7 +1,11 @@
 import type { Database } from "bun:sqlite";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import type { Message, MessageRevision } from "@my-agent-team/message";
-import { deserializeLedgerContent, extractText, isTerminalMessageState } from "@my-agent-team/message";
+import {
+  deserializeLedgerContent,
+  extractText,
+  isTerminalMessageState,
+} from "@my-agent-team/message";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
