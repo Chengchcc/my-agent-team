@@ -1,7 +1,7 @@
 "use client";
 
 import { Download, FolderSync, GitBranch, RefreshCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -109,12 +109,13 @@ export function SkillPackManager() {
   const deleteMutation = useDeletePack();
   const { data: skills } = useSkillPackSkills(selectedPack ?? "");
 
-  // Auto-refetch while installing/syncing
+  // Auto-refetch while installing/syncing (in useEffect, not render body)
   const hasPending = packs?.some((p) => p.status === "installing" || p.status === "syncing");
-  if (hasPending) {
+  useEffect(() => {
+    if (!hasPending) return;
     const timer = setInterval(() => refetch(), 3000);
-    setTimeout(() => clearInterval(timer), 60000);
-  }
+    return () => clearInterval(timer);
+  }, [hasPending, refetch]);
 
   return (
     <div className="space-y-6">

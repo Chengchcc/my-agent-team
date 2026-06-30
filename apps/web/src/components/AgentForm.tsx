@@ -151,38 +151,45 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   const createMutation = useCreateAgent();
   const updateMutation = useUpdateAgent(editAgent?.id ?? "");
 
-  function onSubmit(values: FormValues) {
+  async function onSubmit(values: FormValues) {
     setServerError("");
     if (isEdit) {
-      updateMutation.mutate(buildBody(values), {
-        onSuccess: () => {
-          if (editAgent?.id) {
-            setPacksMutation.mutate(selectedPackIds);
-          }
-          toast.success("Agent updated");
-          setOpen(false);
-          onSuccess?.();
-        },
-        onError: (err) => {
-          const msg = err instanceof Error ? err.message : "Failed to save agent";
-          setServerError(msg);
-          toast.error("Failed to save agent", { description: msg });
-        },
-      });
+      try {
+        await updateMutation.mutateAsync(buildBody(values));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to save agent";
+        setServerError(msg);
+        toast.error("Failed to save agent", { description: msg });
+        return;
+      }
+
+      // Assign skill packs after agent update succeeds
+      if (editAgent?.id) {
+        try {
+          await setPacksMutation.mutateAsync(selectedPackIds);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Failed to assign skill packs";
+          toast.error(msg);
+          // Don't close the form — let user retry allocation
+          return;
+        }
+      }
+
+      toast.success("Agent updated");
+      setOpen(false);
+      onSuccess?.();
     } else {
-      createMutation.mutate(buildBody(values), {
-        onSuccess: (agent) => {
-          toast.success("Agent created");
-          form.reset();
-          setOpen(false);
-          router.push(`/agents/${agent.id}`);
-        },
-        onError: (err) => {
-          const msg = err instanceof Error ? err.message : "Failed to save agent";
-          setServerError(msg);
-          toast.error("Failed to save agent", { description: msg });
-        },
-      });
+      try {
+        const agent = await createMutation.mutateAsync(buildBody(values));
+        toast.success("Agent created");
+        form.reset();
+        setOpen(false);
+        router.push(`/agents/${agent.id}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to save agent";
+        setServerError(msg);
+        toast.error("Failed to save agent", { description: msg });
+      }
     }
   }
 
