@@ -133,8 +133,42 @@ bun run dev          # 启动 backend + web
 - **Format/Lint**: Biome 2.x + ESLint 10.x
 - **DB**: SQLite (backend.db + checkpointer.db), drizzle-orm + drizzle-kit
 - **HTTP**: Elysia (backend), treaty (web 类型安全客户端)
-- **Commit**: commitlint + husky
+- **Commit**: commitlint + husky（见下方 §提交规范）
 - **Test**: bun:test
+
+## 提交规范（commitlint 必过项）
+
+**格式**：`type(scope): subject` — scope **必填**，不可为空。
+
+| 规则 | 值 |
+|------|-----|
+| 可用 type | `feat` `fix` `refactor` `perf` `style` `test` `docs` `chore` `ci` `revert` |
+| 可用 scope（包） | `core` `message` `api-contract` `config` `conversation` `framework` `adapter-anthropic` `harness` `agent-fs` `tools-common` `runner-protocol` `runner-daemon` `runtime-observability` `test-helpers` |
+| 可用 scope（插件） | `plugin-fs-memory` `plugin-identity` `plugin-progressive-skill` `plugin-task-guard` `plugin-conversation-context` |
+| 可用 scope（应用） | `backend` `web` `lark-bot` |
+| 可用 scope（功能） | `cron` |
+| 可用 scope（元） | `docs` `test` `lint` `build` `deps` `repo` |
+| subject 最大长度 | 100 字符 |
+| 禁止中文 | CJK 字符检测（commitlint-plugin-no-cjk） |
+| body 前空行 | 必填（`body-leading-blank`） |
+
+**Git Hook 链**：
+```
+pre-commit  → biome format --write + biome check --fix
+commit-msg  → commitlint --edit
+pre-push    → bun run lint
+```
+
+## CI 流程（GitHub Actions）
+
+触发条件：PR 或 push 到 `master`/`main`。
+
+```
+checkout → setup Bun 1.3.14 → install deps → gen drizzle
+  → lint → build → typecheck → test → verify dist fresh
+```
+
+最后一步校验所有 `packages/*/dist/` 和 `apps/*/dist/`（或 `.next/`）的新鲜度——任何源文件比构建产物新即标红。
 
 ## 文档导航
 
