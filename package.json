@@ -20,9 +20,9 @@
     "predev:turbo": "bash scripts/predev.sh",
     "dev:turbo": "turbo run dev --parallel",
     "format": "biome format --write .",
-    "lint": "turbo run lint",
-    "test": "turbo run test",
-    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint --concurrency=1",
+    "test": "turbo run test --concurrency=1",
+    "typecheck": "turbo run typecheck --concurrency=1",
     "ci": "turbo run build --concurrency=1 && turbo run typecheck --concurrency=1 && turbo run test --concurrency=1",
     "prepare": "husky"
   },

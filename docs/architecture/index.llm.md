@@ -53,7 +53,7 @@
 2. `runtime/plugin.md`
 3. `runtime/context-manager.md`
 4. `harness/harness.md`
-5. `plugins/fs-memory.md`、`plugins/progressive-skill.md`、`plugins/task-guard.md`
+5. `plugins/fs-memory.md`、`plugins/progressive-skill.md`、`plugins/task-guard.md`、`plugins/skill-pack.md`
 
 ## 如果问的是上下文窗口 / 历史压缩 / 摘要 / 裁剪
 

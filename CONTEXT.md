@@ -21,6 +21,9 @@
 | **Compaction** | 旧消息摘要压缩，保留最近 N 条 + 摘要前缀 | 不是普通 summarize |
 | **AgentSession** | harness 层 Agent 生命周期编排（per-span 创建，目标收敛为 per-session） | 不是 backend service |
 | **ConversationLock** | 会话级并发闸门，统一 HTTP 直发和 @ 触发两条路径 | 不是 thread busy |
+| **Skill** | 一个命名的指令集（一个 `SKILL.md`），模型通过 `skill_load` 按需加载 | 不是 Plugin（后者是代码；Skill 是 markdown 内容） |
+| **Skill Pack** | 一个技能集合的分发单元：有来源（git/zip/builtin）、版本、安装生命周期，物化为一个目录 | 不是 Skill Root（root 是它的运行时物化产物） |
+| **Skill Root** | progressive-skill 扫描的目录路径；一个 Pack 贡献一个 Root | 不是 Pack 本体（Pack 是管理实体，Root 是它的磁盘投影） |
 
 ## 架构分层（6 层，自底向上）
 
