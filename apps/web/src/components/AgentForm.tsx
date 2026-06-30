@@ -117,9 +117,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   }, [setupSession?.status, setupSession?.setupId, editAgent?.id, queryClient]);
 
   // Skill pack assignments
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: availablePacks } = useSkillPackList();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: assignedPacks } = useAgentSkillPacks(editAgent?.id ?? "");
   const setPacksMutation = useSetAgentPacks(editAgent?.id ?? "");
 

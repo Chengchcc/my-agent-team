@@ -130,10 +130,21 @@ export const api = {
   // Projects
   listProjects: () => unwrap(client.api.projects.get()),
   getProject: (id: string) => unwrap(client.api.projects({ id }).get()),
-  createProject: (body: { name: string; repoUrl?: string; defaultBranch?: string; autoOrchestrate?: boolean }) =>
-    unwrap(client.api.projects.post(body)),
-  updateProject: (id: string, body: { name?: string; repoUrl?: string | null; defaultBranch?: string | null; autoOrchestrate?: boolean }) =>
-    unwrap(client.api.projects({ id }).patch(body)),
+  createProject: (body: {
+    name: string;
+    repoUrl?: string;
+    defaultBranch?: string;
+    autoOrchestrate?: boolean;
+  }) => unwrap(client.api.projects.post(body)),
+  updateProject: (
+    id: string,
+    body: {
+      name?: string;
+      repoUrl?: string | null;
+      defaultBranch?: string | null;
+      autoOrchestrate?: boolean;
+    },
+  ) => unwrap(client.api.projects({ id }).patch(body)),
   deleteProject: (id: string) => unwrap(client.api.projects({ id }).delete()),
   // Issues
   listIssues: (projectId: string, params?: { status?: string; priority?: string }) =>
@@ -150,7 +161,7 @@ export const api = {
   }) => unwrap(client.api.issues.post(body)),
   getIssueTimeline: (id: string) => unwrap(client.api.issues({ id }).timeline.get()),
   subscribeIssueTimeline: (id: string) =>
-    unwrap((client.api.issues({ id }).timeline as any).subscribe.get()),
+    unwrap(client.api.issues({ id }).timeline.events.get()),
   transitionIssue: (id: string, body: { to: string }) =>
     unwrap(client.api.issues({ id }).transition.post(body)),
   reviewDecision: (
@@ -159,8 +170,10 @@ export const api = {
   ) => unwrap(client.api.issues({ id })["review-decision"].post(body)),
   getIssueDetail: (id: string) => unwrap(client.api.issues({ id }).detail.get()),
   getIssueMeta: () => unwrap(client.api["issue-meta"].get()),
-  updateIssue: (id: string, body: { title?: string; description?: string; priority?: IssuePriority }) =>
-    unwrap(client.api.issues({ id }).patch(body)),
+  updateIssue: (
+    id: string,
+    body: { title?: string; description?: string; priority?: IssuePriority },
+  ) => unwrap(client.api.issues({ id }).patch(body)),
   deleteIssue: (id: string) => unwrap(client.api.issues({ id }).delete()),
   // Column Configs
   listColumnConfigs: (projectId: string) =>
@@ -184,8 +197,17 @@ export const api = {
     maxRetries?: number;
     enabled?: boolean;
   }) => unwrap(client.api["cron-jobs"].post(body)),
-  updateCronJob: (id: string, body: { name?: string; prompt?: string; cronExpr?: string; timeoutMs?: number; maxRetries?: number; enabled?: boolean }) =>
-    unwrap(client.api["cron-jobs"]({ id }).patch(body)),
+  updateCronJob: (
+    id: string,
+    body: {
+      name?: string;
+      prompt?: string;
+      cronExpr?: string;
+      timeoutMs?: number;
+      maxRetries?: number;
+      enabled?: boolean;
+    },
+  ) => unwrap(client.api["cron-jobs"]({ id }).patch(body)),
   setCronJobEnabled: (id: string, enabled: boolean) =>
     unwrap(client.api["cron-jobs"]({ id }).enable.post({ enabled })),
   deleteCronJob: (id: string) => unwrap(client.api["cron-jobs"]({ id }).delete()),
