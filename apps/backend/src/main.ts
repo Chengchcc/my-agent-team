@@ -46,6 +46,7 @@ import {
   createSkillPackService as createSkillPackServiceFn,
   runInstall,
   runSync,
+  seedSkillPacks,
   setSkillPackPort,
   skillPackRoutes,
   sqliteSkillPackAdapter,
@@ -88,6 +89,12 @@ const supervisor = new SpanSupervisor({
 
 const skillPackPort = sqliteSkillPackAdapter(db);
 setSkillPackPort(skillPackPort);
+
+await seedSkillPacks({
+  port: skillPackPort,
+  dataDir: config.dataDir,
+  builtinSkillsDir: config.builtinSkillsDir,
+});
 const skillPackSvc = createSkillPackServiceFn({
   port: skillPackPort,
   idGen: ulid,

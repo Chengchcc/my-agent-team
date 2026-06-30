@@ -31,7 +31,7 @@ export interface AgentSkillPackRow {
 
 /** Legal transitions. Every transition is source → [valid next states]. */
 export const INSTALL_TRANSITIONS: Record<SkillPackStatus, SkillPackStatus[]> = {
-  pending: ["installing"],
+  pending: ["installing", "failed"],
   installing: ["ready", "failed"],
   ready: ["syncing"],
   failed: ["installing", "syncing"],

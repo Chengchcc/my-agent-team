@@ -1,14 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { BUILTIN_PACK_ID } from "./entities.js";
 import type { SkillPackPort } from "./ports.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-/** Source skills directory in repo root (relative to this file's location in dist/src/features/skill-pack/). */
-const SKILLS_SOURCE = resolve(__dirname, "../../../../skills");
 
 function copyDir(src: string, dest: string): void {
   mkdirSync(dest, { recursive: true });
@@ -26,6 +19,7 @@ function copyDir(src: string, dest: string): void {
 export interface SeedSkillPacksDeps {
   port: SkillPackPort;
   dataDir: string;
+  builtinSkillsDir: string;
 }
 
 /**
@@ -33,13 +27,15 @@ export interface SeedSkillPacksDeps {
  * - If builtin pack record doesn't exist: copy skills/ to <dataDir>/skill-packs/builtin/
  *   and register a ready, unremovable record.
  * - Mark all pending/installing/syncing records as failed (crash recovery).
+ *   Builtin pack is excluded from crash reaper.
  */
 export async function seedSkillPacks(deps: SeedSkillPacksDeps): Promise<void> {
-  const { port, dataDir } = deps;
+  const { port, dataDir, builtinSkillsDir } = deps;
 
-  // ─── Crash reaper: clear any non-terminal records ───
+  // ─── Crash reaper: clear any non-terminal records (except builtin) ───
   const all = await port.list();
   for (const row of all) {
+    if (row.id === BUILTIN_PACK_ID) continue;
     if (row.status === "pending" || row.status === "installing" || row.status === "syncing") {
       await port.applyInstallTransition(row.id, "failed", {
         error: "process restarted before operation completed",
@@ -54,17 +50,17 @@ export async function seedSkillPacks(deps: SeedSkillPacksDeps): Promise<void> {
 
   const builtinTarget = join(dataDir, "skill-packs", BUILTIN_PACK_ID);
 
-  // Copy from repo root if available
-  if (!existsSync(SKILLS_SOURCE)) {
+  // Copy from source if available
+  if (!existsSync(builtinSkillsDir)) {
     console.error(
-      `[seed] builtin skills source not found at ${SKILLS_SOURCE} — builtin pack will be empty`,
+      `[seed] builtin skills source not found at ${builtinSkillsDir} — builtin pack will remain pending`,
     );
     mkdirSync(builtinTarget, { recursive: true });
   } else {
     if (existsSync(builtinTarget)) {
       rmSync(builtinTarget, { recursive: true, force: true });
     }
-    copyDir(SKILLS_SOURCE, builtinTarget);
+    copyDir(builtinSkillsDir, builtinTarget);
   }
 
   await port.register({
@@ -77,7 +73,9 @@ export async function seedSkillPacks(deps: SeedSkillPacksDeps): Promise<void> {
     now: Date.now(),
   });
 
-  // Mark as ready
-  await port.applyInstallTransition(BUILTIN_PACK_ID, "installing", { now: Date.now() });
-  await port.applyInstallTransition(BUILTIN_PACK_ID, "ready", { now: Date.now() });
+  // Only mark as ready if the source actually landed on disk
+  if (existsSync(builtinSkillsDir)) {
+    await port.applyInstallTransition(BUILTIN_PACK_ID, "installing", { now: Date.now() });
+    await port.applyInstallTransition(BUILTIN_PACK_ID, "ready", { now: Date.now() });
+  }
 }

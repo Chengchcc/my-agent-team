@@ -59,6 +59,7 @@ export function mockConfig() {
     cancelGraceMs: 5000,
     maxConcurrentRuns: 8,
     shutdownTimeoutMs: 5000,
+    builtinSkillsDir: join(dir, "builtin-skills-test"),
   };
 }
 

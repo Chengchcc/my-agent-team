@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { Env } from "@my-agent-team/config";
 import { parseEnv } from "@my-agent-team/config";
 
@@ -12,16 +13,13 @@ export interface BackendConfig {
   anthropicApiKey: string;
   anthropicBaseUrl?: string;
   shutdownTimeoutMs: number;
-  /** M9: heartbeat write interval in ms (runner entry) */
   heartbeatIntervalMs: number;
-  /** M9: heartbeat timeout in ms (backend marks interrupted). Default 60s (M11: raised from 20s). */
   heartbeatTimeoutMs: number;
-  /** M9: grace period after SIGTERM before SIGKILL */
   cancelGraceMs: number;
-  /** M11: running reaper scan interval in ms. Default min(heartbeatTimeoutMs/2, 30_000). */
   reaperIntervalMs: number;
-  /** M11: secondary stall check in ms before reaper confirms dead (only BackendConfig, not AgentSpec). Default 300_000. */
   stepStallTimeoutMs: number;
+  /** Absolute path to the repo skills/ directory (source for builtin seed). */
+  builtinSkillsDir: string;
 }
 
 /**
@@ -50,5 +48,6 @@ export function loadConfig(env: Env = parseEnv(process.env)): BackendConfig {
     cancelGraceMs: env.BACKEND_CANCEL_GRACE_MS,
     reaperIntervalMs: env.BACKEND_REAPER_INTERVAL_MS,
     stepStallTimeoutMs: env.BACKEND_STEP_STALL_TIMEOUT_MS,
+    builtinSkillsDir: process.env.BUILTIN_SKILLS_DIR ?? resolve(import.meta.dir, "../../skills"),
   };
 }
