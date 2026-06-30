@@ -245,23 +245,21 @@ export function agentRoutes(
 
   // Skill pack assignment routes (optional)
   // Always mounted — skillPackSvc is always provided by main.ts
-    return base
-      .get("/api/agents/:id/skill-packs", async ({ params: { id } }) => {
-        const packs = await skillPackSvc.listForAgent(id);
-        return packs;
-      })
-      .put(
-        "/api/agents/:id/skill-packs",
-        async ({ params: { id }, body }) => {
-          await skillPackSvc.setAgentPacks(id, body.packIds);
-          return { ok: true };
-        },
-        {
-          body: t.Object({
-            packIds: t.Array(t.String()),
-          }),
-        },
-      );
-
-  return base;
+  return base
+    .get("/api/agents/:id/skill-packs", async ({ params: { id } }) => {
+      const packs = await skillPackSvc.listForAgent(id);
+      return packs;
+    })
+    .put(
+      "/api/agents/:id/skill-packs",
+      async ({ params: { id }, body }) => {
+        await skillPackSvc.setAgentPacks(id, body.packIds);
+        return { ok: true };
+      },
+      {
+        body: t.Object({
+          packIds: t.Array(t.String()),
+        }),
+      },
+    );
 }

@@ -183,8 +183,7 @@ export const api = {
   deleteCronJob: (id: string) => unwrap(client.api["cron-jobs"]({ id }).delete()),
   // Skill packs
   listSkillPacks: () => unwrap(client.api["skill-packs"].get()),
-  getSkillPackSkills: (id: string) =>
-    unwrap(client.api["skill-packs"]({ id }).skills.get()),
+  getSkillPackSkills: (id: string) => unwrap(client.api["skill-packs"]({ id }).skills.get()),
   getSkillPackFiles: (id: string, path?: string) =>
     unwrap(client.api["skill-packs"]({ id }).files.get({ query: path ? { path } : undefined })),
   installSkillPackGit: (body: { name: string; description: string; url: string; ref?: string }) =>
@@ -195,7 +194,9 @@ export const api = {
   deleteSkillPack: (id: string) => unwrap(client.api["skill-packs"]({ id }).delete()),
   // Agent sub-routes via var reassignment → Elysia intersection types treaty can't resolve
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getAgentSkillPacks: (agentId: string) => unwrap((client.api.agents({ id: agentId }) as any)["skill-packs"].get()),
+  getAgentSkillPacks: (agentId: string) =>
+    unwrap((client.api.agents({ id: agentId }) as any)["skill-packs"].get()),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setAgentSkillPacks: (agentId: string, body: { packIds: string[] }) => unwrap((client.api.agents({ id: agentId }) as any)["skill-packs"].put(body)),
+  setAgentSkillPacks: (agentId: string, body: { packIds: string[] }) =>
+    unwrap((client.api.agents({ id: agentId }) as any)["skill-packs"].put(body)),
 };

@@ -65,7 +65,11 @@ export function InstallPackForm({ onDone }: { onDone: () => void }) {
       return;
     }
     try {
-      await zipMutation.mutateAsync({ name: values.name, description: values.description, file: zipFile! });
+      await zipMutation.mutateAsync({
+        name: values.name,
+        description: values.description,
+        file: zipFile!,
+      });
       toast.success(`Installing "${values.name}"...`);
       zipForm.reset();
       setZipFile(null);

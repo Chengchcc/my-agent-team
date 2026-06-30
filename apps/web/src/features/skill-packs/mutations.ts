@@ -14,7 +14,8 @@ export function useInstallGitPack() {
 export function useUploadZipPack() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; description: string; file: File }) => api.uploadSkillPackZip(body),
+    mutationFn: (body: { name: string; description: string; file: File }) =>
+      api.uploadSkillPackZip(body),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: skillPackKeys.list() }),
   });
 }

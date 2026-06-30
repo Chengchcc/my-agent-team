@@ -113,9 +113,7 @@ export function SkillPackManager() {
 
   // Auto-refetch while installing/syncing
   const hasPending = (packs as any[])?.some(
-    (p: any) =>
-      p.status === "installing" ||
-      p.status === "syncing",
+    (p: any) => p.status === "installing" || p.status === "syncing",
   );
   if (hasPending) {
     const timer = setInterval(() => refetch(), 3000);
