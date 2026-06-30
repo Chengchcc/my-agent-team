@@ -18,6 +18,11 @@ function scriptedModel(turns: Array<Partial<AIMessageChunk>[]>): ChatModel {
     ) {
       const blocks = turns[call] ?? [];
       call++;
+      // Empty turn: inject an empty text block so the framework's
+      // zero-content-blocks guard (span-loop.ts:193) doesn't fire.
+      if (blocks.length === 0) {
+        yield { delta: { type: "text" as const, text: "" } } as AIMessageChunk;
+      }
       for (const b of blocks) {
         yield b as AIMessageChunk;
       }
@@ -132,7 +137,8 @@ describe("taskGuardPlugin", () => {
       async *stream(_messages: Message[], _opts?) {
         calls++;
         if (calls === 1) throw new Error("model down"); // plan gen fails
-        // Main loop runs fine
+        // Main loop runs fine — need at least one content block
+        yield { delta: { type: "text" as const, text: "" } } as AIMessageChunk;
         yield {
           delta: undefined,
           stopReason: "end_turn",
