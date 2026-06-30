@@ -131,7 +131,7 @@ describe("SkillPackService", () => {
   // ─── agent assignments ─────────────────────────────────────────────
 
   test("setAgentPacks overwrites existing assignments", async () => {
-    const { svc, port } = makeSvc();
+    const { svc } = makeSvc();
     const p1 = await svc.installFromGit({ name: "A", description: "d", url: "u" });
     const p2 = await svc.installFromGit({ name: "B", description: "d", url: "u2" });
 

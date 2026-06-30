@@ -185,7 +185,6 @@ export function createPackUnzipTool(deps: PackToolsDeps): Tool {
       assertSafeEntry(targetDir);
       if (targetDir.includes("/")) throw new Error("targetDir must not contain slashes");
 
-      const { inflateRaw } = await import("node:zlib");
       const buffer = Buffer.from(bufferB64, "base64");
 
       // Find and extract central directory (simple ZIP parser)
