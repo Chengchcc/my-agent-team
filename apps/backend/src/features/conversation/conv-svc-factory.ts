@@ -1,11 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import type { Message, MessageRevision } from "@my-agent-team/message";
-import {
-  extractText,
-  isTerminalMessageState,
-  serializeMessageRevision,
-} from "@my-agent-team/message";
+import { extractText, isTerminalMessageState } from "@my-agent-team/message";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
@@ -25,6 +21,8 @@ export interface ConversationFeature {
   convSvc: ReturnType<typeof createConversationService>;
   lock: ConversationLock;
 }
+
+const titlingInFlight = new Set<string>();
 
 export function createConversationFeature(
   db: Database,
@@ -97,10 +95,11 @@ export function createConversationFeature(
       if (isTerminalMessageState(rev.state)) {
         // Auto-title: generate on first terminal response if no title yet
         const conv = convPort.getConversation(cid);
-        if (conv && !conv.title) {
-          void autoTitle(cid).catch(() => {
-            /* best-effort */
-          });
+        if (conv && !conv.title && !titlingInFlight.has(cid)) {
+          titlingInFlight.add(cid);
+          void autoTitle(cid)
+            .catch(() => { /* best-effort */ })
+            .finally(() => titlingInFlight.delete(cid));
         }
         const text = extractText(rev);
         if (text) {
@@ -115,7 +114,6 @@ export function createConversationFeature(
         }
       }
     }
-
   };
 
   const convSvc = createConversationService({

@@ -150,7 +150,6 @@ export function createConversationService(deps: ConversationServiceDeps) {
     return seq;
   }
 
-
   /** Shared fork-run loop: lock conversation, fork runs for targets, release when all complete.
    *  Returns triggered run IDs. Errors for individual targets are logged and skipped. */
   async function forkAgentRuns(
@@ -187,12 +186,6 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
   return {
     port, // Expose port for HTTP layer (thin adapter pattern)
-
-    /** Push an SSE event directly to active subscribers without writing to the ledger.
-     *  Used for streaming message_update revisions that don't need persistence. */
-    pushSseEvent(conversationId: string, entry: LedgerEntry) {
-      notify(conversationId, entry);
-    },
 
     // ─── postMessage ────────────────────────────────
 
@@ -389,9 +382,9 @@ export function createConversationService(deps: ConversationServiceDeps) {
           if (opts?.signal?.aborted) break;
 
           // Drain push buffer first (entries delivered via notify).
-          // Push entries are always yielded — seq filtering only applies to
-          // polled ledger entries. Streaming revisions use seq=-1 which
-          // would never pass the >lastSeq guard.
+          // Push entries are always yielded regardless of seq — streaming
+          // revisions get a real monotonic seq via the streamingSeq map, and
+          // the heartbeat sentinel uses seq:0, so neither hits the >lastSeq guard.
           while (pushBuffer.length > 0) {
             const entry = pushBuffer.shift()!;
             yield entry;

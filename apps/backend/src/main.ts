@@ -15,10 +15,8 @@ import {
   sqliteColumnConfigAdapter,
 } from "./features/column-config/index.js";
 import { createConversationFeature } from "./features/conversation/conv-svc-factory.js";
-import { conversationRoutes, parseSessionId } from "./features/conversation/index.js";
-import {
-  onRunComplete,
-} from "./features/conversation/projection.js";
+import { conversationRoutes } from "./features/conversation/index.js";
+import { onRunComplete } from "./features/conversation/projection.js";
 import {
   createCronJobService,
   createCronScheduler,
@@ -107,7 +105,6 @@ supervisor.onRunComplete((sessionId, spanId, status, kind, errorMessage) => {
     errorMessage,
   );
 });
-
 
 // ─── HTTP router ──────────────────────────────────────────────
 

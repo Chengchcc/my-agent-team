@@ -21,6 +21,7 @@ export type ThinkingLevel = "low" | "medium" | "high";
 export interface RetrySettings {
   maxAttempts: number;
   backoffMs: number;
+  maxBackoffMs?: number;
 }
 
 export interface CompactionSettings {
@@ -112,7 +113,7 @@ export class AgentSession {
   constructor(config: AgentSessionConfig) {
     this.#config = {
       maxSteps: 50,
-      retry: { maxAttempts: 3, backoffMs: 2000 },
+      retry: { maxAttempts: 3, backoffMs: 2000, maxBackoffMs: 30_000 },
       compaction: {
         autoCompact: true,
         triggerAtTokens: 100_000,
@@ -393,7 +394,9 @@ export class AgentSession {
           ) {
             this.#retryCount++;
             this.#state = "retrying";
-            const delayMs = (this.#config.retry?.backoffMs ?? 2000) * 2 ** (this.#retryCount - 1);
+            const base = this.#config.retry?.backoffMs ?? 2000;
+            const cap = this.#config.retry?.maxBackoffMs ?? 30_000;
+            const delayMs = Math.min(cap, base * 2 ** (this.#retryCount - 1));
             this.#emit({
               type: "auto_retry_start",
               attempt: this.#retryCount,

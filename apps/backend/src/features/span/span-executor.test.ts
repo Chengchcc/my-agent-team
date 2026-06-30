@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
+  fakeModel,
   mockAgentSvc,
   mockConfig,
   mockOpsStore,
@@ -35,6 +36,7 @@ describe("executeAgentRun completion signal", () => {
       supervisor,
       opsStore: mockOpsStore() as any,
       agentSvc: mockAgentSvc() as any,
+      makeModel: () => fakeModel(),
     });
     const { spanId } = await executeAgentRun(deps, {
       spanId: `${opts.prefix}-${Date.now()}`,

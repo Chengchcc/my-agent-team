@@ -4,7 +4,6 @@ import path, { join } from "node:path";
 import { and, eq, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { z } from "zod";
 import * as schema from "./db/schema.js";
 import { safeAgentId } from "./safe-agent-id.js";
 
@@ -203,7 +202,6 @@ export function confirmInbound(
     .where(eq(schema.inboundMessage.larkEventId, eventId))
     .run();
 }
-
 
 // ─── Rebind chat to a new conversation ─────────────────────────────
 

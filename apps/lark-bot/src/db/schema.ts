@@ -1,5 +1,4 @@
 import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
-import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
 export const chatBinding = sqliteTable("chat_binding", {
   larkChatId: text().primaryKey(),
@@ -33,7 +32,6 @@ export const inboundMessage = sqliteTable(
   (table) => [unique("uq_inbound_lark_message_id").on(table.larkMessageId)],
 );
 
-
 export const messageDelivery = sqliteTable(
   "message_delivery",
   {
@@ -46,4 +44,3 @@ export const messageDelivery = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.conversationId, table.messageId, table.larkChatId] })],
 );
-

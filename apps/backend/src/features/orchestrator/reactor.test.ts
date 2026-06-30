@@ -6,6 +6,7 @@ import {
   fakeDeliverableSvc,
   fakeProjectSvc,
   makeAgentRow,
+  mockConfig,
   recordingSupervisor,
   TID,
   testDB,
@@ -27,9 +28,8 @@ function makeOrchestrator(issueDb: ReturnType<typeof testMainDB>, db: ReturnType
   const issueSvc = createIssueService({ port: issuePort, idGen: () => crypto.randomUUID() });
   const supervisor = recordingSupervisor();
   const opsStore = new RuntimeOpsStore(db);
-
   const orch = createOrchestrator({
-    config: { dataDir: "/tmp", anthropicApiKey: "test" } as any,
+    config: mockConfig() as any,
     issueSvc,
     agentSvc: fakeAgentSvc(DEFAULT_AGENTS),
     supervisor: supervisor as any,
