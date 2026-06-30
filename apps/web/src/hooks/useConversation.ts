@@ -62,8 +62,14 @@ export function useConversation(
   //    No more run EventSource; all message output arrives via the conversation SSE.
   useEffect(() => {
     if (!conversationId) return;
+    // Resume from last known seq on page refresh (sessionStorage survives refresh).
+    const storageKey = `conv-last-seq-${conversationId}`;
+    const afterSeq =
+      typeof window !== "undefined"
+        ? parseInt(sessionStorage.getItem(storageKey) ?? "0", 10) || 0
+        : 0;
     const ts = typedSource(
-      `/api/bff/api/conversations/${conversationId}/events`,
+      `/api/bff/api/conversations/${conversationId}/events?afterSeq=${afterSeq}`,
       conversationEvents,
       {
         onError: (_event, _err) => {
@@ -104,6 +110,10 @@ export function useConversation(
         for (const s of sorted) if (s <= cutoff) seen.delete(s);
       }
       lastAppliedSeq = Math.max(lastAppliedSeq, seq);
+      // Persist across page refresh so SSE can resume from this point
+      if (typeof window !== "undefined") {
+        try { sessionStorage.setItem(storageKey, String(lastAppliedSeq)); } catch { /* quota */ }
+      }
       if (pendingGap) {
         // Hole detected on reconnect — notify user
         toast.success("Reconnected — syncing missed messages");
