@@ -74,6 +74,7 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
       if (input.lark?.botDisplayName !== undefined) {
         sets.larkBotDisplayName = input.lark.botDisplayName;
       }
+      if (input.lark?.profileRef !== undefined) sets.larkProfileRef = input.lark.profileRef;
       const rows = d
         .update(schema.agents)
         .set(sets)

@@ -70,4 +70,13 @@ describe("sqliteAgentAdapter", () => {
     expect(updated).not.toBeNull();
     expect(updated?.name).toBe("renamed");
   });
+
+  test("update persists lark.profileRef", async () => {
+    const updated = await adapter.update("a1", {
+      now: 5000,
+      lark: { profileRef: "agent:a1" },
+    });
+    expect(updated).not.toBeNull();
+    expect(updated?.larkProfileRef).toBe("agent:a1");
+  });
 });
