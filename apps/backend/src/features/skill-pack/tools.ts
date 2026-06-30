@@ -104,6 +104,8 @@ function git(
 export interface PackToolsDeps {
   port: SkillPackPort;
   dataDir: string;
+  /** Optional path to a pre-extracted zip file (for install sessions where buffer shouldn't go through LLM). */
+  zipPath?: string;
 }
 
 export function createPackGitCloneTool(deps: PackToolsDeps): Tool {
@@ -147,21 +149,28 @@ export function createPackUnzipTool(deps: PackToolsDeps): Tool {
 
   return {
     name: "pack_unzip",
-    description: `Unzip a base64-encoded zip buffer into a target directory under the skill-packs root. The targetDir must be a single directory name (no slashes). Each entry is validated to prevent path traversal.`,
+    description: `Unzip a zip archive into a target directory under the skill-packs root. The targetDir must be a single directory name (no slashes). When the zip file was pre-staged by the system, no bufferB64 is needed — the tool reads it from the pre-staged path. Otherwise, pass the base64-encoded zip contents.`,
     inputSchema: {
       type: "object",
       properties: {
-        bufferB64: { type: "string", description: "Base64-encoded zip file contents." },
+        bufferB64: { type: "string", description: "Base64-encoded zip file contents. Optional when zip was pre-staged." },
         targetDir: { type: "string", description: "Target directory name (no slashes)." },
       },
-      required: ["bufferB64", "targetDir"],
+      required: ["targetDir"],
     },
     async execute(input: unknown) {
-      const { bufferB64, targetDir } = input as { bufferB64: string; targetDir: string };
+      const { bufferB64, targetDir } = input as { bufferB64?: string; targetDir: string };
       assertSafeEntry(targetDir);
       if (targetDir.includes("/")) throw new Error("targetDir must not contain slashes");
 
-      const buffer = Buffer.from(bufferB64, "base64");
+      const buffer = deps.zipPath
+        ? readFileSync(deps.zipPath)
+        : bufferB64
+          ? Buffer.from(bufferB64, "base64")
+          : null;
+      if (!buffer) {
+        return { content: "No zip data provided. Pre-staged zip not found and no bufferB64 given.", isError: true };
+      }
 
       const tmpDir = mkdtempSync(join(tmpdir(), "pack-unzip-"));
       const zipPath = join(tmpDir, "upload.zip");
@@ -185,7 +194,6 @@ export function createPackUnzipTool(deps: PackToolsDeps): Tool {
         }
 
         // Step 2: validate every entry — reject symlinks (not allowed in skill packs)
-        // and ensure no path escapes the extract directory.
         validateExtractedEntries(extractDir, extractDir);
 
         // Step 3: atomic rename to target
