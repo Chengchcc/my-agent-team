@@ -116,16 +116,6 @@ export function createConversationFeature(
       }
     }
 
-    const entry = {
-      seq: 0,
-      conversationId: cid,
-      senderMemberId: sender,
-      addressedTo: [] as string[],
-      kind: "message" as const,
-      content: serializeMessageRevision({ ...rev, conversationId: cid, spanId }),
-      ts: Date.now(),
-    };
-    void convSvc.broadcastMessage(entry, { excludeMemberId: sender }).catch(() => {});
   };
 
   const convSvc = createConversationService({

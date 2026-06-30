@@ -146,25 +146,10 @@ export function createConversationService(deps: ConversationServiceDeps) {
       content: serialized,
       ts,
     };
-    if (input.broadcast !== false) {
-      await broadcastMessage(entry);
-    }
     notify(input.conversationId, entry);
     return seq;
   }
 
-  /** Project a ledger entry into all agent member checkpoints.
-   *  M14.6: "todo" entries are UI-only — never projected into agent checkpoints
-   *  (todo JSON would pollute the model's conversation context). */
-  async function broadcastMessage(
-    entry: LedgerEntry,
-    _opts?: { excludeMemberId?: string },
-  ): Promise<void> {
-    if (entry.kind === "todo" || entry.kind === "surface.control") return;
-
-    // broadcastMessage no longer writes to thread-projection.
-    // Agent members read directly from the ledger via conversation tools.
-  }
 
   /** Shared fork-run loop: lock conversation, fork runs for targets, release when all complete.
    *  Returns triggered run IDs. Errors for individual targets are logged and skipped. */
@@ -202,7 +187,6 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
   return {
     port, // Expose port for HTTP layer (thin adapter pattern)
-    broadcastMessage,
 
     /** Push an SSE event directly to active subscribers without writing to the ledger.
      *  Used for streaming message_update revisions that don't need persistence. */

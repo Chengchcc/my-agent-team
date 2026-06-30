@@ -53,8 +53,7 @@ export interface Agent {
   run(input: string, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
   /** Continue from existing checkpoint messages without appending a new user
    *  message. Use when the conversation context has already been written to the
-   *  checkpointer (e.g. conversation-triggered runs where broadcastMessage()
-   *  pre-projected the user's message). Fails if no user message exists. */
+   *  checkpointer. Fails if no user message exists. */
   continue(opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
   resume(command: ResumeCommand, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
   fork(messages?: Message[], id?: string): Agent;

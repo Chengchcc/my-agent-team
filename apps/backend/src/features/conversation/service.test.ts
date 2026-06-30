@@ -93,61 +93,6 @@ function setupConv(id: string) {
   return { id };
 }
 
-// ─── broadcastMessage ──────────────────────────────────────
-
-describe("broadcastMessage", () => {
-  test.skip("projects message into all agent member checkpoints", async () => {
-    const { id } = setupConv("conv-bc1");
-
-    await svc.broadcastMessage({
-      seq: 1,
-      conversationId: id,
-      senderMemberId: `mem-h1-${id}`,
-      addressedTo: [`mem-x1-${id}`],
-      kind: "message",
-      content: JSON.stringify({ text: "hello X" }),
-      ts: Date.now(),
-    });
-
-    // X should see the message as user with [Alice] prefix
-    const xMsgs = await threadProjectionRead.getMessages(`${id}:mem-x1-${id}`);
-    expect(xMsgs).toHaveLength(1);
-    expect((xMsgs?.[0] as { role: string; content: string }).role).toBe("user");
-    expect((xMsgs?.[0] as { role: string; content: string }).content).toContain("[Alice]");
-
-    // Y should also see the message (broadcast visibility)
-    const yMsgs = await threadProjectionRead.getMessages(`${id}:mem-y1-${id}`);
-    expect(yMsgs).toHaveLength(1);
-    expect((yMsgs?.[0] as { role: string; content: string }).content).toContain("[Alice]");
-  });
-
-  test.skip("projects agent output as assistant to self, user to others", async () => {
-    const { id } = setupConv("conv-bc2");
-
-    // Agent X speaks (its output after a run)
-    await svc.broadcastMessage({
-      seq: 2,
-      conversationId: id,
-      senderMemberId: `mem-x1-${id}`,
-      addressedTo: [],
-      kind: "message",
-      content: JSON.stringify({ text: "I handled it" }),
-      ts: Date.now(),
-    });
-
-    // X sees its own message as assistant (no prefix)
-    const xMsgs = await threadProjectionRead.getMessages(`${id}:mem-x1-${id}`);
-    const xLast = xMsgs?.[xMsgs?.length - 1] as { role: string; content: string };
-    expect(xLast.role).toBe("assistant");
-    expect(xLast.content).toBe("I handled it");
-
-    // Y sees X's message as user with [XAgent] prefix
-    const yMsgs = await threadProjectionRead.getMessages(`${id}:mem-y1-${id}`);
-    const yLast = yMsgs?.[yMsgs?.length - 1] as { role: string; content: string };
-    expect(yLast.role).toBe("user");
-    expect(yLast.content).toContain("[XAgent]");
-  });
-});
 
 // ─── postMessage ───────────────────────────────────────────
 
@@ -507,46 +452,6 @@ describe("M14.4: triggerMentionedAgents", () => {
   });
 });
 
-// ─── M15.1: surface.control ─────────────────────────────────
-
-describe("surface.control filtering", () => {
-  test("surface.control entries are not projected to agent checkpoints", async () => {
-    const { id } = setupConv("conv-sc1");
-
-    await svc.broadcastMessage({
-      seq: 1,
-      conversationId: id,
-      senderMemberId: "__system__",
-      addressedTo: [],
-      kind: "surface.control",
-      content: JSON.stringify({ type: "lark.start_new_conversation" }),
-      ts: Date.now(),
-    });
-
-    // Agent checkpoint should NOT have the surface.control entry projected
-    const xMsgs = await threadProjectionRead.getMessages(`${id}:mem-x1-${id}`);
-    const xCount = xMsgs?.length ?? 0;
-    // surface.control should not appear in projected messages
-    expect(xCount).toBe(0); // no previous broadcast, so still 0
-  });
-
-  test("todo entries are still filtered (existing behavior)", async () => {
-    const { id } = setupConv("conv-sc2");
-
-    await svc.broadcastMessage({
-      seq: 1,
-      conversationId: id,
-      senderMemberId: "agent",
-      addressedTo: [],
-      kind: "todo",
-      content: JSON.stringify({ todos: [] }),
-      ts: Date.now(),
-    });
-
-    const xMsgs = await threadProjectionRead.getMessages(`${id}:mem-x1-${id}`);
-    expect(xMsgs?.length ?? 0).toBe(0);
-  });
-});
 
 describe("startNewConversationForSurface", () => {
   test("creates new conversation, copies members, writes surface.control", async () => {

@@ -3,7 +3,7 @@ id: flows.e2e-issue-lifecycle
 title: Issue 生命周期端到端
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-25
+last_verified_against_code: 2026-06-30
 summary: "Issue 从创建到完成的生命周期：Orchestrator 按转移表为每个状态起 AgentSession 运行，agent_end 回调推进状态，直到 done。Agent 的输出通过 conversation ledger 展示在前端。"
 depends_on:
   - foundations.issue
@@ -27,24 +27,20 @@ sequenceDiagram
   participant L as Conversation Ledger
 
   T->>I: 创建 Issue（status: draft, conversationId=issueId）
-  T->>I: draft→planned（启动信号）
+  T->>I: draft→planned（启动信号，手动/API transition）
   O->>O: 查转移表：from=planned → agentId（来自 ColumnConfig）
-  O->>AS: startAgentRun(threadId, agentId, renderPrompt)
-  AS->>AS: agent.run(prompt) + agent.continue()
-  AS-->>L: onEvent("message") → 写入 MessageRevision
-  AS-->>O: onEvent("agent_end", willRetry: false)
-  O->>I: status 回填 → in_progress
-  O->>AS: startAgentRun(threadId, nextAgentId, renderPrompt)
-  AS->>AS: agent.run(prompt) + agent.continue()
-  AS-->>L: onEvent("message") → 写入
-  AS-->>O: onEvent("agent_end", willRetry: false)
-  O->>I: status 回填 → in_review
-  O->>AS: startAgentRun(threadId, reviewerId, renderPrompt)
-  AS->>AS: agent.run(prompt) + agent.continue()
-  AS-->>L: onEvent("message") → 写入
-  AS-->>O: onEvent("agent_end", willRetry: false)
-  Note over O: in_review 是人工闸门，不自动推进
-  H->>I: POST /review-decision { decision: "approve" }
+  Note over O: 守卫：project.autoOrchestrate 必须为 true
+  O->>AS: executeAgentRun(deps, {spanId, sessionId, agentId, input, origin:{kind:"orchestrator",…}})
+  AS->>AS: runLoop（自动多轮）→ onAssistantMessage 写 conversation ledger
+  AS-->>L: MessageRevision（同 Web E2E 路径）
+  AS-->>O: onRunComplete({status:"succeeded"})
+  O->>I: applyTransition(CAS) → in_progress
+  O->>AS: 下一棒（同路径）
+  AS->>AS: runLoop → 写入 conversation ledger
+  AS-->>O: onRunComplete({status:"succeeded"})
+  O->>I: applyTransition → in_review
+  Note over O: ColumnConfig.approvalPosture='human' 或 HUMAN_GATES 拦截，不自动推进
+  H->>I: POST /api/issues/:id/review-decision { decision: "approve" }
   I-->>I: status → done
 ```
 

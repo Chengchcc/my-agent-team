@@ -188,18 +188,6 @@ export async function onRunComplete(
             ts,
             spanId,
           });
-          await convSvc.broadcastMessage(
-            {
-              seq,
-              conversationId: cid,
-              senderMemberId,
-              addressedTo: [],
-              kind: "message",
-              content: serialized,
-              ts,
-            },
-            { excludeMemberId: senderMemberId },
-          );
         }
       }
     }

@@ -1,10 +1,5 @@
 import { Database } from "bun:sqlite";
 import {
-  extractText,
-  isTerminalMessageState,
-  serializeMessageRevision,
-} from "@my-agent-team/message";
-import {
   createRuntimeTracer,
   resolveObservabilityConfig,
 } from "@my-agent-team/runtime-observability";
@@ -22,8 +17,6 @@ import {
 import { createConversationFeature } from "./features/conversation/conv-svc-factory.js";
 import { conversationRoutes, parseSessionId } from "./features/conversation/index.js";
 import {
-  escapeRegExp,
-  getOrCreateAccumulator,
   onRunComplete,
 } from "./features/conversation/projection.js";
 import {
@@ -115,76 +108,6 @@ supervisor.onRunComplete((sessionId, spanId, status, kind, errorMessage) => {
   );
 });
 
-// M17.5 P3: @mention regex cache — compile once per label, not per streaming revision.
-const mentionRegexCache = new Map<string, RegExp>();
-function getMentionRegex(label: string): RegExp {
-  let re = mentionRegexCache.get(label);
-  if (!re) {
-    re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
-    mentionRegexCache.set(label, re);
-  }
-  return re;
-}
-
-// M17.5 P7: Authoritative ledger write for assistant messages — direct path.
-// Message events are written to ledger before checkpointer; the checkpointer
-// only receives non-message execution events.
-supervisor.onRunMessage(async (sessionId, spanId, revision, kind) => {
-  if (kind === "reflect") return;
-  // M19: issue-run isolation now handled by origin_kind in projection
-  const cid = parseSessionId(sessionId).conversationId;
-  if (!cid) return;
-  const senderMemberId = parseSessionId(sessionId).memberId || sessionId;
-
-  // Write directly to ledger (authoritative entry for assistant messages)
-  const seq = await conv.convSvc.appendAssistantMessage({
-    conversationId: cid,
-    senderMemberId,
-    spanId,
-    revision,
-  });
-
-  // Update accumulator for terminal processing (onRunComplete)
-  const acc = getOrCreateAccumulator(spanId, senderMemberId);
-  if (revision.role === "assistant") {
-    acc.latestAssistantRevision = { ...revision, conversationId: cid };
-
-    // @mention scanning (only on terminal revisions)
-    if (isTerminalMessageState(revision.state)) {
-      const text = extractText(revision);
-      if (text) {
-        const roster = conv.convPort.getMembers(cid);
-        for (const m of roster) {
-          if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
-          const label = m.displayName ?? m.memberId;
-          const re = getMentionRegex(label);
-          if (re.test(text) || text.includes(`@${m.memberId}`)) {
-            acc.mentionedMemberIds.add(m.memberId);
-          }
-        }
-      }
-    }
-  }
-
-  // Fan-out to frontend subscribers (best-effort)
-  const entry = {
-    seq,
-    conversationId: cid,
-    senderMemberId,
-    addressedTo: [] as string[],
-    kind: "message" as const,
-    content: serializeMessageRevision({ ...revision, conversationId: cid, spanId }),
-    ts: Date.now(),
-  };
-  void conv.convSvc
-    .broadcastMessage(entry, { excludeMemberId: senderMemberId })
-    .catch((err) =>
-      console.error(
-        `[main] broadcastMessage failed for ${spanId}:`,
-        err instanceof Error ? err.message : String(err),
-      ),
-    );
-});
 
 // ─── HTTP router ──────────────────────────────────────────────
 

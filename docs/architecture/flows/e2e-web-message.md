@@ -3,7 +3,7 @@ id: flows.e2e-web-message
 title: Web 消息端到端
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-25
+last_verified_against_code: 2026-06-30
 summary: "Web 消息的完整生命周期：用户发送消息 → 账本记录 → AgentSession 执行 → onEvent 回调写入 MessageRevision → 账本 SSE 推送到前端。AgentSession 在 Backend 进程内直接驱动 Agent 运行。"
 depends_on:
   - surfaces.web
@@ -31,13 +31,11 @@ sequenceDiagram
   W->>B: POST /api/conversations/:id/messages
   B->>L: 写入人类 MessageRevision
   L-->>W: 账本 SSE 回声 → upsert 乐观消息（按 messageId）
-  B->>AS: startAgentRun(input) → 创建 AgentSession
-  AS->>AS: ConversationContextPlugin.beforeModel（注入上下文 + 渐进加载工具）
-  AS->>CK: agent.run(input)
-  CK-->>AS: message（state: streaming）
-  AS-->>B: onEvent("message")
+  AS->>AS: sessionFactory.enqueuePrompt(sessionId, input, {spanId})
+  AS->>AS: runLoop（自动多轮）
+  AS-->>B: onAssistantMessage("message_update") → appendAssistantMessage
   B->>L: appendAssistantMessage → 写入 MessageRevision（同 messageId）
-  L-->>W: 账本 SSE → upsert → UI 显示 streaming
+  L-->>W: 账本 SSE（push buffer + 100ms poll）→ upsert → UI 显示 streaming
   CK-->>AS: tool_call → execute → tool_result → 继续产出
   CK-->>AS: agent_end
   AS-->>B: onEvent("agent_end", willRetry: false)
@@ -47,9 +45,7 @@ sequenceDiagram
 
 ## BFF 路由
 
-Web 端 API 调用经 `/api/bff` 前缀（Next.js rewrite 到 backend）。conversation SSE 走 `/api/bff/conversations/:id/events`，消息 POST 走 `/api/bff/conversations/:id/messages`。
-
-## 消息 revision upsert 模型
+Web 端 API 调用直接挂载在 `/api` 前缀下（无 `/bff` 中间层）。conversation SSE 走 `/api/conversations/:id/events`，消息 POST 走 `/api/conversations/:id/messages`。
 
 前端维护一份按 `messageId` 索引的消息列表。assistant 消息从 streaming 到 done 是同一 `messageId` 的多次 revision，每次账本 SSE 到达时按 `messageId` upsert。
 

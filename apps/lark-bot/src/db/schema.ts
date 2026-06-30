@@ -33,24 +33,6 @@ export const inboundMessage = sqliteTable(
   (table) => [unique("uq_inbound_lark_message_id").on(table.larkMessageId)],
 );
 
-export const runStream = sqliteTable("run_stream", {
-  runId: text().primaryKey(),
-  larkChatId: text().notNull(),
-  conversationId: text().notNull(),
-  larkMessageId: text(),
-  sourceMessageId: text(),
-  typingReactionId: text(),
-  typingStatus: text().notNull().default("none"),
-  status: text().notNull().default("starting"),
-  accumulated: text().notNull().default(""),
-  cardSendFailed: integer().notNull().default(0),
-  cardUpdateFailed: integer().notNull().default(0),
-  finalLedgerSeq: integer(),
-  lastError: text(),
-  completeFromLedger: integer().notNull().default(0),
-  createdAt: integer({ mode: "number" }).notNull(),
-  updatedAt: integer({ mode: "number" }).notNull(),
-});
 
 export const messageDelivery = sqliteTable(
   "message_delivery",
@@ -65,6 +47,3 @@ export const messageDelivery = sqliteTable(
   (table) => [primaryKey({ columns: [table.conversationId, table.messageId, table.larkChatId] })],
 );
 
-// drizzle-zod generated schemas for insert/update validation
-export const insertRunStreamSchema = createInsertSchema(runStream);
-export const selectRunStreamSchema = createSelectSchema(runStream);
