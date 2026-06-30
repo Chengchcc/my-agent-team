@@ -310,9 +310,7 @@ const app = createApp(config.authToken, {
       listForAgent: (id: string) =>
         skillPackSvc
           .listForAgent(id)
-          .then((rows: any[]) =>
-            rows.map((r: any) => ({ id: r.id, name: r.name, status: r.status })),
-          ),
+          .then((rows) => rows.map((r) => ({ id: r.id, name: r.name, status: r.status }))),
       setAgentPacks: (id: string, packIds: string[]) => skillPackSvc.setAgentPacks(id, packIds),
     },
     identityStore,
