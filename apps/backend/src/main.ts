@@ -44,11 +44,16 @@ import {
 import { resumeRoutes } from "./features/span/http.js";
 import { createSessionFactory } from "./features/span/session-factory.js";
 import { SpanSupervisor } from "./features/span/supervisor.js";
+import {
+  createSkillPackService as createSkillPackServiceFn,
+  seedSkillPacks,
+  skillPackRoutes,
+  sqliteSkillPackAdapter,
+} from "./features/skill-pack/index.js";
 import * as backendSchema from "./infra/db/schema.js";
 import { ulid } from "./infra/ids.js";
 import { openDb } from "./infra/sqlite/db.js";
 import { createServer } from "./server.js";
-
 // ─── Bootstrap ─────────────────────────────────────────────────
 
 const config = loadConfig();
@@ -75,9 +80,24 @@ const supervisor = new SpanSupervisor({
   onReap: (_runId, sessionId) => sessionFactory.dispose(sessionId),
 });
 
+// ─── Skill Pack Management (before agentSvc — onCreate depends on it) ──
+
+const skillPackPort = sqliteSkillPackAdapter(db);
+await seedSkillPacks({ port: skillPackPort, dataDir: config.dataDir });
+
+const skillPackSvc = createSkillPackServiceFn({
+  port: skillPackPort,
+  idGen: ulid,
+  // Stub triggers — wired in PR-E
+  triggerInstall: (packId) => console.log(`[skill-pack] install triggered for ${packId} (pending)`),
+  triggerSync: (packId) => console.log(`[skill-pack] sync triggered for ${packId} (pending)`),
+});
+
 // Feature services
 const larkBotRegistry = createLarkBotRegistry(config);
-const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry);
+const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry, {
+  onAgentCreate: (agentId) => skillPackSvc.setAgentPacks(agentId, ["builtin"]),
+});
 const conv = createConversationFeature(
   db,
   config,
@@ -261,6 +281,12 @@ const app = createApp(config.authToken, {
     identityStore,
     (id) => larkBotRegistry.statusOf(id),
     getSetupManager,
+    {
+      listForAgent: (id) => skillPackSvc.listForAgent(id).then((rows) =>
+        rows.map((r) => ({ id: r.id, name: r.name, status: r.status })),
+      ),
+      setAgentPacks: (id, packIds) => skillPackSvc.setAgentPacks(id, packIds),
+    },
   ),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),
@@ -274,6 +300,7 @@ const app = createApp(config.authToken, {
   projects: projectRoutes(projectSvc),
   columnConfigs: columnConfigRoutes(columnConfigSvc),
   cronJobs: cronJobRoutes(cronSvc, cronScheduler),
+  skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
 });
 
 // ─── Start ────────────────────────────────────────────────────

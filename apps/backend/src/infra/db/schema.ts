@@ -289,6 +289,36 @@ export const issueEvent = sqliteTable(
   (table) => [index("idx_issue_event_issue").on(table.issueId, table.seq)],
 );
 
+// ─── skill_pack ─────────────────────────────────────────────────────────
+export const skillPack = sqliteTable(
+  "skill_pack",
+  {
+    id: text().primaryKey(),
+    name: text().notNull(),
+    description: text().notNull(),
+    sourceKind: text().notNull(),
+    sourceUrl: text(),
+    versionRef: text(),
+    installedRef: text(),
+    status: text().notNull(),
+    error: text(),
+    createdAt: integer({ mode: "number" }).notNull(),
+    updatedAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [index("idx_skill_pack_status").on(table.status)],
+);
+
+// ─── agent_skill_pack ────────────────────────────────────────────────────
+export const agentSkillPack = sqliteTable(
+  "agent_skill_pack",
+  {
+    agentId: text().notNull(),
+    packId: text().notNull(),
+    createdAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.agentId, table.packId] })],
+);
+
 // ── Zod schemas (type chain: drizzle table → Zod → z.infer → TS type) ──
 
 import { createSelectSchema } from "drizzle-zod";
@@ -312,6 +342,11 @@ export const agentsSelectSchema = createSelectSchema(agents, {
 });
 export const conversationSelectSchema = createSelectSchema(conversation);
 export const memberSelectSchema = createSelectSchema(member);
+export const skillPackSelectSchema = createSelectSchema(skillPack, {
+  sourceKind: (s) => s.transform((v) => v as "builtin" | "git" | "zip"),
+  status: (s) => s.transform((v) => v as "pending" | "installing" | "ready" | "failed" | "syncing"),
+});
+export const agentSkillPackSelectSchema = createSelectSchema(agentSkillPack);
 
 // ── Tables with JSON/bool columns — drizzle-zod refine callback pattern ──
 // callback (schema) => schema.transform(...) adds transforms while preserving drizzle-zod types

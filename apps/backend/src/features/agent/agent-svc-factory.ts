@@ -14,12 +14,13 @@ import { AgentBusyError, createAgentService } from "./index.js";
 import { withLarkOrchestration } from "./with-lark-orchestration.js";
 
 /** Create the full agent service with workspace materialization, thread-id lookup,
- *  hard-delete dependencies, and lark-bot orchestration. */
+ *  hard-delete dependencies, lark-bot orchestration, and optional onCreate hook. */
 export function createAgentSvc(
   db: Database,
   config: BackendConfig,
   supervisor: SpanSupervisor,
   larkBotRegistry: LarkBotRegistry,
+  opts?: { onAgentCreate?: (agentId: string) => Promise<void> },
 ): AgentService {
   const agentPort = sqliteAgentAdapter(db);
   const agentsDir = join(config.dataDir, "agents");
@@ -28,6 +29,7 @@ export function createAgentSvc(
     port: agentPort,
     idGen: ulid,
     workspaceRoot: config.workspaceRoot,
+    onCreate: opts?.onAgentCreate,
     materializeWorkspace: async (agentId) => {
       const dir = join(agentsDir, agentId);
       await mkdir(dir, { recursive: true });
@@ -66,9 +68,6 @@ export function createAgentSvc(
           .all(agentId) as { id: string }[]
       ).map((r) => r.id),
 
-    // M20: Kept as raw SQL — dynamic IN with variable-length placeholders + subquery.
-    // drizzle's inArray() could handle this but the derived thread IDs + dynamic placeholders
-    // make the raw SQL clearer and less error-prone.
     assertNoActiveRun: (agentId) => {
       const edb = supervisor.getDb();
       const sessionIds = (

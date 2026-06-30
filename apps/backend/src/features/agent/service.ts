@@ -23,8 +23,10 @@ export function createAgentService(opts: {
   purgeEventsForSessions: (sessionIds: string[]) => Promise<void>;
   listSessionIds: (agentId: string) => Promise<string[]>;
   assertNoActiveRun: (agentId: string) => void;
+  /** Optional hook called after agent creation (e.g. assign builtin skill pack). */
+  onCreate?: (agentId: string) => Promise<void>;
 }): AgentService {
-  const { port, idGen, materializeWorkspace } = opts;
+  const { port, idGen, materializeWorkspace, onCreate } = opts;
 
   return {
     async create(input: CreateAgentInput): Promise<AgentRow> {
@@ -35,7 +37,7 @@ export function createAgentService(opts: {
       const larkAppId = input.lark?.appId ?? null;
       const larkProfileRef = larkEnabled ? `agent:${id}` : null;
       const larkBotDisplayName = input.lark?.botDisplayName ?? null;
-      return port.create({
+      const row = await port.create({
         ...input,
         id,
         workspacePath,
@@ -45,6 +47,8 @@ export function createAgentService(opts: {
         larkProfileRef,
         larkBotDisplayName,
       });
+      await onCreate?.(id);
+      return row;
     },
 
     async getById(id: string): Promise<AgentRow> {

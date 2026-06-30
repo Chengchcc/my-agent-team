@@ -6,19 +6,21 @@ import type { cronJobRoutes } from "./features/cron/http.js";
 import type { issueRoutes } from "./features/issue/http.js";
 import type { projectRoutes } from "./features/project/http.js";
 import type { opsRoutes } from "./features/runtime-ops/http.js";
+import type { skillPackRoutes } from "./features/skill-pack/http.js";
 import type { resumeRoutes } from "./features/span/http.js";
 import { checkAuthToken } from "./infra/auth.js";
 import { HttpError } from "./infra/errors.js";
 
 export interface FeatureSet {
-  agents: ReturnType<typeof agentRoutes>; // Elysia plugin (typed handlers)
+  agents: ReturnType<typeof agentRoutes>;
   conversations: ReturnType<typeof conversationRoutes>;
   ops: ReturnType<typeof opsRoutes>;
   issues: ReturnType<typeof issueRoutes>;
   projects: ReturnType<typeof projectRoutes>;
   columnConfigs: ReturnType<typeof columnConfigRoutes>;
   cronJobs: ReturnType<typeof cronJobRoutes>;
-  resumeRun: ReturnType<typeof resumeRoutes>; // Elysia plugin
+  resumeRun: ReturnType<typeof resumeRoutes>;
+  skillPacks: ReturnType<typeof skillPackRoutes>;
 }
 
 // ── Auth plugin ──
@@ -39,7 +41,7 @@ function authPlugin(token: string) {
 // ── App factory ──
 
 export function createApp(token: string, features: FeatureSet) {
-  const { agents, conversations, ops, issues, projects, columnConfigs, cronJobs } = features;
+  const { agents, conversations, ops, issues, projects, columnConfigs, cronJobs, skillPacks } = features;
 
   const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
@@ -49,11 +51,12 @@ export function createApp(token: string, features: FeatureSet) {
     .use(ops)
     .use(issues);
 
+
   return app
     .use(features.resumeRun)
     .use(projects)
     .use(columnConfigs)
-    .use(cronJobs)
+    .use(skillPacks)
     .onError(({ code, error, set }) => {
       if (error instanceof HttpError) {
         set.status = (error as HttpError).status;
