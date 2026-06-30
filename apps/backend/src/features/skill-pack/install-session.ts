@@ -1,6 +1,6 @@
 import { unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ChatModel } from "@my-agent-team/core";
 import type { Plugin } from "@my-agent-team/framework";
 import { AgentSession } from "@my-agent-team/harness";
@@ -88,13 +88,19 @@ export async function runInstall(source: InstallSource, deps: InstallSessionDeps
     try {
       return await runInstallInner(source, deps);
     } finally {
-      try { unlinkSync(tmpZipPath); } catch { /* ok */ }
+      try {
+        unlinkSync(tmpZipPath);
+      } catch {
+        /* ok */
+      }
     }
   }
   return runInstallInner(source, deps);
 }
 
 async function runInstallInner(source: InstallSource, deps: InstallSessionDeps): Promise<void> {
+  // Backend deterministically advances pending→installing (like syncGit does ready→syncing).
+  await deps.port.applyInstallTransition(source.packId, "installing", { now: Date.now() });
   const session = await createInstallSession(deps);
   try {
     await session.prompt(buildPrompt(source, "install"));

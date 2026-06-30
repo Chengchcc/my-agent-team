@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  existsSync,
   lstatSync,
   mkdtempSync,
   readdirSync,
@@ -153,7 +154,10 @@ export function createPackUnzipTool(deps: PackToolsDeps): Tool {
     inputSchema: {
       type: "object",
       properties: {
-        bufferB64: { type: "string", description: "Base64-encoded zip file contents. Optional when zip was pre-staged." },
+        bufferB64: {
+          type: "string",
+          description: "Base64-encoded zip file contents. Optional when zip was pre-staged.",
+        },
         targetDir: { type: "string", description: "Target directory name (no slashes)." },
       },
       required: ["targetDir"],
@@ -169,7 +173,10 @@ export function createPackUnzipTool(deps: PackToolsDeps): Tool {
           ? Buffer.from(bufferB64, "base64")
           : null;
       if (!buffer) {
-        return { content: "No zip data provided. Pre-staged zip not found and no bufferB64 given.", isError: true };
+        return {
+          content: "No zip data provided. Pre-staged zip not found and no bufferB64 given.",
+          isError: true,
+        };
       }
 
       const tmpDir = mkdtempSync(join(tmpdir(), "pack-unzip-"));
@@ -196,8 +203,9 @@ export function createPackUnzipTool(deps: PackToolsDeps): Tool {
         // Step 2: validate every entry — reject symlinks (not allowed in skill packs)
         validateExtractedEntries(extractDir, extractDir);
 
-        // Step 3: atomic rename to target
+        // Step 3: clean stale target, then atomic rename
         const targetFull = resolve(cwd, targetDir);
+        if (existsSync(targetFull)) rmSync(targetFull, { recursive: true, force: true });
         renameSync(extractDir, targetFull);
 
         const checksum = computeDirChecksum(cwd, targetDir);
@@ -302,8 +310,9 @@ export function createPackAtomicRenameTool(deps: PackToolsDeps): Tool {
     async execute(input: unknown) {
       const { tmpDir, finalDir } = input as { tmpDir: string; finalDir: string };
       assertSafeEntry(tmpDir);
-      assertSafeEntry(finalDir);
-      renameSync(resolve(cwd, tmpDir), resolve(cwd, finalDir));
+      const dest = resolve(cwd, finalDir);
+      if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
+      renameSync(resolve(cwd, tmpDir), dest);
       return { content: `Renamed ${tmpDir} → ${finalDir}` };
     },
   };

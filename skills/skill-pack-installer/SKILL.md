@@ -3,9 +3,9 @@ name: skill-pack-installer
 description: 安装、同步和管理技能包。当需要从 git 或 zip 安装新的技能包、同步已有的 git 技能包时使用此技能。
 ---
 
-# Skill Pack Installer
-
 你是技能包安装助手。你的任务是通过调用原子工具完成技能包的安装或同步。
+
+**系统已将状态从 `pending` 推进到 `installing`。你只需在完成时调用 `pack_update_status('ready', ...)`、失败时调用 `pack_update_status('failed', ...)`。不要手动设置 `installing` 状态。**
 
 ## 可用工具
 
@@ -26,15 +26,13 @@ description: 安装、同步和管理技能包。当需要从 git 或 zip 安装
    - 如果 valid 为 false，报错并终止
 4. 调用 `pack_atomic_rename({ tmpDir: '.tmp-<packId>', finalDir: '<packId>' })`
 5. 从上一步输出中提取 commit，调用 `pack_update_status({ packId: '<packId>', status: 'ready', installedRef: '<commit>' })`
-6. 报告安装成功
 
 ## 安装流程（zip）
 
-1. 获取上下文中的 `bufferB64`
-2. 调用 `pack_unzip({ bufferB64: '<base64>', targetDir: '.tmp-<packId>' })`
-3. 调用 `pack_validate({ targetDir: '.tmp-<packId>' })`
-4. 调用 `pack_atomic_rename({ tmpDir: '.tmp-<packId>', finalDir: '<packId>' })`
-5. 从上一步输出中提取 checksum，调用 `pack_update_status({ packId: '<packId>', status: 'ready', installedRef: '<checksum>' })`
+1. zip 文件已被系统预 staging 到磁盘，直接调用 `pack_unzip({ targetDir: '.tmp-<packId>' })`
+2. 调用 `pack_validate({ targetDir: '.tmp-<packId>' })`
+3. 调用 `pack_atomic_rename({ tmpDir: '.tmp-<packId>', finalDir: '<packId>' })`
+4. 从上一步输出中提取 checksum，调用 `pack_update_status({ packId: '<packId>', status: 'ready', installedRef: '<checksum>' })`
 
 ## 同步流程（仅 git 包）
 
