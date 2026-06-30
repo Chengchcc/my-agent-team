@@ -3,7 +3,7 @@ id: plugins.skill-pack
 title: 技能包管理
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-30
+last_verified_against_code: 2026-07-01
 summary: "技能包（Skill Pack）是一等领域实体——有来源、版本、安装生命周期。安装/同步由 builtin 技能 + 原子工具 + 临时 AgentSession 驱动，LLM 自主处理 git 冲突等 corner case。运行时 progressive-skill 经共享 fs adapter 消费分配好的 packs，builtin 恒在最前。"
 depends_on:
   - plugins.progressive-skill
@@ -48,7 +48,7 @@ agent_skill_pack (
 )
 ```
 
-`installPath` 不存表——由 `id + dataDir` 推导（`join(dataDir, 'skill-packs', id)`）。
+`installPath` 不存表——由 `id + dataDir` 推导。`enabled` 列为 YAGNI（分配即启用，unassign 即移除）。
 
 ## 状态机
 
@@ -66,81 +66,86 @@ stateDiagram-v2
   ready --> [*]: uninstall（builtin 拒绝）
 ```
 
-状态仅经 `applyInstallTransition` 变更——非法转移抛错。builtin 包（`sourceKind='builtin'`）不可卸载（API 409）。
+`status` 仅经 `applyInstallTransition` 变更——非法转移抛错。`failed→ready` 路径不存在（必须先到 installing/syncing 再 ready），`error` 在转 `ready` 时必被清为 `null`。builtin 包（`sourceKind='builtin'`）不可卸载（API 409）。
 
 ## 安装/同步——Agent 驱动
 
 安装/同步不走硬编码 TypeScript 流水线，而是：
 
-1. Backend 提供 **6 个原子工具**：`pack_git_clone` / `pack_unzip` / `pack_git_sync` / `pack_validate` / `pack_atomic_rename` / `pack_update_status`
-2. Builtin 技能 `skill-pack-installer` 指导临时 AgentSession 调用这些工具
-3. Agent 自主处理 git 冲突、dirty tree、diverged branch 等 corner case
+1. Backend 提供 **6 个原子工具**（`tools.ts`）：`pack_git_clone` / `pack_unzip` / `pack_git_sync` / `pack_validate` / `pack_atomic_rename` / `pack_update_status`
+2. Builtin 技能 `skill-pack-installer`（`skills/skill-pack-installer/SKILL.md`）指导临时 AgentSession 调用这些工具
+3. `install-session.ts` 的 `runInstall` / `runSync` 创建临时 session → 投 prompt → 收尾校验（终态非 ready/failed 则强制标记 failed）
 
 ```mermaid
 sequenceDiagram
     participant Svc as SkillPackService
+    participant IS as install-session.ts
     participant AS as 安装 AgentSession
     participant Tool as 原子工具
     participant DB as backend.db
     participant Disk as 文件系统
 
     Svc->>DB: register(pending)
-    Svc->>AS: 创建临时 session + prompt
+    Svc->>IS: triggerInstall(packId, ctx)
+    IS->>AS: 创建临时 session + prompt
     AS->>Tool: pack_git_clone / pack_unzip
     AS->>Tool: pack_validate
     AS->>Tool: pack_atomic_rename
     AS->>DB: pack_update_status(ready)
-    Svc->>Disk: 后置校验确认 ready
+    IS->>DB: 收尾校验（非终态 → failed）
 ```
 
-所有工具 cwd 锁定在 `<dataDir>/skill-packs/` 内，agent 无法访问系统路径。
+**zip 解包安全**：`createPackUnzipTool` 使用 temp→validate→rename 模式——先解到隔离 temp 目录 → `validateExtractedEntries` 逐条 `lstat` 检查 symlink + `realpath` 边界 → 原子 rename。拒绝 symlink（技能包不应含符号链接），拒绝路径穿越。
+
+**git sync**：`createPackGitSyncTool` 使用 `git fetch origin <ref>` + `git reset --hard FETCH_HEAD`，`FETCH_HEAD` 是正确的浅仓库 reset 目标（不用 `origin/HEAD` 因为可能未设置）。同步完成后调用 `invalidateSkillCache(root)` 强制刷新缓存。
 
 ## 运行时装配
 
-session-factory 通过 `skill-roots.ts` 的 `buildSkillRoots` 预解析 agent 的已分配 packs → 组 `roots[]`（builtin 在前，pack ID 相对路径）→ 创建共享 `nodeFsAdapter`（root 指向 `<dataDir>/skill-packs/`）→ 传入 `progressiveSkillPlugin`。
+`span-executor.ts` 的 `executeAgentRun` 通过 singleton registry（`setSkillPackPort` / `getSkillPackPort`）调用 `buildSkillRoots`：
 
 ```typescript
-// 伪代码
-const { ws, roots, posixSkillRoot } = await buildSkillRoots(agentId, skillPackPort, dataDir);
-// roots = ['builtin', '<uuid1>', '<uuid2>']  — pack ID 相对路径
-// ws = nodeFsAdapter(join(dataDir, 'skill-packs'))
-// posixSkillRoot = join(dataDir, 'skill-packs')
-
-progressiveSkillPlugin({ ws, roots, posixSkillRoot })
+// span-executor.ts（实际代码）
+const port = getSkillPackPort();
+const skillRoots = port ? await buildSkillRoots(agentId, port, config.dataDir) : undefined;
+const spec = buildSessionSpec({ ..., skillRoots });
 ```
 
-分配变更只对**新建 session** 生效。活 session 的 `roots[]` 在创建时固定。
+无 port 注入时走原有 `progressiveSkillPlugin({ cwd })` 路径——向后兼容。分配变更只对**新建 session** 生效，活 session 不热更。
 
 ## Bootstrap
 
-启动时：
-1. **Reaper**：`status IN ('pending','installing','syncing')` → 全部标记 `failed`
-2. **Seed**：若无 builtin 记录 → 从 repo 根 `skills/` 复制到 `<dataDir>/skill-packs/builtin/` → 登记 `status=ready`
+启动时（`seed.ts`）：
+1. **Reaper**：`status IN ('pending','installing','syncing')` → 全部标记 `failed`（crash 恢复）
+2. **Seed**：若无 builtin 记录 → 从 repo 根 `skills/` 复制到 `<dataDir>/skill-packs/builtin/` → 登记 `status=ready`。源目录不存在时记录 error（不再伪造空 ready 目录）
 3. 新建 agent 默认 assign builtin（`agent.service.create` 内 `onCreate` 钩子）
 
-## HTTP 端点
+## DELETE 卸载
 
-| 端点 | 说明 |
-|------|------|
-| `GET /api/skill-packs` | 列表 |
-| `POST /api/skill-packs/git` | git 安装 |
-| `POST /api/skill-packs/upload` | zip 上传（multipart） |
-| `POST /api/skill-packs/:id/sync` | git 同步 |
-| `DELETE /api/skill-packs/:id` | 卸载 |
-| `GET /api/skill-packs/:id/skills` | 列出包内技能 |
-| `GET /api/skill-packs/:id/files?path=` | 浏览文件 |
-| `GET /api/agents/:id/skill-packs` | 读 agent 分配 |
-| `PUT /api/agents/:id/skill-packs` | 设置 agent 分配 |
+先 service 校验（builtin → 409），成功后才 `rmSync` 删目录。先删盘再判 builtin 的 bug 已修复。
 
 ## 安全边界
 
-- 安装 agent 工具 cwd 锁定在 `<dataDir>/skill-packs/`
+- 安装 agent 工具 cwd 锁定在 `<dataDir>/skill-packs/`（`nodeFsAdapter` 带 `inCwd` 路径段校验，防 `/skill-packs-evil` 前缀误判）
 - `pack_update_status` 经 `applyInstallTransition` 校验，agent 无法破坏状态机
-- 安装过程**绝不执行包内脚本**
-- zip 解包逐条 `assertSafeEntry` 防路径穿越
-- zip bomb 防护：解包后总大小 ≤500MB
+- 安装/同步过程**绝不执行包内脚本**
+- zip 解包：temp→validate→rename 模式——逐条 `lstat` / `realpath` 防 symlink 逃逸和路径穿越
 - 上传限制：multipart bodyLimit 50MB
 - git 产出的 symlink 不额外拒绝——实际执行仍经 permissionMode + cwd 隔离
+
+## 共享模块
+
+| 模块 | 职责 |
+|------|------|
+| `entities.ts` | `SkillPackRow` / 状态机 / `applyInstallTransition` / 路径推导 |
+| `fs-adapter.ts` | 全仓唯一 `nodeFsAdapter`——路径段校验代替 `startsWith` 前缀误判 |
+| `registry.ts` | 模块级 singleton 存放 `SkillPackPort`，`span-executor.ts` 无需依赖注入链 |
+| `install-session.ts` | `runInstall` / `runSync` 临时 session 编排 + 故障兜底 |
+| `tools.ts` | 6 个原子工具 + `validateExtractedEntries` |
+| `http.ts` | 10 个 HTTP 端点 |
+
+## Elysia / Treaty 类型限制
+
+Elysia 将每条路由拆成独立交叉类型成员。`skill-packs` 有 7 条路由，交叉类型层数超过 TypeScript 编译器复杂度上限，导致 treaty 无法推导 `client.api["skill-packs"]` 的完整类型。组件层使用 `as any` 显式声明此限制（5 处）。agent 子路由（`/api/agents/:id/skill-packs`）使用 var reassignment（`app = app.get(...)`）模式产生不同的交叉类型结构，同样需要 `as any`（2 处）。所有 `as any` 均标注原因，非疏漏。
 
 ## 关联页面
 

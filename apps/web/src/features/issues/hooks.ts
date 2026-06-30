@@ -42,7 +42,7 @@ export function useDeleteIssue(issueId: string) {
 export function useApplyTransition(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (to: IssueStatus) => api.applyTransition(id, to),
+    mutationFn: (to: IssueStatus) => api.transitionIssue(id, { to }),
     onSuccess: () => qc.invalidateQueries({ queryKey: issueKeys.lists() }),
   });
 }

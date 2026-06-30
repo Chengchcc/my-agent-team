@@ -125,7 +125,6 @@ export default function IssuesPage() {
                       title: data.title,
                       ...(data.description ? { description: data.description } : {}),
                       priority: data.priority,
-                      estimatedCompletionAt: data.estimatedCompletionAt,
                     },
                     {
                       onSuccess: () => {

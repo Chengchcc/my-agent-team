@@ -130,9 +130,9 @@ export const api = {
   // Projects
   listProjects: () => unwrap(client.api.projects.get()),
   getProject: (id: string) => unwrap(client.api.projects({ id }).get()),
-  createProject: (body: { name: string; gitUrl?: string; gitBranch?: string }) =>
+  createProject: (body: { name: string; repoUrl?: string; defaultBranch?: string; autoOrchestrate?: boolean }) =>
     unwrap(client.api.projects.post(body)),
-  updateProject: (id: string, body: { name?: string; gitUrl?: string; gitBranch?: string }) =>
+  updateProject: (id: string, body: { name?: string; repoUrl?: string | null; defaultBranch?: string | null; autoOrchestrate?: boolean }) =>
     unwrap(client.api.projects({ id }).patch(body)),
   deleteProject: (id: string) => unwrap(client.api.projects({ id }).delete()),
   // Issues
@@ -150,14 +150,18 @@ export const api = {
   }) => unwrap(client.api.issues.post(body)),
   getIssueTimeline: (id: string) => unwrap(client.api.issues({ id }).timeline.get()),
   subscribeIssueTimeline: (id: string) =>
-    unwrap(client.api.issues({ id }).timeline.subscribe.get()),
-  transitionIssue: (id: string, body: { status: string }) =>
+    unwrap((client.api.issues({ id }).timeline as any).subscribe.get()),
+  transitionIssue: (id: string, body: { to: string }) =>
     unwrap(client.api.issues({ id }).transition.post(body)),
   reviewDecision: (
     id: string,
     body: { decision: "approve" } | { decision: "reject"; note: string },
   ) => unwrap(client.api.issues({ id })["review-decision"].post(body)),
   getIssueDetail: (id: string) => unwrap(client.api.issues({ id }).detail.get()),
+  getIssueMeta: () => unwrap(client.api["issue-meta"].get()),
+  updateIssue: (id: string, body: { title?: string; description?: string; priority?: IssuePriority }) =>
+    unwrap(client.api.issues({ id }).patch(body)),
+  deleteIssue: (id: string) => unwrap(client.api.issues({ id }).delete()),
   // Column Configs
   listColumnConfigs: (projectId: string) =>
     unwrap(client.api["column-configs"].get({ query: { projectId } })),
@@ -180,6 +184,10 @@ export const api = {
     maxRetries?: number;
     enabled?: boolean;
   }) => unwrap(client.api["cron-jobs"].post(body)),
+  updateCronJob: (id: string, body: { name?: string; prompt?: string; cronExpr?: string; timeoutMs?: number; maxRetries?: number; enabled?: boolean }) =>
+    unwrap(client.api["cron-jobs"]({ id }).patch(body)),
+  setCronJobEnabled: (id: string, enabled: boolean) =>
+    unwrap(client.api["cron-jobs"]({ id }).enable.post({ enabled })),
   deleteCronJob: (id: string) => unwrap(client.api["cron-jobs"]({ id }).delete()),
   // Skill packs
   listSkillPacks: () => unwrap(client.api["skill-packs"].get()),
@@ -192,11 +200,8 @@ export const api = {
     unwrap(client.api["skill-packs"].upload.post(body)),
   syncSkillPack: (id: string) => unwrap(client.api["skill-packs"]({ id }).sync.post()),
   deleteSkillPack: (id: string) => unwrap(client.api["skill-packs"]({ id }).delete()),
-  // Agent sub-routes via var reassignment → Elysia intersection types treaty can't resolve
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getAgentSkillPacks: (agentId: string) =>
-    unwrap((client.api.agents({ id: agentId }) as any)["skill-packs"].get()),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    unwrap(client.api.agents({ id: agentId })["skill-packs"].get()),
   setAgentSkillPacks: (agentId: string, body: { packIds: string[] }) =>
-    unwrap((client.api.agents({ id: agentId }) as any)["skill-packs"].put(body)),
+    unwrap(client.api.agents({ id: agentId })["skill-packs"].put(body)),
 };

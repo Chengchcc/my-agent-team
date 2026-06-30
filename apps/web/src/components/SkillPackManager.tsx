@@ -99,8 +99,7 @@ function FileContent({ packId, path }: { packId: string; path: string }) {
 
 export function SkillPackManager() {
   // treaty can't derive skill-packs types due to Elysia intersection type limits
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: packs, isLoading, refetch } = useSkillPackList() as any;
+  const { data: packs, isLoading, refetch } = useSkillPackList();
   const [selectedPack, setSelectedPack] = useState<string | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -108,11 +107,10 @@ export function SkillPackManager() {
 
   const syncMutation = useSyncPack();
   const deleteMutation = useDeletePack();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: skills } = useSkillPackSkills(selectedPack ?? "") as any;
+  const { data: skills } = useSkillPackSkills(selectedPack ?? "");
 
   // Auto-refetch while installing/syncing
-  const hasPending = (packs as any[])?.some(
+  const hasPending = packs?.some(
     (p: any) => p.status === "installing" || p.status === "syncing",
   );
   if (hasPending) {

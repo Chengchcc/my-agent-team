@@ -175,7 +175,7 @@ export function IssueKanban({
     });
 
     try {
-      await api.applyTransition(issueId, toStatus as IssueStatus);
+      await api.transitionIssue(issueId, { to: toStatus as IssueStatus });
       queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
     } catch (err) {
       // Rollback on failure
