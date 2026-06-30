@@ -117,8 +117,8 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   }, [setupSession?.status, setupSession?.setupId, editAgent?.id, queryClient]);
 
   // Skill pack assignments
-  const { data: availablePacks } = useSkillPackList();
-  const { data: assignedPacks } = useAgentSkillPacks(editAgent?.id ?? "");
+  const { data: availablePacks } = useSkillPackList() as any;
+  const { data: assignedPacks } = useAgentSkillPacks(editAgent?.id ?? "") as any;
   const setPacksMutation = useSetAgentPacks(editAgent?.id ?? "");
 
   // Sync assigned packs to local state when loaded

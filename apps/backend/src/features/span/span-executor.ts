@@ -1,16 +1,16 @@
-import { getSkillPackPort } from "../skill-pack/registry.js";
-import { buildSkillRoots } from "./skill-roots.js";
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
 import type { ConversationPort } from "../conversation/ports.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import type { SpanOriginKind } from "../runtime-ops/types.js";
+import { getSkillPackPort } from "../skill-pack/registry.js";
 import {
   buildSessionSpec,
   createSessionFactory,
   type ModelFactory,
   type SessionFactory,
 } from "./session-factory.js";
+import { buildSkillRoots } from "./skill-roots.js";
 import type { SpanSupervisor } from "./supervisor.js";
 
 // ─── Types ────────────────────────────────────────────────
@@ -139,9 +139,7 @@ export async function executeAgentRun(
   // ── Materialize session via factory ─────────────────────
   const agent = await agentSvc.getById(agentId);
   const port = getSkillPackPort();
-  const skillRoots = port
-    ? await buildSkillRoots(agentId, port, config.dataDir)
-    : undefined;
+  const skillRoots = port ? await buildSkillRoots(agentId, port, config.dataDir) : undefined;
   const spec = buildSessionSpec({
     agent,
     agentId,

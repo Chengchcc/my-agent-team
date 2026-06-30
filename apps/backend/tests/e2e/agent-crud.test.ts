@@ -26,7 +26,7 @@ const svc = createAgentService({
   assertNoActiveRun: () => {},
 });
 
-const app = new Elysia().use(agentRoutes(svc));
+const app = new Elysia().use(agentRoutes(svc, { listForAgent: async () => [], setAgentPacks: async () => {} }));
 
 afterAll(() => {
   db.close();

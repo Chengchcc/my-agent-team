@@ -12,7 +12,14 @@ export {
   type TransitionPatch,
 } from "./entities.js";
 export { skillPackRoutes } from "./http.js";
+export {
+  type InstallSessionDeps,
+  type InstallSource,
+  runInstall,
+  runSync,
+} from "./install-session.js";
 export type { SkillPackPort } from "./ports.js";
+export { getSkillPackPort, setSkillPackPort } from "./registry.js";
 export { type SeedSkillPacksDeps, seedSkillPacks } from "./seed.js";
 export {
   BuiltinPackImmutableError,
@@ -21,11 +28,4 @@ export {
   type SkillPackService,
   type SkillPackServiceDeps,
 } from "./service.js";
-export {
-  type InstallSessionDeps,
-  type InstallSource,
-  runInstall,
-  runSync,
-} from "./install-session.js";
 export { assertSafeEntry, createAllPackTools, type PackToolsDeps } from "./tools.js";
-export { getSkillPackPort, setSkillPackPort } from "./registry.js";

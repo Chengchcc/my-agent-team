@@ -1,14 +1,13 @@
 import { existsSync, rmSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { Elysia, t } from "elysia";
 import { loadSkillIndexWithMtimeCache } from "@my-agent-team/plugin-progressive-skill";
+import { Elysia, t } from "elysia";
 import type { SkillPackRow } from "./entities.js";
 import { installPath, posixSkillRoot } from "./entities.js";
 import { nodeFsAdapter } from "./fs-adapter.js";
 import type { SkillPackService } from "./service.js";
 import { BuiltinPackImmutableError } from "./service.js";
 import { assertSafeEntry } from "./tools.js";
-
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────────
 

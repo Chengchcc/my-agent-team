@@ -1,23 +1,19 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  existsSync,
   lstatSync,
-  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import type { Tool } from "@my-agent-team/core";
 import { loadSkillIndexWithMtimeCache } from "@my-agent-team/plugin-progressive-skill";
-import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { posixSkillRoot } from "./entities.js";
 import { nodeFsAdapter } from "./fs-adapter.js";
 import type { SkillPackPort } from "./ports.js";
@@ -71,7 +67,7 @@ function validateExtractedEntries(root: string, dir: string): void {
     // For regular files/dirs, verify realpath is within root
     const real = realpathSync(fullPath);
     const normalizedRoot = resolve(root);
-    if (!real.startsWith(normalizedRoot + "/") && real !== normalizedRoot) {
+    if (!real.startsWith(`${normalizedRoot}/`) && real !== normalizedRoot) {
       throw new Error(`Path escape detected: ${entry.name} → ${real}`);
     }
 
@@ -167,7 +163,6 @@ export function createPackUnzipTool(deps: PackToolsDeps): Tool {
 
       const buffer = Buffer.from(bufferB64, "base64");
 
-
       const tmpDir = mkdtempSync(join(tmpdir(), "pack-unzip-"));
       const zipPath = join(tmpDir, "upload.zip");
       writeFileSync(zipPath, buffer);
@@ -180,7 +175,9 @@ export function createPackUnzipTool(deps: PackToolsDeps): Tool {
             stdio: ["ignore", "pipe", "pipe"],
           });
           let stderr = "";
-          proc.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+          proc.stderr?.on("data", (d: Buffer) => {
+            stderr += d.toString();
+          });
           proc.on("close", (code) => resolve({ exitCode: code ?? 1, stderr }));
         });
         if (result.exitCode !== 0) {
@@ -198,7 +195,11 @@ export function createPackUnzipTool(deps: PackToolsDeps): Tool {
         const checksum = computeDirChecksum(cwd, targetDir);
         return { content: `Unzipped to ${targetDir} (checksum: ${checksum})` };
       } finally {
-        try { rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
+        try {
+          rmSync(tmpDir, { recursive: true });
+        } catch {
+          /* ignore */
+        }
       }
     },
   };

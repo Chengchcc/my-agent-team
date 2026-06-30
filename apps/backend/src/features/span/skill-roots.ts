@@ -1,8 +1,8 @@
 import { join } from "node:path";
+import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { BUILTIN_PACK_ID } from "../skill-pack/entities.js";
 import { nodeFsAdapter } from "../skill-pack/fs-adapter.js";
 import type { SkillPackPort } from "../skill-pack/ports.js";
-import type { AgentFsLike } from "@my-agent-team/tools-common";
 
 // ─── Build skill roots ────────────────────────────────────────────────────────────
 

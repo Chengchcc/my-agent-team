@@ -1,6 +1,9 @@
 import { Database } from "bun:sqlite";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
-import { createRuntimeTracer, resolveObservabilityConfig } from "@my-agent-team/runtime-observability";
+import {
+  createRuntimeTracer,
+  resolveObservabilityConfig,
+} from "@my-agent-team/runtime-observability";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
@@ -43,7 +46,6 @@ import {
   createSkillPackService as createSkillPackServiceFn,
   runInstall,
   runSync,
-  seedSkillPacks,
   setSkillPackPort,
   skillPackRoutes,
   sqliteSkillPackAdapter,
@@ -92,13 +94,29 @@ const skillPackSvc = createSkillPackServiceFn({
   triggerInstall: (packId, ctx) => {
     void runInstall(
       { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
-      { model: new AnthropicChatModel({ apiKey: config.anthropicApiKey, model: "claude-sonnet-4-6", baseUrl: config.anthropicBaseUrl }), dataDir: config.dataDir, port: skillPackPort },
+      {
+        model: new AnthropicChatModel({
+          apiKey: config.anthropicApiKey,
+          model: "claude-sonnet-4-6",
+          baseUrl: config.anthropicBaseUrl,
+        }),
+        dataDir: config.dataDir,
+        port: skillPackPort,
+      },
     ).catch((err) => console.error(`[skill-pack] install failed for ${packId}:`, err));
   },
   triggerSync: (packId, ctx) => {
     void runSync(
       { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
-      { model: new AnthropicChatModel({ apiKey: config.anthropicApiKey, model: "claude-sonnet-4-6", baseUrl: config.anthropicBaseUrl }), dataDir: config.dataDir, port: skillPackPort },
+      {
+        model: new AnthropicChatModel({
+          apiKey: config.anthropicApiKey,
+          model: "claude-sonnet-4-6",
+          baseUrl: config.anthropicBaseUrl,
+        }),
+        dataDir: config.dataDir,
+        port: skillPackPort,
+      },
     ).catch((err) => console.error(`[skill-pack] sync failed for ${packId}:`, err));
   },
 });
@@ -288,16 +306,16 @@ const app = createApp(config.authToken, {
   resumeRun,
   agents: agentRoutes(
     agentSvc,
-    identityStore,
-    (id) => larkBotRegistry.statusOf(id),
-    getSetupManager,
     {
-      listForAgent: (id) =>
+      listForAgent: (id: string) =>
         skillPackSvc
           .listForAgent(id)
-          .then((rows) => rows.map((r) => ({ id: r.id, name: r.name, status: r.status }))),
-      setAgentPacks: (id, packIds) => skillPackSvc.setAgentPacks(id, packIds),
+          .then((rows: any[]) => rows.map((r: any) => ({ id: r.id, name: r.name, status: r.status }))),
+      setAgentPacks: (id: string, packIds: string[]) => skillPackSvc.setAgentPacks(id, packIds),
     },
+    identityStore,
+    (id: string) => larkBotRegistry.statusOf(id),
+    getSetupManager,
   ),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),

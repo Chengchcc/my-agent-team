@@ -43,13 +43,13 @@ function deriveLarkStatus(row: AgentRow, registryStatus?: string): string {
 
 export function agentRoutes(
   svc: AgentService,
-  identityStore?: AgentIdentityStore,
-  larkStatusOf?: (agentId: string) => string,
-  getSetupManager?: () => LarkSetupManager,
-  skillPackSvc?: {
+  skillPackSvc: {
     listForAgent: (agentId: string) => Promise<{ id: string; name: string; status: string }[]>;
     setAgentPacks: (agentId: string, packIds: string[]) => Promise<void>;
   },
+  identityStore?: AgentIdentityStore,
+  larkStatusOf?: (agentId: string) => string,
+  getSetupManager?: () => LarkSetupManager,
 ) {
   const statusOf = (row: AgentRow) => deriveLarkStatus(row, larkStatusOf?.(row.id));
 
@@ -244,7 +244,7 @@ export function agentRoutes(
     });
 
   // Skill pack assignment routes (optional)
-  if (skillPackSvc) {
+  // Always mounted — skillPackSvc is always provided by main.ts
     return base
       .get("/api/agents/:id/skill-packs", async ({ params: { id } }) => {
         const packs = await skillPackSvc.listForAgent(id);
@@ -262,7 +262,6 @@ export function agentRoutes(
           }),
         },
       );
-  }
 
   return base;
 }

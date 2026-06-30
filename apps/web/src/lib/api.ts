@@ -121,26 +121,6 @@ export const api = {
   getTraceOpsDetail: (traceId: string) => unwrap(client.api.ops.traces({ id: traceId }).get()),
   listSurfaces: () => unwrap(client.api.ops.surfaces.get()),
   getRunInsights: (spanId: string) => unwrap(client.api.ops.runs({ id: spanId }).insights.get()),
-  // Skill packs
-  listSkillPacks: () => unwrap(client.api.skillPacks.get()),
-  getSkillPackSkills: (id: string) => unwrap(client.api.skillPacks({ id }).skills.get()),
-  getSkillPackFiles: (id: string, path?: string) =>
-    unwrap(client.api.skillPacks({ id }).files.get({ query: path ? { path } : undefined })),
-  installSkillPackGit: (body: { name: string; description: string; url: string; ref?: string }) =>
-    unwrap(client.api.skillPacks.git.post(body)),
-  uploadSkillPackZip: (formData: FormData) =>
-    unwrap(
-      client.api.skillPacks.upload.post(formData, {
-        headers: { "content-type": "multipart/form-data" },
-      }),
-    ),
-  syncSkillPack: (id: string) => unwrap(client.api.skillPacks({ id }).sync.post()),
-  deleteSkillPack: (id: string) => unwrap(client.api.skillPacks({ id }).delete()),
-  // Agent skill pack assignments
-  getAgentSkillPacks: (agentId: string) =>
-    unwrap(client.api.agents({ id: agentId }).skillPacks.get()),
-  setAgentSkillPacks: (agentId: string, body: { packIds: string[] }) =>
-    unwrap(client.api.agents({ id: agentId }).skillPacks.put(body)),
   getInsightsSummary: (range: { from: number; to: number }) =>
     unwrap(
       client.api.ops.insights.summary.get({
@@ -149,46 +129,30 @@ export const api = {
     ),
   // Projects
   listProjects: () => unwrap(client.api.projects.get()),
-  createProject: (body: {
-    name: string;
-    repoUrl?: string;
-    defaultBranch?: string;
-    autoOrchestrate?: boolean;
-  }) => unwrap(client.api.projects.post(body)),
-  updateProject: (
-    id: string,
-    body: {
-      name?: string;
-      repoUrl?: string | null;
-      defaultBranch?: string | null;
-      autoOrchestrate?: boolean;
-    },
-  ) => unwrap(client.api.projects({ id }).patch(body)),
+  getProject: (id: string) => unwrap(client.api.projects({ id }).get()),
+  createProject: (body: { name: string; gitUrl?: string; gitBranch?: string }) =>
+    unwrap(client.api.projects.post(body)),
+  updateProject: (id: string, body: { name?: string; gitUrl?: string; gitBranch?: string }) =>
+    unwrap(client.api.projects({ id }).patch(body)),
   deleteProject: (id: string) => unwrap(client.api.projects({ id }).delete()),
   // Issues
-  getIssueMeta: () => unwrap(client.api["issue-meta"].get()),
-  listIssues: (projectId?: string) =>
-    unwrap(client.api.issues.get({ query: projectId ? { projectId } : undefined })),
-  getIssue: (id: string) => unwrap(client.api.issues({ id }).get()),
+  listIssues: (projectId: string, params?: { status?: string; priority?: string }) =>
+    unwrap(
+      client.api.issues.get({
+        query: { projectId, ...params },
+      }),
+    ),
   createIssue: (body: {
     projectId: string;
     title: string;
     description?: string;
     priority?: IssuePriority;
-    estimatedCompletionAt?: number | null;
   }) => unwrap(client.api.issues.post(body)),
-  updateIssue: (
-    id: string,
-    body: {
-      title?: string;
-      description?: string;
-      priority?: IssuePriority;
-      estimatedCompletionAt?: number | null;
-    },
-  ) => unwrap(client.api.issues({ id }).patch(body)),
-  deleteIssue: (id: string) => unwrap(client.api.issues({ id }).delete()),
-  applyTransition: (id: string, to: IssueStatus) =>
-    unwrap(client.api.issues({ id }).transition.post({ to })),
+  getIssueTimeline: (id: string) => unwrap(client.api.issues({ id }).timeline.get()),
+  subscribeIssueTimeline: (id: string) =>
+    unwrap(client.api.issues({ id }).timeline.subscribe.get()),
+  transitionIssue: (id: string, body: { status: string }) =>
+    unwrap(client.api.issues({ id }).transition.post(body)),
   reviewDecision: (
     id: string,
     body: { decision: "approve" } | { decision: "reject"; note: string },
@@ -216,18 +180,22 @@ export const api = {
     maxRetries?: number;
     enabled?: boolean;
   }) => unwrap(client.api["cron-jobs"].post(body)),
-  updateCronJob: (
-    id: string,
-    body: {
-      name?: string;
-      agentId?: string;
-      cronExpr?: string;
-      prompt?: string;
-      timeoutMs?: number;
-      maxRetries?: number;
-    },
-  ) => unwrap(client.api["cron-jobs"]({ id }).patch(body)),
-  setCronJobEnabled: (id: string, enabled: boolean) =>
-    unwrap(client.api["cron-jobs"]({ id }).enable.post({ enabled })),
   deleteCronJob: (id: string) => unwrap(client.api["cron-jobs"]({ id }).delete()),
+  // Skill packs
+  listSkillPacks: () => unwrap(client.api["skill-packs"].get()),
+  getSkillPackSkills: (id: string) =>
+    unwrap(client.api["skill-packs"]({ id }).skills.get()),
+  getSkillPackFiles: (id: string, path?: string) =>
+    unwrap(client.api["skill-packs"]({ id }).files.get({ query: path ? { path } : undefined })),
+  installSkillPackGit: (body: { name: string; description: string; url: string; ref?: string }) =>
+    unwrap(client.api["skill-packs"].git.post(body)),
+  uploadSkillPackZip: (body: { name: string; description: string; file: File }) =>
+    unwrap(client.api["skill-packs"].upload.post(body)),
+  syncSkillPack: (id: string) => unwrap(client.api["skill-packs"]({ id }).sync.post()),
+  deleteSkillPack: (id: string) => unwrap(client.api["skill-packs"]({ id }).delete()),
+  // Agent sub-routes via var reassignment → Elysia intersection types treaty can't resolve
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getAgentSkillPacks: (agentId: string) => unwrap((client.api.agents({ id: agentId }) as any)["skill-packs"].get()),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  setAgentSkillPacks: (agentId: string, body: { packIds: string[] }) => unwrap((client.api.agents({ id: agentId }) as any)["skill-packs"].put(body)),
 };

@@ -98,7 +98,9 @@ function FileContent({ packId, path }: { packId: string; path: string }) {
 }
 
 export function SkillPackManager() {
-  const { data: packs, isLoading, refetch } = useSkillPackList();
+  // treaty can't derive skill-packs types due to Elysia intersection type limits
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: packs, isLoading, refetch } = useSkillPackList() as any;
   const [selectedPack, setSelectedPack] = useState<string | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -106,13 +108,14 @@ export function SkillPackManager() {
 
   const syncMutation = useSyncPack();
   const deleteMutation = useDeletePack();
-  const { data: skills } = useSkillPackSkills(selectedPack ?? "");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: skills } = useSkillPackSkills(selectedPack ?? "") as any;
 
   // Auto-refetch while installing/syncing
-  const hasPending = packs?.some(
-    (p) =>
-      (p as { status: string }).status === "installing" ||
-      (p as { status: string }).status === "syncing",
+  const hasPending = (packs as any[])?.some(
+    (p: any) =>
+      p.status === "installing" ||
+      p.status === "syncing",
   );
   if (hasPending) {
     const timer = setInterval(() => refetch(), 3000);
@@ -158,7 +161,7 @@ export function SkillPackManager() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {packs?.map((pack) => {
+          {packs?.map((pack: any) => {
             const p = pack as {
               id: string;
               name: string;

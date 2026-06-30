@@ -68,6 +68,7 @@ function makeSvc() {
         listSessionIds: async () => [],
         assertNoActiveRun: () => {},
       }),
+      { listForAgent: async () => [], setAgentPacks: async () => {} },
     ),
   );
 }

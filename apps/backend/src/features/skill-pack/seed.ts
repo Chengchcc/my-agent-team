@@ -56,7 +56,9 @@ export async function seedSkillPacks(deps: SeedSkillPacksDeps): Promise<void> {
 
   // Copy from repo root if available
   if (!existsSync(SKILLS_SOURCE)) {
-    console.error(`[seed] builtin skills source not found at ${SKILLS_SOURCE} — builtin pack will be empty`);
+    console.error(
+      `[seed] builtin skills source not found at ${SKILLS_SOURCE} — builtin pack will be empty`,
+    );
     mkdirSync(builtinTarget, { recursive: true });
   } else {
     if (existsSync(builtinTarget)) {
