@@ -179,7 +179,7 @@ export async function onRunComplete(
         const serialized = serializeMessageRevision(finalRev);
         if (!convPort.hasLedgerContent?.(spanId, serialized)) {
           const ts = Date.now();
-          const seq = convPort.appendLedgerEntry({
+          const _seq = convPort.appendLedgerEntry({
             conversationId: cid,
             senderMemberId,
             addressedTo: [],
