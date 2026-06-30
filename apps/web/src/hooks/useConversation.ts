@@ -112,7 +112,11 @@ export function useConversation(
       lastAppliedSeq = Math.max(lastAppliedSeq, seq);
       // Persist across page refresh so SSE can resume from this point
       if (typeof window !== "undefined") {
-        try { sessionStorage.setItem(storageKey, String(lastAppliedSeq)); } catch { /* quota */ }
+        try {
+          sessionStorage.setItem(storageKey, String(lastAppliedSeq));
+        } catch {
+          /* quota */
+        }
       }
       if (pendingGap) {
         // Hole detected on reconnect — notify user

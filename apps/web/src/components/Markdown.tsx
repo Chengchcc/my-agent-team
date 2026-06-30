@@ -125,7 +125,11 @@ function buildComponents(): Components {
 export const Markdown = memo(function Markdown({ text }: MarkdownProps) {
   const components = useMemo(buildComponents, []);
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]} components={components}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeRaw, rehypeSanitize]}
+      components={components}
+    >
       {text}
     </ReactMarkdown>
   );
