@@ -155,7 +155,7 @@ export function SkillPackManager() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {packs?.map((pack: any) => {
+          {packs?.map((pack) => {
             const p = pack as {
               id: string;
               name: string;

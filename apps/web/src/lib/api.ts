@@ -160,8 +160,7 @@ export const api = {
     priority?: IssuePriority;
   }) => unwrap(client.api.issues.post(body)),
   getIssueTimeline: (id: string) => unwrap(client.api.issues({ id }).timeline.get()),
-  subscribeIssueTimeline: (id: string) =>
-    unwrap(client.api.issues({ id }).timeline.events.get()),
+  subscribeIssueTimeline: (id: string) => unwrap(client.api.issues({ id }).timeline.events.get()),
   transitionIssue: (id: string, body: { to: string }) =>
     unwrap(client.api.issues({ id }).transition.post(body)),
   reviewDecision: (
