@@ -121,6 +121,26 @@ export const api = {
   getTraceOpsDetail: (traceId: string) => unwrap(client.api.ops.traces({ id: traceId }).get()),
   listSurfaces: () => unwrap(client.api.ops.surfaces.get()),
   getRunInsights: (spanId: string) => unwrap(client.api.ops.runs({ id: spanId }).insights.get()),
+  // Skill packs
+  listSkillPacks: () => unwrap(client.api.skillPacks.get()),
+  getSkillPackSkills: (id: string) => unwrap(client.api.skillPacks({ id }).skills.get()),
+  getSkillPackFiles: (id: string, path?: string) =>
+    unwrap(client.api.skillPacks({ id }).files.get({ query: path ? { path } : undefined })),
+  installSkillPackGit: (body: { name: string; description: string; url: string; ref?: string }) =>
+    unwrap(client.api.skillPacks.git.post(body)),
+  uploadSkillPackZip: (formData: FormData) =>
+    unwrap(
+      client.api.skillPacks.upload.post(formData, {
+        headers: { "content-type": "multipart/form-data" },
+      }),
+    ),
+  syncSkillPack: (id: string) => unwrap(client.api.skillPacks({ id }).sync.post()),
+  deleteSkillPack: (id: string) => unwrap(client.api.skillPacks({ id }).delete()),
+  // Agent skill pack assignments
+  getAgentSkillPacks: (agentId: string) =>
+    unwrap(client.api.agents({ id: agentId }).skillPacks.get()),
+  setAgentSkillPacks: (agentId: string, body: { packIds: string[] }) =>
+    unwrap(client.api.agents({ id: agentId }).skillPacks.put(body)),
   getInsightsSummary: (range: { from: number; to: number }) =>
     unwrap(
       client.api.ops.insights.summary.get({

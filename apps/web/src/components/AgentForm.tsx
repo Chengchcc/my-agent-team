@@ -28,6 +28,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { agentKeys, useCreateAgent, useUpdateAgent } from "@/features/agents/hooks";
+import {
+  useAgentSkillPacks,
+  useSetAgentPacks,
+  useSkillPackList,
+} from "@/features/skill-packs/hooks";
 import { type AgentRow, api, type LarkSetupSession } from "@/lib/api";
 
 const formSchema = z.object({
@@ -52,10 +57,11 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   const router = useRouter();
   const queryClient = useQueryClient();
   const isEdit = !!editAgent;
-  const [open, setOpen] = useState(false);
   const [setupSession, setSetupSession] = useState<LarkSetupSession | null>(null);
+  const [open, setOpen] = useState(false);
   const [setupLoading, setSetupLoading] = useState(false);
   const [serverError, setServerError] = useState("");
+  const [selectedPackIds, setSelectedPackIds] = useState<string[]>([]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -110,6 +116,18 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
     return () => clearInterval(interval);
   }, [setupSession?.status, setupSession?.setupId, editAgent?.id, queryClient]);
 
+  // Skill pack assignments
+  const { data: availablePacks } = useSkillPackList();
+  const { data: assignedPacks } = useAgentSkillPacks(editAgent?.id ?? "");
+  const setPacksMutation = useSetAgentPacks(editAgent?.id ?? "");
+
+  // Sync assigned packs to local state when loaded
+  useEffect(() => {
+    if (assignedPacks) {
+      setSelectedPackIds(assignedPacks.map((p: { id: string }) => p.id));
+    }
+  }, [assignedPacks]);
+
   function buildBody(values: FormValues): Parameters<typeof api.createAgent>[0] {
     const body: Record<string, unknown> = {
       name: values.name,
@@ -138,6 +156,9 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
     if (isEdit) {
       updateMutation.mutate(buildBody(values), {
         onSuccess: () => {
+          if (editAgent?.id) {
+            setPacksMutation.mutate(selectedPackIds);
+          }
           toast.success("Agent updated");
           setOpen(false);
           onSuccess?.();
@@ -444,6 +465,29 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                     </div>
                   )}
                 </div>
+
+                {/* Skill pack assignments */}
+                {isEdit && availablePacks && availablePacks.length > 0 && (
+                  <div className="border-t border-[var(--hairline)] pt-5">
+                    <h3 className="text-sm font-medium mb-3">Skill Packs</h3>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {availablePacks.map((pack: { id: string; name: string; status: string }) => (
+                        <label key={pack.id} className="flex items-center gap-2 cursor-pointer">
+                          <Checkbox
+                            checked={selectedPackIds.includes(pack.id)}
+                            onCheckedChange={(checked) => {
+                              setSelectedPackIds((prev) =>
+                                checked ? [...prev, pack.id] : prev.filter((id) => id !== pack.id),
+                              );
+                            }}
+                          />
+                          <span className="text-sm">{pack.name}</span>
+                          <span className="text-xs text-muted-foreground">({pack.status})</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {serverError && <p className="text-xs text-destructive">{serverError}</p>}
 

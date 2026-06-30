@@ -10,6 +10,7 @@ import {
   LogOutIcon,
   MessageSquareIcon,
   MoreHorizontalIcon,
+  Package,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -247,6 +248,19 @@ function NavContent() {
               >
                 <ClockIcon />
                 <span className="truncate">Schedules</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/skill-packs")}
+                tooltip="Skill Packs"
+                onClick={() => {
+                  closeMobile();
+                  router.push("/skill-packs");
+                }}
+              >
+                <Package />
+                <span className="truncate">Skill Packs</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
