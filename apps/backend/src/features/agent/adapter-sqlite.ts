@@ -31,7 +31,7 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
           modelBaseUrl: input.model.baseURL ?? null,
           permissionMode: input.permissionMode ?? "ask",
           maxSteps: input.maxSteps ?? null,
-          larkEnabled: input.larkEnabled ? 1 : 0,
+          larkEnabled: schema.boolToInt(input.larkEnabled),
           larkAppId: input.larkAppId ?? null,
           larkProfileRef: input.larkProfileRef ?? null,
           larkBotDisplayName: input.larkBotDisplayName ?? null,
@@ -68,13 +68,13 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
       if (input.name !== undefined) sets.name = input.name;
       if (input.permissionMode !== undefined) sets.permissionMode = input.permissionMode;
       if (input.maxSteps !== undefined) sets.maxSteps = input.maxSteps;
-      if (input.lark?.enabled !== undefined) sets.larkEnabled = input.lark.enabled ? 1 : 0;
+      if (input.lark?.enabled !== undefined) sets.larkEnabled = schema.boolToInt(input.lark.enabled);
       if (input.lark?.appId !== undefined) sets.larkAppId = input.lark.appId;
       if (input.lark?.botDisplayName !== undefined) {
         sets.larkBotDisplayName = input.lark.botDisplayName;
       }
       if (input.lark?.profileRef !== undefined) sets.larkProfileRef = input.lark.profileRef;
-
+      if (input.lark?.enabled !== undefined) sets.larkEnabled = schema.boolToInt(input.lark.enabled);
       const rows = d
         .update(schema.agents)
         .set(sets)

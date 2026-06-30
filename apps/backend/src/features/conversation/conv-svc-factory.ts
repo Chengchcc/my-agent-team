@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import type { Message, MessageRevision } from "@my-agent-team/message";
-import { extractText, isTerminalMessageState } from "@my-agent-team/message";
+import { deserializeLedgerContent, extractText, isTerminalMessageState } from "@my-agent-team/message";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
@@ -55,15 +55,15 @@ export function createConversationFeature(
     });
     const entries = convPort.getLedgerEntries(cid).filter((e) => e.kind === "message");
     const msgs: Message[] = entries.slice(0, 6).map((e) => {
-      const parsed =
-        typeof e.content === "string"
-          ? (JSON.parse(e.content) as Record<string, unknown>)
-          : (e.content as Record<string, unknown>);
+      const result = deserializeLedgerContent(e.content);
+      if (!("messageId" in result)) {
+        return { role: "user" as const, text: "" };
+      }
       return {
-        role: (parsed.role as Message["role"]) ?? "user",
+        role: (result.role as Message["role"]) ?? "user",
         text: extractText({
-          text: (parsed.text as string) ?? "",
-          blocks: (parsed.blocks as Message["blocks"]) ?? [],
+          text: result.text ?? "",
+          blocks: result.blocks ?? [],
         }),
       };
     });
@@ -98,7 +98,9 @@ export function createConversationFeature(
         if (conv && !conv.title && !titlingInFlight.has(cid)) {
           titlingInFlight.add(cid);
           void autoTitle(cid)
-            .catch(() => { /* best-effort */ })
+            .catch(() => {
+              /* best-effort */
+            })
             .finally(() => titlingInFlight.delete(cid));
         }
         const text = extractText(rev);

@@ -1,6 +1,17 @@
 import type { Database } from "bun:sqlite";
 import type { CheckpointEvent, CheckpointEventRow } from "@my-agent-team/framework";
 
+/** Lightweight type guard: validates that a parsed JSON value has the shape
+ *  of a CheckpointEvent (discriminated union on `type`). */
+function isCheckpointEvent(v: unknown): v is CheckpointEvent {
+  if (typeof v !== "object" || v === null) return false;
+  const obj = v as Record<string, unknown>;
+  return typeof obj.type === "string" && [
+    "user_input", "model_start", "model_end", "tool_start", "tool_end",
+    "interrupt", "resume", "run_end", "force_continue",
+  ].includes(obj.type);
+}
+
 /** Read-only accessor for checkpoint_events in checkpointer.db.
  *  Run-loop is the writer; Ops is the reader — same physical table, normal infra sharing. */
 export interface CheckpointEventsStore {
@@ -29,9 +40,10 @@ export function createCheckpointEventsStore(db: Database): CheckpointEventsStore
     return rows
       .map((r) => {
         try {
-          const event = JSON.parse(r.event) as CheckpointEvent;
+          const raw = JSON.parse(r.event) as unknown;
+          if (!isCheckpointEvent(raw)) return null;
           return {
-            ...event,
+            ...raw,
             spanId: r.span_id,
             ts: r.ts,
             sessionId: r.session_id,

@@ -1,6 +1,6 @@
 "use client";
 
-import { issueTimelineEvents } from "@my-agent-team/api-contract";
+import { issueTimelineEvents, sseEndpoints } from "@my-agent-team/api-contract";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -129,7 +129,7 @@ export function IssueDetailSheet({
     // so without this the previous issue's events leak into the new timeline.
     setTimelineEvents([]);
     const ts = typedSource(
-      `/api/bff/api/issues/${issue.issueId}/timeline/events`,
+      `/api/bff${sseEndpoints.issueTimeline.path({ id: issue.issueId })}`,
       issueTimelineEvents,
     );
     ts.on("issue-event", (event) => {

@@ -107,8 +107,11 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
       console.error(`[ingest] create conversation failed: ${JSON.stringify(convError)}`);
       return { action: "error", triggered: false, triggeredRuns: [] };
     }
-    conversationId = (convData as unknown as Record<string, unknown>).conversationId as string;
-    memberId = `human:lark:${event.sender_id}`;
+    if (typeof convData !== "object" || convData === null) {
+      console.error("[ingest] create conversation returned non-object");
+      return { action: "error", triggered: false, triggeredRuns: [] };
+    }
+    conversationId = (convData as Record<string, unknown>).conversationId as string;
 
     // Add the human member via API FIRST (idempotent per §7.3).
     try {
@@ -171,8 +174,11 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
       console.error(`[ingest] POST /messages failed: ${JSON.stringify(msgError)}`);
       return { action: "error", conversationId, triggered: false, triggeredRuns: [] };
     }
-
-    const body = msgData as unknown as Record<string, unknown>;
+    if (typeof msgData !== "object" || msgData === null) {
+      console.error("[ingest] POST /messages returned non-object");
+      return { action: "error", conversationId, triggered: false, triggeredRuns: [] };
+    }
+    const body = msgData as Record<string, unknown>;
     const seq = body.seq as number;
     const triggeredRuns = (body.triggeredRuns ?? []) as Array<{
       agentMemberId: string;

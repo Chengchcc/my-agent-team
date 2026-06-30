@@ -18,7 +18,7 @@ export function sqliteCronJobAdapter(db: Database): CronJobPort {
           agentId: input.agentId,
           cronExpr: input.cronExpr,
           prompt: input.prompt,
-          enabled: input.enabled ? 1 : 0,
+          enabled: schema.boolToInt(input.enabled),
           timeoutMs: input.timeoutMs,
           maxRetries: input.maxRetries,
           createdAt: input.createdAt,
@@ -62,7 +62,7 @@ export function sqliteCronJobAdapter(db: Database): CronJobPort {
       if (patch.agentId !== undefined) sets.agentId = patch.agentId;
       if (patch.cronExpr !== undefined) sets.cronExpr = patch.cronExpr;
       if (patch.prompt !== undefined) sets.prompt = patch.prompt;
-      if (patch.enabled !== undefined) sets.enabled = patch.enabled ? 1 : 0;
+      if (patch.enabled !== undefined) sets.enabled = schema.boolToInt(patch.enabled);
       if (patch.timeoutMs !== undefined) sets.timeoutMs = patch.timeoutMs;
       if (patch.maxRetries !== undefined) sets.maxRetries = patch.maxRetries;
       if (Object.keys(sets).length <= 1) return this.getCronJob(cronJobId);

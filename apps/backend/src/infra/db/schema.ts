@@ -291,7 +291,7 @@ export const issueEvent = sqliteTable(
 
 // ── Zod schemas (type chain: drizzle table → Zod → z.infer → TS type) ──
 
-import { createSelectSchema } from "drizzle-zod";
+import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
 // ── Simple tables (drizzle-zod auto-generate) ──
 
@@ -345,6 +345,8 @@ export const cronJobSelectSchema = createSelectSchema(cronJob, {
   enabled: (s) => s.transform((v: number) => v !== 0),
 });
 
-// Compile-time alignment between drizzle `issue` table and shared IssueRow type
-// is enforced by issue/adapter-sqlite.ts — issueSelectSchema.parse() return type
+
+/** Convert boolean to 0|1 for integer columns. Single source of truth
+ *  for the bool→int conversion used by adapters. */
+export const boolToInt = (v: boolean): number => (v ? 1 : 0);
 // must satisfy IssueRow, so any drizzle column drift fails tsc at the adapter.

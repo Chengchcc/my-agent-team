@@ -62,14 +62,17 @@ export async function bootstrap(args: LarkBotArgs): Promise<BootstrapState> {
     if (error) {
       throw new Error(`Failed to fetch agent: ${JSON.stringify(error)}`);
     }
-    // Response body type is opaque until handlers are refactored to Elysia-native (return typed objects).
-    // For now, data is the JSON body — access fields via record indexing.
-    const record = data! as unknown as Record<string, unknown>;
+    // Eden treaty response type is opaque until handlers return typed objects.
+    // Use a lightweight type guard instead of bare `as Record<string, unknown>`.
+    if (typeof data !== "object" || data === null) {
+      throw new Error("invalid agent response: expected object");
+    }
+    const record = data as Record<string, unknown>;
     if (record.larkEnabled === false) {
       console.error(`[lark-bot] agent ${args.agentId} lark disabled — graceful exit`);
       process.exit(0);
     }
-    selfAgentName = args.agentName ?? (record.name as string);
+    selfAgentName = args.agentName ?? (typeof record.name === "string" ? record.name : String(record.name));
   } catch (err) {
     if (err instanceof TypeError) {
       console.error(`[lark-bot] backend unreachable: ${err.message}`);
