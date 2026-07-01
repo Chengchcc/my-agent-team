@@ -1,233 +1,480 @@
 # PRD: Loop — 统一工作系统
 
-## 问题陈述
+## 1. 概述
 
-my-agent-team 产品当前有两套工作系统：`/conversations` 对话，`/issues` Kanban。两套心智模型、两套 UI、两套执行引擎（Orchestrator + ColumnConfig vs. 裸 AgentSession dispatch）。具体痛点：
+### 问题陈述
 
-**1. 手动工作依赖人创建和推进。** 工程师想做"每天早上检查 CI 失败，自动修简单的"，要么每天手动做，要么配一个 CronJob 触发裸 agent——没有 discovery 阶段、没有结构化输出、没有 verification 分离、没有 review queue。CronJob 只有一个 `prompt` 字段和一个 `agentId`（参见 `docs/architecture/foundations/cron-job.md`）。它表达不了"先发现需要做什么，再修复，再验证，最后问我"。
+my-agent-team 有两套工作系统：`/conversations` 对话，`/issues` Kanban。两套心智模型、两套 UI、两套执行引擎（[Orchestrator](../architecture/backend/orchestrator.md) + [ColumnConfig](../architecture/backend/orchestrator.md) vs. 裸 AgentSession dispatch）。工程师想做"每天早上检查 CI 失败，自动修简单的"，要么每天手动做，要么配 [CronJob](../architecture/foundations/cron-job.md) 触发裸 agent——没有 discovery 阶段、没有结构化输出、没有 verification 分离、没有 review queue。[Issue/Kanban 模型](../architecture/foundations/issue-workflow.md) 假设了 planner → developer → reviewer 的代码修复流水线，塞不进"给 issue 打标签""生成 release notes""提醒 stale PR"这些场景。两套系统不共享执行基础设施、UI 模式、概念模型。没有一个统一的概念来表达"需要做的工作"。
 
-**2. Issue/Kanban 模型太定制化。** 假设了 planner → developer → reviewer 的代码修复流水线（参见 `docs/architecture/foundations/issue-workflow.md`），带 per-column agent 配置（`docs/architecture/backend/orchestrator.md` 的 ColumnConfig）。但"给新 issue 打标签""从合并的 PR 生成 release notes""提醒 stale PR 的 reviewer"这些场景塞不进 planner/dev/reviewer 模子。
+### 解决方案
 
-**3. 两套系统要分别学。** 用户学 Kanban 流（draft → planned → in_progress → in_review → done，ColumnConfig，Orchestrator 转移表，`in_review` 闸门），又单独学 CronJob（cron 表达式，agentId，prompt，超时，重试）。两者不共享执行基础设施、UI 模式、概念模型。
+Loop 是统一的工作概念。用一个模型取代 Kanban Issue 流程和裸 CronJob dispatch：**Loop 发现工作、执行、验证、暂停等人判断。** 手动工作池就是一个没有 discovery 的阶段和 schedule 的 Loop——人往里加 item，同一套 act/verify/judge 流水线照样跑。
 
-根本问题：**没有一个统一概念来表达"需要做的工作"，不管它是人想到的还是 cron 发现的。**
+### 成功指标
 
-## 解决方案
+- **减少工作入口认知负荷**：用户从一个工作入口（`/loops`）取代两个（`/issues` + 散落的 CronJob 管理）
+- **减少 triage 手动时间**：每天早上的 CI/issue/PR 检查从手动 15-30 分钟降到 review queue 审批 3-5 分钟
+- **审批吞吐率**：用户在 review queue 中单次审批决策时间 < 60 秒（信息充分展示，不需要跳转外部工具）
+- **零安全事件**：denylist 路径从未被自动编辑；auto-merge 非 allowlist 场景从未自动推送
+- **预算可控**：因 bug 导致 token 超支的事件为 0（budget cap 机制兜底）
 
-Loop 是统一的工作概念。它用一个模型取代 Kanban Issue 流程和裸 CronJob dispatch：**Loop 发现工作、执行、验证、暂停等人判断。** 手动工作池就是一个没有 discovery 阶段和 schedule 的 Loop——人往里加 item，同一套 act/verify/judge 流水线照样跑。
+## 2. 背景与上下文
 
-### 对用户的变化
+### 为什么是现在
 
-- `/issues` 作为顶级导航消失。`/loops` 是唯一工作入口，和 `/conversations` 并列。
-- 创建工作不再是表单式（选 project、填 title、拖 column）。是意图式："每天早上检查 CI 失败，自动修简单的"。系统解读意图，生成 Loop 配置，用户预览确认。Goal 是创建对话框里的过渡态——Loop 创建后消失（参见 `CONTEXT.md` § Loop）。
-- 审批工作不再分裂在 Kanban `in_review` 列和别的地方。所有等人判断的 item——无论来自自动 Loop 还是手动工作池——都在 Loop 详情页的同一个 review queue 里。
-- 已有 Issue/Kanban 系统过渡期间保持只读（参见 `docs/architecture/foundations/issue.md`，已标记"将被 Loop 吸收"）。完整迁移不在本 PRD 范围。
+- [AgentSession](../architecture/harness/harness.md) 已成熟——单次 agent 运行的重试、compaction、steering 都已稳定，作为 Loop 的 building block 到位
+- [CronJob](../architecture/foundations/cron-job.md) 设计已锁定（`status: design`），提供了 cron 解析、`Bun.cron` 注册、超时、重试的完整调度层
+- [progressive-skill plugin](../architecture/plugins/progressive-skill.md) 已就绪——Loop 的 discovery/evaluator 可以直接用 SKILL.md
+- [fs-memory plugin](../architecture/plugins/fs-memory.md) 已就绪——STATE.md 的读写基础设施已存在
+- 竞争对手和行业趋势（[Loop Engineering](https://addyosmani.com/blog/loop-engineering/)，2026-06；[loop-engineering 参考仓库](https://github.com/cobusgreyling/loop-engineering)）已验证此模式
 
-### 架构变化
+### 战略对齐
 
-- **Loop item 不进数据库。** Item 在 STATE.md 文件里——人类可读、可移植、零 schema migration。Loop 配置在文件系统 `.loop/` 目录里。唯一 DB 改动：`cron_job` 表加 `loop_config_path TEXT`（可为 null）。
-- **CronJob 调度 Loop，不是反过来。** CronJob 持有 cron 表达式，到点调 `loopStep(loopConfigPath)`（参见 `docs/architecture/foundations/cron-job.md`）。Loop 不持有 schedule 字段。手动 Loop 没有 CronJob——直接通过 API 调 `loopStep`（参见 `docs/architecture/backend/loop-runner.md`）。
-- **Goal 不是领域实体。** 它是创建对话框里的自然语言输入，翻译成 Loop 配置后丢弃——就像 Issue 创建表单不持久化一样（参见 `CONTEXT.md` § Loop vs agentLoop）。
+与 my-agent-team 的产品目标一致：让 Agent 从"对话工具"进化为"工作系统"。`/conversations` 是对话面，`/loops` 是工作面。两者并列为产品两大支柱。
 
-## 用户故事
+### 用户研究摘要
 
-### 创建——"我想要一个能做 X 的东西"
+基于 loop-engineering 社区的反馈和 [Stripe Minions](https://www.howiai.tech/)（1,300 PR/周）等生产案例：
+- 工程师每天早上 triage 消耗 15-30 分钟判断"什么值得处理"
+- 最需要的自动化：CI 修复、PR 提醒、issue 分类、依赖更新（[loop-engineering patterns](https://github.com/cobusgreyling/loop-engineering/tree/main/patterns)）
+- 最大恐惧：无人看守时代码被自动推送（auto-merge 必须默认 never）
+- 最意外的发现：Evaluator 必须用不同 model——同 model 审查自己产出的代码通过率虚高（[Rajasekaran, 2026](https://www.anthropic.com/engineering/generator-evaluator)）
 
-1. 作为工程师，我想用自然语言描述我的自动化意图（"每天早上检查 CI 失败，自动修简单的"），这样我不需要学 cron 语法、skill 名称、安全配置。
-2. 作为工程师，我想让系统解读我的意图并展示它会配什么——schedule、discovery 范围、generator 和 evaluator 配置、安全约束、budget cap——这样我可以在激活前预览和调整。
-3. 作为工程师，我想手动调整任何生成的设置（换 evaluator model、加 denylist 路径、改 retry 上限、调 budget cap），这样我对安全关键参数保留控制权。
-4. 作为工程师，我想创建一个手动工作 Loop——没有 schedule、没有 discovery——我可以一个个往里加 item，系统照样跑 generator → evaluator → 我审批，这样临时任务也能享受和自动化 Loop 一样的流水线。
+## 3. 用户故事
 
-### 仪表盘——"发生了什么？"
+### 创建 Loop
 
-5. 作为工程师，我想在一个视图里看到所有 Loop，每个显示等待审批的 item 数、今日 token 消耗相对预算的比例、上次运行时间，这样我不用点进去就知道哪些 Loop 需要关注。
-6. 作为工程师，我想一键暂停/恢复 Loop，这样我可以随时停止自动化而不删除配置。
-7. 作为工程师，我想手动触发一次 Loop 运行而不等下次 cron tick，这样编辑配置后可以立即验证。
-8. 作为工程师，我想删除不再需要的 Loop，这会归档 `.loop/` 目录并删除对应 CronJob，这样死 Loop 不会堆积在仪表盘上。
+**US1: 自然语言创建**
+作为工程师，我想用自然语言描述我的自动化意图（"每天早上检查 CI 失败，自动修简单的"），这样我不需要学 cron 语法、skill 名称、安全配置。
 
-### Review Queue——"什么需要我判断？"
+验收标准：
+- 输入框接受自然语言，回车后展示系统解读的配置预览（schedule、discovery 范围、generator/evaluator、safety、budget）
+- 用户可逐项调整任何字段
+- 确认后 `.loop/` 目录自动生成，CronJob 自动创建
+- 配置预览中包含安全提示（"以下路径被加入 denylist：..."）
 
-9. 作为工程师，我想看每个等待审批的 item 的完整证据链——原始发现（从哪来的、为什么重要）、generator 的改动（diff、改了哪些文件、尝试了几次）、evaluator 的判定（测试输出、scope check、截图）——这样我可以不用离开页面就做出知情的 approve/reject 决定。
-10. 作为工程师，我想在 review card 里展开 generator 的 diff 看具体改了什么，这样不用打开外部工具就能审代码。
-11. 作为工程师，我想看 evaluator 的证据：实际测试命令输出（不是只写"tests passed"）、scope check 结果（改了哪些文件、是否触碰 denylist 路径）、evaluator 的置信度——这样我可以判断 evaluator 的 "PASS" 是严格审查了还是走过场。
-12. 作为工程师，我想一键 approve 一个 item，它标记为 resolved 并从 review queue 清除，这样通过的工作不堆积。
-13. 作为工程师，我想 reject 一个 item 并附带反馈（"这只修了表象，没解决根因"），它进 inbox 等以后再看，这样我不丢掉发现但也不让有问题的改动通过。
-14. 作为工程师，我想把一个 item 从 review queue promote 到更深入的工作流——创建一个多 agent 对话，或加到另一个手动工作 Loop——这样复杂问题不阻塞 review queue，得到应有的关注。
-15. 作为工程师，我要 review queue 是统一的视图，不管 item 从哪来（自动 Loop discovery、手动工作池、从另一个 Loop promote），这样不用在多个地方检查需要我判断的东西。
+**US2: 手动工作 Loop**
+作为工程师，我想创建一个没有 schedule 和 discovery 的手动 Loop，只靠我往里加 item，系统照样跑 generator → evaluator → 我审批，这样临时任务也能受益于同一套流水线。
 
-### 运行历史——"发生过什么？"
+验收标准：
+- 创建时选 "manual" 触发模式，不填 schedule
+- 手动 Loop 也有完整的 generator/evaluator 配置和安全约束
+- 仪表盘上手动 Loop 和自动 Loop 并列显示，只有触发方式不同
 
-16. 作为工程师，我想看每个 Loop 运行的时间线——8:03 这次运行，discovery 发现 3 个 item，generator 修了 2 个，evaluator 拒了 1 个（scope drift），1 个等审批——这样我可以审计 Loop 的时间行为。
-17. 作为工程师，我想点进某次运行看每个 item 在当次运行中的完整生命周期——discovery 发现了什么、generator 产出了什么、evaluator 判了什么、我决定了什么——这样我追查任何发现的完整历史。
-18. 作为工程师，我想在运行历史里看到 post-run critique：哪些发现是误报、哪些该降优先级、Loop 操作者对 discovery 质量的备注。这让我逐步调优 Loop 的 discovery skill。
+### 仪表盘
 
-### 安全与成本——"别让它失控"
+**US3: Loop 仪表盘**
+作为工程师，我想在一个视图里看到所有 Loop，每个显示等待审批的 item 数、今日 token 消耗相对预算的比例、上次运行时间，这样我不用点进去就知道哪些 Loop 需要关注。
 
-19. 作为工程师，我想给每个 Loop 设置每日 token 预算上限，这样如果 bug 导致 Loop 整夜空转同一个 finding，到上限就停而不烧光配额。
-20. 作为工程师，我想要 Loop 在消耗达到每日预算 100% 时自动暂停、达到 80% 时告警，这样还没到上限我就知道出问题了。
-21. 作为工程师，我想要路径黑名单在 generator 和 evaluator 层面强制执行——匹配 `.env`、`auth/`、`payments/`、`secrets/` 等模式的文件绝不修改——这样安全敏感代码永远不会被自动编辑，不论 discovery agent 发现了什么或 generator 建议了什么。
-22. 作为工程师，我想要 auto-merge 默认为 "never"，由我配置显式 allowlist（如"docs/ 下的 typo 修复可以"），这样没有我的明确审查，任何代码都不会推送到仓库，除非我专门为那类改动放行。
-23. 作为工程师，我想要每个 Loop 有最大重试次数（默认 3）——如果 evaluator 连续拒同一个修复 3 次，item 进 inbox 而不是无限循环，这样难题不会变成死循环。
+验收标准：
+- 卡片式布局，每个 Loop 一张卡片
+- 卡片显示：Loop 名称、一句话意图、待审批数（红色 badge）、今日 token/预算、上次运行时间
+- 支持暂停/恢复/删除操作
+- 有"新建 Loop"入口
 
-## 实现决策
+**US4: 手动触发**
+作为工程师，我想手动触发一次 Loop 运行而不等下次 cron tick，这样编辑配置后可以立即验证。
 
-### Loop 不进数据库——配置在文件，item 在 STATE.md
+验收标准：
+- Loop 卡片上"Run now"按钮
+- 点击后触发一次运行，仪表盘显示进度
+- 运行完成后通知
 
-这是最重要的架构决策。在研究了 loop-engineering 参考仓库（Cobus Greyling，`/root/loop-engineering/`）并对 my-agent-team 已有架构进行 grilling 后，结论是：**Loop 不应该增加新数据库表。**
+### Review Queue（Loop 详情页核心）
 
-原因：
-- Loop 配置（model 选择、skill 引用、安全约束、budget cap）很少变，且适合人类可读和版本控制。`.loop/config.yml` 文件满足两者。
-- Loop item（discovery 的"发现"）本质上是临时的，适合人类可读。写入 STATE.md 使其可移植、任何编辑器可调试、零 schema migration。
-- loop-engineering 参考仓库已在大规模验证此模型：Loops 读写 STATE.md，文件同时是运行时状态和审计日志。
-- CronJob 是唯一的数据库接触点。在已有 `cron_job` 表加一列（`loop_config_path TEXT`）就把调度基础设施连到了文件型 Loop 世界。
+**US5: 审批卡片展开**
+作为工程师，我想看每个等待审批的 item 的完整证据链——原始发现、generator 的改动、evaluator 的判定——这样我可以做出知情的 approve/reject 决定。
 
-参见 `CONTEXT.md` § Loop、`docs/architecture/foundations/loop.md`。
+验收标准：
+- 卡片展示三步：Finding → Generator → Evaluator，每步可展开
+- Generator 展开显示 diff（语法高亮）、修改的文件列表、attempt 计数
+- Evaluator 展开显示：测试命令 + 实际输出、scope check 结果、截图（如有）
+- 卡片底部三个操作：[Approve] [Reject] [Promote]
 
-### CronJob 调用 Loop，不是反过来
+**US6: 一键审批**
+作为工程师，我想一键 approve/reject 一个 item，这样审批不拖慢节奏。
 
-CronJob 是已有领域实体（`docs/architecture/foundations/cron-job.md`，`status: design`），处理 cron 表达式解析、`Bun.cron` 注册、超时、重试、dispatch。Loop 是被调度的东西。CronJob 的 handler，当 `loop_config_path` 有值时，调 `loopStep(loopConfigPath)` 而不是 dispatch 裸 AgentSession。手动 Loop 没有 CronJob——通过 API 直接调。
+验收标准：
+- Approve：item 标记 resolved，从 queue 消失
+- Reject：弹出反馈输入框（可选），提交后 item 标记 inbox
+- Promote：弹出目标选择器（另一个 Loop），提交后 item 标记 promoted
 
-这避免了在 Loop 里重复发明调度逻辑（cron 解析、时区处理、进程生命期、重试、超时）。CronJob 拥有调度；Loop 拥有 discovery + 执行 + review。
+**US7: 统一 Review Queue**
+作为工程师，我要 review queue 是统一的视图，不管 item 从哪来（自动 Loop discovery、手动工作池、从另一个 Loop promote），这样不用在多个地方检查需要我判断的东西。
 
-### Generator 和 Evaluator 是结构分离的不同 AgentSession
+验收标准：
+- Review queue 展示所有 Loop 产出的 awaiting_review item
+- 每个 item 标明来源 Loop 名称
 
-这是一条第一性原理决策，源于 Anthropic 的 generator/evaluator 模式（Prithvi Rajasekaran, 2026）。核心洞见：让 agent 给自己的产出打分，它会自信地夸奖——因为上下文窗口里塞满了导致产出的自我说服链条。调校一个独立怀疑者远比让 generator 对自己作品持批判态度可行。
+### 运行历史
 
-实现：Generator 和 Evaluator 使用不同 `AgentSession` 实例、不同 `sessionId`，**必须**使用不同 model（参见 `docs/architecture/harness/harness.md`）。Evaluator 的 system prompt 默认怀疑立场："ASSUME this code is BROKEN until proven otherwise. DO NOT praise. Run tests, check scope, report real output." Evaluator 通过 MCP connector 执行测试和操作页面来验证，不只读代码。
+**US8: 运行时间线**
+作为工程师，我想看每个 Loop 运行的时间线——某次运行 discovery 发现了什么、修了什么、被拒了什么——这样我可以审计 Loop 的行为趋势。
 
-Stop condition 由第三个新鲜模型判断——既不是 generator 也不是 evaluator。
+验收标准：
+- 时间线视图，每次运行为一个节点
+- 展开节点显示当次运行的所有 item 及最终状态
+- 支持按日期筛选
 
-参见 `docs/architecture/backend/loop-runner.md`。
+### 安全与成本
 
-### Item step 状态机——来自 prototype
+**US9: 预算保护**
+作为工程师，我想给每个 Loop 设置每日 token 预算上限，达到 100% 自动暂停，达到 80% 告警，这样 bug 不会烧光配额。
 
-Item 通过一个固定的六步流水线，经过交互式终端原型验证（`prototypes/loop-step/`，已删除）：
+验收标准：
+- 创建时默认设置为保守值（如 200k tokens/day）
+- 仪表盘卡片上显示预算使用进度条
+- 达 80% 时卡片变黄，达 100% 时 Loop 自动暂停并通知
+
+**US10: 路径保护**
+作为工程师，我想要路径黑名单强制执行——匹配 `.env`、`auth/`、`payments/` 的文件绝不修改——这样安全敏感代码永远不会被 auto-edit。
+
+验收标准：
+- 创建时 denylist 默认包含 `.env`、`auth/`、`payments/`、`secrets/`
+- Evaluator 的 scope check 自动比对 denylist，触碰即 REJECT
+- 安全事件记录到 run history
+
+## 4. 功能需求
+
+### P0 — MVP 必做
+
+- 自然语言创建 Loop（intent → config 翻译 + 预览 + scaffold `.loop/` 目录）
+- 手动 Loop（trigger=manual，无 discovery，人加 item）
+- Loop 仪表盘（列表、统计、暂停/恢复/删除、手动触发）
+- Loop 详情页 review queue（item 卡片、证据链展开、approve/reject/promote）
+- 运行历史时间线
+- `loopStep()` 编排函数（discovery → generator → evaluator → human gate，STATE.md 持久）
+- CronJob `loop_config_path` 列 + handler 集成
+- `loopReducer()` 纯函数 + 测试
+- 预算保护（daily cap，80% 告警 + 100% 暂停）
+- 路径 denylist 强制执行
+- 已有 Issue 系统保持只读
+
+### P1 — 第二版
+
+- Evaluator 通过 MCP 操作浏览器（截图验证前端改动）
+- Loop 运行 SSE 实时进度推送
+- Post-run critique 展示和编辑
+- 手动 item 添加 UI（手动 Loop 的"Add item"流程）
+
+### P2 — 后续
+
+- Loop 之间的 item 移动（从一个 Loop promote 到另一个）
+- 多 Loop 协调（优先级、资源竞争处理）
+- Loop Ready Score 展示
+- 已有 Issue 数据迁移到 Loop
+
+### 非功能需求
+
+- **性能**：Loop 仪表盘加载 < 2s，review queue 卡片展开 < 500ms
+- **安全**：denylist 路径零容忍；auto-merge 非 allowlist 零自动推送
+- **可观测**：每次 `loopStep()` 调用记录到 checkpointer 的执行事实流
+- **可恢复**：STATE.md 持久化确保进程重启后 human gate 不丢失状态
+
+## 5. 设计与用户体验
+
+### 导航结构
 
 ```
-triaged → fixing → verifying → awaiting_review
-                                    ├─ resolved  (人通过)
-                                    ├─ inbox     (人拒绝或重试耗尽)
-                                    └─ promoted  (人送更深工作流)
+┌──────────────────────────────────┐
+│  Sidebar                          │
+│  ─────────                        │
+│  💬 Conversations                 │
+│  🔄 Loops          ← 新增        │
+│  🤖 Agents                        │
+│  📊 Operations                    │
+└──────────────────────────────────┘
 ```
 
-关键转移：
-- `triaged → fixing`：TICK 动作（cron 触发或手动）。启动 generator AgentSession。
-- `fixing → verifying`：Generator 完成。隐式——启动 evaluator AgentSession。
-- `verifying → awaiting_review`：Evaluator 通过。Item 等人。
-- `verifying → fixing`：Evaluator 拒绝，attempt < maxRetries。Generator 带拒绝理由重跑。这是结构性的 retry——不同于 Orchestrator 的 `in_review → in_progress` 人工驳回回路（参见 `docs/architecture/backend/orchestrator.md` § ⑥ 人工验收闸门 + 返工）。
-- `verifying → inbox`：Evaluator 拒绝且重试耗尽。挂起等人工跟进。
-- `awaiting_review → resolved/inbox/promoted`：人决定。
+`/issues` 从侧边栏移除。`/loops` 成为工作和自动化的统一入口。
 
-Terminal step（`resolved`、`inbox`、`promoted`）的 item 下次 TICK 时从 STATE.md prune 掉。
-
-纯 reducer `loopReducer(state, action) → state` 是单一测试 seam。编码所有转移，可无 I/O、无 AgentSession mock 测试。
-
-### loopStep()——生产入口函数
-
-不是连续异步生成器。每次 trigger（cron tick 或人 review）调一次：
-
-1. 读 STATE.md 和 `.loop/config.yml`
-2. TICK：`triaged` item 推进到 `fixing`，启动 generator AgentSession
-3. 对 generator 完成的 item：启动 evaluator AgentSession
-4. 对人 review action：对指定 item 应用 approve/reject/promote
-5. 写回 STATE.md
-
-Human gate 靠 STATE.md 文件持久化跨进程重启。人几小时或几天后审批；一次新的 API 调用到达；`loopStep()` 读文件从上次中断处继续。不需要内存状态。
-
-参见 `docs/architecture/backend/loop-runner.md`。
-
-### Discovery 通过 MCP connector
-
-Discovery 是一个普通 AgentSession 调用，配上特定 skill（如 `loop-triage`）和 MCP connector 工具（读 CI、issues、commits）。Agent 通过 fs-memory plugin 读上次 STATE.md（参见 `docs/architecture/plugins/fs-memory.md`），调 MCP 工具收集数据，把 finding 写成结构化 markdown 表格写回 STATE.md。
-
-Discovery 质量决定了整个 Loop 的上限。Discovery agent 被约束：NEVER edit code、NEVER create commits、ONLY read sources and write to STATE.md。来自 `loop-constraints.md` 的约束注入 system prompt。
-
-### 自然语言创建
-
-Loop 创建是一个对话框，不是表单。用户输入"每天早上检查 CI 失败，自动修简单的"。系统调 intent-to-config 翻译器（一次 LLM 调用），把意图映射为：schedule（cron）、discovery skill、generator/evaluator model 和 prompt、安全约束、budget cap。用户看到预览，可调整任何字段再激活。
-
-参见 `docs/architecture/foundations/loop-pattern.md`（7 种内部模板驱动翻译器）。
-
-### 模块架构——两个深模块
-
-依循 codebase-design 原则（小接口、大实现、通过接口可测试）：
-
-1. **LoopRunner**（深模块）——接口：`loopStep(configPath, action?) → StepResult`。隐藏全部 discovery → generator → evaluator → human gate 编排。依赖 AgentSessionFactory（注入，不内部创建）、StateFileManager、BudgetGuard。
-
-2. **StateFileManager**（深模块）——接口：`read(path) → LoopState`、`write(path, state)`、`prune(path)`。隐藏 markdown 表格解析、序列化、状态规范化。纯 I/O，不依赖 agent。
-
-BudgetGuard 是中深度模块：`check(loopId) → "ok" | "warn" | "stop"`。
-
-### API 端点
+### 创建 Loop —— 对话式
 
 ```
-POST   /api/loops              创建 Loop（从自然语言意图）
-GET    /api/loops              列出所有 Loop 及汇总统计
-GET    /api/loops/:id          Loop 详情：配置 + review queue + 运行历史
-PATCH  /api/loops/:id          更新 Loop 配置
-DELETE /api/loops/:id          删除 Loop + 归档 .loop/ 目录
-POST   /api/loops/:id/run      手动触发
-POST   /api/loops/:id/review   人审批操作（approve/reject/promote item）
-GET    /api/loops/:id/events   SSE 实时进度流
-POST   /api/loops/:id/items    向手动 Loop 添加 item
+┌─────────────────────────────────────────────────┐
+│  Create Loop                                     │
+│                                                  │
+│  What should this loop do?                       │
+│  ┌─────────────────────────────────────────────┐ │
+│  │ 每天早上检查 CI 失败，自动修简单的              │ │
+│  └─────────────────────────────────────────────┘ │
+│                                                  │
+│  ──────── Generated Config ────────              │
+│                                                  │
+│  Schedule    Daily 8:00 AM                  [✎]  │
+│  Discovery   Read CI failures (24h)         [✎]  │
+│  Generator   claude-sonnet-4                [✎]  │
+│  Evaluator   claude-opus-4                  [✎]  │
+│  Safety      Denylist: .env, auth/, ...     [✎]  │
+│  Budget      200k tokens/day                [✎]  │
+│                                                  │
+│                        [Cancel]  [Create Loop]   │
+└─────────────────────────────────────────────────┘
 ```
 
-### Web 路由
+### Loop 仪表盘
 
 ```
-/loops                  仪表盘
-/loops/:id              详情（review queue + 运行历史）
+┌──────────────────────────────────────────────────────────────┐
+│  Loops                                                        │
+│                                                               │
+│  [+ Create Loop]                                              │
+│                                                               │
+│  ┌────── Morning Triage ──────────────────────────────────┐  │
+│  │  "每天早上检查 CI 失败，自动修简单的"                     │  │
+│  │                                                         │  │
+│  │  Daily 8:00 AM  ·  Last: Today 8:03  ·  3 items        │  │
+│  │                                                         │  │
+│  │  ⏳ 2 awaiting review    ✓ 5 resolved this week         │  │
+│  │                                                         │  │
+│  │  ████████░░ 85k / 200k today                            │  │
+│  │                                                         │  │
+│  │  [Pause]  [Run Now]                          [View →]   │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│                                                               │
+│  ┌────── PR Watcher ──────────────────────────────────────┐  │
+│  │  "每15分钟检查开放 PR，提醒 reviewer"                     │  │
+│  │                                                         │  │
+│  │  Every 15 min  ·  Last: 10 min ago  ·  0 items          │  │
+│  │                                                         │  │
+│  │  ██░░░░░░░░ 28k / 300k today                            │  │
+│  │                                                         │  │
+│  │  [Pause]  [Run Now]                          [View →]   │  │
+│  └─────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-Loop 创建是仪表盘上的 dialog/modal，不是独立路由。
+### Loop 详情页 = Review Queue + 运行历史
 
-## 测试决策
+```
+┌────── Morning Triage ──────────────────────────────────────────┐
+│  "每天早上检查 CI 失败，自动修简单的"                             │
+│                                                                 │
+│  [Review Queue]  [History]                                      │
+│                                                                 │
+│  ── Review Queue (2 awaiting) ──────────────────────────────   │
+│                                                                 │
+│  ┌─ f-1 ─────────────────────────────────────────────────────┐ │
+│  │                                                           │ │
+│  │  🔴 auth test flaky on timeout                            │ │
+│  │  Source: CI run #4821  ·  Attempt 1/3                     │ │
+│  │                                                           │ │
+│  │  ── Generator ──                   [Expand diff ▼]       │ │
+│  │  Modified: auth.test.ts (+2 lines)                        │ │
+│  │                                                           │ │
+│  │  ── Evaluator ✓ PASS ──           [Expand evidence ▼]    │ │
+│  │  Tests: 12/12 green                                       │ │
+│  │  Scope: auth.test.ts only                                 │ │
+│  │                                                           │ │
+│  │  [Approve]  [Reject...]  [Promote →]                      │ │
+│  └───────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ┌─ f-3 ─────────────────────────────────────────────────────┐ │
+│  │                                                           │ │
+│  │  🟡 null deref in parser.ts                               │ │
+│  │  Source: issue #92  ·  Attempt 2/3                        │ │
+│  │                                                           │ │
+│  │  ── Attempt #1 ──                                         │ │
+│  │  Generator: modified parser.ts + 3 files (45 lines)       │ │
+│  │  Evaluator ✗ REJECT: scope drift — touched utils/format  │ │
+│  │                                                           │ │
+│  │  ── Attempt #2 ──                                         │ │
+│  │  Generator: modified parser.ts only (15 lines)            │ │
+│  │  Evaluator ✓ PASS: tests 8/8, scope clean                │ │
+│  │                                                           │ │
+│  │  [Approve]  [Reject...]  [Promote →]                      │ │
+│  └───────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ── Recently resolved ────────────────────────────────────    │
+│                                                                 │
+│  ✓ f-2  stale dep — APPROVED  (today 8:03)                    │
+│  ✓ f-7  lint warning — APPROVED  (yesterday)                  │
+│  ✗ f-4  build flake — REJECTED → inbox  (yesterday)           │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-### 什么算好测试
+### 边界情况与错误状态
 
-测纯 reducer，不测文件 I/O 包装或 AgentSession 内部。给定 LoopState 和 Action，断言产出正确的 LoopState。不 mock，不 async，无外部依赖。
+- **Discovery 空结果**：显示"Nothing found this run"，不崩溃
+- **Generator 产出空 diff**：Evaluator 判 REJECT，item 进 inbox
+- **Evaluator 无法运行测试**（环境问题）：判 ESCALATE，item 进 inbox 并附带说明
+- **Budget 耗尽**：Loop 自动暂停，仪表盘显示红色暂停状态 + 原因，所有未处理 item 进 inbox
+- **CronJob 被删除但 Loop 还在**：Loop 降级为 manual-only，仪表盘显示警告
+- **STATE.md 损坏**：`loopStep()` 解析失败时写 error event，跳过本轮，不崩溃
+- **同一 item 重复发现**：通过 source ref 去重（同 CI run # 或 issue #），已在 STATE.md 中的不再新增
+- **并发手动触发 + cron 触发**：CronJob 的单飞锁确保同一 Loop 不同时跑两轮
 
-### 测试 seam
+## 6. 系统模型
 
-单一 seam：`loopReducer(state, action) → state`——来自 prototype 的纯函数。测试覆盖：
+### 分层架构
 
-- TICK：triaged item 推进到 fixing
-- Evaluator PASS：verifying → awaiting_review
-- Evaluator REJECT（retry < max）：verifying → fixing
-- Evaluator REJECT（retry = max）：verifying → inbox
-- 人 approve：awaiting_review → resolved
-- 人 reject：awaiting_review → inbox
-- 人 promote：awaiting_review → promoted
-- 非法转移被拒绝（如对 fixing item approve 是 no-op）
-- Prune：resolved/inbox/promoted item 被移除
+```
+┌──────────────────────────────────────────────────────────┐
+│  L6 Surfaces (apps/web)                                   │
+│  /loops 仪表盘 + 详情页（review queue + 运行历史）         │
+│  消费 Loop SSE 事件，展示 item 证据链                      │
+├──────────────────────────────────────────────────────────┤
+│  L5 Backend (apps/backend)                                │
+│  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │ Loop HTTP   │  │ CronScheduler │  │ loopStep()     │  │
+│  │ CRUD +      │  │ Bun.cron →    │  │ 读 STATE.md    │  │
+│  │ review API  │  │ loopStep()    │  │ → AgentSession  │  │
+│  └─────────────┘  └──────────────┘  │ → 写 STATE.md  │  │
+│                                     └────────────────┘  │
+│  唯一 DB 改动：cron_job.loop_config_path TEXT             │
+├──────────────────────────────────────────────────────────┤
+│  L4 Harness (packages/harness)                            │
+│  AgentSession — Loop 的 building block：                  │
+│  discovery prompt / generator prompt / evaluator prompt   │
+│  每次调 prompt() 或 continue()，不感知 Loop 编排           │
+├──────────────────────────────────────────────────────────┤
+│  L3 Framework (packages/framework)                        │
+│  createAgent(), plugin system, checkpointer, context mgr  │
+├──────────────────────────────────────────────────────────┤
+│  L2 Runtime + L1 Protocols (packages/core, message)       │
+│  Message, ChatModel, Tool, run()                          │
+└──────────────────────────────────────────────────────────┘
+```
 
-### 测试先例
+### 数据模型
 
-`packages/framework/src/create-agent.test.ts`——scripted 输入，asserted 输出。Loop reducer 测试遵循相同模式但更简单：纯函数、同步、不依赖模型。
+```
+┌─────────────────────────────────────────────────┐
+│  文件系统                                        │
+│                                                 │
+│  .loop/                                         │
+│  ├── config.yml        Loop 配置（model, etc）  │
+│  ├── constraints.md    安全约束                  │
+│  ├── skills/           SKILL.md 集合            │
+│  │   ├── loop-triage/                          │
+│  │   └── loop-verifier/                        │
+│  └── STATE.md          运行时状态（item 表）     │
+│                                                 │
+│  ── 这是 Loop 的唯一状态源 ──                   │
+├─────────────────────────────────────────────────┤
+│  数据库                                          │
+│                                                 │
+│  cron_job 表                                    │
+│  └── loop_config_path TEXT  (新增，可为 null)   │
+│                                                 │
+│  Loop 不建新表。Item 不进 DB。                   │
+└─────────────────────────────────────────────────┘
+```
 
-## 范围外
+### 请求流
 
-- **已有 Issue 数据迁移到 Loop 格式。** Issue 过渡期间保持只读。迁移路径由后续 PRD 处理。
-- **Loop 内多步 Orchestrator 工作流。** 从 Loop promote 的 item 进入另一个 Loop 或创建 Conversation。已有 Orchestrator（planner → developer → reviewer + ColumnConfig）不在 Loop 内重建（参见 `docs/architecture/backend/orchestrator.md`）。
-- **Loop 模板市场或社区共享。** 7 种内部模板驱动 intent-to-config 翻译器。没有面向用户的 pattern 浏览器。
-- **自动 git worktree 管理。** Generator AgentSession 使用调用方的工作目录。隔离是调用方的责任。
-- **多 Loop 协调或 finding 去重。** Loop 独立运行。
-- **Loop Ready Score 首期发布。** 评分概念（来自 loop-engineering 参考仓库）推迟到后续 PRD。
+```
+创建 Loop:
+  POST /api/loops { intent: "..." }
+    → intent-to-config 翻译器（LLM 调用）
+    → scaffold .loop/ 目录（写 config.yml, constraints.md, skills/）
+    → 创建 CronJob（loop_config_path = .loop/ 路径）
+    → 返回 Loop 配置预览
 
-## 补充说明
+Cron 触发:
+  Bun.cron fires
+    → CronScheduler handler
+    → 读 cron_job.loop_config_path
+    → loopStep(loopConfigPath)
+      → 读 STATE.md + config.yml
+      → discovery AgentSession.prompt("Run loop-triage...")
+      → 写 STATE.md（parsed findings）
+      → per finding: generator AgentSession → evaluator AgentSession
+      → 更新 STATE.md（item step + result）
+    → SSE push 进度到 Web
 
-### 产品简化是关键赌注
+人审批:
+  POST /api/loops/:id/review { itemId, verdict, feedback? }
+    → loopStep(loopConfigPath, { action: { itemId, verdict, feedback } })
+      → 读 STATE.md
+      → loopReducer(state, action)
+      → 写 STATE.md
+      → 如果是 promote: 在目标 Loop 的 STATE.md 添加 item
+```
 
-移除 `/issues` 并将一切统一到 `/loops` 是本 PRD 最大的产品决策。它消除了"自动工作"和"手动工作"之间的认知分裂。用户不学两套系统。学一个 Loop、一个 review queue、一种做判断的方式。
+## 7. 技术考量
 
-### 文件型 state 是刻意的
+### 架构影响
 
-STATE.md 代替数据库表不是偷懒——是设计选择。文件可移植（复制 `.loop/` 到另一个项目）、人类可读（任何编辑器打开）、无 schema（item 格式演进不需要 migration）。loop-engineering 参考仓库已验证此方法：STATE.md 同时是运行时状态、审计日志、人类可读报告。
+- CronJob 表新增一列（`loop_config_path TEXT`），向后兼容——已有 CronJob 不受影响
+- Loop 不建新数据库表——避免了 migration 风险，文件系统即状态
+- [已有 Issue 实体](../architecture/foundations/issue.md) 保持只读，不删除——避免破坏已有数据
+- Generator/Evaluator 使用已有 [AgentSession](../architecture/harness/harness.md)，不需要新执行机制
 
-### 设计渊源
+### 与已有系统的依赖
 
-本设计受以下启发：
-- Loop Engineering 概念（Peter Steinberger, Boris Cherny, Addy Osmani, 2026-06）
-- loop-engineering 参考仓库（Cobus Greyling，`/root/loop-engineering/`）——patterns、skills、STATE.md 约定、安全模型
-- Generator/Evaluator 分离发现（Prithvi Rajasekaran, Anthropic, 2026）
-- Stripe Minions 流水线（Steve Kaliski, 2026）——确定性闸门与 LLM 步骤交错
+| 依赖 | 用途 | 状态 |
+|---|---|---|
+| [AgentSession](../architecture/harness/harness.md) | discovery/generator/evaluator 的运行载体 | `current` ✓ |
+| [CronJob](../architecture/foundations/cron-job.md) | Loop 的调度触发 | `design`，需落地 |
+| [progressive-skill plugin](../architecture/plugins/progressive-skill.md) | Loop skill 加载 | `current` ✓ |
+| [fs-memory plugin](../architecture/plugins/fs-memory.md) | STATE.md 读写 | `current` ✓ |
+| [checkpointer](../architecture/runtime/framework.md) | AgentSession 的状态持久 | `current` ✓ |
+| [SSE 通道](../architecture/backend/conversation-projection.md) | Loop 运行实时推送 | `current` ✓ |
+
+### 技术风险与缓解
+
+| 风险 | 缓解 |
+|---|---|
+| STATE.md 并发写入冲突 | CronJob 单飞锁 + API 幂等设计 |
+| AgentSession 在 Loop 中大量并发创建导致资源耗尽 | `maxParallelFindings` 配置限制 + 进程级 AgentSession 池 |
+| LLM 调用成本随 Loop 数量线性增长 | Budget guard per Loop + per-day cap + 80% 告警 |
+| Evaluator 和 Generator 同 model 导致虚高通过率 | 配置层强制不同 model，LoopRunner 启动时校验 |
+| STATE.md 格式演化导致旧文件解析失败 | 版本号 + 向前兼容解析 + parse 失败时写 error event |
+
+## 8. 实施计划
+
+### Phase 1: MVP — 核心编排 + 单 Loop
+
+- `loopReducer()` 纯函数 + 测试
+- `loopStep()` 编排函数（discovery → generator → evaluator → human gate）
+- `.loop/` 目录结构 + STATE.md 读写
+- CronJob 加 `loop_config_path` 列 + handler 集成
+- Loop CRUD API（创建/列表/详情/更新/删除/手动触发/review）
+- Web：Loop 仪表盘 + 详情页（review queue + 运行历史）
+- Web：自然语言创建对话框
+- 预算保护 + denylist 强制执行
+
+### Phase 2: 增强体验
+
+- SSE 实时进度推送（Loop 运行时间线）
+- Evaluator 通过 MCP 操作浏览器
+- Post-run critique 展示和编辑
+- 手动 item 添加 UI
+- 多 Loop 仪表盘性能优化（分页、缓存）
+
+### Phase 3: 高级能力
+
+- Loop 之间 item 移动
+- 已有 Issue 数据迁移工具
+- Loop Ready Score 展示
+- 多 Loop 协调与去重
+
+## 9. 待决问题
+
+- **已有 Issue 迁移策略**：Issue 数据如何收敛到 Loop？改 `issues` 表的 `source` 字段，还是在 Loop 的 STATE.md 重建？由后续 PRD 定义。
+- **Loop 配置的版本控制**：`.loop/` 目录是否纳入 git？默认 `.gitignore` 排除 STATE.md（运行时状态），保留 config.yml + skills/（配置）？
+- **多实例 Loop 运行**：如果同一个 Loop 被多个 backend 实例的 CronJob 触发（水平扩展场景），如何保证不重复执行？依赖 CronJob 的进程级 `Bun.cron` 做单飞，还是引入分布式锁？
+- **Loop 模板的演进**：7 种内部模板是硬编码在代码里，还是作为数据文件加载？数据文件更方便增加新模板。
+
+## 10. 附录
+
+### 参考资料
+
+- [Loop Engineering — Addy Osmani](https://addyosmani.com/blog/loop-engineering/)（2026-06，概念命名）
+- [loop-engineering 参考仓库 — Cobus Greyling](https://github.com/cobusgreyling/loop-engineering)（patterns、skills、STATE.md 约定、安全模型）
+- [Generator/Evaluator 分离 — Prithvi Rajasekaran, Anthropic](https://www.anthropic.com/engineering/generator-evaluator)（2026，为什么同 model 审查不靠谱）
+- [Stripe Minions — Steve Kaliski, How I AI](https://www.howiai.tech/)（1,300 PR/周，确定性闸门与 LLM 步骤交错）
+- [Loop Engineering IEEE 论文 — HuaShu](https://huasheng.ai/orange-books)（v260615，四层栈、五动作、四成本）
+
+### 相关架构文档
+
+- [CONTEXT.md](../../CONTEXT.md) § Loop、§ agentLoop、§ CronJob、§ Issue
+- [Loop 领域实体](../architecture/foundations/loop.md)
+- [LoopRunner 编排引擎](../architecture/backend/loop-runner.md)
+- [Loop Pattern 内部模板](../architecture/foundations/loop-pattern.md)
+- [Issue（将被 Loop 吸收）](../architecture/foundations/issue.md)
+- [CronJob](../architecture/foundations/cron-job.md)
+- [Orchestrator](../architecture/backend/orchestrator.md)
+- [AgentSession](../architecture/harness/harness.md)
+- [设计哲学](../architecture/design-philosophy.md)
