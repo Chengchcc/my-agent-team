@@ -13,21 +13,23 @@ afterAll(() => {
 
 function mockAgentResponse(overrides: Record<string, unknown> = {}) {
   (globalThis as Record<string, unknown>).fetch = ((_url: string) => {
-    return Promise.resolve({
-      ok: true,
-      status: 200,
-      json: async () => ({ name: "TestBot", larkEnabled: true, ...overrides }),
-    });
+    return Promise.resolve(
+      new Response(JSON.stringify({ name: "TestBot", larkEnabled: true, ...overrides }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
   }) as typeof fetch;
 }
 
 function mockAgentError(status: number) {
   (globalThis as Record<string, unknown>).fetch = ((_url: string) => {
-    return Promise.resolve({
-      ok: false,
-      status,
-      json: async () => ({ error: "Not found" }),
-    });
+    return Promise.resolve(
+      new Response(JSON.stringify({ error: "Not found" }), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
   }) as typeof fetch;
 }
 

@@ -42,12 +42,14 @@ function mockFetch(responses: MockResponse[]) {
   (globalThis as any).fetch = (_url: string, _opts?: RequestInit) => {
     const resp = responses[i++]!;
     if (!resp) throw new Error(`Mock fetch exhausted at index ${i - 1}`);
-    return Promise.resolve({
-      ok: resp.status ? resp.status < 400 : true,
-      status: resp.status ?? 200,
-      json: async () => resp.body,
-      text: async () => JSON.stringify(resp.body),
-    });
+    const status = resp.status ?? 200;
+    const body = JSON.stringify(resp.body);
+    return Promise.resolve(
+      new Response(body, {
+        status,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
   };
 }
 

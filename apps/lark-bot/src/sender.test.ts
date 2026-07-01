@@ -2,24 +2,25 @@ import { describe, expect, test } from "bun:test";
 import { safeAgentId } from "./safe-agent-id.js";
 
 describe("sender profile naming", () => {
-  test("safeAgentId preserves alphanumeric and underscores", () => {
-    expect(safeAgentId("agent-123")).toBe("agent-123");
-    expect(safeAgentId("my_agent_42")).toBe("my_agent_42");
+  test("safeAgentId produces safe slug with hash suffix", () => {
+    const id = safeAgentId("agent-123");
+    expect(id).toMatch(/^agent-123-[a-f0-9]{8}$/);
+    expect(safeAgentId("my_agent_42")).toMatch(/^my_agent_42-[a-f0-9]{8}$/);
   });
 
   test("safeAgentId replaces special chars with underscore", () => {
-    expect(safeAgentId("agent/with:special")).toBe("agent_with_special");
-    expect(safeAgentId("test agent!")).toBe("test_agent_");
-    expect(safeAgentId("a@b#c$d%")).toBe("a_b_c_d_");
+    const id = safeAgentId("agent/with:special");
+    expect(id).toMatch(/^agent_with_special-[a-f0-9]{8}$/);
+    expect(safeAgentId("test agent!")).toMatch(/^test_agent_-[a-f0-9]{8}$/);
+    expect(safeAgentId("a@b#c$d%")).toMatch(/^a_b_c_d_-[a-f0-9]{8}$/);
   });
 
-  test("profile name format is agent:<safeId>", () => {
-    const id = safeAgentId("my-agent");
-    const profile = `agent:${id}`;
-    expect(profile).toBe("agent:my-agent");
+  test("different raw IDs with same slug produce different hashes", () => {
+    // "foo.bar" and "foo_bar" have the same slug, different hash
+    expect(safeAgentId("foo.bar")).not.toBe(safeAgentId("foo_bar"));
   });
 
-  test("safeAgentId handles empty string", () => {
-    expect(safeAgentId("")).toBe("");
+  test("empty string produces hash-only id", () => {
+    expect(safeAgentId("")).toMatch(/^-[a-f0-9]{8}$/);
   });
 });

@@ -24,12 +24,17 @@ function acquirePidLock(stateRoot: string, agentId: string): string {
     const existing = readFileSync(pidFile, "utf-8").trim();
     const oldPid = parseInt(existing, 10);
     if (oldPid && Number.isFinite(oldPid)) {
+      // Same process re-acquiring — allow (e.g. tests)
+      if (oldPid === process.pid) {
+        writeFileSync(pidFile, ourPid);
+        return pidFile;
+      }
       try {
-        process.kill(oldPid, 0); // signal 0 = existence check
+        process.kill(oldPid, 0);
         console.error(`[lark-bot] another instance is already running (pid=${oldPid}) — exiting`);
         process.exit(0);
       } catch {
-        // Stale PID — overwrite
+        // Stale PID — overwrite below
       }
     }
   } catch {

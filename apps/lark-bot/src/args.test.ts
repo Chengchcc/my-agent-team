@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { parseArgs } from "./args.js";
 
+
+// parseArgs calls parseEnv which requires BACKEND_AUTH_TOKEN
+process.env.BACKEND_AUTH_TOKEN = "test-token";
 describe("parseArgs", () => {
   test("parses required --agent-id", () => {
     const args = parseArgs(["--agent-id", "agent_123"]);
     expect(args.agentId).toBe("agent_123");
-    expect(args.backendUrl).toBe("http://localhost:3000");
+    expect(args.backendUrl).toBe("http://127.0.0.1:3000");
     expect(args.stateRoot).toBe("./.data");
     expect(args.botDisplayName).toBeNull();
     expect(args.agentName).toBeNull();
