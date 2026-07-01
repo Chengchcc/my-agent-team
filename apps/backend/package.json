@@ -12,6 +12,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "bun run --cwd ../.. build --filter=@my-agent-team/backend^... && bun run src/main.ts",
     "lint": "biome check . && eslint .",
+    "format": "biome check --write .",
     "test": "bun test --pass-with-no-tests",
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
     "db:generate:backend": "drizzle-kit generate --config drizzle.backend.config.ts",

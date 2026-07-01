@@ -58,6 +58,14 @@ used_by:
 3. [Issue 生命周期端到端](./flows/e2e-issue-lifecycle.md)
 4. [Issue 工作流演进](./foundations/issue-workflow.md)（`status: design`）
 
+### 想搞懂 Loop 与自动化编排
+
+> `foundations/loop.md`、`backend/loop-runner.md`、`foundations/loop-pattern.md` 均为 `status: design`（已锁定设计，尚未进代码）。
+
+1. [Loop](./foundations/loop.md) — Loop 是 Issue 的超集，按调度自动发现工作、用 Generator/Evaluator 分离的流水线推进
+2. [LoopRunner](./backend/loop-runner.md) — Loop 的编排引擎：discovery → generator → evaluator → human gate
+3. [Loop Pattern](./foundations/loop-pattern.md) — 7 种预制配置模板 + L1/L2/L3 信任层级 + Loop Ready Score
+
 ## 给 LLM 的入口
 
 - [LLM 索引](./index.llm.md)：按问题类型给出「先读这几页」的路由。

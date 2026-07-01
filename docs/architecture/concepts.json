@@ -71,6 +71,21 @@
       "used_by": []
     },
     {
+      "id": "backend.loop-runner",
+      "title": "LoopRunner — Loop 编排引擎",
+      "status": "design",
+      "owners": "backend-runtime",
+      "path": "docs/architecture/backend/loop-runner.md",
+      "summary": "LoopRunner 是 Loop 的编排引擎——按调度唤醒、运行 discovery agent、对每个 finding 启动 generator（写）→ evaluator（审）两棒流水线、写入 STATE.md 持久状态、最终等人审批。Generator 和 Evaluator 是不同 AgentSession 实例，必须用不同 model。",
+      "depends_on": [
+        "foundations.loop",
+        "foundations.issue",
+        "harness.harness",
+        "runtime.framework"
+      ],
+      "used_by": ["flows.e2e-issue-lifecycle"]
+    },
+    {
       "id": "backend.data-model",
       "title": "数据模型",
       "status": "current",
@@ -249,6 +264,26 @@
         "runtime.framework",
         "harness.harness"
       ],
+      "used_by": []
+    },
+    {
+      "id": "foundations.loop",
+      "title": "Loop",
+      "status": "design",
+      "owners": "architecture",
+      "path": "docs/architecture/foundations/loop.md",
+      "summary": "Loop 是按调度自动发现工作、用 Generator/Evaluator 分离的流水线推进、最终等人审批的系统。它是 Issue 的超集——手建的 Issue 是 trigger=manual 的 Loop 特例。Loop issue 和 manual issue 是同一张 issues 表、同一个实体、同一个闸门，只有推进路径不同。",
+      "depends_on": ["foundations.issue", "harness.harness", "runtime.framework"],
+      "used_by": ["backend.loop-runner", "foundations.loop-pattern"]
+    },
+    {
+      "id": "foundations.loop-pattern",
+      "title": "Loop Pattern",
+      "status": "design",
+      "owners": "architecture",
+      "path": "docs/architecture/foundations/loop-pattern.md",
+      "summary": "Loop Pattern 是 Loop 的预制配置模板。7 种内置 pattern 覆盖最常见的自动化场景。L1/L2/L3 信任层级决定自动化程度。Loop Ready Score（0-100）量化配置完备程度。",
+      "depends_on": ["foundations.loop", "foundations.issue"],
       "used_by": []
     },
     {

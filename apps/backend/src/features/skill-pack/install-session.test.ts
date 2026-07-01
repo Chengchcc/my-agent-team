@@ -3,8 +3,8 @@ import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { echoModel } from "@my-agent-team/test-helpers";
-import { sqliteSkillPackAdapter } from "./adapter-sqlite.js";
 import { openDb } from "../../infra/sqlite/db.js";
+import { sqliteSkillPackAdapter } from "./adapter-sqlite.js";
 import { runInstall } from "./install-session.js";
 import type { SkillPackPort } from "./ports.js";
 
@@ -32,8 +32,13 @@ describe("install-session", () => {
   test("applies installing transition at entry", async () => {
     // register() creates the pack as pending
     await port.register({
-      id: "p1", name: "T", description: "",
-      sourceKind: "git", sourceUrl: "https://example.com/t", versionRef: null, now,
+      id: "p1",
+      name: "T",
+      description: "",
+      sourceKind: "git",
+      sourceUrl: "https://example.com/t",
+      versionRef: null,
+      now,
     });
     const spy = vi.spyOn(port, "applyInstallTransition");
 
@@ -53,8 +58,13 @@ describe("install-session", () => {
   test("marks installing as failed when session ends without terminal update", async () => {
     // Start as pending (normal flow). runInstallInner does pending→installing.
     await port.register({
-      id: "p2", name: "F", description: "",
-      sourceKind: "git", sourceUrl: "https://example.com/f", versionRef: null, now,
+      id: "p2",
+      name: "F",
+      description: "",
+      sourceKind: "git",
+      sourceUrl: "https://example.com/f",
+      versionRef: null,
+      now,
     });
 
     // empty model doesn't call pack_update_status → pack stays at installing
@@ -73,8 +83,13 @@ describe("install-session", () => {
 
   test("does not overwrite ready status set by LLM tool call", async () => {
     await port.register({
-      id: "p3", name: "F2", description: "",
-      sourceKind: "git", sourceUrl: "https://example.com/f2", versionRef: null, now,
+      id: "p3",
+      name: "F2",
+      description: "",
+      sourceKind: "git",
+      sourceUrl: "https://example.com/f2",
+      versionRef: null,
+      now,
     });
     // runInstallInner does pending→installing, then LLM finishes (empty text),
     // pack stays installing → finally would mark failed.
@@ -99,8 +114,13 @@ describe("install-session", () => {
 
   test("zip temp file cleaned up after install", async () => {
     await port.register({
-      id: "zp", name: "ZP", description: "",
-      sourceKind: "zip", sourceUrl: null, versionRef: null, now,
+      id: "zp",
+      name: "ZP",
+      description: "",
+      sourceKind: "zip",
+      sourceUrl: null,
+      versionRef: null,
+      now,
     });
 
     const zipContent = Buffer.from("PK\u0003\u0004fakezip", "utf-8");

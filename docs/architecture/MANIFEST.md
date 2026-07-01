@@ -7,6 +7,7 @@
 - `docs/architecture/backend/event-log.md`
 - `docs/architecture/backend/orchestrator.md`
 - `docs/architecture/backend/overview.md`
+- `docs/architecture/backend/loop-runner.md`
 - `docs/architecture/concepts.json`
 - `docs/architecture/conversation/conversation-and-members.md`
 - `docs/architecture/conversation/ledger.md`
@@ -20,6 +21,8 @@
 - `docs/architecture/foundations/issue.md`
 - `docs/architecture/foundations/issue-workflow.md`
 - `docs/architecture/foundations/lifecycle-overview.md`
+- `docs/architecture/foundations/loop.md`
+- `docs/architecture/foundations/loop-pattern.md`
 - `docs/architecture/harness/harness.md`
 - `docs/architecture/index.llm.md`
 - `docs/architecture/map.md`

@@ -76,6 +76,16 @@
 4. `foundations/issue-workflow.md`（`status: design`，下一版演进）
 > `@提及自动触发` 和 `Issue 编排` 是两条独立路径，各自可触发 Agent 运行。
 
+## 如果问的是 Loop / 自动化编排 / Generator-Evaluator 分离
+
+> `foundations/loop.md`、`backend/loop-runner.md`、`foundations/loop-pattern.md` 均为 `status: design`（已锁定设计，尚未进代码）。
+
+1. `foundations/loop.md`
+2. `backend/loop-runner.md`
+3. `foundations/loop-pattern.md`
+4. `foundations/issue.md`（Loop issue 复用的实体本体）
+> Loop 是 Issue 的超集——Loop issue 和 manual issue 共享同一实体，区别在 origin 和推进路径。
+
 ## 如果问的是未来方向
 
 读 `roadmap/future-work.md`，并顺其关联链接。**不要把 roadmap 条目当成当前行为。**
