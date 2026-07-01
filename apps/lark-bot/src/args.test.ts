@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseArgs } from "./args.js";
 
-
 // parseArgs calls parseEnv which requires BACKEND_AUTH_TOKEN
 process.env.BACKEND_AUTH_TOKEN = "test-token";
 describe("parseArgs", () => {
