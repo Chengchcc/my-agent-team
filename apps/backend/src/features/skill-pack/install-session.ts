@@ -101,8 +101,8 @@ export async function runInstall(source: InstallSource, deps: InstallSessionDeps
 async function runInstallInner(source: InstallSource, deps: InstallSessionDeps): Promise<void> {
   // Backend deterministically advances pending→installing (like syncGit does ready→syncing).
   await deps.port.applyInstallTransition(source.packId, "installing", { now: Date.now() });
-  const session = await createInstallSession(deps);
   try {
+    const session = await createInstallSession(deps);
     await session.prompt(buildPrompt(source, "install"));
   } finally {
     const row = await deps.port.get(source.packId);
@@ -116,8 +116,8 @@ async function runInstallInner(source: InstallSource, deps: InstallSessionDeps):
 }
 
 export async function runSync(source: InstallSource, deps: InstallSessionDeps): Promise<void> {
-  const session = await createInstallSession(deps);
   try {
+    const session = await createInstallSession(deps);
     await session.prompt(buildPrompt(source, "sync"));
   } finally {
     const row = await deps.port.get(source.packId);

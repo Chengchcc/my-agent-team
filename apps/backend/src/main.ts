@@ -109,6 +109,10 @@ const skillPackSvc = createSkillPackServiceFn({
         }),
         dataDir: config.dataDir,
         port: skillPackPort,
+        zipBuffer:
+          ctx.sourceKind === "zip" && ctx.sourceUrl
+            ? Buffer.from(ctx.sourceUrl, "base64")
+            : undefined,
       },
     ).catch((err) => console.error(`[skill-pack] install failed for ${packId}:`, err));
   },
