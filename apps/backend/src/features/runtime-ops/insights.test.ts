@@ -1,26 +1,33 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, test } from "bun:test";
-import { inMemoryEventLog } from "../event-log/index.js";
+import type { CheckpointEventRow } from "../../../test-helpers/mock-deps.js";
+import { fakeCheckpointEventsStore } from "../../../test-helpers/mock-deps.js";
 import { getInsightsSummary, getRunInsights } from "./insights.js";
+
+/** Build a flat CheckpointEventRow: { ...event, spanId, sessionId, ts }. */
+function row(
+  sessionId: string,
+  spanId: string,
+  event: Record<string, unknown>,
+  ts?: number,
+): CheckpointEventRow {
+  return {
+    ...event,
+    sessionId,
+    spanId,
+    ts: ts ?? (event.ts as number) ?? Date.now(),
+  } as CheckpointEventRow;
+}
 
 describe("getRunInsights", () => {
   test("returns empty calls for run with no llm/tool events", async () => {
-    const eventLog = inMemoryEventLog();
-    await eventLog.append("thread1", "run1", {
-      type: "message",
-      payload: {
-        messageId: "test-msg",
-        role: "user",
-        state: "done" as const,
-        text: "hi",
-        updatedAt: Date.now(),
-      },
-    });
+    const store = fakeCheckpointEventsStore();
 
     const result = await getRunInsights(
-      { eventLog },
+      { checkpointEventsStore: store as any },
       {
-        runId: "run1",
-        threadId: "thread1",
+        spanId: "run1",
+        sessionId: "thread1",
         agentId: "agent1",
         status: "done",
         startedAt: 1000,
@@ -35,34 +42,33 @@ describe("getRunInsights", () => {
   });
 
   test("aggregates llm_call events", async () => {
-    const eventLog = inMemoryEventLog();
-
-    await eventLog.append("t1", "run1", {
-      type: "llm_call",
-      payload: {
-        step: 0,
-        model: "claude-sonnet-4",
+    const store = fakeCheckpointEventsStore([
+      row("t1", "run1", {
+        type: "model_end",
+        blocks: [{ type: "text", text: "hi" }],
         usage: { input: 1000, output: 200 },
+        model: "claude-sonnet-4",
+        step: 0,
         latencyMs: 1500,
         ttftMs: 300,
-      },
-    });
-
-    await eventLog.append("t1", "run1", {
-      type: "llm_call",
-      payload: {
-        step: 1,
-        model: "claude-sonnet-4",
+        ts: 2000,
+      }),
+      row("t1", "run1", {
+        type: "model_end",
+        blocks: [{ type: "text", text: "there" }],
         usage: { input: 2000, output: 500 },
+        model: "claude-sonnet-4",
+        step: 1,
         latencyMs: 2500,
-      },
-    });
+        ts: 4500,
+      }),
+    ]);
 
     const result = await getRunInsights(
-      { eventLog },
+      { checkpointEventsStore: store as any },
       {
-        runId: "run1",
-        threadId: "t1",
+        spanId: "run1",
+        sessionId: "t1",
         agentId: "a1",
         status: "done",
         startedAt: 1000,
@@ -84,26 +90,41 @@ describe("getRunInsights", () => {
   });
 
   test("aggregates tool_call events with errors", async () => {
-    const eventLog = inMemoryEventLog();
-
-    await eventLog.append("t1", "run2", {
-      type: "tool_call",
-      payload: { step: 0, id: "t1", name: "read_file", latencyMs: 100, isError: false },
-    });
-    await eventLog.append("t1", "run2", {
-      type: "tool_call",
-      payload: { step: 0, id: "t2", name: "edit_file", latencyMs: 300, isError: true },
-    });
-    await eventLog.append("t1", "run2", {
-      type: "tool_call",
-      payload: { step: 1, id: "t3", name: "read_file", latencyMs: 80, isError: false },
-    });
+    const store = fakeCheckpointEventsStore([
+      row("t1", "run2", {
+        type: "tool_end",
+        result: { type: "tool_result", tool_use_id: "t1", content: "ok" },
+        durationMs: 100,
+        step: 0,
+        name: "read_file",
+        isError: false,
+        ts: 1500,
+      }),
+      row("t1", "run2", {
+        type: "tool_end",
+        result: { type: "tool_result", tool_use_id: "t2", content: "err", is_error: true },
+        durationMs: 300,
+        step: 0,
+        name: "edit_file",
+        isError: true,
+        ts: 1800,
+      }),
+      row("t1", "run2", {
+        type: "tool_end",
+        result: { type: "tool_result", tool_use_id: "t3", content: "ok" },
+        durationMs: 80,
+        step: 1,
+        name: "read_file",
+        isError: false,
+        ts: 2000,
+      }),
+    ]);
 
     const result = await getRunInsights(
-      { eventLog },
+      { checkpointEventsStore: store as any },
       {
-        runId: "run2",
-        threadId: "t1",
+        spanId: "run2",
+        sessionId: "t1",
         agentId: "a1",
         status: "interrupted",
         startedAt: 1000,
@@ -122,31 +143,38 @@ describe("getRunInsights", () => {
   });
 
   test("detects interrupted event", async () => {
-    const eventLog = inMemoryEventLog();
-
-    await eventLog.append("t1", "run3", {
-      type: "llm_call",
-      payload: {
-        step: 0,
-        model: "claude-sonnet-4",
+    const store = fakeCheckpointEventsStore([
+      row("t1", "run3", {
+        type: "model_end",
+        blocks: [{ type: "text", text: "ok" }],
         usage: { input: 100, output: 50 },
+        model: "claude-sonnet-4",
+        step: 0,
         latencyMs: 500,
-      },
-    });
-    await eventLog.append("t1", "run3", {
-      type: "tool_call",
-      payload: { step: 0, id: "t1", name: "ask", latencyMs: 2000, isError: true },
-    });
-    await eventLog.append("t1", "run3", {
-      type: "interrupted",
-      payload: { reason: "needs approval" },
-    });
+        ts: 1500,
+      }),
+      row("t1", "run3", {
+        type: "tool_end",
+        result: { type: "tool_result", tool_use_id: "t1", content: "err", is_error: true },
+        durationMs: 2000,
+        step: 0,
+        name: "ask",
+        isError: true,
+        ts: 3500,
+      }),
+      row("t1", "run3", {
+        type: "interrupt",
+        pendingTool: { type: "tool_use", id: "t1", name: "ask", input: {} },
+        reason: "needs approval",
+        ts: 3500,
+      }),
+    ]);
 
     const result = await getRunInsights(
-      { eventLog },
+      { checkpointEventsStore: store as any },
       {
-        runId: "run3",
-        threadId: "t1",
+        spanId: "run3",
+        sessionId: "t1",
         agentId: "a1",
         status: "running",
         startedAt: 1000,
@@ -160,18 +188,23 @@ describe("getRunInsights", () => {
   });
 
   test("marks cost null for unknown model", async () => {
-    const eventLog = inMemoryEventLog();
-
-    await eventLog.append("t1", "run4", {
-      type: "llm_call",
-      payload: { step: 0, model: "unknown", usage: { input: 1000, output: 200 }, latencyMs: 500 },
-    });
+    const store = fakeCheckpointEventsStore([
+      row("t1", "run4", {
+        type: "model_end",
+        blocks: [{ type: "text", text: "ok" }],
+        usage: { input: 1000, output: 200 },
+        model: "unknown",
+        step: 0,
+        latencyMs: 500,
+        ts: 1500,
+      }),
+    ]);
 
     const result = await getRunInsights(
-      { eventLog },
+      { checkpointEventsStore: store as any },
       {
-        runId: "run4",
-        threadId: "t1",
+        spanId: "run4",
+        sessionId: "t1",
         agentId: "a1",
         status: "done",
         startedAt: 1000,
@@ -184,13 +217,16 @@ describe("getRunInsights", () => {
   });
 
   test("resolves agent name", async () => {
-    const eventLog = inMemoryEventLog();
+    const store = fakeCheckpointEventsStore();
 
     const result = await getRunInsights(
-      { eventLog, getAgentName: (id) => (id === "a1" ? "My Agent" : undefined) },
       {
-        runId: "run5",
-        threadId: "t1",
+        checkpointEventsStore: store as any,
+        getAgentName: (id: string) => (id === "a1" ? "My Agent" : undefined),
+      },
+      {
+        spanId: "run5",
+        sessionId: "t1",
         agentId: "a1",
         status: "done",
         startedAt: 1000,
@@ -204,21 +240,26 @@ describe("getRunInsights", () => {
 
 describe("getInsightsSummary", () => {
   test("buckets llm calls into hourly token series", async () => {
-    const eventLog = inMemoryEventLog();
     const hour1 = Math.floor(Date.now() / 3_600_000) * 3_600_000;
-
-    await eventLog.append("t1", "r1", {
-      type: "llm_call",
-      payload: {
-        step: 0,
-        model: "claude-sonnet-4",
-        usage: { input: 1000, output: 500 },
-        latencyMs: 500,
-      },
-    });
+    const store = fakeCheckpointEventsStore([
+      row(
+        "t1",
+        "r1",
+        {
+          type: "model_end",
+          blocks: [{ type: "text", text: "ok" }],
+          usage: { input: 1000, output: 500 },
+          model: "claude-sonnet-4",
+          step: 0,
+          latencyMs: 500,
+          ts: hour1 + 1000,
+        },
+        hour1 + 1000,
+      ),
+    ]);
 
     const result = await getInsightsSummary(
-      { eventLog },
+      { checkpointEventsStore: store as any },
       { from: hour1 - 3_600_000, to: hour1 + 3_600_000 * 2 },
     );
 
@@ -230,28 +271,42 @@ describe("getInsightsSummary", () => {
   });
 
   test("aggregates cost by model", async () => {
-    const eventLog = inMemoryEventLog();
+    const now = Date.now();
+    const store = fakeCheckpointEventsStore([
+      row(
+        "t1",
+        "r1",
+        {
+          type: "model_end",
+          blocks: [{ type: "text", text: "ok" }],
+          usage: { input: 10000, output: 1000 },
+          model: "claude-sonnet-4",
+          step: 0,
+          latencyMs: 500,
+          ts: now,
+        },
+        now,
+      ),
+      row(
+        "t1",
+        "r2",
+        {
+          type: "model_end",
+          blocks: [{ type: "text", text: "ok" }],
+          usage: { input: 10000, output: 1000 },
+          model: "claude-haiku-4-5",
+          step: 0,
+          latencyMs: 500,
+          ts: now + 1000,
+        },
+        now + 1000,
+      ),
+    ]);
 
-    await eventLog.append("t1", "r1", {
-      type: "llm_call",
-      payload: {
-        step: 0,
-        model: "claude-sonnet-4",
-        usage: { input: 10000, output: 1000 },
-        latencyMs: 500,
-      },
-    });
-    await eventLog.append("t1", "r2", {
-      type: "llm_call",
-      payload: {
-        step: 0,
-        model: "claude-haiku-4-5",
-        usage: { input: 10000, output: 1000 },
-        latencyMs: 500,
-      },
-    });
-
-    const result = await getInsightsSummary({ eventLog }, { from: 0, to: Date.now() + 86_400_000 });
+    const result = await getInsightsSummary(
+      { checkpointEventsStore: store as any },
+      { from: 0, to: Date.now() + 86_400_000 },
+    );
 
     expect(result.costByModel).toHaveLength(2);
     const sonnet = result.costByModel.find((m) => m.model === "claude-sonnet-4");
@@ -260,22 +315,56 @@ describe("getInsightsSummary", () => {
   });
 
   test("tracks top tools", async () => {
-    const eventLog = inMemoryEventLog();
+    const now = Date.now();
+    const store = fakeCheckpointEventsStore([
+      row(
+        "t1",
+        "r1",
+        {
+          type: "tool_end",
+          result: { type: "tool_result", tool_use_id: "a", content: "ok" },
+          durationMs: 100,
+          step: 0,
+          name: "read_file",
+          isError: false,
+          ts: now,
+        },
+        now,
+      ),
+      row(
+        "t1",
+        "r1",
+        {
+          type: "tool_end",
+          result: { type: "tool_result", tool_use_id: "b", content: "ok" },
+          durationMs: 100,
+          step: 0,
+          name: "read_file",
+          isError: false,
+          ts: now + 1,
+        },
+        now + 1,
+      ),
+      row(
+        "t1",
+        "r1",
+        {
+          type: "tool_end",
+          result: { type: "tool_result", tool_use_id: "c", content: "err", is_error: true },
+          durationMs: 100,
+          step: 0,
+          name: "edit_file",
+          isError: true,
+          ts: now + 2,
+        },
+        now + 2,
+      ),
+    ]);
 
-    await eventLog.append("t1", "r1", {
-      type: "tool_call",
-      payload: { step: 0, id: "a", name: "read_file", latencyMs: 100, isError: false },
-    });
-    await eventLog.append("t1", "r1", {
-      type: "tool_call",
-      payload: { step: 0, id: "b", name: "read_file", latencyMs: 100, isError: false },
-    });
-    await eventLog.append("t1", "r1", {
-      type: "tool_call",
-      payload: { step: 0, id: "c", name: "edit_file", latencyMs: 100, isError: true },
-    });
-
-    const result = await getInsightsSummary({ eventLog }, { from: 0, to: Date.now() + 86_400_000 });
+    const result = await getInsightsSummary(
+      { checkpointEventsStore: store as any },
+      { from: 0, to: Date.now() + 86_400_000 },
+    );
 
     expect(result.topTools).toHaveLength(2);
     const read = result.topTools.find((t) => t.name === "read_file");

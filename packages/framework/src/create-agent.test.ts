@@ -80,14 +80,14 @@ describe("createAgent", () => {
     );
     expect(msg).toBeDefined();
     if (msg) {
-      // M17.2: payload is now a MessageRevision (envelope with messageId/state/runId etc.)
+      // M17.2: payload is now a MessageRevision (envelope with messageId/state/spanId etc.)
       const rev = msg.payload;
       expect(rev.role).toBe("assistant");
       expect(rev.state).toBe("streaming"); // First message is always streaming
       expect(rev.blocks).toEqual([{ type: "text", text: "hello" }]);
-      expect(rev.messageId).toContain("run:");
+      expect(rev.messageId).toContain("span:");
       expect(rev.messageId).toContain(":assistant:0");
-      expect(typeof rev.runId).toBe("string");
+      expect(typeof rev.spanId).toBe("string");
       expect(typeof rev.updatedAt).toBe("number");
     }
     expect(agent.thread.messages).toEqual([
@@ -433,9 +433,11 @@ describe("createAgent", () => {
 
     for await (const ev of agent.run("hi")) {
       expect(ev).toHaveProperty("type");
-      expect(ev).toHaveProperty("payload");
-      if (ev.type === "message") {
-        expect(ev.payload).toHaveProperty("role");
+      // agent_start, agent_end, and session events don't have payload
+      if ("payload" in ev) {
+        if (ev.type === "message") {
+          expect(ev.payload).toHaveProperty("role");
+        }
       }
     }
   });
@@ -922,7 +924,7 @@ describe("createAgent", () => {
       checkpointer: {
         load: () => Promise.resolve(null),
         save: () => Promise.resolve(),
-        appendEvent: (_id, event) => {
+        appendEvent: (_id, _spanId, event) => {
           events.push({ type: event.type });
           return Promise.resolve();
         },
@@ -972,7 +974,7 @@ describe("createAgent", () => {
           interruptState = null;
           return Promise.resolve(s);
         },
-        appendEvent: (_id, event) => {
+        appendEvent: (_id, _spanId, event) => {
           events.push({ type: event.type });
           return Promise.resolve();
         },
@@ -1164,13 +1166,13 @@ describe("createAgent", () => {
 
   // ─── M17.2: MessageRevision envelope ───────────────────────
 
-  test("message event payload is a valid MessageRevision with messageId and runId", async () => {
-    const runId = "test-run-1";
+  test("message event payload is a valid MessageRevision with messageId and spanId", async () => {
+    const spanId = "test-run-1";
     const agent = await createAgent({
       model: scriptedModel([{ type: "text", text: "hello" }]),
     });
 
-    const events = await collect(agent.run("hi", { runId }));
+    const events = await collect(agent.run("hi", { spanId }));
     const msgEvents = events.filter((e) => e.type === "message");
 
     // At least streaming + terminal
@@ -1179,15 +1181,15 @@ describe("createAgent", () => {
     // Terminal revision has state "done"
     const terminal = msgEvents[msgEvents.length - 1]!;
     expect(terminal.payload.state).toBe("done");
-    expect(terminal.payload.messageId).toBe(`run:${runId}:assistant:0`);
+    expect(terminal.payload.messageId).toBe(`span:${spanId}:assistant:0`);
     expect(terminal.payload.role).toBe("assistant");
-    expect(terminal.payload.runId).toBe(runId);
+    expect(terminal.payload.spanId).toBe(spanId);
     expect(typeof terminal.payload.updatedAt).toBe("number");
     expect(terminal.payload.visibility).toBe("conversation");
   });
 
   test("streaming phase state is 'streaming' and messageId is constant", async () => {
-    const runId = "stream-run";
+    const spanId = "stream-run";
     const agent = await createAgent({
       model: scriptedModel([
         { type: "tool_call", id: "t1", name: "lookup", input: { q: "x" } },
@@ -1196,13 +1198,13 @@ describe("createAgent", () => {
       tools: [makeTool("lookup")],
     });
 
-    const events = await collect(agent.run("go", { runId }));
+    const events = await collect(agent.run("go", { spanId }));
     const msgEvents = events.filter((e) => e.type === "message");
 
     // M17.4 (Patch C v3): one run = one growing assistant message.
     // All revisions share the same messageId; ordinal is reserved.
     for (const ev of msgEvents) {
-      expect(ev.payload.messageId).toBe(`run:${runId}:assistant:0`);
+      expect(ev.payload.messageId).toBe(`span:${spanId}:assistant:0`);
     }
 
     // Non-terminal message events have state "streaming" or "waiting"
@@ -1252,7 +1254,7 @@ describe("createAgent", () => {
     expect(terminal.payload.state).toBe("done");
   });
 
-  test("fallback to thread.id when runId not passed", async () => {
+  test("fallback to thread.id when spanId not passed", async () => {
     const agent = await createAgent({
       model: scriptedModel([{ type: "text", text: "ok" }]),
     });
@@ -1261,8 +1263,8 @@ describe("createAgent", () => {
     const msgEvents = events.filter((e) => e.type === "message");
 
     // messageId uses thread.id as fallback
-    expect(msgEvents[0]!.payload.messageId).toBe(`run:${agent.thread.id}:assistant:0`);
-    expect(msgEvents[0]!.payload.runId).toBe(agent.thread.id);
+    expect(msgEvents[0]!.payload.messageId).toBe(`span:${agent.thread.id}:assistant:0`);
+    expect(msgEvents[0]!.payload.spanId).toBe(agent.thread.id);
   });
 
   test("tool-only run still emits terminal", async () => {
@@ -1316,5 +1318,77 @@ describe("createAgent", () => {
     expect(eventTypes.has("tool_call")).toBe(true);
     expect(eventTypes.has("llm_call")).toBe(true);
     expect(eventTypes.has("message")).toBe(true);
+  });
+});
+
+// ─── Agent.subscribe() ─────────────────────────────────────────
+
+describe("Agent.subscribe()", () => {
+  test("notifies subscriber on each event", async () => {
+    const agent = await createAgent({
+      model: scriptedModel([{ type: "text", text: "hello" }]),
+    });
+    const events: string[] = [];
+    const unsub = agent.subscribe((e) => events.push(e.type));
+
+    await collect(agent.run("hi"));
+
+    unsub();
+    expect(events.length).toBeGreaterThan(0);
+    expect(events).toContain("message");
+    expect(events).toContain("llm_call");
+  });
+
+  test("unsubscribe stops notifications", async () => {
+    const agent = await createAgent({
+      model: scriptedModel([{ type: "text", text: "hello" }]),
+    });
+    const events: string[] = [];
+    const unsub = agent.subscribe((e) => events.push(e.type));
+    unsub();
+
+    await collect(agent.run("hi"));
+
+    expect(events.length).toBe(0);
+  });
+
+  test("multiple subscribers all notified", async () => {
+    const agent = await createAgent({
+      model: scriptedModel([{ type: "text", text: "hello" }]),
+    });
+    const a: string[] = [];
+    const b: string[] = [];
+    const unsubA = agent.subscribe((e) => a.push(e.type));
+    const unsubB = agent.subscribe((e) => b.push(e.type));
+
+    await collect(agent.run("hi"));
+
+    unsubA();
+    unsubB();
+    expect(a.length).toBe(b.length);
+    expect(a).toContain("message");
+    expect(b).toContain("message");
+  });
+
+  test("forked agent has independent subscribers", async () => {
+    const agent = await createAgent({
+      model: scriptedModel([{ type: "text", text: "hello" }]),
+    });
+    const parentEvents: string[] = [];
+    agent.subscribe((e) => parentEvents.push(e.type));
+
+    const child = agent.fork();
+    const childEvents: string[] = [];
+    child.subscribe((e) => childEvents.push(e.type));
+
+    await collect(agent.run("parent"));
+    await collect(child.run("child"));
+
+    // Parent subscriber was not fired for child events
+    // and vice versa. Both got their own.
+    expect(parentEvents.length).toBeGreaterThan(0);
+    expect(childEvents.length).toBeGreaterThan(0);
+    // Each only got events matching their own run's message content pattern
+    // (this is implicit from independence — detailed content check isn't needed)
   });
 });

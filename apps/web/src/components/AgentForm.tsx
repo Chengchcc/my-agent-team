@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -27,6 +27,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { agentKeys, useCreateAgent, useUpdateAgent } from "@/features/agents/hooks";
+import {
+  useAgentSkillPacks,
+  useSetAgentPacks,
+  useSkillPackList,
+} from "@/features/skill-packs/hooks";
 import { type AgentRow, api, type LarkSetupSession } from "@/lib/api";
 
 const formSchema = z.object({
@@ -51,10 +57,11 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   const router = useRouter();
   const queryClient = useQueryClient();
   const isEdit = !!editAgent;
-  const [open, setOpen] = useState(false);
   const [setupSession, setSetupSession] = useState<LarkSetupSession | null>(null);
+  const [open, setOpen] = useState(false);
   const [setupLoading, setSetupLoading] = useState(false);
   const [serverError, setServerError] = useState("");
+  const [selectedPackIds, setSelectedPackIds] = useState<string[]>([]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -99,8 +106,8 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
         setSetupSession(session);
         if (session.status !== "pending") {
           clearInterval(interval);
-          queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
-          queryClient.invalidateQueries({ queryKey: ["agents"] });
+          queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
+          queryClient.invalidateQueries({ queryKey: agentKeys.lists() });
         }
       } catch {
         clearInterval(interval);
@@ -109,7 +116,19 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
     return () => clearInterval(interval);
   }, [setupSession?.status, setupSession?.setupId, editAgent?.id, queryClient]);
 
-  function buildBody(values: FormValues): Record<string, unknown> {
+  // Skill pack assignments
+  const { data: availablePacks } = useSkillPackList();
+  const { data: assignedPacks } = useAgentSkillPacks(editAgent?.id ?? "");
+  const setPacksMutation = useSetAgentPacks(editAgent?.id ?? "");
+
+  // Sync assigned packs to local state when loaded
+  useEffect(() => {
+    if (assignedPacks) {
+      setSelectedPackIds(assignedPacks.map((p: { id: string }) => p.id));
+    }
+  }, [assignedPacks]);
+
+  function buildBody(values: FormValues): Parameters<typeof api.createAgent>[0] {
     const body: Record<string, unknown> = {
       name: values.name,
       model: {
@@ -126,45 +145,52 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
         ...(values.botDisplayName ? { botDisplayName: values.botDisplayName } : {}),
       };
     else if (isEdit && editAgent?.lark?.enabled) body.lark = { enabled: false };
-    return body;
+    return body as Parameters<typeof api.createAgent>[0];
   }
 
-  const createMutation = useMutation({
-    mutationFn: (values: FormValues) => api.createAgent(buildBody(values)),
-    onSuccess: (agent) => {
-      toast.success("Agent created");
-      queryClient.invalidateQueries({ queryKey: ["agents"] });
-      form.reset();
-      setOpen(false);
-      router.push(`/agents/${(agent as AgentRow).id}`);
-    },
-    onError: (err) => {
-      const msg = err instanceof Error ? err.message : "Failed to save agent";
-      setServerError(msg);
-      toast.error("Failed to save agent", { description: msg });
-    },
-  });
+  const createMutation = useCreateAgent();
+  const updateMutation = useUpdateAgent(editAgent?.id ?? "");
 
-  const updateMutation = useMutation({
-    mutationFn: (values: FormValues) => api.updateAgent(editAgent!.id, buildBody(values)),
-    onSuccess: () => {
+  async function onSubmit(values: FormValues) {
+    setServerError("");
+    if (isEdit) {
+      try {
+        await updateMutation.mutateAsync(buildBody(values));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to save agent";
+        setServerError(msg);
+        toast.error("Failed to save agent", { description: msg });
+        return;
+      }
+
+      // Assign skill packs after agent update succeeds
+      if (editAgent?.id) {
+        try {
+          await setPacksMutation.mutateAsync(selectedPackIds);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Failed to assign skill packs";
+          toast.error(msg);
+          // Don't close the form — let user retry allocation
+          return;
+        }
+      }
+
       toast.success("Agent updated");
-      queryClient.invalidateQueries({ queryKey: ["agent", editAgent!.id] });
-      queryClient.invalidateQueries({ queryKey: ["agents"] });
       setOpen(false);
       onSuccess?.();
-    },
-    onError: (err) => {
-      const msg = err instanceof Error ? err.message : "Failed to save agent";
-      setServerError(msg);
-      toast.error("Failed to save agent", { description: msg });
-    },
-  });
-
-  function onSubmit(values: FormValues) {
-    setServerError("");
-    if (isEdit) updateMutation.mutate(values);
-    else createMutation.mutate(values);
+    } else {
+      try {
+        const agent = await createMutation.mutateAsync(buildBody(values));
+        toast.success("Agent created");
+        form.reset();
+        setOpen(false);
+        router.push(`/agents/${agent.id}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to save agent";
+        setServerError(msg);
+        toast.error("Failed to save agent", { description: msg });
+      }
+    }
   }
 
   // onSubmit is now fire-and-forget (mutate, not await), so react-hook-form's
@@ -446,6 +472,29 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                     </div>
                   )}
                 </div>
+
+                {/* Skill pack assignments */}
+                {isEdit && availablePacks && availablePacks.length > 0 && (
+                  <div className="border-t border-[var(--hairline)] pt-5">
+                    <h3 className="text-sm font-medium mb-3">Skill Packs</h3>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {availablePacks.map((pack: { id: string; name: string; status: string }) => (
+                        <label key={pack.id} className="flex items-center gap-2 cursor-pointer">
+                          <Checkbox
+                            checked={selectedPackIds.includes(pack.id)}
+                            onCheckedChange={(checked) => {
+                              setSelectedPackIds((prev) =>
+                                checked ? [...prev, pack.id] : prev.filter((id) => id !== pack.id),
+                              );
+                            }}
+                          />
+                          <span className="text-sm">{pack.name}</span>
+                          <span className="text-xs text-muted-foreground">({pack.status})</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {serverError && <p className="text-xs text-destructive">{serverError}</p>}
 

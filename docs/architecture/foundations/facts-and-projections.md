@@ -4,7 +4,6 @@ title: 事实与投影
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-22
-summary: "Message 领域类型只有一处定义（@my-agent-team/message）。conversation_ledger 是对话的 canonical fact store。其余都是 infrastructure：EventLog 只存 execution detail、buildPreloadedMessages 是pure projection function、projection_messages 是 broadcast cache、Checkpointer 存 recovery state、SSE 是 transport。没有任何层复制 Message 语义。"
 depends_on:
 used_by:
   - backend.conversation-projection
@@ -28,19 +27,16 @@ used_by:
 | 层 | 持久 | 角色 | 写者 | 读者 | 可重建 |
 |---|---:|---|---|---|---|
 | **事实** | | | | | |
-| conversation_ledger | 是 | 对话的 canonical store | ConvService（人）/ onRunMessage（assistant） | buildPreloadedMessages、SSE、Web | 否 |
+| conversation_ledger | 是 | 对话可见内容 | appendLedgerEntry | 所有端 | 否 |
+| checkpoint_events | 是 | 执行事实流（按 spanId） | run-loop（appendEvent） | Ops、排障 | 否 |
 | **infrastructure** | | | | | |
-| EventLog | 是 | execution detail 记录 | RunSupervisor（非 message 事件） | Ops、排障 | 否 |
-| buildPreloadedMessages | 否（纯函数） | ledger → Message[] | forkRun（触发 Agent 运行的 closure，见[对话与成员](../conversation/conversation-and-members.md)） | Runner 启动 | 是 |
-| projection_messages | 是 | broadcast cache | broadcastMessage（best-effort） | SSE subscriber 轮询 | 是 |
-| Runner Checkpointer | 是 | recovery state | Framework / Runner | Runner resume | 部分 |
+| ledger（broadcast cache） | 是 | broadcast cache | broadcastMessage（best-effort） | SSE subscriber 轮询 | 是 |
 | SSE 流 | 否 | transport | RunSupervisor / ConvService | Web / Lark 实时 UI | 否 |
 
 ### 为什么这些不能合并
 
-- **ledger vs EventLog**：ledger 存对话可见内容，EventLog 存 execution detail（tool_start/tool_end 等）。tool call 细节排障需要，但进了 ledger 会让 Lark 消息卡片渲染出 `[Unsupported content]`。反过来，成员加入通知属于 ledger，跟哪次 run 都没关系。
-- **ledger vs projection_messages**：projection_messages 是 best-effort cache，进程重启或 fan-out 失败就会丢。buildPreloadedMessages 直接从 ledger 读，不经过 projection_messages，没有 staleness 问题。
-- **ledger vs Checkpointer**：Checkpointer 是 Runner 进程私有的 recovery state，不是对话历史。resume 用它恢复执行位置，不是用它回放对话。
+- **conversation_ledger vs checkpoint_events**：ledger 存对话可见内容，checkpoint_events 存 execution detail（tool_start/tool_end/llm_call 等）。tool call 细节排障需要，但进了 ledger 会让 Lark 消息卡片渲染出 `[Unsupported content]`。反过来，成员加入通知属于 ledger，跟哪个 span 都没关系。两者都是 session 的事实，但一类对话可见、一类执行内部，渲染面不同，所以不混。
+- **checkpoint_events 归 checkpointer，不另立 EventLog**：执行事实流是 session 运行档案的一部分，和恢复状态同库同源（见[标识符体系](identifiers.md)）。曾被剥离出去的 `event_log` 表已废止（见 [EventLog tombstone](../backend/event-log.md)）。
 
 ## 数据流
 
@@ -48,14 +44,10 @@ used_by:
 graph LR
   Human[人的消息] --> Ledger[(conversation_ledger)]
   Sup[RunSupervisor] -->|"onRunMessage"| Ledger
-  Ledger --> BPM[buildPreloadedMessages]
   BPM -->|"Message[]"| Spec[preloadedMessages]
-  Spec --> Runner[Runner]
-  Runner --> CKPT[(Runner Checkpointer)]
-  Runner --> Sup
-  Sup -->|"execution events"| EventLog[(EventLog)]
-  EventLog --> OpsUI[Ops / 排障]
-  Ledger -->|"broadcast"| TP[(projection_messages)]
+  RL[run-loop] -->|"appendEvent(sessionId, spanId, …)"| CE[(checkpoint_events)]
+  CE --> OpsUI[Ops / 排障]
+  Ledger -->|"broadcast"| TP[(ledger)]
   TP --> SSE[SSE subscriber]
   Ledger -->|"SSE poll"| ConvUI[对话 UI]
 ```
@@ -64,16 +56,12 @@ graph LR
 
 - **人发消息**：`postMessage → appendAndBroadcast`（写 ledger + broadcastMessage fan-out）
 - **assistant 产出**：`onRunMessage → appendAssistantMessage`（直写 ledger）→ `broadcastMessage`（best-effort fan-out，fire-and-forget）
-- **Agent 看到什么**：`buildPreloadedMessages` 从 ledger 读 → 按 memberId 折叠（self→assistant，other→user）→ 产出 `Message[]` 给 `preloadedMessages`
 - **UI 怎么更新**：`subscribeConversation` SSE 从 ledger 直接 poll
 
-## buildPreloadedMessages vs broadcastMessage：two projections
 
-| | buildPreloadedMessages | broadcastMessage → projection_messages |
 |---|---|---|
 | 触发时机 | forkRun（运行开始前） | 每次 ledger 写入后 |
 | 输入 | ledger 全量 `getLedgerEntries` | 单条 LedgerEntry |
-| 输出 | `Message[]` 直接给 Runner | `{role, content}` 写入 projection_messages |
 | 可靠性 | critical（读失败上抛） | best-effort（失败只记日志） |
 | 消费方 | Agent（preloadedMessages） | SSE subscriber / Web UI |
 
@@ -83,9 +71,8 @@ graph LR
 
 前端 SSE 有延迟/缺失，但事实已持久化。重连后从 ledger 重放。
 
-### buildPreloadedMessages 读到不完整数据
 
-按 messageId 折叠（后写覆盖先写）。如果同一消息有两个 messageId 则折叠失效导致重复。当前 messageId 由 `assistantMessageId(runId, 0)` 生成，同一 run 内 stable。
+按 messageId 折叠（后写覆盖先写）。如果同一消息有两个 messageId 则折叠失效导致重复。当前 messageId 由 `assistantMessageId(spanId, 0)` 生成，同一 span 内 stable。
 
 ### Lark 渲染出 `[Unsupported content]`
 
@@ -95,16 +82,16 @@ graph LR
 
 1. Message 领域类型只有 `@my-agent-team/message` 一处定义。
 2. conversation_ledger 是对话消息的 canonical fact store。
-3. EventLog 只含 execution detail（tool_start/tool_end/text_delta），不含对话内容。
-4. buildPreloadedMessages 从 ledger 直接构建 Message[]，不经过 projection_messages。
-5. projection_messages 是 broadcast cache，可随时从 ledger 重建。
-6. Checkpointer 不是对话历史库。
+3. checkpoint_events 只含 execution detail（tool_start/tool_end/llm_call/text_delta），不含对话内容；按 sessionId + spanId 切，归 checkpointer。
+5. ledger（broadcast cache）可随时从 conversation_ledger 重建。
+6. Checkpointer 同时持有 session 的恢复状态与执行事实流，但不是对话历史库——对话历史的 canonical 在 conversation_ledger。
 7. SSE 流不定义事实。
 
 ## 关联页面
 
+- [标识符体系](identifiers.md)
 - [对话账本](../conversation/ledger.md)
-- [EventLog](../backend/event-log.md)
+- [EventLog（已废止）](../backend/event-log.md)
 - [会话投影](../backend/conversation-projection.md)
-- [常驻 Runner](../runner/resident-runner.md)
 - [Web 端](../surfaces/web.md)
+- [标识符体系](identifiers.md) —— sessionId / runId / attemptSeq 的派生链与层归属

@@ -1,6 +1,5 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -17,32 +16,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { api, type CronJobRow } from "@/lib/api";
+import { useCronList, useDeleteCronJob, useSetCronEnabled } from "@/features/cron/hooks";
+import type { CronJobRow } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
 export default function CronJobsPage() {
-  const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["cron-jobs"], queryFn: api.listCronJobs });
+  const { data, isLoading } = useCronList();
   const [editJob, setEditJob] = useState<CronJobRow | undefined>();
 
-  const deleteMu = useMutation({
-    mutationFn: api.deleteCronJob,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cron-jobs"] });
-      toast.success("Schedule deleted");
-    },
-    onError: (e) => toast.error(String(e)),
-  });
-
-  const toggleMu = useMutation({
-    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      api.setCronJobEnabled(id, enabled),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cron-jobs"] });
-    },
-    onError: (e) => toast.error(String(e)),
-  });
+  const deleteMu = useDeleteCronJob();
+  const toggleMu = useSetCronEnabled();
 
   const cronJobs = data?.cronJobs ?? [];
 
@@ -92,7 +76,10 @@ export default function CronJobsPage() {
                     <Switch
                       checked={job.enabled}
                       onCheckedChange={(v: boolean) =>
-                        toggleMu.mutate({ id: job.cronJobId, enabled: v })
+                        toggleMu.mutate(
+                          { id: job.cronJobId, enabled: v },
+                          { onError: (e) => toast.error(String(e)) },
+                        )
                       }
                     />
                     <Button variant="ghost" size="icon" onClick={() => setEditJob(job)}>
@@ -102,7 +89,11 @@ export default function CronJobsPage() {
                       variant="ghost"
                       size="icon"
                       onClick={() => {
-                        if (confirm("Delete this schedule?")) deleteMu.mutate(job.cronJobId);
+                        if (confirm("Delete this schedule?"))
+                          deleteMu.mutate(job.cronJobId, {
+                            onSuccess: () => toast.success("Schedule deleted"),
+                            onError: (e) => toast.error(String(e)),
+                          });
                       }}
                     >
                       <Trash2 className="h-4 w-4" />

@@ -62,12 +62,13 @@ export const MessageSchema = z.object({
   text: z.string().optional(),
   blocks: z.array(ContentBlockSchema).optional(),
   tools: z.array(MessageToolStateSchema).optional(),
-  runId: z.string().optional(),
+  spanId: z.string().optional(),
   conversationId: z.string().optional(),
   visibility: z.enum(["internal", "conversation"]).optional(),
   createdAt: z.number().optional(),
   updatedAt: z.number().optional(),
   error: MessageErrorSchema.optional(),
+  runStatus: z.enum(["running", "retrying", "compacting", "waiting"]).optional(),
 });
 
 export const MessageRevisionSchema = z.object({
@@ -79,11 +80,12 @@ export const MessageRevisionSchema = z.object({
   text: z.string().nullable().optional(),
   blocks: z.array(ContentBlockSchema).nullable().optional(),
   tools: z.array(MessageToolStateSchema).nullable().optional(),
-  runId: z.string().nullable().optional(),
+  spanId: z.string().nullable().optional(),
   conversationId: z.string().nullable().optional(),
   visibility: z.enum(["internal", "conversation"]).nullable().optional(),
   updatedAt: z.number(),
   error: MessageErrorSchema.nullable().optional(),
+  runStatus: z.enum(["running", "retrying", "compacting", "waiting"]).nullable().optional(),
 });
 
 // ─── Public API (backward-compatible signatures, zod inside) ──

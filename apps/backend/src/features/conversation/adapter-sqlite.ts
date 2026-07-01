@@ -1,7 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { z } from "zod";
 import * as schema from "../../infra/db/schema.js";
 import type {
   AppendLedgerInput,
@@ -14,8 +13,6 @@ import type {
   MemberRow,
 } from "./ports.js";
 
-const addressedToSchema = z.array(z.string());
-
 export function sqliteConversationAdapter(db: Database): ConversationPort {
   const d = drizzle(db, { schema, casing: "snake_case" });
 
@@ -23,7 +20,8 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     // ─── Conversation ──────────────────────────────
 
     createConversation(input: CreateConversationInput): ConversationRow {
-      d.insert(schema.conversation)
+      const row = d
+        .insert(schema.conversation)
         .values({
           conversationId: input.conversationId,
           triggerMode: input.triggerMode ?? "mention",
@@ -31,15 +29,9 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           origin: input.origin ?? "user",
           createdAt: input.createdAt,
         })
-        .run();
-      return {
-        conversationId: input.conversationId,
-        triggerMode: input.triggerMode ?? "mention",
-        hopCount: 0,
-        origin: input.origin ?? "user",
-        createdAt: input.createdAt,
-        title: null,
-      };
+        .returning()
+        .get();
+      return schema.conversationSelectSchema.parse(row);
     },
 
     getConversation(conversationId: string): ConversationRow | null {
@@ -49,14 +41,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         .where(eq(schema.conversation.conversationId, conversationId))
         .get();
       if (!row) return null;
-      return {
-        conversationId: row.conversationId,
-        triggerMode: row.triggerMode,
-        hopCount: row.hopCount,
-        origin: row.origin,
-        createdAt: row.createdAt,
-        title: row.title,
-      };
+      return schema.conversationSelectSchema.parse(row);
     },
 
     setConversationTitle(conversationId: string, title: string): void {
@@ -83,28 +68,13 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       // N+1: members fetched per conversation — kept as-is for behavior equivalence.
       // Performance optimization (join/batch) deferred to a separate PR.
       return convs.map((c) => ({
-        conversationId: c.conversationId,
-        triggerMode: c.triggerMode,
-        hopCount: c.hopCount,
-        origin: c.origin,
-        createdAt: c.createdAt,
-        title: c.title,
+        ...schema.conversationSelectSchema.parse(c),
         members: d
           .select()
           .from(schema.member)
           .where(eq(schema.member.conversationId, c.conversationId))
           .all()
-          .map(
-            (m): MemberRow => ({
-              memberId: m.memberId,
-              conversationId: m.conversationId,
-              kind: m.kind as MemberRow["kind"],
-              agentId: m.agentId,
-              userRef: m.userRef,
-              displayName: m.displayName,
-              joinedAt: m.joinedAt,
-            }),
-          ),
+          .map((m) => schema.memberSelectSchema.parse(m) as MemberRow),
       }));
     },
 
@@ -135,28 +105,13 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
             .get();
           if (!c) return null;
           return {
-            conversationId: c.conversationId,
-            triggerMode: c.triggerMode,
-            hopCount: c.hopCount,
-            origin: c.origin,
-            createdAt: c.createdAt,
-            title: c.title,
+            ...schema.conversationSelectSchema.parse(c),
             members: d
               .select()
               .from(schema.member)
               .where(eq(schema.member.conversationId, c.conversationId))
               .all()
-              .map(
-                (m): MemberRow => ({
-                  memberId: m.memberId,
-                  conversationId: m.conversationId,
-                  kind: m.kind as MemberRow["kind"],
-                  agentId: m.agentId,
-                  userRef: m.userRef,
-                  displayName: m.displayName,
-                  joinedAt: m.joinedAt,
-                }),
-              ),
+              .map((m) => schema.memberSelectSchema.parse(m) as MemberRow),
           };
         })
         .filter(Boolean) as ConversationWithMembers[];
@@ -179,18 +134,19 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         .onConflictDoNothing()
         .returning()
         .all();
-      return {
-        member: {
-          memberId: input.memberId,
-          conversationId: input.conversationId,
-          kind: input.kind,
-          agentId: input.agentId ?? null,
-          userRef: input.userRef ?? null,
-          displayName: input.displayName ?? null,
-          joinedAt: input.joinedAt,
-        },
-        created: rows.length > 0,
-      };
+      const created = rows.length > 0;
+      const member: MemberRow = created
+        ? (schema.memberSelectSchema.parse(rows[0]) as MemberRow)
+        : ({
+            memberId: input.memberId,
+            conversationId: input.conversationId,
+            kind: input.kind,
+            agentId: input.agentId ?? null,
+            userRef: input.userRef ?? null,
+            displayName: input.displayName ?? null,
+            joinedAt: input.joinedAt,
+          } as MemberRow);
+      return { member, created };
     },
 
     getMembers(conversationId: string): MemberRow[] {
@@ -200,17 +156,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         .where(eq(schema.member.conversationId, conversationId))
         .orderBy(schema.member.joinedAt)
         .all()
-        .map(
-          (r): MemberRow => ({
-            memberId: r.memberId,
-            conversationId: r.conversationId,
-            kind: r.kind as MemberRow["kind"],
-            agentId: r.agentId,
-            userRef: r.userRef,
-            displayName: r.displayName,
-            joinedAt: r.joinedAt,
-          }),
-        );
+        .map((r) => schema.memberSelectSchema.parse(r) as MemberRow);
     },
 
     getAgentMembers(conversationId: string): MemberRow[] {
@@ -243,20 +189,27 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           kind: input.kind,
           content: input.content,
           ts: input.ts,
-          runId: input.runId ?? null,
+          spanId: input.spanId ?? null,
         })
         .returning({ seq: schema.conversationLedger.seq })
         .get();
       return row!.seq;
     },
 
-    hasLedgerContent(runId: string, content: string): boolean {
+    updateLedgerContent(seq: number, content: string, ts: number): void {
+      d.update(schema.conversationLedger)
+        .set({ content, ts })
+        .where(eq(schema.conversationLedger.seq, seq))
+        .run();
+    },
+
+    hasLedgerContent(spanId: string, content: string): boolean {
       const row = d
         .select({ one: sql`1` })
         .from(schema.conversationLedger)
         .where(
           and(
-            eq(schema.conversationLedger.runId, runId),
+            eq(schema.conversationLedger.spanId, spanId),
             eq(schema.conversationLedger.content, content),
           ),
         )
@@ -279,22 +232,19 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         .orderBy(schema.conversationLedger.seq)
         .all();
       return rows.map((r) => {
-        let addressedTo: string[];
-        try {
-          addressedTo = addressedToSchema.parse(JSON.parse(r.addressedTo));
-        } catch {
-          addressedTo = [];
-        }
+        const result = schema.conversationLedgerSelectSchema.safeParse(r);
+        if (result.success) return result.data as LedgerEntry;
+        // Defensive fallback for rows with malformed JSON in addressedTo/content columns.
         return {
           seq: r.seq,
           conversationId: r.conversationId,
           senderMemberId: r.senderMemberId,
-          addressedTo,
+          addressedTo: [] as string[],
           kind: r.kind as LedgerEntry["kind"],
           content: r.content,
           ts: r.ts,
-          runId: r.runId ?? undefined,
-        };
+          spanId: r.spanId,
+        } as LedgerEntry;
       });
     },
   };

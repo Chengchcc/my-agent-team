@@ -21,9 +21,9 @@
 
 ## 如果问的是运行生命周期 / 取消 / 恢复 / 卡住的运行
 
-1. `backend/run-supervisor.md`
-2. `runner/resident-runner.md`
-3. `runner/runner-protocol.md`
+1. `backend/overview.md`
+2. `runtime/framework.md`
+3. `foundations/identifiers.md`
 4. `foundations/lifecycle-overview.md`
 
 ## 如果问的是数据归属（谁是事实来源）
@@ -31,7 +31,7 @@
 1. `foundations/facts-and-projections.md`
 2. `backend/data-model.md`
 3. `conversation/ledger.md`
-4. `backend/event-log.md`
+4. `backend/event-log.md`（已废止，tombstone：执行事实流回归 checkpoint_events）
 
 ## 如果问的是飞书
 
@@ -53,7 +53,7 @@
 2. `runtime/plugin.md`
 3. `runtime/context-manager.md`
 4. `harness/harness.md`
-5. `plugins/fs-memory.md`、`plugins/progressive-skill.md`、`plugins/task-guard.md`
+5. `plugins/fs-memory.md`、`plugins/progressive-skill.md`、`plugins/task-guard.md`、`plugins/skill-pack.md`
 
 ## 如果问的是上下文窗口 / 历史压缩 / 摘要 / 裁剪
 
@@ -64,8 +64,7 @@
 ## 如果问的是安全 / 隔离
 
 1. `security/overview.md`
-2. `runner/agent-file-system.md`
-3. `conversation/conversation-and-members.md`
+2. `conversation/conversation-and-members.md`
 
 ## 如果问的是 Issue / 看板 / 多 Agent 协作编排
 

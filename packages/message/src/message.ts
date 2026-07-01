@@ -37,10 +37,12 @@ export interface Message {
   text?: string;
   blocks?: ContentBlock[];
   tools?: MessageToolState[];
-  runId?: string;
+  spanId?: string;
   conversationId?: string;
   visibility?: "internal" | "conversation";
   createdAt?: number;
   updatedAt?: number;
   error?: MessageError;
+  /** Transient run status indicator (retrying/compacting). Not persisted. */
+  runStatus?: "running" | "retrying" | "compacting" | "waiting";
 }

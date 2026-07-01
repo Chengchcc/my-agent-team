@@ -1,11 +1,63 @@
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { Plugin } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
 import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { loadSkillIndexWithMtimeCache, type SkillMeta } from "./cache.js";
 import { skillLoadTool } from "./skill-load.js";
 
+function nodeFsAdapter(cwd: string): AgentFsLike {
+  return {
+    async read(path: string) {
+      try {
+        const full = resolve(cwd, path);
+        if (!full.startsWith(cwd)) return null;
+        return readFileSync(full, "utf-8");
+      } catch {
+        return null;
+      }
+    },
+    async write(path: string, content: string) {
+      const full = resolve(cwd, path);
+      if (!full.startsWith(cwd)) throw new Error("Path escapes workspace");
+      mkdirSync(resolve(full, ".."), { recursive: true });
+      writeFileSync(full, content, "utf-8");
+    },
+    async list(path: string) {
+      try {
+        const full = resolve(cwd, path);
+        if (!full.startsWith(cwd)) return [];
+        return readdirSync(full);
+      } catch {
+        return [];
+      }
+    },
+    async stat(path: string) {
+      try {
+        const full = resolve(cwd, path);
+        if (!full.startsWith(cwd)) return null;
+        const s = statSync(full);
+        return { mtimeMs: s.mtimeMs, size: s.size };
+      } catch {
+        return null;
+      }
+    },
+    async exists(path: string) {
+      const full = resolve(cwd, path);
+      return full.startsWith(cwd) && existsSync(full);
+    },
+    async mkdirp(path: string) {
+      const full = resolve(cwd, path);
+      if (!full.startsWith(cwd)) throw new Error("Path escapes workspace");
+      mkdirSync(full, { recursive: true });
+    },
+  };
+}
+
 export interface ProgressiveSkillOptions {
-  ws: AgentFsLike;
+  ws?: AgentFsLike;
+  /** Workspace root directory. When provided, creates a node:fs adapter internally. */
+  cwd?: string;
   /** Single root (backward compat). Use `roots` for multi-domain. */
   root?: string;
   /** Multiple roots in priority order (later overrides earlier on name collision). */
@@ -19,7 +71,8 @@ export interface ProgressiveSkillOptions {
 }
 
 export function progressiveSkillPlugin(options: ProgressiveSkillOptions): Plugin {
-  const ws = options.ws;
+  const ws = options.ws ?? (options.cwd ? nodeFsAdapter(options.cwd) : undefined);
+  if (!ws) throw new Error("progressiveSkillPlugin: either ws or cwd must be provided");
   const roots = options.roots ?? [options.root ?? "/skills/"];
   const maxCharsPerLoad = options.maxCharsPerLoad ?? 8000;
   const posixSkillRoot = options.posixSkillRoot;
@@ -78,7 +131,8 @@ export async function findSkillByName(
   opts: ProgressiveSkillOptions,
   name: string,
 ): Promise<{ skill: SkillMeta; body: string } | null> {
-  const ws = opts.ws;
+  const ws = opts.ws ?? (opts.cwd ? nodeFsAdapter(opts.cwd) : undefined);
+  if (!ws) throw new Error("progressiveSkillPlugin: either ws or cwd must be provided");
   const roots = opts.roots ?? [opts.root ?? "/skills/"];
   const posixSkillRoot = opts.posixSkillRoot;
 

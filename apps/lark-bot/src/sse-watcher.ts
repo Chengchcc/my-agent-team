@@ -6,6 +6,7 @@ import {
   MessageStateSchema,
   type parseMessageRevision,
 } from "@my-agent-team/message";
+import { z } from "zod";
 import {
   getMemberBindingsForChat,
   getMessageDelivery,
@@ -14,6 +15,28 @@ import {
   upsertMessageDelivery,
 } from "./bindings-sqlite.js";
 import { renderRevision } from "./render.js";
+
+// L2: throttle non-terminal lark sends (one timer per messageId, shared across watchers)
+const pendingSends = new Map<string, { text: string; idempotencyKey: string }>();
+const sendTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function flushSend(
+  key: string,
+  h: { onSend: (chatId: string, text: string, idempotencyKey: string) => Promise<void> },
+) {
+  const timer = sendTimers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    sendTimers.delete(key);
+  }
+  const pending = pendingSends.get(key);
+  if (!pending) return;
+  pendingSends.delete(key);
+  const [larkChatId] = key.split(":", 1) as [string];
+  void h
+    .onSend(larkChatId, pending.text, pending.idempotencyKey)
+    .catch((err) => console.error(`[lark] throttle flush failed for ${key}:`, err));
+}
 
 export interface SseWatcherDeps {
   db: Database;
@@ -52,12 +75,15 @@ export function watchConversation(
 
   const run = async () => {
     if (aborted) return;
+    // L5: use afterSeq query param + Last-Event-ID header for proper SSE reconnect
     const url = `${backendUrl}/api/conversations/${conversationId}/events?afterSeq=${afterSeq}`;
+    const headers = { ...reqHeaders };
+    if (afterSeq > 0) headers["Last-Event-ID"] = String(afterSeq);
 
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
     try {
-      const resp = await fetch(url, { headers: reqHeaders });
+      const resp = await fetch(url, { headers });
 
       if (!resp.ok || !resp.body) {
         console.error(`[sse-watcher] failed to connect: ${resp.status}`);
@@ -162,15 +188,23 @@ async function processEntry(
 ): Promise<void> {
   if (entry.seq <= currentSeq) return;
 
-  // ─── surface.control ───
+  // ─── surface.control (L8: validated with zod) ───
   if (entry.kind === "surface.control") {
-    let control: { type: string; oldConversationId: string; newConversationId: string };
-    try {
-      control = JSON.parse(entry.content);
-    } catch {
+    const SurfaceControlSchema = z.object({
+      type: z.string(),
+      oldConversationId: z.string(),
+      newConversationId: z.string(),
+    });
+    const parsed = SurfaceControlSchema.safeParse(JSON.parse(entry.content));
+    if (!parsed.success) {
+      console.error(
+        `[sse-watcher] malformed surface.control at seq=${entry.seq}:`,
+        parsed.error.message,
+      );
       updatePushedSeq(db, larkChatId, entry.seq);
       return;
     }
+    const control = parsed.data;
     if (
       control.type === "lark.start_new_conversation" &&
       control.oldConversationId &&
@@ -250,10 +284,42 @@ async function processEntry(
     updatedAt: Date.now(),
   });
 
-  // Render and send (send errors are retryable — thrown to trigger reconnect)
+  // Render and send with L2 throttle + L6 retry
   const text = renderRevision(revision);
-  const idempotencyKey = `${entry.conversationId}:${messageId}:${delivery ? "update" : "create"}`;
-  await h.onSend(larkChatId, text, idempotencyKey);
+  const idempotencyKey = `${entry.conversationId}:${messageId}:${entry.seq}`;
+  const isTerminal = isTerminalMessageState(revision.state);
+
+  // L2: throttle non-terminal frames (≥500ms), flush terminal immediately
+  const sendKey = `${larkChatId}:${messageId}`;
+  if (!isTerminal) {
+    pendingSends.set(sendKey, { text, idempotencyKey });
+    if (!sendTimers.has(sendKey)) {
+      sendTimers.set(
+        sendKey,
+        setTimeout(() => flushSend(sendKey, h), 500),
+      );
+    }
+    updatePushedSeq(db, larkChatId, entry.seq);
+    return;
+  }
+  // Terminal: flush pending immediately, then send
+  flushSend(sendKey, h);
+
+  // L6: retry terminal send with exponential backoff, keep stream alive
+  let attempt = 0;
+  while (attempt < 3) {
+    try {
+      await h.onSend(larkChatId, text, idempotencyKey);
+      break;
+    } catch (err) {
+      attempt++;
+      if (attempt >= 3) {
+        console.error(`[lark] send failed after ${attempt} attempts, skip seq=${entry.seq}`, err);
+        break; // don't kill the SSE stream
+      }
+      await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+    }
+  }
 
   updatePushedSeq(db, larkChatId, entry.seq);
 }

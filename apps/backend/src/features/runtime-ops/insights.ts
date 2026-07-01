@@ -1,5 +1,5 @@
-import type { AgentEvent, Interrupt } from "@my-agent-team/framework";
-import type { EventLog } from "../event-log/index.js";
+import type { CheckpointEvent } from "@my-agent-team/framework";
+import type { CheckpointEventsStore } from "./checkpoint-events-store.js";
 import { estimateCost, type Usage } from "./pricing.js";
 
 // ─── Types ───
@@ -38,7 +38,7 @@ export interface CallItem {
 }
 
 export interface RunInsights {
-  runId: string;
+  spanId: string;
   agentId: string;
   agentName: string;
   root: {
@@ -70,42 +70,72 @@ export interface InsightsSummary {
   topTools: Array<{ name: string; count: number; errorRate: number }>;
 }
 
-// ─── LLM / Tool call extraction ───
+// ─── LLM / Tool call extraction (from checkpoint_events model_end / tool_end) ───
 
-function isLlmCall(e: AgentEvent): e is { type: "llm_call"; payload: LlmCallPayload } {
-  return e.type === "llm_call";
+function isModelEnd(
+  e: CheckpointEvent,
+): e is CheckpointEvent & { type: "model_end"; model: string; latencyMs: number } {
+  return e.type === "model_end";
 }
 
-function isToolCall(e: AgentEvent): e is { type: "tool_call"; payload: ToolCallPayload } {
-  return e.type === "tool_call";
+function isToolEnd(
+  e: CheckpointEvent,
+): e is CheckpointEvent & { type: "tool_end"; name: string; durationMs: number } {
+  return e.type === "tool_end";
 }
 
-function isInterrupted(e: AgentEvent): e is { type: "interrupted"; payload: Interrupt } {
-  return e.type === "interrupted";
+function isInterrupt(e: CheckpointEvent): e is CheckpointEvent & { type: "interrupt" } {
+  return e.type === "interrupt";
+}
+
+function toLlmPayload(e: CheckpointEvent & { type: "model_end" }): LlmCallPayload {
+  return {
+    step: e.step,
+    model: e.model,
+    usage: {
+      input: e.usage?.input ?? 0,
+      output: e.usage?.output ?? 0,
+    },
+    latencyMs: e.latencyMs,
+    ttftMs: e.ttftMs,
+    stopReason: e.stopReason,
+  };
+}
+
+function toToolPayload(e: CheckpointEvent & { type: "tool_end" }): ToolCallPayload {
+  return {
+    step: e.step,
+    id: "",
+    name: e.name,
+    latencyMs: e.durationMs,
+    isError: e.isError,
+  };
 }
 
 // ─── Aggregation ───
 
 export interface RunInsightsDeps {
-  eventLog: EventLog;
+  eventLog?: unknown; // deprecated, kept for backward compat until PR-4
+  checkpointEventsStore?: CheckpointEventsStore;
   getAgentName?: (agentId: string) => string | undefined;
 }
 
 export async function getRunInsights(
   deps: RunInsightsDeps,
   params: {
-    runId: string;
-    threadId: string;
+    spanId: string;
+    sessionId: string;
     agentId: string;
     status: string;
     startedAt: number;
     endedAt: number | null;
   },
 ): Promise<RunInsights> {
-  const { eventLog, getAgentName } = deps;
+  const { checkpointEventsStore, getAgentName } = deps;
   const resolveName = (agentId: string) => getAgentName?.(agentId) ?? agentId;
 
-  const records = await eventLog.read({ runId: params.runId });
+  // Read execution facts from checkpoint_events
+  const events = checkpointEventsStore?.readBySpan(params.sessionId, params.spanId) ?? [];
 
   const calls: CallItem[] = [];
   const toolStats = new Map<
@@ -123,11 +153,9 @@ export async function getRunInsights(
   let failedCall: RunInsights["root"]["failedCall"] | undefined;
   let interruptedAt: RunInsights["root"]["interruptedAt"] | undefined;
 
-  for (const rec of records) {
-    const ev = rec.event;
-
-    if (isLlmCall(ev)) {
-      const p = ev.payload;
+  for (const ev of events) {
+    if (isModelEnd(ev)) {
+      const p = toLlmPayload(ev);
       totalInput += p.usage.input;
       totalOutput += p.usage.output;
       if (p.usage.cacheRead) totalCacheRead += p.usage.cacheRead;
@@ -147,7 +175,7 @@ export async function getRunInsights(
       calls.push({
         kind: "llm",
         step: p.step,
-        ts: rec.ts,
+        ts: ev.ts,
         model: p.model,
         usage: p.usage,
         latencyMs: p.latencyMs,
@@ -155,8 +183,8 @@ export async function getRunInsights(
         costUsd: cost,
         stopReason: p.stopReason,
       });
-    } else if (isToolCall(ev)) {
-      const p = ev.payload;
+    } else if (isToolEnd(ev)) {
+      const p = toToolPayload(ev);
       const stats = toolStats.get(p.name) ?? { count: 0, errorCount: 0, totalLatencyMs: 0 };
       stats.count++;
       if (p.isError) stats.errorCount++;
@@ -173,14 +201,14 @@ export async function getRunInsights(
       calls.push({
         kind: "tool",
         step: p.step,
-        ts: rec.ts,
+        ts: ev.ts,
         name: p.name,
         latencyMs: p.latencyMs,
         isError: p.isError,
       });
-    } else if (isInterrupted(ev)) {
+    } else if (isInterrupt(ev)) {
       interruptedAt = { step: calls.length > 0 ? (calls[calls.length - 1]?.step ?? 0) : 0 };
-      calls.push({ kind: "interrupt", step: interruptedAt.step, ts: rec.ts });
+      calls.push({ kind: "interrupt", step: interruptedAt.step, ts: ev.ts });
     }
   }
 
@@ -198,7 +226,7 @@ export async function getRunInsights(
     .sort((a, b) => b.count - a.count);
 
   return {
-    runId: params.runId,
+    spanId: params.spanId,
     agentId: params.agentId,
     agentName: resolveName(params.agentId),
     root: {
@@ -226,9 +254,10 @@ export async function getRunInsights(
 // ─── Summary aggregation (cross-run, for Overview charts) ───
 
 export interface InsightsSummaryDeps {
-  eventLog: EventLog;
+  eventLog?: unknown; // deprecated, kept for backward compat until PR-4
+  checkpointEventsStore?: CheckpointEventsStore;
   getAgentName?: (agentId: string) => string | undefined;
-  /** Pre-resolved runId → agentId mapping (from run table, scoped to time window). */
+  /** Pre-resolved spanId (spanId) → agentId mapping (from run table, scoped to time window). */
   runAgentMap?: Map<string, string>;
 }
 
@@ -236,19 +265,11 @@ export async function getInsightsSummary(
   deps: InsightsSummaryDeps,
   range: { from: number; to: number },
 ): Promise<InsightsSummary> {
-  const { eventLog, getAgentName, runAgentMap } = deps;
+  const { checkpointEventsStore, getAgentName, runAgentMap } = deps;
   const resolveName = (agentId: string) => getAgentName?.(agentId) ?? agentId;
 
-  // Read events only for runs in the time window (scoped by caller)
-  const allRecords = [];
-  if (runAgentMap && runAgentMap.size > 0) {
-    for (const runId of runAgentMap.keys()) {
-      const recs = await eventLog.read({ runId, limit: 5000 });
-      allRecords.push(...recs);
-    }
-  } else {
-    allRecords.push(...(await eventLog.read({ limit: 5000 })));
-  }
+  // Read all execution facts in the time window from checkpoint_events
+  const events = checkpointEventsStore?.readWindow(range.from, range.to) ?? [];
 
   // Bucket by hour
   const tokenBuckets = new Map<number, { input: number; output: number }>();
@@ -256,13 +277,12 @@ export async function getInsightsSummary(
   const costByModel = new Map<string, number | null>();
   const toolCounts = new Map<string, { count: number; errors: number }>();
 
-  for (const rec of allRecords) {
-    if (rec.ts < range.from || rec.ts > range.to) continue;
+  for (const ev of events) {
+    if (ev.ts < range.from || ev.ts > range.to) continue;
 
-    const ev = rec.event;
-    if (isLlmCall(ev)) {
-      const p = ev.payload;
-      const hour = Math.floor(rec.ts / 3_600_000) * 3_600_000;
+    if (isModelEnd(ev)) {
+      const p = toLlmPayload(ev);
+      const hour = Math.floor(ev.ts / 3_600_000) * 3_600_000;
       const bucket = tokenBuckets.get(hour) ?? { input: 0, output: 0 };
       bucket.input += p.usage.input;
       bucket.output += p.usage.output;
@@ -274,9 +294,9 @@ export async function getInsightsSummary(
         costByModel.set(p.model, (prevModel ?? 0) + cost);
       }
 
-      // Per-agent cost (use pre-resolved run→agent map)
-      if (runAgentMap) {
-        const agentId = runAgentMap.get(rec.runId);
+      // Per-agent cost (use pre-resolved spanId→agentId map)
+      if (runAgentMap && ev.spanId) {
+        const agentId = runAgentMap.get(ev.spanId);
         if (agentId) {
           if (cost !== null) {
             const prevAgent = costByAgent.get(agentId);
@@ -284,8 +304,8 @@ export async function getInsightsSummary(
           }
         }
       }
-    } else if (isToolCall(ev)) {
-      const p = ev.payload;
+    } else if (isToolEnd(ev)) {
+      const p = toToolPayload(ev);
       const stats = toolCounts.get(p.name) ?? { count: 0, errors: 0 };
       stats.count++;
       if (p.isError) stats.errors++;

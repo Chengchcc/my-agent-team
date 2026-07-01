@@ -4,7 +4,7 @@ export interface CreateIssueInput {
   issueId: string;
   projectId: string;
   title: string;
-  threadId: string;
+  sessionId: string;
   description?: string;
   priority?: IssuePriority;
   estimatedCompletionAt?: number | null;

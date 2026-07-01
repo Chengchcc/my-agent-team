@@ -1,7 +1,6 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -25,7 +24,8 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { api, type ProjectRow } from "@/lib/api";
+import { useCreateProject, useUpdateProject } from "@/features/projects/hooks";
+import type { ProjectRow } from "@/lib/api";
 import { fieldClass, labelClass } from "@/lib/form-styles";
 
 const formSchema = z.object({
@@ -43,7 +43,6 @@ interface ProjectFormProps {
 }
 
 export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
-  const queryClient = useQueryClient();
   const isEdit = !!editProject;
   const [open, setOpen] = useState(false);
   const [serverError, setServerError] = useState("");
@@ -80,52 +79,57 @@ export function ProjectForm({ editProject, onSuccess }: ProjectFormProps) {
     }
   }
 
-  const createMutation = useMutation({
-    mutationFn: (values: FormValues) =>
-      api.createProject({
-        name: values.name,
-        autoOrchestrate: values.autoOrchestrate,
-        ...(values.repoUrl ? { repoUrl: values.repoUrl } : {}),
-        ...(values.defaultBranch ? { defaultBranch: values.defaultBranch } : {}),
-      }),
-    onSuccess: () => {
-      toast.success("Project created");
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      setOpen(false);
-      onSuccess?.();
-    },
-    onError: (err) => {
-      const msg = err instanceof Error ? err.message : "Failed to save project";
-      setServerError(msg);
-      toast.error("Failed to save project", { description: msg });
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: (values: FormValues) =>
-      api.updateProject(editProject!.projectId, {
-        name: values.name,
-        repoUrl: values.repoUrl || null,
-        defaultBranch: values.defaultBranch || null,
-        autoOrchestrate: values.autoOrchestrate,
-      }),
-    onSuccess: () => {
-      toast.success("Project updated");
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      setOpen(false);
-      onSuccess?.();
-    },
-    onError: (err) => {
-      const msg = err instanceof Error ? err.message : "Failed to save project";
-      setServerError(msg);
-      toast.error("Failed to save project", { description: msg });
-    },
-  });
+  const createMutation = useCreateProject();
+  const updateMutation = useUpdateProject();
 
   function onSubmit(values: FormValues) {
     setServerError("");
-    if (isEdit) updateMutation.mutate(values);
-    else createMutation.mutate(values);
+    if (isEdit) {
+      updateMutation.mutate(
+        {
+          id: editProject!.projectId,
+          body: {
+            name: values.name,
+            repoUrl: values.repoUrl || null,
+            defaultBranch: values.defaultBranch || null,
+            autoOrchestrate: values.autoOrchestrate,
+          },
+        },
+        {
+          onSuccess: () => {
+            toast.success("Project updated");
+            setOpen(false);
+            onSuccess?.();
+          },
+          onError: (err) => {
+            const msg = err instanceof Error ? err.message : "Failed to save project";
+            setServerError(msg);
+            toast.error("Failed to save project", { description: msg });
+          },
+        },
+      );
+    } else {
+      createMutation.mutate(
+        {
+          name: values.name,
+          autoOrchestrate: values.autoOrchestrate,
+          ...(values.repoUrl ? { repoUrl: values.repoUrl } : {}),
+          ...(values.defaultBranch ? { defaultBranch: values.defaultBranch } : {}),
+        },
+        {
+          onSuccess: () => {
+            toast.success("Project created");
+            setOpen(false);
+            onSuccess?.();
+          },
+          onError: (err) => {
+            const msg = err instanceof Error ? err.message : "Failed to save project";
+            setServerError(msg);
+            toast.error("Failed to save project", { description: msg });
+          },
+        },
+      );
+    }
   }
 
   const hintClass = "text-[10px] text-[var(--mute)]";

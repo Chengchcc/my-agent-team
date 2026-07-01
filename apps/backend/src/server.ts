@@ -1,7 +1,7 @@
+import type { createApp } from "./app.js";
 import type { BackendConfig } from "./config.js";
-import type { createRouter } from "./http/router.js";
 
-export function createServer(config: BackendConfig, router: ReturnType<typeof createRouter>) {
+export function createServer(config: BackendConfig, app: ReturnType<typeof createApp>) {
   let server: ReturnType<typeof Bun.serve> | null = null;
 
   return {
@@ -10,7 +10,7 @@ export function createServer(config: BackendConfig, router: ReturnType<typeof cr
         port: config.port,
         hostname: config.host,
         idleTimeout: 0, // disable — SSE connections are long-lived
-        fetch: (req) => router(req),
+        fetch: app.fetch,
       });
       console.log(`[backend] listening on http://${config.host}:${config.port}`);
     },

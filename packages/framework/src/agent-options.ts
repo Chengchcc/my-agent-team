@@ -39,23 +39,27 @@ export interface AgentRunOptions {
   /** M17.2: The run's identity, assigned by the runner/backend. Injected so
    *  framework can emit MessageRevision with the correct messageId. Falls
    *  back to thread.id when not provided (standalone mode). */
-  runId?: string;
+  spanId?: string;
   /** Optional steering queue — messages pushed externally appear at the next step boundary. */
   steering?: SteeringQueue;
   /** Optional follow-up queue — messages consumed after inner steps exhaust. */
   followUp?: FollowUpQueue;
 }
 
+export type AgentEventListener = (event: AgentEvent) => void;
+
 export interface Agent {
   readonly thread: Thread;
   run(input: string, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
   /** Continue from existing checkpoint messages without appending a new user
    *  message. Use when the conversation context has already been written to the
-   *  checkpointer (e.g. conversation-triggered runs where broadcastMessage()
-   *  pre-projected the user's message). Fails if no user message exists. */
+   *  checkpointer. Fails if no user message exists. */
   continue(opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
   resume(command: ResumeCommand, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
   fork(messages?: Message[], id?: string): Agent;
+  /** Subscribe to agent events. Returns an unsubscribe function.
+   *  Subscribers are notified when events are yielded from run/continue/resume. */
+  subscribe(listener: AgentEventListener): () => void;
 }
 
 export interface AgentConfig {
@@ -66,7 +70,10 @@ export interface AgentConfig {
   checkpointer?: Checkpointer;
   contextManager?: ContextManager;
   logger?: Logger;
+  /** @deprecated use sessionId instead */
   threadId?: string;
+  /** Persistent memory line key. Same as threadId, renamed. */
+  sessionId?: string;
   /** Preloaded messages to bootstrap the thread. When provided, bypasses
    *  checkpointer.load() for the initial message state. The checkpointer
    *  is still used for subsequent saves during the run. */
@@ -105,7 +112,7 @@ export interface AgentRuntime {
   pendingEvents: AgentEvent[];
   save: (msgs: Message[]) => Promise<void>;
   /** M17.2: The run's identity — set at run/continue/resume start. */
-  runId: string;
+  spanId: string;
   /** M17.2: Accumulated tool states for the current assistant message.
    *  Updated in-place by executeOne; read when emitting message revisions. */
   toolStates: MessageToolState[];
@@ -113,4 +120,6 @@ export interface AgentRuntime {
    *  the full accumulated set so consumer mergeMessageRevision shows complete history.
    *  Per-step blocks are still pushed to thread.messages for LLM context. */
   assistantBlocks: ContentBlock[];
+  /** Subscribers notified after each event is yielded. */
+  subscribers: Set<AgentEventListener>;
 }

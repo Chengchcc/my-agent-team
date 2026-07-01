@@ -1,0 +1,25 @@
+{
+  "name": "@my-agent-team/api-contract",
+  "version": "0.1.0",
+  "description": "Shared API contract types (HTTP App, SSE event maps) — zero runtime deps, type-only",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check . && eslint .",
+    "test": "bun test --pass-with-no-tests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@my-agent-team/conversation": "workspace:*",
+    "zod": "^3.23.0"
+  },
+  "peerDependencies": {
+    "elysia": "^1.0.0"
+  },
+  "devDependencies": {}
+}

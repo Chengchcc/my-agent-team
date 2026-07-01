@@ -1,8 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useOpsRunInsights } from "@/features/ops/hooks";
 import type { RunInsights } from "@/lib/api";
-import { api } from "@/lib/api";
 import { CallTreeItem } from "./CallTreeItem";
 
 function formatDuration(ms: number | null): string {
@@ -83,12 +82,7 @@ function RootSummary({ insights }: { insights: RunInsights }) {
 }
 
 export function RunInsightsPanel({ runId }: { runId: string }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["ops", "runInsights", runId],
-    queryFn: () => api.getRunInsights(runId),
-    enabled: !!runId,
-    refetchInterval: (q) => (q.state.data?.root.status === "running" ? 10_000 : false),
-  });
+  const { data, isLoading, isError } = useOpsRunInsights(runId);
 
   // No data yet (likely old run pre-M16.3)
   if (!isLoading && !isError && data && data.calls.length === 0) {

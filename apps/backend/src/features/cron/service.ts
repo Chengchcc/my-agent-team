@@ -1,3 +1,4 @@
+import { OWNER_MEMBER_ID } from "../conversation/index.js";
 import type { CronJobRow } from "./domain.js";
 import type { CronJobPort } from "./ports.js";
 
@@ -100,7 +101,7 @@ export function createCronJobService(deps: CronJobServiceDeps) {
         });
         deps.convPort?.addMember({
           conversationId: cronJobId,
-          memberId: "owner",
+          memberId: OWNER_MEMBER_ID,
           kind: "agent",
           agentId: input.agentId,
         });

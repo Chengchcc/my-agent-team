@@ -1,9 +1,14 @@
 import { Database } from "bun:sqlite";
 import path from "node:path";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import type { CheckpointEvent, Checkpointer, InterruptState } from "../checkpointer.js";
+import type {
+  CheckpointEvent,
+  CheckpointEventRow,
+  Checkpointer,
+  InterruptState,
+} from "../checkpointer.js";
 import * as schema from "./schema.js";
 
 export interface SqliteCheckpointerOptions {
@@ -27,23 +32,23 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): Checkpointe
   const d = drizzle(db, { schema, casing: "snake_case" });
 
   const cp: Checkpointer = {
-    async save(threadId, messages) {
+    async save(sessionId, messages) {
       const json = JSON.stringify(messages);
       const now = Date.now();
       d.insert(schema.checkpointMessages)
-        .values({ threadId, messages: json, updatedAt: now })
+        .values({ sessionId, messages: json, updatedAt: now })
         .onConflictDoUpdate({
-          target: schema.checkpointMessages.threadId,
+          target: schema.checkpointMessages.sessionId,
           set: { messages: json, updatedAt: now },
         })
         .run();
     },
 
-    async load(threadId) {
+    async load(sessionId) {
       const row = d
         .select({ messages: schema.checkpointMessages.messages })
         .from(schema.checkpointMessages)
-        .where(eq(schema.checkpointMessages.threadId, threadId))
+        .where(eq(schema.checkpointMessages.sessionId, sessionId))
         .get();
       if (!row) return null;
       try {
@@ -53,31 +58,28 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): Checkpointe
       }
     },
 
-    async saveInterrupt(threadId: string, state: InterruptState): Promise<void> {
+    async saveInterrupt(sessionId: string, state: InterruptState): Promise<void> {
       const json = JSON.stringify(state);
       const now = Date.now();
       d.insert(schema.checkpointInterrupts)
-        .values({ threadId, state: json, createdAt: now })
+        .values({ sessionId, state: json, createdAt: now })
         .onConflictDoUpdate({
-          target: schema.checkpointInterrupts.threadId,
+          target: schema.checkpointInterrupts.sessionId,
           set: { state: json, createdAt: now },
         })
         .run();
     },
 
-    async consumeInterrupt(threadId: string): Promise<InterruptState | null> {
-      // M20: Atomize read-then-delete in a drizzle transaction.
-      // The old code did SELECT → separate DELETE without a transaction,
-      // which allowed concurrent calls to consume the same interrupt.
+    async consumeInterrupt(sessionId: string): Promise<InterruptState | null> {
       const result = d.transaction((tx) => {
         const row = tx
           .select({ state: schema.checkpointInterrupts.state })
           .from(schema.checkpointInterrupts)
-          .where(eq(schema.checkpointInterrupts.threadId, threadId))
+          .where(eq(schema.checkpointInterrupts.sessionId, sessionId))
           .get();
         if (!row) return null;
         tx.delete(schema.checkpointInterrupts)
-          .where(eq(schema.checkpointInterrupts.threadId, threadId))
+          .where(eq(schema.checkpointInterrupts.sessionId, sessionId))
           .run();
         try {
           return JSON.parse(row.state) as InterruptState;
@@ -88,28 +90,62 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): Checkpointe
       return result;
     },
 
-    async appendEvent(threadId: string, event: CheckpointEvent): Promise<void> {
+    async appendEvent(
+      sessionId: string,
+      spanId: string | undefined,
+      event: CheckpointEvent,
+    ): Promise<void> {
       const json = JSON.stringify(event);
       const ts = "ts" in event ? (event as { ts: number }).ts : Date.now();
-      d.insert(schema.checkpointEvents).values({ threadId, event: json, ts }).run();
+      d.insert(schema.checkpointEvents)
+        .values({
+          sessionId,
+          spanId: spanId ?? null,
+          event: json,
+          ts,
+        })
+        .run();
     },
 
-    async *readEvents(threadId: string): AsyncIterable<CheckpointEvent> {
+    async *readEvents(
+      sessionId: string,
+      opts?: { spanId?: string },
+    ): AsyncIterable<CheckpointEventRow> {
+      const conditions = [eq(schema.checkpointEvents.sessionId, sessionId)];
+      if (opts?.spanId) {
+        conditions.push(eq(schema.checkpointEvents.spanId, opts.spanId));
+      }
       const rows = d
-        .select({ event: schema.checkpointEvents.event })
+        .select({
+          event: schema.checkpointEvents.event,
+          spanId: schema.checkpointEvents.spanId,
+          ts: schema.checkpointEvents.ts,
+        })
         .from(schema.checkpointEvents)
-        .where(eq(schema.checkpointEvents.threadId, threadId))
+        .where(and(...conditions))
         .orderBy(schema.checkpointEvents.id)
         .all();
       for (const row of rows) {
         try {
-          yield JSON.parse(row.event) as CheckpointEvent;
+          const event = JSON.parse(row.event) as CheckpointEvent;
+          yield { ...event, spanId: row.spanId, ts: row.ts };
         } catch {
           /* skip corrupted rows */
         }
       }
     },
-  };
 
+    async deleteThread(sessionId: string): Promise<void> {
+      d.delete(schema.checkpointMessages)
+        .where(eq(schema.checkpointMessages.sessionId, sessionId))
+        .run();
+      d.delete(schema.checkpointInterrupts)
+        .where(eq(schema.checkpointInterrupts.sessionId, sessionId))
+        .run();
+      d.delete(schema.checkpointEvents)
+        .where(eq(schema.checkpointEvents.sessionId, sessionId))
+        .run();
+    },
+  };
   return cp;
 }

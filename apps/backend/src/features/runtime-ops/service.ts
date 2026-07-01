@@ -1,79 +1,60 @@
-import type { Database } from "bun:sqlite";
-import type { EventLog } from "../event-log/index.js";
-import type { RunnerRegistry } from "../run/runner-registry.js";
-import type { RunSupervisor } from "../run/supervisor.js";
+// Execution facts sourced from checkpointer.db
+// RunnerRegistry removed — AgentSession runs in-process
+// heartbeat/transport removed — AgentSession runs in-process, no runner daemon
+
+import type { SpanSupervisor } from "../span/supervisor.js";
+import type { CheckpointEventsStore } from "./checkpoint-events-store.js";
 import type { InsightsSummary, RunInsights } from "./insights.js";
 import { getInsightsSummary, getRunInsights } from "./insights.js";
+import { buildRunQuery } from "./span-query-service.js";
 import type { RuntimeOpsStore } from "./store.js";
-import type { RunnerHealthRow, RunnerHealthStatus } from "./types.js";
-import { computeRunnerStatus } from "./types.js";
+import type { ControlPlaneEvent } from "./types.js";
 
 export interface RunOpsListItem {
-  runId: string;
-  threadId: string;
+  spanId: string;
+  sessionId: string;
   agentId: string;
   agentName: string;
   kind: string;
-  parentRunId: string | null;
+  parentSpanId: string | null;
   status: string;
   traceId: string | null;
   startedAt: number;
   endedAt: number | null;
-  latestAttemptId: string | null;
-  heartbeatAgeMs: number | null;
-  runnerTransport: "attached" | "noop" | "detached";
+  latestAttemptSeq: number | null;
   lastEventType: string | null;
   lastOpsEventKind: string | null;
 }
 
 export interface RunOpsDetail {
   run: {
-    runId: string;
-    threadId: string;
+    spanId: string;
+    sessionId: string;
     agentId: string;
     agentName: string;
     kind: string;
-    parentRunId: string | null;
+    parentSpanId: string | null;
     status: string;
     traceId: string | null;
     startedAt: number;
     endedAt: number | null;
   };
   attempts: Array<{
-    attemptId: string;
-    heartbeatAt: number | null;
-    heartbeatAgeMs: number | null;
+    attemptSeq: number;
     startedAt: number;
     endedAt: number | null;
-    transport: "attached" | "noop" | "detached";
   }>;
   eventLog: {
     lastSeq: number | null;
     lastEventType: string | null;
     lastEventAt: number | null;
   };
-  ops: Array<{
-    seq: number;
-    kind: string;
-    payload: Record<string, unknown>;
-    traceId: string | null;
-    ts: number;
-  }>;
+  ops: Pick<ControlPlaneEvent, "seq" | "kind" | "payload" | "traceId" | "ts">[];
 }
 
 export interface AgentRuntimeStatus {
   agentId: string;
   agentName: string;
-  heartbeatTimeoutMs: number;
-  runner: {
-    status: RunnerHealthStatus;
-    lastSeenAt: number | null;
-    uptimeMs: number;
-    activeRunCount: number;
-    checkpointerOk: boolean;
-    workspaceOk: boolean;
-    lastError: string | null;
-  };
   surfaces: Record<
     string,
     {
@@ -86,480 +67,221 @@ export interface AgentRuntimeStatus {
 }
 
 export type CancelRunResult =
-  | { ok: true; state: "abort_sent"; runId: string; attemptId: string }
-  | { ok: true; state: "already_terminal"; runId: string; status: string }
-  | { ok: true; state: "detached_waiting_reaper"; runId: string; heartbeatAgeMs: number | null }
+  | { ok: true; state: "abort_sent"; spanId: string; attemptSeq: number }
+  | { ok: true; state: "already_terminal"; spanId: string; status: string }
   | { ok: false; error: "not_found" };
 
 export type RecoverRunResult =
   | { state: "already_terminal"; status: string }
-  | { state: "reattached"; attemptId: string }
   | { state: "marked_interrupted"; reason: "heartbeat_timeout" }
-  | { state: "waiting"; reason: "heartbeat_fresh_but_transport_detached" };
+  | { state: "waiting"; reason: "session_not_found" };
 
 export function createRuntimeOpsService(deps: {
-  db: Database;
   opsStore: RuntimeOpsStore;
-  supervisor: RunSupervisor;
-  registry: RunnerRegistry;
-  heartbeatTimeoutMs: number;
-  eventLog: EventLog;
+  supervisor: SpanSupervisor;
+  checkpointEventsStore?: CheckpointEventsStore;
   /** M16.2: Resolve agent display name for ops DTOs. Falls back to agentId if absent. */
   getAgentName?: (agentId: string) => string | undefined;
 }) {
-  const { db, opsStore, supervisor, registry, heartbeatTimeoutMs, eventLog, getAgentName } = deps;
-  const OFFLINE_AFTER_MS = heartbeatTimeoutMs * 2;
+  const { opsStore, supervisor, checkpointEventsStore, getAgentName } = deps;
   const resolveName = (agentId: string) => getAgentName?.(agentId) ?? agentId;
 
   return {
     listRuns(params: {
       agentId?: string;
-      threadId?: string;
+      sessionId?: string;
       conversationId?: string;
       status?: string;
       limit?: number;
-      transport?: "attached" | "noop" | "detached";
-      heartbeat?: "fresh" | "stale";
       traceId?: string;
     }): RunOpsListItem[] {
       const raw = params.limit ?? 50;
       const limit = Number.isFinite(raw) && raw > 0 && raw <= 500 ? Math.floor(raw) : 50;
-      let sql = `SELECT r.run_id, r.thread_id, r.agent_id, r.kind, r.parent_run_id, r.status, r.started_at, r.ended_at
-                 FROM run r WHERE 1=1`;
-      const args: (string | number)[] = [];
-      if (params.agentId) {
-        sql += " AND r.agent_id = ?";
-        args.push(params.agentId);
-      }
-      if (params.threadId) {
-        sql += " AND r.thread_id = ?";
-        args.push(params.threadId);
-      }
-      if (params.conversationId) {
-        // Escape LIKE wildcards so user input doesn't get interpreted as patterns
-        const escaped = params.conversationId.replace(/[%_]/g, "\\$&");
-        sql += " AND r.thread_id LIKE ? ESCAPE '\\'";
-        args.push(`${escaped}:%`);
-      }
-      if (params.status) {
-        sql += " AND r.status = ?";
-        args.push(params.status);
-      }
-      sql += " ORDER BY r.started_at DESC LIMIT ?";
-      args.push(limit);
+      const { sql, args } = buildRunQuery(
+        {
+          agentId: params.agentId,
+          sessionId: params.sessionId,
+          conversationId: params.conversationId,
+          status: params.status,
+        },
+        limit,
+      );
 
-      const rows = db.query(sql).all(...args) as Array<{
-        run_id: string;
-        thread_id: string;
+      const rows = opsStore
+        .getRawDb()
+        .query(sql)
+        .all(...args) as Array<{
+        span_id: string;
+        session_id: string;
         agent_id: string;
         kind: string;
-        parent_run_id: string | null;
+        parent_span_id: string | null;
         status: string;
         started_at: number;
         ended_at: number | null;
       }>;
 
       let items = rows.map((r) => {
-        const attempt = db
-          .query(
-            "SELECT attempt_id, heartbeat_at, started_at, ended_at FROM attempt WHERE run_id = ? ORDER BY started_at DESC LIMIT 1",
-          )
-          .get(r.run_id) as
-          | {
-              attempt_id: string;
-              heartbeat_at: number | null;
-              started_at: number;
-              ended_at: number | null;
-            }
-          | undefined;
+        const attempt = opsStore.getLatestAttempt(r.span_id);
 
-        const heartbeatAgeMs = attempt?.heartbeat_at ? Date.now() - attempt.heartbeat_at : null;
-        const session = supervisor.getActive(r.run_id);
-        const transport: RunOpsListItem["runnerTransport"] = session
-          ? session.transportKind
-          : "detached";
+        const factEvents = checkpointEventsStore?.readBySpan(r.session_id, r.span_id) ?? [];
+        const lastFact = factEvents.at(-1);
 
-        const lastEvent = db
-          .query(
-            "SELECT json_extract(event, '$.type') as type, ts FROM event_log WHERE run_id = ? ORDER BY seq DESC LIMIT 1",
-          )
-          .get(r.run_id) as { type: string | null; ts: number | null } | undefined;
+        const lastOps = opsStore.getControlPlaneEvents(r.span_id).pop();
 
-        const lastOps = opsStore.getRunEvents(r.run_id).pop();
-
-        // Trace ID from run_origin
-        const origin = opsStore.getRunOrigin(r.run_id);
+        const origin = opsStore.getSpanOrigin(r.span_id);
 
         return {
-          runId: r.run_id,
-          threadId: r.thread_id,
+          spanId: r.span_id,
+          sessionId: r.session_id,
           agentId: r.agent_id,
           agentName: resolveName(r.agent_id),
           kind: r.kind,
-          parentRunId: r.parent_run_id,
+          parentSpanId: r.parent_span_id,
           status: r.status,
           traceId: origin?.traceId ?? null,
           startedAt: r.started_at,
           endedAt: r.ended_at,
-          latestAttemptId: attempt?.attempt_id ?? null,
-          heartbeatAgeMs,
-          runnerTransport: transport,
-          lastEventType: lastEvent?.type ?? null,
+          latestAttemptSeq: attempt?.seq ?? null,
+          lastEventType: lastFact?.type ?? null,
           lastOpsEventKind: lastOps?.kind ?? null,
         };
       });
 
-      // M16.2 G1: Post-query filtering for transport/heartbeat/traceId
-      if (params.transport) {
-        items = items.filter((i) => i.runnerTransport === params.transport);
-      }
-      if (params.heartbeat === "stale") {
-        items = items.filter(
-          (i) => i.heartbeatAgeMs != null && i.heartbeatAgeMs > heartbeatTimeoutMs,
-        );
-      }
-      if (params.heartbeat === "fresh") {
-        items = items.filter(
-          (i) => i.heartbeatAgeMs != null && i.heartbeatAgeMs <= heartbeatTimeoutMs,
-        );
-      }
       if (params.traceId) {
         items = items.filter((i) => i.traceId === params.traceId);
       }
       return items;
     },
 
-    getRunDetail(runId: string): RunOpsDetail | null {
-      const run = db
-        .query(
-          "SELECT run_id, thread_id, agent_id, kind, parent_run_id, status, started_at, ended_at FROM run WHERE run_id = ?",
-        )
-        .get(runId) as Record<string, unknown> | undefined;
+    getRunDetail(spanId: string): RunOpsDetail | null {
+      const run = opsStore.getRunBySpanId(spanId);
       if (!run) return null;
 
-      const origin = opsStore.getRunOrigin(runId);
+      const origin = opsStore.getSpanOrigin(spanId);
 
-      // Bug 2 fix: ORDER BY started_at DESC so attempts[0] is the latest attempt.
-      // Aligns with listRuns (DESC LIMIT 1) and diagnoseRun which assumes [0] = latest.
-      const attempts = db
-        .query(
-          "SELECT attempt_id, heartbeat_at, started_at, ended_at FROM attempt WHERE run_id = ? ORDER BY started_at DESC",
-        )
-        .all(runId) as Array<{
-        attempt_id: string;
-        heartbeat_at: number | null;
-        started_at: number;
-        ended_at: number | null;
-      }>;
+      const attempts = opsStore.getAttemptsBySpanId(spanId);
 
-      const lastEvent = db
-        .query(
-          "SELECT seq, json_extract(event, '$.type') as type, ts FROM event_log WHERE run_id = ? ORDER BY seq DESC LIMIT 1",
-        )
-        .get(runId) as { seq: number | null; type: string | null; ts: number | null } | undefined;
+      const sessionId = run.sessionId;
+      const factEvents = checkpointEventsStore?.readBySpan(sessionId, spanId) ?? [];
+      const lastFact = factEvents.at(-1);
 
-      const ops = opsStore.getRunEvents(runId);
+      const ops = opsStore.getControlPlaneEvents(spanId);
 
       return {
         run: {
-          runId: run.run_id as string,
-          threadId: run.thread_id as string,
-          agentId: run.agent_id as string,
-          agentName: resolveName(run.agent_id as string),
-          kind: run.kind as string,
-          parentRunId: run.parent_run_id as string | null,
-          status: run.status as string,
+          spanId: run.spanId,
+          sessionId: run.sessionId,
+          agentId: run.agentId,
+          agentName: resolveName(run.agentId),
+          kind: run.kind,
+          parentSpanId: run.parentSpanId,
+          status: run.status,
           traceId: origin?.traceId ?? null,
-          startedAt: run.started_at as number,
-          endedAt: run.ended_at as number | null,
+          startedAt: run.startedAt,
+          endedAt: run.endedAt,
         },
-        // Bug 6 fix: only apply live session transport to unfinished attempts.
-        // Historical (ended) attempts have no reliable real-time transport; mark as detached.
-        attempts: attempts.map((a) => {
-          const session = a.ended_at == null ? supervisor.getActive(runId) : null;
-          const transport: "attached" | "noop" | "detached" = session
-            ? session.transportKind
-            : "detached";
-          return {
-            attemptId: a.attempt_id,
-            heartbeatAt: a.heartbeat_at,
-            heartbeatAgeMs: a.heartbeat_at ? Date.now() - a.heartbeat_at : null,
-            startedAt: a.started_at,
-            endedAt: a.ended_at,
-            transport,
-          };
-        }),
+        attempts: attempts.map((a) => ({
+          attemptSeq: a.seq,
+          startedAt: a.startedAt,
+          endedAt: a.endedAt,
+        })),
         eventLog: {
-          lastSeq: lastEvent?.seq ?? null,
-          lastEventType: lastEvent?.type ?? null,
-          lastEventAt: lastEvent?.ts ?? null,
+          lastSeq: null,
+          lastEventType: lastFact?.type ?? null,
+          lastEventAt: lastFact?.ts ?? null,
         },
-        ops: ops.map((o) => ({
-          seq: o.seq,
-          kind: o.kind,
-          payload: o.payload,
-          traceId: o.traceId,
-          ts: o.ts,
+        ops: ops.map((e) => ({
+          seq: e.seq,
+          kind: e.kind,
+          payload: e.payload,
+          traceId: e.traceId,
+          ts: e.ts,
         })),
       };
     },
 
-    cancel(runId: string): CancelRunResult {
-      const run = db.query("SELECT status FROM run WHERE run_id = ?").get(runId) as
-        | { status: string }
-        | undefined;
+    cancel(spanId: string): CancelRunResult {
+      const run = opsStore.getRunBySpanId(spanId);
       if (!run) return { ok: false, error: "not_found" };
 
       if (run.status !== "running") {
-        return { ok: true, state: "already_terminal", runId, status: run.status };
+        return { ok: true, state: "already_terminal", spanId, status: run.status };
       }
 
-      const session = supervisor.getActive(runId);
-      if (!session) return { ok: false, error: "not_found" };
-
-      const cancelled = supervisor.cancel(runId);
+      const cancelled = supervisor.cancel(spanId);
       if (!cancelled) return { ok: false, error: "not_found" };
 
-      return { ok: true, state: "abort_sent", runId, attemptId: session.attemptId };
+      return {
+        ok: true,
+        state: "abort_sent",
+        spanId,
+        attemptSeq: 1,
+      };
     },
 
-    async recover(runId: string): Promise<RecoverRunResult> {
-      const run = db
-        .query("SELECT status, agent_id, thread_id, kind FROM run WHERE run_id = ?")
-        .get(runId) as
-        | { status: string; agent_id: string; thread_id: string; kind: string }
-        | undefined;
+    async recover(spanId: string): Promise<RecoverRunResult> {
+      const run = opsStore.getRunBySpanId(spanId);
       if (!run) return { state: "already_terminal", status: "not_found" };
       if (run.status !== "running") return { state: "already_terminal", status: run.status };
 
-      const attempt = db
-        .query(
-          "SELECT attempt_id, heartbeat_at FROM attempt WHERE run_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
-        )
-        .get(runId) as { attempt_id: string; heartbeat_at: number | null } | undefined;
-
-      if (!attempt) return { state: "already_terminal", status: "unknown" };
-
-      const age = attempt.heartbeat_at ? Math.max(0, Date.now() - attempt.heartbeat_at) : Infinity;
-      if (age >= heartbeatTimeoutMs) {
-        // M16.1: stale heartbeat → go through reaper terminal path (write EventLog + trigger onRunComplete)
-        const now = Date.now();
-        db.transaction(() => {
-          db.run("UPDATE run SET status = 'interrupted', ended_at = ? WHERE run_id = ?", [
-            now,
-            runId,
-          ]);
-          db.run("UPDATE attempt SET ended_at = ? WHERE attempt_id = ?", [now, attempt.attempt_id]);
-        })();
-        opsStore.appendRunEvent({
-          runId,
-          attemptId: attempt.attempt_id,
-          kind: "recover_requested",
-          payload: { reason: "heartbeat_timeout" },
-        });
-        // Append terminal event to EventLog (same as reaper path)
-        try {
-          await eventLog.append(run.thread_id, runId, {
-            type: "interrupted",
-            payload: { reason: "heartbeat_timeout" },
-          });
-        } catch {
-          // EventLog append is best-effort
-        }
-        // Trigger onRunComplete listeners
-        // Trigger onRunComplete listeners (same as reaper path)
-        supervisor.notifyRunComplete(run.thread_id, runId, "interrupted", run.kind);
+      const session = supervisor.getActive().get(spanId);
+      if (!session) {
+        await supervisor.notifyRunComplete(run.sessionId, spanId, "interrupted", run.kind);
         return { state: "marked_interrupted", reason: "heartbeat_timeout" };
       }
 
-      // M16.1: heartbeat fresh — try to reattach to existing daemon
-      if (registry.attachExisting) {
-        try {
-          const attached = await registry.attachExisting(run.agent_id);
-          if (attached) {
-            // Bind transport and register session
-            supervisor.bindTransport(attached);
-            supervisor.registerRecoveredSession(
-              runId,
-              run.agent_id,
-              run.thread_id,
-              attached,
-              attempt.attempt_id,
-              run.kind as "main" | "reflect",
-            );
-            opsStore.appendRunEvent({
-              runId,
-              attemptId: attempt.attempt_id,
-              kind: "reattach_succeeded",
-              payload: { source: "recover" },
-            });
-            return { state: "reattached", attemptId: attempt.attempt_id };
-          }
-        } catch {
-          opsStore.appendRunEvent({
-            runId,
-            attemptId: attempt.attempt_id,
-            kind: "reattach_failed",
-            payload: { source: "recover" },
-          });
-        }
-      }
-
-      return { state: "waiting", reason: "heartbeat_fresh_but_transport_detached" };
+      return { state: "waiting", reason: "session_not_found" };
     },
 
-    getAgentRuntime(agentId: string): AgentRuntimeStatus | null {
-      const runnerHealth = opsStore.getRunnerHealth(agentId);
-      const surfaceHealths = opsStore.getSurfaceHealthsForAgent(agentId);
-
-      const surfaces: AgentRuntimeStatus["surfaces"] = {};
-      for (const sh of surfaceHealths) {
-        let payload: Record<string, unknown> = {};
-        try {
-          payload = JSON.parse(sh.payload);
-        } catch {
-          /* keep empty */
-        }
-        surfaces[sh.surface] = {
+    getAgentRuntime(agentId: string): AgentRuntimeStatus {
+      const surfaces = opsStore.getSurfaceHealthsForAgent(agentId);
+      const result: AgentRuntimeStatus["surfaces"] = {};
+      for (const sh of surfaces) {
+        const raw = sh.payload; // Already parsed by Zod transform
+        const flatten = (obj: Record<string, unknown>, prefix: string) => {
+          for (const [k, v] of Object.entries(obj)) {
+            if (typeof v === "number") result[sh.surface]!.counters[`${prefix}${k}`] = v;
+          }
+        };
+        result[sh.surface] = {
           status: sh.status,
           lastSeenAt: sh.lastSeenAt,
-          lastError: sh.lastError,
-          counters: payload as Record<string, number>,
+          lastError: sh.lastError ?? null,
+          counters: {},
         };
+        flatten(raw, "");
       }
-
-      const runnerRow: RunnerHealthRow | undefined = runnerHealth
-        ? {
-            agentId: runnerHealth.agentId,
-            lastSeenAt: runnerHealth.lastSeenAt,
-            uptimeMs: runnerHealth.uptimeMs,
-            activeRunCount: runnerHealth.activeRunCount,
-            activeRunIds: runnerHealth.activeRunIds,
-            checkpointerOk: runnerHealth.checkpointerOk,
-            workspaceOk: runnerHealth.workspaceOk,
-            lastError: runnerHealth.lastError,
-            updatedAt: runnerHealth.updatedAt,
-          }
-        : undefined;
-
-      return {
-        agentId,
-        agentName: resolveName(agentId),
-        heartbeatTimeoutMs,
-        runner: {
-          status: computeRunnerStatus(runnerRow, Date.now(), OFFLINE_AFTER_MS),
-          lastSeenAt: runnerHealth?.lastSeenAt ?? null,
-          uptimeMs: runnerHealth?.uptimeMs ?? 0,
-          activeRunCount: runnerHealth?.activeRunCount ?? 0,
-          checkpointerOk: runnerHealth?.checkpointerOk === 1,
-          workspaceOk: runnerHealth?.workspaceOk === 1,
-          lastError: runnerHealth?.lastError ?? null,
-        },
-        surfaces,
-      };
+      return { agentId, agentName: resolveName(agentId), surfaces: result };
     },
 
-    ingestLarkHeartbeat(body: {
-      agentId: string;
-      profileRef: string;
-      status: string;
-      watchers: { conversation: number; runDelta: number };
-      runStreams: Record<string, number>;
-      lastError: string | null;
-      ts: number;
-    }): void {
-      opsStore.upsertSurfaceHealth({
-        agentId: body.agentId,
-        surface: "lark",
-        status: body.status,
-        payload: {
-          watchers: body.watchers,
-          runStreams: body.runStreams,
-          profileRef: body.profileRef,
-        },
-        lastError: body.lastError ?? undefined,
-      });
-    },
-
-    // ─── M16.1: Trace detail (local waterfall) ───
-
-    getTraceDetail(traceId: string): {
-      traceId: string;
-      mode: "local" | "otlp";
-      runs: RunOpsListItem[];
-      events: Array<{
-        ts: number;
-        runId: string;
-        attemptId: string | null;
-        kind: string;
-        payload: Record<string, unknown>;
-      }>;
-    } | null {
-      // Find all runs with this trace ID
-      const origins = opsStore.listRunOrigins().filter((o) => o.traceId === traceId);
+    getTraceDetail(
+      traceId: string,
+    ): { origins: { spanId: string; traceId: string }[]; events: ControlPlaneEvent[] } | null {
+      const origins = opsStore.listSpanOrigins().filter((o) => o.traceId === traceId);
       if (origins.length === 0) {
-        // Also check run_ops_event for trace_id
-        const opsEvents = opsStore.getRunEventsByTrace(traceId);
+        const opsEvents = opsStore.getControlPlaneEventsByTrace(traceId);
         if (opsEvents.length === 0) return null;
       }
-
-      const events = opsStore.getRunEventsByTrace(traceId).map((e) => ({
-        ts: e.ts,
-        runId: e.runId,
-        attemptId: e.attemptId,
-        kind: e.kind,
-        payload: e.payload,
-      }));
-
-      const runs = this.listRuns({ limit: 500 }).filter((r) => r.traceId === traceId);
-
-      return {
-        traceId,
-        mode: "local",
-        runs,
-        events: events.sort((a, b) => a.ts - b.ts),
-      };
+      const events = opsStore.getControlPlaneEventsByTrace(traceId);
+      return { origins: origins.map((o) => ({ spanId: o.spanId, traceId: o.traceId })), events };
     },
-
-    // ─── M16.1: Surface diagnostics ───
 
     listSurfaces(): Array<{
       agentId: string;
+      agentName: string;
       surface: string;
       status: string;
       lastSeenAt: number | null;
       lastError: string | null;
       counters: Record<string, number>;
     }> {
-      const all = opsStore.listSurfaceHealths();
-      return all.map((sh) => {
-        let raw: Record<string, unknown> = {};
-        try {
-          raw = JSON.parse(sh.payload);
-        } catch {
-          /* keep empty */
-        }
-
-        // Flatten nested payload into single-level Record<string, number>.
-        // Nested objects become dot-separated keys (e.g. watchers.conversation).
-        // Non-number values and sensitive identifiers (profileRef, chat_id, open_id)
-        // are discarded, ensuring redaction at every nesting level.
+      return opsStore.listSurfaceHealths().map((sh) => {
         const counters: Record<string, number> = {};
-        const flatten = (obj: unknown, prefix: string) => {
-          if (!obj || typeof obj !== "object") return;
-          for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-            if (k === "profileRef" || k === "chat_id" || k === "open_id") continue;
-            const key = prefix ? `${prefix}.${k}` : k;
-            if (typeof v === "number") {
-              counters[key] = v;
-            } else if (v && typeof v === "object") {
-              flatten(v, key);
-            }
-            // String/boolean/null values are intentionally dropped
-          }
-        };
-        flatten(raw, "");
-
+        const payload = sh.payload as Record<string, unknown>;
+        for (const [k, v] of Object.entries(payload)) {
+          if (typeof v === "number") counters[k] = v;
+        }
         return {
           agentId: sh.agentId,
           agentName: resolveName(sh.agentId),
@@ -572,57 +294,136 @@ export function createRuntimeOpsService(deps: {
       });
     },
 
-    // ─── M16.3: Run Insights ───
-
-    async getRunInsights(runId: string): Promise<RunInsights | null> {
-      const run = db
-        .query(
-          "SELECT run_id, thread_id, agent_id, status, started_at, ended_at FROM run WHERE run_id = ?",
-        )
-        .get(runId) as
-        | {
-            run_id: string;
-            thread_id: string;
-            agent_id: string;
-            status: string;
-            started_at: number;
-            ended_at: number | null;
-          }
-        | undefined;
+    async getRunInsights(spanId: string): Promise<RunInsights | null> {
+      const run = opsStore.getRunBySpanId(spanId);
       if (!run) return null;
 
       return getRunInsights(
-        { eventLog, getAgentName },
+        { checkpointEventsStore, getAgentName },
         {
-          runId: run.run_id,
-          threadId: run.thread_id,
-          agentId: run.agent_id,
+          spanId: run.spanId,
+          sessionId: run.sessionId,
+          agentId: run.agentId,
           status: run.status,
-          startedAt: run.started_at,
-          endedAt: run.ended_at,
+          startedAt: run.startedAt,
+          endedAt: run.endedAt,
         },
       );
     },
 
     async getInsightsSummary(range: { from: number; to: number }): Promise<InsightsSummary> {
-      // Scope to runs in the time window (avoid full event_log scan)
-      const runRows = db
+      const runRows = opsStore
+        .getRawDb()
         .query(
-          "SELECT run_id, agent_id FROM run WHERE started_at <= ? AND (ended_at IS NULL OR ended_at >= ?) LIMIT 500",
+          "SELECT span_id, agent_id FROM run WHERE started_at <= ? AND (ended_at IS NULL OR ended_at >= ?) LIMIT 500",
         )
-        .all(range.to, range.from) as Array<{ run_id: string; agent_id: string }>;
+        .all(range.to, range.from) as Array<{ span_id: string; agent_id: string }>;
 
       const runAgentMap = new Map<string, string>();
-      for (const r of runRows) runAgentMap.set(r.run_id, r.agent_id);
+      for (const r of runRows) runAgentMap.set(r.span_id, r.agent_id);
 
-      return getInsightsSummary(
-        {
-          eventLog,
-          getAgentName,
-          runAgentMap,
-        },
-        range,
-      );
+      return getInsightsSummary({ checkpointEventsStore, getAgentName, runAgentMap }, range);
+    },
+
+    // ── Session-level aggregation (B2: /ops/sessions) ──────────
+
+    listSessions(params: { agentId?: string; status?: string; limit?: number }): Array<{
+      sessionId: string;
+      agentId: string;
+      spanCount: number;
+      lastSpanAt: number | null;
+      status: "running" | "done";
+    }> {
+      const limit =
+        Number.isFinite(params.limit) && (params.limit ?? 0) > 0 ? Math.floor(params.limit!) : 100;
+      const whereConditions: string[] = [];
+      const havingConditions: string[] = [];
+      const bindings: (string | number)[] = [];
+      if (params.agentId) {
+        whereConditions.push("agent_id = ?");
+        bindings.push(params.agentId);
+      }
+      if (params.status === "running") {
+        // Filter after aggregation: only sessions that have at least one running span
+        havingConditions.push("MAX(CASE WHEN status = 'running' THEN 1 ELSE 0 END) = 1");
+      } else if (params.status === "done") {
+        // Filter after aggregation: only sessions where all spans are done (no running)
+        havingConditions.push("MAX(CASE WHEN status = 'running' THEN 1 ELSE 0 END) = 0");
+      }
+      const where = whereConditions.length > 0 ? `WHERE ${whereConditions.join(" AND ")}` : "";
+      const having = havingConditions.length > 0 ? `HAVING ${havingConditions.join(" AND ")}` : "";
+      const rows = opsStore
+        .getRawDb()
+        .query(
+          `SELECT session_id, MAX(started_at) AS last_span_at, COUNT(*) AS span_count,
+                  MAX(agent_id) AS agent_id
+             FROM run ${where}
+            GROUP BY session_id
+            ${having}
+            ORDER BY last_span_at DESC
+            LIMIT ?`,
+        )
+        .all(...bindings, limit) as Array<{
+        session_id: string;
+        last_span_at: number | null;
+        span_count: number;
+        agent_id: string;
+      }>;
+      return rows.map((r) => {
+        const running = opsStore
+          .getRawDb()
+          .query("SELECT 1 FROM run WHERE session_id = ? AND status = 'running' LIMIT 1")
+          .get(r.session_id);
+        return {
+          sessionId: r.session_id,
+          agentId: r.agent_id,
+          spanCount: r.span_count,
+          lastSpanAt: r.last_span_at,
+          status: running ? ("running" as const) : ("done" as const),
+        };
+      });
+    },
+
+    getSessionDetail(sessionId: string): {
+      sessionId: string;
+      agentId: string;
+      status: "running" | "done";
+      spanCount: number;
+      spans: Array<{
+        spanId: string;
+        status: string;
+        kind: string;
+        agentId: string;
+        startedAt: number | null;
+        endedAt: number | null;
+      }>;
+    } | null {
+      const spans = opsStore.getSpansBySession(sessionId);
+      if (spans.length === 0) return null;
+      return {
+        sessionId,
+        agentId: spans[0]!.agentId,
+        status: spans.some((s) => s.status === "running")
+          ? ("running" as const)
+          : ("done" as const),
+        spanCount: spans.length,
+        spans,
+      };
+    },
+
+    ingestLarkHeartbeat(body: {
+      agentId: string;
+      status: string;
+      payload?: Record<string, unknown>;
+      lastError?: string;
+    }): void {
+      opsStore.upsertSurfaceHealth({
+        agentId: body.agentId,
+        surface: "lark",
+        status: body.status,
+        payload: body.payload ?? {},
+        lastError: body.lastError,
+      });
     },
   };
 }

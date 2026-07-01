@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { QueryState } from "@/components/ops/QueryState";
 import { SurfaceHealthPanel } from "@/components/ops/SurfaceHealthPanel";
 import {
@@ -11,15 +10,10 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { api } from "@/lib/api";
+import { useOpsSurfaces } from "@/features/ops/hooks";
 
 export default function SurfacesPage() {
-  const surfacesQuery = useQuery({
-    queryKey: ["ops", "surfaces"],
-    queryFn: api.listSurfaces,
-    staleTime: 10_000,
-    refetchInterval: 30_000,
-  });
+  const surfacesQuery = useOpsSurfaces();
 
   return (
     <div className="container mx-auto p-6 space-y-6">

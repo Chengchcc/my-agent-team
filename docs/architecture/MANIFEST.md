@@ -2,13 +2,11 @@
 
 - `README.md`
 - `docs/architecture/README.md`
-- `docs/architecture/backend/agent-spec.md`
 - `docs/architecture/backend/conversation-projection.md`
 - `docs/architecture/backend/data-model.md`
 - `docs/architecture/backend/event-log.md`
 - `docs/architecture/backend/orchestrator.md`
 - `docs/architecture/backend/overview.md`
-- `docs/architecture/backend/run-supervisor.md`
 - `docs/architecture/concepts.json`
 - `docs/architecture/conversation/conversation-and-members.md`
 - `docs/architecture/conversation/ledger.md`
@@ -16,7 +14,9 @@
 - `docs/architecture/flows/e2e-lark-message.md`
 - `docs/architecture/flows/e2e-web-message.md`
 - `docs/architecture/foundations/cron-job.md`
+- `docs/architecture/foundations/dependency-injection.md`
 - `docs/architecture/foundations/facts-and-projections.md`
+- `docs/architecture/foundations/identifiers.md`
 - `docs/architecture/foundations/issue.md`
 - `docs/architecture/foundations/issue-workflow.md`
 - `docs/architecture/foundations/lifecycle-overview.md`
@@ -28,9 +28,6 @@
 - `docs/architecture/plugins/progressive-skill.md`
 - `docs/architecture/plugins/task-guard.md`
 - `docs/architecture/roadmap/future-work.md`
-- `docs/architecture/runner/agent-file-system.md`
-- `docs/architecture/runner/resident-runner.md`
-- `docs/architecture/runner/runner-protocol.md`
 - `docs/architecture/runtime/framework.md`
 - `docs/architecture/runtime/plugin.md`
 - `docs/architecture/runtime/context-manager.md`

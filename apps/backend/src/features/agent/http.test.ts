@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Elysia } from "elysia";
 import type { AgentRow } from "./domain.js";
 import { agentRoutes } from "./http.js";
 import type { AgentPort } from "./ports.js";
@@ -55,17 +56,20 @@ function makeSvc() {
       return { deletedAgent: existed, deletedThreads: 0, deletedMembers: 0 };
     },
   };
-  return agentRoutes(
-    createAgentService({
-      port,
-      idGen: () => crypto.randomUUID().slice(0, 8),
-      workspaceRoot: "/tmp",
-      materializeWorkspace: async (id) => `/tmp/ws/${id}`,
-      purgeWorkspace: async () => {},
-      purgeEventsForThreads: () => {},
-      listThreadIds: async () => [],
-      assertNoActiveRun: () => {},
-    }),
+  return new Elysia().use(
+    agentRoutes(
+      createAgentService({
+        port,
+        idGen: () => crypto.randomUUID().slice(0, 8),
+        workspaceRoot: "/tmp",
+        materializeWorkspace: async (id) => `/tmp/ws/${id}`,
+        purgeWorkspace: async () => {},
+        purgeEventsForSessions: async () => {},
+        listSessionIds: async () => [],
+        assertNoActiveRun: () => {},
+      }),
+      { listForAgent: async () => [], setAgentPacks: async () => {} },
+    ),
   );
 }
 
@@ -75,53 +79,54 @@ async function readJson(resp: Response): Promise<unknown> {
 
 describe("agent HTTP routes", () => {
   test("POST /api/agents creates agent and returns 201", async () => {
-    const routes = makeSvc();
+    const app = makeSvc();
     const req = new Request("http://localhost/api/agents", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "test", model: { provider: "anthropic", model: "claude" } }),
     });
-    const resp = await routes.create(req);
+    const resp = await app.handle(req);
     expect(resp.status).toBe(201);
     const body = (await readJson(resp)) as { id: string; name: string };
     expect(body.name).toBe("test");
   });
 
-  test("POST /api/agents returns 400 on invalid body", async () => {
-    const routes = makeSvc();
+  test("POST /api/agents returns 422 on invalid body", async () => {
+    const app = makeSvc();
     const req = new Request("http://localhost/api/agents", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "" }),
     });
-    const resp = await routes.create(req);
-    expect(resp.status).toBe(400);
+    const resp = await app.handle(req);
+    expect(resp.status).toBe(422); // Elysia TypeBox validation default
   });
 
   test("GET /api/agents returns list", async () => {
-    const routes = makeSvc();
-    await routes.create(
+    const app = makeSvc();
+    // Create first
+    await app.handle(
       new Request("http://localhost/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name: "a1", model: { provider: "a", model: "m" } }),
       }),
     );
-    const resp = await routes.list(new Request("http://localhost/api/agents"));
+    const resp = await app.handle(new Request("http://localhost/api/agents"));
     expect(resp.status).toBe(200);
     const body = (await readJson(resp)) as unknown[];
     expect(body.length).toBe(1);
   });
 
   test("GET /api/agents/:id returns 404 for unknown", async () => {
-    const routes = makeSvc();
-    const resp = await routes.getById(new Request("http://localhost/api/agents/x"), "x");
+    const app = makeSvc();
+    const resp = await app.handle(new Request("http://localhost/api/agents/x"));
     expect(resp.status).toBe(404);
   });
 
   test("PATCH /api/agents/:id updates agent", async () => {
-    const routes = makeSvc();
-    const createResp = await routes.create(
+    const app = makeSvc();
+    const createResp = await app.handle(
       new Request("http://localhost/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -129,20 +134,21 @@ describe("agent HTTP routes", () => {
       }),
     );
     const created = (await readJson(createResp)) as { id: string };
-    const req = new Request(`http://localhost/api/agents/${created.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "new" }),
-    });
-    const resp = await routes.update(req, created.id);
+    const resp = await app.handle(
+      new Request(`http://localhost/api/agents/${created.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "new" }),
+      }),
+    );
     expect(resp.status).toBe(200);
     const body = (await readJson(resp)) as { name: string };
     expect(body.name).toBe("new");
   });
 
   test("DELETE /api/agents/:id archives agent", async () => {
-    const routes = makeSvc();
-    const createResp = await routes.create(
+    const app = makeSvc();
+    const createResp = await app.handle(
       new Request("http://localhost/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -150,9 +156,10 @@ describe("agent HTTP routes", () => {
       }),
     );
     const created = (await readJson(createResp)) as { id: string };
-    const resp = await routes.archive(
-      new Request(`http://localhost/api/agents/${created.id}`),
-      created.id,
+    const resp = await app.handle(
+      new Request(`http://localhost/api/agents/${created.id}`, {
+        method: "DELETE",
+      }),
     );
     expect(resp.status).toBe(200);
   });

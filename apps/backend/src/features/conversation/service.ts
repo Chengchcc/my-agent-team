@@ -1,6 +1,5 @@
 import {
   Conversation as ConversationSchema,
-  projectForMember,
   resolveTriggerTargets,
 } from "@my-agent-team/conversation";
 import type { MessageRevision } from "@my-agent-team/message";
@@ -11,10 +10,6 @@ import {
   serializeMessageRevision,
   systemMessageId,
 } from "@my-agent-team/message";
-import type {
-  ThreadProjectionReadPort,
-  ThreadProjectionWritePort,
-} from "../thread-projection/ports.js";
 import type { ConversationLock } from "./lock.js";
 import type { ConversationPort, LedgerEntry, LedgerKind, MemberRow } from "./ports.js";
 
@@ -25,17 +20,23 @@ export class ConversationBusyError extends Error {
   }
 }
 
-function deriveThreadId(conversationId: string, memberId: string): string {
+function deriveSessionId(conversationId: string, memberId: string): string {
   return `${conversationId}:${memberId}`;
 }
 
-/** Parse a threadId back into its constituent parts.
- *  Inverse of deriveThreadId. First colon separates conversationId from memberId;
+/** Reserved memberId for the conversation owner (the human who owns an
+ *  issue-/cron-spawned conversation). It is a member id, NOT an agent id —
+ *  sessionIds derived from it (`${conversationId}:${OWNER_MEMBER_ID}`) follow
+ *  the standard `${conversationId}:${memberId}` shape, not the agent shape. */
+export const OWNER_MEMBER_ID = "owner";
+
+/** Parse a sessionId back into its constituent parts.
+ *  Inverse of deriveSessionId. First colon separates conversationId from memberId;
  *  memberId may itself contain colons. */
-export function parseThreadId(threadId: string): { conversationId: string; memberId: string } {
-  const idx = threadId.indexOf(":");
-  if (idx < 0) return { conversationId: threadId, memberId: "" };
-  return { conversationId: threadId.slice(0, idx), memberId: threadId.slice(idx + 1) };
+export function parseSessionId(sessionId: string): { conversationId: string; memberId: string } {
+  const idx = sessionId.indexOf(":");
+  if (idx < 0) return { conversationId: sessionId, memberId: "" };
+  return { conversationId: sessionId.slice(0, idx), memberId: sessionId.slice(idx + 1) };
 }
 
 function isHumanMember(members: MemberRow[], memberId: string): boolean {
@@ -48,23 +49,49 @@ function isSystemSender(memberId: string): boolean {
 
 export interface ConversationServiceDeps {
   port: ConversationPort;
-  threadProjectionRead: ThreadProjectionReadPort;
-  threadProjectionWrite: ThreadProjectionWritePort;
   /** M17.5 P4: ConversationLock replaces ad-hoc activeConversations Set + pendingRuns Map. */
   lock: ConversationLock;
   maxConsecutiveAgentHops: number;
-  forkRun: (
-    runId: string,
-    threadId: string,
-    ctx: { conversationId: string; agentMemberId: string; agentId: string; ledgerSeq: number },
-  ) => Promise<{ runId: string; attemptId: string }>;
+  startAgentRun: (
+    spanId: string,
+    sessionId: string,
+    ctx: {
+      conversationId: string;
+      agentMemberId: string;
+      agentId: string;
+      ledgerSeq: number;
+      /** The user's input text — passed through to AgentSession.prompt() so the agent receives the actual message. */
+      input?: string;
+    },
+  ) => Promise<{ spanId: string; attemptSeq: number }>;
   idGen: () => string;
-  /** Verify a runId belongs to the given conversation. Throws if not. */
-  verifyRunOwnsConversation?: (runId: string, conversationId: string) => Promise<void>;
+  /** Verify a spanId belongs to the given conversation. Throws if not. */
+  verifyRunOwnsConversation?: (spanId: string, conversationId: string) => Promise<void>;
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
-  const { port, threadProjectionWrite, lock, maxConsecutiveAgentHops, forkRun } = deps;
+  const { port, lock, maxConsecutiveAgentHops, startAgentRun } = deps;
+
+  // Push-based SSE: subscribers are notified immediately when new ledger
+  // entries are appended, so streaming revisions arrive without poll delay.
+  type Subscriber = (entry: LedgerEntry) => void;
+  const subscribers = new Map<string, Set<Subscriber>>();
+
+  // Track seq per spanId so streaming revisions UPDATE the same row
+  // instead of INSERTing a new row for every model chunk.
+  const streamingSeq = new Map<string, number>();
+
+  function notify(conversationId: string, entry: LedgerEntry) {
+    const subs = subscribers.get(conversationId);
+    if (!subs) return;
+    for (const sub of subs) {
+      try {
+        sub(entry);
+      } catch (e) {
+        console.error(`[conversation] subscriber error for ${conversationId}:`, e);
+      }
+    }
+  }
 
   /** Load members and build Conversation for pure helpers. */
   function buildConversation(conversationId: string) {
@@ -94,7 +121,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     addressedTo: string[];
     kind: LedgerKind;
     content: unknown;
-    /** When false, skip thread_projection write (forkRun reads from ledger directly). */
+    /** When false, skip thread_projection write (startAgentRun reads from ledger directly). */
     broadcast?: boolean;
   }): Promise<number> {
     const ts = Date.now();
@@ -110,56 +137,17 @@ export function createConversationService(deps: ConversationServiceDeps) {
       content: serialized,
       ts,
     });
-    if (input.broadcast !== false) {
-      await broadcastMessage({
-        seq,
-        conversationId: input.conversationId,
-        senderMemberId: input.senderMemberId,
-        addressedTo: input.addressedTo,
-        kind: input.kind,
-        content: serialized,
-        ts,
-      });
-    }
+    const entry: LedgerEntry = {
+      seq,
+      conversationId: input.conversationId,
+      senderMemberId: input.senderMemberId,
+      addressedTo: input.addressedTo,
+      kind: input.kind,
+      content: serialized,
+      ts,
+    };
+    notify(input.conversationId, entry);
     return seq;
-  }
-
-  /** Project a ledger entry into all agent member checkpoints.
-   *  M14.6: "todo" entries are UI-only — never projected into agent checkpoints
-   *  (todo JSON would pollute the model's conversation context). */
-  async function broadcastMessage(
-    entry: LedgerEntry,
-    opts?: { excludeMemberId?: string },
-  ): Promise<void> {
-    if (entry.kind === "todo" || entry.kind === "surface.control") return; // UI-only, never projected
-
-    const conv = buildConversation(entry.conversationId);
-    if (!conv) return;
-
-    const agentMembers = port.getAgentMembers(entry.conversationId);
-
-    for (const member of agentMembers) {
-      if (opts?.excludeMemberId && member.memberId === opts.excludeMemberId) continue;
-      const threadId = deriveThreadId(entry.conversationId, member.memberId);
-      // M17.2: Pass raw string — projectForMember/formatContent handle parsing internally
-      const projected = projectForMember(
-        {
-          seq: entry.seq,
-          conversationId: entry.conversationId,
-          senderMemberId: entry.senderMemberId,
-          addressedTo: entry.addressedTo,
-          kind: entry.kind,
-          content: entry.content,
-          ts: entry.ts,
-        },
-        member.memberId,
-        conv,
-      );
-
-      await threadProjectionWrite.appendMessages(threadId, [
-        { role: projected.role, content: projected.text },
-      ]);
-    }
   }
 
   /** Shared fork-run loop: lock conversation, fork runs for targets, release when all complete.
@@ -168,23 +156,25 @@ export function createConversationService(deps: ConversationServiceDeps) {
     conversationId: string,
     targets: Array<{ memberId: string; agentId: string }>,
     ledgerSeq: number,
-  ): Promise<Array<{ agentMemberId: string; runId: string }>> {
-    const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
+    input?: string,
+  ): Promise<Array<{ agentMemberId: string; spanId: string }>> {
+    const triggeredRuns: Array<{ agentMemberId: string; spanId: string }> = [];
     lock.acquire(conversationId, targets.length);
     for (const target of targets) {
       try {
-        const runId = crypto.randomUUID();
-        const threadId = deriveThreadId(conversationId, target.memberId);
-        const { runId: rId } = await forkRun(runId, threadId, {
+        const spanId = crypto.randomUUID();
+        const sessionId = deriveSessionId(conversationId, target.memberId);
+        const { spanId: rId } = await startAgentRun(spanId, sessionId, {
           conversationId,
           agentMemberId: target.memberId,
           agentId: target.agentId,
           ledgerSeq,
+          input,
         });
-        triggeredRuns.push({ agentMemberId: target.memberId, runId: rId });
+        triggeredRuns.push({ agentMemberId: target.memberId, spanId: rId });
       } catch (err) {
         console.error(
-          `[conversation] forkRun failed for ${target.memberId}:`,
+          `[conversation] startAgentRun failed for ${target.memberId}:`,
           err instanceof Error ? err.message : String(err),
         );
         // Decrement pending count for failed fork
@@ -196,7 +186,6 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
   return {
     port, // Expose port for HTTP layer (thin adapter pattern)
-    broadcastMessage,
 
     // ─── postMessage ────────────────────────────────
 
@@ -205,13 +194,13 @@ export function createConversationService(deps: ConversationServiceDeps) {
       senderMemberId: string;
       addressedTo: string[];
       content: unknown;
-    }): Promise<{ seq: number; triggeredRuns: Array<{ agentMemberId: string; runId: string }> }> {
+    }): Promise<{ seq: number; triggeredRuns: Array<{ agentMemberId: string; spanId: string }> }> {
       const conv = buildConversation(input.conversationId);
       if (!conv) throw new Error(`Conversation not found: ${input.conversationId}`);
 
       const members = port.getMembers(input.conversationId);
       const targets = resolveTriggerTargets(conv, input.addressedTo);
-      const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
+      const triggeredRuns: Array<{ agentMemberId: string; spanId: string }> = [];
 
       // ── Hop count: reset on human/external, increment only for known agent members ──
       const convRow = port.getConversation(input.conversationId);
@@ -240,10 +229,10 @@ export function createConversationService(deps: ConversationServiceDeps) {
         hopCapped = currentHop > maxConsecutiveAgentHops;
       }
 
-      // ── Append this message to ledger as a MessageRevision (no broadcast — forkRun reads from ledger) ──
+      // ── Append this message to ledger as a MessageRevision (no broadcast — startAgentRun reads from ledger) ──
       const userRev: MessageRevision = {
-        // M17.2 fix: use UUID (not Date.now()) to prevent same-ms collision when
-        // buildPreloadedMessages folds by messageId. Two posts in the same millisecond
+        // M17.2 fix: use UUID to prevent same-ms collision when
+        // the ledger is folded by messageId. Two posts in the same millisecond
         // would share an id and the second would silently overwrite the first.
         messageId: humanMessageId(input.conversationId, input.senderMemberId),
 
@@ -268,7 +257,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
       // ── @ trigger: fork agent run for each target (skip if hop-capped) ──
       if (targets.length > 0 && !hopCapped) {
-        const runs = await forkAgentRuns(input.conversationId, targets, seq);
+        const userText = typeof input.content === "string" ? input.content : "";
+        const runs = await forkAgentRuns(input.conversationId, targets, seq, userText);
         triggeredRuns.push(...runs);
       } else if (hopCapped) {
         // Broadcast system message about the cap (no fork)
@@ -361,50 +351,78 @@ export function createConversationService(deps: ConversationServiceDeps) {
       opts?: { afterSeq?: number; signal?: AbortSignal; pollMs?: number },
     ): AsyncIterable<LedgerEntry> {
       const since = opts?.afterSeq ?? 0;
-      const pollMs = opts?.pollMs ?? 500;
+      const pollMs = opts?.pollMs ?? 100;
       let lastSeq = since;
       let silentPolls = 0;
-      const heartbeatInterval = 30; // ~15s at 500ms poll
+      const heartbeatInterval = 150; // ~15s at 100ms poll
 
-      // First, yield all existing entries (catch up)
-      const initial = port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
-      for (const entry of initial) {
-        yield entry;
-        lastSeq = entry.seq;
-      }
+      // Push buffer — drained before each poll so streaming revisions
+      // delivered via notify() are yielded without ~100ms poll delay.
+      const pushBuffer: LedgerEntry[] = [];
+      const onPush = (entry: LedgerEntry) => {
+        pushBuffer.push(entry);
+      };
+      const subs = subscribers.get(conversationId) ?? new Set();
+      subs.add(onPush);
+      subscribers.set(conversationId, subs);
 
-      // Then long-poll for new entries — no idle timeout.
-      // pollMs=0 means one-shot (tests); otherwise stay alive indefinitely.
-      while (true) {
-        if (opts?.signal?.aborted) break;
-
-        const entries = port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
-        for (const entry of entries) {
+      try {
+        // First, yield all existing entries (catch up)
+        const initial = port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
+        for (const entry of initial) {
           yield entry;
           lastSeq = entry.seq;
-          silentPolls = 0;
         }
 
-        if (entries.length === 0) {
-          if (pollMs === 0) break; // one-shot — exit immediately
-          silentPolls++;
-          // Heartbeat: yield a sentinel row every ~15s so sseResponse
-          // can emit an SSE comment to keep the connection alive.
-          // Frontend EventSource ignores SSE comments (not a business event).
-          if (silentPolls % heartbeatInterval === 0) {
-            yield {
-              seq: 0,
-              conversationId,
-              senderMemberId: "",
-              addressedTo: [],
-              kind: "message" as const,
-              content: "",
-              ts: Date.now(),
-              _heartbeat: true as const,
-            } as LedgerEntry & { _heartbeat: true }; // sentinel — not persisted, only yielded to SSE handler
+        // Then long-poll for new entries — no idle timeout.
+        // pollMs=0 means one-shot (tests); otherwise stay alive indefinitely.
+        // Push buffer is drained BEFORE each poll so notify()-delivered
+        // entries beat the poll interval.
+        while (true) {
+          if (opts?.signal?.aborted) break;
+
+          // Drain push buffer first (entries delivered via notify).
+          // Push entries are always yielded regardless of seq — streaming
+          // revisions get a real monotonic seq via the streamingSeq map, and
+          // the heartbeat sentinel uses seq:0, so neither hits the >lastSeq guard.
+          while (pushBuffer.length > 0) {
+            const entry = pushBuffer.shift()!;
+            yield entry;
+            if (entry.seq > lastSeq) lastSeq = entry.seq;
+            silentPolls = 0;
           }
-          await new Promise((r) => setTimeout(r, pollMs));
+
+          const entries = port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
+          for (const entry of entries) {
+            yield entry;
+            lastSeq = entry.seq;
+            silentPolls = 0;
+          }
+
+          if (entries.length === 0) {
+            if (pollMs === 0) break; // one-shot — exit immediately
+            silentPolls++;
+            // Heartbeat: yield a sentinel row every ~15s so sseResponse
+            // can emit an SSE comment to keep the connection alive.
+            // Frontend EventSource ignores SSE comments (not a business event).
+            if (silentPolls % heartbeatInterval === 0) {
+              yield {
+                seq: 0,
+                conversationId,
+                senderMemberId: "",
+                addressedTo: [],
+                kind: "message" as const,
+                content: "",
+                ts: Date.now(),
+                _heartbeat: true as const,
+              } as LedgerEntry & { _heartbeat: true };
+            }
+            await new Promise((r) => setTimeout(r, pollMs));
+          }
         }
+      } finally {
+        subs.delete(onPush);
+        if (subs.size === 0) subscribers.delete(conversationId);
       }
     },
     /** M14.6: Append a todo snapshot to the conversation ledger (UI-only, not projected to agents). */
@@ -423,34 +441,71 @@ export function createConversationService(deps: ConversationServiceDeps) {
     },
 
     /** Release the conversation lock when ALL triggered runs complete. */
-    completeRun(conversationId: string, _threadId: string, _runId: string): void {
+    completeRun(conversationId: string, _sessionId: string, _runId: string): void {
       lock.releaseOne(conversationId);
     },
 
     /** M17.5 P7: Write an assistant message revision directly to the ledger.
      *  This is the SOLE authoritative entry for assistant messages in the conversation.
-     *  Replaces the old path of event_log → projection → ledger. */
+     *
+     *  Streaming revisions: first write gets a real seq, subsequent writes for the
+     *  same spanId update the row in-place (same messageId → same seq). Done state
+     *  always writes a fresh row. */
     async appendAssistantMessage(input: {
       conversationId: string;
       senderMemberId: string;
-      runId: string;
+      spanId: string;
       revision: MessageRevision;
     }): Promise<number> {
       const stamped: MessageRevision = {
         ...input.revision,
         conversationId: input.conversationId,
-        runId: input.runId,
+        spanId: input.spanId,
       };
       const serialized = serializeMessageRevision(stamped);
       const ts = Date.now();
-      const seq = port.appendLedgerEntry({
+      const isStreaming = input.revision.state === "streaming";
+
+      let seq: number;
+      if (isStreaming) {
+        const existing = streamingSeq.get(input.spanId);
+        if (existing !== undefined) {
+          port.updateLedgerContent?.(existing, serialized, ts);
+          seq = existing;
+        } else {
+          seq = port.appendLedgerEntry({
+            conversationId: input.conversationId,
+            senderMemberId: input.senderMemberId,
+            addressedTo: [],
+            kind: "message",
+            content: serialized,
+            ts,
+            spanId: input.spanId,
+          });
+          streamingSeq.set(input.spanId, seq);
+        }
+      } else {
+        seq = port.appendLedgerEntry({
+          conversationId: input.conversationId,
+          senderMemberId: input.senderMemberId,
+          addressedTo: [],
+          kind: "message",
+          content: serialized,
+          ts,
+          spanId: input.spanId,
+        });
+        streamingSeq.delete(input.spanId);
+      }
+
+      notify(input.conversationId, {
+        seq,
         conversationId: input.conversationId,
         senderMemberId: input.senderMemberId,
         addressedTo: [],
-        kind: "message",
+        kind: "message" as const,
         content: serialized,
         ts,
-        runId: input.runId,
+        spanId: input.spanId,
       });
       return seq;
     },
@@ -462,8 +517,8 @@ export function createConversationService(deps: ConversationServiceDeps) {
       conversationId: string;
       senderMemberId: string;
       addressedTo: string[];
-    }): Promise<Array<{ agentMemberId: string; runId: string }>> {
-      const triggeredRuns: Array<{ agentMemberId: string; runId: string }> = [];
+    }): Promise<Array<{ agentMemberId: string; spanId: string }>> {
+      const triggeredRuns: Array<{ agentMemberId: string; spanId: string }> = [];
       if (input.addressedTo.length === 0) return triggeredRuns;
 
       const members = port.getMembers(input.conversationId);
@@ -512,12 +567,14 @@ export function createConversationService(deps: ConversationServiceDeps) {
       for (const entry of existingEntries) {
         if (entry.kind !== "surface.control") continue;
         try {
-          const c = JSON.parse(entry.content) as {
+          const raw = typeof entry.content === "string" ? JSON.parse(entry.content) : entry.content;
+          const c = raw as {
             type: string;
             requestedByRunId: string;
             newConversationId: string;
+            idempotencyKey?: string;
           };
-          if (c.type === "lark.start_new_conversation" && c.requestedByRunId === requestedByRunId) {
+          if (c.type === "lark.start_new_conversation" && c.idempotencyKey === idempotencyKey) {
             return {
               oldConversationId,
               newConversationId: c.newConversationId,

@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -75,23 +75,20 @@ export const conversationLedger = sqliteTable(
     kind: text().notNull(),
     content: text().notNull(),
     ts: integer({ mode: "number" }).notNull(),
-    runId: text(),
+    spanId: text("span_id"),
   },
   (table) => [
     index("idx_ledger_conv").on(table.conversationId, table.seq),
-    index("idx_ledger_run").on(table.runId).where(sql`run_id IS NOT NULL`),
+    index("idx_ledger_run").on(table.spanId).where(sql`span_id IS NOT NULL`),
   ],
 );
 
-// ─── projection_messages ───────────────────────────────────────────
-export const projectionMessages = sqliteTable("projection_messages", {
-  threadId: text().primaryKey(),
-  messages: text().notNull(),
-  updatedAt: integer({ mode: "number" }).notNull(),
-});
+// projection_messages table removed — redundant third copy of messages.
+// Canonical stores: conversation_ledger (product truth) + checkpoint_messages (framework working state).
 
 // ─── issue ─────────────────────────────────────────────────────────
-// NOTE: project_id and thread_id are bare TEXT — no FK constraint.
+// NOTE: project_id and session_id are bare TEXT — no FK constraint.
+// PR-6: threadId renamed to sessionId (ID#1b).
 export const issue = sqliteTable(
   "issue",
   {
@@ -99,7 +96,7 @@ export const issue = sqliteTable(
     projectId: text().notNull(),
     title: text().notNull(),
     status: text().notNull(),
-    threadId: text().notNull(),
+    sessionId: text().notNull(),
     description: text().notNull().default(""),
     priority: text().notNull().default("P2"),
     estimatedCompletionAt: integer({ mode: "number" }),
@@ -174,14 +171,216 @@ export const deliverable = sqliteTable(
     kind: text().notNull(),
     fields: text().notNull(),
     ref: text(),
-    runId: text(),
+    spanId: text("span_id"),
     createdAt: integer({ mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_deliverable_issue").on(table.issueId),
     index("idx_deliverable_issue_kind").on(table.issueId, table.kind),
     uniqueIndex("idx_deliverable_run_kind")
-      .on(table.runId, table.kind)
-      .where(sql`run_id IS NOT NULL`),
+      .on(table.spanId, table.kind)
+      .where(sql`span_id IS NOT NULL`),
   ],
 );
+
+// ── Execution-related tables (merged into single-db under S1 storage convergence) ──
+
+export const run = sqliteTable(
+  "run",
+  {
+    spanId: text().primaryKey(),
+    sessionId: text().notNull(),
+    status: text().notNull().default("running"),
+    kind: text().notNull().default("main"),
+    parentSpanId: text("parent_span_id"),
+    agentId: text().notNull().default(""),
+    degradedReason: text(),
+    startedAt: integer({ mode: "number" }).notNull(),
+    endedAt: integer({ mode: "number" }),
+  },
+  (table) => [index("idx_run_session").on(table.sessionId, desc(table.startedAt))],
+);
+
+export const attempt = sqliteTable(
+  "attempt",
+  {
+    spanId: text()
+      .notNull()
+      .references(() => run.spanId, { onDelete: "cascade" }),
+    seq: integer().notNull(),
+    pid: integer(),
+    heartbeatAt: integer({ mode: "number" }),
+    startedAt: integer({ mode: "number" }).notNull(),
+    endedAt: integer({ mode: "number" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.spanId, table.seq] }),
+    index("idx_attempt_span").on(table.spanId, table.startedAt),
+  ],
+);
+
+// S4: run_ops_event → control_plane_event rename
+export const controlPlaneEvent = sqliteTable(
+  "control_plane_event",
+  {
+    seq: integer().primaryKey({ autoIncrement: true }),
+    spanId: text().notNull(),
+    attemptSeq: integer(),
+    kind: text().notNull(),
+    payload: text().notNull().default("{}"),
+    traceId: text(),
+    ts: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("idx_control_plane_event_span").on(table.spanId, table.seq),
+    index("idx_control_plane_event_trace").on(table.traceId, table.seq),
+    index("idx_control_plane_event_kind").on(table.kind, desc(table.ts)),
+  ],
+);
+
+export const runOrigin = sqliteTable(
+  "run_origin",
+  {
+    spanId: text().primaryKey(),
+    conversationId: text().notNull(),
+    sourceLedgerSeq: integer().notNull(),
+    agentMemberId: text().notNull(),
+    surface: text().notNull().default("web"),
+    traceId: text().notNull(),
+    traceparent: text().notNull(),
+    idempotencyKey: text().notNull(),
+    issueId: text(),
+    cronJobId: text(),
+    fromStatus: text().notNull().default(""),
+    originKind: text().notNull().default("manual"),
+    createdAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_run_origin_idem").on(table.idempotencyKey),
+    index("idx_run_origin_trace").on(table.traceId),
+    index("idx_run_origin_issue").on(table.issueId),
+    index("idx_run_origin_cron").on(table.cronJobId),
+  ],
+);
+
+export const surfaceHealth = sqliteTable(
+  "surface_health",
+  {
+    agentId: text().notNull(),
+    surface: text().notNull(),
+    status: text().notNull(),
+    lastSeenAt: integer({ mode: "number" }),
+    payload: text().notNull().default("{}"),
+    lastError: text(),
+    updatedAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.agentId, table.surface] })],
+);
+
+export const issueEvent = sqliteTable(
+  "issue_event",
+  {
+    seq: integer().primaryKey({ autoIncrement: true }),
+    issueId: text().notNull(),
+    kind: text().notNull(),
+    payload: text().notNull().default("{}"),
+    ts: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [index("idx_issue_event_issue").on(table.issueId, table.seq)],
+);
+
+// ─── skill_pack ─────────────────────────────────────────────────────────
+export const skillPack = sqliteTable(
+  "skill_pack",
+  {
+    id: text().primaryKey(),
+    name: text().notNull(),
+    description: text().notNull(),
+    sourceKind: text().notNull(),
+    sourceUrl: text(),
+    versionRef: text(),
+    installedRef: text(),
+    status: text().notNull(),
+    error: text(),
+    createdAt: integer({ mode: "number" }).notNull(),
+    updatedAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [index("idx_skill_pack_status").on(table.status)],
+);
+
+// ─── agent_skill_pack ────────────────────────────────────────────────────
+export const agentSkillPack = sqliteTable(
+  "agent_skill_pack",
+  {
+    agentId: text().notNull(),
+    packId: text().notNull(),
+    createdAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.agentId, table.packId] })],
+);
+
+// ── Zod schemas (type chain: drizzle table → Zod → z.infer → TS type) ──
+
+import { createSelectSchema } from "drizzle-zod";
+
+// ── Simple tables (drizzle-zod auto-generate) ──
+
+export const runOriginSelectSchema = createSelectSchema(runOrigin);
+export const issueSelectSchema = createSelectSchema(issue, {
+  status: (s) =>
+    s.transform((v) => v as "draft" | "planned" | "in_progress" | "in_review" | "done"),
+  priority: (s) => s.transform((v) => v as "P0" | "P1" | "P2" | "P3"),
+});
+export const columnConfigSelectSchema = createSelectSchema(columnConfig, {
+  status: (s) =>
+    s.transform((v) => v as "draft" | "planned" | "in_progress" | "in_review" | "done"),
+  approvalPosture: (s) => s.transform((v) => v as "auto" | "human"),
+});
+export const agentsSelectSchema = createSelectSchema(agents, {
+  larkEnabled: (s) => s.transform((v: number) => v !== 0),
+  permissionMode: (s) => s.transform((v) => v as "ask" | "auto" | "deny"),
+});
+export const conversationSelectSchema = createSelectSchema(conversation);
+export const memberSelectSchema = createSelectSchema(member);
+export const skillPackSelectSchema = createSelectSchema(skillPack, {
+  sourceKind: (s) => s.transform((v) => v as "builtin" | "git" | "zip"),
+  status: (s) => s.transform((v) => v as "pending" | "installing" | "ready" | "failed" | "syncing"),
+});
+export const agentSkillPackSelectSchema = createSelectSchema(agentSkillPack);
+
+// ── Tables with JSON/bool columns — drizzle-zod refine callback pattern ──
+// callback (schema) => schema.transform(...) adds transforms while preserving drizzle-zod types
+
+export const controlPlaneEventSelectSchema = createSelectSchema(controlPlaneEvent, {
+  payload: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, unknown>),
+});
+
+export const surfaceHealthSelectSchema = createSelectSchema(surfaceHealth, {
+  payload: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, unknown>),
+});
+
+export const issueEventSelectSchema = createSelectSchema(issueEvent, {
+  payload: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, unknown>),
+});
+
+export const deliverableSelectSchema = createSelectSchema(deliverable, {
+  fields: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, string>),
+});
+
+export const conversationLedgerSelectSchema = createSelectSchema(conversationLedger, {
+  addressedTo: (s) => s.transform((v: string) => JSON.parse(v) as string[]),
+  content: (s) => s.transform((v: string) => JSON.parse(v) as unknown),
+});
+
+export const projectSelectSchema = createSelectSchema(project, {
+  autoOrchestrate: (s) => s.transform((v: number) => v !== 0),
+});
+
+export const cronJobSelectSchema = createSelectSchema(cronJob, {
+  enabled: (s) => s.transform((v: number) => v !== 0),
+});
+
+/** Convert boolean to 0|1 for integer columns. Single source of truth
+ *  for the bool→int conversion used by adapters. */
+export const boolToInt = (v: boolean): number => (v ? 1 : 0);
+// must satisfy IssueRow, so any drizzle column drift fails tsc at the adapter.

@@ -9,7 +9,7 @@ export interface AgentService {
   list(includeArchived?: boolean): Promise<AgentRow[]>;
   update(id: string, input: UpdateAgentInput): Promise<AgentRow>;
   archive(id: string): Promise<AgentRow>;
-  /** M11: Permanently delete agent across backend.db + events.db + workspace. Requires no active runs. */
+  /** M11: Permanently delete agent across backend.db + workspace. Requires no active runs. */
   hardDelete(id: string): Promise<void>;
 }
 
@@ -20,11 +20,13 @@ export function createAgentService(opts: {
   materializeWorkspace: (agentId: string, template?: string) => Promise<string>;
   // M11 hardDelete dependencies — all closures from composition root (main.ts)
   purgeWorkspace: (agentId: string) => Promise<void>;
-  purgeEventsForThreads: (threadIds: string[]) => void;
-  listThreadIds: (agentId: string) => Promise<string[]>;
+  purgeEventsForSessions: (sessionIds: string[]) => Promise<void>;
+  listSessionIds: (agentId: string) => Promise<string[]>;
   assertNoActiveRun: (agentId: string) => void;
+  /** Optional hook called after agent creation (e.g. assign builtin skill pack). */
+  onCreate?: (agentId: string) => Promise<void>;
 }): AgentService {
-  const { port, idGen, materializeWorkspace } = opts;
+  const { port, idGen, materializeWorkspace, onCreate } = opts;
 
   return {
     async create(input: CreateAgentInput): Promise<AgentRow> {
@@ -35,7 +37,7 @@ export function createAgentService(opts: {
       const larkAppId = input.lark?.appId ?? null;
       const larkProfileRef = larkEnabled ? `agent:${id}` : null;
       const larkBotDisplayName = input.lark?.botDisplayName ?? null;
-      return port.create({
+      const row = await port.create({
         ...input,
         id,
         workspacePath,
@@ -45,6 +47,8 @@ export function createAgentService(opts: {
         larkProfileRef,
         larkBotDisplayName,
       });
+      await onCreate?.(id);
+      return row;
     },
 
     async getById(id: string): Promise<AgentRow> {
@@ -87,7 +91,7 @@ export function createAgentService(opts: {
       return row;
     },
 
-    // M11: Hard delete across three stores — backend.db (transactional), events.db, workspace
+    // M11: Hard delete across stores — backend.db (transactional), workspace
     async hardDelete(id: string): Promise<void> {
       // 0. Verify agent exists (throws AgentNotFoundError if not)
       await this.getById(id);
@@ -95,14 +99,14 @@ export function createAgentService(opts: {
       // 1. Guard: assert no active runs (throws AgentBusyError if busy)
       opts.assertNoActiveRun(id);
 
-      // 2. Collect thread IDs for events.db cleanup
-      const threadIds = await opts.listThreadIds(id);
+      // 2. Collect session IDs for checkpointer cleanup
+      const sessionIds = await opts.listSessionIds(id);
 
       // 3. backend.db: single transaction — agent + threads + checkpoint + member
       await port.hardDelete(id);
 
-      // 4. events.db: purge run/attempt/event_log for this agent's threads
-      opts.purgeEventsForThreads(threadIds);
+      // 4. checkpointer: purge execution data for this agent's sessions
+      await opts.purgeEventsForSessions(sessionIds);
 
       // 5. workspace: physical rm -rf (idempotent)
       await opts.purgeWorkspace(id);

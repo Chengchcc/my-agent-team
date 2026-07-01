@@ -1,21 +1,14 @@
-import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createColumnConfigService, sqliteColumnConfigAdapter } from "../column-config/index.js";
 import { createDeliverableService, sqliteDeliverableAdapter } from "../deliverable/index.js";
 import { createIssueService, sqliteIssueAdapter } from "../issue/index.js";
-import { runEventsDbMigrations } from "../run/events-db-migrations.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
 
 function setupE2E() {
-  // backend.db tables (issue, column_config, deliverable, ...) from the canonical
-  // drizzle migrations so the e2e DB never drifts from production schema.
+  // S1: events.db merged into backend.db — single openDb creates all tables.
   const db = openDb(":memory:");
-
-  const eventsDb = new Database(":memory:");
-  runEventsDbMigrations(eventsDb);
-
-  const opsStore = new RuntimeOpsStore(eventsDb);
+  const opsStore = new RuntimeOpsStore(db);
 
   let idCounter = 0;
   const idGen = () => `e2e_${String(++idCounter).padStart(3, "0")}`;
@@ -67,7 +60,6 @@ function setupE2E() {
 
   return {
     db,
-    eventsDb,
     opsStore,
     issueSvc,
     deliverableSvc,
@@ -104,8 +96,8 @@ describe("e2e issue lifecycle with timeline", () => {
     expect(plannedT).toBeDefined();
 
     // 4. Simulate developer run starting
-    opsStore.insertRunOrigin({
-      runId: "run_dev1",
+    opsStore.insertSpanOrigin({
+      spanId: "run_dev1",
       issueId: issue.issueId,
       conversationId: "",
       sourceLedgerSeq: 0,
@@ -121,7 +113,7 @@ describe("e2e issue lifecycle with timeline", () => {
     opsStore.appendIssueEvent({
       issueId: issue.issueId,
       kind: "run.started",
-      payload: { runId: "run_dev1", fromStatus: "planned", agentId: "dev" },
+      payload: { spanId: "run_dev1", fromStatus: "planned", agentId: "dev" },
     });
 
     // 5. Auto-advance: planned → in_progress (by reactor)
@@ -139,7 +131,7 @@ describe("e2e issue lifecycle with timeline", () => {
       fromStatus: "in_progress",
       kind: "mr",
       fields: { url: "https://git.example.com/mr/42" },
-      runId: "run_dev1",
+      spanId: "run_dev1",
     });
     opsStore.appendIssueEvent({
       issueId: issue.issueId,
@@ -147,7 +139,7 @@ describe("e2e issue lifecycle with timeline", () => {
       payload: {
         kind: "mr",
         deliverableId: d.row.deliverableId,
-        runId: "run_dev1",
+        spanId: "run_dev1",
         ref: null,
       },
     });
@@ -187,7 +179,7 @@ describe("e2e issue lifecycle with timeline", () => {
       payload: {
         kind: "rework_feedback",
         deliverableId: fb.row.deliverableId,
-        runId: null,
+        spanId: null,
         ref: null,
       },
     });
@@ -216,9 +208,9 @@ describe("e2e issue lifecycle with timeline", () => {
     ]);
 
     // 11. Verify reverse lookup: issue → runs
-    const origins = opsStore.getRunOriginsByIssueId(issue.issueId);
+    const origins = opsStore.getSpanOriginsByIssueId(issue.issueId);
     expect(origins.length).toBe(1);
-    expect(origins[0]!.runId).toBe("run_dev1");
+    expect(origins[0]!.spanId).toBe("run_dev1");
     expect(origins[0]!.fromStatus).toBe("planned");
   });
 });

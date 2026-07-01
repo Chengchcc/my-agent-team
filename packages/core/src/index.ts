@@ -1,4 +1,3 @@
-export { type AgentFsLike, pjoin } from "./agent-fs.js";
 export type { AIMessageChunk, ChatModel, ChatModelOptions } from "./chat-model.js";
 export type {
   ContentBlock,

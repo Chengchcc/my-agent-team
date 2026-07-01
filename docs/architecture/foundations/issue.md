@@ -46,7 +46,7 @@ Issue = {
 }
 ```
 
-关键设计点：**Issue 直接绑定一个 `threadId`**。它不发明新的执行机制——一旦某个状态需要 Agent 干活，就用这个 `threadId` 经现有 [RunSupervisor](../backend/run-supervisor.md) 起运行、用现有 Runner checkpointer resume。Issue 只新增「工作态」这一层语义，执行层完全复用。
+关键设计点：**Issue 直接绑定一个 `threadId`**。它不发明新的执行机制——一旦某个状态需要 Agent 干活，就用这个 `threadId` 经现有 [run feature](../backend/overview.md) 的 `startAgentRun` 起运行、用现有 checkpointer resume。Issue 只新增「工作态」这一层语义，执行层完全复用。
 
 ## 生命周期
 
@@ -104,6 +104,5 @@ Project = Issue 的归属标记（`projectId` + `name` + `repoUrl` + `defaultBra
 
 - [Orchestrator](../backend/orchestrator.md)
 - [事实与投影](../foundations/facts-and-projections.md)
-- [RunSupervisor](../backend/run-supervisor.md)
-- [Agent 文件系统](../runner/agent-file-system.md)
+- [后端总览](../backend/overview.md)
 - [架构设计哲学](../design-philosophy.md)

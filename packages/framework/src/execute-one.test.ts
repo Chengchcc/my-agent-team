@@ -31,9 +31,10 @@ function makeRuntime(tools: Tool[] = []): AgentRuntime {
     tools,
     pendingEvents: [],
     save: async () => {},
-    runId: "run-1",
+    spanId: "run-1",
     toolStates: [],
     assistantBlocks: [],
+    subscribers: new Set(),
   };
 }
 
@@ -58,8 +59,9 @@ describe("runOneCollect", () => {
 
     expect(result.interrupted).toBe(false);
     expect(result.resultBlock.content).toContain("hello");
-    expect(result.events.length).toBe(1);
-    expect(result.events[0]?.type).toBe("tool_call");
+    expect(result.events.length).toBe(2);
+    expect(result.events[0]?.type).toBe("tool_execution_start");
+    expect(result.events[1]?.type).toBe("tool_call");
   });
 
   test("returns isError when tool throws", async () => {

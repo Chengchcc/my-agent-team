@@ -43,6 +43,7 @@ describe("sqliteAgentAdapter", () => {
   });
 
   test("list returns created agents", async () => {
+    // Create 2 agents so we can assert on multiplicity independently
     await adapter.create({
       name: "b1",
       model: { provider: "a", model: "m" },
@@ -54,9 +55,21 @@ describe("sqliteAgentAdapter", () => {
       larkProfileRef: null,
       larkBotDisplayName: null,
     });
+    await adapter.create({
+      name: "b2",
+      model: { provider: "a", model: "m" },
+      id: "b2",
+      workspacePath: "/ws/b2",
+      now: 2100,
+      larkEnabled: false,
+      larkAppId: null,
+      larkProfileRef: null,
+      larkBotDisplayName: null,
+    });
     const list = await adapter.list();
     expect(list.length).toBeGreaterThanOrEqual(2);
     expect(list.some((a) => a.id === "b1")).toBe(true);
+    expect(list.some((a) => a.id === "b2")).toBe(true);
   });
 
   test("list excludes archived by default", async () => {
@@ -69,5 +82,14 @@ describe("sqliteAgentAdapter", () => {
     const updated = await adapter.update("a1", { name: "renamed", now: 4000 });
     expect(updated).not.toBeNull();
     expect(updated?.name).toBe("renamed");
+  });
+
+  test("update persists lark.profileRef", async () => {
+    const updated = await adapter.update("a1", {
+      now: 5000,
+      lark: { profileRef: "agent:a1" },
+    });
+    expect(updated).not.toBeNull();
+    expect(updated?.larkProfileRef).toBe("agent:a1");
   });
 });

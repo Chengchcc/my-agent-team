@@ -8,9 +8,11 @@ export interface MessageRevision {
   text?: string;
   blocks?: ContentBlock[];
   tools?: MessageToolState[];
-  runId?: string;
+  spanId?: string;
   conversationId?: string;
   visibility?: "internal" | "conversation";
   updatedAt: number;
   error?: MessageError;
+  /** Transient run status indicator (retrying/compacting). Not persisted to ledger. */
+  runStatus?: "running" | "retrying" | "compacting" | "waiting";
 }

@@ -1,11 +1,10 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api";
+import { useAgentIdentity, useSetIdentity } from "@/features/agents/hooks";
 
 interface SectionProps {
   title: string;
@@ -72,22 +71,11 @@ function Section({
 }
 
 export function IdentityPanel({ agentId }: { agentId: string }) {
-  const queryClient = useQueryClient();
   const [editingField, setEditingField] = useState<"soul" | "user" | null>(null);
   const [draft, setDraft] = useState("");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["identity", agentId],
-    queryFn: () => api.getIdentity(agentId),
-  });
-
-  const saveMutation = useMutation({
-    mutationFn: (body: { soul?: string; user?: string }) => api.setIdentity(agentId, body),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["identity", agentId] });
-      setEditingField(null);
-    },
-  });
+  const { data, isLoading } = useAgentIdentity(agentId);
+  const saveMutation = useSetIdentity(agentId);
 
   if (isLoading) {
     return (
@@ -110,7 +98,7 @@ export function IdentityPanel({ agentId }: { agentId: string }) {
 
   const save = () => {
     if (editingField) {
-      saveMutation.mutate({ [editingField]: draft });
+      saveMutation.mutate({ [editingField]: draft }, { onSuccess: () => setEditingField(null) });
     }
   };
 

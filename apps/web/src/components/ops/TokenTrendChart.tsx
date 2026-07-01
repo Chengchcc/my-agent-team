@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import {
   type ChartConfig,
@@ -8,7 +7,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { api } from "@/lib/api";
+import { useOpsInsightsSummary } from "@/features/ops/hooks";
 import { QueryState } from "./QueryState";
 
 const chartConfig = {
@@ -17,11 +16,7 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 export function TokenTrendChart({ range }: { range: { from: number; to: number } }) {
-  const query = useQuery({
-    queryKey: ["ops", "insights", "summary", range],
-    queryFn: () => api.getInsightsSummary(range),
-    refetchInterval: 30_000,
-  });
+  const query = useOpsInsightsSummary(range, { refetchInterval: 30_000 });
 
   return (
     <QueryState query={query}>

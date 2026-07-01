@@ -1,39 +1,21 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { api, type ProjectRow } from "@/lib/api";
+import { useDeleteProject, useProjectList } from "@/features/projects/hooks";
+import type { ProjectRow } from "@/lib/api";
 import { ColumnConfigPanel } from "./ColumnConfigPanel";
 import { ProjectForm } from "./ProjectForm";
 
 export function ProjectList() {
-  const queryClient = useQueryClient();
   const [editingProject, setEditingProject] = useState<ProjectRow | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [configuringProject, setConfiguringProject] = useState<ProjectRow | null>(null);
 
-  const { data: projectsData, isLoading } = useQuery({
-    queryKey: ["projects"],
-    queryFn: api.listProjects,
-  });
+  const { data: projectsData, isLoading } = useProjectList();
 
-  const remove = useMutation({
-    mutationFn: (id: string) => api.deleteProject(id),
-    onSuccess: () => {
-      toast.success("Project deleted");
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      setConfirmingId(null);
-    },
-    onError: (err) => {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      const is409 = message.includes("409") || message.toLowerCase().includes("still has");
-      toast.error(is409 ? "Cannot delete — project still has issues" : "Failed to delete project", {
-        description: message,
-      });
-    },
-  });
+  const remove = useDeleteProject();
 
   if (isLoading) {
     return (
@@ -142,7 +124,23 @@ export function ProjectList() {
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      remove.mutate(project.projectId);
+                      remove.mutate(project.projectId, {
+                        onSuccess: () => {
+                          toast.success("Project deleted");
+                          setConfirmingId(null);
+                        },
+                        onError: (err) => {
+                          const message = err instanceof Error ? err.message : "Unknown error";
+                          const is409 =
+                            message.includes("409") || message.toLowerCase().includes("still has");
+                          toast.error(
+                            is409
+                              ? "Cannot delete — project still has issues"
+                              : "Failed to delete project",
+                            { description: message },
+                          );
+                        },
+                      });
                     }}
                     disabled={remove.isPending}
                   >

@@ -1,208 +1,196 @@
-import { z } from "zod";
-import { json, sseResponse } from "../../http/response.js";
+import { conversationEvents, createSseEncoder } from "@my-agent-team/api-contract";
+import { Elysia, t } from "elysia";
+import { sseResponse } from "../../http/response.js";
 import type { ConversationService } from "./service.js";
 import { ConversationBusyError } from "./service.js";
 
-const createSchema = z.object({
-  conversationId: z.string().min(1).optional(),
-  members: z
-    .array(
-      z.object({
-        memberId: z.string().min(1).optional(),
-        kind: z.enum(["agent", "human"]),
-        agentId: z.string().optional(),
-        userRef: z.string().optional(),
-        displayName: z.string().optional(),
-      }),
-    )
-    .optional(),
-  triggerMode: z.enum(["mention"]).optional(), // L3: 'all' rejected until M12 implements
-});
-
-const addMemberSchema = z.object({
-  memberId: z.string().min(1).optional(),
-  kind: z.enum(["agent", "human"]),
-  agentId: z.string().optional(),
-  userRef: z.string().optional(),
-  displayName: z.string().optional(),
-});
-
-const removeMemberSchema = z.object({
-  memberId: z.string().min(1),
-});
-
-const messageSchema = z.object({
-  senderMemberId: z.string().min(1),
-  addressedTo: z.array(z.string()).default([]),
-  content: z.unknown(),
-});
-
-const startNewSchema = z.object({
-  reason: z.string().min(1),
-  title: z.string().optional(),
-  requestedByRunId: z.string().min(1),
-  idempotencyKey: z.string().min(1),
-});
-
 export function conversationRoutes(svc: ConversationService, idGen: () => string) {
-  return {
-    /** GET /api/conversations?agentId= → 200 [{ conversationId, members }] */
-    list(req: Request): Response {
-      const url = new URL(req.url);
-      const agentId = url.searchParams.get("agentId");
-      const conversations = agentId
-        ? svc.port.listConversationsByAgent(agentId)
-        : svc.port.listConversations();
-      return json(conversations);
-    },
-
-    /** POST /api/conversations → 201 */
-    async create(req: Request): Promise<Response> {
-      const parsed = createSchema.safeParse(await req.json().catch(() => ({})));
-      if (!parsed.success)
-        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
-
-      const conversationId = parsed.data.conversationId ?? idGen();
-      const now = Date.now();
-
-      // Create conversation
-      svc.port.createConversation({
-        conversationId,
-        triggerMode: parsed.data.triggerMode ?? "mention",
-        createdAt: now,
-      });
-
-      // Add members
-      const members = parsed.data.members ?? [];
-      for (const m of members) {
-        await svc.addMember({
-          conversationId,
-          memberId: m.memberId ?? idGen(),
-          kind: m.kind,
-          agentId: m.agentId,
-          userRef: m.userRef,
-          displayName: m.displayName,
-        });
-      }
-
-      const allMembers = svc.port.getMembers(conversationId);
-      return json({ conversationId, members: allMembers }, 201);
-    },
-
-    /** POST /api/conversations/:id/members → 200 */
-    async addMember(req: Request, conversationId: string): Promise<Response> {
-      const parsed = addMemberSchema.safeParse(await req.json().catch(() => ({})));
-      if (!parsed.success)
-        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
-
-      const memberId = parsed.data.memberId ?? idGen();
-      await svc.addMember({
-        conversationId,
-        memberId,
-        kind: parsed.data.kind,
-        agentId: parsed.data.agentId,
-        userRef: parsed.data.userRef,
-        displayName: parsed.data.displayName,
-      });
-
-      const members = svc.port.getMembers(conversationId);
-      return json({ members });
-    },
-
-    /** DELETE member: POST with { memberId } body → 200 */
-    async removeMember(req: Request, conversationId: string): Promise<Response> {
-      const parsed = removeMemberSchema.safeParse(await req.json().catch(() => ({})));
-      if (!parsed.success)
-        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
-
-      await svc.removeMember(conversationId, parsed.data.memberId);
-      const members = svc.port.getMembers(conversationId);
-      return json({ members });
-    },
-
-    /** POST /api/conversations/:id/messages → 202 { seq, triggeredRuns } */
-    async postMessage(req: Request, conversationId: string): Promise<Response> {
-      const parsed = messageSchema.safeParse(await req.json().catch(() => ({})));
-      if (!parsed.success)
-        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
-
-      try {
-        const result = await svc.postMessage({
-          conversationId,
-          senderMemberId: parsed.data.senderMemberId,
-          addressedTo: parsed.data.addressedTo,
-          content: parsed.data.content,
-        });
-        return json(result, 202);
-      } catch (err) {
-        if (err instanceof ConversationBusyError)
-          return json({ error: (err as Error).message }, 409);
-        throw err;
-      }
-    },
-
-    /** DELETE /api/conversations/:id → 204 */
-    delete(_req: Request, conversationId: string): Response {
-      const deleted = svc.port.deleteConversation(conversationId);
-      if (!deleted) return json({ error: "Not found" }, 404);
-      return new Response(null, { status: 204 });
-    },
-
-    /** GET /api/conversations/:id → 200 { conversationId, triggerMode, members } */
-    async snapshot(_req: Request, conversationId: string): Promise<Response> {
-      const conv = svc.port.getConversation(conversationId);
-      if (!conv) return json({ error: "Not found" }, 404);
-      const members = svc.port.getMembers(conversationId);
-      return json({
-        conversationId: conv.conversationId,
-        triggerMode: conv.triggerMode,
-        hopCount: conv.hopCount,
-        title: conv.title,
-        members,
-      });
-    },
-
-    /** GET /api/conversations/:id/events → SSE */
-    async events(req: Request, conversationId: string): Promise<Response> {
-      const qsAfterSeq = new URL(req.url).searchParams.get("afterSeq");
-      const afterSeq = qsAfterSeq
-        ? parseInt(qsAfterSeq, 10) || 0
-        : parseInt(req.headers.get("Last-Event-ID") ?? "0", 10) || 0;
-
-      const stream = svc.subscribeConversation(conversationId, {
-        afterSeq,
-        signal: req.signal,
-      });
-
-      return sseResponse(
-        stream,
-        (entry) => ({
-          id: String(entry.seq),
-          event: entry.kind,
-          data: entry,
-        }),
-        req.signal,
-      );
-    },
-
-    /** M15.1: POST /api/conversations/:id/start-new → 201 { oldConversationId, newConversationId, controlSeq } */
-    async startNew(req: Request, conversationId: string): Promise<Response> {
-      const parsed = startNewSchema.safeParse(await req.json().catch(() => ({})));
-      if (!parsed.success)
-        return json({ error: "Validation failed", details: parsed.error.issues }, 400);
-      try {
-        const result = await svc.startNewConversationForSurface({
-          oldConversationId: conversationId,
-          ...parsed.data,
-        });
-        return json(result, 201);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("run not found") || msg.includes("does not belong")) {
-          return json({ error: msg }, 404);
-        }
-        throw err;
-      }
-    },
-  };
+  return (
+    new Elysia()
+      .get("/api/conversations", ({ query: { agentId } }) => {
+        const conversations = agentId
+          ? svc.port.listConversationsByAgent(agentId)
+          : svc.port.listConversations();
+        return conversations;
+      })
+      .post(
+        "/api/conversations",
+        async ({ body, set }) => {
+          const conversationId = body.conversationId ?? idGen();
+          const now = Date.now();
+          svc.port.createConversation({
+            conversationId,
+            triggerMode: body.triggerMode ?? "mention",
+            createdAt: now,
+          });
+          const members = body.members ?? [];
+          for (const m of members) {
+            await svc.addMember({
+              conversationId,
+              memberId: m.memberId ?? idGen(),
+              kind: m.kind,
+              agentId: m.agentId,
+              userRef: m.userRef,
+              displayName: m.displayName,
+            });
+          }
+          const allMembers = svc.port.getMembers(conversationId);
+          set.status = 201;
+          return { conversationId, members: allMembers };
+        },
+        {
+          body: t.Object({
+            conversationId: t.Optional(t.String({ minLength: 1 })),
+            members: t.Optional(
+              t.Array(
+                t.Object({
+                  memberId: t.Optional(t.String({ minLength: 1 })),
+                  kind: t.Union([t.Literal("agent"), t.Literal("human")]),
+                  agentId: t.Optional(t.String()),
+                  userRef: t.Optional(t.String()),
+                  displayName: t.Optional(t.String()),
+                }),
+              ),
+            ),
+            triggerMode: t.Optional(t.Literal("mention")),
+          }),
+        },
+      )
+      .get("/api/conversations/:id", ({ params: { id } }) => {
+        const conv = svc.port.getConversation(id);
+        if (!conv) return Response.json({ error: "Not found" }, { status: 404 });
+        const members = svc.port.getMembers(id);
+        return {
+          conversationId: conv.conversationId,
+          triggerMode: conv.triggerMode,
+          hopCount: conv.hopCount,
+          title: conv.title,
+          createdAt: conv.createdAt,
+          members,
+        };
+      })
+      .delete("/api/conversations/:id", ({ params: { id }, set }) => {
+        const deleted = svc.port.deleteConversation(id);
+        if (!deleted) return Response.json({ error: "Not found" }, { status: 404 });
+        set.status = 204;
+        return "";
+      })
+      .post(
+        "/api/conversations/:id/messages",
+        async ({ params: { id: conversationId }, body, set }) => {
+          try {
+            const result = await svc.postMessage({
+              conversationId,
+              senderMemberId: body.senderMemberId,
+              addressedTo: body.addressedTo,
+              content: body.content,
+            });
+            set.status = 202;
+            return result;
+          } catch (err) {
+            if (err instanceof ConversationBusyError)
+              return Response.json({ error: (err as Error).message }, { status: 409 });
+            throw err;
+          }
+        },
+        {
+          body: t.Object({
+            senderMemberId: t.String({ minLength: 1 }),
+            addressedTo: t.Array(t.String()),
+            content: t.Any(),
+          }),
+        },
+      )
+      .post(
+        "/api/conversations/:id/members",
+        async ({ params: { id: conversationId }, body }) => {
+          const memberId = body.memberId ?? idGen();
+          await svc.addMember({
+            conversationId,
+            memberId,
+            kind: body.kind,
+            agentId: body.agentId,
+            userRef: body.userRef,
+            displayName: body.displayName,
+          });
+          const members = svc.port.getMembers(conversationId);
+          return { members };
+        },
+        {
+          body: t.Object({
+            memberId: t.Optional(t.String({ minLength: 1 })),
+            kind: t.Union([t.Literal("agent"), t.Literal("human")]),
+            agentId: t.Optional(t.String()),
+            userRef: t.Optional(t.String()),
+            displayName: t.Optional(t.String()),
+          }),
+        },
+      )
+      .delete(
+        "/api/conversations/:id/members",
+        async ({ params: { id: conversationId }, body }) => {
+          await svc.removeMember(conversationId, body.memberId);
+          const members = svc.port.getMembers(conversationId);
+          return { members };
+        },
+        {
+          body: t.Object({
+            memberId: t.String({ minLength: 1 }),
+          }),
+        },
+      )
+      // SSE — returns raw Response (stream, not typed JSON)
+      .get("/api/conversations/:id/events", ({ request, params: { id: conversationId } }) => {
+        const req = request;
+        const qsAfterSeq = new URL(req.url).searchParams.get("afterSeq");
+        const afterSeq = qsAfterSeq
+          ? parseInt(qsAfterSeq, 10) || 0
+          : parseInt(req.headers.get("Last-Event-ID") ?? "0", 10) || 0;
+        const stream = svc.subscribeConversation(conversationId, { afterSeq, signal: req.signal });
+        const encodeConv = createSseEncoder(conversationEvents);
+        return sseResponse(
+          stream,
+          (entry) => {
+            const normalized = {
+              ...entry,
+              content:
+                typeof entry.content === "string" ? entry.content : JSON.stringify(entry.content),
+              spanId: entry.spanId ?? undefined,
+            };
+            return encodeConv(
+              entry.kind as keyof typeof conversationEvents,
+              normalized,
+              String(entry.seq),
+            );
+          },
+          req.signal,
+        );
+      })
+      .post(
+        "/api/conversations/:id/start-new",
+        async ({ params: { id: conversationId }, body, set }) => {
+          try {
+            const result = await svc.startNewConversationForSurface({
+              oldConversationId: conversationId,
+              ...body,
+            });
+            set.status = 201;
+            return result;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes("run not found") || msg.includes("does not belong"))
+              return Response.json({ error: msg }, { status: 404 });
+            throw err;
+          }
+        },
+        {
+          body: t.Object({
+            reason: t.String({ minLength: 1 }),
+            title: t.Optional(t.String()),
+            requestedByRunId: t.String({ minLength: 1 }),
+            idempotencyKey: t.String({ minLength: 1 }),
+          }),
+        },
+      )
+  );
 }

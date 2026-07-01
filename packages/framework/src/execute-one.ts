@@ -12,10 +12,16 @@ export async function* executeOne(
   opts: { signal?: AbortSignal },
   step: number,
 ): AsyncGenerator<AgentEvent, boolean> {
-  await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "tool_start", call, ts: Date.now() });
-  // M17.2: tool_start/tool_end no longer top-level events — tool state lives in
-  // MessageRevision.tools[] (updated below). Render-layer reads tools[]; observability
-  // reads tool_call.
+  await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+    type: "tool_start",
+    call,
+    ts: Date.now(),
+  });
+
+  yield {
+    type: "tool_execution_start" as const,
+    payload: { id: call.id, name: call.name, step },
+  };
 
   const toolStart = Date.now();
   const decision = await rt.plugins.fireBeforeTool(call, rt.thread.messages);
@@ -69,7 +75,7 @@ export async function* executeOne(
         ts: Date.now(),
         meta: err.meta,
       });
-      await rt.checkpointer.appendEvent?.(rt.thread.id, {
+      await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
         type: "interrupt",
         pendingTool: call,
         reason: err.reason,
@@ -102,10 +108,13 @@ export async function* executeOne(
   rt.thread.messages.push({ role: "user", blocks: [resultBlock] });
   await rt.plugins.fireAfterTool(call, resultBlock, rt.thread.messages);
   for (const ev of rt.pendingEvents.splice(0)) yield ev;
-  await rt.checkpointer.appendEvent?.(rt.thread.id, {
+  await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
     type: "tool_end",
     result: resultBlock,
     durationMs: Date.now() - toolStart,
+    step,
+    name: call.name,
+    isError: resultBlock.is_error === true,
     ts: Date.now(),
   });
   yield {
@@ -116,6 +125,8 @@ export async function* executeOne(
       name: call.name,
       latencyMs: Date.now() - toolStart,
       isError: resultBlock.is_error === true,
+      args: call.input,
+      result: resultBlock,
     },
   };
   // Update tool state in the running revision
@@ -160,7 +171,16 @@ export async function runOneCollect(
   const events: AgentEvent[] = [];
   const toolStart = Date.now();
 
-  await rt.checkpointer.appendEvent?.(rt.thread.id, { type: "tool_start", call, ts: Date.now() });
+  await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+    type: "tool_start",
+    call,
+    ts: Date.now(),
+  });
+
+  events.push({
+    type: "tool_execution_start" as const,
+    payload: { id: call.id, name: call.name, step },
+  });
 
   const decision = await rt.plugins.fireBeforeTool(call, rt.thread.messages);
 
@@ -211,7 +231,7 @@ export async function runOneCollect(
         ts: Date.now(),
         meta: err.meta,
       });
-      await rt.checkpointer.appendEvent?.(rt.thread.id, {
+      await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
         type: "interrupt",
         pendingTool: call,
         reason: err.reason,
@@ -249,10 +269,13 @@ export async function runOneCollect(
   // of which tool completes first in a parallel batch.
   await rt.plugins.fireAfterTool(call, resultBlock, rt.thread.messages);
   for (const ev of rt.pendingEvents.splice(0)) events.push(ev);
-  await rt.checkpointer.appendEvent?.(rt.thread.id, {
+  await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
     type: "tool_end",
     result: resultBlock,
     durationMs: Date.now() - toolStart,
+    step,
+    name: call.name,
+    isError: resultBlock.is_error === true,
     ts: Date.now(),
   });
   events.push({
@@ -263,6 +286,8 @@ export async function runOneCollect(
       name: call.name,
       latencyMs: Date.now() - toolStart,
       isError: resultBlock.is_error === true,
+      args: call.input,
+      result: resultBlock,
     },
   });
   updateToolState(

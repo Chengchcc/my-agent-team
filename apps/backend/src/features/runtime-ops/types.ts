@@ -1,4 +1,9 @@
-// ─── M18.7 Issue Timeline types ───
+import type * as schema from "../../infra/db/schema.js";
+
+// ─── Types derived from drizzle table $inferSelect/$inferInsert ───
+// drizzle tables are the Typescript truth source.
+// drizzle-zod schemas provide RUNTIME validation (JSON.parse transforms, .safeParse).
+// drizzle-zod's BuildSchema<> isn't ZodType, so z.infer<> is incompatible — $inferSelect is.
 
 export type IssueEventKind =
   | "created"
@@ -9,95 +14,26 @@ export type IssueEventKind =
   | "status.advanced"
   | "human.decided";
 
-export interface IssueEvent {
-  seq: number;
-  issueId: string;
+export type IssueEvent = Omit<typeof schema.issueEvent.$inferSelect, "kind" | "payload"> & {
   kind: IssueEventKind;
   payload: Record<string, unknown>;
-  ts: number;
-}
+};
 
-export type RunOpsEventKind =
-  | "attempt_started"
-  | "attempt_transport_seen"
-  | "delta_pushed"
-  | "run_done_received"
-  | "run_finalized_sent"
-  | "cancel_requested"
-  | "abort_sent"
-  | "reattach_started"
-  | "reattach_succeeded"
-  | "reattach_failed"
-  | "reaper_marked_interrupted"
-  | "projection_degraded" // P2: critical sink (ledger terminal write) failed
-  | "recover_requested"
-  | "retry_requested"
-  | "retry_started";
+export type ControlPlaneEventKind = "projection_degraded" | "retry_requested" | "retry_started";
 
-export interface RunOpsEvent {
-  seq: number;
-  runId: string;
-  attemptId: string | null;
-  kind: RunOpsEventKind;
+export type ControlPlaneEvent = Omit<
+  typeof schema.controlPlaneEvent.$inferSelect,
+  "kind" | "payload"
+> & {
+  kind: ControlPlaneEventKind;
   payload: Record<string, unknown>;
-  traceId: string | null;
-  ts: number;
-}
+};
 
-/** M19: Explicit run cause — replaces implicit inference from surface + issueId combo. */
-export type RunOriginKind = "orchestrator" | "mention" | "manual" | "cron";
+export type SpanOriginKind = "orchestrator" | "mention" | "manual" | "cron";
 
-export interface RunOriginRow {
-  runId: string;
-  conversationId: string;
-  sourceLedgerSeq: number;
-  agentMemberId: string;
-  surface: string;
-  traceId: string;
-  traceparent: string;
-  idempotencyKey: string;
-  /** M18.2: non-null = issue-driven run (used for Issue back-link + @mention isolation) */
-  issueId?: string | null;
-  /** M21: non-null = cron-driven run (back-link to cron_job + @mention isolation). */
-  cronJobId?: string | null;
-  /** M18.5 R3: authoritative source for the issue status at run start — no more split(":"). */
-  fromStatus: string;
-  /** M19: explicit run cause — orchestrator | mention | manual */
-  originKind: RunOriginKind;
-  createdAt: number;
-}
+export type SpanOriginRow = typeof schema.runOrigin.$inferSelect;
+export type SpanOriginInsert = typeof schema.runOrigin.$inferInsert;
 
-export interface RunnerHealthRow {
-  agentId: string;
-  lastSeenAt: number | null;
-  uptimeMs: number;
-  activeRunCount: number;
-  activeRunIds: string;
-  checkpointerOk: number;
-  workspaceOk: number;
-  lastError: string | null;
-  updatedAt: number;
-}
-
-export interface SurfaceHealthRow {
-  agentId: string;
-  surface: string;
-  status: string;
-  lastSeenAt: number | null;
-  payload: string;
-  lastError: string | null;
-  updatedAt: number;
-}
-
-export type RunnerHealthStatus = "idle" | "busy" | "degraded" | "offline" | "unknown";
-
-export function computeRunnerStatus(
-  row: RunnerHealthRow | undefined,
-  now: number,
-  offlineAfterMs: number,
-): RunnerHealthStatus {
-  if (!row) return "unknown";
-  if (!row.lastSeenAt || now - row.lastSeenAt > offlineAfterMs) return "offline";
-  if (!row.checkpointerOk || !row.workspaceOk || row.lastError) return "degraded";
-  return row.activeRunCount > 0 ? "busy" : "idle";
-}
+export type SurfaceHealthRow = Omit<typeof schema.surfaceHealth.$inferSelect, "payload"> & {
+  payload: Record<string, unknown>;
+};

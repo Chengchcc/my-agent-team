@@ -28,7 +28,7 @@ export const LedgerEntry = z.object({
   ts: z.number(),
   /** Run that produced this entry. Present for assistant messages (run traceability),
    *  absent for human/system messages. */
-  runId: z.string().optional(),
+  spanId: z.string().optional(),
 });
 
 export type LedgerEntry = z.infer<typeof LedgerEntry>;

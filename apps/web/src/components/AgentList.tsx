@@ -1,34 +1,31 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
+import { useAgentList, useArchiveAgent } from "@/features/agents/hooks";
 
 export function AgentList() {
-  const queryClient = useQueryClient();
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
-  const { data: agents, isLoading } = useQuery({
-    queryKey: ["agents"],
-    queryFn: api.listAgents,
-  });
+  const { data: agents, isLoading } = useAgentList();
+  const archive = useArchiveAgent();
 
-  const archive = useMutation({
-    mutationFn: (id: string) => api.archiveAgent(id),
-    onSuccess: () => {
-      toast.success("Agent archived");
-      queryClient.invalidateQueries({ queryKey: ["agents"] });
-      setConfirmingId(null);
-    },
-    onError: (err) => {
-      toast.error("Failed to archive agent", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    },
-  });
+  function handleArchive(id: string) {
+    setConfirmingId(id);
+    archive.mutate(id, {
+      onSuccess: () => {
+        toast.success("Agent archived");
+        setConfirmingId(null);
+      },
+      onError: (err) => {
+        toast.error("Failed to archive agent", {
+          description: err instanceof Error ? err.message : "Unknown error",
+        });
+      },
+    });
+  }
 
   if (isLoading) {
     return (
@@ -112,7 +109,7 @@ export function AgentList() {
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  archive.mutate(agent.id);
+                  handleArchive(agent.id);
                 }}
                 disabled={archive.isPending}
               >

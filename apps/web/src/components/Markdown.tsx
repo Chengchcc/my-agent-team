@@ -2,6 +2,8 @@
 
 import { memo, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
 interface MarkdownProps {
@@ -123,7 +125,11 @@ function buildComponents(): Components {
 export const Markdown = memo(function Markdown({ text }: MarkdownProps) {
   const components = useMemo(buildComponents, []);
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeRaw, rehypeSanitize]}
+      components={components}
+    >
       {text}
     </ReactMarkdown>
   );

@@ -1,23 +1,6 @@
-// ── Business domain ──
-
-// ── Re-export from @my-agent-team/message ──
-export {
-  assistantMessageId,
-  deserializeLedgerContent,
-  extractText,
-  humanMessageId,
-  isOpenMessageState,
-  isTerminalMessageState,
-  type Message,
-  type MessageRevision,
-  type MessageRole,
-  type MessageState,
-  mergeMessageRevision,
-  parseMessageRevision,
-  systemMessageId,
-} from "@my-agent-team/message";
-
 // ── Mechanism: ledger codec ──
+
+export type { ConversationFrame } from "./envelope.js";
 export {
   LedgerEntry,
   LedgerKind,
@@ -37,5 +20,5 @@ export {
   resolveTriggerTargets,
   TriggerMode,
 } from "./member.js";
-// ── Projection ──
-export { projectForMember } from "./projection.js";
+export type { RunPhase, RunStatus } from "./run-status.js";
+export { TERMINAL_RUN_PHASES } from "./run-status.js";

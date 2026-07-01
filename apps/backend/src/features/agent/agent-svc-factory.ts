@@ -1,84 +1,88 @@
 import type { Database } from "bun:sqlite";
+import { mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { eq, inArray } from "drizzle-orm";
 import type { BackendConfig } from "../../config.js";
+import * as schema from "../../infra/db/schema.js";
 import { ulid } from "../../infra/ids.js";
-import { materializeRunnerWorkspace, purgeRunnerWorkspace } from "../../infra/runner-workspace.js";
 import type { LarkBotRegistry } from "../lark-bot/index.js";
 import { larkProfileInit } from "../lark-bot/index.js";
-import type { RunSupervisor } from "../run/supervisor.js";
+import type { SpanSupervisor } from "../span/supervisor.js";
 import { sqliteAgentAdapter } from "./adapter-sqlite.js";
 import type { AgentService } from "./index.js";
 import { AgentBusyError, createAgentService } from "./index.js";
 import { withLarkOrchestration } from "./with-lark-orchestration.js";
 
 /** Create the full agent service with workspace materialization, thread-id lookup,
- *  hard-delete dependencies, and lark-bot orchestration. */
+ *  hard-delete dependencies, lark-bot orchestration, and optional onCreate hook. */
 export function createAgentSvc(
   db: Database,
   config: BackendConfig,
-  supervisor: RunSupervisor,
+  supervisor: SpanSupervisor,
   larkBotRegistry: LarkBotRegistry,
+  opts?: { onAgentCreate?: (agentId: string) => Promise<void> },
 ): AgentService {
   const agentPort = sqliteAgentAdapter(db);
+  const agentsDir = join(config.dataDir, "agents");
 
   const agentSvcRaw = createAgentService({
     port: agentPort,
     idGen: ulid,
     workspaceRoot: config.workspaceRoot,
-    materializeWorkspace: async (agentId, template) => {
-      return materializeRunnerWorkspace({
-        dataDir: config.dataDir,
-        agentId,
-        template,
-        templateDir: config.templateDir,
-      });
+    onCreate: opts?.onAgentCreate,
+    materializeWorkspace: async (agentId) => {
+      const dir = join(agentsDir, agentId);
+      await mkdir(dir, { recursive: true });
+      return dir;
     },
 
     purgeWorkspace: async (agentId) => {
-      await purgeRunnerWorkspace({ dataDir: config.dataDir, agentId });
+      const dir = join(agentsDir, agentId);
+      await rm(dir, { recursive: true, force: true });
     },
 
-    // M20: Kept as raw SQL — subquery DELETE on events.db tables (event_log, attempt, run).
-    // Safe to keep: drizzle subquery DELETE would be equally complex with no readability gain.
-    purgeEventsForThreads: (threadIds) => {
-      const edb = supervisor.getDb();
-      const tx = edb.transaction((ids: string[]) => {
-        for (const tid of ids) {
-          edb.run("DELETE FROM event_log WHERE thread_id = ?", [tid]);
-          edb.run(
-            "DELETE FROM attempt WHERE run_id IN (SELECT run_id FROM run WHERE thread_id = ?)",
-            [tid],
-          );
-          edb.run("DELETE FROM run WHERE thread_id = ?", [tid]);
+    purgeEventsForSessions: async (sessionIds) => {
+      const d = supervisor.getDrizzle();
+      await d.transaction(async (tx) => {
+        for (const tid of sessionIds) {
+          tx.delete(schema.attempt)
+            .where(
+              inArray(
+                schema.attempt.spanId,
+                tx
+                  .select({ spanId: schema.run.spanId })
+                  .from(schema.run)
+                  .where(eq(schema.run.sessionId, tid)),
+              ),
+            )
+            .run();
+          tx.delete(schema.run).where(eq(schema.run.sessionId, tid)).run();
         }
       });
-      tx(threadIds);
     },
 
-    listThreadIds: async (agentId) =>
+    listSessionIds: async (agentId) =>
       (
         db
           .query("SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?")
           .all(agentId) as { id: string }[]
       ).map((r) => r.id),
 
-    // M20: Kept as raw SQL — dynamic IN with variable-length placeholders + subquery.
-    // drizzle's inArray() could handle this but the derived thread IDs + dynamic placeholders
-    // make the raw SQL clearer and less error-prone.
     assertNoActiveRun: (agentId) => {
       const edb = supervisor.getDb();
-      const threadIds = (
+      const sessionIds = (
         db
           .query("SELECT conversation_id || ':' || member_id AS id FROM member WHERE agent_id = ?")
           .all(agentId) as { id: string }[]
       ).map((r) => r.id);
-      if (threadIds.length === 0) return;
-      const placeholders = threadIds.map(() => "?").join(",");
+      if (sessionIds.length === 0) return;
+      const placeholders = sessionIds.map(() => "?").join(",");
       const busy = edb
         .query(
           `SELECT 1 FROM attempt WHERE ended_at IS NULL
-           AND run_id IN (SELECT run_id FROM run WHERE thread_id IN (${placeholders})) LIMIT 1`,
+           AND span_id IN (SELECT span_id FROM run WHERE session_id IN (${placeholders})) LIMIT 1`,
         )
-        .all(...threadIds);
+        .all(...sessionIds);
       if (busy.length > 0) throw new AgentBusyError(agentId);
     },
   });

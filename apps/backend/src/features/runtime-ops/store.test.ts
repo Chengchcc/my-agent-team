@@ -1,16 +1,11 @@
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { runEventsDbMigrations } from "../run/events-db-migrations.js";
+import { openDb } from "../../infra/sqlite/db.js";
 import { RuntimeOpsStore } from "./store.js";
-import { computeRunnerStatus } from "./types.js";
 
 function createTestDb() {
-  const db = new Database(":memory:");
-  db.exec("PRAGMA journal_mode=WAL");
-  // Build schema from the canonical events_db drizzle migrations so the test DB
-  // never drifts from production (indexes, DESC ordering, columns, etc.).
-  runEventsDbMigrations(db);
-  return db;
+  // S1: events.db merged into backend.db — use openDb to run unified migrations.
+  return openDb(":memory:");
 }
 
 describe("RuntimeOpsStore", () => {
@@ -24,57 +19,57 @@ describe("RuntimeOpsStore", () => {
 
   afterEach(() => db.close());
 
-  describe("run_ops_event", () => {
-    test("appendRunEvent and getRunEvents round-trip", () => {
-      store.appendRunEvent({
-        runId: "r1",
-        attemptId: "a1",
-        kind: "attempt_started",
+  describe("control_plane_event", () => {
+    test("appendControlPlaneEvent and getControlPlaneEvents round-trip", () => {
+      store.appendControlPlaneEvent({
+        spanId: "r1",
+        attemptSeq: 1,
+        kind: "retry_requested",
         traceId: "trace-abc",
         payload: { mode: "run" },
       });
 
-      const events = store.getRunEvents("r1");
+      const events = store.getControlPlaneEvents("r1");
       expect(events).toHaveLength(1);
-      expect(events[0]!.kind).toBe("attempt_started");
-      expect(events[0]!.runId).toBe("r1");
-      expect(events[0]!.attemptId).toBe("a1");
+      expect(events[0]!.kind).toBe("retry_requested");
+      expect(events[0]!.spanId).toBe("r1");
+      expect(events[0]!.attemptSeq).toBe(1);
       expect(events[0]!.traceId).toBe("trace-abc");
     });
 
-    test("getRunEvents returns events ordered by seq", () => {
-      store.appendRunEvent({ runId: "r1", kind: "attempt_started" });
-      store.appendRunEvent({ runId: "r1", kind: "run_done_received" });
-      store.appendRunEvent({ runId: "r1", kind: "run_finalized_sent" });
+    test("getControlPlaneEvents returns events ordered by seq", () => {
+      store.appendControlPlaneEvent({ spanId: "r1", kind: "retry_requested" });
+      store.appendControlPlaneEvent({ spanId: "r1", kind: "retry_started" });
+      store.appendControlPlaneEvent({ spanId: "r1", kind: "projection_degraded" });
 
-      const events = store.getRunEvents("r1");
+      const events = store.getControlPlaneEvents("r1");
       expect(events).toHaveLength(3);
-      expect(events[0]!.kind).toBe("attempt_started");
-      expect(events[2]!.kind).toBe("run_finalized_sent");
+      expect(events[0]!.kind).toBe("retry_requested");
+      expect(events[2]!.kind).toBe("projection_degraded");
     });
 
-    test("getRunEventsByTrace filters correctly", () => {
-      store.appendRunEvent({ runId: "r1", kind: "attempt_started", traceId: "t1" });
-      store.appendRunEvent({ runId: "r2", kind: "attempt_started", traceId: "t1" });
-      store.appendRunEvent({ runId: "r3", kind: "attempt_started", traceId: "t2" });
+    test("getControlPlaneEventsByTrace filters correctly", () => {
+      store.appendControlPlaneEvent({ spanId: "r1", kind: "retry_requested", traceId: "t1" });
+      store.appendControlPlaneEvent({ spanId: "r2", kind: "retry_requested", traceId: "t1" });
+      store.appendControlPlaneEvent({ spanId: "r3", kind: "retry_requested", traceId: "t2" });
 
-      expect(store.getRunEventsByTrace("t1")).toHaveLength(2);
-      expect(store.getRunEventsByTrace("t2")).toHaveLength(1);
+      expect(store.getControlPlaneEventsByTrace("t1")).toHaveLength(2);
+      expect(store.getControlPlaneEventsByTrace("t2")).toHaveLength(1);
     });
 
-    test("appendRunEvent without optional fields", () => {
-      store.appendRunEvent({ runId: "r1", kind: "reaper_marked_interrupted" });
-      const events = store.getRunEvents("r1");
+    test("appendControlPlaneEvent without optional fields", () => {
+      store.appendControlPlaneEvent({ spanId: "r1", kind: "projection_degraded" });
+      const events = store.getControlPlaneEvents("r1");
       expect(events).toHaveLength(1);
-      expect(events[0]!.attemptId).toBeNull();
+      expect(events[0]!.attemptSeq).toBeNull();
       expect(events[0]!.traceId).toBeNull();
     });
   });
 
   describe("run_origin", () => {
-    test("insert and get by runId", () => {
-      store.insertRunOrigin({
-        runId: "r1",
+    test("insert and get by spanId", () => {
+      store.insertSpanOrigin({
+        spanId: "r1",
         conversationId: "c1",
         sourceLedgerSeq: 5,
         agentMemberId: "agent:x",
@@ -87,7 +82,7 @@ describe("RuntimeOpsStore", () => {
         createdAt: 1000,
       });
 
-      const row = store.getRunOrigin("r1");
+      const row = store.getSpanOrigin("r1");
       expect(row).not.toBeNull();
       expect(row!.conversationId).toBe("c1");
       expect(row!.sourceLedgerSeq).toBe(5);
@@ -95,7 +90,7 @@ describe("RuntimeOpsStore", () => {
 
     test("idempotent on duplicate idempotencyKey (INSERT OR IGNORE)", () => {
       const row = {
-        runId: "r1",
+        spanId: "r1",
         conversationId: "c1",
         sourceLedgerSeq: 5,
         agentMemberId: "agent:x",
@@ -107,80 +102,23 @@ describe("RuntimeOpsStore", () => {
         originKind: "manual" as const,
         createdAt: 1000,
       };
-      store.insertRunOrigin(row);
+      store.insertSpanOrigin(row);
       // Second insert with same idempotencyKey should be silently ignored
-      expect(() => store.insertRunOrigin({ ...row, runId: "r2" })).not.toThrow();
-      // The original row is still there — verify via getRunOrigin(runId)
-      const origin = store.getRunOrigin("r1");
+      expect(() => store.insertSpanOrigin({ ...row, spanId: "r2" })).not.toThrow();
+      // The original row is still there — verify via getSpanOrigin(spanId)
+      const origin = store.getSpanOrigin("r1");
       expect(origin).not.toBeNull();
-      expect(origin!.runId).toBe("r1");
-      // r2 never made it in (INSERT OR IGNORE blocked it, but run_origin PK is run_id so r2 would get its own row if key differed)
-      expect(store.getRunOrigin("r2")).toBeNull();
+      expect(origin!.spanId).toBe("r1");
+      // r2 never made it in (INSERT OR IGNORE blocked it, but run_origin PK is span_id so r2 would get its own row if key differed)
+      expect(store.getSpanOrigin("r2")).toBeNull();
     });
 
-    test("getRunOrigin returns null for missing run", () => {
-      expect(store.getRunOrigin("nonexistent")).toBeNull();
-    });
-  });
-
-  describe("runner_health", () => {
-    test("upsert and get", () => {
-      store.upsertRunnerHealth({
-        agentId: "agent_x",
-        uptimeMs: 5000,
-        activeRunIds: ["r1"],
-        checkpointerOk: true,
-        workspaceOk: true,
-      });
-
-      const health = store.getRunnerHealth("agent_x");
-      expect(health).toBeDefined();
-      expect(health!.activeRunCount).toBe(1);
-      expect(health!.checkpointerOk).toBe(1);
-    });
-
-    test("upsert updates existing row", () => {
-      store.upsertRunnerHealth({
-        agentId: "agent_x",
-        uptimeMs: 5000,
-        activeRunIds: ["r1"],
-        checkpointerOk: true,
-        workspaceOk: true,
-      });
-      store.upsertRunnerHealth({
-        agentId: "agent_x",
-        uptimeMs: 10000,
-        activeRunIds: ["r1", "r2"],
-        checkpointerOk: false,
-        workspaceOk: true,
-        lastError: "db fail",
-      });
-
-      const health = store.getRunnerHealth("agent_x");
-      expect(health!.activeRunCount).toBe(2);
-      expect(health!.checkpointerOk).toBe(0);
-      expect(health!.lastError).toBe("db fail");
-    });
-
-    test("listRunnerHealths", () => {
-      store.upsertRunnerHealth({
-        agentId: "agent_a",
-        uptimeMs: 5000,
-        activeRunIds: [],
-        checkpointerOk: true,
-        workspaceOk: true,
-      });
-      store.upsertRunnerHealth({
-        agentId: "agent_b",
-        uptimeMs: 10000,
-        activeRunIds: ["r1"],
-        checkpointerOk: true,
-        workspaceOk: true,
-      });
-
-      expect(store.listRunnerHealths()).toHaveLength(2);
+    test("getSpanOrigin returns null for missing run", () => {
+      expect(store.getSpanOrigin("nonexistent")).toBeNull();
     });
   });
+
+  // runner_health tests removed — runner daemon deleted, health no longer tracked
 
   describe("surface_health", () => {
     test("upsert and get", () => {
@@ -266,21 +204,21 @@ describe("RuntimeOpsStore", () => {
       store.appendIssueEvent({
         issueId: "i1",
         kind: "run.started",
-        payload: { runId: "r1", fromStatus: "planned", agentId: "a1" },
+        payload: { spanId: "r1", fromStatus: "planned", agentId: "a1" },
       });
       const events = store.getIssueEvents("i1");
       expect(events[0]!.payload).toEqual({
-        runId: "r1",
+        spanId: "r1",
         fromStatus: "planned",
         agentId: "a1",
       });
     });
   });
 
-  describe("getRunOriginsByIssueId", () => {
+  describe("getSpanOriginsByIssueId", () => {
     test("returns runs for an issue ordered by created_at", () => {
-      store.insertRunOrigin({
-        runId: "r1",
+      store.insertSpanOrigin({
+        spanId: "r1",
         issueId: "i1",
         conversationId: "",
         sourceLedgerSeq: 0,
@@ -293,8 +231,8 @@ describe("RuntimeOpsStore", () => {
         originKind: "orchestrator",
         createdAt: 1000,
       });
-      store.insertRunOrigin({
-        runId: "r2",
+      store.insertSpanOrigin({
+        spanId: "r2",
         issueId: "i1",
         conversationId: "",
         sourceLedgerSeq: 0,
@@ -307,8 +245,8 @@ describe("RuntimeOpsStore", () => {
         originKind: "orchestrator",
         createdAt: 2000,
       });
-      store.insertRunOrigin({
-        runId: "r3",
+      store.insertSpanOrigin({
+        spanId: "r3",
         issueId: "i2",
         conversationId: "",
         sourceLedgerSeq: 0,
@@ -322,123 +260,37 @@ describe("RuntimeOpsStore", () => {
         createdAt: 1500,
       });
 
-      const origins = store.getRunOriginsByIssueId("i1");
+      const origins = store.getSpanOriginsByIssueId("i1");
       expect(origins.length).toBe(2);
-      expect(origins[0]!.runId).toBe("r1");
-      expect(origins[1]!.runId).toBe("r2");
+      expect(origins[0]!.spanId).toBe("r1");
+      expect(origins[1]!.spanId).toBe("r2");
     });
 
     test("returns empty array for unknown issue", () => {
-      expect(store.getRunOriginsByIssueId("nonexistent")).toEqual([]);
+      expect(store.getSpanOriginsByIssueId("nonexistent")).toEqual([]);
     });
   });
 
   describe("getRuns", () => {
     test("batch fetches runs by runIds", () => {
       db.run(
-        `INSERT INTO run (run_id, thread_id, agent_id, status, started_at) VALUES ('r1', 't1', 'a1', 'succeeded', 1000)`,
+        `INSERT INTO run (span_id, session_id, agent_id, status, started_at) VALUES ('r1', 't1', 'a1', 'succeeded', 1000)`,
       );
       db.run(
-        `INSERT INTO run (run_id, thread_id, agent_id, status, started_at) VALUES ('r2', 't2', 'a2', 'failed', 2000)`,
+        `INSERT INTO run (span_id, session_id, agent_id, status, started_at) VALUES ('r2', 't2', 'a2', 'failed', 2000)`,
       );
       db.run(
-        `INSERT INTO run (run_id, thread_id, agent_id, status, started_at) VALUES ('r3', 't3', 'a1', 'running', 3000)`,
+        `INSERT INTO run (span_id, session_id, agent_id, status, started_at) VALUES ('r3', 't3', 'a1', 'running', 3000)`,
       );
 
       const runs = store.getRuns(["r1", "r3"]);
       expect(runs.length).toBe(2);
-      expect(runs.find((r) => r.runId === "r1")!.status).toBe("succeeded");
-      expect(runs.find((r) => r.runId === "r3")!.status).toBe("running");
+      expect(runs.find((r) => r.spanId === "r1")!.status).toBe("succeeded");
+      expect(runs.find((r) => r.spanId === "r3")!.status).toBe("running");
     });
 
     test("returns empty array for empty input", () => {
       expect(store.getRuns([])).toEqual([]);
     });
-  });
-});
-
-describe("computeRunnerStatus", () => {
-  test("returns unknown for undefined row", () => {
-    expect(computeRunnerStatus(undefined, 1000, 30000)).toBe("unknown");
-  });
-
-  test("returns offline when lastSeenAt is too old", () => {
-    expect(
-      computeRunnerStatus(
-        {
-          agentId: "a",
-          lastSeenAt: 1000,
-          uptimeMs: 0,
-          activeRunCount: 0,
-          activeRunIds: "[]",
-          checkpointerOk: 1,
-          workspaceOk: 1,
-          lastError: null,
-          updatedAt: 1000,
-        },
-        40000,
-        30000,
-      ),
-    ).toBe("offline");
-  });
-
-  test("returns degraded when checkpointer is not ok", () => {
-    expect(
-      computeRunnerStatus(
-        {
-          agentId: "a",
-          lastSeenAt: 1000,
-          uptimeMs: 0,
-          activeRunCount: 0,
-          activeRunIds: "[]",
-          checkpointerOk: 0,
-          workspaceOk: 1,
-          lastError: null,
-          updatedAt: 1000,
-        },
-        2000,
-        30000,
-      ),
-    ).toBe("degraded");
-  });
-
-  test("returns busy when activeRunCount > 0", () => {
-    expect(
-      computeRunnerStatus(
-        {
-          agentId: "a",
-          lastSeenAt: 1000,
-          uptimeMs: 0,
-          activeRunCount: 3,
-          activeRunIds: "[]",
-          checkpointerOk: 1,
-          workspaceOk: 1,
-          lastError: null,
-          updatedAt: 1000,
-        },
-        2000,
-        30000,
-      ),
-    ).toBe("busy");
-  });
-
-  test("returns idle when no active runs", () => {
-    expect(
-      computeRunnerStatus(
-        {
-          agentId: "a",
-          lastSeenAt: 1000,
-          uptimeMs: 0,
-          activeRunCount: 0,
-          activeRunIds: "[]",
-          checkpointerOk: 1,
-          workspaceOk: 1,
-          lastError: null,
-          updatedAt: 1000,
-        },
-        2000,
-        30000,
-      ),
-    ).toBe("idle");
   });
 });

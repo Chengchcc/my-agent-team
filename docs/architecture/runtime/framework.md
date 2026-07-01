@@ -6,7 +6,6 @@ owners: architecture
 last_verified_against_code: 2026-06-22
 summary: "Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏是 runLoop：一个受 maxSteps 与 maxForceContinues 约束的循环，每一步可能调模型、可能调工具，并把过程拆成一串结构化 AgentEvent 往外吐。围绕循环还有一组生命周期钩子和一个 Checkpointer 接口，分别负责「在关键节点插手」和「断点存取」。"
 depends_on:
-  - runner.resident-runner
 used_by:
   - runtime.context-manager
   - runtime.plugin
@@ -32,7 +31,7 @@ Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏
 
 | 事件 | 含义 |
 |------|------|
-| `message` | 一条完整消息（被 Runner 上报后，由 Backend 的 `onRunMessage` [直写进账本](../conversation/ledger.md)，再由 `broadcastMessage` [扇出](../backend/conversation-projection.md)到前端） |
+| `message` | 一条完整消息（经进程内 AgentSession 透出后，由 Backend 的 `onRunMessage` [直写进账本](../conversation/ledger.md)，再由 `broadcastMessage` [扇出](../backend/conversation-projection.md)到前端） |
 | `interrupted` | 运行被中断 |
 | `error` | 运行出错 |
 | `text_delta` | 文本streaming 增量 |
@@ -43,7 +42,7 @@ Framework 是 Agent 真正「思考—行动」的运行时核心。它的心脏
 | `llm_call` | 一次模型调用 |
 | `tool_call` | 一次工具调用 |
 
-注意 `message` 与 `text_delta` 的分工，和 Runner 协议里 `event` 与 `delta` 的分工是一脉相承的：`message` 是事实候选，`*_delta` 是给实时渲染看的流。
+注意 `message` 与 `text_delta` 的分工：`message` 是事实候选（落账本），`*_delta` 是给实时渲染看的流。
 
 ## 生命周期钩子
 
@@ -85,7 +84,6 @@ run(input: string, opts?: AgentRunOptions): AsyncIterable<AgentEvent>
 
 ### continue(opts?)
 
-从断点消息恢复运行，**不追加**新的用户消息。适用于会话级触发场景：用户的输入已经由上层 `buildPreloadedMessages` 从[账本](../conversation/ledger.md)构建为 Message[] 注入到 `preloadedMessages` 中，`continue()` 直接拾取已有上下文继续执行。若无用户消息则抛错。
 
 ```ts
 continue(opts?: AgentRunOptions): AsyncIterable<AgentEvent>
@@ -118,7 +116,7 @@ interface ResumeCommand {
 
 ## Checkpointer 接口
 
-断点能力被抽象成一个接口，由具体后端（如 Runner 本地的 checkpointer.sqlite）实现：
+断点能力被抽象成一个接口，由具体后端（进程内全局 `checkpointer.db`，见[标识符体系](../foundations/identifiers.md)）实现：
 
 ```ts
 interface Checkpointer {
@@ -133,10 +131,9 @@ interface Checkpointer {
 
 ## 关联页面
 
-- [常驻 Runner](../runner/resident-runner.md)
 - [上下文管理器](context-manager.md)
 - [运行时插件](plugin.md)
 - [task-guard plugin](../plugins/task-guard.md)
-- [运行编排器](../backend/run-supervisor.md)
-- [对话账本](../conversation/ledger.md)
 - [会话投影](../backend/conversation-projection.md)
+- [依赖注入](../foundations/dependency-injection.md) —— DI 手法与 runLoopOpts 透传
+- [标识符体系](../foundations/identifiers.md) —— runId / threadId 的分工与回退

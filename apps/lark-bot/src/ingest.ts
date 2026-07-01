@@ -8,6 +8,7 @@ import {
   putMemberBinding,
   reserveInbound,
 } from "./bindings-sqlite.js";
+import { createClient } from "./client.js";
 import type { LarkMessageEvent } from "./event-parser.js";
 import { isBotMentioned } from "./event-parser.js";
 
@@ -47,8 +48,7 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     backendAuthToken,
     onNewBinding,
   } = ctx;
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (backendAuthToken) headers["x-auth-token"] = backendAuthToken;
+  const client = createClient(backendUrl, backendAuthToken);
 
   // ─── Step 0: Idempotent reserve (local sqlite transaction) ───
   // Reserve before POST: if POST succeeds but confirm fails, the event won't re-POST.
@@ -93,43 +93,39 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
 
   // ─── Create conversation if needed (HTTP call, outside transaction) ───
   if (reserveResult.needCreateConv) {
-    const convResp = await fetch(`${backendUrl}/api/conversations`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        members: [
-          {
-            kind: "agent",
-            memberId: selfAgentId,
-            agentId: selfAgentId,
-            displayName: selfAgentName,
-          },
-        ],
-      }),
+    const { data: convData, error: convError } = await client.api.conversations.post({
+      members: [
+        {
+          kind: "agent",
+          memberId: selfAgentId,
+          agentId: selfAgentId,
+          displayName: selfAgentName,
+        },
+      ],
     });
-    if (!convResp.ok) {
-      console.error(`[ingest] create conversation failed: ${convResp.status}`);
+    if (convError) {
+      console.error(`[ingest] create conversation failed: ${JSON.stringify(convError)}`);
       return { action: "error", triggered: false, triggeredRuns: [] };
     }
-    const conv = (await convResp.json()) as { conversationId: string };
-    conversationId = conv.conversationId;
+    if (typeof convData !== "object" || convData === null) {
+      console.error("[ingest] create conversation returned non-object");
+      return { action: "error", triggered: false, triggeredRuns: [] };
+    }
+    conversationId = (convData as Record<string, unknown>).conversationId as string;
     memberId = `human:lark:${event.sender_id}`;
 
     // Add the human member via API FIRST (idempotent per §7.3).
-    // Only write local bindings after success — avoids half-bound state on failure.
     try {
-      const memberResp = await fetch(`${backendUrl}/api/conversations/${conversationId}/members`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
+      const { error: memberError } = await client.api
+        .conversations({ id: conversationId })
+        .members.post({
           kind: "human",
           memberId,
           userRef: `lark:${event.sender_id}`,
           displayName: event.senderDisplayName ?? event.sender_id,
-        }),
-      });
-      if (!memberResp.ok) {
-        console.error(`[ingest] add member failed: HTTP ${memberResp.status}`);
+        });
+      if (memberError) {
+        console.error(`[ingest] add member failed: ${JSON.stringify(memberError)}`);
         return { action: "error", conversationId, triggered: false, triggeredRuns: [] };
       }
     } catch (err) {
@@ -162,10 +158,9 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
 
   // ─── Step 2: POST /messages ───
   try {
-    const msgResp = await fetch(`${backendUrl}/api/conversations/${conversationId}/messages`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
+    const { data: msgData, error: msgError } = await client.api
+      .conversations({ id: conversationId })
+      .messages.post({
         senderMemberId: memberId,
         addressedTo,
         content: {
@@ -174,26 +169,30 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
           larkEventId: event.event_id,
           larkMessageId: event.message_id,
         },
-      }),
-    });
+      });
 
-    if (!msgResp.ok) {
-      console.error(`[ingest] POST /messages failed: ${msgResp.status}`);
+    if (msgError) {
+      console.error(`[ingest] POST /messages failed: ${JSON.stringify(msgError)}`);
       return { action: "error", conversationId, triggered: false, triggeredRuns: [] };
     }
-
-    const body = (await msgResp.json()) as {
-      seq: number;
-      triggeredRuns: Array<{ agentMemberId: string; runId: string }>;
-    };
+    if (typeof msgData !== "object" || msgData === null) {
+      console.error("[ingest] POST /messages returned non-object");
+      return { action: "error", conversationId, triggered: false, triggeredRuns: [] };
+    }
+    const body = msgData as Record<string, unknown>;
+    const seq = body.seq as number;
+    const triggeredRuns = (body.triggeredRuns ?? []) as Array<{
+      agentMemberId: string;
+      runId: string;
+    }>;
 
     // ─── Step 3: Confirm inbound (backfill ledger_seq) ───
     db.transaction(() => {
-      confirmInbound(db, event.event_id, conversationId, body.seq);
+      confirmInbound(db, event.event_id, conversationId, seq);
     })();
 
     const triggered = addressedTo.length > 0;
-    const runs = body.triggeredRuns ?? [];
+    const runs = triggeredRuns ?? [];
 
     // M15.1: Start streaming card lifecycle for each triggered run
     if (ctx.onTriggeredRun) {
@@ -205,7 +204,7 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     return {
       action: "consumed",
       conversationId,
-      ledgerSeq: body.seq,
+      ledgerSeq: seq,
       triggered,
       triggeredRuns: runs,
     };

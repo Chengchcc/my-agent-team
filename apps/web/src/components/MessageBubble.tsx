@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { Markdown } from "./Markdown";
 import { StreamingCursor } from "./StreamingCursor";
+import { StreamingMarkdown } from "./StreamingMarkdown";
 
 /** Shared message shell: alignment + optional name badge + streaming border. */
 export function MessageShell({
@@ -47,12 +47,14 @@ export function MessageBubble({
   kind,
   content,
   isStreaming,
+  runStatus,
 }: {
   align: "left" | "right";
   name?: string;
   kind?: "agent" | "human";
   content: string;
   isStreaming?: boolean;
+  runStatus?: "running" | "retrying" | "compacting" | "waiting";
 }) {
   const isSelf = align === "right";
   return (
@@ -61,9 +63,18 @@ export function MessageBubble({
         <p className="whitespace-pre-wrap break-words text-[var(--ink)]">{content}</p>
       ) : (
         <>
-          <Markdown text={content} />
+          <StreamingMarkdown text={content} streaming={isStreaming ?? false} />
           {isStreaming && <StreamingCursor />}
         </>
+      )}
+      {runStatus === "retrying" && (
+        <p className="text-xs text-amber-500 animate-pulse mt-1">Retrying...</p>
+      )}
+      {runStatus === "compacting" && (
+        <p className="text-xs text-blue-500 animate-pulse mt-1">Compacting context...</p>
+      )}
+      {runStatus === "waiting" && (
+        <p className="text-xs text-muted-foreground mt-1">Awaiting approval...</p>
       )}
     </MessageShell>
   );

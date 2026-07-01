@@ -21,14 +21,32 @@ interface ConversationCanvasProps {
 export function ConversationCanvas({ conversationId, snapshot }: ConversationCanvasProps) {
   const { state, busy, send, toggleTriggerMode, approvalTarget, approve, deny, resuming } =
     useConversation(conversationId, snapshot);
-  const { viewerMemberId, roster, items, streamConn, error, todos, triggerMode } = state;
+  const { viewerMemberId, roster, items, error, todos, triggerMode } = state;
 
-  // Derive status label from open-message state rather than a run phase.
+  // W3+W5: use the most recent agent run's status, not first-found.
+  // Scan from newest to oldest to get the current run's transient state.
   const isAwaiting = state.items.some(
     (item) =>
       item.kind === "message" && item.sender.kind === "agent" && item.content.state === "waiting",
   );
-  const label = isAwaiting ? "Awaiting Approval" : busy ? "Running" : null;
+  const currentRunStatus = (() => {
+    for (let i = state.items.length - 1; i >= 0; i--) {
+      const item = state.items[i]!;
+      if (item.kind === "message" && item.sender.kind === "agent" && item.content.runStatus) {
+        return item.content.runStatus;
+      }
+    }
+    return undefined;
+  })();
+  const label = isAwaiting
+    ? "Awaiting Approval"
+    : currentRunStatus === "retrying"
+      ? "Retrying..."
+      : currentRunStatus === "compacting"
+        ? "Compacting..."
+        : busy
+          ? "Running"
+          : null;
 
   const lastUserMessage = useMemo(() => {
     for (let i = items.length - 1; i >= 0; i--) {
@@ -72,25 +90,6 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
 
   return (
     <div className="h-full flex flex-col bg-[var(--canvas)]">
-      {/* Connection status */}
-      {streamConn === "reconnecting" && (
-        <div className="shrink-0 bg-[var(--chart-4)]/10 border-b border-[var(--chart-4)]/30 px-6 py-1 text-center">
-          <span className="text-[10px] text-[var(--chart-4)]">Connection lost — reconnecting…</span>
-        </div>
-      )}
-      {streamConn === "closed" && (
-        <div className="shrink-0 bg-destructive/10 border-b border-destructive/30 px-6 py-1 text-center flex items-center justify-center gap-3">
-          <span className="text-[10px] text-destructive">Connection closed</span>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="text-[10px] text-primary hover:underline"
-          >
-            Reload
-          </button>
-        </div>
-      )}
-
       {/* Header */}
       <div className="shrink-0 border-b border-[var(--hairline)] px-6 py-3">
         <div className="flex items-center justify-between">

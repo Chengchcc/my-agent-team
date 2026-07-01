@@ -133,7 +133,7 @@ describe("ProjectService", () => {
       issueId: `iss-${Date.now()}`,
       projectId: p.projectId,
       title: "test",
-      threadId: "thread:test",
+      sessionId: "thread:test",
       createdAt: Date.now(),
     });
     expect(() => svc.remove(p.projectId)).toThrow(ProjectInUseError);

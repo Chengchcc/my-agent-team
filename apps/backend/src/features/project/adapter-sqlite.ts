@@ -2,44 +2,30 @@ import type { Database } from "bun:sqlite";
 import { count, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
+import { projectSelectSchema } from "../../infra/db/schema.js";
 import type { ProjectRow } from "./domain.js";
 import type { CreateProjectRecord, ProjectPort, UpdateProjectRecord } from "./ports.js";
-
-const toRow = (r: typeof schema.project.$inferSelect): ProjectRow => ({
-  projectId: r.projectId,
-  name: r.name,
-  repoUrl: r.repoUrl,
-  defaultBranch: r.defaultBranch,
-  autoOrchestrate: r.autoOrchestrate === 1,
-  createdAt: r.createdAt,
-  updatedAt: r.updatedAt,
-});
 
 export function sqliteProjectAdapter(db: Database): ProjectPort {
   const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
     createProject(input: CreateProjectRecord): ProjectRow {
-      d.insert(schema.project)
+      const [r] = d
+        .insert(schema.project)
         .values({
           projectId: input.projectId,
           name: input.name,
           repoUrl: input.repoUrl,
           defaultBranch: input.defaultBranch,
-          autoOrchestrate: input.autoOrchestrate ? 1 : 0,
+          autoOrchestrate:
+            input.autoOrchestrate !== undefined ? schema.boolToInt(input.autoOrchestrate) : 0,
           createdAt: input.createdAt,
           updatedAt: input.createdAt,
         })
-        .run();
-      return {
-        projectId: input.projectId,
-        name: input.name,
-        repoUrl: input.repoUrl,
-        defaultBranch: input.defaultBranch,
-        autoOrchestrate: input.autoOrchestrate ?? false,
-        createdAt: input.createdAt,
-        updatedAt: input.createdAt,
-      };
+        .returning()
+        .all();
+      return projectSelectSchema.parse(r!);
     },
 
     getProject(projectId: string): ProjectRow | null {
@@ -48,12 +34,12 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
         .from(schema.project)
         .where(eq(schema.project.projectId, projectId))
         .get();
-      return r ? toRow(r) : null;
+      return r ? projectSelectSchema.parse(r) : null;
     },
 
     listProjects(): ProjectRow[] {
       const rows = d.select().from(schema.project).orderBy(sql`created_at DESC`).all();
-      return rows.map(toRow);
+      return rows.map((r) => projectSelectSchema.parse(r));
     },
 
     updateProject(projectId: string, patch: UpdateProjectRecord): ProjectRow | null {
@@ -62,9 +48,8 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
       if (patch.name !== undefined) sets.name = patch.name;
       if (patch.repoUrl !== undefined) sets.repoUrl = patch.repoUrl;
       if (patch.defaultBranch !== undefined) sets.defaultBranch = patch.defaultBranch;
-      if (patch.autoOrchestrate !== undefined) {
-        sets.autoOrchestrate = patch.autoOrchestrate ? 1 : 0;
-      }
+      if (patch.autoOrchestrate !== undefined)
+        sets.autoOrchestrate = schema.boolToInt(patch.autoOrchestrate);
 
       if (Object.keys(sets).length === 0) {
         return this.getProject(projectId);

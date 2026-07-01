@@ -3,6 +3,7 @@ import type { AgentEvent } from "./agent-event.js";
 import type {
   Agent,
   AgentConfig,
+  AgentEventListener,
   AgentRunOptions,
   AgentRuntime,
   ResumeCommand,
@@ -14,7 +15,7 @@ import { consoleLogger } from "./logger.js";
 import type { HookContext } from "./plugin.js";
 import { validatePlugins } from "./plugin.js";
 import { createPluginRunner } from "./plugin-runner.js";
-import { runLoop } from "./run-loop.js";
+import { runLoop } from "./span-loop.js";
 import { createThread } from "./thread.js";
 
 // ─── Public exports (thin re-exports from extracted modules) ──
@@ -24,6 +25,7 @@ export { parseAgentEvent, safeParseAgentEvent } from "./agent-event.js";
 export type {
   Agent,
   AgentConfig,
+  AgentEventListener,
   AgentRunOptions,
   FollowUpQueue,
   ResumeCommand,
@@ -33,7 +35,7 @@ export type {
 // ─── createAgent / createAgentInternal ──────────────────────────
 
 export async function createAgent(config: AgentConfig): Promise<Agent> {
-  const threadId = config.threadId ?? crypto.randomUUID();
+  const threadId = config.sessionId ?? config.threadId ?? crypto.randomUUID();
   const checkpointer = config.checkpointer ?? inMemoryCheckpointer();
   validateCheckpointer(checkpointer);
 
@@ -94,6 +96,8 @@ function createAgentInternal(
 
   const pluginRunner = createPluginRunner(plugins, ctx, logger);
 
+  const subscribers = new Set<AgentEventListener>();
+
   const rt: AgentRuntime = {
     thread,
     plugins: pluginRunner,
@@ -105,9 +109,10 @@ function createAgentInternal(
     tools,
     pendingEvents,
     save,
-    runId: thread.id,
+    spanId: thread.id,
     toolStates: [],
     assistantBlocks: [],
+    subscribers,
   };
 
   function runLoopOpts(opts: AgentRunOptions) {
@@ -116,7 +121,17 @@ function createAgentInternal(
       maxSteps: opts.maxSteps ?? 32,
       stream: opts.stream,
       maxForceContinues: opts.maxForceContinues,
+      steering: opts.steering,
+      followUp: opts.followUp,
     };
+  }
+
+  /** Wraps a runLoop generator to notify subscribers on each yielded event. */
+  async function* withSubscribers(gen: AsyncGenerator<AgentEvent>): AsyncGenerator<AgentEvent> {
+    for await (const event of gen) {
+      yield event;
+      for (const sub of subscribers) sub(event);
+    }
   }
 
   return {
@@ -138,26 +153,41 @@ function createAgentInternal(
       });
     },
 
+    subscribe(listener: AgentEventListener): () => void {
+      subscribers.add(listener);
+      return () => {
+        subscribers.delete(listener);
+      };
+    },
+
     async *run(input: string, opts: AgentRunOptions = {}) {
       if (running)
         throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       running = true;
       ctx.signal = opts.signal;
-      rt.runId = opts.runId ?? thread.id;
+      rt.spanId = opts.spanId ?? thread.id;
       rt.toolStates = [];
       rt.assistantBlocks = [];
+      let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";
       try {
+        yield { type: "agent_start" as const, spanId: rt.spanId };
         opts.signal?.throwIfAborted();
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
           thread.messages.unshift({ role: "system", text: systemPrompt });
         }
-        thread.messages.push({ role: "user", text: input });
-        await save(thread.messages);
-        await checkpointer.appendEvent?.(thread.id, {
-          type: "user_input",
-          content: input,
-          ts: Date.now(),
-        });
+        // Conversation-triggered runs pass input="" because the user message
+        // is already in _initialMessages (loaded from the conversation ledger —
+        // the single source of truth). Only push a user message when the caller
+        // provides actual text (manual / direct API runs).
+        if (input.trim()) {
+          thread.messages.push({ role: "user", text: input });
+          await save(thread.messages);
+          await checkpointer.appendEvent?.(thread.id, rt.spanId, {
+            type: "user_input",
+            content: input,
+            ts: Date.now(),
+          });
+        }
 
         const seeded = await pluginRunner.fireBeforeRun(thread.messages);
         if (seeded !== thread.messages) {
@@ -166,8 +196,12 @@ function createAgentInternal(
           await save(thread.messages);
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
-        yield* runLoop(rt, runLoopOpts(opts));
+        yield* withSubscribers(runLoop(rt, runLoopOpts(opts)));
+      } catch (err) {
+        runStatus = opts.signal?.aborted ? "interrupted" : "error";
+        throw err;
       } finally {
+        yield { type: "agent_end" as const, spanId: rt.spanId, status: runStatus };
         running = false;
         ctx.signal = undefined;
       }
@@ -183,10 +217,12 @@ function createAgentInternal(
       }
       running = true;
       ctx.signal = opts.signal;
-      rt.runId = opts.runId ?? thread.id;
+      rt.spanId = opts.spanId ?? thread.id;
       rt.toolStates = [];
       rt.assistantBlocks = [];
+      let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";
       try {
+        yield { type: "agent_start" as const, spanId: rt.spanId };
         opts.signal?.throwIfAborted();
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
           thread.messages.unshift({ role: "system", text: systemPrompt });
@@ -200,8 +236,12 @@ function createAgentInternal(
           await save(thread.messages);
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
-        yield* runLoop(rt, runLoopOpts(opts));
+        yield* withSubscribers(runLoop(rt, runLoopOpts(opts)));
+      } catch (err) {
+        runStatus = opts.signal?.aborted ? "interrupted" : "error";
+        throw err;
       } finally {
+        yield { type: "agent_end" as const, spanId: rt.spanId, status: runStatus };
         running = false;
         ctx.signal = undefined;
       }
@@ -212,14 +252,16 @@ function createAgentInternal(
         throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       running = true;
       ctx.signal = opts.signal;
-      rt.runId = opts.runId ?? thread.id;
+      rt.spanId = opts.spanId ?? thread.id;
       rt.toolStates = [];
       rt.assistantBlocks = [];
+      let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";
       try {
+        yield { type: "agent_start" as const, spanId: rt.spanId };
         const it = await checkpointer.consumeInterrupt?.(thread.id);
         if (!it) throw new Error("No pending interrupt for this thread");
 
-        await checkpointer.appendEvent?.(thread.id, { type: "resume", ts: Date.now() });
+        await checkpointer.appendEvent?.(thread.id, rt.spanId, { type: "resume", ts: Date.now() });
 
         const placeholderIdx = thread.messages.findLastIndex(
           (m) =>
@@ -243,8 +285,12 @@ function createAgentInternal(
           thread.messages.push({ role: "user", blocks: [realResult] });
         }
         await save(thread.messages);
-        yield* runLoop(rt, runLoopOpts(opts));
+        yield* withSubscribers(runLoop(rt, runLoopOpts(opts)));
+      } catch (err) {
+        runStatus = opts.signal?.aborted ? "interrupted" : "error";
+        throw err;
       } finally {
+        yield { type: "agent_end" as const, spanId: rt.spanId, status: runStatus };
         running = false;
         ctx.signal = undefined;
       }

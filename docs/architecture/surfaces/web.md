@@ -4,7 +4,7 @@ title: Web 端
 status: current
 owners: architecture
 last_verified_against_code: 2026-06-22
-summary: "Web 端是浏览器里的对话界面。只消费一条 SSE（ledger stream），在 conversation-reducer 里按 messageId upsert 到 items[]。items 是 UiItem 联合（message / notice）。不再有 draft、run phase、interrupt state——busy 从 open message 的 state 推导。"
+summary: "Web 端是浏览器里的对话界面。消费 conversation SSE，在 conversation-reducer 里按 messageId upsert 到 items[]。items 是 UiItem 联合（message / notice）。busy 从 open message 的 state 推导。"
 depends_on:
   - conversation.ledger
   - backend.conversation-projection
@@ -15,7 +15,7 @@ used_by:
 
 # Web 端
 
-Web 端是浏览器里的对话界面。它只开一个 SSE 连接到 `/api/bff/conversations/:id/events`，接收 [ledger](../conversation/ledger.md) 推送的条目。reducer 按 `messageId` upsert 到 `items[]`（`UiItem` 联合：`message` 和 `notice` 两种 kind）。不再有独立的 draft、run phase、interrupt state——busy 从 open message 的 `state` 字段推导。
+Web 端是浏览器里的对话界面。它开启一个 SSE 连接到 `/api/bff/conversations/:id/events`，接收 [ledger](../conversation/ledger.md) 推送的条目。reducer 按 `messageId` upsert 到 `items[]`（`UiItem` 联合：`message` 和 `notice` 两种 kind）。busy 从 open message 的 `state` 字段推导——state 为 `streaming` 或 `waiting` 时表示 Agent 仍在运行或等待审批。
 
 ## ConvState
 
@@ -35,8 +35,6 @@ Web 端是浏览器里的对话界面。它只开一个 SSE 连接到 `/api/bff/
 ```
 
 Actions：`bootstrap`、`member`、`message`、`send`、`conn`、`toggleTriggerMode`、`send/error`、`todo/update`。
-
-Run 相关 action 全删了：`run/started`、`stream/delta`、`stream/toolStart`、`stream/toolEnd`、`run/interrupted`、`run/error`、`run/done`、`run/completed`、`run/noop`。`draft`、`run`、`pendingInterrupt` 字段也都删了。
 
 ## SSE 事件类型
 
@@ -61,7 +59,7 @@ export function isBusy(s: ConvState): boolean {
 }
 ```
 
-`ConversationCanvas` 用 `busy` 控制动画点、状态标签（"Running" / "Awaiting Approval"），不再维护 `run.phase`。
+`ConversationCanvas` 用 `busy` 控制动画点、状态标签（"Running" / "Awaiting Approval"）。
 
 ## 关键纯函数
 

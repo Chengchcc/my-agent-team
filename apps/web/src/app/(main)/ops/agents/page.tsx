@@ -1,7 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { AgentRuntimeCard } from "@/components/ops/AgentRuntimeCard";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -10,27 +8,18 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { api } from "@/lib/api";
+import { useAgentList } from "@/features/agents/hooks";
+import { useAgentRuntimes } from "@/features/ops/hooks";
 
 export default function AgentsPage() {
-  const { data: agents = [] } = useQuery({
-    queryKey: ["agents"],
-    queryFn: api.listAgents,
-    staleTime: 30_000,
-  });
+  const { data: agents = [] } = useAgentList();
 
-  const { data: runtimes = [] } = useQuery({
-    queryKey: ["ops", "agentRuntime", agents.map((a) => a.id)],
-    queryFn: async () => {
-      const results = await Promise.all(
-        agents.map((a) => api.getAgentRuntime(a.id).catch(() => null)),
-      );
-      return results.filter(Boolean);
+  const { data: runtimes = [] } = useAgentRuntimes(
+    agents.map((a) => a.id),
+    {
+      refetchInterval: 30_000,
     },
-    enabled: agents.length > 0,
-    staleTime: 10_000,
-    refetchInterval: 30_000,
-  });
+  );
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -50,7 +39,15 @@ export default function AgentsPage() {
         <p className="text-muted-foreground text-sm">No agent runtime data available.</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {runtimes.map((rt) => rt && <AgentRuntimeCard key={rt.agentId} runtime={rt} />)}
+          {runtimes.map(
+            (rt) =>
+              rt && (
+                <div key={rt.agentId} className="rounded-lg border p-4">
+                  <p className="font-semibold text-sm">{rt.agentName}</p>
+                  <p className="text-xs text-muted-foreground font-mono">{rt.agentId}</p>
+                </div>
+              ),
+          )}
         </div>
       )}
     </div>

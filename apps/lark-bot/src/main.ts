@@ -66,7 +66,6 @@ const heartbeatTimer = setInterval(() => {
   const health = collectHealth(
     args.agentId,
     profile,
-    state.db,
     { conversation: watchers.size, runDelta: 0 },
     null,
   );

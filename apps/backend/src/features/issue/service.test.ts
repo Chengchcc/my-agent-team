@@ -26,7 +26,7 @@ afterAll(() => {
 });
 
 describe("IssueService", () => {
-  test("createIssue creates with status=draft and derived threadId", () => {
+  test("createIssue creates with status=draft and derived sessionId", () => {
     const issue = svc.createIssue({
       projectId: "proj-1",
       title: "Fix login bug",
@@ -34,16 +34,17 @@ describe("IssueService", () => {
     expect(issue.issueId).toBe("test-iss-0");
     expect(issue.status).toBe("draft");
     expect(issue.title).toBe("Fix login bug");
-    // M19: threadId uses conversation format <issueId>:owner
-    expect(issue.threadId).toBe("test-iss-0:owner");
+    // M19: the run line is the conversation sessionId `<issueId>:<memberId>`
+    // (member = the human owner), persisted in the legacy sessionId field.
+    expect(issue.sessionId).toBe("test-iss-0:owner");
   });
 
-  test("threadId is derived as <issueId>:owner", () => {
+  test("sessionId is derived as <issueId>:owner", () => {
     const issue = svc.createIssue({
       projectId: "proj-1",
       title: "Thread check",
     });
-    expect(issue.threadId).toBe(`${issue.issueId}:owner`);
+    expect(issue.sessionId).toBe(`${issue.issueId}:owner`);
   });
 
   test("applyTransition moves draft → planned", () => {

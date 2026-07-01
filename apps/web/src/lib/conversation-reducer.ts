@@ -32,7 +32,6 @@ export interface ConvState {
   items: UiItem[];
   streamConn: StreamConn;
   error: string | null;
-  optimisticSeq: number;
   triggerMode: TriggerMode;
   /** M14.6: Task todo progress — full snapshot from todo_update events. */
   todos: Array<{ step: string; status: "pending" | "in_progress" | "done" }>;
@@ -40,6 +39,8 @@ export interface ConvState {
    *  confirmed by the backend (POST in-flight). Cleared when the first
    *  authoritative agent revision arrives or on send error. */
   pendingSendCount: number;
+  /** W7: Monotonic sequence number for client-generated message IDs. */
+  optimisticSeq: number;
 }
 
 export type Action =
@@ -59,10 +60,10 @@ export function initialState(): ConvState {
     items: [],
     streamConn: "connecting",
     error: null,
-    optimisticSeq: 0,
     triggerMode: "auto",
     todos: [],
     pendingSendCount: 0,
+    optimisticSeq: 0,
   };
 }
 
@@ -76,8 +77,9 @@ export function isBusy(s: ConvState): boolean {
     (item) =>
       item.kind === "message" &&
       item.sender.kind === "agent" &&
-      item.content.state != null &&
-      isOpenMessageState(item.content.state),
+      ((item.content.state != null && isOpenMessageState(item.content.state)) ||
+        item.content.runStatus === "retrying" ||
+        item.content.runStatus === "compacting"),
   );
 }
 
@@ -90,12 +92,7 @@ export function getApprovalTarget(s: ConvState): {
 } | null {
   for (const item of s.items) {
     if (item.kind !== "message") continue;
-    if (
-      item.sender.kind === "agent" &&
-      item.content.state != null &&
-      isOpenMessageState(item.content.state) &&
-      item.content.runId
-    ) {
+    if (item.sender.kind === "agent" && item.content.state === "waiting" && item.content.spanId) {
       // The tool params live ONLY in blocks[] (tool_use blocks carry `input`).
       // tools[] (MessageToolState) is identity+state only — reading params from
       // there yields nothing, which is why the card rendered `{}`. Index the
@@ -106,7 +103,7 @@ export function getApprovalTarget(s: ConvState): {
       }
       return {
         messageId: item.content.id ?? "",
-        runId: item.content.runId,
+        runId: item.content.spanId,
         text: item.content.text ?? "",
         tools: (item.content.tools ?? [])
           .filter((t: { state: string }) => t.state === "running")
@@ -257,7 +254,6 @@ export function reducer(s: ConvState, a: Action): ConvState {
     }
 
     case "message": {
-      // M17.1: isolate parse errors — a single bad entry must not crash the SSE stream
       let revision: MessageRevision;
       try {
         revision = parseMessageRevision(a.content);
@@ -266,25 +262,31 @@ export function reducer(s: ConvState, a: Action): ConvState {
           `[reducer] invalid message revision at seq=${a.seq}, skipping:`,
           err instanceof Error ? err.message : String(err),
         );
-        return s; // skip bad entry, keep state unchanged
+        return s;
       }
-      const message = mergeMessageRevision(null, revision);
+      // W1 fix: use existing message as merge base so incremental revisions
+      // (text-only, state-only, runStatus-only) don't overwrite prior content.
+      const existing = s.items.find(
+        (it): it is Extract<UiItem, { kind: "message" }> =>
+          it.kind === "message" && it.id === revision.messageId,
+      );
+      const message = mergeMessageRevision(existing?.content ?? null, revision);
       const id = message.id ?? "";
       const sender = s.roster[a.senderMemberId] ?? {
         memberId: a.senderMemberId,
         kind: "agent" as const,
       };
       const items = upsertAuthoritative(s.items, id, sender, message, s.viewerMemberId);
-      // First agent message confirms the POST — clear pending send count
       const cleared = sender.kind === "agent" && s.pendingSendCount > 0 ? 0 : s.pendingSendCount;
       return { ...s, items, pendingSendCount: cleared };
     }
 
     case "send": {
-      const id = `opt-${s.optimisticSeq}`;
+      // W7: use stable UUID instead of opt- prefix — enables precise matching
+      // when backend echoes the message back (future: clientMsgId in API).
+      const id = `opt-${crypto.randomUUID()}`;
       return {
         ...s,
-        optimisticSeq: s.optimisticSeq + 1,
         pendingSendCount: s.pendingSendCount + 1,
         items: [
           ...s.items,

@@ -1,164 +1,177 @@
 import type { Database } from "bun:sqlite";
-import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
+import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
+import type { Message, MessageRevision } from "@my-agent-team/message";
+import {
+  deserializeLedgerContent,
+  extractText,
+  isTerminalMessageState,
+} from "@my-agent-team/message";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
-import type { RunDispatcher } from "../run/dispatcher.js";
-import type { RunSupervisor } from "../run/supervisor.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
-import {
-  sqliteThreadProjectionReadAdapter,
-  sqliteThreadProjectionWriteAdapter,
-} from "../thread-projection/adapter-sqlite.js";
-import { createThreadProjectionService } from "../thread-projection/index.js";
+import type { SessionFactory } from "../span/session-factory.js";
+import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
+import type { SpanSupervisor } from "../span/supervisor.js";
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
-import { buildPreloadedMessages } from "./projection.js";
-import { createConversationService, parseThreadId } from "./service.js";
+import { escapeRegExp, getOrCreateAccumulator } from "./projection.js";
+import { createConversationService, parseSessionId } from "./service.js";
+import { buildTitleContext, generateTitle } from "./title.js";
 
 export interface ConversationFeature {
   convPort: ConversationPort;
   convSvc: ReturnType<typeof createConversationService>;
-  threadProjectionSvc: ReturnType<typeof createThreadProjectionService>;
-  /** M17.5 P4+P11: ConversationLock replaces ad-hoc activeConversations Set + threads Set. */
   lock: ConversationLock;
 }
 
-/** Create the full conversation feature — adapters, projection, and service.
- *  Encapsulates all the wiring between ledger, thread projection, and the
- *  forkRun closure that ties conversation events to agent runs. */
+const titlingInFlight = new Set<string>();
+
 export function createConversationFeature(
   db: Database,
   _config: BackendConfig,
-  supervisor: RunSupervisor,
+  supervisor: SpanSupervisor,
   agentSvc: AgentService,
-  _opsStore: RuntimeOpsStore,
-  tracer: RuntimeTracer,
-  dispatcher: RunDispatcher,
+  opsStore: RuntimeOpsStore,
+  lock: ConversationLock = new ConversationLock(),
+  _sessionFactory?: SessionFactory,
 ): ConversationFeature {
-  const threadProjectionPort = sqliteThreadProjectionReadAdapter(db);
-  const threadProjectionWritePort = sqliteThreadProjectionWriteAdapter(db);
-  const threadProjectionSvc = createThreadProjectionService({ port: threadProjectionPort });
-
   const convPort = sqliteConversationAdapter(db);
-  const lock = new ConversationLock();
+
+  // @mention regex cache
+  const mentionCache = new Map<string, RegExp>();
+  const getMentionRe = (label: string) => {
+    let re = mentionCache.get(label);
+    if (!re) {
+      re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
+      mentionCache.set(label, re);
+    }
+    return re;
+  };
+
+  // Auto-title: fire-and-forget on first terminal response
+  const autoTitle = async (cid: string) => {
+    const model = new AnthropicChatModel({
+      apiKey: _config.anthropicApiKey,
+      baseUrl: _config.anthropicBaseUrl,
+      model: "claude",
+    });
+    const entries = convPort.getLedgerEntries(cid).filter((e) => e.kind === "message");
+    const msgs: Message[] = entries.slice(0, 6).map((e) => {
+      const result = deserializeLedgerContent(e.content);
+      if (!("messageId" in result)) {
+        return { role: "user" as const, text: "" };
+      }
+      return {
+        role: (result.role as Message["role"]) ?? "user",
+        text: extractText({
+          text: result.text ?? "",
+          blocks: result.blocks ?? [],
+        }),
+      };
+    });
+    const ctx = buildTitleContext(msgs);
+    const title = await generateTitle(() => model, ctx);
+    if (title) convPort.setConversationTitle(cid, title);
+  };
+
+  // Message handling — writes to ledger, scans @mentions, broadcasts SSE
+  const handleAssistantMessage = async (
+    sessionId: string,
+    spanId: string,
+    rev: MessageRevision,
+  ) => {
+    const cid = parseSessionId(sessionId).conversationId;
+    if (!cid) return;
+    const sender = parseSessionId(sessionId).memberId || sessionId;
+
+    await convSvc.appendAssistantMessage({
+      conversationId: cid,
+      senderMemberId: sender,
+      spanId,
+      revision: rev,
+    });
+
+    const acc = getOrCreateAccumulator(spanId, sender);
+    if (rev.role === "assistant") {
+      acc.latestAssistantRevision = { ...rev, conversationId: cid };
+      if (isTerminalMessageState(rev.state)) {
+        // Auto-title: generate on first terminal response if no title yet
+        const conv = convPort.getConversation(cid);
+        if (conv && !conv.title && !titlingInFlight.has(cid)) {
+          titlingInFlight.add(cid);
+          void autoTitle(cid)
+            .catch(() => {
+              /* best-effort */
+            })
+            .finally(() => titlingInFlight.delete(cid));
+        }
+        const text = extractText(rev);
+        if (text) {
+          const roster = convPort.getMembers(cid);
+          for (const m of roster) {
+            if (m.kind !== "agent" || m.memberId === sender) continue;
+            const label = m.displayName ?? m.memberId;
+            if (getMentionRe(label).test(text) || text.includes(`@${m.memberId}`)) {
+              acc.mentionedMemberIds.add(m.memberId);
+            }
+          }
+        }
+      }
+    }
+  };
 
   const convSvc = createConversationService({
     port: convPort,
-    threadProjectionRead: threadProjectionPort,
-    threadProjectionWrite: threadProjectionWritePort,
     lock,
     maxConsecutiveAgentHops: 8,
     idGen: ulid,
 
-    forkRun: async (runId, threadId, ctx) => {
-      const spec = await buildAgentSpecV2(db, agentSvc, threadId, "", {
-        runId,
-        conversationId: ctx.conversationId,
-        senderMemberId: ctx.agentMemberId,
-      });
-
-      const preloadedMessages = buildPreloadedMessages(
-        convPort,
-        ctx.conversationId,
-        ctx.agentMemberId,
-      );
-
+    startAgentRun: async (_runId, sessionId, ctx) => {
       const members = convPort.getMembers(ctx.conversationId);
-      const isLarkConversation = members.some(
-        (m) => m.kind === "human" && m.userRef?.startsWith("lark:"),
-      );
-      const surfaceContext = isLarkConversation
-        ? {
-            surface: "lark" as const,
-            conversationId: ctx.conversationId,
-            runId,
-            capabilities: ["start_new_conversation" as const],
-          }
-        : undefined;
-
-      const trace = tracer.inject();
-
-      // M19: use dispatcher for unified run-start + origin_kind
-      const { attemptId } = await dispatcher.dispatch({
-        kind: "mention",
-        runId,
-        threadId,
-        spec,
-        opts: {
-          preloadedMessages,
-          surfaceContext,
-          trace,
-        },
+      const isLark = members.some((m) => m.kind === "human" && m.userRef?.startsWith("lark:"));
+      const runDeps = makeRunDeps({
+        config: _config,
+        supervisor,
+        opsStore,
+        agentSvc,
+        convPort,
+        sessionFactory: _sessionFactory,
+      });
+      const spanId = crypto.randomUUID();
+      return executeAgentRun(runDeps, {
+        spanId,
+        sessionId: sessionId,
+        agentId: ctx.agentId,
+        input: ctx.input ?? "",
         origin: {
+          kind: "conversation",
           conversationId: ctx.conversationId,
-          sourceLedgerSeq: ctx.ledgerSeq,
-          agentMemberId: ctx.agentMemberId,
-          surface: surfaceContext?.surface ?? "web",
-          traceId: trace.traceId,
-          traceparent: trace.traceparent,
-          idempotencyKey: `${ctx.conversationId}:${ctx.ledgerSeq}:run`,
-          issueId: null,
-          fromStatus: "",
+          surface: isLark ? "lark" : "web",
+          senderName: ctx.agentMemberId,
+        },
+        onAssistantMessage: (payload) => {
+          const rev = payload as unknown as MessageRevision;
+          void handleAssistantMessage(sessionId, rev.spanId ?? spanId, rev);
+        },
+        onTodoUpdate: (todos) => {
+          // lastTodoUpdate is consumed by onRunComplete Phase 3 appendTodo
+          const senderMemberId = parseSessionId(sessionId).memberId || sessionId;
+          const acc = getOrCreateAccumulator(spanId, senderMemberId);
+          acc.lastTodoUpdate = { todos };
         },
       });
-
-      return { runId, attemptId };
     },
 
-    verifyRunOwnsConversation: async (runId, conversationId) => {
-      const runDb = supervisor.getDb();
-      const row = runDb.query("SELECT thread_id FROM run WHERE run_id = ?").get(runId) as
-        | { thread_id: string }
-        | undefined;
-      if (!row) throw new Error(`run not found: ${runId}`);
-      if (!row.thread_id.startsWith(`${conversationId}:`)) {
-        throw new Error(`run ${runId} does not belong to conversation ${conversationId}`);
+    verifyRunOwnsConversation: async (spanId, conversationId) => {
+      const sessionId = opsStore.getSessionIdBySpanId(spanId);
+      if (!sessionId) throw new Error(`run not found: ${spanId}`);
+      if (!sessionId.startsWith(`${conversationId}:`)) {
+        throw new Error(`run ${spanId} does not belong to conversation ${conversationId}`);
       }
     },
   });
 
-  return { convPort, convSvc, threadProjectionSvc, lock };
-}
-
-// ─── Spec builder (shared by forkRun and HTTP run routes) ──────
-
-/** M14.7: Single spec builder for all run modes. Reads agent config for model/permission/maxSteps. */
-export async function buildAgentSpecV2(
-  db: Database,
-  agentSvc: AgentService,
-  threadId: string,
-  input: string,
-  overrides?: {
-    runId?: string;
-    mode?: "run" | "resume" | "reflect";
-    resumeCommand?: { approved: boolean; message?: string };
-    conversationId?: string;
-    senderMemberId?: string;
-    parentRunId?: string;
-  },
-): Promise<Record<string, unknown>> {
-  const { conversationId: cid, memberId } = parseThreadId(threadId);
-  const member = db
-    .query("SELECT agent_id FROM member WHERE conversation_id = ? AND member_id = ?")
-    .get(cid, memberId) as { agent_id: string } | undefined;
-  const agentId = member?.agent_id ?? memberId;
-  const agent = await agentSvc.getById(agentId);
-  return {
-    schemaVersion: "2",
-    agentId,
-    threadId,
-    runId: overrides?.runId ?? crypto.randomUUID(),
-    mode: overrides?.mode ?? "run",
-    input,
-    model: {
-      provider: agent.modelProvider,
-      model: agent.modelName,
-      ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}),
-    },
-    permissionMode: agent.permissionMode ?? "ask",
-    maxSteps: agent.maxSteps ?? undefined,
-    ...overrides,
-  };
+  return { convPort, convSvc, lock };
 }

@@ -159,10 +159,10 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
               <Button
                 key={a.id}
                 onClick={() => scrollToAnchor(a.elementId)}
-                className={`text-[10px] leading-none w-6 h-5 flex items-center justify-center rounded-sm transition-colors font-mono
+                className={`text-[10px] leading-none w-6 h-5 flex items-center justify-center rounded-sm transition-colors font-mono bg-transparent
                   ${
                     a.elementId === activeAnchor
-                      ? "text-[var(--primary)] bg-[var(--primary)]/8"
+                      ? "text-[var(--ink-strong)] bg-[var(--primary)]"
                       : "text-[var(--hairline)] hover:text-[var(--mute)] hover:bg-[var(--canvas-soft)]"
                   }`}
                 title={`Turn ${a.seq}`}
@@ -233,6 +233,8 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                           name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
                           kind={m.sender.kind}
                           content={extractText(m.content)}
+                          isStreaming={m.content.state === "streaming"}
+                          runStatus={m.content.runStatus}
                         />
                       )}
                       {renderContentBlocks(m.content)}

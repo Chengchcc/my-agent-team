@@ -7,7 +7,6 @@ last_verified_against_code: 2026-06-16
 summary: "这个系统的安全性不是靠一道总闸，而是靠几条彼此正交的隔离边界叠加：后端入口的鉴权中间件、对话层的线程隔离、文件层的域隔离、以及执行层的工作区沙箱。理解它们各自挡住什么、各自不管什么，才能知道一条数据从入口到落盘一路被哪些边界约束。"
 depends_on:
   - conversation.members
-  - runner.agent-file-system
   - harness.harness
 used_by:
 ---
@@ -22,7 +21,7 @@ used_by:
 
 ## 对话层：线程隔离
 
-对话可见性的基本单位是**线程**，约定 `thread_id = conversationId:memberId`（由 `deriveThreadId` 推导）。同一个共享对话里，每个成员有自己的一条 projection_messages 记录。这条约定决定了「账本是共享的事实，但每个成员看到的投影是按自己的 thread 切出来的」——成员之间不会串台。
+对话可见性的基本单位是**会话**，约定 `sessionId = conversationId:memberId`。同一个共享对话里，每个成员有自己的一条消息投影记录（直接从 conversation_ledger 按 senderMemberId 读取）。这条约定决定了「账本是共享的事实，但每个成员看到的投影是按自己的 session 切出来的」——成员之间不会串台。
 
 在 Framework 内部，未显式指定时线程标识可退化为随机 UUID，保证每次运行至少有一个隔离的线程身份。
 
@@ -35,7 +34,6 @@ AgentFS 用「域」把文件访问切成互不越界的几块（packages/agent-
 | `shared` | 跨运行/成员共享（如 `/memory`） |
 | `private` | Agent 私有（如 `/skills` → `/private/skills`） |
 | `external` | 外部资源 |
-| `runner_state` | Runner 执行状态 |
 
 每次文件访问先按路径前缀匹配挂载项，再落到对应域的后端。Agent 看到的是友好路径，真实存储被域和挂载表挡在后面——它没法用一个 `/memory` 的句柄去读另一个域的数据。
 
@@ -57,6 +55,5 @@ AgentFS 用「域」把文件访问切成互不越界的几块（packages/agent-
 ## 关联页面
 
 - [对话与成员](../conversation/conversation-and-members.md)
-- [Agent 文件系统](../runner/agent-file-system.md)
 - [Harness 默认装配](../harness/harness.md)
 - [数据模型](../backend/data-model.md)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ActivityIcon,
   BotIcon,
@@ -10,6 +10,7 @@ import {
   LogOutIcon,
   MessageSquareIcon,
   MoreHorizontalIcon,
+  Package,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -39,7 +40,13 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { api } from "@/lib/api";
+import { useAgentList } from "@/features/agents/hooks";
+import {
+  conversationKeys,
+  useConversationList,
+  useCreateConversation,
+  useDeleteConversation,
+} from "@/features/conversations/hooks";
 
 function NavContent() {
   const pathname = usePathname();
@@ -47,66 +54,16 @@ function NavContent() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const { data: agents } = useQuery({
-    queryKey: ["agents"],
-    queryFn: api.listAgents,
-    staleTime: 30_000,
-  });
+  const { data: agents } = useAgentList();
 
   const activeAgents = (agents ?? []).filter((a) => !a.archivedAt);
   const agentIdMatch = pathname.match(/\/agents\/([^/]+)/);
   const selectedAgentId = agentIdMatch?.[1] ?? null;
 
-  const { data: conversations } = useQuery({
-    queryKey: ["conversations", selectedAgentId],
-    queryFn: () => api.listConversations(selectedAgentId!),
-    enabled: !!selectedAgentId,
-    staleTime: 10_000,
-  });
+  const { data: conversations } = useConversationList(selectedAgentId!);
+  const deleteConversation = useDeleteConversation();
 
-  const deleteConversation = useMutation({
-    mutationFn: (id: string) => api.deleteConversation(id),
-    onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: ["conversations", selectedAgentId] });
-      if (pathname === `/conversations/${id}`) {
-        router.push(selectedAgentId ? `/agents/${selectedAgentId}` : "/");
-      }
-    },
-    onError: (err) => {
-      toast.error("Failed to delete conversation", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    },
-  });
-
-  const createConversation = useMutation({
-    mutationFn: (input: { displayName?: string }) =>
-      api.createConversation({
-        members: [
-          {
-            memberId: selectedAgentId!,
-            kind: "agent" as const,
-            agentId: selectedAgentId!,
-            displayName: input.displayName,
-          },
-          {
-            memberId: `human-${crypto.randomUUID().slice(0, 8)}`,
-            kind: "human" as const,
-            userRef: "__legacy__",
-            displayName: "User",
-          },
-        ],
-      }),
-    onSuccess: (conv) => {
-      closeMobile();
-      router.push(`/conversations/${conv.conversationId}`);
-    },
-    onError: (err) => {
-      toast.error("Failed to create conversation", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    },
-  });
+  const createConversation = useCreateConversation();
 
   function closeMobile() {
     setOpenMobile(false);
@@ -152,7 +109,35 @@ function NavContent() {
               disabled={createConversation.isPending}
               onClick={() => {
                 const a = activeAgents.find((ag) => ag.id === selectedAgentId);
-                createConversation.mutate({ displayName: a?.name });
+                createConversation.mutate(
+                  {
+                    members: [
+                      {
+                        memberId: selectedAgentId!,
+                        kind: "agent" as const,
+                        agentId: selectedAgentId!,
+                        displayName: a?.name,
+                      },
+                      {
+                        memberId: `human-${crypto.randomUUID().slice(0, 8)}`,
+                        kind: "human" as const,
+                        userRef: "__legacy__",
+                        displayName: "User",
+                      },
+                    ],
+                  },
+                  {
+                    onSuccess: (conv) => {
+                      closeMobile();
+                      router.push(`/conversations/${conv.conversationId}`);
+                    },
+                    onError: (err) => {
+                      toast.error("Failed to create conversation", {
+                        description: err instanceof Error ? err.message : "Unknown error",
+                      });
+                    },
+                  },
+                );
               }}
               className="ml-auto text-primary hover:text-primary/80"
               aria-label="New conversation"
@@ -190,7 +175,23 @@ function NavContent() {
                         <DropdownMenuItem
                           variant="destructive"
                           disabled={deleteConversation.isPending}
-                          onClick={() => deleteConversation.mutate(conv.conversationId)}
+                          onClick={() =>
+                            deleteConversation.mutate(conv.conversationId, {
+                              onSuccess: () => {
+                                queryClient.invalidateQueries({
+                                  queryKey: conversationKeys.byAgent(selectedAgentId!),
+                                });
+                                if (pathname === `/conversations/${conv.conversationId}`) {
+                                  router.push(selectedAgentId ? `/agents/${selectedAgentId}` : "/");
+                                }
+                              },
+                              onError: (err) => {
+                                toast.error("Failed to delete conversation", {
+                                  description: err instanceof Error ? err.message : "Unknown error",
+                                });
+                              },
+                            })
+                          }
                         >
                           <Trash2Icon />
                           Delete conversation
@@ -247,6 +248,19 @@ function NavContent() {
               >
                 <ClockIcon />
                 <span className="truncate">Schedules</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/skill-packs")}
+                tooltip="Skill Packs"
+                onClick={() => {
+                  closeMobile();
+                  router.push("/skill-packs");
+                }}
+              >
+                <Package />
+                <span className="truncate">Skill Packs</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

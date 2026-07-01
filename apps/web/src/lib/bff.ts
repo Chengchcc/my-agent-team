@@ -1,13 +1,18 @@
+import { parseEnv } from "@my-agent-team/config";
+
+let _env: ReturnType<typeof parseEnv> | undefined;
+
+function env() {
+  if (!_env) _env = parseEnv(process.env);
+  return _env;
+}
+
 function getBackendUrl(): string {
-  const url = process.env.BACKEND_URL;
-  if (!url) throw new Error("BACKEND_URL env is required");
-  return url;
+  return env().BACKEND_URL;
 }
 
 function getBackendToken(): string {
-  const token = process.env.BACKEND_TOKEN;
-  if (!token) throw new Error("BACKEND_TOKEN env is required");
-  return token;
+  return env().BACKEND_AUTH_TOKEN;
 }
 
 const HOP_BY_HOP = new Set([
@@ -71,7 +76,7 @@ export async function proxyRequest(
   const BACKEND_TOKEN = getBackendToken();
 
   const url = new URL(req.url);
-  const upstreamUrl = `${BACKEND_URL}/api/${pathSegments.join("/")}${url.search}`;
+  const upstreamUrl = `${BACKEND_URL}/${pathSegments.join("/")}${url.search}`;
 
   const upstreamHeaders = stripHopByHop(req.headers);
   upstreamHeaders.set("x-auth-token", BACKEND_TOKEN);
@@ -83,7 +88,10 @@ export async function proxyRequest(
       method: req.method,
       headers: upstreamHeaders,
       body: hasBody(req.method) ? await req.arrayBuffer() : undefined,
-      signal: req.signal,
+      // SSE connections must stay open independently of the incoming request
+      // lifecycle — passing req.signal causes Next.js dev-mode abort to kill
+      // the upstream SSE, triggering EventSource reconnect storms.
+      signal: isSsePath(pathSegments) ? undefined : req.signal,
     });
 
     const responseHeaders = passthroughHeaders(upstream.headers);

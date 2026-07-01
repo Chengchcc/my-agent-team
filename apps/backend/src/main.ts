@@ -1,17 +1,11 @@
 import { Database } from "bun:sqlite";
-import type { Message } from "@my-agent-team/message";
-import {
-  deserializeLedgerContent,
-  extractText,
-  isTerminalMessageState,
-  serializeMessageRevision,
-} from "@my-agent-team/message";
+import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import {
   createRuntimeTracer,
   resolveObservabilityConfig,
 } from "@my-agent-team/runtime-observability";
-import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createAgentSvc } from "./features/agent/agent-svc-factory.js";
 import { createAgentIdentityStore } from "./features/agent/identity-store.js";
@@ -21,16 +15,9 @@ import {
   createColumnConfigService,
   sqliteColumnConfigAdapter,
 } from "./features/column-config/index.js";
-import {
-  buildAgentSpecV2,
-  createConversationFeature,
-} from "./features/conversation/conv-svc-factory.js";
-import { conversationRoutes, parseThreadId } from "./features/conversation/index.js";
-import {
-  escapeRegExp,
-  getOrCreateAccumulator,
-  onRunComplete,
-} from "./features/conversation/projection.js";
+import { createConversationFeature } from "./features/conversation/conv-svc-factory.js";
+import { conversationRoutes } from "./features/conversation/index.js";
+import { onRunComplete } from "./features/conversation/projection.js";
 import {
   createCronJobService,
   createCronScheduler,
@@ -41,7 +28,6 @@ import {
   createDeliverableService,
   sqliteDeliverableAdapter,
 } from "./features/deliverable/index.js";
-import { sqliteEventLog } from "./features/event-log/index.js";
 import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
@@ -51,19 +37,23 @@ import {
   projectRoutes,
   sqliteProjectAdapter,
 } from "./features/project/index.js";
-import { createRunDispatcher } from "./features/run/dispatcher.js";
-import { runEventsDbMigrations } from "./features/run/events-db-migrations.js";
-import { createRunService, runRoutes } from "./features/run/index.js";
-import { createRunnerRegistry } from "./features/run/runner-registry-factory.js";
-import { RunSupervisor } from "./features/run/supervisor.js";
 import {
   createRuntimeOpsService,
   opsRoutes,
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
-import { threadProjectionRoutes } from "./features/thread-projection/index.js";
-import { createRouter } from "./http/router.js";
-import * as eventsSchema from "./infra/db/events-schema.js";
+import {
+  createSkillPackService as createSkillPackServiceFn,
+  runInstall,
+  runSync,
+  seedSkillPacks,
+  setSkillPackPort,
+  skillPackRoutes,
+  sqliteSkillPackAdapter,
+} from "./features/skill-pack/index.js";
+import { resumeRoutes } from "./features/span/http.js";
+import { createSessionFactory } from "./features/span/session-factory.js";
+import { SpanSupervisor } from "./features/span/supervisor.js";
 import * as backendSchema from "./infra/db/schema.js";
 import { ulid } from "./infra/ids.js";
 import { openDb } from "./infra/sqlite/db.js";
@@ -73,199 +63,109 @@ import { createServer } from "./server.js";
 
 const config = loadConfig();
 const db = openDb(`${config.dataDir}/backend.db`);
+// Single database — all backend-package-owned tables live in one SQLite file.
 
-// EventLog + Supervisor
-const eventsDb = new Database(`${config.dataDir}/events.db`);
-eventsDb.exec("PRAGMA journal_mode=WAL");
-eventsDb.exec("PRAGMA busy_timeout=5000");
-runEventsDbMigrations(eventsDb);
-
-const eventLog = sqliteEventLog({ db: `${config.dataDir}/events.db` });
 const obsConfig = resolveObservabilityConfig({ serviceName: "backend" });
 const tracer = createRuntimeTracer(obsConfig);
-const opsStore = new RuntimeOpsStore(eventsDb);
+const opsStore = new RuntimeOpsStore(db);
 
-const registry = createRunnerRegistry(config);
-const supervisor = new RunSupervisor({
-  eventLog,
+// Runner daemon removed — AgentSession runs in-process. Supervisor manages
+// run/attempt rows without transport (NOOP_TRANSPORT is the internal default).
+
+// Shared SessionFactory — all execution paths (conversation, cron, orchestrator)
+// and the resume route share the same instance so sessions are visible across
+// the process. Replaces the per-run session-registry.ts.
+const sessionFactory = createSessionFactory({ config });
+
+const supervisor = new SpanSupervisor({
   config,
-  registry,
   opsStore,
   tracer,
-  db: eventsDb,
+  db: db,
+  onReap: (_runId, sessionId) => sessionFactory.dispose(sessionId),
 });
 
-// M19: Unified run-start mechanism — single dispatcher for all three entry points
-const dispatcher = createRunDispatcher({ supervisor, opsStore });
+// ─── Skill Pack Management (before agentSvc — onCreate depends on it) ──
+
+const skillPackPort = sqliteSkillPackAdapter(db);
+setSkillPackPort(skillPackPort);
+
+await seedSkillPacks({
+  port: skillPackPort,
+  dataDir: config.dataDir,
+  builtinSkillsDir: config.builtinSkillsDir,
+});
+const skillPackSvc = createSkillPackServiceFn({
+  port: skillPackPort,
+  idGen: ulid,
+  triggerInstall: (packId, ctx) => {
+    void runInstall(
+      { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
+      {
+        model: new AnthropicChatModel({
+          apiKey: config.anthropicApiKey,
+          model: "claude-sonnet-4-6",
+          baseUrl: config.anthropicBaseUrl,
+        }),
+        dataDir: config.dataDir,
+        port: skillPackPort,
+        zipBuffer:
+          ctx.sourceKind === "zip" && ctx.sourceUrl
+            ? Buffer.from(ctx.sourceUrl, "base64")
+            : undefined,
+      },
+    ).catch((err) => console.error(`[skill-pack] install failed for ${packId}:`, err));
+  },
+  triggerSync: (packId, ctx) => {
+    void runSync(
+      { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
+      {
+        model: new AnthropicChatModel({
+          apiKey: config.anthropicApiKey,
+          model: "claude-sonnet-4-6",
+          baseUrl: config.anthropicBaseUrl,
+        }),
+        dataDir: config.dataDir,
+        port: skillPackPort,
+      },
+    ).catch((err) => console.error(`[skill-pack] sync failed for ${packId}:`, err));
+  },
+});
 
 // Feature services
 const larkBotRegistry = createLarkBotRegistry(config);
-const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry);
+const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry, {
+  onAgentCreate: (agentId) => skillPackSvc.setAgentPacks(agentId, ["builtin"]),
+});
 const conv = createConversationFeature(
   db,
   config,
   supervisor,
   agentSvc,
   opsStore,
-  tracer,
-  dispatcher,
+  undefined,
+  sessionFactory,
 );
-
-// Run service
-const runSvc = createRunService({
-  supervisor,
-  eventLog,
-  maxConcurrentRuns: config.maxConcurrentRuns,
-  lock: conv.lock,
-  idGen: ulid,
-  dispatcher,
-  autoTitle: {
-    getThread: async (tid) => {
-      const cid = parseThreadId(tid).conversationId || tid;
-      const c = conv.convPort.getConversation(cid);
-      if (c?.title) return { title: c.title };
-      return c ? { title: null } : null;
-    },
-    getMessages: async (tid) => {
-      // Read from ledger (M17.5 P7 canonical source), not thread projection
-      const cid = parseThreadId(tid).conversationId || tid;
-      const entries = conv.convPort.getLedgerEntries(cid);
-      const folded = new Map<string, { role: "user" | "assistant"; text: string }>();
-      for (const entry of entries) {
-        if (entry.kind !== "message") continue;
-        const parsed = deserializeLedgerContent(entry.content);
-        if (!("messageId" in parsed)) continue;
-        const role =
-          entry.senderMemberId && !entry.senderMemberId.startsWith("human")
-            ? ("assistant" as const)
-            : ("user" as const);
-        if (parsed.text) {
-          folded.set(parsed.messageId, { role, text: parsed.text });
-        }
-      }
-      const msgs = [...folded.values()];
-      return msgs.length > 0 ? (msgs as Message[]) : null;
-    },
-    setTitle: async (tid, title) => {
-      const cid = parseThreadId(tid).conversationId || tid;
-      conv.convPort.setConversationTitle(cid, title);
-    },
-    llm: { apiKey: config.anthropicApiKey },
-  },
-});
 
 // ─── Event wiring ─────────────────────────────────────────────
 
 // P2: onRunComplete is AWAITED by supervisor — critical sink (ledger terminal write).
 // P1: run_finalized already sent before this, so await doesn't block control signal.
-supervisor.onRunComplete((threadId, runId, status, kind) => {
+supervisor.onRunComplete((sessionId, spanId, status, kind, errorMessage) => {
   // M19: issue-run isolation now handled by origin_kind in projection/reactor
-  return onRunComplete(threadId, runId, status, conv.convPort, conv.convSvc, opsStore, kind);
-});
-
-// M17.5 P3: @mention regex cache — compile once per label, not per streaming revision.
-const mentionRegexCache = new Map<string, RegExp>();
-function getMentionRegex(label: string): RegExp {
-  let re = mentionRegexCache.get(label);
-  if (!re) {
-    re = new RegExp(`@${escapeRegExp(label)}(?=\\s|[,.!?;:]|$)`, "g");
-    mentionRegexCache.set(label, re);
-  }
-  return re;
-}
-
-// M17.5 P7: Authoritative ledger write for assistant messages — direct path,
-// bypassing event_log. This replaces the old event_log → projection → ledger
-// indirection. Message events are now written to ledger BEFORE EventLog, and
-// EventLog only receives non-message execution events.
-supervisor.onRunMessage(async (threadId, runId, revision, kind) => {
-  if (kind === "reflect") return;
-  // M19: issue-run isolation now handled by origin_kind in projection
-  const cid = parseThreadId(threadId).conversationId;
-  if (!cid) return;
-  const senderMemberId = parseThreadId(threadId).memberId || threadId;
-
-  // Write directly to ledger (authoritative entry for assistant messages)
-  const seq = await conv.convSvc.appendAssistantMessage({
-    conversationId: cid,
-    senderMemberId,
-    runId,
-    revision,
-  });
-
-  // Update accumulator for terminal processing (onRunComplete)
-  const acc = getOrCreateAccumulator(runId, senderMemberId);
-  if (revision.role === "assistant") {
-    acc.latestAssistantRevision = { ...revision, conversationId: cid };
-
-    // @mention scanning (only on terminal revisions)
-    if (isTerminalMessageState(revision.state)) {
-      const text = extractText(revision);
-      if (text) {
-        const roster = conv.convPort.getMembers(cid);
-        for (const m of roster) {
-          if (m.kind !== "agent" || m.memberId === senderMemberId) continue;
-          const label = m.displayName ?? m.memberId;
-          const re = getMentionRegex(label);
-          if (re.test(text) || text.includes(`@${m.memberId}`)) {
-            acc.mentionedMemberIds.add(m.memberId);
-          }
-        }
-      }
-    }
-  }
-
-  // Fan-out to frontend subscribers (best-effort)
-  const entry = {
-    seq,
-    conversationId: cid,
-    senderMemberId,
-    addressedTo: [] as string[],
-    kind: "message" as const,
-    content: serializeMessageRevision({ ...revision, conversationId: cid, runId }),
-    ts: Date.now(),
-  };
-  void conv.convSvc
-    .broadcastMessage(entry, { excludeMemberId: senderMemberId })
-    .catch((err) =>
-      console.error(
-        `[main] broadcastMessage failed for ${runId}:`,
-        err instanceof Error ? err.message : String(err),
-      ),
-    );
-});
-
-// M17.5 P7: onRunEvent is now best-effort observability only. Message events
-// are handled by onRunMessage (authoritative ledger write). This callback only
-// sees non-message events (todo_update, tool_start, tool_end, text_delta).
-supervisor.onRunEvent((threadId, runId, event, _kind) => {
-  // M19: issue-run isolation now handled by origin_kind in projection
-  if (event.type === "todo_update") {
-    const cid = parseThreadId(threadId).conversationId;
-    if (!cid) return;
-    const senderMemberId = parseThreadId(threadId).memberId || threadId;
-    const acc = getOrCreateAccumulator(runId, senderMemberId);
-    const payload = (event as { payload?: { todos?: unknown } }).payload;
-    if (payload?.todos) acc.lastTodoUpdate = { todos: payload.todos };
-    return;
-  }
-  // Non-message, non-todo events (tool_start, tool_end, etc.) — no-op.
-  // Observability is handled by the EventLog append in supervisor.
+  return onRunComplete(
+    sessionId,
+    spanId,
+    status,
+    conv.convPort,
+    conv.convSvc,
+    opsStore,
+    kind,
+    errorMessage,
+  );
 });
 
 // ─── HTTP router ──────────────────────────────────────────────
-
-const eventsDrizzle = drizzle(eventsDb, { schema: eventsSchema });
-
-const getThreadIdForRun = async (runId: string) => {
-  const row = eventsDrizzle
-    .select({ threadId: eventsSchema.run.threadId })
-    .from(eventsSchema.run)
-    .where(eq(eventsSchema.run.runId, runId))
-    .get();
-  if (!row) throw new Error(`Run not found: ${runId}`);
-  return row.threadId;
-};
 
 const identityStore = createAgentIdentityStore({
   dataDir: config.dataDir,
@@ -274,9 +174,8 @@ const identityStore = createAgentIdentityStore({
 
 // Lark-bot setup manager (lazy — created on first setup request)
 let setupManager: LarkSetupManager | undefined;
-function getSetupManager(): LarkSetupManager {
+function getSetupManager(provisioner = new CliSetupProvisioner()): LarkSetupManager {
   if (!setupManager) {
-    const provisioner = new CliSetupProvisioner();
     setupManager = new LarkSetupManager(provisioner, async (session) => {
       await agentSvc.update(session.agentId, {
         lark: { enabled: true, botDisplayName: session.botDisplayName ?? undefined },
@@ -292,7 +191,29 @@ function getSetupManager(): LarkSetupManager {
   return setupManager;
 }
 
-// Ops service
+// Ops service — read-only access to checkpoint_events (run-loop is the writer)
+import { createCheckpointEventsStore } from "./features/runtime-ops/checkpoint-events-store.js";
+
+let checkpointEventsStore: ReturnType<typeof createCheckpointEventsStore>;
+try {
+  const checkpointDb = new Database(`${config.dataDir}/checkpointer.db`, { readonly: true });
+  checkpointEventsStore = createCheckpointEventsStore(checkpointDb);
+} catch (err) {
+  if ((err as { code?: string }).code === "SQLITE_CANTOPEN") {
+    const noop = () => [];
+    checkpointEventsStore = {
+      readBySpan: noop,
+      readBySession: noop,
+      readWindow: noop,
+    };
+    console.warn(
+      `[bootstrap] checkpointer.db not found at ${config.dataDir} — ops fact-events will be empty until the first agent run`,
+    );
+  } else {
+    throw err;
+  }
+}
+
 const backendDrizzle = drizzle(db, { casing: "snake_case", schema: backendSchema });
 const agentNames = new Map<string, string>();
 {
@@ -303,12 +224,9 @@ const agentNames = new Map<string, string>();
   for (const r of rows) agentNames.set(r.id, r.name);
 }
 const opsSvc = createRuntimeOpsService({
-  db: eventsDb,
   opsStore,
   supervisor,
-  registry,
-  heartbeatTimeoutMs: config.heartbeatTimeoutMs,
-  eventLog,
+  checkpointEventsStore,
   getAgentName: (agentId) => agentNames.get(agentId),
 });
 
@@ -353,48 +271,26 @@ const cronSvc = createCronJobService({
   },
 });
 
-// M18.2 Orchestrator: build spec by agentId directly (not via member table)
-const buildIssueSpec = async (agentId: string, threadId: string, input: string) => {
-  const agent = await agentSvc.getById(agentId);
-  return {
-    schemaVersion: "2",
-    agentId,
-    threadId,
-    runId: crypto.randomUUID(),
-    mode: "run",
-    input,
-    model: {
-      provider: agent.modelProvider,
-      model: agent.modelName,
-      ...(agent.modelBaseUrl ? { baseURL: agent.modelBaseUrl } : {}),
-    },
-    permissionMode: agent.permissionMode ?? "ask",
-    maxSteps: agent.maxSteps ?? undefined,
-  };
-};
-
 // M21: CronJob scheduler — register retry listener before orchestrator's onRunComplete
-const makeTrace = () => tracer.inject();
 const cronScheduler = createCronScheduler({
   cronSvc,
-  dispatcher,
   supervisor,
   opsStore,
-  buildSpec: buildIssueSpec,
+  config,
+  agentSvc,
   idGen: ulid,
-  trace: makeTrace,
+  sessionFactory,
 });
 
 const orchestrator = createOrchestrator({
+  config,
   issueSvc,
   agentSvc,
   supervisor,
   opsStore,
-  buildSpec: buildIssueSpec,
   idGen: ulid,
   columnConfigSvc,
   deliverableSvc,
-  dispatcher,
   projectSvc: {
     getById: (id: string) => projectSvc.getById(id),
   },
@@ -402,26 +298,36 @@ const orchestrator = createOrchestrator({
   convPort: {
     addMember: (input) => conv.convPort.addMember(input),
   },
+  sessionFactory,
 });
 
 // Register orchestrator's backfill listener (alongside conversation's onRunComplete)
-supervisor.onRunComplete((threadId, runId, status, kind) =>
-  orchestrator.onRunComplete(threadId, runId, status, kind),
+supervisor.onRunComplete((sessionId, spanId, status, kind) =>
+  orchestrator.onRunComplete(sessionId, spanId, status, kind),
 );
 
-const router = createRouter(config.authToken, {
+// Resume route for ToolApprovalCard interrupt flow — uses AgentSession.resume()
+// spanId → sessionId lookup via opsStore (run table); live session via SessionFactory.peek
+const resumeRun = resumeRoutes({
+  sessionFactory,
+  getSessionIdByRunId: (spanId) => opsStore.getRuns([spanId])[0]?.sessionId ?? null,
+});
+
+const app = createApp(config.authToken, {
+  resumeRun,
   agents: agentRoutes(
     agentSvc,
+    {
+      listForAgent: (id: string) =>
+        skillPackSvc
+          .listForAgent(id)
+          .then((rows) => rows.map((r) => ({ id: r.id, name: r.name, status: r.status }))),
+      setAgentPacks: (id: string, packIds: string[]) => skillPackSvc.setAgentPacks(id, packIds),
+    },
     identityStore,
-    (id) => larkBotRegistry.statusOf(id),
+    (id: string) => larkBotRegistry.statusOf(id),
     getSetupManager,
   ),
-  runs: runRoutes(
-    runSvc,
-    (threadId, input, overrides) => buildAgentSpecV2(db, agentSvc, threadId, input, overrides),
-    getThreadIdForRun,
-  ),
-  threadProjections: threadProjectionRoutes(conv.threadProjectionSvc),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),
   issues: issueRoutes(issueSvc, opsStore, deliverableSvc, {
@@ -434,12 +340,13 @@ const router = createRouter(config.authToken, {
   projects: projectRoutes(projectSvc),
   columnConfigs: columnConfigRoutes(columnConfigSvc),
   cronJobs: cronJobRoutes(cronSvc, cronScheduler),
+  skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
 });
 
 // ─── Start ────────────────────────────────────────────────────
 
-const server = createServer(config, router);
-await supervisor.rediscover(eventLog);
+const server = createServer(config, app);
+// rediscover removed — AgentSession runs in-process, no daemon to reattach
 server.start();
 cronScheduler.start();
 console.log(`[backend] listening on ${config.host}:${config.port}`);
@@ -462,11 +369,10 @@ const shutdown = async (signal: string) => {
   server.stop();
   supervisor.cancelAll();
   await new Promise((r) => setTimeout(r, config.cancelGraceMs));
-  // Stop cron timers/watchdogs BEFORE the supervisor closes eventsDb, so a
-  // watchdog or retry firing in the grace window can't touch a closed DB.
+  // Stop cron timers/watchdogs before supervisor dispose, so a watchdog
+  // or retry firing in the grace window can't touch a closed DB.
   cronScheduler.dispose();
   await supervisor.dispose();
-  await registry.dispose?.();
   await larkBotRegistry.dispose();
   setupManager?.dispose();
   db.close();

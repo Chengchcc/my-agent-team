@@ -1,11 +1,9 @@
-import type { Database } from "bun:sqlite";
-import { getAllRunStreams } from "./bindings-sqlite.js";
-
 export interface LarkBotHealth {
   agentId: string;
   profileRef: string;
   status: "running" | "degraded" | "error";
   watchers: { conversation: number; runDelta: number };
+  /** run_stream table deleted — daemon removed, AgentSession runs in-process. API compat stub. */
   runStreams: {
     starting: number;
     streaming: number;
@@ -22,62 +20,51 @@ export interface LarkBotHealth {
 export function collectHealth(
   agentId: string,
   profileRef: string,
-  db: Database,
   watcherCounts: { conversation: number; runDelta: number },
   lastError: string | null,
 ): LarkBotHealth {
-  const allStreams = getAllRunStreams(db);
-  const runStreams = {
-    starting: 0,
-    streaming: 0,
-    done: 0,
-    error: 0,
-    fallbackText: 0,
-    cardSendFailed: 0,
-    cardUpdateFailed: 0,
-  };
-
-  for (const s of allStreams) {
-    if (s.status === "starting") runStreams.starting++;
-    else if (s.status === "streaming") runStreams.streaming++;
-    else if (s.status === "done") runStreams.done++;
-    else if (s.status === "error") runStreams.error++;
-    else if (s.status === "fallback_text") runStreams.fallbackText++;
-    if (s.cardSendFailed) runStreams.cardSendFailed++;
-    if (s.cardUpdateFailed) runStreams.cardUpdateFailed++;
-  }
-
-  const degraded =
-    runStreams.cardSendFailed > 0 || runStreams.cardUpdateFailed > 0 || lastError !== null;
-  const hasError = runStreams.error > 0;
-
   return {
     agentId,
     profileRef,
-    status: hasError ? "error" : degraded ? "degraded" : "running",
+    status: lastError ? "degraded" : "running",
     watchers: watcherCounts,
-    runStreams,
+    runStreams: {
+      starting: 0,
+      streaming: 0,
+      done: 0,
+      error: 0,
+      fallbackText: 0,
+      cardSendFailed: 0,
+      cardUpdateFailed: 0,
+    },
     lastError,
     ts: Date.now(),
   };
 }
+
+import { createClient } from "./client.js";
 
 export async function postHeartbeat(
   health: LarkBotHealth,
   backendUrl: string,
   backendAuthToken: string | null,
 ): Promise<void> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (backendAuthToken) headers["x-auth-token"] = backendAuthToken;
+  const client = createClient(backendUrl, backendAuthToken);
 
   try {
-    const res = await fetch(`${backendUrl}/api/internal/surfaces/lark/heartbeat`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(health),
+    const { error } = await client.api.internal.surfaces.lark.heartbeat.post({
+      agentId: health.agentId,
+      status: health.status,
+      payload: {
+        profileRef: health.profileRef,
+        watchers: health.watchers,
+        runStreams: health.runStreams,
+        ts: health.ts,
+      },
+      lastError: health.lastError ?? undefined,
     });
-    if (!res.ok) {
-      console.error(`[lark-bot] heartbeat POST failed: ${res.status}`);
+    if (error) {
+      console.error(`[lark-bot] heartbeat POST failed: ${JSON.stringify(error)}`);
     }
   } catch (err) {
     console.error(

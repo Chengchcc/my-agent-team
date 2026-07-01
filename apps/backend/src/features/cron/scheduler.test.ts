@@ -1,10 +1,11 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, mock, test } from "bun:test";
 import type { CronJobRow } from "./domain.js";
 import { createCronScheduler } from "./scheduler.js";
 
 type ListenerFn = (
-  threadId: string,
-  runId: string,
+  sessionId: string,
+  spanId: string,
   status: string,
   kind: string,
 ) => void | Promise<void>;
@@ -28,21 +29,28 @@ function makeJob(overrides: Partial<CronJobRow> = {}): CronJobRow {
 /** Minimal deps for exercises that only call register/unregister/dispose/start.
  *  onRunComplete is always called at construction time, so supervisor is required.
  *  Returns `any` to avoid declaring full CronJobService/RunDispatcher shapes. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function minimalDeps(overrides: Record<string, unknown> = {}): any {
   return {
     cronSvc: { port: { listEnabledCronJobs: () => [] as CronJobRow[] } },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dispatcher: null as any,
+    config: { dataDir: "/tmp", anthropicApiKey: "test" },
+    agentSvc: {
+      getById: async () => ({
+        modelName: "claude",
+        modelProvider: "anthropic",
+        modelBaseUrl: null,
+        permissionMode: "ask",
+        maxSteps: null,
+      }),
+    },
     supervisor: {
       cancel: () => {},
       onRunComplete: () => {},
+      startMainRun: async (id: string) => ({ spanId: id, attemptId: `att-${id}` }),
+      getActive: () => new Map() as ReadonlyMap<string, { abortController: AbortController }>,
+      notifyRunComplete: async () => {},
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     opsStore: null as any,
-    buildSpec: async () => ({}) as Record<string, unknown>,
     idGen: () => "r",
-    trace: () => ({ traceId: "t", traceparent: "tp" }),
     ...overrides,
   };
 }
@@ -131,7 +139,7 @@ describe("createCronScheduler", () => {
   });
 
   test("onRunComplete ignores non-cron origin", () => {
-    const appendRunEvent = mock(() => 1);
+    const appendControlPlaneEvent = mock(() => 1);
     let listener: ListenerFn | undefined;
     const scheduler = createCronScheduler(
       minimalDeps({
@@ -142,20 +150,20 @@ describe("createCronScheduler", () => {
           },
         },
         opsStore: {
-          getRunOrigin: () => ({ originKind: "manual", cronJobId: null }),
-          appendRunEvent,
+          getSpanOrigin: () => ({ originKind: "manual", cronJobId: null }),
+          appendControlPlaneEvent,
         },
         cronSvc: { port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob() } },
       }),
     );
     // Should not throw and should not record retry events
     listener!("thread-1", "r1", "error", "main");
-    expect(appendRunEvent).not.toHaveBeenCalled();
+    expect(appendControlPlaneEvent).not.toHaveBeenCalled();
     scheduler.dispose();
   });
 
   test("onRunComplete ignores completed cron run", () => {
-    const appendRunEvent = mock(() => 1);
+    const appendControlPlaneEvent = mock(() => 1);
     let listener: ListenerFn | undefined;
     const scheduler = createCronScheduler(
       minimalDeps({
@@ -166,26 +174,26 @@ describe("createCronScheduler", () => {
           },
         },
         opsStore: {
-          getRunOrigin: () => ({
+          getSpanOrigin: () => ({
             originKind: "cron",
             cronJobId: "cj-test",
             idempotencyKey: "cj-test:1234567890:run:0",
           }),
-          appendRunEvent,
+          appendControlPlaneEvent,
         },
         cronSvc: {
           port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 3 }) },
         },
       }),
     );
-    listener!("thread-1", "r1", "completed", "main");
+    listener!("thread-1", "r1", "succeeded", "main");
     // No retry events for completed runs
-    expect(appendRunEvent).not.toHaveBeenCalled();
+    expect(appendControlPlaneEvent).not.toHaveBeenCalled();
     scheduler.dispose();
   });
 
   test("onRunComplete records retry_requested event for failed cron run", () => {
-    const appendRunEvent = mock(() => 1);
+    const appendControlPlaneEvent = mock(() => 1);
     let listener: ListenerFn | undefined;
     const scheduler = createCronScheduler(
       minimalDeps({
@@ -196,12 +204,12 @@ describe("createCronScheduler", () => {
           },
         },
         opsStore: {
-          getRunOrigin: () => ({
+          getSpanOrigin: () => ({
             originKind: "cron",
             cronJobId: "cj-test",
             idempotencyKey: "cj-test:1234567890:run:0",
           }),
-          appendRunEvent,
+          appendControlPlaneEvent,
         },
         cronSvc: {
           port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 3 }) },
@@ -211,16 +219,15 @@ describe("createCronScheduler", () => {
     // Simulate an errored cron run
     listener!("thread-1", "r1", "error", "main");
     // retry_requested event must be recorded synchronously (before setTimeout fires)
-    expect(appendRunEvent).toHaveBeenCalledTimes(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const call = (appendRunEvent as any).mock.calls[0][0];
+    expect(appendControlPlaneEvent).toHaveBeenCalledTimes(1);
+    const call = (appendControlPlaneEvent as any).mock.calls[0][0];
     expect(call.kind).toBe("retry_requested");
     expect(call.payload.attempt).toBe(1);
     scheduler.dispose();
   });
 
   test("onRunComplete does not retry beyond maxRetries", () => {
-    const appendRunEvent = mock(() => 1);
+    const appendControlPlaneEvent = mock(() => 1);
     let listener: ListenerFn | undefined;
     let callCount = 0;
     const scheduler = createCronScheduler(
@@ -232,12 +239,12 @@ describe("createCronScheduler", () => {
           },
         },
         opsStore: {
-          getRunOrigin: () => ({
+          getSpanOrigin: () => ({
             originKind: "cron",
             cronJobId: "cj-test",
             idempotencyKey: `cj-test:1700000000:run:${callCount}`,
           }),
-          appendRunEvent,
+          appendControlPlaneEvent,
         },
         cronSvc: {
           port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 2 }) },
@@ -252,18 +259,14 @@ describe("createCronScheduler", () => {
     listener!("thread-1", "r2", "error", "main");
     callCount++;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const retryEvents = (appendRunEvent as any).mock.calls.filter(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const retryEvents = (appendControlPlaneEvent as any).mock.calls.filter(
       (c: any) => c[0].kind === "retry_requested",
     );
     expect(retryEvents).toHaveLength(2);
 
     // Third failure — maxRetries reached, no more retries
     listener!("thread-1", "r3", "error", "main");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const retryEventsAfter = (appendRunEvent as any).mock.calls.filter(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const retryEventsAfter = (appendControlPlaneEvent as any).mock.calls.filter(
       (c: any) => c[0].kind === "retry_requested",
     );
     expect(retryEventsAfter).toHaveLength(2); // still 2, no new one
@@ -272,7 +275,7 @@ describe("createCronScheduler", () => {
   });
 
   test("onRunComplete does not retry when job has maxRetries=0", () => {
-    const appendRunEvent = mock(() => 1);
+    const appendControlPlaneEvent = mock(() => 1);
     let listener: ListenerFn | undefined;
     const scheduler = createCronScheduler(
       minimalDeps({
@@ -283,12 +286,12 @@ describe("createCronScheduler", () => {
           },
         },
         opsStore: {
-          getRunOrigin: () => ({
+          getSpanOrigin: () => ({
             originKind: "cron",
             cronJobId: "cj-test",
             idempotencyKey: "cj-test:1234567890:run:0",
           }),
-          appendRunEvent,
+          appendControlPlaneEvent,
         },
         cronSvc: {
           port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 0 }) },
@@ -296,7 +299,7 @@ describe("createCronScheduler", () => {
       }),
     );
     listener!("thread-1", "r1", "error", "main");
-    expect(appendRunEvent).not.toHaveBeenCalled();
+    expect(appendControlPlaneEvent).not.toHaveBeenCalled();
     scheduler.dispose();
   });
 
@@ -311,12 +314,12 @@ describe("createCronScheduler", () => {
           },
         },
         opsStore: {
-          getRunOrigin: () => ({
+          getSpanOrigin: () => ({
             originKind: "cron",
             cronJobId: "cj-wd",
             idempotencyKey: "cj-wd:1234567890:run:0",
           }),
-          appendRunEvent: mock(() => 1),
+          appendControlPlaneEvent: mock(() => 1),
         },
         cronSvc: {
           port: { listEnabledCronJobs: () => [], getCronJob: () => makeJob({ maxRetries: 0 }) },
@@ -325,7 +328,7 @@ describe("createCronScheduler", () => {
     );
     // Call onRunComplete for the watched run — watchdog cleanup path exercises
     // without throwing even when no watchdog was pre-registered.
-    listener!("thread-1", "r-wd", "completed", "main");
+    listener!("thread-1", "r-wd", "succeeded", "main");
     scheduler.dispose();
   });
 });

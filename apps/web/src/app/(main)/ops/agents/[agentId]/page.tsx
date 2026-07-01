@@ -1,8 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { AgentRuntimeCard } from "@/components/ops/AgentRuntimeCard";
 import { QueryState } from "@/components/ops/QueryState";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import {
@@ -13,24 +11,14 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { api } from "@/lib/api";
+import { useOpsAgentRuntime, useOpsRuns } from "@/features/ops/hooks";
 
 export default function AgentRuntimePage() {
   const { agentId } = useParams<{ agentId: string }>();
 
-  const runtimeQuery = useQuery({
-    queryKey: ["ops", "agentRuntime", agentId],
-    queryFn: () => api.getAgentRuntime(agentId),
-    enabled: !!agentId,
-    refetchInterval: 10_000,
-  });
+  const runtimeQuery = useOpsAgentRuntime(agentId);
 
-  const runsQuery = useQuery({
-    queryKey: ["ops", "runs", agentId],
-    queryFn: () => api.listOpsRuns({ agentId, limit: 20 }),
-    enabled: !!agentId,
-    refetchInterval: 10_000,
-  });
+  const runsQuery = useOpsRuns({ agentId });
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -53,7 +41,12 @@ export default function AgentRuntimePage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-1">
           <QueryState query={runtimeQuery}>
-            {(runtime) => <AgentRuntimeCard runtime={runtime} />}
+            {(runtime) => (
+              <div className="rounded-lg border p-4 space-y-2">
+                <p className="font-semibold text-sm">{runtime.agentName}</p>
+                <p className="text-xs text-muted-foreground font-mono">{runtime.agentId}</p>
+              </div>
+            )}
           </QueryState>
         </div>
         <div className="md:col-span-2">
@@ -62,14 +55,7 @@ export default function AgentRuntimePage() {
               Recent Runs
             </h2>
             <div className="rounded-lg border">
-              <QueryState query={runsQuery}>
-                {(runs) => (
-                  <RunOpsTable
-                    runs={runs}
-                    heartbeatTimeoutMs={runtimeQuery.data?.heartbeatTimeoutMs}
-                  />
-                )}
-              </QueryState>
+              <QueryState query={runsQuery}>{(runs) => <RunOpsTable runs={runs} />}</QueryState>
             </div>
           </section>
         </div>

@@ -1,17 +1,14 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useRecoverRun } from "@/features/ops/hooks";
 import type { AgentRuntimeStatus, RunOpsListItem } from "@/lib/api";
-import { api } from "@/lib/api";
-import { hasSurfaceError, isDetachedRun, isStaleRun, isUnhealthyAgent } from "@/lib/ops-diagnosis";
 
 interface NeedsAttentionProps {
-  runs: RunOpsListItem[];
+  runs?: RunOpsListItem[];
   runtimes: AgentRuntimeStatus[];
-  heartbeatTimeoutMs: number;
 }
 
 type Severity = "critical" | "warn";
@@ -20,7 +17,7 @@ interface AttentionItem {
   severity: Severity;
   label: string;
   href: string;
-  runId?: string;
+  spanId?: string;
   actionable: boolean;
 }
 
@@ -30,20 +27,7 @@ const severityColor: Record<Severity, string> = {
 };
 
 function RecoverButton({ runId }: { runId: string }) {
-  const qc = useQueryClient();
-  const mut = useMutation({
-    mutationFn: () => api.opsRecoverRun(runId),
-    onSuccess: () => {
-      toast.success("Recovery initiated");
-      qc.invalidateQueries({ queryKey: ["ops", "runs"] });
-      qc.invalidateQueries({ queryKey: ["ops", "agentRuntime"] });
-    },
-    onError: (err) => {
-      toast.error("Recover failed", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    },
-  });
+  const mut = useRecoverRun();
 
   return (
     <Button
@@ -52,7 +36,13 @@ function RecoverButton({ runId }: { runId: string }) {
       disabled={mut.isPending}
       onClick={(e) => {
         e.preventDefault();
-        mut.mutate();
+        mut.mutate(runId, {
+          onSuccess: () => toast.success("Recovery initiated"),
+          onError: (err) =>
+            toast.error("Recover failed", {
+              description: err instanceof Error ? err.message : "Unknown error",
+            }),
+        });
       }}
       className="ml-auto text-xs h-auto py-0 shrink-0"
     >
@@ -61,39 +51,14 @@ function RecoverButton({ runId }: { runId: string }) {
   );
 }
 
-export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: NeedsAttentionProps) {
+export function NeedsAttentionList({ runtimes }: NeedsAttentionProps) {
   const items: AttentionItem[] = [];
 
-  for (const r of runs) {
-    if (isDetachedRun(r)) {
-      items.push({
-        severity: "critical",
-        label: `Run ${r.runId.slice(0, 12)}… — Detached placeholder (agent ${r.agentName})`,
-        href: `/ops/runs/${r.runId}`,
-        runId: r.runId,
-        actionable: true,
-      });
-    } else if (isStaleRun(r, heartbeatTimeoutMs)) {
-      items.push({
-        severity: "critical",
-        label: `Run ${r.runId.slice(0, 12)}… — Heartbeat stale (${Math.floor((r.heartbeatAgeMs ?? 0) / 1000)}s, agent ${r.agentName})`,
-        href: `/ops/runs/${r.runId}`,
-        runId: r.runId,
-        actionable: true,
-      });
-    }
-  }
+  // Runner removed — detached/stale detection disabled.
+  // Kept: surface error detection still active.
 
   for (const rt of runtimes) {
-    if (isUnhealthyAgent(rt)) {
-      items.push({
-        severity: rt.runner.status === "offline" ? "critical" : "warn",
-        label: `Agent ${rt.agentName} — Runner ${rt.runner.status}${rt.runner.lastError ? `: ${rt.runner.lastError}` : ""}`,
-        href: `/ops/agents/${rt.agentId}`,
-        actionable: false,
-      });
-    }
-    if (hasSurfaceError(rt)) {
+    if (Object.values(rt.surfaces).some((s) => s.status !== "running")) {
       for (const [surface, health] of Object.entries(rt.surfaces)) {
         if (health.status !== "running") {
           items.push({
@@ -124,7 +89,7 @@ export function NeedsAttentionList({ runs, runtimes, heartbeatTimeoutMs }: Needs
           >
             <span className={`w-2 h-2 rounded-full shrink-0 ${severityColor[item.severity]}`} />
             <span className="text-foreground">{item.label}</span>
-            {item.actionable && item.runId && <RecoverButton runId={item.runId} />}
+            {item.actionable && item.spanId && <RecoverButton runId={item.spanId} />}
           </Link>
         </li>
       ))}

@@ -98,10 +98,8 @@ describe("resolveObservabilityConfig", () => {
 
   test("respects explicit mode override", () => {
     const config = resolveObservabilityConfig({
-      serviceName: "runner-daemon",
       mode: "console",
     });
     expect(config.mode).toBe("console");
-    expect(config.serviceName).toBe("runner-daemon");
   });
 });

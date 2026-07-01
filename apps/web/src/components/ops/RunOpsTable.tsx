@@ -40,7 +40,6 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
 
 const diagnosisLabel: Record<string, string> = {
   running: "Healthy",
-  heartbeat_stale: "Stale",
   detached_waiting_reaper: "Detached",
   surface_projection_failed: "Surface fail",
   terminal: "Terminal",
@@ -48,16 +47,9 @@ const diagnosisLabel: Record<string, string> = {
 
 const diagnosisColor: Record<string, string> = {
   running: "text-primary",
-  heartbeat_stale: "text-[var(--chart-4)]",
   detached_waiting_reaper: "text-[var(--chart-3)]",
   surface_projection_failed: "text-destructive",
   terminal: "text-muted-foreground",
-};
-
-const transportLabel: Record<string, string> = {
-  attached: "Attached",
-  noop: "Detached placeholder",
-  detached: "Detached",
 };
 
 function ago(ts: number): string {
@@ -67,13 +59,7 @@ function ago(ts: number): string {
   return `${Math.floor(s / 3600)}h`;
 }
 
-export function RunOpsTable({
-  runs,
-  heartbeatTimeoutMs = 60_000,
-}: {
-  runs: RunOpsListItem[];
-  heartbeatTimeoutMs?: number;
-}) {
+export function RunOpsTable({ runs }: { runs: RunOpsListItem[] }) {
   const [page, setPage] = useState(0);
   const prevRunCount = useRef(runs.length);
   useEffect(() => {
@@ -84,9 +70,9 @@ export function RunOpsTable({
   }, [runs.length]);
 
   const sorted = [...runs].sort((a, b) => {
-    const scoreA = a.status === "running" ? (a.runnerTransport === "attached" ? 1 : 0) : 2;
-    const scoreB = b.status === "running" ? (b.runnerTransport === "attached" ? 1 : 0) : 2;
-    return scoreA - scoreB;
+    // Priority: running first, then by startedAt
+    const score = (r: RunOpsListItem) => (r.status === "running" ? 1 : 0);
+    return score(b) - score(a);
   });
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
@@ -110,9 +96,9 @@ export function RunOpsTable({
         </TableHeader>
         <TableBody>
           {paged.map((r) => {
-            const d = diagnoseRunListItem(r, heartbeatTimeoutMs);
+            const d = diagnoseRunListItem(r);
             return (
-              <TableRow key={r.runId}>
+              <TableRow key={r.spanId}>
                 <TableCell>
                   <span
                     className={`text-xs font-medium ${diagnosisColor[d.kind] ?? "text-muted-foreground"}`}
@@ -121,7 +107,7 @@ export function RunOpsTable({
                   </span>
                 </TableCell>
                 <TableCell className="font-mono text-xs text-foreground">
-                  {r.runId.slice(0, 12)}…
+                  {r.spanId.slice(0, 12)}…
                 </TableCell>
                 <TableCell
                   className="text-foreground text-xs max-w-[160px] truncate"
@@ -134,12 +120,8 @@ export function RunOpsTable({
                     {r.status}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-xs text-foreground">
-                  {transportLabel[r.runnerTransport] ?? r.runnerTransport}
-                </TableCell>
-                <TableCell className="text-xs text-foreground">
-                  {r.heartbeatAgeMs != null ? `${Math.floor(r.heartbeatAgeMs / 1000)}s` : "—"}
-                </TableCell>
+                <TableCell className="text-xs text-foreground"></TableCell>
+                <TableCell className="text-xs text-foreground"></TableCell>
                 <TableCell className="text-xs text-foreground">
                   {r.lastOpsEventKind ?? r.lastEventType ?? "—"}
                 </TableCell>
@@ -148,7 +130,7 @@ export function RunOpsTable({
                 </TableCell>
                 <TableCell>
                   <Link
-                    href={`/ops/runs/${r.runId}`}
+                    href={`/ops/sessions/${r.sessionId}`}
                     className="text-primary text-xs hover:underline"
                   >
                     Detail

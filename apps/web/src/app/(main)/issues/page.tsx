@@ -1,7 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { issueBoardEvents } from "@my-agent-team/api-contract";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -38,9 +39,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api";
+import { issueKeys, useCreateIssue, useIssueList, useIssueMeta } from "@/features/issues/hooks";
+import { useProjectList } from "@/features/projects/hooks";
 import { dateInputToEpoch, epochToDateInput } from "@/lib/date-input";
 import { fieldClass, labelClass } from "@/lib/form-styles";
+import { typedSource } from "@/lib/typed-source";
 
 export const dynamic = "force-dynamic";
 
@@ -70,34 +73,19 @@ export default function IssuesPage() {
     },
   });
 
-  const { data: meta } = useQuery({
-    queryKey: ["issue-meta"],
-    queryFn: api.getIssueMeta,
-    staleTime: 60_000,
-  });
-
-  const { data: issues } = useQuery({
-    queryKey: ["issues"],
-    queryFn: () => api.listIssues(),
-    staleTime: 10_000,
-    refetchInterval: 60_000, // SSE fallback
-  });
+  const { data: meta } = useIssueMeta();
+  const { data: issues } = useIssueList();
+  const { data: projectsData } = useProjectList();
+  const projects = projectsData?.projects ?? [];
 
   // M18.4: SSE real-time updates
   useEffect(() => {
-    const es = new EventSource("/api/bff/issues/events");
-    es.addEventListener("issue", () => {
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
+    const source = typedSource("/api/bff/api/issues/events", issueBoardEvents);
+    source.on("issue", () => {
+      queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
     });
-    return () => es.close();
+    return () => source.close();
   }, [queryClient]);
-
-  const { data: projectsData } = useQuery({
-    queryKey: ["projects"],
-    queryFn: api.listProjects,
-    staleTime: 30_000,
-  });
-  const projects = projectsData?.projects ?? [];
 
   function handleOpen(open: boolean) {
     setOpen(open);
@@ -107,24 +95,7 @@ export default function IssuesPage() {
     }
   }
 
-  const createMutation = useMutation({
-    mutationFn: (values: FormValues) =>
-      api.createIssue({
-        projectId: values.projectId,
-        title: values.title,
-        ...(values.description ? { description: values.description } : {}),
-        priority: values.priority,
-        estimatedCompletionAt: values.estimatedCompletionAt,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["issues"] });
-      form.reset();
-      setOpen(false);
-    },
-    onError: (err) => {
-      setServerError(err instanceof Error ? err.message : "Failed to create issue");
-    },
-  });
+  const createMutation = useCreateIssue();
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -147,7 +118,27 @@ export default function IssuesPage() {
 
             <Form {...form}>
               <form
-                onSubmit={form.handleSubmit((data) => createMutation.mutate(data))}
+                onSubmit={form.handleSubmit((data) =>
+                  createMutation.mutate(
+                    {
+                      projectId: data.projectId,
+                      title: data.title,
+                      ...(data.description ? { description: data.description } : {}),
+                      priority: data.priority,
+                    },
+                    {
+                      onSuccess: () => {
+                        form.reset();
+                        setOpen(false);
+                      },
+                      onError: (err) => {
+                        setServerError(
+                          err instanceof Error ? err.message : "Failed to create issue",
+                        );
+                      },
+                    },
+                  ),
+                )}
                 className="space-y-4 mt-2"
               >
                 {projects.length === 0 ? (

@@ -1,7 +1,7 @@
 import type { DeliverableRow } from "./domain.js";
 
 export interface DeliverablePort {
-  /** INSERT … ON CONFLICT(run_id, kind) DO NOTHING.
+  /** INSERT … ON CONFLICT(span_id, kind) DO NOTHING.
    *  Returns the row + whether it was a replay (pre-existing). */
   insert(input: {
     deliverableId: string;
@@ -10,7 +10,7 @@ export interface DeliverablePort {
     kind: string;
     fields: Record<string, string>;
     ref: string | null;
-    runId: string | null;
+    spanId: string | null;
     createdAt: number;
   }): { row: DeliverableRow; replay: boolean };
 
@@ -19,5 +19,5 @@ export interface DeliverablePort {
   listByIssue(issueId: string): DeliverableRow[];
 
   /** 幂等查重：同一 run 同一 kind 是否已有交付物。 */
-  getByRunAndKind(runId: string, kind: string): DeliverableRow | null;
+  getByRunAndKind(spanId: string, kind: string): DeliverableRow | null;
 }

@@ -2,12 +2,10 @@
 
 import Link from "next/link";
 import type { AgentRuntimeStatus, RunOpsListItem } from "@/lib/api";
-import { hasSurfaceError, isDetachedRun, isStaleRun, isUnhealthyAgent } from "@/lib/ops-diagnosis";
 
 interface HealthSummaryProps {
   runs: RunOpsListItem[];
   runtimes: AgentRuntimeStatus[];
-  heartbeatTimeoutMs: number;
 }
 
 interface CountCard {
@@ -43,12 +41,14 @@ function CountCard({ card }: { card: CountCard }) {
   return inner;
 }
 
-export function HealthSummary({ runs, runtimes, heartbeatTimeoutMs }: HealthSummaryProps) {
+export function HealthSummary({ runs, runtimes }: HealthSummaryProps) {
   const running = runs.filter((r) => r.status === "running").length;
-  const stale = runs.filter((r) => isStaleRun(r, heartbeatTimeoutMs)).length;
-  const detached = runs.filter((r) => isDetachedRun(r)).length;
-  const degradedAgents = runtimes.filter((rt) => isUnhealthyAgent(rt)).length;
-  const surfaceErrors = runtimes.filter((rt) => hasSurfaceError(rt)).length;
+  const stale = 0; // runner removed — no transport to go stale
+  const detached = 0; // runner removed — no transport to detach
+  const degradedAgents = 0; // runner removed — no daemon health
+  const surfaceErrors = runtimes.filter((rt) =>
+    Object.values(rt.surfaces).some((s) => s.status !== "running"),
+  ).length;
 
   const cards: CountCard[] = [
     {
@@ -56,15 +56,21 @@ export function HealthSummary({ runs, runtimes, heartbeatTimeoutMs }: HealthSumm
       count: running,
       warnAt: 20,
       criticalAt: 50,
-      href: "/ops/runs?status=running",
+      href: "/ops/sessions?status=running",
     },
-    { label: "Stale", count: stale, warnAt: -1, criticalAt: 0, href: "/ops/runs?heartbeat=stale" },
+    {
+      label: "Stale",
+      count: stale,
+      warnAt: -1,
+      criticalAt: 0,
+      href: "/ops/sessions?heartbeat=stale",
+    },
     {
       label: "Detached",
       count: detached,
       warnAt: -1,
       criticalAt: 0,
-      href: "/ops/runs?transport=detached",
+      href: "/ops/sessions?transport=detached",
     },
     {
       label: "Degraded Agents",

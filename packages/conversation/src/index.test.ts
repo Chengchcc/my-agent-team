@@ -7,7 +7,6 @@ import {
   HumanMember,
   LedgerEntry,
   Member,
-  projectForMember,
   resolveTriggerTargets,
 } from "./index.js";
 
@@ -184,81 +183,6 @@ describe("assertAgentMember", () => {
   test("throws for nonexistent memberId", () => {
     const conv = makeConv();
     expect(() => assertAgentMember(conv, "nope")).toThrow();
-  });
-});
-
-// ─── projectForMember ──────────────────────────────────────
-
-describe("projectForMember", () => {
-  test("projects other's message as user with name prefix", () => {
-    const conv = makeConv();
-    const entry = LedgerEntry.parse({
-      seq: 1,
-      conversationId: "conv-1",
-      senderMemberId: "h1", // Alice says
-      addressedTo: ["x1"],
-      kind: "message",
-      content: JSON.stringify({ text: "hello X" }),
-      ts: Date.now(),
-    });
-    // Project as seen by X (the agent)
-    const projected = projectForMember(entry, "x1", conv);
-    expect(projected.role).toBe("user");
-    expect(projected.text).toContain("[Alice]");
-    expect(projected.text).toContain("hello X");
-  });
-
-  test("projects own message as assistant", () => {
-    const conv = makeConv();
-    const entry = LedgerEntry.parse({
-      seq: 2,
-      conversationId: "conv-1",
-      senderMemberId: "x1", // X says
-      addressedTo: [],
-      kind: "message",
-      content: JSON.stringify({ text: "I'll handle it" }),
-      ts: Date.now(),
-    });
-    // Project as seen by X (the sender)
-    const projected = projectForMember(entry, "x1", conv);
-    expect(projected.role).toBe("assistant");
-    expect(projected.text).toBe("I'll handle it");
-    // No name prefix for self
-    expect(projected.text).not.toContain("[XAgent]");
-  });
-
-  test("uses memberId as fallback display name", () => {
-    const conv = makeConv([
-      { kind: "human", memberId: "h1", userRef: "u-1" }, // no displayName
-      agentX,
-    ]);
-    const entry = LedgerEntry.parse({
-      seq: 1,
-      conversationId: "conv-1",
-      senderMemberId: "h1",
-      addressedTo: [],
-      kind: "message",
-      content: JSON.stringify({ text: "hi" }),
-      ts: Date.now(),
-    });
-    const projected = projectForMember(entry, "x1", conv);
-    expect(projected.text).toContain("[h1]");
-  });
-
-  test("projects system message as user with system prefix", () => {
-    const conv = makeConv();
-    const entry = LedgerEntry.parse({
-      seq: 3,
-      conversationId: "conv-1",
-      senderMemberId: "__system__",
-      kind: "member.joined",
-      content: JSON.stringify({ memberId: "y1", members: [human, agentX, agentY] }),
-      ts: Date.now(),
-    });
-    const projected = projectForMember(entry, "x1", conv);
-    expect(projected.role).toBe("user");
-    expect(projected.text).toContain("[系统]");
-    expect(projected.text).toContain("YAgent");
   });
 });
 

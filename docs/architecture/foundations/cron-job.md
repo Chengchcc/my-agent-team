@@ -7,7 +7,7 @@ last_verified_against_code: 2026-06-23
 summary: "CronJob 是「一条按时间表反复触发 Agent 运行的定时规则」。它是继 Issue 之后第二个有独立生命周期的触发型domain entity：Conversation 表达「谁在哪说话」、Issue 表达「一件按状态推进的活」、Run 表达「一次执行」，三者都表达不了「到点就自动起一棒」。CronJob 自带一张表做 CRUD，后端启动时（或单个 job 开启时）用 Bun.cron 在进程内注册定时器，到点经现有 dispatcher 起一次 main run，threadId 映射成 `<jobId>:owner` 复用 Issue 的「实体自带会话 + owner 成员」套路，使每一棒都能点进 `/conversations/<jobId>` 看详情。重试与超时是 job 上的两个策略字段，分别复用 retry ops 事件与 supervisor 取消/reaper 机制。"
 depends_on:
   - foundations.issue
-  - backend.run-supervisor
+  - backend.overview
 used_by:
   - backend.orchestrator
   - flows.e2e-issue-lifecycle
@@ -52,7 +52,7 @@ CronJob = {
 }
 ```
 
-关键设计点：**CronJob 直接绑定一个派生 `threadId = "<cronJobId>:owner"`**，和 Issue 的 `"<issueId>:owner"`（见 `apps/backend/src/features/issue/service.ts`）完全同构。它不发明新的执行机制——到点就用这个 `threadId` 经现有 [RunSupervisor](../backend/run-supervisor.md) / dispatcher 起一次 main run。CronJob 只新增「定时触发规则」这一层语义，执行层、会话层、可观测层全部复用。
+关键设计点：**CronJob 直接绑定一个派生 `threadId = "<cronJobId>:owner"`**，和 Issue 的 `"<issueId>:owner"`（见 `apps/backend/src/features/issue/service.ts`）完全同构。它不发明新的执行机制——到点就用这个 `threadId` 经现有 [run feature](../backend/overview.md) 的 dispatcher 起一次 main run。CronJob 只新增「定时触发规则」这一层语义，执行层、会话层、可观测层全部复用。
 
 `cron_job` 表的 CRUD 走标准 feature 骨架（`entities.ts` / `ports.ts` / `adapter-sqlite.ts` / `service.ts` / `http.ts` / `index.ts`），与 `features/project/` 一一对应：service 是工厂函数，只有 Error 子类是 class，adapter 用 drizzle（参见 `features/project/adapter-sqlite.ts`）。
 
@@ -72,7 +72,7 @@ CronJob = {
 
 > 命名提示：Bun 的句柄类型也叫 `CronJob`，与我们的domain entity 同名。代码里用 import 别名（如 `BunCron`）或限定路径区分，文档里「CronJob」一律指我们的实体，Bun 的句柄称「Bun 定时器句柄」。
 
-调度器是一个独立服务 `CronScheduler`（建议放 `apps/backend/src/features/cron/scheduler.ts`），它的生命周期镜像 [RunSupervisor](../backend/run-supervisor.md) 的 reaper：
+调度器是一个独立服务 `CronScheduler`（建议放 `apps/backend/src/features/cron/scheduler.ts`），它的生命周期镜像 [run 生命周期](../backend/overview.md) 的 reaper：
 
 - **注册时机**：后端启动时（`main.ts` 在各 service 构造完之后、`server.start()` 附近）遍历所有 `enabled=true` 的 CronJob，逐个 `Bun.cron(job.cronExpr, handler)`，把句柄存进 `Map<cronJobId, BunCronHandle>`。
 - **单个 job 开启**：CRUD 里 enable / create 一个 job 时，立即注册一个新句柄并入 Map。
@@ -116,14 +116,14 @@ spec 的构造同构于 `main.ts` 的 `buildIssueSpec`（按 `agentId` 读 Agent
 
 ## 超时策略
 
-每条 CronJob 带 `timeoutMs`。系统里已有一套超时机制——RunSupervisor 的 reaper（`supervisor.ts` 的 `#startReaper` / `#reapStaleRuns`）按 `config.heartbeatTimeoutMs` 扫 attempt 心跳，超时把 run 标 `interrupted`。但那是**全局**心跳超时，是「daemon 死了」的兜底，粒度不是「这条 job 允许跑多久」。
+每条 CronJob 带 `timeoutMs`。系统里已有一套超时机制——run 生命周期的 reaper（`RunLifecycleTracker` 的 `#startReaper` / `#reapStaleRuns`）按 `config.heartbeatTimeoutMs` 扫 attempt 心跳，超时把 run 标 `interrupted`。但那是**全局**心跳超时，是「执行卡死」的兜底，粒度不是「这条 job 允许跑多久」。
 
 所以分两层：
 
-1. **per-job 主动超时（前台）**：scheduler 在 dispatch 出 runId 后，`setTimeout(timeoutMs)` 武装一个看门狗；到点若该 run 仍 active，调 `supervisor.cancel(runId)`（`supervisor.ts` 的 `cancel`，会发 abort 给 daemon 并记 `cancel_requested` / `abort_sent` ops 事件）。run 正常结束则清掉看门狗。
-2. **心跳 reaper（兜底）**：daemon 整个失联、连 abort 都收不到时，全局 reaper 仍会按 `heartbeatTimeoutMs` 把它标 `interrupted`。这是第二道防线，不替代 per-job 超时。
+1. **per-job 主动超时（前台）**：scheduler 在 dispatch 出 runId 后，`setTimeout(timeoutMs)` 武装一个看门狗；到点若该 run 仍 active，调 `cancel(runId)`（会向进程内 AgentSession 发 abort 并记 `cancel_requested` / `abort_sent` ops 事件）。run 正常结束则清掉看门狗。
+2. **心跳 reaper（兜底）**：进程内执行整个卡死、连 abort 都收不到时，全局 reaper 仍会按 `heartbeatTimeoutMs` 把它标 `interrupted`。这是第二道防线，不替代 per-job 超时。
 
-两层各司其职：per-job 超时回答「这条 job 不该跑超过 timeoutMs」，reaper 回答「执行端是不是死了」。
+两层各司其职：per-job 超时回答「这条 job 不该跑超过 timeoutMs」，reaper 回答「执行是不是卡死了」。
 
 ## 重试策略
 
@@ -147,7 +147,7 @@ spec 的构造同构于 `main.ts` 的 `buildIssueSpec`（按 `agentId` 读 Agent
 ## 关联页面
 
 - [Issue](./issue.md)（同级触发型实体，threadId / 自带会话套路的来源）
-- [RunSupervisor](../backend/run-supervisor.md)（复用的执行层 + reaper 超时兜底）
+- [后端总览](../backend/overview.md)（复用的执行层 + reaper 超时兜底）
 - [Orchestrator](../backend/orchestrator.md)（另一种非人触发源，origin 隔离的先例）
 - [事实与投影](./facts-and-projections.md)（表是事实、定时器是投影）
 - [架构设计哲学](../design-philosophy.md)

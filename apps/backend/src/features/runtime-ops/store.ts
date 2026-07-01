@@ -1,122 +1,74 @@
 import type { Database } from "bun:sqlite";
 import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import * as schema from "../../infra/db/events-schema.js";
+import * as schema from "../../infra/db/schema.js";
+import {
+  controlPlaneEventSelectSchema,
+  issueEventSelectSchema,
+  runOriginSelectSchema,
+  surfaceHealthSelectSchema,
+} from "../../infra/db/schema.js";
 import type {
+  ControlPlaneEvent,
+  ControlPlaneEventKind,
+  IssueEvent,
   IssueEventKind,
-  IssueEvent as IssueEventType,
-  RunnerHealthRow,
-  RunOpsEventKind,
-  RunOpsEvent as RunOpsEventType,
-  RunOriginRow,
+  SpanOriginInsert,
+  SpanOriginRow,
   SurfaceHealthRow,
 } from "./types.js";
 
-function toRunOpsEvent(r: typeof schema.runOpsEvent.$inferSelect): RunOpsEventType {
-  return {
-    seq: r.seq,
-    runId: r.runId,
-    attemptId: r.attemptId,
-    kind: r.kind as RunOpsEventType["kind"],
-    payload: JSON.parse(r.payload) as Record<string, unknown>,
-    traceId: r.traceId,
-    ts: r.ts,
-  };
-}
-
-function toRunOriginRow(r: typeof schema.runOrigin.$inferSelect): RunOriginRow {
-  return {
-    runId: r.runId,
-    conversationId: r.conversationId,
-    sourceLedgerSeq: r.sourceLedgerSeq,
-    agentMemberId: r.agentMemberId,
-    surface: r.surface,
-    traceId: r.traceId,
-    traceparent: r.traceparent,
-    idempotencyKey: r.idempotencyKey,
-    issueId: r.issueId,
-    cronJobId: r.cronJobId,
-    fromStatus: r.fromStatus,
-    originKind: r.originKind as RunOriginRow["originKind"],
-    createdAt: r.createdAt,
-  };
-}
-
-function toRunnerHealthRow(r: typeof schema.runnerHealth.$inferSelect): RunnerHealthRow {
-  return {
-    agentId: r.agentId,
-    lastSeenAt: r.lastSeenAt,
-    uptimeMs: r.uptimeMs ?? 0,
-    activeRunCount: r.activeRunCount,
-    activeRunIds: r.activeRunIds,
-    checkpointerOk: r.checkpointerOk,
-    workspaceOk: r.workspaceOk,
-    lastError: r.lastError,
-    updatedAt: r.updatedAt,
-  };
-}
-
-function toSurfaceHealthRow(r: typeof schema.surfaceHealth.$inferSelect): SurfaceHealthRow {
-  return {
-    agentId: r.agentId,
-    surface: r.surface,
-    status: r.status,
-    lastSeenAt: r.lastSeenAt,
-    payload: r.payload,
-    lastError: r.lastError,
-    updatedAt: r.updatedAt,
-  };
-}
-
 export class RuntimeOpsStore {
   #d: ReturnType<typeof drizzle<typeof schema>>;
+  #db: Database;
 
   constructor(db: Database) {
+    this.#db = db;
     this.#d = drizzle(db, { schema, casing: "snake_case" });
   }
 
-  // ─── run_ops_event ───
+  // ─── control_plane_event ───
 
-  appendRunEvent(input: {
-    runId: string;
-    attemptId?: string;
-    kind: RunOpsEventKind;
+  appendControlPlaneEvent(input: {
+    spanId: string;
+    attemptSeq?: number;
+    kind: ControlPlaneEventKind;
     traceId?: string;
     payload?: Record<string, unknown>;
   }): number {
     const row = this.#d
-      .insert(schema.runOpsEvent)
+      .insert(schema.controlPlaneEvent)
       .values({
-        runId: input.runId,
-        attemptId: input.attemptId ?? null,
+        spanId: input.spanId,
+        attemptSeq: input.attemptSeq ?? null,
         kind: input.kind,
         payload: JSON.stringify(input.payload ?? {}),
         traceId: input.traceId ?? null,
         ts: Date.now(),
       })
-      .returning({ seq: schema.runOpsEvent.seq })
+      .returning({ seq: schema.controlPlaneEvent.seq })
       .get();
     return row!.seq;
   }
 
-  getRunEvents(runId: string): RunOpsEventType[] {
+  getControlPlaneEvents(spanId: string): ControlPlaneEvent[] {
     return this.#d
       .select()
-      .from(schema.runOpsEvent)
-      .where(eq(schema.runOpsEvent.runId, runId))
-      .orderBy(schema.runOpsEvent.seq)
+      .from(schema.controlPlaneEvent)
+      .where(eq(schema.controlPlaneEvent.spanId, spanId))
+      .orderBy(schema.controlPlaneEvent.seq)
       .all()
-      .map(toRunOpsEvent);
+      .map((r) => controlPlaneEventSelectSchema.parse(r) as ControlPlaneEvent);
   }
 
-  getRunEventsByTrace(traceId: string): RunOpsEventType[] {
+  getControlPlaneEventsByTrace(traceId: string): ControlPlaneEvent[] {
     return this.#d
       .select()
-      .from(schema.runOpsEvent)
-      .where(eq(schema.runOpsEvent.traceId, traceId))
-      .orderBy(schema.runOpsEvent.seq)
+      .from(schema.controlPlaneEvent)
+      .where(eq(schema.controlPlaneEvent.traceId, traceId))
+      .orderBy(schema.controlPlaneEvent.seq)
       .all()
-      .map(toRunOpsEvent);
+      .map((r) => controlPlaneEventSelectSchema.parse(r) as ControlPlaneEvent);
   }
 
   // ─── issue_event (M18.7) ───
@@ -139,37 +91,29 @@ export class RuntimeOpsStore {
     return row!.seq;
   }
 
-  getIssueEvents(issueId: string, afterSeq = 0): IssueEventType[] {
+  getIssueEvents(issueId: string, afterSeq = 0): IssueEvent[] {
     return this.#d
       .select()
       .from(schema.issueEvent)
       .where(and(eq(schema.issueEvent.issueId, issueId), gt(schema.issueEvent.seq, afterSeq)))
       .orderBy(schema.issueEvent.seq)
       .all()
-      .map(
-        (r): IssueEventType => ({
-          seq: r.seq,
-          issueId: r.issueId,
-          kind: r.kind as IssueEventKind,
-          payload: JSON.parse(r.payload) as Record<string, unknown>,
-          ts: r.ts,
-        }),
-      );
+      .map((r) => issueEventSelectSchema.parse(r) as IssueEvent);
   }
 
   // ─── run_origin ───
 
-  insertRunOrigin(row: RunOriginRow): void {
+  insertSpanOrigin(row: SpanOriginInsert): void {
     // Invariant: issue-driven runs must carry a non-empty fromStatus
     if (row.issueId != null && row.fromStatus === "") {
       throw new Error(
-        `run_origin with issueId must carry a non-empty fromStatus (runId=${row.runId})`,
+        `run_origin with issueId must carry a non-empty fromStatus (spanId=${row.spanId})`,
       );
     }
     this.#d
       .insert(schema.runOrigin)
       .values({
-        runId: row.runId,
+        spanId: row.spanId,
         conversationId: row.conversationId,
         sourceLedgerSeq: row.sourceLedgerSeq,
         agentMemberId: row.agentMemberId,
@@ -187,42 +131,42 @@ export class RuntimeOpsStore {
       .run();
   }
 
-  getRunOrigin(runId: string): RunOriginRow | null {
+  getSpanOrigin(spanId: string): SpanOriginRow | null {
     const row = this.#d
       .select()
       .from(schema.runOrigin)
-      .where(eq(schema.runOrigin.runId, runId))
+      .where(eq(schema.runOrigin.spanId, spanId))
       .get();
-    return row ? toRunOriginRow(row) : null;
+    return row ? runOriginSelectSchema.parse(row) : null;
   }
 
-  getRunOriginsByIssueId(issueId: string): RunOriginRow[] {
+  getSpanOriginsByIssueId(issueId: string): SpanOriginRow[] {
     return this.#d
       .select()
       .from(schema.runOrigin)
       .where(eq(schema.runOrigin.issueId, issueId))
       .orderBy(schema.runOrigin.createdAt)
       .all()
-      .map(toRunOriginRow);
+      .map((r) => runOriginSelectSchema.parse(r));
   }
 
-  getRunOriginsByCronJobId(cronJobId: string): RunOriginRow[] {
+  getSpanOriginsByCronJobId(cronJobId: string): SpanOriginRow[] {
     return this.#d
       .select()
       .from(schema.runOrigin)
       .where(eq(schema.runOrigin.cronJobId, cronJobId))
       .orderBy(schema.runOrigin.createdAt)
       .all()
-      .map(toRunOriginRow);
+      .map((r) => runOriginSelectSchema.parse(r));
   }
 
   getRuns(runIds: string[]): Array<{
-    runId: string;
-    threadId: string;
+    spanId: string;
+    sessionId: string;
     agentId: string;
     status: string;
     kind: string;
-    parentRunId: string | null;
+    parentSpanId: string | null;
     startedAt: number;
     endedAt: number | null;
   }> {
@@ -230,85 +174,125 @@ export class RuntimeOpsStore {
     return this.#d
       .select()
       .from(schema.run)
-      .where(inArray(schema.run.runId, runIds))
+      .where(inArray(schema.run.spanId, runIds))
       .all()
       .map((r) => ({
-        runId: r.runId,
-        threadId: r.threadId,
+        spanId: r.spanId,
+        sessionId: r.sessionId,
         agentId: r.agentId,
         status: r.status,
         kind: r.kind,
-        parentRunId: r.parentRunId,
+        parentSpanId: r.parentSpanId,
         startedAt: r.startedAt,
         endedAt: r.endedAt,
       }));
   }
 
-  listRunOrigins(): RunOriginRow[] {
+  getRunBySpanId(spanId: string): {
+    spanId: string;
+    sessionId: string;
+    agentId: string;
+    status: string;
+    kind: string;
+    parentSpanId: string | null;
+    startedAt: number;
+    endedAt: number | null;
+  } | null {
+    const row = this.#d.select().from(schema.run).where(eq(schema.run.spanId, spanId)).get();
+    if (!row) return null;
+    return {
+      spanId: row.spanId,
+      sessionId: row.sessionId,
+      agentId: row.agentId,
+      status: row.status,
+      kind: row.kind,
+      parentSpanId: row.parentSpanId,
+      startedAt: row.startedAt,
+      endedAt: row.endedAt,
+    };
+  }
+
+  getSessionIdBySpanId(spanId: string): string | null {
+    const row = this.#d
+      .select({ sessionId: schema.run.sessionId })
+      .from(schema.run)
+      .where(eq(schema.run.spanId, spanId))
+      .get();
+    return row?.sessionId ?? null;
+  }
+
+  getAttemptsBySpanId(spanId: string): Array<{
+    seq: number;
+    startedAt: number;
+    endedAt: number | null;
+  }> {
+    return this.#d
+      .select({
+        seq: schema.attempt.seq,
+        startedAt: schema.attempt.startedAt,
+        endedAt: schema.attempt.endedAt,
+      })
+      .from(schema.attempt)
+      .where(eq(schema.attempt.spanId, spanId))
+      .orderBy(desc(schema.attempt.seq))
+      .all();
+  }
+
+  getLatestAttempt(spanId: string): {
+    seq: number;
+    startedAt: number;
+    endedAt: number | null;
+  } | null {
+    return (
+      this.#d
+        .select({
+          seq: schema.attempt.seq,
+          startedAt: schema.attempt.startedAt,
+          endedAt: schema.attempt.endedAt,
+        })
+        .from(schema.attempt)
+        .where(eq(schema.attempt.spanId, spanId))
+        .orderBy(desc(schema.attempt.seq))
+        .limit(1)
+        .get() ?? null
+    );
+  }
+
+  getSpansBySession(sessionId: string): Array<{
+    spanId: string;
+    status: string;
+    kind: string;
+    agentId: string;
+    startedAt: number;
+    endedAt: number | null;
+  }> {
+    return this.#d
+      .select({
+        spanId: schema.run.spanId,
+        status: schema.run.status,
+        kind: schema.run.kind,
+        agentId: schema.run.agentId,
+        startedAt: schema.run.startedAt,
+        endedAt: schema.run.endedAt,
+      })
+      .from(schema.run)
+      .where(eq(schema.run.sessionId, sessionId))
+      .orderBy(desc(schema.run.startedAt))
+      .all();
+  }
+
+  /** Expose the raw bun:sqlite connection for dynamic SQL (buildRunQuery, listSessions aggregate). */
+  getRawDb(): Database {
+    return this.#db;
+  }
+
+  listSpanOrigins(): SpanOriginRow[] {
     return this.#d
       .select()
       .from(schema.runOrigin)
       .orderBy(desc(schema.runOrigin.createdAt))
       .all()
-      .map(toRunOriginRow);
-  }
-
-  // ─── runner_health ───
-
-  upsertRunnerHealth(input: {
-    agentId: string;
-    uptimeMs: number;
-    activeRunIds: string[];
-    checkpointerOk: boolean;
-    workspaceOk: boolean;
-    lastError?: string;
-  }): void {
-    const now = Date.now();
-    this.#d
-      .insert(schema.runnerHealth)
-      .values({
-        agentId: input.agentId,
-        lastSeenAt: now,
-        uptimeMs: input.uptimeMs,
-        activeRunCount: input.activeRunIds.length,
-        activeRunIds: JSON.stringify(input.activeRunIds),
-        checkpointerOk: input.checkpointerOk ? 1 : 0,
-        workspaceOk: input.workspaceOk ? 1 : 0,
-        lastError: input.lastError ?? null,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: schema.runnerHealth.agentId,
-        set: {
-          lastSeenAt: now,
-          uptimeMs: input.uptimeMs,
-          activeRunCount: input.activeRunIds.length,
-          activeRunIds: JSON.stringify(input.activeRunIds),
-          checkpointerOk: input.checkpointerOk ? 1 : 0,
-          workspaceOk: input.workspaceOk ? 1 : 0,
-          lastError: input.lastError ?? null,
-          updatedAt: now,
-        },
-      })
-      .run();
-  }
-
-  getRunnerHealth(agentId: string): RunnerHealthRow | undefined {
-    const row = this.#d
-      .select()
-      .from(schema.runnerHealth)
-      .where(eq(schema.runnerHealth.agentId, agentId))
-      .get();
-    return row ? toRunnerHealthRow(row) : undefined;
-  }
-
-  listRunnerHealths(): RunnerHealthRow[] {
-    return this.#d
-      .select()
-      .from(schema.runnerHealth)
-      .orderBy(schema.runnerHealth.agentId)
-      .all()
-      .map(toRunnerHealthRow);
+      .map((r) => runOriginSelectSchema.parse(r));
   }
 
   // ─── surface_health ───
@@ -353,7 +337,7 @@ export class RuntimeOpsStore {
         and(eq(schema.surfaceHealth.agentId, agentId), eq(schema.surfaceHealth.surface, surface)),
       )
       .get();
-    return row ? toSurfaceHealthRow(row) : undefined;
+    return row ? surfaceHealthSelectSchema.parse(row) : undefined;
   }
 
   getSurfaceHealthsForAgent(agentId: string): SurfaceHealthRow[] {
@@ -362,7 +346,7 @@ export class RuntimeOpsStore {
       .from(schema.surfaceHealth)
       .where(eq(schema.surfaceHealth.agentId, agentId))
       .all()
-      .map(toSurfaceHealthRow);
+      .map((r) => surfaceHealthSelectSchema.parse(r));
   }
 
   listSurfaceHealths(): SurfaceHealthRow[] {
@@ -371,6 +355,6 @@ export class RuntimeOpsStore {
       .from(schema.surfaceHealth)
       .orderBy(schema.surfaceHealth.agentId, schema.surfaceHealth.surface)
       .all()
-      .map(toSurfaceHealthRow);
+      .map((r) => surfaceHealthSelectSchema.parse(r));
   }
 }

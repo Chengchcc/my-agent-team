@@ -1,16 +1,15 @@
-import type { Message, MessageRevision } from "@my-agent-team/message";
+import type { MessageRevision } from "@my-agent-team/message";
 import {
   assistantMessageId,
   deserializeLedgerContent,
   isSucceededMessageState,
   isTerminalMessageState,
-  type parseMessageRevision,
   serializeMessageRevision,
 } from "@my-agent-team/message";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { ConversationPort } from "./ports.js";
 import type { ConversationService } from "./service.js";
-import { parseThreadId } from "./service.js";
+import { parseSessionId } from "./service.js";
 
 // ─── @mention helpers ─────────────────────────────────────────
 
@@ -24,40 +23,6 @@ export function escapeRegExp(s: string): string {
  *  Eliminates the thread_projection round-trip: the ledger is the canonical
  *  source, and materializing to thread_projection eagerly was a vestige of
  *  M9's checkpointer-only recovery path. */
-export function buildPreloadedMessages(
-  port: ConversationPort,
-  conversationId: string,
-  memberId: string,
-): Message[] {
-  const entries = port.getLedgerEntries(conversationId);
-  // M17.2 fix: fold by messageId (后写覆盖先写) so streaming/done revisions of the
-  // same assistant message collapse into one entry per messageId. Without folding,
-  // each revision row becomes a separate thread message, feeding duplicates to the model.
-  const folded = new Map<
-    string,
-    { role: "user" | "assistant"; rev: ReturnType<typeof parseMessageRevision> }
-  >();
-  for (const entry of entries) {
-    if (entry.kind !== "message") continue;
-    const parsed = deserializeLedgerContent(entry.content);
-    if (!("messageId" in parsed)) continue; // legacy or malformed — skip
-    const role = entry.senderMemberId === memberId ? "assistant" : "user";
-    folded.set(parsed.messageId, { role, rev: parsed });
-  }
-
-  // Output in ledger insertion order (Map guarantees insertion order)
-  const msgs: Message[] = [];
-  for (const { role, rev } of folded.values()) {
-    if (rev.text) {
-      msgs.push({ role, text: rev.text });
-    } else if (rev.blocks && rev.blocks.length > 0) {
-      msgs.push({ role, blocks: rev.blocks });
-    }
-  }
-  return msgs;
-}
-
-// ─── Per-run accumulator ──────────────────────────────────────
 
 export interface RunAccumulator {
   senderMemberId: string;
@@ -76,8 +41,8 @@ const runAccumulators = new Map<string, RunAccumulator>();
 /** Origins that should not participate in @mention cascade. */
 const ISOLATED_ORIGINS = new Set(["orchestrator", "cron"]);
 
-export function getOrCreateAccumulator(runId: string, senderMemberId: string): RunAccumulator {
-  let acc = runAccumulators.get(runId);
+export function getOrCreateAccumulator(spanId: string, senderMemberId: string): RunAccumulator {
+  let acc = runAccumulators.get(spanId);
   if (!acc) {
     acc = {
       senderMemberId,
@@ -85,29 +50,29 @@ export function getOrCreateAccumulator(runId: string, senderMemberId: string): R
       lastTodoUpdate: null,
       latestAssistantRevision: null,
     };
-    runAccumulators.set(runId, acc);
+    runAccumulators.set(spanId, acc);
   }
   return acc;
 }
 
-export function clearAccumulator(runId: string): void {
-  runAccumulators.delete(runId);
+export function clearAccumulator(spanId: string): void {
+  runAccumulators.delete(spanId);
 }
 
 // ─── Terminal projection helpers ──────────────────────────────
 
-/** Scan the ledger for the latest assistant MessageRevision produced by `runId`.
+/** Scan the ledger for the latest assistant MessageRevision produced by `spanId`.
  *  Used as a fallback when the in-memory RunAccumulator is gone (process restart).
  *  Returns null if no matching revision is found. */
 function findLatestAssistantRevision(
   port: ConversationPort,
   conversationId: string,
-  runId: string,
+  spanId: string,
 ): MessageRevision | null {
   const entries = port.getLedgerEntries(conversationId);
   let latest: { rev: MessageRevision; seq: number } | null = null;
   for (const entry of entries) {
-    if (entry.kind !== "message" || entry.runId !== runId) continue;
+    if (entry.kind !== "message" || entry.spanId !== spanId) continue;
     const parsed = deserializeLedgerContent(entry.content);
     if (!("messageId" in parsed)) continue;
     if (parsed.role === "assistant" && (!latest || entry.seq > latest.seq)) {
@@ -118,17 +83,17 @@ function findLatestAssistantRevision(
 }
 
 /** Check if a terminal revision (done/error) already exists in the ledger
- *  for the given (runId, messageId). Avoids repeated terminal writes when
+ *  for the given (spanId, messageId). Avoids repeated terminal writes when
  *  onRunComplete is invoked multiple times (reaper re-invocation, restart). */
 function ledgerHasTerminalForMessage(
   port: ConversationPort,
   conversationId: string,
-  runId: string,
+  spanId: string,
   messageId: string,
 ): boolean {
   const entries = port.getLedgerEntries(conversationId);
   for (const entry of entries) {
-    if (entry.kind !== "message" || entry.runId !== runId) continue;
+    if (entry.kind !== "message" || entry.spanId !== spanId) continue;
     const parsed = deserializeLedgerContent(entry.content);
     if (!("messageId" in parsed)) continue;
     if (parsed.messageId === messageId && isTerminalMessageState(parsed.state)) {
@@ -156,109 +121,99 @@ function ledgerHasTerminalForMessage(
  *  Phase 2 (CRITICAL finally): lock release — always executes.
  *  Phase 3 (BEST-EFFORT): todo append + @mention triggers — fire-and-forget, each caught. */
 export async function onRunComplete(
-  threadId: string,
-  runId: string,
+  sessionId: string,
+  spanId: string,
   status: string,
   convPort: ConversationPort,
   convSvc: ConversationService,
   opsStore: RuntimeOpsStore,
   kind?: string,
+  errorMessage?: string,
 ): Promise<void> {
   if (kind === "reflect") return;
 
-  const { conversationId: cid, memberId: senderMemberId } = parseThreadId(threadId);
+  const { conversationId: cid, memberId: senderMemberId } = parseSessionId(sessionId);
   if (!cid) return;
 
   // M19: issue-driven runs (origin_kind=orchestrator) are handled by reactor —
   // M21: cron runs also isolated — skip projection and @mention cascade to avoid double-drive.
-  const origin = opsStore.getRunOrigin(runId);
+  const origin = opsStore.getSpanOrigin(spanId);
   if (origin && ISOLATED_ORIGINS.has(origin.originKind)) {
-    clearAccumulator(runId);
+    clearAccumulator(spanId);
     return;
   }
 
-  const acc = runAccumulators.get(runId);
+  const acc = runAccumulators.get(spanId);
 
   // ── Phase 1: CRITICAL — terminal revision write + broadcast ──
   try {
     const baseRev =
-      acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, runId);
+      acc?.latestAssistantRevision ?? findLatestAssistantRevision(convPort, cid, spanId);
     const frameworkSentTerminal = baseRev != null && isTerminalMessageState(baseRev.state);
     const statusConflict =
       baseRev != null && isSucceededMessageState(baseRev.state) && status !== "succeeded";
 
     if (!frameworkSentTerminal || statusConflict) {
+      const errMsg = errorMessage || status;
       const finalRev: MessageRevision = baseRev
         ? {
             ...baseRev,
             state: status === "succeeded" ? "done" : "error",
-            error: status === "succeeded" ? undefined : { message: status },
+            error: status === "succeeded" ? undefined : { message: errMsg },
             updatedAt: Date.now(),
           }
         : {
-            messageId: assistantMessageId(runId, 0),
+            messageId: assistantMessageId(spanId, 0),
             role: "assistant",
             state: status === "succeeded" ? "done" : "error",
-            text: status === "succeeded" ? "" : `Run failed: ${status}`,
-            runId,
+            text: status === "succeeded" ? "" : `Run failed: ${errMsg}`,
+            spanId,
             conversationId: cid,
             visibility: "conversation",
             updatedAt: Date.now(),
-            error: status === "succeeded" ? undefined : { message: status },
+            error: status === "succeeded" ? undefined : { message: errMsg },
           };
 
       const messageId = finalRev.messageId;
-      if (!ledgerHasTerminalForMessage(convPort, cid, runId, messageId)) {
+      if (!ledgerHasTerminalForMessage(convPort, cid, spanId, messageId)) {
         const serialized = serializeMessageRevision(finalRev);
-        if (!convPort.hasLedgerContent?.(runId, serialized)) {
+        if (!convPort.hasLedgerContent?.(spanId, serialized)) {
           const ts = Date.now();
-          const seq = convPort.appendLedgerEntry({
+          const _seq = convPort.appendLedgerEntry({
             conversationId: cid,
             senderMemberId,
             addressedTo: [],
             kind: "message",
             content: serialized,
             ts,
-            runId,
+            spanId,
           });
-          await convSvc.broadcastMessage(
-            {
-              seq,
-              conversationId: cid,
-              senderMemberId,
-              addressedTo: [],
-              kind: "message",
-              content: serialized,
-              ts,
-            },
-            { excludeMemberId: senderMemberId },
-          );
         }
       }
     }
   } catch (err) {
     console.error(
-      `[conversation] terminal projection failed for ${runId}:`,
+      `[conversation] terminal projection failed for ${spanId}:`,
       err instanceof Error ? err.message : String(err),
     );
     throw err; // critical failure propagated — supervisor catches and logs
   } finally {
     // Phase 2: lock release always executes.
-    convSvc.completeRun(cid, threadId, runId);
+    convSvc.completeRun(cid, sessionId, spanId);
   }
 
   // ── Phase 3: BEST-EFFORT — fire-and-forget, each catches independently ──
   if (acc) {
-    clearAccumulator(runId);
+    clearAccumulator(spanId);
     if (acc.lastTodoUpdate) {
-      void convSvc
-        .appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos)
-        .catch((err) =>
-          console.error(
-            `[conversation] appendTodo failed for ${runId}:`,
-            err instanceof Error ? err.message : String(err),
-          ),
+      try {
+        await convSvc.appendTodo(cid, acc.senderMemberId, acc.lastTodoUpdate.todos);
+      } catch (err) {
+        console.error(
+          `[conversation] appendTodo failed for ${spanId}:`,
+          err instanceof Error ? err.message : String(err),
         );
+      }
     }
     if (acc.mentionedMemberIds.size > 0) {
       void convSvc
@@ -269,7 +224,7 @@ export async function onRunComplete(
         })
         .catch((err) =>
           console.error(
-            `[conversation] triggerMentionedAgents failed for ${runId}:`,
+            `[conversation] triggerMentionedAgents failed for ${spanId}:`,
             err instanceof Error ? err.message : String(err),
           ),
         );

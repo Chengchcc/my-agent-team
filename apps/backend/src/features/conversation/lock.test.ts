@@ -41,39 +41,39 @@ describe("ConversationLock", () => {
 
   // ─── P11: thread-level lock operations ───
 
-  test("acquireThread succeeds when conversation and thread are idle", () => {
+  test("acquireSession succeeds when conversation and thread are idle", () => {
     const lock = new ConversationLock();
-    expect(lock.acquireThread("t1", "c1")).toBe(true);
-    expect(lock.isThreadActive("t1")).toBe(true);
+    expect(lock.acquireSession("t1", "c1")).toBe(true);
+    expect(lock.isSessionActive("t1")).toBe(true);
     expect(lock.isActive("c1")).toBe(true);
   });
 
-  test("acquireThread fails when conversation is already active", () => {
+  test("acquireSession fails when conversation is already active", () => {
     const lock = new ConversationLock();
     lock.acquire("c1", 1);
-    expect(lock.acquireThread("t1", "c1")).toBe(false);
+    expect(lock.acquireSession("t1", "c1")).toBe(false);
   });
 
-  test("acquireThread fails when thread is already active", () => {
+  test("acquireSession fails when thread is already active", () => {
     const lock = new ConversationLock();
-    lock.acquireThread("t1", "c1");
-    expect(lock.acquireThread("t1", "c2")).toBe(false);
+    lock.acquireSession("t1", "c1");
+    expect(lock.acquireSession("t1", "c2")).toBe(false);
   });
 
-  test("releaseThread releases both thread and conversation lock", () => {
+  test("releaseSession releases both thread and conversation lock", () => {
     const lock = new ConversationLock();
-    lock.acquireThread("t1", "c1");
-    lock.releaseThread("t1", "c1");
-    expect(lock.isThreadActive("t1")).toBe(false);
+    lock.acquireSession("t1", "c1");
+    lock.releaseSession("t1", "c1");
+    expect(lock.isSessionActive("t1")).toBe(false);
     expect(lock.isActive("c1")).toBe(false);
   });
 
-  test("acquireThread on different conversations are independent", () => {
+  test("acquireSession on different conversations are independent", () => {
     const lock = new ConversationLock();
-    lock.acquireThread("t1", "c1");
-    expect(lock.acquireThread("t2", "c2")).toBe(true);
-    expect(lock.isThreadActive("t1")).toBe(true);
-    expect(lock.isThreadActive("t2")).toBe(true);
+    lock.acquireSession("t1", "c1");
+    expect(lock.acquireSession("t2", "c2")).toBe(true);
+    expect(lock.isSessionActive("t1")).toBe(true);
+    expect(lock.isSessionActive("t2")).toBe(true);
   });
 
   // ─── P4: lock released on all fork failures ───
@@ -90,15 +90,15 @@ describe("ConversationLock", () => {
 
   // ─── P11: thread and conversation lock are unified ───
 
-  test("P11: acquireThread blocks conversation-level acquire", () => {
+  test("P11: acquireSession blocks conversation-level acquire", () => {
     const lock = new ConversationLock();
-    lock.acquireThread("t1", "c1");
+    lock.acquireSession("t1", "c1");
     expect(lock.acquire("c1", 1)).toBe(false);
   });
 
-  test("P11: conversation-level acquire blocks acquireThread", () => {
+  test("P11: conversation-level acquire blocks acquireSession", () => {
     const lock = new ConversationLock();
     lock.acquire("c1", 1);
-    expect(lock.acquireThread("t1", "c1")).toBe(false);
+    expect(lock.acquireSession("t1", "c1")).toBe(false);
   });
 });

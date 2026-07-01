@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LarkBotArgs } from "./args.js";
 import { getAllChatBindings, openBindings } from "./bindings-sqlite.js";
+import { createClient } from "./client.js";
 import { safeAgentId } from "./safe-agent-id.js";
 
 export interface BootstrapState {
@@ -11,11 +12,6 @@ export interface BootstrapState {
   restoredConversationIds: string[];
   botDisplayName: string | null;
   pidFile: string;
-}
-
-function authHeaders(token: string | null): Record<string, string> {
-  if (!token) return {};
-  return { "x-auth-token": token };
 }
 
 /** Acquire a PID file lock. Returns the lock path on success, exits on conflict. */
@@ -53,27 +49,33 @@ export async function bootstrap(args: LarkBotArgs): Promise<BootstrapState> {
   // Acquire PID lock before anything else — prevents duplicate instances
   const pidFile = acquirePidLock(args.stateRoot, args.agentId);
 
-  const headers = authHeaders(args.backendAuthToken);
+  const client = createClient(args.backendUrl, args.backendAuthToken);
+
   // Fetch agent info
   let selfAgentName: string;
   try {
-    const resp = await fetch(`${args.backendUrl}/api/agents/${args.agentId}`, { headers });
-    if (resp.status === 404) {
+    const { data, error, status } = await client.api.agents({ id: args.agentId }).get();
+    if (status === 404) {
       console.error(`[lark-bot] agent ${args.agentId} not found or archived — graceful exit`);
       process.exit(0);
     }
-    if (!resp.ok) {
-      throw new Error(`Failed to fetch agent: ${resp.status}`);
+    if (error) {
+      throw new Error(`Failed to fetch agent: ${JSON.stringify(error)}`);
     }
-    const agent = (await resp.json()) as { name: string; larkEnabled?: boolean };
-    if (agent.larkEnabled === false) {
+    // Eden treaty response type is opaque until handlers return typed objects.
+    // Use a lightweight type guard instead of bare `as Record<string, unknown>`.
+    if (typeof data !== "object" || data === null) {
+      throw new Error("invalid agent response: expected object");
+    }
+    const record = data as Record<string, unknown>;
+    if (record.larkEnabled === false) {
       console.error(`[lark-bot] agent ${args.agentId} lark disabled — graceful exit`);
       process.exit(0);
     }
-    selfAgentName = args.agentName ?? agent.name;
+    selfAgentName =
+      args.agentName ?? (typeof record.name === "string" ? record.name : String(record.name));
   } catch (err) {
     if (err instanceof TypeError) {
-      // Network error — retry with backoff
       console.error(`[lark-bot] backend unreachable: ${err.message}`);
       process.exit(1); // registry will restart
     }

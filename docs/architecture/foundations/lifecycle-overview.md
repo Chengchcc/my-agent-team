@@ -3,56 +3,60 @@ id: foundations.lifecycle-overview
 title: 一次运行的生命周期
 status: current
 owners: architecture
-last_verified_against_code: 2026-06-18
-summary: "这一页把一次 Agent 运行从「被发起」到「full completion」串成一条时间线，标出每个阶段由谁负责、产出什么事实、触发什么 projection。它是理解后端、Runner、Framework、各端如何咬合的总览——具体每一段的细节都另有专页，这里只给骨架和顺序。"
+last_verified_against_code: 2026-06-25
+summary: "一次 Agent 运行的完整时间线：从 Backend 创建 AgentSession，经 Framework 的 runLoop 执行，到事件固化写账本，最后收尾释放。"
 depends_on:
   - foundations.facts-and-projections
   - backend.conversation-projection
-  - backend.run-supervisor
   - runtime.framework
+  - harness.harness
 used_by:
 ---
 
 # 一次运行的生命周期
 
-这一页把一次 Agent 运行从「被发起」到「full completion」串成一条时间线，标出每个阶段由谁负责、产出什么事实、触发什么 projection。它是理解后端、Runner、Framework、各端如何咬合的总览——具体每一段的细节都另有专页，这里只给骨架和顺序。
+一次 Agent 运行从被触发到结束的生命周期。
 
-## 时间线骨架
+## 时间线
 
 ```mermaid
 sequenceDiagram
-  participant 端 as Web/飞书
-  participant 后端 as Backend
-  participant Runner as 常驻 Runner
-  participant FW as Framework
-  端->>后端: 提交输入（采集到账本）
-  后端->>Runner: start（携带 preloadedMessages）
-  Runner->>FW: 进入 runLoop
-  FW-->>Runner: AgentEvent（message/tool/delta...）
-  Runner-->>后端: event(type=message)
-  后端->>后端: onRunMessage 直写账本（appendAssistantMessage）
-  Runner-->>后端: event(其它类型 tool/delta)
-  后端->>后端: 非消息事件写 EventLog
-  后端-->>端: 账本 SSE / best-effort fan-out
-  Runner-->>后端: run_done(终态)
-  后端->>后端: 收尾(更新状态→关订阅→出#active→await onRunComplete 写终端修订)
-  后端-->>Runner: run_finalized
+  participant B as Backend
+  participant AS as AgentSession
+  participant CK as Checkpointer
+  participant L as Conversation Ledger
+
+  B->>AS: startAgentRun(input) → 创建 AgentSession
+  AS->>CK: agent.run(input)
+  CK-->>AS: message（state: streaming）
+  AS-->>B: onEvent("message")
+  B->>L: appendAssistantMessage → 写入 MessageRevision
+  CK-->>AS: tool_call → 执行 → tool_result → 继续
+  CK-->>AS: message（更多轮 → 同 messageId）
+  AS-->>B: onEvent("message")
+  B->>L: 同 messageId 更新 revision
+  AS->>CK: run-loop appendEvent（非消息执行事件, 按 spanId）
+  CK-->>AS: agent_end
+  AS-->>B: onEvent("agent_end", willRetry: false)
+  B->>L: terminal revision（state: done/error）
+  B->>B: 释放 ConversationLock + fire-and-forget reflection
 ```
 
 ## 分阶段说明
 
-**1. 发起**　端采集用户输入，写进对话账本（账本是事实来源）。后端据此向对应 Agent 的常驻 Runner 下达 `start`，这一次要喂的对话以 `preloadedMessages` 随 `start` 传输，而非塞进 AgentSpec。
+**1. 发起**　Backend 收到触发信号（人发消息 / orchestrator 推进 Issue / cron 到点），创建 AgentSession，调用 `session.prompt(input)`。
 
-**2. 执行**　Runner 进入 Framework 的 `runLoop`，一步步推进（受 maxSteps=32、maxForceContinues=3 约束）。循环把过程拆成 `AgentEvent`，Runner 转成协议里的 `event` / `delta` 上报。
+**2. 执行**　AgentSession 委托给 Framework 的 `runLoop`，按步骤推进（受 maxSteps 约束）。每步可能调模型或调工具。过程拆成 AgentEvent 流。
 
-**3. 固化事实**　后端按事件类型分流：`message` 事件经 `onRunMessage`（critical, awaited）直接 `appendAssistantMessage` 写进账本（与人类消息同一入口），并 best-effort 广播给端；其它事件（tool_start/tool_end/text_delta）才写进 EventLog。`delta` 走实时流单独渲染，仅限后端内部消费。
+**3. 固化事实**　AgentSession 的内部订阅者将事件通知给 Backend 注册的 listener，消息事件直接 `appendAssistantMessage` 写 conversation ledger。非消息执行事件（tool_call 等）不走这条回调，而由 Framework run-loop 经 `appendEvent` 写入 checkpointer 的执行事实流（`checkpoint_events`，按 spanId 切）。
 
-**4. 收尾**　Runner 发 `run_done`（终态：succeeded/error/aborted/interrupted）。后端按固定顺序收尾：更新 attempt/run → 关闭 delta 订阅 → 从 `#active` 移除 → await 所有 onRunComplete → 发 `run_finalized`。Runner 收到后确认 Host 侧彻底结束。
+**4. 收尾**　Run 结束时（`agent_end`），Backend 的 listener 写入 terminal revision 关闭消息，释放 ConversationLock。若被中断（InterruptSignal），AgentSession 保持存活，等待 `resume()` 调用后继续。
 
-## 顺着这条线往下读
+## 关联页面
 
-- 事实与投影为什么这么分：见[事实与投影](facts-and-projections.md)
-- 投影那座桥的实现：见[会话投影](../backend/conversation-projection.md)
-- 编排与收尾握手：见[运行编排器](../backend/run-supervisor.md)
-- 循环内部：见[Framework 运行循环](../runtime/framework.md)
-- 端到端两个完整例子：见[Web 消息全链路](../flows/e2e-web-message.md)、[飞书消息全链路](../flows/e2e-lark-message.md)
+- [事实与投影](facts-and-projections.md)
+- [会话消息流](../backend/conversation-projection.md)
+- [AgentSession](../harness/harness.md)
+- [Framework 运行循环](../runtime/framework.md)
+- [Web 消息端到端](../flows/e2e-web-message.md)
+- [飞书消息端到端](../flows/e2e-lark-message.md)
