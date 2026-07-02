@@ -40,6 +40,7 @@
         "@my-agent-team/core": "workspace:*",
         "@my-agent-team/framework": "workspace:*",
         "@my-agent-team/harness": "workspace:*",
+        "@my-agent-team/loop": "workspace:*",
         "@my-agent-team/message": "workspace:*",
         "@my-agent-team/plugin-conversation-context": "workspace:*",
         "@my-agent-team/plugin-fs-memory": "workspace:*",
@@ -180,8 +181,8 @@
         "@my-agent-team/tools-common": "workspace:*",
       },
     },
-    "packages/loop-engine": {
-      "name": "@my-agent-team/loop-engine",
+    "packages/loop": {
+      "name": "@my-agent-team/loop",
       "version": "0.1.0",
       "devDependencies": {
         "@types/bun": "latest",
@@ -621,7 +622,7 @@
 
     "@my-agent-team/lark-bot": ["@my-agent-team/lark-bot@workspace:apps/lark-bot"],
 
-    "@my-agent-team/loop-engine": ["@my-agent-team/loop-engine@workspace:packages/loop-engine"],
+    "@my-agent-team/loop": ["@my-agent-team/loop@workspace:packages/loop"],
 
     "@my-agent-team/message": ["@my-agent-team/message@workspace:packages/message"],
 

@@ -28,6 +28,7 @@
     "@my-agent-team/core": "workspace:*",
     "@my-agent-team/framework": "workspace:*",
     "@my-agent-team/harness": "workspace:*",
+    "@my-agent-team/loop": "workspace:*",
     "@my-agent-team/message": "workspace:*",
     "@my-agent-team/plugin-conversation-context": "workspace:*",
     "@my-agent-team/plugin-fs-memory": "workspace:*",
