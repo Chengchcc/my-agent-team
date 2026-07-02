@@ -274,9 +274,10 @@ export function parseVerdictMd(md: string): Verdict | null {
   }
 
   const rMatch = md.match(/reasons:\s*(.+)/);
-  const reasons = rMatch?.[1]
-    ?.split(",")
-    .map((s) => s.trim())
-    .filter(Boolean) ?? [];
+  const reasons =
+    rMatch?.[1]
+      ?.split(",")
+      .map((s) => s.trim())
+      .filter(Boolean) ?? [];
   return { verdict, reasons, evidence } as Verdict;
 }

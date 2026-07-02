@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { formatInboxMd, formatStateMd, parseInboxMd, parseStateMd, parseVerdictMd } from "./state-md.js";
+import {
+  formatInboxMd,
+  formatStateMd,
+  parseInboxMd,
+  parseStateMd,
+  parseVerdictMd,
+} from "./state-md.js";
 import type { ItemState, LoopState } from "./types.js";
 
 function sampleState(): LoopState {
@@ -391,7 +397,6 @@ result:
   });
 });
 
-
 describe("parseVerdictMd", () => {
   test("PASS", () => {
     const v = parseVerdictMd("verdict: PASS\nevidence: 12/12 green");
@@ -401,7 +406,9 @@ describe("parseVerdictMd", () => {
   });
 
   test("REJECT with reasons", () => {
-    const v = parseVerdictMd("verdict: REJECT\nreasons: scope drift, broke utils\nevidence: 5 files changed");
+    const v = parseVerdictMd(
+      "verdict: REJECT\nreasons: scope drift, broke utils\nevidence: 5 files changed",
+    );
     expect(v!.verdict).toBe("REJECT");
     if ("reasons" in v!) {
       expect(v!.reasons).toEqual(["scope drift", "broke utils"]);
