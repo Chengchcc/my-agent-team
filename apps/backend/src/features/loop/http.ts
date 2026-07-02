@@ -16,8 +16,19 @@ export function loopRoutes(
   sessionFactory: SessionFactory,
   buildSpec: (params: { sessionId: string; modelName: string; cwd: string }) => SessionSpec,
   convPort?: {
-    createConversation: (input: { conversationId: string; title?: string; origin?: string; createdAt: number }) => unknown;
-    addMember: (input: { conversationId: string; memberId: string; kind: "agent" | "human"; agentId?: string; joinedAt: number }) => unknown;
+    createConversation: (input: {
+      conversationId: string;
+      title?: string;
+      origin?: string;
+      createdAt: number;
+    }) => unknown;
+    addMember: (input: {
+      conversationId: string;
+      memberId: string;
+      kind: "agent" | "human";
+      agentId?: string;
+      joinedAt: number;
+    }) => unknown;
   },
 ) {
   return new Elysia()

@@ -355,7 +355,9 @@ const app = createApp(config.authToken, {
       plugins: [],
       tools: [],
       checkpointer: {} as ReturnType<typeof import("@my-agent-team/framework").sqliteCheckpointer>,
-      contextManager: {} as ReturnType<typeof import("@my-agent-team/framework").pipeContextManagers>,
+      contextManager: {} as ReturnType<
+        typeof import("@my-agent-team/framework").pipeContextManagers
+      >,
     }),
     conv.convPort,
   ),

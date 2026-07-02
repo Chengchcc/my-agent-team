@@ -15,6 +15,8 @@ export type IssueRow = ApiReturn<typeof api.listIssues>["issues"][number];
 export type IssueEvent = ApiReturn<typeof api.getIssueDetail>["timeline"][number];
 export type IssueRunSummary = ApiReturn<typeof api.getIssueDetail>["runs"][number];
 export type CronJobRow = ApiReturn<typeof api.listCronJobs>["cronJobs"][number];
+export type LoopRow = ApiReturn<typeof api.listLoops>["loops"][number];
+export type LoopDetail = ApiReturn<typeof api.getLoop>["loop"];
 export type LarkSetupSession = ApiReturn<typeof api.larkSetup>;
 export type AgentRow = ApiReturn<typeof api.listAgents>[number];
 export type RunOpsListItem = ApiReturn<typeof api.listOpsRuns>[number];
@@ -210,6 +212,15 @@ export const api = {
   setCronJobEnabled: (id: string, enabled: boolean) =>
     unwrap(client.api["cron-jobs"]({ id }).enable.post({ enabled })),
   deleteCronJob: (id: string) => unwrap(client.api["cron-jobs"]({ id }).delete()),
+  // Loops
+  listLoops: () => unwrap(client.api.loops.get()),
+  getLoop: (id: string) => unwrap(client.api.loops({ id }).get()),
+  createLoop: (body: { name: string; intent?: string; projectId?: string; cronExpr?: string }) =>
+    unwrap(client.api.loops.post(body)),
+  runLoop: (id: string) => unwrap(client.api.loops({ id }).run.post({})),
+  reviewLoopItem: (id: string, body: { itemId: string; verdict: string; feedback?: string }) =>
+    unwrap(client.api.loops({ id }).review.post(body)),
+  deleteLoop: (id: string) => unwrap(client.api.loops({ id }).delete()),
   // Skill packs
   listSkillPacks: () => unwrap(client.api["skill-packs"].get()),
   getSkillPackSkills: (id: string) => unwrap(client.api["skill-packs"]({ id }).skills.get()),
