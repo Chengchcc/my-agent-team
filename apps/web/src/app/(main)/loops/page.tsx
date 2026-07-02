@@ -1,6 +1,6 @@
 "use client";
 
-import { PlusIcon, RefreshCwIcon } from "lucide-react";
+import { PlusIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -13,38 +13,27 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { useSetCronJobEnabled } from "@/features/cron/hooks";
-import { useDeleteLoop, useLoopList, useRunLoop } from "@/features/loop/hooks";
-import type { LoopRow } from "@/lib/api";
+import { useLoopList, useRunLoop, useDeleteLoop } from "@/features/loop/hooks";
+import { useSetCronEnabled } from "@/features/cron/hooks";
 
 export const dynamic = "force-dynamic";
+
+interface LoopItem {
+  id: string;
+  name: string;
+  cronExpr: string;
+  enabled: boolean;
+  lastRun: string | null;
+  pendingCount: number;
+}
 
 export default function LoopsPage() {
   const { data, isLoading } = useLoopList();
   const runMu = useRunLoop();
   const deleteMu = useDeleteLoop();
-  const toggleMu = useSetCronJobEnabled();
+  const toggleMu = useSetCronEnabled();
 
-  const loops = data?.loops ?? [];
-
-  function handleRun(loop: LoopRow) {
-    runMu.mutate(loop.id, {
-      onSuccess: () => toast.success("Loop run triggered"),
-      onError: (e) => toast.error(`Run failed: ${String(e)}`),
-    });
-  }
-
-  function handleToggle(loop: LoopRow, enabled: boolean) {
-    toggleMu.mutate({ id: loop.id, enabled });
-  }
-
-  function handleDelete(loop: LoopRow) {
-    if (!confirm(`Delete "${loop.name}"? This removes all loop data.`)) return;
-    deleteMu.mutate(loop.id, {
-      onSuccess: () => toast.success("Loop deleted"),
-      onError: (e) => toast.error(`Delete failed: ${String(e)}`),
-    });
-  }
+  const loops: LoopItem[] = (data as { loops: LoopItem[] } | undefined)?.loops ?? [];
 
   return (
     <div className="h-full bg-[var(--canvas)]">
@@ -95,12 +84,11 @@ export default function LoopsPage() {
                       >
                         {loop.name}
                       </Link>
-                      {(loop as LoopRow & { pendingCount?: number }).pendingCount != null &&
-                        (loop as LoopRow & { pendingCount?: number }).pendingCount > 0 && (
-                          <Badge variant="destructive" className="text-xs">
-                            {(loop as LoopRow & { pendingCount?: number }).pendingCount} pending
-                          </Badge>
-                        )}
+                      {loop.pendingCount > 0 && (
+                        <Badge variant="destructive" className="text-xs">
+                          {loop.pendingCount} pending
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-xs text-[var(--mute)] truncate">
                       {loop.cronExpr || "Manual"}
@@ -108,11 +96,19 @@ export default function LoopsPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <Switch checked={loop.enabled} onCheckedChange={(v) => handleToggle(loop, v)} />
+                    <Switch
+                      checked={loop.enabled}
+                      onCheckedChange={(v) => toggleMu.mutate({ id: loop.id, enabled: v })}
+                    />
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleRun(loop)}
+                      onClick={() =>
+                        runMu.mutate(loop.id, {
+                          onSuccess: () => toast.success("Loop run triggered"),
+                          onError: (e) => toast.error(`Run failed: ${String(e)}`),
+                        })
+                      }
                       disabled={runMu.isPending}
                     >
                       <RefreshCwIcon className="size-3 mr-1" />
@@ -120,9 +116,22 @@ export default function LoopsPage() {
                     </Button>
                     <Link href={`/loops/${loop.id}`}>
                       <Button variant="ghost" size="sm">
-                        View →
+                        View
                       </Button>
                     </Link>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        if (!confirm(`Delete "${loop.name}"?`)) return;
+                        deleteMu.mutate(loop.id, {
+                          onSuccess: () => toast.success("Loop deleted"),
+                          onError: (e) => toast.error(`Delete failed: ${String(e)}`),
+                        });
+                      }}
+                    >
+                      <Trash2Icon className="size-3" />
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

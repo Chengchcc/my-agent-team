@@ -5,8 +5,8 @@ import type { CronJobPort } from "../cron/ports.js";
 import type { CronScheduler } from "../cron/scheduler.js";
 import type { CronJobService } from "../cron/service.js";
 import { loopStep } from "../loop/loop-step.js";
-import { createUpdateLoopConfigTool } from "./tools.js";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
+import { createUpdateLoopConfigTool } from "./tools.js";
 
 export function loopRoutes(
   cronSvc: CronJobService,
@@ -148,9 +148,7 @@ export function loopRoutes(
           });
 
           // Inject update_loop_config tool so the agent can set the schedule
-          const loopConfigTool = createUpdateLoopConfigTool(
-            job.cronJobId, _cronPort, scheduler,
-          );
+          const loopConfigTool = createUpdateLoopConfigTool(job.cronJobId, _cronPort, scheduler);
           if (spec.tools) {
             (spec.tools as unknown[]).push(loopConfigTool);
           } else {

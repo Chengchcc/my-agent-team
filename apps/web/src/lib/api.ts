@@ -218,7 +218,7 @@ export const api = {
   createLoop: (body: { name: string; intent?: string; projectId?: string; cronExpr?: string }) =>
     unwrap(client.api.loops.post(body)),
   runLoop: (id: string) => unwrap(client.api.loops({ id }).run.post({})),
-  reviewLoopItem: (id: string, body: { itemId: string; verdict: string; feedback?: string }) =>
+  reviewLoopItem: (id: string, body: { verdict: "approve" | "reject" | "promote" | "retry" | "dismiss"; itemId: string; feedback?: string }) =>
     unwrap(client.api.loops({ id }).review.post(body)),
   deleteLoop: (id: string) => unwrap(client.api.loops({ id }).delete()),
   // Skill packs

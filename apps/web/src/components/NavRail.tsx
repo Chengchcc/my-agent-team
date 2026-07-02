@@ -5,6 +5,8 @@ import {
   ActivityIcon,
   BotIcon,
   ClockIcon,
+  FolderKanbanIcon,
+  ListTodoIcon,
   LogOutIcon,
   MessageSquareIcon,
   MoreHorizontalIcon,
@@ -14,6 +16,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -281,6 +284,19 @@ function NavContent() {
               >
                 <ActivityIcon />
                 <span className="truncate">Observability</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/loops")}
+                tooltip="Loops"
+                onClick={() => {
+                  closeMobile();
+                  router.push("/loops");
+                }}
+              >
+                <RefreshCwIcon />
+                <span className="truncate">Loops</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
