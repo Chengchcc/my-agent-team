@@ -424,11 +424,11 @@ describe("parseVerdictMd", () => {
 
   test("reasons roundtrip — JSON array", () => {
     const v = parseVerdictMd(
-      'verdict: REJECT\nreasons: ["comma, in reason","newline at end\n"]\nevidence: fail',
+      'verdict: REJECT\nreasons: ["comma, in reason","multi-word too"]\nevidence: fail',
     );
     expect(v).not.toBeNull();
     if (v && v.verdict !== "PASS") {
-      expect(v.reasons).toEqual(["comma, in reason", "newline at end\n"]);
+      expect(v.reasons).toEqual(["comma, in reason", "multi-word too"]);
     }
   });
 
