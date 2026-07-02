@@ -32,22 +32,20 @@ apps/backend/src/
 ## 2. loopStep() 签名
 
 ```typescript
-interface SessionFactory {
-  create(params: {
-    sessionId: string;
-    model: string;
-    systemPrompt: string;
-    cwd: string;
-  }): Promise<{
-    prompt(input: string): Promise<void>;
-  }>;
-  dispose(sessionId: string): Promise<void>;
-}
+// 复用现有: apps/backend/src/features/span/session-factory.ts
+// SessionFactory.getOrCreate(sessionId, spec) → AgentSession
+// SessionFactory.enqueuePrompt(sessionId, input, opts?) → Promise<void>
+// SessionFactory.dispose(sessionId) → void
 
 function loopStep(params: {
-  loopConfigPath: string;      // .loop/ 目录路径
+  loopConfigPath: string;
   sessionFactory: SessionFactory;
-  action?: ReviewAction;       // M2 复用的 human review action
+  buildSpec: (params: {
+    sessionId: string;
+    modelName: string;
+    cwd: string;
+  }) => SessionSpec;
+  action?: ReviewAction;
 }): Promise<LoopState>
 ```
 
@@ -151,15 +149,15 @@ function parseVerdictMd(md: string): Verdict | null
 
 ### loopStep() M3
 
-5. **TICK → Generator 被调用**：sessionFactory.create 被调用，model、prompt、cwd 正确
-6. **Generator 完成后 → Evaluator 被调用**：不同 model，prompt 含 filesChanged
+5. **TICK → Generator 被调用**：`getOrCreate` + `enqueuePrompt` 被调用，modelName 分别为 `claude-sonnet-4` 和 `claude-opus-4`
+6. **Generator 完成后 → Evaluator 被调用**：不同 modelName，prompt 包含 filesChanged
 7. **Evaluator PASS → item.step = awaiting_review**：VERDICT.md 解析为 PASS
-8. **Evaluator REJECT → item.step = fixing (attempt+1)**：代码回滚到 baseSha
-9. **Evaluator REJECT 耗尽 → item.step = inbox**：代码回滚
-10. **Evaluator ESCALATE → item.step = inbox**：代码回滚
+8. **Evaluator REJECT → item.step = fixing (attempt+1)**：result 记录拒绝原因
+9. **Evaluator REJECT 耗尽 → item.step = inbox**：写入 INBOX.md
+10. **Evaluator ESCALATE → item.step = inbox**：写入 INBOX.md
 11. **Evaluator 产出空 VERDICT.md → item 停在 verifying**
-12. **Human action (APPROVE/REJECT_HUMAN/PROMOTE/RETRY/DISMISS) 不变**：M2 行为完整保留
-13. **sessionFactory.dispose 对每个 sessionId 调用**
+12. **Human action 全路径保留**：APPROVE/REJECT_HUMAN/PROMOTE/RETRY/DISMISS + 不存在 itemId
+13. **sessionFactory.dispose 每个 session 调用**：generator + evaluator 各一次
 14. **全 workspace typecheck + lint + test 通过**
 
 ## 8. 实施分组
