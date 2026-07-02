@@ -419,6 +419,35 @@ describe("loopReducer — ADD_ITEM", () => {
 // ============================================================
 // Immutability
 // ============================================================
+// ============================================================
+// Unknown itemId → no-op (for actions with itemId)
+// ============================================================
+describe("loopReducer — unknown itemId → no-op", () => {
+  test("APPROVE unknown itemId", () => {
+    const s = emptyState();
+    const next = loopReducer(s, { type: "APPROVE", itemId: "nope" });
+    expect(next).toEqual(s);
+  });
+
+  test("REJECT_HUMAN unknown itemId", () => {
+    const s = emptyState();
+    const next = loopReducer(s, { type: "REJECT_HUMAN", itemId: "nope" });
+    expect(next).toEqual(s);
+  });
+
+  test("PROMOTE unknown itemId", () => {
+    const s = emptyState();
+    const next = loopReducer(s, { type: "PROMOTE", itemId: "nope" });
+    expect(next).toEqual(s);
+  });
+
+  test("RETRY unknown itemId", () => {
+    const s = emptyState();
+    const next = loopReducer(s, { type: "RETRY", itemId: "nope" });
+    expect(next).toEqual(s);
+  });
+});
+
 describe("loopReducer — immutability", () => {
   test("returned state is new object (shallow)", () => {
     const s = emptyState();
