@@ -35,14 +35,15 @@ used_by: []
 
 ## 意图 → 配置翻译
 
-翻译器是一个 prompt 调用——输入用户意图 + 7 种模板描述，输出匹配的模板名 + 参数。然后 scaffold `.loop/` 目录：
+翻译由系统内置 Skill `loop-config-generator/SKILL.md` 完成——它装在 AgentSession 里，输入用户意图 + 7 种模板描述，输出匹配的模板名 + 参数。然后 scaffold `.loop/` 目录：
 
-1. 写 `config.yml`（填入匹配模板的默认值）
-2. 复制对应 skill 的 `SKILL.md` 到 `.loop/skills/`
+1. 写 `config.yml`（填入匹配模板的默认值 + 从意图提取的参数）
+2. 从内置模板库复制对应 skill 的 `SKILL.md` 到 `.loop/skills/`
 3. 生成 `constraints.md`（默认 denylist + budget cap）
-4. 生成空 `STATE.md`
+4. 生成空 `STATE.md`（首轮运行时由 discovery 填充）
 5. 创建 CronJob（`loop_config_path` 指向 `.loop/`）
 
+> `loop-config-generator` 是**系统内置 Skill**，不同于 `.loop/skills/` 下的三种运行时 Skill。它只在创建 Loop 时跑一次；创建完成后 `.loop/` 目录里没有它的副本。参见 [ADR 0002](../../adr/0002-config-generation-is-builtin-skill.md)。
 用户预览生成结果，可手动调整任何参数，然后确认激活。
 
 ## L1 / L2 / L3 信任层级

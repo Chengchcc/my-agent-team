@@ -42,15 +42,18 @@ function loopStep(params: {
    → 返回
 
 3. 如果是 cron TICK:
-   a. loopReducer(state, { type: TICK })  — triaged → fixing
-   b. 对每个 fixing item: 启动 generator AgentSession
-      → generator 完成 → item.step = "verifying"
+   a. 启动 Discovery AgentSession（装 loop-triage skill）→ 产出 findings
+   b. 每个 finding 经 loopReducer(state, { type: ADD_ITEM, ... }) 写入
+   c. loopReducer(state, { type: TICK })  — triaged → fixing
+   d. 对每个 fixing item: 启动 generator AgentSession
+      → generator 完成 → loopReducer(state, { type: GENERATOR_DONE, itemId })
       → 启动 evaluator AgentSession
-      → evaluator PASS → item.step = "awaiting_review"
-      → evaluator REJECT → loopReducer 处理 retry/inbox
-   c. 写回 STATE.md
-   d. prune resolved/inbox/promoted items
-   e. 返回
+      → evaluator 产出 verdict → loopReducer(state, { type: EVALUATOR_VERDICT, itemId, verdict })
+      → PASS → item.step = "awaiting_review"
+      → REJECT → loopReducer 处理 retry/inbox
+   e. filter 掉 step ∈ {resolved, inbox, promoted} 的已终结 item（不是 reducer action，是写回前过滤——见 [ADR 0001](../../adr/0001-loop-prune-is-post-processing.md)）
+   f. 写回 STATE.md
+   g. 返回
 ```
 
 ## 为什么不是连续异步生成器

@@ -399,6 +399,46 @@
         "foundations.issue"
       ],
       "used_by": []
+    },
+    {
+      "id": "adr.0001-loop-prune",
+      "title": "ADR 0001: Prune 是写文件前过滤",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/adr/0001-loop-prune-is-post-processing.md",
+      "summary": "已终结 item 的清理不是 reducer action——它是 loopStep() 写 STATE.md 前固定后处理。reducer 只管 step 转移。",
+      "depends_on": ["foundations.loop-engineering"],
+      "used_by": ["backend.loop-runner"]
+    },
+    {
+      "id": "adr.0002-config-skill",
+      "title": "ADR 0002: 配置生成是内置 Skill",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/adr/0002-config-generation-is-builtin-skill.md",
+      "summary": "自然语言→config.yml 翻译做成内置 Skill `loop-config-generator`，只在创建 Loop 时跑一次。",
+      "depends_on": ["foundations.loop-pattern", "plugins.progressive-skill"],
+      "used_by": []
+    },
+    {
+      "id": "adr.0003-single-writer",
+      "title": "ADR 0003: STATE.md 只有 loopStep() 一个写者",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/adr/0003-state-md-single-writer.md",
+      "summary": "Discovery/Generator/Evaluator 三个 AgentSession 都不写 STATE.md——只汇报，loopStep() 更新。",
+      "depends_on": ["foundations.loop-engineering", "backend.loop-runner"],
+      "used_by": ["flows.e2e-loop-verification"]
+    },
+    {
+      "id": "adr.0004-discovery-session",
+      "title": "ADR 0004: Discovery 是独立 AgentSession",
+      "status": "current",
+      "owners": "architecture",
+      "path": "docs/adr/0004-discovery-is-agent-session.md",
+      "summary": "Discovery 是 loopStep() TICK 路径第一步，以独立 AgentSession（装 loop-triage skill）执行，产出 findings 经 ADD_ITEM 写入。",
+      "depends_on": ["foundations.loop-engineering", "backend.loop-runner"],
+      "used_by": []
     }
   ]
 }
