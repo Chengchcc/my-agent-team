@@ -171,7 +171,7 @@ describe("loopStep M3 — AgentSession wiring", () => {
       buildSpec: makeSpec,
     });
 
-    expect(next.items["01"]!.step).toBe("inbox");
+    expect(next.items["01"]).toBeUndefined();
   });
 
   test("human APPROVE unchanged from M2", async () => {
