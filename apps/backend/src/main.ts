@@ -24,6 +24,7 @@ import {
   cronJobRoutes,
   sqliteCronJobAdapter,
 } from "./features/cron/index.js";
+import { loopRoutes } from "./features/loop/http.js";
 import {
   createDeliverableService,
   sqliteDeliverableAdapter,
@@ -339,6 +340,7 @@ const app = createApp(config.authToken, {
   }),
   projects: projectRoutes(projectSvc),
   columnConfigs: columnConfigRoutes(columnConfigSvc),
+  loops: loopRoutes(cronSvc, cronScheduler, config.dataDir),
   cronJobs: cronJobRoutes(cronSvc, cronScheduler),
   skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
 });

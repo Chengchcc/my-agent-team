@@ -73,6 +73,7 @@ export function createCronJobService(deps: CronJobServiceDeps) {
       timeoutMs?: number;
       maxRetries?: number;
       enabled?: boolean;
+      loopConfigPath?: string;
     }): Promise<CronJobRow> {
       if (!(await agentExists(input.agentId))) {
         throw new CronJobValidationError(`agent not found: ${input.agentId}`);
@@ -89,6 +90,7 @@ export function createCronJobService(deps: CronJobServiceDeps) {
         enabled: input.enabled ?? false,
         timeoutMs: input.timeoutMs ?? 0,
         maxRetries: input.maxRetries ?? 0,
+        loopConfigPath: input.loopConfigPath,
         createdAt: ts,
         updatedAt: ts,
       });

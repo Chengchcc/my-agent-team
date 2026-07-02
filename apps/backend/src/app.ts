@@ -3,6 +3,7 @@ import type { agentRoutes } from "./features/agent/http.js";
 import type { columnConfigRoutes } from "./features/column-config/http.js";
 import type { conversationRoutes } from "./features/conversation/http.js";
 import type { cronJobRoutes } from "./features/cron/http.js";
+import type { loopRoutes } from "./features/loop/http.js";
 import type { issueRoutes } from "./features/issue/http.js";
 import type { projectRoutes } from "./features/project/http.js";
 import type { opsRoutes } from "./features/runtime-ops/http.js";
@@ -19,6 +20,7 @@ export interface FeatureSet {
   projects: ReturnType<typeof projectRoutes>;
   columnConfigs: ReturnType<typeof columnConfigRoutes>;
   cronJobs: ReturnType<typeof cronJobRoutes>;
+  loops: ReturnType<typeof loopRoutes>;
   resumeRun: ReturnType<typeof resumeRoutes>;
   skillPacks: ReturnType<typeof skillPackRoutes>;
 }
@@ -51,8 +53,8 @@ export function createApp(token: string, features: FeatureSet) {
     cronJobs,
     resumeRun,
     skillPacks,
+    loops,
   } = features;
-
   const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
     .use(authPlugin(token))
@@ -66,6 +68,7 @@ export function createApp(token: string, features: FeatureSet) {
     .use(projects)
     .use(columnConfigs)
     .use(cronJobs)
+    .use(loops)
     .use(skillPacks)
     .onError(({ code, error, set }) => {
       if (error instanceof HttpError) {

@@ -31,6 +31,7 @@ export interface CreateCronJobInput {
   enabled?: boolean;
   timeoutMs?: number;
   maxRetries?: number;
+  loopConfigPath?: string;
 }
 
 export interface UpdateCronJobInput {
