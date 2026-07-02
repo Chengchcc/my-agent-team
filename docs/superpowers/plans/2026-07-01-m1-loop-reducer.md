@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 建 `packages/loop-engine/` 新包，落地 `loopReducer(state, action, opts?) → state` 纯函数 + 全量单测。
+**Goal:** 建 `packages/loop/` 新包，落地 `loopReducer(state, action, opts?) → state` 纯函数 + 全量单测。
 
 **Architecture:** 纯 TypeScript 类型 + 纯函数。无依赖（不 import 任何 `@my-agent-team/*` 包）。L4 级（与 harness 同级），但只含类型和纯逻辑——不调 AgentSession、不读文件、不碰网络。
 
@@ -15,12 +15,12 @@
 ### Task 1: 建包骨架
 
 **Files:**
-- Create: `packages/loop-engine/package.json`
-- Create: `packages/loop-engine/tsconfig.json`
-- Create: `packages/loop-engine/tsconfig.test.json`
-- Create: `packages/loop-engine/src/index.ts`
+- Create: `packages/loop/package.json`
+- Create: `packages/loop/tsconfig.json`
+- Create: `packages/loop/tsconfig.test.json`
+- Create: `packages/loop/src/index.ts`
 
-- [ ] **Step 1.1: Create `packages/loop-engine/package.json`**
+- [ ] **Step 1.1: Create `packages/loop/package.json`**
 
 ```json
 {
@@ -39,7 +39,7 @@
 }
 ```
 
-- [ ] **Step 1.2: Create `packages/loop-engine/tsconfig.json`**
+- [ ] **Step 1.2: Create `packages/loop/tsconfig.json`**
 
 ```json
 {
@@ -52,7 +52,7 @@
 }
 ```
 
-- [ ] **Step 1.3: Create `packages/loop-engine/tsconfig.test.json`**
+- [ ] **Step 1.3: Create `packages/loop/tsconfig.test.json`**
 
 ```json
 {
@@ -61,7 +61,7 @@
 }
 ```
 
-- [ ] **Step 1.4: Create `packages/loop-engine/src/index.ts`**
+- [ ] **Step 1.4: Create `packages/loop/src/index.ts`**
 
 ```typescript
 export type {
@@ -78,13 +78,13 @@ export { loopReducer } from "./loop-reducer.js";
 - [ ] **Step 1.5: Install deps**
 
 ```bash
-cd packages/loop-engine && bun install
+cd packages/loop && bun install
 ```
 
 - [ ] **Step 1.6: Commit**
 
 ```bash
-git add packages/loop-engine && git commit -m "feat(loop-engine): scaffold package skeleton"
+git add packages/loop && git commit -m "feat(loop-engine): scaffold package skeleton"
 ```
 
 ---
@@ -92,7 +92,7 @@ git add packages/loop-engine && git commit -m "feat(loop-engine): scaffold packa
 ### Task 2: 类型定义
 
 **Files:**
-- Create: `packages/loop-engine/src/types.ts`
+- Create: `packages/loop/src/types.ts`
 
 - [ ] **Step 2.1: Write `types.ts`**
 
@@ -150,13 +150,13 @@ export type LoopAction =
 - [ ] **Step 2.2: Verify typecheck**
 
 ```bash
-cd packages/loop-engine && bun run typecheck
+cd packages/loop && bun run typecheck
 ```
 
 - [ ] **Step 2.3: Commit**
 
 ```bash
-git add packages/loop-engine/src/types.ts && git commit -m "feat(loop-engine): define LoopState, LoopAction types"
+git add packages/loop/src/types.ts && git commit -m "feat(loop-engine): define LoopState, LoopAction types"
 ```
 
 ---
@@ -164,7 +164,7 @@ git add packages/loop-engine/src/types.ts && git commit -m "feat(loop-engine): d
 ### Task 3: 实现 loopReducer
 
 **Files:**
-- Create: `packages/loop-engine/src/loop-reducer.ts`
+- Create: `packages/loop/src/loop-reducer.ts`
 
 - [ ] **Step 3.1: Write `loop-reducer.ts`**
 
@@ -346,13 +346,13 @@ export function loopReducer(
 - [ ] **Step 3.2: Verify typecheck**
 
 ```bash
-cd packages/loop-engine && bun run typecheck
+cd packages/loop && bun run typecheck
 ```
 
 - [ ] **Step 3.3: Commit**
 
 ```bash
-git add packages/loop-engine/src/loop-reducer.ts && git commit -m "feat(loop-engine): implement loopReducer pure function"
+git add packages/loop/src/loop-reducer.ts && git commit -m "feat(loop-engine): implement loopReducer pure function"
 ```
 
 ---
@@ -360,7 +360,7 @@ git add packages/loop-engine/src/loop-reducer.ts && git commit -m "feat(loop-eng
 ### Task 4: 全量单测
 
 **Files:**
-- Create: `packages/loop-engine/src/loop-reducer.test.ts`
+- Create: `packages/loop/src/loop-reducer.test.ts`
 
 **Coverage required (17 acceptance criteria from spec §7):**
 
@@ -664,7 +664,7 @@ describe("loopReducer — immutability", () => {
 - [ ] **Step 4.8: Run all tests**
 
 ```bash
-cd packages/loop-engine && bun test
+cd packages/loop && bun test
 ```
 
 Expected: 28 tests, all PASS.
@@ -672,7 +672,7 @@ Expected: 28 tests, all PASS.
 - [ ] **Step 4.9: Commit**
 
 ```bash
-git add packages/loop-engine/src/loop-reducer.test.ts && git commit -m "test(loop-engine): 28 tests covering all actions, edges, immutability"
+git add packages/loop/src/loop-reducer.test.ts && git commit -m "test(loop-engine): 28 tests covering all actions, edges, immutability"
 ```
 
 ---

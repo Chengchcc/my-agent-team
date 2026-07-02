@@ -1,4 +1,4 @@
-# @my-agent-team/loop-engine
+# @my-agent-team/loop
 
 Pure-function state reducer for the Loop work system. Implements the item step state machine defined in `docs/architecture/foundations/loop.md`.
 
@@ -17,7 +17,7 @@ Pure-function state reducer for the Loop work system. Implements the item step s
 ## Usage
 
 ```typescript
-import { loopReducer } from "@my-agent-team/loop-engine";
+import { loopReducer } from "@my-agent-team/loop";
 
 const state = { loopId: "morning-triage", lastRun: null, items: {} };
 
