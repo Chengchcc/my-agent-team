@@ -36,6 +36,8 @@ export default function LoopDetailPage() {
     );
 
   const pendingCount = (loop as { pendingCount?: number }).pendingCount ?? 0;
+  const items = (loop as { items?: Array<{ id: string; summary: string; step: string }> }).items ?? [];
+  const reviewItems = items.filter((i) => i.step === "awaiting_review");
 
   return (
     <div className="h-full bg-[var(--canvas)]">
@@ -90,25 +92,23 @@ export default function LoopDetailPage() {
         </div>
 
         <div>
-          <h3 className="text-sm font-medium mb-3">Review Queue ({pendingCount})</h3>
-          {pendingCount === 0 ? (
+          <h3 className="text-sm font-medium mb-3">Review Queue ({reviewItems.length})</h3>
+          {reviewItems.length === 0 ? (
             <p className="text-sm text-[var(--mute)]">No items awaiting review.</p>
           ) : (
             <div className="space-y-2">
-              <p className="text-sm text-[var(--mute)]">Items loaded from STATE.md at runtime.</p>
-              <Card>
-                <CardContent className="p-3 flex items-center justify-between">
-                  <span className="text-sm">Check back after the next loop run.</span>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline">
-                      Approve
-                    </Button>
-                    <Button size="sm" variant="outline">
-                      Reject
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+              {reviewItems.map((item) => (
+                <Card key={item.id}>
+                  <CardContent className="p-3 flex items-center justify-between">
+                    <span className="text-sm">{item.summary}</span>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={() => reviewMu.mutate({ itemId: item.id, verdict: "approve" })}>Approve</Button>
+                      <Button size="sm" variant="outline" onClick={() => reviewMu.mutate({ itemId: item.id, verdict: "reject" })}>Reject</Button>
+                      <Button size="sm" variant="ghost" onClick={() => reviewMu.mutate({ itemId: item.id, verdict: "promote" })}>Promote</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           )}
         </div>

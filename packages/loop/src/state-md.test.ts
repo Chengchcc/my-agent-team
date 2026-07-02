@@ -422,6 +422,18 @@ describe("parseVerdictMd", () => {
     expect(v!.verdict).toBe("ESCALATE");
   });
 
+  test("reasons roundtrip — JSON array", () => {
+    const v = parseVerdictMd('verdict: REJECT\nreasons: ["comma, in reason","newline at end\n"]\nevidence: fail');
+    expect(v!.verdict).toBe("REJECT");
+    expect(v!.reasons).toEqual(["comma, in reason", "newline at end\n"]);
+  });
+
+  test("reasons roundtrip — comma fallback", () => {
+    const v = parseVerdictMd("verdict: REJECT\nreasons: a, b, c\nevidence: fail");
+    expect(v!.verdict).toBe("REJECT");
+    expect(v!.reasons).toEqual(["a", "b", "c"]);
+  });
+
   test("case insensitive", () => {
     const v = parseVerdictMd("verdict: pass\nevidence: ok");
     expect(v!.verdict).toBe("PASS");

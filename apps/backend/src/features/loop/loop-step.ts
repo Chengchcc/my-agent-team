@@ -11,6 +11,8 @@ import {
 } from "@my-agent-team/loop";
 import type { ProjectPort } from "../project/ports.js";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
+import { nodeFsAdapter } from "../skill-pack/fs-adapter.js";
+import type { SkillRoots } from "../span/skill-roots.js";
 
 type ReviewAction = {
   itemId: string;
@@ -21,7 +23,7 @@ type ReviewAction = {
 export interface LoopStepParams {
   loopConfigPath: string;
   sessionFactory: SessionFactory;
-  buildSpec: (params: { sessionId: string; modelName: string; cwd: string }) => SessionSpec;
+  buildSpec: (params: { sessionId: string; modelName: string; cwd: string; skillRoots?: import("../span/skill-roots.js").SkillRoots }) => SessionSpec;
   action?: ReviewAction;
   projectPort?: ProjectPort;
   dataDir?: string;
@@ -186,6 +188,14 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
   const repoPath = await resolveRepoPath(params.loopConfigPath, params.projectPort, params.dataDir);
   const workDir = repoPath ?? params.loopConfigPath;
 
+  // Construct role-specific skill roots from .loop/skills
+  const skillsDir = `${params.loopConfigPath}/skills`;
+  const skillRootsByRole = (role: string): SkillRoots => ({
+    ws: nodeFsAdapter(skillsDir),
+    roots: [role],
+    posixSkillRoot: skillsDir,
+  });
+
   // 1. Read files
   let stateMd: string;
   let inboxMd: string;
@@ -271,6 +281,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
       sessionId: genSessionId,
       modelName: genModel,
       cwd: workDir,
+      skillRoots: skillRootsByRole("loop-generator"),
     });
 
     const genSession = params.sessionFactory.getOrCreate(genSessionId, genSpec);
@@ -299,6 +310,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
       sessionId: evalSessionId,
       modelName: evalModel,
       cwd: workDir,
+      skillRoots: skillRootsByRole("loop-verifier"),
     });
 
     const verdictPath = `${workDir}/VERDICT.md`;
