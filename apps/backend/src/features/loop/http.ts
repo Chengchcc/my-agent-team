@@ -6,7 +6,6 @@ import type { CronScheduler } from "../cron/scheduler.js";
 import type { CronJobService } from "../cron/service.js";
 import { loopStep } from "../loop/loop-step.js";
 import { resolveLoopPaths } from "../loop/resolve-paths.js";
-import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
 import { createUpdateLoopConfigTool } from "./tools.js";
 

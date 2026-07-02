@@ -2,8 +2,6 @@ import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
 import { loopStep } from "../loop/loop-step.js";
 import { resolveLoopPaths } from "../loop/resolve-paths.js";
-import { buildSessionSpec } from "../span/session-factory.js";
-import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { SessionFactory } from "../span/session-factory.js";
 import { buildSessionSpec } from "../span/session-factory.js";

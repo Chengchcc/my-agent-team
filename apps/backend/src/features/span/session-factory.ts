@@ -229,6 +229,8 @@ export interface BuildSessionSpecParams {
   makeModel?: ModelFactory;
   /** Pre-resolved skill roots for progressiveSkillPlugin. When set, overrides the default cwd-based setup. */
   skillRoots?: SkillRoots;
+  /** Override cwd for tools/plugins (loop: repoPath instead of dataDir/agents/agentId). */
+  cwdOverride?: string;
 }
 
 export function buildSessionSpec(params: BuildSessionSpecParams): SessionSpec {
@@ -244,6 +246,7 @@ export function buildSessionSpec(params: BuildSessionSpecParams): SessionSpec {
     skillRoots,
   } = params;
   const cwd = params.cwdOverride ?? join(config.dataDir, "agents", agentId);
+  const hasConversation = Boolean(convPort && conversationId);
   mkdirSync(cwd, { recursive: true });
 
   const makeModel =
