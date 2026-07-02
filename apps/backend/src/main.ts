@@ -340,7 +340,21 @@ const app = createApp(config.authToken, {
   }),
   projects: projectRoutes(projectSvc),
   columnConfigs: columnConfigRoutes(columnConfigSvc),
-  loops: loopRoutes(cronSvc, cronScheduler, projectSvc, config.dataDir),
+  loops: loopRoutes(
+    cronSvc, cronScheduler, sqliteCronJobAdapter(db), config.dataDir, ulid,
+    sessionFactory,
+    (params) => ({
+      agentId: "loop-agent",
+      cwd: params.cwd,
+      model: new AnthropicChatModel({ model: params.modelName }),
+      modelName: params.modelName,
+      plugins: [],
+      tools: [],
+      checkpointer: {} as any,
+      contextManager: {} as any,
+    }),
+    conv.convPort,
+  ),
   cronJobs: cronJobRoutes(cronSvc, cronScheduler),
   skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
 });
