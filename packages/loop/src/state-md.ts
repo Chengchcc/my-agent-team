@@ -1,4 +1,4 @@
-import type { LoopState, ItemState, Verdict, ItemStep } from "./types.js";
+import type { ItemState, ItemStep, LoopState, Verdict } from "./types.js";
 
 // ============================================================
 // Lightweight YAML helpers (two levels: result + reasons array)
@@ -13,7 +13,6 @@ function yamlEscape(value: string): string {
   }
   return value;
 }
-
 
 function yamlFormatScalar(value: YamlValue): string {
   if (value === null) return "null";
@@ -48,9 +47,7 @@ function parseVerdict(data: Record<string, YamlValue>): Verdict {
   if (verdict === "PASS") {
     return { verdict: "PASS", evidence };
   }
-  const reasons = Array.isArray(data.reasons)
-    ? data.reasons.map(String)
-    : [];
+  const reasons = Array.isArray(data.reasons) ? data.reasons.map(String) : [];
   return { verdict, reasons, evidence } as Verdict;
 }
 
@@ -69,7 +66,7 @@ function itemStateToYaml(item: ItemState): string {
     lines.push("result:");
     lines.push(formatVerdict(item.result, 1));
   }
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 function parseItemYaml(id: string, lines: string[]): ItemState {
@@ -78,7 +75,7 @@ function parseItemYaml(id: string, lines: string[]): ItemState {
     id,
     source: String(data.source ?? ""),
     summary: String(data.summary ?? ""),
-    step: (String(data.step ?? "triaged")) as ItemStep,
+    step: String(data.step ?? "triaged") as ItemStep,
     attempt: Number(data.attempt ?? 1),
     priority: Number(data.priority ?? 0),
     result:
@@ -136,9 +133,7 @@ function parseYamlBlock(lines: string[]): Record<string, YamlValue> {
         } else {
           // Nested object — strip base indent from all lines
           const baseIndent = Math.min(...nested.map((l) => l.search(/\S/)));
-          result[key] = parseYamlBlock(
-            nested.map((l) => l.slice(baseIndent)),
-          );
+          result[key] = parseYamlBlock(nested.map((l) => l.slice(baseIndent)));
         }
         continue;
       }
@@ -186,9 +181,7 @@ export function parseStateMd(md: string): LoopState {
   // Extract frontmatter (first --- to second ---)
   const fmMatch = md.match(/^---\s*\n([\s\S]*?)\n---/);
   const fmBody = fmMatch?.[1];
-  const frontmatter: Record<string, YamlValue> = fmBody
-    ? parseYamlBlock(fmBody.split("\n"))
-    : {};
+  const frontmatter: Record<string, YamlValue> = fmBody ? parseYamlBlock(fmBody.split("\n")) : {};
 
   // Find ## Items and parse ### sections
   const items: LoopState["items"] = {};
@@ -264,4 +257,26 @@ export function formatInboxMd(items: LoopState["items"]): string {
     md += "\n";
   }
   return md;
+}
+
+export function parseVerdictMd(md: string): Verdict | null {
+  if (!md.trim()) return null;
+
+  const vMatch = md.match(/verdict:\s*(PASS|REJECT|ESCALATE)/i);
+  if (!vMatch) return null;
+
+  const verdict = vMatch[1]!.toUpperCase() as Verdict["verdict"];
+  const eMatch = md.match(/evidence:\s*(.+)/);
+  const evidence = eMatch?.[1]?.trim() ?? "";
+
+  if (verdict === "PASS") {
+    return { verdict, evidence };
+  }
+
+  const rMatch = md.match(/reasons:\s*(.+)/);
+  const reasons = rMatch?.[1]
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean) ?? [];
+  return { verdict, reasons, evidence } as Verdict;
 }

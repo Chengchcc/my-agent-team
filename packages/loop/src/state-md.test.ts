@@ -1,6 +1,6 @@
-import { describe, test, expect } from "bun:test";
-import { parseStateMd, formatStateMd, parseInboxMd, formatInboxMd } from "./state-md.js";
-import type { LoopState, ItemState } from "./types.js";
+import { describe, expect, test } from "bun:test";
+import { formatInboxMd, formatStateMd, parseInboxMd, parseStateMd, parseVerdictMd } from "./state-md.js";
+import type { ItemState, LoopState } from "./types.js";
 
 function sampleState(): LoopState {
   return {
@@ -366,17 +366,71 @@ result:
 
   test("multiple inbox items round-trip", () => {
     const items: Record<string, ItemState> = {
-      "a": {
-        id: "a", source: "ci", summary: "one",
-        step: "inbox", attempt: 1, priority: 0, result: null,
+      a: {
+        id: "a",
+        source: "ci",
+        summary: "one",
+        step: "inbox",
+        attempt: 1,
+        priority: 0,
+        result: null,
       },
-      "b": {
-        id: "b", source: "manual", summary: "two",
-        step: "inbox", attempt: 2, priority: 0, result: null,
+      b: {
+        id: "b",
+        source: "manual",
+        summary: "two",
+        step: "inbox",
+        attempt: 2,
+        priority: 0,
+        result: null,
       },
     };
     const md = formatInboxMd(items);
     const parsed = parseInboxMd(md);
     expect(Object.keys(parsed)).toEqual(["a", "b"]);
+  });
+});
+
+
+describe("parseVerdictMd", () => {
+  test("PASS", () => {
+    const v = parseVerdictMd("verdict: PASS\nevidence: 12/12 green");
+    expect(v).not.toBeNull();
+    expect(v!.verdict).toBe("PASS");
+    expect(v!.evidence).toBe("12/12 green");
+  });
+
+  test("REJECT with reasons", () => {
+    const v = parseVerdictMd("verdict: REJECT\nreasons: scope drift, broke utils\nevidence: 5 files changed");
+    expect(v!.verdict).toBe("REJECT");
+    if ("reasons" in v!) {
+      expect(v!.reasons).toEqual(["scope drift", "broke utils"]);
+    }
+    expect(v!.evidence).toBe("5 files changed");
+  });
+
+  test("ESCALATE", () => {
+    const v = parseVerdictMd("verdict: ESCALATE\nreasons: mcp unreachable\nevidence: no env");
+    expect(v!.verdict).toBe("ESCALATE");
+  });
+
+  test("case insensitive", () => {
+    const v = parseVerdictMd("verdict: pass\nevidence: ok");
+    expect(v!.verdict).toBe("PASS");
+  });
+
+  test("missing verdict line → null", () => {
+    const v = parseVerdictMd("evidence: something");
+    expect(v).toBeNull();
+  });
+
+  test("empty string → null", () => {
+    const v = parseVerdictMd("");
+    expect(v).toBeNull();
+  });
+
+  test("whitespace only → null", () => {
+    const v = parseVerdictMd("   \n  ");
+    expect(v).toBeNull();
   });
 });
