@@ -5,6 +5,7 @@ import type { CronJobPort } from "../cron/ports.js";
 import type { CronScheduler } from "../cron/scheduler.js";
 import type { CronJobService } from "../cron/service.js";
 import { loopStep } from "../loop/loop-step.js";
+import { createUpdateLoopConfigTool } from "./tools.js";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
 
 export function loopRoutes(
@@ -56,6 +57,22 @@ export function loopRoutes(
         // STATE.md not yet created
       }
 
+      // Load STATE.md items for review queue display
+      let items: Array<{ id: string; source: string; summary: string; step: string }> = [];
+      try {
+        const fullState = parseStateMd(
+          await Bun.file(`${dataDir}/${job.loopConfigPath}/STATE.md`).text(),
+        );
+        items = Object.values(fullState.items).map((i) => ({
+          id: i.id,
+          source: i.source,
+          summary: i.summary,
+          step: i.step,
+        }));
+      } catch {
+        // STATE.md not available
+      }
+
       return {
         loop: {
           id: job.cronJobId,
@@ -65,6 +82,7 @@ export function loopRoutes(
           loopConfigPath: job.loopConfigPath,
           lastRun,
           pendingCount,
+          items,
         },
       };
     })
@@ -128,6 +146,16 @@ export function loopRoutes(
             modelName: "claude-sonnet-4",
             cwd: dir,
           });
+
+          // Inject update_loop_config tool so the agent can set the schedule
+          const loopConfigTool = createUpdateLoopConfigTool(
+            job.cronJobId, _cronPort, scheduler,
+          );
+          if (spec.tools) {
+            (spec.tools as unknown[]).push(loopConfigTool);
+          } else {
+            (spec as unknown as Record<string, unknown>).tools = [loopConfigTool];
+          }
 
           const registryPath = `${dataDir}/skill-packs/loop-engine/registry.yaml`;
           const intent = `Create a Loop configuration based on this intent: "${body.intent}"

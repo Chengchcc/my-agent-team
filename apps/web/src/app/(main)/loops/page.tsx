@@ -4,12 +4,17 @@ import { PlusIcon, RefreshCwIcon } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { useLoopList, useRunLoop, useDeleteLoop } from "@/features/loop/hooks";
 import { useSetCronJobEnabled } from "@/features/cron/hooks";
+import { useDeleteLoop, useLoopList, useRunLoop } from "@/features/loop/hooks";
 import type { LoopRow } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +58,10 @@ export default function LoopsPage() {
             </BreadcrumbList>
           </Breadcrumb>
           <Link href="/loops/new">
-            <Button size="sm"><PlusIcon className="size-4 mr-1" />Create Loop</Button>
+            <Button size="sm">
+              <PlusIcon className="size-4 mr-1" />
+              Create Loop
+            </Button>
           </Link>
         </div>
       </div>
@@ -64,9 +72,14 @@ export default function LoopsPage() {
         ) : loops.length === 0 ? (
           <div className="text-center py-20">
             <RefreshCwIcon className="size-8 mx-auto mb-4 text-[var(--mute)]" />
-            <p className="text-sm text-[var(--mute)] mb-4">No loops yet. Create your first loop to automate work.</p>
+            <p className="text-sm text-[var(--mute)] mb-4">
+              No loops yet. Create your first loop to automate work.
+            </p>
             <Link href="/loops/new">
-              <Button><PlusIcon className="size-4 mr-1" />Create Loop</Button>
+              <Button>
+                <PlusIcon className="size-4 mr-1" />
+                Create Loop
+              </Button>
             </Link>
           </div>
         ) : (
@@ -76,15 +89,18 @@ export default function LoopsPage() {
                 <CardContent className="p-4 flex items-center justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <Link href={`/loops/${loop.id}`} className="font-medium text-sm hover:underline truncate">
+                      <Link
+                        href={`/loops/${loop.id}`}
+                        className="font-medium text-sm hover:underline truncate"
+                      >
                         {loop.name}
                       </Link>
                       {(loop as LoopRow & { pendingCount?: number }).pendingCount != null &&
-                       (loop as LoopRow & { pendingCount?: number }).pendingCount > 0 && (
-                        <Badge variant="destructive" className="text-xs">
-                          {(loop as LoopRow & { pendingCount?: number }).pendingCount} pending
-                        </Badge>
-                      )}
+                        (loop as LoopRow & { pendingCount?: number }).pendingCount > 0 && (
+                          <Badge variant="destructive" className="text-xs">
+                            {(loop as LoopRow & { pendingCount?: number }).pendingCount} pending
+                          </Badge>
+                        )}
                     </div>
                     <p className="text-xs text-[var(--mute)] truncate">
                       {loop.cronExpr || "Manual"}
@@ -92,16 +108,20 @@ export default function LoopsPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <Switch
-                      checked={loop.enabled}
-                      onCheckedChange={(v) => handleToggle(loop, v)}
-                    />
-                    <Button variant="outline" size="sm" onClick={() => handleRun(loop)}
-                            disabled={runMu.isPending}>
-                      <RefreshCwIcon className="size-3 mr-1" />Run Now
+                    <Switch checked={loop.enabled} onCheckedChange={(v) => handleToggle(loop, v)} />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleRun(loop)}
+                      disabled={runMu.isPending}
+                    >
+                      <RefreshCwIcon className="size-3 mr-1" />
+                      Run Now
                     </Button>
                     <Link href={`/loops/${loop.id}`}>
-                      <Button variant="ghost" size="sm">View →</Button>
+                      <Button variant="ghost" size="sm">
+                        View →
+                      </Button>
                     </Link>
                   </div>
                 </CardContent>

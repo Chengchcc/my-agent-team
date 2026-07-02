@@ -2,7 +2,13 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLoopDetail, useReviewLoopItem, useRunLoop } from "@/features/loop/hooks";
@@ -16,8 +22,18 @@ export default function LoopDetailPage() {
 
   const loop = data?.loop;
 
-  if (isLoading) return <div className="container mx-auto px-8 py-10"><p className="text-sm text-[var(--mute)]">Loading...</p></div>;
-  if (!loop) return <div className="container mx-auto px-8 py-10"><p className="text-sm text-[var(--mute)]">Loop not found.</p></div>;
+  if (isLoading)
+    return (
+      <div className="container mx-auto px-8 py-10">
+        <p className="text-sm text-[var(--mute)]">Loading...</p>
+      </div>
+    );
+  if (!loop)
+    return (
+      <div className="container mx-auto px-8 py-10">
+        <p className="text-sm text-[var(--mute)]">Loop not found.</p>
+      </div>
+    );
 
   const pendingCount = (loop as { pendingCount?: number }).pendingCount ?? 0;
 
@@ -27,9 +43,13 @@ export default function LoopDetailPage() {
         <div className="container mx-auto px-8 py-5">
           <Breadcrumb>
             <BreadcrumbList>
-              <BreadcrumbItem><a href="/loops">Loops</a></BreadcrumbItem>
+              <BreadcrumbItem>
+                <a href="/loops">Loops</a>
+              </BreadcrumbItem>
               <BreadcrumbSeparator />
-              <BreadcrumbItem><BreadcrumbPage>{loop.name}</BreadcrumbPage></BreadcrumbItem>
+              <BreadcrumbItem>
+                <BreadcrumbPage>{loop.name}</BreadcrumbPage>
+              </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
         </div>
@@ -45,10 +65,17 @@ export default function LoopDetailPage() {
               {pendingCount > 0 ? ` · ${pendingCount} awaiting review` : ""}
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => runMu.mutate(id, {
-            onSuccess: () => toast.success("Run triggered"),
-            onError: (e) => toast.error(`Run failed: ${String(e)}`),
-          })} disabled={runMu.isPending}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              runMu.mutate(id, {
+                onSuccess: () => toast.success("Run triggered"),
+                onError: (e) => toast.error(`Run failed: ${String(e)}`),
+              })
+            }
+            disabled={runMu.isPending}
+          >
             Run Now
           </Button>
         </div>
@@ -73,8 +100,12 @@ export default function LoopDetailPage() {
                 <CardContent className="p-3 flex items-center justify-between">
                   <span className="text-sm">Check back after the next loop run.</span>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline">Approve</Button>
-                    <Button size="sm" variant="outline">Reject</Button>
+                    <Button size="sm" variant="outline">
+                      Approve
+                    </Button>
+                    <Button size="sm" variant="outline">
+                      Reject
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
