@@ -4,6 +4,7 @@
 - `docs/adr/0002-config-generation-is-builtin-skill.md`
 - `docs/adr/0003-state-md-single-writer.md`
 - `docs/adr/0004-discovery-is-agent-session.md`
+- `docs/adr/0006-loop-lock-deferred.md`
 - `docs/adr/0005-mcp-deferred-for-loop.md`
 - `README.md`
 - `docs/architecture/README.md`
