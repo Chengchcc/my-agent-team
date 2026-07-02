@@ -1,12 +1,12 @@
-import type { LoopAction, LoopState, LoopConfig } from "@my-agent-team/loop";
+import type { LoopAction, LoopConfig, LoopState } from "@my-agent-team/loop";
 import {
   formatInboxMd,
   formatStateMd,
   loopReducer,
   parseInboxMd,
+  parseLoopConfig,
   parseStateMd,
   parseVerdictMd,
-  parseLoopConfig,
 } from "@my-agent-team/loop";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
 
@@ -224,10 +224,9 @@ export async function loopStep(params: {
 
     // Evaluator
     const evalSessionId = `loop:${state.loopId}:eval:${item.id}:${item.attempt}`;
-    const evaluatorPrompt = evalPrompt.replace("{acceptance}", acceptance).replace(
-      "{filesChanged}",
-      filesChanged || "none",
-    );
+    const evaluatorPrompt = evalPrompt
+      .replace("{acceptance}", acceptance)
+      .replace("{filesChanged}", filesChanged || "none");
 
     const evalSpec = params.buildSpec({
       sessionId: evalSessionId,
