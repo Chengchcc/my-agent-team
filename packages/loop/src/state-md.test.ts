@@ -1,11 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  formatInboxMd,
-  formatStateMd,
-  parseInboxMd,
-  parseStateMd,
-  parseVerdictMd,
-} from "./state-md.js";
+import { formatInboxMd, formatStateMd, parseInboxMd, parseLoopConfig, parseStateMd, parseVerdictMd } from "./state-md.js";
 import type { ItemState, LoopState } from "./types.js";
 
 function sampleState(): LoopState {
@@ -439,5 +433,48 @@ describe("parseVerdictMd", () => {
   test("whitespace only → null", () => {
     const v = parseVerdictMd("   \n  ");
     expect(v).toBeNull();
+  });
+});
+describe("parseLoopConfig", () => {
+  test("parses full LOOP.md", () => {
+    const md = [
+      "---",
+      "repo: /home/projects/test",
+      "generator:",
+      "  model: claude-sonnet-4",
+      "  systemPrompt: fix bugs",
+      "evaluator:",
+      "  model: claude-opus-4",
+      "  systemPrompt: verify",
+      "acceptance: tests pass",
+      "---",
+    ].join("\n");
+    const cfg = parseLoopConfig(md);
+    expect(cfg).not.toBeNull();
+    expect(cfg!.repo).toBe("/home/projects/test");
+    expect(cfg!.generator.model).toBe("claude-sonnet-4");
+    expect(cfg!.generator.systemPrompt).toBe("fix bugs");
+    expect(cfg!.evaluator.model).toBe("claude-opus-4");
+    expect(cfg!.acceptance).toBe("tests pass");
+  });
+
+  test("missing model → null", () => {
+    const md = [
+      "---",
+      "generator:",
+      "  systemPrompt: fix",
+      "evaluator:",
+      "  systemPrompt: verify",
+      "---",
+    ].join("\n");
+    expect(parseLoopConfig(md)).toBeNull();
+  });
+
+  test("empty → null", () => {
+    expect(parseLoopConfig("")).toBeNull();
+  });
+
+  test("no frontmatter → null", () => {
+    expect(parseLoopConfig("# Hello")).toBeNull();
   });
 });

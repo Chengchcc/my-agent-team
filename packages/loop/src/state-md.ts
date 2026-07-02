@@ -281,3 +281,40 @@ export function parseVerdictMd(md: string): Verdict | null {
       .filter(Boolean) ?? [];
   return { verdict, reasons, evidence } as Verdict;
 }
+
+// ============================================================
+// LOOP.md config parsing
+// ============================================================
+
+export interface LoopConfig {
+  repo: string;
+  generator: { model: string; systemPrompt: string };
+  evaluator: { model: string; systemPrompt: string };
+  acceptance: string;
+}
+
+export function parseLoopConfig(md: string): LoopConfig | null {
+  if (!md.trim()) return null;
+
+  const fmMatch = md.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (!fmMatch?.[1]) return null;
+
+  const frontmatter = parseYamlBlock(fmMatch[1].split("\n"));
+  const gen = frontmatter.generator as Record<string, unknown> | undefined;
+  const eval_ = frontmatter.evaluator as Record<string, unknown> | undefined;
+
+  if (!gen?.model || !eval_?.model) return null;
+
+  return {
+    repo: String(frontmatter.repo ?? ""),
+    generator: {
+      model: String(gen.model),
+      systemPrompt: String(gen.systemPrompt ?? ""),
+    },
+    evaluator: {
+      model: String(eval_.model),
+      systemPrompt: String(eval_.systemPrompt ?? ""),
+    },
+    acceptance: String(frontmatter.acceptance ?? ""),
+  };
+}

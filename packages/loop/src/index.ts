@@ -3,9 +3,11 @@ export {
   formatInboxMd,
   formatStateMd,
   parseInboxMd,
+  parseLoopConfig,
   parseStateMd,
   parseVerdictMd,
 } from "./state-md.js";
+export type { LoopConfig } from "./state-md.js";
 export type {
   ItemId,
   ItemState,
