@@ -283,7 +283,12 @@
       "owners": "architecture",
       "path": "docs/architecture/foundations/loop.md",
       "summary": "Loop 是统一工作的文件态本体：配置在 .loop/ 文件、item 状态在 STATE.md、CronJob 退成调度者、loopStep() 无状态推进。Goal 是过渡态，验收标准沉淀为 config.yml 的 acceptance 字段。不新增数据库表。",
-      "depends_on": ["foundations.loop-engineering", "foundations.cron-job", "harness.harness", "runtime.framework"],
+      "depends_on": [
+        "foundations.loop-engineering",
+        "foundations.cron-job",
+        "harness.harness",
+        "runtime.framework"
+      ],
       "used_by": ["backend.loop-runner", "foundations.loop-pattern"]
     },
     {
@@ -303,7 +308,14 @@
       "owners": "architecture",
       "path": "docs/architecture/foundations/loop-engineering.md",
       "summary": "harness 之上的第四层：不再一遍遍手写 prompt，而是设计出替你 prompt agent 的 loop。内层 loop（一次 run）与外层 loop（跨轮工作）的区别、五个动作、maker-checker 独立 AgentSession。本体不落数据库。",
-      "depends_on": ["foundations.loop", "foundations.loop-pattern", "backend.loop-runner", "foundations.cron-job", "harness.harness", "design-philosophy"],
+      "depends_on": [
+        "foundations.loop",
+        "foundations.loop-pattern",
+        "backend.loop-runner",
+        "foundations.cron-job",
+        "harness.harness",
+        "design-philosophy"
+      ],
       "used_by": ["flows.e2e-loop-verification", "roadmap.future-work"]
     },
     {
