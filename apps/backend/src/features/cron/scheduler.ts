@@ -1,11 +1,11 @@
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
+import { loopStep } from "../loop/loop-step.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { SessionFactory } from "../span/session-factory.js";
 import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
 import type { CronJobRow } from "./domain.js";
-import { loopStep } from "../loop/loop-step.js";
 import type { CronJobService } from "./service.js";
 
 /** Narrow interface for cron scheduling, injectable for testing. */
@@ -125,9 +125,7 @@ export function createCronScheduler(deps: {
         }
         currentJob = fresh;
 
-        await new Promise((r) =>
-          setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 30_000)),
-        );
+        await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 30_000)));
       }
     }
   }
@@ -138,11 +136,15 @@ export function createCronScheduler(deps: {
     return {
       agentId: "loop-agent",
       cwd: params.cwd,
-      model: (deps as any)._makeModel?.({
-        modelName: params.modelName,
-        modelProvider: "anthropic",
-        modelBaseUrl: null,
-      }) ?? new (require("@my-agent-team/adapter-anthropic").AnthropicChatModel)({ model: params.modelName }),
+      model:
+        (deps as any)._makeModel?.({
+          modelName: params.modelName,
+          modelProvider: "anthropic",
+          modelBaseUrl: null,
+        }) ??
+        new (require("@my-agent-team/adapter-anthropic").AnthropicChatModel)({
+          model: params.modelName,
+        }),
       modelName: params.modelName,
       plugins: [],
       tools: [],
@@ -155,8 +157,14 @@ export function createCronScheduler(deps: {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
       promise.then(
-        (v) => { clearTimeout(timer); resolve(v); },
-        (e) => { clearTimeout(timer); reject(e); },
+        (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
       );
     });
   }

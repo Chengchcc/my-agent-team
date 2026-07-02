@@ -4,16 +4,22 @@ import { CronJobNotFoundError, type CronJobService, CronJobValidationError } fro
 
 export function cronJobRoutes(svc: CronJobService, scheduler: CronScheduler) {
   return new Elysia()
-    .get("/api/cron-jobs", ({ query }) => {
-      const jobs = svc.list();
-      if (query.kind === "loop") return { cronJobs: jobs.filter(j => j.loopConfigPath != null) };
-      if (query.kind === "cron") return { cronJobs: jobs.filter(j => j.loopConfigPath == null) };
-      return { cronJobs: jobs };
-    }, {
-      query: t.Object({
-        kind: t.Optional(t.Union([t.Literal("cron"), t.Literal("loop")])),
-      }),
-    })
+    .get(
+      "/api/cron-jobs",
+      ({ query }) => {
+        const jobs = svc.list();
+        if (query.kind === "loop")
+          return { cronJobs: jobs.filter((j) => j.loopConfigPath != null) };
+        if (query.kind === "cron")
+          return { cronJobs: jobs.filter((j) => j.loopConfigPath == null) };
+        return { cronJobs: jobs };
+      },
+      {
+        query: t.Object({
+          kind: t.Optional(t.Union([t.Literal("cron"), t.Literal("loop")])),
+        }),
+      },
+    )
     .get("/api/cron-jobs/:id", ({ params: { id } }) => {
       try {
         return { cronJob: svc.getById(id) };
