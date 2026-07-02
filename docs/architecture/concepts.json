@@ -166,6 +166,16 @@
       "used_by": []
     },
     {
+      "id": "flows.e2e-loop-verification",
+      "title": "Loop 验证端到端",
+      "status": "design",
+      "owners": "architecture",
+      "path": "docs/architecture/flows/e2e-loop-verification.md",
+      "summary": "一次触发里 loopStep() 读 STATE.md、对 fixing item 起 Generator 干活、再起独立 Evaluator 动手验证、verdict 经 loopReducer 转移 item.step 的完整时序。核心：不看 run 终态，读 verdict 内容转移 step。",
+      "depends_on": ["foundations.loop-engineering", "foundations.loop", "backend.loop-runner"],
+      "used_by": []
+    },
+    {
       "id": "runtime.framework",
       "title": "Framework 运行循环",
       "status": "current",
@@ -272,8 +282,8 @@
       "status": "design",
       "owners": "architecture",
       "path": "docs/architecture/foundations/loop.md",
-      "summary": "Loop 是按调度自动发现工作、用 Generator/Evaluator 分离的流水线推进、最终等人审批的系统。它是 Issue 的超集——手建的 Issue 是 trigger=manual 的 Loop 特例。Loop issue 和 manual issue 是同一张 issues 表、同一个实体、同一个闸门，只有推进路径不同。",
-      "depends_on": ["foundations.issue", "harness.harness", "runtime.framework"],
+      "summary": "Loop 是统一工作的文件态本体：配置在 .loop/ 文件、item 状态在 STATE.md、CronJob 退成调度者、loopStep() 无状态推进。Goal 是过渡态，验收标准沉淀为 config.yml 的 acceptance 字段。不新增数据库表。",
+      "depends_on": ["foundations.loop-engineering", "foundations.cron-job", "harness.harness", "runtime.framework"],
       "used_by": ["backend.loop-runner", "foundations.loop-pattern"]
     },
     {
@@ -285,6 +295,16 @@
       "summary": "Loop Pattern 是 Loop 的预制配置模板。7 种内置 pattern 覆盖最常见的自动化场景。L1/L2/L3 信任层级决定自动化程度。Loop Ready Score（0-100）量化配置完备程度。",
       "depends_on": ["foundations.loop", "foundations.issue"],
       "used_by": []
+    },
+    {
+      "id": "foundations.loop-engineering",
+      "title": "Loop Engineering",
+      "status": "design",
+      "owners": "architecture",
+      "path": "docs/architecture/foundations/loop-engineering.md",
+      "summary": "harness 之上的第四层：不再一遍遍手写 prompt，而是设计出替你 prompt agent 的 loop。内层 loop（一次 run）与外层 loop（跨轮工作）的区别、五个动作、maker-checker 独立 AgentSession。本体不落数据库。",
+      "depends_on": ["foundations.loop", "foundations.loop-pattern", "backend.loop-runner", "foundations.cron-job", "harness.harness", "design-philosophy"],
+      "used_by": ["flows.e2e-loop-verification", "roadmap.future-work"]
     },
     {
       "id": "security.overview",

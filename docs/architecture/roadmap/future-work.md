@@ -3,8 +3,7 @@ id: roadmap.future-work
 title: 未来工作
 status: future
 owners: architecture
-last_verified_against_code: 2026-06-16
-summary: "这一页是唯一谈「还没做 / 想做」的地方——刻意和描述当前状态的所有页面隔离开，避免把「现状」和「设想」混在一起误导读者。其余每一页都只讲代码现在确实是怎样的；任何前瞻性的方向都收拢到这里，并标注它依赖哪些现有抽象。"
+last_verified_against_code: 2026-07-01
 depends_on:
   - backend.conversation-projection
   - surfaces.lark-adapter
@@ -46,6 +45,21 @@ used_by:
 
   原则：每个里程碑落地时，同步回填它所触及的 `status: current` 页（[Issue](../foundations/issue.md)、[Orchestrator](../backend/orchestrator.md)、[Issue 生命周期端到端](../flows/e2e-issue-lifecycle.md)），并把对应小节从 [Issue 协作工作流](../foundations/issue-workflow.md) 的 `design` 状态推进为现状。
 - **@提及收编进编排**　现状里 @提及自动触发（`onRunComplete` 扫描文本 → `forkAgentRuns`）和 Orchestrator 的状态机推进是两套驱动。未来可把对话内的 @提及招呼也统一交给编排器调度，让「下一步谁干」只有一个权威来源。依赖：[Orchestrator](../backend/orchestrator.md)、[对话与成员](../conversation/conversation-and-members.md)。
+- **Loop Engineering（统一工作系统）**　现有 Issue/CronJob 覆盖了 loop 五动作里的交接、持久化、半个调度，但两个概念各管一半、都不表达「按调度自动发现工作 + 多步流水线推进 + 跨轮状态持久」。Loop 把它们统一成一个**文件态**工作系统：配置在 `.loop/` 文件、item 状态在 STATE.md、CronJob 退成调度者、`loopStep()` 无状态推进。**Goal 是创建对话框里的过渡态，翻译成 config 后消失，验收标准沉淀为 config.yml 的 `acceptance` 字段——不新增 Goal/Step/Edge 数据库实体**。完整设计与不变量收拢在 [Loop Engineering](../foundations/loop-engineering.md)（第一性原理入口）、[Loop](../foundations/loop.md)、[LoopRunner](../backend/loop-runner.md)、[Loop Pattern](../foundations/loop-pattern.md)、[Loop 验证端到端](../flows/e2e-loop-verification.md)；本节只记**落地顺序**。核心判断：这是**最小 DB 改动**（唯一加 `cron_job.loop_config_path` 一列）+ 文件态本体，不是 schema 大重构；MVP 是**入口统一、数据未统一**——`/issues` 移除、Issue 表只读**不迁移**（迁移列入 Phase 3）。落地顺序、并发一致性、预算等硬约束以 [PRD](../../prd/loop-engineering.md) 为准。依赖：[Loop Engineering](../foundations/loop-engineering.md)、[定时任务](../foundations/cron-job.md)、[AgentSession](../harness/harness.md)、[Orchestrator](../backend/orchestrator.md)、[文件型记忆插件](../plugins/fs-memory.md)。
+
+  里程碑切法（对齐 [PRD](../../prd/loop-engineering.md) §8 的 Phase 1/2/3；**检查先于并行**——验证第一，并行最后）：
+
+  | Phase | 内容 | 为什么排这个位置 |
+  |---|---|---|
+  | **Phase 1（MVP）　文件态本体 + 单 Loop 编排** | `loopReducer()` 纯函数 + 测试；`loopStep()` 无状态编排（discovery → generator → evaluator → human gate，STATE.md 持久）；`.loop/` 目录结构 + STATE.md 读写；CronJob 加 `loop_config_path` 列 + handler 集成；Loop CRUD API + 自然语言创建对话框（intent→config 翻译 + 预览 + scaffold）；Web 仪表盘 + 详情页 review queue；预算保护 + denylist 强制执行。**同棒硬约束**：per-loop 写锁（三入口共用，不能只靠 CronJob 单飞锁）、原子预算计数（不落 STATE.md）、`maxParallelFindings` + 进程级 AgentSession 池（**当前不存在，须新建**）。 | 地基：把「配置在文件、状态在 STATE.md、Goal 是过渡态」这套文件态本体立起来，最小 DB 改动。所有后续能力依赖它。验证（独立 Evaluator + acceptance 靶子）在 MVP 就一等落地，因为治点头回路是整套设计的核心动机。 |
+  | **Phase 2　增强体验** | SSE 实时进度推送（Loop 运行时间线）；Evaluator 通过 MCP 操作浏览器（截图验证前端改动）；Post-run critique 展示和编辑；手动 item 添加 UI；多 Loop 仪表盘性能优化（分页、缓存）。 | 单 Loop 编排跑通后，才谈得上把验证从「跑测试」扩到「操作浏览器」、把进度实时化。不改本体，只加体验与验证广度。 |
+  | **Phase 3　高级能力 + 数据收敛** | Loop 之间 item 移动（promote）；**已有 Issue 数据迁移工具**（把 MVP 遗留的只读 Issue 表收敛进 Loop，真正做到单一数据源）；Loop Ready Score 展示；多 Loop 协调与去重。 | 迁移刻意排最后：MVP 先用「入口统一、数据并存」把 Loop 立稳、验证文件态模型跑得通，再动风险最大的 Issue→STATE.md 数据迁移。并行/多 Loop 协调也在此档，守「检查先于并行」。 |
+
+  > 排序铁律「检查先于并行」来自 Loop Engineering 概念本身：在验证被证明可靠之前绝不加并发。多 Loop 协调 / 并行是这条线的**最后**一步——先把单条回路的文件态本体、独立验证、断路、发现跑通。
+
+  > **Phase 1/2/3 是实现顺序，不是自主度**：这三档说的是「按什么顺序把这套本体建出来」。一条**已经建好**的 loop 还有另一条正交的放权轴——L1 报告 → L2 辅助 → L3 无人值守（每档等上一档证明价值后再放开，创建默认 L1），详见 [Loop Engineering](../foundations/loop-engineering.md) 的「运营成熟度」与 [Loop Pattern](../foundations/loop-pattern.md) 的信任层级。别把「Phase 实现顺序」和「L 自主度」两条轴混为一谈。
+
+  原则：每个 Phase 落地时，同步回填它所触及的 `status: current` 页（[Issue](../foundations/issue.md)、[Orchestrator](../backend/orchestrator.md)、[CronJob](../foundations/cron-job.md)），并把 [Loop](../foundations/loop.md)、[LoopRunner](../backend/loop-runner.md)、[Loop Engineering](../foundations/loop-engineering.md) 对应小节从 `design` 推进为现状。
 - **Ops 导航转 session / trace 中心**　现状 Ops 面以 run 为中心列举（run 列表 → run 详情），词汇与分区都停在 daemon 时代的 `run`。[标识符体系](../foundations/identifiers.md) 把本体收敛为「session（一条 trace）→ span（root span）→ attempt（重试序号）」后，Ops 导航也应顺着这条链改：顶层按 **session** 聚合（一个 agent 在一个上下文里的整条记忆线），点进去看这条线上的 **span 序列**（每次 prompt loop 一段，按 spanId 切的 `checkpoint_events` 即其执行事实流），再下钻到 **attempt / child span**。这让「这条线到底跑过几轮、第 3 轮前是什么状态」成为一次自然的层层下钻，而不是在扁平 run 列表里靠 `idempotencyKey` 反推。依赖：[标识符体系](../foundations/identifiers.md)、[数据模型](../backend/data-model.md)。
 - **删除 transport / heartbeat 残骸**　`pid` / `heartbeat_at`（`attempt` 表）和心跳 reaper 是 runner daemon 时代的产物：跨进程执行需要一个进程外存活信号，backend 靠扫心跳判断 daemon 是否卡死。AgentSession 改为进程内执行后，这个前提消失——进程内执行要么在跑、要么随进程一起没了，没有「独立进程失联」这种中间态需要心跳来探。这两列已标 `deprecated`，未来应连同 reaper 的心跳分支一并删除，超时统一由 per-span 看门狗（主动 cancel）表达，不再保留 daemon 式的被动心跳兜底。依赖：[数据模型](../backend/data-model.md)、[标识符体系](../foundations/identifiers.md)。
 - **Harness 运行时加固（M22）**　**已落地。** 四项子任务全部完成，相关 `status: current` 页面已回填：

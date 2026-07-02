@@ -14,6 +14,7 @@
 - `docs/architecture/flows/e2e-issue-lifecycle.md`
 - `docs/architecture/flows/e2e-lark-message.md`
 - `docs/architecture/flows/e2e-web-message.md`
+- `docs/architecture/flows/e2e-loop-verification.md`
 - `docs/architecture/foundations/cron-job.md`
 - `docs/architecture/foundations/dependency-injection.md`
 - `docs/architecture/foundations/facts-and-projections.md`
@@ -23,6 +24,7 @@
 - `docs/architecture/foundations/lifecycle-overview.md`
 - `docs/architecture/foundations/loop.md`
 - `docs/architecture/foundations/loop-pattern.md`
+- `docs/architecture/foundations/loop-engineering.md`
 - `docs/architecture/harness/harness.md`
 - `docs/architecture/index.llm.md`
 - `docs/architecture/map.md`
