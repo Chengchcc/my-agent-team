@@ -33,3 +33,13 @@ M4 是 MVP 最后一棒：cron 触发 loopStep()、fireLoop() 自管 retry/timeo
 
 - [ADR 0001](../adr/0001-loop-prune-is-post-processing.md)
 - [CronJob 单飞锁](../architecture/foundations/cron-job.md)
+
+## 修订 (2026-07-02)
+
+M5（`/run`、`/review` HTTP）与 M6（Web review）已落地三入口，`buildSpec` 已接真实 anthropic model。原三条豁免前提全部失效：
+
+- **写锁**：per-loop 进程内内存锁（Map-based Promise chain）已落地，单进程假设成立。多实例部署需升级为文件/分布式锁。
+- **预算计数**：进程内 Map 计数器 + 可选 `budget.json`，从 LOOP.md `budget.dailyCap` 读 cap。
+- **并发池**：`maxParallelFindings` 在 LOOP.md frontmatter 中定义（缺省 1），Semaphore 有界并发已落地。
+
+**原决策翻转：三项约束由 loop-hardening 完整落地。**

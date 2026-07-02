@@ -13,8 +13,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { useLoopList, useRunLoop, useDeleteLoop } from "@/features/loop/hooks";
 import { useSetCronEnabled } from "@/features/cron/hooks";
+import { useDeleteLoop, useLoopList, useRunLoop } from "@/features/loop/hooks";
 
 export const dynamic = "force-dynamic";
 

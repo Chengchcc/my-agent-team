@@ -40,8 +40,11 @@ export function useRunLoop() {
 export function useReviewLoopItem(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { itemId: string; verdict: string; feedback?: string }) =>
-      api.reviewLoopItem(id, body),
+    mutationFn: (body: {
+      itemId: string;
+      verdict: "approve" | "reject" | "promote" | "retry" | "dismiss";
+      feedback?: string;
+    }) => api.reviewLoopItem(id, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: loopKeys.detail(id) });
       qc.invalidateQueries({ queryKey: loopKeys.all });

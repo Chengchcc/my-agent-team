@@ -88,7 +88,7 @@ export default function NewLoopPage() {
 
             <div>
               <Label htmlFor="project">Project</Label>
-              <Select value={projectId} onValueChange={(v) => setProjectId(v ?? '')}>
+              <Select value={projectId} onValueChange={(v) => setProjectId(v ?? "")}>
                 <SelectTrigger id="project">
                   <SelectValue placeholder="Select a project..." />
                 </SelectTrigger>
@@ -115,7 +115,7 @@ export default function NewLoopPage() {
 
             <div>
               <Label htmlFor="cronExpr">Schedule (optional)</Label>
-              <Select value={cronExpr} onValueChange={(v) => setCronExpr(v ?? '')}>
+              <Select value={cronExpr} onValueChange={(v) => setCronExpr(v ?? "")}>
                 <SelectTrigger id="cronExpr">
                   <SelectValue placeholder="Manual (no schedule)" />
                 </SelectTrigger>

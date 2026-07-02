@@ -5,6 +5,8 @@ import type { CronJobPort } from "../cron/ports.js";
 import type { CronScheduler } from "../cron/scheduler.js";
 import type { CronJobService } from "../cron/service.js";
 import { loopStep } from "../loop/loop-step.js";
+import { resolveLoopPaths } from "../loop/resolve-paths.js";
+import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
 import { createUpdateLoopConfigTool } from "./tools.js";
 
@@ -226,7 +228,7 @@ Steps:
       }
 
       const state = await loopStep({
-        loopConfigPath: `${dataDir}/${job.loopConfigPath}`,
+        loopConfigPath: resolveLoopPaths(job, dataDir).loopConfigPath,
         sessionFactory,
         buildSpec,
       });
@@ -243,7 +245,7 @@ Steps:
         }
 
         const state = await loopStep({
-          loopConfigPath: `${dataDir}/${job.loopConfigPath}`,
+          loopConfigPath: resolveLoopPaths(job, dataDir).loopConfigPath,
           sessionFactory,
           buildSpec,
           action: {
@@ -278,7 +280,7 @@ Steps:
         }
         scheduler.unregister(id);
         cronSvc.remove(id);
-        await rm(`${dataDir}/${job.loopConfigPath}`, { recursive: true, force: true });
+        await rm(resolveLoopPaths(job, dataDir).loopConfigPath, { recursive: true, force: true });
         set.status = 204;
         return;
       } catch {

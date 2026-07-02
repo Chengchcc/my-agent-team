@@ -12,14 +12,20 @@ export function useCreateCronJob() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Parameters<typeof api.createCronJob>[0]) => api.createCronJob(body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: cronKeys.all }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: cronKeys.all });
+      qc.invalidateQueries({ queryKey: ["loops"] });
+    },
   });
 }
 export function useDeleteCronJob() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deleteCronJob(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: cronKeys.all }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: cronKeys.all });
+      qc.invalidateQueries({ queryKey: ["loops"] });
+    },
   });
 }
 export function useSetCronEnabled() {
@@ -27,7 +33,10 @@ export function useSetCronEnabled() {
   return useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
       api.setCronJobEnabled(id, enabled),
-    onSuccess: () => qc.invalidateQueries({ queryKey: cronKeys.all }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: cronKeys.all });
+      qc.invalidateQueries({ queryKey: ["loops"] });
+    },
   });
 }
 export function useUpdateCronJob() {
@@ -35,7 +44,10 @@ export function useUpdateCronJob() {
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: Parameters<typeof api.updateCronJob>[1] }) =>
       api.updateCronJob(id, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: cronKeys.all }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: cronKeys.all });
+      qc.invalidateQueries({ queryKey: ["loops"] });
+    },
   });
 }
 export { cronKeys };

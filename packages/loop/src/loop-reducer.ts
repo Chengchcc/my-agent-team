@@ -49,7 +49,18 @@ export function loopReducer(state: LoopState, action: LoopAction, opts?: Reducer
       const { verdict } = action;
 
       if (verdict.verdict === "PASS") {
-        if (isEvidenceEmpty(verdict.evidence)) break;
+        if (isEvidenceEmpty(verdict.evidence)) {
+          items[action.itemId] = {
+            ...item,
+            step: "inbox",
+            result: {
+              verdict: "ESCALATE",
+              reasons: ["PASS verdict missing evidence"],
+              evidence: "",
+            },
+          };
+          break;
+        }
         items[action.itemId] = {
           ...item,
           step: autoResolve ? "resolved" : "awaiting_review",

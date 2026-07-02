@@ -243,8 +243,7 @@ export function buildSessionSpec(params: BuildSessionSpecParams): SessionSpec {
     input,
     skillRoots,
   } = params;
-  const hasConversation = Boolean(convPort && conversationId);
-  const cwd = join(config.dataDir, "agents", agentId);
+  const cwd = params.cwdOverride ?? join(config.dataDir, "agents", agentId);
   mkdirSync(cwd, { recursive: true });
 
   const makeModel =

@@ -15,8 +15,8 @@ import {
   RefreshCwIcon,
   Trash2Icon,
 } from "lucide-react";
-import { toast } from "sonner";
 import { usePathname, useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,

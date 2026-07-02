@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type { LoopAction, LoopConfig, LoopState } from "@my-agent-team/loop";
 import {
   formatInboxMd,
@@ -8,6 +9,7 @@ import {
   parseStateMd,
   parseVerdictMd,
 } from "@my-agent-team/loop";
+import type { ProjectPort } from "../project/ports.js";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
 
 type ReviewAction = {
@@ -15,6 +17,30 @@ type ReviewAction = {
   verdict: "approve" | "reject" | "promote" | "retry" | "dismiss";
   feedback?: string;
 };
+
+export interface LoopStepParams {
+  loopConfigPath: string;
+  sessionFactory: SessionFactory;
+  buildSpec: (params: { sessionId: string; modelName: string; cwd: string }) => SessionSpec;
+  action?: ReviewAction;
+  projectPort?: ProjectPort;
+  dataDir?: string;
+}
+
+// === per-loop write lock ===
+const loopLocks = new Map<string, Promise<unknown>>();
+async function withLoopLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = loopLocks.get(key) ?? Promise.resolve();
+  const next = prev.then(fn, (err: unknown) => {
+    loopLocks.delete(key);
+    throw err;
+  });
+  loopLocks.set(
+    key,
+    next.catch(() => {}),
+  );
+  return next;
+}
 
 const GENERATOR_PROMPT = [
   "你是一个修 bug 的工程师。只改相关文件，不要重构无关代码。",
@@ -50,6 +76,40 @@ const GENERATOR_MODEL = "claude-sonnet-4";
 const EVALUATOR_MODEL = "claude-opus-4";
 const LOOP_AGENT_ID = "loop-agent";
 
+async function resolveRepoPath(
+  loopConfigPath: string,
+  projectPort: ProjectPort | undefined,
+  dataDir: string | undefined,
+): Promise<string | null> {
+  if (!projectPort || !dataDir) return null;
+  let cfg: LoopConfig | null = null;
+  try {
+    cfg = parseLoopConfig(await Bun.file(`${loopConfigPath}/LOOP.md`).text());
+  } catch {
+    return null;
+  }
+  const projectId = cfg?.projectId;
+  if (!projectId) return null;
+  const project = projectPort.getProject(projectId);
+  if (!project?.repoUrl) {
+    throw new Error(`loopStep: project ${projectId} has no repoUrl`);
+  }
+  const repoPath = `${dataDir}/repos/${projectId}`;
+  const branch = project.defaultBranch ?? "main";
+  if (!existsSync(repoPath)) {
+    await Bun.$`git clone --depth 1 --branch ${branch} ${project.repoUrl} ${repoPath}`.quiet();
+  } else {
+    await Bun.$`git fetch origin`.cwd(repoPath).quiet();
+    await Bun.$`git checkout ${branch}`.cwd(repoPath).quiet();
+    await Bun.$`git reset --hard origin/${branch}`.cwd(repoPath).quiet();
+  }
+  const ok =
+    (await Bun.$`git -C ${repoPath} rev-parse --is-inside-work-tree`.quiet().nothrow()).exitCode ===
+    0;
+  if (!ok) throw new Error(`loopStep: repoPath is not a git work tree: ${repoPath}`);
+  return repoPath;
+}
+
 function actionToReducer(action: ReviewAction): LoopAction {
   switch (action.verdict) {
     case "approve":
@@ -70,13 +130,12 @@ function actionToReducer(action: ReviewAction): LoopAction {
 }
 
 function pruneTerminal(items: LoopState["items"]): LoopState["items"] {
-  const result: LoopState["items"] = {};
+  const pruned: LoopState["items"] = {};
   for (const [id, item] of Object.entries(items)) {
-    if (item.step !== "resolved" && item.step !== "promoted") {
-      result[id] = item;
-    }
+    if (item.step === "inbox" || item.step === "resolved" || item.step === "promoted") continue;
+    pruned[id] = item;
   }
-  return result;
+  return pruned;
 }
 
 async function writeStateAndInbox(
@@ -85,9 +144,9 @@ async function writeStateAndInbox(
   state: LoopState,
   inboxItems: LoopState["items"],
 ): Promise<LoopState> {
-  // Extract inbox items
   const newInboxItems: LoopState["items"] = {};
   const remainingItems: LoopState["items"] = {};
+
   for (const [id, item] of Object.entries(state.items)) {
     if (item.step === "inbox") {
       newInboxItems[id] = item;
@@ -116,15 +175,16 @@ function buildGeneratorPrompt(item: LoopState["items"][string]): string {
     .replace("{rejectionNote}", note);
 }
 
-export async function loopStep(params: {
-  loopConfigPath: string;
-  sessionFactory: SessionFactory;
-  buildSpec: (params: { sessionId: string; modelName: string; cwd: string }) => SessionSpec;
-  action?: ReviewAction;
-}): Promise<LoopState> {
+export async function loopStep(params: LoopStepParams): Promise<LoopState> {
+  return withLoopLock(params.loopConfigPath, () => loopStepImpl(params));
+}
+
+async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
   const statePath = `${params.loopConfigPath}/STATE.md`;
   const inboxPath = `${params.loopConfigPath}/INBOX.md`;
-  const workDir = params.loopConfigPath;
+
+  const repoPath = await resolveRepoPath(params.loopConfigPath, params.projectPort, params.dataDir);
+  const workDir = repoPath ?? params.loopConfigPath;
 
   // 1. Read files
   let stateMd: string;
@@ -148,10 +208,15 @@ export async function loopStep(params: {
   let cfg: LoopConfig | null = null;
   try {
     cfg = parseLoopConfig(await Bun.file(loopMdPath).text());
-  } catch {}
+  } catch {
+    // no config
+  }
 
   const genModel = cfg?.generator.model ?? GENERATOR_MODEL;
   const evalModel = cfg?.evaluator.model ?? EVALUATOR_MODEL;
+  if (genModel === evalModel) {
+    throw new Error(`loopStep: generator.model ("${genModel}") must differ from evaluator.model`);
+  }
   const genPrompt = cfg?.generator.systemPrompt || GENERATOR_PROMPT;
   const evalPrompt = cfg?.evaluator.systemPrompt || EVALUATOR_PROMPT;
   const acceptance = cfg?.acceptance || ACCEPTANCE;
@@ -198,7 +263,7 @@ export async function loopStep(params: {
   const fixingItems = Object.values(state.items).filter((i) => i.step === "fixing");
 
   for (const item of fixingItems) {
-    const baseSha = (await Bun.$`git rev-parse HEAD`.quiet()).text().trim();
+    const baseSha = (await Bun.$`git rev-parse HEAD`.cwd(repoPath ?? ".").quiet()).text().trim();
 
     // Generator
     const genSessionId = `loop:${state.loopId}:gen:${item.id}:${item.attempt}`;
@@ -212,8 +277,10 @@ export async function loopStep(params: {
     await params.sessionFactory.enqueuePrompt(genSessionId, buildGeneratorPrompt(item));
     params.sessionFactory.dispose(genSessionId);
 
-    const headSha = (await Bun.$`git rev-parse HEAD`.quiet()).text().trim();
-    const filesChanged = (await Bun.$`git diff --name-only ${baseSha}..${headSha}`.quiet())
+    const headSha = (await Bun.$`git rev-parse HEAD`.cwd(repoPath ?? ".").quiet()).text().trim();
+    const filesChanged = (
+      await Bun.$`git diff --name-only ${baseSha}..${headSha}`.cwd(repoPath ?? ".").quiet()
+    )
       .text()
       .trim();
 
@@ -234,15 +301,25 @@ export async function loopStep(params: {
       cwd: workDir,
     });
 
+    const verdictPath = `${workDir}/VERDICT.md`;
+    try {
+      await Bun.write(verdictPath, "");
+    } catch {
+      // ignore
+    }
+
     const evalSession = params.sessionFactory.getOrCreate(evalSessionId, evalSpec);
     await params.sessionFactory.enqueuePrompt(evalSessionId, evaluatorPrompt);
     params.sessionFactory.dispose(evalSessionId);
 
     // Read verdict
-    const verdictMd = await Bun.file(`${workDir}/VERDICT.md`)
+    const verdictMd = await Bun.file(verdictPath)
       .text()
       .catch(() => "");
-    const verdict = parseVerdictMd(verdictMd);
+    let verdict = parseVerdictMd(verdictMd);
+    if (!verdictMd.trim()) {
+      verdict = { verdict: "ESCALATE", reasons: ["evaluator produced no verdict"], evidence: "" };
+    }
 
     if (verdict) {
       state = loopReducer(state, {
@@ -255,7 +332,10 @@ export async function loopStep(params: {
     // Rollback on REJECT/ESCALATE
     const updatedItem = state.items[item.id];
     if (updatedItem && (updatedItem.step === "fixing" || updatedItem.step === "inbox")) {
-      await Bun.$`git reset --hard ${baseSha}`.quiet();
+      await Bun.$`git reset --hard ${baseSha}`
+        .cwd(repoPath ?? ".")
+        .quiet()
+        .nothrow();
     }
   }
 

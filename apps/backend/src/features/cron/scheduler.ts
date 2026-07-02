@@ -1,8 +1,12 @@
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
 import { loopStep } from "../loop/loop-step.js";
+import { resolveLoopPaths } from "../loop/resolve-paths.js";
+import { buildSessionSpec } from "../span/session-factory.js";
+import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { SessionFactory } from "../span/session-factory.js";
+import { buildSessionSpec } from "../span/session-factory.js";
 import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
 import type { CronJobRow } from "./domain.js";
@@ -96,7 +100,7 @@ export function createCronScheduler(deps: {
         if (currentJob.timeoutMs > 0) {
           await withTimeout(
             loopStep({
-              loopConfigPath: currentJob.loopConfigPath!,
+              loopConfigPath: resolveLoopPaths(currentJob, deps.config.dataDir).loopConfigPath,
               sessionFactory: deps.sessionFactory!,
               buildSpec,
             }),
@@ -104,7 +108,7 @@ export function createCronScheduler(deps: {
           );
         } else {
           await loopStep({
-            loopConfigPath: currentJob.loopConfigPath!,
+            loopConfigPath: resolveLoopPaths(currentJob, deps.config.dataDir).loopConfigPath,
             sessionFactory: deps.sessionFactory!,
             buildSpec,
           });
@@ -130,27 +134,14 @@ export function createCronScheduler(deps: {
     }
   }
 
-  // buildSpec passed to loopStep — hardcoded until M5 (LOOP.md)
-  function buildSpec(params: { sessionId: string; modelName: string; cwd: string }): any {
-    // Reuse makeRunDeps to build SessionSpec for loop agent sessions
-    return {
+  // buildSpec for loop agent sessions — delegates to buildSessionSpec
+  function buildSpec(params: { sessionId: string; modelName: string; cwd: string }) {
+    return buildSessionSpec({
       agentId: "loop-agent",
-      cwd: params.cwd,
-      model:
-        (deps as any)._makeModel?.({
-          modelName: params.modelName,
-          modelProvider: "anthropic",
-          modelBaseUrl: null,
-        }) ??
-        new (require("@my-agent-team/adapter-anthropic").AnthropicChatModel)({
-          model: params.modelName,
-        }),
-      modelName: params.modelName,
-      plugins: [],
-      tools: [],
-      checkpointer: {} as any,
-      contextManager: {} as any,
-    };
+      agent: { modelName: params.modelName, modelProvider: "anthropic", modelBaseUrl: null },
+      config: deps.config,
+      cwdOverride: params.cwd,
+    });
   }
 
   function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
