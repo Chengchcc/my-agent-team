@@ -1,13 +1,13 @@
-import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
+import type { LoopAction, LoopState } from "@my-agent-team/loop";
 import {
-  loopReducer,
-  parseStateMd,
-  formatStateMd,
-  parseInboxMd,
   formatInboxMd,
+  formatStateMd,
+  loopReducer,
+  parseInboxMd,
+  parseStateMd,
   parseVerdictMd,
 } from "@my-agent-team/loop";
-import type { LoopState, LoopAction } from "@my-agent-team/loop";
+import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
 
 type ReviewAction = {
   itemId: string;
@@ -118,11 +118,7 @@ function buildGeneratorPrompt(item: LoopState["items"][string]): string {
 export async function loopStep(params: {
   loopConfigPath: string;
   sessionFactory: SessionFactory;
-  buildSpec: (params: {
-    sessionId: string;
-    modelName: string;
-    cwd: string;
-  }) => SessionSpec;
+  buildSpec: (params: { sessionId: string; modelName: string; cwd: string }) => SessionSpec;
   action?: ReviewAction;
 }): Promise<LoopState> {
   const statePath = `${params.loopConfigPath}/STATE.md`;
@@ -185,9 +181,7 @@ export async function loopStep(params: {
   // 3. Cron TICK — Generator → Evaluator
   state = loopReducer(state, { type: "TICK" });
 
-  const fixingItems = Object.values(state.items).filter(
-    (i) => i.step === "fixing",
-  );
+  const fixingItems = Object.values(state.items).filter((i) => i.step === "fixing");
 
   for (const item of fixingItems) {
     const baseSha = (await Bun.$`git rev-parse HEAD`.quiet()).text().trim();
@@ -201,16 +195,11 @@ export async function loopStep(params: {
     });
 
     const genSession = params.sessionFactory.getOrCreate(genSessionId, genSpec);
-    await params.sessionFactory.enqueuePrompt(
-      genSessionId,
-      buildGeneratorPrompt(item),
-    );
+    await params.sessionFactory.enqueuePrompt(genSessionId, buildGeneratorPrompt(item));
     params.sessionFactory.dispose(genSessionId);
 
     const headSha = (await Bun.$`git rev-parse HEAD`.quiet()).text().trim();
-    const filesChanged = (
-      await Bun.$`git diff --name-only ${baseSha}..${headSha}`.quiet()
-    )
+    const filesChanged = (await Bun.$`git diff --name-only ${baseSha}..${headSha}`.quiet())
       .text()
       .trim();
 
@@ -221,10 +210,10 @@ export async function loopStep(params: {
 
     // Evaluator
     const evalSessionId = `loop:${state.loopId}:eval:${item.id}:${item.attempt}`;
-    const evaluatorPrompt = EVALUATOR_PROMPT.replace(
-      "{acceptance}",
-      ACCEPTANCE,
-    ).replace("{filesChanged}", filesChanged || "none");
+    const evaluatorPrompt = EVALUATOR_PROMPT.replace("{acceptance}", ACCEPTANCE).replace(
+      "{filesChanged}",
+      filesChanged || "none",
+    );
 
     const evalSpec = params.buildSpec({
       sessionId: evalSessionId,
@@ -232,10 +221,7 @@ export async function loopStep(params: {
       cwd: workDir,
     });
 
-    const evalSession = params.sessionFactory.getOrCreate(
-      evalSessionId,
-      evalSpec,
-    );
+    const evalSession = params.sessionFactory.getOrCreate(evalSessionId, evalSpec);
     await params.sessionFactory.enqueuePrompt(evalSessionId, evaluatorPrompt);
     params.sessionFactory.dispose(evalSessionId);
 
@@ -255,10 +241,7 @@ export async function loopStep(params: {
 
     // Rollback on REJECT/ESCALATE
     const updatedItem = state.items[item.id];
-    if (
-      updatedItem &&
-      (updatedItem.step === "fixing" || updatedItem.step === "inbox")
-    ) {
+    if (updatedItem && (updatedItem.step === "fixing" || updatedItem.step === "inbox")) {
       await Bun.$`git reset --hard ${baseSha}`.quiet();
     }
   }

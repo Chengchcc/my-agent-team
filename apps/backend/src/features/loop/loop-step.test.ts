@@ -1,10 +1,10 @@
-import { describe, test, expect, afterEach } from "bun:test";
-import { loopStep } from "./loop-step.js";
-import { formatStateMd, parseInboxMd, loopReducer } from "@my-agent-team/loop";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdir, rm } from "node:fs/promises";
 import type { LoopState } from "@my-agent-team/loop";
-import { rm, mkdir } from "node:fs/promises";
+import { formatStateMd, loopReducer, parseInboxMd } from "@my-agent-team/loop";
 import { echoModel } from "@my-agent-team/test-helpers";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
+import { loopStep } from "./loop-step.js";
 
 const TMP = "/tmp/loop-step-m3-test";
 
@@ -18,11 +18,7 @@ function emptyState(): LoopState {
   return { loopId: "test", lastRun: null, items: {} };
 }
 
-function makeSpec(params: {
-  sessionId: string;
-  modelName: string;
-  cwd: string;
-}): SessionSpec {
+function makeSpec(params: { sessionId: string; modelName: string; cwd: string }): SessionSpec {
   return {
     agentId: "test-agent",
     cwd: params.cwd,
@@ -72,9 +68,7 @@ describe("loopStep M3 — AgentSession wiring", () => {
     });
     await Bun.write(`${dir}/STATE.md`, formatStateMd(state));
 
-    const { factory, getCallCount } = mockSessionFactory(
-      "verdict: PASS\nevidence: ok",
-    );
+    const { factory, getCallCount } = mockSessionFactory("verdict: PASS\nevidence: ok");
 
     const next = await loopStep({
       loopConfigPath: dir,
@@ -123,9 +117,7 @@ describe("loopStep M3 — AgentSession wiring", () => {
     };
     await Bun.write(`${dir}/STATE.md`, formatStateMd(state));
 
-    const { factory } = mockSessionFactory(
-      "verdict: REJECT\nreasons: still broken\nevidence: x",
-    );
+    const { factory } = mockSessionFactory("verdict: REJECT\nreasons: still broken\nevidence: x");
 
     const next = await loopStep({
       loopConfigPath: dir,
