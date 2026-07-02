@@ -1,0 +1,14 @@
+{
+  "name": "@my-agent-team/loop-engine",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "lint": "biome check src/"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

@@ -19,6 +19,7 @@ export default {
         "framework",
         "adapter-anthropic",
         "harness",
+        "loop-engine",
         "agent-fs",
         "tools-common",
         "runner-protocol",

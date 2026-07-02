@@ -180,6 +180,13 @@
         "@my-agent-team/tools-common": "workspace:*",
       },
     },
+    "packages/loop-engine": {
+      "name": "@my-agent-team/loop-engine",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "packages/message": {
       "name": "@my-agent-team/message",
       "version": "0.1.0",
@@ -613,6 +620,8 @@
     "@my-agent-team/harness": ["@my-agent-team/harness@workspace:packages/harness"],
 
     "@my-agent-team/lark-bot": ["@my-agent-team/lark-bot@workspace:apps/lark-bot"],
+
+    "@my-agent-team/loop-engine": ["@my-agent-team/loop-engine@workspace:packages/loop-engine"],
 
     "@my-agent-team/message": ["@my-agent-team/message@workspace:packages/message"],
 
