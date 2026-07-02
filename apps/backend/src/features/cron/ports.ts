@@ -9,6 +9,7 @@ export interface CreateCronJobRecord {
   enabled: boolean;
   timeoutMs: number;
   maxRetries: number;
+  loopConfigPath?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -22,6 +23,7 @@ export interface UpdateCronJobRecord {
   timeoutMs?: number;
   maxRetries?: number;
   updatedAt: number;
+  loopConfigPath?: string;
 }
 
 export interface CronJobPort {

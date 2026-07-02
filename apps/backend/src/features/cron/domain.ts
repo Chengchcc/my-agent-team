@@ -17,6 +17,8 @@ export interface CronJobRow {
   timeoutMs: number;
   /** retries within a single fire on non-success terminal; 0 = no retry. */
   maxRetries: number;
+  /** Path to .loop/ directory; null for legacy CronJobs. */
+  loopConfigPath?: string | null;
   createdAt: number;
   updatedAt: number;
 }

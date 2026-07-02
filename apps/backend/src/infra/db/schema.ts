@@ -155,6 +155,7 @@ export const cronJob = sqliteTable(
     enabled: integer().notNull().default(0),
     timeoutMs: integer({ mode: "number" }).notNull().default(0),
     maxRetries: integer({ mode: "number" }).notNull().default(0),
+    loopConfigPath: text("loop_config_path"),
     createdAt: integer({ mode: "number" }).notNull(),
     updatedAt: integer({ mode: "number" }).notNull(),
   },

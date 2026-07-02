@@ -5,6 +5,7 @@ import type { SessionFactory } from "../span/session-factory.js";
 import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
 import type { CronJobRow } from "./domain.js";
+import { loopStep } from "../loop/loop-step.js";
 import type { CronJobService } from "./service.js";
 
 /** Narrow interface for cron scheduling, injectable for testing. */
@@ -49,6 +50,10 @@ export function createCronScheduler(deps: {
   const inFlight = new Set<string>();
 
   async function fire(job: CronJobRow, _fireKey?: string): Promise<void> {
+    if (job.loopConfigPath) {
+      return fireLoop(job);
+    }
+
     const spanId = deps.idGen();
     const sessionId = `${job.cronJobId}:${job.agentId}`;
 
@@ -62,7 +67,7 @@ export function createCronScheduler(deps: {
       });
       await executeAgentRun(runDeps, {
         spanId,
-        sessionId: sessionId,
+        sessionId,
         agentId: job.agentId,
         input: job.prompt ?? "",
         origin: { kind: "cron", cronJobId: job.cronJobId },
@@ -79,6 +84,81 @@ export function createCronScheduler(deps: {
       }, job.timeoutMs);
       watchdogs.set(spanId, { timer, cronJobId: job.cronJobId });
     }
+  }
+
+  // M4: Loop-aware fire with inline retry + timeout
+  async function fireLoop(job: CronJobRow): Promise<void> {
+    let attempt = 0;
+    let currentJob = job;
+
+    while (true) {
+      try {
+        if (currentJob.timeoutMs > 0) {
+          await withTimeout(
+            loopStep({
+              loopConfigPath: currentJob.loopConfigPath!,
+              sessionFactory: deps.sessionFactory!,
+              buildSpec,
+            }),
+            currentJob.timeoutMs,
+          );
+        } else {
+          await loopStep({
+            loopConfigPath: currentJob.loopConfigPath!,
+            sessionFactory: deps.sessionFactory!,
+            buildSpec,
+          });
+        }
+        return;
+      } catch (err) {
+        attempt++;
+        const maxRetries = currentJob.maxRetries ?? 0;
+        if (attempt > maxRetries) {
+          inFlight.delete(job.cronJobId);
+          throw err;
+        }
+
+        const fresh = deps.cronSvc.port.getCronJob(job.cronJobId);
+        if (!fresh) {
+          inFlight.delete(job.cronJobId);
+          throw err;
+        }
+        currentJob = fresh;
+
+        await new Promise((r) =>
+          setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 30_000)),
+        );
+      }
+    }
+  }
+
+  // buildSpec passed to loopStep — hardcoded until M5 (LOOP.md)
+  function buildSpec(params: { sessionId: string; modelName: string; cwd: string }): any {
+    // Reuse makeRunDeps to build SessionSpec for loop agent sessions
+    return {
+      agentId: "loop-agent",
+      cwd: params.cwd,
+      model: (deps as any)._makeModel?.({
+        modelName: params.modelName,
+        modelProvider: "anthropic",
+        modelBaseUrl: null,
+      }) ?? new (require("@my-agent-team/adapter-anthropic").AnthropicChatModel)({ model: params.modelName }),
+      modelName: params.modelName,
+      plugins: [],
+      tools: [],
+      checkpointer: {} as any,
+      contextManager: {} as any,
+    };
+  }
+
+  function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
+      promise.then(
+        (v) => { clearTimeout(timer); resolve(v); },
+        (e) => { clearTimeout(timer); reject(e); },
+      );
+    });
   }
 
   // Retry + watchdog cleanup listener.
@@ -176,15 +256,11 @@ export function createCronScheduler(deps: {
     register(job: CronJobRow) {
       this.unregister(job.cronJobId);
       if (!job.enabled) return;
+      // Manual loop: no schedule
+      if (!job.cronExpr) return;
       handles.set(
         job.cronJobId,
         sched.schedule(job.cronExpr, () => {
-          // Single-flight: a natural trigger that arrives while the previous
-          // fire chain (run + retries) is still in flight is skipped. This
-          // restores the no-overlap guarantee that the decoupled (setTimeout)
-          // retry path would otherwise break. The lock is released by the
-          // onRunComplete listener once the chain settles, or by fire()'s
-          // catch if buildSpec/dispatch never produced a run.
           if (inFlight.has(job.cronJobId)) return;
           inFlight.add(job.cronJobId);
           fire(job).catch((err) => console.error(`[cron] fire failed for ${job.cronJobId}:`, err));
