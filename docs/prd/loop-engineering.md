@@ -10,9 +10,11 @@ my-agent-team 有两套工作系统：`/conversations` 对话，`/issues` Kanban
 
 Loop 是统一的工作概念。用一个模型取代 Kanban Issue 流程和裸 CronJob dispatch：**Loop 发现工作、执行、验证、暂停等人判断。** 手动工作池就是一个没有 discovery 的阶段和 schedule 的 Loop——人往里加 item，同一套 act/verify/judge 流水线照样跑。
 
+> **MVP 阶段两套数据并存（已知代价）**：本 PRD 只把 `/issues` 从导航移除、Issue 表保持只读且**不迁移**（迁移列入 §9 待决问题）。因此「统一工作系统」在 MVP 是**入口统一、数据未统一**——底层仍有 Issue 表与 Loop 的 STATE.md 两处状态。下方「一个入口取代两个」指的是**用户可见入口**，不代表底层数据已收敛；真正的单一数据源要等 Issue 迁移工具（P2）落地。
+
 ### 成功指标
 
-- **减少工作入口认知负荷**：用户从一个工作入口（`/loops`）取代两个（`/issues` + 散落的 CronJob 管理）
+- **减少工作入口认知负荷**：用户从一个**可见工作入口**（`/loops`）取代两个（`/issues` + 散落的 CronJob 管理）——底层数据收敛见上方 MVP 说明
 - **减少 triage 手动时间**：每天早上的 CI/issue/PR 检查从手动 15-30 分钟降到 review queue 审批 3-5 分钟
 - **审批吞吐率**：用户在 review queue 中单次审批决策时间 < 60 秒（信息充分展示，不需要跳转外部工具）
 - **零安全事件**：denylist 路径从未被自动编辑；auto-merge 非 allowlist 场景从未自动推送
@@ -24,8 +26,8 @@ Loop 是统一的工作概念。用一个模型取代 Kanban Issue 流程和裸 
 
 - [AgentSession](../architecture/harness/harness.md) 已成熟——单次 agent 运行的重试、compaction、steering 都已稳定，作为 Loop 的 building block 到位
 - [CronJob](../architecture/foundations/cron-job.md) 设计已锁定（`status: design`），提供了 cron 解析、`Bun.cron` 注册、超时、重试的完整调度层
-- [progressive-skill plugin](../architecture/plugins/progressive-skill.md) 已就绪——Loop 的 discovery/evaluator 可以直接用 SKILL.md
-- [fs-memory plugin](../architecture/plugins/fs-memory.md) 已就绪——STATE.md 的读写基础设施已存在
+- [progressive-skill plugin](../architecture/plugins/progressive-skill.md) 已就绪——但**需一处改造**：双域发现现在只认 global（`/global/skills/`）+ project（`/workspace/.claude/skills/`）两个 root，`.loop/skills/` 不在其中；Loop 启动时须把 `.loop/skills/` 追加为第三个 root（或映射进 project root），不是拿来即用
+- [fs-memory plugin](../architecture/plugins/fs-memory.md) 提供 STATE.md 的**文件读写**基础设施——但它是纯读写、无锁、单前缀（默认 root `./memory/`），**不提供并发写的锁/合并**；STATE.md 的并发一致性须由 Loop 层自己兜（见 §7「并发与一致性」）
 - 竞争对手和行业趋势（[Loop Engineering](https://addyosmani.com/blog/loop-engineering/)，2026-06；[loop-engineering 参考仓库](https://github.com/cobusgreyling/loop-engineering)）已验证此模式
 
 ### 战略对齐
@@ -125,6 +127,7 @@ Loop 是统一的工作概念。用一个模型取代 Kanban Issue 流程和裸 
 - 创建时默认设置为保守值（如 200k tokens/day）
 - 仪表盘卡片上显示预算使用进度条
 - 达 80% 时卡片变黄，达 100% 时 Loop 自动暂停并通知
+- **计数强一致**：「已用 token」是一个原子的读-改-写量，**不落在 STATE.md 这种非原子文件里**——必须走带锁/CAS 的 per-loop 计数（DB 一行 upsert 或进程内带锁 accumulator），否则 cron 与手动触发并发时两路各读旧值、各放行一轮，会冲穿 cap（见 §7「并发与一致性」）
 
 **US10: 路径保护**
 作为工程师，我想要路径黑名单强制执行——匹配 `.env`、`auth/`、`payments/` 的文件绝不修改——这样安全敏感代码永远不会被 auto-edit。
@@ -133,6 +136,7 @@ Loop 是统一的工作概念。用一个模型取代 Kanban Issue 流程和裸 
 - 创建时 denylist 默认包含 `.env`、`auth/`、`payments/`、`secrets/`
 - Evaluator 的 scope check 自动比对 denylist，触碰即 REJECT
 - 安全事件记录到 run history
+- **denylist 只增不减地合并**：intent→config 是非确定性 LLM 调用，可能漏配安全路径；翻译器**不得删除或覆盖默认 denylist**，只能在其上追加——用户预览时可加不可减默认安全项
 
 ## 4. 功能需求
 
@@ -144,10 +148,13 @@ Loop 是统一的工作概念。用一个模型取代 Kanban Issue 流程和裸 
 - Loop 详情页 review queue（item 卡片、证据链展开、approve/reject/promote）
 - 运行历史时间线
 - `loopStep()` 编排函数（discovery → generator → evaluator → human gate，STATE.md 持久）
+- **per-loop 写锁**：cron / 手动触发 / review 三条入口都调 `loopStep()` 且都写 STATE.md，必须共用一把 loop 粒度的写锁串行化——CronJob 的单飞锁只护 cron 一条路，护不住手动/review（见 §7「并发与一致性」）
+- **原子预算计数**：per-loop 已用 token 走带锁/CAS 计数，不落 STATE.md
 - CronJob `loop_config_path` 列 + handler 集成
 - `loopReducer()` 纯函数 + 测试
 - 预算保护（daily cap，80% 告警 + 100% 暂停）
-- 路径 denylist 强制执行
+- 路径 denylist 强制执行（默认项只增不减合并）
+- **并发上限**：`maxParallelFindings` 配置 + 进程级 AgentSession 池——**当前 harness 没有这个池，须新建**；缺它时单个多-finding Loop 会瞬时拉起大量 AgentSession 打满进程
 - 已有 Issue 系统保持只读
 
 ### P1 — 第二版
@@ -343,23 +350,28 @@ Loop 是统一的工作概念。用一个模型取代 Kanban Issue 流程和裸 
 │  文件系统                                        │
 │                                                 │
 │  .loop/                                         │
-│  ├── config.yml        Loop 配置（model, etc）  │
+│  ├── config.yml        Loop 配置（model +       │
+│  │                     每类 item 的 acceptance）│
 │  ├── constraints.md    安全约束                  │
 │  ├── skills/           SKILL.md 集合            │
 │  │   ├── loop-triage/                          │
 │  │   └── loop-verifier/                        │
 │  └── STATE.md          运行时状态（item 表）     │
 │                                                 │
-│  ── 这是 Loop 的唯一状态源 ──                   │
+│  ── STATE.md 是 item 状态的唯一源 ──            │
+│  （例外：token 计数走原子计数器，不落此文件）    │
 ├─────────────────────────────────────────────────┤
 │  数据库                                          │
 │                                                 │
 │  cron_job 表                                    │
 │  └── loop_config_path TEXT  (新增，可为 null)   │
 │                                                 │
-│  Loop 不建新表。Item 不进 DB。                   │
+│  Loop 不建新表；item 不进 DB。唯一破例是         │
+│  per-loop token 计数（强一致，见 §7）。          │
 └─────────────────────────────────────────────────┘
 ```
+
+**`config.yml` 的 `acceptance` 字段（治点头回路的显式靶子）**：Goal 虽是临时态（翻译成配置后即丢弃），但「什么叫这条 item 修好了」这个**验收判据不能一起丢**——否则 evaluator 只有「scope 没越界 + 测试跑过」这类**过程合规**证据，对「生成 release notes」「给 issue 打标签」这类无测试可跑的非代码场景，evidence 字段填不出可执行证据，就退回「看着还行」的点头回路（PRD 边界情况「Evaluator 无法运行测试 → ESCALATE」正是这个洞的局部显形）。因此每类 item 在 `config.yml` 里带一个显式 `acceptance`（一句话的可观测判据，如「release notes 覆盖本周所有 merged PR 且无占位符」），evaluator 装配它作为对照靶子。这是把「显式停止条件」保留下来的**最小改动——加一个配置字段，不加实体**。
 
 ### 请求流
 
@@ -405,22 +417,33 @@ Cron 触发:
 
 | 依赖 | 用途 | 状态 |
 |---|---|---|
-| [AgentSession](../architecture/harness/harness.md) | discovery/generator/evaluator 的运行载体 | `current` ✓ |
+| [AgentSession](../architecture/harness/harness.md) | discovery/generator/evaluator 的运行载体 | `current` ✓ 单实例可用；**并发池需新建** |
 | [CronJob](../architecture/foundations/cron-job.md) | Loop 的调度触发 | `design`，需落地 |
-| [progressive-skill plugin](../architecture/plugins/progressive-skill.md) | Loop skill 加载 | `current` ✓ |
-| [fs-memory plugin](../architecture/plugins/fs-memory.md) | STATE.md 读写 | `current` ✓ |
+| [progressive-skill plugin](../architecture/plugins/progressive-skill.md) | Loop skill 加载 | `current`，但 `.loop/skills/` **需加为第三个 root** |
+| [fs-memory plugin](../architecture/plugins/fs-memory.md) | STATE.md 读写 | `current` ✓ 仅文件读写；**无锁，并发一致性另兜** |
 | [checkpointer](../architecture/runtime/framework.md) | AgentSession 的状态持久 | `current` ✓ |
 | [SSE 通道](../architecture/backend/conversation-projection.md) | Loop 运行实时推送 | `current` ✓ |
+
+### 并发与一致性
+
+PRD 把 STATE.md 定为 item 状态的唯一源，同时开了三条都会写它的入口——cron TICK、手动 `Run Now`、`POST /api/loops/:id/review`。三条路必须串行化，否则 STATE.md 被并发读改写会丢更新、预算 cap 被冲穿。关键澄清：**[CronJob 的单飞锁](../architecture/foundations/cron-job.md) 只在自然（cron）触发时拿锁**——手动触发和 review 直接调 `loopStep()`，根本不过 `CronScheduler.fire()`，碰不到那把 `inFlight` 锁。所以并发保护不能只靠它。
+
+| 一致性问题 | 为什么 CronJob 单飞锁不够 | 本 PRD 的决策 |
+|---|---|---|
+| STATE.md 并发写（cron 跑时人点 Run Now / 提交 review） | 单飞锁只护 cron 一条路，手动/review 不经过它 | `loopStep()` 自持一把 **loop 粒度写锁**，三条入口共用；同一 Loop 同时只有一个 `loopStep()` 在改 STATE.md |
+| 预算计数被冲穿 | 「读已用 token → 加本轮 → 比 cap」是非原子 read-modify-write，落文件必然竞态 | token 计数**不落 STATE.md**，走带锁/CAS 的 per-loop 计数器（DB 一行 upsert 或进程内带锁 accumulator） |
+| STATE.md 损坏 / 格式演化 | —— | 版本号 + 向前兼容解析；parse 失败写 error event、跳过本轮、不崩溃 |
 
 ### 技术风险与缓解
 
 | 风险 | 缓解 |
 |---|---|
-| STATE.md 并发写入冲突 | CronJob 单飞锁 + API 幂等设计 |
-| AgentSession 在 Loop 中大量并发创建导致资源耗尽 | `maxParallelFindings` 配置限制 + 进程级 AgentSession 池 |
-| LLM 调用成本随 Loop 数量线性增长 | Budget guard per Loop + per-day cap + 80% 告警 |
+| STATE.md 并发写入冲突 | **loop 粒度写锁**串行化 cron/manual/review 三入口（不能只靠 CronJob 单飞锁，它只护 cron）+ API 幂等设计 |
+| AgentSession 在 Loop 中大量并发创建导致资源耗尽 | `maxParallelFindings` 配置限制 + 进程级 AgentSession 池——**池当前不存在，须作为 P0 新建** |
+| LLM 调用成本随 Loop 数量线性增长 | Budget guard per Loop + per-day cap（原子计数）+ 80% 告警 |
 | Evaluator 和 Generator 同 model 导致虚高通过率 | 配置层强制不同 model，LoopRunner 启动时校验 |
 | STATE.md 格式演化导致旧文件解析失败 | 版本号 + 向前兼容解析 + parse 失败时写 error event |
+| 非代码 item 无可执行验收证据，evaluator 退回点头 | `config.yml` 每类 item 带显式 `acceptance` 判据，evaluator 装配为对照靶子（见 §6 数据模型） |
 
 ## 8. 实施计划
 

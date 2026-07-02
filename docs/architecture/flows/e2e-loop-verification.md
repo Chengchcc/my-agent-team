@@ -9,7 +9,7 @@ depends_on:
   - foundations.loop-engineering
   - foundations.loop
   - backend.loop-runner
-used_by: []
+used_by:
 ---
 
 # Loop 验证端到端
@@ -98,14 +98,30 @@ sequenceDiagram
 
 | 严重度 | 失败模式 | 触发场景 | 缓解 |
 |---|---|---|---|
-| **S1** | **STATE.md 并发写丢更新** | cron 正跑时人点 Run Now 或提交 review，两路各读旧 STATE.md、各写回，后写覆盖先写 | **loop 粒度写锁**串行化 cron/manual/review 三入口——**不能只靠 [CronJob 单飞锁](../foundations/cron-job.md)，它只在自然 cron 触发时拿 `inFlight` 锁，手动/review 不经过 `CronScheduler.fire()`** |
+| **S1** | **STATE.md 并发写丢更新（grill Round 1）** | cron 正跑时人点 Run Now 或提交 review，两路各读旧 STATE.md、各写回，后写覆盖先写 | **loop 粒度写锁**串行化 cron/manual/review 三入口——**不能只靠 [CronJob 单飞锁](../foundations/cron-job.md)，它只在自然 cron 触发时拿 `inFlight` 锁，手动/review 不经过 `CronScheduler.fire()`** |
 | **S1** | **预算 cap 被冲穿（无声烧钱）** | 「读已用 token → 加本轮 → 比 cap」是非原子 read-modify-write，落 STATE.md 必然竞态，cron 与手动并发各放行一轮 | token 计数**不落 STATE.md**，走带锁/CAS 的 per-loop 原子计数器；超 cap 熔断 |
 | **S1** | **Verifier Theater（假验证）** | evaluator 光读不动手，或产出空 `evidence` 就判 PASS | `verificationGuidance()` 怀疑姿态 + `evidence` 字段强制交出「跑了什么」；evidence 空一律视为未验证，不许 PASS |
-| **S1** | **非代码类无靶子** | changelog / 依赖升级这类 item，acceptance 写不出「可跑的测试」，evaluator 退化回点头 | config.yml 每类 item 的 `acceptance` 必填**可观测的完成定义**；写不出可验收标准的 item 类型先只跑到 L1 报告、不自动 resolve |
+| **S1** | **非代码类无靶子（grill Round 4）** | changelog / 依赖升级这类 item，acceptance 写不出「可跑的测试」，evaluator 退化回点头 | config.yml 每类 item 的 `acceptance` 必填**可观测的完成定义**；写不出可验收标准的 item 类型先只跑到 L1 报告、不自动 resolve |
 | **S1** | **Escalation Failure（升级失灵）** | budget_exceeded 或 verdict 缺失后回路默默停住，没人知道 | 熔断必须留一扇门：暂停调度 + 追加 run-log + 给人开 review / 发通知，绝不静默死掉 |
 | **S2** | **State Rot（状态腐烂）** | STATE.md 堆满已 resolved/inbox 的陈旧 item，新一轮据此误判 | 每轮写回前 prune 已终结 item；投影层（看板/review queue）按 step 过滤 |
 | **S2** | **verdict 缺失** | evaluator run 成功但没吐出可解析 verdict | 视为「未裁决」，item 停在 `verifying` 等人，不盲目转 step |
 | **S3** | **同 item 重入撞键** | 返工重入同一 item | sessionId 带 `:<attempt>` 序号做幂等键，不撞 |
+
+## 与现状 Issue.status 模型的差别
+
+> 面向了解现状代码的读者；只想理解本流程，读到上一节即可。
+
+现状用 `Issue.status` 枚举 + 固定转移表推进，本设计换成 STATE.md 里的 item step 状态机 + loopReducer：
+
+| | 现状（Issue.status 枚举 + 固定转移） | 本设计（STATE.md item step + loopReducer） |
+|---|---|---|
+| 状态存哪 | DB 里 `Issue.status` 列 | `.loop/STATE.md` 文件（跨进程重启不丢） |
+| 谁推进 | Orchestrator 读常量转移表 | 无状态 `loopStep()` + 纯函数 `loopReducer` |
+| 「下一步」 | 硬编码 `ORDER` / `BACKWARD_EDGES` | reducer 按 verdict/action 转移 |
+| 验证载体 | column 上的 `role` 补丁 | 独立 Evaluator AgentSession，对照 config 的 acceptance |
+| 返工触发 | 人按驳回 / evaluator role | verdict `REJECT` → reducer 回 `fixing`（同一套转移） |
+
+MVP 只把入口统一（`/issues` 移除、Issue 表只读不迁移），底层数据未统一，完整迁移评估见 [Loop Engineering](../foundations/loop-engineering.md) 的「迁移说明」。
 
 ## 关联页面
 

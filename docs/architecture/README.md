@@ -57,6 +57,8 @@ used_by:
 2. [Orchestrator](./backend/orchestrator.md)
 3. [Issue 生命周期端到端](./flows/e2e-issue-lifecycle.md)
 4. [Issue 工作流演进](./foundations/issue-workflow.md)（`status: design`）
+5. [Loop Engineering](./foundations/loop-engineering.md)（`status: design`）
+6. [Loop 验证端到端](./flows/e2e-loop-verification.md)（`status: design`）
 
 ### 想搞懂 Loop 与自动化编排
 
