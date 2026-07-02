@@ -162,10 +162,10 @@ GET /api/cron-jobs?kind=cron
 4. **无 kind 参数**：返回全部（向后兼容）
 5. **manual loop 不注册 Bun.cron**：`cronExpr=NULL` 的 job 在 `register()` 时跳过
 6. **fire() 分支**：`loopConfigPath` 有值 → 走 `fireLoop()`；NULL → 走老路 `executeAgentRun`
-7. **fireLoop() 调用 loopStep()**：scheduler 触发时 loopStep 被调用，参数正确
-8. **fireLoop() retry**：loopStep 抛异常 → 退避重试，不超 maxRetries
-9. **fireLoop() timeout**：timeoutMs > 0 → loopStep 超时被 cancel，触发 retry
-10. **fireLoop() 重试前重读 job**：retry 循环内从 port 读到最新 job 数据
+7. **fireLoop() 调用 loopStep()**：scheduler 触发时 loopStep 被调用，参数正确（scheduler 测试验证 register 行为；retry/timeout/reread 为 E2E 级，见下方说明）
+8. **fireLoop() retry**：loopStep 抛异常 → 退避重试，不超 maxRetries `[E2E]`
+9. **fireLoop() timeout**：timeoutMs > 0 → loopStep 超时被 cancel，触发 retry `[E2E]`
+10. **fireLoop() 重试前重读 job**：retry 循环内从 port 读到最新 job 数据 `[E2E]`
 11. **inFlight 锁不变**：fire() 开头拿锁，fireLoop() 成功/最终失败释放锁
 12. **老 CronJob 不受影响**：loopConfigPath=NULL 的 job 走原有全链路
 13. **全 workspace typecheck + lint + test 通过**

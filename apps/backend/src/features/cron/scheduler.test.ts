@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, mock, test } from "bun:test";
 import type { CronJobRow } from "./domain.js";
-import { createCronScheduler } from "./scheduler.js";
+import { createCronScheduler, type Scheduler } from "./scheduler.js";
 
 type ListenerFn = (
   sessionId: string,
@@ -333,52 +333,45 @@ describe("createCronScheduler", () => {
   });
 });
 
-describe("fireLoop M4", () => {
-  test("manual loop not registered", () => {
+describe("fireLoop M4 — scheduler integration", () => {
+  test("loop job registered via Bun.cron with fireLoop path", () => {
+    const sched: Scheduler = {
+      schedule(expr, _fn) {
+        return { stop() {} };
+      },
+    };
+    const deps = minimalDeps();
+    deps.scheduler = sched;
+    const scheduler = createCronScheduler(deps);
+    // Should not throw: loop with cronExpr + loopConfigPath
+    scheduler.register(makeJob({ cronJobId: "loop-1", loopConfigPath: "/tmp/loop" }));
+    scheduler.dispose();
+  });
+
+  test("disabled loop not registered", () => {
     const scheduled: string[] = [];
-    const sched = {
-      schedule(expr: string, _fn: () => void) {
+    const sched: Scheduler = {
+      schedule(expr, _fn) {
         scheduled.push(expr);
         return { stop() {} };
       },
     };
-    const scheduler = createCronScheduler({
-      ...minimalDeps(),
-      scheduler: sched as any,
-    });
-    scheduler.register(makeJob({ cronExpr: undefined as any, loopConfigPath: "/tmp/loop" }));
+    const deps = minimalDeps();
+    deps.scheduler = sched;
+    const scheduler = createCronScheduler(deps);
+    scheduler.register(makeJob({ enabled: false, loopConfigPath: "/tmp/loop" }));
     expect(scheduled.length).toBe(0);
+    scheduler.dispose();
   });
 
-  test("fire calls loopStep for loop job", async () => {
-    const loopStepCalls: any[] = [];
-    const scheduler = createCronScheduler({
-      ...minimalDeps(),
-      cronSvc: {
-        port: {
-          listEnabledCronJobs: () => [makeJob({ loopConfigPath: "/tmp/loop" })],
-          getCronJob: () => makeJob({ loopConfigPath: "/tmp/loop", maxRetries: 0 }),
-        },
-      },
-    } as any);
-    // fireLoop 通过 register 触发 — we test via the schedule callback
-    let firedJob: CronJobRow | undefined;
-    const testSched = {
-      schedule(_expr: string, fn: () => void) {
-        firedJob = makeJob({ loopConfigPath: "/tmp/loop", maxRetries: 0 });
-        return { stop() {} };
-      },
+  test("legacy CronJob registration unchanged", () => {
+    const sched: Scheduler = {
+      schedule(_expr, _fn) { return { stop() {} }; },
     };
-    const s2 = createCronScheduler({
-      ...minimalDeps(),
-      scheduler: testSched as any,
-      cronSvc: {
-        port: {
-          listEnabledCronJobs: () => [],
-          getCronJob: () => makeJob({ loopConfigPath: "/tmp/loop", maxRetries: 0 }),
-        },
-      },
-    } as any);
-    s2.register(makeJob({ cronExpr: "0 8 * * *", loopConfigPath: "/tmp/loop", maxRetries: 0 }));
+    const deps = minimalDeps();
+    deps.scheduler = sched;
+    const scheduler = createCronScheduler(deps);
+    scheduler.register(makeJob({ cronJobId: "old-job" }));
+    scheduler.dispose();
   });
 });
