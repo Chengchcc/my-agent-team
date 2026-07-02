@@ -287,7 +287,7 @@ export function parseVerdictMd(md: string): Verdict | null {
 // ============================================================
 
 export interface LoopConfig {
-  repo: string;
+  projectId: string;
   generator: { model: string; systemPrompt: string };
   evaluator: { model: string; systemPrompt: string };
   acceptance: string;
@@ -306,7 +306,7 @@ export function parseLoopConfig(md: string): LoopConfig | null {
   if (!gen?.model || !eval_?.model) return null;
 
   return {
-    repo: String(frontmatter.repo ?? ""),
+    projectId: String(frontmatter.projectId ?? ""),
     generator: {
       model: String(gen.model),
       systemPrompt: String(gen.systemPrompt ?? ""),

@@ -4,10 +4,12 @@ import { rm } from "node:fs/promises";
 import { parseStateMd } from "@my-agent-team/loop";
 import type { CronScheduler } from "../cron/scheduler.js";
 import type { CronJobService } from "../cron/service.js";
+import type { ProjectService } from "../project/service.js";
 
 export function loopRoutes(
   cronSvc: CronJobService,
   scheduler: CronScheduler,
+  projectSvc: ProjectService,
   dataDir: string,
 ) {
   return new Elysia()
@@ -50,16 +52,34 @@ export function loopRoutes(
     .post(
       "/api/loops",
       async ({ body, set }) => {
+        const project = projectSvc.getById(body.projectId);
+        if (!project) {
+          set.status = 404;
+          return { error: "Project not found" };
+        }
+
         const loopName = body.name.trim().toLowerCase().replace(/\s+/g, "-");
         const loopPath = `loops/${loopName}`;
         const dir = `${dataDir}/${loopPath}`;
         await mkdir(`${dir}/skills`, { recursive: true });
 
+        // Copy runtime skill templates from seed
+        for (const skill of ["loop-triage", "loop-generator", "loop-verifier"]) {
+          const src = `${dataDir}/skill-packs/loop-engine/${skill}/SKILL.md`;
+          const dst = `${dir}/skills/${skill}/SKILL.md`;
+          try {
+            await mkdir(`${dir}/skills/${skill}`, { recursive: true });
+            await Bun.write(dst, await Bun.file(src).text());
+          } catch {
+            // Template unavailable — Loop will fall back to default prompts
+          }
+        }
+
         await Bun.write(
           `${dir}/LOOP.md`,
           [
             "---",
-            `repo: ${body.repo}`,
+            `projectId: ${body.projectId}`,
             "generator:",
             "  model: claude-sonnet-4",
             '  systemPrompt: ""',
@@ -108,7 +128,7 @@ export function loopRoutes(
         body: t.Object({
           name: t.String(),
           intent: t.Optional(t.String()),
-          repo: t.String(),
+          projectId: t.String(),
           cronExpr: t.Optional(t.String()),
           paused: t.Optional(t.Boolean()),
         }),

@@ -24,7 +24,6 @@ import {
   cronJobRoutes,
   sqliteCronJobAdapter,
 } from "./features/cron/index.js";
-import { loopRoutes } from "./features/loop/http.js";
 import {
   createDeliverableService,
   sqliteDeliverableAdapter,
@@ -32,6 +31,7 @@ import {
 import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
+import { loopRoutes } from "./features/loop/http.js";
 import { createOrchestrator } from "./features/orchestrator/index.js";
 import {
   createProjectService,
@@ -340,7 +340,7 @@ const app = createApp(config.authToken, {
   }),
   projects: projectRoutes(projectSvc),
   columnConfigs: columnConfigRoutes(columnConfigSvc),
-  loops: loopRoutes(cronSvc, cronScheduler, config.dataDir),
+  loops: loopRoutes(cronSvc, cronScheduler, projectSvc, config.dataDir),
   cronJobs: cronJobRoutes(cronSvc, cronScheduler),
   skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
 });

@@ -336,7 +336,7 @@ describe("createCronScheduler", () => {
 describe("fireLoop M4 — scheduler integration", () => {
   test("loop job registered via Bun.cron with fireLoop path", () => {
     const sched: Scheduler = {
-      schedule(expr, _fn) {
+      schedule(_expr, _fn) {
         return { stop() {} };
       },
     };
@@ -366,7 +366,9 @@ describe("fireLoop M4 — scheduler integration", () => {
 
   test("legacy CronJob registration unchanged", () => {
     const sched: Scheduler = {
-      schedule(_expr, _fn) { return { stop() {} }; },
+      schedule(_expr, _fn) {
+        return { stop() {} };
+      },
     };
     const deps = minimalDeps();
     deps.scheduler = sched;

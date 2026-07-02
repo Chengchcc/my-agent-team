@@ -1,4 +1,5 @@
 export { loopReducer } from "./loop-reducer.js";
+export type { LoopConfig } from "./state-md.js";
 export {
   formatInboxMd,
   formatStateMd,
@@ -7,7 +8,6 @@ export {
   parseStateMd,
   parseVerdictMd,
 } from "./state-md.js";
-export type { LoopConfig } from "./state-md.js";
 export type {
   ItemId,
   ItemState,

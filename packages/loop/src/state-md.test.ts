@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { formatInboxMd, formatStateMd, parseInboxMd, parseLoopConfig, parseStateMd, parseVerdictMd } from "./state-md.js";
+import {
+  formatInboxMd,
+  formatStateMd,
+  parseInboxMd,
+  parseLoopConfig,
+  parseStateMd,
+  parseVerdictMd,
+} from "./state-md.js";
 import type { ItemState, LoopState } from "./types.js";
 
 function sampleState(): LoopState {
@@ -439,7 +446,7 @@ describe("parseLoopConfig", () => {
   test("parses full LOOP.md", () => {
     const md = [
       "---",
-      "repo: /home/projects/test",
+      `projectId: proj-abc`,
       "generator:",
       "  model: claude-sonnet-4",
       "  systemPrompt: fix bugs",
@@ -451,10 +458,10 @@ describe("parseLoopConfig", () => {
     ].join("\n");
     const cfg = parseLoopConfig(md);
     expect(cfg).not.toBeNull();
-    expect(cfg!.repo).toBe("/home/projects/test");
+    expect(cfg!.projectId).toBe("proj-abc");
     expect(cfg!.generator.model).toBe("claude-sonnet-4");
     expect(cfg!.generator.systemPrompt).toBe("fix bugs");
-    expect(cfg!.evaluator.model).toBe("claude-opus-4");
+    expect(cfg!.projectId).toBe("proj-abc");
     expect(cfg!.acceptance).toBe("tests pass");
   });
 

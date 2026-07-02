@@ -1,4 +1,4 @@
-import type { LoopAction, LoopState } from "@my-agent-team/loop";
+import type { LoopAction, LoopState, LoopConfig } from "@my-agent-team/loop";
 import {
   formatInboxMd,
   formatStateMd,
@@ -6,6 +6,7 @@ import {
   parseInboxMd,
   parseStateMd,
   parseVerdictMd,
+  parseLoopConfig,
 } from "@my-agent-team/loop";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
 
@@ -142,6 +143,19 @@ export async function loopStep(params: {
   let state = parseStateMd(stateMd);
   const inboxItems = parseInboxMd(inboxMd);
 
+  // Read LOOP.md config (fall back to defaults if missing)
+  const loopMdPath = `${params.loopConfigPath}/LOOP.md`;
+  let cfg: LoopConfig | null = null;
+  try {
+    cfg = parseLoopConfig(await Bun.file(loopMdPath).text());
+  } catch {}
+
+  const genModel = cfg?.generator.model ?? GENERATOR_MODEL;
+  const evalModel = cfg?.evaluator.model ?? EVALUATOR_MODEL;
+  const genPrompt = cfg?.generator.systemPrompt || GENERATOR_PROMPT;
+  const evalPrompt = cfg?.evaluator.systemPrompt || EVALUATOR_PROMPT;
+  const acceptance = cfg?.acceptance || ACCEPTANCE;
+
   // 2. Human review action
   if (params.action) {
     const action = params.action;
@@ -190,7 +204,7 @@ export async function loopStep(params: {
     const genSessionId = `loop:${state.loopId}:gen:${item.id}:${item.attempt}`;
     const genSpec = params.buildSpec({
       sessionId: genSessionId,
-      modelName: GENERATOR_MODEL,
+      modelName: genModel,
       cwd: workDir,
     });
 
@@ -210,14 +224,14 @@ export async function loopStep(params: {
 
     // Evaluator
     const evalSessionId = `loop:${state.loopId}:eval:${item.id}:${item.attempt}`;
-    const evaluatorPrompt = EVALUATOR_PROMPT.replace("{acceptance}", ACCEPTANCE).replace(
+    const evaluatorPrompt = evalPrompt.replace("{acceptance}", acceptance).replace(
       "{filesChanged}",
       filesChanged || "none",
     );
 
     const evalSpec = params.buildSpec({
       sessionId: evalSessionId,
-      modelName: EVALUATOR_MODEL,
+      modelName: evalModel,
       cwd: workDir,
     });
 
