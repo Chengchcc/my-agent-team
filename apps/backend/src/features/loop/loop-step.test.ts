@@ -154,7 +154,7 @@ describe("loopStep M3 — AgentSession wiring", () => {
     expect(inbox["01"]!.step).toBe("inbox");
   });
 
-  test("empty VERDICT.md → item stuck verifying", async () => {
+  test("empty VERDICT.md → item goes to inbox (ESCALATE)", async () => {
     const dir = await initLoopDir();
     let state = emptyState();
     state = loopReducer(state, {
@@ -171,7 +171,7 @@ describe("loopStep M3 — AgentSession wiring", () => {
       buildSpec: makeSpec,
     });
 
-    expect(next.items["01"]!.step).toBe("verifying");
+    expect(next.items["01"]!.step).toBe("inbox");
   });
 
   test("human APPROVE unchanged from M2", async () => {

@@ -171,24 +171,24 @@ describe("loopReducer — EVALUATOR_VERDICT", () => {
     expect(next.items["01"]!.step).toBe("resolved");
   });
 
-  test("PASS with empty evidence → no-op", () => {
+  test("PASS with empty evidence → inbox", () => {
     const s = stateWith({ "01": verifyingItem });
     const next = loopReducer(s, {
       type: "EVALUATOR_VERDICT",
       itemId: "01",
       verdict: { verdict: "PASS", evidence: "" },
     });
-    expect(next.items["01"]!.step).toBe("verifying");
+    expect(next.items["01"]!.step).toBe("inbox");
   });
 
-  test("PASS with whitespace-only evidence → no-op", () => {
+  test("PASS with whitespace-only evidence → inbox", () => {
     const s = stateWith({ "01": verifyingItem });
     const next = loopReducer(s, {
       type: "EVALUATOR_VERDICT",
       itemId: "01",
       verdict: { verdict: "PASS", evidence: "   " },
     });
-    expect(next.items["01"]!.step).toBe("verifying");
+    expect(next.items["01"]!.step).toBe("inbox");
   });
 
   test("REJECT → fixing (attempt < maxRetries)", () => {
