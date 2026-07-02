@@ -10,12 +10,15 @@ import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
 export function loopRoutes(
   cronSvc: CronJobService,
   scheduler: CronScheduler,
-  cronPort: CronJobPort,
+  _cronPort: CronJobPort,
   dataDir: string,
   idGen: () => string,
   sessionFactory: SessionFactory,
   buildSpec: (params: { sessionId: string; modelName: string; cwd: string }) => SessionSpec,
-  convPort?: Record<string, any>,
+  convPort?: {
+    createConversation: (input: { conversationId: string; title?: string; origin?: string; createdAt: number }) => unknown;
+    addMember: (input: { conversationId: string; memberId: string; kind: "agent" | "human"; agentId?: string; joinedAt: number }) => unknown;
+  },
 ) {
   return new Elysia()
     .get("/api/loops", () => ({

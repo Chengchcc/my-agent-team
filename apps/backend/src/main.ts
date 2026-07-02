@@ -341,7 +341,11 @@ const app = createApp(config.authToken, {
   projects: projectRoutes(projectSvc),
   columnConfigs: columnConfigRoutes(columnConfigSvc),
   loops: loopRoutes(
-    cronSvc, cronScheduler, sqliteCronJobAdapter(db), config.dataDir, ulid,
+    cronSvc,
+    cronScheduler,
+    sqliteCronJobAdapter(db),
+    config.dataDir,
+    ulid,
     sessionFactory,
     (params) => ({
       agentId: "loop-agent",
@@ -350,8 +354,8 @@ const app = createApp(config.authToken, {
       modelName: params.modelName,
       plugins: [],
       tools: [],
-      checkpointer: {} as any,
-      contextManager: {} as any,
+      checkpointer: {} as ReturnType<typeof import("@my-agent-team/framework").sqliteCheckpointer>,
+      contextManager: {} as ReturnType<typeof import("@my-agent-team/framework").pipeContextManagers>,
     }),
     conv.convPort,
   ),
