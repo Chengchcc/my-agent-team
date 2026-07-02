@@ -36,7 +36,8 @@ export default function LoopDetailPage() {
     );
 
   const pendingCount = (loop as { pendingCount?: number }).pendingCount ?? 0;
-  const items = (loop as { items?: Array<{ id: string; summary: string; step: string }> }).items ?? [];
+  const items =
+    (loop as { items?: Array<{ id: string; summary: string; step: string }> }).items ?? [];
   const reviewItems = items.filter((i) => i.step === "awaiting_review");
 
   return (
@@ -102,9 +103,26 @@ export default function LoopDetailPage() {
                   <CardContent className="p-3 flex items-center justify-between">
                     <span className="text-sm">{item.summary}</span>
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={() => reviewMu.mutate({ itemId: item.id, verdict: "approve" })}>Approve</Button>
-                      <Button size="sm" variant="outline" onClick={() => reviewMu.mutate({ itemId: item.id, verdict: "reject" })}>Reject</Button>
-                      <Button size="sm" variant="ghost" onClick={() => reviewMu.mutate({ itemId: item.id, verdict: "promote" })}>Promote</Button>
+                      <Button
+                        size="sm"
+                        onClick={() => reviewMu.mutate({ itemId: item.id, verdict: "approve" })}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => reviewMu.mutate({ itemId: item.id, verdict: "reject" })}
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => reviewMu.mutate({ itemId: item.id, verdict: "promote" })}
+                      >
+                        Promote
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

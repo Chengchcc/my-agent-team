@@ -10,8 +10,8 @@ import {
   parseVerdictMd,
 } from "@my-agent-team/loop";
 import type { ProjectPort } from "../project/ports.js";
-import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
 import { nodeFsAdapter } from "../skill-pack/fs-adapter.js";
+import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
 import type { SkillRoots } from "../span/skill-roots.js";
 
 type ReviewAction = {
@@ -23,7 +23,12 @@ type ReviewAction = {
 export interface LoopStepParams {
   loopConfigPath: string;
   sessionFactory: SessionFactory;
-  buildSpec: (params: { sessionId: string; modelName: string; cwd: string; skillRoots?: import("../span/skill-roots.js").SkillRoots }) => SessionSpec;
+  buildSpec: (params: {
+    sessionId: string;
+    modelName: string;
+    cwd: string;
+    skillRoots?: import("../span/skill-roots.js").SkillRoots;
+  }) => SessionSpec;
   action?: ReviewAction;
   projectPort?: ProjectPort;
   dataDir?: string;

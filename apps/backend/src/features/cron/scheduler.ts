@@ -133,7 +133,12 @@ export function createCronScheduler(deps: {
   }
 
   // buildSpec for loop agent sessions — delegates to buildSessionSpec
-  function buildSpec(params: { sessionId: string; modelName: string; cwd: string; skillRoots?: any }) {
+  function buildSpec(params: {
+    sessionId: string;
+    modelName: string;
+    cwd: string;
+    skillRoots?: any;
+  }) {
     return buildSessionSpec({
       agentId: "loop-agent",
       agent: { modelName: params.modelName, modelProvider: "anthropic", modelBaseUrl: null },
