@@ -106,8 +106,8 @@ async function tallyUsage(spec: SessionSpec, sessionId: string): Promise<number>
 function matchesGlob(path: string, pattern: string): boolean {
   const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   const regexBody = escaped
-    .replace(/\\*\\*/g, "[DBL]")
-    .replace(/\\*/g, "[^/]*")
+    .replace(/\*\*/g, "[DBL]")
+    .replace(/\*/g, "[^/]*")
     .split("[DBL]")
     .join(".*");
   return new RegExp(`^${regexBody}$`).test(path);
@@ -348,13 +348,24 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
 
   const fixingItems = Object.values(state.items).filter((i) => i.step === "fixing");
 
+  // Fail closed: never run git mutations against the backend's own cwd.
+  // Only throw when caller explicitly wired projectPort/dataDir but repoPath
+  // couldn't be resolved. Tests and legacy callers pass undefined.
+  if (fixingItems.length > 0 && !repoPath && (params.projectPort || params.dataDir)) {
+    throw new Error(
+      "loopStep: cannot process fixing items without a resolved repoPath " +
+        "(check LOOP.md projectId, project.repoUrl, and that projectPort/dataDir are wired)",
+    );
+  }
+  const gitCwd = (repoPath ?? ".") as string;
+
   const budgetKey = `${state.loopId}:${utcDay(Date.now())}`;
   let spent = dailyCap > 0 ? await loadBudget(params.loopConfigPath, budgetKey) : 0;
 
   for (const item of fixingItems) {
     if (dailyCap > 0 && spent >= dailyCap) break;
 
-    const baseSha = (await Bun.$`git rev-parse HEAD`.cwd(repoPath ?? ".").quiet()).text().trim();
+    const baseSha = (await Bun.$`git rev-parse HEAD`.cwd(gitCwd).quiet()).text().trim();
 
     // Generator
     const genSessionId = `loop:${state.loopId}:gen:${item.id}:${item.attempt}`;
@@ -376,9 +387,9 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
       );
     }
 
-    const headSha = (await Bun.$`git rev-parse HEAD`.cwd(repoPath ?? ".").quiet()).text().trim();
+    const headSha = (await Bun.$`git rev-parse HEAD`.cwd(gitCwd).quiet()).text().trim();
     const filesChanged = (
-      await Bun.$`git diff --name-only ${baseSha}..${headSha}`.cwd(repoPath ?? ".").quiet()
+      await Bun.$`git diff --name-only ${baseSha}..${headSha}`.cwd(gitCwd).quiet()
     )
       .text()
       .trim();
@@ -400,7 +411,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
           evidence: "denylist check (pre-evaluator)",
         },
       });
-      await Bun.$`git reset --hard ${baseSha}`.cwd(repoPath ?? ".").quiet().nothrow();
+      await Bun.$`git reset --hard ${baseSha}`.cwd(gitCwd).quiet().nothrow();
       continue;
     }
 
@@ -455,10 +466,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     // Rollback on REJECT/ESCALATE
     const updatedItem = state.items[item.id];
     if (updatedItem && (updatedItem.step === "fixing" || updatedItem.step === "inbox")) {
-      await Bun.$`git reset --hard ${baseSha}`
-        .cwd(repoPath ?? ".")
-        .quiet()
-        .nothrow();
+      await Bun.$`git reset --hard ${baseSha}`.cwd(gitCwd).quiet().nothrow();
     }
   }
 
