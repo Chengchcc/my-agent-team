@@ -7,8 +7,6 @@ export type {
   ContextUsage,
   RetrySettings,
   SessionEventListener,
-  ThinkingLevel,
-  ToolInfo,
 } from "./agent-session.js";
 export { AgentSession } from "./agent-session.js";
 export type { CompactionOptions, CompactionResult } from "./compaction.js";

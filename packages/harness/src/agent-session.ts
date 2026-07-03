@@ -16,8 +16,6 @@ import { compactThread } from "./compaction.js";
 
 // ─── Types ───────────────────────────────────────────────
 
-export type ThinkingLevel = "low" | "medium" | "high";
-
 export interface RetrySettings {
   maxAttempts: number;
   backoffMs: number;
@@ -45,15 +43,9 @@ export interface AgentSessionConfig {
 
   // session layer
   systemPrompt?: string;
-  thinkingLevel?: ThinkingLevel;
   maxSteps?: number;
   retry?: RetrySettings;
   compaction?: CompactionSettings;
-}
-
-export interface ToolInfo {
-  name: string;
-  description: string;
 }
 
 export type AgentState =
@@ -220,19 +212,6 @@ export class AgentSession {
 
   setModel(model: ChatModel): void {
     this.#config.model = model;
-  }
-
-  setThinkingLevel(level: ThinkingLevel): void {
-    this.#config.thinkingLevel = level;
-  }
-
-  setActiveTools(_toolNames: string[]): void {
-    // Future: reconfigure agent tools at runtime
-  }
-
-  getAllTools(): ToolInfo[] {
-    // Tools are on the agent config — introspection deferred to future
-    return [];
   }
 
   // ─── Maintenance ─────────────────────────────────────
