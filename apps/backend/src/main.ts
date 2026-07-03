@@ -302,7 +302,6 @@ const orchestrator = createOrchestrator({
     addMember: (input) => conv.convPort.addMember(input),
   },
   sessionFactory,
-  projectPort,
 });
 
 // Register orchestrator's backfill listener (alongside conversation's onRunComplete)
@@ -362,8 +361,8 @@ const app = createApp(config.authToken, {
         typeof import("@my-agent-team/framework").pipeContextManagers
       >,
     }),
-    conv.convPort,
     projectPort,
+    conv.convPort,
   ),
   cronJobs: cronJobRoutes(cronSvc, cronScheduler),
   skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),

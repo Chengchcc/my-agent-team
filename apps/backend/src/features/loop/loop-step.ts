@@ -64,7 +64,9 @@ async function loadBudget(p: string, key: string): Promise<number> {
     const value = Number(raw[key] ?? 0);
     budgetCounters.set(key, value);
     return value;
-  } catch { return 0; }
+  } catch {
+    return 0;
+  }
 }
 
 async function addBudget(p: string, key: string, delta: number): Promise<number> {
@@ -73,7 +75,9 @@ async function addBudget(p: string, key: string, delta: number): Promise<number>
   try {
     const path = `${p}/budget.json`;
     let obj: Record<string, number> = {};
-    try { obj = (await Bun.file(path).json()) as Record<string, number>; } catch {}
+    try {
+      obj = (await Bun.file(path).json()) as Record<string, number>;
+    } catch {}
     obj[key] = next;
     await Bun.write(path, JSON.stringify(obj));
   } catch {}
@@ -82,7 +86,9 @@ async function addBudget(p: string, key: string, delta: number): Promise<number>
 
 async function tallyUsage(spec: SessionSpec, sessionId: string): Promise<number> {
   const cp = spec.checkpointer as {
-    readEvents?: (sessionId: string) => AsyncIterable<{ type: string; usage?: { input?: number; output?: number } }>;
+    readEvents?: (
+      sessionId: string,
+    ) => AsyncIterable<{ type: string; usage?: { input?: number; output?: number } }>;
   };
   if (typeof cp?.readEvents !== "function") return 0;
   let total = 0;
@@ -99,7 +105,11 @@ async function tallyUsage(spec: SessionSpec, sessionId: string): Promise<number>
 // === denylist glob matching ===
 function matchesGlob(path: string, pattern: string): boolean {
   const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-  const regexBody = escaped.replace(/\\*\\*/g, "[DBL]").replace(/\\*/g, "[^/]*").split("[DBL]").join(".*");
+  const regexBody = escaped
+    .replace(/\\*\\*/g, "[DBL]")
+    .replace(/\\*/g, "[^/]*")
+    .split("[DBL]")
+    .join(".*");
   return new RegExp(`^${regexBody}$`).test(path);
 }
 
@@ -107,7 +117,6 @@ function denylistedFiles(files: string[], patterns: string[]): string[] {
   if (patterns.length === 0) return [];
   return files.filter((f) => patterns.some((p) => matchesGlob(f, p)));
 }
-
 
 const GENERATOR_PROMPT = [
   "你是一个修 bug 的工程师。只改相关文件，不要重构无关代码。",
@@ -359,7 +368,13 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     const genSession = params.sessionFactory.getOrCreate(genSessionId, genSpec);
     await params.sessionFactory.enqueuePrompt(genSessionId, buildGeneratorPrompt(item));
     params.sessionFactory.dispose(genSessionId);
-    if (dailyCap > 0) { spent = await addBudget(params.loopConfigPath, budgetKey, await tallyUsage(genSpec, genSessionId)); }
+    if (dailyCap > 0) {
+      spent = await addBudget(
+        params.loopConfigPath,
+        budgetKey,
+        await tallyUsage(genSpec, genSessionId),
+      );
+    }
 
     const headSha = (await Bun.$`git rev-parse HEAD`.cwd(repoPath ?? ".").quiet()).text().trim();
     const filesChanged = (
@@ -376,8 +391,16 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     const changedFiles = filesChanged ? filesChanged.split("\n").filter(Boolean) : [];
     const violations = denylistedFiles(changedFiles, denylist);
     if (violations.length > 0) {
-      state = loopReducer(state, { type: "EVALUATOR_VERDICT", itemId: item.id, verdict: { verdict: "REJECT", reasons: [`修改了 denylist 保护路径: ${violations.join(", ")}`], evidence: "denylist check (pre-evaluator)" } });
-      await Bun.$`git reset --hard ${baseSha}`.cwd(gitCwd).quiet().nothrow();
+      state = loopReducer(state, {
+        type: "EVALUATOR_VERDICT",
+        itemId: item.id,
+        verdict: {
+          verdict: "REJECT",
+          reasons: [`修改了 denylist 保护路径: ${violations.join(", ")}`],
+          evidence: "denylist check (pre-evaluator)",
+        },
+      });
+      await Bun.$`git reset --hard ${baseSha}`.cwd(repoPath ?? ".").quiet().nothrow();
       continue;
     }
 
@@ -404,7 +427,13 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     const evalSession = params.sessionFactory.getOrCreate(evalSessionId, evalSpec);
     await params.sessionFactory.enqueuePrompt(evalSessionId, evaluatorPrompt);
     params.sessionFactory.dispose(evalSessionId);
-    if (dailyCap > 0) { spent = await addBudget(params.loopConfigPath, budgetKey, await tallyUsage(evalSpec, evalSessionId)); }
+    if (dailyCap > 0) {
+      spent = await addBudget(
+        params.loopConfigPath,
+        budgetKey,
+        await tallyUsage(evalSpec, evalSessionId),
+      );
+    }
 
     // Read verdict
     const verdictMd = await Bun.file(verdictPath)
