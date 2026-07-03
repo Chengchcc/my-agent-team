@@ -16,7 +16,7 @@ import type { SpanSupervisor } from "../span/supervisor.js";
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
-import { escapeRegExp, getOrCreateAccumulator } from "./projection.js";
+import { escapeRegExp, getOrCreateAccumulator } from "./run-accumulator.js";
 import { createConversationService, parseSessionId } from "./service.js";
 import { buildTitleContext, generateTitle } from "./title.js";
 

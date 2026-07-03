@@ -29,7 +29,7 @@ export type ControlPlaneEvent = Omit<
   payload: Record<string, unknown>;
 };
 
-export type SpanOriginKind = "orchestrator" | "mention" | "manual" | "cron";
+export type SpanOriginKind = "manual" | "cron" | "orchestrator";
 
 export type SpanOriginRow = typeof schema.runOrigin.$inferSelect;
 export type SpanOriginInsert = typeof schema.runOrigin.$inferInsert;

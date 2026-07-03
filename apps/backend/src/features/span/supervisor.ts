@@ -24,8 +24,6 @@ export interface RunSession {
   agentId: string;
   kind: "main" | "reflect";
   abortController: AbortController;
-  /** @deprecated always "attached" — AgentSession runs in-process */
-  transportKind: "attached" | "noop" | "detached";
 }
 
 export class SpanSupervisor {
@@ -227,7 +225,6 @@ export class SpanSupervisor {
       agentId,
       kind: "main",
       abortController: new AbortController(),
-      transportKind: "attached",
     };
     this.#active.set(spanId, session);
     return { spanId, attemptSeq };

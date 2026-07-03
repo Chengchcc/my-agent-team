@@ -17,7 +17,7 @@ import {
 } from "./features/column-config/index.js";
 import { createConversationFeature } from "./features/conversation/conv-svc-factory.js";
 import { conversationRoutes } from "./features/conversation/index.js";
-import { onRunComplete } from "./features/conversation/projection.js";
+import { onRunComplete } from "./features/conversation/run-accumulator.js";
 import {
   createCronJobService,
   createCronScheduler,

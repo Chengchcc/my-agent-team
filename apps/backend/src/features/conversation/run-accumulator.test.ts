@@ -4,7 +4,7 @@ import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import { sqliteConversationAdapter } from "./adapter-sqlite.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
-import { getOrCreateAccumulator, onRunComplete } from "./projection.js";
+import { getOrCreateAccumulator, onRunComplete } from "./run-accumulator.js";
 import { createConversationService } from "./service.js";
 
 const fakeOpsStore = { getSpanOrigin: () => null } as unknown as RuntimeOpsStore;

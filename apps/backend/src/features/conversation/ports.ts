@@ -1,9 +1,7 @@
-import type { LedgerEntry, Member } from "@my-agent-team/conversation";
+import type { LedgerEntry, LedgerKind, Member } from "@my-agent-team/conversation";
 
-// M17.5: LedgerKind type is the canonical enum from @my-agent-team/conversation.
-// We mirror the literal union for storage-layer type usage since the zod const
-// value is not importable as a type under ESM/NodeNext resolution.
-export type LedgerKind = "message" | "member.joined" | "member.left" | "todo" | "surface.control";
+// Re-export canonical types from @my-agent-team/conversation
+export type { LedgerKind };
 
 export interface ConversationRow {
   conversationId: string;
