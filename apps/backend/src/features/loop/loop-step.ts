@@ -279,7 +279,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
           evidence: "denylist check (pre-evaluator)",
         },
       });
-      await Bun.$`git reset --hard ${baseSha}`.cwd(gitCwd).quiet().nothrow();
+      if (repoPath) await Bun.$`git reset --hard ${baseSha}`.cwd(gitCwd).quiet().nothrow();
       continue;
     }
 
@@ -330,7 +330,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     // Rollback on REJECT/ESCALATE
     const updatedItem = state.items[item.id];
     if (updatedItem && (updatedItem.step === "fixing" || updatedItem.step === "inbox")) {
-      await Bun.$`git reset --hard ${baseSha}`.cwd(gitCwd).quiet().nothrow();
+      if (repoPath) await Bun.$`git reset --hard ${baseSha}`.cwd(gitCwd).quiet().nothrow();
     }
   }
 

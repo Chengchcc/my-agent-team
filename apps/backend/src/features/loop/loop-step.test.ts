@@ -1,16 +1,45 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
+import { Database } from "bun:sqlite";
 import type { LoopState } from "@my-agent-team/loop";
-import { formatStateMd, loopReducer, parseInboxMd } from "@my-agent-team/loop";
+import { loopReducer } from "@my-agent-team/loop";
 import { echoModel } from "@my-agent-team/test-helpers";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
 import { loopStep } from "./loop-step.js";
+import { createLoopStateStore, type LoopStateStore } from "./loop-state-store.js";
 
 const TMP = "/tmp/loop-step-m3-test";
+
+function createTestStore(): LoopStateStore {
+  const db = new Database(":memory:");
+  db.exec(`
+    CREATE TABLE loop_item(
+      loop_id TEXT NOT NULL, item_id TEXT NOT NULL,
+      source TEXT NOT NULL, summary TEXT NOT NULL,
+      step TEXT NOT NULL, attempt INTEGER NOT NULL,
+      priority INTEGER NOT NULL, result TEXT,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY(loop_id, item_id)
+    );
+    CREATE TABLE loop_budget(
+      loop_id TEXT NOT NULL, day TEXT NOT NULL,
+      spent INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(loop_id, day)
+    );
+  `);
+  return createLoopStateStore(db);
+}
 
 async function initLoopDir(): Promise<string> {
   await rm(TMP, { recursive: true, force: true });
   await mkdir(TMP, { recursive: true });
+  await Bun.write(`${TMP}/LOOP.md`, `---
+generator:
+  model: gen-model
+evaluator:
+  model: eval-model
+---
+`);
   return TMP;
 }
 
@@ -18,7 +47,11 @@ function emptyState(): LoopState {
   return { loopId: "test", lastRun: null, items: {} };
 }
 
-function makeSpec(params: { sessionId: string; modelName: string; cwd: string }): SessionSpec {
+function makeSpec(params: {
+  sessionId: string;
+  modelName: string;
+  cwd: string;
+}): SessionSpec {
   return {
     agentId: "test-agent",
     cwd: params.cwd,
@@ -61,19 +94,24 @@ describe("loopStep M3 — AgentSession wiring", () => {
 
   test("TICK → generator + evaluator called", async () => {
     const dir = await initLoopDir();
+    const store = createTestStore();
     let state = emptyState();
     state = loopReducer(state, {
       type: "ADD_ITEM",
       item: { id: "01", source: "ci", summary: "flaky" },
     });
-    await Bun.write(`${dir}/STATE.md`, formatStateMd(state));
+    store.save("test-loop", state, {});
 
-    const { factory, getCallCount } = mockSessionFactory("verdict: PASS\nevidence: ok");
+    const { factory, getCallCount } = mockSessionFactory(
+      "verdict: PASS\nevidence: ok",
+    );
 
     const next = await loopStep({
       loopConfigPath: dir,
       sessionFactory: factory,
       buildSpec: makeSpec,
+      store,
+      loopId: "test-loop",
     });
 
     expect(getCallCount()).toBeGreaterThanOrEqual(2);
@@ -82,12 +120,13 @@ describe("loopStep M3 — AgentSession wiring", () => {
 
   test("REJECT → item back to fixing, attempt+1", async () => {
     const dir = await initLoopDir();
+    const store = createTestStore();
     let state = emptyState();
     state = loopReducer(state, {
       type: "ADD_ITEM",
       item: { id: "01", source: "ci", summary: "flaky" },
     });
-    await Bun.write(`${dir}/STATE.md`, formatStateMd(state));
+    store.save("test-loop", state, {});
 
     const { factory } = mockSessionFactory(
       "verdict: REJECT\nreasons: scope drift\nevidence: 5 files",
@@ -97,6 +136,8 @@ describe("loopStep M3 — AgentSession wiring", () => {
       loopConfigPath: dir,
       sessionFactory: factory,
       buildSpec: makeSpec,
+      store,
+      loopId: "test-loop",
     });
 
     expect(next.items["01"]!.step).toBe("fixing");
@@ -104,8 +145,9 @@ describe("loopStep M3 — AgentSession wiring", () => {
     expect(next.items["01"]!.result).not.toBeNull();
   });
 
-  test("REJECT exhausted → inbox in INBOX.md", async () => {
+  test("REJECT exhausted → inbox in store", async () => {
     const dir = await initLoopDir();
+    const store = createTestStore();
     let state = emptyState();
     state = loopReducer(state, {
       type: "ADD_ITEM",
@@ -115,29 +157,32 @@ describe("loopStep M3 — AgentSession wiring", () => {
       ...state,
       items: { "01": { ...state.items["01"]!, attempt: 3 } },
     };
-    await Bun.write(`${dir}/STATE.md`, formatStateMd(state));
+    store.save("test-loop", state, {});
 
-    const { factory } = mockSessionFactory("verdict: REJECT\nreasons: still broken\nevidence: x");
+    const { factory } = mockSessionFactory(
+      "verdict: REJECT\nreasons: still broken\nevidence: x",
+    );
 
     const next = await loopStep({
       loopConfigPath: dir,
       sessionFactory: factory,
       buildSpec: makeSpec,
+      store,
+      loopId: "test-loop",
     });
 
-    expect(next.items["01"]).toBeUndefined();
-    const inbox = parseInboxMd(await Bun.file(`${dir}/INBOX.md`).text());
-    expect(inbox["01"]!.step).toBe("inbox");
+    expect(next.items["01"]!.step).toBe("inbox");
   });
 
-  test("ESCALATE → inbox in INBOX.md", async () => {
+  test("ESCALATE → inbox in store", async () => {
     const dir = await initLoopDir();
+    const store = createTestStore();
     let state = emptyState();
     state = loopReducer(state, {
       type: "ADD_ITEM",
       item: { id: "01", source: "ci", summary: "flaky" },
     });
-    await Bun.write(`${dir}/STATE.md`, formatStateMd(state));
+    store.save("test-loop", state, {});
 
     const { factory } = mockSessionFactory(
       "verdict: ESCALATE\nreasons: no env\nevidence: mcp unreachable",
@@ -147,21 +192,22 @@ describe("loopStep M3 — AgentSession wiring", () => {
       loopConfigPath: dir,
       sessionFactory: factory,
       buildSpec: makeSpec,
+      store,
+      loopId: "test-loop",
     });
 
-    expect(next.items["01"]).toBeUndefined();
-    const inbox = parseInboxMd(await Bun.file(`${dir}/INBOX.md`).text());
-    expect(inbox["01"]!.step).toBe("inbox");
+    expect(next.items["01"]!.step).toBe("inbox");
   });
 
   test("empty VERDICT.md → item goes to inbox (ESCALATE)", async () => {
     const dir = await initLoopDir();
+    const store = createTestStore();
     let state = emptyState();
     state = loopReducer(state, {
       type: "ADD_ITEM",
       item: { id: "01", source: "ci", summary: "flaky" },
     });
-    await Bun.write(`${dir}/STATE.md`, formatStateMd(state));
+    store.save("test-loop", state, {});
 
     const { factory } = mockSessionFactory("");
 
@@ -169,13 +215,16 @@ describe("loopStep M3 — AgentSession wiring", () => {
       loopConfigPath: dir,
       sessionFactory: factory,
       buildSpec: makeSpec,
+      store,
+      loopId: "test-loop",
     });
 
-    expect(next.items["01"]).toBeUndefined();
+    expect(next.items["01"]!.step).toBe("inbox");
   });
 
-  test("human APPROVE unchanged from M2", async () => {
+  test("human APPROVE → resolved item deleted from store", async () => {
     const dir = await initLoopDir();
+    const store = createTestStore();
     let state = emptyState();
     state = loopReducer(state, {
       type: "ADD_ITEM",
@@ -188,17 +237,20 @@ describe("loopStep M3 — AgentSession wiring", () => {
       itemId: "01",
       verdict: { verdict: "PASS", evidence: "ok" },
     });
-    await Bun.write(`${dir}/STATE.md`, formatStateMd(state));
+    store.save("test-loop", state, {});
 
     const { factory } = mockSessionFactory("");
 
-    const next = await loopStep({
+    await loopStep({
       loopConfigPath: dir,
       sessionFactory: factory,
       buildSpec: makeSpec,
+      store,
+      loopId: "test-loop",
       action: { itemId: "01", verdict: "approve" },
     });
 
-    expect(next.items["01"]).toBeUndefined();
+    const loaded = store.load("test-loop");
+    expect(loaded.items["01"]).toBeUndefined();
   });
 });
