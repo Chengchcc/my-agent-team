@@ -85,9 +85,8 @@ export function createLoopStateStore(db: Database): LoopStateStore {
       for (const row of rows) {
         items[row.item_id] = rowToItem(row);
       }
-      const lastRun = rows.length > 0
-        ? new Date(Math.max(...rows.map(r => r.updated_at))).toISOString()
-        : null;
+      const lastRun =
+        rows.length > 0 ? new Date(Math.max(...rows.map((r) => r.updated_at))).toISOString() : null;
       return { loopId, lastRun, items };
     },
 
@@ -99,6 +98,12 @@ export function createLoopStateStore(db: Database): LoopStateStore {
         for (const row of existingRows) {
           if (!keptIds.has(row.item_id)) {
             deleteItem.run(loopId, row.item_id);
+          }
+        }
+
+        for (const item of Object.values(state.items)) {
+          if (item.step === "resolved" || item.step === "promoted") {
+            deleteItem.run(loopId, item.id);
           }
         }
 
@@ -136,8 +141,7 @@ export function createLoopStateStore(db: Database): LoopStateStore {
     },
 
     addBudget(loopId: string, day: string, delta: number): number {
-      const row = upsertBudget.get(loopId, day, delta);
-      return row?.spent ?? delta;
+      return upsertBudget.get(loopId, day, delta)!.spent;
     },
 
     getBudget(loopId: string, day: string): number {

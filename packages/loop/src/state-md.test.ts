@@ -495,6 +495,22 @@ describe("parseLoopConfig", () => {
     expect(parseLoopConfig(md)).toBeNull();
   });
 
+  test("generator.model equals evaluator.model → throws", () => {
+    const md = [
+      "---",
+      `projectId: test`,
+      "generator:",
+      "  model: claude-sonnet-4",
+      `  systemPrompt: "fix it"`,
+      "evaluator:",
+      "  model: claude-sonnet-4",
+      `  systemPrompt: "verify it"`,
+      `acceptance: "tests pass"`,
+      "---",
+    ].join("\n");
+    expect(() => parseLoopConfig(md)).toThrow(/must differ/);
+  });
+
   test("empty → null", () => {
     expect(parseLoopConfig("")).toBeNull();
   });

@@ -320,6 +320,12 @@ export function parseLoopConfig(md: string): LoopConfig | null {
 
   if (!gen?.model || !eval_?.model) return null;
 
+  if (gen.model === eval_.model) {
+    throw new Error(
+      `parseLoopConfig: generator.model ("${String(gen.model)}") must differ from evaluator.model`,
+    );
+  }
+
   const budgetRaw = frontmatter.budget as Record<string, unknown> | undefined;
   const dailyCap = Number(budgetRaw?.dailyCap ?? 0);
   const budget = Number.isFinite(dailyCap) && dailyCap > 0 ? { dailyCap } : null;
