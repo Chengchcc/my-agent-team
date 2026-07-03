@@ -6,7 +6,7 @@ AgentSession 编排层——把 Agent + Checkpointer + PluginRunner + ContextMan
 
 framework 的 `createAgent()` 提供了通用的 agent 运行内核，但不关心"这个 agent 怎么出生、怎么压缩上下文、怎么在中断后恢复"。harness 提供这一层策略：
 
-- **AgentSession** 封装了一次 agent 调用的完整生命周期：`prompt()` → 内部 `runLoop`（含自动重试 + 自动压缩）→ dispose（或保持 alive 等待 resume）。
+- **AgentSession** 封装了一次 agent 调用的完整生命周期：`prompt()` → 内部重试+自动压缩循环 → dispose（或保持 alive 等待 resume）。
 - **compactThread** 执行 LLM 驱动的上下文压缩，将早期消息概括为摘要，保留最近 N 条。
 - **identityPlugin**（独立包 `plugin-identity`）负责读取工作区文件、注入系统提示。
 

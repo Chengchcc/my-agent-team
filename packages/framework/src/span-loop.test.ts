@@ -10,7 +10,7 @@ import type { Message } from "@my-agent-team/message";
 import type { AgentRuntime, FollowUpQueue, SteeringQueue } from "./agent-options.js";
 import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
 import { createPluginRunner } from "./plugin-runner.js";
-import { runLoop } from "./span-loop.js";
+import { spanLoop } from "./span-loop.js";
 
 /** Consume an async iterable to completion (side-effect-only tests). */
 async function drain(iter: AsyncIterable<unknown>): Promise<void> {
@@ -95,7 +95,7 @@ function toolUseModel(calls: Array<{ id: string; name: string; input?: unknown }
   };
 }
 
-describe("runLoop tool parallel execution", () => {
+describe("spanLoop tool parallel execution", () => {
   test("serial tools execute in order via executeOne path", async () => {
     const calls: string[] = [];
     const t1: Tool = {
@@ -125,7 +125,7 @@ describe("runLoop tool parallel execution", () => {
       { id: "c2", name: "t2" },
     ]);
 
-    await drain(runLoop(rt, { maxSteps: 1 }));
+    await drain(spanLoop(rt, { maxSteps: 1 }));
 
     expect(calls).toEqual(["t1", "t2"]);
   });
@@ -153,7 +153,7 @@ describe("runLoop tool parallel execution", () => {
       { id: "c2", name: "slow" },
     ]);
 
-    await drain(runLoop(rt, { maxSteps: 1 }));
+    await drain(spanLoop(rt, { maxSteps: 1 }));
 
     expect(starts.length).toBe(2);
     expect(ends.length).toBe(2);
@@ -188,7 +188,7 @@ describe("runLoop tool parallel execution", () => {
       { id: "c2", name: "t2" },
     ]);
 
-    await drain(runLoop(rt, { maxSteps: 1 }));
+    await drain(spanLoop(rt, { maxSteps: 1 }));
 
     const results = rt.thread.messages
       .filter((m) => Array.isArray(m.blocks))
@@ -249,7 +249,7 @@ describe("runLoop tool parallel execution", () => {
       { id: "sc2", name: "s2" },
     ]);
 
-    await drain(runLoop(rt, { maxSteps: 1 }));
+    await drain(spanLoop(rt, { maxSteps: 1 }));
 
     const s1Idx = order.indexOf("s1");
     const s2Idx = order.indexOf("s2");
@@ -262,7 +262,7 @@ describe("runLoop tool parallel execution", () => {
   });
 });
 
-describe("runLoop steering", () => {
+describe("spanLoop steering", () => {
   test("steering messages appear in thread before model call", async () => {
     let modelReceivedMsgs: Message[] = [];
     const model: ChatModel = {
@@ -291,7 +291,7 @@ describe("runLoop steering", () => {
       },
     };
 
-    await drain(runLoop(rt, { maxSteps: 1, steering }));
+    await drain(spanLoop(rt, { maxSteps: 1, steering }));
 
     expect(
       modelReceivedMsgs.some((m) =>
@@ -300,7 +300,7 @@ describe("runLoop steering", () => {
     ).toBe(true);
   });
 
-  test("no steering → runLoop behaves identically to before", async () => {
+  test("no steering → spanLoop behaves identically to before", async () => {
     const rt = makeRt();
     rt.model = {
       id: "test-no-steering",
@@ -317,7 +317,7 @@ describe("runLoop steering", () => {
 
     const events: Array<{ type: string }> = [];
 
-    for await (const _ev of runLoop(rt, { maxSteps: 1 })) {
+    for await (const _ev of spanLoop(rt, { maxSteps: 1 })) {
       events.push(_ev);
     }
 
@@ -352,7 +352,7 @@ describe("runLoop steering", () => {
       },
     };
 
-    await drain(runLoop(rt, { maxSteps: 1, followUp }));
+    await drain(spanLoop(rt, { maxSteps: 1, followUp }));
 
     // Model called twice: once for initial run, once for follow-up
     expect(callCount).toBe(2);
@@ -381,7 +381,7 @@ describe("runLoop steering", () => {
     rt.model = model;
 
     const events: Array<{ type: string }> = [];
-    for await (const ev of runLoop(rt, { maxSteps: 1, stream: true })) {
+    for await (const ev of spanLoop(rt, { maxSteps: 1, stream: true })) {
       events.push(ev);
     }
 
@@ -411,7 +411,7 @@ describe("runLoop steering", () => {
     rt.model = model;
 
     const events: Array<{ type: string }> = [];
-    for await (const ev of runLoop(rt, { maxSteps: 1, stream: true })) {
+    for await (const ev of spanLoop(rt, { maxSteps: 1, stream: true })) {
       events.push(ev);
     }
 
@@ -439,7 +439,7 @@ describe("runLoop steering", () => {
     const rt = makeRt();
     rt.model = model;
 
-    await drain(runLoop(rt, { maxSteps: 2 }));
+    await drain(spanLoop(rt, { maxSteps: 2 }));
 
     // Without follow-up, model returns no tool_use blocks → stops at step 0
     expect(callCount).toBe(1);

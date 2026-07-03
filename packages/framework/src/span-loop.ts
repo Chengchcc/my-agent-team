@@ -40,9 +40,9 @@ export function extractToolStates(blocks: ContentBlock[]): MessageToolState[] {
     .map((b) => ({ id: b.id, name: b.name, state: "running" as const }));
 }
 
-// ─── runLoop (extracted from createAgentInternal) ───────────────
+// ─── spanLoop (per-span step iteration) ─────────────────────
 
-export async function* runLoop(
+export async function* spanLoop(
   rt: AgentRuntime,
   opts: {
     signal?: AbortSignal;

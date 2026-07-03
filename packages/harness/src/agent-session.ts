@@ -137,12 +137,12 @@ export class AgentSession {
     }
 
     const inputMessages: Message[] = [{ role: "user", text }];
-    await this.#runLoop(inputMessages, opts);
+    await this.#executeSpan(inputMessages, opts);
   }
 
   async continue(opts?: { signal?: AbortSignal; spanId?: string }): Promise<void> {
     if (!this.#agent) throw new Error("Agent not initialized — call prompt() first");
-    await this.#runLoop(undefined, opts);
+    await this.#executeSpan(undefined, opts);
   }
 
   async resume(
@@ -305,7 +305,7 @@ export class AgentSession {
     this.#emit(event);
   }
 
-  async #runLoop(
+  async #executeSpan(
     inputMessages?: Message[],
     opts?: { signal?: AbortSignal; spanId?: string },
   ): Promise<void> {

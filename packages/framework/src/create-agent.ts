@@ -15,7 +15,7 @@ import { consoleLogger } from "./logger.js";
 import type { HookContext } from "./plugin.js";
 import { validatePlugins } from "./plugin.js";
 import { createPluginRunner } from "./plugin-runner.js";
-import { runLoop } from "./span-loop.js";
+import { spanLoop } from "./span-loop.js";
 import { createThread } from "./thread.js";
 
 // ─── Public exports (thin re-exports from extracted modules) ──
@@ -115,7 +115,7 @@ function createAgentInternal(
     subscribers,
   };
 
-  function runLoopOpts(opts: AgentRunOptions) {
+  function spanLoopOpts(opts: AgentRunOptions) {
     return {
       signal: opts.signal,
       maxSteps: opts.maxSteps ?? 32,
@@ -126,7 +126,7 @@ function createAgentInternal(
     };
   }
 
-  /** Wraps a runLoop generator to notify subscribers on each yielded event. */
+  /** Wraps a spanLoop generator to notify subscribers on each yielded event. */
   async function* withSubscribers(gen: AsyncGenerator<AgentEvent>): AsyncGenerator<AgentEvent> {
     for await (const event of gen) {
       yield event;
@@ -196,7 +196,7 @@ function createAgentInternal(
           await save(thread.messages);
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
-        yield* withSubscribers(runLoop(rt, runLoopOpts(opts)));
+        yield* withSubscribers(spanLoop(rt, spanLoopOpts(opts)));
       } catch (err) {
         runStatus = opts.signal?.aborted ? "interrupted" : "error";
         throw err;
@@ -236,7 +236,7 @@ function createAgentInternal(
           await save(thread.messages);
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
-        yield* withSubscribers(runLoop(rt, runLoopOpts(opts)));
+        yield* withSubscribers(spanLoop(rt, spanLoopOpts(opts)));
       } catch (err) {
         runStatus = opts.signal?.aborted ? "interrupted" : "error";
         throw err;
@@ -285,7 +285,7 @@ function createAgentInternal(
           thread.messages.push({ role: "user", blocks: [realResult] });
         }
         await save(thread.messages);
-        yield* withSubscribers(runLoop(rt, runLoopOpts(opts)));
+        yield* withSubscribers(spanLoop(rt, spanLoopOpts(opts)));
       } catch (err) {
         runStatus = opts.signal?.aborted ? "interrupted" : "error";
         throw err;

@@ -28,7 +28,7 @@
 | **Skill Root** | progressive-skill 扫描的目录路径；一个 Pack 贡献一个 Root | 不是 Pack 本体（Pack 是管理实体，Root 是它的磁盘投影） |
 | **Issue** | 一个有独立状态机的工作单元（draft→planned→in_progress→in_review→done）；将被 Loop 吸收，手动工作变为 trigger=manual 的 Loop | 不是 Conversation/Run |
 | **CronJob** | 一条按时间表反复触发的定时规则；通过 `loop_config_path` 引用 Loop 配置目录，到点调 `loopStep()` | 不是 Loop 本身（调度者 ≠ 被调度者） |
-| **agentLoop** | 框架 `span-loop.ts` 内部：单个 Span 内的 step 迭代（调模型→工具执行→循环）。纯实现机制，不是领域概念 | 不是 Loop（多 Span 编排系统）；不与 Loop 系统有任何关系 |
+| **spanLoop** | 框架 `span-loop.ts` 导出函数：单个 Span 内的 step 迭代（调模型→工具执行→循环直到 terminal）。纯实现机制 | 不是 Loop（多 Span 编排系统）；旧名 `runLoop`（已按 ADR 0007 改名） |
 
 ## 架构分层（6 层，自底向上）
 

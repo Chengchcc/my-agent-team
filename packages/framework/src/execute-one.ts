@@ -264,7 +264,7 @@ export async function runOneCollect(
     });
   }
 
-  // NOTE: do NOT push to rt.thread.messages here — the caller (runLoop batch
+  // NOTE: do NOT push to rt.thread.messages here — the caller (spanLoop batch
   // handler) writes results in tool_use order to guarantee ordering regardless
   // of which tool completes first in a parallel batch.
   await rt.plugins.fireAfterTool(call, resultBlock, rt.thread.messages);
@@ -296,7 +296,7 @@ export async function runOneCollect(
     resultBlock.is_error === true ? "error" : "done",
     resultBlock.is_error === true,
   );
-  // save is deferred to the caller (runLoop batch handler) so it can
+  // save is deferred to the caller (spanLoop batch handler) so it can
   // save once after all ordered results are pushed.
   return { resultBlock, events, interrupted: false };
 }
