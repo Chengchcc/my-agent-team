@@ -298,7 +298,6 @@ export interface LoopConfig {
   generator: { model: string; systemPrompt: string };
   evaluator: { model: string; systemPrompt: string };
   acceptance: string;
-  maxParallelFindings: number;
   budget: { dailyCap: number } | null;
   denylist: string[];
 }
@@ -329,9 +328,6 @@ export function parseLoopConfig(md: string): LoopConfig | null {
   const budgetRaw = frontmatter.budget as Record<string, unknown> | undefined;
   const dailyCap = Number(budgetRaw?.dailyCap ?? 0);
   const budget = Number.isFinite(dailyCap) && dailyCap > 0 ? { dailyCap } : null;
-  const rawParallel = Number(frontmatter.maxParallelFindings ?? 1);
-  const maxParallelFindings =
-    Number.isFinite(rawParallel) && rawParallel >= 1 ? Math.floor(rawParallel) : 1;
 
   return {
     projectId: String(frontmatter.projectId ?? ""),
@@ -344,7 +340,6 @@ export function parseLoopConfig(md: string): LoopConfig | null {
       systemPrompt: String(eval_.systemPrompt ?? ""),
     },
     acceptance: String(frontmatter.acceptance ?? ""),
-    maxParallelFindings,
     budget,
     denylist: toStringArray(frontmatter.denylist),
   };
