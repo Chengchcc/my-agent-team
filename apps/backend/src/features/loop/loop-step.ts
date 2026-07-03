@@ -73,7 +73,7 @@ const EVALUATOR_PROMPT = [
   "将判决写入工作区根目录的 VERDICT.md，格式:",
   "---",
   "verdict: PASS|REJECT|ESCALATE",
-  "reasons: 原因（REJECT/ESCALATE 时必填，逗号分隔）",
+  'reasons: 原因（REJECT/ESCALATE 时必填，JSON 数组，如 ["原因一", "原因二"]）',
   "evidence: 你跑了什么、结果是什么",
   "---",
 ].join("\n");

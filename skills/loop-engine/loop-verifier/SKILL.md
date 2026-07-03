@@ -29,7 +29,7 @@ Your job: **reject** unless evidence is strong.
 Write verdict to VERDICT.md:
 ```
 verdict: PASS|REJECT|ESCALATE
-reasons: (REJECT/ESCALATE, comma-separated)
+reasons: (REJECT/ESCALATE required, JSON array, e.g. ["reason one", "reason two"])
 evidence: (what you ran, result)
 ```
 
