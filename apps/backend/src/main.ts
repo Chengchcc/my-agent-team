@@ -32,6 +32,7 @@ import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
 import { loopRoutes } from "./features/loop/http.js";
+import { createLoopStateStore } from "./features/loop/loop-state-store.js";
 import { createOrchestrator } from "./features/orchestrator/index.js";
 import {
   createProjectService,
@@ -64,6 +65,7 @@ import { createServer } from "./server.js";
 
 const config = loadConfig();
 const db = openDb(`${config.dataDir}/backend.db`);
+const loopStore = createLoopStateStore(db);
 // Single database — all backend-package-owned tables live in one SQLite file.
 
 const obsConfig = resolveObservabilityConfig({ serviceName: "backend" });
@@ -283,6 +285,7 @@ const cronScheduler = createCronScheduler({
   idGen: ulid,
   sessionFactory,
   projectPort,
+  store: loopStore,
 });
 
 const orchestrator = createOrchestrator({
@@ -361,6 +364,7 @@ const app = createApp(config.authToken, {
         typeof import("@my-agent-team/framework").pipeContextManagers
       >,
     }),
+    loopStore,
     projectPort,
     conv.convPort,
   ),

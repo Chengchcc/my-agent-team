@@ -6,6 +6,7 @@ import type { CronScheduler } from "../cron/scheduler.js";
 import type { CronJobService } from "../cron/service.js";
 import { loopStep } from "../loop/loop-step.js";
 import { resolveLoopPaths } from "../loop/resolve-paths.js";
+import type { LoopStateStore } from "./loop-state-store.js";
 import type { ProjectPort } from "../project/ports.js";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
 import { createUpdateLoopConfigTool } from "./tools.js";
@@ -18,6 +19,7 @@ export function loopRoutes(
   idGen: () => string,
   sessionFactory: SessionFactory,
   buildSpec: (params: { sessionId: string; modelName: string; cwd: string }) => SessionSpec,
+  store: LoopStateStore,
   projectPort?: ProjectPort,
   convPort?: {
     createConversation: (input: {
@@ -234,6 +236,8 @@ Steps:
         buildSpec,
         projectPort,
         dataDir,
+        store,
+        loopId: job.cronJobId,
       });
 
       return { state };
@@ -258,6 +262,8 @@ Steps:
             verdict: body.verdict,
             feedback: body.feedback,
           },
+          store,
+          loopId: job.cronJobId,
         });
 
         return { state };

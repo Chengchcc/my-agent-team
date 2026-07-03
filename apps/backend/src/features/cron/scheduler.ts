@@ -5,6 +5,7 @@ import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { ProjectPort } from "../project/ports.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { SessionFactory } from "../span/session-factory.js";
+import type { LoopStateStore } from "../loop/loop-state-store.js";
 import { buildSessionSpec } from "../span/session-factory.js";
 import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
@@ -36,6 +37,7 @@ export function createCronScheduler(deps: {
   scheduler?: Scheduler;
   sessionFactory?: SessionFactory;
   projectPort?: ProjectPort;
+  store: LoopStateStore;
 }) {
   const sched = deps.scheduler ?? bunScheduler;
   const handles = new Map<string, CronHandle>();
@@ -105,6 +107,8 @@ export function createCronScheduler(deps: {
               buildSpec,
               projectPort: deps.projectPort,
               dataDir: deps.config.dataDir,
+              store: deps.store,
+              loopId: currentJob.cronJobId,
             }),
             currentJob.timeoutMs,
           );
@@ -115,6 +119,8 @@ export function createCronScheduler(deps: {
             buildSpec,
             projectPort: deps.projectPort,
             dataDir: deps.config.dataDir,
+            store: deps.store,
+            loopId: currentJob.cronJobId,
           });
         }
         return;
