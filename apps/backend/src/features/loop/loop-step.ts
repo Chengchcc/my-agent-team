@@ -118,39 +118,6 @@ function denylistedFiles(files: string[], patterns: string[]): string[] {
   return files.filter((f) => patterns.some((p) => matchesGlob(f, p)));
 }
 
-const GENERATOR_PROMPT = [
-  "你是一个修 bug 的工程师。只改相关文件，不要重构无关代码。",
-  "绝对不能 commit 或 push。",
-  "",
-  "当前任务:",
-  "- 问题: {summary}",
-  "- 来源: {source}",
-  "{rejectionNote}",
-].join("\n");
-
-const EVALUATOR_PROMPT = [
-  "你是验证者。立场：假定修复是坏的，直到证明能跑。",
-  "",
-  "你要做:",
-  "1. 跑项目测试",
-  "2. 用 git diff 确认只改了相关文件",
-  "3. 对照验收标准判断",
-  "",
-  "验收标准: {acceptance}",
-  "Generator 改了这些文件: {filesChanged}",
-  "",
-  "将判决写入工作区根目录的 VERDICT.md，格式:",
-  "---",
-  "verdict: PASS|REJECT|ESCALATE",
-  'reasons: 原因（REJECT/ESCALATE 时必填，JSON 数组，如 ["原因一", "原因二"]）',
-  "evidence: 你跑了什么、结果是什么",
-  "---",
-].join("\n");
-
-const ACCEPTANCE = "被修改的文件相关测试全绿，改动范围合理";
-const GENERATOR_MODEL = "claude-sonnet-4";
-const EVALUATOR_MODEL = "claude-opus-4";
-const LOOP_AGENT_ID = "loop-agent";
 
 async function resolveRepoPath(
   loopConfigPath: string,
@@ -241,12 +208,15 @@ async function writeStateAndInbox(
   return finalState;
 }
 
-function buildGeneratorPrompt(item: LoopState["items"][string]): string {
+function buildGeneratorPrompt(
+  item: LoopState["items"][string],
+  template: string,
+): string {
   let note = "";
   if (item.result && "reasons" in item.result) {
     note = `- 上次被拒原因: ${item.result.reasons.join("; ")}`;
   }
-  return GENERATOR_PROMPT.replace("{summary}", item.summary)
+  return template.replace("{summary}", item.summary)
     .replace("{source}", item.source)
     .replace("{rejectionNote}", note);
 }
@@ -287,25 +257,28 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
   let state = parseStateMd(stateMd);
   const inboxItems = parseInboxMd(inboxMd);
 
-  // Read LOOP.md config (fall back to defaults if missing)
+  // Read LOOP.md config (required — model/prompt come from registry via LOOP.md)
   const loopMdPath = `${params.loopConfigPath}/LOOP.md`;
-  let cfg: LoopConfig | null = null;
+  let cfg: LoopConfig;
   try {
-    cfg = parseLoopConfig(await Bun.file(loopMdPath).text());
-  } catch {
-    // no config
+    const md = await Bun.file(loopMdPath).text();
+    const parsed = parseLoopConfig(md);
+    if (!parsed) throw new Error("parseLoopConfig returned null");
+    cfg = parsed;
+  } catch (err) {
+    throw new Error(
+      `loopStep: failed to load LOOP.md config from ${loopMdPath}: ${String(err)}`,
+    );
   }
 
-  const genModel = cfg?.generator.model ?? GENERATOR_MODEL;
-  const evalModel = cfg?.evaluator.model ?? EVALUATOR_MODEL;
-  if (genModel === evalModel) {
-    throw new Error(`loopStep: generator.model ("${genModel}") must differ from evaluator.model`);
-  }
-  const genPrompt = cfg?.generator.systemPrompt || GENERATOR_PROMPT;
-  const evalPrompt = cfg?.evaluator.systemPrompt || EVALUATOR_PROMPT;
-  const acceptance = cfg?.acceptance || ACCEPTANCE;
-  const denylist: string[] = (cfg as { denylist?: string[] })?.denylist ?? [];
-  const dailyCap = cfg?.budget?.dailyCap ?? 0;
+  const genModel = cfg.generator.model;
+  const evalModel = cfg.evaluator.model;
+  // model≠ already checked in parseLoopConfig — this is defensive
+  const genPrompt = cfg.generator.systemPrompt;
+  const evalPrompt = cfg.evaluator.systemPrompt;
+  const acceptance = cfg.acceptance || "被修改的文件相关测试全绿，改动范围合理";
+  const denylist: string[] = cfg.denylist;
+  const dailyCap = cfg.budget?.dailyCap ?? 0;
 
   // 2. Human review action
   if (params.action) {
@@ -377,7 +350,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     });
 
     const genSession = params.sessionFactory.getOrCreate(genSessionId, genSpec);
-    await params.sessionFactory.enqueuePrompt(genSessionId, buildGeneratorPrompt(item));
+    await params.sessionFactory.enqueuePrompt(genSessionId, buildGeneratorPrompt(item, genPrompt));
     params.sessionFactory.dispose(genSessionId);
     if (dailyCap > 0) {
       spent = await addBudget(
