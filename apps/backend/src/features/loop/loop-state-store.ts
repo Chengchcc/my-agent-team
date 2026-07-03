@@ -108,8 +108,10 @@ export function createLoopStateStore(db: Database): LoopStateStore {
         }
 
         for (const item of Object.values(state.items)) {
-          if (item.step === "inbox" || item.step === "resolved" || item.step === "promoted")
-            continue;
+          // resolved/promoted are terminal — already deleted above. inbox can
+          // arrive at runtime (REJECT exhausted, ESCALATE, PASS no-evidence)
+          // and must be persisted as inbox, not skipped.
+          if (item.step === "resolved" || item.step === "promoted") continue;
           upsertItem.run(
             loopId,
             item.id,

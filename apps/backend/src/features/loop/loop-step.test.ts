@@ -274,6 +274,9 @@ describe("loopStep M3 — AgentSession wiring", () => {
 
     expect(next.items["01"]!.step).toBe("inbox");
 
+    // Round-trip: DB must also have inbox step (not stale fixing)
+    const reloaded = store.load("test-loop");
+    expect(reloaded.items["01"]!.step).toBe("inbox");
     await cleanup();
   });
 
@@ -307,6 +310,9 @@ describe("loopStep M3 — AgentSession wiring", () => {
 
     expect(next.items["01"]!.step).toBe("inbox");
 
+    // Round-trip: DB must persist inbox step
+    const reloaded = store.load("test-loop");
+    expect(reloaded.items["01"]!.step).toBe("inbox");
     await cleanup();
   });
 
@@ -337,6 +343,9 @@ describe("loopStep M3 — AgentSession wiring", () => {
 
     expect(next.items["01"]!.step).toBe("inbox");
 
+    // Round-trip: DB must persist inbox step
+    const reloaded = store.load("test-loop");
+    expect(reloaded.items["01"]!.step).toBe("inbox");
     await cleanup();
   });
 
