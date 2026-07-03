@@ -18,10 +18,11 @@ export function createLoopStateStore(db: Database): LoopStateStore {
       attempt: number;
       priority: number;
       result: string | null;
+      updated_at: number;
     },
     [string]
   >(
-    "SELECT item_id, source, summary, step, attempt, priority, result FROM loop_item WHERE loop_id = ?",
+    "SELECT item_id, source, summary, step, attempt, priority, result, updated_at FROM loop_item WHERE loop_id = ?",
   );
 
   const upsertItem = db.query<
@@ -84,7 +85,9 @@ export function createLoopStateStore(db: Database): LoopStateStore {
       for (const row of rows) {
         items[row.item_id] = rowToItem(row);
       }
-      const lastRun = rows.length > 0 ? String(Math.max(...rows.map((_r) => 0))) : null;
+      const lastRun = rows.length > 0
+        ? new Date(Math.max(...rows.map(r => r.updated_at))).toISOString()
+        : null;
       return { loopId, lastRun, items };
     },
 
