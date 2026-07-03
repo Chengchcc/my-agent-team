@@ -232,7 +232,8 @@ const opsSvc = createRuntimeOpsService({
 });
 
 // Project service (M18.3) — must be constructed before issueSvc so projectExists can be injected
-const projectSvc = createProjectService({ port: sqliteProjectAdapter(db), idGen: ulid });
+const projectPort = sqliteProjectAdapter(db);
+const projectSvc = createProjectService({ port: projectPort, idGen: ulid });
 
 // ColumnConfig service (M18.4) — per-Project per-status execution config
 const columnConfigSvc = createColumnConfigService({
@@ -281,6 +282,7 @@ const cronScheduler = createCronScheduler({
   agentSvc,
   idGen: ulid,
   sessionFactory,
+  projectPort,
 });
 
 const orchestrator = createOrchestrator({
@@ -300,6 +302,7 @@ const orchestrator = createOrchestrator({
     addMember: (input) => conv.convPort.addMember(input),
   },
   sessionFactory,
+  projectPort,
 });
 
 // Register orchestrator's backfill listener (alongside conversation's onRunComplete)
@@ -360,6 +363,7 @@ const app = createApp(config.authToken, {
       >,
     }),
     conv.convPort,
+    projectPort,
   ),
   cronJobs: cronJobRoutes(cronSvc, cronScheduler),
   skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),

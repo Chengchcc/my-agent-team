@@ -2,6 +2,7 @@ import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
 import { loopStep } from "../loop/loop-step.js";
 import { resolveLoopPaths } from "../loop/resolve-paths.js";
+import type { ProjectPort } from "../project/ports.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { SessionFactory } from "../span/session-factory.js";
 import { buildSessionSpec } from "../span/session-factory.js";
@@ -34,6 +35,7 @@ export function createCronScheduler(deps: {
   now?: () => number;
   scheduler?: Scheduler;
   sessionFactory?: SessionFactory;
+  projectPort?: ProjectPort;
 }) {
   const sched = deps.scheduler ?? bunScheduler;
   const handles = new Map<string, CronHandle>();
@@ -101,6 +103,8 @@ export function createCronScheduler(deps: {
               loopConfigPath: resolveLoopPaths(currentJob, deps.config.dataDir).loopConfigPath,
               sessionFactory: deps.sessionFactory!,
               buildSpec,
+              projectPort: deps.projectPort,
+              dataDir: deps.config.dataDir,
             }),
             currentJob.timeoutMs,
           );
@@ -109,6 +113,8 @@ export function createCronScheduler(deps: {
             loopConfigPath: resolveLoopPaths(currentJob, deps.config.dataDir).loopConfigPath,
             sessionFactory: deps.sessionFactory!,
             buildSpec,
+            projectPort: deps.projectPort,
+            dataDir: deps.config.dataDir,
           });
         }
         return;
