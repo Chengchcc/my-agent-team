@@ -1,5 +1,5 @@
-import { join } from "node:path";
 import { Database } from "bun:sqlite";
+import { join } from "node:path";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import {
   autoSummarize,
@@ -60,8 +60,8 @@ import {
   skillPackRoutes,
   sqliteSkillPackAdapter,
 } from "./features/skill-pack/index.js";
-import { buildSessionSpec, createSessionFactory } from "./features/span/session-factory.js";
 import { resumeRoutes } from "./features/span/http.js";
+import { buildSessionSpec, createSessionFactory } from "./features/span/session-factory.js";
 import { SpanSupervisor } from "./features/span/supervisor.js";
 import * as backendSchema from "./infra/db/schema.js";
 import { ulid } from "./infra/ids.js";
