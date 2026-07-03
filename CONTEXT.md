@@ -1,6 +1,7 @@
 # CONTEXT.md — my-agent-team 项目心智模型
 
 > 给 Agent 的项目记忆。每次进入仓库先读此文件。基于 2026-06-30 HEAD 现状撰写。
+> 行为准则和仓库技术规范另见 [AGENTS.md](./AGENTS.md)。
 
 ## 领域语言（必背词汇）
 
