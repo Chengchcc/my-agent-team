@@ -320,7 +320,7 @@ export const agentSkillPack = sqliteTable(
   (table) => [primaryKey({ columns: [table.agentId, table.packId] })],
 );
 
-// --- loop_item ---
+// ─── loop_item ───
 export const loopItem = sqliteTable(
   "loop_item",
   {
@@ -340,7 +340,7 @@ export const loopItem = sqliteTable(
   ],
 );
 
-// --- loop_budget ---
+// ─── loop_budget ───
 export const loopBudget = sqliteTable(
   "loop_budget",
   {
@@ -348,9 +348,7 @@ export const loopBudget = sqliteTable(
     day: text().notNull(),
     spent: integer().notNull().default(0),
   },
-  (table) => [
-    primaryKey({ columns: [table.loopId, table.day] }),
-  ],
+  (table) => [primaryKey({ columns: [table.loopId, table.day] })],
 );
 
 // ── Zod schemas (type chain: drizzle table → Zod → z.infer → TS type) ──
