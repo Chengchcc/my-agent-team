@@ -320,6 +320,39 @@ export const agentSkillPack = sqliteTable(
   (table) => [primaryKey({ columns: [table.agentId, table.packId] })],
 );
 
+// --- loop_item ---
+export const loopItem = sqliteTable(
+  "loop_item",
+  {
+    loopId: text("loop_id").notNull(),
+    itemId: text("item_id").notNull(),
+    source: text().notNull(),
+    summary: text().notNull(),
+    step: text().notNull(),
+    attempt: integer().notNull(),
+    priority: integer().notNull(),
+    result: text(),
+    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.loopId, table.itemId] }),
+    index("idx_loop_item_step").on(table.loopId, table.step),
+  ],
+);
+
+// --- loop_budget ---
+export const loopBudget = sqliteTable(
+  "loop_budget",
+  {
+    loopId: text("loop_id").notNull(),
+    day: text().notNull(),
+    spent: integer().notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.loopId, table.day] }),
+  ],
+);
+
 // ── Zod schemas (type chain: drizzle table → Zod → z.infer → TS type) ──
 
 import { createSelectSchema } from "drizzle-zod";
