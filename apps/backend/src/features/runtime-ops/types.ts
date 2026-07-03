@@ -31,8 +31,8 @@ export type ControlPlaneEvent = Omit<
 
 export type SpanOriginKind = "manual" | "cron" | "orchestrator";
 
-export type SpanOriginRow = typeof schema.runOrigin.$inferSelect;
-export type SpanOriginInsert = typeof schema.runOrigin.$inferInsert;
+export type SpanOriginRow = typeof schema.spanOrigin.$inferSelect;
+export type SpanOriginInsert = typeof schema.spanOrigin.$inferInsert;
 
 export type SurfaceHealthRow = Omit<typeof schema.surfaceHealth.$inferSelect, "payload"> & {
   payload: Record<string, unknown>;

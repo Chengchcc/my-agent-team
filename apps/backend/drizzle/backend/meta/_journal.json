@@ -29,6 +29,13 @@
       "when": 1783057895280,
       "tag": "0003_slow_daredevil",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1783072015817,
+      "tag": "0004_daffy_jackal",
+      "breakpoints": true
     }
   ]
 }

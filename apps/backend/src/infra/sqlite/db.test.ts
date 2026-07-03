@@ -17,7 +17,7 @@ test("openDb creates database file and runs drizzle-kit migrations", () => {
   expect(names).toContain("agents");
   expect(names).not.toContain("threads");
   // S1: events.db merged — run/attempt are now in backend.db
-  expect(names).toContain("run");
+  expect(names).toContain("span");
   expect(names).toContain("attempt");
   // S2: projection_messages deleted (redundant third copy of messages)
   expect(names).not.toContain("projection_messages");

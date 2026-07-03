@@ -96,12 +96,12 @@ export class SpanSupervisor {
       .select({
         spanId: schema.attempt.spanId,
         seq: schema.attempt.seq,
-        sessionId: schema.run.sessionId,
-        kind: schema.run.kind,
+        sessionId: schema.span.sessionId,
+        kind: schema.span.kind,
       })
       .from(schema.attempt)
-      .innerJoin(schema.run, eq(schema.attempt.spanId, schema.run.spanId))
-      .where(and(isNull(schema.attempt.endedAt), isNull(schema.run.endedAt)))
+      .innerJoin(schema.span, eq(schema.attempt.spanId, schema.span.spanId))
+      .where(and(isNull(schema.attempt.endedAt), isNull(schema.span.endedAt)))
       .all();
 
     let reaped = false;
@@ -136,10 +136,10 @@ export class SpanSupervisor {
     const now = Date.now();
     const updated = await this.#d.transaction((tx) => {
       const rows = tx
-        .update(schema.run)
+        .update(schema.span)
         .set({ status, endedAt: now })
-        .where(and(eq(schema.run.spanId, spanId), isNull(schema.run.endedAt)))
-        .returning({ spanId: schema.run.spanId })
+        .where(and(eq(schema.span.spanId, spanId), isNull(schema.span.endedAt)))
+        .returning({ spanId: schema.span.spanId })
         .all();
       if (rows.length > 0 && attemptSeq != null) {
         tx.update(schema.attempt)
@@ -161,9 +161,9 @@ export class SpanSupervisor {
   #markProjectionDegraded(spanId: string, attemptSeq: number | null, err: unknown): void {
     const reason = err instanceof Error ? err.message : String(err);
     this.#d
-      .update(schema.run)
+      .update(schema.span)
       .set({ degradedReason: reason })
-      .where(and(eq(schema.run.spanId, spanId), isNull(schema.run.degradedReason)))
+      .where(and(eq(schema.span.spanId, spanId), isNull(schema.span.degradedReason)))
       .run();
     this.#opts.opsStore.appendControlPlaneEvent({
       spanId,
@@ -187,7 +187,7 @@ export class SpanSupervisor {
 
     const seq = await this.#d.transaction(async (tx) => {
       await tx
-        .insert(schema.run)
+        .insert(schema.span)
         .values({
           spanId,
           sessionId,

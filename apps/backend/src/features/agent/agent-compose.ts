@@ -50,13 +50,13 @@ export function createAgentSvc(
               inArray(
                 schema.attempt.spanId,
                 tx
-                  .select({ spanId: schema.run.spanId })
-                  .from(schema.run)
-                  .where(eq(schema.run.sessionId, tid)),
+                  .select({ spanId: schema.span.spanId })
+                  .from(schema.span)
+                  .where(eq(schema.span.sessionId, tid)),
               ),
             )
             .run();
-          tx.delete(schema.run).where(eq(schema.run.sessionId, tid)).run();
+          tx.delete(schema.span).where(eq(schema.span.sessionId, tid)).run();
         }
       });
     },
@@ -80,7 +80,7 @@ export function createAgentSvc(
       const busy = edb
         .query(
           `SELECT 1 FROM attempt WHERE ended_at IS NULL
-           AND span_id IN (SELECT span_id FROM run WHERE session_id IN (${placeholders})) LIMIT 1`,
+           AND span_id IN (SELECT span_id FROM span WHERE session_id IN (${placeholders})) LIMIT 1`,
         )
         .all(...sessionIds);
       if (busy.length > 0) throw new AgentBusyError(agentId);

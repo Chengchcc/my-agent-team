@@ -186,8 +186,8 @@ export const deliverable = sqliteTable(
 
 // ── Execution-related tables (merged into single-db under S1 storage convergence) ──
 
-export const run = sqliteTable(
-  "run",
+export const span = sqliteTable(
+  "span",
   {
     spanId: text().primaryKey(),
     sessionId: text().notNull(),
@@ -199,7 +199,7 @@ export const run = sqliteTable(
     startedAt: integer({ mode: "number" }).notNull(),
     endedAt: integer({ mode: "number" }),
   },
-  (table) => [index("idx_run_session").on(table.sessionId, desc(table.startedAt))],
+  (table) => [index("idx_span_session").on(table.sessionId, desc(table.startedAt))],
 );
 
 export const attempt = sqliteTable(
@@ -207,7 +207,7 @@ export const attempt = sqliteTable(
   {
     spanId: text()
       .notNull()
-      .references(() => run.spanId, { onDelete: "cascade" }),
+      .references(() => span.spanId, { onDelete: "cascade" }),
     seq: integer().notNull(),
     pid: integer(),
     heartbeatAt: integer({ mode: "number" }),
@@ -239,8 +239,8 @@ export const controlPlaneEvent = sqliteTable(
   ],
 );
 
-export const runOrigin = sqliteTable(
-  "run_origin",
+export const spanOrigin = sqliteTable(
+  "span_origin",
   {
     spanId: text().primaryKey(),
     conversationId: text().notNull(),
@@ -257,10 +257,10 @@ export const runOrigin = sqliteTable(
     createdAt: integer({ mode: "number" }).notNull(),
   },
   (table) => [
-    uniqueIndex("idx_run_origin_idem").on(table.idempotencyKey),
-    index("idx_run_origin_trace").on(table.traceId),
-    index("idx_run_origin_issue").on(table.issueId),
-    index("idx_run_origin_cron").on(table.cronJobId),
+    uniqueIndex("idx_span_origin_idem").on(table.idempotencyKey),
+    index("idx_span_origin_trace").on(table.traceId),
+    index("idx_span_origin_issue").on(table.issueId),
+    index("idx_span_origin_cron").on(table.cronJobId),
   ],
 );
 
@@ -357,7 +357,7 @@ import { createSelectSchema } from "drizzle-zod";
 
 // ── Simple tables (drizzle-zod auto-generate) ──
 
-export const runOriginSelectSchema = createSelectSchema(runOrigin);
+export const spanOriginSelectSchema = createSelectSchema(spanOrigin);
 export const issueSelectSchema = createSelectSchema(issue, {
   status: (s) =>
     s.transform((v) => v as "draft" | "planned" | "in_progress" | "in_review" | "done"),

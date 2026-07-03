@@ -8,7 +8,7 @@ describe("RunSupervisor", () => {
     const { spanId, attemptSeq } = await s.startMainRun("r1", "t1", { agentId: "a1" });
     expect(spanId).toBe("r1");
     expect(attemptSeq).toBe(1);
-    const run = db.query("SELECT * FROM run WHERE span_id = ?").get("r1") as { status: string };
+    const run = db.query("SELECT * FROM span WHERE span_id = ?").get("r1") as { status: string };
     expect(run.status).toBe("running");
     s.dispose();
     db.close();

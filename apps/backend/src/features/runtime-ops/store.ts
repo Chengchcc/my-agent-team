@@ -5,7 +5,7 @@ import * as schema from "../../infra/db/schema.js";
 import {
   controlPlaneEventSelectSchema,
   issueEventSelectSchema,
-  runOriginSelectSchema,
+  spanOriginSelectSchema,
   surfaceHealthSelectSchema,
 } from "../../infra/db/schema.js";
 import type {
@@ -111,7 +111,7 @@ export class RuntimeOpsStore {
       );
     }
     this.#d
-      .insert(schema.runOrigin)
+      .insert(schema.spanOrigin)
       .values({
         spanId: row.spanId,
         conversationId: row.conversationId,
@@ -134,30 +134,30 @@ export class RuntimeOpsStore {
   getSpanOrigin(spanId: string): SpanOriginRow | null {
     const row = this.#d
       .select()
-      .from(schema.runOrigin)
-      .where(eq(schema.runOrigin.spanId, spanId))
+      .from(schema.spanOrigin)
+      .where(eq(schema.spanOrigin.spanId, spanId))
       .get();
-    return row ? runOriginSelectSchema.parse(row) : null;
+    return row ? spanOriginSelectSchema.parse(row) : null;
   }
 
   getSpanOriginsByIssueId(issueId: string): SpanOriginRow[] {
     return this.#d
       .select()
-      .from(schema.runOrigin)
-      .where(eq(schema.runOrigin.issueId, issueId))
-      .orderBy(schema.runOrigin.createdAt)
+      .from(schema.spanOrigin)
+      .where(eq(schema.spanOrigin.issueId, issueId))
+      .orderBy(schema.spanOrigin.createdAt)
       .all()
-      .map((r) => runOriginSelectSchema.parse(r));
+      .map((r) => spanOriginSelectSchema.parse(r));
   }
 
   getSpanOriginsByCronJobId(cronJobId: string): SpanOriginRow[] {
     return this.#d
       .select()
-      .from(schema.runOrigin)
-      .where(eq(schema.runOrigin.cronJobId, cronJobId))
-      .orderBy(schema.runOrigin.createdAt)
+      .from(schema.spanOrigin)
+      .where(eq(schema.spanOrigin.cronJobId, cronJobId))
+      .orderBy(schema.spanOrigin.createdAt)
       .all()
-      .map((r) => runOriginSelectSchema.parse(r));
+      .map((r) => spanOriginSelectSchema.parse(r));
   }
 
   getRuns(runIds: string[]): Array<{
@@ -173,8 +173,8 @@ export class RuntimeOpsStore {
     if (runIds.length === 0) return [];
     return this.#d
       .select()
-      .from(schema.run)
-      .where(inArray(schema.run.spanId, runIds))
+      .from(schema.span)
+      .where(inArray(schema.span.spanId, runIds))
       .all()
       .map((r) => ({
         spanId: r.spanId,
@@ -198,7 +198,7 @@ export class RuntimeOpsStore {
     startedAt: number;
     endedAt: number | null;
   } | null {
-    const row = this.#d.select().from(schema.run).where(eq(schema.run.spanId, spanId)).get();
+    const row = this.#d.select().from(schema.span).where(eq(schema.span.spanId, spanId)).get();
     if (!row) return null;
     return {
       spanId: row.spanId,
@@ -214,9 +214,9 @@ export class RuntimeOpsStore {
 
   getSessionIdBySpanId(spanId: string): string | null {
     const row = this.#d
-      .select({ sessionId: schema.run.sessionId })
-      .from(schema.run)
-      .where(eq(schema.run.spanId, spanId))
+      .select({ sessionId: schema.span.sessionId })
+      .from(schema.span)
+      .where(eq(schema.span.spanId, spanId))
       .get();
     return row?.sessionId ?? null;
   }
@@ -268,16 +268,16 @@ export class RuntimeOpsStore {
   }> {
     return this.#d
       .select({
-        spanId: schema.run.spanId,
-        status: schema.run.status,
-        kind: schema.run.kind,
-        agentId: schema.run.agentId,
-        startedAt: schema.run.startedAt,
-        endedAt: schema.run.endedAt,
+        spanId: schema.span.spanId,
+        status: schema.span.status,
+        kind: schema.span.kind,
+        agentId: schema.span.agentId,
+        startedAt: schema.span.startedAt,
+        endedAt: schema.span.endedAt,
       })
-      .from(schema.run)
-      .where(eq(schema.run.sessionId, sessionId))
-      .orderBy(desc(schema.run.startedAt))
+      .from(schema.span)
+      .where(eq(schema.span.sessionId, sessionId))
+      .orderBy(desc(schema.span.startedAt))
       .all();
   }
 
@@ -289,10 +289,10 @@ export class RuntimeOpsStore {
   listSpanOrigins(): SpanOriginRow[] {
     return this.#d
       .select()
-      .from(schema.runOrigin)
-      .orderBy(desc(schema.runOrigin.createdAt))
+      .from(schema.spanOrigin)
+      .orderBy(desc(schema.spanOrigin.createdAt))
       .all()
-      .map((r) => runOriginSelectSchema.parse(r));
+      .map((r) => spanOriginSelectSchema.parse(r));
   }
 
   // ─── surface_health ───
