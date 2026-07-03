@@ -4,7 +4,7 @@ import { consoleLogger } from "../logger.js";
 import { toolResultTruncator } from "./tool-result-truncator.js";
 
 const ctx = {
-  threadId: "t1",
+  sessionId: "t1",
   logger: consoleLogger({ level: "silent" }),
   model: { stream: async function* () {} },
 };

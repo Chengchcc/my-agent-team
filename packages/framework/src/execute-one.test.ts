@@ -14,7 +14,7 @@ function makeRuntime(tools: Tool[] = []): AgentRuntime {
     plugins: createPluginRunner(
       [],
       {
-        threadId: "t1",
+        sessionId: "t1",
         signal: undefined,
         logger,
         checkpointer,

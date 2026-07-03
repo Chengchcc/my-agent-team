@@ -6,7 +6,7 @@ import type { Message } from "@my-agent-team/message";
 export interface CompactionOptions {
   model: ChatModel;
   checkpointer: Checkpointer;
-  threadId: string;
+  sessionId: string;
   keepRecent?: number;
   customInstructions?: string;
   signal?: AbortSignal;
@@ -27,7 +27,7 @@ export async function compactThread(opts: CompactionOptions): Promise<{
   result: CompactionResult;
 }> {
   const keepRecent = opts.keepRecent ?? 10;
-  const allMessages = (await opts.checkpointer.load(opts.threadId)) ?? [];
+  const allMessages = (await opts.checkpointer.load(opts.sessionId)) ?? [];
 
   if (allMessages.length <= keepRecent) {
     return {

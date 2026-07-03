@@ -9,7 +9,7 @@ import type { Logger } from "./logger.js";
 export type StopDecision = { continue: true; reason: string } | { continue: false };
 
 export interface HookContext {
-  threadId: string;
+  sessionId: string;
   signal?: AbortSignal;
   logger: Logger;
   checkpointer: Checkpointer;

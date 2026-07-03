@@ -35,23 +35,23 @@ export type {
 // ─── createAgent / createAgentInternal ──────────────────────────
 
 export async function createAgent(config: AgentConfig): Promise<Agent> {
-  const threadId = config.sessionId ?? config.threadId ?? crypto.randomUUID();
+  const sessionId = config.sessionId ?? crypto.randomUUID();
   const checkpointer = config.checkpointer ?? inMemoryCheckpointer();
   validateCheckpointer(checkpointer);
 
   let messages: Message[];
   if (config.messages) {
     messages = config.messages;
-    checkpointer.save(threadId, messages).catch(() => {});
+    checkpointer.save(sessionId, messages).catch(() => {});
   } else {
-    const loaded = await checkpointer.load(threadId);
+    const loaded = await checkpointer.load(sessionId);
     messages = loaded ?? [];
   }
 
   return createAgentInternal({
     ...config,
     checkpointer,
-    threadId,
+    sessionId,
     _initialMessages: messages,
   });
 }
@@ -59,11 +59,11 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 function createAgentInternal(
   config: AgentConfig & {
     _initialMessages: Message[];
-    threadId: string;
+    sessionId: string;
     checkpointer: Checkpointer;
   },
 ): Agent {
-  const thread = createThread(config._initialMessages, config.threadId);
+  const thread = createThread(config._initialMessages, config.sessionId);
   const plugins = [...(config.plugins ?? [])];
   const tools = validatePlugins(plugins, config.tools);
   const toolMap = new Map(tools.map((t) => [t.name, t]));
@@ -84,7 +84,7 @@ function createAgentInternal(
 
   const pendingEvents: AgentEvent[] = [];
   const ctx: HookContext = {
-    threadId: thread.id,
+    sessionId: thread.id,
     signal: undefined,
     logger,
     checkpointer,
@@ -141,13 +141,13 @@ function createAgentInternal(
       const newId = id ?? crypto.randomUUID();
       if (id && id === thread.id) {
         throw new Error(
-          "Cannot fork with the same threadId as the parent. Pass a new id or omit it.",
+          "Cannot fork with the same sessionId as the parent. Pass a new id or omit it.",
         );
       }
       return createAgentInternal({
         ...config,
         plugins: [...plugins],
-        threadId: newId,
+        sessionId: newId,
         checkpointer,
         _initialMessages: msgs ?? structuredClone(thread.messages),
       });

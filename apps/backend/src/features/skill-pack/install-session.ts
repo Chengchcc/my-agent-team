@@ -66,7 +66,7 @@ function buildPrompt(source: InstallSource, action: "install" | "sync"): string 
 async function createInstallSession(deps: InstallSessionDeps): Promise<AgentSession> {
   const sessionId = `install-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return new AgentSession({
-    threadId: sessionId,
+    sessionId,
     model: deps.model,
     plugins: buildInstallPlugins(deps.dataDir),
     tools: createAllPackTools({

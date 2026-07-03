@@ -17,7 +17,7 @@ function getError(fn: () => void): Error {
 
 function testCtx(overrides?: Partial<HookContext>): HookContext {
   return {
-    threadId: "t1",
+    sessionId: "t1",
     logger: consoleLogger({ level: "silent" }),
     checkpointer: inMemoryCheckpointer(),
     contextManager: passthroughContextManager(),
@@ -69,7 +69,7 @@ describe("definePlugin", () => {
     const msgs: Message[] = [{ role: "user", text: "hi" }];
     await plugin.hooks.afterModel?.(ctx, msgs);
 
-    expect(capturedCtx).toHaveProperty("threadId", "t1");
+    expect(capturedCtx).toHaveProperty("sessionId", "t1");
     expect(capturedCtx).toHaveProperty("logger");
     expect(capturedCtx).toHaveProperty("checkpointer");
     expect(capturedCtx).toHaveProperty("contextManager");

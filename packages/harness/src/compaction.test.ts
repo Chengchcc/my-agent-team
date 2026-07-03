@@ -26,7 +26,7 @@ describe("compactThread", () => {
     const result = await compactThread({
       model,
       checkpointer: cp,
-      threadId: "t1",
+      sessionId: "t1",
       keepRecent: 10,
     });
 
@@ -46,7 +46,7 @@ describe("compactThread", () => {
     const result = await compactThread({
       model,
       checkpointer: cp,
-      threadId: "t1",
+      sessionId: "t1",
       keepRecent: 10,
     });
 

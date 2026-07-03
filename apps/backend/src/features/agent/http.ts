@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
-import type { AgentRow } from "./domain.js";
 import type { AgentIdentityStore } from "./agent-identity.js";
+import type { AgentRow } from "./domain.js";
 import type { AgentService } from "./service.js";
 import { AgentBusyError, AgentNotFoundError } from "./service.js";
 

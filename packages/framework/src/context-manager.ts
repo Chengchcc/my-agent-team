@@ -11,7 +11,7 @@ export interface PreserveHint {
 }
 
 export interface ContextManagerContext {
-  threadId: string;
+  sessionId: string;
   signal?: AbortSignal;
   logger: Logger;
   model: ChatModel;

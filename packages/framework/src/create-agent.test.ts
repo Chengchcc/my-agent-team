@@ -160,12 +160,12 @@ describe("createAgent", () => {
     expect(forked.thread.messages).not.toBe(agent.thread.messages);
   });
 
-  test("fork with same threadId throws", async () => {
+  test("fork with same sessionId throws", async () => {
     const agent = await createAgent({
       model: scriptedModel([{ type: "text", text: "hi" }]),
     });
 
-    expect(() => agent.fork([], agent.thread.id)).toThrow("Cannot fork with the same threadId");
+    expect(() => agent.fork([], agent.thread.id)).toThrow("Cannot fork with the same sessionId");
   });
 
   test("parallel fork does not interfere with original", async () => {
@@ -233,7 +233,7 @@ describe("createAgent", () => {
 
     const agent = await createAgent({
       model: scriptedModel([{ type: "text", text: "new" }]),
-      threadId: "saved-thread",
+      sessionId: "saved-thread",
       checkpointer: {
         load: (id) => {
           expect(id).toBe("saved-thread");
@@ -249,7 +249,7 @@ describe("createAgent", () => {
   test("checkpointer load returns null → empty thread", async () => {
     const agent = await createAgent({
       model: scriptedModel([{ type: "text", text: "fresh" }]),
-      threadId: "new-thread",
+      sessionId: "new-thread",
       checkpointer: {
         load: () => Promise.resolve(null),
         save: () => Promise.resolve(),
@@ -897,7 +897,7 @@ describe("createAgent", () => {
 
     await collect(agent.run("hi"));
 
-    expect(hookCtx).toHaveProperty("threadId");
+    expect(hookCtx).toHaveProperty("sessionId");
     expect(hookCtx).toHaveProperty("logger");
     expect(hookCtx).toHaveProperty("checkpointer");
     expect(hookCtx).toHaveProperty("contextManager");

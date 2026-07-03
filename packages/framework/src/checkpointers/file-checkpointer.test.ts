@@ -76,7 +76,7 @@ describe("fileCheckpointer", () => {
     expect(events).toEqual([{ type: "user_input" }, { type: "model_start" }]);
   });
 
-  test("invalid threadId throws", () => {
+  test("invalid sessionId throws", () => {
     const cp = fileCheckpointer({ dir: tmpDir });
 
     expect(cp.save("../../etc/passwd", [])).rejects.toThrow("Invalid sessionId");

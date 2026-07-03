@@ -10,9 +10,9 @@
 
 ## 核心概念
 
-**createAgent 与 Agent。** `createAgent(config)` 是 **async** 的，返回 `Promise<Agent>`——因为它要先把检查点器准备好（默认 `inMemoryCheckpointer()`）、校验它、再 `load` 或 seed 初始消息，然后才交出 agent。`AgentConfig` 里 `model` 必填，其余可选：`tools`、`systemPrompt`、`plugins`、`checkpointer`、`contextManager`、`logger`、`threadId`、以及用于预置消息的 `messages`。
+**createAgent 与 Agent。** `createAgent(config)` 是 **async** 的，返回 `Promise<Agent>`——因为它要先把检查点器准备好（默认 `inMemoryCheckpointer()`）、校验它、再 `load` 或 seed 初始消息，然后才交出 agent。`AgentConfig` 里 `model` 必填，其余可选：`tools`、`systemPrompt`、`plugins`、`checkpointer`、`contextManager`、`logger`、`sessionId`、以及用于预置消息的 `messages`。
 
-返回的 `Agent` 有四个动作，都是异步生成器，逐个 yield `AgentEvent`：`run(input, opts?)` 追加一条 user 消息并跑循环；`continue(opts?)` 不追加新消息、直接从检查点里已有的消息续跑（要求历史里已有 user 消息，否则报错）；`resume(command, opts?)` 消费一次挂起的中断后继续；`fork(messages?, id?)` 用同样的配置复制出一个新 agent（必须用不同的 threadId）。同一个 agent 同时只能跑一个运行，并发请用 `fork()`。
+返回的 `Agent` 有四个动作，都是异步生成器，逐个 yield `AgentEvent`：`run(input, opts?)` 追加一条 user 消息并跑循环；`continue(opts?)` 不追加新消息、直接从检查点里已有的消息续跑（要求历史里已有 user 消息，否则报错）；`resume(command, opts?)` 消费一次挂起的中断后继续；`fork(messages?, id?)` 用同样的配置复制出一个新 agent（必须用不同的 sessionId）。同一个 agent 同时只能跑一个运行，并发请用 `fork()`。
 
 **AgentEvent。** 这是 agent 对外的唯一观测面，是个带 `type` 的联合：`message`（一条完整消息）、`text_delta` / `reasoning_delta`（流式增量，仅当 `opts.stream` 为真时产生文本增量）、`tool_start` / `tool_end`、`interrupted`、`error`、`todo_update`，以及两类固化的逐次度量 `llm_call`（每次调模型的 usage、延迟、首 token 时间、stopReason）和 `tool_call`（每次工具调用的延迟与是否出错）。
 

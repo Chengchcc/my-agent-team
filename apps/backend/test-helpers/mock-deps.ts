@@ -127,12 +127,12 @@ export interface RecordingSupervisor {
   getActive(): ReadonlyMap<string, { abortController: AbortController }>;
   startMainRun(
     spanId: string,
-    threadId: string,
+    sessionId: string,
     spec: Record<string, unknown>,
   ): Promise<{ spanId: string; attemptSeq: number }>;
   cancel(spanId: string): boolean;
   onRunComplete(
-    fn: (threadId: string, spanId: string, status: string, kind: string) => void | Promise<void>,
+    fn: (sessionId: string, spanId: string, status: string, kind: string) => void | Promise<void>,
   ): void;
   notifyRunComplete(spanId: string, status: string): Promise<void>;
   getDb(): { query: (_sql: string) => { get: () => unknown } };
@@ -146,14 +146,14 @@ export function recordingSupervisor(): RecordingSupervisor {
   }> = [];
   const active = new Map<string, { abortController: AbortController }>();
   const completeHandlers: Array<
-    (threadId: string, spanId: string, status: string, kind: string) => void | Promise<void>
+    (sessionId: string, spanId: string, status: string, kind: string) => void | Promise<void>
   > = [];
 
   return {
     startedRuns,
     getActive: () => active as ReadonlyMap<string, { abortController: AbortController }>,
-    startMainRun: async (spanId: string, threadId: string, spec: Record<string, unknown>) => {
-      startedRuns.push({ spanId, sessionId: threadId, spec });
+    startMainRun: async (spanId: string, sessionId: string, spec: Record<string, unknown>) => {
+      startedRuns.push({ spanId, sessionId, spec });
       active.set(spanId, { abortController: new AbortController() });
       return { spanId, attemptSeq: 1 };
     },
@@ -162,7 +162,7 @@ export function recordingSupervisor(): RecordingSupervisor {
       return true;
     },
     onRunComplete: (
-      fn: (threadId: string, spanId: string, status: string, kind: string) => void | Promise<void>,
+      fn: (sessionId: string, spanId: string, status: string, kind: string) => void | Promise<void>,
     ) => {
       completeHandlers.push(fn);
     },

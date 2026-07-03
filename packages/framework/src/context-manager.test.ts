@@ -4,7 +4,7 @@ import { type ContextManagerContext, pipeContextManagers } from "./context-manag
 import { consoleLogger } from "./logger.js";
 
 const ctx: ContextManagerContext = {
-  threadId: "t1",
+  sessionId: "t1",
   logger: consoleLogger({ level: "silent" }),
   model: { stream: async function* () {} },
 };

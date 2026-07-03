@@ -34,7 +34,7 @@ function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRunti
     plugins: createPluginRunner(
       [],
       {
-        threadId: "t1",
+        sessionId: "t1",
         signal: undefined,
         logger,
         checkpointer,

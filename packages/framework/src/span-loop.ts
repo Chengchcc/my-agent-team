@@ -104,7 +104,7 @@ export async function* spanLoop(
       const preserve = { ranges: [{ start: 0, end: injected.length }] };
       const finalMsgs = await rt.contextManager.shape(
         {
-          threadId: rt.thread.id,
+          sessionId: rt.thread.id,
           signal: opts.signal,
           logger: rt.logger,
           model: rt.model,
