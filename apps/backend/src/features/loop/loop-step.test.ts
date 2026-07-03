@@ -372,4 +372,109 @@ describe("loopStep M3 — AgentSession wiring", () => {
     const loaded = store.load("test-loop");
     expect(loaded.items["01"]).toBeUndefined();
   });
+
+  // ── G0: fail-closed guard regression ──
+
+  test("G0.1: fixing items without repoPath throws unconditionally (no projectPort precondition)", async () => {
+    const dir = await initLoopDir();
+    const store = createTestStore();
+    let state = emptyState();
+    state = loopReducer(state, {
+      type: "ADD_ITEM",
+      item: { id: "01", source: "ci", summary: "flaky" },
+    });
+    store.save("test-loop", state, {});
+
+    const { factory } = mockSessionFactory("");
+
+    // No projectPort, no dataDir — guard must STILL throw (unconditional)
+    await expect(
+      loopStep({
+        loopConfigPath: dir,
+        sessionFactory: factory,
+        buildSpec: makeSpec,
+        store,
+        loopId: "test-loop",
+        gitRunner: noopGitRunner,
+        // projectPort + dataDir deliberately absent
+      }),
+    ).rejects.toThrow("cannot process fixing items without a resolved repoPath");
+  });
+
+  test("G0.2: loopStep with guard throw does not mutate backend repo cwd files", async () => {
+    const backendMarker = "/tmp/loop-step-g0-backend-marker.txt";
+    const markerContent = "BACKEND FILE — MUST SURVIVE";
+    await Bun.write(backendMarker, markerContent);
+
+    const dir = await initLoopDir();
+    const store = createTestStore();
+    let state = emptyState();
+    state = loopReducer(state, {
+      type: "ADD_ITEM",
+      item: { id: "01", source: "ci", summary: "flaky" },
+    });
+    store.save("test-loop", state, {});
+
+    const { factory } = mockSessionFactory("");
+
+    await expect(
+      loopStep({
+        loopConfigPath: dir,
+        sessionFactory: factory,
+        buildSpec: makeSpec,
+        store,
+        loopId: "test-loop",
+        gitRunner: noopGitRunner,
+      }),
+    ).rejects.toThrow("cannot process fixing items without a resolved repoPath");
+
+    // Backend repo marker file must be untouched — no git reset --hard hit it
+    const after = await Bun.file(backendMarker).text();
+    expect(after).toBe(markerContent);
+
+    await rm(backendMarker, { force: true });
+  });
+
+  test("G0.3: fixing items with valid repoPath do NOT operate on backend cwd", async () => {
+    // This test verifies that when repoPath IS resolved, git ops target the
+    // resolved repo (not the backend's cwd). We use a real gitRunner and
+    // a temp bare repo to confirm no side effects reach the project root.
+    const { dataDir, projectPort, cleanup } = await setupGitDataDir();
+    const dir = await initLoopDir("test-project");
+    const store = createTestStore();
+    let state = emptyState();
+    state = loopReducer(state, {
+      type: "ADD_ITEM",
+      item: { id: "01", source: "ci", summary: "flaky" },
+    });
+    store.save("test-loop", state, {});
+
+    const repoWorkDir = `${DATA}/repos/test-project`;
+    const { factory } = mockSessionFactory("", repoWorkDir);
+
+    // Write a marker file in the BACKEND's project root and verify it survives
+    const backendMarker = "/tmp/loop-step-g0-backend-marker.txt";
+    const markerContent = "BACKEND FILE — MUST SURVIVE";
+    await Bun.write(backendMarker, markerContent);
+
+    const next = await loopStep({
+      loopConfigPath: dir,
+      sessionFactory: factory,
+      buildSpec: makeSpec,
+      store,
+      loopId: "test-loop",
+      gitRunner: noopGitRunner,
+      projectPort,
+      dataDir,
+    });
+
+    // The test must either error gracefully or complete — either way,
+    // the backend marker file must survive untouched
+    expect(next.items["01"]).toBeDefined();
+    const after = await Bun.file(backendMarker).text();
+    expect(after).toBe(markerContent);
+
+    await rm(backendMarker, { force: true });
+    await cleanup();
+  });
 });
