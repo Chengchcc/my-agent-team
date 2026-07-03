@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { unlinkSync } from "node:fs";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteIssueAdapter } from "../issue/adapter-sqlite.js";
 import { sqliteProjectAdapter } from "./adapter-sqlite.js";
@@ -10,9 +9,7 @@ import {
   ValidationError,
 } from "./service.js";
 
-const dbPath = `/tmp/test-project-svc-${Date.now()}.db`;
-// openDb runs the drizzle migrations — the project + issue tables and indexes already exist.
-const db = openDb(dbPath);
+const db = openDb(":memory:");
 
 const port = sqliteProjectAdapter(db);
 const issuePort = sqliteIssueAdapter(db);
@@ -23,15 +20,6 @@ function testIdGen(): string {
 }
 
 const svc = createProjectService({ port, idGen: testIdGen });
-
-afterAll(() => {
-  db.close();
-  try {
-    unlinkSync(dbPath);
-  } catch {
-    /* best-effort */
-  }
-});
 
 describe("ProjectService", () => {
   test("create project", () => {

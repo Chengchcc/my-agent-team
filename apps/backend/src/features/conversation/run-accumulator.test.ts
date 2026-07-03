@@ -9,8 +9,7 @@ import { createConversationService } from "./service.js";
 
 const fakeOpsStore = { getSpanOrigin: () => null } as unknown as RuntimeOpsStore;
 
-const dbPath = `/tmp/test-projection-${Date.now()}.db`;
-const db = openDb(dbPath);
+const db = openDb(":memory:");
 const port = sqliteConversationAdapter(db);
 const lock = new ConversationLock();
 

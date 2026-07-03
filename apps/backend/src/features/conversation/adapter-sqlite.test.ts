@@ -2,17 +2,11 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteConversationAdapter } from "./adapter-sqlite.js";
 
-const dbPath = `/tmp/test-conv-adapter-${Date.now()}.db`;
-const db = openDb(dbPath);
+const db = openDb(":memory:");
 const adapter = sqliteConversationAdapter(db);
 
 afterAll(() => {
   db.close();
-  try {
-    unlinkSync(dbPath);
-  } catch {
-    /* best-effort cleanup */
-  }
 });
 
 // ─── Conversation ──────────────────────────────────────────

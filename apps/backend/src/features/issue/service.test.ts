@@ -1,12 +1,10 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { unlinkSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteIssueAdapter } from "./adapter-sqlite.js";
 import { createIssueService, IllegalTransitionError, IssueNotFoundError } from "./service.js";
 
-const dbPath = `/tmp/test-issue-svc-${Date.now()}.db`;
 // openDb runs the drizzle migrations — the issue table + indexes already exist.
-const db = openDb(dbPath);
+const db = openDb(":memory:");
 const port = sqliteIssueAdapter(db);
 
 let idCount = 0;
@@ -15,15 +13,6 @@ function testIdGen(): string {
 }
 
 const svc = createIssueService({ port, idGen: testIdGen });
-
-afterAll(() => {
-  db.close();
-  try {
-    unlinkSync(dbPath);
-  } catch {
-    /* best-effort cleanup */
-  }
-});
 
 describe("IssueService", () => {
   test("createIssue creates with status=draft and derived sessionId", () => {

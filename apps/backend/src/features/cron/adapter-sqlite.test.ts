@@ -1,11 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import { unlinkSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteCronJobAdapter } from "./adapter-sqlite.js";
 import type { CronJobPort } from "./ports.js";
 
-const dbPath = `/tmp/test-cron-adapter-${Date.now()}.db`;
+const dbPath = `/tmp/test-cron-adapter-${Date.now()}-${randomUUID()}.db`;
 const db: Database = openDb(dbPath);
 const adapter: CronJobPort = sqliteCronJobAdapter(db);
 const now = Date.now();

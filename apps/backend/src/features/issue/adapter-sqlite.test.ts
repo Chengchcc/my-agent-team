@@ -1,20 +1,10 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { unlinkSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteIssueAdapter } from "./adapter-sqlite.js";
 
-const dbPath = `/tmp/test-issue-adapter-${Date.now()}.db`;
-const db = openDb(dbPath);
+const db = openDb(":memory:");
 const adapter = sqliteIssueAdapter(db);
 
-afterAll(() => {
-  db.close();
-  try {
-    unlinkSync(dbPath);
-  } catch {
-    /* best-effort cleanup */
-  }
-});
 
 describe("Issue adapter CRUD", () => {
   test("createIssue inserts a row with status=draft", () => {

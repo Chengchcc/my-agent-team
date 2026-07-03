@@ -1,20 +1,9 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { unlinkSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteAgentAdapter } from "./adapter-sqlite.js";
 
-const tmpPath = `/tmp/test-agent-adapter-${Date.now()}.db`;
-const db = openDb(tmpPath);
+const db = openDb(":memory:");
 const adapter = sqliteAgentAdapter(db);
-
-afterAll(() => {
-  db.close();
-  try {
-    unlinkSync(tmpPath);
-  } catch {
-    /* best-effort cleanup */
-  }
-});
 
 describe("sqliteAgentAdapter", () => {
   test("create and findById roundtrip", async () => {

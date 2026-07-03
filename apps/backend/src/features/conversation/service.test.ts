@@ -10,8 +10,7 @@ const threadProjectionRead = {
   getMessages: async (_sessionId: string) => [] as { role: string; content: string }[],
 };
 
-const dbPath = `/tmp/test-conv-svc-${Date.now()}.db`;
-const db = openDb(dbPath);
+const db = openDb(":memory:");
 const port = sqliteConversationAdapter(db);
 
 // Track fork calls for @ trigger verification
@@ -33,15 +32,6 @@ const svc = createConversationService({
     forkLog.push({ spanId, sessionId });
     return { spanId, attemptSeq: 1 };
   },
-});
-
-afterAll(() => {
-  db.close();
-  try {
-    unlinkSync(dbPath);
-  } catch {
-    /* best-effort cleanup */
-  }
 });
 
 function setupConv(id: string) {
@@ -370,7 +360,6 @@ describe("P0-2: lock lifecycle", () => {
 });
 
 // ─── M14.4: agent-to-agent @mention triggering ────────────
-import { unlinkSync } from "node:fs";
 
 describe("M14.4: triggerMentionedAgents", () => {
   test("triggers @-mentioned agent via startAgentRun", async () => {

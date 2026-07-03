@@ -5,7 +5,7 @@ import { openDb } from "./db.js";
 // ─── Test 1: openDb creates file and runs drizzle-kit migrations ───
 
 test("openDb creates database file and runs drizzle-kit migrations", () => {
-  const tmpPath = `/tmp/test-backend-db-${Date.now()}.db`;
+  const tmpPath = `/tmp/test-backend-db-${Math.random().toString(36).slice(2,8)}.db`;
   const db = openDb(tmpPath);
 
   // Verify tables exist (backend own, 9 domain tables)
@@ -39,7 +39,7 @@ test("openDb creates database file and runs drizzle-kit migrations", () => {
 // ─── Test 2: migrations are idempotent ──────────────────────────
 
 test("migrations are idempotent (calling openDb twice is safe)", () => {
-  const tmpPath = `/tmp/test-backend-db-idem-${Date.now()}.db`;
+  const tmpPath = `/tmp/test-backend-db-idem-${Math.random().toString(36).slice(2,8)}.db`;
 
   const db1 = openDb(tmpPath);
   const tables1 = (
@@ -70,7 +70,7 @@ test("migrations are idempotent (calling openDb twice is safe)", () => {
 // ─── Test 3: drizzle migration ledger is populated ──────────────
 
 test("__drizzle_migrations table tracks applied migrations", () => {
-  const tmpPath = `/tmp/test-backend-db-ver-${Date.now()}.db`;
+  const tmpPath = `/tmp/test-backend-db-ver-${Math.random().toString(36).slice(2,8)}.db`;
   const db = openDb(tmpPath);
 
   const rows = db.query("SELECT hash FROM __drizzle_migrations").all() as {
@@ -89,7 +89,7 @@ test("__drizzle_migrations table tracks applied migrations", () => {
 // ─── Test 4: WAL mode is enabled ────────────────────────────────
 
 test("WAL journal mode is enabled", () => {
-  const tmpPath = `/tmp/test-backend-db-wal-${Date.now()}.db`;
+  const tmpPath = `/tmp/test-backend-db-wal-${Math.random().toString(36).slice(2,8)}.db`;
   const db = openDb(tmpPath);
 
   const row = db.query("PRAGMA journal_mode").get() as { journal_mode: string };
@@ -106,7 +106,7 @@ test("WAL journal mode is enabled", () => {
 // ─── Test 5: M10 conversation tables exist ─────────────────────
 
 test("M10 conversation/member/conversation_ledger tables exist after migration", () => {
-  const tmpPath = `/tmp/test-backend-db-m10-${Date.now()}.db`;
+  const tmpPath = `/tmp/test-backend-db-m10-${Math.random().toString(36).slice(2,8)}.db`;
   const db = openDb(tmpPath);
 
   const tables = db
