@@ -1,5 +1,12 @@
+import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
+import {
+  autoSummarize,
+  pipeContextManagers,
+  sqliteCheckpointer,
+  toolResultTruncator,
+} from "@my-agent-team/framework";
 import {
   createRuntimeTracer,
   resolveObservabilityConfig,
@@ -53,8 +60,8 @@ import {
   skillPackRoutes,
   sqliteSkillPackAdapter,
 } from "./features/skill-pack/index.js";
+import { buildSessionSpec, createSessionFactory } from "./features/span/session-factory.js";
 import { resumeRoutes } from "./features/span/http.js";
-import { createSessionFactory } from "./features/span/session-factory.js";
 import { SpanSupervisor } from "./features/span/supervisor.js";
 import * as backendSchema from "./infra/db/schema.js";
 import { ulid } from "./infra/ids.js";
@@ -112,6 +119,11 @@ const skillPackSvc = createSkillPackServiceFn({
         }),
         dataDir: config.dataDir,
         port: skillPackPort,
+        checkpointer: sqliteCheckpointer({ db: join(config.dataDir, "checkpointer.db") }),
+        contextManager: pipeContextManagers(
+          toolResultTruncator({ maxCharsPerResult: 50_000 }),
+          autoSummarize({ triggerAt: 100_000, keepRecent: 10 }),
+        ),
         zipBuffer:
           ctx.sourceKind === "zip" && ctx.sourceUrl
             ? Buffer.from(ctx.sourceUrl, "base64")
@@ -130,6 +142,11 @@ const skillPackSvc = createSkillPackServiceFn({
         }),
         dataDir: config.dataDir,
         port: skillPackPort,
+        checkpointer: sqliteCheckpointer({ db: join(config.dataDir, "checkpointer.db") }),
+        contextManager: pipeContextManagers(
+          toolResultTruncator({ maxCharsPerResult: 50_000 }),
+          autoSummarize({ triggerAt: 100_000, keepRecent: 10 }),
+        ),
       },
     ).catch((err) => console.error(`[skill-pack] sync failed for ${packId}:`, err));
   },
@@ -352,18 +369,14 @@ const app = createApp(config.authToken, {
     config.dataDir,
     ulid,
     sessionFactory,
-    (params) => ({
-      agentId: "loop-agent",
-      cwd: params.cwd,
-      model: new AnthropicChatModel({ model: params.modelName }),
-      modelName: params.modelName,
-      plugins: [],
-      tools: [],
-      checkpointer: {} as ReturnType<typeof import("@my-agent-team/framework").sqliteCheckpointer>,
-      contextManager: {} as ReturnType<
-        typeof import("@my-agent-team/framework").pipeContextManagers
-      >,
-    }),
+    (params) =>
+      buildSessionSpec({
+        agent: { modelName: params.modelName, modelProvider: "anthropic", modelBaseUrl: null },
+        agentId: "loop-agent",
+        config,
+        cwdOverride: params.cwd,
+        skillRoots: params.skillRoots,
+      }),
     loopStore,
     projectPort,
     conv.convPort,

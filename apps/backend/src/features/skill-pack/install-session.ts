@@ -1,4 +1,5 @@
 import { unlinkSync, writeFileSync } from "node:fs";
+import type { Checkpointer, ContextManager } from "@my-agent-team/framework";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChatModel } from "@my-agent-team/core";
@@ -14,6 +15,8 @@ export interface InstallSessionDeps {
   model: ChatModel;
   dataDir: string;
   port: SkillPackPort;
+  checkpointer?: Checkpointer;
+  contextManager?: ContextManager;
   /** Buffer for zip uploads — written to temp file and injected via tool closure. */
   zipBuffer?: Buffer;
   /** Temp file path for zip buffer. Set internally by runInstall. */
@@ -69,6 +72,8 @@ async function createInstallSession(deps: InstallSessionDeps): Promise<AgentSess
     sessionId,
     model: deps.model,
     plugins: buildInstallPlugins(deps.dataDir),
+    checkpointer: deps.checkpointer,
+    contextManager: deps.contextManager,
     tools: createAllPackTools({
       port: deps.port,
       dataDir: deps.dataDir,

@@ -8,6 +8,7 @@ import { loopStep } from "../loop/loop-step.js";
 import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { ProjectPort } from "../project/ports.js";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
+import type { SkillRoots } from "../span/skill-roots.js";
 import type { LoopStateStore } from "./loop-state-store.js";
 import { createUpdateLoopConfigTool } from "./tools.js";
 
@@ -18,7 +19,12 @@ export function loopRoutes(
   dataDir: string,
   idGen: () => string,
   sessionFactory: SessionFactory,
-  buildSpec: (params: { sessionId: string; modelName: string; cwd: string }) => SessionSpec,
+  buildSpec: (params: {
+    sessionId: string;
+    modelName: string;
+    cwd: string;
+    skillRoots?: SkillRoots;
+  }) => SessionSpec,
   store: LoopStateStore,
   projectPort?: ProjectPort,
   convPort?: {

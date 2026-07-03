@@ -153,9 +153,9 @@ function planGuidance(steps: string[]): string {
 // ─── todo_write tool ───
 
 function createTodoWriteTool(opts: {
-  getTodos: (threadId: string) => Todo[] | undefined;
-  setTodos: (threadId: string, todos: Todo[]) => void;
-  getActiveThreadId: () => string;
+  getTodos: (sessionId: string) => Todo[] | undefined;
+  setTodos: (sessionId: string, todos: Todo[]) => void;
+  getActiveSessionId: () => string;
   onUpdate: (todos: Todo[]) => void;
 }): Tool {
   return {
@@ -183,7 +183,7 @@ function createTodoWriteTool(opts: {
       const { updates } = input as {
         updates: Array<{ step: string; status: "in_progress" | "done" }>;
       };
-      const tid = opts.getActiveThreadId();
+      const tid = opts.getActiveSessionId();
       const list = opts.getTodos(tid);
       if (!list) return { content: "no active todo list" };
       for (const u of updates) {
@@ -211,20 +211,20 @@ function createTodoWriteTool(opts: {
  * it runs in the runner layer via agent.fork() + verificationGuidance().
  */
 export function taskGuardPlugin(opts: TaskGuardOptions): Plugin {
-  const todos = new Map<string, Todo[]>(); // threadId → todo list
+  const todos = new Map<string, Todo[]>(); // sessionId → todo list
   const { model } = opts;
   const planEnabled = opts.plan !== false;
   const showProgress = opts.showProgress !== false;
   const extraValidators = opts.extraValidators ?? [];
 
   // Closure-bound state for todo_write tool (no ctx in Tool.execute)
-  let activeThreadId = "";
+  let activeSessionId = "";
   let onUpdate: (todos: Todo[]) => void = () => {};
 
   const todoWriteTool = createTodoWriteTool({
-    getTodos: (tid) => todos.get(tid),
-    setTodos: (tid, list) => todos.set(tid, list),
-    getActiveThreadId: () => activeThreadId,
+    getTodos: (sid) => todos.get(sid),
+    setTodos: (sid, list) => todos.set(sid, list),
+    getActiveSessionId: () => activeSessionId,
     onUpdate: (list) => onUpdate(list),
   });
 
@@ -233,7 +233,7 @@ export function taskGuardPlugin(opts: TaskGuardOptions): Plugin {
     tools: [todoWriteTool],
     hooks: {
       async beforeRun(ctx, messages) {
-        activeThreadId = ctx.threadId;
+        activeSessionId = ctx.sessionId;
         // Wire emit for todo_update events
         onUpdate = (list: Todo[]) => {
           ctx.emit?.({
@@ -256,7 +256,7 @@ export function taskGuardPlugin(opts: TaskGuardOptions): Plugin {
           step: s,
           status: "pending" as const,
         }));
-        todos.set(ctx.threadId, planList);
+        todos.set(ctx.sessionId, planList);
 
         // Emit initial snapshot
         onUpdate([...planList]);
@@ -265,7 +265,7 @@ export function taskGuardPlugin(opts: TaskGuardOptions): Plugin {
       },
 
       async beforeModel(ctx, messages) {
-        activeThreadId = ctx.threadId;
+        activeSessionId = ctx.sessionId;
         // Wire emit for todo_update events (re-wire on each hook fire in case ctx changed)
         onUpdate = (list: Todo[]) => {
           ctx.emit?.({
@@ -276,7 +276,7 @@ export function taskGuardPlugin(opts: TaskGuardOptions): Plugin {
 
         if (!showProgress) return [...messages];
 
-        const list = todos.get(ctx.threadId);
+        const list = todos.get(ctx.sessionId);
         if (!list?.length) return [...messages];
 
         const view = list
@@ -306,7 +306,7 @@ export function taskGuardPlugin(opts: TaskGuardOptions): Plugin {
         // 2) Todo gate: pending steps (deterministic).
         // Only uses the plan frozen by this run's beforeRun. No frozen plan
         // (e.g. resume, gate closed, or plan:false) → no opinion → pass through.
-        const list = todos.get(ctx.threadId);
+        const list = todos.get(ctx.sessionId);
         if (!list || list.length === 0) return undefined; // trivial task or no plan
 
         const left = list.filter((t) => t.status !== "done");
