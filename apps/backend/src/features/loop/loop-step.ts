@@ -29,41 +29,6 @@ export interface LoopStepParams {
 }
 
 
-// === per-loop daily budget counter ===
-const budgetCounters = new Map<string, number>();
-
-function utcDay(now: number): string {
-  return new Date(now).toISOString().slice(0, 10);
-}
-
-async function loadBudget(p: string, key: string): Promise<number> {
-  const cached = budgetCounters.get(key);
-  if (cached !== undefined) return cached;
-  try {
-    const raw = (await Bun.file(`${p}/budget.json`).json()) as Record<string, number>;
-    const value = Number(raw[key] ?? 0);
-    budgetCounters.set(key, value);
-    return value;
-  } catch {
-    return 0;
-  }
-}
-
-async function addBudget(p: string, key: string, delta: number): Promise<number> {
-  const next = (budgetCounters.get(key) ?? 0) + (Number.isFinite(delta) ? delta : 0);
-  budgetCounters.set(key, next);
-  try {
-    const path = `${p}/budget.json`;
-    let obj: Record<string, number> = {};
-    try {
-      obj = (await Bun.file(path).json()) as Record<string, number>;
-    } catch {}
-    obj[key] = next;
-    await Bun.write(path, JSON.stringify(obj));
-  } catch {}
-  return next;
-}
-
 async function tallyUsage(spec: SessionSpec, sessionId: string): Promise<number> {
   const cp = spec.checkpointer as {
     readEvents?: (
@@ -150,7 +115,6 @@ function actionToReducer(action: ReviewAction): LoopAction {
       return { type: "DISMISS", itemId: action.itemId };
   }
 }
-
 
 function buildGeneratorPrompt(item: LoopState["items"][string], template: string): string {
   let note = "";
@@ -267,8 +231,8 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
   }
   const gitCwd = (repoPath ?? ".") as string;
 
-  const budgetKey = `${state.loopId}:${utcDay(Date.now())}`;
-  let spent = dailyCap > 0 ? await loadBudget(params.loopConfigPath, budgetKey) : 0;
+  const today = new Date().toISOString().slice(0, 10);
+  let spent = dailyCap > 0 ? params.store.getBudget(params.loopId, today) : 0;
 
   for (const item of fixingItems) {
     if (dailyCap > 0 && spent >= dailyCap) break;
@@ -288,11 +252,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     await params.sessionFactory.enqueuePrompt(genSessionId, buildGeneratorPrompt(item, genPrompt));
     params.sessionFactory.dispose(genSessionId);
     if (dailyCap > 0) {
-      spent = await addBudget(
-        params.loopConfigPath,
-        budgetKey,
-        await tallyUsage(genSpec, genSessionId),
-      );
+      spent = params.store.addBudget(params.loopId, today, await tallyUsage(genSpec, genSessionId));
     }
 
     const headSha = (await Bun.$`git rev-parse HEAD`.cwd(gitCwd).quiet()).text().trim();
@@ -347,11 +307,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     await params.sessionFactory.enqueuePrompt(evalSessionId, evaluatorPrompt);
     params.sessionFactory.dispose(evalSessionId);
     if (dailyCap > 0) {
-      spent = await addBudget(
-        params.loopConfigPath,
-        budgetKey,
-        await tallyUsage(evalSpec, evalSessionId),
-      );
+      spent = params.store.addBudget(params.loopId, today, await tallyUsage(evalSpec, evalSessionId));
     }
 
     // Read verdict
