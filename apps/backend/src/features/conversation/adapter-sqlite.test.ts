@@ -99,9 +99,6 @@ describe("Member CRUD", () => {
   });
 });
 
-// ─── Ledger ────────────────────────────────────────────────
-import { unlinkSync } from "node:fs";
-
 describe("Ledger CRUD", () => {
   test("appendLedgerEntry inserts and returns seq", () => {
     const seq = adapter.appendLedgerEntry({

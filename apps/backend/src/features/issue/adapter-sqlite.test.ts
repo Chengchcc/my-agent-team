@@ -5,7 +5,6 @@ import { sqliteIssueAdapter } from "./adapter-sqlite.js";
 const db = openDb(":memory:");
 const adapter = sqliteIssueAdapter(db);
 
-
 describe("Issue adapter CRUD", () => {
   test("createIssue inserts a row with status=draft", () => {
     const issue = adapter.createIssue({

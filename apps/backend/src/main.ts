@@ -7,15 +7,15 @@ import {
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
-import { createAgentSvc } from "./features/agent/agent-svc-factory.js";
-import { createAgentIdentityStore } from "./features/agent/identity-store.js";
+import { createAgentSvc } from "./features/agent/agent-compose.js";
+import { createAgentIdentityStore } from "./features/agent/agent-identity.js";
 import { agentRoutes } from "./features/agent/index.js";
 import {
   columnConfigRoutes,
   createColumnConfigService,
   sqliteColumnConfigAdapter,
 } from "./features/column-config/index.js";
-import { createConversationFeature } from "./features/conversation/conv-svc-factory.js";
+import { createConversationFeature } from "./features/conversation/conversation-compose.js";
 import { conversationRoutes } from "./features/conversation/index.js";
 import { onRunComplete } from "./features/conversation/run-accumulator.js";
 import {

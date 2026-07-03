@@ -116,7 +116,7 @@ describe("B1: todo_update accumulates to onRunComplete appendTodo", () => {
     const sessionId = `${cid}:agent-1`;
     setupConv(cid);
 
-    // Simulate what onTodoUpdate does in conv-svc-factory.ts
+    // Simulate what onTodoUpdate does in conversation-compose.ts
     const acc = getOrCreateAccumulator("r-b1-todo", "agent-1");
     acc.lastTodoUpdate = { todos: [{ step: "1", status: "in_progress" }] };
 

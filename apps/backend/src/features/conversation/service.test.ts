@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteConversationAdapter } from "./adapter-sqlite.js";
 import { ConversationLock } from "./lock.js";

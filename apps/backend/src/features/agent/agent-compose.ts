@@ -11,7 +11,7 @@ import type { SpanSupervisor } from "../span/supervisor.js";
 import { sqliteAgentAdapter } from "./adapter-sqlite.js";
 import type { AgentService } from "./index.js";
 import { AgentBusyError, createAgentService } from "./index.js";
-import { withLarkOrchestration } from "./with-lark-orchestration.js";
+import { withLarkLifecycle } from "./agent-lark.js";
 
 /** Create the full agent service with workspace materialization, thread-id lookup,
  *  hard-delete dependencies, lark-bot orchestration, and optional onCreate hook. */
@@ -87,7 +87,7 @@ export function createAgentSvc(
     },
   });
 
-  return withLarkOrchestration({
+  return withLarkLifecycle({
     service: agentSvcRaw,
     profileInit: larkProfileInit,
     ensureBot: (id, botDisplayName, larkProfile) =>

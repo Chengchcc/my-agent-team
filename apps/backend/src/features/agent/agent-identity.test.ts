@@ -2,9 +2,9 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { createAgentIdentityStore } from "./identity-store.js";
+import { createAgentIdentityStore } from "./agent-identity.js";
 
-const tmpBase = `/tmp/identity-store-test-${Date.now()}`;
+const tmpBase = `/tmp/agent-identity-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const dataDir = path.join(tmpBase, "data");
 
 function agentRoot(agentId: string): string {

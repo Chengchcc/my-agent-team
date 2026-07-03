@@ -1,7 +1,7 @@
 import type { AgentRow, CreateAgentInput, UpdateAgentInput } from "./domain.js";
 import type { AgentService } from "./service.js";
 
-export interface LarkOrchestrationDeps {
+export interface LarkLifecycleDeps {
   service: AgentService;
   profileInit: (profileRef: string, appId: string, appSecret: string) => Promise<void>;
   ensureBot: (
@@ -13,10 +13,10 @@ export interface LarkOrchestrationDeps {
 }
 
 /**
- * Wraps AgentService with lark-bot orchestration side effects.
+ * Wraps AgentService with lark-bot lifecycle side effects.
  * Keeps AgentService pure — surface lifecycle effects live here in the composition root wrapper.
  */
-export function withLarkOrchestration(deps: LarkOrchestrationDeps): AgentService {
+export function withLarkLifecycle(deps: LarkLifecycleDeps): AgentService {
   const { service, profileInit, ensureBot, stopBot } = deps;
 
   return {

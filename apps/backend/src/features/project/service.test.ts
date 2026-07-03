@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteIssueAdapter } from "../issue/adapter-sqlite.js";
 import { sqliteProjectAdapter } from "./adapter-sqlite.js";

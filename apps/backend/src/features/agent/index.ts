@@ -6,7 +6,7 @@ export {
   createAgentIdentityStore,
   type IdentityData,
   type IdentityPatch,
-} from "./identity-store.js";
+} from "./agent-identity.js";
 export type { AgentPort } from "./ports.js";
 export {
   AgentBusyError,
@@ -14,4 +14,4 @@ export {
   type AgentService,
   createAgentService,
 } from "./service.js";
-export { withLarkOrchestration } from "./with-lark-orchestration.js";
+export { withLarkLifecycle } from "./agent-lark.js";
