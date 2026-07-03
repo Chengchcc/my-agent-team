@@ -24,7 +24,6 @@ export interface RetrySettings {
 
 export interface CompactionSettings {
   autoCompact?: boolean;
-  triggerAtTokens?: number;
   keepRecent?: number;
 }
 
@@ -108,7 +107,6 @@ export class AgentSession {
       retry: { maxAttempts: 3, backoffMs: 2000, maxBackoffMs: 30_000 },
       compaction: {
         autoCompact: true,
-        triggerAtTokens: 100_000,
         keepRecent: 10,
       },
       ...config,
@@ -345,6 +343,19 @@ export class AgentSession {
             });
             for await (const _ of generator) {
               // events handled by agent subscriber → #handleAgentEvent
+            }
+          }
+
+          // ── Auto-compact ──
+          if (this.#config.compaction?.autoCompact && this.#agent && this.#config.checkpointer) {
+            const msgCount = this.#agent.thread.messages.length;
+            const keepRecent = this.#config.compaction.keepRecent ?? 10;
+            if (msgCount > keepRecent) {
+              try {
+                await this.compact();
+              } catch {
+                // compaction is best-effort — don't fail the run
+              }
             }
           }
 

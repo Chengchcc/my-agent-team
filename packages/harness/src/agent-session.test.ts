@@ -1,6 +1,7 @@
 /* eslint-disable require-yield */
 import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk, ChatModel } from "@my-agent-team/core";
+import { inMemoryCheckpointer } from "@my-agent-team/framework";
 import { AgentSession } from "./agent-session.js";
 
 function echoModel(text: string): ChatModel {
@@ -198,6 +199,38 @@ describe("AgentSession", () => {
     await session.prompt("hi");
 
     expect(session.state).toBe("done");
+    session.dispose();
+  });
+
+  test("autoCompact triggers when messages exceed keepRecent", async () => {
+    const cp = inMemoryCheckpointer();
+    // Pre-load 10 messages to push past keepRecent threshold
+    await cp.save("ac-test", [
+      ...Array.from({ length: 10 }, (_, i) => ({
+        role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+        text: `message ${i}`.repeat(5), // pad to make compaction worthwhile
+      })),
+    ]);
+
+    const session = new AgentSession({
+      model: echoModel("ok"),
+      sessionId: "ac-test",
+      checkpointer: cp,
+      compaction: { autoCompact: true, keepRecent: 2 },
+    });
+
+    const events: string[] = [];
+    session.subscribe((e) => {
+      events.push(e.type);
+    });
+
+    await session.prompt("hi");
+
+    expect(events).toContain("compaction_start");
+    expect(events).toContain("compaction_end");
+    // After compaction, messages reduced (summary + keepRecent)
+    const usage = session.getContextUsage();
+    expect(usage!.messageCount).toBeLessThanOrEqual(3); // summary + 2 recent
     session.dispose();
   });
 });

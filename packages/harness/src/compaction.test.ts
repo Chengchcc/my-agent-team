@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk, ChatModel } from "@my-agent-team/core";
 import { inMemoryCheckpointer } from "@my-agent-team/framework";
-import { compactThread, reflectionGuidance } from "./compaction.js";
+import { compactThread } from "./compaction.js";
 
 function echoModel(text: string): ChatModel {
   return {
@@ -53,11 +53,5 @@ describe("compactThread", () => {
     expect(result.result.originalCount).toBe(20);
     expect(result.result.compactedCount).toBe(11); // 1 summary + 10 recent
     expect(result.messages[0]!.text).toContain("summary");
-  });
-});
-
-describe("reflectionGuidance", () => {
-  test("returns non-empty string", () => {
-    expect(reflectionGuidance().length).toBeGreaterThan(0);
   });
 });
