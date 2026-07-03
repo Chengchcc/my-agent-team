@@ -7,9 +7,9 @@ import { echoModel } from "@my-agent-team/test-helpers";
 import type { ProjectRow } from "../project/domain.js";
 import type { ProjectPort } from "../project/ports.js";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
+import { createLoopStateStore, type LoopStateStore } from "./loop-state-store.js";
 import type { GitRunner } from "./loop-step.js";
 import { loopStep } from "./loop-step.js";
-import { createLoopStateStore, type LoopStateStore } from "./loop-state-store.js";
 
 const TMP = "/tmp/loop-step-m3-test";
 const DATA = "/tmp/loop-step-m3-data";

@@ -3,7 +3,7 @@
 import { Database } from "bun:sqlite";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { parseStateMd, parseInboxMd } from "@my-agent-team/loop";
+import { parseInboxMd, parseStateMd } from "@my-agent-team/loop";
 import { createLoopStateStore } from "./loop-state-store.js";
 
 const loopsDir = process.argv[2];
@@ -22,15 +22,26 @@ for (const entry of readdirSync(loopsDir, { withFileTypes: true })) {
   const loopId = entry.name;
   const dir = join(loopsDir, loopId);
 
-  let stateMd = "", inboxMd = "";
-  try { stateMd = await Bun.file(join(dir, "STATE.md")).text(); } catch { /* no state */ }
-  try { inboxMd = await Bun.file(join(dir, "INBOX.md")).text(); } catch { /* no inbox */ }
+  let stateMd = "",
+    inboxMd = "";
+  try {
+    stateMd = await Bun.file(join(dir, "STATE.md")).text();
+  } catch {
+    /* no state */
+  }
+  try {
+    inboxMd = await Bun.file(join(dir, "INBOX.md")).text();
+  } catch {
+    /* no inbox */
+  }
 
   const state = parseStateMd(stateMd);
   const inboxItems = parseInboxMd(inboxMd);
 
   store.save(loopId, state, inboxItems);
-  console.log(`Migrated loop "${loopId}": ${Object.keys(state.items).length} active, ${Object.keys(inboxItems).length} inbox`);
+  console.log(
+    `Migrated loop "${loopId}": ${Object.keys(state.items).length} active, ${Object.keys(inboxItems).length} inbox`,
+  );
 }
 
 console.log("Migration complete.");

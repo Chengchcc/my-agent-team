@@ -1,11 +1,11 @@
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
+import type { LoopStateStore } from "../loop/loop-state-store.js";
 import { loopStep } from "../loop/loop-step.js";
 import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { ProjectPort } from "../project/ports.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { SessionFactory } from "../span/session-factory.js";
-import type { LoopStateStore } from "../loop/loop-state-store.js";
 import { buildSessionSpec } from "../span/session-factory.js";
 import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
 import type { SpanSupervisor } from "../span/supervisor.js";

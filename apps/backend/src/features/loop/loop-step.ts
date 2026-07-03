@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import type { LoopAction, LoopConfig, LoopState } from "@my-agent-team/loop";
+import type { LoopConfig, LoopState } from "@my-agent-team/loop";
 import { loopReducer, parseLoopConfig, parseVerdictMd } from "@my-agent-team/loop";
 import type { ProjectPort } from "../project/ports.js";
 import { nodeFsAdapter } from "../skill-pack/fs-adapter.js";
@@ -109,22 +109,18 @@ async function resolveRepoPath(
   return repoPath;
 }
 
-function actionToReducer(action: ReviewAction): LoopAction {
+function actionToReducer(action: ReviewAction) {
   switch (action.verdict) {
     case "approve":
-      return { type: "APPROVE", itemId: action.itemId };
+      return { type: "APPROVE" as const, itemId: action.itemId };
     case "reject":
-      return {
-        type: "REJECT_HUMAN",
-        itemId: action.itemId,
-        feedback: action.feedback,
-      };
+      return { type: "REJECT_HUMAN" as const, itemId: action.itemId, feedback: action.feedback };
     case "promote":
-      return { type: "PROMOTE", itemId: action.itemId };
+      return { type: "PROMOTE" as const, itemId: action.itemId };
     case "retry":
-      return { type: "RETRY", itemId: action.itemId };
+      return { type: "RETRY" as const, itemId: action.itemId };
     case "dismiss":
-      return { type: "DISMISS", itemId: action.itemId };
+      return { type: "DISMISS" as const, itemId: action.itemId };
   }
 }
 
@@ -241,6 +237,9 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     );
   }
 
+  // TS guard: gitCwd is definitely string after the throw above when fixingItems.length > 0
+  const cwd = gitCwd!;
+
   const git = params.gitRunner ?? {
     revParse: (cwd: string) => Bun.$`git rev-parse HEAD`.cwd(cwd).quiet(),
     diff: (cwd: string, base: string, head: string) =>
@@ -255,7 +254,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
   for (const item of fixingItems) {
     if (dailyCap > 0 && spent >= dailyCap) break;
 
-    const baseSha = (await git.revParse(gitCwd)).text().trim();
+    const baseSha = (await git.revParse(cwd)).text().trim();
 
     // Generator
     const genSessionId = `loop:${state.loopId}:gen:${item.id}:${item.attempt}`;
@@ -273,8 +272,8 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
       spent = params.store.addBudget(params.loopId, today, await tallyUsage(genSpec, genSessionId));
     }
 
-    const headSha = (await git.revParse(gitCwd)).text().trim();
-    const filesChanged = (await git.diff(gitCwd, baseSha, headSha)).text().trim();
+    const headSha = (await git.revParse(cwd)).text().trim();
+    const filesChanged = (await git.diff(cwd, baseSha, headSha)).text().trim();
 
     state = loopReducer(state, {
       type: "GENERATOR_DONE",
@@ -293,7 +292,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
           evidence: "denylist check (pre-evaluator)",
         },
       });
-      await git.resetHard(gitCwd, baseSha);
+      await git.resetHard(cwd, baseSha);
       continue;
     }
 
@@ -348,7 +347,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     // Rollback on REJECT/ESCALATE
     const updatedItem = state.items[item.id];
     if (updatedItem && (updatedItem.step === "fixing" || updatedItem.step === "inbox")) {
-      await git.resetHard(gitCwd, baseSha);
+      await git.resetHard(cwd, baseSha);
     }
   }
 
