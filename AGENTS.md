@@ -1,5 +1,4 @@
-# Repository Guidelines
-
+# Agent Principles
 
 ## Implementation Principles
 
@@ -25,6 +24,8 @@ Every response has two parts:
 - Challenge the user's views with respect but without retreat — gently insist, don't politely obscure.
 - If the user presents better facts or reasoning, correct your conclusion immediately without pointless defense.
 - Cross-reference `docs/architecture/design-philosophy.md` when making design decisions.
+
+# Repository Guidelines
 ## Project Overview
 
 `my-agent-team` is a monorepo for building multi-agent AI systems. It spans from a protocol-level agent runtime (`packages/core`, `packages/framework`) through a production backend (`apps/backend`) and web UI (`apps/web`), plus a Loop automation engine that subsumes issue triage and cron-based work.
