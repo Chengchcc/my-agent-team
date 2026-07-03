@@ -1,14 +1,6 @@
 import { existsSync } from "node:fs";
 import type { LoopAction, LoopConfig, LoopState } from "@my-agent-team/loop";
-import {
-  formatInboxMd,
-  formatStateMd,
-  loopReducer,
-  parseInboxMd,
-  parseLoopConfig,
-  parseStateMd,
-  parseVerdictMd,
-} from "@my-agent-team/loop";
+import { loopReducer, parseLoopConfig, parseVerdictMd } from "@my-agent-team/loop";
 import type { ProjectPort } from "../project/ports.js";
 import { nodeFsAdapter } from "../skill-pack/fs-adapter.js";
 import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
@@ -27,27 +19,15 @@ export interface LoopStepParams {
     sessionId: string;
     modelName: string;
     cwd: string;
-    skillRoots?: import("../span/skill-roots.js").SkillRoots;
+    skillRoots?: SkillRoots;
   }) => SessionSpec;
   action?: ReviewAction;
   projectPort?: ProjectPort;
   dataDir?: string;
+  store: import("./loop-state-store.js").LoopStateStore;
+  loopId: string;
 }
 
-// === per-loop write lock ===
-const loopLocks = new Map<string, Promise<unknown>>();
-async function withLoopLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const prev = loopLocks.get(key) ?? Promise.resolve();
-  const next = prev.then(fn, (err: unknown) => {
-    loopLocks.delete(key);
-    throw err;
-  });
-  loopLocks.set(
-    key,
-    next.catch(() => {}),
-  );
-  return next;
-}
 
 // === per-loop daily budget counter ===
 const budgetCounters = new Map<string, number>();
@@ -118,7 +98,6 @@ function denylistedFiles(files: string[], patterns: string[]): string[] {
   return files.filter((f) => patterns.some((p) => matchesGlob(f, p)));
 }
 
-
 async function resolveRepoPath(
   loopConfigPath: string,
   projectPort: ProjectPort | undefined,
@@ -172,63 +151,23 @@ function actionToReducer(action: ReviewAction): LoopAction {
   }
 }
 
-function pruneTerminal(items: LoopState["items"]): LoopState["items"] {
-  const pruned: LoopState["items"] = {};
-  for (const [id, item] of Object.entries(items)) {
-    if (item.step === "inbox" || item.step === "resolved" || item.step === "promoted") continue;
-    pruned[id] = item;
-  }
-  return pruned;
-}
 
-async function writeStateAndInbox(
-  statePath: string,
-  inboxPath: string,
-  state: LoopState,
-  inboxItems: LoopState["items"],
-): Promise<LoopState> {
-  const newInboxItems: LoopState["items"] = {};
-  const remainingItems: LoopState["items"] = {};
-
-  for (const [id, item] of Object.entries(state.items)) {
-    if (item.step === "inbox") {
-      newInboxItems[id] = item;
-    } else {
-      remainingItems[id] = item;
-    }
-  }
-
-  const mergedInbox = { ...inboxItems, ...newInboxItems };
-  const prunedItems = pruneTerminal(remainingItems);
-  const finalState = { ...state, items: prunedItems };
-
-  await Bun.write(statePath, formatStateMd(finalState));
-  await Bun.write(inboxPath, formatInboxMd(mergedInbox));
-
-  return finalState;
-}
-
-function buildGeneratorPrompt(
-  item: LoopState["items"][string],
-  template: string,
-): string {
+function buildGeneratorPrompt(item: LoopState["items"][string], template: string): string {
   let note = "";
   if (item.result && "reasons" in item.result) {
     note = `- 上次被拒原因: ${item.result.reasons.join("; ")}`;
   }
-  return template.replace("{summary}", item.summary)
+  return template
+    .replace("{summary}", item.summary)
     .replace("{source}", item.source)
     .replace("{rejectionNote}", note);
 }
 
 export async function loopStep(params: LoopStepParams): Promise<LoopState> {
-  return withLoopLock(params.loopConfigPath, () => loopStepImpl(params));
+  return loopStepImpl(params);
 }
 
 async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
-  const statePath = `${params.loopConfigPath}/STATE.md`;
-  const inboxPath = `${params.loopConfigPath}/INBOX.md`;
-
   const repoPath = await resolveRepoPath(params.loopConfigPath, params.projectPort, params.dataDir);
   const workDir = repoPath ?? params.loopConfigPath;
 
@@ -240,22 +179,19 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     posixSkillRoot: skillsDir,
   });
 
-  // 1. Read files
-  let stateMd: string;
-  let inboxMd: string;
-  try {
-    stateMd = await Bun.file(statePath).text();
-  } catch {
-    stateMd = "";
+  // 1. Read state from DB
+  let state = params.store.load(params.loopId);
+  // inboxItems stored as items with step="inbox" — separate them
+  const inboxItems: LoopState["items"] = {};
+  const activeItems: LoopState["items"] = {};
+  for (const [id, item] of Object.entries(state.items)) {
+    if (item.step === "inbox") {
+      inboxItems[id] = item;
+    } else {
+      activeItems[id] = item;
+    }
   }
-  try {
-    inboxMd = await Bun.file(inboxPath).text();
-  } catch {
-    inboxMd = "";
-  }
-
-  let state = parseStateMd(stateMd);
-  const inboxItems = parseInboxMd(inboxMd);
+  state = { ...state, items: activeItems };
 
   // Read LOOP.md config (required — model/prompt come from registry via LOOP.md)
   const loopMdPath = `${params.loopConfigPath}/LOOP.md`;
@@ -266,9 +202,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     if (!parsed) throw new Error("parseLoopConfig returned null");
     cfg = parsed;
   } catch (err) {
-    throw new Error(
-      `loopStep: failed to load LOOP.md config from ${loopMdPath}: ${String(err)}`,
-    );
+    throw new Error(`loopStep: failed to load LOOP.md config from ${loopMdPath}: ${String(err)}`);
   }
 
   const genModel = cfg.generator.model;
@@ -313,7 +247,8 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
       }
     }
 
-    return writeStateAndInbox(statePath, inboxPath, state, inboxItems);
+    params.store.save(params.loopId, state, inboxItems);
+    return state;
   }
 
   // 3. Cron TICK — Generator → Evaluator
@@ -444,5 +379,6 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
   }
 
   // 4. Write back
-  return writeStateAndInbox(statePath, inboxPath, state, inboxItems);
+  params.store.save(params.loopId, state, inboxItems);
+  return state;
 }
