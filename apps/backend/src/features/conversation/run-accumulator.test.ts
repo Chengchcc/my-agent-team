@@ -7,7 +7,22 @@ import type { ConversationPort } from "./ports.js";
 import { getOrCreateAccumulator, onRunComplete } from "./run-accumulator.js";
 import { createConversationService } from "./service.js";
 
-const fakeOpsStore = { getSpanOrigin: () => null } as unknown as RuntimeOpsStore;
+const fakeOpsStore = {
+  getSpanOrigin: (spanId: string) => ({
+    spanId,
+    // Map spanId → conversationId by test convention: strip "r-" prefix, use as cid
+    conversationId: spanId.replace(/^r-/, "c-"),
+    agentMemberId: "agent-1",
+    originKind: "manual",
+    issueId: null,
+    cronJobId: null,
+    fromStatus: "",
+    idempotencyKey: spanId,
+    surface: "web",
+    sourceLedgerSeq: 0,
+    createdAt: 0,
+  }),
+} as unknown as RuntimeOpsStore;
 
 const db = openDb(":memory:");
 const port = sqliteConversationAdapter(db);
@@ -23,7 +38,7 @@ const svc = createConversationService({
   lock,
   maxConsecutiveAgentHops: 3,
   idGen: testIdGen,
-  startAgentRun: async (spanId, _sessionId) => {
+  startAgentRun: async (spanId: string) => {
     return { spanId, attemptSeq: 1 };
   },
 });
@@ -65,7 +80,7 @@ describe("P3: onRunComplete tiering", () => {
     } as ConversationPort;
 
     await expect(
-      onRunComplete(sessionId, "r-p3-lock", "succeeded", failingPort, svc, fakeOpsStore),
+      onRunComplete("r-p3-lock", "succeeded", failingPort, svc, fakeOpsStore),
     ).rejects.toThrow("ledger down");
 
     // Phase 2 finally must have released the lock
@@ -81,7 +96,7 @@ describe("P7: ledger single authority for assistant messages", () => {
     const sessionId = `${cid}:agent-1`;
     setupConv(cid);
 
-    await onRunComplete(sessionId, "r-p7-term", "succeeded", port, svc, fakeOpsStore);
+    await onRunComplete("r-p7-term", "succeeded", port, svc, fakeOpsStore);
 
     const entries = port.getLedgerEntries(cid);
     const terminal = entries.find((e) => e.spanId === "r-p7-term" && e.kind === "message");
@@ -96,7 +111,7 @@ describe("P7: ledger single authority for assistant messages", () => {
 
     // Broadcast is best-effort; ledger write (Phase 1 critical) succeeds regardless.
     try {
-      await onRunComplete(sessionId, "r-p7-bcast", "succeeded", port, svc, fakeOpsStore);
+      await onRunComplete("r-p7-bcast", "succeeded", port, svc, fakeOpsStore);
     } catch {
       // Should not throw — only broadcast is best-effort
     }
@@ -121,7 +136,7 @@ describe("B1: todo_update accumulates to onRunComplete appendTodo", () => {
     acc.lastTodoUpdate = { todos: [{ step: "1", status: "in_progress" }] };
 
     // Phase 3 should now call appendTodo (which writes a ledger entry with kind=todo)
-    await onRunComplete(sessionId, "r-b1-todo", "succeeded", port, svc, fakeOpsStore);
+    await onRunComplete("r-b1-todo", "succeeded", port, svc, fakeOpsStore);
 
     // Verify a todo ledger entry was written
     const entries = port.getLedgerEntries(cid);
@@ -142,7 +157,7 @@ describe("B1: todo_update accumulates to onRunComplete appendTodo", () => {
     getOrCreateAccumulator("r-b1-no-todo", "agent-1");
 
     // Phase 3 should NOT call appendTodo
-    await onRunComplete(sessionId, "r-b1-no-todo", "succeeded", port, svc, fakeOpsStore);
+    await onRunComplete("r-b1-no-todo", "succeeded", port, svc, fakeOpsStore);
 
     // Verify no todo ledger entry was written
     const entries = port.getLedgerEntries(cid);

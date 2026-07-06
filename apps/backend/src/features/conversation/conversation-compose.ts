@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { join } from "node:path";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
@@ -6,18 +7,25 @@ import {
   extractText,
   isTerminalMessageState,
 } from "@my-agent-team/message";
+import { conversationContextPlugin } from "@my-agent-team/plugin-conversation-context";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
-import type { SessionFactory } from "../span/session-factory.js";
-import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
+import {
+  convTools,
+  createModel,
+  defaultContextManager,
+  defaultPlugins,
+  defaultTools,
+} from "../span/agent-helpers.js";
+import type { SessionManager } from "../span/session-manager.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
 import { escapeRegExp, getOrCreateAccumulator } from "./run-accumulator.js";
-import { createConversationService, parseSessionId } from "./service.js";
+import { createConversationService } from "./service.js";
 import { buildTitleContext, generateTitle } from "./title.js";
 
 export interface ConversationFeature {
@@ -30,12 +38,12 @@ const titlingInFlight = new Set<string>();
 
 export function createConversationFeature(
   db: Database,
-  _config: BackendConfig,
-  supervisor: SpanSupervisor,
+  config: BackendConfig,
+  _supervisor: SpanSupervisor,
   agentSvc: AgentService,
   opsStore: RuntimeOpsStore,
+  sessionManager: SessionManager,
   lock: ConversationLock = new ConversationLock(),
-  _sessionFactory?: SessionFactory,
 ): ConversationFeature {
   const convPort = sqliteConversationAdapter(db);
 
@@ -53,8 +61,8 @@ export function createConversationFeature(
   // Auto-title: fire-and-forget on first terminal response
   const autoTitle = async (cid: string) => {
     const model = new AnthropicChatModel({
-      apiKey: _config.anthropicApiKey,
-      baseUrl: _config.anthropicBaseUrl,
+      apiKey: config.anthropicApiKey,
+      baseUrl: config.anthropicBaseUrl,
       model: "claude",
     });
     const entries = convPort.getLedgerEntries(cid).filter((e) => e.kind === "message");
@@ -78,40 +86,37 @@ export function createConversationFeature(
 
   // Message handling — writes to ledger, scans @mentions, broadcasts SSE
   const handleAssistantMessage = async (
-    sessionId: string,
+    conversationId: string,
+    agentMemberId: string,
     spanId: string,
     rev: MessageRevision,
   ) => {
-    const cid = parseSessionId(sessionId).conversationId;
-    if (!cid) return;
-    const sender = parseSessionId(sessionId).memberId || sessionId;
-
     await convSvc.appendAssistantMessage({
-      conversationId: cid,
-      senderMemberId: sender,
+      conversationId,
+      senderMemberId: agentMemberId,
       spanId,
       revision: rev,
     });
 
-    const acc = getOrCreateAccumulator(spanId, sender);
+    const acc = getOrCreateAccumulator(spanId, agentMemberId);
     if (rev.role === "assistant") {
-      acc.latestAssistantRevision = { ...rev, conversationId: cid };
+      acc.latestAssistantRevision = { ...rev, conversationId };
       if (isTerminalMessageState(rev.state)) {
         // Auto-title: generate on first terminal response if no title yet
-        const conv = convPort.getConversation(cid);
-        if (conv && !conv.title && !titlingInFlight.has(cid)) {
-          titlingInFlight.add(cid);
-          void autoTitle(cid)
+        const conv = convPort.getConversation(conversationId);
+        if (conv && !conv.title && !titlingInFlight.has(conversationId)) {
+          titlingInFlight.add(conversationId);
+          void autoTitle(conversationId)
             .catch(() => {
               /* best-effort */
             })
-            .finally(() => titlingInFlight.delete(cid));
+            .finally(() => titlingInFlight.delete(conversationId));
         }
         const text = extractText(rev);
         if (text) {
-          const roster = convPort.getMembers(cid);
+          const roster = convPort.getMembers(conversationId);
           for (const m of roster) {
-            if (m.kind !== "agent" || m.memberId === sender) continue;
+            if (m.kind !== "agent" || m.memberId === agentMemberId) continue;
             const label = m.displayName ?? m.memberId;
             if (getMentionRe(label).test(text) || text.includes(`@${m.memberId}`)) {
               acc.mentionedMemberIds.add(m.memberId);
@@ -128,46 +133,62 @@ export function createConversationFeature(
     maxConsecutiveAgentHops: 8,
     idGen: ulid,
 
-    startAgentRun: async (_runId, sessionId, ctx) => {
-      const members = convPort.getMembers(ctx.conversationId);
+    startAgentRun: async (spanId, ctx) => {
+      const { conversationId, agentMemberId, agentId, input } = ctx;
+      const members = convPort.getMembers(conversationId);
       const isLark = members.some((m) => m.kind === "human" && m.userRef?.startsWith("lark:"));
-      const runDeps = makeRunDeps({
-        config: _config,
-        supervisor,
-        opsStore,
-        agentSvc,
-        convPort,
-        sessionFactory: _sessionFactory,
+      const surface = isLark ? "lark" : "web";
+
+      const { modelName } = await agentSvc.getById(agentId);
+      const cwd = join(config.dataDir, "agents", agentId);
+      const cTools = convTools(convPort, conversationId);
+      const agentConfig = {
+        model: createModel(modelName, config),
+        tools: [...defaultTools(cwd), ...cTools],
+        plugins: [...defaultPlugins(cwd, config), conversationContextPlugin({ tools: cTools })],
+        contextManager: defaultContextManager(),
+      };
+      const existingSid = convPort.getMemberSessionId(conversationId, agentMemberId);
+      const session = existingSid
+        ? sessionManager.open(existingSid, agentConfig)
+        : sessionManager.create(agentConfig);
+      if (!existingSid) {
+        convPort.updateMemberSessionId(conversationId, agentMemberId, session.sessionId ?? "");
+      }
+
+      // Business event subscription
+      session.subscribe((event) => {
+        if (event.type === "message_update" || event.type === "message") {
+          const rev = event.payload as MessageRevision;
+          void handleAssistantMessage(conversationId, agentMemberId, rev.spanId ?? spanId, rev);
+        }
+        if (event.type === "todo_update") {
+          const acc = getOrCreateAccumulator(event.spanId ?? spanId, agentMemberId);
+          acc.lastTodoUpdate = {
+            todos: (event as { payload: { todos: Array<{ step: string; status: string }> } })
+              .payload.todos,
+          };
+        }
       });
-      const spanId = crypto.randomUUID();
-      return executeAgentRun(runDeps, {
+      // Execute — origin via prompt opts, context via setData
+      session.setData({
+        id: conversationId,
+        surface,
+        senderName: agentMemberId,
+        input: input ?? "",
+      });
+      void session.prompt(input ?? "", {
         spanId,
-        sessionId: sessionId,
-        agentId: ctx.agentId,
-        input: ctx.input ?? "",
-        origin: {
-          kind: "conversation",
-          conversationId: ctx.conversationId,
-          surface: isLark ? "lark" : "web",
-          senderName: ctx.agentMemberId,
-        },
-        onAssistantMessage: (payload) => {
-          const rev = payload as unknown as MessageRevision;
-          void handleAssistantMessage(sessionId, rev.spanId ?? spanId, rev);
-        },
-        onTodoUpdate: (todos) => {
-          // lastTodoUpdate is consumed by onRunComplete Phase 3 appendTodo
-          const senderMemberId = parseSessionId(sessionId).memberId || sessionId;
-          const acc = getOrCreateAccumulator(spanId, senderMemberId);
-          acc.lastTodoUpdate = { todos };
-        },
+        origin: { conversationId, agentMemberId: agentId, surface, originKind: "manual" },
       });
+
+      return { spanId, attemptSeq: 0 };
     },
 
     verifyRunOwnsConversation: async (spanId, conversationId) => {
-      const sessionId = opsStore.getSessionIdBySpanId(spanId);
-      if (!sessionId) throw new Error(`run not found: ${spanId}`);
-      if (!sessionId.startsWith(`${conversationId}:`)) {
+      const origin = opsStore.getSpanOrigin(spanId);
+      if (!origin) throw new Error(`run not found: ${spanId}`);
+      if (origin.conversationId !== conversationId) {
         throw new Error(`run ${spanId} does not belong to conversation ${conversationId}`);
       }
     },

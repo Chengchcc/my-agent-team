@@ -1,37 +1,60 @@
 import type { Tool } from "@my-agent-team/core";
-import type { Plugin } from "@my-agent-team/framework";
+import { definePlugin, type Plugin } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
 
 export interface ConversationContextPluginOptions {
-  /** Tools to register — created by the caller with conversation closures.
-   *  The plugin does not know or care about backend types; it only receives Tool[]. */
+  /** Tools to register — created by the caller with conversation closures. */
   tools: Tool[];
-  /** System prompt fragment injected before each model call.
-   *  Typically contains conversation metadata (surface, title, trigger context). */
-  systemPrompt: string;
+}
+
+/** Per-run conversation metadata. Set via AgentSession.setContext(CONVERSATION_KEY, data). */
+export interface ConversationContext {
+  id: string;
+  surface: string;
+  senderName: string;
+  input: string;
+}
+
+/** Context key for per-run conversation metadata. Use with AgentSession.setContext() / ctx.get(). */
+
+function escapeXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /**
  * ConversationContextPlugin — injects conversation context into agent runs.
  *
- * Backend creates tools (with convPort closures) and system prompt.
- * The plugin only receives `Tool[]` + `systemPrompt` string — it does NOT import
- * any backend types or know about conversation concepts.
+ * Reads per-run conversation metadata from ctx via the CONVERSATION_KEY.
+ * The caller writes via AgentSession.setContext(CONVERSATION_KEY, data)
+ * before calling prompt(). The framework forwards to ctx at run start.
  *
- * Dependency direction: backend → plugin (not plugin → backend).
+ * This fixes the old bug where per-run trigger data was baked into a
+ * per-session systemPrompt.
  */
 export function conversationContextPlugin(opts: ConversationContextPluginOptions): Plugin {
-  return {
+  return definePlugin({
     name: "conversation-context",
     tools: opts.tools,
     hooks: {
-      async beforeModel(_ctx, messages: Message[]): Promise<Message[]> {
+      async beforeModel(ctx, messages: Message[]): Promise<Message[]> {
+        const raw = ctx.data;
+        if (!raw || typeof raw !== "object") return messages;
+        const conv = raw as unknown as ConversationContext;
+        if (!conv.id) return messages;
         const contextMsg: Message = {
           role: "system",
-          text: opts.systemPrompt,
+          text: `<conversation>
+  <id>${escapeXml(conv.id)}</id>
+  <surface>${escapeXml(conv.surface)}</surface>
+  <trigger>
+    <from>${escapeXml(conv.senderName)}</from>
+    <message>${escapeXml(conv.input)}</message>
+  </trigger>
+</conversation>
+如需更多上下文，使用 read_conversation_history 等工具。`,
         };
         return [contextMsg, ...messages];
       },
     },
-  };
+  });
 }

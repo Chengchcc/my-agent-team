@@ -54,3 +54,4 @@ export {
 } from "./plugin.js";
 export { repairToolPairs } from "./repair-tool-pairs.js";
 export type { Thread } from "./thread.js";
+export type { RunSpan } from "./trace.js";

@@ -21,6 +21,8 @@ export interface MemberRow {
   agentId: string | null;
   userRef: string | null;
   displayName: string | null;
+  /** Session binding for agent members. Null for human members or before first run. */
+  sessionId: string | null;
   joinedAt: number;
 }
 
@@ -78,6 +80,10 @@ export interface ConversationPort {
   getMembers(conversationId: string): MemberRow[];
   getAgentMembers(conversationId: string): MemberRow[];
   removeMember(conversationId: string, memberId: string): boolean;
+  /** Get the sessionId bound to a member (for conversation session reuse). */
+  getMemberSessionId(conversationId: string, memberId: string): string | null;
+  /** Set the sessionId bound to a member (after sessionManager.create). */
+  updateMemberSessionId(conversationId: string, memberId: string, sessionId: string): void;
 
   appendLedgerEntry(input: AppendLedgerInput): number; // returns seq
   getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerEntry[];

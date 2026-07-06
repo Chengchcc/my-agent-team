@@ -103,8 +103,6 @@ describe("e2e issue lifecycle with timeline", () => {
       sourceLedgerSeq: 0,
       agentMemberId: "dev",
       surface: "orchestrator",
-      traceId: "",
-      traceparent: "",
       idempotencyKey: "run_dev1",
       originKind: "orchestrator",
       fromStatus: "planned",

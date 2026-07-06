@@ -4,6 +4,8 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChatModel } from "@my-agent-team/core";
+import type { SessionConfig } from "@my-agent-team/harness";
+import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 import { type EchoScript, echoModel } from "@my-agent-team/test-helpers";
 import type { AgentRow, CreateAgentInput, UpdateAgentInput } from "../src/features/agent/domain.js";
 import type { AgentService } from "../src/features/agent/service.js";
@@ -11,6 +13,7 @@ import type { ColumnConfigService } from "../src/features/column-config/service.
 import type { DeliverableRow } from "../src/features/deliverable/domain.js";
 import type { OrchestratorDeps } from "../src/features/orchestrator/reactor.js";
 import type { Transition } from "../src/features/orchestrator/transitions.js";
+import { RuntimeOpsStore } from "../src/features/runtime-ops/store.js";
 import { SpanSupervisor } from "../src/features/span/supervisor.js";
 import { openDb } from "../src/infra/sqlite/db.js";
 
@@ -91,13 +94,13 @@ export function mockAgentSvc() {
 export function mockSupervisor(db: Database): SpanSupervisor {
   return new SpanSupervisor({
     config: mockConfig(),
-    opsStore: mockOpsStore() as any,
+    opsStore: new RuntimeOpsStore(db),
     tracer: {
       inject: () => ({ traceId: "", traceparent: "" }),
       startSpan: () => ({}),
       currentTrace: () => null,
       link: () => {},
-    } as any,
+    } as unknown as RuntimeTracer,
     db,
     onReap: () => {},
   });
@@ -123,13 +126,22 @@ export const TID = {
 // ═══════════════════════════════════════════════════════════════
 
 export interface RecordingSupervisor {
-  startedRuns: Array<{ spanId: string; sessionId: string; spec: Record<string, unknown> }>;
+  startedRuns: Array<{ spanId: string; sessionId: string; origin?: unknown }>;
   getActive(): ReadonlyMap<string, { abortController: AbortController }>;
   startMainRun(
     spanId: string,
     sessionId: string,
     spec: Record<string, unknown>,
   ): Promise<{ spanId: string; attemptSeq: number }>;
+  startSpan(
+    spanId: string,
+    sessionId: string,
+    origin?: unknown,
+  ): Promise<{
+    spanId: string;
+    sessionId: string;
+    end: (status: string, errorMessage?: string) => void;
+  }>;
   cancel(spanId: string): boolean;
   onRunComplete(
     fn: (sessionId: string, spanId: string, status: string, kind: string) => void | Promise<void>,
@@ -142,7 +154,7 @@ export function recordingSupervisor(): RecordingSupervisor {
   const startedRuns: Array<{
     spanId: string;
     sessionId: string;
-    spec: Record<string, unknown>;
+    origin?: unknown;
   }> = [];
   const active = new Map<string, { abortController: AbortController }>();
   const completeHandlers: Array<
@@ -153,9 +165,26 @@ export function recordingSupervisor(): RecordingSupervisor {
     startedRuns,
     getActive: () => active as ReadonlyMap<string, { abortController: AbortController }>,
     startMainRun: async (spanId: string, sessionId: string, spec: Record<string, unknown>) => {
-      startedRuns.push({ spanId, sessionId, spec });
+      startedRuns.push({ spanId, sessionId, origin: spec });
       active.set(spanId, { abortController: new AbortController() });
       return { spanId, attemptSeq: 1 };
+    },
+    startSpan: async (spanId: string, sessionId: string, origin?: unknown) => {
+      startedRuns.push({ spanId, sessionId, origin });
+      active.set(spanId, { abortController: new AbortController() });
+      let ended = false;
+      return {
+        spanId,
+        sessionId,
+        end: (status: string, _errorMessage?: string) => {
+          if (ended) return;
+          ended = true;
+          active.delete(spanId);
+          for (const h of completeHandlers) {
+            void h(sessionId, spanId, status, "main");
+          }
+        },
+      };
     },
     cancel: (spanId: string) => {
       active.get(spanId)?.abortController.abort();
@@ -332,60 +361,71 @@ export function fakeProjectSvc(overrides?: { autoOrchestrate?: boolean; projectI
 }
 
 // ═══════════════════════════════════════════════════════════════
-// fakeSessionFactory (C — placeholder, full impl in Phase 1)
+// fakeSessionManager (replaces FakeSessionFactory for new SessionManager API)
 // ═══════════════════════════════════════════════════════════════
 
-export interface FakeSessionFactory {
-  getOrCreate(
-    sessionId: string,
-    _spec: Record<string, unknown>,
-  ): {
-    prompt: (input: string, opts?: { signal?: AbortSignal; spanId?: string }) => Promise<void>;
-    resume: (opts: { approved: boolean; message?: string }) => Promise<void>;
-    dispose: () => void;
-    state: string;
-  };
-  peek(sessionId: string): ReturnType<FakeSessionFactory["getOrCreate"]> | undefined;
+export interface FakeSession {
+  sessionId: string;
+  prompt: (
+    input: string,
+    opts?: { signal?: AbortSignal; spanId?: string; origin?: unknown; conversation?: unknown },
+  ) => Promise<void>;
+  resume: (opts: { approved: boolean; message?: string }) => Promise<void>;
+  dispose: () => void;
+  state: string;
+  subscribe: (fn: (event: unknown) => void) => () => void;
+}
+
+export interface FakeSessionManager {
+  create(config: SessionConfig): FakeSession;
+  open(sessionId: string, config: SessionConfig): FakeSession;
+  get(sessionId: string): FakeSession | undefined;
   dispose(sessionId: string): void;
-  created: Map<string, { session: ReturnType<FakeSessionFactory["getOrCreate"]> }>;
-  promptCalls: Array<{ sessionId: string; input: string; spanId?: string }>;
+  created: Map<string, FakeSession>;
   resumeCalls: Array<{ sessionId: string; approved: boolean; message?: string }>;
 }
 
-export function fakeSessionFactory(): FakeSessionFactory {
-  const created = new Map<string, { session: ReturnType<FakeSessionFactory["getOrCreate"]> }>();
-  const promptCalls: Array<{ sessionId: string; input: string; spanId?: string }> = [];
+export function fakeSessionManager(): FakeSessionManager {
+  const created = new Map<string, FakeSession>();
   const resumeCalls: Array<{ sessionId: string; approved: boolean; message?: string }> = [];
+  let idCounter = 0;
+
+  function makeSession(sessionId: string): FakeSession {
+    return {
+      sessionId,
+      state: "idle",
+      prompt: async () => {},
+      resume: async (opts: { approved: boolean; message?: string }) => {
+        resumeCalls.push({ sessionId, approved: opts.approved, message: opts.message });
+      },
+      dispose: () => {
+        created.delete(sessionId);
+      },
+      subscribe: () => () => {},
+    };
+  }
 
   return {
     created,
-    promptCalls,
     resumeCalls,
-    getOrCreate(sessionId: string, _spec: Record<string, unknown>) {
-      const hit = created.get(sessionId);
-      if (hit) return hit.session;
-
-      const session = {
-        state: "idle" as string,
-        prompt: async (_input: string, opts?: { signal?: AbortSignal; spanId?: string }) => {
-          promptCalls.push({ sessionId, input: _input, spanId: opts?.spanId });
-        },
-        resume: async (opts: { approved: boolean; message?: string }) => {
-          resumeCalls.push({ sessionId, approved: opts.approved, message: opts.message });
-        },
-        dispose: () => {
-          created.delete(sessionId);
-        },
-      };
-      created.set(sessionId, { session });
+    create(_config: SessionConfig): FakeSession {
+      const sessionId = `fake-sid-${++idCounter}`;
+      const session = makeSession(sessionId);
+      created.set(sessionId, session);
       return session;
     },
-    peek(sessionId: string) {
-      return created.get(sessionId)?.session;
+    open(sessionId: string, _config: SessionConfig): FakeSession {
+      const existing = created.get(sessionId);
+      if (existing) return existing;
+      const session = makeSession(sessionId);
+      created.set(sessionId, session);
+      return session;
     },
-    dispose(sessionId: string) {
-      created.get(sessionId)?.session.dispose();
-      created.delete(sessionId);
+    get(sessionId: string): FakeSession | undefined {
+      return created.get(sessionId);
+    },
+    dispose(sessionId: string): void {
+      created.get(sessionId)?.dispose();
     },
   };
 }
@@ -460,18 +500,6 @@ export function makeOrchestratorDeps(over?: Partial<OrchestratorDeps>): Orchestr
     deliverableSvc: over?.deliverableSvc ?? fakeDeliverableSvc(),
     projectSvc: over?.projectSvc ?? fakeProjectSvc(),
     now: over?.now ?? (() => 1000000),
-    ...over,
-  };
-}
-
-/** Create test RunDeps. Pass sessionFactory to share the same instance across test paths. */
-export function makeRunDeps(over?: Record<string, unknown>): Record<string, unknown> {
-  return {
-    sessionFactory: (over?.sessionFactory as FakeSessionFactory) ?? fakeSessionFactory(),
-    supervisor: over?.supervisor ?? recordingSupervisor(),
-    opsStore: over?.opsStore ?? mockOpsStore(),
-    agentSvc: over?.agentSvc ?? fakeAgentSvc(DEFAULT_AGENTS),
-    config: over?.config ?? mockConfig(),
     ...over,
   };
 }

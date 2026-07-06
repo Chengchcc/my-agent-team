@@ -72,7 +72,7 @@ export function createIssueService(deps: IssueServiceDeps) {
       // `${conversationId}:${memberId}` (here conversationId === issueId and the
       // member is the human owner) — so issue runs flow through projection.
       // It is persisted in the legacy `sessionId` field for compatibility.
-      const sessionId = `${issueId}:${OWNER_MEMBER_ID}`;
+      const sessionId = issueId; // M19 legacy: will be replaced by member.session_id in conversation feature
       const issue = port.createIssue({
         issueId,
         projectId: input.projectId,

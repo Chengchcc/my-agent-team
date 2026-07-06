@@ -1,13 +1,12 @@
 // AgentSession + compaction
 
 export type {
-  AgentSessionConfig,
   AgentState,
   CompactionSettings,
   ContextUsage,
   RetrySettings,
+  SessionConfig,
   SessionEventListener,
 } from "./agent-session.js";
 export { AgentSession } from "./agent-session.js";
-export type { CompactionOptions, CompactionResult } from "./compaction.js";
 export { compactThread } from "./compaction.js";

@@ -9,7 +9,7 @@ import type {
 import type { Message } from "@my-agent-team/message";
 import type { AgentRuntime, FollowUpQueue, SteeringQueue } from "./agent-options.js";
 import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
-import { createPluginRunner } from "./plugin-runner.js";
+import { createPluginRunner } from "./plugin-dispatcher.js";
 import { spanLoop } from "./span-loop.js";
 
 /** Consume an async iterable to completion (side-effect-only tests). */

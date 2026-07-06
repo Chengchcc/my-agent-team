@@ -3,7 +3,7 @@ import type { Tool, ToolUseBlock } from "@my-agent-team/core";
 import type { AgentRuntime } from "./agent-options.js";
 import { runOneCollect } from "./execute-one.js";
 import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
-import { createPluginRunner } from "./plugin-runner.js";
+import { createPluginRunner } from "./plugin-dispatcher.js";
 
 function makeRuntime(tools: Tool[] = []): AgentRuntime {
   const toolMap = new Map(tools.map((t) => [t.name, t]));

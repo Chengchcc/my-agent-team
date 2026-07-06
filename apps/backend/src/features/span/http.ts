@@ -1,17 +1,17 @@
 import { Elysia, t } from "elysia";
-import type { SessionFactory } from "./session-factory.js";
+import type { SessionManager } from "./session-manager.js";
 
 /**
  * Resume an interrupted run via AgentSession.resume().
  *
  * Looks up the session by spanId (params.id) → sessionId (via injected getSessionIdByRunId),
- * then retrieves the live session from SessionFactory.peek (never materializes).
+ * then retrieves the live session from SessionManager.get (never creates).
  *
- * Session lifecycle is managed by SessionFactory's reaper / explicit close;
- * resume does NOT dispose the session — it persists across spans.
+ * Session lifecycle is managed by SessionManager; resume does NOT dispose
+ * the session — it persists across spans.
  */
 export function resumeRoutes(deps: {
-  sessionFactory: SessionFactory;
+  sessionManager: SessionManager;
   getSessionIdByRunId: (spanId: string) => string | null;
 }) {
   return new Elysia().post(
@@ -20,7 +20,7 @@ export function resumeRoutes(deps: {
       const sessionId = deps.getSessionIdByRunId(id);
       if (!sessionId) return Response.json({ error: "Run not found" }, { status: 404 });
 
-      const session = deps.sessionFactory.peek(sessionId);
+      const session = deps.sessionManager.get(sessionId);
       if (!session)
         return Response.json(
           { error: "Session no longer active — already settled" },

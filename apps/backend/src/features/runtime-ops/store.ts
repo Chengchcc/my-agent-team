@@ -118,8 +118,6 @@ export class RuntimeOpsStore {
         sourceLedgerSeq: row.sourceLedgerSeq,
         agentMemberId: row.agentMemberId,
         surface: row.surface,
-        traceId: row.traceId,
-        traceparent: row.traceparent,
         idempotencyKey: row.idempotencyKey,
         issueId: row.issueId ?? null,
         cronJobId: row.cronJobId ?? null,

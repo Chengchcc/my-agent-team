@@ -1,4 +1,5 @@
 import { mkdir, rm } from "node:fs/promises";
+import type { SessionConfig } from "@my-agent-team/harness";
 import { parseStateMd } from "@my-agent-team/loop";
 import { Elysia, t } from "elysia";
 import type { CronJobPort } from "../cron/ports.js";
@@ -7,7 +8,7 @@ import type { CronJobService } from "../cron/service.js";
 import { loopStep } from "../loop/loop-step.js";
 import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { ProjectPort } from "../project/ports.js";
-import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
+import type { SessionManager } from "../span/session-manager.js";
 import type { SkillRoots } from "../span/skill-roots.js";
 import type { LoopStateStore } from "./loop-state-store.js";
 import { createUpdateLoopConfigTool } from "./tools.js";
@@ -18,13 +19,12 @@ export function loopRoutes(
   _cronPort: CronJobPort,
   dataDir: string,
   idGen: () => string,
-  sessionFactory: SessionFactory,
-  buildSpec: (params: {
-    sessionId: string;
+  sessionManager: SessionManager,
+  buildConfig: (params: {
     modelName: string;
     cwd: string;
     skillRoots?: SkillRoots;
-  }) => SessionSpec,
+  }) => SessionConfig,
   store: LoopStateStore,
   projectPort?: ProjectPort,
   convPort?: {
@@ -151,20 +151,15 @@ export function loopRoutes(
 
         // 5. If intent provided, run AgentSession to generate LOOP.md
         if (body.intent) {
-          const sessionId = `loop:create:${loopId}`;
-          const spec = buildSpec({
-            sessionId,
+          const config = buildConfig({
             modelName: "claude-sonnet-4",
             cwd: dir,
           });
 
           // Inject update_loop_config tool so the agent can set the schedule
           const loopConfigTool = createUpdateLoopConfigTool(job.cronJobId, _cronPort, scheduler);
-          if (spec.tools) {
-            (spec.tools as unknown[]).push(loopConfigTool);
-          } else {
-            (spec as unknown as Record<string, unknown>).tools = [loopConfigTool];
-          }
+          const tools = [...(config.tools ?? []), loopConfigTool];
+          (config as { tools: typeof tools }).tools = tools;
 
           const registryPath = `${dataDir}/skill-packs/loop-engine/registry.yaml`;
           const intent = `Create a Loop configuration based on this intent: "${body.intent}"
@@ -177,9 +172,9 @@ Steps:
 2. Use the write tool to copy skill templates from ${dataDir}/skill-packs/loop-engine/ to ${dir}/skills/
 3. If the loop has a schedule, use the update_loop_config tool to set the cron expression`;
 
-          sessionFactory.getOrCreate(sessionId, spec);
-          await sessionFactory.enqueuePrompt(sessionId, intent);
-          sessionFactory.dispose(sessionId);
+          const session = sessionManager.create(config);
+          await session.prompt(intent);
+          sessionManager.dispose(session.sessionId ?? "");
         } else {
           await Bun.write(
             `${dir}/LOOP.md`,
@@ -238,8 +233,8 @@ Steps:
 
       const state = await loopStep({
         loopConfigPath: resolveLoopPaths(job, dataDir).loopConfigPath,
-        sessionFactory,
-        buildSpec,
+        sessionManager,
+        buildConfig,
         projectPort,
         dataDir,
         store,
@@ -259,8 +254,8 @@ Steps:
 
         const state = await loopStep({
           loopConfigPath: resolveLoopPaths(job, dataDir).loopConfigPath,
-          sessionFactory,
-          buildSpec,
+          sessionManager,
+          buildConfig,
           projectPort,
           dataDir,
           action: {

@@ -7,6 +7,7 @@ import type {
   FollowUpQueue,
   Logger,
   Plugin,
+  RunSpan,
   SteeringQueue,
 } from "@my-agent-team/framework";
 import { createAgent } from "@my-agent-team/framework";
@@ -26,19 +27,19 @@ export interface CompactionSettings {
   autoCompact?: boolean;
   keepRecent?: number;
 }
-
-export interface AgentSessionConfig {
-  // framework passthrough
+export interface SessionConfig {
   model: ChatModel;
-  sessionId?: string;
   tools?: Tool[];
   plugins?: Plugin[];
-  checkpointer?: Checkpointer;
   contextManager?: ContextManager;
-  logger?: Logger;
-
-  // session layer
   systemPrompt?: string;
+}
+
+export interface AgentSessionConfig extends SessionConfig {
+  sessionId?: string;
+  checkpointer?: Checkpointer;
+  startSpan?: (spanId: string, sessionId: string, opts?: unknown) => Promise<RunSpan> | RunSpan;
+  logger?: Logger;
   maxSteps?: number;
   retry?: RetrySettings;
   compaction?: CompactionSettings;
@@ -62,8 +63,8 @@ export type SessionEventListener = (event: AgentEvent) => void;
 
 // ─── AgentSession ────────────────────────────────────────
 
-export class AgentSession {
-  #agent: Agent | null = null;
+export class AgentSession<Ctx = Record<string, unknown>> {
+  #agent: Agent<Ctx> | null = null;
   #config: AgentSessionConfig;
   #state: AgentState = "idle";
   #subscribers = new Set<SessionEventListener>();
@@ -72,6 +73,7 @@ export class AgentSession {
   #retryCount = 0;
   #steeringBuf: Message[] = [];
   #followUpBuf: Message[] = [];
+  #data: Ctx | undefined;
 
   #steering: SteeringQueue = {
     drain: () => {
@@ -112,6 +114,10 @@ export class AgentSession {
 
   // ─── Public getters ──────────────────────────────────
 
+  get sessionId(): string | undefined {
+    return this.#config.sessionId;
+  }
+
   get state(): AgentState {
     return this.#state;
   }
@@ -122,7 +128,10 @@ export class AgentSession {
 
   // ─── Lifecycle ───────────────────────────────────────
 
-  async prompt(text: string, opts?: { signal?: AbortSignal; spanId?: string }): Promise<void> {
+  async prompt(
+    text: string,
+    opts?: { signal?: AbortSignal; spanId?: string; origin?: unknown },
+  ): Promise<void> {
     if (this.#state === "running" || this.#state === "retrying" || this.#state === "compacting") {
       this.steer(text);
       return;
@@ -137,21 +146,29 @@ export class AgentSession {
     await this.#executeSpan(inputMessages, opts);
   }
 
-  async continue(opts?: { signal?: AbortSignal; spanId?: string }): Promise<void> {
+  async continue(opts?: {
+    signal?: AbortSignal;
+    spanId?: string;
+    origin?: unknown;
+  }): Promise<void> {
     if (!this.#agent) throw new Error("Agent not initialized — call prompt() first");
     await this.#executeSpan(undefined, opts);
   }
 
   async resume(
     cmd: { approved: boolean; message?: string },
-    opts?: { signal?: AbortSignal; spanId?: string },
+    opts?: { signal?: AbortSignal; spanId?: string; origin?: unknown },
   ): Promise<void> {
     if (!this.#agent) throw new Error("Agent not initialized");
     this.#state = "running";
     this.#abortController = new AbortController();
     const signal = this.#combineSignal(opts?.signal);
     try {
-      for await (const _ of this.#agent.resume(cmd, { signal, spanId: opts?.spanId })) {
+      for await (const _ of this.#agent.resume(cmd, {
+        signal,
+        spanId: opts?.spanId,
+        origin: opts?.origin,
+      })) {
         // events handled by agent subscriber
       }
     } catch (err) {
@@ -201,6 +218,9 @@ export class AgentSession {
       throw new Error("followUp requires an initialized agent; call prompt() first");
     this.#followUpBuf.push({ role: "user", text });
     this.#emitQueueUpdate();
+  }
+  setData(value: Ctx): void {
+    this.#data = value;
   }
 
   // ─── Configuration ───────────────────────────────────
@@ -276,15 +296,16 @@ export class AgentSession {
   // ─── Private ─────────────────────────────────────────
 
   async #initAgent(): Promise<void> {
-    this.#agent = await createAgent({
+    this.#agent = await createAgent<Ctx>({
       model: this.#config.model,
       sessionId: this.#config.sessionId,
       tools: this.#config.tools,
-      plugins: this.#config.plugins,
+      plugins: this.#config.plugins as readonly Plugin<Ctx>[],
       checkpointer: this.#config.checkpointer,
       contextManager: this.#config.contextManager,
       logger: this.#config.logger,
       systemPrompt: this.#config.systemPrompt,
+      startSpan: this.#config.startSpan,
     });
     this.#unsubAgent = this.#agent.subscribe((event) => this.#handleAgentEvent(event));
   }
@@ -304,7 +325,7 @@ export class AgentSession {
 
   async #executeSpan(
     inputMessages?: Message[],
-    opts?: { signal?: AbortSignal; spanId?: string },
+    opts?: { signal?: AbortSignal; spanId?: string; origin?: unknown },
   ): Promise<void> {
     if (!this.#agent) return;
 
@@ -325,7 +346,10 @@ export class AgentSession {
               steering: this.#steering,
               followUp: this.#followUp,
               spanId: opts?.spanId,
+              origin: opts?.origin,
+              data: this.#data,
             });
+            this.#data = undefined;
             for await (const _ of generator) {
               // events handled by agent subscriber → #handleAgentEvent
             }
@@ -337,7 +361,10 @@ export class AgentSession {
               steering: this.#steering,
               followUp: this.#followUp,
               spanId: opts?.spanId,
+              origin: opts?.origin,
+              data: this.#data,
             });
+            this.#data = undefined;
             for await (const _ of generator) {
               // events handled by agent subscriber → #handleAgentEvent
             }

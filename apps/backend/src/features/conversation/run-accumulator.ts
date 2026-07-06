@@ -9,7 +9,6 @@ import {
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
 import type { ConversationPort } from "./ports.js";
 import type { ConversationService } from "./service.js";
-import { parseSessionId } from "./service.js";
 
 // ─── @mention helpers ─────────────────────────────────────────
 
@@ -121,7 +120,6 @@ function ledgerHasTerminalForMessage(
  *  Phase 2 (CRITICAL finally): lock release — always executes.
  *  Phase 3 (BEST-EFFORT): todo append + @mention triggers — fire-and-forget, each caught. */
 export async function onRunComplete(
-  sessionId: string,
   spanId: string,
   status: string,
   convPort: ConversationPort,
@@ -132,13 +130,15 @@ export async function onRunComplete(
 ): Promise<void> {
   if (kind === "reflect") return;
 
-  const { conversationId: cid, memberId: senderMemberId } = parseSessionId(sessionId);
+  const origin = opsStore.getSpanOrigin(spanId);
+  if (!origin) return;
+  const cid = origin.conversationId;
   if (!cid) return;
+  const senderMemberId = origin.agentMemberId;
 
   // M19: issue-driven runs (origin_kind=orchestrator) are handled by reactor —
   // M21: cron runs also isolated — skip projection and @mention cascade to avoid double-drive.
-  const origin = opsStore.getSpanOrigin(spanId);
-  if (origin && ISOLATED_ORIGINS.has(origin.originKind)) {
+  if (ISOLATED_ORIGINS.has(origin.originKind)) {
     clearAccumulator(spanId);
     return;
   }
@@ -199,7 +199,7 @@ export async function onRunComplete(
     throw err; // critical failure propagated — supervisor catches and logs
   } finally {
     // Phase 2: lock release always executes.
-    convSvc.completeRun(cid, sessionId, spanId);
+    convSvc.completeRun(cid, spanId);
   }
 
   // ── Phase 3: BEST-EFFORT — fire-and-forget, each catches independently ──

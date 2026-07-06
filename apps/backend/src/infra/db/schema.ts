@@ -54,6 +54,9 @@ export const member = sqliteTable(
     agentId: text(),
     userRef: text(),
     displayName: text(),
+    /** Session binding: the AgentSession sessionId for this (conversation, member).
+     *  Null until first agent run; set by conversation feature on sessionManager.create(). */
+    sessionId: text(),
     joinedAt: integer({ mode: "number" }).notNull(),
   },
   (table) => [
@@ -247,8 +250,6 @@ export const spanOrigin = sqliteTable(
     sourceLedgerSeq: integer().notNull(),
     agentMemberId: text().notNull(),
     surface: text().notNull().default("web"),
-    traceId: text().notNull(),
-    traceparent: text().notNull(),
     idempotencyKey: text().notNull(),
     issueId: text(),
     cronJobId: text(),
@@ -258,7 +259,6 @@ export const spanOrigin = sqliteTable(
   },
   (table) => [
     uniqueIndex("idx_span_origin_idem").on(table.idempotencyKey),
-    index("idx_span_origin_trace").on(table.traceId),
     index("idx_span_origin_issue").on(table.issueId),
     index("idx_span_origin_cron").on(table.cronJobId),
   ],

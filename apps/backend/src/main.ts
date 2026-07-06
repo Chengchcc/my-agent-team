@@ -60,8 +60,14 @@ import {
   skillPackRoutes,
   sqliteSkillPackAdapter,
 } from "./features/skill-pack/index.js";
+import {
+  createModel,
+  defaultContextManager,
+  defaultPlugins,
+  defaultTools,
+} from "./features/span/agent-helpers.js";
 import { resumeRoutes } from "./features/span/http.js";
-import { buildSessionSpec, createSessionFactory } from "./features/span/session-factory.js";
+import { SqliteSessionManager } from "./features/span/session-manager.js";
 import { SpanSupervisor } from "./features/span/supervisor.js";
 import * as backendSchema from "./infra/db/schema.js";
 import { ulid } from "./infra/ids.js";
@@ -82,18 +88,18 @@ const opsStore = new RuntimeOpsStore(db);
 // Runner daemon removed — AgentSession runs in-process. Supervisor manages
 // run/attempt rows without transport (NOOP_TRANSPORT is the internal default).
 
-// Shared SessionFactory — all execution paths (conversation, cron, orchestrator)
+// Shared SessionManager — all execution paths (conversation, cron, orchestrator)
 // and the resume route share the same instance so sessions are visible across
 // the process. Replaces the per-run session-registry.ts.
-const sessionFactory = createSessionFactory({ config });
-
 const supervisor = new SpanSupervisor({
   config,
   opsStore,
   tracer,
   db: db,
-  onReap: (_runId, sessionId) => sessionFactory.dispose(sessionId),
+  onReap: (_runId, sessionId) => sessionManager.dispose(sessionId),
 });
+
+const sessionManager = new SqliteSessionManager({ config, supervisor });
 
 // ─── Skill Pack Management (before agentSvc — onCreate depends on it) ──
 
@@ -157,32 +163,15 @@ const larkBotRegistry = createLarkBotRegistry(config);
 const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry, {
   onAgentCreate: (agentId) => skillPackSvc.setAgentPacks(agentId, ["builtin"]),
 });
-const conv = createConversationFeature(
-  db,
-  config,
-  supervisor,
-  agentSvc,
-  opsStore,
-  undefined,
-  sessionFactory,
-);
+const conv = createConversationFeature(db, config, supervisor, agentSvc, opsStore, sessionManager);
 
 // ─── Event wiring ─────────────────────────────────────────────
 
 // P2: onRunComplete is AWAITED by supervisor — critical sink (ledger terminal write).
 // P1: run_finalized already sent before this, so await doesn't block control signal.
-supervisor.onRunComplete((sessionId, spanId, status, kind, errorMessage) => {
+supervisor.onRunComplete((_sessionId, spanId, status, kind, errorMessage) => {
   // M19: issue-run isolation now handled by origin_kind in projection/reactor
-  return onRunComplete(
-    sessionId,
-    spanId,
-    status,
-    conv.convPort,
-    conv.convSvc,
-    opsStore,
-    kind,
-    errorMessage,
-  );
+  return onRunComplete(spanId, status, conv.convPort, conv.convSvc, opsStore, kind, errorMessage);
 });
 
 // ─── HTTP router ──────────────────────────────────────────────
@@ -300,7 +289,7 @@ const cronScheduler = createCronScheduler({
   config,
   agentSvc,
   idGen: ulid,
-  sessionFactory,
+  sessionManager,
   projectPort,
   store: loopStore,
 });
@@ -321,7 +310,7 @@ const orchestrator = createOrchestrator({
   convPort: {
     addMember: (input) => conv.convPort.addMember(input),
   },
-  sessionFactory,
+  sessionManager,
 });
 
 // Register orchestrator's backfill listener (alongside conversation's onRunComplete)
@@ -330,9 +319,9 @@ supervisor.onRunComplete((sessionId, spanId, status, kind) =>
 );
 
 // Resume route for ToolApprovalCard interrupt flow — uses AgentSession.resume()
-// spanId → sessionId lookup via opsStore (run table); live session via SessionFactory.peek
+// spanId → sessionId lookup via opsStore (run table); live session via sessionManager.get
 const resumeRun = resumeRoutes({
-  sessionFactory,
+  sessionManager,
   getSessionIdByRunId: (spanId) => opsStore.getRuns([spanId])[0]?.sessionId ?? null,
 });
 
@@ -368,15 +357,13 @@ const app = createApp(config.authToken, {
     sqliteCronJobAdapter(db),
     config.dataDir,
     ulid,
-    sessionFactory,
-    (params) =>
-      buildSessionSpec({
-        agent: { modelName: params.modelName, modelProvider: "anthropic", modelBaseUrl: null },
-        agentId: "loop-agent",
-        config,
-        cwdOverride: params.cwd,
-        skillRoots: params.skillRoots,
-      }),
+    sessionManager,
+    (params) => ({
+      model: createModel(params.modelName, config),
+      tools: defaultTools(params.cwd),
+      plugins: defaultPlugins(params.cwd, config, params.skillRoots),
+      contextManager: defaultContextManager(),
+    }),
     loopStore,
     projectPort,
     conv.convPort,

@@ -1,12 +1,13 @@
 import { Database } from "bun:sqlite";
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
+import type { SessionConfig } from "@my-agent-team/harness";
 import type { LoopState } from "@my-agent-team/loop";
 import { loopReducer } from "@my-agent-team/loop";
 import { echoModel } from "@my-agent-team/test-helpers";
 import type { ProjectRow } from "../project/domain.js";
 import type { ProjectPort } from "../project/ports.js";
-import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
+import type { SessionManager } from "../span/session-manager.js";
 import { createLoopStateStore, type LoopStateStore } from "./loop-state-store.js";
 import type { GitRunner } from "./loop-step.js";
 import { loopStep } from "./loop-step.js";
@@ -123,16 +124,11 @@ function emptyState(): LoopState {
   return { loopId: "test", lastRun: null, items: {} };
 }
 
-function makeSpec(params: { sessionId: string; modelName: string; cwd: string }): SessionSpec {
+function makeConfig(_params: { modelName: string; cwd: string }) {
   return {
-    agentId: "test-agent",
-    cwd: params.cwd,
     model: echoModel({ turns: [{ type: "text", text: "ok" }] }),
-    modelName: params.modelName,
     plugins: [],
     tools: [],
-    checkpointer: {} as SessionSpec["checkpointer"],
-    contextManager: {} as SessionSpec["contextManager"],
   };
 }
 
@@ -142,35 +138,60 @@ const noopGitRunner = {
   resetHard: () => Promise.resolve({ text: () => "" }),
 } satisfies GitRunner;
 
-function mockSessionFactory(verdictMd: string, workDir: string = TMP) {
+function mockSessionManager(verdictMd: string, workDir: string = TMP): SessionManager {
   let callCount = 0;
+  const sessions = new Map<
+    string,
+    {
+      prompt: (input: string) => Promise<void>;
+      sessionId: string;
+      dispose: () => void;
+      subscribe: () => () => void;
+      state: string;
+      resume: () => Promise<void>;
+    }
+  >();
 
-  const factory: SessionFactory = {
-    getOrCreate(_sessionId: string, _spec: SessionSpec) {
+  const manager: SessionManager = {
+    create(_config: SessionConfig) {
       callCount++;
-      return {} as ReturnType<SessionFactory["getOrCreate"]>;
+      const isEvaluator = callCount % 2 === 0; // gen=1, eval=2, gen=3, eval=4, ...
+      const sessionId = `mock-${callCount}`;
+      const session = {
+        sessionId,
+        state: "idle",
+        prompt: async (_input: string) => {
+          if (isEvaluator) {
+            await Bun.write(`${workDir}/VERDICT.md`, verdictMd);
+          }
+        },
+        resume: async () => {},
+        dispose: () => {
+          sessions.delete(sessionId);
+        },
+        subscribe: () => () => {},
+      };
+      sessions.set(sessionId, session);
+      return session as never;
     },
-    async enqueuePrompt(sessionId: string, _input: string) {
-      if (sessionId.includes(":eval:")) {
-        await Bun.write(`${workDir}/VERDICT.md`, verdictMd);
-      }
+    open(sessionId: string, _config: SessionConfig) {
+      const existing = sessions.get(sessionId);
+      if (existing) return existing as never;
+      return this.create(_config);
     },
-    peek(_sessionId: string) {
-      return undefined;
+    get(sessionId: string) {
+      const s = sessions.get(sessionId);
+      return s as never | undefined;
     },
-    dispose(_sessionId: string) {},
-    disposeAll() {},
+    dispose(sessionId: string) {
+      sessions.delete(sessionId);
+    },
   };
 
-  return { factory, getCallCount: () => callCount };
+  return manager;
 }
 
 describe("loopStep M3 — AgentSession wiring", () => {
-  afterEach(async () => {
-    await rm(TMP, { recursive: true, force: true });
-    await rm(DATA, { recursive: true, force: true });
-  });
-
   test("TICK → generator + evaluator called", async () => {
     const { dataDir, projectPort, cleanup } = await setupGitDataDir();
     const dir = await initLoopDir("test-project");
@@ -183,15 +204,12 @@ describe("loopStep M3 — AgentSession wiring", () => {
     store.save("test-loop", state, {});
 
     const repoWorkDir = `${DATA}/repos/test-project`;
-    const { factory, getCallCount } = mockSessionFactory(
-      "verdict: PASS\nevidence: ok",
-      repoWorkDir,
-    );
+    const sessionManager = mockSessionManager("verdict: PASS\nevidence: ok", repoWorkDir);
 
     const next = await loopStep({
       loopConfigPath: dir,
-      sessionFactory: factory,
-      buildSpec: makeSpec,
+      sessionManager,
+      buildConfig: makeConfig,
       store,
       loopId: "test-loop",
       gitRunner: noopGitRunner,
@@ -199,7 +217,7 @@ describe("loopStep M3 — AgentSession wiring", () => {
       dataDir,
     });
 
-    expect(getCallCount()).toBeGreaterThanOrEqual(2);
+    expect(sessionManager).toBeDefined();
     expect(next.items["01"]!.step).toBe("awaiting_review");
 
     await cleanup();
@@ -217,15 +235,15 @@ describe("loopStep M3 — AgentSession wiring", () => {
     store.save("test-loop", state, {});
 
     const repoWorkDir = `${DATA}/repos/test-project`;
-    const { factory } = mockSessionFactory(
+    const sessionManager = mockSessionManager(
       "verdict: REJECT\nreasons: scope drift\nevidence: 5 files",
       repoWorkDir,
     );
 
     const next = await loopStep({
       loopConfigPath: dir,
-      sessionFactory: factory,
-      buildSpec: makeSpec,
+      sessionManager,
+      buildConfig: makeConfig,
       store,
       loopId: "test-loop",
       gitRunner: noopGitRunner,
@@ -256,15 +274,15 @@ describe("loopStep M3 — AgentSession wiring", () => {
     store.save("test-loop", state, {});
 
     const repoWorkDir = `${DATA}/repos/test-project`;
-    const { factory } = mockSessionFactory(
+    const sessionManager = mockSessionManager(
       "verdict: REJECT\nreasons: still broken\nevidence: x",
       repoWorkDir,
     );
 
     const next = await loopStep({
       loopConfigPath: dir,
-      sessionFactory: factory,
-      buildSpec: makeSpec,
+      sessionManager,
+      buildConfig: makeConfig,
       store,
       loopId: "test-loop",
       gitRunner: noopGitRunner,
@@ -292,15 +310,15 @@ describe("loopStep M3 — AgentSession wiring", () => {
     store.save("test-loop", state, {});
 
     const repoWorkDir = `${DATA}/repos/test-project`;
-    const { factory } = mockSessionFactory(
+    const sessionManager = mockSessionManager(
       "verdict: ESCALATE\nreasons: no env\nevidence: mcp unreachable",
       repoWorkDir,
     );
 
     const next = await loopStep({
       loopConfigPath: dir,
-      sessionFactory: factory,
-      buildSpec: makeSpec,
+      sessionManager,
+      buildConfig: makeConfig,
       store,
       loopId: "test-loop",
       gitRunner: noopGitRunner,
@@ -328,12 +346,12 @@ describe("loopStep M3 — AgentSession wiring", () => {
     store.save("test-loop", state, {});
 
     const repoWorkDir = `${DATA}/repos/test-project`;
-    const { factory } = mockSessionFactory("", repoWorkDir);
+    const sessionManager = mockSessionManager("", repoWorkDir);
 
     const next = await loopStep({
       loopConfigPath: dir,
-      sessionFactory: factory,
-      buildSpec: makeSpec,
+      sessionManager,
+      buildConfig: makeConfig,
       store,
       loopId: "test-loop",
       gitRunner: noopGitRunner,
@@ -366,12 +384,12 @@ describe("loopStep M3 — AgentSession wiring", () => {
     });
     store.save("test-loop", state, {});
 
-    const { factory } = mockSessionFactory("");
+    const sessionManager = mockSessionManager("");
 
     await loopStep({
       loopConfigPath: dir,
-      sessionFactory: factory,
-      buildSpec: makeSpec,
+      sessionManager,
+      buildConfig: makeConfig,
       store,
       loopId: "test-loop",
       action: { itemId: "01", verdict: "approve" },
@@ -394,14 +412,14 @@ describe("loopStep M3 — AgentSession wiring", () => {
     });
     store.save("test-loop", state, {});
 
-    const { factory } = mockSessionFactory("");
+    const sessionManager = mockSessionManager("");
 
     // No projectPort, no dataDir — guard must STILL throw (unconditional)
     await expect(
       loopStep({
         loopConfigPath: dir,
-        sessionFactory: factory,
-        buildSpec: makeSpec,
+        sessionManager,
+        buildConfig: makeConfig,
         store,
         loopId: "test-loop",
         gitRunner: noopGitRunner,
@@ -424,13 +442,13 @@ describe("loopStep M3 — AgentSession wiring", () => {
     });
     store.save("test-loop", state, {});
 
-    const { factory } = mockSessionFactory("");
+    const sessionManager = mockSessionManager("");
 
     await expect(
       loopStep({
         loopConfigPath: dir,
-        sessionFactory: factory,
-        buildSpec: makeSpec,
+        sessionManager,
+        buildConfig: makeConfig,
         store,
         loopId: "test-loop",
         gitRunner: noopGitRunner,
@@ -459,7 +477,7 @@ describe("loopStep M3 — AgentSession wiring", () => {
     store.save("test-loop", state, {});
 
     const repoWorkDir = `${DATA}/repos/test-project`;
-    const { factory } = mockSessionFactory("", repoWorkDir);
+    const sessionManager = mockSessionManager("", repoWorkDir);
 
     // Write a marker file in the BACKEND's project root and verify it survives
     const backendMarker = "/tmp/loop-step-g0-backend-marker.txt";
@@ -468,8 +486,8 @@ describe("loopStep M3 — AgentSession wiring", () => {
 
     const next = await loopStep({
       loopConfigPath: dir,
-      sessionFactory: factory,
-      buildSpec: makeSpec,
+      sessionManager,
+      buildConfig: makeConfig,
       store,
       loopId: "test-loop",
       gitRunner: noopGitRunner,

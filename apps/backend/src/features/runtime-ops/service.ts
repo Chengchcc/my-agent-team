@@ -139,7 +139,7 @@ export function createRuntimeOpsService(deps: {
           kind: r.kind,
           parentSpanId: r.parent_span_id,
           status: r.status,
-          traceId: origin?.traceId ?? null,
+          traceId: null, // deprecated — use spanId
           startedAt: r.started_at,
           endedAt: r.ended_at,
           latestAttemptSeq: attempt?.seq ?? null,
@@ -177,7 +177,7 @@ export function createRuntimeOpsService(deps: {
           kind: run.kind,
           parentSpanId: run.parentSpanId,
           status: run.status,
-          traceId: origin?.traceId ?? null,
+          traceId: null, // deprecated — use spanId
           startedAt: run.startedAt,
           endedAt: run.endedAt,
         },
@@ -258,13 +258,13 @@ export function createRuntimeOpsService(deps: {
     getTraceDetail(
       traceId: string,
     ): { origins: { spanId: string; traceId: string }[]; events: ControlPlaneEvent[] } | null {
-      const origins = opsStore.listSpanOrigins().filter((o) => o.traceId === traceId);
+      const origins = opsStore.listSpanOrigins(); // traceId deprecated — return all
       if (origins.length === 0) {
         const opsEvents = opsStore.getControlPlaneEventsByTrace(traceId);
         if (opsEvents.length === 0) return null;
       }
       const events = opsStore.getControlPlaneEventsByTrace(traceId);
-      return { origins: origins.map((o) => ({ spanId: o.spanId, traceId: o.traceId })), events };
+      return { origins: origins.map((o) => ({ spanId: o.spanId, traceId: "" })), events };
     },
 
     listSurfaces(): Array<{

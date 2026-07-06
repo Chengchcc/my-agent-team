@@ -159,8 +159,6 @@ describe("submitDeliverable", () => {
       sourceLedgerSeq: 0,
       agentMemberId: "agent1",
       surface: "orchestrator",
-      traceId: "",
-      traceparent: "",
       idempotencyKey: "run_001",
       originKind: "orchestrator",
       fromStatus: "planned",
@@ -229,8 +227,6 @@ describe("submitDeliverable", () => {
       sourceLedgerSeq: 0,
       agentMemberId: "agent1",
       surface: "orchestrator",
-      traceId: "",
-      traceparent: "",
       idempotencyKey: "run_x",
       originKind: "orchestrator",
       fromStatus: "planned",
@@ -474,15 +470,13 @@ describe("detail endpoint", () => {
       sourceLedgerSeq: 0,
       agentMemberId: "a1",
       surface: "orchestrator",
-      traceId: "",
-      traceparent: "",
       idempotencyKey: "r_detail",
       originKind: "orchestrator",
       fromStatus: "planned",
       createdAt: 1000,
     });
     db.run(
-      `INSERT INTO run (span_id, session_id, agent_id, status, started_at, ended_at) VALUES ('r_detail', 't1', 'a1', 'succeeded', 1000, 5000)`,
+      `INSERT INTO span (span_id, session_id, agent_id, status, started_at, ended_at) VALUES ('r_detail', 't1', 'a1', 'succeeded', 1000, 5000)`,
     );
 
     const res = await app.handle(

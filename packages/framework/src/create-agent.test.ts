@@ -1254,7 +1254,7 @@ describe("createAgent", () => {
     expect(terminal.payload.state).toBe("done");
   });
 
-  test("fallback to thread.id when spanId not passed", async () => {
+  test("auto-generates spanId when not passed", async () => {
     const agent = await createAgent({
       model: scriptedModel([{ type: "text", text: "ok" }]),
     });
@@ -1262,9 +1262,12 @@ describe("createAgent", () => {
     const events = await collect(agent.run("hi"));
     const msgEvents = events.filter((e) => e.type === "message");
 
-    // messageId uses thread.id as fallback
-    expect(msgEvents[0]!.payload.messageId).toBe(`span:${agent.thread.id}:assistant:0`);
-    expect(msgEvents[0]!.payload.spanId).toBe(agent.thread.id);
+    // spanId is auto-generated (random UUID, not thread.id)
+    expect(msgEvents[0]!.payload.spanId).toBeDefined();
+    expect(msgEvents[0]!.payload.spanId).not.toBe(agent.thread.id);
+    expect(msgEvents[0]!.payload.messageId).toBe(
+      `span:${msgEvents[0]!.payload.spanId}:assistant:0`,
+    );
   });
 
   test("tool-only run still emits terminal", async () => {

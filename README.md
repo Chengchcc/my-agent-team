@@ -1,88 +1,108 @@
-# my-agent-team
+<p align="center">
+  <strong>Multi-Agent Team Runtime — 人 + 多个 Agent 在同一对话里协作，Web 和飞书双端实时可见</strong>
+</p>
 
-`my-agent-team` 是一个 TypeScript + Bun 的多 Agent 协作运行时。解决的问题：一个对话里同时有「人」和「多个 Agent」，对话要在 Web 和飞书（Lark IM）两个端上同时可见，Agent 在进程内异步执行——怎么让所有人看到一致、不丢、不重的对话历史。
+<p align="center">
+  <img src="https://img.shields.io/badge/runtime-Bun-14151a?style=flat-square&logo=bun" alt="Bun" />
+  <img src="https://img.shields.io/badge/language-TypeScript-3178c6?style=flat-square&logo=typescript" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT" />
+</p>
 
-核心设计：**把「对话事实」和「运行事实」分开——assistant 消息直写对话账本，运行内部的 execution detail 单独进 EventLog。**
+---
 
-- **对话账本（conversation_ledger）** 记录共享对话里发生了什么——谁说了什么、@了谁。这是对话消息的 canonical store。
-- **EventLog（event_log）** 记录一次 Agent 运行内部发生了什么——调了哪个模型、用了哪个工具、什么时候被中断。这是排障用的 execution log，只含非 message 事件。
-- **AgentSession** 在 backend 进程内编排 Agent + Checkpointer + PluginRunner + ContextManager，通过 `session.subscribe()` 将消息事件直写 ledger，完成事件统一经 `supervisor.notifyRunComplete` 触发投影与锁释放。
-- **Web 和 Lark** 只是「端」：渲染账本、采集输入，都不是事实来源。
+my-agent-team 是一个**团队级 Agent 运行时**。把多个 AI Agent 拉进同一个对话里，和人类一样 `@mention`、分工、并行干活。对话在 Web 控制台和飞书群里实时同步，Agent 在服务端进程内执行——不掉消息、不重复、所有端看到的状态一致。
 
-## 一张图看懂
+## ✨ Highlights
 
-```mermaid
-flowchart LR
-  Web[Web 控制台] --> Backend[Backend 团队运行时]
-  Lark[Lark Bot] --> Backend
-  Backend -->|assistant 消息直写| Ledger[(conversation_ledger)]
-  Backend -->|非 message 执行事件| EventLog[(EventLog)]
-  Backend -->|AgentSession 进程内| Agent[Agent 执行]
-  Agent -->|session.subscribe| Backend
-  Ledger --> Web
-  Ledger --> Lark
-```
+- **多 Agent 协作** — 人和多个 Agent 在同一对话里 `@mention` 交互，每个 Agent 有独立身份、记忆和工具白名单
+- **双端同步** — Web 控制台 + 飞书（Lark IM）Bot，同一条对话两边实时可见
+- **对话账本** — canonical conversation store，所有消息（人 + Agent）经单一入口写入，端只做渲染
+- **Loop 自动化** — 定时触发的 Agent 流水线：Generator → Evaluator → Human Gate，自动 triage、review、cleanup
+- **插件体系** — 身份注入、渐进式技能加载、文件记忆、对话上下文、任务防早停，6 个生命周期 hook
+- **进程内编排** — AgentSession 直管 Agent + Checkpointer + PluginRunner + ContextManager，无额外服务依赖
+- **SQLite 单文件存储** — backend.db（业务） + checkpointer.db（执行），零运维部署
 
-## 快速开始
+## 🚀 快速开始
+
+**前置条件：** [Bun](https://bun.sh) >= 1.3
 
 ```bash
 bun install
 bun run dev
 ```
 
-常用命令：
+`dev` 会并行启动 backend（HTTP/SSE）和 web（Next.js）。打开：
 
-```bash
-bun run format
-bun run lint
-bun run typecheck
-bun run test
-bun run build
+| 服务 | 地址 |
+|---|---|
+| Web 控制台 | `http://localhost:3000` |
+| Backend API | `http://localhost:3001` |
+
+## 🧱 架构
+
+```
+┌─────────────────────────────────┐
+│ Surfaces       Web 控制台  飞书 Bot │
+├─────────────────────────────────┤
+│ Backend        HTTP/SSE · AgentSession 编排 · Loop 调度 │
+├─────────────────────────────────┤
+│ Agent Runtime  createAgent() · 插件 · Checkpointer · ContextManager │
+├─────────────────────────────────┤
+│ Storage        backend.db + checkpointer.db（SQLite）      │
+└─────────────────────────────────┘
 ```
 
-## 仓库结构
+一次对话的完整链路：**人发消息 → 端 POST → Backend 写账本 → AgentSession 拉起 Agent → assistant 消息直写账本 → SSE 推到所有端**。
 
-```text
+详细架构见 [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md)。
+
+## 📦 仓库结构
+
+```
 apps/
-  backend/    团队运行时，HTTP/SSE 服务，拥有对话、运行、事件
-  web/        Web 控制台与对话 UI
-  lark-bot/   Lark 端适配器
+  backend/    Team Runtime — HTTP/SSE 服务、对话、运行、Loop 调度
+  web/        Web 控制台 — Next.js 15 + shadcn/ui + React Query
+  lark-bot/   飞书 Bot 适配器
 
 packages/
-  core/                   运行时原语：Message、Tool、ChatModel
-  framework/              Agent 主循环、插件、上下文管理、Checkpointer
-  harness/               AgentSession 编排，compaction
-  adapter-anthropic/      Anthropic 模型适配
-  conversation/           成员、@提及、账本 codec
-  message/                消息类型与合并
-  tools-common/           通用工具（bash/grep/glob/web、cwd 工具工厂）
-  plugin-fs-memory/       文件型长期记忆插件
-  plugin-progressive-skill/ 渐进式技能加载插件
-  plugin-task-guard/      任务规划与防早停插件
-  plugin-identity/        Agent 身份插件（SOUL/USER/记忆）
-  plugin-conversation-context/ 对话上下文注入插件
-  runtime-observability/  运行可观测性
-  test-helpers/           测试工具（echoModel）
+  core/                    运行时原语：Message、Tool、ChatModel、run()
+  framework/               createAgent()、插件系统、Checkpointer、ContextManager
+  harness/                 AgentSession 编排、identityPlugin、compaction
+  loop/                    Loop 状态机（纯 reducer）
+  adapter-anthropic/       Anthropic SDK → ChatModel 适配
+  message/                 消息类型与 MessageRevision
+  conversation/            成员、@提及、LedgerEntry codec
+  tools-common/            通用工具：read/write/edit/bash/grep/glob
+  api-contract/            跨进程类型契约（Eden Treaty）
+  config/                  配置加载
+  plugin-identity/         Agent 身份（SOUL/USER/记忆）
+  plugin-fs-memory/        文件型长期记忆
+  plugin-progressive-skill/ 渐进式技能加载
+  plugin-task-guard/       任务规划与防早停
+  plugin-conversation-context/ 对话上下文注入
+  runtime-observability/   运行可观测性
+  test-helpers/            测试工具（echoModel）
 ```
 
-## 文档导航
+## 📖 文档
 
-给人读：
+| 文档 | 说明 |
+|---|---|
+| [架构 Wiki](docs/architecture/README.md) | 入口，按「你想干什么」组织阅读路线 |
+| [系统总览](docs/architecture/system-overview.md) | 容器视图 + 运行时序 + 不变量 |
+| [事实与投影](docs/architecture/foundations/facts-and-projections.md) | 数据模型的核心设计原则 |
+| [未来工作](docs/architecture/roadmap/future-work.md) | 已知缺口和演进方向 |
 
-- 架构 Wiki 首页：`docs/architecture/README.md`
-- 系统总览：`docs/architecture/system-overview.md`
-- 跨页地图：`docs/architecture/map.md`
+## 🛠 开发
 
-给 LLM 读：
+```bash
+bun run format      # Biome 格式化
+bun run lint        # Biome + ESLint
+bun run typecheck   # tsc --noEmit（全仓）
+bun run test        # 全仓测试
+bun run build       # 全仓构建（turbo）
+```
 
-- LLM 入口索引：`docs/architecture/index.llm.md`
-- 概念图谱：`docs/architecture/concepts.json`
-- 事实与投影：`docs/architecture/foundations/facts-and-projections.md`
+## 📄 License
 
-未来方向和已知缺口在 `docs/architecture/roadmap/future-work.md` 以及各页的「当前缺口」小节。
-
-## 三条底线
-
-1. 对话账本和 EventLog 是两类事实，不要混。
-2. 端（Web/Lark）可以展示，但不要让端把 Agent 产出直接当对话历史写下去。
-3. 插件只收接口不依赖调用方（backend → plugin，不是反过来）。
+MIT

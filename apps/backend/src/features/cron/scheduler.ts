@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
 import type { LoopStateStore } from "../loop/loop-state-store.js";
@@ -5,9 +6,13 @@ import { loopStep } from "../loop/loop-step.js";
 import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { ProjectPort } from "../project/ports.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
-import type { SessionFactory } from "../span/session-factory.js";
-import { buildSessionSpec } from "../span/session-factory.js";
-import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
+import {
+  createModel,
+  defaultContextManager,
+  defaultPlugins,
+  defaultTools,
+} from "../span/agent-helpers.js";
+import type { SessionManager } from "../span/session-manager.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
 import type { CronJobRow } from "./domain.js";
 import type { CronJobService } from "./service.js";
@@ -35,7 +40,7 @@ export function createCronScheduler(deps: {
   idGen: () => string;
   now?: () => number;
   scheduler?: Scheduler;
-  sessionFactory?: SessionFactory;
+  sessionManager: SessionManager;
   projectPort?: ProjectPort;
   store: LoopStateStore;
 }) {
@@ -61,23 +66,22 @@ export function createCronScheduler(deps: {
     }
 
     const spanId = deps.idGen();
-    const sessionId = `${job.cronJobId}:${job.agentId}`;
-
     try {
-      const runDeps = makeRunDeps({
-        config: deps.config,
-        supervisor: deps.supervisor,
-        opsStore: deps.opsStore,
-        agentSvc: deps.agentSvc,
-        sessionFactory: deps.sessionFactory,
+      const { modelName } = await deps.agentSvc.getById(job.agentId);
+      const cwd = join(deps.config.dataDir, "agents", job.agentId);
+      const session = deps.sessionManager.create({
+        model: createModel(modelName, deps.config),
+        tools: defaultTools(cwd),
+        plugins: defaultPlugins(cwd, deps.config),
+        contextManager: defaultContextManager(),
       });
-      await executeAgentRun(runDeps, {
-        spanId,
-        sessionId,
-        agentId: job.agentId,
-        input: job.prompt ?? "",
-        origin: { kind: "cron", cronJobId: job.cronJobId },
-      });
+      void session
+        .prompt(job.prompt ?? "", {
+          origin: { agentMemberId: job.agentId, originKind: "cron", cronJobId: job.cronJobId },
+        })
+        .catch((err: unknown) => {
+          console.error(`[cron] prompt error:`, err);
+        });
     } catch (err) {
       inFlight.delete(job.cronJobId);
       throw err;
@@ -103,8 +107,8 @@ export function createCronScheduler(deps: {
           await withTimeout(
             loopStep({
               loopConfigPath: resolveLoopPaths(currentJob, deps.config.dataDir).loopConfigPath,
-              sessionFactory: deps.sessionFactory!,
-              buildSpec,
+              sessionManager: deps.sessionManager!,
+              buildConfig,
               projectPort: deps.projectPort,
               dataDir: deps.config.dataDir,
               store: deps.store,
@@ -115,8 +119,8 @@ export function createCronScheduler(deps: {
         } else {
           await loopStep({
             loopConfigPath: resolveLoopPaths(currentJob, deps.config.dataDir).loopConfigPath,
-            sessionFactory: deps.sessionFactory!,
-            buildSpec,
+            sessionManager: deps.sessionManager!,
+            buildConfig,
             projectPort: deps.projectPort,
             dataDir: deps.config.dataDir,
             store: deps.store,
@@ -144,20 +148,14 @@ export function createCronScheduler(deps: {
     }
   }
 
-  // buildSpec for loop agent sessions — delegates to buildSessionSpec
-  function buildSpec(params: {
-    sessionId: string;
-    modelName: string;
-    cwd: string;
-    skillRoots?: any;
-  }) {
-    return buildSessionSpec({
-      agentId: "loop-agent",
-      agent: { modelName: params.modelName, modelProvider: "anthropic", modelBaseUrl: null },
-      config: deps.config,
-      cwdOverride: params.cwd,
-      skillRoots: params.skillRoots,
-    });
+  // buildConfig for loop agent sessions — delegates to agentConfig
+  function buildConfig(params: { modelName: string; cwd: string; skillRoots?: any }) {
+    return {
+      model: createModel(params.modelName, deps.config),
+      tools: defaultTools(params.cwd),
+      plugins: defaultPlugins(params.cwd, deps.config, params.skillRoots),
+      contextManager: defaultContextManager(),
+    };
   }
 
   function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {

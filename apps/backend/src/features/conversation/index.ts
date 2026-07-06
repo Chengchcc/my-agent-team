@@ -6,5 +6,4 @@ export {
   ConversationBusyError,
   createConversationService,
   OWNER_MEMBER_ID,
-  parseSessionId,
 } from "./service.js";

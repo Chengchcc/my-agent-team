@@ -238,6 +238,7 @@ export function taskGuardPlugin(opts: TaskGuardOptions): Plugin {
         onUpdate = (list: Todo[]) => {
           ctx.emit?.({
             type: "todo_update",
+            spanId: ctx.span?.spanId,
             payload: { todos: list },
           });
         };
@@ -266,10 +267,10 @@ export function taskGuardPlugin(opts: TaskGuardOptions): Plugin {
 
       async beforeModel(ctx, messages) {
         activeSessionId = ctx.sessionId;
-        // Wire emit for todo_update events (re-wire on each hook fire in case ctx changed)
         onUpdate = (list: Todo[]) => {
           ctx.emit?.({
             type: "todo_update",
+            spanId: ctx.span?.spanId,
             payload: { todos: list },
           });
         };

@@ -20,24 +20,11 @@ export class ConversationBusyError extends Error {
   }
 }
 
-function deriveSessionId(conversationId: string, memberId: string): string {
-  return `${conversationId}:${memberId}`;
-}
-
 /** Reserved memberId for the conversation owner (the human who owns an
  *  issue-/cron-spawned conversation). It is a member id, NOT an agent id —
  *  sessionIds derived from it (`${conversationId}:${OWNER_MEMBER_ID}`) follow
  *  the standard `${conversationId}:${memberId}` shape, not the agent shape. */
 export const OWNER_MEMBER_ID = "owner";
-
-/** Parse a sessionId back into its constituent parts.
- *  Inverse of deriveSessionId. First colon separates conversationId from memberId;
- *  memberId may itself contain colons. */
-export function parseSessionId(sessionId: string): { conversationId: string; memberId: string } {
-  const idx = sessionId.indexOf(":");
-  if (idx < 0) return { conversationId: sessionId, memberId: "" };
-  return { conversationId: sessionId.slice(0, idx), memberId: sessionId.slice(idx + 1) };
-}
 
 function isHumanMember(members: MemberRow[], memberId: string): boolean {
   return members.some((m) => m.memberId === memberId && m.kind === "human");
@@ -54,7 +41,6 @@ export interface ConversationServiceDeps {
   maxConsecutiveAgentHops: number;
   startAgentRun: (
     spanId: string,
-    sessionId: string,
     ctx: {
       conversationId: string;
       agentMemberId: string;
@@ -163,8 +149,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     for (const target of targets) {
       try {
         const spanId = crypto.randomUUID();
-        const sessionId = deriveSessionId(conversationId, target.memberId);
-        const { spanId: rId } = await startAgentRun(spanId, sessionId, {
+        const { spanId: rId } = await startAgentRun(spanId, {
           conversationId,
           agentMemberId: target.memberId,
           agentId: target.agentId,
@@ -441,7 +426,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     },
 
     /** Release the conversation lock when ALL triggered runs complete. */
-    completeRun(conversationId: string, _sessionId: string, _runId: string): void {
+    completeRun(conversationId: string, _spanId: string): void {
       lock.releaseOne(conversationId);
     },
 

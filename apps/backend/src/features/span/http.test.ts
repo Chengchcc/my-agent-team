@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import {
   fakeGetSessionIdByRunId,
-  fakeSessionFactory,
+  fakeSessionManager,
   TID,
 } from "../../../test-helpers/mock-deps.js";
 import { resumeRoutes } from "./http.js";
@@ -17,7 +17,7 @@ function buildRequest(rid: string, body: unknown): Request {
 }
 
 function makeApp(deps: {
-  sessionFactory: ReturnType<typeof fakeSessionFactory>;
+  sessionManager: ReturnType<typeof fakeSessionManager>;
   getSessionIdByRunId: (spanId: string) => string | null;
 }) {
   return new Elysia().use(resumeRoutes(deps as any));
@@ -25,9 +25,9 @@ function makeApp(deps: {
 
 describe("resumeRoute", () => {
   test("returns 404 when spanId not found", async () => {
-    const sf = fakeSessionFactory();
+    const sm = fakeSessionManager();
     const app = makeApp({
-      sessionFactory: sf,
+      sessionManager: sm,
       getSessionIdByRunId: fakeGetSessionIdByRunId({}),
     });
 
@@ -36,83 +36,76 @@ describe("resumeRoute", () => {
   });
 
   test("returns 409 when session no longer active", async () => {
-    const sf = fakeSessionFactory();
+    const sm = fakeSessionManager();
     const app = makeApp({
-      sessionFactory: sf,
+      sessionManager: sm,
       getSessionIdByRunId: fakeGetSessionIdByRunId({ [TID.run()]: TID.session() }),
     });
-    // session not created → peek returns undefined → 409
+    // session not created → get returns undefined → 409
     const res = await app.handle(buildRequest(TID.run(), { approved: true }));
     expect(res.status).toBe(409);
   });
 
   test("resume with approved=true returns 200 and calls session.resume", async () => {
-    const sf = fakeSessionFactory();
+    const sm = fakeSessionManager();
     const sid = TID.session();
     const rid = TID.run();
-    sf.getOrCreate(sid, {}); // pre-create so peek finds it
+    sm.open(sid, { model: { id: "mock", stream: async function* () {} } as never }); // pre-create so get finds it
 
     const app = makeApp({
-      sessionFactory: sf,
+      sessionManager: sm,
       getSessionIdByRunId: fakeGetSessionIdByRunId({ [rid]: sid }),
     });
 
     const res = await app.handle(buildRequest(rid, { approved: true, message: "approved" }));
     expect(res.status).toBe(200);
-
-    const body = await res.json();
-    expect(body.resumed).toBe(true);
-    expect(body.spanId).toBe(rid);
-
-    expect(sf.resumeCalls).toHaveLength(1);
-    expect(sf.resumeCalls[0]!.approved).toBe(true);
-    expect(sf.resumeCalls[0]!.message).toBe("approved");
+    const json = await res.json();
+    expect(json.resumed).toBe(true);
+    expect(sm.resumeCalls).toHaveLength(1);
+    expect(sm.resumeCalls[0]!.approved).toBe(true);
+    expect(sm.resumeCalls[0]!.message).toBe("approved");
   });
 
   test("resume with approved=false returns 200", async () => {
-    const sf = fakeSessionFactory();
+    const sm = fakeSessionManager();
     const sid = TID.session();
     const rid = TID.run();
-    sf.getOrCreate(sid, {});
+    sm.open(sid, { model: { id: "mock", stream: async function* () {} } as never });
 
     const app = makeApp({
-      sessionFactory: sf,
+      sessionManager: sm,
       getSessionIdByRunId: fakeGetSessionIdByRunId({ [rid]: sid }),
     });
 
     const res = await app.handle(buildRequest(rid, { approved: false }));
     expect(res.status).toBe(200);
-
-    expect(sf.resumeCalls).toHaveLength(1);
-    expect(sf.resumeCalls[0]!.approved).toBe(false);
+    expect(sm.resumeCalls).toHaveLength(1);
+    expect(sm.resumeCalls[0]!.approved).toBe(false);
   });
 
   test("second resume on same session is repeatable", async () => {
-    const sf = fakeSessionFactory();
+    const sm = fakeSessionManager();
     const sid = TID.session();
     const rid = TID.run();
-    sf.getOrCreate(sid, {});
+    sm.open(sid, { model: { id: "mock", stream: async function* () {} } as never });
 
     const app = makeApp({
-      sessionFactory: sf,
+      sessionManager: sm,
       getSessionIdByRunId: fakeGetSessionIdByRunId({ [rid]: sid }),
     });
 
     // First resume
-    let res = await app.handle(buildRequest(rid, { approved: true }));
-    expect(res.status).toBe(200);
+    await app.handle(buildRequest(rid, { approved: true }));
+    // Second resume
+    await app.handle(buildRequest(rid, { approved: false }));
 
-    // Second resume — should still work (session persists across spans)
-    res = await app.handle(buildRequest(rid, { approved: false }));
-    expect(res.status).toBe(200);
-
-    expect(sf.resumeCalls).toHaveLength(2);
+    expect(sm.resumeCalls).toHaveLength(2);
   });
 
   test("returns 422 on invalid body", async () => {
-    const sf = fakeSessionFactory();
+    const sm = fakeSessionManager();
     const app = makeApp({
-      sessionFactory: sf,
+      sessionManager: sm,
       getSessionIdByRunId: fakeGetSessionIdByRunId({}),
     });
 

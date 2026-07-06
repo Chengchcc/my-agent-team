@@ -1,10 +1,12 @@
 import { existsSync } from "node:fs";
+import type { SessionConfig } from "@my-agent-team/harness";
 import type { LoopConfig, LoopState } from "@my-agent-team/loop";
 import { loopReducer, parseLoopConfig, parseVerdictMd } from "@my-agent-team/loop";
 import type { ProjectPort } from "../project/ports.js";
 import { nodeFsAdapter } from "../skill-pack/fs-adapter.js";
-import type { SessionFactory, SessionSpec } from "../span/session-factory.js";
+import type { SessionManager } from "../span/session-manager.js";
 import type { SkillRoots } from "../span/skill-roots.js";
+import type { LoopStateStore } from "./loop-state-store.js";
 
 type ReviewAction = {
   itemId: string;
@@ -22,41 +24,44 @@ export interface GitRunner {
   diff(cwd: string, base: string, head: string): Promise<GitRunnerOutput>;
   resetHard(cwd: string, sha: string): Promise<GitRunnerOutput>;
 }
-
 export interface LoopStepParams {
   loopConfigPath: string;
-  sessionFactory: SessionFactory;
-  buildSpec: (params: {
-    sessionId: string;
+  sessionManager: SessionManager;
+  buildConfig: (params: {
     modelName: string;
     cwd: string;
     skillRoots?: SkillRoots;
-  }) => SessionSpec;
+  }) => SessionConfig;
   action?: ReviewAction;
   projectPort?: ProjectPort;
   dataDir?: string;
-  store: import("./loop-state-store.js").LoopStateStore;
+  store: LoopStateStore;
   loopId: string;
   /** Inject for tests. Default = real Bun.$ git calls. */
   gitRunner?: GitRunner;
 }
 
-async function tallyUsage(spec: SessionSpec, sessionId: string): Promise<number> {
-  const cp = spec.checkpointer as {
-    readEvents?: (
+// ponytail: loop tallyUsage reads checkpointer events — AgentSession doesn't expose checkpointer,
+// so we peek at the internal config. This is a known seam; upgrade to a usage() method on AgentSession if more callers need it.
+interface SessionWithCheckpointer {
+  readonly sessionId?: string;
+  readonly checkpointer?: {
+    readEvents?(
       sessionId: string,
-    ) => AsyncIterable<{ type: string; usage?: { input?: number; output?: number } }>;
+    ): AsyncIterable<{ type: string; usage?: { input?: number; output?: number } }>;
   };
-  if (typeof cp?.readEvents !== "function") return 0;
-  let total = 0;
-  try {
-    for await (const ev of cp.readEvents(sessionId)) {
-      if (ev.type === "model_end" && ev.usage) {
-        total += (ev.usage.input ?? 0) + (ev.usage.output ?? 0);
-      }
+}
+
+async function tallyUsage(sessionManager: SessionManager, sessionId: string): Promise<number> {
+  const session = sessionManager.get(sessionId) as SessionWithCheckpointer | undefined;
+  if (!session?.checkpointer?.readEvents) return 0;
+  let tokens = 0;
+  for await (const ev of session.checkpointer.readEvents(sessionId)) {
+    if (ev.usage) {
+      tokens += (ev.usage.input ?? 0) + (ev.usage.output ?? 0);
     }
-  } catch {}
-  return total;
+  }
+  return tokens;
 }
 
 // === denylist glob matching ===
@@ -258,18 +263,21 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
 
     // Generator
     const genSessionId = `loop:${state.loopId}:gen:${item.id}:${item.attempt}`;
-    const genSpec = params.buildSpec({
-      sessionId: genSessionId,
+    const genConfig = params.buildConfig({
       modelName: genModel,
       cwd: workDir,
       skillRoots: skillRootsByRole("loop-generator"),
     });
 
-    const genSession = params.sessionFactory.getOrCreate(genSessionId, genSpec);
-    await params.sessionFactory.enqueuePrompt(genSessionId, buildGeneratorPrompt(item, genPrompt));
-    params.sessionFactory.dispose(genSessionId);
+    const genSession = params.sessionManager.create(genConfig);
+    await genSession.prompt(buildGeneratorPrompt(item, genPrompt));
+    params.sessionManager.dispose(genSession.sessionId ?? "");
     if (dailyCap > 0) {
-      spent = params.store.addBudget(params.loopId, today, await tallyUsage(genSpec, genSessionId));
+      spent = params.store.addBudget(
+        params.loopId,
+        today,
+        await tallyUsage(params.sessionManager, genSession.sessionId ?? ""),
+      );
     }
 
     const headSha = (await git.revParse(cwd)).text().trim();
@@ -301,9 +309,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     const evaluatorPrompt = evalPrompt
       .replace("{acceptance}", acceptance)
       .replace("{filesChanged}", filesChanged || "none");
-
-    const evalSpec = params.buildSpec({
-      sessionId: evalSessionId,
+    const evalConfig = params.buildConfig({
       modelName: evalModel,
       cwd: workDir,
       skillRoots: skillRootsByRole("loop-verifier"),
@@ -316,17 +322,16 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
       // ignore
     }
 
-    const evalSession = params.sessionFactory.getOrCreate(evalSessionId, evalSpec);
-    await params.sessionFactory.enqueuePrompt(evalSessionId, evaluatorPrompt);
-    params.sessionFactory.dispose(evalSessionId);
+    const evalSession = params.sessionManager.create(evalConfig);
+    await evalSession.prompt(evaluatorPrompt);
+    params.sessionManager.dispose(evalSession.sessionId ?? "");
     if (dailyCap > 0) {
       spent = params.store.addBudget(
         params.loopId,
         today,
-        await tallyUsage(evalSpec, evalSessionId),
+        await tallyUsage(params.sessionManager, evalSession.sessionId ?? ""),
       );
     }
-
     // Read verdict
     const verdictMd = await Bun.file(verdictPath)
       .text()

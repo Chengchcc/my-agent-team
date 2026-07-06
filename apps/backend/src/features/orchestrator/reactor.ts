@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/service.js";
 import type { ColumnConfigService } from "../column-config/service.js";
@@ -6,8 +7,13 @@ import type { IssueRow } from "../issue/entities.js";
 import type { IssueService } from "../issue/service.js";
 import { emitIssueEvent } from "../runtime-ops/emit-issue-event.js";
 import type { RuntimeOpsStore } from "../runtime-ops/store.js";
-import type { SessionFactory } from "../span/session-factory.js";
-import { executeAgentRun, makeRunDeps } from "../span/span-executor.js";
+import {
+  createModel,
+  defaultContextManager,
+  defaultPlugins,
+  defaultTools,
+} from "../span/agent-helpers.js";
+import type { SessionManager } from "../span/session-manager.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
 import type { PromptVars } from "./render.js";
 import { renderPrompt } from "./render.js";
@@ -69,7 +75,7 @@ export interface StepRunnerDeps {
   supervisor: SpanSupervisor;
   convPort?: OrchestratorDeps["convPort"];
   now?: () => number;
-  sessionFactory?: SessionFactory;
+  sessionManager?: SessionManager;
 }
 
 export function createStepRunner(d: StepRunnerDeps) {
@@ -91,8 +97,6 @@ export function createStepRunner(d: StepRunnerDeps) {
     const spanId = d.idGen();
     const vars = buildPromptVars(issue, d.deliverableSvc.listByIssue(issue.issueId));
     const prompt = renderPrompt(t.promptTemplate, vars);
-    const sessionId = `${issue.issueId}:${t.agentId}`;
-
     if (d.convPort) {
       d.convPort.addMember({
         memberId: t.agentId,
@@ -104,20 +108,26 @@ export function createStepRunner(d: StepRunnerDeps) {
       });
     }
 
-    const runDeps = makeRunDeps({
-      config: d.config,
-      supervisor: d.supervisor,
-      opsStore: d.opsStore,
-      agentSvc: d.agentSvc as AgentService,
-      sessionFactory: d.sessionFactory,
+    const { modelName } = await d.agentSvc.getById(t.agentId);
+    const cwd = join(d.config.dataDir, "agents", t.agentId);
+    const session = d.sessionManager!.create({
+      model: createModel(modelName, d.config),
+      tools: defaultTools(cwd),
+      plugins: defaultPlugins(cwd, d.config),
+      contextManager: defaultContextManager(),
     });
-    await executeAgentRun(runDeps, {
-      spanId,
-      sessionId: sessionId,
-      agentId: t.agentId,
-      input: prompt,
-      origin: { kind: "orchestrator", issueId: issue.issueId, fromStatus: issue.status },
-    });
+    void session
+      .prompt(prompt, {
+        origin: {
+          agentMemberId: t.agentId,
+          originKind: "orchestrator",
+          issueId: issue.issueId,
+          fromStatus: issue.status,
+        },
+      })
+      .catch((err: unknown) => {
+        console.error(`[orchestrator] prompt error for ${spanId}:`, err);
+      });
 
     emitIssueEvent(d.opsStore, issue.issueId, "run.started", {
       spanId,
@@ -240,7 +250,7 @@ export interface OrchestratorDeps {
     }): { created: boolean };
   };
   now?: () => number;
-  sessionFactory?: SessionFactory;
+  sessionManager?: SessionManager;
 }
 
 export function createOrchestrator(deps: OrchestratorDeps) {
@@ -254,7 +264,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     supervisor: deps.supervisor,
     convPort: deps.convPort,
     now: deps.now,
-    sessionFactory: deps.sessionFactory,
+    sessionManager: deps.sessionManager,
   });
 
   const reactor = createTransitionReactor({

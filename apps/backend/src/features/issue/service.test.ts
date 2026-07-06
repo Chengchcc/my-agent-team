@@ -25,7 +25,7 @@ describe("IssueService", () => {
     expect(issue.title).toBe("Fix login bug");
     // M19: the run line is the conversation sessionId `<issueId>:<memberId>`
     // (member = the human owner), persisted in the legacy sessionId field.
-    expect(issue.sessionId).toBe("test-iss-0:owner");
+    expect(issue.sessionId).toBe("test-iss-0");
   });
 
   test("sessionId is derived as <issueId>:owner", () => {
@@ -33,7 +33,7 @@ describe("IssueService", () => {
       projectId: "proj-1",
       title: "Thread check",
     });
-    expect(issue.sessionId).toBe(`${issue.issueId}:owner`);
+    expect(issue.sessionId).toBe(issue.issueId);
   });
 
   test("applyTransition moves draft → planned", () => {

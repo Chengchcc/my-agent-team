@@ -10,7 +10,7 @@ import { assistantMessageId } from "@my-agent-team/message";
 import type { AgentEvent } from "./agent-event.js";
 import type { AgentRuntime, FollowUpQueue, SteeringQueue } from "./agent-options.js";
 import { executeOne, runOneCollect } from "./execute-one.js";
-import { wrapToolResult } from "./plugin-runner.js";
+import { wrapToolResult } from "./plugin-dispatcher.js";
 
 // ─── Pure helpers ──────────────────────────────────────────────
 

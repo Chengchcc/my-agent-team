@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import type { RunSpan } from "@my-agent-team/framework";
 import type { MessageRevision } from "@my-agent-team/message";
 import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 import { and, eq, isNull } from "drizzle-orm";
@@ -228,6 +229,78 @@ export class SpanSupervisor {
     };
     this.#active.set(spanId, session);
     return { spanId, attemptSeq };
+  }
+
+  /** OTel-style: create a RunSpan for a run. Writes span_origin (if origin provided),
+   *  run/attempt rows, and returns a RunSpan whose end() calls notifyRunComplete.
+   *  Replaces startMainRun for the new ctx.span flow. */
+  async startSpan(spanId: string, sessionId: string, opts?: unknown): Promise<RunSpan> {
+    // Write span_origin if origin data provided
+    if (opts && typeof opts === "object") {
+      const o = opts as Record<string, unknown>;
+      this.#opts.opsStore.insertSpanOrigin({
+        spanId,
+        conversationId: typeof o.conversationId === "string" ? o.conversationId : "",
+        sourceLedgerSeq: 0,
+        agentMemberId: typeof o.agentMemberId === "string" ? o.agentMemberId : "",
+        surface: typeof o.surface === "string" ? o.surface : "web",
+        idempotencyKey: spanId,
+        issueId: typeof o.issueId === "string" ? o.issueId : null,
+        cronJobId: typeof o.cronJobId === "string" ? o.cronJobId : null,
+        fromStatus: typeof o.fromStatus === "string" ? o.fromStatus : "",
+        originKind:
+          typeof o.originKind === "string"
+            ? (o.originKind as "manual" | "cron" | "orchestrator")
+            : "manual",
+        createdAt: Date.now(),
+      });
+    }
+
+    // Write run/attempt rows (same logic as startMainRun)
+    const agentId = (opts as { agentMemberId?: string } | undefined)?.agentMemberId ?? sessionId;
+    const now = Date.now();
+    const attemptSeq = await this.#d.transaction(async (tx) => {
+      await tx
+        .insert(schema.span)
+        .values({ spanId, sessionId, status: "running", startedAt: now })
+        .run();
+      const rows = tx
+        .select({ maxSeq: schema.attempt.seq })
+        .from(schema.attempt)
+        .where(eq(schema.attempt.spanId, spanId))
+        .all();
+      const nextSeq = rows.reduce((max, r) => Math.max(max, r.maxSeq ?? 0), 0) + 1;
+      await tx.insert(schema.attempt).values({ spanId, seq: nextSeq, startedAt: now }).run();
+      return nextSeq;
+    });
+
+    const session: RunSession = {
+      spanId,
+      attemptSeq,
+      sessionId,
+      agentId,
+      kind: "main",
+      abortController: new AbortController(),
+    };
+    this.#active.set(spanId, session);
+
+    let ended = false;
+    return {
+      spanId,
+      sessionId,
+      end: (status: "succeeded" | "error" | "interrupted", errorMessage?: string) => {
+        if (ended) return;
+        ended = true;
+        void this.notifyRunComplete(
+          sessionId,
+          spanId,
+          status,
+          "main",
+          attemptSeq,
+          errorMessage,
+        ).catch((err) => console.error(`[supervisor] span.end failed for ${spanId}:`, err));
+      },
+    };
   }
 
   cancel(spanId: string): boolean {

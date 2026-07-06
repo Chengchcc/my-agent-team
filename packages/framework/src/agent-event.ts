@@ -59,6 +59,7 @@ const agentEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("interrupted"), payload: interruptSchema }),
   z.object({
     type: z.literal("todo_update"),
+    spanId: z.string().optional(),
     payload: z.object({
       todos: z.array(
         z.object({ step: z.string(), status: z.enum(["pending", "in_progress", "done"]) }),

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk, ChatModel, Tool } from "@my-agent-team/core";
 import { createAgent } from "@my-agent-team/framework";
-import { conversationContextPlugin } from "./conversation-context-plugin.js";
+import {
+  type ConversationContext,
+  conversationContextPlugin,
+} from "./conversation-context-plugin.js";
 
 function echoModel(text: string): ChatModel {
   return {
@@ -30,7 +33,6 @@ describe("conversationContextPlugin", () => {
   test("registers tools on the agent", async () => {
     const plugin = conversationContextPlugin({
       tools: [dummyTool],
-      systemPrompt: "<conv>test</conv>",
     });
 
     expect(plugin.name).toBe("conversation-context");
@@ -38,40 +40,56 @@ describe("conversationContextPlugin", () => {
     expect(plugin.tools![0]!.name).toBe("test_tool");
   });
 
-  test("injects system prompt before model call", async () => {
-    const plugin = conversationContextPlugin({
-      tools: [],
-      systemPrompt: "<conv>\n  <surface>web</surface>\n</conv>",
-    });
+  test("injects conversation context from ctx.data before model call", async () => {
+    const plugin = conversationContextPlugin({ tools: [] });
 
     const agent = await createAgent({
       model: echoModel("hello"),
       plugins: [plugin],
     });
 
-    const events = await collect(agent.run("hi"));
-    const messages = events.filter((e) => e.type === "message");
+    const conv: ConversationContext = {
+      id: "conv-1",
+      surface: "web",
+      senderName: "alice",
+      input: "hi",
+    };
 
-    // Model produced output (the injected system message fed the LLM context)
+    const events = await collect(
+      agent.run("hi", { data: conv as unknown as Record<string, unknown> }),
+    );
+    const messages = events.filter((e) => e.type === "message");
     expect(messages.length).toBeGreaterThan(0);
-    // beforeModel injects messages for the model call, not thread persistence.
-    // The plugin works if the agent runs to completion without error.
     const doneMsg = messages.find((m) => m.payload.state === "done");
     expect(doneMsg).toBeDefined();
   });
 
-  test("does not require any tools", async () => {
-    const plugin = conversationContextPlugin({
-      tools: [],
-      systemPrompt: "minimal context",
-    });
+  test("does not inject when ctx.data is undefined", async () => {
+    const plugin = conversationContextPlugin({ tools: [] });
 
     const agent = await createAgent({
       model: echoModel("ok"),
       plugins: [plugin],
     });
 
+    // No conversation opts — plugin should pass messages through unchanged
     await collect(agent.run("test"));
+    expect(agent.thread.messages.length).toBeGreaterThan(0);
+  });
+
+  test("does not require any tools", async () => {
+    const plugin = conversationContextPlugin({ tools: [] });
+
+    const agent = await createAgent({
+      model: echoModel("ok"),
+      plugins: [plugin],
+    });
+
+    await collect(
+      agent.run("test", {
+        data: { id: "c1", surface: "web", senderName: "test", input: "test" },
+      }),
+    );
     expect(agent.thread.messages.length).toBeGreaterThan(0);
   });
 });

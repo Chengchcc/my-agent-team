@@ -12,75 +12,61 @@ import type { ContextManager } from "./context-manager.js";
 import type { Logger } from "./logger.js";
 import type { Plugin, StopDecision } from "./plugin.js";
 import type { Thread } from "./thread.js";
+import type { RunSpan } from "./trace.js";
 
 export interface ResumeCommand {
   approved: boolean;
   message?: string;
 }
 
-/** Process-local queue for in-run steering messages.
- *  Callers push messages externally; runLoop drains at each step boundary. */
 export interface SteeringQueue {
-  /** Non-blocking: returns all pending steering messages and clears the queue. */
   drain(): Message[];
 }
 
-/** Process-local queue for follow-up messages.
- *  Follow-ups are consumed after the inner step loop exhausts (end of current "task"). */
 export interface FollowUpQueue {
   drain(): Message[];
 }
 
-export interface AgentRunOptions {
+export interface AgentRunOptions<Ctx = Record<string, unknown>> {
   signal?: AbortSignal;
   maxSteps?: number;
   stream?: boolean;
   maxForceContinues?: number;
-  /** M17.2: The run's identity, assigned by the runner/backend. Injected so
-   *  framework can emit MessageRevision with the correct messageId. Falls
-   *  back to thread.id when not provided (standalone mode). */
   spanId?: string;
-  /** Optional steering queue — messages pushed externally appear at the next step boundary. */
   steering?: SteeringQueue;
-  /** Optional follow-up queue — messages consumed after inner steps exhaust. */
   followUp?: FollowUpQueue;
+  origin?: unknown;
+  /** Per-run data, flushed to HookContext.data by framework at run start. */
+  data?: Ctx;
 }
 
 export type AgentEventListener = (event: AgentEvent) => void;
 
-export interface Agent {
+export interface Agent<Ctx = Record<string, unknown>> {
   readonly thread: Thread;
-  run(input: string, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
-  /** Continue from existing checkpoint messages without appending a new user
-   *  message. Use when the conversation context has already been written to the
-   *  checkpointer. Fails if no user message exists. */
-  continue(opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
-  resume(command: ResumeCommand, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
-  fork(messages?: Message[], id?: string): Agent;
-  /** Subscribe to agent events. Returns an unsubscribe function.
-   *  Subscribers are notified when events are yielded from run/continue/resume. */
+  run(input: string, opts?: AgentRunOptions<Ctx>): AsyncIterable<AgentEvent>;
+  continue(opts?: AgentRunOptions<Ctx>): AsyncIterable<AgentEvent>;
+  resume(command: ResumeCommand, opts?: AgentRunOptions<Ctx>): AsyncIterable<AgentEvent>;
+  fork(messages?: Message[], id?: string): Agent<Ctx>;
   subscribe(listener: AgentEventListener): () => void;
 }
 
-export interface AgentConfig {
+export interface AgentConfig<Ctx = Record<string, unknown>> {
   model: ChatModel;
   tools?: readonly Tool[];
   systemPrompt?: string;
-  plugins?: readonly Plugin[];
+  plugins?: readonly Plugin<Ctx>[];
   checkpointer?: Checkpointer;
   contextManager?: ContextManager;
   logger?: Logger;
   sessionId?: string;
-  /** Persistent memory line key. */
-  /** Preloaded messages to bootstrap the thread. When provided, bypasses
-   *  checkpointer.load() for the initial message state. The checkpointer
-   *  is still used for subsequent saves during the run. */
   messages?: Message[];
+  startSpan?: (spanId: string, sessionId: string, opts?: unknown) => Promise<RunSpan> | RunSpan;
 }
 
-// ─── Plugin runner ──────────────────────────────────────────────
-
-export interface PluginRunner {
+export interface PluginRunner<Ctx = Record<string, unknown>> {
+  /** Phantom key to carry Ctx for type inference. Not used at runtime. */
+  readonly _ctx?: Ctx;
   fireBeforeModel(msgs: Message[]): Promise<Message[]>;
   fireAfterModel(msgs: readonly Message[]): Promise<void>;
   fireBeforeTool(
@@ -96,12 +82,10 @@ export interface PluginRunner {
   fireBeforeStop(msgs: readonly Message[]): Promise<StopDecision | undefined>;
 }
 
-// ─── Agent runtime (bundles shared state for extracted functions) ──
-
-export interface AgentRuntime {
+export interface AgentRuntime<Ctx = Record<string, unknown>> {
   thread: Thread;
-  plugins: PluginRunner;
-  toolMap: Map<string, Tool>;
+  plugins: PluginRunner<Ctx>;
+  toolMap: ReadonlyMap<string, Tool>;
   checkpointer: Checkpointer;
   contextManager: ContextManager;
   logger: Logger;
@@ -109,15 +93,8 @@ export interface AgentRuntime {
   tools: readonly Tool[];
   pendingEvents: AgentEvent[];
   save: (msgs: Message[]) => Promise<void>;
-  /** M17.2: The run's identity — set at run/continue/resume start. */
   spanId: string;
-  /** M17.2: Accumulated tool states for the current assistant message.
-   *  Updated in-place by executeOne; read when emitting message revisions. */
   toolStates: MessageToolState[];
-  /** M17.2 fix: Run-level accumulated assistant blocks — all emit revisions use
-   *  the full accumulated set so consumer mergeMessageRevision shows complete history.
-   *  Per-step blocks are still pushed to thread.messages for LLM context. */
   assistantBlocks: ContentBlock[];
-  /** Subscribers notified after each event is yielded. */
   subscribers: Set<AgentEventListener>;
 }
