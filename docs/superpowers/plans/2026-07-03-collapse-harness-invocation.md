@@ -1,246 +1,141 @@
-# Plan: 塌缩 harness 调用层 (Handoff-ready)
+# Plan: 塌缩 harness 调用层 (v4 — TDD 顺序)
 
-## 风险总览
+## LSP 精确分析
 
-### 🔴 高 —— 测试全面破坏
-| 风险 | 文件 | 详情 |
-|------|------|------|
-| FakeSessionFactory 删除 | `test-helpers/mock-deps.ts:338-391` | 仅 `http.test.ts` 用，需改为 `Map<string, AgentSession>` |
-| loop mockSessionFactory | `loop-step.test.ts:145` | 本地 mock，实现完整 SessionFactory iface，需适配 |
-| span-executor.test.ts 删除 | 整个文件 | `executeAgentRun` 测试跟着死 |
-| session-factory.test.ts 删除 | 整个文件 | 13 个测试跟着死 |
-
-### 🟡 中 —— 调用链断裂
-| 风险 | 文件 | 详情 |
-|------|------|------|
-| reaper dispose | `main.ts:95` | `onReap: sessionFactory.dispose(sid)` → 需 `sessionMap.get(sid)?.dispose()` |
-| resume peek | `http.ts:23` | `factory.peek(sid)` → `sessionMap.get(sid)` |
-| cron fire() 用 executeAgentRun | `scheduler.ts:67-80` | 改为直接 `new AgentSession` + `prompt()` |
-| orchestrator startStep 用 executeAgentRun | `reactor.ts:107-114` | 同上 |
-| conversation startAgentRun 用 executeAgentRun | `conversation-compose.ts:131-165` | 同上，最复杂（有 subscribe 回调和 parseSessionId） |
-| cron fireLoop 用 sessionFactory | `scheduler.ts:106,118` | 改为直接创建 session |
-
-### 🟢 低 —— 概念清理
-| 风险 | 文件 | 详情 |
-|------|------|------|
-| parseSessionId 删除 | `run-accumulator.ts:135`, `conversation-compose.ts:85,87,160`, `service.ts:36` | `conversationId` 和 `memberId` 改为 DB 查或参数传 |
-| deriveSessionId 删除 | `service.ts:23` | 仅 `forkAgentRuns:166` 调用 |
-| OWNER_MEMBER_ID | `cron/service.ts:106`, `issue/service.ts:75,99` | 保留——是 conversation member 概念，非 session |
-| buildSessionSpec in cron scheduler | `scheduler.ts:148-161` | 改为直接构建 AgentSessionConfig |
-| conversation_session 表 | `schema.ts` | 新增: `(conversationId, agentMemberId) → sessionId` |
-| traceId 列删除 | `schema.ts`, drizzle snapshots | Migration 生成 |
+| 删除/修改的符号 | 源码引用（文件数×引用数） | 测试引用 |
+|---|---|---|
+| SessionFactory | 7 × 18 | session-factory.test.ts, loop-step.test.ts, http.test.ts |
+| SessionSpec | 3 × 5（+8 自身） | loop-step.test.ts |
+| buildSessionSpec | 4 × 7 | 无 |
+| createSessionFactory | 3 × 5 | session-factory.test.ts |
+| executeAgentRun | 4 × 7 | span-executor.test.ts |
+| makeRunDeps | 4 × 7 | span-executor.test.ts |
+| RunDeps/RunRequest/SpanOrigin | 仅自身 | 无 |
+| parseSessionId | 3 × 8 | 无 |
+| deriveSessionId | 1 × 2 | 无 |
+| FakeSessionFactory | mock-deps + http.test.ts | — |
 
 ---
 
-## Phase 1: tracePlugin (新增)
+## 执行顺序 (TDD)
 
-**Target**: `packages/plugin-trace/src/index.ts`
+### Step 1: tracePlugin —— 纯新增，标准 TDD
 
-```ts
-// hooks:
-//   onSessionCreate → spanId = ulid(), INSERT span + attempt, emit spanId
-//   onAgentEnd → finalize span via supervisor
-
-export function defineTracePlugin(opts: {
-  opsStore: RuntimeOpsStore;
-  supervisor: SpanSupervisor;
-}): Plugin {
-  let spanId: string | null = null;
-  let attemptSeq: number | null = null;
-
-  return {
-    name: "trace",
-    hooks: {
-      async beforeRun(ctx, messages) {
-        spanId = crypto.randomUUID();
-        attemptSeq = await supervisor.startMainRun(spanId, ctx.sessionId, {...});
-      },
-      async onEvent(event) {
-        if (event.type === "agent_end") {
-          await supervisor.notifyRunComplete(
-            ctx.sessionId, spanId!, event.status, "main", attemptSeq
-          );
-        }
-      },
-    },
-  };
-}
+```
+1. 写 test → 跑红
+2. 写 plugin impl → 跑绿
+3. bun test packages/plugin-trace/
 ```
 
-**Note**: tracePlugin 目前不能是 "true plugin"（hooks 接口不支持 onEvent）。先用 **wrapper 函数**——在外面 subscribe session 事件来处理 supervisor 回调。plugin 标记为后续迁移。
+**验证信号**: 新增代码自测通过，不影响任何现有代码。
 
-## Phase 2: 删除旧代码
+---
 
-### 2a. 删除文件
-```
-rm apps/backend/src/features/span/span-executor.ts
-rm apps/backend/src/features/span/span-executor.test.ts
-rm apps/backend/src/features/span/session-factory.ts
-rm apps/backend/src/features/span/session-factory.test.ts
-```
+### Step 2: http.test.ts —— 有测试，先改 test
 
-### 2b. 删除 mock-deps 相关
 ```
-mock-deps.ts: drop FakeSessionFactory (lines 338-391)
-mock-deps.ts: drop makeRunDeps (line 468, unused)
-mock-deps.ts: drop fakeGetSessionIdByRunId — 改为 sessionMap 查询
+1. 改 http.test.ts: fakeSessionFactory → fakeSessionMap
+   改 makeApp: { sessionFactory } → { sessionMap: Map<string, mock> }
+   → bun test http.test.ts → 跑红（源码还是 SessionFactory）
+
+2. 改 http.ts: resumeRoutes(deps: { sessionFactory }) → deps: { sessionMap: Map<string, AgentSession> }
+   factory.peek(sid) → sessionMap.get(sid)
+   → bun test http.test.ts → 跑绿
 ```
 
-## Phase 3: ID 模型修正
+**验证信号**: resume 测试全绿。其他引用 SessionFactory 的代码不受影响（session-factory.ts 还在）。
 
-### 3a. schema.ts
-```
-+ conversation_session 表:
-    conversationId text PK
-    agentMemberId text PK
-    sessionId text not null
+---
 
-- span_origin.traceId 列
-- span_origin.traceparent 列
-```
+### Step 3: loop-step.test.ts —— 有测试，先改 test
 
-### 3b. service.ts
 ```
-- deriveSessionId()
-- parseSessionId()
-保留 OWNER_MEMBER_ID (是 member 概念，非 session)
-```
+1. 改 loop-step.test.ts:
+   - mockSessionFactory → buildConfig 回调返回 AgentSessionConfig
+   - SessionSpec 类型引用 → AgentSessionConfig
+   → bun test loop-step.test.ts → 跑红（源码还是旧接口）
 
-### 3c. 迁移
-```bash
-bunx drizzle-kit generate
+2. 改 loop-step.ts + loop/http.ts:
+   - SessionFactory → 删入参
+   - SessionSpec → AgentSessionConfig
+   - buildSpec 回调签名更新
+   - factory.getOrCreate + enqueuePrompt → new AgentSession(config).prompt()
+   → bun test loop-step.test.ts → 跑绿
+   → bun test apps/backend/src/features/loop/ → 全绿
 ```
 
-## Phase 4: 各 Feature 迁移
+**验证信号**: loop step 测试全绿。
 
-### 4a. Conversation (最复杂)
+---
 
-**conversation-compose.ts `startAgentRun`**:
-```ts
-startAgentRun: async (spanId, sessionId, ctx) => {
-  // 1. 构建 config
-  const agent = await agentSvc.getById(ctx.agentId);
-  const config: AgentSessionConfig = {
-    sessionId,
-    model: makeModel(agent),
-    tools: [bashTool, readTool, writeTool, ...convTools],
-    plugins: [tracePlugin, identityPlugin, conversationContextPlugin, ...],
-    checkpointer: sqliteCheckpointer({ db: ... }),
-    contextManager: pipeContextManagers(truncator, autoSummarize),
-  };
+### Step 4: 无测试的 feature —— typecheck 守卫，逐个迁移
 
-  // 2. 创建 session (不 dispose — conversation session 复用)
-  const session = new AgentSession(config);
+```
+4a. conversation-compose.ts:
+    - 删 makeRunDeps + executeAgentRun 调用
+    - 改为 new AgentSession(config) + subscribe + prompt
+    - 删 parseSessionId 调用 → conversationId/memberId 从 ctx 拿
+    → bun run typecheck apps/backend/  ← 每改一个，即时验
 
-  // 3. subscribe 事件
-  session.subscribe((event) => {
-    if (event.type === "message" || event.type === "message_update") {
-      void handleAssistantMessage(ctx.conversationId, ctx.agentMemberId, event.payload);
-    }
-    if (event.type === "todo_update") {
-      acc.lastTodoUpdate = event.payload;
-    }
-  });
+4b. cron/scheduler.ts:
+    - fire(): 删 executeAgentRun → new AgentSession + prompt
+    - fireLoop(): 删 buildSessionSpec/sessionFactory → buildAgentConfig
+    → bun run typecheck apps/backend/
 
-  // 4. 跑
-  await session.prompt(ctx.input ?? "");
-}
+4c. orchestrator/reactor.ts:
+    - startStep: 删 executeAgentRun → new AgentSession + prompt
+    → bun run typecheck apps/backend/
+
+4d. install-session.ts:
+    - new AgentSession(config).prompt()（已经接近，删 factory import 即可）
+    → bun run typecheck apps/backend/
+
+4e. main.ts:
+    - 删 createSessionFactory, buildSessionSpec import
+    - 加 sessionMap: Map<string, AgentSession>
+    - supervisor reaper: onReap(sid) → sessionMap.get(sid)?.dispose()
+    - resumeRoutes: { sessionMap, getSessionIdByRunId }
+    - loop/install wiring 简化
+    → bun run typecheck apps/backend/
 ```
 
-**关键改动**:
-- `handleAssistantMessage` 不再需要 `parseSessionId`——conversationId/memberId 直接来自 ctx
-- `onRunComplete` → 改为 supervisor.onRunComplete 监听，sessionId 由 supervisor 事件提供
-- `run-accumulator.ts:135` 的 `parseSessionId(sessionId)` → sessionId 不再编码语义，需要修改 supervisor.onRunComplete 回调签名加上 `conversationId`
+**验证信号**: 每个 feature 改完后 typecheck 即时绿。
 
-### 4b. Cron
+---
 
-**scheduler.ts `fire()`**:
-```ts
-const config: AgentSessionConfig = {
-  sessionId, model, tools, plugins: [tracePlugin], ...
-};
-const session = new AgentSession(config);
-session.subscribe(ev => { if (ev.type === "agent_end") handleComplete(spanId); });
-await session.prompt(input);
-session.dispose();
+### Step 5: 清场 —— typecheck 自动发现残留
+
+```
+1. 删 span-executor.ts
+   → typecheck 报: span-executor.test.ts 找不到 import → 删 test
+   → typecheck 报: mock-deps.ts 的 makeRunDeps 引用不存在 → 删 mock-deps 里的 makeRunDeps
+
+2. 删 session-factory.ts
+   → typecheck 报: session-factory.test.ts 找不到 import → 删 test
+   → typecheck 报: mock-deps.ts 的 FakeSessionFactory 等引用不存在 → 删
+
+3. 删 conversation/service.ts 里的 parseSessionId / deriveSessionId
+   → typecheck 报: index.ts re-export 找不到 → 更新 barrel
+   → typecheck 报: conversation-compose / run-accumulator 引用不存在 → 已改过，确认 OK
+
+4. 删 schema.ts 里的 traceId / traceparent 列 → drizzle generate
+
+5. bun run test → 全绿
 ```
 
-`fireLoop` 也一样——删 sessionFactory 入参，去掉 `buildSpec` 回调解包。
+**验证信号**: typecheck 做导游——哪个删了报错就清理哪个，不会多删不会漏删。最后全仓 test 绿。
 
-### 4c. Orchestrator
+---
 
-`reactor.ts startStep`：同 cron 路径。
+## 不做的
 
-### 4d. Loop
+- `OWNER_MEMBER_ID` 保留——是 conversation member 概念，不是 session 概念
+- `ModelFactory` 移到 `title.ts` 内联定义（只有一个外部使用者）
+- `conversation_session` 表本次不做——session 持久化映射延后，当前 `parseSessionId` 的替代用 DB 查 `span` 表即可（`opsStore.getSpanOrigin` 已返回 `conversationId`）
 
-**loop-step.ts**:
-- 删 `sessionFactory` 入参，删 `SessionSpec` 类型
-- `buildSpec` 回调改为返回 `AgentSessionConfig`
-- 内部: `new AgentSession(config).prompt(...)` 替代 `factory.getOrCreate + enqueuePrompt`
-
-**loop/http.ts**:
-- 删 `sessionFactory` 入参
-- `buildSpec` 回调类型更新
-
-**cron/scheduler.ts fireLoop**:
-- 删 `buildSpec` 内部 helper
-- 直接传 `AgentSessionConfig` 构建函数给 loopStep
-
-### 4e. install-session.ts
-
-改为 `new AgentSession(config).prompt()` —— 已经接近了，只需删 sessionFactory 相关 import。
-
-## Phase 5: main.ts 清理
-
-```ts
-// 删除
-- const sessionFactory = createSessionFactory({ config });
-- import { buildSessionSpec, createSessionFactory } from ...
-
-// 新增
-+ const sessionMap = new Map<string, AgentSession>();
-
-// 改动
-- supervisor reaper: onReap: sessionFactory.dispose(sid)
-+ supervisor reaper: onReap: sessionMap.get(sid)?.dispose()
-
-- resumeRoutes({ sessionFactory, ... })
-+ resumeRoutes({ sessionMap, ... })
-
-- loopRoutes(..., sessionFactory, buildSessionSpec(...), ...)
-+ loopRoutes(..., (params) => buildAgentConfig(params), ...)
-
-- cron scheduler deps: sessionFactory
-+ cron scheduler deps: (nothing — it creates sessions directly)
-
-- orchestrator deps: sessionFactory
-+ orchestrator deps: (nothing)
-
-- conversation compose: _sessionFactory
-+ conversation compose: (nothing — it creates sessions directly)
-```
-
-## Phase 6: 测试修复
-
-| 文件 | 变更 |
-|------|------|
-| `http.test.ts` | `fakeSessionFactory` → `Map<string, mock>` |
-| `loop-step.test.ts` | `mockSessionFactory` → `new AgentSession` mock |
-| `conversation-compose.test.ts` (if any) | adapt to new path |
-| `supervisor.test.ts` | reaper 改为 `Map.get(id)?.dispose()` |
-| `mock-deps.ts` | 删 FakeSessionFactory, 加 `fakeSessionMap()` |
-
-## Phase 7: 验证
+## 验收
 
 ```bash
-bun run typecheck   # 全仓
-bun run test        # 全仓 test
+bun run typecheck  # 全绿
+bun run test       # 全绿
 ```
-
-## 执行顺序 (严格有向)
-
-```
-Phase 1 (tracePlugin) → Phase 2 (delete) → Phase 3 (schema) → Phase 4 (migrate) → Phase 5 (main) → Phase 6 (tests) → Phase 7 (verify)
-```
-
-Phase 2-3 可并行。Phase 4 依赖 2+3。Phase 5 依赖 4。Phase 6 依赖 5。
