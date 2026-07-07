@@ -1,10 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useAgentList, useArchiveAgent } from "@/features/agents/hooks";
+import { useAgentRuntimes } from "@/features/ops/hooks";
+import type { AgentRuntimeStatus } from "@/lib/api";
+
+/** Derive a dot color + label from an agent's runtime surface health. */
+function runtimeBadge(rt: AgentRuntimeStatus | undefined): {
+  color: string;
+  label: string;
+  lastSeenAt: number | null;
+} {
+  if (!rt) return { color: "bg-[var(--mute)]", label: "Unknown", lastSeenAt: null };
+  const surfaces = Object.values(rt.surfaces);
+  if (surfaces.length === 0) return { color: "bg-[var(--primary)]", label: "Idle", lastSeenAt: null };
+  const hasError = surfaces.some((s) => s.status !== "running" || s.lastError);
+  const lastSeenAt = surfaces.reduce<number | null>((max, s) => {
+    if (s.lastSeenAt == null) return max;
+    return max == null || s.lastSeenAt > max ? s.lastSeenAt : max;
+  }, null);
+  if (hasError) return { color: "bg-[var(--chart-5)]", label: "Error", lastSeenAt };
+  return { color: "bg-[var(--primary)]", label: "Ready", lastSeenAt };
+}
+
+function ago(ts: number | null): string {
+  if (!ts) return "";
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
+}
 
 export function AgentList() {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -12,6 +40,15 @@ export function AgentList() {
   const { data: agents, isLoading } = useAgentList();
   const archive = useArchiveAgent();
 
+  const active = (agents ?? []).filter((a) => !a.archivedAt);
+  const agentIds = active.map((a) => a.id);
+  // ponytail: refetch every 15s keeps the dot fresh without a websocket.
+  const { data: runtimes } = useAgentRuntimes(agentIds, { refetchInterval: 15_000 });
+  const runtimeById = useMemo(() => {
+    const m = new Map<string, AgentRuntimeStatus>();
+    for (const rt of runtimes ?? []) m.set(rt.agentId, rt);
+    return m;
+  }, [runtimes]);
   function handleArchive(id: string) {
     setConfirmingId(id);
     archive.mutate(id, {
@@ -42,8 +79,6 @@ export function AgentList() {
       </div>
     );
   }
-
-  const active = (agents ?? []).filter((a) => !a.archivedAt);
 
   if (active.length === 0) {
     return (
@@ -85,6 +120,21 @@ export function AgentList() {
               >
                 {agent.modelProvider}/{agent.modelName}
               </span>
+            </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              {(() => {
+                const badge = runtimeBadge(runtimeById.get(agent.id));
+                return (
+                  <>
+                    <span className={`w-1.5 h-1.5 rounded-full ${badge.color}`} />
+                    <span className="text-[10px] text-[var(--mute)] tracking-wider uppercase font-[family-name:var(--font-sans)] font-semibold">
+                      {badge.label}
+                      {ago(badge.lastSeenAt) ? ` · ${ago(badge.lastSeenAt)}` : ""}
+                    </span>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="mt-4 flex items-center gap-3 text-[10px] text-[var(--mute)]">
