@@ -47,7 +47,6 @@ export default function NewLoopPage() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createConv.mutate, convId]);
 
   if (!convId) {
