@@ -58,6 +58,10 @@ function NavContent() {
     queryFn: () => api.listConversations(),
     staleTime: 10_000,
   });
+  // Loop/Cron conversations belong in Work, not Chat — exclude them from the rail.
+  const chatConversations = (conversations ?? []).filter(
+    (c) => "origin" in c && c.origin !== "loop" && c.origin !== "cron",
+  );
   const deleteConversation = useDeleteConversation();
   const createConversation = useCreateConversation();
 
@@ -143,10 +147,10 @@ function NavContent() {
         </SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
-            {(conversations ?? []).length === 0 && (
+            {chatConversations.length === 0 && (
               <p className="text-xs text-muted-foreground px-2">No conversations yet</p>
             )}
-            {(conversations ?? []).map((conv) => {
+            {chatConversations.map((conv) => {
               const title = conv.title ?? `Conversation ${conv.conversationId.slice(0, 8)}`;
               return (
                 <SidebarMenuItem key={conv.conversationId}>
