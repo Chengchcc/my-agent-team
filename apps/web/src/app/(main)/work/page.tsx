@@ -35,7 +35,7 @@ export default function WorkTodayPage() {
 
   const draftLoops = (loopsData?.loops ?? []).filter((l: LoopRow) => l.enabled === false);
 
-  const todayRuns = (runs ?? []).filter((r: RunOpsListItem) => isToday(r.startTime ?? r.createdAt));
+  const todayRuns = (runs ?? []).filter((r: RunOpsListItem) => isToday(r.startedAt));
   const succeeded = todayRuns.filter((r) => r.status === "succeeded").length;
   const failed = todayRuns.filter((r) => r.status === "failed" || r.status === "error").length;
   const running = todayRuns.filter((r) => r.status === "running").length;
@@ -92,8 +92,8 @@ export default function WorkTodayPage() {
             <div className="grid gap-3">
               {draftLoops.map((loop) => (
                 <Link
-                  key={loop.id}
-                  href={`/work/${loop.id}`}
+                  key={loop.cronJobId}
+                  href={`/work/${loop.cronJobId}`}
                   className="block rounded-lg border border-[var(--hairline)] bg-[var(--canvas-soft)] px-4 py-3 hover:border-[var(--primary)] transition-colors"
                 >
                   <div className="flex items-center justify-between gap-3">

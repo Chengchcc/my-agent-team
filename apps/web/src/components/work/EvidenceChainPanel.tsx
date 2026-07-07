@@ -53,9 +53,7 @@ export function EvidenceChainPanel({ loopId, item }: { loopId: string; item: Loo
     );
   }
 
-  const genRunHref = item.generatorSpanId
-    ? `/work/${loopId}/runs/${item.generatorSpanId}`
-    : null;
+  const genRunHref = item.generatorSpanId ? `/work/${loopId}/runs/${item.generatorSpanId}` : null;
 
   return (
     <div className="space-y-4">
@@ -110,10 +108,7 @@ export function EvidenceChainPanel({ loopId, item }: { loopId: string; item: Loo
             <div className="flex justify-between items-center">
               <span className="text-[var(--mute)]">Span ID</span>
               {genRunHref ? (
-                <Link
-                  href={genRunHref}
-                  className="font-mono text-xs text-blue-600 hover:underline"
-                >
+                <Link href={genRunHref} className="font-mono text-xs text-blue-600 hover:underline">
                   {item.generatorSpanId}
                 </Link>
               ) : (
