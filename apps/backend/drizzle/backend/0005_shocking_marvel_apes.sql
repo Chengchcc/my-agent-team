@@ -1,0 +1,1 @@
+ALTER TABLE `member` ADD `session_id` text;
