@@ -1,6 +1,6 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ActivityIcon,
   BotIcon,
@@ -39,13 +39,12 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { useAgentList } from "@/features/agents/hooks";
 import {
   conversationKeys,
-  useConversationList,
   useCreateConversation,
   useDeleteConversation,
 } from "@/features/conversations/hooks";
+import { api } from "@/lib/api";
 
 function NavContent() {
   const pathname = usePathname();
@@ -53,174 +52,169 @@ function NavContent() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const { data: agents } = useAgentList();
-
-  const activeAgents = (agents ?? []).filter((a) => !a.archivedAt);
-  const agentIdMatch = pathname.match(/\/team\/([^/]+)/);
-  const selectedAgentId = agentIdMatch?.[1] ?? null;
-
-  const { data: conversations } = useConversationList(selectedAgentId!);
+  // ponytail: global recent conversations — no agent scoping in the rail anymore
+  const { data: conversations } = useQuery({
+    queryKey: conversationKeys.all,
+    queryFn: () => api.listConversations(),
+    staleTime: 10_000,
+  });
   const deleteConversation = useDeleteConversation();
-
   const createConversation = useCreateConversation();
 
   function closeMobile() {
     setOpenMobile(false);
   }
 
+  function makeConversation() {
+    const humanId = `human-${crypto.randomUUID().slice(0, 8)}`;
+    createConversation.mutate(
+      {
+        members: [
+          { memberId: "default", kind: "agent", agentId: "default", displayName: "Assistant" },
+          { memberId: humanId, kind: "human", displayName: "User" },
+        ],
+      },
+      {
+        onSuccess: (conv) => {
+          queryClient.invalidateQueries({ queryKey: conversationKeys.all });
+          closeMobile();
+          router.push(`/chat/${conv.conversationId}`);
+        },
+        onError: (err) => {
+          toast.error("Failed to create conversation", {
+            description: err instanceof Error ? err.message : "Unknown error",
+          });
+        },
+      },
+    );
+  }
+
   return (
     <SidebarContent>
-      {/* Workspace — Agents */}
+      {/* Work */}
       <SidebarGroup>
-        <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-        <SidebarGroupContent>
-          <SidebarMenu>
-            {activeAgents.length === 0 && (
-              <p className="text-xs text-muted-foreground px-2">No agents yet</p>
-            )}
-            {activeAgents.map((agent) => (
-              <SidebarMenuItem key={agent.id}>
-                <SidebarMenuButton
-                  isActive={pathname.startsWith(`/team/${agent.id}`)}
-                  tooltip={agent.name}
-                  onClick={() => {
-                    closeMobile();
-                    router.push(`/team/${agent.id}`);
-                  }}
-                >
-                  <BotIcon />
-                  <span className="truncate">{agent.name}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroupContent>
-      </SidebarGroup>
-
-      {/* Conversations (when agent selected) */}
-      {selectedAgentId && (
-        <SidebarGroup>
-          <SidebarGroupLabel>
-            Conversations
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              disabled={createConversation.isPending}
-              onClick={() => {
-                const a = activeAgents.find((ag) => ag.id === selectedAgentId);
-                createConversation.mutate(
-                  {
-                    members: [
-                      {
-                        memberId: selectedAgentId!,
-                        kind: "agent" as const,
-                        agentId: selectedAgentId!,
-                        displayName: a?.name,
-                      },
-                      {
-                        memberId: `human-${crypto.randomUUID().slice(0, 8)}`,
-                        kind: "human" as const,
-                        userRef: "__legacy__",
-                        displayName: "User",
-                      },
-                    ],
-                  },
-                  {
-                    onSuccess: (conv) => {
-                      closeMobile();
-                      router.push(`/chat/${conv.conversationId}`);
-                    },
-                    onError: (err) => {
-                      toast.error("Failed to create conversation", {
-                        description: err instanceof Error ? err.message : "Unknown error",
-                      });
-                    },
-                  },
-                );
-              }}
-              className="ml-auto text-primary hover:text-primary/80"
-              aria-label="New conversation"
-            >
-              <PlusIcon />
-            </Button>
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {(conversations ?? []).length === 0 && (
-                <p className="text-xs text-muted-foreground px-2">No conversations yet</p>
-              )}
-              {(conversations ?? []).map((conv) => {
-                const title = conv.title ?? `Conversation ${conv.conversationId.slice(0, 8)}`;
-                return (
-                  <SidebarMenuItem key={conv.conversationId}>
-                    <SidebarMenuButton
-                      isActive={pathname === `/chat/${conv.conversationId}`}
-                      tooltip={title}
-                      onClick={() => {
-                        closeMobile();
-                        router.push(`/chat/${conv.conversationId}`);
-                      }}
-                    >
-                      <MessageSquareIcon />
-                      <span className="truncate">{title}</span>
-                    </SidebarMenuButton>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={<SidebarMenuAction showOnHover aria-label="Conversation actions" />}
-                      >
-                        <MoreHorizontalIcon />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent side="right" align="start" className="w-44">
-                        <DropdownMenuItem
-                          variant="destructive"
-                          disabled={deleteConversation.isPending}
-                          onClick={() =>
-                            deleteConversation.mutate(conv.conversationId, {
-                              onSuccess: () => {
-                                queryClient.invalidateQueries({
-                                  queryKey: conversationKeys.byAgent(selectedAgentId!),
-                                });
-                                if (pathname === `/chat/${conv.conversationId}`) {
-                                  router.push(selectedAgentId ? `/team/${selectedAgentId}` : "/");
-                                }
-                              },
-                              onError: (err) => {
-                                toast.error("Failed to delete conversation", {
-                                  description: err instanceof Error ? err.message : "Unknown error",
-                                });
-                              },
-                            })
-                          }
-                        >
-                          <Trash2Icon />
-                          Delete conversation
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      )}
-
-      {/* Navigate */}
-      <SidebarGroup>
-        <SidebarGroupLabel>Navigate</SidebarGroupLabel>
+        <SidebarGroupLabel>Work</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
-                isActive={pathname.startsWith("/team/projects")}
-                tooltip="Projects"
+                isActive={pathname === "/work"}
+                tooltip="Today"
                 onClick={() => {
                   closeMobile();
-                  router.push("/team/projects");
+                  router.push("/work");
                 }}
               >
-                <FolderKanbanIcon />
-                <span className="truncate">Projects</span>
+                <RefreshCwIcon />
+                <span className="truncate">Today</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/work/new")}
+                tooltip="New Loop"
+                onClick={() => {
+                  closeMobile();
+                  router.push("/work/new");
+                }}
+              >
+                <PlusIcon />
+                <span className="truncate">New Loop</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+
+      {/* Chat */}
+      <SidebarGroup>
+        <SidebarGroupLabel>
+          Chat
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            disabled={createConversation.isPending}
+            onClick={makeConversation}
+            className="ml-auto text-primary hover:text-primary/80"
+            aria-label="New conversation"
+          >
+            <PlusIcon />
+          </Button>
+        </SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            {(conversations ?? []).length === 0 && (
+              <p className="text-xs text-muted-foreground px-2">No conversations yet</p>
+            )}
+            {(conversations ?? []).map((conv) => {
+              const title = conv.title ?? `Conversation ${conv.conversationId.slice(0, 8)}`;
+              return (
+                <SidebarMenuItem key={conv.conversationId}>
+                  <SidebarMenuButton
+                    isActive={pathname === `/chat/${conv.conversationId}`}
+                    tooltip={title}
+                    onClick={() => {
+                      closeMobile();
+                      router.push(`/chat/${conv.conversationId}`);
+                    }}
+                  >
+                    <MessageSquareIcon />
+                    <span className="truncate">{title}</span>
+                  </SidebarMenuButton>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={<SidebarMenuAction showOnHover aria-label="Conversation actions" />}
+                    >
+                      <MoreHorizontalIcon />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="right" align="start" className="w-44">
+                      <DropdownMenuItem
+                        variant="destructive"
+                        disabled={deleteConversation.isPending}
+                        onClick={() =>
+                          deleteConversation.mutate(conv.conversationId, {
+                            onSuccess: () => {
+                              queryClient.invalidateQueries({ queryKey: conversationKeys.all });
+                              if (pathname === `/chat/${conv.conversationId}`) {
+                                router.push("/work");
+                              }
+                            },
+                            onError: (err) => {
+                              toast.error("Failed to delete conversation", {
+                                description: err instanceof Error ? err.message : "Unknown error",
+                              });
+                            },
+                          })
+                        }
+                      >
+                        <Trash2Icon />
+                        Delete conversation
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </SidebarMenuItem>
+              );
+            })}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+
+      {/* Team */}
+      <SidebarGroup>
+        <SidebarGroupLabel>Team</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname === "/team"}
+                tooltip="Agents"
+                onClick={() => {
+                  closeMobile();
+                  router.push("/team");
+                }}
+              >
+                <BotIcon />
+                <span className="truncate">Agents</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -236,13 +230,26 @@ function NavContent() {
                 <span className="truncate">Skill Packs</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/team/projects")}
+                tooltip="Projects"
+                onClick={() => {
+                  closeMobile();
+                  router.push("/team/projects");
+                }}
+              >
+                <FolderKanbanIcon />
+                <span className="truncate">Projects</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>
 
-      {/* Operations */}
+      {/* System */}
       <SidebarGroup>
-        <SidebarGroupLabel>Operations</SidebarGroupLabel>
+        <SidebarGroupLabel>System</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem>
@@ -256,19 +263,6 @@ function NavContent() {
               >
                 <ActivityIcon />
                 <span className="truncate">System</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={pathname.startsWith("/work")}
-                tooltip="Work"
-                onClick={() => {
-                  closeMobile();
-                  router.push("/work");
-                }}
-              >
-                <RefreshCwIcon />
-                <span className="truncate">Work</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
