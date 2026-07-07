@@ -20,11 +20,11 @@ type Stage = "intent" | "clarify" | "preview";
 export default function NewLoopPage() {
   const router = useRouter();
   const createLoop = useCreateLoop();
-  const refineLoop = useRefineLoop(loopId ?? "");
   const activateLoop = useActivateLoop();
   const [stage, setStage] = useState<Stage>("intent");
   const [intent, setIntent] = useState("");
   const [loopId, setLoopId] = useState<string | null>(null);
+  const refineLoop = useRefineLoop(loopId ?? "");
   const [questions, setQuestions] = useState<string[]>([]);
   const [preview, setPreview] = useState("");
   const [loopName, setLoopName] = useState("");
@@ -36,14 +36,14 @@ export default function NewLoopPage() {
       { name: intent.slice(0, 30) || "new-loop", intent },
       {
         onSuccess: (res) => {
-          if (res.status === "generated") {
+          if (res.status === "generated" && res.loop) {
             setLoopId(res.loop.id);
             setPreview(res.loop.preview);
             setLoopName(res.loop.name);
             setStage("preview");
-          } else {
-            setLoopId(res.loopId);
-            setQuestions(res.questions);
+          } else if (res.status === "needs_clarification") {
+            setLoopId(res.loopId ?? null);
+            setQuestions(res.questions ?? []);
             setStage("clarify");
           }
         },
@@ -61,14 +61,14 @@ export default function NewLoopPage() {
     const merged = [intent, ...questions.map((q, i) => `${q} ${answers[i] ?? ""}`)].join("\n\n");
     refineLoop.mutate(merged, {
       onSuccess: (res) => {
-        if (res.status === "generated" || clarifyCount >= 2) {
+        if (res.status === "generated" && res.loop) {
           if (res.status === "generated") {
             setPreview(res.loop.preview);
             setLoopName(res.loop.name);
           }
           setStage("preview");
         } else {
-          setQuestions(res.questions);
+          setQuestions(res.questions ?? []);
           setClarifyCount((c) => c + 1);
         }
       },

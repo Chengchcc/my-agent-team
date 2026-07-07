@@ -315,8 +315,12 @@ Steps:
         const dir = `${dataDir}/${job.loopConfigPath}`;
 
         // Clean old artifacts
-        try { await rm(`${dir}/.clarify.json`); } catch {}
-        try { await rm(`${dir}/LOOP.md`); } catch {}
+        try {
+          await rm(`${dir}/.clarify.json`);
+        } catch {}
+        try {
+          await rm(`${dir}/LOOP.md`);
+        } catch {}
 
         // Re-run generation with refined intent (same logic as create)
         const config = buildConfig({
