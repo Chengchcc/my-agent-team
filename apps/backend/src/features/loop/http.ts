@@ -47,6 +47,30 @@ export function loopRoutes(
     .get("/api/loops", () => ({
       loops: cronSvc.list().filter((j) => j.loopConfigPath != null),
     }))
+    .get("/api/work/today", async () => {
+      const loops = cronSvc.list().filter((j) => j.loopConfigPath != null);
+      const reviewQueue: unknown[] = [];
+      for (const loop of loops) {
+        const paths = resolveLoopPaths(loop, dataDir);
+        try {
+          const md = await Bun.file(`${paths.loopConfigPath}/STATE.md`).text();
+          const state = parseStateMd(md);
+          if (!state) continue;
+          for (const item of Object.values(state.items)) {
+            if (item.step === "awaiting_review") {
+              reviewQueue.push({
+                ...item,
+                loopId: loop.cronJobId,
+                loopName: loop.name,
+              });
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
+      return { reviewQueue };
+    })
     .get("/api/loops/:id", async ({ params: { id }, set }) => {
       const job = cronSvc.getById(id);
       if (!job?.loopConfigPath) {
@@ -69,7 +93,15 @@ export function loopRoutes(
       }
 
       // Load STATE.md items for review queue display
-      let items: Array<{ id: string; source: string; summary: string; step: string }> = [];
+      let items: Array<{
+        id: string;
+        source: string;
+        summary: string;
+        step: string;
+        attempt: number;
+        priority: number;
+        result: Verdict | null;
+      }> = [];
       try {
         const fullState = parseStateMd(
           await Bun.file(`${dataDir}/${job.loopConfigPath}/STATE.md`).text(),
@@ -79,6 +111,9 @@ export function loopRoutes(
           source: i.source,
           summary: i.summary,
           step: i.step,
+          attempt: i.attempt,
+          priority: i.priority,
+          result: i.result ?? null,
         }));
       } catch {
         // STATE.md not available
