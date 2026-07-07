@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import type { Tool, ToolUseBlock } from "@my-agent-team/core";
 import type { AgentRuntime } from "./agent-options.js";
 import { runOneCollect } from "./execute-one.js";
-import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
+import {
+  consoleLogger,
+  createContextStore,
+  inMemoryCheckpointer,
+  passthroughContextManager,
+} from "./index.js";
 import { createPluginRunner } from "./plugin-dispatcher.js";
 
 function makeRuntime(tools: Tool[] = []): AgentRuntime {
@@ -19,6 +24,7 @@ function makeRuntime(tools: Tool[] = []): AgentRuntime {
         logger,
         checkpointer,
         contextManager: passthroughContextManager(),
+        context: createContextStore(),
         emit: () => {},
       },
       logger,

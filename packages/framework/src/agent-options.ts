@@ -8,6 +8,7 @@ import type {
 import type { Message, MessageToolState } from "@my-agent-team/message";
 import type { AgentEvent } from "./agent-event.js";
 import type { Checkpointer } from "./checkpointer.js";
+import type { ContextStore } from "./context.js";
 import type { ContextManager } from "./context-manager.js";
 import type { Logger } from "./logger.js";
 import type { Plugin, StopDecision } from "./plugin.js";
@@ -27,7 +28,7 @@ export interface FollowUpQueue {
   drain(): Message[];
 }
 
-export interface AgentRunOptions<Ctx = Record<string, unknown>> {
+export interface AgentRunOptions {
   signal?: AbortSignal;
   maxSteps?: number;
   stream?: boolean;
@@ -36,26 +37,26 @@ export interface AgentRunOptions<Ctx = Record<string, unknown>> {
   steering?: SteeringQueue;
   followUp?: FollowUpQueue;
   origin?: unknown;
-  /** Per-run data, flushed to HookContext.data by framework at run start. */
-  data?: Ctx;
+  /** Per-run context store, flushed to HookContext.context by framework at run start. */
+  context?: ContextStore;
 }
 
 export type AgentEventListener = (event: AgentEvent) => void;
 
-export interface Agent<Ctx = Record<string, unknown>> {
+export interface Agent {
   readonly thread: Thread;
-  run(input: string, opts?: AgentRunOptions<Ctx>): AsyncIterable<AgentEvent>;
-  continue(opts?: AgentRunOptions<Ctx>): AsyncIterable<AgentEvent>;
-  resume(command: ResumeCommand, opts?: AgentRunOptions<Ctx>): AsyncIterable<AgentEvent>;
-  fork(messages?: Message[], id?: string): Agent<Ctx>;
+  run(input: string, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
+  continue(opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
+  resume(command: ResumeCommand, opts?: AgentRunOptions): AsyncIterable<AgentEvent>;
+  fork(messages?: Message[], id?: string): Agent;
   subscribe(listener: AgentEventListener): () => void;
 }
 
-export interface AgentConfig<Ctx = Record<string, unknown>> {
+export interface AgentConfig {
   model: ChatModel;
   tools?: readonly Tool[];
   systemPrompt?: string;
-  plugins?: readonly Plugin<Ctx>[];
+  plugins?: readonly Plugin[];
   checkpointer?: Checkpointer;
   contextManager?: ContextManager;
   logger?: Logger;
@@ -64,9 +65,7 @@ export interface AgentConfig<Ctx = Record<string, unknown>> {
   startSpan?: (spanId: string, sessionId: string, opts?: unknown) => Promise<RunSpan> | RunSpan;
 }
 
-export interface PluginRunner<Ctx = Record<string, unknown>> {
-  /** Phantom key to carry Ctx for type inference. Not used at runtime. */
-  readonly _ctx?: Ctx;
+export interface PluginRunner {
   fireBeforeModel(msgs: Message[]): Promise<Message[]>;
   fireAfterModel(msgs: readonly Message[]): Promise<void>;
   fireBeforeTool(
@@ -82,9 +81,9 @@ export interface PluginRunner<Ctx = Record<string, unknown>> {
   fireBeforeStop(msgs: readonly Message[]): Promise<StopDecision | undefined>;
 }
 
-export interface AgentRuntime<Ctx = Record<string, unknown>> {
+export interface AgentRuntime {
   thread: Thread;
-  plugins: PluginRunner<Ctx>;
+  plugins: PluginRunner;
   toolMap: ReadonlyMap<string, Tool>;
   checkpointer: Checkpointer;
   contextManager: ContextManager;

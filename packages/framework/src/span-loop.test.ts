@@ -8,7 +8,12 @@ import type {
 } from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
 import type { AgentRuntime, FollowUpQueue, SteeringQueue } from "./agent-options.js";
-import { consoleLogger, inMemoryCheckpointer, passthroughContextManager } from "./index.js";
+import {
+  consoleLogger,
+  createContextStore,
+  inMemoryCheckpointer,
+  passthroughContextManager,
+} from "./index.js";
 import { createPluginRunner } from "./plugin-dispatcher.js";
 import { spanLoop } from "./span-loop.js";
 
@@ -39,6 +44,7 @@ function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRunti
         logger,
         checkpointer,
         contextManager: passthroughContextManager(),
+        context: createContextStore(),
         emit: () => {},
       },
       logger,

@@ -10,6 +10,7 @@ import type {
 } from "./agent-options.js";
 import { type Checkpointer, validateCheckpointer } from "./checkpointer.js";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
+import { createContextStore } from "./context.js";
 import { passthroughContextManager } from "./context-managers/passthrough.js";
 import { consoleLogger } from "./logger.js";
 import type { HookContext } from "./plugin.js";
@@ -30,9 +31,7 @@ export type {
   SteeringQueue,
 } from "./agent-options.js";
 
-export async function createAgent<Ctx = Record<string, unknown>>(
-  config: AgentConfig<Ctx>,
-): Promise<Agent<Ctx>> {
+export async function createAgent(config: AgentConfig): Promise<Agent> {
   const sessionId = config.sessionId ?? crypto.randomUUID();
   const checkpointer = config.checkpointer ?? inMemoryCheckpointer();
   validateCheckpointer(checkpointer);
@@ -54,16 +53,16 @@ export async function createAgent<Ctx = Record<string, unknown>>(
   });
 }
 
-function createAgentInternal<Ctx = Record<string, unknown>>(
-  config: AgentConfig<Ctx> & {
+function createAgentInternal(
+  config: AgentConfig & {
     _initialMessages: Message[];
     sessionId: string;
     checkpointer: Checkpointer;
   },
-): Agent<Ctx> {
+): Agent {
   const thread = createThread(config._initialMessages, config.sessionId);
   const plugins = [...(config.plugins ?? [])];
-  const tools = validatePlugins<Ctx>(plugins, config.tools);
+  const tools = validatePlugins(plugins, config.tools);
   const toolMap = new Map(tools.map((t) => [t.name, t]));
   const systemPrompt = config.systemPrompt;
   const checkpointer = config.checkpointer;
@@ -80,8 +79,9 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
     }
   };
 
+  const emptyStore = createContextStore();
   const pendingEvents: AgentEvent[] = [];
-  const ctx: HookContext<Ctx> = {
+  const ctx: HookContext = {
     sessionId: thread.id,
     signal: undefined,
     logger,
@@ -90,14 +90,14 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
     emit: (event: AgentEvent) => {
       pendingEvents.push(event);
     },
-    data: undefined,
+    context: emptyStore,
   };
 
-  const pluginRunner = createPluginRunner<Ctx>(plugins, ctx, logger);
+  const pluginRunner = createPluginRunner(plugins, ctx, logger);
 
   const subscribers = new Set<AgentEventListener>();
 
-  const rt: AgentRuntime<Ctx> = {
+  const rt: AgentRuntime = {
     thread,
     plugins: pluginRunner,
     toolMap,
@@ -114,7 +114,7 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
     subscribers,
   };
 
-  function spanLoopOpts(opts: AgentRunOptions<Ctx>) {
+  function spanLoopOpts(opts: AgentRunOptions) {
     return {
       signal: opts.signal,
       maxSteps: opts.maxSteps ?? 32,
@@ -135,7 +135,7 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
   return {
     thread,
 
-    fork(msgs, id): Agent<Ctx> {
+    fork(msgs, id): Agent {
       const newId = id ?? crypto.randomUUID();
       if (id && id === thread.id) {
         throw new Error(
@@ -158,14 +158,14 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
       };
     },
 
-    async *run(input: string, opts: AgentRunOptions<Ctx> = {}) {
+    async *run(input: string, opts: AgentRunOptions = {}) {
       if (running)
         throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       running = true;
       ctx.signal = opts.signal;
       rt.spanId = opts.spanId ?? crypto.randomUUID();
       ctx.span = await config.startSpan?.(rt.spanId, thread.id, opts.origin);
-      ctx.data = opts.data;
+      ctx.context = opts.context ?? emptyStore;
       rt.toolStates = [];
       rt.assistantBlocks = [];
       let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";
@@ -193,7 +193,7 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
           await save(thread.messages);
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
-        yield* withSubscribers(spanLoop(rt as AgentRuntime, spanLoopOpts(opts)));
+        yield* withSubscribers(spanLoop(rt, spanLoopOpts(opts)));
       } catch (err) {
         runStatus = opts.signal?.aborted ? "interrupted" : "error";
         lastError = err instanceof Error ? err.message : String(err);
@@ -202,13 +202,13 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
         ctx.span?.end(runStatus, lastError);
         yield { type: "agent_end" as const, spanId: rt.spanId, status: runStatus };
         ctx.span = undefined;
-        ctx.data = undefined;
+        ctx.context = emptyStore;
         running = false;
         ctx.signal = undefined;
       }
     },
 
-    async *continue(opts: AgentRunOptions<Ctx> = {}) {
+    async *continue(opts: AgentRunOptions = {}) {
       if (running)
         throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       if (!thread.messages.some((m) => m.role === "user")) {
@@ -220,7 +220,7 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
       ctx.signal = opts.signal;
       rt.spanId = opts.spanId ?? crypto.randomUUID();
       ctx.span = await config.startSpan?.(rt.spanId, thread.id, opts.origin);
-      ctx.data = opts.data;
+      ctx.context = opts.context ?? emptyStore;
       rt.toolStates = [];
       rt.assistantBlocks = [];
       let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";
@@ -240,7 +240,7 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
           await save(thread.messages);
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
-        yield* withSubscribers(spanLoop(rt as AgentRuntime, spanLoopOpts(opts)));
+        yield* withSubscribers(spanLoop(rt, spanLoopOpts(opts)));
       } catch (err) {
         runStatus = opts.signal?.aborted ? "interrupted" : "error";
         lastError = err instanceof Error ? err.message : String(err);
@@ -249,20 +249,20 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
         ctx.span?.end(runStatus, lastError);
         yield { type: "agent_end" as const, spanId: rt.spanId, status: runStatus };
         ctx.span = undefined;
-        ctx.data = undefined;
+        ctx.context = emptyStore;
         running = false;
         ctx.signal = undefined;
       }
     },
 
-    async *resume(command: ResumeCommand, opts: AgentRunOptions<Ctx> = {}) {
+    async *resume(command: ResumeCommand, opts: AgentRunOptions = {}) {
       if (running)
         throw new Error("Agent is already running. Use fork() for concurrent conversations.");
       running = true;
       ctx.signal = opts.signal;
       rt.spanId = opts.spanId ?? crypto.randomUUID();
       ctx.span = await config.startSpan?.(rt.spanId, thread.id, opts.origin);
-      ctx.data = opts.data;
+      ctx.context = opts.context ?? emptyStore;
       rt.toolStates = [];
       rt.assistantBlocks = [];
       let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";
@@ -299,7 +299,7 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
           thread.messages.push({ role: "user", blocks: [realResult] });
         }
         await save(thread.messages);
-        yield* withSubscribers(spanLoop(rt as AgentRuntime, spanLoopOpts(opts)));
+        yield* withSubscribers(spanLoop(rt, spanLoopOpts(opts)));
       } catch (err) {
         runStatus = opts.signal?.aborted ? "interrupted" : "error";
         lastError = err instanceof Error ? err.message : String(err);
@@ -308,7 +308,7 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
         ctx.span?.end(runStatus, lastError);
         yield { type: "agent_end" as const, spanId: rt.spanId, status: runStatus };
         ctx.span = undefined;
-        ctx.data = undefined;
+        ctx.context = emptyStore;
         running = false;
         ctx.signal = undefined;
       }

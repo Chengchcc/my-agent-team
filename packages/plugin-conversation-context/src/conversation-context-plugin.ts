@@ -1,5 +1,5 @@
 import type { Tool } from "@my-agent-team/core";
-import { definePlugin, type Plugin } from "@my-agent-team/framework";
+import { defineContext, definePlugin, type Plugin } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
 
 export interface ConversationContextPluginOptions {
@@ -7,7 +7,7 @@ export interface ConversationContextPluginOptions {
   tools: Tool[];
 }
 
-/** Per-run conversation metadata. Set via AgentSession.setContext(CONVERSATION_KEY, data). */
+/** Per-run conversation metadata. */
 export interface ConversationContext {
   id: string;
   surface: string;
@@ -15,7 +15,10 @@ export interface ConversationContext {
   input: string;
 }
 
-/** Context key for per-run conversation metadata. Use with AgentSession.setContext() / ctx.get(). */
+/** Context key for per-run conversation metadata.
+ *  Caller writes via `session.setContext(ConversationCtx, data)`,
+ *  plugin reads via `ConversationCtx.get(ctx)`. */
+export const ConversationCtx = defineContext<ConversationContext>("conversation");
 
 function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -24,12 +27,9 @@ function escapeXml(s: string): string {
 /**
  * ConversationContextPlugin — injects conversation context into agent runs.
  *
- * Reads per-run conversation metadata from ctx via the CONVERSATION_KEY.
- * The caller writes via AgentSession.setContext(CONVERSATION_KEY, data)
- * before calling prompt(). The framework forwards to ctx at run start.
- *
- * This fixes the old bug where per-run trigger data was baked into a
- * per-session systemPrompt.
+ * Reads per-run conversation metadata via `ConversationCtx.get(ctx)`.
+ * The caller writes via `AgentSession.setContext(ConversationCtx, data)`
+ * before calling prompt(). The framework forwards the store to ctx at run start.
  */
 export function conversationContextPlugin(opts: ConversationContextPluginOptions): Plugin {
   return definePlugin({
@@ -37,10 +37,8 @@ export function conversationContextPlugin(opts: ConversationContextPluginOptions
     tools: opts.tools,
     hooks: {
       async beforeModel(ctx, messages: Message[]): Promise<Message[]> {
-        const raw = ctx.data;
-        if (!raw || typeof raw !== "object") return messages;
-        const conv = raw as unknown as ConversationContext;
-        if (!conv.id) return messages;
+        const conv = ConversationCtx.get(ctx);
+        if (!conv?.id) return messages;
         const contextMsg: Message = {
           role: "system",
           text: `<conversation>

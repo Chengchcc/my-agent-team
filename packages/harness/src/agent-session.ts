@@ -3,14 +3,16 @@ import type {
   Agent,
   AgentEvent,
   Checkpointer,
+  ContextKey,
   ContextManager,
+  ContextStore,
   FollowUpQueue,
   Logger,
   Plugin,
   RunSpan,
   SteeringQueue,
 } from "@my-agent-team/framework";
-import { createAgent } from "@my-agent-team/framework";
+import { createAgent, createContextStore } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
 import type { CompactionResult } from "./compaction.js";
 import { compactThread } from "./compaction.js";
@@ -63,8 +65,8 @@ export type SessionEventListener = (event: AgentEvent) => void;
 
 // ─── AgentSession ────────────────────────────────────────
 
-export class AgentSession<Ctx = Record<string, unknown>> {
-  #agent: Agent<Ctx> | null = null;
+export class AgentSession {
+  #agent: Agent | null = null;
   #config: AgentSessionConfig;
   #state: AgentState = "idle";
   #subscribers = new Set<SessionEventListener>();
@@ -73,7 +75,7 @@ export class AgentSession<Ctx = Record<string, unknown>> {
   #retryCount = 0;
   #steeringBuf: Message[] = [];
   #followUpBuf: Message[] = [];
-  #data: Ctx | undefined;
+  #pendingContext: ContextStore | undefined;
 
   #steering: SteeringQueue = {
     drain: () => {
@@ -219,8 +221,9 @@ export class AgentSession<Ctx = Record<string, unknown>> {
     this.#followUpBuf.push({ role: "user", text });
     this.#emitQueueUpdate();
   }
-  setData(value: Ctx): void {
-    this.#data = value;
+  setContext<T>(key: ContextKey<T>, value: T): void {
+    if (!this.#pendingContext) this.#pendingContext = createContextStore();
+    this.#pendingContext.set(key, value);
   }
 
   // ─── Configuration ───────────────────────────────────
@@ -296,11 +299,11 @@ export class AgentSession<Ctx = Record<string, unknown>> {
   // ─── Private ─────────────────────────────────────────
 
   async #initAgent(): Promise<void> {
-    this.#agent = await createAgent<Ctx>({
+    this.#agent = await createAgent({
       model: this.#config.model,
       sessionId: this.#config.sessionId,
       tools: this.#config.tools,
-      plugins: this.#config.plugins as readonly Plugin<Ctx>[],
+      plugins: this.#config.plugins as readonly Plugin[],
       checkpointer: this.#config.checkpointer,
       contextManager: this.#config.contextManager,
       logger: this.#config.logger,
@@ -347,9 +350,9 @@ export class AgentSession<Ctx = Record<string, unknown>> {
               followUp: this.#followUp,
               spanId: opts?.spanId,
               origin: opts?.origin,
-              data: this.#data,
+              context: this.#pendingContext,
             });
-            this.#data = undefined;
+            this.#pendingContext = undefined;
             for await (const _ of generator) {
               // events handled by agent subscriber → #handleAgentEvent
             }
@@ -362,9 +365,9 @@ export class AgentSession<Ctx = Record<string, unknown>> {
               followUp: this.#followUp,
               spanId: opts?.spanId,
               origin: opts?.origin,
-              data: this.#data,
+              context: this.#pendingContext,
             });
-            this.#data = undefined;
+            this.#pendingContext = undefined;
             for await (const _ of generator) {
               // events handled by agent subscriber → #handleAgentEvent
             }

@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk, ChatModel, Tool } from "@my-agent-team/core";
-import { createAgent } from "@my-agent-team/framework";
+import { createAgent, createContextStore } from "@my-agent-team/framework";
 import {
   type ConversationContext,
+  ConversationCtx,
   conversationContextPlugin,
 } from "./conversation-context-plugin.js";
 
@@ -56,7 +57,13 @@ describe("conversationContextPlugin", () => {
     };
 
     const events = await collect(
-      agent.run("hi", { data: conv as unknown as Record<string, unknown> }),
+      agent.run("hi", {
+        context: (() => {
+          const s = createContextStore();
+          s.set(ConversationCtx, conv);
+          return s;
+        })(),
+      }),
     );
     const messages = events.filter((e) => e.type === "message");
     expect(messages.length).toBeGreaterThan(0);
@@ -64,7 +71,7 @@ describe("conversationContextPlugin", () => {
     expect(doneMsg).toBeDefined();
   });
 
-  test("does not inject when ctx.data is undefined", async () => {
+  test("does not inject when context is empty", async () => {
     const plugin = conversationContextPlugin({ tools: [] });
 
     const agent = await createAgent({
@@ -87,7 +94,11 @@ describe("conversationContextPlugin", () => {
 
     await collect(
       agent.run("test", {
-        data: { id: "c1", surface: "web", senderName: "test", input: "test" },
+        context: (() => {
+          const s = createContextStore();
+          s.set(ConversationCtx, { id: "c1", surface: "web", senderName: "test", input: "test" });
+          return s;
+        })(),
       }),
     );
     expect(agent.thread.messages.length).toBeGreaterThan(0);

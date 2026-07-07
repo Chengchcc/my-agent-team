@@ -7,7 +7,10 @@ import {
   extractText,
   isTerminalMessageState,
 } from "@my-agent-team/message";
-import { conversationContextPlugin } from "@my-agent-team/plugin-conversation-context";
+import {
+  ConversationCtx,
+  conversationContextPlugin,
+} from "@my-agent-team/plugin-conversation-context";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
@@ -170,8 +173,8 @@ export function createConversationFeature(
           };
         }
       });
-      // Execute — origin via prompt opts, context via setData
-      session.setData({
+      // Execute — origin via prompt opts, context via setContext
+      session.setContext(ConversationCtx, {
         id: conversationId,
         surface,
         senderName: agentMemberId,

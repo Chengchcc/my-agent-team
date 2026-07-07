@@ -1,6 +1,7 @@
 import type { Tool, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
 import type { Checkpointer } from "./checkpointer.js";
+import type { ContextStore } from "./context.js";
 import type { ContextManager } from "./context-manager.js";
 import type { AgentEvent } from "./create-agent.js";
 import type { Logger } from "./logger.js";
@@ -9,10 +10,9 @@ import type { RunSpan } from "./trace.js";
 /** M14.6: Stop-gate verdict. continue=true means "veto stop, keep running with reason as input". */
 export type StopDecision = { continue: true; reason: string } | { continue: false };
 
-/** Hook execution context. `Ctx` is the per-run data shape — set via
- *  `AgentSession.setData()`, read by plugins from `ctx.data`.
- *  Defaults to `Record<string, unknown>` for sessions without typed context. */
-export interface HookContext<Ctx = Record<string, unknown>> {
+/** Hook execution context. Per-run data lives in `context` (a multi-key store);
+ *  plugins read via `MyKey.get(ctx)`, callers write via `session.setContext(key, value)`. */
+export interface HookContext {
   sessionId: string;
   span?: RunSpan;
   signal?: AbortSignal;
@@ -20,16 +20,16 @@ export interface HookContext<Ctx = Record<string, unknown>> {
   checkpointer: Checkpointer;
   contextManager: ContextManager;
   emit?(event: AgentEvent): void;
-  /** Per-run typed data. Set via `AgentSession.setData(value)`, cleared after each run. */
-  data?: Ctx;
+  /** Per-run data store. Always present (may be empty). Cleared after each run. */
+  context: ContextStore;
 }
 
-export interface PluginHooks<Ctx = Record<string, unknown>> {
-  beforeRun?(ctx: HookContext<Ctx>, messages: readonly Message[]): Message[] | Promise<Message[]>;
-  beforeModel?(ctx: HookContext<Ctx>, messages: readonly Message[]): Message[] | Promise<Message[]>;
-  afterModel?(ctx: HookContext<Ctx>, messages: readonly Message[]): void | Promise<void>;
+export interface PluginHooks {
+  beforeRun?(ctx: HookContext, messages: readonly Message[]): Message[] | Promise<Message[]>;
+  beforeModel?(ctx: HookContext, messages: readonly Message[]): Message[] | Promise<Message[]>;
+  afterModel?(ctx: HookContext, messages: readonly Message[]): void | Promise<void>;
   beforeTool?(
-    ctx: HookContext<Ctx>,
+    ctx: HookContext,
     call: ToolUseBlock,
     messages: readonly Message[],
   ):
@@ -37,33 +37,33 @@ export interface PluginHooks<Ctx = Record<string, unknown>> {
     | undefined
     | Promise<{ skip?: boolean; input?: unknown; result?: string; isError?: boolean } | undefined>;
   afterTool?(
-    ctx: HookContext<Ctx>,
+    ctx: HookContext,
     call: ToolUseBlock,
     result: ToolResultBlock,
     messages: readonly Message[],
   ): void | Promise<void>;
   beforeStop?(
-    ctx: HookContext<Ctx>,
+    ctx: HookContext,
     messages: readonly Message[],
   ): StopDecision | undefined | Promise<StopDecision | undefined>;
 }
 
-export interface Plugin<Ctx = Record<string, unknown>> {
+export interface Plugin {
   readonly name: string;
-  readonly hooks: PluginHooks<Ctx>;
+  readonly hooks: PluginHooks;
   readonly tools?: readonly Tool[];
 }
 
-export function definePlugin<Ctx = Record<string, unknown>>(definition: {
+export function definePlugin(definition: {
   name: string;
-  hooks: PluginHooks<Ctx>;
+  hooks: PluginHooks;
   tools?: readonly Tool[];
-}): Plugin<Ctx> {
+}): Plugin {
   return { name: definition.name, hooks: definition.hooks, tools: definition.tools };
 }
 
-export function validatePlugins<Ctx = Record<string, unknown>>(
-  plugins: readonly Plugin<Ctx>[],
+export function validatePlugins(
+  plugins: readonly Plugin[],
   configTools: readonly Tool[] = [],
 ): readonly Tool[] {
   const seen = new Map<string, string>();

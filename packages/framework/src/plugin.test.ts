@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Tool, ToolUseBlock } from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
+import { createContextStore } from "./context.js";
 import { passthroughContextManager } from "./context-managers/passthrough.js";
 import { consoleLogger } from "./logger.js";
 import { definePlugin, type HookContext, validatePlugins } from "./plugin.js";
@@ -21,6 +22,7 @@ function testCtx(overrides?: Partial<HookContext>): HookContext {
     logger: consoleLogger({ level: "silent" }),
     checkpointer: inMemoryCheckpointer(),
     contextManager: passthroughContextManager(),
+    context: createContextStore(),
     ...overrides,
   };
 }

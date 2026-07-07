@@ -11,6 +11,12 @@ export {
   type SqliteCheckpointerOptions,
   sqliteCheckpointer,
 } from "./checkpointers/sqlite-checkpointer.js";
+export {
+  type ContextKey,
+  type ContextStore,
+  createContextStore,
+  defineContext,
+} from "./context.js";
 export type { ContextManager, ContextManagerContext } from "./context-manager.js";
 export { pipeContextManagers } from "./context-manager.js";
 export { passthroughContextManager } from "./context-managers/passthrough.js";

@@ -16,15 +16,12 @@ export function wrapToolResult(
   };
 }
 
-export function createPluginRunner<Ctx = Record<string, unknown>>(
-  plugins: readonly Plugin<Ctx>[],
-  ctx: HookContext<Ctx>,
+export function createPluginRunner(
+  plugins: readonly Plugin[],
+  ctx: HookContext,
   logger: Logger,
-): PluginRunner<Ctx> {
-  async function eachPlugin(
-    hookName: string,
-    fn: (p: Plugin<Ctx>) => Promise<void>,
-  ): Promise<void> {
+): PluginRunner {
+  async function eachPlugin(hookName: string, fn: (p: Plugin) => Promise<void>): Promise<void> {
     for (const p of plugins) {
       try {
         await fn(p);
@@ -96,6 +93,5 @@ export function createPluginRunner<Ctx = Record<string, unknown>>(
       }
       return undefined;
     },
-    _ctx: undefined,
   };
 }
