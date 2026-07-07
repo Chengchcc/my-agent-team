@@ -38,7 +38,7 @@ export interface RunAccumulator {
 const runAccumulators = new Map<string, RunAccumulator>();
 
 /** Origins that should not participate in @mention cascade. */
-const ISOLATED_ORIGINS = new Set(["orchestrator", "cron"]);
+const ISOLATED_ORIGINS: Record<string, true> = { cron: true };
 
 export function getOrCreateAccumulator(spanId: string, senderMemberId: string): RunAccumulator {
   let acc = runAccumulators.get(spanId);
@@ -136,9 +136,8 @@ export async function onRunComplete(
   if (!cid) return;
   const senderMemberId = origin.agentMemberId;
 
-  // M19: issue-driven runs (origin_kind=orchestrator) are handled by reactor —
-  // M21: cron runs also isolated — skip projection and @mention cascade to avoid double-drive.
-  if (ISOLATED_ORIGINS.has(origin.originKind)) {
+  // M21: cron runs isolated — skip projection and @mention cascade to avoid double-drive.
+  if (origin.originKind in ISOLATED_ORIGINS) {
     clearAccumulator(spanId);
     return;
   }

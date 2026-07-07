@@ -89,29 +89,6 @@ export const conversationLedger = sqliteTable(
 // projection_messages table removed — redundant third copy of messages.
 // Canonical stores: conversation_ledger (product truth) + checkpoint_messages (framework working state).
 
-// ─── issue ─────────────────────────────────────────────────────────
-// NOTE: project_id and session_id are bare TEXT — no FK constraint.
-// PR-6: threadId renamed to sessionId (ID#1b).
-export const issue = sqliteTable(
-  "issue",
-  {
-    issueId: text().primaryKey(),
-    projectId: text().notNull(),
-    title: text().notNull(),
-    status: text().notNull(),
-    sessionId: text().notNull(),
-    description: text().notNull().default(""),
-    priority: text().notNull().default("P2"),
-    estimatedCompletionAt: integer({ mode: "number" }),
-    createdAt: integer({ mode: "number" }).notNull(),
-    updatedAt: integer({ mode: "number" }).notNull(),
-  },
-  (table) => [
-    index("idx_issue_project").on(table.projectId),
-    index("idx_issue_status").on(table.status),
-  ],
-);
-
 // ─── project ───────────────────────────────────────────────────────
 export const project = sqliteTable(
   "project",
@@ -125,25 +102,6 @@ export const project = sqliteTable(
     updatedAt: integer({ mode: "number" }).notNull(),
   },
   (table) => [uniqueIndex("idx_project_name").on(table.name)],
-);
-
-// ─── column_config ─────────────────────────────────────────────────
-export const columnConfig = sqliteTable(
-  "column_config",
-  {
-    configId: text().primaryKey(),
-    projectId: text().notNull(),
-    status: text().notNull(),
-    agentId: text().notNull(),
-    promptTemplate: text().notNull(),
-    approvalPosture: text().notNull().default("auto"),
-    createdAt: integer({ mode: "number" }).notNull(),
-    updatedAt: integer({ mode: "number" }).notNull(),
-  },
-  (table) => [
-    uniqueIndex("idx_column_config_proj_status").on(table.projectId, table.status),
-    index("idx_column_config_project").on(table.projectId),
-  ],
 );
 
 // ─── cron_job (M21) ──────────────────────────────────────────────
@@ -163,28 +121,6 @@ export const cronJob = sqliteTable(
     updatedAt: integer({ mode: "number" }).notNull(),
   },
   (table) => [index("idx_cron_job_enabled").on(table.enabled)],
-);
-
-// ─── deliverable ───────────────────────────────────────────────────
-export const deliverable = sqliteTable(
-  "deliverable",
-  {
-    deliverableId: text().primaryKey(),
-    issueId: text().notNull(),
-    fromStatus: text().notNull(),
-    kind: text().notNull(),
-    fields: text().notNull(),
-    ref: text(),
-    spanId: text("span_id"),
-    createdAt: integer({ mode: "number" }).notNull(),
-  },
-  (table) => [
-    index("idx_deliverable_issue").on(table.issueId),
-    index("idx_deliverable_issue_kind").on(table.issueId, table.kind),
-    uniqueIndex("idx_deliverable_run_kind")
-      .on(table.spanId, table.kind)
-      .where(sql`span_id IS NOT NULL`),
-  ],
 );
 
 // ── Execution-related tables (merged into single-db under S1 storage convergence) ──
@@ -278,18 +214,6 @@ export const surfaceHealth = sqliteTable(
   (table) => [primaryKey({ columns: [table.agentId, table.surface] })],
 );
 
-export const issueEvent = sqliteTable(
-  "issue_event",
-  {
-    seq: integer().primaryKey({ autoIncrement: true }),
-    issueId: text().notNull(),
-    kind: text().notNull(),
-    payload: text().notNull().default("{}"),
-    ts: integer({ mode: "number" }).notNull(),
-  },
-  (table) => [index("idx_issue_event_issue").on(table.issueId, table.seq)],
-);
-
 // ─── skill_pack ─────────────────────────────────────────────────────────
 export const skillPack = sqliteTable(
   "skill_pack",
@@ -358,16 +282,6 @@ import { createSelectSchema } from "drizzle-zod";
 // ── Simple tables (drizzle-zod auto-generate) ──
 
 export const spanOriginSelectSchema = createSelectSchema(spanOrigin);
-export const issueSelectSchema = createSelectSchema(issue, {
-  status: (s) =>
-    s.transform((v) => v as "draft" | "planned" | "in_progress" | "in_review" | "done"),
-  priority: (s) => s.transform((v) => v as "P0" | "P1" | "P2" | "P3"),
-});
-export const columnConfigSelectSchema = createSelectSchema(columnConfig, {
-  status: (s) =>
-    s.transform((v) => v as "draft" | "planned" | "in_progress" | "in_review" | "done"),
-  approvalPosture: (s) => s.transform((v) => v as "auto" | "human"),
-});
 export const agentsSelectSchema = createSelectSchema(agents, {
   larkEnabled: (s) => s.transform((v: number) => v !== 0),
   permissionMode: (s) => s.transform((v) => v as "ask" | "auto" | "deny"),
@@ -391,14 +305,6 @@ export const surfaceHealthSelectSchema = createSelectSchema(surfaceHealth, {
   payload: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, unknown>),
 });
 
-export const issueEventSelectSchema = createSelectSchema(issueEvent, {
-  payload: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, unknown>),
-});
-
-export const deliverableSelectSchema = createSelectSchema(deliverable, {
-  fields: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, string>),
-});
-
 export const conversationLedgerSelectSchema = createSelectSchema(conversationLedger, {
   addressedTo: (s) => s.transform((v: string) => JSON.parse(v) as string[]),
   content: (s) => s.transform((v: string) => JSON.parse(v) as unknown),
@@ -415,4 +321,3 @@ export const cronJobSelectSchema = createSelectSchema(cronJob, {
 /** Convert boolean to 0|1 for integer columns. Single source of truth
  *  for the bool→int conversion used by adapters. */
 export const boolToInt = (v: boolean): number => (v ? 1 : 0);
-// must satisfy IssueRow, so any drizzle column drift fails tsc at the adapter.

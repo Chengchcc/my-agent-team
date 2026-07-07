@@ -1,18 +1,15 @@
 import type { Database } from "bun:sqlite";
-import { and, desc, eq, gt, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import {
   controlPlaneEventSelectSchema,
-  issueEventSelectSchema,
   spanOriginSelectSchema,
   surfaceHealthSelectSchema,
 } from "../../infra/db/schema.js";
 import type {
   ControlPlaneEvent,
   ControlPlaneEventKind,
-  IssueEvent,
-  IssueEventKind,
   SpanOriginInsert,
   SpanOriginRow,
   SurfaceHealthRow,
@@ -69,36 +66,6 @@ export class RuntimeOpsStore {
       .orderBy(schema.controlPlaneEvent.seq)
       .all()
       .map((r) => controlPlaneEventSelectSchema.parse(r) as ControlPlaneEvent);
-  }
-
-  // ─── issue_event (M18.7) ───
-
-  appendIssueEvent(input: {
-    issueId: string;
-    kind: IssueEventKind;
-    payload?: Record<string, unknown>;
-  }): number {
-    const row = this.#d
-      .insert(schema.issueEvent)
-      .values({
-        issueId: input.issueId,
-        kind: input.kind,
-        payload: JSON.stringify(input.payload ?? {}),
-        ts: Date.now(),
-      })
-      .returning({ seq: schema.issueEvent.seq })
-      .get();
-    return row!.seq;
-  }
-
-  getIssueEvents(issueId: string, afterSeq = 0): IssueEvent[] {
-    return this.#d
-      .select()
-      .from(schema.issueEvent)
-      .where(and(eq(schema.issueEvent.issueId, issueId), gt(schema.issueEvent.seq, afterSeq)))
-      .orderBy(schema.issueEvent.seq)
-      .all()
-      .map((r) => issueEventSelectSchema.parse(r) as IssueEvent);
   }
 
   // ─── run_origin ───

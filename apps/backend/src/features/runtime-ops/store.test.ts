@@ -162,55 +162,6 @@ describe("RuntimeOpsStore", () => {
     });
   });
 
-  describe("issue_event", () => {
-    test("appendIssueEvent writes and returns seq", () => {
-      const seq = store.appendIssueEvent({
-        issueId: "i1",
-        kind: "created",
-        payload: { title: "Test" },
-      });
-      expect(typeof seq).toBe("number");
-      expect(seq).toBeGreaterThan(0);
-    });
-
-    test("getIssueEvents returns events ordered by seq", () => {
-      store.appendIssueEvent({ issueId: "i1", kind: "created" });
-      store.appendIssueEvent({ issueId: "i1", kind: "started" });
-      store.appendIssueEvent({ issueId: "i2", kind: "created" });
-
-      const events = store.getIssueEvents("i1");
-      expect(events.length).toBe(2);
-      expect(events[0]!.kind).toBe("created");
-      expect(events[1]!.kind).toBe("started");
-      expect(events[0]!.seq).toBeLessThan(events[1]!.seq);
-    });
-
-    test("getIssueEvents afterSeq filters incrementally", () => {
-      store.appendIssueEvent({ issueId: "i1", kind: "created" });
-      const s2 = store.appendIssueEvent({ issueId: "i1", kind: "started" });
-
-      const events = store.getIssueEvents("i1", s2);
-      expect(events.length).toBe(0);
-
-      const eventsAfterFirst = store.getIssueEvents("i1", 0);
-      expect(eventsAfterFirst.length).toBe(2);
-    });
-
-    test("payload round-trips through JSON", () => {
-      store.appendIssueEvent({
-        issueId: "i1",
-        kind: "run.started",
-        payload: { spanId: "r1", fromStatus: "planned", agentId: "a1" },
-      });
-      const events = store.getIssueEvents("i1");
-      expect(events[0]!.payload).toEqual({
-        spanId: "r1",
-        fromStatus: "planned",
-        agentId: "a1",
-      });
-    });
-  });
-
   describe("getSpanOriginsByIssueId", () => {
     test("returns runs for an issue ordered by created_at", () => {
       store.insertSpanOrigin({
