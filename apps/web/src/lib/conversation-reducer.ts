@@ -14,6 +14,8 @@ export interface SenderRef {
   memberId: string;
   kind: "agent" | "human";
   displayName?: string;
+  /** Agent identifier — present for agent members, used for per-agent coloring. */
+  agentId?: string;
 }
 
 export type UiItem =
@@ -237,6 +239,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
           memberId: string;
           kind: "agent" | "human";
           displayName?: string;
+          agentId?: string;
         }>;
       };
       const roster = { ...s.roster };

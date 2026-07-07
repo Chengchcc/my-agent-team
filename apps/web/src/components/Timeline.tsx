@@ -223,6 +223,7 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                       align={isSelf ? "right" : "left"}
                       name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
                       kind={m.sender.kind}
+                      agentId={m.sender.agentId}
                       content={m.content}
                     />
                   ) : (
@@ -232,6 +233,7 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                           align={isSelf ? "right" : "left"}
                           name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
                           kind={m.sender.kind}
+                          agentId={m.sender.agentId}
                           content={extractText(m.content)}
                           isStreaming={m.content.state === "streaming"}
                           runStatus={m.content.runStatus}

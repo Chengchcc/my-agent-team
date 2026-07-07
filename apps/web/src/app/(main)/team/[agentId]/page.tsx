@@ -5,6 +5,8 @@ import { useState } from "react";
 import { AgentForm } from "@/components/AgentForm";
 import { ConversationList } from "@/components/ConversationList";
 import { IdentityPanel } from "@/components/IdentityPanel";
+import { QueryState } from "@/components/ops/QueryState";
+import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -13,14 +15,35 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAgentDetail } from "@/features/agents/hooks";
+import { useOpsRuns } from "@/features/ops/hooks";
+import { useAgentSkillPacks } from "@/features/skill-packs/hooks";
 
-type Tab = "threads" | "identity";
+type Tab = "persona" | "skills" | "activity";
+
+type PackStatus = "pending" | "installing" | "ready" | "failed" | "syncing";
+
+function packStatusVariant(status: PackStatus): "default" | "destructive" | "secondary" | "outline" {
+  if (status === "ready") return "default";
+  if (status === "failed") return "destructive";
+  if (status === "installing" || status === "syncing") return "secondary";
+  return "outline";
+}
+
+function packStatusLabel(status: PackStatus): string {
+  if (status === "pending") return "Pending";
+  if (status === "installing") return "Installing…";
+  if (status === "syncing") return "Syncing…";
+  if (status === "ready") return "Ready";
+  if (status === "failed") return "Failed";
+  return status;
+}
 
 export default function AgentDetailPage() {
   const { agentId: id } = useParams<{ agentId: string }>();
-  const [tab, setTab] = useState<Tab>("threads");
+  const [tab, setTab] = useState<Tab>("persona");
   const { data: agent, isLoading } = useAgentDetail(id);
 
   if (isLoading) {
@@ -70,6 +93,9 @@ export default function AgentDetailPage() {
               <span className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] border border-[var(--hairline)] rounded px-2 py-0.5 font-[family-name:var(--font-sans)] font-semibold">
                 {agent.modelProvider}/{agent.modelName}
               </span>
+              <span className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] border border-[var(--hairline)] rounded px-2 py-0.5 font-[family-name:var(--font-sans)] font-semibold">
+                {agent.permissionMode}
+              </span>
             </div>
             <AgentForm editAgent={agent} triggerLabel="Edit" />
           </div>
@@ -79,20 +105,29 @@ export default function AgentDetailPage() {
             <Button
               variant="ghost"
               role="tab"
-              aria-selected={tab === "threads"}
-              className={tabClass("threads")}
-              onClick={() => setTab("threads")}
+              aria-selected={tab === "persona"}
+              className={tabClass("persona")}
+              onClick={() => setTab("persona")}
             >
-              Threads
+              Persona
             </Button>
             <Button
               variant="ghost"
               role="tab"
-              aria-selected={tab === "identity"}
-              className={tabClass("identity")}
-              onClick={() => setTab("identity")}
+              aria-selected={tab === "skills"}
+              className={tabClass("skills")}
+              onClick={() => setTab("skills")}
             >
-              Persona &amp; Memory
+              Skills
+            </Button>
+            <Button
+              variant="ghost"
+              role="tab"
+              aria-selected={tab === "activity"}
+              className={tabClass("activity")}
+              onClick={() => setTab("activity")}
+            >
+              Activity
             </Button>
           </div>
         </div>
@@ -101,10 +136,75 @@ export default function AgentDetailPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="container mx-auto px-8 py-10">
-          {tab === "threads" && <ConversationList agentId={id} agentName={agent?.name} />}
-          {tab === "identity" && <IdentityPanel agentId={id} />}
+          {tab === "persona" && <IdentityPanel agentId={id} />}
+          {tab === "skills" && <AgentSkillsPanel agentId={id} />}
+          {tab === "activity" && (
+            <div className="space-y-6">
+              <ConversationList agentId={id} agentName={agent?.name} />
+              <RecentRuns agentId={id} />
+            </div>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function AgentSkillsPanel({ agentId }: { agentId: string }) {
+  const packsQuery = useAgentSkillPacks(agentId);
+  return (
+    <QueryState query={packsQuery} empty={(data) => !data || data.length === 0} emptyMessage="No skill packs bound to this agent.">
+      {(packs) => (
+        <ul className="space-y-2">
+          {packs.map((p) => {
+            const pack = p as {
+              id: string;
+              name: string;
+              description?: string;
+              status: PackStatus;
+              error?: string;
+            };
+            return (
+              <li
+                key={pack.id}
+                className="flex items-center justify-between gap-3 border border-[var(--hairline)] rounded px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <div className="text-sm text-[var(--ink)] font-medium truncate">{pack.name}</div>
+                  {pack.description && (
+                    <div className="text-xs text-[var(--mute)] truncate">{pack.description}</div>
+                  )}
+                  {pack.status === "failed" && pack.error && (
+                    <div className="text-xs text-destructive truncate">{pack.error}</div>
+                  )}
+                </div>
+                <Badge variant={packStatusVariant(pack.status)} className="text-xs shrink-0">
+                  {packStatusLabel(pack.status)}
+                </Badge>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </QueryState>
+  );
+}
+
+function RecentRuns({ agentId }: { agentId: string }) {
+  // ponytail: server-side filter — listOpsRuns supports agentId, no client filter needed
+  const runsQuery = useOpsRuns({ agentId, limit: 50 });
+  return (
+    <div>
+      <h2 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] font-[family-name:var(--font-sans)] font-semibold mb-3">
+        Recent Runs
+      </h2>
+      <QueryState query={runsQuery} empty={(data) => !data || data.length === 0} emptyMessage="No recent runs.">
+        {(runs) => (
+          <div className="rounded-lg border border-[var(--hairline)]">
+            <RunOpsTable runs={runs} />
+          </div>
+        )}
+      </QueryState>
     </div>
   );
 }
