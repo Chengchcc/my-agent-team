@@ -19,7 +19,11 @@ interface ConversationCanvasProps {
   initialMessage?: string;
 }
 
-export function ConversationCanvas({ conversationId, snapshot, initialMessage }: ConversationCanvasProps) {
+export function ConversationCanvas({
+  conversationId,
+  snapshot,
+  initialMessage,
+}: ConversationCanvasProps) {
   const { state, busy, send, toggleTriggerMode, approvalTarget, approve, deny, resuming } =
     useConversation(conversationId, snapshot);
   const { viewerMemberId, roster, items, error, todos, triggerMode } = state;

@@ -36,7 +36,12 @@ export function loopReducer(state: LoopState, action: LoopAction, opts?: Reducer
     case "GENERATOR_DONE": {
       const item = items[action.itemId];
       if (item?.step === "fixing") {
-        items[action.itemId] = { ...item, step: "verifying", result: null };
+        items[action.itemId] = {
+          ...item,
+          step: "verifying",
+          result: null,
+          generatorSpanId: action.generatorSpanId ?? item.generatorSpanId,
+        };
       }
       break;
     }

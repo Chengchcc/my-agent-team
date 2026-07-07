@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { LoopDetail } from "@/lib/api";
@@ -52,6 +53,10 @@ export function EvidenceChainPanel({ loopId, item }: { loopId: string; item: Loo
     );
   }
 
+  const genRunHref = item.generatorSpanId
+    ? `/work/${loopId}/runs/${item.generatorSpanId}`
+    : null;
+
   return (
     <div className="space-y-4">
       <Card>
@@ -96,6 +101,28 @@ export function EvidenceChainPanel({ loopId, item }: { loopId: string; item: Loo
           )}
         </CardContent>
       </Card>
+      {item.generatorSpanId && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Generator Run</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex justify-between items-center">
+              <span className="text-[var(--mute)]">Span ID</span>
+              {genRunHref ? (
+                <Link
+                  href={genRunHref}
+                  className="font-mono text-xs text-blue-600 hover:underline"
+                >
+                  {item.generatorSpanId}
+                </Link>
+              ) : (
+                <span className="font-mono text-xs">{item.generatorSpanId}</span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

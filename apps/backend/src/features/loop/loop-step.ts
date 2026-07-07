@@ -271,7 +271,12 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     });
 
     const genSession = params.sessionManager.create(genConfig);
+    let genSpanId: string | undefined;
+    const unsubGen = genSession.subscribe((e) => {
+      if (e.type === "agent_start") genSpanId = e.spanId;
+    });
     await genSession.prompt(buildGeneratorPrompt(item, genPrompt));
+    unsubGen();
     params.sessionManager.dispose(genSession.sessionId ?? "");
     if (dailyCap > 0) {
       spent = params.store.addBudget(
@@ -287,6 +292,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     state = loopReducer(state, {
       type: "GENERATOR_DONE",
       itemId: item.id,
+      generatorSpanId: genSpanId,
     });
 
     const changedFiles = filesChanged ? filesChanged.split("\n").filter(Boolean) : [];

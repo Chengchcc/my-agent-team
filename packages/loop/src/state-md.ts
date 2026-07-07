@@ -62,6 +62,9 @@ function itemStateToYaml(item: ItemState): string {
   lines.push(`step: ${item.step}`);
   lines.push(`attempt: ${item.attempt}`);
   lines.push(`priority: ${item.priority}`);
+  if (item.generatorSpanId) {
+    lines.push(`generatorSpanId: ${yamlEscape(item.generatorSpanId)}`);
+  }
   if (item.result !== null) {
     lines.push("result:");
     lines.push(formatVerdict(item.result, 1));
@@ -82,6 +85,7 @@ function parseItemYaml(id: string, lines: string[]): ItemState {
       data.result && typeof data.result === "object" && !Array.isArray(data.result)
         ? parseVerdict(data.result as Record<string, YamlValue>)
         : null,
+    generatorSpanId: data.generatorSpanId ? String(data.generatorSpanId) : undefined,
   };
 }
 

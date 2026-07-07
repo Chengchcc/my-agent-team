@@ -113,6 +113,7 @@ export function loopRoutes(
         attempt: number;
         priority: number;
         result: Verdict | null;
+        generatorSpanId: string | null;
       }> = [];
       try {
         const fullState = parseStateMd(
@@ -126,6 +127,7 @@ export function loopRoutes(
           attempt: i.attempt,
           priority: i.priority,
           result: i.result ?? null,
+          generatorSpanId: i.generatorSpanId ?? null,
         }));
       } catch {
         // STATE.md not available
