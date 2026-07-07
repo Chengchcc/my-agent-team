@@ -14,6 +14,13 @@ export function useConversationList(agentId: string) {
   return useQuery(listByAgentQuery(agentId));
 }
 
+export function useRecentConversations() {
+  return useQuery({
+    queryKey: conversationKeys.recent(),
+    queryFn: () => api.listConversations(),
+  });
+}
+
 export function useDeleteConversation() {
   return useMutation({ mutationFn: (id: string) => api.deleteConversation(id) });
 }
