@@ -1,143 +1,97 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { ConversationCanvas } from "@/components/ConversationCanvas";
 import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbList,
   BreadcrumbPage,
-  BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { useCreateLoop } from "@/features/loop/hooks";
-import { useProjectList } from "@/features/projects/hooks";
+import { useCreateConversation } from "@/features/conversations/hooks";
+import type { ConversationSnapshot } from "@/lib/api";
 
 export default function NewLoopPage() {
-  const router = useRouter();
-  const { data: projects } = useProjectList();
-  const createMu = useCreateLoop();
+  const createConv = useCreateConversation();
+  const [convId, setConvId] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<ConversationSnapshot | null>(null);
 
-  const [name, setName] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [intent, setIntent] = useState("");
-  const [cronExpr, setCronExpr] = useState("");
-
-  function handleSubmit() {
-    if (!name.trim()) return toast.error("Name is required");
-
-    createMu.mutate(
+  // Auto-create a conversation on mount: default Agent + a human member.
+  // Runs once; subsequent renders reuse convId.
+  useEffect(() => {
+    if (convId) return;
+    let cancelled = false;
+    createConv.mutate(
       {
-        name: name.trim(),
-        intent: intent.trim() || undefined,
-        projectId: projectId || undefined,
-        cronExpr: cronExpr || undefined,
+        members: [
+          { memberId: "default", kind: "agent", agentId: "default", displayName: "Assistant" },
+          {
+            memberId: `human-${crypto.randomUUID().slice(0, 8)}`,
+            kind: "human",
+            displayName: "User",
+          },
+        ],
       },
       {
-        onSuccess: (data) => {
-          toast.success("Loop created");
-          router.push(`/work/${data.loop.id}`);
+        onSuccess: (conv) => {
+          if (cancelled) return;
+          setConvId(conv.conversationId);
+          setSnapshot(conv);
         },
-        onError: (e) => toast.error(`Create failed: ${String(e)}`),
+        onError: (err) => {
+          if (cancelled) return;
+          toast.error("Failed to start conversation", {
+            description: err instanceof Error ? err.message : "Unknown error",
+          });
+        },
       },
+    );
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!convId) {
+    return (
+      <div className="h-full bg-[var(--canvas)]">
+        <div className="border-b border-[var(--hairline)]">
+          <div className="container mx-auto px-8 py-4 max-w-4xl">
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbPage>New Loop</BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+          </div>
+        </div>
+        <div className="flex h-[calc(100%-4rem)] items-center justify-center text-[var(--muted)]">
+          Starting conversation…
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className="h-full bg-[var(--canvas)]">
+    <div className="h-full flex flex-col bg-[var(--canvas)]">
       <div className="border-b border-[var(--hairline)]">
-        <div className="container mx-auto px-8 py-5">
+        <div className="container mx-auto px-8 py-4 max-w-4xl">
           <Breadcrumb>
             <BreadcrumbList>
-              <BreadcrumbItem>
-                <a href="/work">Work</a>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
               <BreadcrumbItem>
                 <BreadcrumbPage>New Loop</BreadcrumbPage>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Describe what you want to automate
+          </p>
         </div>
       </div>
-
-      <div className="container mx-auto px-8 py-10 max-w-lg">
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            <div>
-              <Label htmlFor="name">Name *</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Morning Triage"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="project">Project</Label>
-              <Select value={projectId} onValueChange={(v) => setProjectId(v ?? "")}>
-                <SelectTrigger id="project">
-                  <SelectValue placeholder="Select a project..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {(projects?.projects ?? []).map((p) => (
-                    <SelectItem key={p.projectId} value={p.projectId}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label htmlFor="intent">Intent</Label>
-              <Textarea
-                id="intent"
-                value={intent}
-                onChange={(e) => setIntent(e.target.value)}
-                placeholder="每天早上检查 CI 失败，自动修简单的"
-                rows={3}
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="cronExpr">Schedule (optional)</Label>
-              <Select value={cronExpr} onValueChange={(v) => setCronExpr(v ?? "")}>
-                <SelectTrigger id="cronExpr">
-                  <SelectValue placeholder="Manual (no schedule)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="0 8 * * *">Daily 8:00 AM</SelectItem>
-                  <SelectItem value="*/15 * * * *">Every 15 minutes</SelectItem>
-                  <SelectItem value="0 */2 * * *">Every 2 hours</SelectItem>
-                  <SelectItem value="0 */6 * * *">Every 6 hours</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => router.push("/work")}>
-                Cancel
-              </Button>
-              <Button onClick={handleSubmit} disabled={createMu.isPending}>
-                Create Loop
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="flex-1 min-h-0">
+        <ConversationCanvas conversationId={convId} snapshot={snapshot} />
       </div>
     </div>
   );

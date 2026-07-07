@@ -129,10 +129,7 @@ export function RunOpsTable({ runs }: { runs: RunOpsListItem[] }) {
                   {ago(r.startedAt)} ago
                 </TableCell>
                 <TableCell>
-                  <Link
-                    href={`/system`}
-                    className="text-primary text-xs hover:underline"
-                  >
+                  <Link href={`/system`} className="text-primary text-xs hover:underline">
                     Detail
                   </Link>
                 </TableCell>
