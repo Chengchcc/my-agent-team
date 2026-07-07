@@ -21,6 +21,9 @@ export type TraceOpsDetail = ApiReturn<typeof api.getTraceOpsDetail>;
 export type RunInsights = ApiReturn<typeof api.getRunInsights>;
 export type ConversationSnapshot = ApiReturn<typeof api.listConversations>[number];
 export type ReviewQueueItem = ApiReturn<typeof api.getWorkToday>["reviewQueue"][number];
+export type CreateLoopResult = ApiReturn<typeof api.createLoop>;
+export type RefineLoopResult = ApiReturn<typeof api.refineLoop>;
+export type ActivateLoopResult = ApiReturn<typeof api.activateLoop>;
 
 export type { ContentBlock };
 export type MemberInfo = Member;
