@@ -35,7 +35,7 @@ export default function ChatOverviewPage() {
       },
       {
         onSuccess: (conv) => {
-          router.push(`/chat/${conv.conversationId}`);
+          router.push(`/chat/${conv.conversationId}?initial=${encodeURIComponent(input)}`);
         },
         onError: (err) => {
           toast.error("Failed to create conversation", {

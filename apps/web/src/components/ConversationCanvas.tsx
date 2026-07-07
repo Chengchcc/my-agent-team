@@ -16,9 +16,10 @@ import { ToolApprovalCard } from "./ToolApprovalCard";
 interface ConversationCanvasProps {
   conversationId: string;
   snapshot?: ConversationSnapshot | null;
+  initialMessage?: string;
 }
 
-export function ConversationCanvas({ conversationId, snapshot }: ConversationCanvasProps) {
+export function ConversationCanvas({ conversationId, snapshot, initialMessage }: ConversationCanvasProps) {
   const { state, busy, send, toggleTriggerMode, approvalTarget, approve, deny, resuming } =
     useConversation(conversationId, snapshot);
   const { viewerMemberId, roster, items, error, todos, triggerMode } = state;
@@ -61,6 +62,15 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
   const prevLen = useRef(items.length);
   const [scrolledUp, setScrolledUp] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(false);
+  const initialSent = useRef(false);
+
+  // Auto-send the user's first message passed via ?initial= from chat overview.
+  useEffect(() => {
+    if (initialMessage && !initialSent.current && viewerMemberId) {
+      initialSent.current = true;
+      send(initialMessage);
+    }
+  }, [initialMessage, send, viewerMemberId]);
 
   useEffect(() => {
     if (items.length > prevLen.current && scrollRef.current) {

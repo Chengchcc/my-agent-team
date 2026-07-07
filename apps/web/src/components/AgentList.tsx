@@ -16,7 +16,8 @@ function runtimeBadge(rt: AgentRuntimeStatus | undefined): {
 } {
   if (!rt) return { color: "bg-[var(--mute)]", label: "Unknown", lastSeenAt: null };
   const surfaces = Object.values(rt.surfaces);
-  if (surfaces.length === 0) return { color: "bg-[var(--primary)]", label: "Idle", lastSeenAt: null };
+  if (surfaces.length === 0)
+    return { color: "bg-[var(--primary)]", label: "Idle", lastSeenAt: null };
   const hasError = surfaces.some((s) => s.status !== "running" || s.lastError);
   const lastSeenAt = surfaces.reduce<number | null>((max, s) => {
     if (s.lastSeenAt == null) return max;

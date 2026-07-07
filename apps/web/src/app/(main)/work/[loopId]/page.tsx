@@ -14,8 +14,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { EvidenceChainPanel } from "@/components/work/EvidenceChainPanel";
-import { useActivateLoop, useLoopDetail, useRunLoop } from "@/features/loop/hooks";
 import { useSetCronEnabled } from "@/features/cron/hooks";
+import { useActivateLoop, useLoopDetail, useRunLoop } from "@/features/loop/hooks";
 
 const STEP_ORDER = ["fixing", "verifying", "awaiting_review", "resolved"] as const;
 const STEP_BADGE: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
