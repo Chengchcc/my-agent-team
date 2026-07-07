@@ -18,6 +18,9 @@ export interface AgentRow {
 }
 
 export interface CreateAgentInput {
+  /** Optional explicit id; used by the bootstrap seed to create a stable "default" agent.
+   *  Not accepted from HTTP clients — the POST /api/agents body schema omits this field. */
+  id?: string;
   name: string;
   template?: string;
   model: { provider: string; model: string; baseURL?: string };

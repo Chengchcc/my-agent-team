@@ -30,7 +30,7 @@ export function createAgentService(opts: {
 
   return {
     async create(input: CreateAgentInput): Promise<AgentRow> {
-      const id = idGen();
+      const id = input.id ?? idGen();
       const workspacePath = await materializeWorkspace(id, input.template);
       const now = Date.now();
       const larkEnabled = input.lark?.enabled ?? false;

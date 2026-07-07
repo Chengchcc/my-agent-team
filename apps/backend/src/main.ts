@@ -152,6 +152,16 @@ const larkBotRegistry = createLarkBotRegistry(config);
 const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry, {
   onAgentCreate: (agentId) => skillPackSvc.setAgentPacks(agentId, ["builtin"]),
 });
+// Seed default agent if table is empty — frontend gets a usable agent on first run.
+if ((await agentSvc.list()).length === 0) {
+  await agentSvc.create({
+    id: "default",
+    name: "Assistant",
+    model: { provider: "anthropic", model: "claude-sonnet-4-20250514" },
+    permissionMode: "auto",
+  });
+  console.log("[backend] seeded default agent");
+}
 const conv = createConversationFeature(db, config, supervisor, agentSvc, opsStore, sessionManager);
 
 // ─── Event wiring ─────────────────────────────────────────────
