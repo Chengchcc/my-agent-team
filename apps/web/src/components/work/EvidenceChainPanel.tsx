@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { LoopDetail } from "@/lib/api";
 import { ReviewActionBar } from "./ReviewActionBar";
 
-type LoopItem = NonNullable<LoopDetail["items"]>[number];
+type LoopItem = NonNullable<NonNullable<LoopDetail>["items"]>[number];
 
 const VERDICT_TONE: Record<string, string> = {
   PASS: "bg-emerald-500/15 text-emerald-700",
@@ -25,7 +25,7 @@ function VerdictBlock({ result }: { result: NonNullable<LoopItem["result"]> }) {
         <div>
           <p className="text-xs text-[var(--mute)] mb-1">Reasons</p>
           <ul className="text-sm space-y-1 list-disc list-inside">
-            {result.reasons.map((r, i) => (
+            {result.reasons.map((r: string, i: number) => (
               <li key={i}>{r}</li>
             ))}
           </ul>

@@ -35,7 +35,8 @@ export default function LoopDetailPage() {
   const grouped = useMemo(() => {
     const map: Record<string, typeof items> = {};
     for (const it of items) {
-      (map[it.step] ??= []).push(it);
+      if (!map[it.step]) map[it.step] = [];
+      map[it.step]!.push(it);
     }
     return map;
   }, [items]);

@@ -53,7 +53,7 @@ export function useConversation(
       memberId: m.memberId,
       kind: m.kind,
       displayName: m.displayName ?? undefined,
-      agentId: "agentId" in m ? m.agentId : undefined,
+      agentId: m.agentId ?? undefined,
     }));
     const viewerMemberId = resolveViewerMemberId(members);
     dispatch({ type: "bootstrap", viewerMemberId, members });

@@ -10,12 +10,10 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import { useCreateConversation } from "@/features/conversations/hooks";
-import type { ConversationSnapshot } from "@/lib/api";
 
 export default function NewLoopPage() {
   const createConv = useCreateConversation();
   const [convId, setConvId] = useState<string | null>(null);
-  const [snapshot, setSnapshot] = useState<ConversationSnapshot | null>(null);
 
   // Auto-create a conversation on mount: default Agent + a human member.
   // Runs once; subsequent renders reuse convId.
@@ -37,7 +35,6 @@ export default function NewLoopPage() {
         onSuccess: (conv) => {
           if (cancelled) return;
           setConvId(conv.conversationId);
-          setSnapshot(conv);
         },
         onError: (err) => {
           if (cancelled) return;
@@ -51,7 +48,7 @@ export default function NewLoopPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [createConv.mutate, convId]);
 
   if (!convId) {
     return (
@@ -85,13 +82,11 @@ export default function NewLoopPage() {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            Describe what you want to automate
-          </p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Describe what you want to automate</p>
         </div>
       </div>
       <div className="flex-1 min-h-0">
-        <ConversationCanvas conversationId={convId} snapshot={snapshot} />
+        <ConversationCanvas conversationId={convId} />
       </div>
     </div>
   );

@@ -14,7 +14,7 @@ import {
 } from "./queries";
 import { opsKeys } from "./query-keys";
 
-export function useOpsRuns(params?: Record<string, string>) {
+export function useOpsRuns(params?: Parameters<typeof api.listOpsRuns>[0]) {
   return useQuery(opsRunsQuery(params));
 }
 

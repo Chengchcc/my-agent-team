@@ -50,7 +50,17 @@ export function loopRoutes(
     }))
     .get("/api/work/today", async () => {
       const loops = cronSvc.list().filter((j) => j.loopConfigPath != null);
-      const reviewQueue: unknown[] = [];
+      const reviewQueue: Array<{
+        id: string;
+        source: string;
+        summary: string;
+        step: string;
+        attempt: number;
+        priority: number;
+        result: Verdict | null;
+        loopId: string;
+        loopName: string;
+      }> = [];
       for (const loop of loops) {
         const paths = resolveLoopPaths(loop, dataDir);
         try {

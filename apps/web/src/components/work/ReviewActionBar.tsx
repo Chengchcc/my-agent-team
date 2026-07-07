@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useReviewLoopItem } from "@/features/loop/hooks";
 import type { LoopDetail } from "@/lib/api";
 
-type LoopItem = NonNullable<LoopDetail["items"]>[number];
+type LoopItem = NonNullable<NonNullable<LoopDetail>["items"]>[number];
 
 type Verdict = "approve" | "reject" | "promote" | "retry" | "dismiss";
 

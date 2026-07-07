@@ -127,19 +127,25 @@ export default function RunDetailPage() {
                   <Card size="sm">
                     <CardContent className="space-y-1">
                       <p className="text-xs text-muted-foreground">Total Cost</p>
-                      <p className="text-lg font-semibold">{formatCost(insights.root.totalCostUsd)}</p>
+                      <p className="text-lg font-semibold">
+                        {formatCost(insights.root.totalCostUsd)}
+                      </p>
                     </CardContent>
                   </Card>
                   <Card size="sm">
                     <CardContent className="space-y-1">
                       <p className="text-xs text-muted-foreground">Input Tokens</p>
-                      <p className="text-lg font-semibold">{formatToken(insights.root.totalInput)}</p>
+                      <p className="text-lg font-semibold">
+                        {formatToken(insights.root.totalInput)}
+                      </p>
                     </CardContent>
                   </Card>
                   <Card size="sm">
                     <CardContent className="space-y-1">
                       <p className="text-xs text-muted-foreground">Output Tokens</p>
-                      <p className="text-lg font-semibold">{formatToken(insights.root.totalOutput)}</p>
+                      <p className="text-lg font-semibold">
+                        {formatToken(insights.root.totalOutput)}
+                      </p>
                     </CardContent>
                   </Card>
                   <Card size="sm">
