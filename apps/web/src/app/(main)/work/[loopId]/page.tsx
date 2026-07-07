@@ -12,8 +12,10 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { EvidenceChainPanel } from "@/components/work/EvidenceChainPanel";
-import { useLoopDetail, useRunLoop } from "@/features/loop/hooks";
+import { useActivateLoop, useLoopDetail, useRunLoop } from "@/features/loop/hooks";
+import { useSetCronEnabled } from "@/features/cron/hooks";
 
 const STEP_ORDER = ["fixing", "verifying", "awaiting_review", "resolved"] as const;
 const STEP_BADGE: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -27,6 +29,8 @@ export default function LoopDetailPage() {
   const { loopId } = useParams<{ loopId: string }>();
   const { data, isLoading } = useLoopDetail(loopId);
   const runMu = useRunLoop();
+  const activateMu = useActivateLoop();
+  const disableMu = useSetCronEnabled();
 
   const loop = data?.loop;
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -84,19 +88,56 @@ export default function LoopDetailPage() {
               {loop.pendingCount > 0 ? ` · ${loop.pendingCount} awaiting review` : ""}
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              runMu.mutate(loopId, {
-                onSuccess: () => toast.success("Run triggered"),
-                onError: (e) => toast.error(`Run failed: ${String(e)}`),
-              })
-            }
-            disabled={runMu.isPending}
-          >
-            Run Now
-          </Button>
+          <div className="flex items-center gap-3">
+            {loop.enabled === false ? (
+              <>
+                <Badge variant="outline">Draft</Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    activateMu.mutate(loopId, {
+                      onSuccess: () => toast.success("Loop activated"),
+                      onError: (e) => toast.error(`Activate failed: ${String(e)}`),
+                    })
+                  }
+                  disabled={activateMu.isPending}
+                >
+                  Activate
+                </Button>
+              </>
+            ) : (
+              <label className="flex items-center gap-2 text-xs text-[var(--mute)]">
+                <Switch
+                  checked
+                  onCheckedChange={() =>
+                    disableMu.mutate(
+                      { id: loopId, enabled: false },
+                      {
+                        onSuccess: () => toast.success("Loop disabled"),
+                        onError: (e) => toast.error(`Disable failed: ${String(e)}`),
+                      },
+                    )
+                  }
+                  disabled={disableMu.isPending}
+                />
+                Enabled
+              </label>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                runMu.mutate(loopId, {
+                  onSuccess: () => toast.success("Run triggered"),
+                  onError: (e) => toast.error(`Run failed: ${String(e)}`),
+                })
+              }
+              disabled={runMu.isPending}
+            >
+              Run Now
+            </Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100%-5rem)]">
