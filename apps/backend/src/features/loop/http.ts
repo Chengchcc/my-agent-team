@@ -79,6 +79,7 @@ export function loopRoutes(
         } catch {
           // STATE.md may not exist yet for this loop — skip
         }
+      }
       return { reviewQueue };
     })
     .get("/api/loops/:id", async ({ params: { id }, set }) => {
