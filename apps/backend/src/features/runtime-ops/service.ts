@@ -129,7 +129,7 @@ export function createRuntimeOpsService(deps: {
 
         const lastOps = opsStore.getControlPlaneEvents(r.span_id).pop();
 
-        const origin = opsStore.getSpanOrigin(r.span_id);
+        opsStore.getSpanOrigin(r.span_id);
 
         return {
           spanId: r.span_id,
@@ -158,7 +158,7 @@ export function createRuntimeOpsService(deps: {
       const run = opsStore.getRunBySpanId(spanId);
       if (!run) return null;
 
-      const origin = opsStore.getSpanOrigin(spanId);
+      opsStore.getSpanOrigin(spanId);
 
       const attempts = opsStore.getAttemptsBySpanId(spanId);
 

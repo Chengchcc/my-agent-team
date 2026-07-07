@@ -103,8 +103,7 @@ export function loopRoutes(
         const loopName = body.name.trim().toLowerCase().replace(/\s+/g, "-");
         const loopPath = `loops/${loopName}`;
         const dir = `${dataDir}/${loopPath}`;
-        const loopId = idGen();
-
+        
         // 1. Create cron_job row
         const job = await cronSvc.createCronJob({
           name: body.name,

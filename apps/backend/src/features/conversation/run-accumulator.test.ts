@@ -63,8 +63,7 @@ afterAll(() => {
 describe("P3: onRunComplete tiering", () => {
   test("Phase 1 (terminal write) throws → Phase 2 lock release still runs in finally", async () => {
     const cid = "c-p3-lock";
-    const sessionId = `${cid}:agent-1`;
-    setupConv(cid);
+        setupConv(cid);
 
     // Acquire lock to simulate active conversation
     lock.acquireSession(sessionId, cid);
@@ -93,8 +92,7 @@ describe("P3: onRunComplete tiering", () => {
 describe("P7: ledger single authority for assistant messages", () => {
   test("terminal assistant message lands in ledger via onRunComplete", async () => {
     const cid = "c-p7-term";
-    const sessionId = `${cid}:agent-1`;
-    setupConv(cid);
+        setupConv(cid);
 
     await onRunComplete("r-p7-term", "succeeded", port, svc, fakeOpsStore);
 
@@ -106,8 +104,7 @@ describe("P7: ledger single authority for assistant messages", () => {
 
   test("projection broadcast failure does not block ledger write", async () => {
     const cid = "c-p7-bcast";
-    const sessionId = `${cid}:agent-1`;
-    setupConv(cid);
+        setupConv(cid);
 
     // Broadcast is best-effort; ledger write (Phase 1 critical) succeeds regardless.
     try {
@@ -128,8 +125,7 @@ describe("P7: ledger single authority for assistant messages", () => {
 describe("B1: todo_update accumulates to onRunComplete appendTodo", () => {
   test("appendTodo fires when lastTodoUpdate was accumulated", async () => {
     const cid = "c-b1-todo";
-    const sessionId = `${cid}:agent-1`;
-    setupConv(cid);
+        setupConv(cid);
 
     // Simulate what onTodoUpdate does in conversation-compose.ts
     const acc = getOrCreateAccumulator("r-b1-todo", "agent-1");
@@ -150,8 +146,7 @@ describe("B1: todo_update accumulates to onRunComplete appendTodo", () => {
 
   test("appendTodo does NOT fire when lastTodoUpdate is null", async () => {
     const cid = "c-b1-no-todo";
-    const sessionId = `${cid}:agent-1`;
-    setupConv(cid);
+        setupConv(cid);
 
     // Accumulator created but lastTodoUpdate stays null
     getOrCreateAccumulator("r-b1-no-todo", "agent-1");

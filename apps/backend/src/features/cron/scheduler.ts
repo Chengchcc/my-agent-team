@@ -149,7 +149,11 @@ export function createCronScheduler(deps: {
   }
 
   // buildConfig for loop agent sessions — delegates to agentConfig
-  function buildConfig(params: { modelName: string; cwd: string; skillRoots?: any }) {
+  function buildConfig(params: {
+    modelName: string;
+    cwd: string;
+    skillRoots?: Record<string, unknown>;
+  }) {
     return {
       model: createModel(params.modelName, deps.config),
       tools: defaultTools(params.cwd),
