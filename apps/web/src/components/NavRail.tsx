@@ -6,7 +6,6 @@ import {
   BotIcon,
   ClockIcon,
   FolderKanbanIcon,
-  ListTodoIcon,
   LogOutIcon,
   MessageSquareIcon,
   MoreHorizontalIcon,
@@ -207,24 +206,11 @@ function NavContent() {
         </SidebarGroup>
       )}
 
-      {/* Issues + Projects */}
+      {/* Projects + Cron */}
       <SidebarGroup>
         <SidebarGroupLabel>Navigate</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={pathname.startsWith("/issues")}
-                tooltip="Issues"
-                onClick={() => {
-                  closeMobile();
-                  router.push("/issues");
-                }}
-              >
-                <ListTodoIcon />
-                <span className="truncate">Issues</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
                 isActive={pathname.startsWith("/projects")}

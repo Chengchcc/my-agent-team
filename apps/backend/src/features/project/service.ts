@@ -15,13 +15,6 @@ export class ValidationError extends Error {
   }
 }
 
-export class ProjectInUseError extends Error {
-  constructor(id: string, issueCount: number) {
-    super(`Project ${id} still has ${issueCount} issue(s)`);
-    this.name = "ProjectInUseError";
-  }
-}
-
 export interface ProjectServiceDeps {
   port: ProjectPort;
   idGen: () => string;
@@ -107,8 +100,6 @@ export function createProjectService(deps: ProjectServiceDeps) {
     },
 
     remove(id: string): void {
-      const n = port.countIssuesByProject(id);
-      if (n > 0) throw new ProjectInUseError(id, n);
       if (!port.deleteProject(id)) throw new ProjectNotFoundError(id);
     },
   };

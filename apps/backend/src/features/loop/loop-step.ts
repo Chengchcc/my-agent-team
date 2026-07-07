@@ -86,7 +86,7 @@ async function resolveRepoPath(
   dataDir: string | undefined,
 ): Promise<string | null> {
   if (!projectPort || !dataDir) return null;
-  const cfg: LoopConfig | null = null;
+  let cfg: LoopConfig | null;
   try {
     cfg = parseLoopConfig(await Bun.file(`${loopConfigPath}/LOOP.md`).text());
   } catch {
@@ -177,9 +177,11 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     const md = await Bun.file(loopMdPath).text();
     const parsed = parseLoopConfig(md);
     if (!parsed) throw new Error("parseLoopConfig returned null");
-    _cfg = parsed;
+    cfg = parsed;
   } catch (err) {
-    throw new Error(`loopStep: failed to load LOOP.md config from ${loopMdPath}: ${String(err)}`);
+    throw new Error(`loopStep: failed to load LOOP.md config from ${loopMdPath}: ${String(err)}`, {
+      cause: err,
+    });
   }
 
   const genModel = cfg.generator.model;
@@ -262,7 +264,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     const baseSha = (await git.revParse(cwd)).text().trim();
 
     // Generator
-        const genConfig = params.buildConfig({
+    const genConfig = params.buildConfig({
       modelName: genModel,
       cwd: workDir,
       skillRoots: skillRootsByRole("loop-generator"),
@@ -304,7 +306,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     }
 
     // Evaluator
-        const evaluatorPrompt = evalPrompt
+    const evaluatorPrompt = evalPrompt
       .replace("{acceptance}", acceptance)
       .replace("{filesChanged}", filesChanged || "none");
     const evalConfig = params.buildConfig({

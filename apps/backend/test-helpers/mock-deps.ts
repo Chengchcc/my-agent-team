@@ -9,10 +9,6 @@ import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 import { type EchoScript, echoModel } from "@my-agent-team/test-helpers";
 import type { AgentRow, CreateAgentInput, UpdateAgentInput } from "../src/features/agent/domain.js";
 import type { AgentService } from "../src/features/agent/service.js";
-import type { ColumnConfigService } from "../src/features/column-config/service.js";
-import type { DeliverableRow } from "../src/features/deliverable/domain.js";
-import type { OrchestratorDeps } from "../src/features/orchestrator/reactor.js";
-import type { Transition } from "../src/features/orchestrator/transitions.js";
 import { RuntimeOpsStore } from "../src/features/runtime-ops/store.js";
 import { SpanSupervisor } from "../src/features/span/supervisor.js";
 import { openDb } from "../src/infra/sqlite/db.js";
@@ -276,76 +272,6 @@ export function fakeAgentSvc(agents: Map<string, AgentRow> = new Map()): AgentSe
 }
 
 // ═══════════════════════════════════════════════════════════════
-// fakeColumnConfigSvc (B — data stub for ColumnConfigService)
-// ═══════════════════════════════════════════════════════════════
-
-export function fakeColumnConfigSvc(transitions?: Transition[]): ColumnConfigService {
-  const defaults: Transition[] = [
-    {
-      from: "planned",
-      to: "in_progress",
-      agentId: "planner",
-      promptTemplate: "Plan for {{title}}",
-      approvalPosture: "auto",
-    },
-    {
-      from: "in_progress",
-      to: "in_review",
-      agentId: "developer",
-      promptTemplate: "Work on {{title}}",
-      approvalPosture: "auto",
-    },
-    {
-      from: "in_review",
-      to: "done",
-      agentId: "reviewer",
-      promptTemplate: "Review {{title}}",
-      approvalPosture: "human",
-    },
-  ];
-
-  return {
-    port: {} as ColumnConfigService["port"],
-    listByProject: () => [],
-    upsert: async () => {
-      throw new Error("fakeColumnConfigSvc.upsert not implemented");
-    },
-    remove: () => {
-      throw new Error("fakeColumnConfigSvc.remove not implemented");
-    },
-    transitionsForProject: (_projectId: string) => transitions ?? defaults,
-  };
-}
-
-// ═══════════════════════════════════════════════════════════════
-// fakeDeliverableSvc (B — data stub)
-// ═══════════════════════════════════════════════════════════════
-
-export function fakeDeliverableSvc(
-  rows: Array<{
-    kind: string;
-    fields: Record<string, string>;
-    ref?: string;
-    createdAt: number;
-  }> = [],
-): { listByIssue(issueId: string): DeliverableRow[] } {
-  return {
-    listByIssue(issueId: string) {
-      return rows.map((r, i) => ({
-        deliverableId: `d_${i}`,
-        issueId,
-        fromStatus: "planned",
-        kind: r.kind,
-        fields: r.fields,
-        ref: r.ref ?? null,
-        spanId: `run_00${i}`,
-        createdAt: r.createdAt,
-      }));
-    },
-  };
-}
-
-// ═══════════════════════════════════════════════════════════════
 // fakeProjectSvc (B — data stub for project auto-orchestrate)
 // ═══════════════════════════════════════════════════════════════
 
@@ -475,32 +401,6 @@ export function fakeCheckpointEventsStore(rows?: CheckpointEventRow[]): FakeChec
     readWindow(_from: number, _to: number) {
       return store.filter((r) => r.ts >= _from && r.ts <= _to);
     },
-  };
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Builder helpers (fat deps → narrow test deps)
-// ═══════════════════════════════════════════════════════════════
-
-const DEFAULT_AGENTS = new Map<string, AgentRow>();
-DEFAULT_AGENTS.set("planner", makeAgentRow({ id: "planner", name: "planner" }));
-DEFAULT_AGENTS.set("developer", makeAgentRow({ id: "developer", name: "developer" }));
-DEFAULT_AGENTS.set("reviewer", makeAgentRow({ id: "reviewer", name: "reviewer" }));
-
-export function makeOrchestratorDeps(over?: Partial<OrchestratorDeps>): OrchestratorDeps {
-  return {
-    config: mockConfig() as OrchestratorDeps["config"],
-    issueSvc: over?.issueSvc ?? ({} as any), // caller must provide real issueSvc
-    agentSvc: over?.agentSvc ?? fakeAgentSvc(DEFAULT_AGENTS),
-    supervisor: over?.supervisor ?? (recordingSupervisor() as unknown as SpanSupervisor),
-    opsStore: over?.opsStore ?? (mockOpsStore() as any),
-    idGen: over?.idGen ?? (() => crypto.randomUUID()),
-    columnConfigSvc:
-      over?.columnConfigSvc ?? (fakeColumnConfigSvc() as unknown as ColumnConfigService),
-    deliverableSvc: over?.deliverableSvc ?? fakeDeliverableSvc(),
-    projectSvc: over?.projectSvc ?? fakeProjectSvc(),
-    now: over?.now ?? (() => 1000000),
-    ...over,
   };
 }
 

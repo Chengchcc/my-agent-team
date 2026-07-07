@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   Breadcrumb,
@@ -15,7 +15,6 @@ import { useLoopDetail, useReviewLoopItem, useRunLoop } from "@/features/loop/ho
 
 export default function LoopDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
   const { data, isLoading } = useLoopDetail(id);
   const reviewMu = useReviewLoopItem(id);
   const runMu = useRunLoop();

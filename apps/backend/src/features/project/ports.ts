@@ -23,6 +23,4 @@ export interface ProjectPort {
   listProjects(): ProjectRow[];
   updateProject(projectId: string, patch: UpdateProjectRecord): ProjectRow | null;
   deleteProject(projectId: string): boolean;
-  /** 删除保护：查该项目下 Issue 数，复用 idx_issue_project */
-  countIssuesByProject(projectId: string): number;
 }

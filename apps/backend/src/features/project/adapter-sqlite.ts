@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { count, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import { projectSelectSchema } from "../../infra/db/schema.js";
@@ -69,15 +69,6 @@ export function sqliteProjectAdapter(db: Database): ProjectPort {
         .returning()
         .all();
       return rows.length > 0;
-    },
-
-    countIssuesByProject(projectId: string): number {
-      const r = d
-        .select({ n: count() })
-        .from(schema.issue)
-        .where(eq(schema.issue.projectId, projectId))
-        .get();
-      return (r?.n ?? 0) as number;
     },
   };
 }

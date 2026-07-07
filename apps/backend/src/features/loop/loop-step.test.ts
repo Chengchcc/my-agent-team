@@ -106,9 +106,6 @@ async function setupGitDataDir(): Promise<{
     deleteProject(_projectId: string): boolean {
       return false;
     },
-    countIssuesByProject(_projectId: string): number {
-      return 0;
-    },
   };
 
   return {

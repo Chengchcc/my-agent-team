@@ -1,9 +1,7 @@
 import { Elysia } from "elysia";
 import type { agentRoutes } from "./features/agent/http.js";
-import type { columnConfigRoutes } from "./features/column-config/http.js";
 import type { conversationRoutes } from "./features/conversation/http.js";
 import type { cronJobRoutes } from "./features/cron/http.js";
-import type { issueRoutes } from "./features/issue/http.js";
 import type { loopRoutes } from "./features/loop/http.js";
 import type { projectRoutes } from "./features/project/http.js";
 import type { opsRoutes } from "./features/runtime-ops/http.js";
@@ -16,9 +14,7 @@ export interface FeatureSet {
   agents: ReturnType<typeof agentRoutes>;
   conversations: ReturnType<typeof conversationRoutes>;
   ops: ReturnType<typeof opsRoutes>;
-  issues: ReturnType<typeof issueRoutes>;
   projects: ReturnType<typeof projectRoutes>;
-  columnConfigs: ReturnType<typeof columnConfigRoutes>;
   cronJobs: ReturnType<typeof cronJobRoutes>;
   loops: ReturnType<typeof loopRoutes>;
   resumeRun: ReturnType<typeof resumeRoutes>;
@@ -43,30 +39,17 @@ function authPlugin(token: string) {
 // ── App factory ──
 
 export function createApp(token: string, features: FeatureSet) {
-  const {
-    agents,
-    conversations,
-    ops,
-    issues,
-    projects,
-    columnConfigs,
-    cronJobs,
-    resumeRun,
-    skillPacks,
-    loops,
-  } = features;
+  const { agents, conversations, ops, projects, cronJobs, resumeRun, skillPacks, loops } = features;
   const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
     .use(authPlugin(token))
-    .use(agents) // agentRoutes now returns Elysia plugin directly
+    .use(agents)
     .use(conversations)
-    .use(ops)
-    .use(issues);
+    .use(ops);
 
   return app
     .use(resumeRun)
     .use(projects)
-    .use(columnConfigs)
     .use(cronJobs)
     .use(loops)
     .use(skillPacks)

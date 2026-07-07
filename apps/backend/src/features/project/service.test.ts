@@ -1,18 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
-import { sqliteIssueAdapter } from "../issue/adapter-sqlite.js";
 import { sqliteProjectAdapter } from "./adapter-sqlite.js";
-import {
-  createProjectService,
-  ProjectInUseError,
-  ProjectNotFoundError,
-  ValidationError,
-} from "./service.js";
+import { createProjectService, ProjectNotFoundError, ValidationError } from "./service.js";
 
 const db = openDb(":memory:");
 
 const port = sqliteProjectAdapter(db);
-const issuePort = sqliteIssueAdapter(db);
 
 let idCount = 0;
 function testIdGen(): string {
@@ -108,23 +101,10 @@ describe("ProjectService", () => {
     expect(() => svc.update(p2.projectId, { name: p1.name })).toThrow(ValidationError);
   });
 
-  test("remove succeeds when no issues", () => {
+  test("remove succeeds", () => {
     const p = svc.createProject({ name: `remove-${Date.now()}` });
     svc.remove(p.projectId);
     expect(svc.exists(p.projectId)).toBe(false);
-  });
-
-  test("remove throws ProjectInUseError when issues exist", () => {
-    const p = svc.createProject({ name: `in-use-${Date.now()}` });
-    // Create an issue under this project
-    issuePort.createIssue({
-      issueId: `iss-${Date.now()}`,
-      projectId: p.projectId,
-      title: "test",
-      sessionId: "thread:test",
-      createdAt: Date.now(),
-    });
-    expect(() => svc.remove(p.projectId)).toThrow(ProjectInUseError);
   });
 
   test("remove throws ProjectNotFoundError for missing", () => {

@@ -193,7 +193,7 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
           await save(thread.messages);
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
-        yield* withSubscribers(spanLoop(rt, spanLoopOpts(opts)));
+        yield* withSubscribers(spanLoop(rt as AgentRuntime, spanLoopOpts(opts)));
       } catch (err) {
         runStatus = opts.signal?.aborted ? "interrupted" : "error";
         lastError = err instanceof Error ? err.message : String(err);
@@ -240,7 +240,7 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
           await save(thread.messages);
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
-        yield* withSubscribers(spanLoop(rt, spanLoopOpts(opts)));
+        yield* withSubscribers(spanLoop(rt as AgentRuntime, spanLoopOpts(opts)));
       } catch (err) {
         runStatus = opts.signal?.aborted ? "interrupted" : "error";
         lastError = err instanceof Error ? err.message : String(err);
@@ -299,7 +299,7 @@ function createAgentInternal<Ctx = Record<string, unknown>>(
           thread.messages.push({ role: "user", blocks: [realResult] });
         }
         await save(thread.messages);
-        yield* withSubscribers(spanLoop(rt, spanLoopOpts(opts)));
+        yield* withSubscribers(spanLoop(rt as AgentRuntime, spanLoopOpts(opts)));
       } catch (err) {
         runStatus = opts.signal?.aborted ? "interrupted" : "error";
         lastError = err instanceof Error ? err.message : String(err);

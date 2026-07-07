@@ -13,6 +13,7 @@ import {
   defaultTools,
 } from "../span/agent-helpers.js";
 import type { SessionManager } from "../span/session-manager.js";
+import type { SkillRoots } from "../span/skill-roots.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
 import type { CronJobRow } from "./domain.js";
 import type { CronJobService } from "./service.js";
@@ -149,11 +150,7 @@ export function createCronScheduler(deps: {
   }
 
   // buildConfig for loop agent sessions — delegates to agentConfig
-  function buildConfig(params: {
-    modelName: string;
-    cwd: string;
-    skillRoots?: Record<string, unknown>;
-  }) {
+  function buildConfig(params: { modelName: string; cwd: string; skillRoots?: SkillRoots }) {
     return {
       model: createModel(params.modelName, deps.config),
       tools: defaultTools(params.cwd),

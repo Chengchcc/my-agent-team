@@ -1,10 +1,5 @@
 import { Elysia, t } from "elysia";
-import {
-  ProjectInUseError,
-  ProjectNotFoundError,
-  type ProjectService,
-  ValidationError,
-} from "./service.js";
+import { ProjectNotFoundError, type ProjectService, ValidationError } from "./service.js";
 
 export function projectRoutes(svc: ProjectService) {
   return new Elysia()
@@ -69,8 +64,6 @@ export function projectRoutes(svc: ProjectService) {
         set.status = 204;
         return "";
       } catch (err) {
-        if (err instanceof ProjectInUseError)
-          return Response.json({ error: err.message }, { status: 409 });
         if (err instanceof ProjectNotFoundError)
           return Response.json({ error: err.message }, { status: 404 });
         throw err;

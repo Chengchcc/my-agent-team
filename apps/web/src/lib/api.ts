@@ -1,9 +1,6 @@
-import type { IssuePriority, IssueStatus } from "@my-agent-team/api-contract";
 import type { LedgerEntry, Member } from "@my-agent-team/conversation";
 import type { ContentBlock } from "@my-agent-team/message";
 import { client, unwrap } from "./client";
-
-export type { IssuePriority, IssueStatus };
 
 // ── Types derived from API treaty (single source: backend App type) ──
 
@@ -11,9 +8,6 @@ export type { IssuePriority, IssueStatus };
 type ApiReturn<F extends (...args: any[]) => any> = Awaited<ReturnType<F>>;
 
 export type ProjectRow = ApiReturn<typeof api.listProjects>["projects"][number];
-export type IssueRow = ApiReturn<typeof api.listIssues>["issues"][number];
-export type IssueEvent = ApiReturn<typeof api.getIssueDetail>["timeline"][number];
-export type IssueRunSummary = ApiReturn<typeof api.getIssueDetail>["runs"][number];
 export type CronJobRow = ApiReturn<typeof api.listCronJobs>["cronJobs"][number];
 export type LoopRow = ApiReturn<typeof api.listLoops>["loops"][number];
 export type LoopDetail = ApiReturn<typeof api.getLoop>["loop"];
@@ -148,45 +142,6 @@ export const api = {
     },
   ) => unwrap(client.api.projects({ id }).patch(body)),
   deleteProject: (id: string) => unwrap(client.api.projects({ id }).delete()),
-  // Issues
-  listIssues: (projectId: string, params?: { status?: string; priority?: string }) =>
-    unwrap(
-      client.api.issues.get({
-        query: { projectId, ...params },
-      }),
-    ),
-  createIssue: (body: {
-    projectId: string;
-    title: string;
-    description?: string;
-    priority?: IssuePriority;
-  }) => unwrap(client.api.issues.post(body)),
-  getIssueTimeline: (id: string) => unwrap(client.api.issues({ id }).timeline.get()),
-  subscribeIssueTimeline: (id: string) => unwrap(client.api.issues({ id }).timeline.events.get()),
-  transitionIssue: (id: string, body: { to: string }) =>
-    unwrap(client.api.issues({ id }).transition.post(body)),
-  reviewDecision: (
-    id: string,
-    body: { decision: "approve" } | { decision: "reject"; note: string },
-  ) => unwrap(client.api.issues({ id })["review-decision"].post(body)),
-  getIssueDetail: (id: string) => unwrap(client.api.issues({ id }).detail.get()),
-  getIssueMeta: () => unwrap(client.api["issue-meta"].get()),
-  updateIssue: (
-    id: string,
-    body: { title?: string; description?: string; priority?: IssuePriority },
-  ) => unwrap(client.api.issues({ id }).patch(body)),
-  deleteIssue: (id: string) => unwrap(client.api.issues({ id }).delete()),
-  // Column Configs
-  listColumnConfigs: (projectId: string) =>
-    unwrap(client.api["column-configs"].get({ query: { projectId } })),
-  upsertColumnConfig: (body: {
-    projectId: string;
-    status: IssueStatus;
-    agentId: string;
-    promptTemplate: string;
-  }) => unwrap(client.api["column-configs"].post(body)),
-  deleteColumnConfig: (configId: string) =>
-    unwrap(client.api["column-configs"]({ id: configId }).delete()),
   // Cron Jobs
   listCronJobs: () => unwrap(client.api["cron-jobs"].get()),
   createCronJob: (body: {

@@ -4,7 +4,6 @@ export { projectRoutes } from "./http.js";
 export type { ProjectPort } from "./ports.js";
 export {
   createProjectService,
-  ProjectInUseError,
   ProjectNotFoundError,
   type ProjectService,
   ValidationError,

@@ -17,11 +17,6 @@ import { loadConfig } from "./config.js";
 import { createAgentSvc } from "./features/agent/agent-compose.js";
 import { createAgentIdentityStore } from "./features/agent/agent-identity.js";
 import { agentRoutes } from "./features/agent/index.js";
-import {
-  columnConfigRoutes,
-  createColumnConfigService,
-  sqliteColumnConfigAdapter,
-} from "./features/column-config/index.js";
 import { createConversationFeature } from "./features/conversation/conversation-compose.js";
 import { conversationRoutes } from "./features/conversation/index.js";
 import { onRunComplete } from "./features/conversation/run-accumulator.js";
@@ -31,16 +26,10 @@ import {
   cronJobRoutes,
   sqliteCronJobAdapter,
 } from "./features/cron/index.js";
-import {
-  createDeliverableService,
-  sqliteDeliverableAdapter,
-} from "./features/deliverable/index.js";
-import { createIssueService, issueRoutes, sqliteIssueAdapter } from "./features/issue/index.js";
 import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index.js";
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
 import { loopRoutes } from "./features/loop/http.js";
 import { createLoopStateStore } from "./features/loop/loop-state-store.js";
-import { createOrchestrator } from "./features/orchestrator/index.js";
 import {
   createProjectService,
   projectRoutes,
@@ -239,35 +228,9 @@ const opsSvc = createRuntimeOpsService({
   getAgentName: (agentId) => agentNames.get(agentId),
 });
 
-// Project service (M18.3) — must be constructed before issueSvc so projectExists can be injected
+// Project service
 const projectPort = sqliteProjectAdapter(db);
 const projectSvc = createProjectService({ port: projectPort, idGen: ulid });
-
-// ColumnConfig service (M18.4) — per-Project per-status execution config
-const columnConfigSvc = createColumnConfigService({
-  port: sqliteColumnConfigAdapter(db),
-  idGen: ulid,
-  agentExists: (id) => agentSvc.exists(id),
-});
-
-// Deliverable service (M18.5) — structured hand-off artifacts
-const deliverableSvc = createDeliverableService({
-  port: sqliteDeliverableAdapter(db),
-  idGen: ulid,
-});
-
-// Issue service (M18.1) — projectExists hook wired for reference integrity (§3.2)
-const issueSvc = createIssueService({
-  port: sqliteIssueAdapter(db),
-  idGen: ulid,
-  projectExists: (id) => projectSvc.exists(id),
-  // M19 Fix 2: Create issue-side conversation on issue creation
-  convPort: {
-    createConversation: (input) => conv.convPort.createConversation(input),
-    setConversationTitle: (id, title) => conv.convPort.setConversationTitle(id, title),
-    addMember: (input) => conv.convPort.addMember(input),
-  },
-});
 
 // M21: CronJob service
 const cronSvc = createCronJobService({
@@ -281,7 +244,7 @@ const cronSvc = createCronJobService({
   },
 });
 
-// M21: CronJob scheduler — register retry listener before orchestrator's onRunComplete
+// M21: CronJob scheduler
 const cronScheduler = createCronScheduler({
   cronSvc,
   supervisor,
@@ -293,30 +256,6 @@ const cronScheduler = createCronScheduler({
   projectPort,
   store: loopStore,
 });
-
-const orchestrator = createOrchestrator({
-  config,
-  issueSvc,
-  agentSvc,
-  supervisor,
-  opsStore,
-  idGen: ulid,
-  columnConfigSvc,
-  deliverableSvc,
-  projectSvc: {
-    getById: (id: string) => projectSvc.getById(id),
-  },
-  // M19 Fix 2: Lazy-add agent members to issue conversation before dispatch
-  convPort: {
-    addMember: (input) => conv.convPort.addMember(input),
-  },
-  sessionManager,
-});
-
-// Register orchestrator's backfill listener (alongside conversation's onRunComplete)
-supervisor.onRunComplete((sessionId, spanId, status, kind) =>
-  orchestrator.onRunComplete(sessionId, spanId, status, kind),
-);
 
 // Resume route for ToolApprovalCard interrupt flow — uses AgentSession.resume()
 // spanId → sessionId lookup via opsStore (run table); live session via sessionManager.get
@@ -342,15 +281,7 @@ const app = createApp(config.authToken, {
   ),
   conversations: conversationRoutes(conv.convSvc, ulid),
   ops: opsRoutes(opsSvc),
-  issues: issueRoutes(issueSvc, opsStore, deliverableSvc, {
-    onIssueStarted: (issue) => orchestrator.startStep(issue),
-    onReviewRejected: async (issue) => {
-      const started = await orchestrator.startStep(issue);
-      if (!started) throw new Error(`rework step has no ColumnConfig for ${issue.status}`);
-    },
-  }),
   projects: projectRoutes(projectSvc),
-  columnConfigs: columnConfigRoutes(columnConfigSvc),
   loops: loopRoutes(
     cronSvc,
     cronScheduler,
