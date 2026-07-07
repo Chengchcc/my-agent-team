@@ -152,16 +152,22 @@ const larkBotRegistry = createLarkBotRegistry(config);
 const agentSvc = createAgentSvc(db, config, supervisor, larkBotRegistry, {
   onAgentCreate: (agentId) => skillPackSvc.setAgentPacks(agentId, ["builtin"]),
 });
-// Seed default agent if table is empty — frontend gets a usable agent on first run.
-if ((await agentSvc.list()).length === 0) {
-  await agentSvc.create({
-    id: "default",
-    name: "Assistant",
-    model: { provider: "anthropic", model: "claude-sonnet-4-20250514" },
-    permissionMode: "auto",
-  });
-  console.log("[backend] seeded default agent");
+// Idempotent seed — re-runs are no-ops; loop-agent is required by POST /api/loops.
+async function ensureAgent(id: string, name: string, model: string) {
+  try {
+    await agentSvc.getById(id);
+  } catch {
+    await agentSvc.create({
+      id,
+      name,
+      model: { provider: "anthropic", model },
+      permissionMode: "auto",
+    });
+    console.log(`[backend] seeded ${id} agent`);
+  }
 }
+await ensureAgent("default", "Assistant", "claude-sonnet-4-20250514");
+await ensureAgent("loop-agent", "Loop Agent", "claude-sonnet-4-20250514");
 const conv = createConversationFeature(db, config, supervisor, agentSvc, opsStore, sessionManager);
 
 // ─── Event wiring ─────────────────────────────────────────────
