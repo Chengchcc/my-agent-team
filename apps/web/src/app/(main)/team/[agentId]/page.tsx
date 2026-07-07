@@ -7,6 +7,7 @@ import { ConversationList } from "@/components/ConversationList";
 import { IdentityPanel } from "@/components/IdentityPanel";
 import { QueryState } from "@/components/ops/QueryState";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
+import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -15,7 +16,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAgentDetail } from "@/features/agents/hooks";
 import { useOpsRuns } from "@/features/ops/hooks";
@@ -25,7 +25,9 @@ type Tab = "persona" | "skills" | "activity";
 
 type PackStatus = "pending" | "installing" | "ready" | "failed" | "syncing";
 
-function packStatusVariant(status: PackStatus): "default" | "destructive" | "secondary" | "outline" {
+function packStatusVariant(
+  status: PackStatus,
+): "default" | "destructive" | "secondary" | "outline" {
   if (status === "ready") return "default";
   if (status === "failed") return "destructive";
   if (status === "installing" || status === "syncing") return "secondary";
@@ -153,7 +155,11 @@ export default function AgentDetailPage() {
 function AgentSkillsPanel({ agentId }: { agentId: string }) {
   const packsQuery = useAgentSkillPacks(agentId);
   return (
-    <QueryState query={packsQuery} empty={(data) => !data || data.length === 0} emptyMessage="No skill packs bound to this agent.">
+    <QueryState
+      query={packsQuery}
+      empty={(data) => !data || data.length === 0}
+      emptyMessage="No skill packs bound to this agent."
+    >
       {(packs) => (
         <ul className="space-y-2">
           {packs.map((p) => {
@@ -198,7 +204,11 @@ function RecentRuns({ agentId }: { agentId: string }) {
       <h2 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] font-[family-name:var(--font-sans)] font-semibold mb-3">
         Recent Runs
       </h2>
-      <QueryState query={runsQuery} empty={(data) => !data || data.length === 0} emptyMessage="No recent runs.">
+      <QueryState
+        query={runsQuery}
+        empty={(data) => !data || data.length === 0}
+        emptyMessage="No recent runs."
+      >
         {(runs) => (
           <div className="rounded-lg border border-[var(--hairline)]">
             <RunOpsTable runs={runs} />
