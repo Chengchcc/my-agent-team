@@ -1,7 +1,9 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -10,16 +12,35 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { useLoopDetail, useReviewLoopItem, useRunLoop } from "@/features/loop/hooks";
+import { EvidenceChainPanel } from "@/components/work/EvidenceChainPanel";
+import { useLoopDetail, useRunLoop } from "@/features/loop/hooks";
+
+const STEP_ORDER = ["fixing", "verifying", "awaiting_review", "resolved"] as const;
+const STEP_BADGE: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
+  fixing: "outline",
+  verifying: "secondary",
+  awaiting_review: "default",
+  resolved: "outline",
+};
 
 export default function LoopDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const { data, isLoading } = useLoopDetail(id);
-  const reviewMu = useReviewLoopItem(id);
+  const { loopId } = useParams<{ loopId: string }>();
+  const { data, isLoading } = useLoopDetail(loopId);
   const runMu = useRunLoop();
 
   const loop = data?.loop;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const items = loop?.items ?? [];
+  const grouped = useMemo(() => {
+    const map: Record<string, typeof items> = {};
+    for (const it of items) {
+      (map[it.step] ??= []).push(it);
+    }
+    return map;
+  }, [items]);
+
+  const selected = items.find((i) => i.id === selectedId) ?? null;
 
   if (isLoading)
     return (
@@ -34,13 +55,8 @@ export default function LoopDetailPage() {
       </div>
     );
 
-  const pendingCount = (loop as { pendingCount?: number }).pendingCount ?? 0;
-  const items =
-    (loop as { items?: Array<{ id: string; summary: string; step: string }> }).items ?? [];
-  const reviewItems = items.filter((i) => i.step === "awaiting_review");
-
   return (
-    <div className="h-full bg-[var(--canvas)]">
+    <div className="h-full bg-[var(--canvas)] flex flex-col">
       <div className="border-b border-[var(--hairline)]">
         <div className="container mx-auto px-8 py-5">
           <Breadcrumb>
@@ -57,21 +73,21 @@ export default function LoopDetailPage() {
         </div>
       </div>
 
-      <div className="container mx-auto px-8 py-10 max-w-2xl">
-        <div className="flex items-center justify-between mb-6">
+      <div className="container mx-auto px-8 py-6 flex-1 min-h-0">
+        <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-medium">{loop.name}</h2>
             <p className="text-xs text-[var(--mute)]">
               {loop.cronExpr || "Manual"}
               {loop.lastRun ? ` · Last run: ${new Date(loop.lastRun).toLocaleString()}` : ""}
-              {pendingCount > 0 ? ` · ${pendingCount} awaiting review` : ""}
+              {loop.pendingCount > 0 ? ` · ${loop.pendingCount} awaiting review` : ""}
             </p>
           </div>
           <Button
             variant="outline"
             size="sm"
             onClick={() =>
-              runMu.mutate(id, {
+              runMu.mutate(loopId, {
                 onSuccess: () => toast.success("Run triggered"),
                 onError: (e) => toast.error(`Run failed: ${String(e)}`),
               })
@@ -82,52 +98,52 @@ export default function LoopDetailPage() {
           </Button>
         </div>
 
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <h3 className="text-sm font-medium">Run History</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100%-5rem)]">
+          {/* Left: item list grouped by step */}
+          <div className="lg:col-span-1 overflow-y-auto border border-[var(--hairline)] rounded-lg bg-background">
+            {items.length === 0 ? (
+              <p className="text-sm text-[var(--mute)] p-4">No items.</p>
+            ) : (
+              STEP_ORDER.filter((s) => (grouped[s] ?? []).length > 0).map((step) => (
+                <div key={step} className="p-2">
+                  <div className="flex items-center gap-2 px-2 py-1">
+                    <Badge variant={STEP_BADGE[step]} className="text-[10px]">
+                      {step}
+                    </Badge>
+                    <span className="text-xs text-[var(--mute)]">{grouped[step]!.length}</span>
+                  </div>
+                  <div className="space-y-1">
+                    {grouped[step]!.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => setSelectedId(item.id)}
+                        className={`w-full text-left rounded-md px-2 py-2 text-sm transition-colors ${
+                          selectedId === item.id
+                            ? "bg-[var(--mute)]/20 ring-1 ring-[var(--hairline)]"
+                            : "hover:bg-[var(--mute)]/10"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate flex-1">{item.summary}</span>
+                          <span className="text-[10px] text-[var(--mute)] shrink-0">
+                            att {item.attempt}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-[var(--mute)] font-mono truncate">
+                          {item.source}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
-          <a href={`/chat/${loop.id}`} className="text-sm text-blue-600 hover:underline">
-            View all runs →
-          </a>
-        </div>
 
-        <div>
-          <h3 className="text-sm font-medium mb-3">Review Queue ({reviewItems.length})</h3>
-          {reviewItems.length === 0 ? (
-            <p className="text-sm text-[var(--mute)]">No items awaiting review.</p>
-          ) : (
-            <div className="space-y-2">
-              {reviewItems.map((item) => (
-                <Card key={item.id}>
-                  <CardContent className="p-3 flex items-center justify-between">
-                    <span className="text-sm">{item.summary}</span>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => reviewMu.mutate({ itemId: item.id, verdict: "approve" })}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => reviewMu.mutate({ itemId: item.id, verdict: "reject" })}
-                      >
-                        Reject
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => reviewMu.mutate({ itemId: item.id, verdict: "promote" })}
-                      >
-                        Promote
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+          {/* Right: evidence chain */}
+          <div className="lg:col-span-2 overflow-y-auto">
+            <EvidenceChainPanel loopId={loopId} item={selected} />
+          </div>
         </div>
       </div>
     </div>
