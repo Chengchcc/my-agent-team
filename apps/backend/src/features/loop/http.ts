@@ -246,7 +246,25 @@ Steps:
           );
         }
 
-        // 6. Read LOOP.md for preview
+        // 6. Check for clarification request first
+        let clarifyContent: string | null = null;
+        try {
+          clarifyContent = await Bun.file(`${dir}/.clarify.json`).text();
+        } catch {
+          // No clarify file — check LOOP.md
+        }
+
+        if (clarifyContent) {
+          const clarify = JSON.parse(clarifyContent) as { questions: string[] };
+          set.status = 200;
+          return {
+            status: "needs_clarification",
+            loopId: job.cronJobId,
+            questions: clarify.questions,
+          };
+        }
+
+        // Read generated LOOP.md for preview
         let preview = "";
         try {
           preview = await Bun.file(`${dir}/LOOP.md`).text();
@@ -256,6 +274,7 @@ Steps:
 
         set.status = 201;
         return {
+          status: "generated",
           loop: {
             id: job.cronJobId,
             name: job.name,
@@ -271,6 +290,98 @@ Steps:
           intent: t.Optional(t.String()),
           projectId: t.Optional(t.String()),
           cronExpr: t.Optional(t.String()),
+        }),
+      },
+    )
+    .post("/api/loops/:id/activate", async ({ params: { id }, set }) => {
+      const job = cronSvc.getById(id);
+      if (!job?.loopConfigPath) {
+        set.status = 404;
+        return { error: "Not a loop" };
+      }
+      await cronSvc.setEnabled(id, true);
+      const updated = cronSvc.getById(id);
+      if (updated) scheduler.register(updated);
+      return { loop: { id, enabled: true, cronExpr: job.cronExpr } };
+    })
+    .post(
+      "/api/loops/:id/refine",
+      async ({ params: { id }, body, set }) => {
+        const job = cronSvc.getById(id);
+        if (!job?.loopConfigPath) {
+          set.status = 404;
+          return { error: "Not a loop" };
+        }
+        const dir = `${dataDir}/${job.loopConfigPath}`;
+
+        // Clean old artifacts
+        try { await rm(`${dir}/.clarify.json`); } catch {}
+        try { await rm(`${dir}/LOOP.md`); } catch {}
+
+        // Re-run generation with refined intent (same logic as create)
+        const config = buildConfig({
+          modelName: "claude-sonnet-4",
+          cwd: dir,
+          skillRoots: {
+            ws: nodeFsAdapter(`${dir}/skills`),
+            roots: ["loop-config-generator"],
+            posixSkillRoot: `${dir}/skills`,
+          },
+        });
+
+        const loopConfigTool = createUpdateLoopConfigTool(job.cronJobId, _cronPort, scheduler);
+        const tools = [...(config.tools ?? []), loopConfigTool];
+        (config as { tools: typeof tools }).tools = tools;
+
+        const registryPath = `${dataDir}/skill-packs/loop-engine/registry.yaml`;
+        const intent = `Create a Loop configuration based on this intent: "${body.intent}"
+
+Target directory: ${dir}
+Registry is at: ${registryPath}
+
+Steps:
+1. Use the write tool to create ${dir}/LOOP.md with the appropriate frontmatter
+2. Use the write tool to copy skill templates from ${dataDir}/skill-packs/loop-engine/ to ${dir}/skills/
+3. If the loop has a schedule, use the update_loop_config tool to set the cron expression`;
+
+        const session = sessionManager.create(config);
+        await session.prompt(intent);
+        sessionManager.dispose(session.sessionId ?? "");
+
+        // Check results (same logic as create)
+        let clarifyContent: string | null = null;
+        try {
+          clarifyContent = await Bun.file(`${dir}/.clarify.json`).text();
+        } catch {}
+
+        if (clarifyContent) {
+          const clarify = JSON.parse(clarifyContent) as { questions: string[] };
+          return {
+            status: "needs_clarification",
+            loopId: id,
+            questions: clarify.questions,
+          };
+        }
+
+        let preview = "";
+        try {
+          preview = await Bun.file(`${dir}/LOOP.md`).text();
+        } catch {}
+
+        return {
+          status: "generated",
+          loop: {
+            id,
+            name: job.name,
+            cronExpr: job.cronExpr,
+            loopConfigPath: job.loopConfigPath,
+            preview,
+          },
+        };
+      },
+      {
+        body: t.Object({
+          intent: t.String(),
         }),
       },
     )
