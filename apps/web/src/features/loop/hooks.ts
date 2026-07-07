@@ -59,3 +59,19 @@ export function useDeleteLoop() {
     onSuccess: () => qc.invalidateQueries({ queryKey: loopKeys.all }),
   });
 }
+
+export function useActivateLoop() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.activateLoop(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: loopKeys.all }),
+  });
+}
+
+export function useRefineLoop(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (intent: string) => api.refineLoop(id, { intent }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: loopKeys.all }),
+  });
+}
