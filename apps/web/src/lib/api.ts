@@ -20,6 +20,7 @@ export type SurfaceOpsItem = ApiReturn<typeof api.listSurfaces>[number];
 export type TraceOpsDetail = ApiReturn<typeof api.getTraceOpsDetail>;
 export type RunInsights = ApiReturn<typeof api.getRunInsights>;
 export type ConversationSnapshot = ApiReturn<typeof api.listConversations>[number];
+export type ReviewQueueItem = ApiReturn<typeof api.getWorkToday>["reviewQueue"][number];
 
 export type { ContentBlock };
 export type MemberInfo = Member;
@@ -182,6 +183,8 @@ export const api = {
     },
   ) => unwrap(client.api.loops({ id }).review.post(body)),
   deleteLoop: (id: string) => unwrap(client.api.loops({ id }).delete()),
+  // Work Today
+  getWorkToday: () => unwrap(client.api.work.today.get()),
   // Skill packs
   listSkillPacks: () => unwrap(client.api["skill-packs"].get()),
   getSkillPackSkills: (id: string) => unwrap(client.api["skill-packs"]({ id }).skills.get()),
