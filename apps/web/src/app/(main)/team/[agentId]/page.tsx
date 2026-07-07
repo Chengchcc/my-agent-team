@@ -19,7 +19,7 @@ import { useAgentDetail } from "@/features/agents/hooks";
 type Tab = "threads" | "identity";
 
 export default function AgentDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { agentId: id } = useParams<{ agentId: string }>();
   const [tab, setTab] = useState<Tab>("threads");
   const { data: agent, isLoading } = useAgentDetail(id);
 
@@ -59,7 +59,7 @@ export default function AgentDetailPage() {
               <Breadcrumb>
                 <BreadcrumbList>
                   <BreadcrumbItem>
-                    <BreadcrumbLink href="/agents">Agents</BreadcrumbLink>
+                    <BreadcrumbLink href="/team">Team</BreadcrumbLink>
                   </BreadcrumbItem>
                   <BreadcrumbSeparator />
                   <BreadcrumbItem>

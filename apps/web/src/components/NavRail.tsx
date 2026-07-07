@@ -4,7 +4,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   ActivityIcon,
   BotIcon,
-  ClockIcon,
   FolderKanbanIcon,
   LogOutIcon,
   MessageSquareIcon,
@@ -57,7 +56,7 @@ function NavContent() {
   const { data: agents } = useAgentList();
 
   const activeAgents = (agents ?? []).filter((a) => !a.archivedAt);
-  const agentIdMatch = pathname.match(/\/agents\/([^/]+)/);
+  const agentIdMatch = pathname.match(/\/team\/([^/]+)/);
   const selectedAgentId = agentIdMatch?.[1] ?? null;
 
   const { data: conversations } = useConversationList(selectedAgentId!);
@@ -82,11 +81,11 @@ function NavContent() {
             {activeAgents.map((agent) => (
               <SidebarMenuItem key={agent.id}>
                 <SidebarMenuButton
-                  isActive={pathname.startsWith(`/agents/${agent.id}`)}
+                  isActive={pathname.startsWith(`/team/${agent.id}`)}
                   tooltip={agent.name}
                   onClick={() => {
                     closeMobile();
-                    router.push(`/agents/${agent.id}`);
+                    router.push(`/team/${agent.id}`);
                   }}
                 >
                   <BotIcon />
@@ -129,7 +128,7 @@ function NavContent() {
                   {
                     onSuccess: (conv) => {
                       closeMobile();
-                      router.push(`/conversations/${conv.conversationId}`);
+                      router.push(`/chat/${conv.conversationId}`);
                     },
                     onError: (err) => {
                       toast.error("Failed to create conversation", {
@@ -155,11 +154,11 @@ function NavContent() {
                 return (
                   <SidebarMenuItem key={conv.conversationId}>
                     <SidebarMenuButton
-                      isActive={pathname === `/conversations/${conv.conversationId}`}
+                      isActive={pathname === `/chat/${conv.conversationId}`}
                       tooltip={title}
                       onClick={() => {
                         closeMobile();
-                        router.push(`/conversations/${conv.conversationId}`);
+                        router.push(`/chat/${conv.conversationId}`);
                       }}
                     >
                       <MessageSquareIcon />
@@ -181,8 +180,8 @@ function NavContent() {
                                 queryClient.invalidateQueries({
                                   queryKey: conversationKeys.byAgent(selectedAgentId!),
                                 });
-                                if (pathname === `/conversations/${conv.conversationId}`) {
-                                  router.push(selectedAgentId ? `/agents/${selectedAgentId}` : "/");
+                                if (pathname === `/chat/${conv.conversationId}`) {
+                                  router.push(selectedAgentId ? `/team/${selectedAgentId}` : "/");
                                 }
                               },
                               onError: (err) => {
@@ -206,18 +205,18 @@ function NavContent() {
         </SidebarGroup>
       )}
 
-      {/* Projects + Cron */}
+      {/* Navigate */}
       <SidebarGroup>
         <SidebarGroupLabel>Navigate</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
-                isActive={pathname.startsWith("/projects")}
+                isActive={pathname.startsWith("/team/projects")}
                 tooltip="Projects"
                 onClick={() => {
                   closeMobile();
-                  router.push("/projects");
+                  router.push("/team/projects");
                 }}
               >
                 <FolderKanbanIcon />
@@ -226,24 +225,11 @@ function NavContent() {
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
-                isActive={pathname.startsWith("/cron")}
-                tooltip="Schedules"
-                onClick={() => {
-                  closeMobile();
-                  router.push("/cron");
-                }}
-              >
-                <ClockIcon />
-                <span className="truncate">Schedules</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={pathname.startsWith("/skill-packs")}
+                isActive={pathname.startsWith("/team/skills")}
                 tooltip="Skill Packs"
                 onClick={() => {
                   closeMobile();
-                  router.push("/skill-packs");
+                  router.push("/team/skills");
                 }}
               >
                 <Package />
@@ -261,40 +247,28 @@ function NavContent() {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
-                isActive={pathname.startsWith("/ops")}
-                tooltip="Operations"
+                isActive={pathname.startsWith("/system")}
+                tooltip="System"
                 onClick={() => {
                   closeMobile();
-                  router.push("/ops");
+                  router.push("/system");
                 }}
               >
                 <ActivityIcon />
-                <span className="truncate">Observability</span>
+                <span className="truncate">System</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
-                isActive={pathname.startsWith("/loops")}
-                tooltip="Loops"
+                isActive={pathname.startsWith("/work")}
+                tooltip="Work"
                 onClick={() => {
                   closeMobile();
-                  router.push("/loops");
+                  router.push("/work");
                 }}
               >
                 <RefreshCwIcon />
-                <span className="truncate">Loops</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={pathname.startsWith("/loops")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/loops");
-                }}
-              >
-                <RefreshCwIcon />
-                <span className="truncate">Loops</span>
+                <span className="truncate">Work</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

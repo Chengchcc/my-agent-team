@@ -95,10 +95,10 @@ export function ConversationCanvas({ conversationId, snapshot }: ConversationCan
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <Link
-              href="/agents"
+              href="/team"
               className="text-[10px] text-[var(--mute)] hover:text-[var(--body)] transition-colors shrink-0"
             >
-              Agents
+              Team
             </Link>
             {primaryAgent && (
               <>

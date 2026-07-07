@@ -46,7 +46,7 @@ export default function LoopDetailPage() {
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
-                <a href="/loops">Loops</a>
+                <a href="/work">Work</a>
               </BreadcrumbItem>
               <BreadcrumbSeparator />
               <BreadcrumbItem>
@@ -86,7 +86,7 @@ export default function LoopDetailPage() {
           <div className="flex items-center gap-2 mb-3">
             <h3 className="text-sm font-medium">Run History</h3>
           </div>
-          <a href={`/conversations/${loop.id}`} className="text-sm text-blue-600 hover:underline">
+          <a href={`/chat/${loop.id}`} className="text-sm text-blue-600 hover:underline">
             View all runs →
           </a>
         </div>

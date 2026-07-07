@@ -64,7 +64,7 @@ export function NeedsAttentionList({ runtimes }: NeedsAttentionProps) {
           items.push({
             severity: "warn",
             label: `Agent ${rt.agentName} — ${surface} surface ${health.status}${health.lastError ? `: ${health.lastError}` : ""}`,
-            href: `/ops/surfaces`,
+            href: `/system`,
             actionable: false,
           });
         }

@@ -46,7 +46,7 @@ export default function LoopsPage() {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <Link href="/loops/new">
+          <Link href="/work/new">
             <Button size="sm">
               <PlusIcon className="size-4 mr-1" />
               Create Loop
@@ -64,7 +64,7 @@ export default function LoopsPage() {
             <p className="text-sm text-[var(--mute)] mb-4">
               No loops yet. Create your first loop to automate work.
             </p>
-            <Link href="/loops/new">
+            <Link href="/work/new">
               <Button>
                 <PlusIcon className="size-4 mr-1" />
                 Create Loop
@@ -79,7 +79,7 @@ export default function LoopsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <Link
-                        href={`/loops/${loop.id}`}
+                        href={`/work/${loop.id}`}
                         className="font-medium text-sm hover:underline truncate"
                       >
                         {loop.name}
@@ -114,7 +114,7 @@ export default function LoopsPage() {
                       <RefreshCwIcon className="size-3 mr-1" />
                       Run Now
                     </Button>
-                    <Link href={`/loops/${loop.id}`}>
+                    <Link href={`/work/${loop.id}`}>
                       <Button variant="ghost" size="sm">
                         View
                       </Button>

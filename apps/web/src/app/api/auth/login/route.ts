@@ -18,7 +18,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   // 302 redirect — browser processes Set-Cookie natively on navigation
-  const resp = NextResponse.redirect(new URL("/agents", req.url));
+  const resp = NextResponse.redirect(new URL("/work", req.url));
   resp.headers.set("Set-Cookie", result.cookie);
   return resp;
 }

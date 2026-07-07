@@ -48,7 +48,7 @@ export default function NewLoopPage() {
       {
         onSuccess: (data) => {
           toast.success("Loop created");
-          router.push(`/loops/${data.loop.id}`);
+          router.push(`/work/${data.loop.id}`);
         },
         onError: (e) => toast.error(`Create failed: ${String(e)}`),
       },
@@ -62,7 +62,7 @@ export default function NewLoopPage() {
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
-                <a href="/loops">Loops</a>
+                <a href="/work">Work</a>
               </BreadcrumbItem>
               <BreadcrumbSeparator />
               <BreadcrumbItem>
@@ -129,7 +129,7 @@ export default function NewLoopPage() {
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => router.push("/loops")}>
+              <Button variant="outline" onClick={() => router.push("/work")}>
                 Cancel
               </Button>
               <Button onClick={handleSubmit} disabled={createMu.isPending}>

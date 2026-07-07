@@ -20,7 +20,7 @@ export default function SurfacesPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/ops">Observability</BreadcrumbLink>
+            <BreadcrumbLink href="/system">System</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>

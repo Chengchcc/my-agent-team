@@ -25,10 +25,10 @@ import { useOpsSessionDetail } from "@/features/ops/hooks";
 export const dynamic = "force-dynamic";
 
 export default function SessionDetailPage() {
-  const { sessionId } = useParams<{ sessionId: string }>();
+  const { runId, loopId } = useParams<{ runId: string; loopId: string }>();
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
 
-  const detailQuery = useOpsSessionDetail(sessionId);
+  const detailQuery = useOpsSessionDetail(runId);
 
   const detail = detailQuery.data;
 
@@ -37,15 +37,15 @@ export default function SessionDetailPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/ops">Observability</BreadcrumbLink>
+            <BreadcrumbLink href="/system">System</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink href="/ops/sessions">Sessions</BreadcrumbLink>
+            <BreadcrumbLink href={`/work/${loopId}`}>Runs</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage className="font-mono">{sessionId}</BreadcrumbPage>
+            <BreadcrumbPage className="font-mono">{runId}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>

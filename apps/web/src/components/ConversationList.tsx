@@ -32,7 +32,7 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
       {
         onSuccess: (conv) => {
           queryClient.invalidateQueries({ queryKey: conversationKeys.byAgent(agentId) });
-          router.push(`/conversations/${conv.conversationId}`);
+          router.push(`/chat/${conv.conversationId}`);
         },
         onError: (err) => {
           toast.error("Failed to create conversation", {
@@ -87,11 +87,11 @@ export function ConversationList({ agentId, agentName }: { agentId: string; agen
               key={conv.conversationId}
               role="button"
               tabIndex={0}
-              onClick={() => router.push(`/conversations/${conv.conversationId}`)}
+              onClick={() => router.push(`/chat/${conv.conversationId}`)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  router.push(`/conversations/${conv.conversationId}`);
+                  router.push(`/chat/${conv.conversationId}`);
                 }
               }}
               className="w-full text-left border border-[var(--hairline)] rounded-lg
