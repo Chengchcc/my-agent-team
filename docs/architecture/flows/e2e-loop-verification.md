@@ -107,22 +107,6 @@ sequenceDiagram
 | **S2** | **verdict 缺失** | evaluator run 成功但没吐出可解析 verdict | 视为「未裁决」，item 停在 `verifying` 等人，不盲目转 step |
 | **S3** | **同 item 重入撞键** | 返工重入同一 item | sessionId 带 `:<attempt>` 序号做幂等键，不撞 |
 
-## 与现状 Issue.status 模型的差别
-
-> 面向了解现状代码的读者；只想理解本流程，读到上一节即可。
-
-现状用 `Issue.status` 枚举 + 固定转移表推进，本设计换成 STATE.md 里的 item step 状态机 + loopReducer：
-
-| | 现状（Issue.status 枚举 + 固定转移） | 本设计（STATE.md item step + loopReducer） |
-|---|---|---|
-| 状态存哪 | DB 里 `Issue.status` 列 | `.loop/STATE.md` 文件（跨进程重启不丢） |
-| 谁推进 | Orchestrator 读常量转移表 | 无状态 `loopStep()` + 纯函数 `loopReducer` |
-| 「下一步」 | 硬编码 `ORDER` / `BACKWARD_EDGES` | reducer 按 verdict/action 转移 |
-| 验证载体 | column 上的 `role` 补丁 | 独立 Evaluator AgentSession，对照 config 的 acceptance |
-| 返工触发 | 人按驳回 / evaluator role | verdict `REJECT` → reducer 回 `fixing`（同一套转移） |
-
-MVP 只把入口统一（`/issues` 移除、Issue 表只读不迁移），底层数据未统一，完整迁移评估见 [Loop Engineering](../foundations/loop-engineering.md) 的「迁移说明」。
-
 ## 关联页面
 
 - [Loop Engineering](../foundations/loop-engineering.md) — 第一性原理入口
@@ -130,4 +114,3 @@ MVP 只把入口统一（`/issues` 移除、Issue 表只读不迁移），底层
 - [LoopRunner](../backend/loop-runner.md) — `loopStep()` 与 loopReducer
 - [定时任务](../foundations/cron-job.md) — 调度者与单飞锁的边界
 - [架构设计哲学](../design-philosophy.md)
-- 现状对照：[Orchestrator](../backend/orchestrator.md)、[Issue 生命周期端到端](./e2e-issue-lifecycle.md)

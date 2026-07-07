@@ -77,13 +77,8 @@
       "owners": "backend-runtime",
       "path": "docs/architecture/backend/loop-runner.md",
       "summary": "LoopRunner 是 Loop 的编排引擎——按调度唤醒、运行 discovery agent、对每个 finding 启动 generator（写）→ evaluator（审）两棒流水线、写入 STATE.md 持久状态、最终等人审批。Generator 和 Evaluator 是不同 AgentSession 实例，必须用不同 model。",
-      "depends_on": [
-        "foundations.loop",
-        "foundations.issue",
-        "harness.harness",
-        "runtime.framework"
-      ],
-      "used_by": ["flows.e2e-issue-lifecycle"]
+      "depends_on": ["foundations.loop", "harness.harness", "runtime.framework"],
+      "used_by": []
     },
     {
       "id": "backend.data-model",
@@ -224,12 +219,7 @@
       "path": "docs/architecture/harness/harness.md",
       "summary": "AgentSession 把 Framework 的 Agent + Checkpointer + PluginRunner + ContextManager 组成为一个有生命周期管理（prompt/continue/resume/abort）和自动化维护（retry/compaction）的运行时单元。Backend 直接跟 AgentSession 对话。",
       "depends_on": ["runtime.framework", "runtime.plugin", "runtime.context-manager"],
-      "used_by": [
-        "flows.e2e-web-message",
-        "flows.e2e-lark-message",
-        "flows.e2e-issue-lifecycle",
-        "backend.overview"
-      ]
+      "used_by": ["flows.e2e-web-message", "flows.e2e-lark-message", "backend.overview"]
     },
     {
       "id": "plugins.fs-memory",
@@ -298,7 +288,7 @@
       "owners": "architecture",
       "path": "docs/architecture/foundations/loop-pattern.md",
       "summary": "Loop Pattern 是 Loop 的预制配置模板。7 种内置 pattern 覆盖最常见的自动化场景。L1/L2/L3 信任层级决定自动化程度。Loop Ready Score（0-100）量化配置完备程度。",
-      "depends_on": ["foundations.loop", "foundations.issue"],
+      "depends_on": ["foundations.loop"],
       "used_by": []
     },
     {
@@ -339,49 +329,14 @@
       "used_by": []
     },
     {
-      "id": "foundations.issue",
-      "title": "Issue",
-      "status": "current",
-      "owners": "architecture",
-      "path": "docs/architecture/foundations/issue.md",
-      "summary": "Issue 是「一个有独立状态机生命周期的工作单元」，是这套协作设计里的领域本体：Conversation/Run/Message 都表达不了「一件需要跨多次运行、按状态推进的活」。",
-      "depends_on": ["foundations.facts-and-projections"],
-      "used_by": ["backend.orchestrator", "roadmap.future-work", "flows.e2e-issue-lifecycle"]
-    },
-    {
-      "id": "backend.orchestrator",
-      "title": "Orchestrator",
-      "status": "current",
-      "owners": "backend-runtime",
-      "path": "docs/architecture/backend/orchestrator.md",
-      "summary": "Orchestrator 是驱动 Issue 状态机往前走的显式编排器。按固定转移表用对应 Agent 起 AgentSession 运行，run 终态经 status 回填把 Issue 推进到下一状态。",
-      "depends_on": [
-        "foundations.issue",
-        "backend.overview",
-        "conversation.members",
-        "harness.harness"
-      ],
-      "used_by": ["roadmap.future-work", "flows.e2e-issue-lifecycle"]
-    },
-    {
-      "id": "flows.e2e-issue-lifecycle",
-      "title": "Issue 生命周期端到端",
-      "status": "current",
-      "owners": "architecture",
-      "path": "docs/architecture/flows/e2e-issue-lifecycle.md",
-      "summary": "这条流把一个 Issue 从创建到完成串成一条时间线：Orchestrator 按转移表起 AgentSession，agent_end 回调推进状态到下一棒，直到 done。",
-      "depends_on": ["foundations.issue", "backend.orchestrator", "harness.harness"],
-      "used_by": []
-    },
-    {
       "id": "foundations.cron-job",
       "title": "CronJob",
       "status": "current",
       "owners": "architecture",
       "path": "docs/architecture/foundations/cron-job.md",
       "summary": "CronJob 是「一条按时间表反复触发 Agent 运行的定时规则」，是 Issue 之外第二个触发型领域本体。到点经 startAgentRun 起一次 run。",
-      "depends_on": ["foundations.issue", "harness.harness"],
-      "used_by": ["backend.orchestrator", "flows.e2e-issue-lifecycle"]
+      "depends_on": ["harness.harness"],
+      "used_by": []
     },
     {
       "id": "roadmap.future-work",
@@ -394,9 +349,7 @@
         "backend.conversation-projection",
         "surfaces.lark-adapter",
         "runtime.framework",
-        "runtime.context-manager",
-        "backend.orchestrator",
-        "foundations.issue"
+        "runtime.context-manager"
       ],
       "used_by": []
     },

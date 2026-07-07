@@ -66,16 +66,6 @@
 1. `security/overview.md`
 2. `conversation/conversation-and-members.md`
 
-## 如果问的是 Issue / 看板 / 多 Agent 协作编排
-
-> `foundations/issue.md`、`backend/orchestrator.md`、`flows/e2e-issue-lifecycle.md` 是 `status: current`（已落地代码）。`foundations/issue-workflow.md` 是 `status: design`（下一版演进设计）。
-
-1. `foundations/issue.md`
-2. `backend/orchestrator.md`
-3. `flows/e2e-issue-lifecycle.md`
-4. `foundations/issue-workflow.md`（`status: design`，下一版演进）
-> `@提及自动触发` 和 `Issue 编排` 是两条独立路径，各自可触发 Agent 运行。
-
 ## 如果问的是 Loop / 自动化编排 / Generator-Evaluator 分离
 
 > `foundations/loop.md`、`backend/loop-runner.md`、`foundations/loop-pattern.md` 均为 `status: design`（已锁定设计，尚未进代码）。
@@ -83,8 +73,6 @@
 1. `foundations/loop.md`
 2. `backend/loop-runner.md`
 3. `foundations/loop-pattern.md`
-4. `foundations/issue.md`（Loop issue 复用的实体本体）
-> Loop 是 Issue 的超集——Loop issue 和 manual issue 共享同一实体，区别在 origin 和推进路径。
 
 ## 如果问的是未来方向
 

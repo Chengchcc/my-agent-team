@@ -95,14 +95,6 @@ export function pipeContextManagers(...managers: ContextManager[]): ContextManag
 
 `createAgentSvc`（`apps/backend/src/features/agent/agent-svc-factory.ts:16`）全部依赖参数注入，内部再用 `createAgentService({ port, idGen, materializeWorkspace, ... })` 把端口与行为一并注入。
 
-`createOrchestrator`（`apps/backend/src/features/orchestrator/reactor.ts`）更进一步——它的 `OrchestratorDeps.projectSvc` **只声明 `getById` 一个方法**，而非整个 ProjectService：
-
-```ts
-projectSvc: { getById(id: string): { autoOrchestrate: boolean; projectId: string } }
-```
-
-调用方只需提供真正被用到的能力，测试时给一个 `{ getById: () => fakeProject }` 就够了。
-
 ### 4. 构造函数注入（端口聚合 + 合理缺省）
 
 `AgentSession`（`packages/harness/src/agent-session.ts`）通过一个 config 对象聚合所有协作者，每一项都是接口而非具体类：
@@ -134,7 +126,6 @@ new AgentSession({ model, threadId, plugins, tools, checkpointer, contextManager
 | 维度 | Bad case（现状） | Good case（仓内样板） | 状态 |
 |------|-----------------|----------------------|------|
 | 注入粒度 | `executeAgentRun` 收 `agentId + agentSvc`，函数体内 `agentSvc.getById` 现造 session（`run-executor.ts:42-43`、`:120`） | `createAgentSvc` 收造好的 db/supervisor，行为以函数注入（`agent-svc-factory.ts:16`） | ⚠️ 待修 |
-| 依赖宽窄 | `ExecuteAgentRunOpts` 18 字段大袋子（`run-executor.ts:37-65`） | `OrchestratorDeps.projectSvc` 只暴露 `getById`（`reactor.ts`） | ⚠️ 待修 |
 | `new` 的位置 | 函数体内 `new AnthropicChatModel`（`:124`）、`sqliteCheckpointer`（`:175`） | `main.ts` 组装根集中 `new`，其余只接收 | ⚠️ 待修 |
 | 角色边界 | 组装 + 执行 + 投影混在一个 fire-and-forget 函数（`run-executor.ts:77`） | `session-registry.ts` 纯 register/get/dispose，单一职责 | ⚠️ 待修 |
 | 协议泄漏 | ~~`buildRunStatusRevision` 把执行层绑死 `MessageRevision` 线协议~~ | `onRunStatus` 回调注入（`:57-62`），执行层不感知投影格式 | ✅ 已修（2026-06-26） |
@@ -169,7 +160,7 @@ new AgentSession({ model, threadId, plugins, tools, checkpointer, contextManager
 
 ## 给 executeAgentRun 的目标形态
 
-改它时不用去外面找范式——**照着同仓的 `createAgentSvc` 和 `AgentSession` 抄**：接收已构造好的能力（注入 `AgentSession` 或 `SessionFactory` 抽象）、依赖窄接口、把 `new` 还给 `main.ts`、把投影 wire 格式移出执行层、18 字段袋子按「会话 / cron / 编排」三类拆成各自的窄接口。具体改法是另一份重构 spec 的事，本页只立准则。
+改它时不用去外面找范式——**照着同仓的 `createAgentSvc` 和 `AgentSession` 抄**：接收已构造好的能力（注入 `AgentSession` 或 `SessionFactory` 抽象）、依赖窄接口、把 `new` 还给 `main.ts`、把投影wire 格式移出执行层、18 字段袋子按「会话 / cron / loop」三类拆成各自的窄接口。具体改法是另一份重构 spec 的事，本页只立准则。
 
 ## 关联页面
 

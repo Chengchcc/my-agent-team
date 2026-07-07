@@ -88,7 +88,6 @@ L3 追踪层 — spanId = tracePlugin.beforeRun 生成
 ```
 conversation:  (cid, memberId) → DB 查/创建 sessionId → new AgentSession(sid) → prompt()
 cron:          ULID sessionId → new AgentSession(sid) → prompt() → dispose()
-orchestrator:  ULID sessionId → new AgentSession(sid) → prompt() → dispose()
 loop:          ULID sessionId × 2 → new AgentSession(sid) → prompt() → dispose()
 ```
 

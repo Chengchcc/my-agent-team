@@ -4,7 +4,7 @@ title: 标识符体系
 status: proposed
 owners: architecture
 last_verified_against_code: 2026-06-26
-summary: "系统里的 id 不是一堆并列的字符串，而是两类截然不同的东西：实体主键（conversationId / agentId / issueId / cronJobId / memberId，各自独立、ulid 生成、互不派生）和运行上下文 id（sessionId / spanId / attemptSeq，沿一条派生链层层收束）。本页用第一性原理说明「哪个 agent、在哪个上下文里、的那条持久记忆线」就是一个 session——它对齐分布式追踪里的一条 trace，本体在最底层 checkpointer 里早就只有一个 key（今天叫 threadId，应正名为 sessionId）。span 是 session 上的一次 prompt loop（对齐追踪里的 root span），attempt 是 span 内的重试序号、不配独立 id。本页同时立下「每个 id 归属哪一层」的准则：checkpointer 认 sessionId 并按 spanId 切执行事实流，backend 拥有 span/attempt 调度。"
+summary: "系统里的 id 不是一堆并列的字符串，而是两类截然不同的东西：实体主键（conversationId / agentId / cronJobId / memberId，各自独立、ulid 生成、互不派生）和运行上下文 id（sessionId / spanId / attemptSeq，沿一条派生链层层收束）。本页用第一性原理说明「哪个 agent、在哪个上下文里、的那条持久记忆线」就是一个 session——它对齐分布式追踪里的一条 trace，本体在最底层 checkpointer 里早就只有一个 key（今天叫 threadId，应正名为 sessionId）。span 是 session 上的一次 prompt loop（对齐追踪里的 root span），attempt 是 span 内的重试序号、不配独立 id。本页同时立下「每个 id 归属哪一层」的准则：checkpointer 认 sessionId 并按 spanId 切执行事实流，backend 拥有 span/attempt 调度。"
 depends_on:
   - design-philosophy
   - foundations.facts-and-projections
@@ -16,7 +16,7 @@ used_by:
 
 # 标识符体系
 
-这个仓里散落着不少 id：`conversationId`、`agentId`、`memberId`、`issueId`、`cronJobId`、`threadId`、`runId`、`attemptId`。新接手的人第一反应是「怎么这么多」。但它们不是平级的——把它们摆对位置后，真正的领域 id 只有少数几个，其余要么是实体主键，要么是同一条派生链上的不同粒度。
+这个仓里散落着不少 id：`conversationId`、`agentId`、`memberId`、`cronJobId`、`threadId`、`runId`、`attemptId`。新接手的人第一反应是「怎么这么多」。但它们不是平级的——把它们摆对位置后，真正的领域 id 只有少数几个，其余要么是实体主键，要么是同一条派生链上的不同粒度。
 
 本页要回答三个问题：
 
@@ -53,7 +53,6 @@ used_by:
 | `conversationId` | 一场会话 | 独立 |
 | `agentId` | 一个 Agent | 独立 |
 | `memberId` | 会话里的一个成员（人或 agent） | 独立 |
-| `issueId` | 一个 Issue | `idGen()`（`issue/service.ts:71`） |
 | `cronJobId` | 一个定时任务 | 独立 |
 
 这类 id 的特点：**它回答「这是哪一个东西」，不回答「它在哪个上下文里运行」**。删掉运行时，它们照样存在。
@@ -93,18 +92,14 @@ threadId  →  sessionId
 
 ### sessionId 怎么派生
 
-session 不是凭空生成的 id，而是由「哪个上下文 + 哪个 agent/成员」拼出来的稳定字符串。仓里有三种触发源，三条派生公式：
+session 不是凭空生成的 id，而是由「哪个上下文 + 哪个 agent/成员」拼出来的稳定字符串。仓里有两种触发源，两条派生公式：
 
 | 触发源 | sessionId（现 threadId）公式 | 代码 |
 |--------|------------------------------|------|
 | 会话 | `${conversationId}:${memberId}` | `conversation/service.ts:24` |
-| Issue（创建） | `${issueId}:owner` | `issue/service.ts:72` |
-| Issue（编排派活） | `${issueId}:${agentId}` | `orchestrator/reactor.ts:122` |
 | Cron | `${cronJobId}:owner` | `cron/scheduler.ts:36` |
 
-读法：**sessionId = 上下文实体主键 : 这条线归谁**。同一个 conversation 里两个成员各有自己的 session（记忆线不串），同一个 issue 派给两个 agent 也各有自己的 session。这正是「哪个 agent、在哪个上下文里」——两个维度拼成一条线的身份。
-
-> 注意 Issue 当前有两种格式并存（`:owner` 与 `:${agentId}`）。这是历史演进留下的毛刺，收敛时应统一为 `${issueId}:${agentId}` 一种，让派生公式只有「上下文 : agent」这一个心智。
+读法：**sessionId = 上下文实体主键 : 这条线归谁**。同一个 conversation 里两个成员各有自己的 session（记忆线不串）。这正是「哪个 agent、在哪个上下文里」——两个维度拼成一条线的身份。
 
 ## span 是 session 上的一次 prompt loop
 
@@ -195,7 +190,6 @@ flowchart TB
 - **run 词与 span 词混用**：代码符号仍叫 `runId` / `RunSupervisor` / `run_origin`，未对齐追踪词汇 span。
 - **执行事实流尚未回归 checkpointer**：`event_log` 表已无写入方（死表），`checkpoint_events` 的 `appendEvent`/`readEvents` 仍标 `@deprecated`、且未按 spanId 切片。职责悬空，待收口。
 - **attempt 仍有独立 id**：`att-${runId}` 而非 `attemptSeq`（`supervisor.ts:178`）。
-- **Issue threadId 两格式并存**：`:owner` 与 `:${agentId}`，待统一。
 
 这些不是 bug——系统今天能跑。但它们是[设计哲学](../design-philosophy.md)意义上的概念债：每层为自己方便发明了一个 key，让「一条 session」这件简单的事散在三层、三个名字里。
 

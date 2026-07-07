@@ -231,7 +231,6 @@ feature 不再 import：`opsStore`、`supervisor`、`crypto`。全是业务。
 |---------|---------|------|------------|
 | conversation | `member.session_id`（新增字段） | 是 | `{ conversationId, agentMemberId, surface, originKind: "manual" }` |
 | cron | 无 | 否 | `{ agentMemberId, originKind: "cron", cronJobId }` |
-| orchestrator | `run.session_id`（已有） | 否 | `{ agentMemberId, originKind: "orchestrator", issueId, fromStatus }` |
 | loop | 无 | 否 | `{ agentMemberId, originKind: "loop" }` |
 
 ### 进程恢复路径

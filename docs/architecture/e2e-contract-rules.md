@@ -19,7 +19,7 @@
 | 加一个 `useQuery` / `useMutation` | `features/<x>/queries.ts` 写 `queryOptions(params)`，组件只调 `useXxx` | 组件内联 `queryKey:` / `queryFn:`；key 与请求参数分开写 |
 | 读一个环境变量 | 共享 `envSchema`，调 `parseEnv()` | 各进程裸 `process.env.XXX` |
 | 跨进程传一个结构（lark↔backend 的 `content`、webhook event、队列消息） | 提一个共享 zod schema，两端 `import` + `parse`/`safeParse` | 一端写 `interface`、另一端 `as {…}` / `as Record<…>` |
-| 加一个状态值 / 枚举值（如 IssueStatus、run state） | 改共享枚举单源（`as const` / `z.enum`），两端 `import` | 在新文件重抄一遍联合类型；`as SomeStatus` 强转 string |
+| 加一个状态值 / 枚举值（如 run state） | 改共享枚举单源（`as const` / `z.enum`），两端 `import` | 在新文件重抄一遍联合类型；`as SomeStatus` 强转 string |
 | 读写一个 DB JSON 列（metadata/config/payload/fields） | 给该列定义 zod 双向 codec，写 `serialize`、读 `parse` | `JSON.parse(row.x) as T` |
 | 渲染一个模板（handlebars） | 给 `PromptVars` 固定类型，键与模板变量同源校验 | `Record<string, unknown>` + 字符串约定 |
 
@@ -41,7 +41,7 @@
 
 ```bash
 # 组件不得手抄类型 / 直连 fetch
-grep -rn "apiFetch<\|as IssueStatus\|as AgentRow" apps/web/src
+grep -rn "apiFetch<\|as AgentRow" apps/web/src
 # 组件不得内联 query 或直调 treaty（只许出现在 features/*/queries.ts|mutations.ts）
 grep -rn "queryKey:\|queryFn:\|client\.api\." apps/web/src/{app,components}
 # SSE 只许在 typedSource 内 new EventSource；URL 只许在 sseEndpoints
