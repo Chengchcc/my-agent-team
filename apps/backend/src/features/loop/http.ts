@@ -9,6 +9,7 @@ import type { CronJobService } from "../cron/service.js";
 import { loopStep } from "../loop/loop-step.js";
 import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { ProjectPort } from "../project/ports.js";
+import { nodeFsAdapter } from "../skill-pack/fs-adapter.js";
 import type { SessionManager } from "../span/session-manager.js";
 import type { SkillRoots } from "../span/skill-roots.js";
 import type { LoopStateStore } from "./loop-state-store.js";
@@ -157,7 +158,7 @@ export function loopRoutes(
           cronExpr: body.cronExpr ?? "",
           prompt: body.intent || "",
           loopConfigPath: loopPath,
-          enabled: true,
+          enabled: false,
         });
 
         // 2. Create Conversation
@@ -199,6 +200,11 @@ export function loopRoutes(
           const config = buildConfig({
             modelName: "claude-sonnet-4",
             cwd: dir,
+            skillRoots: {
+              ws: nodeFsAdapter(`${dir}/skills`),
+              roots: ["loop-config-generator"],
+              posixSkillRoot: `${dir}/skills`,
+            },
           });
 
           // Inject update_loop_config tool so the agent can set the schedule
@@ -240,10 +246,7 @@ Steps:
           );
         }
 
-        // 6. Register scheduler
-        scheduler.register(job);
-
-        // 7. Read LOOP.md for preview
+        // 6. Read LOOP.md for preview
         let preview = "";
         try {
           preview = await Bun.file(`${dir}/LOOP.md`).text();
