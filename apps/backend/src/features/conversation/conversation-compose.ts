@@ -6,6 +6,8 @@ import {
   deserializeLedgerContent,
   extractText,
   isTerminalMessageState,
+  serializeMessageRevision,
+  systemMessageId,
 } from "@my-agent-team/message";
 import {
   ConversationCtx,
@@ -173,6 +175,33 @@ export function createConversationFeature(
         if (event.type === "message_update" || event.type === "message") {
           const rev = event.payload as MessageRevision;
           void handleAssistantMessage(conversationId, agentMemberId, rev.spanId ?? spanId, rev);
+        }
+        if (event.type === "queue_update") {
+          // Forward transient queue state to conversation SSE via a system message.
+          // queue_update is not persisted as a ledger kind — reused kind:"message"
+          // with __system__ sender + text-encoded { type, steering, followUp }.
+          const ts = Date.now();
+          const serialized = serializeMessageRevision({
+            messageId: systemMessageId(conversationId, "queue"),
+            role: "system",
+            state: "done",
+            text: JSON.stringify({
+              type: "queue_update",
+              steering: event.steering,
+              followUp: event.followUp,
+            }),
+            conversationId,
+            visibility: "conversation",
+            updatedAt: ts,
+          });
+          void convPort.appendLedgerEntry({
+            conversationId,
+            senderMemberId: "__system__",
+            addressedTo: [],
+            kind: "message",
+            content: serialized,
+            ts,
+          });
         }
         if (event.type === "todo_update") {
           const acc = getOrCreateAccumulator(event.spanId ?? spanId, agentMemberId);
