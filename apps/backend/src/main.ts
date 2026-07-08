@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
+import { createMcpClientManager } from "@my-agent-team/adapter-mcp";
 import {
   autoSummarize,
   pipeContextManagers,
@@ -30,6 +31,7 @@ import { CliSetupProvisioner, LarkSetupManager } from "./features/lark-bot/index
 import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-factory.js";
 import { loopRoutes } from "./features/loop/http.js";
 import { createLoopStateStore } from "./features/loop/loop-state-store.js";
+import { createMcpService, mcpRoutes, sqliteMcpServerAdapter } from "./features/mcp/index.js";
 import {
   createProjectService,
   projectRoutes,
@@ -54,13 +56,6 @@ import {
   skillPackRoutes,
   sqliteSkillPackAdapter,
 } from "./features/skill-pack/index.js";
-
-import { createMcpClientManager } from "@my-agent-team/adapter-mcp";
-import {
-  createMcpService,
-  mcpRoutes,
-  sqliteMcpServerAdapter,
-} from "./features/mcp/index.js";
 import {
   createModel,
   defaultContextManager,

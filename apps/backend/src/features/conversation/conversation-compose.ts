@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
-import type { McpClientManager } from "@my-agent-team/adapter-mcp";
 import { join } from "node:path";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
+import type { McpClientManager } from "@my-agent-team/adapter-mcp";
 import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
   deserializeLedgerContent,

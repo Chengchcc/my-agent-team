@@ -3,13 +3,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -73,13 +67,9 @@ function McpForm({
   onCancel: () => void;
 }) {
   const [name, setName] = useState(editing?.name ?? "");
-  const [transport, setTransport] = useState<"stdio" | "sse">(
-    editing?.transport ?? "stdio",
-  );
+  const [transport, setTransport] = useState<"stdio" | "sse">(editing?.transport ?? "stdio");
   const [command, setCommand] = useState(editing?.command ?? "");
-  const [args, setArgs] = useState(
-    editing?.args ? editing.args.join(", ") : "",
-  );
+  const [args, setArgs] = useState(editing?.args ? editing.args.join(", ") : "");
   const [env, setEnv] = useState(formatEnv(editing?.env));
   const [url, setUrl] = useState(editing?.url ?? "");
   const [enabled, setEnabled] = useState(editing?.enabled ?? true);
@@ -108,20 +98,12 @@ function McpForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="mcp-name">Name</Label>
-        <Input
-          id="mcp-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
+        <Input id="mcp-name" value={name} onChange={(e) => setName(e.target.value)} required />
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="mcp-transport">Transport</Label>
-        <Select
-          value={transport}
-          onValueChange={(v) => setTransport(v as "stdio" | "sse")}
-        >
+        <Select value={transport} onValueChange={(v) => setTransport(v as "stdio" | "sse")}>
           <SelectTrigger id="mcp-transport" className="w-full">
             <SelectValue />
           </SelectTrigger>
@@ -177,11 +159,7 @@ function McpForm({
       )}
 
       <div className="flex items-center gap-2">
-        <Switch
-          checked={enabled}
-          onCheckedChange={setEnabled}
-          id="mcp-enabled"
-        />
+        <Switch checked={enabled} onCheckedChange={setEnabled} id="mcp-enabled" />
         <Label htmlFor="mcp-enabled">Enabled</Label>
       </div>
 
@@ -215,15 +193,13 @@ export function McpServerPanel({ agentId }: { agentId: string }) {
 
   function handleSubmit(body: Record<string, unknown>) {
     if (editing) {
-      updateMu.mutate(
-        body as { serverId: string } & Parameters<typeof updateMu.mutate>[0],
-        { onSuccess: () => setDialogOpen(false) },
-      );
+      updateMu.mutate(body as { serverId: string } & Parameters<typeof updateMu.mutate>[0], {
+        onSuccess: () => setDialogOpen(false),
+      });
     } else {
-      createMu.mutate(
-        body as Parameters<typeof createMu.mutate>[0],
-        { onSuccess: () => setDialogOpen(false) },
-      );
+      createMu.mutate(body as Parameters<typeof createMu.mutate>[0], {
+        onSuccess: () => setDialogOpen(false),
+      });
     }
   }
 
@@ -247,8 +223,7 @@ export function McpServerPanel({ agentId }: { agentId: string }) {
 
       {!isLoading && servers.length === 0 && (
         <p className="text-sm text-[var(--mute)]">
-          No MCP servers configured. Add one to extend this agent&apos;s
-          capabilities.
+          No MCP servers configured. Add one to extend this agent&apos;s capabilities.
         </p>
       )}
 
@@ -258,11 +233,7 @@ export function McpServerPanel({ agentId }: { agentId: string }) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 {server.name}
-                <Badge
-                  variant={
-                    server.transport === "stdio" ? "secondary" : "outline"
-                  }
-                >
+                <Badge variant={server.transport === "stdio" ? "secondary" : "outline"}>
                   {server.transport}
                 </Badge>
                 {server.enabled ? (
@@ -278,9 +249,7 @@ export function McpServerPanel({ agentId }: { agentId: string }) {
               {server.transport === "stdio" && server.command && (
                 <CardDescription>
                   {server.command}
-                  {server.args && server.args.length > 0
-                    ? ` ${server.args.join(" ")}`
-                    : ""}
+                  {server.args && server.args.length > 0 ? ` ${server.args.join(" ")}` : ""}
                 </CardDescription>
               )}
               {server.transport === "sse" && server.url && (
@@ -288,11 +257,7 @@ export function McpServerPanel({ agentId }: { agentId: string }) {
               )}
             </CardHeader>
             <CardContent className="flex justify-end gap-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => openEdit(server)}
-              >
+              <Button size="sm" variant="ghost" onClick={() => openEdit(server)}>
                 Edit
               </Button>
               <Button
@@ -300,8 +265,7 @@ export function McpServerPanel({ agentId }: { agentId: string }) {
                 variant="ghost"
                 className="text-destructive"
                 onClick={() => {
-                  if (confirm("Delete this MCP server?"))
-                    deleteMu.mutate(server.serverId);
+                  if (confirm("Delete this MCP server?")) deleteMu.mutate(server.serverId);
                 }}
               >
                 Delete
@@ -313,9 +277,7 @@ export function McpServerPanel({ agentId }: { agentId: string }) {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {editing ? "Edit" : "Add"} MCP Server
-            </DialogTitle>
+            <DialogTitle>{editing ? "Edit" : "Add"} MCP Server</DialogTitle>
           </DialogHeader>
           <McpForm
             editing={editing}

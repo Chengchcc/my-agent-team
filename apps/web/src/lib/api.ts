@@ -240,12 +240,7 @@ export const api = {
       url?: string;
       enabled?: boolean;
     },
-  ) =>
-    unwrap(
-      client.api.agents({ id: agentId })["mcp-servers"]({ serverId }).put(body),
-    ),
+  ) => unwrap(client.api.agents({ id: agentId })["mcp-servers"]({ serverId }).put(body)),
   deleteMcpServer: (agentId: string, serverId: string) =>
-    unwrap(
-      client.api.agents({ id: agentId })["mcp-servers"]({ serverId }).delete(),
-    ),
+    unwrap(client.api.agents({ id: agentId })["mcp-servers"]({ serverId }).delete()),
 };

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentDetailQuery, agentIdentityQuery, agentListQuery } from "./queries";
 import { api } from "@/lib/api";
+import { agentDetailQuery, agentIdentityQuery, agentListQuery } from "./queries";
 
 export function useAgentList(opts?: { enabled?: boolean }) {
   return useQuery({ ...agentListQuery(), ...opts });
@@ -16,7 +16,6 @@ export function useAgentIdentity(id: string) {
 
 export { useArchiveAgent, useCreateAgent, useSetIdentity, useUpdateAgent } from "./mutations";
 export { agentKeys } from "./query-keys";
-
 
 const mcpKeys = {
   list: (agentId: string) => ["mcp-servers", agentId] as const,
