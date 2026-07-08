@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { AgentForm } from "@/components/AgentForm";
 import { ConversationList } from "@/components/ConversationList";
+import { McpServerPanel } from "@/components/McpServerPanel";
 import { IdentityPanel } from "@/components/IdentityPanel";
 import { QueryState } from "@/components/ops/QueryState";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
@@ -21,7 +22,7 @@ import { useAgentDetail } from "@/features/agents/hooks";
 import { useOpsRuns } from "@/features/ops/hooks";
 import { useAgentSkillPacks } from "@/features/skill-packs/hooks";
 
-type Tab = "persona" | "skills" | "activity";
+type Tab = "persona" | "skills" | "activity" | "mcp";
 
 type PackStatus = "pending" | "installing" | "ready" | "failed" | "syncing";
 
@@ -131,6 +132,15 @@ export default function AgentDetailPage() {
             >
               Activity
             </Button>
+            <Button
+              variant="ghost"
+              role="tab"
+              aria-selected={tab === "mcp"}
+              className={tabClass("mcp")}
+              onClick={() => setTab("mcp")}
+            >
+              MCP
+            </Button>
           </div>
         </div>
       </div>
@@ -146,6 +156,7 @@ export default function AgentDetailPage() {
               <RecentRuns agentId={id} />
             </div>
           )}
+          {tab === "mcp" && <McpServerPanel agentId={id} />}
         </div>
       </div>
     </div>

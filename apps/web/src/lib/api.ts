@@ -25,6 +25,7 @@ export type CreateLoopResult = ApiReturn<typeof api.createLoop>;
 export type RefineLoopResult = ApiReturn<typeof api.refineLoop>;
 export type ActivateLoopResult = ApiReturn<typeof api.activateLoop>;
 export type SettingsMap = ApiReturn<typeof api.getSettings>["settings"];
+export type McpServerRow = ApiReturn<typeof api.listMcpServers>["mcpServers"][number];
 export type SystemInfo = ApiReturn<typeof api.getSystemInfo>;
 
 export type { ContentBlock };
@@ -213,4 +214,38 @@ export const api = {
   getSystemInfo: () => unwrap(client.api.settings.system.get()),
   updateSetting: (key: string, value: unknown) =>
     unwrap(client.api.settings({ key }).put({ value })),
+  // MCP Servers
+  listMcpServers: (agentId: string) =>
+    unwrap(client.api.agents({ id: agentId })["mcp-servers"].get()),
+  createMcpServer: (
+    agentId: string,
+    body: {
+      name: string;
+      transport: "stdio" | "sse";
+      command?: string;
+      args?: string[];
+      env?: Record<string, string>;
+      url?: string;
+      enabled?: boolean;
+    },
+  ) => unwrap(client.api.agents({ id: agentId })["mcp-servers"].post(body)),
+  updateMcpServer: (
+    agentId: string,
+    serverId: string,
+    body: {
+      name?: string;
+      command?: string;
+      args?: string[];
+      env?: Record<string, string>;
+      url?: string;
+      enabled?: boolean;
+    },
+  ) =>
+    unwrap(
+      client.api.agents({ id: agentId })["mcp-servers"]({ serverId }).put(body),
+    ),
+  deleteMcpServer: (agentId: string, serverId: string) =>
+    unwrap(
+      client.api.agents({ id: agentId })["mcp-servers"]({ serverId }).delete(),
+    ),
 };
