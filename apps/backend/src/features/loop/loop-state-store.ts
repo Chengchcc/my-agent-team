@@ -6,6 +6,7 @@ export interface LoopStateStore {
   save(loopId: string, state: LoopState, inboxItems: Record<string, ItemState>): void;
   addBudget(loopId: string, day: string, delta: number): number;
   getBudget(loopId: string, day: string): number;
+  getBudgetHistory(loopId: string, days?: number): Array<{ date: string; spent: number }>;
 }
 
 export function createLoopStateStore(db: Database): LoopStateStore {
@@ -48,6 +49,10 @@ export function createLoopStateStore(db: Database): LoopStateStore {
 
   const selectBudget = db.query<{ spent: number }, [string, string]>(
     "SELECT spent FROM loop_budget WHERE loop_id = ? AND day = ?",
+  );
+
+  const budgetHistoryQuery = db.query<{ day: string; spent: number }, [string, number]>(
+    "SELECT day, spent FROM loop_budget WHERE loop_id = ? ORDER BY day DESC LIMIT ?",
   );
 
   function rowToItem(row: {
@@ -149,6 +154,10 @@ export function createLoopStateStore(db: Database): LoopStateStore {
     getBudget(loopId: string, day: string): number {
       const row = selectBudget.get(loopId, day);
       return row?.spent ?? 0;
+    },
+    getBudgetHistory(loopId: string, days = 7): Array<{ date: string; spent: number }> {
+      const rows = budgetHistoryQuery.all(loopId, days) as Array<{ day: string; spent: number }>;
+      return rows.map((r) => ({ date: r.day, spent: r.spent }));
     },
   };
 }

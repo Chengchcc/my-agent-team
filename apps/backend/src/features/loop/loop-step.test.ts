@@ -504,10 +504,7 @@ describe("loopStep M3 — AgentSession wiring", () => {
 });
 // ── T3/T4/T5: generator context, evaluator timeout, budget notification ──
 
-async function initLoopDirWithBudget(
-  projectId: string,
-  dailyCap: number,
-): Promise<string> {
+async function initLoopDirWithBudget(projectId: string, dailyCap: number): Promise<string> {
   await rm(TMP, { recursive: true, force: true });
   await mkdir(TMP, { recursive: true });
   await Bun.write(
@@ -592,10 +589,7 @@ describe("loopStep T3/T4/T5 - context, timeout, budget", () => {
     store.save("test-loop", state, {});
 
     const repoWorkDir = `${DATA}/repos/test-project`;
-    const sessionManager = captureSessionManager(
-      "verdict: PASS\nevidence: ok",
-      repoWorkDir,
-    );
+    const sessionManager = captureSessionManager("verdict: PASS\nevidence: ok", repoWorkDir);
 
     await loopStep({
       loopConfigPath: dir,

@@ -319,10 +319,12 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     const unsubGen = genSession.subscribe((e) => {
       if (e.type === "agent_start") genSpanId = e.spanId;
     });
-    const gitLog = await Bun.$`git log --oneline -5`.cwd(cwd).quiet().text().catch(() => "");
-    await genSession.prompt(
-      buildGeneratorPrompt(item, genPrompt, { repoPath: cwd, gitLog }),
-    );
+    const gitLog = await Bun.$`git log --oneline -5`
+      .cwd(cwd)
+      .quiet()
+      .text()
+      .catch(() => "");
+    await genSession.prompt(buildGeneratorPrompt(item, genPrompt, { repoPath: cwd, gitLog }));
     unsubGen();
     params.sessionManager.dispose(genSession.sessionId ?? "");
     if (dailyCap > 0) {

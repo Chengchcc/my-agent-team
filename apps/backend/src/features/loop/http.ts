@@ -3,10 +3,10 @@ import type { SessionConfig } from "@my-agent-team/harness";
 import { loopReducer } from "@my-agent-team/loop";
 import { Elysia, t } from "elysia";
 import { ulid } from "../../infra/ids.js";
+import type { AppendLedgerInput } from "../conversation/ports.js";
 import type { CronJobPort } from "../cron/ports.js";
 import type { CronScheduler } from "../cron/scheduler.js";
 import type { CronJobService } from "../cron/service.js";
-import type { AppendLedgerInput } from "../conversation/ports.js";
 import { loopStep } from "../loop/loop-step.js";
 import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { ProjectPort } from "../project/ports.js";
@@ -50,9 +50,18 @@ export function loopRoutes(
   settingsSvc?: SettingsService,
 ) {
   return new Elysia()
-    .get("/api/loops", () => ({
-      loops: cronSvc.list().filter((j) => j.loopConfigPath != null),
-    }))
+    .get("/api/loops", () => {
+      const loops = cronSvc
+        .list()
+        .filter((j) => j.loopConfigPath != null)
+        .map((j) => ({
+          ...j,
+          pendingCount: Object.values(store.load(j.cronJobId).items).filter(
+            (i) => i.step === "awaiting_review",
+          ).length,
+        }));
+      return { loops };
+    })
     .get("/api/work/today", async () => {
       const loops = cronSvc.list().filter((j) => j.loopConfigPath != null);
       const reviewQueue = [];
@@ -96,6 +105,7 @@ export function loopRoutes(
           lastRun: state.lastRun,
           pendingCount,
           items,
+          budgetHistory: store.getBudgetHistory(id),
         },
       };
     })
@@ -451,7 +461,7 @@ Steps:
           loopId: job.cronJobId,
         });
 
-        return { state };
+        return { state, action: body.verdict };
       },
       {
         body: t.Object({
