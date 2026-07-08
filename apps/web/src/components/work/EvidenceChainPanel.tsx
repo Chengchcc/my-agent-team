@@ -1,12 +1,67 @@
 "use client";
 
+import { conversationEvents } from "@my-agent-team/api-contract";
+import { deserializeLedgerContent, extractText } from "@my-agent-team/message";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { LoopDetail } from "@/lib/api";
+import { typedSource } from "@/lib/typed-source";
 import { ReviewActionBar } from "./ReviewActionBar";
 
 type LoopItem = NonNullable<NonNullable<LoopDetail>["items"]>[number];
+
+/** Fetch the generator's assistant output for a loop item.
+ *  loopId = conversationId; generatorSpanId identifies the Generator run.
+ *  Reads the conversation ledger via SSE (afterSeq=0 replays full history),
+ *  filters to the last assistant message tagged with that spanId, and returns
+ *  its displayable text. Closes the stream once history is drained. */
+function useGeneratorOutput(loopId: string, generatorSpanId: string | null | undefined) {
+  const [text, setText] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!generatorSpanId) {
+      setText(null);
+      return;
+    }
+    setLoading(true);
+    setText(null);
+    // Collect candidate revisions; the last assistant one wins.
+    let lastAssistant: string | null = null;
+    let done = false;
+    const ts = typedSource(
+      `/api/bff/api/conversations/${loopId}/events?afterSeq=0`,
+      conversationEvents,
+      { onError: () => {} },
+    );
+    // History arrives as a burst; close after the burst settles so we don't
+    // hold a long-poll open for a one-shot historical read.
+    const settle = setTimeout(() => {
+      if (!done) {
+        done = true;
+        ts.close();
+        setLoading(false);
+        setText(lastAssistant);
+      }
+    }, 1500);
+    ts.on("message", (entry) => {
+      if (entry.spanId !== generatorSpanId) return;
+      const rev = deserializeLedgerContent(entry.content);
+      if ("raw" in rev) return;
+      if (rev.role !== "assistant") return;
+      const t = extractText({ text: rev.text, blocks: rev.blocks });
+      if (t) lastAssistant = t;
+    });
+    return () => {
+      clearTimeout(settle);
+      ts.close();
+    };
+  }, [loopId, generatorSpanId]);
+
+  return { text, loading };
+}
 
 const VERDICT_TONE: Record<string, string> = {
   PASS: "bg-emerald-500/15 text-emerald-700",
@@ -45,6 +100,11 @@ function VerdictBlock({ result }: { result: NonNullable<LoopItem["result"]> }) {
 }
 
 export function EvidenceChainPanel({ loopId, item }: { loopId: string; item: LoopItem | null }) {
+  const { text: genOutput, loading: genLoading } = useGeneratorOutput(
+    loopId,
+    item?.generatorSpanId,
+  );
+
   if (!item) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -54,6 +114,7 @@ export function EvidenceChainPanel({ loopId, item }: { loopId: string; item: Loo
   }
 
   const genRunHref = item.generatorSpanId ? `/work/${loopId}/runs/${item.generatorSpanId}` : null;
+
 
   return (
     <div className="space-y-4">
@@ -113,6 +174,18 @@ export function EvidenceChainPanel({ loopId, item }: { loopId: string; item: Loo
                 </Link>
               ) : (
                 <span className="font-mono text-xs">{item.generatorSpanId}</span>
+              )}
+            </div>
+            <div>
+              <p className="text-[var(--mute)] mb-1">Agent Output</p>
+              {genLoading ? (
+                <p className="text-xs text-[var(--mute)] animate-pulse">Loading…</p>
+              ) : genOutput ? (
+                <pre className="text-sm whitespace-pre-wrap font-sans bg-[var(--canvas)] rounded p-2 border border-[var(--hairline)] max-h-64 overflow-y-auto">
+                  {genOutput}
+                </pre>
+              ) : (
+                <p className="text-xs text-[var(--mute)]">No assistant output recorded for this run.</p>
               )}
             </div>
           </CardContent>
