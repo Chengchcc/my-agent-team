@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -108,8 +109,13 @@ export default function WorkTodayPage() {
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium text-[var(--ink)] truncate">
-                        {loop.name}
+                      <div className="flex items-center gap-2 text-sm font-medium text-[var(--ink)]">
+                        <span className="truncate">{loop.name}</span>
+                        {loop.pendingCount > 0 && (
+                          <Badge variant="default" className="text-xs">
+                            {loop.pendingCount} 待审
+                          </Badge>
+                        )}
                       </div>
                       <div className="text-xs text-[var(--mute)] font-mono">
                         {loop.cronExpr || "Manual"}

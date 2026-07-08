@@ -12,10 +12,28 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { EvidenceChainPanel } from "@/components/work/EvidenceChainPanel";
 import { useSetCronEnabled } from "@/features/cron/hooks";
-import { useActivateLoop, useLoopDetail, useRunLoop } from "@/features/loop/hooks";
+import { useActivateLoop, useAddLoopItem, useLoopDetail, useRunLoop } from "@/features/loop/hooks";
 
 const STEP_ORDER = ["fixing", "verifying", "awaiting_review", "resolved"] as const;
 const STEP_BADGE: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -31,9 +49,14 @@ export default function LoopDetailPage() {
   const runMu = useRunLoop();
   const activateMu = useActivateLoop();
   const disableMu = useSetCronEnabled();
+  const addItemMu = useAddLoopItem(loopId);
 
   const loop = data?.loop;
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [source, setSource] = useState("manual");
+  const [summary, setSummary] = useState("");
+  const [priority, setPriority] = useState("");
 
   const items = loop?.items ?? [];
   const grouped = useMemo(() => {
@@ -137,6 +160,9 @@ export default function LoopDetailPage() {
             >
               Run Now
             </Button>
+            <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
+              Add Item
+            </Button>
           </div>
         </div>
 
@@ -187,7 +213,94 @@ export default function LoopDetailPage() {
             <EvidenceChainPanel loopId={loopId} item={selected} />
           </div>
         </div>
+
+        {loop.budgetHistory && loop.budgetHistory.length > 0 && (
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle>Budget History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loop.budgetHistory.map((b) => (
+                <div key={b.date} className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">{b.date}</span>
+                  <span>{b.spent.toLocaleString()} tokens</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
       </div>
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Item</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              addItemMu.mutate(
+                {
+                  source,
+                  summary,
+                  priority: priority ? Number(priority) : undefined,
+                },
+                {
+                  onSuccess: () => {
+                    setAddOpen(false);
+                    setSummary("");
+                    setPriority("");
+                    toast.success("Item added");
+                  },
+                  onError: (e) => toast.error(`Add failed: ${String(e)}`),
+                },
+              );
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="add-source">Source</Label>
+              <Select value={source} onValueChange={(v) => setSource(v ?? "manual")}>
+                <SelectTrigger id="add-source" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ci">ci</SelectItem>
+                  <SelectItem value="manual">manual</SelectItem>
+                  <SelectItem value="lark">lark</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-summary">Summary</Label>
+              <Textarea
+                id="add-summary"
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+                required
+                rows={3}
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-priority">Priority (optional)</Label>
+              <Input
+                id="add-priority"
+                type="number"
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={addItemMu.isPending}>
+                Add
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

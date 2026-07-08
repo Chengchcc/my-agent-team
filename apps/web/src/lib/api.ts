@@ -190,6 +190,8 @@ export const api = {
   ) => unwrap(client.api.loops({ id }).review.post(body)),
   deleteLoop: (id: string) => unwrap(client.api.loops({ id }).delete()),
   activateLoop: (id: string) => unwrap(client.api.loops({ id }).activate.post()),
+  addLoopItem: (loopId: string, body: { source: string; summary: string; priority?: number }) =>
+    unwrap(client.api.loops({ id: loopId }).items.post(body)),
   refineLoop: (id: string, body: { intent: string; clarifyRound?: number }) =>
     unwrap(client.api.loops({ id }).refine.post(body)),
   // Work Today

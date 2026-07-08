@@ -1,4 +1,5 @@
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { loopKeys } from "./query-keys";
 
@@ -45,7 +46,8 @@ export function useReviewLoopItem(id: string) {
       verdict: "approve" | "reject" | "promote" | "retry" | "dismiss";
       feedback?: string;
     }) => api.reviewLoopItem(id, body),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      toast.success(`Item ${data.action}`);
       qc.invalidateQueries({ queryKey: loopKeys.detail(id) });
       qc.invalidateQueries({ queryKey: loopKeys.all });
     },
@@ -73,5 +75,14 @@ export function useRefineLoop(id: string) {
   return useMutation({
     mutationFn: (body: { intent: string; clarifyRound?: number }) => api.refineLoop(id, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: loopKeys.all }),
+  });
+}
+
+export function useAddLoopItem(loopId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { source: string; summary: string; priority?: number }) =>
+      api.addLoopItem(loopId, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: loopKeys.detail(loopId) }),
   });
 }
