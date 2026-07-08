@@ -1,9 +1,9 @@
 import { mkdir, rm } from "node:fs/promises";
 import type { SessionConfig } from "@my-agent-team/harness";
-import type { Verdict } from "@my-agent-team/loop";
-import { parseStateMd } from "@my-agent-team/loop";
+import { loopReducer } from "@my-agent-team/loop";
 import { Elysia, t } from "elysia";
 import type { CronJobPort } from "../cron/ports.js";
+import { ulid } from "../../infra/ids.js";
 import type { CronScheduler } from "../cron/scheduler.js";
 import type { CronJobService } from "../cron/service.js";
 import { loopStep } from "../loop/loop-step.js";
@@ -53,34 +53,13 @@ export function loopRoutes(
     }))
     .get("/api/work/today", async () => {
       const loops = cronSvc.list().filter((j) => j.loopConfigPath != null);
-      const reviewQueue: Array<{
-        id: string;
-        source: string;
-        summary: string;
-        step: string;
-        attempt: number;
-        priority: number;
-        result: Verdict | null;
-        loopId: string;
-        loopName: string;
-      }> = [];
+      const reviewQueue = [];
       for (const loop of loops) {
-        const paths = resolveLoopPaths(loop, dataDir);
-        try {
-          const md = await Bun.file(`${paths.loopConfigPath}/STATE.md`).text();
-          const state = parseStateMd(md);
-          if (!state) continue;
-          for (const item of Object.values(state.items)) {
-            if (item.step === "awaiting_review") {
-              reviewQueue.push({
-                ...item,
-                loopId: loop.cronJobId,
-                loopName: loop.name,
-              });
-            }
+        const state = store.load(loop.cronJobId);
+        for (const item of Object.values(state.items)) {
+          if (item.step === "awaiting_review") {
+            reviewQueue.push({ ...item, loopId: loop.cronJobId, loopName: loop.name });
           }
-        } catch {
-          // STATE.md may not exist yet for this loop — skip
         }
       }
       return { reviewQueue };
@@ -92,48 +71,18 @@ export function loopRoutes(
         return { error: "Not a loop" };
       }
 
-      let lastRun: string | null = null;
-      let pendingCount = 0;
-      try {
-        const state = parseStateMd(
-          await Bun.file(`${dataDir}/${job.loopConfigPath}/STATE.md`).text(),
-        );
-        lastRun = state.lastRun;
-        pendingCount = Object.values(state.items).filter(
-          (i) => i.step === "awaiting_review",
-        ).length;
-      } catch {
-        // STATE.md not yet created
-      }
-
-      // Load STATE.md items for review queue display
-      let items: Array<{
-        id: string;
-        source: string;
-        summary: string;
-        step: string;
-        attempt: number;
-        priority: number;
-        result: Verdict | null;
-        generatorSpanId: string | null;
-      }> = [];
-      try {
-        const fullState = parseStateMd(
-          await Bun.file(`${dataDir}/${job.loopConfigPath}/STATE.md`).text(),
-        );
-        items = Object.values(fullState.items).map((i) => ({
-          id: i.id,
-          source: i.source,
-          summary: i.summary,
-          step: i.step,
-          attempt: i.attempt,
-          priority: i.priority,
-          result: i.result ?? null,
-          generatorSpanId: i.generatorSpanId ?? null,
-        }));
-      } catch {
-        // STATE.md not available
-      }
+      const state = store.load(id);
+      const items = Object.values(state.items).map((i) => ({
+        id: i.id,
+        source: i.source,
+        summary: i.summary,
+        step: i.step,
+        attempt: i.attempt,
+        priority: i.priority,
+        result: i.result ?? null,
+        generatorSpanId: i.generatorSpanId ?? null,
+      }));
+      const pendingCount = items.filter((i) => i.step === "awaiting_review").length;
 
       return {
         loop: {
@@ -142,7 +91,7 @@ export function loopRoutes(
           cronExpr: job.cronExpr,
           enabled: job.enabled,
           loopConfigPath: job.loopConfigPath,
-          lastRun,
+          lastRun: state.lastRun,
           pendingCount,
           items,
         },
@@ -513,6 +462,34 @@ Steps:
             t.Literal("dismiss"),
           ]),
           feedback: t.Optional(t.String()),
+        }),
+      },
+    )
+    .post(
+      "/api/loops/:id/items",
+      async ({ params: { id }, body, set }) => {
+        const job = cronSvc.getById(id);
+        if (!job?.loopConfigPath) {
+          set.status = 404;
+          return { error: "Not a loop" };
+        }
+        const state = store.load(id);
+        const itemId = ulid();
+        const newState = loopReducer(state, {
+          type: "ADD_ITEM",
+          item: { id: itemId, source: body.source, summary: body.summary },
+          priority: body.priority,
+        });
+        store.save(id, newState, {});
+        const item = newState.items[itemId];
+        set.status = 201;
+        return { item };
+      },
+      {
+        body: t.Object({
+          source: t.String({ minLength: 1 }),
+          summary: t.String({ minLength: 1 }),
+          priority: t.Optional(t.Number()),
         }),
       },
     )
