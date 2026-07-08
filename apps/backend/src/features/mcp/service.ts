@@ -49,7 +49,13 @@ export function createMcpService(deps: {
 
   return {
     listByAgent(agentId: string): McpServerRow[] {
-      return deps.port.listByAgent(agentId).map(maskEnv);
+      return deps.port
+        .listByAgent(agentId)
+        .map(maskEnv)
+        .map((row) => ({
+          ...row,
+          status: deps.mcpClientManager.getStatus(row.serverId),
+        }));
     },
 
     async create(agentId: string, input: CreateMcpServerInput): Promise<McpServerRow> {
@@ -127,7 +133,7 @@ export function createMcpService(deps: {
           .catch(() => {});
       }
 
-      return maskEnv(updated);
+      return { ...maskEnv(updated), status: deps.mcpClientManager.getStatus(updated.serverId) };
     },
 
     async delete(_agentId: string, serverId: string): Promise<void> {

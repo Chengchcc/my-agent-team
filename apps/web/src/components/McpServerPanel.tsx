@@ -30,6 +30,12 @@ import {
 } from "@/features/agents/hooks";
 import type { McpServerRow } from "@/lib/api";
 
+function statusVariant(status?: string): "default" | "destructive" | "secondary" | "outline" {
+  if (status === "connected") return "default";
+  if (status === "failed") return "destructive";
+  if (status === "pending") return "secondary";
+  return "outline";
+}
 function parseArgs(text: string): string[] {
   return text
     .split(",")
@@ -245,6 +251,9 @@ export function McpServerPanel({ agentId }: { agentId: string }) {
                     disabled
                   </Badge>
                 )}
+                <Badge variant={statusVariant(server.status)} className="text-xs">
+                  {server.status ?? "unknown"}
+                </Badge>
               </CardTitle>
               {server.transport === "stdio" && server.command && (
                 <CardDescription>

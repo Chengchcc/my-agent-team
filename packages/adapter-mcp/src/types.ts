@@ -2,6 +2,8 @@ import type { Tool } from "@my-agent-team/core";
 
 export type McpTransport = "stdio" | "sse";
 
+export type McpConnectionStatus = "pending" | "connected" | "failed";
+
 export interface McpServerConfig {
   serverId: string;
   agentId: string;
@@ -20,4 +22,5 @@ export interface McpConnectionEntry {
   tools: Tool[];
   client: unknown;
   transport: unknown;
+  status: McpConnectionStatus;
 }

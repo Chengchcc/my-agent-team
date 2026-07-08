@@ -1,12 +1,13 @@
 // ponytail: manager logic untested - dynamic SDK imports make mocking complex; two-map bookkeeping is trivial
 import type { Tool } from "@my-agent-team/core";
 import { adaptMcpTool } from "./mcp-tool-adapter.js";
-import type { McpConnectionEntry, McpServerConfig } from "./types.js";
+import type { McpConnectionEntry, McpConnectionStatus, McpServerConfig } from "./types.js";
 
 export interface McpClientManager {
   connect(config: McpServerConfig): Promise<void>;
   disconnect(serverId: string): Promise<void>;
   getTools(agentId: string): Tool[];
+  getStatus(serverId: string): McpConnectionStatus | undefined;
   disconnectAll(): Promise<void>;
 }
 
@@ -22,6 +23,13 @@ export function createMcpClientManager(): McpClientManager {
       if (transport === "sse" && !config.url) {
         throw new Error(`[mcp] connect failed for ${config.name}: missing required "url"`);
       }
+      connections.set(serverId, {
+        config,
+        tools: [],
+        client: null,
+        transport: null,
+        status: "pending",
+      });
       try {
         let clientTransport: unknown;
         let client: unknown;
@@ -60,11 +68,23 @@ export function createMcpClientManager(): McpClientManager {
           adaptMcpTool(name, tool, client as Parameters<typeof adaptMcpTool>[2]),
         );
 
-        connections.set(serverId, { config, tools, client, transport: clientTransport });
+        connections.set(serverId, {
+          config,
+          tools,
+          client,
+          transport: clientTransport,
+          status: "connected",
+        });
       } catch (err) {
         console.error(`[mcp] connect failed for ${config.name}:`, err);
         // ponytail: degraded-mode entry keeps getTools NPE-free without a second lookup
-        connections.set(serverId, { config, tools: [], client: null, transport: null });
+        connections.set(serverId, {
+          config,
+          tools: [],
+          client: null,
+          transport: null,
+          status: "failed",
+        });
       }
       // Always update the agentId -> serverId reverse map, even on failure.
       let serverIds = agentServers.get(agentId);
@@ -99,6 +119,10 @@ export function createMcpClientManager(): McpClientManager {
         if (entry) tools.push(...entry.tools);
       }
       return tools;
+    },
+
+    getStatus(serverId: string): McpConnectionStatus | undefined {
+      return connections.get(serverId)?.status;
     },
 
     async disconnectAll(): Promise<void> {
