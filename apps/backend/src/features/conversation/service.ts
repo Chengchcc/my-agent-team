@@ -39,13 +39,17 @@ export interface ConversationServiceDeps {
   /** M17.5 P4: ConversationLock replaces ad-hoc activeConversations Set + pendingRuns Map. */
   lock: ConversationLock;
   maxConsecutiveAgentHops: number;
-  /** Active agent sessions keyed by conversationId, enabling steer (during run) and followUp (after run). */
+  /** Active agent sessions: outer key = conversationId, inner key = agentMemberId.
+   *  Enables steer (during run) and followUp (after run), directed per addressedTo. */
   activeSessions: Map<
     string,
-    {
-      steer: (text: string) => void;
-      followUp: (text: string) => void;
-    }
+    Map<
+      string,
+      {
+        steer: (text: string) => void;
+        followUp: (text: string) => void;
+      }
+    >
   >;
   startAgentRun: (
     spanId: string,
@@ -215,35 +219,41 @@ export function createConversationService(deps: ConversationServiceDeps) {
         // Single-active guard
         if (lock.isActive(input.conversationId)) {
           // Busy → steer to active session instead of rejecting with 409
-          const active = activeSessions.get(input.conversationId);
-          if (active) {
-            const userRev: MessageRevision = {
-              messageId: humanMessageId(input.conversationId, input.senderMemberId),
-              role: "user",
-              state: "done",
-              text: typeof input.content === "string" ? input.content : undefined,
-              blocks: Array.isArray(input.content)
-                ? (ContentBlockSchema.array().parse(input.content) as MessageRevision["blocks"])
-                : undefined,
-              conversationId: input.conversationId,
-              visibility: "conversation",
-              updatedAt: Date.now(),
-            };
-            const steerSeq = await appendAndBroadcast({
-              conversationId: input.conversationId,
-              senderMemberId: input.senderMemberId,
-              addressedTo: input.addressedTo,
-              kind: "message",
-              content: userRev,
-              broadcast: true,
-            });
-            const userText = typeof input.content === "string" ? input.content : "";
-            active.steer(userText);
-            return { seq: steerSeq, triggeredRuns: [] };
+          const convSessions = activeSessions.get(input.conversationId);
+          if (convSessions && convSessions.size > 0) {
+            // Find the target agent's session; fall back to first available
+            const targetAgentId = input.addressedTo.find((id) => convSessions.has(id));
+            const target = targetAgentId
+              ? convSessions.get(targetAgentId)
+              : convSessions.values().next().value;
+            if (target) {
+              const userRev: MessageRevision = {
+                messageId: humanMessageId(input.conversationId, input.senderMemberId),
+                role: "user",
+                state: "done",
+                text: typeof input.content === "string" ? input.content : undefined,
+                blocks: Array.isArray(input.content)
+                  ? (ContentBlockSchema.array().parse(input.content) as MessageRevision["blocks"])
+                  : undefined,
+                conversationId: input.conversationId,
+                visibility: "conversation",
+                updatedAt: Date.now(),
+              };
+              const steerSeq = await appendAndBroadcast({
+                conversationId: input.conversationId,
+                senderMemberId: input.senderMemberId,
+                addressedTo: input.addressedTo,
+                kind: "message",
+                content: userRev,
+                broadcast: true,
+              });
+              const userText = typeof input.content === "string" ? input.content : "";
+              target.steer(userText);
+              return { seq: steerSeq, triggeredRuns: [] };
+            }
           }
           throw new ConversationBusyError(input.conversationId);
         }
-
         // Hop hard-cap check (after hop count update, so human reset takes effect)
         const currentHop = port.getConversation(input.conversationId)?.hopCount ?? 0;
         hopCapped = currentHop > maxConsecutiveAgentHops;
@@ -276,11 +286,17 @@ export function createConversationService(deps: ConversationServiceDeps) {
       });
       // If session is still alive, followUp reuses its memory (no new fork)
       if (targets.length > 0 && !hopCapped) {
-        const active = activeSessions.get(input.conversationId);
-        if (active) {
-          const userText = typeof input.content === "string" ? input.content : "";
-          active.followUp(userText);
-          return { seq, triggeredRuns: [] };
+        const convSessions = activeSessions.get(input.conversationId);
+        if (convSessions && convSessions.size > 0) {
+          const targetAgentId = input.addressedTo.find((id) => convSessions.has(id));
+          const target = targetAgentId
+            ? convSessions.get(targetAgentId)
+            : convSessions.values().next().value;
+          if (target) {
+            const userText = typeof input.content === "string" ? input.content : "";
+            target.followUp(userText);
+            return { seq, triggeredRuns: [] };
+          }
         }
       }
 
@@ -469,10 +485,23 @@ export function createConversationService(deps: ConversationServiceDeps) {
       });
     },
 
-    /** Release the conversation lock when ALL triggered runs complete. */
-    completeRun(conversationId: string, _spanId: string): void {
+    /** Release the conversation lock when ALL triggered runs complete.
+     *  agentMemberId optional: when provided, only that agent's session is removed
+     *  (other agents in the same conversation keep theirs). Falls back to clearing
+     *  the whole conversation when omitted (legacy callers / unknown origin). */
+    completeRun(conversationId: string, _spanId: string, agentMemberId?: string): void {
       lock.releaseOne(conversationId);
-      activeSessions.delete(conversationId);
+      const convSessions = activeSessions.get(conversationId);
+      if (convSessions) {
+        if (agentMemberId) {
+          convSessions.delete(agentMemberId);
+          if (convSessions.size === 0) {
+            activeSessions.delete(conversationId);
+          }
+        } else {
+          activeSessions.delete(conversationId);
+        }
+      }
     },
 
     /** M17.5 P7: Write an assistant message revision directly to the ledger.

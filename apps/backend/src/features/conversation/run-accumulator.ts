@@ -198,7 +198,7 @@ export async function onRunComplete(
     throw err; // critical failure propagated — supervisor catches and logs
   } finally {
     // Phase 2: lock release always executes.
-    convSvc.completeRun(cid, spanId);
+    convSvc.completeRun(cid, spanId, senderMemberId);
   }
 
   // ── Phase 3: BEST-EFFORT — fire-and-forget, each catches independently ──

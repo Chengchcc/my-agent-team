@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { ReviewQueueCard } from "@/components/work/ReviewQueueCard";
 import { useLoopList } from "@/features/loop/hooks";
-import { useOpsRuns } from "@/features/ops/hooks";
+import { useOpsRuns, useOpsInsightsSummary } from "@/features/ops/hooks";
 import { useWorkToday } from "@/features/work/hooks";
 import type { LoopRow, RunOpsListItem } from "@/lib/api";
 
@@ -40,6 +40,16 @@ export default function WorkTodayPage() {
   const failed = todayRuns.filter((r) => r.status === "failed" || r.status === "error").length;
   const running = todayRuns.filter((r) => r.status === "running").length;
 
+  // ponytail: reuse existing insights-summary API (real token data from checkpoint_events) — no new backend field
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+  const summaryQuery = useOpsInsightsSummary({ from: startOfDay, to: dayEnd });
+  const totalTokens = (summaryQuery.data?.tokenSeries ?? []).reduce(
+    (sum, b) => sum + b.input + b.output,
+    0,
+  );
+  const tokensUnavailable = summaryQuery.isError;
   const today = new Date().toLocaleDateString(undefined, {
     weekday: "long",
     year: "numeric",
@@ -130,6 +140,16 @@ export default function WorkTodayPage() {
               <div className="text-2xl font-semibold text-[var(--ink)]">{running}</div>
               <div className="text-xs text-[var(--mute)]">Running</div>
             </div>
+          </div>
+          <div className="mt-3 rounded-lg border border-[var(--hairline)] bg-[var(--canvas-soft)] px-4 py-4 text-center">
+            <div className="text-2xl font-semibold text-[var(--ink)]">
+              {summaryQuery.isLoading
+                ? "…"
+                : tokensUnavailable
+                  ? "Token data unavailable"
+                  : totalTokens.toLocaleString()}
+            </div>
+            <div className="text-xs text-[var(--mute)]">Total Tokens</div>
           </div>
         </div>
       </div>

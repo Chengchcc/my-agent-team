@@ -134,10 +134,13 @@ export function createConversationFeature(
 
   const activeSessions = new Map<
     string,
-    {
-      steer: (text: string) => void;
-      followUp: (text: string) => void;
-    }
+    Map<
+      string,
+      {
+        steer: (text: string) => void;
+        followUp: (text: string) => void;
+      }
+    >
   >();
 
   const convSvc = createConversationService({
@@ -219,19 +222,28 @@ export function createConversationFeature(
         input: input ?? "",
       });
       // Register steer/followUp so postMessage can inject into a running/alive session
-      activeSessions.set(conversationId, {
+      if (!activeSessions.has(conversationId)) {
+        activeSessions.set(conversationId, new Map());
+      }
+      activeSessions.get(conversationId)!.set(agentMemberId, {
         steer: (text: string) => {
           try {
             session.steer(text);
-          } catch {
-            /* not running — ignore */
+          } catch (err) {
+            console.error(
+              `[conversation] steer failed for ${agentMemberId}:`,
+              err instanceof Error ? err.message : String(err),
+            );
           }
         },
         followUp: (text: string) => {
           try {
             session.followUp(text);
-          } catch {
-            /* not initialized — ignore */
+          } catch (err) {
+            console.error(
+              `[conversation] followUp failed for ${agentMemberId}:`,
+              err instanceof Error ? err.message : String(err),
+            );
           }
         },
       });
