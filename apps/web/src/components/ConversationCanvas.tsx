@@ -304,7 +304,10 @@ export function ConversationCanvas({
               <QueuedMessageBubble
                 key={i}
                 text={msg}
-                onEdit={(newText) => queueEdit(i, newText)}
+                onEdit={(newText) => {
+                  queueEdit(i, newText);
+                  send(newText);
+                }}
                 onRemove={() => queueRemove(i)}
               />
             ))}

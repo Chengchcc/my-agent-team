@@ -149,7 +149,11 @@ export function useConversation(
                 "steering" in parsed && Array.isArray(parsed.steering)
                   ? (parsed.steering as string[])
                   : [];
-              dispatch({ type: "queue/update", messages: steering });
+              const followUp =
+                "followUp" in parsed && Array.isArray(parsed.followUp)
+                  ? (parsed.followUp as string[])
+                  : [];
+              dispatch({ type: "queue/update", messages: [...steering, ...followUp] });
               return;
             }
           }
