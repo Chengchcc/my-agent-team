@@ -11,6 +11,7 @@ import {
   Package,
   PlusIcon,
   RefreshCwIcon,
+  SettingsIcon,
   Trash2Icon,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
@@ -258,7 +259,10 @@ function NavContent() {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
-                isActive={pathname.startsWith("/system")}
+                isActive={
+                  pathname === "/system" ||
+                  (pathname.startsWith("/system") && !pathname.startsWith("/system/settings"))
+                }
                 tooltip="System"
                 onClick={() => {
                   closeMobile();
@@ -267,6 +271,19 @@ function NavContent() {
               >
                 <ActivityIcon />
                 <span className="truncate">System</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/system/settings")}
+                tooltip="Settings"
+                onClick={() => {
+                  closeMobile();
+                  router.push("/system/settings");
+                }}
+              >
+                <SettingsIcon />
+                <span className="truncate">Settings</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

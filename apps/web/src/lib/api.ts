@@ -24,6 +24,8 @@ export type ReviewQueueItem = ApiReturn<typeof api.getWorkToday>["reviewQueue"][
 export type CreateLoopResult = ApiReturn<typeof api.createLoop>;
 export type RefineLoopResult = ApiReturn<typeof api.refineLoop>;
 export type ActivateLoopResult = ApiReturn<typeof api.activateLoop>;
+export type SettingsMap = ApiReturn<typeof api.getSettings>["settings"];
+export type SystemInfo = ApiReturn<typeof api.getSystemInfo>;
 
 export type { ContentBlock };
 export type MemberInfo = Member;
@@ -206,4 +208,9 @@ export const api = {
     unwrap(client.api.agents({ id: agentId })["skill-packs"].get()),
   setAgentSkillPacks: (agentId: string, body: { packIds: string[] }) =>
     unwrap(client.api.agents({ id: agentId })["skill-packs"].put(body)),
+  // Settings
+  getSettings: () => unwrap(client.api.settings.get()),
+  getSystemInfo: () => unwrap(client.api.settings.system.get()),
+  updateSetting: (key: string, value: unknown) =>
+    unwrap(client.api.settings({ key }).put({ value })),
 };

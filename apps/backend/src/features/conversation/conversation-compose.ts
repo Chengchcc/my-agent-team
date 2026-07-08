@@ -16,8 +16,8 @@ import {
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
-import type { SettingsService } from "../settings/index.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
+import type { SettingsService } from "../settings/index.js";
 import {
   convTools,
   createModel,

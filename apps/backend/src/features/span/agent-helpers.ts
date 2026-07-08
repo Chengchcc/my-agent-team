@@ -20,7 +20,6 @@ import {
   grepTool,
 } from "@my-agent-team/tools-common";
 import type { BackendConfig } from "../../config.js";
-import type { SettingsService } from "../settings/index.js";
 import {
   createListMembersTool,
   createReadContextTool,
@@ -28,6 +27,7 @@ import {
   createSearchTool,
 } from "../conversation/conv-tools.js";
 import type { ConversationPort } from "../conversation/ports.js";
+import type { SettingsService } from "../settings/index.js";
 import type { SkillRoots } from "./skill-roots.js";
 
 // ─── Model ────────────────────────────────────────────────
