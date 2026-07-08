@@ -20,6 +20,7 @@ export default {
         "adapter-anthropic",
         "harness",
         "loop",
+        "adapter-mcp",
         "agent-fs",
         "tools-common",
         "runner-protocol",

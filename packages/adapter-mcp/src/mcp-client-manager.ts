@@ -1,0 +1,108 @@
+import type { Tool } from "@my-agent-team/core";
+import { adaptMcpTool } from "./mcp-tool-adapter.js";
+import type { McpConnectionEntry, McpServerConfig } from "./types.js";
+
+export interface McpClientManager {
+  connect(config: McpServerConfig): Promise<void>;
+  disconnect(serverId: string): Promise<void>;
+  getTools(agentId: string): Tool[];
+  disconnectAll(): Promise<void>;
+}
+
+export function createMcpClientManager(): McpClientManager {
+  const connections = new Map<string, McpConnectionEntry>();
+  const agentServers = new Map<string, Set<string>>();
+
+  return {
+    async connect(config: McpServerConfig): Promise<void> {
+      const { serverId, agentId, name, transport } = config;
+      try {
+        let clientTransport: unknown;
+        let client: unknown;
+
+        if (transport === "stdio") {
+          const { StdioClientTransport } = await import(
+            "@modelcontextprotocol/sdk/client/stdio.js"
+          );
+          clientTransport = new StdioClientTransport({
+            command: config.command ?? "",
+            args: config.args ?? [],
+            env: config.env,
+          });
+        } else {
+          const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js");
+          clientTransport = new SSEClientTransport(new URL(config.url ?? "http://localhost"));
+        }
+
+        const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+        client = new Client({ name: `mat-${name}`, version: "0.1.0" }, { capabilities: {} });
+        await (client as { connect: (t: unknown) => Promise<void> }).connect(clientTransport);
+
+        const listResult = await (
+          client as {
+            listTools: () => Promise<{
+              tools: {
+                name: string;
+                description?: string;
+                inputSchema?: Record<string, unknown>;
+              }[];
+            }>;
+          }
+        ).listTools();
+
+        const tools = listResult.tools.map((tool) =>
+          adaptMcpTool(name, tool, client as Parameters<typeof adaptMcpTool>[2]),
+        );
+
+        connections.set(serverId, { config, tools, client, transport: clientTransport });
+      } catch (err) {
+        console.error(`[mcp] connect failed for ${config.name}:`, err);
+        // ponytail: degraded-mode entry keeps getTools NPE-free without a second lookup
+        connections.set(serverId, { config, tools: [], client: null, transport: null });
+      }
+      // Always update the agentId -> serverId reverse map, even on failure.
+      let serverIds = agentServers.get(agentId);
+      if (!serverIds) {
+        serverIds = new Set();
+        agentServers.set(agentId, serverIds);
+      }
+      serverIds.add(serverId);
+    },
+
+    async disconnect(serverId: string): Promise<void> {
+      try {
+        const entry = connections.get(serverId);
+        if (entry?.transport) {
+          await (entry.transport as { close: () => Promise<void> }).close();
+        }
+      } catch (err) {
+        console.error(`[mcp] disconnect failed for ${serverId}:`, err);
+      }
+      connections.delete(serverId);
+      for (const serverIds of agentServers.values()) {
+        serverIds.delete(serverId);
+      }
+    },
+
+    getTools(agentId: string): Tool[] {
+      const serverIds = agentServers.get(agentId);
+      if (!serverIds) return [];
+      const tools: Tool[] = [];
+      for (const serverId of serverIds) {
+        const entry = connections.get(serverId);
+        if (entry) tools.push(...entry.tools);
+      }
+      return tools;
+    },
+
+    async disconnectAll(): Promise<void> {
+      try {
+        for (const serverId of [...connections.keys()]) {
+          await this.disconnect(serverId);
+        }
+      } catch (err) {
+        console.error("[mcp] disconnectAll failed:", err);
+      }
+    },
+  };
+}
