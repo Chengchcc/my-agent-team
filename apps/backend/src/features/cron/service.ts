@@ -1,20 +1,15 @@
+import { NotFoundError, ValidationError } from "../../infra/domain-errors.js";
 import { OWNER_MEMBER_ID } from "../conversation/index.js";
 import type { CronJobRow } from "./domain.js";
 import type { CronJobPort } from "./ports.js";
 
-export class CronJobNotFoundError extends Error {
+export class CronJobNotFoundError extends NotFoundError {
   constructor(id: string) {
-    super(`CronJob not found: ${id}`);
-    this.name = "CronJobNotFoundError";
+    super("CronJob", id);
   }
 }
 
-export class CronJobValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "CronJobValidationError";
-  }
-}
+export class CronJobValidationError extends ValidationError {}
 
 /** Semantic validation of a 5-field cron expression.
  *  The HTTP/zod layer only checks field count; an expression like

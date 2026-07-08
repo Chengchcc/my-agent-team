@@ -1,5 +1,7 @@
 import { join } from "node:path";
 
+import { ValidationError } from "../../infra/domain-errors.js";
+
 // ─── Skill Pack domain entities & state machine ────────────────────────────────────
 
 export const BUILTIN_PACK_ID = "builtin";
@@ -43,10 +45,9 @@ export interface TransitionPatch {
   error?: string;
 }
 
-export class InvalidInstallTransitionError extends Error {
+export class InvalidInstallTransitionError extends ValidationError {
   constructor(cur: SkillPackStatus, next: SkillPackStatus) {
-    super(`Invalid install transition: ${cur} → ${next}`);
-    this.name = "InvalidInstallTransitionError";
+    super(`Invalid install transition: ${cur} -> ${next}`);
   }
 }
 

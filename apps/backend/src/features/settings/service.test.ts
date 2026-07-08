@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { openDb } from "../../infra/sqlite/db.js";
 import type { BackendConfig } from "../../config.js";
+import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteSettingsAdapter } from "./adapter-sqlite.js";
 import { createSettingsService } from "./service.js";
 

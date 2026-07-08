@@ -33,10 +33,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "agent_skill_pack_agent_id_pack_id_pk": {
-          "columns": [
-            "agent_id",
-            "pack_id"
-          ],
+          "columns": ["agent_id", "pack_id"],
           "name": "agent_skill_pack_agent_id_pack_id_pk"
         }
       },
@@ -164,16 +161,12 @@
       "indexes": {
         "agents_workspacePath_unique": {
           "name": "agents_workspacePath_unique",
-          "columns": [
-            "workspace_path"
-          ],
+          "columns": ["workspace_path"],
           "isUnique": true
         },
         "idx_agents_archived": {
           "name": "idx_agents_archived",
-          "columns": [
-            "archived_at"
-          ],
+          "columns": ["archived_at"],
           "isUnique": false
         }
       },
@@ -231,10 +224,7 @@
       "indexes": {
         "idx_attempt_span": {
           "name": "idx_attempt_span",
-          "columns": [
-            "span_id",
-            "started_at"
-          ],
+          "columns": ["span_id", "started_at"],
           "isUnique": false
         }
       },
@@ -243,22 +233,15 @@
           "name": "attempt_span_id_span_span_id_fk",
           "tableFrom": "attempt",
           "tableTo": "span",
-          "columnsFrom": [
-            "span_id"
-          ],
-          "columnsTo": [
-            "span_id"
-          ],
+          "columnsFrom": ["span_id"],
+          "columnsTo": ["span_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "attempt_span_id_seq_pk": {
-          "columns": [
-            "span_id",
-            "seq"
-          ],
+          "columns": ["span_id", "seq"],
           "name": "attempt_span_id_seq_pk"
         }
       },
@@ -329,17 +312,12 @@
       "indexes": {
         "idx_column_config_proj_status": {
           "name": "idx_column_config_proj_status",
-          "columns": [
-            "project_id",
-            "status"
-          ],
+          "columns": ["project_id", "status"],
           "isUnique": true
         },
         "idx_column_config_project": {
           "name": "idx_column_config_project",
-          "columns": [
-            "project_id"
-          ],
+          "columns": ["project_id"],
           "isUnique": false
         }
       },
@@ -405,26 +383,17 @@
       "indexes": {
         "idx_control_plane_event_span": {
           "name": "idx_control_plane_event_span",
-          "columns": [
-            "span_id",
-            "seq"
-          ],
+          "columns": ["span_id", "seq"],
           "isUnique": false
         },
         "idx_control_plane_event_trace": {
           "name": "idx_control_plane_event_trace",
-          "columns": [
-            "trace_id",
-            "seq"
-          ],
+          "columns": ["trace_id", "seq"],
           "isUnique": false
         },
         "idx_control_plane_event_kind": {
           "name": "idx_control_plane_event_kind",
-          "columns": [
-            "kind",
-            "\"ts\" desc"
-          ],
+          "columns": ["kind", "\"ts\" desc"],
           "isUnique": false
         }
       },
@@ -552,17 +521,12 @@
       "indexes": {
         "idx_ledger_conv": {
           "name": "idx_ledger_conv",
-          "columns": [
-            "conversation_id",
-            "seq"
-          ],
+          "columns": ["conversation_id", "seq"],
           "isUnique": false
         },
         "idx_ledger_run": {
           "name": "idx_ledger_run",
-          "columns": [
-            "span_id"
-          ],
+          "columns": ["span_id"],
           "isUnique": false,
           "where": "span_id IS NOT NULL"
         }
@@ -572,12 +536,8 @@
           "name": "conversation_ledger_conversation_id_conversation_conversation_id_fk",
           "tableFrom": "conversation_ledger",
           "tableTo": "conversation",
-          "columnsFrom": [
-            "conversation_id"
-          ],
-          "columnsTo": [
-            "conversation_id"
-          ],
+          "columnsFrom": ["conversation_id"],
+          "columnsTo": ["conversation_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -674,9 +634,7 @@
       "indexes": {
         "idx_cron_job_enabled": {
           "name": "idx_cron_job_enabled",
-          "columns": [
-            "enabled"
-          ],
+          "columns": ["enabled"],
           "isUnique": false
         }
       },
@@ -748,25 +706,17 @@
       "indexes": {
         "idx_deliverable_issue": {
           "name": "idx_deliverable_issue",
-          "columns": [
-            "issue_id"
-          ],
+          "columns": ["issue_id"],
           "isUnique": false
         },
         "idx_deliverable_issue_kind": {
           "name": "idx_deliverable_issue_kind",
-          "columns": [
-            "issue_id",
-            "kind"
-          ],
+          "columns": ["issue_id", "kind"],
           "isUnique": false
         },
         "idx_deliverable_run_kind": {
           "name": "idx_deliverable_run_kind",
-          "columns": [
-            "span_id",
-            "kind"
-          ],
+          "columns": ["span_id", "kind"],
           "isUnique": true,
           "where": "span_id IS NOT NULL"
         }
@@ -855,16 +805,12 @@
       "indexes": {
         "idx_issue_project": {
           "name": "idx_issue_project",
-          "columns": [
-            "project_id"
-          ],
+          "columns": ["project_id"],
           "isUnique": false
         },
         "idx_issue_status": {
           "name": "idx_issue_status",
-          "columns": [
-            "status"
-          ],
+          "columns": ["status"],
           "isUnique": false
         }
       },
@@ -916,10 +862,7 @@
       "indexes": {
         "idx_issue_event_issue": {
           "name": "idx_issue_event_issue",
-          "columns": [
-            "issue_id",
-            "seq"
-          ],
+          "columns": ["issue_id", "seq"],
           "isUnique": false
         }
       },
@@ -958,10 +901,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "loop_budget_loop_id_day_pk": {
-          "columns": [
-            "loop_id",
-            "day"
-          ],
+          "columns": ["loop_id", "day"],
           "name": "loop_budget_loop_id_day_pk"
         }
       },
@@ -1038,20 +978,14 @@
       "indexes": {
         "idx_loop_item_step": {
           "name": "idx_loop_item_step",
-          "columns": [
-            "loop_id",
-            "step"
-          ],
+          "columns": ["loop_id", "step"],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "loop_item_loop_id_item_id_pk": {
-          "columns": [
-            "loop_id",
-            "item_id"
-          ],
+          "columns": ["loop_id", "item_id"],
           "name": "loop_item_loop_id_item_id_pk"
         }
       },
@@ -1121,9 +1055,7 @@
       "indexes": {
         "idx_member_conv": {
           "name": "idx_member_conv",
-          "columns": [
-            "conversation_id"
-          ],
+          "columns": ["conversation_id"],
           "isUnique": false
         }
       },
@@ -1132,22 +1064,15 @@
           "name": "member_conversation_id_conversation_conversation_id_fk",
           "tableFrom": "member",
           "tableTo": "conversation",
-          "columnsFrom": [
-            "conversation_id"
-          ],
-          "columnsTo": [
-            "conversation_id"
-          ],
+          "columnsFrom": ["conversation_id"],
+          "columnsTo": ["conversation_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "member_conversation_id_member_id_pk": {
-          "columns": [
-            "conversation_id",
-            "member_id"
-          ],
+          "columns": ["conversation_id", "member_id"],
           "name": "member_conversation_id_member_id_pk"
         }
       },
@@ -1211,9 +1136,7 @@
       "indexes": {
         "idx_project_name": {
           "name": "idx_project_name",
-          "columns": [
-            "name"
-          ],
+          "columns": ["name"],
           "isUnique": true
         }
       },
@@ -1306,9 +1229,7 @@
       "indexes": {
         "idx_skill_pack_status": {
           "name": "idx_skill_pack_status",
-          "columns": [
-            "status"
-          ],
+          "columns": ["status"],
           "isUnique": false
         }
       },
@@ -1390,10 +1311,7 @@
       "indexes": {
         "idx_span_session": {
           "name": "idx_span_session",
-          "columns": [
-            "session_id",
-            "\"started_at\" desc"
-          ],
+          "columns": ["session_id", "\"started_at\" desc"],
           "isUnique": false
         }
       },
@@ -1489,23 +1407,17 @@
       "indexes": {
         "idx_span_origin_idem": {
           "name": "idx_span_origin_idem",
-          "columns": [
-            "idempotency_key"
-          ],
+          "columns": ["idempotency_key"],
           "isUnique": true
         },
         "idx_span_origin_issue": {
           "name": "idx_span_origin_issue",
-          "columns": [
-            "issue_id"
-          ],
+          "columns": ["issue_id"],
           "isUnique": false
         },
         "idx_span_origin_cron": {
           "name": "idx_span_origin_cron",
-          "columns": [
-            "cron_job_id"
-          ],
+          "columns": ["cron_job_id"],
           "isUnique": false
         }
       },
@@ -1572,10 +1484,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "surface_health_agent_id_surface_pk": {
-          "columns": [
-            "agent_id",
-            "surface"
-          ],
+          "columns": ["agent_id", "surface"],
           "name": "surface_health_agent_id_surface_pk"
         }
       },

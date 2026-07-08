@@ -130,7 +130,13 @@ function McpForm({
 
       <div className="space-y-2">
         <Label htmlFor="mcp-transport">Transport</Label>
-        <Select value={transport} onValueChange={(v) => { dirtyFields.current.add("transport"); setTransport(v as "stdio" | "sse"); }}>
+        <Select
+          value={transport}
+          onValueChange={(v) => {
+            dirtyFields.current.add("transport");
+            setTransport(v as "stdio" | "sse");
+          }}
+        >
           <SelectTrigger id="mcp-transport" className="w-full">
             <SelectValue />
           </SelectTrigger>
@@ -186,7 +192,14 @@ function McpForm({
       )}
 
       <div className="flex items-center gap-2">
-        <Switch checked={enabled} onCheckedChange={(v) => { dirtyFields.current.add("enabled"); setEnabled(v); }} id="mcp-enabled" />
+        <Switch
+          checked={enabled}
+          onCheckedChange={(v) => {
+            dirtyFields.current.add("enabled");
+            setEnabled(v);
+          }}
+          id="mcp-enabled"
+        />
         <Label htmlFor="mcp-enabled">Enabled</Label>
       </div>
 

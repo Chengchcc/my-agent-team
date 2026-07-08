@@ -1,21 +1,16 @@
 import type { McpClientManager } from "@my-agent-team/adapter-mcp";
+import { NotFoundError, ValidationError } from "../../infra/domain-errors.js";
 import { ulid } from "../../infra/ids.js";
 import type { CreateMcpServerInput, McpServerRow, UpdateMcpServerInput } from "./domain.js";
 import type { McpServerPort } from "./ports.js";
 
-export class McpServerNotFoundError extends Error {
+export class McpServerNotFoundError extends NotFoundError {
   constructor(id: string) {
-    super(`MCP server not found: ${id}`);
-    this.name = "McpServerNotFoundError";
+    super("MCP server", id);
   }
 }
 
-export class McpValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "McpValidationError";
-  }
-}
+export class McpValidationError extends ValidationError {}
 
 export interface McpService {
   listByAgent(agentId: string): McpServerRow[];

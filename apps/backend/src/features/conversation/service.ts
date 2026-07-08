@@ -1,3 +1,4 @@
+import { BusyError } from "../../infra/domain-errors.js";
 import {
   Conversation as ConversationSchema,
   resolveTriggerTargets,
@@ -13,10 +14,9 @@ import {
 import type { ConversationLock } from "./lock.js";
 import type { ConversationPort, LedgerEntry, LedgerKind, MemberRow } from "./ports.js";
 
-export class ConversationBusyError extends Error {
+export class ConversationBusyError extends BusyError {
   constructor(conversationId: string) {
-    super(`Conversation busy: ${conversationId}`);
-    this.name = "ConversationBusyError";
+    super(conversationId);
   }
 }
 

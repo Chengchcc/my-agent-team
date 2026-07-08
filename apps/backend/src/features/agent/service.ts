@@ -1,3 +1,4 @@
+import { BusyError, NotFoundError } from "../../infra/domain-errors.js";
 import type { AgentRow, CreateAgentInput, UpdateAgentInput } from "./domain.js";
 import type { AgentPort } from "./ports.js";
 
@@ -114,16 +115,14 @@ export function createAgentService(opts: {
   };
 }
 
-export class AgentNotFoundError extends Error {
+export class AgentNotFoundError extends NotFoundError {
   constructor(id: string) {
-    super(`Agent not found: ${id}`);
-    this.name = "AgentNotFoundError";
+    super("Agent", id);
   }
 }
 
-export class AgentBusyError extends Error {
+export class AgentBusyError extends BusyError {
   constructor(id: string) {
-    super(`Agent has active runs: ${id}`);
-    this.name = "AgentBusyError";
+    super(id);
   }
 }

@@ -46,11 +46,7 @@
       "indexes": {
         "idx_checkpoint_events_span": {
           "name": "idx_checkpoint_events_span",
-          "columns": [
-            "session_id",
-            "span_id",
-            "id"
-          ],
+          "columns": ["session_id", "span_id", "id"],
           "isUnique": false
         }
       },

@@ -53,10 +53,7 @@
       "indexes": {
         "idx_attempt_span": {
           "name": "idx_attempt_span",
-          "columns": [
-            "span_id",
-            "started_at"
-          ],
+          "columns": ["span_id", "started_at"],
           "isUnique": false
         }
       },
@@ -65,22 +62,15 @@
           "name": "attempt_span_id_run_span_id_fk",
           "tableFrom": "attempt",
           "tableTo": "run",
-          "columnsFrom": [
-            "span_id"
-          ],
-          "columnsTo": [
-            "span_id"
-          ],
+          "columnsFrom": ["span_id"],
+          "columnsTo": ["span_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "attempt_span_id_seq_pk": {
-          "columns": [
-            "span_id",
-            "seq"
-          ],
+          "columns": ["span_id", "seq"],
           "name": "attempt_span_id_seq_pk"
         }
       },
@@ -130,10 +120,7 @@
       "indexes": {
         "idx_issue_event_issue": {
           "name": "idx_issue_event_issue",
-          "columns": [
-            "issue_id",
-            "seq"
-          ],
+          "columns": ["issue_id", "seq"],
           "isUnique": false
         }
       },
@@ -215,10 +202,7 @@
       "indexes": {
         "idx_run_session": {
           "name": "idx_run_session",
-          "columns": [
-            "session_id",
-            "\"started_at\" desc"
-          ],
+          "columns": ["session_id", "\"started_at\" desc"],
           "isUnique": false
         }
       },
@@ -284,26 +268,17 @@
       "indexes": {
         "idx_run_ops_event_span": {
           "name": "idx_run_ops_event_span",
-          "columns": [
-            "span_id",
-            "seq"
-          ],
+          "columns": ["span_id", "seq"],
           "isUnique": false
         },
         "idx_run_ops_event_trace": {
           "name": "idx_run_ops_event_trace",
-          "columns": [
-            "trace_id",
-            "seq"
-          ],
+          "columns": ["trace_id", "seq"],
           "isUnique": false
         },
         "idx_run_ops_event_kind": {
           "name": "idx_run_ops_event_kind",
-          "columns": [
-            "kind",
-            "\"ts\" desc"
-          ],
+          "columns": ["kind", "\"ts\" desc"],
           "isUnique": false
         }
       },
@@ -413,30 +388,22 @@
       "indexes": {
         "idx_run_origin_idem": {
           "name": "idx_run_origin_idem",
-          "columns": [
-            "idempotency_key"
-          ],
+          "columns": ["idempotency_key"],
           "isUnique": true
         },
         "idx_run_origin_trace": {
           "name": "idx_run_origin_trace",
-          "columns": [
-            "trace_id"
-          ],
+          "columns": ["trace_id"],
           "isUnique": false
         },
         "idx_run_origin_issue": {
           "name": "idx_run_origin_issue",
-          "columns": [
-            "issue_id"
-          ],
+          "columns": ["issue_id"],
           "isUnique": false
         },
         "idx_run_origin_cron": {
           "name": "idx_run_origin_cron",
-          "columns": [
-            "cron_job_id"
-          ],
+          "columns": ["cron_job_id"],
           "isUnique": false
         }
       },
@@ -580,10 +547,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "surface_health_agent_id_surface_pk": {
-          "columns": [
-            "agent_id",
-            "surface"
-          ],
+          "columns": ["agent_id", "surface"],
           "name": "surface_health_agent_id_surface_pk"
         }
       },

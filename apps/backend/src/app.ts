@@ -11,6 +11,7 @@ import type { skillPackRoutes } from "./features/skill-pack/http.js";
 import type { resumeRoutes } from "./features/span/http.js";
 import { checkAuthToken } from "./infra/auth.js";
 import { HttpError } from "./infra/errors.js";
+import { DomainError } from "./infra/domain-errors.js";
 
 export interface FeatureSet {
   agents: ReturnType<typeof agentRoutes>;
@@ -71,8 +72,12 @@ export function createApp(token: string, features: FeatureSet) {
     .use(settings)
     .use(mcp)
     .onError(({ code, error, set }) => {
+      if (error instanceof DomainError) {
+        set.status = error.status;
+        return { error: error.message };
+      }
       if (error instanceof HttpError) {
-        set.status = (error as HttpError).status;
+        set.status = error.status;
         return { error: error.message };
       }
       if (code === "NOT_FOUND") return { error: "Not found" };

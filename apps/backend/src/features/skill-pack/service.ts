@@ -1,12 +1,12 @@
+import { ValidationError } from "../../infra/domain-errors.js";
 import type { SkillPackRow, SkillPackSource } from "./entities.js";
 import type { SkillPackPort } from "./ports.js";
 
 // ─── Service ─────────────────────────────────────────────────────────────────────
 
-export class BuiltinPackImmutableError extends Error {
+export class BuiltinPackImmutableError extends ValidationError {
   constructor() {
     super("Cannot uninstall the builtin skill pack");
-    this.name = "BuiltinPackImmutableError";
   }
 }
 

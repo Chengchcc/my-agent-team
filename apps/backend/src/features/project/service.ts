@@ -1,19 +1,19 @@
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError as DomainValidationError,
+} from "../../infra/domain-errors.js";
 import type { ProjectRow } from "./domain.js";
 import type { ProjectPort } from "./ports.js";
 
-export class ProjectNotFoundError extends Error {
+export class ProjectNotFoundError extends NotFoundError {
   constructor(id: string) {
-    super(`Project not found: ${id}`);
-    this.name = "ProjectNotFoundError";
+    super("Project", id);
   }
 }
 
-export class ValidationError extends Error {
-  constructor(msg: string) {
-    super(msg);
-    this.name = "ValidationError";
-  }
-}
+// Re-export for existing callers that import ValidationError from project/service
+export class ValidationError extends DomainValidationError {}
 
 export interface ProjectServiceDeps {
   port: ProjectPort;
