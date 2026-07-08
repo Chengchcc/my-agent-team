@@ -24,8 +24,19 @@ export function ConversationCanvas({
   snapshot,
   initialMessage,
 }: ConversationCanvasProps) {
-  const { state, busy, send, toggleTriggerMode, approvalTarget, approve, deny, resuming } =
-    useConversation(conversationId, snapshot);
+  const {
+    state,
+    busy,
+    send,
+    toggleTriggerMode,
+    approvalTarget,
+    approve,
+    deny,
+    resuming,
+    queuedMessages,
+    queueEdit,
+    queueRemove,
+  } = useConversation(conversationId, snapshot);
   const { viewerMemberId, roster, items, error, todos, triggerMode } = state;
 
   // W3+W5: use the most recent agent run's status, not first-found.
@@ -280,6 +291,26 @@ export function ConversationCanvas({
         </div>
       )}
 
+      {/* Queued steer messages */}
+      {queuedMessages.length > 0 && (
+        <div className="shrink-0 border-t border-[var(--hairline)] bg-[var(--canvas-soft)]/50 px-6 py-3">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[10px] text-[var(--mute)] uppercase tracking-wide">
+              Queued ({queuedMessages.length})
+            </span>
+          </div>
+          <div className="space-y-2">
+            {queuedMessages.map((msg, i) => (
+              <QueuedMessageBubble
+                key={i}
+                text={msg}
+                onEdit={(newText) => queueEdit(i, newText)}
+                onRemove={() => queueRemove(i)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
       {/* Composer */}
       <div className="shrink-0 border-t border-[var(--hairline)]">
         <div className="flex items-center gap-2 px-6 pt-3">
@@ -297,11 +328,55 @@ export function ConversationCanvas({
         </div>
         <Composer
           onSend={send}
-          disabled={busy}
+          disabled={false}
+          placeholder={busy ? "Steer the agent..." : "Send a message..."}
           roster={roster}
           autoAgentCount={Object.values(roster).filter((m) => m.kind === "agent").length}
         />
       </div>
+    </div>
+  );
+}
+function QueuedMessageBubble({
+  text,
+  onEdit,
+  onRemove,
+}: {
+  text: string;
+  onEdit: (newText: string) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(text);
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2 rounded-md bg-background px-3 py-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          className="flex-1 text-sm bg-transparent outline-none resize-none"
+          rows={2}
+        />
+        <Button size="sm" variant="ghost" onClick={() => { onEdit(draft); setEditing(false); }}>
+          Save
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => { setDraft(text); setEditing(false); }}>
+          Cancel
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-md bg-background/50 px-3 py-2">
+      <span className="flex-1 text-sm text-[var(--body)] opacity-70">{text}</span>
+      <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => setEditing(true)}>
+        ✏️
+      </Button>
+      <Button size="sm" variant="ghost" className="h-6 px-2" onClick={onRemove}>
+        ✕
+      </Button>
     </div>
   );
 }
