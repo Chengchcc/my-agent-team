@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1782210591156,
+      "tag": "0000_worried_risque",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1782788889461,
+      "tag": "0001_legal_misty_knight",
+      "breakpoints": true
+    }
+  ]
+}
