@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import type { SessionConfig } from "@my-agent-team/harness";
 import type { LoopConfig, LoopState } from "@my-agent-team/loop";
 import { loopReducer, parseLoopConfig, parseVerdictMd } from "@my-agent-team/loop";
+import type { AppendLedgerInput } from "../conversation/ports.js";
 import type { ProjectPort } from "../project/ports.js";
 import { nodeFsAdapter } from "../skill-pack/fs-adapter.js";
 import type { SessionManager } from "../span/session-manager.js";
@@ -39,6 +40,10 @@ export interface LoopStepParams {
   loopId: string;
   /** Inject for tests. Default = real Bun.$ git calls. */
   gitRunner?: GitRunner;
+  /** Optional sink for budget-exceeded notifications into the conversation ledger. */
+  convPort?: {
+    appendLedgerEntry: (input: AppendLedgerInput) => unknown;
+  };
 }
 
 // ponytail: loop tallyUsage reads checkpointer events — AgentSession doesn't expose checkpointer,
@@ -129,15 +134,23 @@ function actionToReducer(action: ReviewAction) {
   }
 }
 
-function buildGeneratorPrompt(item: LoopState["items"][string], template: string): string {
+function buildGeneratorPrompt(
+  item: LoopState["items"][string],
+  template: string,
+  context?: { repoPath?: string; gitLog?: string },
+): string {
   let note = "";
   if (item.result && "reasons" in item.result) {
     note = `- 上次被拒原因: ${item.result.reasons.join("; ")}`;
   }
+  const ctx = context?.repoPath
+    ? `\n\n## Project Context\n- Repo: ${context.repoPath}\n${context.gitLog ? `- Recent changes:\n${context.gitLog}\n` : ""}`
+    : "";
   return template
     .replace("{summary}", item.summary)
     .replace("{source}", item.source)
-    .replace("{rejectionNote}", note);
+    .replace("{rejectionNote}", note)
+    .concat(ctx);
 }
 
 export async function loopStep(params: LoopStepParams): Promise<LoopState> {
@@ -257,9 +270,40 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
 
   const today = new Date().toISOString().slice(0, 10);
   let spent = dailyCap > 0 ? params.store.getBudget(params.loopId, today) : 0;
+  let budgetNotified = false;
 
+  const notifyBudgetExceeded = () => {
+    if (!params.convPort || budgetNotified) return;
+    budgetNotified = true;
+    const ts = Date.now();
+    try {
+      params.convPort.appendLedgerEntry({
+        conversationId: params.loopId,
+        senderMemberId: "__system__",
+        addressedTo: [],
+        kind: "message",
+        content: JSON.stringify({
+          type: "budget_exceeded",
+          spent,
+          cap: dailyCap,
+          message: `[系统] Loop 今日预算已耗尽（${spent}/${dailyCap}），暂停执行，明日自动恢复。`,
+        }),
+        ts,
+      });
+    } catch (e) {
+      console.error(`[loop] budget notification failed: ${String(e)}`);
+    }
+  };
+
+  // Pre-loop check: budget may already be exhausted from earlier runs today.
+  if (dailyCap > 0 && spent >= dailyCap) {
+    notifyBudgetExceeded();
+  }
   for (const item of fixingItems) {
-    if (dailyCap > 0 && spent >= dailyCap) break;
+    if (dailyCap > 0 && spent >= dailyCap) {
+      notifyBudgetExceeded();
+      break;
+    }
 
     const baseSha = (await git.revParse(cwd)).text().trim();
 
@@ -275,7 +319,10 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     const unsubGen = genSession.subscribe((e) => {
       if (e.type === "agent_start") genSpanId = e.spanId;
     });
-    await genSession.prompt(buildGeneratorPrompt(item, genPrompt));
+    const gitLog = await Bun.$`git log --oneline -5`.cwd(cwd).quiet().text().catch(() => "");
+    await genSession.prompt(
+      buildGeneratorPrompt(item, genPrompt, { repoPath: cwd, gitLog }),
+    );
     unsubGen();
     params.sessionManager.dispose(genSession.sessionId ?? "");
     if (dailyCap > 0) {
@@ -329,7 +376,15 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     }
 
     const evalSession = params.sessionManager.create(evalConfig);
-    await evalSession.prompt(evaluatorPrompt);
+    const EVALUATOR_TIMEOUT_MS = 60_000;
+    await Promise.race([
+      evalSession.prompt(evaluatorPrompt),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error("Evaluator timeout")), EVALUATOR_TIMEOUT_MS),
+      ),
+    ]).catch(() => {
+      console.error(`[loop] evaluator timeout/crash for item ${item.id}`);
+    });
     params.sessionManager.dispose(evalSession.sessionId ?? "");
     if (dailyCap > 0) {
       spent = params.store.addBudget(

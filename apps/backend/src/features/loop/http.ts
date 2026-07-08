@@ -2,10 +2,11 @@ import { mkdir, rm } from "node:fs/promises";
 import type { SessionConfig } from "@my-agent-team/harness";
 import { loopReducer } from "@my-agent-team/loop";
 import { Elysia, t } from "elysia";
-import type { CronJobPort } from "../cron/ports.js";
 import { ulid } from "../../infra/ids.js";
+import type { CronJobPort } from "../cron/ports.js";
 import type { CronScheduler } from "../cron/scheduler.js";
 import type { CronJobService } from "../cron/service.js";
+import type { AppendLedgerInput } from "../conversation/ports.js";
 import { loopStep } from "../loop/loop-step.js";
 import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { ProjectPort } from "../project/ports.js";
@@ -44,6 +45,7 @@ export function loopRoutes(
       agentId?: string;
       joinedAt: number;
     }) => unknown;
+    appendLedgerEntry: (input: AppendLedgerInput) => unknown;
   },
   settingsSvc?: SettingsService,
 ) {
@@ -412,7 +414,6 @@ Steps:
         set.status = 404;
         return { error: "Not a loop" };
       }
-
       const state = await loopStep({
         loopConfigPath: resolveLoopPaths(job, dataDir).loopConfigPath,
         sessionManager,
@@ -421,6 +422,7 @@ Steps:
         dataDir,
         store,
         loopId: job.cronJobId,
+        convPort,
       });
 
       return { state };

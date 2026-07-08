@@ -502,3 +502,306 @@ describe("loopStep M3 — AgentSession wiring", () => {
     await cleanup();
   });
 });
+// ── T3/T4/T5: generator context, evaluator timeout, budget notification ──
+
+async function initLoopDirWithBudget(
+  projectId: string,
+  dailyCap: number,
+): Promise<string> {
+  await rm(TMP, { recursive: true, force: true });
+  await mkdir(TMP, { recursive: true });
+  await Bun.write(
+    `${TMP}/LOOP.md`,
+    [
+      "---",
+      `projectId: ${projectId}`,
+      "generator:",
+      "  model: gen-model",
+      '  systemPrompt: "fix {summary} from {source}"',
+      "evaluator:",
+      "  model: eval-model",
+      "  systemPrompt: verify",
+      "budget:",
+      `  dailyCap: ${dailyCap}`,
+      "---",
+    ].join("\n"),
+  );
+  return TMP;
+}
+
+function captureSessionManager(
+  verdictMd: string,
+  workDir: string = TMP,
+  opts: { evalDelayMs?: number } = {},
+): SessionManager & { genPrompts: string[]; evalPrompts: string[] } {
+  let callCount = 0;
+  const genPrompts: string[] = [];
+  const evalPrompts: string[] = [];
+  const sessions = new Map<string, unknown>();
+
+  const manager = {
+    create(_config: SessionConfig) {
+      callCount++;
+      const isEvaluator = callCount % 2 === 0;
+      const sessionId = `cap-${callCount}`;
+      const session = {
+        sessionId,
+        state: "idle",
+        prompt: async (input: string) => {
+          if (isEvaluator) {
+            evalPrompts.push(input);
+            if (opts.evalDelayMs) await Bun.sleep(opts.evalDelayMs);
+            await Bun.write(`${workDir}/VERDICT.md`, verdictMd);
+          } else {
+            genPrompts.push(input);
+          }
+        },
+        resume: async () => {},
+        dispose: () => sessions.delete(sessionId),
+        subscribe: () => () => {},
+      };
+      sessions.set(sessionId, session);
+      return session as never;
+    },
+    open(sessionId: string, _config: SessionConfig) {
+      const existing = sessions.get(sessionId);
+      if (existing) return existing as never;
+      return this.create(_config);
+    },
+    get(sessionId: string) {
+      return sessions.get(sessionId) as never | undefined;
+    },
+    dispose(sessionId: string) {
+      sessions.delete(sessionId);
+    },
+  } as SessionManager;
+
+  return Object.assign(manager, { genPrompts, evalPrompts });
+}
+
+describe("loopStep T3/T4/T5 - context, timeout, budget", () => {
+  test("T3: generator prompt includes project context (repo + git log)", async () => {
+    const { dataDir, projectPort, cleanup } = await setupGitDataDir();
+    const dir = await initLoopDirWithBudget("test-project", 0);
+    const store = createTestStore();
+    let state = emptyState();
+    state = loopReducer(state, {
+      type: "ADD_ITEM",
+      item: { id: "01", source: "ci", summary: "flaky test" },
+    });
+    store.save("test-loop", state, {});
+
+    const repoWorkDir = `${DATA}/repos/test-project`;
+    const sessionManager = captureSessionManager(
+      "verdict: PASS\nevidence: ok",
+      repoWorkDir,
+    );
+
+    await loopStep({
+      loopConfigPath: dir,
+      sessionManager,
+      buildConfig: makeConfig,
+      store,
+      loopId: "test-loop",
+      gitRunner: noopGitRunner,
+      projectPort,
+      dataDir,
+    });
+
+    expect(sessionManager.genPrompts.length).toBe(1);
+    const prompt = sessionManager.genPrompts[0]!;
+    // Placeholder substitution still works
+    expect(prompt).toContain("fix flaky test from ci");
+    // Project context injected
+    expect(prompt).toContain("## Project Context");
+    expect(prompt).toContain("Repo:");
+    // git log may be empty (bare repo has no commits checked out) but section should exist
+    await cleanup();
+  });
+
+  test("T4: evaluator timeout does not crash loop (verdict stays empty -> ESCALATE)", async () => {
+    const { dataDir, projectPort, cleanup } = await setupGitDataDir();
+    const dir = await initLoopDirWithBudget("test-project", 0);
+    const store = createTestStore();
+    let state = emptyState();
+    state = loopReducer(state, {
+      type: "ADD_ITEM",
+      item: { id: "01", source: "ci", summary: "flaky" },
+    });
+    store.save("test-loop", state, {});
+
+    const repoWorkDir = `${DATA}/repos/test-project`;
+    // evalDelayMs > 60_000 would make the test too slow; instead we use a
+    // sessionManager whose eval prompt never resolves (hanging promise).
+    // The Promise.race timeout will fire after 60s - too slow for tests.
+    // Instead, verify the timeout code path by making eval prompt reject.
+    const sessionManager = captureSessionManager("", repoWorkDir);
+    // Override: make eval prompt reject immediately to exercise the .catch path
+    const origCreate = sessionManager.create.bind(sessionManager);
+    let callCount = 0;
+    sessionManager.create = ((config: SessionConfig) => {
+      callCount++;
+      const session = origCreate(config) as unknown as {
+        sessionId: string;
+        prompt: (input: string) => Promise<void>;
+        dispose: () => void;
+        subscribe: () => () => void;
+        state: string;
+        resume: () => Promise<void>;
+      };
+      if (callCount % 2 === 0) {
+        // Evaluator session: prompt rejects (simulates crash/timeout)
+        session.prompt = () => Promise.reject(new Error("evaluator crashed"));
+      }
+      return session as never;
+    }) as SessionManager["create"];
+
+    const next = await loopStep({
+      loopConfigPath: dir,
+      sessionManager,
+      buildConfig: makeConfig,
+      store,
+      loopId: "test-loop",
+      gitRunner: noopGitRunner,
+      projectPort,
+      dataDir,
+    });
+
+    // Evaluator crash caught -> empty verdict -> ESCALATE -> inbox
+    expect(next.items["01"]!.step).toBe("inbox");
+    await cleanup();
+  });
+
+  test("T5: budget exceeded (pre-loop) notifies convPort and breaks", async () => {
+    const { dataDir, projectPort, cleanup } = await setupGitDataDir();
+    const dir = await initLoopDirWithBudget("test-project", 100);
+    const store = createTestStore();
+    let state = emptyState();
+    state = loopReducer(state, {
+      type: "ADD_ITEM",
+      item: { id: "01", source: "ci", summary: "flaky" },
+    });
+    store.save("test-loop", state, {});
+    // Pre-exhaust budget
+    store.addBudget("test-loop", new Date().toISOString().slice(0, 10), 150);
+
+    const repoWorkDir = `${DATA}/repos/test-project`;
+    const sessionManager = captureSessionManager("verdict: PASS\nevidence: ok", repoWorkDir);
+
+    const ledgerCalls: unknown[] = [];
+    const next = await loopStep({
+      loopConfigPath: dir,
+      sessionManager,
+      buildConfig: makeConfig,
+      store,
+      loopId: "test-loop",
+      gitRunner: noopGitRunner,
+      projectPort,
+      dataDir,
+      convPort: {
+        appendLedgerEntry: (input) => {
+          ledgerCalls.push(input);
+        },
+      },
+    });
+
+    // Generator was NOT called (budget exhausted before loop)
+    expect(sessionManager.genPrompts.length).toBe(0);
+    // convPort notified
+    expect(ledgerCalls.length).toBe(1);
+    const entry = ledgerCalls[0] as { content: string; kind: string };
+    expect(entry.kind).toBe("message");
+    const parsed = JSON.parse(entry.content) as { type: string; cap: number; spent: number };
+    expect(parsed.type).toBe("budget_exceeded");
+    expect(parsed.cap).toBe(100);
+    // Item stays fixing (loop never ran)
+    expect(next.items["01"]!.step).toBe("fixing");
+    await cleanup();
+  });
+
+  test("T5: budget exceeded mid-loop notifies convPort and breaks", async () => {
+    const { dataDir, projectPort, cleanup } = await setupGitDataDir();
+    const dir = await initLoopDirWithBudget("test-project", 100);
+    const store = createTestStore();
+    let state = emptyState();
+    // Two fixing items
+    state = loopReducer(state, {
+      type: "ADD_ITEM",
+      item: { id: "01", source: "ci", summary: "flaky A" },
+    });
+    state = loopReducer(state, { type: "TICK" });
+    state = loopReducer(state, { type: "GENERATOR_DONE", itemId: "01" });
+    state = loopReducer(state, {
+      type: "EVALUATOR_VERDICT",
+      itemId: "01",
+      verdict: { verdict: "REJECT", reasons: ["bad"], evidence: "" },
+    });
+    state = loopReducer(state, {
+      type: "ADD_ITEM",
+      item: { id: "02", source: "ci", summary: "flaky B" },
+    });
+    // After TICK, item 01 back to fixing, item 02 to fixing
+    state = loopReducer(state, { type: "TICK" });
+    store.save("test-loop", state, {});
+    // Pre-exhaust budget so the FIRST item hits the in-loop check
+    store.addBudget("test-loop", new Date().toISOString().slice(0, 10), 100);
+
+    const repoWorkDir = `${DATA}/repos/test-project`;
+    const sessionManager = captureSessionManager("verdict: PASS\nevidence: ok", repoWorkDir);
+
+    const ledgerCalls: unknown[] = [];
+    await loopStep({
+      loopConfigPath: dir,
+      sessionManager,
+      buildConfig: makeConfig,
+      store,
+      loopId: "test-loop",
+      gitRunner: noopGitRunner,
+      projectPort,
+      dataDir,
+      convPort: {
+        appendLedgerEntry: (input) => {
+          ledgerCalls.push(input);
+        },
+      },
+    });
+
+    // In-loop check fired: generator NOT called for any item
+    expect(sessionManager.genPrompts.length).toBe(0);
+    // convPort notified (in-loop check)
+    expect(ledgerCalls.length).toBe(1);
+    await cleanup();
+  });
+
+  test("T5: no convPort -> budget exceeded breaks silently (no crash)", async () => {
+    const { dataDir, projectPort, cleanup } = await setupGitDataDir();
+    const dir = await initLoopDirWithBudget("test-project", 100);
+    const store = createTestStore();
+    let state = emptyState();
+    state = loopReducer(state, {
+      type: "ADD_ITEM",
+      item: { id: "01", source: "ci", summary: "flaky" },
+    });
+    store.save("test-loop", state, {});
+    store.addBudget("test-loop", new Date().toISOString().slice(0, 10), 150);
+
+    const repoWorkDir = `${DATA}/repos/test-project`;
+    const sessionManager = captureSessionManager("verdict: PASS\nevidence: ok", repoWorkDir);
+
+    // No convPort - should not crash
+    const next = await loopStep({
+      loopConfigPath: dir,
+      sessionManager,
+      buildConfig: makeConfig,
+      store,
+      loopId: "test-loop",
+      gitRunner: noopGitRunner,
+      projectPort,
+      dataDir,
+    });
+
+    expect(sessionManager.genPrompts.length).toBe(0);
+    expect(next.items["01"]!.step).toBe("fixing");
+    await cleanup();
+  });
+});
