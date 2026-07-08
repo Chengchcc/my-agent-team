@@ -187,7 +187,8 @@ function SettingsSection({
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
 
-  // Reset drafts when settings change (e.g. after save invalidates query)
+  // Reset drafts when settings query refetches (e.g. after save).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset on settings change
   useEffect(() => {
     setDrafts({});
   }, [settings]);
