@@ -282,6 +282,25 @@ export const settings = sqliteTable("settings", {
   updatedAt: integer({ mode: "number" }).notNull(),
 });
 
+// ─── mcp_server ─────────────────────────────────────────────────────
+export const mcpServer = sqliteTable(
+  "mcp_server",
+  {
+    serverId: text("server_id").primaryKey(),
+    agentId: text("agent_id").notNull(),
+    name: text().notNull(),
+    transport: text().notNull(),
+    command: text(),
+    args: text(),
+    env: text(),
+    url: text(),
+    enabled: integer({ mode: "number" }).notNull().default(1),
+    createdAt: integer({ mode: "number" }).notNull(),
+    updatedAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [index("idx_mcp_server_agent").on(table.agentId)],
+);
+
 // ── Zod schemas (type chain: drizzle table → Zod → z.infer → TS type) ──
 
 import { createSelectSchema } from "drizzle-zod";
@@ -322,6 +341,10 @@ export const projectSelectSchema = createSelectSchema(project, {
 });
 
 export const cronJobSelectSchema = createSelectSchema(cronJob, {
+  enabled: (s) => s.transform((v: number) => v !== 0),
+});
+
+export const mcpServerSelectSchema = createSelectSchema(mcpServer, {
   enabled: (s) => s.transform((v: number) => v !== 0),
 });
 

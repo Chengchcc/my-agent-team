@@ -57,6 +57,13 @@
       "when": 1783400000000,
       "tag": "0007_settings_kv_store",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1752000000000,
+      "tag": "0008_mcp_server",
+      "breakpoints": true
     }
   ]
 }
