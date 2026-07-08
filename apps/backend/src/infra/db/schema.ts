@@ -148,8 +148,6 @@ export const attempt = sqliteTable(
       .notNull()
       .references(() => span.spanId, { onDelete: "cascade" }),
     seq: integer().notNull(),
-    pid: integer(),
-    heartbeatAt: integer({ mode: "number" }),
     startedAt: integer({ mode: "number" }).notNull(),
     endedAt: integer({ mode: "number" }),
   },

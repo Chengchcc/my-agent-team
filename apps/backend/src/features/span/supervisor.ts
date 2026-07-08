@@ -73,7 +73,7 @@ export class SpanSupervisor {
     const interval =
       this.#opts.config.reaperIntervalMs > 0
         ? this.#opts.config.reaperIntervalMs
-        : Math.min(this.#opts.config.heartbeatTimeoutMs / 2, 30_000);
+        : Math.min(this.#opts.config.stepStallTimeoutMs / 4, 30_000);
     this.#reaperTimer = setInterval(() => {
       if (this.#reaping) return;
       this.#reaping = true;

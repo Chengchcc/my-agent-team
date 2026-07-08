@@ -13,8 +13,6 @@ export interface BackendConfig {
   anthropicApiKey: string;
   anthropicBaseUrl?: string;
   shutdownTimeoutMs: number;
-  heartbeatIntervalMs: number;
-  heartbeatTimeoutMs: number;
   cancelGraceMs: number;
   reaperIntervalMs: number;
   stepStallTimeoutMs: number;
@@ -43,8 +41,6 @@ export function loadConfig(env: Env = parseEnv(process.env)): BackendConfig {
     anthropicApiKey,
     anthropicBaseUrl: env.ANTHROPIC_BASE_URL,
     shutdownTimeoutMs: env.BACKEND_SHUTDOWN_TIMEOUT_MS,
-    heartbeatIntervalMs: env.BACKEND_HEARTBEAT_INTERVAL_MS,
-    heartbeatTimeoutMs: env.BACKEND_HEARTBEAT_TIMEOUT_MS,
     cancelGraceMs: env.BACKEND_CANCEL_GRACE_MS,
     reaperIntervalMs: env.BACKEND_REAPER_INTERVAL_MS,
     stepStallTimeoutMs: env.BACKEND_STEP_STALL_TIMEOUT_MS,

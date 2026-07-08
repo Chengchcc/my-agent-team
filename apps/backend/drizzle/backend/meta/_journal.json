@@ -64,6 +64,13 @@
       "when": 1752000000000,
       "tag": "0008_mcp_server",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1783400100000,
+      "tag": "0009_drop_attempt_heartbeat",
+      "breakpoints": true
     }
   ]
 }

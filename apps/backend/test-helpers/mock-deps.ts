@@ -51,8 +51,6 @@ export function mockConfig() {
     host: "",
     authToken: "",
     reaperIntervalMs: 0,
-    heartbeatTimeoutMs: 30000,
-    heartbeatIntervalMs: 5000,
     stepStallTimeoutMs: 120_000,
     cancelGraceMs: 5000,
     maxConcurrentRuns: 8,

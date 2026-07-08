@@ -25,8 +25,6 @@ export const envSchema = z.object({
   BACKEND_TEMPLATE_DIR: z.string().optional(),
   BACKEND_MAX_CONCURRENT: z.coerce.number().int().positive().default(8),
   BACKEND_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
-  BACKEND_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().positive().default(5_000),
-  BACKEND_HEARTBEAT_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
   BACKEND_CANCEL_GRACE_MS: z.coerce.number().int().positive().default(5_000),
   BACKEND_REAPER_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
   BACKEND_STEP_STALL_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
