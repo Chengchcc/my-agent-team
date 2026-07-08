@@ -509,3 +509,112 @@ describe("startNewConversationForSurface", () => {
     expect(second.controlSeq).toBe(first.controlSeq);
   });
 });
+
+describe("steer/followUp via activeSessions", () => {
+  test("busy postMessage steers instead of throwing 409", async () => {
+    const cid = "conv-steer-1";
+    setupConv(cid);
+    const steerCalls: string[] = [];
+    const inner = new Map();
+    inner.set(`mem-x1-${cid}`, {
+      steer: (text: string) => steerCalls.push(text),
+      followUp: () => {},
+    });
+    activeSessions.set(cid, inner);
+    lock.acquire(cid, 1);
+
+    const result = await svc.postMessage({
+      conversationId: cid,
+      senderMemberId: `mem-h1-${cid}`,
+      addressedTo: [`mem-x1-${cid}`],
+      content: "steer this",
+    });
+
+    expect(steerCalls).toContain("steer this");
+    expect(result.triggeredRuns).toHaveLength(0);
+
+    lock.releaseOne(cid);
+    activeSessions.delete(cid);
+  });
+
+  test("idle with active session -> followUp", async () => {
+    const cid = "conv-followup-1";
+    setupConv(cid);
+    const followUpCalls: string[] = [];
+    const inner = new Map();
+    inner.set(`mem-x1-${cid}`, {
+      steer: () => {},
+      followUp: (text: string) => followUpCalls.push(text),
+    });
+    activeSessions.set(cid, inner);
+
+    const result = await svc.postMessage({
+      conversationId: cid,
+      senderMemberId: `mem-h1-${cid}`,
+      addressedTo: [`mem-x1-${cid}`],
+      content: "follow up",
+    });
+
+    expect(followUpCalls).toContain("follow up");
+    expect(result.triggeredRuns).toHaveLength(0);
+
+    activeSessions.delete(cid);
+  });
+
+  test("no active session -> normal forkAgentRuns", async () => {
+    const cid = "conv-fork-1";
+    setupConv(cid);
+    const before = forkLog.length;
+
+    const result = await svc.postMessage({
+      conversationId: cid,
+      senderMemberId: `mem-h1-${cid}`,
+      addressedTo: [`mem-x1-${cid}`],
+      content: "normal trigger",
+    });
+
+    expect(result.triggeredRuns.length).toBeGreaterThan(0);
+    expect(forkLog.length).toBe(before + 1);
+  });
+
+  test("multi-agent: steer targets only addressedTo agent", async () => {
+    const cid = "conv-multi-steer";
+    setupConv(cid);
+    // Add second agent
+    port.addMember({
+      memberId: `mem-x2-${cid}`,
+      conversationId: cid,
+      kind: "agent",
+      agentId: "agent-2",
+      displayName: "Agent2",
+      joinedAt: Date.now(),
+    });
+
+    const steerA: string[] = [];
+    const steerB: string[] = [];
+    const inner = new Map();
+    inner.set(`mem-x1-${cid}`, {
+      steer: (text: string) => steerA.push(text),
+      followUp: () => {},
+    });
+    inner.set(`mem-x2-${cid}`, {
+      steer: (text: string) => steerB.push(text),
+      followUp: () => {},
+    });
+    activeSessions.set(cid, inner);
+    lock.acquire(cid, 1);
+
+    await svc.postMessage({
+      conversationId: cid,
+      senderMemberId: `mem-h1-${cid}`,
+      addressedTo: [`mem-x1-${cid}`],
+      content: "only steer A",
+    });
+
+    expect(steerA).toContain("only steer A");
+    expect(steerB).toHaveLength(0);
+
+    lock.releaseOne(cid);
+    activeSessions.delete(cid);
+  });
+});
