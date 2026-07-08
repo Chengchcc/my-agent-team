@@ -319,10 +319,14 @@ Steps:
         // Clean old artifacts
         try {
           await rm(`${dir}/.clarify.json`);
-        } catch {}
+        } catch {
+          // file may not exist — ignore
+        }
         try {
           await rm(`${dir}/LOOP.md`);
-        } catch {}
+        } catch {
+          // file may not exist — ignore
+        }
 
         // Re-run generation with refined intent (same logic as create)
         const config = buildConfig({
@@ -358,7 +362,9 @@ Steps:
         let clarifyContent: string | null = null;
         try {
           clarifyContent = await Bun.file(`${dir}/.clarify.json`).text();
-        } catch {}
+        } catch {
+          // file may not exist — ignore
+        }
 
         if (clarifyContent) {
           const clarify = JSON.parse(clarifyContent) as { questions: string[] };
@@ -372,7 +378,9 @@ Steps:
         let preview = "";
         try {
           preview = await Bun.file(`${dir}/LOOP.md`).text();
-        } catch {}
+        } catch {
+          // file may not exist — ignore
+        }
 
         return {
           status: "generated",
