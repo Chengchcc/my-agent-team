@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { ReviewQueueCard } from "@/components/work/ReviewQueueCard";
 import { useLoopList } from "@/features/loop/hooks";
-import { useOpsRuns, useOpsInsightsSummary } from "@/features/ops/hooks";
+import { useOpsInsightsSummary, useOpsRuns } from "@/features/ops/hooks";
 import { useWorkToday } from "@/features/work/hooks";
 import type { LoopRow, RunOpsListItem } from "@/lib/api";
 

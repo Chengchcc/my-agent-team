@@ -71,7 +71,7 @@ export function useActivateLoop() {
 export function useRefineLoop(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (intent: string) => api.refineLoop(id, { intent }),
+    mutationFn: (body: { intent: string; clarifyRound?: number }) => api.refineLoop(id, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: loopKeys.all }),
   });
 }

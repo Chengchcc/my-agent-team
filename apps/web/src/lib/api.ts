@@ -187,7 +187,7 @@ export const api = {
   ) => unwrap(client.api.loops({ id }).review.post(body)),
   deleteLoop: (id: string) => unwrap(client.api.loops({ id }).delete()),
   activateLoop: (id: string) => unwrap(client.api.loops({ id }).activate.post()),
-  refineLoop: (id: string, body: { intent: string }) =>
+  refineLoop: (id: string, body: { intent: string; clarifyRound?: number }) =>
     unwrap(client.api.loops({ id }).refine.post(body)),
   // Work Today
   getWorkToday: () => unwrap(client.api.work.today.get()),

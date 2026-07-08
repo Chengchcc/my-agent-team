@@ -115,7 +115,6 @@ export function EvidenceChainPanel({ loopId, item }: { loopId: string; item: Loo
 
   const genRunHref = item.generatorSpanId ? `/work/${loopId}/runs/${item.generatorSpanId}` : null;
 
-
   return (
     <div className="space-y-4">
       <Card>
@@ -185,7 +184,9 @@ export function EvidenceChainPanel({ loopId, item }: { loopId: string; item: Loo
                   {genOutput}
                 </pre>
               ) : (
-                <p className="text-xs text-[var(--mute)]">No assistant output recorded for this run.</p>
+                <p className="text-xs text-[var(--mute)]">
+                  No assistant output recorded for this run.
+                </p>
               )}
             </div>
           </CardContent>

@@ -29,6 +29,8 @@ export default function NewLoopPage() {
   const [preview, setPreview] = useState("");
   const [loopName, setLoopName] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [clarifyCount, setClarifyCount] = useState(0);
+  const [note, setNote] = useState("");
 
   function handleCreate() {
     createLoop.mutate(
@@ -57,26 +59,34 @@ export default function NewLoopPage() {
 
   function handleRefine() {
     if (!loopId) return;
+    const nextRound = clarifyCount + 1;
     const merged = [intent, ...questions.map((q, i) => `${q} ${answers[i] ?? ""}`)].join("\n\n");
-    refineLoop.mutate(merged, {
-      onSuccess: (res) => {
-        if (res.status === "generated" && res.loop) {
-          if (res.status === "generated") {
+    refineLoop.mutate(
+      { intent: merged, clarifyRound: nextRound },
+      {
+        onSuccess: (res) => {
+          if (res.status === "generated" && res.loop) {
             setPreview(res.loop.preview);
             setLoopName(res.loop.name);
+            setNote("note" in res ? (res.note ?? "") : "");
+            setStage("preview");
+          } else if (clarifyCount >= 2) {
+            // Belt-and-suspenders: backend stops asking at round >= 2, but
+            // guard the UI so a stale needs_clarification can't loop forever.
+            toast.error("已达澄清上限，请手动编辑预览");
+            setStage("preview");
+          } else {
+            setQuestions(res.questions ?? []);
+            setClarifyCount(nextRound);
           }
-          setStage("preview");
-        } else {
-          setQuestions(res.questions ?? []);
-          setClarifyCount((c) => c + 1);
-        }
+        },
+        onError: (err) => {
+          toast.error("Refinement failed", {
+            description: err instanceof Error ? err.message : "Unknown error",
+          });
+        },
       },
-      onError: (err) => {
-        toast.error("Refinement failed", {
-          description: err instanceof Error ? err.message : "Unknown error",
-        });
-      },
-    });
+    );
   }
 
   function handleActivate() {
@@ -101,6 +111,7 @@ export default function NewLoopPage() {
     setPreview("");
     setLoopName("");
     setClarifyCount(0);
+    setNote("");
     setAnswers({});
   }
 
@@ -178,6 +189,11 @@ export default function NewLoopPage() {
                   <label className="text-sm font-medium">Loop 名称</label>
                   <Input value={loopName} onChange={(e) => setLoopName(e.target.value)} />
                 </div>
+                {note && (
+                  <div className="text-sm text-[var(--muted)] bg-[var(--canvas-soft)] rounded p-3">
+                    {note}
+                  </div>
+                )}
                 <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-[var(--hairline)] bg-[var(--canvas)] p-4 text-sm">
                   {preview || "（无预览内容）"}
                 </pre>
