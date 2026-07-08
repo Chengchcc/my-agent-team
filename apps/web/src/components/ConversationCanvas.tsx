@@ -2,6 +2,7 @@
 
 import { ArrowDown } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useConversation } from "@/hooks/useConversation";
@@ -24,6 +25,7 @@ export function ConversationCanvas({
   snapshot,
   initialMessage,
 }: ConversationCanvasProps) {
+  const router = useRouter();
   const {
     state,
     busy,
@@ -84,8 +86,10 @@ export function ConversationCanvas({
     if (initialMessage && !initialSent.current && viewerMemberId) {
       initialSent.current = true;
       send(initialMessage);
+      // Clear ?initial= from URL to prevent re-send on refresh.
+      router.replace(`/chat/${conversationId}`);
     }
-  }, [initialMessage, send, viewerMemberId]);
+  }, [initialMessage, send, viewerMemberId, conversationId, router]);
 
   useEffect(() => {
     if (items.length > prevLen.current && scrollRef.current) {
