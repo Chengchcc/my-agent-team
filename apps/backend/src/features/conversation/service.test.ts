@@ -28,6 +28,7 @@ const svc = createConversationService({
   lock,
   maxConsecutiveAgentHops: 3,
   idGen: testIdGen,
+  activeSessions: new Map(),
   startAgentRun: async (spanId, ctx) => {
     forkLog.push({ spanId, agentMemberId: ctx.agentMemberId });
     return { spanId, attemptSeq: 1 };

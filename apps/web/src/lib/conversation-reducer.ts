@@ -54,6 +54,8 @@ export type Action =
   | { type: "toggleTriggerMode" }
   | { type: "send/error"; message: string }
   | { type: "todo/update"; todos: ConvState["todos"] }
+  | { type: "member"; seq: number; kind: string; payload: unknown }
+  | { type: "message"; seq: number; senderMemberId: string; content: unknown }
   | { type: "queue/update"; messages: string[] }
   | { type: "queue/add"; text: string }
   | { type: "queue/edit"; index: number; text: string }
@@ -237,7 +239,6 @@ export function reducer(s: ConvState, a: Action): ConvState {
         triggerMode: agentCount > 1 ? "mention" : "auto",
       };
     }
-
     case "member": {
       const payload = a.payload as {
         members?: Array<{

@@ -358,10 +358,24 @@ function QueuedMessageBubble({
           className="flex-1 text-sm bg-transparent outline-none resize-none"
           rows={2}
         />
-        <Button size="sm" variant="ghost" onClick={() => { onEdit(draft); setEditing(false); }}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            onEdit(draft);
+            setEditing(false);
+          }}
+        >
           Save
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => { setDraft(text); setEditing(false); }}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            setDraft(text);
+            setEditing(false);
+          }}
+        >
           Cancel
         </Button>
       </div>

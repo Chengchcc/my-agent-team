@@ -38,6 +38,7 @@ const svc = createConversationService({
   lock,
   maxConsecutiveAgentHops: 3,
   idGen: testIdGen,
+  activeSessions: new Map(),
   startAgentRun: async (spanId: string) => {
     return { spanId, attemptSeq: 1 };
   },
