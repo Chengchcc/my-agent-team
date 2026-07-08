@@ -28,7 +28,7 @@ function maskEnv(row: McpServerRow): McpServerRow {
   if (!row.env) return row;
   const masked: Record<string, string> = {};
   for (const [k, v] of Object.entries(row.env)) {
-    masked[k] = /KEY|TOKEN|SECRET|PASSWORD/i.test(k) ? `****${v.slice(-4)}` : v;
+    masked[k] = v.length > 4 ? `****${v.slice(-4)}` : "****";
   }
   return { ...row, env: masked };
 }
@@ -115,23 +115,31 @@ export function createMcpService(deps: {
       const updated = deps.port.update(serverId, { ...sets, updatedAt: Date.now() });
       if (!updated) throw new McpServerNotFoundError(serverId);
 
-      // Disconnect old, reconnect with fresh config
-      deps.mcpClientManager.disconnect(serverId).catch(() => {});
-      if (updated.enabled) {
-        deps.mcpClientManager
-          .connect({
-            serverId: updated.serverId,
-            agentId: updated.agentId,
-            name: updated.name,
-            transport: updated.transport,
-            command: updated.command ?? undefined,
-            args: updated.args ?? undefined,
-            env: updated.env ?? undefined,
-            url: updated.url ?? undefined,
-            enabled: updated.enabled,
-          })
-          .catch(() => {});
-      }
+      // Disconnect old, reconnect with fresh config — sequenced, not raced
+      void (async () => {
+        try {
+          await deps.mcpClientManager.disconnect(serverId);
+        } catch {
+          // best-effort, carry on
+        }
+        if (updated.enabled) {
+          try {
+            await deps.mcpClientManager.connect({
+              serverId: updated.serverId,
+              agentId: updated.agentId,
+              name: updated.name,
+              transport: updated.transport,
+              command: updated.command ?? undefined,
+              args: updated.args ?? undefined,
+              env: updated.env ?? undefined,
+              url: updated.url ?? undefined,
+              enabled: updated.enabled,
+            });
+          } catch {
+            // degraded mode handles empty tools
+          }
+        }
+      })();
 
       return { ...maskEnv(updated), status: deps.mcpClientManager.getStatus(updated.serverId) };
     },
