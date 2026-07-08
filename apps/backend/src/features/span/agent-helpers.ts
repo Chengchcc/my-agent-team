@@ -20,6 +20,7 @@ import {
   grepTool,
 } from "@my-agent-team/tools-common";
 import type { BackendConfig } from "../../config.js";
+import type { SettingsService } from "../settings/index.js";
 import {
   createListMembersTool,
   createReadContextTool,
@@ -85,9 +86,14 @@ export function defaultPlugins(
 
 // ─── ContextManager ───────────────────────────────────────
 
-export function defaultContextManager(): ContextManager {
+export function defaultContextManager(settings?: SettingsService): ContextManager {
   return pipeContextManagers(
-    toolResultTruncator({ maxCharsPerResult: 50_000 }),
-    autoSummarize({ triggerAt: 100_000, keepRecent: 10 }),
+    toolResultTruncator({
+      maxCharsPerResult: settings?.get<number>("context.toolResultMaxChars") ?? 50_000,
+    }),
+    autoSummarize({
+      triggerAt: settings?.get<number>("context.summarizeTriggerAt") ?? 100_000,
+      keepRecent: settings?.get<number>("context.summarizeKeepRecent") ?? 10,
+    }),
   );
 }

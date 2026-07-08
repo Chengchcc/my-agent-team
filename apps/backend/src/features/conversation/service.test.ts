@@ -30,7 +30,7 @@ const activeSessions = new Map<
 const svc = createConversationService({
   port,
   lock,
-  maxConsecutiveAgentHops: 3,
+  maxConsecutiveAgentHops: () => 3,
   idGen: testIdGen,
   activeSessions,
   startAgentRun: async (spanId, ctx) => {

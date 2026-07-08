@@ -36,7 +36,7 @@ function testIdGen(): string {
 const svc = createConversationService({
   port,
   lock,
-  maxConsecutiveAgentHops: 3,
+  maxConsecutiveAgentHops: () => 3,
   idGen: testIdGen,
   activeSessions: new Map(),
   startAgentRun: async (spanId: string) => {

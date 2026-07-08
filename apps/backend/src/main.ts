@@ -36,15 +36,15 @@ import {
   sqliteProjectAdapter,
 } from "./features/project/index.js";
 import {
-  createSettingsService,
-  settingsRoutes,
-  sqliteSettingsAdapter,
-} from "./features/settings/index.js";
-import {
   createRuntimeOpsService,
   opsRoutes,
   RuntimeOpsStore,
 } from "./features/runtime-ops/index.js";
+import {
+  createSettingsService,
+  settingsRoutes,
+  sqliteSettingsAdapter,
+} from "./features/settings/index.js";
 import {
   createSkillPackService as createSkillPackServiceFn,
   runInstall,
@@ -74,6 +74,13 @@ const config = loadConfig();
 const db = openDb(`${config.dataDir}/backend.db`);
 const loopStore = createLoopStateStore(db);
 // Single database — all backend-package-owned tables live in one SQLite file.
+
+// Settings service (KV store - runtime-tunable config) - created early
+// so all features can read runtime parameters via settingsSvc.get().
+const settingsSvc = createSettingsService({
+  port: sqliteSettingsAdapter(db),
+  config,
+});
 
 const obsConfig = resolveObservabilityConfig({ serviceName: "backend" });
 const tracer = createRuntimeTracer(obsConfig);
@@ -168,12 +175,19 @@ async function ensureAgent(id: string, name: string, model: string) {
       model: { provider: "anthropic", model },
       permissionMode: "auto",
     });
-    console.log(`[backend] seeded ${id} agent`);
   }
 }
 await ensureAgent("default", "Assistant", "claude-sonnet-4-20250514");
 await ensureAgent("loop-agent", "Loop Agent", "claude-sonnet-4-20250514");
-const conv = createConversationFeature(db, config, supervisor, agentSvc, opsStore, sessionManager);
+const conv = createConversationFeature(
+  db,
+  config,
+  supervisor,
+  agentSvc,
+  opsStore,
+  sessionManager,
+  settingsSvc,
+);
 
 // ─── Event wiring ─────────────────────────────────────────────
 
@@ -249,12 +263,6 @@ const opsSvc = createRuntimeOpsService({
   getAgentName: (agentId) => agentNames.get(agentId),
 });
 
-// Settings service (KV store - runtime-tunable config)
-const settingsSvc = createSettingsService({
-  port: sqliteSettingsAdapter(db),
-  config,
-});
-
 // Project service
 const projectPort = sqliteProjectAdapter(db);
 const projectSvc = createProjectService({ port: projectPort, idGen: ulid });
@@ -320,11 +328,12 @@ const app = createApp(config.authToken, {
       model: createModel(params.modelName, config),
       tools: defaultTools(params.cwd),
       plugins: defaultPlugins(params.cwd, config, params.skillRoots),
-      contextManager: defaultContextManager(),
+      contextManager: defaultContextManager(settingsSvc),
     }),
     loopStore,
     projectPort,
     conv.convPort,
+    settingsSvc,
   ),
   cronJobs: cronJobRoutes(cronSvc, cronScheduler),
   skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),

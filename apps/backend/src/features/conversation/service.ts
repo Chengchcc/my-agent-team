@@ -38,7 +38,7 @@ export interface ConversationServiceDeps {
   port: ConversationPort;
   /** M17.5 P4: ConversationLock replaces ad-hoc activeConversations Set + pendingRuns Map. */
   lock: ConversationLock;
-  maxConsecutiveAgentHops: number;
+  maxConsecutiveAgentHops: () => number;
   /** Active agent sessions: outer key = conversationId, inner key = agentMemberId.
    *  Enables steer (during run) and followUp (after run), directed per addressedTo. */
   activeSessions: Map<
@@ -256,7 +256,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
         }
         // Hop hard-cap check (after hop count update, so human reset takes effect)
         const currentHop = port.getConversation(input.conversationId)?.hopCount ?? 0;
-        hopCapped = currentHop > maxConsecutiveAgentHops;
+        hopCapped = currentHop > maxConsecutiveAgentHops();
       }
 
       // ── Append this message to ledger as a MessageRevision (no broadcast — startAgentRun reads from ledger) ──
@@ -311,7 +311,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
           messageId: systemMessageId(input.conversationId, "hopcap"),
           role: "system",
           state: "done",
-          text: `[系统] 连续 agent→agent 触发达上限（${maxConsecutiveAgentHops}），已暂停，等待真人介入。`,
+          text: `[系统] 连续 agent->agent 触发达上限（${maxConsecutiveAgentHops()}），已暂停，等待真人介入。`,
           visibility: "conversation",
           updatedAt: Date.now(),
         };
@@ -601,7 +601,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
 
       // Hop hard-cap check
       const currentHop = port.getConversation(input.conversationId)?.hopCount ?? 0;
-      if (currentHop > maxConsecutiveAgentHops) return triggeredRuns;
+      if (currentHop > maxConsecutiveAgentHops()) return triggeredRuns;
 
       // Conversation busy guard (best-effort: skip, don't throw)
       if (lock.isActive(input.conversationId)) return triggeredRuns;

@@ -16,6 +16,7 @@ import {
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
+import type { SettingsService } from "../settings/index.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import {
   convTools,
@@ -48,6 +49,7 @@ export function createConversationFeature(
   agentSvc: AgentService,
   opsStore: RuntimeOpsStore,
   sessionManager: SessionManager,
+  settingsSvc: SettingsService,
   lock: ConversationLock = new ConversationLock(),
 ): ConversationFeature {
   const convPort = sqliteConversationAdapter(db);
@@ -147,7 +149,7 @@ export function createConversationFeature(
     port: convPort,
     lock,
     activeSessions,
-    maxConsecutiveAgentHops: 8,
+    maxConsecutiveAgentHops: () => settingsSvc.get<number>("conversation.maxHops") ?? 8,
     idGen: ulid,
 
     startAgentRun: async (spanId, ctx) => {
@@ -163,7 +165,7 @@ export function createConversationFeature(
         model: createModel(modelName, config),
         tools: [...defaultTools(cwd), ...cTools],
         plugins: [...defaultPlugins(cwd, config), conversationContextPlugin({ tools: cTools })],
-        contextManager: defaultContextManager(),
+        contextManager: defaultContextManager(settingsSvc),
       };
       const existingSid = convPort.getMemberSessionId(conversationId, agentMemberId);
       const session = existingSid

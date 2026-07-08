@@ -9,6 +9,7 @@ import type { CronJobService } from "../cron/service.js";
 import { loopStep } from "../loop/loop-step.js";
 import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { ProjectPort } from "../project/ports.js";
+import type { SettingsService } from "../settings/index.js";
 import { nodeFsAdapter } from "../skill-pack/fs-adapter.js";
 import type { SessionManager } from "../span/session-manager.js";
 import type { SkillRoots } from "../span/skill-roots.js";
@@ -44,6 +45,7 @@ export function loopRoutes(
       joinedAt: number;
     }) => unknown;
   },
+  settingsSvc?: SettingsService,
 ) {
   return new Elysia()
     .get("/api/loops", () => ({
@@ -229,18 +231,37 @@ Steps:
           await session.prompt(intent);
           sessionManager.dispose(session.sessionId ?? "");
         } else {
+          const genModel = settingsSvc?.get<string>("loop.generatorModel") ?? "claude-sonnet-4";
+          const evalModel = settingsSvc?.get<string>("loop.evaluatorModel") ?? "claude-opus-4";
+          const acceptance = settingsSvc?.get<string>("loop.defaultAcceptance") ?? "";
+          const dailyCap = settingsSvc?.get<number>("loop.defaultDailyCap") ?? 200000;
+          const denylist = settingsSvc?.get<string[]>("loop.defaultDenylist") ?? [
+            ".env",
+            "auth/",
+            "payments/",
+            "secrets/",
+          ];
+
+          const denylistYaml = denylist.map((d) => `        - ${d}`).join("\n");
           await Bun.write(
             `${dir}/LOOP.md`,
             [
               "---",
               `projectId: ${body.projectId ?? ""}`,
               "generator:",
-              "  model: claude-sonnet-4",
+              `  model: ${genModel}`,
               '  systemPrompt: ""',
               "evaluator:",
-              "  model: claude-opus-4",
+              `  model: ${evalModel}`,
               '  systemPrompt: ""',
-              'acceptance: ""',
+              `acceptance: "${acceptance}"`,
+              "safety:",
+              "  denylist:",
+              denylistYaml,
+              "  maxRetries: 3",
+              "  autoMerge: never",
+              "budget:",
+              `  dailyCap: ${dailyCap}`,
               "---",
               "",
               `# ${body.name}`,
