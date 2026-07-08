@@ -23,7 +23,7 @@ You generate `.loop/LOOP.md` from natural-language intents.
 1. Read the pattern registry below
 2. Match the user's intent to the best-fitting pattern
 3. 判定四要素是否齐全（见下方规则）
-4. 齐全 → 用 write tool 写 `{dir}/LOOP.md`；缺失 → 用 write tool 写 `{dir}/.clarify.json`
+4. 齐全 -> 用 write tool 写 `{dir}/LOOP.md`；缺失 -> 用 write tool 写 `{dir}/.clarify.json`
 
 意图必须包含四要素才能生成：
   - 目标（自动化什么）
@@ -31,52 +31,55 @@ You generate `.loop/LOOP.md` from natural-language intents.
   - 动作（做什么 + 边界，如"只通知"还是"自动改"）
   - 验收（怎么算做好）
 
-缺任一要素 → 用 write tool 写 `{dir}/.clarify.json`：
+缺任一要素 -> 用 write tool 写 `{dir}/.clarify.json`：
   `{ "questions": ["...","..."] }`
   问题要具体、可点选（尽量给候选），最多 3 条。
 
-四要素齐全 → 用 write tool 写 `{dir}/LOOP.md`，填充 schedule、generator/evaluator
+四要素齐全 -> 用 write tool 写 `{dir}/LOOP.md`，填充 schedule、generator/evaluator
 model 与 system prompts、acceptance criteria、safety constraints。
 
 ## Patterns
 
 {registry_content}
 
-## Output
+## Output contract
 
-If all four elements are present:
-  Use the write tool to create `{dir}/LOOP.md` with the frontmatter and content below.
+This skill **never prints the config into the conversation**. It always
+produces a file via the write tool. The creating endpoint decides the result
+by reading which file exists (`.clarify.json` -> needs_clarification;
+`LOOP.md` -> generated), so the file is the only source of truth.
 
-```markdown
----
-repo: <user's repo path>
-generator:
-  model: <model>
-  systemPrompt: |
-    <role-specific prompt>
-evaluator:
-  model: <model>
-  systemPrompt: |
-    <role-specific prompt>
-acceptance: "<acceptance criteria>"
-safety:
-  denylist:
-    - .env
-    - auth/
-    - payments/
-    - secrets/
-  maxRetries: 3
-  autoMerge: never
-budget:
-  dailyCap: 200000
----
+**Four elements present** -> write tool -> `{dir}/LOOP.md` in exactly this shape:
 
-# <Loop name>
+    ---
+    repo: <user's repo path>
+    generator:
+      model: <model>
+      systemPrompt: |
+        <role-specific prompt>
+    evaluator:
+      model: <model>
+      systemPrompt: |
+        <role-specific prompt>
+    acceptance: "<acceptance criteria>"
+    safety:
+      denylist:
+        - .env
+        - auth/
+        - payments/
+        - secrets/
+      maxRetries: 3
+      autoMerge: never
+    budget:
+      dailyCap: 200000
+    ---
 
-<intent text>
-```
+    # <Loop name>
 
-If any element is missing:
-  Use the write tool to create `{dir}/.clarify.json` with:
-  `{ "questions": ["...", "..."] }`
-  (max 3 questions, each with suggested options where possible)
+    <intent text>
+
+**Any element missing** -> write tool -> `{dir}/.clarify.json`:
+
+    { "questions": ["...", "..."] }
+
+(max 3 questions, each with suggested options where possible)
