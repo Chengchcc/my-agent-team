@@ -357,6 +357,7 @@ Steps:
         const session = sessionManager.create(config);
         await session.prompt(intent);
         sessionManager.dispose(session.sessionId ?? "");
+        const round = body.clarifyRound ?? 0;
 
         // Check results (same logic as create)
         let clarifyContent: string | null = null;
@@ -367,6 +368,41 @@ Steps:
         }
 
         if (clarifyContent) {
+          // Clarification round gate: at round >= 2, stop asking and emit an
+          // empty template so the user can finish it by hand.
+          if (round >= 2) {
+            try {
+              await rm(`${dir}/.clarify.json`);
+            } catch {
+              // already gone — ignore
+            }
+            const preview = [
+              "---",
+              `projectId: `,
+              "generator:",
+              "  model: claude-sonnet-4",
+              '  systemPrompt: ""',
+              "evaluator:",
+              "  model: claude-opus-4",
+              '  systemPrompt: ""',
+              'acceptance: ""',
+              "---",
+              "",
+              `# ${job.name}`,
+            ].join("\n");
+            await Bun.write(`${dir}/LOOP.md`, preview);
+            return {
+              status: "generated",
+              loop: {
+                id,
+                name: job.name,
+                cronExpr: job.cronExpr,
+                loopConfigPath: job.loopConfigPath,
+                preview,
+              },
+              note: "已达澄清上限，已生成空模板，请手动编辑",
+            };
+          }
           const clarify = JSON.parse(clarifyContent) as { questions: string[] };
           return {
             status: "needs_clarification",
@@ -396,6 +432,7 @@ Steps:
       {
         body: t.Object({
           intent: t.String(),
+          clarifyRound: t.Optional(t.Number()),
         }),
       },
     )
