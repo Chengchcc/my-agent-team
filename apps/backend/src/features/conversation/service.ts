@@ -39,6 +39,14 @@ export interface ConversationServiceDeps {
   /** M17.5 P4: ConversationLock replaces ad-hoc activeConversations Set + pendingRuns Map. */
   lock: ConversationLock;
   maxConsecutiveAgentHops: number;
+  /** Active agent sessions keyed by conversationId, enabling steer (during run) and followUp (after run). */
+  activeSessions: Map<
+    string,
+    {
+      steer: (text: string) => void;
+      followUp: (text: string) => void;
+    }
+  >;
   startAgentRun: (
     spanId: string,
     ctx: {
@@ -56,7 +64,7 @@ export interface ConversationServiceDeps {
 }
 
 export function createConversationService(deps: ConversationServiceDeps) {
-  const { port, lock, maxConsecutiveAgentHops, startAgentRun } = deps;
+  const { port, lock, maxConsecutiveAgentHops, startAgentRun, activeSessions } = deps;
 
   // Push-based SSE: subscribers are notified immediately when new ledger
   // entries are appended, so streaming revisions arrive without poll delay.
@@ -206,6 +214,33 @@ export function createConversationService(deps: ConversationServiceDeps) {
       if (targets.length > 0) {
         // Single-active guard
         if (lock.isActive(input.conversationId)) {
+          // Busy → steer to active session instead of rejecting with 409
+          const active = activeSessions.get(input.conversationId);
+          if (active) {
+            const userRev: MessageRevision = {
+              messageId: humanMessageId(input.conversationId, input.senderMemberId),
+              role: "user",
+              state: "done",
+              text: typeof input.content === "string" ? input.content : undefined,
+              blocks: Array.isArray(input.content)
+                ? (ContentBlockSchema.array().parse(input.content) as MessageRevision["blocks"])
+                : undefined,
+              conversationId: input.conversationId,
+              visibility: "conversation",
+              updatedAt: Date.now(),
+            };
+            const steerSeq = await appendAndBroadcast({
+              conversationId: input.conversationId,
+              senderMemberId: input.senderMemberId,
+              addressedTo: input.addressedTo,
+              kind: "message",
+              content: userRev,
+              broadcast: true,
+            });
+            const userText = typeof input.content === "string" ? input.content : "";
+            active.steer(userText);
+            return { seq: steerSeq, triggeredRuns: [] };
+          }
           throw new ConversationBusyError(input.conversationId);
         }
 
@@ -239,6 +274,15 @@ export function createConversationService(deps: ConversationServiceDeps) {
         content: userRev,
         broadcast: false,
       });
+      // If session is still alive, followUp reuses its memory (no new fork)
+      if (targets.length > 0 && !hopCapped) {
+        const active = activeSessions.get(input.conversationId);
+        if (active) {
+          const userText = typeof input.content === "string" ? input.content : "";
+          active.followUp(userText);
+          return { seq, triggeredRuns: [] };
+        }
+      }
 
       // ── @ trigger: fork agent run for each target (skip if hop-capped) ──
       if (targets.length > 0 && !hopCapped) {
@@ -428,6 +472,7 @@ export function createConversationService(deps: ConversationServiceDeps) {
     /** Release the conversation lock when ALL triggered runs complete. */
     completeRun(conversationId: string, _spanId: string): void {
       lock.releaseOne(conversationId);
+      activeSessions.delete(conversationId);
     },
 
     /** M17.5 P7: Write an assistant message revision directly to the ledger.

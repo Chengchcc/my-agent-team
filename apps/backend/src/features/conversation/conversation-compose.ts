@@ -130,9 +130,18 @@ export function createConversationFeature(
     }
   };
 
+  const activeSessions = new Map<
+    string,
+    {
+      steer: (text: string) => void;
+      followUp: (text: string) => void;
+    }
+  >();
+
   const convSvc = createConversationService({
     port: convPort,
     lock,
+    activeSessions,
     maxConsecutiveAgentHops: 8,
     idGen: ulid,
 
@@ -179,6 +188,23 @@ export function createConversationFeature(
         surface,
         senderName: agentMemberId,
         input: input ?? "",
+      });
+      // Register steer/followUp so postMessage can inject into a running/alive session
+      activeSessions.set(conversationId, {
+        steer: (text: string) => {
+          try {
+            session.steer(text);
+          } catch {
+            /* not running — ignore */
+          }
+        },
+        followUp: (text: string) => {
+          try {
+            session.followUp(text);
+          } catch {
+            /* not initialized — ignore */
+          }
+        },
       });
       void session.prompt(input ?? "", {
         spanId,
