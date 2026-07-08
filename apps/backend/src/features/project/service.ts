@@ -1,7 +1,6 @@
 import {
-  ConflictError,
-  NotFoundError,
   ValidationError as DomainValidationError,
+  NotFoundError,
 } from "../../infra/domain-errors.js";
 import type { ProjectRow } from "./domain.js";
 import type { ProjectPort } from "./ports.js";

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BusyError,
+  ConflictError,
   DomainError,
   NotFoundError,
   ValidationError,
-  BusyError,
-  ConflictError,
 } from "./domain-errors.js";
 
 describe("DomainError", () => {

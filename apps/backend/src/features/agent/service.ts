@@ -121,8 +121,4 @@ export class AgentNotFoundError extends NotFoundError {
   }
 }
 
-export class AgentBusyError extends BusyError {
-  constructor(id: string) {
-    super(id);
-  }
-}
+export class AgentBusyError extends BusyError {}

@@ -10,8 +10,8 @@ import type { settingsRoutes } from "./features/settings/http.js";
 import type { skillPackRoutes } from "./features/skill-pack/http.js";
 import type { resumeRoutes } from "./features/span/http.js";
 import { checkAuthToken } from "./infra/auth.js";
-import { HttpError } from "./infra/errors.js";
 import { DomainError } from "./infra/domain-errors.js";
+import { HttpError } from "./infra/errors.js";
 
 export interface FeatureSet {
   agents: ReturnType<typeof agentRoutes>;
