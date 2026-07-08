@@ -32,8 +32,6 @@ export function createMcpClientManager(): McpClientManager {
       });
       try {
         let clientTransport: unknown;
-        let client: unknown;
-
         if (transport === "stdio") {
           const { StdioClientTransport } = await import(
             "@modelcontextprotocol/sdk/client/stdio.js"
@@ -49,7 +47,7 @@ export function createMcpClientManager(): McpClientManager {
         }
 
         const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
-        client = new Client({ name: `mat-${name}`, version: "0.1.0" }, { capabilities: {} });
+        const client = new Client({ name: `mat-${name}`, version: "0.1.0" }, { capabilities: {} });
         await (client as { connect: (t: unknown) => Promise<void> }).connect(clientTransport);
 
         const listResult = await (

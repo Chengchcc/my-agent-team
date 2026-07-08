@@ -102,7 +102,7 @@ export function createMcpService(deps: {
       serverId: string,
       input: UpdateMcpServerInput,
     ): Promise<McpServerRow> {
-      const existing = require(serverId);
+      require(serverId); // throws if not found
 
       const sets: Record<string, unknown> = {};
       if (input.name !== undefined) sets.name = input.name;
