@@ -8,6 +8,7 @@ export interface McpClientManager {
   disconnect(serverId: string): Promise<void>;
   getTools(agentId: string): Tool[];
   getStatus(serverId: string): McpConnectionStatus | undefined;
+  getToolCount(serverId: string): number;
   disconnectAll(): Promise<void>;
 }
 
@@ -121,6 +122,10 @@ export function createMcpClientManager(): McpClientManager {
 
     getStatus(serverId: string): McpConnectionStatus | undefined {
       return connections.get(serverId)?.status;
+    },
+
+    getToolCount(serverId: string): number {
+      return connections.get(serverId)?.tools.length ?? 0;
     },
 
     async disconnectAll(): Promise<void> {

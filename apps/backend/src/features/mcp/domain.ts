@@ -9,7 +9,9 @@ export interface McpServerRow {
   url: string | null;
   enabled: boolean;
   createdAt: number;
+  updatedAt: number;
   status?: "pending" | "connected" | "failed";
+  toolsCount?: number;
 }
 
 export interface CreateMcpServerInput {

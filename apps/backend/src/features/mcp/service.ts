@@ -55,6 +55,7 @@ export function createMcpService(deps: {
         .map((row) => ({
           ...row,
           status: deps.mcpClientManager.getStatus(row.serverId),
+          toolsCount: deps.mcpClientManager.getToolCount(row.serverId),
         }));
     },
 
