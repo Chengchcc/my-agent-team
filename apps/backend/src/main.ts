@@ -36,6 +36,11 @@ import {
   sqliteProjectAdapter,
 } from "./features/project/index.js";
 import {
+  createSettingsService,
+  settingsRoutes,
+  sqliteSettingsAdapter,
+} from "./features/settings/index.js";
+import {
   createRuntimeOpsService,
   opsRoutes,
   RuntimeOpsStore,
@@ -244,6 +249,12 @@ const opsSvc = createRuntimeOpsService({
   getAgentName: (agentId) => agentNames.get(agentId),
 });
 
+// Settings service (KV store - runtime-tunable config)
+const settingsSvc = createSettingsService({
+  port: sqliteSettingsAdapter(db),
+  config,
+});
+
 // Project service
 const projectPort = sqliteProjectAdapter(db);
 const projectSvc = createProjectService({ port: projectPort, idGen: ulid });
@@ -317,6 +328,7 @@ const app = createApp(config.authToken, {
   ),
   cronJobs: cronJobRoutes(cronSvc, cronScheduler),
   skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
+  settings: settingsRoutes(settingsSvc),
 });
 
 // ─── Start ────────────────────────────────────────────────────

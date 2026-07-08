@@ -275,6 +275,13 @@ export const loopBudget = sqliteTable(
   (table) => [primaryKey({ columns: [table.loopId, table.day] })],
 );
 
+// ─── settings (KV store for runtime-tunable config) ────────────────
+export const settings = sqliteTable("settings", {
+  key: text().primaryKey(),
+  value: text().notNull(), // JSON string
+  updatedAt: integer({ mode: "number" }).notNull(),
+});
+
 // ── Zod schemas (type chain: drizzle table → Zod → z.infer → TS type) ──
 
 import { createSelectSchema } from "drizzle-zod";
