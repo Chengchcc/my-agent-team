@@ -54,6 +54,13 @@ import {
   skillPackRoutes,
   sqliteSkillPackAdapter,
 } from "./features/skill-pack/index.js";
+
+import { createMcpClientManager } from "@my-agent-team/adapter-mcp";
+import {
+  createMcpService,
+  mcpRoutes,
+  sqliteMcpServerAdapter,
+} from "./features/mcp/index.js";
 import {
   createModel,
   defaultContextManager,
@@ -81,6 +88,8 @@ const settingsSvc = createSettingsService({
   port: sqliteSettingsAdapter(db),
   config,
 });
+
+const mcpClientManager = createMcpClientManager();
 
 const obsConfig = resolveObservabilityConfig({ serviceName: "backend" });
 const tracer = createRuntimeTracer(obsConfig);
@@ -187,6 +196,7 @@ const conv = createConversationFeature(
   opsStore,
   sessionManager,
   settingsSvc,
+  mcpClientManager,
 );
 
 // ─── Event wiring ─────────────────────────────────────────────
@@ -267,6 +277,13 @@ const opsSvc = createRuntimeOpsService({
 const projectPort = sqliteProjectAdapter(db);
 const projectSvc = createProjectService({ port: projectPort, idGen: ulid });
 
+const mcpSvc = createMcpService({
+  port: sqliteMcpServerAdapter(db),
+  mcpClientManager,
+  agentExists: (id: string) => agentSvc.exists(id),
+  idGen: ulid,
+});
+
 // M21: CronJob service
 const cronSvc = createCronJobService({
   port: sqliteCronJobAdapter(db),
@@ -326,7 +343,7 @@ const app = createApp(config.authToken, {
     sessionManager,
     (params) => ({
       model: createModel(params.modelName, config),
-      tools: defaultTools(params.cwd),
+      tools: [...defaultTools(params.cwd), ...mcpClientManager.getTools("loop-agent")],
       plugins: defaultPlugins(params.cwd, config, params.skillRoots),
       contextManager: defaultContextManager(settingsSvc),
     }),
@@ -338,6 +355,7 @@ const app = createApp(config.authToken, {
   cronJobs: cronJobRoutes(cronSvc, cronScheduler),
   skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
   settings: settingsRoutes(settingsSvc),
+  mcp: mcpRoutes(mcpSvc),
 });
 
 // ─── Start ────────────────────────────────────────────────────
@@ -372,6 +390,7 @@ const shutdown = async (signal: string) => {
   await supervisor.dispose();
   await larkBotRegistry.dispose();
   setupManager?.dispose();
+  await mcpClientManager.disconnectAll();
   db.close();
   process.exit(0);
 };

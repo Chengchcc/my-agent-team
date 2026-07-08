@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import type { McpClientManager } from "@my-agent-team/adapter-mcp";
 import { join } from "node:path";
 import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import type { Message, MessageRevision } from "@my-agent-team/message";
@@ -41,7 +42,6 @@ export interface ConversationFeature {
 }
 
 const titlingInFlight = new Set<string>();
-
 export function createConversationFeature(
   db: Database,
   config: BackendConfig,
@@ -50,6 +50,7 @@ export function createConversationFeature(
   opsStore: RuntimeOpsStore,
   sessionManager: SessionManager,
   settingsSvc: SettingsService,
+  mcpClientManager: McpClientManager,
   lock: ConversationLock = new ConversationLock(),
 ): ConversationFeature {
   const convPort = sqliteConversationAdapter(db);
@@ -161,9 +162,10 @@ export function createConversationFeature(
       const { modelName } = await agentSvc.getById(agentId);
       const cwd = join(config.dataDir, "agents", agentId);
       const cTools = convTools(convPort, conversationId);
+      const mcpTools = mcpClientManager.getTools(agentId);
       const agentConfig = {
         model: createModel(modelName, config),
-        tools: [...defaultTools(cwd), ...cTools],
+        tools: [...defaultTools(cwd), ...cTools, ...mcpTools],
         plugins: [...defaultPlugins(cwd, config), conversationContextPlugin({ tools: cTools })],
         contextManager: defaultContextManager(settingsSvc),
       };

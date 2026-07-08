@@ -4,6 +4,7 @@ import type { conversationRoutes } from "./features/conversation/http.js";
 import type { cronJobRoutes } from "./features/cron/http.js";
 import type { loopRoutes } from "./features/loop/http.js";
 import type { projectRoutes } from "./features/project/http.js";
+import type { mcpRoutes } from "./features/mcp/http.js";
 import type { opsRoutes } from "./features/runtime-ops/http.js";
 import type { settingsRoutes } from "./features/settings/http.js";
 import type { skillPackRoutes } from "./features/skill-pack/http.js";
@@ -20,6 +21,7 @@ export interface FeatureSet {
   loops: ReturnType<typeof loopRoutes>;
   resumeRun: ReturnType<typeof resumeRoutes>;
   skillPacks: ReturnType<typeof skillPackRoutes>;
+  mcp: ReturnType<typeof mcpRoutes>;
   settings: ReturnType<typeof settingsRoutes>;
 }
 
@@ -41,7 +43,7 @@ function authPlugin(token: string) {
 // ── App factory ──
 
 export function createApp(token: string, features: FeatureSet) {
-  const { agents, conversations, ops, projects, cronJobs, resumeRun, skillPacks, loops, settings } =
+  const { agents, conversations, ops, projects, cronJobs, resumeRun, skillPacks, mcp, loops, settings } =
     features;
   const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
@@ -57,6 +59,7 @@ export function createApp(token: string, features: FeatureSet) {
     .use(loops)
     .use(skillPacks)
     .use(settings)
+    .use(mcp)
     .onError(({ code, error, set }) => {
       if (error instanceof HttpError) {
         set.status = (error as HttpError).status;
