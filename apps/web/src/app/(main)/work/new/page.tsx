@@ -28,7 +28,6 @@ export default function NewLoopPage() {
   const [questions, setQuestions] = useState<string[]>([]);
   const [preview, setPreview] = useState("");
   const [loopName, setLoopName] = useState("");
-  const [clarifyCount, setClarifyCount] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
 
   function handleCreate() {
