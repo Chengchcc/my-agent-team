@@ -14,11 +14,7 @@ import { BusyError } from "../../infra/domain-errors.js";
 import type { ConversationLock } from "./lock.js";
 import type { ConversationPort, LedgerEntry, LedgerKind, MemberRow } from "./ports.js";
 
-export class ConversationBusyError extends BusyError {
-  constructor(conversationId: string) {
-    super(conversationId);
-  }
-}
+export class ConversationBusyError extends BusyError {}
 
 /** Reserved memberId for the conversation owner (the human who owns an
  *  issue-/cron-spawned conversation). It is a member id, NOT an agent id -
