@@ -38,6 +38,7 @@ export function adaptMcpTool(
     name,
     description,
     inputSchema,
+    // ponytail: signal not forwarded - MCP SDK callTool doesn't accept AbortSignal yet
     async execute(input: unknown): Promise<ToolExecuteResult> {
       try {
         const result = await caller.callTool({ name: mcpTool.name, arguments: input });

@@ -1,3 +1,4 @@
+// ponytail: manager logic untested - dynamic SDK imports make mocking complex; two-map bookkeeping is trivial
 import type { Tool } from "@my-agent-team/core";
 import { adaptMcpTool } from "./mcp-tool-adapter.js";
 import type { McpConnectionEntry, McpServerConfig } from "./types.js";
@@ -12,10 +13,15 @@ export interface McpClientManager {
 export function createMcpClientManager(): McpClientManager {
   const connections = new Map<string, McpConnectionEntry>();
   const agentServers = new Map<string, Set<string>>();
-
   return {
     async connect(config: McpServerConfig): Promise<void> {
       const { serverId, agentId, name, transport } = config;
+      if (transport === "stdio" && !config.command) {
+        throw new Error(`[mcp] connect failed for ${config.name}: missing required "command"`);
+      }
+      if (transport === "sse" && !config.url) {
+        throw new Error(`[mcp] connect failed for ${config.name}: missing required "url"`);
+      }
       try {
         let clientTransport: unknown;
         let client: unknown;
@@ -25,13 +31,13 @@ export function createMcpClientManager(): McpClientManager {
             "@modelcontextprotocol/sdk/client/stdio.js"
           );
           clientTransport = new StdioClientTransport({
-            command: config.command ?? "",
+            command: config.command,
             args: config.args ?? [],
             env: config.env,
           });
         } else {
           const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js");
-          clientTransport = new SSEClientTransport(new URL(config.url ?? "http://localhost"));
+          clientTransport = new SSEClientTransport(new URL(config.url));
         }
 
         const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
@@ -96,12 +102,19 @@ export function createMcpClientManager(): McpClientManager {
     },
 
     async disconnectAll(): Promise<void> {
-      try {
-        for (const serverId of [...connections.keys()]) {
-          await this.disconnect(serverId);
+      for (const serverId of [...connections.keys()]) {
+        const entry = connections.get(serverId);
+        try {
+          if (entry?.transport) {
+            await (entry.transport as { close: () => Promise<void> }).close();
+          }
+        } catch (err) {
+          console.error(`[mcp] disconnect failed for ${serverId}:`, err);
         }
-      } catch (err) {
-        console.error("[mcp] disconnectAll failed:", err);
+        connections.delete(serverId);
+        for (const serverIds of agentServers.values()) {
+          serverIds.delete(serverId);
+        }
       }
     },
   };
