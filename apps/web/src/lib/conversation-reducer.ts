@@ -43,17 +43,21 @@ export interface ConvState {
   pendingSendCount: number;
   /** W7: Monotonic sequence number for client-generated message IDs. */
   optimisticSeq: number;
+  /** Steer2: queued messages waiting to be sent (busy state). */
+  queuedMessages: string[];
 }
 
 export type Action =
   | { type: "bootstrap"; viewerMemberId: string; members: SenderRef[] }
-  | { type: "member"; seq: number; kind: "member.joined" | "member.left"; payload: unknown }
-  | { type: "message"; seq: number; senderMemberId: string; content: unknown }
   | { type: "send"; text: string; viewer: SenderRef }
   | { type: "conn"; status: StreamConn }
   | { type: "toggleTriggerMode" }
   | { type: "send/error"; message: string }
-  | { type: "todo/update"; todos: ConvState["todos"] };
+  | { type: "todo/update"; todos: ConvState["todos"] }
+  | { type: "queue/update"; messages: string[] }
+  | { type: "queue/add"; text: string }
+  | { type: "queue/edit"; index: number; text: string }
+  | { type: "queue/remove"; index: number };
 
 export function initialState(): ConvState {
   return {
@@ -66,6 +70,7 @@ export function initialState(): ConvState {
     todos: [],
     pendingSendCount: 0,
     optimisticSeq: 0,
+    queuedMessages: [],
   };
 }
 
@@ -318,6 +323,24 @@ export function reducer(s: ConvState, a: Action): ConvState {
 
     case "todo/update":
       return { ...s, todos: a.todos };
+
+    case "queue/update":
+      return { ...s, queuedMessages: a.messages };
+
+    case "queue/add":
+      return { ...s, queuedMessages: [...s.queuedMessages, a.text] };
+
+    case "queue/edit":
+      return {
+        ...s,
+        queuedMessages: s.queuedMessages.map((m, i) => (i === a.index ? a.text : m)),
+      };
+
+    case "queue/remove":
+      return {
+        ...s,
+        queuedMessages: s.queuedMessages.filter((_, i) => i !== a.index),
+      };
 
     default:
       return s;

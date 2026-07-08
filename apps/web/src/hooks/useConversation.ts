@@ -132,6 +132,28 @@ export function useConversation(
       if (seq === null) return;
       const content = typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
       if (entry.senderMemberId === "__system__") {
+        // queue_update arrives as a system message whose content is a
+        // MessageRevision whose `text` is a JSON string
+        // { type: "queue_update", steering: string[], followUp: string[] }.
+        if (content && typeof content === "object" && "text" in content) {
+          const revText = content.text;
+          if (typeof revText === "string") {
+            const parsed = safeParse(revText);
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              "type" in parsed &&
+              parsed.type === "queue_update"
+            ) {
+              const steering =
+                "steering" in parsed && Array.isArray(parsed.steering)
+                  ? (parsed.steering as string[])
+                  : [];
+              dispatch({ type: "queue/update", messages: steering });
+              return;
+            }
+          }
+        }
         dispatch({
           type: "member",
           seq,
@@ -189,13 +211,24 @@ export function useConversation(
       };
       const resolved = addressedTo ?? [];
       dispatch({ type: "send", text, viewer });
+      // Busy → backend will steer; optimistically queue the message.
+      if (isBusy(state)) {
+        dispatch({ type: "queue/add", text });
+      }
       sendMut.mutate(
         {
           senderMemberId: state.viewerMemberId,
           text,
           addressedTo: resolved.length > 0 ? resolved : resolveAddressedTo(state),
         },
-        { onError: () => dispatch({ type: "send/error", message: "Send failed — retry" }) },
+        {
+          onError: (err) => {
+            // 409 = busy → backend already steered, not an error.
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes("409") || msg.includes("Busy")) return;
+            dispatch({ type: "send/error", message: "Send failed — retry" });
+          },
+        },
       );
     },
     [sendMut, state.roster, state.viewerMemberId, state],
@@ -203,6 +236,12 @@ export function useConversation(
 
   const toggleTriggerMode = useCallback(() => {
     dispatch({ type: "toggleTriggerMode" });
+  }, []);
+  const queueEdit = useCallback((index: number, newText: string) => {
+    dispatch({ type: "queue/edit", index, text: newText });
+  }, []);
+  const queueRemove = useCallback((index: number) => {
+    dispatch({ type: "queue/remove", index });
   }, []);
 
   const busy = isBusy(state);
@@ -231,5 +270,8 @@ export function useConversation(
     approve,
     deny,
     resuming: approveMut.isPending,
+    queuedMessages: state.queuedMessages,
+    queueEdit,
+    queueRemove,
   };
 }
