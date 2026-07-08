@@ -92,21 +92,21 @@ export function createMcpService(deps: {
     },
 
     async update(
-      agentId: string,
+      _agentId: string,
       serverId: string,
       input: UpdateMcpServerInput,
     ): Promise<McpServerRow> {
       const existing = require(serverId);
 
-      const record: Record<string, unknown> = { updatedAt: Date.now() };
-      if (input.name !== undefined) record.name = input.name;
-      if (input.command !== undefined) record.command = input.command;
-      if (input.args !== undefined) record.args = JSON.stringify(input.args);
-      if (input.env !== undefined) record.env = JSON.stringify(input.env);
-      if (input.url !== undefined) record.url = input.url;
-      if (input.enabled !== undefined) record.enabled = input.enabled ? 1 : 0;
+      const sets: Record<string, unknown> = {};
+      if (input.name !== undefined) sets.name = input.name;
+      if (input.command !== undefined) sets.command = input.command;
+      if (input.args !== undefined) sets.args = JSON.stringify(input.args);
+      if (input.env !== undefined) sets.env = JSON.stringify(input.env);
+      if (input.url !== undefined) sets.url = input.url;
+      if (input.enabled !== undefined) sets.enabled = input.enabled ? 1 : 0;
 
-      const updated = deps.port.update(serverId, record as Parameters<McpServerPort["update"]>[1]);
+      const updated = deps.port.update(serverId, { ...sets, updatedAt: Date.now() });
       if (!updated) throw new McpServerNotFoundError(serverId);
 
       // Disconnect old, reconnect with fresh config
@@ -130,7 +130,7 @@ export function createMcpService(deps: {
       return maskEnv(updated);
     },
 
-    async delete(agentId: string, serverId: string): Promise<void> {
+    async delete(_agentId: string, serverId: string): Promise<void> {
       require(serverId);
       deps.mcpClientManager.disconnect(serverId).catch(() => {});
       if (!deps.port.delete(serverId)) throw new McpServerNotFoundError(serverId);

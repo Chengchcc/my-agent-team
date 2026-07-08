@@ -62,10 +62,7 @@ export function sqliteMcpServerAdapter(db: Database): McpServerPort {
       if (patch.url !== undefined) sets.url = patch.url;
       if (patch.enabled !== undefined) sets.enabled = patch.enabled;
       if (Object.keys(sets).length <= 1) return this.getById(serverId);
-      d.update(schema.mcpServer)
-        .set(sets)
-        .where(eq(schema.mcpServer.serverId, serverId))
-        .run();
+      d.update(schema.mcpServer).set(sets).where(eq(schema.mcpServer.serverId, serverId)).run();
       return this.getById(serverId);
     },
 

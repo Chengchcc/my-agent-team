@@ -345,6 +345,9 @@ export const cronJobSelectSchema = createSelectSchema(cronJob, {
 });
 
 export const mcpServerSelectSchema = createSelectSchema(mcpServer, {
+  args: (s) => s.transform((v: string) => JSON.parse(v) as string[]),
+  env: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, string>),
+  transport: (s) => s.transform((v: string) => v as "stdio" | "sse"),
   enabled: (s) => s.transform((v: number) => v !== 0),
 });
 

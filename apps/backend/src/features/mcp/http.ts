@@ -56,18 +56,15 @@ export function mcpRoutes(svc: McpService) {
         }),
       },
     )
-    .delete(
-      "/api/agents/:id/mcp-servers/:serverId",
-      async ({ params: { id, serverId }, set }) => {
-        try {
-          await svc.delete(id, serverId);
-          set.status = 204;
-          return new Response(null, { status: 204 });
-        } catch (e) {
-          if (e instanceof McpServerNotFoundError)
-            return Response.json({ error: e.message }, { status: 404 });
-          throw e;
-        }
-      },
-    );
+    .delete("/api/agents/:id/mcp-servers/:serverId", async ({ params: { id, serverId }, set }) => {
+      try {
+        await svc.delete(id, serverId);
+        set.status = 204;
+        return new Response(null, { status: 204 });
+      } catch (e) {
+        if (e instanceof McpServerNotFoundError)
+          return Response.json({ error: e.message }, { status: 404 });
+        throw e;
+      }
+    });
 }

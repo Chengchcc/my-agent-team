@@ -31,13 +31,13 @@ export function createMcpClientManager(): McpClientManager {
             "@modelcontextprotocol/sdk/client/stdio.js"
           );
           clientTransport = new StdioClientTransport({
-            command: config.command,
+            command: config.command!,
             args: config.args ?? [],
             env: config.env,
           });
         } else {
           const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js");
-          clientTransport = new SSEClientTransport(new URL(config.url));
+          clientTransport = new SSEClientTransport(new URL(config.url!));
         }
 
         const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");

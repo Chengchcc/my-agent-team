@@ -3,8 +3,8 @@ export type { McpServerRow } from "./domain.js";
 export { mcpRoutes } from "./http.js";
 export type { McpServerPort } from "./ports.js";
 export {
+  createMcpService,
   McpServerNotFoundError,
   type McpService,
   McpValidationError,
-  createMcpService,
 } from "./service.js";
