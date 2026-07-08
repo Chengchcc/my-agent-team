@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -72,6 +72,15 @@ function McpForm({
   onSubmit: (body: Record<string, unknown>) => void;
   onCancel: () => void;
 }) {
+  const dirtyFields = useRef(new Set<string>());
+
+  function mark(prop: string, fn: (v: string) => void) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      dirtyFields.current.add(prop);
+      fn(e.target.value);
+    };
+  }
+
   const [name, setName] = useState(editing?.name ?? "");
   const [transport, setTransport] = useState<"stdio" | "sse">(editing?.transport ?? "stdio");
   const [command, setCommand] = useState(editing?.command ?? "");
@@ -96,6 +105,18 @@ function McpForm({
     }
     if (editing) {
       body.serverId = editing.serverId;
+      // Only include fields the user actually touched
+      const d = dirtyFields.current;
+      if (!d.has("name")) delete body.name;
+      if (!d.has("transport")) delete body.transport;
+      if (!d.has("enabled")) delete body.enabled;
+      if (transport === "stdio") {
+        if (!d.has("command")) delete body.command;
+        if (!d.has("args")) delete body.args;
+        if (!d.has("env")) delete body.env;
+      } else {
+        if (!d.has("url")) delete body.url;
+      }
     }
     onSubmit(body);
   }
@@ -104,12 +125,12 @@ function McpForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="mcp-name">Name</Label>
-        <Input id="mcp-name" value={name} onChange={(e) => setName(e.target.value)} required />
+        <Input id="mcp-name" value={name} onChange={mark("name", setName)} required />
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="mcp-transport">Transport</Label>
-        <Select value={transport} onValueChange={(v) => setTransport(v as "stdio" | "sse")}>
+        <Select value={transport} onValueChange={(v) => { dirtyFields.current.add("transport"); setTransport(v as "stdio" | "sse"); }}>
           <SelectTrigger id="mcp-transport" className="w-full">
             <SelectValue />
           </SelectTrigger>
@@ -127,7 +148,7 @@ function McpForm({
             <Input
               id="mcp-command"
               value={command}
-              onChange={(e) => setCommand(e.target.value)}
+              onChange={mark("command", setCommand)}
               placeholder="e.g. npx -y @modelcontextprotocol/server-filesystem"
             />
           </div>
@@ -136,7 +157,7 @@ function McpForm({
             <Textarea
               id="mcp-args"
               value={args}
-              onChange={(e) => setArgs(e.target.value)}
+              onChange={mark("args", setArgs)}
               placeholder="e.g. /path/to/dir, --flag"
               rows={2}
             />
@@ -146,7 +167,7 @@ function McpForm({
             <Textarea
               id="mcp-env"
               value={env}
-              onChange={(e) => setEnv(e.target.value)}
+              onChange={mark("env", setEnv)}
               placeholder="MY_VAR=value"
               rows={3}
             />
@@ -158,14 +179,14 @@ function McpForm({
           <Input
             id="mcp-url"
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            onChange={mark("url", setUrl)}
             placeholder="https://example.com/sse"
           />
         </div>
       )}
 
       <div className="flex items-center gap-2">
-        <Switch checked={enabled} onCheckedChange={setEnabled} id="mcp-enabled" />
+        <Switch checked={enabled} onCheckedChange={(v) => { dirtyFields.current.add("enabled"); setEnabled(v); }} id="mcp-enabled" />
         <Label htmlFor="mcp-enabled">Enabled</Label>
       </div>
 
@@ -242,15 +263,16 @@ export function McpServerPanel({ agentId }: { agentId: string }) {
                 <Badge variant={server.transport === "stdio" ? "secondary" : "outline"}>
                   {server.transport}
                 </Badge>
-                {server.enabled ? (
-                  <Badge variant="default" className="text-xs">
-                    enabled
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-xs">
-                    disabled
-                  </Badge>
-                )}
+                <Badge variant="outline" className="text-xs">
+                  {server.toolsCount ?? 0} tools
+                </Badge>
+                <Switch
+                  checked={server.enabled}
+                  onCheckedChange={(next) => {
+                    updateMu.mutate({ serverId: server.serverId, enabled: next });
+                  }}
+                  disabled={updateMu.isPending}
+                />
                 <Badge variant={statusVariant(server.status)} className="text-xs">
                   {server.status ?? "unknown"}
                 </Badge>
