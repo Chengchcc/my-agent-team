@@ -56,15 +56,19 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
           }),
         },
       )
-      .get("/api/conversations/search", ({ query }) => {
-        const results = svc.port.searchLedger(query.q, query.limit ? Number(query.limit) : 20);
-        return { results };
-      }, {
-        query: t.Object({
-          q: t.String({ minLength: 1 }),
-          limit: t.Optional(t.String()),
-        }),
-      })
+      .get(
+        "/api/conversations/search",
+        ({ query }) => {
+          const results = svc.port.searchLedger(query.q, query.limit ? Number(query.limit) : 20);
+          return { results };
+        },
+        {
+          query: t.Object({
+            q: t.String({ minLength: 1 }),
+            limit: t.Optional(t.String()),
+          }),
+        },
+      )
       .get("/api/conversations/:id", ({ params: { id } }) => {
         const conv = svc.port.getConversation(id);
         if (!conv) return Response.json({ error: "Not found" }, { status: 404 });
@@ -188,7 +192,7 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
           let text = "";
           try {
             const parsed = JSON.parse(e.content);
-            text = typeof parsed === "string" ? parsed : (parsed.text || JSON.stringify(parsed));
+            text = typeof parsed === "string" ? parsed : parsed.text || JSON.stringify(parsed);
           } catch {
             text = e.content;
           }

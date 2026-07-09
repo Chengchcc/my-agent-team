@@ -57,7 +57,6 @@ export type AgentState =
   | "error";
 
 export interface ContextUsage {
-  totalTokens?: number;
   messageCount: number;
 }
 
@@ -185,14 +184,22 @@ export class AgentSession {
   }
 
   async waitForIdle(): Promise<void> {
-    while (
-      this.#state === "running" ||
-      this.#state === "compacting" ||
-      this.#state === "retrying" ||
-      this.#state === "waiting"
+    if (
+      this.#state !== "running" &&
+      this.#state !== "compacting" &&
+      this.#state !== "retrying" &&
+      this.#state !== "waiting"
     ) {
-      await new Promise((r) => setTimeout(r, 50));
+      return;
     }
+    return new Promise<void>((resolve) => {
+      const unsub = this.subscribe((event) => {
+        if (event.type === "agent_end") {
+          unsub();
+          resolve();
+        }
+      });
+    });
   }
 
   dispose(): void {
@@ -226,14 +233,7 @@ export class AgentSession {
     this.#pendingContext.set(key, value);
   }
 
-  // ─── Configuration ───────────────────────────────────
-
-  setModel(model: ChatModel): void {
-    this.#config.model = model;
-  }
-
   // ─── Maintenance ─────────────────────────────────────
-
   async compact(customInstructions?: string): Promise<CompactionResult> {
     if (!this.#agent) throw new Error("Agent not initialized");
     if (!this.#config.checkpointer) {
@@ -285,6 +285,16 @@ export class AgentSession {
     return {
       messageCount: this.#agent.thread.messages.length,
     };
+  }
+  async getUsage(): Promise<number> {
+    if (!this.#config.checkpointer?.readEvents || !this.#config.sessionId) return 0;
+    let tokens = 0;
+    for await (const ev of this.#config.checkpointer.readEvents(this.#config.sessionId)) {
+      if (ev.type === "model_end" && ev.usage) {
+        tokens += ev.usage.input + ev.usage.output;
+      }
+    }
+    return tokens;
   }
 
   // ─── Events ──────────────────────────────────────────
@@ -458,9 +468,10 @@ export class AgentSession {
   }
 
   #handleError(err: unknown): void {
+    const errorName = err instanceof Error ? err.name : "";
     const msg = err instanceof Error ? err.message : String(err);
     this.#lastError = msg;
-    if (msg.includes("abort") || msg.includes("AbortError")) {
+    if (errorName === "AbortError" || msg.includes("abort")) {
       this.#state = "done";
     }
   }

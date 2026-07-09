@@ -46,27 +46,10 @@ export interface LoopStepParams {
   };
 }
 
-// ponytail: loop tallyUsage reads checkpointer events — AgentSession doesn't expose checkpointer,
-// so we peek at the internal config. This is a known seam; upgrade to a usage() method on AgentSession if more callers need it.
-interface SessionWithCheckpointer {
-  readonly sessionId?: string;
-  readonly checkpointer?: {
-    readEvents?(
-      sessionId: string,
-    ): AsyncIterable<{ type: string; usage?: { input?: number; output?: number } }>;
-  };
-}
-
 async function tallyUsage(sessionManager: SessionManager, sessionId: string): Promise<number> {
-  const session = sessionManager.get(sessionId) as SessionWithCheckpointer | undefined;
-  if (!session?.checkpointer?.readEvents) return 0;
-  let tokens = 0;
-  for await (const ev of session.checkpointer.readEvents(sessionId)) {
-    if (ev.usage) {
-      tokens += (ev.usage.input ?? 0) + (ev.usage.output ?? 0);
-    }
-  }
-  return tokens;
+  const session = sessionManager.get(sessionId);
+  if (!session) return 0;
+  return session.getUsage();
 }
 
 // === denylist glob matching ===

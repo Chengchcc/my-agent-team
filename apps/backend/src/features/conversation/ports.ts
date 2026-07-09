@@ -96,7 +96,10 @@ export interface ConversationPort {
   /** Dedup guard: check if (spanId, content) already exists in the ledger. */
   hasLedgerContent?(spanId: string, content: string): boolean;
   /** Keyword search across all conversation ledger content. */
-  searchLedger(keyword: string, limit?: number): Array<{
+  searchLedger(
+    keyword: string,
+    limit?: number,
+  ): Array<{
     conversationId: string;
     seq: number;
     snippet: string;
