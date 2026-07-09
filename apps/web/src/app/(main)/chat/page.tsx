@@ -1,8 +1,9 @@
 "use client";
 
-import { ChevronRight, MessageSquareIcon, Send } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronRight, MessageSquareIcon, Search, Send } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Breadcrumb,
@@ -11,8 +12,10 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreateConversation, useRecentConversations } from "@/features/conversations/hooks";
+import { api } from "@/lib/api";
 
 function relativeTime(ts: number | null | undefined): string {
   if (!ts) return "";
@@ -28,6 +31,19 @@ export default function ChatOverviewPage() {
   const { data, isLoading } = useRecentConversations();
   const createConv = useCreateConversation();
   const [input, setInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchQuery), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  const { data: searchResults } = useQuery({
+    queryKey: ["conversations", "search", debouncedQuery],
+    queryFn: () => api.searchConversations(debouncedQuery),
+    enabled: !!debouncedQuery,
+  });
 
   function handleCreate() {
     if (!input.trim()) return;
@@ -100,6 +116,39 @@ export default function ChatOverviewPage() {
               Start
             </Button>
           </div>
+        </div>
+
+        {/* Search */}
+        <div className="mb-8">
+          <div className="relative">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--mute)] pointer-events-none"
+            />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search messages…"
+              className="pl-9"
+            />
+          </div>
+          {searchResults?.results?.length ? (
+            <div className="mt-2 space-y-0.5">
+              {searchResults.results.map((r) => (
+                <button
+                  key={`${r.conversationId}-${r.seq}`}
+                  type="button"
+                  onClick={() => router.push(`/chat/${r.conversationId}`)}
+                  className="w-full text-left border border-[var(--hairline)] rounded-lg
+                             hover:border-[var(--primary)] transition-colors duration-200
+                             bg-[var(--canvas)] cursor-pointer p-3"
+                >
+                  <p className="text-xs text-[var(--mute)] mb-1">{r.conversationId.slice(0, 8)}</p>
+                  <p className="text-sm text-[var(--ink-strong)] line-clamp-2">{r.snippet}</p>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         {/* Recent conversations */}

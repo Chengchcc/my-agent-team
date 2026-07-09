@@ -91,6 +91,11 @@ export const api = {
   removeConversationMember: (id: string, memberId: string) =>
     unwrap(client.api.conversations({ id }).members.delete({ memberId })),
   deleteConversation: (id: string) => unwrap(client.api.conversations({ id }).delete()),
+  searchConversations: (q: string) => unwrap(client.api.conversations.search.get({ query: { q } })),
+  exportConversation: async (id: string) => {
+    const resp = await fetch(`/api/bff/conversations/${id}/export`, { credentials: "include" });
+    return resp.text();
+  },
   // Ops
   listOpsRuns: (params?: { agentId?: string; status?: string; limit?: number; traceId?: string }) =>
     unwrap(

@@ -1,12 +1,13 @@
 "use client";
 
-import { ArrowDown } from "lucide-react";
+import { ArrowDown, Download } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useConversation } from "@/hooks/useConversation";
 import type { ConversationSnapshot } from "@/lib/api";
+import { api } from "@/lib/api";
 import { extractText } from "@/lib/timeline";
 import { Composer } from "./Composer";
 import { RosterList } from "./RosterList";
@@ -117,6 +118,17 @@ export function ConversationCanvas({
     return agent ?? null;
   }, [roster]);
 
+  const handleExport = useCallback(async () => {
+    const md = await api.exportConversation(conversationId);
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${conversationId}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [conversationId]);
+
   return (
     <div className="h-full flex flex-col bg-[var(--canvas)]">
       {/* Header */}
@@ -160,6 +172,15 @@ export function ConversationCanvas({
               </>
             )}
             {!label && <span className="text-xs text-[var(--mute)]">Idle</span>}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={handleExport}
+              title="Export conversation"
+            >
+              <Download size={14} />
+            </Button>
           </div>
         </div>
         {primaryAgent && (
