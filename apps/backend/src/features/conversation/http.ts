@@ -56,6 +56,15 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
           }),
         },
       )
+      .get("/api/conversations/search", ({ query }) => {
+        const results = svc.port.searchLedger(query.q, query.limit ? Number(query.limit) : 20);
+        return { results };
+      }, {
+        query: t.Object({
+          q: t.String({ minLength: 1 }),
+          limit: t.Optional(t.String()),
+        }),
+      })
       .get("/api/conversations/:id", ({ params: { id } }) => {
         const conv = svc.port.getConversation(id);
         if (!conv) return Response.json({ error: "Not found" }, { status: 404 });
@@ -166,6 +175,27 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
           },
           req.signal,
         );
+      })
+      .get("/api/conversations/:id/export", async ({ params: { id } }) => {
+        const entries = svc.port.getLedgerEntries(id);
+        const conv = svc.port.getConversation(id);
+        const title = conv?.title || id;
+        const lines: string[] = [`# ${title}`, ""];
+        for (const e of entries) {
+          if (e.kind !== "message") continue;
+          const ts = new Date(e.ts).toISOString();
+          const sender = e.senderMemberId === "__system__" ? "System" : e.senderMemberId;
+          let text = "";
+          try {
+            const parsed = JSON.parse(e.content);
+            text = typeof parsed === "string" ? parsed : (parsed.text || JSON.stringify(parsed));
+          } catch {
+            text = e.content;
+          }
+          lines.push(`## ${ts}`, `**${sender}**: ${text}`, "");
+        }
+        const md = lines.join("\n");
+        return new Response(md, { headers: { "content-type": "text/markdown" } });
       })
       .post(
         "/api/conversations/:id/start-new",

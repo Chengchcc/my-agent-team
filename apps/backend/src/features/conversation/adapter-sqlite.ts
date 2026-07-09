@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, like, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import type {
@@ -284,6 +284,25 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           spanId: r.spanId,
         } as LedgerEntry;
       });
+    },
+    searchLedger(keyword: string, limit = 20) {
+      const rows = d
+        .select({
+          conversationId: schema.conversationLedger.conversationId,
+          seq: schema.conversationLedger.seq,
+          content: schema.conversationLedger.content,
+          ts: schema.conversationLedger.ts,
+        })
+        .from(schema.conversationLedger)
+        .where(like(schema.conversationLedger.content, `%${keyword}%`))
+        .limit(limit)
+        .all();
+      return rows.map((r) => ({
+        conversationId: r.conversationId,
+        seq: r.seq,
+        snippet: r.content.slice(0, 200),
+        ts: r.ts,
+      }));
     },
   };
 }

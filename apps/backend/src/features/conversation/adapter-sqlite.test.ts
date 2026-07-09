@@ -165,3 +165,23 @@ describe("lastActivityAt", () => {
     expect(adapter.getLastActivityAt?.("conv-empty")).toBeNull();
   });
 });
+
+describe("searchLedger", () => {
+  test("finds entries matching keyword in content", () => {
+    const results = adapter.searchLedger("hello");
+    expect(results.length).toBeGreaterThan(0);
+    const first = results[0]!;
+    expect(first.conversationId).toBe("conv-1");
+    expect(first.snippet).toContain("hello");
+  });
+
+  test("returns empty array for no match", () => {
+    const results = adapter.searchLedger("nonexistent-keyword-xyz");
+    expect(results).toEqual([]);
+  });
+
+  test("respects limit parameter", () => {
+    const results = adapter.searchLedger("e", 1);
+    expect(results.length).toBe(1);
+  });
+});
