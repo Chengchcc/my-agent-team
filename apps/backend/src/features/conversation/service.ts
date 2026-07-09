@@ -61,6 +61,10 @@ export interface ConversationServiceDeps {
   idGen: () => string;
   /** Verify a spanId belongs to the given conversation. Throws if not. */
   verifyRunOwnsConversation?: (spanId: string, conversationId: string) => Promise<void>;
+  /** Callback to dispose active sessions and clear bindings (for /clear command). */
+  onClear?: (conversationId: string) => void;
+  /** Callback to compact active sessions (for /compact command). */
+  onCompact?: (conversationId: string) => Promise<void>;
 }
 
 export interface ConversationService {
@@ -104,6 +108,8 @@ export interface ConversationService {
     requestedByRunId: string;
     idempotencyKey: string;
   }): Promise<{ oldConversationId: string; newConversationId: string; controlSeq: number }>;
+  clearConversation(conversationId: string): Promise<void>;
+  compactConversation(conversationId: string): Promise<void>;
 }
 
 export function createConversationService(deps: ConversationServiceDeps): ConversationService {
@@ -118,6 +124,8 @@ class ConversationServiceImpl implements ConversationService {
   #startAgentRun: ConversationServiceDeps["startAgentRun"];
   #idGen: () => string;
   #verifyRunOwnsConversation?: (spanId: string, conversationId: string) => Promise<void>;
+  #onClear?: (conversationId: string) => void;
+  #onCompact?: (conversationId: string) => Promise<void>;
 
   // Push-based SSE: subscribers are notified immediately when new ledger
   // entries are appended, so streaming revisions arrive without poll delay.
@@ -135,6 +143,8 @@ class ConversationServiceImpl implements ConversationService {
     this.#startAgentRun = deps.startAgentRun;
     this.#idGen = deps.idGen;
     this.#verifyRunOwnsConversation = deps.verifyRunOwnsConversation;
+    this.#onClear = deps.onClear;
+    this.#onCompact = deps.onCompact;
   }
 
   // ─── Private helpers ───────────────────────────────
@@ -775,5 +785,15 @@ class ConversationServiceImpl implements ConversationService {
     });
 
     return { oldConversationId, newConversationId, controlSeq };
+  }
+
+  async clearConversation(conversationId: string): Promise<void> {
+    this.#onClear?.(conversationId);
+    this.#lock.releaseAll(conversationId);
+    this.#activeSessions.delete(conversationId);
+  }
+
+  async compactConversation(conversationId: string): Promise<void> {
+    await this.#onCompact?.(conversationId);
   }
 }

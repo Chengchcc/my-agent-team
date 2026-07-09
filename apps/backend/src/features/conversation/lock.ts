@@ -44,6 +44,12 @@ export class ConversationLock {
     this.releaseOne(conversationId);
   }
 
+  /** Force-release all locks for a conversation (used by /clear command). */
+  releaseAll(conversationId: string): void {
+    this.#active.delete(conversationId);
+    this.#pending.delete(conversationId);
+  }
+
   /** Check if a conversation currently has an active run. */
   isActive(conversationId: string): boolean {
     return this.#active.has(conversationId);

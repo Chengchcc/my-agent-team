@@ -153,6 +153,22 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
           }),
         },
       )
+      .post("/api/conversations/:id/clear", async ({ params: { id } }) => {
+        await svc.clearConversation(id);
+        return { ok: true };
+      })
+      .post("/api/conversations/:id/compact", async ({ params: { id } }) => {
+        await svc.compactConversation(id);
+        return { ok: true };
+      })
+      .patch("/api/conversations/:id", async ({ params: { id }, body }) => {
+        if (body.title !== undefined) {
+          svc.port.setConversationTitle(id, body.title);
+        }
+        return { ok: true };
+      }, {
+        body: t.Object({ title: t.Optional(t.String()) }),
+      })
       // SSE — returns raw Response (stream, not typed JSON)
       .get("/api/conversations/:id/events", ({ request, params: { id: conversationId } }) => {
         const req = request;

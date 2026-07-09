@@ -261,6 +261,31 @@ export function createConversationFeature(
         throw new Error(`run ${spanId} does not belong to conversation ${conversationId}`);
       }
     },
+
+    onClear: (conversationId: string) => {
+      activeSessions.delete(conversationId);
+      for (const m of convPort.getMembers(conversationId)) {
+        if (m.kind === "agent" && m.sessionId) {
+          sessionManager.dispose(m.sessionId);
+          convPort.updateMemberSessionId(conversationId, m.memberId, "");
+        }
+      }
+    },
+
+    onCompact: async (conversationId: string) => {
+      for (const m of convPort.getMembers(conversationId)) {
+        if (m.kind === "agent" && m.sessionId) {
+          const session = sessionManager.get(m.sessionId);
+          if (session) {
+            try {
+              await session.compact();
+            } catch {
+              // compaction is best-effort
+            }
+          }
+        }
+      }
+    },
   });
 
   return { convPort, convSvc, lock };
