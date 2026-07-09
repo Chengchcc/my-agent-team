@@ -9,6 +9,9 @@ import { useConversation } from "@/hooks/useConversation";
 import type { ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
 import { extractText } from "@/lib/timeline";
+import type { CommandContext } from "@/lib/slash-commands";
+import { findCommand, parseArgs } from "@/lib/slash-commands";
+import { toast } from "sonner";
 import { Composer } from "./Composer";
 import { RosterList } from "./RosterList";
 import { Timeline } from "./Timeline";
@@ -128,6 +131,51 @@ export function ConversationCanvas({
     a.click();
     URL.revokeObjectURL(url);
   }, [conversationId]);
+
+  // Derive the latest active agent run spanId (non-terminal state) for /stop.
+  const currentRunId = (() => {
+    for (let i = state.items.length - 1; i >= 0; i--) {
+      const item = state.items[i]!;
+      if (
+        item.kind === "message" &&
+        item.sender.kind === "agent" &&
+        item.content.spanId &&
+        item.content.state &&
+        item.content.state !== "done" &&
+        item.content.state !== "error"
+      ) {
+        return item.content.spanId;
+      }
+    }
+    return null;
+  })();
+
+  const handleSlashCommand = useCallback(
+    async (input: string) => {
+      const cmd = findCommand(input);
+      if (!cmd) {
+        // Unknown command: send as a normal message.
+        send(input);
+        return;
+      }
+      const args = parseArgs(input);
+      const ctx: CommandContext = {
+        conversationId,
+        args,
+        toast: (msg, type) =>
+          type === "error"
+            ? toast.error(msg)
+            : type === "info"
+              ? toast.info(msg)
+              : toast.success(msg),
+        toggleTriggerMode,
+        currentRunId,
+        router: { push: router.push },
+      };
+      await cmd.execute(ctx);
+    },
+    [conversationId, send, toggleTriggerMode, currentRunId, router],
+  );
 
   return (
     <div className="h-full flex flex-col bg-[var(--canvas)]">
@@ -356,6 +404,7 @@ export function ConversationCanvas({
         </div>
         <Composer
           onSend={send}
+          onSlashCommand={handleSlashCommand}
           disabled={false}
           placeholder={busy ? "Steer the agent..." : "Send a message..."}
           roster={roster}
