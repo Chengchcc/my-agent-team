@@ -456,13 +456,20 @@ class ConversationServiceImpl implements ConversationService {
     const pollMs = opts?.pollMs ?? 100;
     let lastSeq = since;
     let silentPolls = 0;
-    const heartbeatInterval = 150; // ~15s at 100ms poll
+    // Heartbeat: every 3rd 5s fallback cycle (~15s) so sseResponse can emit
+    // an SSE comment to keep the connection alive.
+    const heartbeatInterval = 3;
 
     // Push buffer - drained before each poll so streaming revisions
-    // delivered via notify() are yielded without ~100ms poll delay.
+    // delivered via notify() are yielded instantly via push, not after a
+    // poll cycle. When the buffer is empty, we wait for a push OR a 5s
+    // poll timeout (fallback for missed pushes), then drain + do one DB
+    // poll to catch anything notify() missed.
     const pushBuffer: LedgerEntry[] = [];
+    let pushResolver: (() => void) | null = null;
     const onPush = (entry: LedgerEntry) => {
       pushBuffer.push(entry);
+      pushResolver?.();
     };
     const subs = this.#subscribers.get(conversationId) ?? new Set();
     subs.add(onPush);
@@ -476,10 +483,8 @@ class ConversationServiceImpl implements ConversationService {
         lastSeq = entry.seq;
       }
 
-      // Then long-poll for new entries - no idle timeout.
+      // Then loop: push-first, poll-fallback. No idle timeout.
       // pollMs=0 means one-shot (tests); otherwise stay alive indefinitely.
-      // Push buffer is drained BEFORE each poll so notify()-delivered
-      // entries beat the poll interval.
       while (true) {
         if (opts?.signal?.aborted) break;
 
@@ -494,32 +499,53 @@ class ConversationServiceImpl implements ConversationService {
           silentPolls = 0;
         }
 
-        const entries = this.port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
-        for (const entry of entries) {
-          yield entry;
-          lastSeq = entry.seq;
-          silentPolls = 0;
-        }
+        // One-shot (tests): after catch-up + one drain, break.
+        if (pollMs === 0) break;
 
-        if (entries.length === 0) {
-          if (pollMs === 0) break; // one-shot - exit immediately
-          silentPolls++;
-          // Heartbeat: yield a sentinel row every ~15s so sseResponse
-          // can emit an SSE comment to keep the connection alive.
-          // Frontend EventSource ignores SSE comments (not a business event).
-          if (silentPolls % heartbeatInterval === 0) {
-            yield {
-              seq: 0,
-              conversationId,
-              senderMemberId: "",
-              addressedTo: [],
-              kind: "message" as const,
-              content: "",
-              ts: Date.now(),
-              _heartbeat: true as const,
-            } as LedgerEntry & { _heartbeat: true };
+        // Buffer empty: wait for a push OR a 5s poll timeout (fallback).
+        // The push path delivers entries instantly; the 5s timeout catches
+        // any push missed (e.g. a subscriber registered after notify()).
+        if (pushBuffer.length === 0) {
+          const pushPromise = new Promise<void>((r) => {
+            pushResolver = r;
+          });
+          const pollTimeout = new Promise<void>((r) => setTimeout(r, 5000));
+          await Promise.race([pushPromise, pollTimeout]);
+          pushResolver = null;
+
+          // Drain whatever push delivered.
+          while (pushBuffer.length > 0) {
+            const entry = pushBuffer.shift()!;
+            yield entry;
+            if (entry.seq > lastSeq) lastSeq = entry.seq;
           }
-          await new Promise((r) => setTimeout(r, pollMs));
+
+          // Fallback DB poll: catch entries notify() missed.
+          const entries = this.port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
+          if (entries.length > 0) {
+            for (const entry of entries) {
+              yield entry;
+              lastSeq = entry.seq;
+            }
+            silentPolls = 0;
+          } else {
+            silentPolls++;
+            // Heartbeat: yield a sentinel row every ~15s so sseResponse
+            // can emit an SSE comment to keep the connection alive.
+            // Frontend EventSource ignores SSE comments (not a business event).
+            if (silentPolls % heartbeatInterval === 0) {
+              yield {
+                seq: 0,
+                conversationId,
+                senderMemberId: "",
+                addressedTo: [],
+                kind: "message" as const,
+                content: "",
+                ts: Date.now(),
+                _heartbeat: true as const,
+              } as LedgerEntry & { _heartbeat: true };
+            }
+          }
         }
       }
     } finally {

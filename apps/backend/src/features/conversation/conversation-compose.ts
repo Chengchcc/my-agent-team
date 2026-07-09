@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import type { McpClientManager } from "@my-agent-team/adapter-mcp";
 import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
@@ -68,11 +67,7 @@ export function createConversationFeature(
 
   // Auto-title: fire-and-forget on first terminal response
   const autoTitle = async (cid: string) => {
-    const model = new AnthropicChatModel({
-      apiKey: config.anthropicApiKey,
-      baseUrl: config.anthropicBaseUrl,
-      model: "claude",
-    });
+    const model = createModel("claude", config);
     const entries = convPort.getLedgerEntries(cid).filter((e) => e.kind === "message");
     const msgs: Message[] = entries.slice(0, 6).map((e) => {
       const result = deserializeLedgerContent(e.content);
