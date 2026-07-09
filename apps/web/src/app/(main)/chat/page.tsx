@@ -14,6 +14,15 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreateConversation, useRecentConversations } from "@/features/conversations/hooks";
 
+function relativeTime(ts: number | null | undefined): string {
+  if (!ts) return "";
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
 export default function ChatOverviewPage() {
   const router = useRouter();
   const { data, isLoading } = useRecentConversations();
@@ -46,7 +55,9 @@ export default function ChatOverviewPage() {
     );
   }
 
-  const conversations = data ?? [];
+  const conversations = [...(data ?? [])].sort(
+    (a, b) => (b.lastActivityAt ?? b.createdAt) - (a.lastActivityAt ?? a.createdAt),
+  );
 
   return (
     <div className="h-full bg-[var(--canvas)]">
@@ -152,6 +163,9 @@ export default function ChatOverviewPage() {
                     </div>
                     <p className="text-[10px] text-[var(--mute)]">
                       {new Date(conv.createdAt).toLocaleString()}
+                      {relativeTime(conv.lastActivityAt) && (
+                        <span className="ml-1">· {relativeTime(conv.lastActivityAt)}</span>
+                      )}
                     </p>
                   </div>
                 </div>

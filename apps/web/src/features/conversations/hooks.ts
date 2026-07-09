@@ -18,6 +18,7 @@ export function useRecentConversations() {
   return useQuery({
     queryKey: conversationKeys.recent(),
     queryFn: () => api.listConversations(),
+    refetchInterval: 10_000,
   });
 }
 

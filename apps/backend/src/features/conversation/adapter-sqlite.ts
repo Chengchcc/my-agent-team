@@ -15,6 +15,15 @@ import type {
 
 export function sqliteConversationAdapter(db: Database): ConversationPort {
   const d = drizzle(db, { schema, casing: "snake_case" });
+  /** Last ledger entry timestamp for a conversation, or null if it has no messages. */
+  const lastLedgerTs = (conversationId: string): number | null => {
+    const row = d
+      .select({ max: sql<number | null>`MAX(${schema.conversationLedger.ts})` })
+      .from(schema.conversationLedger)
+      .where(eq(schema.conversationLedger.conversationId, conversationId))
+      .get();
+    return row?.max ?? null;
+  };
 
   return {
     // ─── Conversation ──────────────────────────────
@@ -65,7 +74,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         .where(eq(schema.conversation.origin, "user"))
         .orderBy(desc(schema.conversation.createdAt))
         .all();
-      // N+1: members fetched per conversation — kept as-is for behavior equivalence.
+      // N+1: members fetched per conversation - kept as-is for behavior equivalence.
       // Performance optimization (join/batch) deferred to a separate PR.
       return convs.map((c) => ({
         ...schema.conversationSelectSchema.parse(c),
@@ -75,6 +84,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           .where(eq(schema.member.conversationId, c.conversationId))
           .all()
           .map((m) => schema.memberSelectSchema.parse(m) as MemberRow),
+        lastActivityAt: lastLedgerTs(c.conversationId),
       }));
     },
 
@@ -95,7 +105,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         .from(schema.member)
         .where(eq(schema.member.agentId, agentId))
         .all();
-      // N+1: conversations and members fetched per conversation — kept as-is.
+      // N+1: conversations and members fetched per conversation - kept as-is.
       return memberRows
         .map((mr) => {
           const c = d
@@ -112,11 +122,14 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
               .where(eq(schema.member.conversationId, c.conversationId))
               .all()
               .map((m) => schema.memberSelectSchema.parse(m) as MemberRow),
+            lastActivityAt: lastLedgerTs(c.conversationId),
           };
         })
         .filter(Boolean) as ConversationWithMembers[];
     },
-
+    getLastActivityAt(conversationId: string): number | null {
+      return lastLedgerTs(conversationId);
+    },
     // ─── Member ────────────────────────────────────
 
     addMember(input: CreateMemberInput): { member: MemberRow; created: boolean } {

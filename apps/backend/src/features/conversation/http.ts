@@ -66,6 +66,7 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
           hopCount: conv.hopCount,
           title: conv.title,
           createdAt: conv.createdAt,
+          lastActivityAt: svc.port.getLastActivityAt?.(id) ?? null,
           members,
         };
       })

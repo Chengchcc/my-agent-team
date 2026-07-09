@@ -65,6 +65,8 @@ export interface ConversationWithMembers {
   createdAt: number;
   title: string | null;
   members: MemberRow[];
+  /** Last ledger entry timestamp; null when the conversation has no messages yet. */
+  lastActivityAt: number | null;
 }
 
 export interface ConversationPort {
@@ -75,6 +77,8 @@ export interface ConversationPort {
   listConversations(): ConversationWithMembers[];
   listConversationsByAgent(agentId: string): ConversationWithMembers[];
   deleteConversation(conversationId: string): boolean;
+  /** Last ledger entry timestamp for a conversation, or null when empty. */
+  getLastActivityAt?(conversationId: string): number | null;
 
   addMember(input: CreateMemberInput): { member: MemberRow; created: boolean };
   getMembers(conversationId: string): MemberRow[];

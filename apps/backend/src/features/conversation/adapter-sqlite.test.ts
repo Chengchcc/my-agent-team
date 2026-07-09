@@ -138,3 +138,30 @@ describe("Ledger CRUD", () => {
     expect(entries[0]?.seq).toBe(2);
   });
 });
+
+describe("lastActivityAt", () => {
+  test("listConversations reflects the latest ledger ts", () => {
+    const before = adapter.listConversations().find((c) => c.conversationId === "conv-1");
+    expect(before?.lastActivityAt).not.toBeNull();
+    const later = (before?.lastActivityAt ?? 0) + 60_000;
+    adapter.appendLedgerEntry({
+      conversationId: "conv-1",
+      senderMemberId: "mem-h1",
+      addressedTo: [],
+      kind: "message",
+      content: JSON.stringify({ text: "newer" }),
+      ts: later,
+    });
+    const after = adapter.listConversations().find((c) => c.conversationId === "conv-1");
+    expect(after?.lastActivityAt).toBe(later);
+  });
+
+  test("getLastActivityAt returns null for conversation with no ledger", () => {
+    adapter.createConversation({
+      conversationId: "conv-empty",
+      triggerMode: "mention",
+      createdAt: Date.now(),
+    });
+    expect(adapter.getLastActivityAt?.("conv-empty")).toBeNull();
+  });
+});
