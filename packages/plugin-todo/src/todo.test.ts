@@ -30,7 +30,7 @@ describe("todoPlugin", () => {
       // beforeModel sets activeSessionId via ctx
       await plugin.hooks!.beforeModel!(fakeCtx("s1"), [{ role: "system", text: "sys" }]);
 
-      const result = tool.execute({
+      const result = await tool.execute({
         action: "add",
         steps: ["Read config", "Update port", "Restart service"],
       });
@@ -44,9 +44,9 @@ describe("todoPlugin", () => {
       const tool = plugin.tools!.find((t) => t.name === "todo_write")!;
 
       await plugin.hooks!.beforeModel!(fakeCtx("s1"), [{ role: "system", text: "sys" }]);
-      tool.execute({ action: "add", steps: ["Step A", "Step B"] });
+      await tool.execute({ action: "add", steps: ["Step A", "Step B"] });
 
-      const result = tool.execute({
+      const result = await tool.execute({
         action: "update",
         updates: [{ step: "Step A", status: "in_progress" }],
       });
@@ -59,15 +59,15 @@ describe("todoPlugin", () => {
       const tool = plugin.tools!.find((t) => t.name === "todo_write")!;
 
       await plugin.hooks!.beforeModel!(fakeCtx("s1"), [{ role: "system", text: "sys" }]);
-      tool.execute({ action: "add", steps: ["First", "Second", "Third"] });
+      await tool.execute({ action: "add", steps: ["First", "Second", "Third"] });
 
       // Move "Second" up -> becomes first
-      const up = tool.execute({ action: "move", step: "Second", direction: "up" });
+      const up = await tool.execute({ action: "move", step: "Second", direction: "up" });
       const lines = up.content.split("\n");
       expect(lines[0]).toContain("Second");
 
       // Move "Second" back down
-      const down = tool.execute({ action: "move", step: "Second", direction: "down" });
+      const down = await tool.execute({ action: "move", step: "Second", direction: "down" });
       const lines2 = down.content.split("\n");
       expect(lines2[1]).toContain("Second");
     });
@@ -77,9 +77,9 @@ describe("todoPlugin", () => {
       const tool = plugin.tools!.find((t) => t.name === "todo_write")!;
 
       await plugin.hooks!.beforeModel!(fakeCtx("s1"), [{ role: "system", text: "sys" }]);
-      tool.execute({ action: "add", steps: ["Keep", "Delete me"] });
+      await tool.execute({ action: "add", steps: ["Keep", "Delete me"] });
 
-      const result = tool.execute({ action: "delete", steps: ["Delete me"] });
+      const result = await tool.execute({ action: "delete", steps: ["Delete me"] });
       expect(result.content).toContain("Keep");
       expect(result.content).not.toContain("Delete me");
     });
@@ -94,7 +94,7 @@ describe("todoPlugin", () => {
         [{ role: "system", text: "sys" }],
       );
 
-      tool.execute({ action: "add", steps: ["Step"] });
+      await tool.execute({ action: "add", steps: ["Step"] });
       expect(events).toHaveLength(1);
       const ev = events[0] as { type: string; payload: { todos: Todo[] } };
       expect(ev.type).toBe("todo_update");
@@ -121,7 +121,7 @@ describe("todoPlugin", () => {
 
       // Seed todos
       await plugin.hooks!.beforeModel!(fakeCtx("s1"), [{ role: "system", text: "sys" }]);
-      tool.execute({ action: "add", steps: ["Step A"] });
+      await tool.execute({ action: "add", steps: ["Step A"] });
 
       // Even with todos, showProgress=false should not inject
       const msgs: Message[] = [
@@ -139,8 +139,8 @@ describe("todoPlugin", () => {
 
       // Seed todos with mixed statuses
       await plugin.hooks!.beforeModel!(fakeCtx("s1"), [{ role: "system", text: "sys" }]);
-      tool.execute({ action: "add", steps: ["Done step", "Active step", "Pending step"] });
-      tool.execute({
+      await tool.execute({ action: "add", steps: ["Done step", "Active step", "Pending step"] });
+      await tool.execute({
         action: "update",
         updates: [
           { step: "Done step", status: "done" },

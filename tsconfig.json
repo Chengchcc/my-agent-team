@@ -17,7 +17,8 @@
     { "path": "./packages/plugin-fs-memory" },
     { "path": "./packages/plugin-identity" },
     { "path": "./packages/plugin-progressive-skill" },
-    { "path": "./packages/plugin-task-guard" },
+    { "path": "./packages/plugin-todo" },
+    { "path": "./packages/plugin-goal" },
     { "path": "./packages/runtime-observability" },
     { "path": "./packages/test-helpers" },
     { "path": "./packages/tools-common" }

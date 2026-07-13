@@ -32,7 +32,6 @@ export default {
         "plugin-goal",
         "plugin-identity",
         "plugin-progressive-skill",
-        "plugin-task-guard",
         "plugin-todo",
         "plugin-conversation-context",
         // Apps
