@@ -1,13 +1,12 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
-import type { SessionConfig } from "@my-agent-team/harness";
+import type { SessionConfig, SessionManager } from "@my-agent-team/harness";
 import type { LoopState } from "@my-agent-team/loop";
 import { loopReducer } from "@my-agent-team/loop";
 import { echoModel } from "@my-agent-team/test-helpers";
 import type { ProjectRow } from "../project/domain.js";
 import type { ProjectPort } from "../project/ports.js";
-import type { SessionManager } from "../span/session-manager.js";
 import { createLoopStateStore, type LoopStateStore } from "./loop-state-store.js";
 import type { GitRunner } from "./loop-step.js";
 import { loopStep } from "./loop-step.js";

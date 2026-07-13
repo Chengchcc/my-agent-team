@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { SessionManager } from "@my-agent-team/harness";
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
 import type { LoopStateStore } from "../loop/loop-state-store.js";
@@ -12,7 +13,6 @@ import {
   defaultPlugins,
   defaultTools,
 } from "../span/agent-helpers.js";
-import type { SessionManager } from "../span/session-manager.js";
 import type { SkillRoots } from "../span/skill-roots.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
 import type { CronJobRow } from "./domain.js";

@@ -1,11 +1,10 @@
 import { existsSync } from "node:fs";
-import type { SessionConfig } from "@my-agent-team/harness";
+import type { SessionConfig, SessionManager } from "@my-agent-team/harness";
 import type { LoopConfig, LoopState } from "@my-agent-team/loop";
 import { loopReducer, parseLoopConfig, parseVerdictMd } from "@my-agent-team/loop";
 import type { AppendLedgerInput } from "../conversation/ports.js";
 import type { ProjectPort } from "../project/ports.js";
 import { nodeFsAdapter } from "../skill-pack/fs-adapter.js";
-import type { SessionManager } from "../span/session-manager.js";
 import type { SkillRoots } from "../span/skill-roots.js";
 import type { LoopStateStore } from "./loop-state-store.js";
 

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
+import { SqliteSessionManager } from "@my-agent-team/harness";
 import { echoModel } from "@my-agent-team/test-helpers";
 import { mockConfig } from "../../../test-helpers/mock-deps.js";
 import { openDb } from "../../infra/sqlite/db.js";
 import { RuntimeOpsStore } from "../runtime-ops/store.js";
-import { SqliteSessionManager } from "./session-manager.js";
 import { SpanSupervisor } from "./supervisor.js";
 
 function makeDeps() {
@@ -20,7 +21,10 @@ function makeDeps() {
     } as never,
     db,
   });
-  const manager = new SqliteSessionManager({ config: mockConfig(), supervisor });
+  const manager = new SqliteSessionManager({
+    checkpointerPath: join(mockConfig().dataDir, "checkpointer.db"),
+    startSpan: (sid, sid2, opts) => supervisor.startSpan(sid, sid2, opts),
+  });
   return { db, manager, supervisor, opsStore };
 }
 
