@@ -8,6 +8,7 @@ import {
   sqliteCheckpointer,
   toolResultTruncator,
 } from "@my-agent-team/framework";
+import { SqliteSessionManager } from "@my-agent-team/harness";
 import {
   createRuntimeTracer,
   resolveObservabilityConfig,
@@ -63,7 +64,6 @@ import {
   defaultTools,
 } from "./features/span/agent-helpers.js";
 import { resumeRoutes } from "./features/span/http.js";
-import { SqliteSessionManager } from "./features/span/session-manager.js";
 import { SpanSupervisor } from "./features/span/supervisor.js";
 import * as backendSchema from "./infra/db/schema.js";
 import { ulid } from "./infra/ids.js";
@@ -104,7 +104,10 @@ const supervisor = new SpanSupervisor({
   onReap: (_runId, sessionId) => sessionManager.dispose(sessionId),
 });
 
-const sessionManager = new SqliteSessionManager({ config, supervisor });
+const sessionManager = new SqliteSessionManager({
+  checkpointerPath: join(config.dataDir, "checkpointer.db"),
+  startSpan: (sid, sid2, opts) => supervisor.startSpan(sid, sid2, opts),
+});
 
 // ─── Skill Pack Management (before agentSvc — onCreate depends on it) ──
 

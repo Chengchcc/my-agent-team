@@ -1,5 +1,5 @@
+import type { SessionManager } from "@my-agent-team/harness";
 import { Elysia, t } from "elysia";
-import type { SessionManager } from "./session-manager.js";
 
 /**
  * Resume an interrupted run via AgentSession.resume().

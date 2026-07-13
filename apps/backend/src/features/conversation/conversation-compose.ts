@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { join } from "node:path";
 import type { McpClientManager } from "@my-agent-team/adapter-mcp";
+import type { SessionManager } from "@my-agent-team/harness";
 import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
   deserializeLedgerContent,
@@ -25,7 +26,6 @@ import {
   defaultPlugins,
   defaultTools,
 } from "../span/agent-helpers.js";
-import type { SessionManager } from "../span/session-manager.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";

@@ -1,5 +1,5 @@
 import { mkdir, rm } from "node:fs/promises";
-import type { SessionConfig } from "@my-agent-team/harness";
+import type { SessionConfig, SessionManager } from "@my-agent-team/harness";
 import { loopReducer } from "@my-agent-team/loop";
 import { Elysia, t } from "elysia";
 import { ulid } from "../../infra/ids.js";
@@ -12,7 +12,6 @@ import { resolveLoopPaths } from "../loop/resolve-paths.js";
 import type { ProjectPort } from "../project/ports.js";
 import type { SettingsService } from "../settings/index.js";
 import { nodeFsAdapter } from "../skill-pack/fs-adapter.js";
-import type { SessionManager } from "../span/session-manager.js";
 import type { SkillRoots } from "../span/skill-roots.js";
 import type { LoopStateStore } from "./loop-state-store.js";
 import { createUpdateLoopConfigTool } from "./tools.js";
