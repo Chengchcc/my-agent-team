@@ -14,16 +14,6 @@ import {
 /** Minimal HookContext for calling beforeStop directly. */
 const fakeCtx = { sessionId: "test" } as unknown as HookContext;
 
-/** Messages that will satisfy echoModel turn counting (needs >=1 assistant msg to be turn 1). */
-function msgsForTurn(turn: number): Message[] {
-  const out: Message[] = [];
-  for (let i = 0; i < turn; i++) {
-    out.push({ role: "user", text: `user ${i}` });
-    out.push({ role: "assistant", text: `assistant ${i}` });
-  }
-  return out;
-}
-
 // ─── unresolvedToolErrors ───
 
 describe("unresolvedToolErrors", () => {
