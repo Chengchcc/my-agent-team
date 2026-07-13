@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
-cd "$(dirname "$0")/.."
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
 
 # Generate drizzle migration files for all databases.
 # Migration files ARE committed (not gitignored). This script regenerates
@@ -10,13 +11,13 @@ cd "$(dirname "$0")/.."
 cd apps/backend
 bunx drizzle-kit generate --config drizzle.backend.config.ts
 
-cd ../../packages/framework
+cd "$REPO_ROOT/packages/framework"
 bunx drizzle-kit generate
 
-cd ../../apps/lark-bot
+cd "$REPO_ROOT/apps/lark-bot"
 bunx drizzle-kit generate
 
-cd "$(dirname "$0")/.."
+cd "$REPO_ROOT"
 
 # Check for uncommitted changes in drizzle directories
 if [ -n "$(git status --porcelain drizzle/ apps/*/drizzle/ packages/*/drizzle/ 2>/dev/null)" ]; then

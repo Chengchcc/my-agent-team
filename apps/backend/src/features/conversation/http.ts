@@ -209,7 +209,7 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
           if (e.kind !== "message") continue;
           const ts = new Date(e.ts).toISOString();
           const sender = e.senderMemberId === "__system__" ? "System" : e.senderMemberId;
-          let text = "";
+          let text: string;
           try {
             const parsed = JSON.parse(e.content);
             text = typeof parsed === "string" ? parsed : parsed.text || JSON.stringify(parsed);

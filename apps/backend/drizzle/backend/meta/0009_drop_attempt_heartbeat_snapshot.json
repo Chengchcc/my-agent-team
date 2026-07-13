@@ -27,7 +27,10 @@
       "compositePrimaryKeys": {
         "agent_skill_pack_agent_id_pack_id_pk": {
           "name": "agent_skill_pack_agent_id_pack_id_pk",
-          "columns": ["agent_id", "pack_id"]
+          "columns": [
+            "agent_id",
+            "pack_id"
+          ]
         }
       },
       "uniqueConstraints": {},
@@ -178,7 +181,9 @@
       "indexes": {
         "idx_agents_archived": {
           "name": "idx_agents_archived",
-          "columns": ["archived_at"],
+          "columns": [
+            "archived_at"
+          ],
           "isUnique": false
         }
       },
@@ -222,7 +227,10 @@
       "indexes": {
         "idx_attempt_span": {
           "name": "idx_attempt_span",
-          "columns": ["span_id", "started_at"],
+          "columns": [
+            "span_id",
+            "started_at"
+          ],
           "isUnique": false
         }
       },
@@ -231,8 +239,12 @@
           "name": "attempt_span_id_span_span_id_fk",
           "tableFrom": "attempt",
           "tableTo": "span",
-          "columnsFrom": ["span_id"],
-          "columnsTo": ["span_id"],
+          "columnsFrom": [
+            "span_id"
+          ],
+          "columnsTo": [
+            "span_id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -240,40 +252,12 @@
       "compositePrimaryKeys": {
         "attempt_span_id_seq_pk": {
           "name": "attempt_span_id_seq_pk",
-          "columns": ["span_id", "seq"]
+          "columns": [
+            "span_id",
+            "seq"
+          ]
         }
       },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "column_config": {
-      "name": "column_config",
-      "columns": {
-        "table_name": {
-          "name": "table_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "column_name": {
-          "name": "column_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "hidden": {
-          "name": "hidden",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -312,7 +296,9 @@
       "indexes": {
         "idx_control_plane_event_kind": {
           "name": "idx_control_plane_event_kind",
-          "columns": ["\"ts\" desc"],
+          "columns": [
+            "\"ts\" desc"
+          ],
           "isUnique": false
         }
       },
@@ -443,7 +429,9 @@
       "indexes": {
         "idx_conv_ledger_conv": {
           "name": "idx_conv_ledger_conv",
-          "columns": ["conversation_id"],
+          "columns": [
+            "conversation_id"
+          ],
           "isUnique": false
         }
       },
@@ -540,203 +528,12 @@
       "indexes": {
         "idx_cron_job_enabled": {
           "name": "idx_cron_job_enabled",
-          "columns": ["enabled"],
+          "columns": [
+            "enabled"
+          ],
           "isUnique": false
         }
       },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "deliverable": {
-      "name": "deliverable",
-      "columns": {
-        "deliverable_id": {
-          "name": "deliverable_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "span_id": {
-          "name": "span_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "tool_name": {
-          "name": "tool_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "path": {
-          "name": "path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "content": {
-          "name": "content",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "metadata_json": {
-          "name": "metadata_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "issue": {
-      "name": "issue",
-      "columns": {
-        "issue_id": {
-          "name": "issue_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "body": {
-          "name": "body",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'open'"
-        },
-        "priority": {
-          "name": "priority",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'medium'"
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "origin": {
-          "name": "origin",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "resolved_at": {
-          "name": "resolved_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "issue_event": {
-      "name": "issue_event",
-      "columns": {
-        "event_id": {
-          "name": "event_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "issue_id": {
-          "name": "issue_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "details_json": {
-          "name": "details_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -773,7 +570,10 @@
       "compositePrimaryKeys": {
         "loop_budget_loop_id_day_pk": {
           "name": "loop_budget_loop_id_day_pk",
-          "columns": ["loop_id", "day"]
+          "columns": [
+            "loop_id",
+            "day"
+          ]
         }
       },
       "uniqueConstraints": {},
@@ -865,7 +665,11 @@
       "indexes": {
         "idx_loop_item_loop_state_priority": {
           "name": "idx_loop_item_loop_state_priority",
-          "columns": ["loop_id", "state", "priority"],
+          "columns": [
+            "loop_id",
+            "state",
+            "priority"
+          ],
           "isUnique": false
         }
       },
@@ -924,7 +728,9 @@
       "indexes": {
         "idx_member_conv": {
           "name": "idx_member_conv",
-          "columns": ["conversation_id"],
+          "columns": [
+            "conversation_id"
+          ],
           "isUnique": false
         }
       },
@@ -991,7 +797,9 @@
       "indexes": {
         "idx_project_name": {
           "name": "idx_project_name",
-          "columns": ["name"],
+          "columns": [
+            "name"
+          ],
           "isUnique": true
         }
       },
@@ -1079,7 +887,9 @@
       "indexes": {
         "idx_skill_pack_status": {
           "name": "idx_skill_pack_status",
-          "columns": ["status"],
+          "columns": [
+            "status"
+          ],
           "isUnique": false
         }
       },
@@ -1137,7 +947,9 @@
       "indexes": {
         "idx_span_session": {
           "name": "idx_span_session",
-          "columns": ["\"started_at\" desc"],
+          "columns": [
+            "\"started_at\" desc"
+          ],
           "isUnique": false
         }
       },
@@ -1196,7 +1008,9 @@
       "indexes": {
         "idx_span_origin_kind": {
           "name": "idx_span_origin_kind",
-          "columns": ["kind"],
+          "columns": [
+            "kind"
+          ],
           "isUnique": false
         }
       },
@@ -1243,7 +1057,10 @@
       "compositePrimaryKeys": {
         "surface_health_agent_id_surface_pk": {
           "name": "surface_health_agent_id_surface_pk",
-          "columns": ["agent_id", "surface"]
+          "columns": [
+            "agent_id",
+            "surface"
+          ]
         }
       },
       "uniqueConstraints": {},
@@ -1365,7 +1182,9 @@
       "indexes": {
         "idx_mcp_server_agent": {
           "name": "idx_mcp_server_agent",
-          "columns": ["agent_id"],
+          "columns": [
+            "agent_id"
+          ],
           "isUnique": false
         }
       },
