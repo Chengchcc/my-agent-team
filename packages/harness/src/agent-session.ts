@@ -309,10 +309,23 @@ export class AgentSession {
   // ─── Private ─────────────────────────────────────────
 
   async #initAgent(): Promise<void> {
+    // Run plugin init callbacks -- can dynamically add tools
+    const dynamicTools: Tool[] = [];
+    for (const plugin of this.#config.plugins ?? []) {
+      if (plugin.init) {
+        await plugin.init({
+          registerTools: (tools) => dynamicTools.push(...tools),
+        });
+      }
+    }
+
     this.#agent = await createAgent({
       model: this.#config.model,
       sessionId: this.#config.sessionId,
-      tools: this.#config.tools,
+      tools:
+        dynamicTools.length > 0
+          ? [...(this.#config.tools ?? []), ...dynamicTools]
+          : this.#config.tools,
       plugins: this.#config.plugins as readonly Plugin[],
       checkpointer: this.#config.checkpointer,
       contextManager: this.#config.contextManager,

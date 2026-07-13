@@ -48,18 +48,32 @@ export interface PluginHooks {
   ): StopDecision | undefined | Promise<StopDecision | undefined>;
 }
 
+export interface PluginInitAPI {
+  /** Register additional tools dynamically (e.g. MCP discovered tools). */
+  registerTools(tools: Tool[]): void;
+}
+
 export interface Plugin {
   readonly name: string;
   readonly hooks: PluginHooks;
   readonly tools?: readonly Tool[];
+  /** Optional init callback -- runs during AgentSession.#initAgent(), before createAgent().
+   *  Use for dynamic tool registration that needs runtime context (e.g. sessionManager). */
+  readonly init?: (api: PluginInitAPI) => void | Promise<void>;
 }
 
 export function definePlugin(definition: {
   name: string;
   hooks: PluginHooks;
   tools?: readonly Tool[];
+  init?: (api: PluginInitAPI) => void | Promise<void>;
 }): Plugin {
-  return { name: definition.name, hooks: definition.hooks, tools: definition.tools };
+  return {
+    name: definition.name,
+    hooks: definition.hooks,
+    tools: definition.tools,
+    init: definition.init,
+  };
 }
 
 export function validatePlugins(

@@ -1,7 +1,8 @@
 /* eslint-disable require-yield */
 import { describe, expect, test } from "bun:test";
-import type { AIMessageChunk, ChatModel } from "@my-agent-team/core";
-import { inMemoryCheckpointer } from "@my-agent-team/framework";
+import type { AIMessageChunk, ChatModel, Tool } from "@my-agent-team/core";
+import { definePlugin, inMemoryCheckpointer } from "@my-agent-team/framework";
+import type { Message } from "@my-agent-team/message";
 import { AgentSession } from "./agent-session.js";
 
 function echoModel(text: string): ChatModel {
@@ -316,6 +317,101 @@ describe("AgentSession — steer/followUp", () => {
     });
     await session.prompt("hi");
     expect(agentEnds.length).toBe(1);
+    session.dispose();
+  });
+});
+// ─── Plugin init callback tests ───────────────────────────
+
+function scriptedModel(
+  turns: Array<
+    { type: "text"; text: string } | { type: "tool_call"; id: string; name: string; input: unknown }
+  >,
+): ChatModel {
+  return {
+    id: "scripted",
+    async *stream(messages: readonly Message[]): AsyncIterable<AIMessageChunk> {
+      const turn = messages.filter((m) => m.role === "assistant").length;
+      const item = turns[Math.min(turn, turns.length - 1)];
+      if (!item) return;
+      if (item.type === "text") {
+        yield { delta: { type: "text", text: item.text } };
+        yield { done: true, stopReason: "end_turn" };
+      } else {
+        yield { delta: { type: "tool_use", id: item.id, name: item.name } };
+        yield {
+          delta: {
+            type: "input_json_delta",
+            id: item.id,
+            partial_json: JSON.stringify(item.input),
+          },
+        };
+        yield { done: true, stopReason: "tool_use" };
+      }
+    },
+  };
+}
+
+describe("AgentSession - plugin init", () => {
+  test("plugin with init callback registers tools dynamically", async () => {
+    let toolCalled = false;
+    const dynamicTool: Tool = {
+      name: "dynamic_lookup",
+      description: "A tool registered at init time",
+      inputSchema: { type: "object", properties: { q: { type: "string" } } },
+      execute: () => {
+        toolCalled = true;
+        return { content: "dynamic result" };
+      },
+    };
+
+    const plugin = definePlugin({
+      name: "dynamic",
+      hooks: {},
+      init: (api) => {
+        api.registerTools([dynamicTool]);
+      },
+    });
+
+    const session = new AgentSession({
+      model: scriptedModel([
+        { type: "tool_call", id: "t1", name: "dynamic_lookup", input: { q: "test" } },
+        { type: "text", text: "done" },
+      ]),
+      plugins: [plugin],
+    });
+
+    await session.prompt("use the dynamic tool");
+
+    expect(toolCalled).toBe(true);
+    expect(session.state).toBe("done");
+    session.dispose();
+  });
+
+  test("plugin without init works unchanged", async () => {
+    const plugin = definePlugin({
+      name: "static",
+      hooks: {},
+      tools: [
+        {
+          name: "static_tool",
+          description: "",
+          inputSchema: {},
+          execute: () => ({ content: "static ok" }),
+        },
+      ],
+    });
+
+    const session = new AgentSession({
+      model: scriptedModel([
+        { type: "tool_call", id: "t1", name: "static_tool", input: {} },
+        { type: "text", text: "ok" },
+      ]),
+      plugins: [plugin],
+    });
+
+    await session.prompt("call the static tool");
+
+    expect(session.state).toBe("done");
     session.dispose();
   });
 });

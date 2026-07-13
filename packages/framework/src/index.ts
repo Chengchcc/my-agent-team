@@ -55,6 +55,7 @@ export {
   type HookContext,
   type Plugin,
   type PluginHooks,
+  type PluginInitAPI,
   type StopDecision,
   validatePlugins,
 } from "./plugin.js";
