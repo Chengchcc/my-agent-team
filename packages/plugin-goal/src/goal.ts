@@ -23,9 +23,11 @@ export interface WorkSummary {
 }
 
 export interface GoalPluginOptions {
-  goalCondition?: string;
+  goalCondition?: string | (() => string | null);
   evaluatorModel?: ChatModel;
   extraValidators?: StopValidator[];
+  /** Called after each LLM evaluation with the result (for state tracking). */
+  onEvaluation?: (result: { summary: WorkSummary; evaluation: GoalEvaluation }) => void;
 }
 
 // ─── Deterministic validators ───
@@ -147,6 +149,7 @@ export function goalPlugin(opts?: GoalPluginOptions): Plugin {
   const goalCondition = opts?.goalCondition;
   const evaluatorModel = opts?.evaluatorModel;
   const extraValidators = opts?.extraValidators ?? [];
+  const onEvaluation = opts?.onEvaluation;
 
   return definePlugin({
     name: "goal",
@@ -162,11 +165,14 @@ export function goalPlugin(opts?: GoalPluginOptions): Plugin {
           if (result) return result;
         }
 
-        // Step 3: LLM goal evaluation (optional)
-        if (!goalCondition || !evaluatorModel) return undefined;
+        // Step 3: resolve condition (static string or dynamic getter)
+        const condition = typeof goalCondition === "function" ? goalCondition() : goalCondition;
+        if (!condition || !evaluatorModel) return undefined;
 
         const summary = await extractStructuredSummary(evaluatorModel, messages);
-        const evaluation = await evaluateGoal(evaluatorModel, summary, goalCondition);
+        const evaluation = await evaluateGoal(evaluatorModel, summary, condition);
+
+        onEvaluation?.({ summary, evaluation });
 
         if (!evaluation.met) {
           return { continue: true, reason: evaluation.reason };

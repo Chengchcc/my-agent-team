@@ -14,6 +14,7 @@ import {
   ConversationCtx,
   conversationContextPlugin,
 } from "@my-agent-team/plugin-conversation-context";
+import { goalPlugin } from "@my-agent-team/plugin-goal";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
@@ -27,6 +28,7 @@ import {
   defaultTools,
 } from "../span/agent-helpers.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
+import { clearGoalState, getGoalState } from "./goal-state.js";
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
@@ -161,7 +163,26 @@ export function createConversationFeature(
       const agentConfig = {
         model: createModel(modelName, config),
         tools: [...defaultTools(cwd), ...cTools, ...mcpTools],
-        plugins: [...defaultPlugins(cwd, config), conversationContextPlugin({ tools: cTools })],
+        plugins: [
+          ...defaultPlugins(cwd, config),
+          conversationContextPlugin({ tools: cTools }),
+          goalPlugin({
+            goalCondition: () => getGoalState(conversationId).condition,
+            evaluatorModel: createModel("claude-sonnet-4", config), // ponytail: reuse main model, swap to Haiku later
+            onEvaluation: ({ summary, evaluation }) => {
+              const gs = getGoalState(conversationId);
+              if (gs.paused) return;
+              gs.turns++;
+              gs.history.push({
+                turn: gs.turns,
+                summary,
+                met: evaluation.met,
+                reason: evaluation.reason,
+                ts: Date.now(),
+              });
+            },
+          }),
+        ],
         contextManager: defaultContextManager(settingsSvc),
       };
       const existingSid = convPort.getMemberSessionId(conversationId, agentMemberId);
@@ -264,6 +285,7 @@ export function createConversationFeature(
 
     onClear: (conversationId: string) => {
       activeSessions.delete(conversationId);
+      clearGoalState(conversationId);
       for (const m of convPort.getMembers(conversationId)) {
         if (m.kind === "agent" && m.sessionId) {
           sessionManager.dispose(m.sessionId);

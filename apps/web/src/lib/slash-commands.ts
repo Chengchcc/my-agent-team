@@ -92,6 +92,54 @@ export const slashCommands: SlashCommand[] = [
     },
   },
   {
+    command: "/goal",
+    description: "Set, check, or clear a goal condition",
+    argsHint: "<condition> | status | clear | pause | resume",
+    execute: async (ctx) => {
+      const args = ctx.args.trim();
+
+      // /goal (no args) or /goal status -> show status
+      if (!args || args === "status") {
+        const goal = await api.getGoal(ctx.conversationId);
+        if (!goal.condition) {
+          ctx.toast("No active goal", "info");
+        } else {
+          ctx.toast(
+            `Goal: ${goal.condition}\nTurns: ${goal.turns}\nPaused: ${goal.paused}\nLast: ${goal.lastReason ?? "-"}`,
+            "info",
+          );
+        }
+        return { handled: true };
+      }
+
+      // /goal clear|stop|cancel
+      if (args === "clear" || args === "stop" || args === "cancel") {
+        await api.setGoal(ctx.conversationId, { action: "clear" });
+        ctx.toast("Goal cleared", "success");
+        return { handled: true };
+      }
+
+      // /goal pause
+      if (args === "pause") {
+        await api.setGoal(ctx.conversationId, { action: "pause" });
+        ctx.toast("Goal paused", "info");
+        return { handled: true };
+      }
+
+      // /goal resume
+      if (args === "resume") {
+        await api.setGoal(ctx.conversationId, { action: "resume" });
+        ctx.toast("Goal resumed", "success");
+        return { handled: true };
+      }
+
+      // /goal <condition> -> set
+      await api.setGoal(ctx.conversationId, { action: "set", condition: args });
+      ctx.toast(`Goal set: ${args}`, "success");
+      return { handled: true };
+    },
+  },
+  {
     command: "/help",
     description: "Show available commands",
     execute: async (ctx) => {

@@ -1,6 +1,7 @@
 import { conversationEvents, createSseEncoder } from "@my-agent-team/api-contract";
 import { Elysia, t } from "elysia";
 import { sseResponse } from "../../http/response.js";
+import { clearGoalState, getGoalState } from "./goal-state.js";
 import type { ConversationService } from "./service.js";
 import { ConversationBusyError } from "./service.js";
 
@@ -244,6 +245,53 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
             title: t.Optional(t.String()),
             requestedByRunId: t.String({ minLength: 1 }),
             idempotencyKey: t.String({ minLength: 1 }),
+          }),
+        },
+      )
+      // ── Goal state management ──
+      .get("/api/conversations/:id/goal", ({ params: { id } }) => {
+        const state = getGoalState(id);
+        return {
+          condition: state.condition,
+          paused: state.paused,
+          turns: state.turns,
+          tokens: state.tokens,
+          lastReason: state.history[state.history.length - 1]?.reason ?? null,
+        };
+      })
+      .post(
+        "/api/conversations/:id/goal",
+        async ({ params: { id }, body }) => {
+          const state = getGoalState(id);
+          switch (body.action) {
+            case "set":
+              state.condition = body.condition!;
+              state.paused = false;
+              state.turns = 0;
+              state.tokens = 0;
+              state.history = [];
+              break;
+            case "clear":
+              clearGoalState(id);
+              break;
+            case "pause":
+              state.paused = true;
+              break;
+            case "resume":
+              state.paused = false;
+              break;
+          }
+          return { ok: true };
+        },
+        {
+          body: t.Object({
+            action: t.Union([
+              t.Literal("set"),
+              t.Literal("clear"),
+              t.Literal("pause"),
+              t.Literal("resume"),
+            ]),
+            condition: t.Optional(t.String()),
           }),
         },
       )
