@@ -1,7 +1,16 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, mock, test } from "bun:test";
+import type { ControlPlaneEventKind } from "../runtime-ops/types.js";
 import type { CronJobRow } from "./domain.js";
 import { createCronScheduler, type Scheduler } from "./scheduler.js";
+
+/** Input shape for RuntimeOpsStore.appendControlPlaneEvent. */
+type ControlPlaneEventInput = {
+  spanId: string;
+  attemptSeq?: number;
+  kind: ControlPlaneEventKind;
+  traceId?: string;
+  payload?: Record<string, unknown>;
+};
 
 type ListenerFn = (
   sessionId: string,
@@ -28,8 +37,10 @@ function makeJob(overrides: Partial<CronJobRow> = {}): CronJobRow {
 
 /** Minimal deps for exercises that only call register/unregister/dispose/start.
  *  onRunComplete is always called at construction time, so supervisor is required.
- *  Returns `any` to avoid declaring full CronJobService/RunDispatcher shapes. */
-function minimalDeps(overrides: Record<string, unknown> = {}): any {
+ *  Uses `as unknown as` to inject partial mocks without declaring full shapes. */
+function minimalDeps(
+  overrides: Record<string, unknown> = {},
+): Parameters<typeof createCronScheduler>[0] {
   return {
     cronSvc: { port: { listEnabledCronJobs: () => [] as CronJobRow[] } },
     config: { dataDir: "/tmp", anthropicApiKey: "test" },
@@ -49,10 +60,10 @@ function minimalDeps(overrides: Record<string, unknown> = {}): any {
       getActive: () => new Map() as ReadonlyMap<string, { abortController: AbortController }>,
       notifyRunComplete: async () => {},
     },
-    opsStore: null as any,
+    opsStore: null,
     idGen: () => "r",
     ...overrides,
-  };
+  } as unknown as Parameters<typeof createCronScheduler>[0];
 }
 
 describe("createCronScheduler", () => {
@@ -193,7 +204,7 @@ describe("createCronScheduler", () => {
   });
 
   test("onRunComplete records retry_requested event for failed cron run", () => {
-    const appendControlPlaneEvent = mock(() => 1);
+    const appendControlPlaneEvent = mock((_input: ControlPlaneEventInput): number => 1);
     let listener: ListenerFn | undefined;
     const scheduler = createCronScheduler(
       minimalDeps({
@@ -220,14 +231,14 @@ describe("createCronScheduler", () => {
     listener!("thread-1", "r1", "error", "main");
     // retry_requested event must be recorded synchronously (before setTimeout fires)
     expect(appendControlPlaneEvent).toHaveBeenCalledTimes(1);
-    const call = (appendControlPlaneEvent as any).mock.calls[0][0];
+    const call = appendControlPlaneEvent.mock.calls[0]![0];
     expect(call.kind).toBe("retry_requested");
     expect(call.payload.attempt).toBe(1);
     scheduler.dispose();
   });
 
   test("onRunComplete does not retry beyond maxRetries", () => {
-    const appendControlPlaneEvent = mock(() => 1);
+    const appendControlPlaneEvent = mock((_input: ControlPlaneEventInput): number => 1);
     let listener: ListenerFn | undefined;
     let callCount = 0;
     const scheduler = createCronScheduler(
@@ -259,15 +270,15 @@ describe("createCronScheduler", () => {
     listener!("thread-1", "r2", "error", "main");
     callCount++;
 
-    const retryEvents = (appendControlPlaneEvent as any).mock.calls.filter(
-      (c: any) => c[0].kind === "retry_requested",
+    const retryEvents = appendControlPlaneEvent.mock.calls.filter(
+      (c) => c[0].kind === "retry_requested",
     );
     expect(retryEvents).toHaveLength(2);
 
     // Third failure — maxRetries reached, no more retries
     listener!("thread-1", "r3", "error", "main");
-    const retryEventsAfter = (appendControlPlaneEvent as any).mock.calls.filter(
-      (c: any) => c[0].kind === "retry_requested",
+    const retryEventsAfter = appendControlPlaneEvent.mock.calls.filter(
+      (c) => c[0].kind === "retry_requested",
     );
     expect(retryEventsAfter).toHaveLength(2); // still 2, no new one
 

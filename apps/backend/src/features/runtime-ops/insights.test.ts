@@ -1,7 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, test } from "bun:test";
 import type { CheckpointEventRow } from "../../../test-helpers/mock-deps.js";
 import { fakeCheckpointEventsStore } from "../../../test-helpers/mock-deps.js";
+import type { CheckpointEventsStore } from "./checkpoint-events-store.js";
 import { getInsightsSummary, getRunInsights } from "./insights.js";
 
 /** Build a flat CheckpointEventRow: { ...event, spanId, sessionId, ts }. */
@@ -24,7 +24,7 @@ describe("getRunInsights", () => {
     const store = fakeCheckpointEventsStore();
 
     const result = await getRunInsights(
-      { checkpointEventsStore: store as any },
+      { checkpointEventsStore: store as unknown as CheckpointEventsStore },
       {
         spanId: "run1",
         sessionId: "thread1",
@@ -65,7 +65,7 @@ describe("getRunInsights", () => {
     ]);
 
     const result = await getRunInsights(
-      { checkpointEventsStore: store as any },
+      { checkpointEventsStore: store as unknown as CheckpointEventsStore },
       {
         spanId: "run1",
         sessionId: "t1",
@@ -121,7 +121,7 @@ describe("getRunInsights", () => {
     ]);
 
     const result = await getRunInsights(
-      { checkpointEventsStore: store as any },
+      { checkpointEventsStore: store as unknown as CheckpointEventsStore },
       {
         spanId: "run2",
         sessionId: "t1",
@@ -171,7 +171,7 @@ describe("getRunInsights", () => {
     ]);
 
     const result = await getRunInsights(
-      { checkpointEventsStore: store as any },
+      { checkpointEventsStore: store as unknown as CheckpointEventsStore },
       {
         spanId: "run3",
         sessionId: "t1",
@@ -201,7 +201,7 @@ describe("getRunInsights", () => {
     ]);
 
     const result = await getRunInsights(
-      { checkpointEventsStore: store as any },
+      { checkpointEventsStore: store as unknown as CheckpointEventsStore },
       {
         spanId: "run4",
         sessionId: "t1",
@@ -221,7 +221,7 @@ describe("getRunInsights", () => {
 
     const result = await getRunInsights(
       {
-        checkpointEventsStore: store as any,
+        checkpointEventsStore: store as unknown as CheckpointEventsStore,
         getAgentName: (id: string) => (id === "a1" ? "My Agent" : undefined),
       },
       {
@@ -259,7 +259,7 @@ describe("getInsightsSummary", () => {
     ]);
 
     const result = await getInsightsSummary(
-      { checkpointEventsStore: store as any },
+      { checkpointEventsStore: store as unknown as CheckpointEventsStore },
       { from: hour1 - 3_600_000, to: hour1 + 3_600_000 * 2 },
     );
 
@@ -304,7 +304,7 @@ describe("getInsightsSummary", () => {
     ]);
 
     const result = await getInsightsSummary(
-      { checkpointEventsStore: store as any },
+      { checkpointEventsStore: store as unknown as CheckpointEventsStore },
       { from: 0, to: Date.now() + 86_400_000 },
     );
 
@@ -362,7 +362,7 @@ describe("getInsightsSummary", () => {
     ]);
 
     const result = await getInsightsSummary(
-      { checkpointEventsStore: store as any },
+      { checkpointEventsStore: store as unknown as CheckpointEventsStore },
       { from: 0, to: Date.now() + 86_400_000 },
     );
 

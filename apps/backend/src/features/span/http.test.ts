@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import {
@@ -20,7 +19,7 @@ function makeApp(deps: {
   sessionManager: ReturnType<typeof fakeSessionManager>;
   getSessionIdByRunId: (spanId: string) => string | null;
 }) {
-  return new Elysia().use(resumeRoutes(deps as any));
+  return new Elysia().use(resumeRoutes(deps as unknown as Parameters<typeof resumeRoutes>[0]));
 }
 
 describe("resumeRoute", () => {
