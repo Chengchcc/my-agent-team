@@ -39,7 +39,9 @@ export default {
         "lark-bot",
         // Features
         "cron",
-        // Meta
+        "mcp",
+        "conversation",
+        "settings",
         "docs",
         "test",
         "lint",
