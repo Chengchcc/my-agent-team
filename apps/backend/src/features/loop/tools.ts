@@ -1,3 +1,4 @@
+import type { Tool, ToolExecuteResult } from "@my-agent-team/core";
 import type { CronJobPort } from "../cron/ports.js";
 import type { CronScheduler } from "../cron/scheduler.js";
 
@@ -5,7 +6,7 @@ export function createUpdateLoopConfigTool(
   cronJobId: string,
   port: CronJobPort,
   scheduler: CronScheduler,
-) {
+): Tool {
   return {
     name: "update_loop_config",
     description: "Set the cron schedule for this Loop",
@@ -19,7 +20,7 @@ export function createUpdateLoopConfigTool(
       },
       required: ["cronExpr"],
     },
-    execute: async (input: { cronExpr: string }) => {
+    execute: async (input: { cronExpr: string }): Promise<ToolExecuteResult> => {
       const parts = input.cronExpr.trim().split(/\s+/);
       if (parts.length !== 5) {
         throw new Error("Must be a 5-field cron expression");
@@ -32,6 +33,8 @@ export function createUpdateLoopConfigTool(
 
       const job = port.getCronJob(cronJobId);
       if (job) scheduler.register(job);
+
+      return { content: `Cron expression set to: ${input.cronExpr}` };
     },
   };
 }
