@@ -65,18 +65,20 @@ export default function NewLoopPage() {
       { intent: merged, clarifyRound: nextRound },
       {
         onSuccess: (res) => {
-          if (res.status === "generated" && res.loop) {
+          if ("error" in res) {
+            toast.error(res.error);
+            return;
+          }
+          if (res.status === "generated" && "loop" in res) {
             setPreview(res.loop.preview);
             setLoopName(res.loop.name);
             setNote("note" in res ? (res.note ?? "") : "");
             setStage("preview");
           } else if (clarifyCount >= 2) {
-            // Belt-and-suspenders: backend stops asking at round >= 2, but
-            // guard the UI so a stale needs_clarification can't loop forever.
             toast.error("已达澄清上限，请手动编辑预览");
             setStage("preview");
-          } else {
-            setQuestions(res.questions ?? []);
+          } else if (res.status === "needs_clarification") {
+            setQuestions(res.questions);
             setClarifyCount(nextRound);
           }
         },

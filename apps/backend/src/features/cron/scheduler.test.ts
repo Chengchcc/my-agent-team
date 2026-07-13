@@ -233,7 +233,7 @@ describe("createCronScheduler", () => {
     expect(appendControlPlaneEvent).toHaveBeenCalledTimes(1);
     const call = appendControlPlaneEvent.mock.calls[0]![0];
     expect(call.kind).toBe("retry_requested");
-    expect(call.payload.attempt).toBe(1);
+    expect(call.payload?.attempt).toBe(1);
     scheduler.dispose();
   });
 

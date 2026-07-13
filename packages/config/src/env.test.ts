@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { envSchema, parseEnv, type Env } from "./env.js";
+import { envSchema, parseEnv } from "./env.js";
 
 /** Minimal valid env that satisfies all required fields. */
 function baseEnv(): Record<string, string | undefined> {

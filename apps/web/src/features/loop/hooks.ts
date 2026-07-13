@@ -47,7 +47,7 @@ export function useReviewLoopItem(id: string) {
       feedback?: string;
     }) => api.reviewLoopItem(id, body),
     onSuccess: (data) => {
-      toast.success(`Item ${data.action}`);
+      if ("action" in data) toast.success(`Item ${data.action}`);
       qc.invalidateQueries({ queryKey: loopKeys.detail(id) });
       qc.invalidateQueries({ queryKey: loopKeys.all });
     },
