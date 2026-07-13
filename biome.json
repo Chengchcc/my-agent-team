@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/bun.lock"]
+    "includes": ["**", "!**/bun.lock", "!**/drizzle", "!**/dist", "!**/.next"]
   },
   "formatter": {
     "enabled": true,
