@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -13,9 +14,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api } from "@/lib/api";
 import type { AgentRow, RelationshipRow } from "@/lib/api";
-import { useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
 interface RelationshipPanelProps {
   agentId: string;

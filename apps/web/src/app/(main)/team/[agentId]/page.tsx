@@ -6,9 +6,9 @@ import { AgentForm } from "@/components/AgentForm";
 import { ConversationList } from "@/components/ConversationList";
 import { IdentityPanel } from "@/components/IdentityPanel";
 import { McpServerPanel } from "@/components/McpServerPanel";
-import { RelationshipPanel } from "@/components/RelationshipPanel";
 import { QueryState } from "@/components/ops/QueryState";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
+import { RelationshipPanel } from "@/components/RelationshipPanel";
 import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
@@ -19,9 +19,8 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { useAgentDetail, useAgentList } from "@/features/agents/hooks";
+import { useAgentDetail, useAgentList, useAgentRelationships } from "@/features/agents/hooks";
 import { useOpsRuns } from "@/features/ops/hooks";
-import { useAgentRelationships } from "@/features/agents/hooks";
 import { useAgentSkillPacks } from "@/features/skill-packs/hooks";
 
 type Tab = "persona" | "skills" | "activity" | "mcp" | "relationships";

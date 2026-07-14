@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { EvidenceChainPanel } from "@/components/work/EvidenceChainPanel";
+import { LoopBoard } from "@/components/work/LoopBoard";
 import {
   useActivateLoop,
   useAddLoopItem,
@@ -57,6 +58,8 @@ export default function LoopDetailPage() {
   const addItemMu = useAddLoopItem(loopId);
 
   const loop = data?.loop;
+  const searchParams = useSearchParams();
+  const view = searchParams.get("view") === "board" ? "board" : "list";
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [source, setSource] = useState("manual");
@@ -149,6 +152,12 @@ export default function LoopDetailPage() {
                 Enabled
               </label>
             )}
+            <a
+              href={`/work/${loopId}${view === "list" ? "?view=board" : ""}`}
+              className="text-xs text-[var(--mute)] hover:text-[var(--ink-strong)] border border-[var(--hairline)] rounded px-2 py-1"
+            >
+              {view === "list" ? "Board" : "List"}
+            </a>
             <Button
               variant="outline"
               size="sm"
@@ -168,54 +177,64 @@ export default function LoopDetailPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100%-5rem)]">
-          {/* Left: item list grouped by step */}
-          <div className="lg:col-span-1 overflow-y-auto border border-[var(--hairline)] rounded-lg bg-background">
-            {items.length === 0 ? (
-              <p className="text-sm text-[var(--mute)] p-4">No items.</p>
-            ) : (
-              STEP_ORDER.filter((s) => (grouped[s] ?? []).length > 0).map((step) => (
-                <div key={step} className="p-2">
-                  <div className="flex items-center gap-2 px-2 py-1">
-                    <Badge variant={STEP_BADGE[step]} className="text-[10px]">
-                      {step}
-                    </Badge>
-                    <span className="text-xs text-[var(--mute)]">{grouped[step]!.length}</span>
+        {view === "list" ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100%-5rem)]">
+            {/* Left: item list grouped by step */}
+            <div className="lg:col-span-1 overflow-y-auto border border-[var(--hairline)] rounded-lg bg-background">
+              {items.length === 0 ? (
+                <p className="text-sm text-[var(--mute)] p-4">No items.</p>
+              ) : (
+                STEP_ORDER.filter((s) => (grouped[s] ?? []).length > 0).map((step) => (
+                  <div key={step} className="p-2">
+                    <div className="flex items-center gap-2 px-2 py-1">
+                      <Badge variant={STEP_BADGE[step]} className="text-[10px]">
+                        {step}
+                      </Badge>
+                      <span className="text-xs text-[var(--mute)]">{grouped[step]!.length}</span>
+                    </div>
+                    <div className="space-y-1">
+                      {grouped[step]!.map((item) => (
+                        <button
+                          key={item.id}
+                          onClick={() => setSelectedId(item.id)}
+                          className={`w-full text-left rounded-md px-2 py-2 text-sm transition-colors ${
+                            selectedId === item.id
+                              ? "bg-[var(--mute)]/20 ring-1 ring-[var(--hairline)]"
+                              : "hover:bg-[var(--mute)]/10"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate flex-1">{item.summary}</span>
+                            <span className="text-[10px] text-[var(--mute)] shrink-0">
+                              att {item.attempt}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-[var(--mute)] font-mono truncate">
+                            {item.source}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    {grouped[step]!.map((item) => (
-                      <button
-                        key={item.id}
-                        onClick={() => setSelectedId(item.id)}
-                        className={`w-full text-left rounded-md px-2 py-2 text-sm transition-colors ${
-                          selectedId === item.id
-                            ? "bg-[var(--mute)]/20 ring-1 ring-[var(--hairline)]"
-                            : "hover:bg-[var(--mute)]/10"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate flex-1">{item.summary}</span>
-                          <span className="text-[10px] text-[var(--mute)] shrink-0">
-                            att {item.attempt}
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-[var(--mute)] font-mono truncate">
-                          {item.source}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))
+                ))
+              )}
+            </div>
+
+            {/* Right: evidence chain */}
+            <div className="lg:col-span-2 overflow-y-auto">
+              <EvidenceChainPanel loopId={loopId} item={selected} />
+            </div>
+          </div>
+        ) : (
+          <div className="h-[calc(100%-5rem)] flex flex-col">
+            <LoopBoard items={items} selectedId={selectedId} onSelect={setSelectedId} />
+            {selected && (
+              <div className="mt-4 border border-[var(--hairline)] rounded-lg p-4 overflow-y-auto max-h-[40%]">
+                <EvidenceChainPanel loopId={loopId} item={selected} />
+              </div>
             )}
           </div>
-
-          {/* Right: evidence chain */}
-          <div className="lg:col-span-2 overflow-y-auto">
-            <EvidenceChainPanel loopId={loopId} item={selected} />
-          </div>
-        </div>
-
+        )}
         {loop.budgetHistory && loop.budgetHistory.length > 0 && (
           <Card className="mt-4">
             <CardHeader>

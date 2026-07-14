@@ -1,9 +1,9 @@
 import type { Database } from "bun:sqlite";
-import { and, eq, or } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import type { BackendConfig } from "../../config.js";
 import * as schema from "../../infra/db/schema.js";
 import { NotFoundError, ValidationError } from "../../infra/domain-errors.js";
-import type { BackendConfig } from "../../config.js";
 
 export type RelType = "assigns_to" | "collaborates_with";
 
