@@ -62,6 +62,22 @@ used_by:
   | **P2** | Stop 按钮不直观 | 在场协作 | ✅ 已完成 | ConversationCanvas busy 状态显示 Stop 按钮 |
   | **P2** | Goal 不可视化 | 在场协作 | ✅ 已完成 | ConversationCanvas 加 GoalStatusBar，显示条件/轮次/暂停/恢复/清除 |
   | **P2** | System 页 Traces tab 误导 | 系统管理 | ✅ 已完成 | tab 改名为 "Runs"（诚实命名），行可点击进入 `/system/runs/[runId]` |
+- **Solo 项目借鉴（2026-07-14）**　分析了 [solo-agent/solo](https://github.com/solo-agent/solo) 的关键子系统，以下 4 项设计值得借鉴，按实现难度排序：
+
+  | 优先级 | 功能 | Solo 设计 | 我们现状 | 成本 |
+  |---|---|---|---|---|
+  | **P0** | 连接状态指示器 | `network-status.tsx` 65 行：`navigator.onLine` + online/offline 事件 + 顶部 banner（offline 红色 / 恢复绿色 3s 后隐藏） | `streamConn` 状态已有但零 UI 反馈，SSE 断了用户看到冻结画面无感知 | 1 小时 |
+  | **P1** | Agent 关系图 + Wake Routing | 两种关系 `assigns_to`/`collaborates_with`（带 weight + instruction）；关系变更自动生成 `RELATIONSHIPS.md` 写入 agent workspace；coordinator 选择 ~20 行算法（遍历关系图找无 parent 的根节点）；wake routing ~55 行（有 @mention 只唤醒被提及的；无 @mention 自动选 coordinator） | agent 之间扁平，靠用户手动 @mention 路由，无 coordinator 概念 | 3 天 |
+  | **P1** | Task 看板 + Claim Window | 5 状态 `todo→in_progress→in_review→done/closed`，严格转换矩阵；claim 窗口 ~155 行纯内存（@mention 的 agent 有 30s 独占认领权，超时放给其他 agent）；actor 权限（agent 不能 close/reopen，只有 creator 能 accept）；agent 旁路 `CompleteTaskForAgent` 跳过 guard 自动提交 review | Loop `ItemState` 已有 priority/step/awaiting_review，数据模型在但缺 UI 看板层 | 3-5 天 |
+  | **P2** | CMD+K 全局搜索 | 337 行：全屏 overlay + 300ms 防抖 + 键盘导航（ArrowUp/Down/Enter/Escape）+ `<mark>` 高亮 + 点击跳转消息位置 | 有 `/api/conversations/search` 但只在 chat 页用，无全局快捷入口 | 2-3 天 |
+
+  Solo 的设计亮点模式（实现时参考）：
+  - **URL as state**：面板/视图/task/thread 状态编码到 URL searchParams，可分享、可前进后退
+  - **双 hook 模式**：`useInbox`（分页列表）+ `useInboxUnread`（轻量计数）分开，badge 频繁轮询不拉全量数据
+  - **乐观更新+回退**：markRead 先本地标记，API 失败 refetch 回退，比 mutation onSuccess 更快
+  - **Flash highlight**：选中 agent 后 1.5s 高亮消失，平滑引导注意力
+
+  不值得借鉴的：daemon/computer 管理（架构不兼容）、WebSocket hub（SSE 够用）、artifact HTML 生成（过重）、channel team graph ReactFlow（130KB 依赖，文本 RELATIONSHIPS.md 足够）、thread panel（940 行，扁平对话够用）。
 - **Ops 导航转 session / trace 中心**　现状 Ops 面以 run 为中心列举（run 列表 → run 详情），词汇与分区都停在 daemon 时代的 `run`。[标识符体系](../foundations/identifiers.md) 把本体收敛为「session（一条 trace）→ span（root span）→ attempt（重试序号）」后，Ops 导航也应顺着这条链改：顶层按 **session** 聚合（一个 agent 在一个上下文里的整条记忆线），点进去看这条线上的 **span 序列**（每次 prompt loop 一段，按 spanId 切的 `checkpoint_events` 即其执行事实流），再下钻到 **attempt / child span**。这让「这条线到底跑过几轮、第 3 轮前是什么状态」成为一次自然的层层下钻，而不是在扁平 run 列表里靠 `idempotencyKey` 反推。依赖：[标识符体系](../foundations/identifiers.md)、[数据模型](../backend/data-model.md)。
 - **删除 transport / heartbeat 残骸**　**已解决。** `attempt` 表的 `pid` / `heartbeat_at` 列已删除（migration 0009），reaper 心跳分支已移除，超时由 per-span 看门狗（主动 cancel）表达。
 - **Harness 运行时加固（M22）**　**已落地。** 四项子任务全部完成，相关 `status: current` 页面已回填：
