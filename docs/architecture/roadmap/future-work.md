@@ -60,8 +60,8 @@ used_by:
   | **P2** | Loop 不可暂停 | 离场托付 | ✅ 已完成 | `POST /api/loops/:id/deactivate` + `useDeactivateLoop` hook + UI toggle |
   | **P2** | Loop 预算历史无 API | 离场托付 | ✅ 审计误报 | 已通过 `GET /api/loops/:id` 返回，detail 页已渲染 |
   | **P2** | Stop 按钮不直观 | 在场协作 | ✅ 已完成 | ConversationCanvas busy 状态显示 Stop 按钮 |
-  | **P2** | Goal 不可视化 | 在场协作 | ⏳ 待办 | 目标条件 + 进度 + 暂停/恢复侧边面板 |
-  | **P2** | System 页 Traces tab 误导 | 系统管理 | ⏳ 待办 | `useOpsTraceDetail` 仍是死代码，trace 详情探索器未接入 |
+  | **P2** | Goal 不可视化 | 在场协作 | ✅ 已完成 | ConversationCanvas 加 GoalStatusBar，显示条件/轮次/暂停/恢复/清除 |
+  | **P2** | System 页 Traces tab 误导 | 系统管理 | ✅ 已完成 | tab 改名为 "Runs"（诚实命名），行可点击进入 `/system/runs/[runId]` |
 - **Ops 导航转 session / trace 中心**　现状 Ops 面以 run 为中心列举（run 列表 → run 详情），词汇与分区都停在 daemon 时代的 `run`。[标识符体系](../foundations/identifiers.md) 把本体收敛为「session（一条 trace）→ span（root span）→ attempt（重试序号）」后，Ops 导航也应顺着这条链改：顶层按 **session** 聚合（一个 agent 在一个上下文里的整条记忆线），点进去看这条线上的 **span 序列**（每次 prompt loop 一段，按 spanId 切的 `checkpoint_events` 即其执行事实流），再下钻到 **attempt / child span**。这让「这条线到底跑过几轮、第 3 轮前是什么状态」成为一次自然的层层下钻，而不是在扁平 run 列表里靠 `idempotencyKey` 反推。依赖：[标识符体系](../foundations/identifiers.md)、[数据模型](../backend/data-model.md)。
 - **删除 transport / heartbeat 残骸**　**已解决。** `attempt` 表的 `pid` / `heartbeat_at` 列已删除（migration 0009），reaper 心跳分支已移除，超时由 per-span 看门狗（主动 cancel）表达。
 - **Harness 运行时加固（M22）**　**已落地。** 四项子任务全部完成，相关 `status: current` 页面已回填：

@@ -47,7 +47,7 @@ export default function SystemPage() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
         <TabsList>
           <TabsTrigger value="surfaces">Surface Health</TabsTrigger>
-          <TabsTrigger value="traces">Traces</TabsTrigger>
+          <TabsTrigger value="traces">Runs</TabsTrigger>
           <TabsTrigger value="cron">Cron Jobs</TabsTrigger>
           <TabsTrigger value="sessions">Sessions</TabsTrigger>
         </TabsList>

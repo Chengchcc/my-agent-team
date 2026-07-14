@@ -1,9 +1,10 @@
 "use client";
 
-import { ArrowDown, Download } from "lucide-react";
+import { ArrowDown, Download, Pause, Play, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useConversation } from "@/hooks/useConversation";
@@ -250,6 +251,9 @@ export function ConversationCanvas({
             </span>
           </div>
         )}
+
+        {/* Goal status bar */}
+        <GoalStatusBar conversationId={conversationId} />
       </div>
 
       {/* M14.6: Todo progress — pinned above message stream */}
@@ -480,6 +484,81 @@ function QueuedMessageBubble({
       <Button size="sm" variant="ghost" className="h-6 px-2" onClick={onRemove}>
         ✕
       </Button>
+    </div>
+  );
+}
+
+function GoalStatusBar({ conversationId }: { conversationId: string }) {
+  const qc = useQueryClient();
+  const { data: goal } = useQuery({
+    queryKey: ["goal", conversationId],
+    queryFn: () => api.getGoal(conversationId),
+    refetchInterval: 5000,
+  });
+
+  if (!goal?.condition) return null;
+
+  return (
+    <div className="flex items-center gap-2 mt-2 px-3 py-1.5 rounded-md bg-[var(--canvas-soft)] border border-[var(--hairline)]">
+      <span className="text-[10px] font-semibold tracking-[2px] uppercase text-[var(--primary)] shrink-0">
+        Goal
+      </span>
+      <span className="text-xs text-[var(--ink-strong)] truncate flex-1">{goal.condition}</span>
+      <span className="text-[10px] text-[var(--mute)] shrink-0">
+        {goal.turns} turn{goal.turns !== 1 ? "s" : ""}
+      </span>
+      {goal.lastReason && (
+        <span
+          className="text-[10px] text-[var(--mute)] shrink-0 max-w-[200px] truncate"
+          title={goal.lastReason}
+        >
+          · {goal.lastReason}
+        </span>
+      )}
+      <div className="flex items-center gap-1 shrink-0">
+        {goal.paused ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[10px]"
+            onClick={() => {
+              api.setGoal(conversationId, { action: "resume" }).then(() => {
+                qc.invalidateQueries({ queryKey: ["goal", conversationId] });
+                toast.success("Goal resumed");
+              });
+            }}
+          >
+            <Play size={10} /> Resume
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[10px]"
+            onClick={() => {
+              api.setGoal(conversationId, { action: "pause" }).then(() => {
+                qc.invalidateQueries({ queryKey: ["goal", conversationId] });
+                toast.success("Goal paused");
+              });
+            }}
+          >
+            <Pause size={10} /> Pause
+          </Button>
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 text-[10px] text-destructive hover:text-destructive"
+          onClick={() => {
+            api.setGoal(conversationId, { action: "clear" }).then(() => {
+              qc.invalidateQueries({ queryKey: ["goal", conversationId] });
+              toast.success("Goal cleared");
+            });
+          }}
+        >
+          <X size={10} /> Clear
+        </Button>
+      </div>
     </div>
   );
 }
