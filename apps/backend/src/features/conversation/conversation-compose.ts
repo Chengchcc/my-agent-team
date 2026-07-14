@@ -18,6 +18,7 @@ import { goalPlugin } from "@my-agent-team/plugin-goal";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
+import type { RelationshipService } from "../agent/relationship-service.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import type { SettingsService } from "../settings/index.js";
 import {
@@ -53,6 +54,7 @@ export function createConversationFeature(
   sessionManager: SessionManager,
   settingsSvc: SettingsService,
   mcpClientManager: McpClientManager,
+  relSvc: RelationshipService,
   lock: ConversationLock = new ConversationLock(),
 ): ConversationFeature {
   const convPort = sqliteConversationAdapter(db);
@@ -310,6 +312,7 @@ export function createConversationFeature(
         }
       }
     },
+    getRelationshipEdges: (agentIds) => relSvc.getEdges(agentIds),
   });
 
   return { convPort, convSvc, lock, goalStore };

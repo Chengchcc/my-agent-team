@@ -25,6 +25,17 @@ export type CreateLoopResult = ApiReturn<typeof api.createLoop>;
 export type RefineLoopResult = ApiReturn<typeof api.refineLoop>;
 export type ActivateLoopResult = ApiReturn<typeof api.activateLoop>;
 export type SettingsMap = ApiReturn<typeof api.getSettings>["settings"];
+// ponytail: relationships routes are conditionally mounted, Eden can't infer types
+export interface RelationshipRow {
+  id: string;
+  fromAgent: string;
+  toAgent: string;
+  relType: "assigns_to" | "collaborates_with";
+  weight: number;
+  instruction: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
 export type McpServerRow = ApiReturn<typeof api.listMcpServers>["mcpServers"][number];
 export type SystemInfo = ApiReturn<typeof api.getSystemInfo>;
 
@@ -261,4 +272,46 @@ export const api = {
   ) => unwrap(client.api.agents({ id: agentId })["mcp-servers"]({ serverId }).put(body)),
   deleteMcpServer: (agentId: string, serverId: string) =>
     unwrap(client.api.agents({ id: agentId })["mcp-servers"]({ serverId }).delete()),
+  // Relationships (direct fetch - conditional routes not visible to Eden)
+  listAgentRelationships: async (agentId: string) => {
+    const resp = await fetch(`/api/bff/api/agents/${agentId}/relationships`, {
+      credentials: "include",
+    });
+    return (await resp.json()) as { relationships: RelationshipRow[] };
+  },
+  createRelationship: async (
+    agentId: string,
+    body: {
+      toAgentId: string;
+      relType: "assigns_to" | "collaborates_with";
+      weight?: number;
+      instruction?: string;
+    },
+  ) => {
+    const resp = await fetch(`/api/bff/api/agents/${agentId}/relationships`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return (await resp.json()) as { relationship: RelationshipRow };
+  },
+  updateRelationship: async (
+    agentId: string,
+    relId: string,
+    body: { weight?: number; instruction?: string },
+  ) => {
+    const resp = await fetch(`/api/bff/api/agents/${agentId}/relationships/${relId}`, {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return (await resp.json()) as { relationship: RelationshipRow };
+  },
+  deleteRelationship: (agentId: string, relId: string) =>
+    fetch(`/api/bff/api/agents/${agentId}/relationships/${relId}`, {
+      method: "DELETE",
+      credentials: "include",
+    }).then((r) => r.ok),
 };

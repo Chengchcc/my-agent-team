@@ -1,4 +1,5 @@
 import {
+  type AgentMember,
   Conversation as ConversationSchema,
   resolveTriggerTargets,
 } from "@my-agent-team/conversation";
@@ -11,6 +12,7 @@ import {
   systemMessageId,
 } from "@my-agent-team/message";
 import { BusyError } from "../../infra/domain-errors.js";
+import { selectWakeAgentIDs } from "../agent/relationship-service.js";
 import type { ConversationLock } from "./lock.js";
 import type { ConversationPort, LedgerEntry, LedgerKind, MemberRow } from "./ports.js";
 
@@ -65,6 +67,10 @@ export interface ConversationServiceDeps {
   onClear?: (conversationId: string) => void;
   /** Callback to compact active sessions (for /compact command). */
   onCompact?: (conversationId: string) => Promise<void>;
+  /** Wake routing: returns relationship edges for coordinator selection when triggerMode=auto and no @mention. */
+  getRelationshipEdges?: (
+    agentIds: string[],
+  ) => Array<{ from: string; to: string; relType: "assigns_to" | "collaborates_with" }>;
 }
 
 export interface ConversationService {
@@ -126,6 +132,9 @@ class ConversationServiceImpl implements ConversationService {
   #verifyRunOwnsConversation?: (spanId: string, conversationId: string) => Promise<void>;
   #onClear?: (conversationId: string) => void;
   #onCompact?: (conversationId: string) => Promise<void>;
+  #getRelationshipEdges?: (
+    agentIds: string[],
+  ) => Array<{ from: string; to: string; relType: "assigns_to" | "collaborates_with" }>;
 
   // Push-based SSE: subscribers are notified immediately when new ledger
   // entries are appended, so streaming revisions arrive without poll delay.
@@ -145,6 +154,7 @@ class ConversationServiceImpl implements ConversationService {
     this.#verifyRunOwnsConversation = deps.verifyRunOwnsConversation;
     this.#onClear = deps.onClear;
     this.#onCompact = deps.onCompact;
+    this.#getRelationshipEdges = deps.getRelationshipEdges;
   }
 
   // ─── Private helpers ───────────────────────────────
@@ -263,7 +273,19 @@ class ConversationServiceImpl implements ConversationService {
     if (!conv) throw new Error(`Conversation not found: ${input.conversationId}`);
 
     const members = this.port.getMembers(input.conversationId);
-    const targets = resolveTriggerTargets(conv, input.addressedTo);
+    let targets = resolveTriggerTargets(conv, input.addressedTo);
+    // Wake routing: when no @mention and triggerMode=auto, select coordinator from relationship graph
+    if (targets.length === 0 && input.addressedTo.length === 0 && conv.triggerMode === "all") {
+      const activeAgentIds = members.filter((m) => m.kind === "agent").map((m) => m.memberId);
+      const edges = this.#getRelationshipEdges?.(activeAgentIds) ?? [];
+      const coordinatorIds = selectWakeAgentIDs(activeAgentIds, [], false, edges);
+      targets = coordinatorIds
+        .map((id): AgentMember | undefined => {
+          const m = conv.members.find((m) => m.memberId === id);
+          return m?.kind === "agent" ? m : undefined;
+        })
+        .filter((m): m is AgentMember => m !== undefined);
+    }
     const triggeredRuns: Array<{ agentMemberId: string; spanId: string }> = [];
 
     // ── Hop count: reset on human/external, increment only for known agent members ──

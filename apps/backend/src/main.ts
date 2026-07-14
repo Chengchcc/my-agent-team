@@ -18,6 +18,7 @@ import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createAgentSvc } from "./features/agent/agent-compose.js";
 import { createAgentIdentityStore } from "./features/agent/agent-identity.js";
+import { createRelationshipService } from "./features/agent/relationship-service.js";
 import { agentRoutes } from "./features/agent/index.js";
 import { createConversationFeature } from "./features/conversation/conversation-compose.js";
 import { conversationRoutes } from "./features/conversation/index.js";
@@ -186,6 +187,7 @@ async function ensureAgent(id: string, name: string, model: string) {
 }
 await ensureAgent("default", "Assistant", "claude-sonnet-4-20250514");
 await ensureAgent("loop-agent", "Loop Agent", "claude-sonnet-4-20250514");
+const relSvc = createRelationshipService(db, config);
 const conv = createConversationFeature(
   db,
   config,
@@ -195,6 +197,7 @@ const conv = createConversationFeature(
   sessionManager,
   settingsSvc,
   mcpClientManager,
+  relSvc,
 );
 
 // ─── Event wiring ─────────────────────────────────────────────
@@ -316,6 +319,7 @@ const resumeRun = resumeRoutes({
 
 const app = createApp(config.authToken, {
   resumeRun,
+
   agents: agentRoutes(
     agentSvc,
     {
@@ -328,6 +332,7 @@ const app = createApp(config.authToken, {
     identityStore,
     (id: string) => larkBotRegistry.statusOf(id),
     getSetupManager,
+    relSvc,
   ),
   conversations: conversationRoutes(conv.convSvc, ulid, conv.goalStore),
   ops: opsRoutes(opsSvc),

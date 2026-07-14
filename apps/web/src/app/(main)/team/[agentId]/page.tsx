@@ -6,6 +6,7 @@ import { AgentForm } from "@/components/AgentForm";
 import { ConversationList } from "@/components/ConversationList";
 import { IdentityPanel } from "@/components/IdentityPanel";
 import { McpServerPanel } from "@/components/McpServerPanel";
+import { RelationshipPanel } from "@/components/RelationshipPanel";
 import { QueryState } from "@/components/ops/QueryState";
 import { RunOpsTable } from "@/components/ops/RunOpsTable";
 import { Badge } from "@/components/ui/badge";
@@ -18,11 +19,12 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { useAgentDetail } from "@/features/agents/hooks";
+import { useAgentDetail, useAgentList } from "@/features/agents/hooks";
 import { useOpsRuns } from "@/features/ops/hooks";
+import { useAgentRelationships } from "@/features/agents/hooks";
 import { useAgentSkillPacks } from "@/features/skill-packs/hooks";
 
-type Tab = "persona" | "skills" | "activity" | "mcp";
+type Tab = "persona" | "skills" | "activity" | "mcp" | "relationships";
 
 type PackStatus = "pending" | "installing" | "ready" | "failed" | "syncing";
 
@@ -141,6 +143,15 @@ export default function AgentDetailPage() {
             >
               MCP
             </Button>
+            <Button
+              variant="ghost"
+              role="tab"
+              aria-selected={tab === "relationships"}
+              className={tabClass("relationships")}
+              onClick={() => setTab("relationships")}
+            >
+              Relationships
+            </Button>
           </div>
         </div>
       </div>
@@ -157,6 +168,7 @@ export default function AgentDetailPage() {
             </div>
           )}
           {tab === "mcp" && <McpServerPanel agentId={id} />}
+          {tab === "relationships" && <AgentRelationshipsPanel agentId={id} />}
         </div>
       </div>
     </div>
@@ -204,6 +216,19 @@ function AgentSkillsPanel({ agentId }: { agentId: string }) {
         </ul>
       )}
     </QueryState>
+  );
+}
+
+function AgentRelationshipsPanel({ agentId }: { agentId: string }) {
+  const { data: agent } = useAgentDetail(agentId);
+  const { data: rels } = useAgentRelationships(agentId);
+  const { data: allAgents } = useAgentList();
+  return (
+    <RelationshipPanel
+      agentId={agentId}
+      relationships={rels?.relationships ?? []}
+      agents={allAgents ?? []}
+    />
   );
 }
 

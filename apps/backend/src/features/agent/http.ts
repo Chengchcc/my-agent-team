@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
 import type { AgentIdentityStore } from "./agent-identity.js";
 import type { AgentRow } from "./domain.js";
+import type { RelationshipService } from "./relationship-service.js";
 import type { AgentService } from "./service.js";
 import { AgentBusyError, AgentNotFoundError } from "./service.js";
 
@@ -50,6 +51,7 @@ export function agentRoutes(
   identityStore?: AgentIdentityStore,
   larkStatusOf?: (agentId: string) => string,
   getSetupManager?: () => LarkSetupManager,
+  relSvc?: RelationshipService,
 ) {
   const statusOf = (row: AgentRow) => deriveLarkStatus(row, larkStatusOf?.(row.id));
 
@@ -245,7 +247,7 @@ export function agentRoutes(
 
   // Skill pack assignment routes (optional)
   // Always mounted — skillPackSvc is always provided by main.ts
-  return base
+  let chain = base
     .get("/api/agents/:id/skill-packs", async ({ params: { id } }) => {
       const packs = await skillPackSvc.listForAgent(id);
       return packs;
@@ -262,4 +264,46 @@ export function agentRoutes(
         }),
       },
     );
+
+  if (relSvc) {
+    chain = chain
+      .get("/api/agents/:id/relationships", ({ params: { id } }) => {
+        return { relationships: relSvc.listForAgent(id) };
+      })
+      .post(
+        "/api/agents/:id/relationships",
+        async ({ params: { id }, body, set }) => {
+          const rel = await relSvc.create(id, body);
+          set.status = 201;
+          return { relationship: rel };
+        },
+        {
+          body: t.Object({
+            toAgentId: t.String({ minLength: 1 }),
+            relType: t.Union([t.Literal("assigns_to"), t.Literal("collaborates_with")]),
+            weight: t.Optional(t.Number()),
+            instruction: t.Optional(t.String()),
+          }),
+        },
+      )
+      .put(
+        "/api/agents/:id/relationships/:rid",
+        ({ params: { rid }, body }) => {
+          return { relationship: relSvc.update(rid, body) };
+        },
+        {
+          body: t.Object({
+            weight: t.Optional(t.Number()),
+            instruction: t.Optional(t.String()),
+          }),
+        },
+      )
+      .delete("/api/agents/:id/relationships/:rid", ({ params: { rid }, set }) => {
+        relSvc.remove(rid);
+        set.status = 204;
+        return new Response(null, { status: 204 });
+      });
+  }
+
+  return chain;
 }

@@ -56,3 +56,10 @@ export function useDeleteMcpServer(agentId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: mcpKeys.list(agentId) }),
   });
 }
+
+export function useAgentRelationships(agentId: string) {
+  return useQuery({
+    queryKey: ["agent", agentId, "relationships"],
+    queryFn: () => api.listAgentRelationships(agentId),
+  });
+}

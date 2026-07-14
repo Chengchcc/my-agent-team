@@ -115,7 +115,7 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
   const activeItemRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     activeItemRef.current?.scrollIntoView({ block: "nearest" });
-  }, [activeIndex]);
+  }, []);
 
   if (!open) return null;
 
