@@ -28,7 +28,7 @@ import {
   defaultTools,
 } from "../span/agent-helpers.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
-import { type GoalStateStore, createGoalStateStore } from "./goal-state.js";
+import { createGoalStateStore, type GoalStateStore } from "./goal-state.js";
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";

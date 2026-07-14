@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import { RunInsightsPanel } from "@/components/ops/RunInsightsPanel";
 import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
@@ -18,7 +19,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { RunInsightsPanel } from "@/components/ops/RunInsightsPanel";
 import { useOpsSessionDetail } from "@/features/ops/hooks";
 
 export const dynamic = "force-dynamic";

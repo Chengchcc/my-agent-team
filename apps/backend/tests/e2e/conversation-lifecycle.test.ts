@@ -2,8 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { unlinkSync } from "node:fs";
 import { Elysia } from "elysia";
 import { sqliteConversationAdapter } from "../../src/features/conversation/adapter-sqlite.js";
-import { conversationRoutes } from "../../src/features/conversation/http.js";
 import { createGoalStateStore } from "../../src/features/conversation/goal-state.js";
+import { conversationRoutes } from "../../src/features/conversation/http.js";
 import { ConversationLock } from "../../src/features/conversation/lock.js";
 import {
   type ConversationServiceDeps,
