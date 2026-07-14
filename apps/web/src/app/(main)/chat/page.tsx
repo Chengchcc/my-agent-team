@@ -92,8 +92,14 @@ export default function ChatOverviewPage() {
 
       {/* Content */}
       <div className="container mx-auto px-8 py-10 max-w-3xl">
-        {/* Composer */}
-        <div className="border border-[var(--hairline)] rounded-lg bg-[var(--canvas)] p-3 mb-8">
+        {/* New chat composer */}
+        <div className="border-2 border-[var(--primary)] rounded-xl bg-[var(--canvas)] p-4 mb-8 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center justify-center h-7 w-7 rounded-full bg-[var(--primary)] text-[var(--canvas)]">
+              <Send size={13} />
+            </div>
+            <span className="text-sm font-semibold text-[var(--ink-strong)]">New Chat</span>
+          </div>
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -106,14 +112,18 @@ export default function ChatOverviewPage() {
             placeholder="Send a message to start a new conversation…"
             className="min-h-24 resize-none border-0 bg-transparent text-sm text-[var(--ink-strong)] placeholder:text-[var(--mute)] focus-visible:ring-0"
           />
-          <div className="flex items-center justify-end mt-2">
+          <div className="flex items-center justify-between mt-2">
+            <span className="text-[10px] text-[var(--mute)]">
+              Enter to send · Shift+Enter for newline
+            </span>
             <Button
               size="sm"
               onClick={handleCreate}
               disabled={!input.trim() || createConv.isPending}
+              className="min-w-20"
             >
               <Send size={14} />
-              Start
+              Send
             </Button>
           </div>
         </div>
