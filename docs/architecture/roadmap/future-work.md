@@ -61,6 +61,20 @@ used_by:
   > **Phase 1/2/3 是实现顺序，不是自主度**：这三档说的是「按什么顺序把这套本体建出来」。一条**已经建好**的 loop 还有另一条正交的放权轴——L1 报告 → L2 辅助 → L3 无人值守（每档等上一档证明价值后再放开，创建默认 L1），详见 [Loop Engineering](../foundations/loop-engineering.md) 的「运营成熟度」与 [Loop Pattern](../foundations/loop-pattern.md) 的信任层级。别把「Phase 实现顺序」和「L 自主度」两条轴混为一谈。
 
   原则：每个 Phase 落地时，同步回填它所触及的 `status: current` 页（[Issue](../foundations/issue.md)、[Orchestrator](../backend/orchestrator.md)、[CronJob](../foundations/cron-job.md)），并把 [Loop](../foundations/loop.md)、[LoopRunner](../backend/loop-runner.md)、[Loop Engineering](../foundations/loop-engineering.md) 对应小节从 `design` 推进为现状。
+- **产品力审查发现（2026-07-13）**　从业务故事线（在场协作 / 离场托付 / 系统管理）出发的全面审查，识别出以下产品缺口。按严重度分三档：
+
+  | 优先级 | 缺口 | 故事线 | 现状 | 期望 |
+  |---|---|---|---|---|
+  | **P0** | Goal state 持久化 | 离场托付 | Goal state 存内存 Map（`goal-state.ts`），backend 重启即丢失 | 持久化到 DB 或 settings 表 |
+  | **P0** | Cron Job 管理页缺失 | 系统管理 | CronJobForm 组件 + 5 个 hooks 完整实现但零页面渲染 | 独立 Cron Job 管理 UI 入口 |
+  | **P1** | Session 浏览器 + Trace 探索器 | 系统管理 | 后端完整实现 + 前端 hook 封装，但无 UI 消费（`useOpsSessions`/`useOpsTraceDetail` 是死代码） | System 页接入 session 列表 + trace 详情 |
+  | **P1** | Lark 绑定流程断裂 | 双端同步 | AgentForm 的 Lark Setup 需 `editAgent.id`，新建 agent 时无法触发 setup | 创建 agent 后自动跳转或立即触发 setup |
+  | **P1** | MCP 连接状态不回填 | 系统管理 | `McpServerRow` domain 有 `status`/`toolsCount` 字段，adapter 从不写入；无 test connection API | 连接状态实时回填 + 连接测试 API |
+  | **P2** | Loop 不可暂停 | 离场托付 | 只有 `activate`，要停必须删除整个 Loop | `deactivate` API + UI toggle |
+  | **P2** | Loop 预算历史无 API | 离场托付 | `getBudgetHistory()` 存在但未暴露 HTTP | 暴露 budget history endpoint |
+  | **P2** | Goal 不可视化 | 在场协作 | `/goal` 纯文本交互，无状态可视化 | 目标条件 + 进度 + 暂停/恢复侧边面板 |
+  | **P2** | Stop 按钮不直观 | 在场协作 | 只有状态 label "Running"，需输入 `/stop` | Running 状态旁直接显示 Stop 按钮 |
+  | **P2** | System 页 Traces tab 误导 | 系统管理 | 名为 Traces 实为 Runs 列表，RunOpsTable 行不可点击 | 改名 or 接入真 trace 详情 |
 - **Ops 导航转 session / trace 中心**　现状 Ops 面以 run 为中心列举（run 列表 → run 详情），词汇与分区都停在 daemon 时代的 `run`。[标识符体系](../foundations/identifiers.md) 把本体收敛为「session（一条 trace）→ span（root span）→ attempt（重试序号）」后，Ops 导航也应顺着这条链改：顶层按 **session** 聚合（一个 agent 在一个上下文里的整条记忆线），点进去看这条线上的 **span 序列**（每次 prompt loop 一段，按 spanId 切的 `checkpoint_events` 即其执行事实流），再下钻到 **attempt / child span**。这让「这条线到底跑过几轮、第 3 轮前是什么状态」成为一次自然的层层下钻，而不是在扁平 run 列表里靠 `idempotencyKey` 反推。依赖：[标识符体系](../foundations/identifiers.md)、[数据模型](../backend/data-model.md)。
 - **删除 transport / heartbeat 残骸**　`pid` / `heartbeat_at`（`attempt` 表）和心跳 reaper 是 runner daemon 时代的产物：跨进程执行需要一个进程外存活信号，backend 靠扫心跳判断 daemon 是否卡死。AgentSession 改为进程内执行后，这个前提消失——进程内执行要么在跑、要么随进程一起没了，没有「独立进程失联」这种中间态需要心跳来探。这两列已标 `deprecated`，未来应连同 reaper 的心跳分支一并删除，超时统一由 per-span 看门狗（主动 cancel）表达，不再保留 daemon 式的被动心跳兜底。依赖：[数据模型](../backend/data-model.md)、[标识符体系](../foundations/identifiers.md)。
 - **Harness 运行时加固（M22）**　**已落地。** 四项子任务全部完成，相关 `status: current` 页面已回填：

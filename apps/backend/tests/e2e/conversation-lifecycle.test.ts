@@ -3,6 +3,7 @@ import { unlinkSync } from "node:fs";
 import { Elysia } from "elysia";
 import { sqliteConversationAdapter } from "../../src/features/conversation/adapter-sqlite.js";
 import { conversationRoutes } from "../../src/features/conversation/http.js";
+import { createGoalStateStore } from "../../src/features/conversation/goal-state.js";
 import { ConversationLock } from "../../src/features/conversation/lock.js";
 import {
   type ConversationServiceDeps,
@@ -38,7 +39,13 @@ const deps: ConversationServiceDeps = {
 };
 
 const svc = createConversationService(deps);
-const app = new Elysia().use(conversationRoutes(svc, idGen));
+const goalStore = createGoalStateStore({
+  get: () => undefined,
+  set: () => {},
+  getAll: () => ({}),
+  getSystemInfo: () => ({ env: {}, paths: {} }),
+});
+const app = new Elysia().use(conversationRoutes(svc, idGen, goalStore));
 
 afterAll(() => {
   db.close();

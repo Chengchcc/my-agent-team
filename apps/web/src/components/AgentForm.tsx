@@ -408,14 +408,18 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                         )}
                       />
 
-                      {/* Setup flow */}
-                      {editAgent?.lark?.status === "not_configured" ||
-                      !editAgent?.lark?.profileRef ? (
+                      {/* Setup flow - only available after agent is created */}
+                      {!isEdit ? (
+                        <p className="text-xs text-[var(--mute)]">
+                          Save the agent first, then return to this form to set up the Lark bot.
+                        </p>
+                      ) : editAgent?.lark?.status === "not_configured" ||
+                        !editAgent?.lark?.profileRef ? (
                         <div>
                           {setupSession?.status === "pending" ? (
                             <div className="space-y-2">
                               <p className="text-xs text-[var(--body)]">
-                                Setup in progress — open this link to complete:
+                                Setup in progress - open this link to complete:
                               </p>
                               {setupSession.url ? (
                                 <a

@@ -99,6 +99,16 @@ export function loopRoutes(
       if (updated) scheduler.register(updated);
       return { loop: { id, enabled: true, cronExpr: job.cronExpr } };
     })
+    .post("/api/loops/:id/deactivate", async ({ params: { id }, set }) => {
+      const job = cronSvc.getById(id);
+      if (!job?.loopConfigPath) {
+        set.status = 404;
+        return { error: "Not a loop" };
+      }
+      await cronSvc.setEnabled(id, false);
+      scheduler.unregister(id);
+      return { loop: { id, enabled: false, cronExpr: job.cronExpr } };
+    })
     .post(
       "/api/loops/:id/refine",
       async ({ params: { id }, body, set }) => {

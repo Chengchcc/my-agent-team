@@ -28,7 +28,7 @@ import {
   defaultTools,
 } from "../span/agent-helpers.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
-import { clearGoalState, getGoalState } from "./goal-state.js";
+import { type GoalStateStore, createGoalStateStore } from "./goal-state.js";
 import { sqliteConversationAdapter } from "./index.js";
 import { ConversationLock } from "./lock.js";
 import type { ConversationPort } from "./ports.js";
@@ -40,6 +40,7 @@ export interface ConversationFeature {
   convPort: ConversationPort;
   convSvc: ReturnType<typeof createConversationService>;
   lock: ConversationLock;
+  goalStore: GoalStateStore;
 }
 
 const titlingInFlight = new Set<string>();
@@ -55,6 +56,7 @@ export function createConversationFeature(
   lock: ConversationLock = new ConversationLock(),
 ): ConversationFeature {
   const convPort = sqliteConversationAdapter(db);
+  const goalStore = createGoalStateStore(settingsSvc);
 
   // @mention regex cache
   const mentionCache = new Map<string, RegExp>();
@@ -167,10 +169,10 @@ export function createConversationFeature(
           ...defaultPlugins(cwd, config),
           conversationContextPlugin({ tools: cTools }),
           goalPlugin({
-            goalCondition: () => getGoalState(conversationId).condition,
+            goalCondition: () => goalStore.get(conversationId).condition,
             evaluatorModel: createModel("claude-sonnet-4", config), // ponytail: reuse main model, swap to Haiku later
             onEvaluation: ({ summary, evaluation }) => {
-              const gs = getGoalState(conversationId);
+              const gs = goalStore.get(conversationId);
               if (gs.paused) return;
               gs.turns++;
               gs.history.push({
@@ -285,7 +287,7 @@ export function createConversationFeature(
 
     onClear: (conversationId: string) => {
       activeSessions.delete(conversationId);
-      clearGoalState(conversationId);
+      goalStore.clear(conversationId);
       for (const m of convPort.getMembers(conversationId)) {
         if (m.kind === "agent" && m.sessionId) {
           sessionManager.dispose(m.sessionId);
@@ -310,5 +312,5 @@ export function createConversationFeature(
     },
   });
 
-  return { convPort, convSvc, lock };
+  return { convPort, convSvc, lock, goalStore };
 }

@@ -329,7 +329,7 @@ const app = createApp(config.authToken, {
     (id: string) => larkBotRegistry.statusOf(id),
     getSetupManager,
   ),
-  conversations: conversationRoutes(conv.convSvc, ulid),
+  conversations: conversationRoutes(conv.convSvc, ulid, conv.goalStore),
   ops: opsRoutes(opsSvc),
   projects: projectRoutes(projectSvc),
   loops: loopRoutes(

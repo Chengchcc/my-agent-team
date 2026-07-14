@@ -220,6 +220,18 @@ export function ConversationCanvas({
               </>
             )}
             {!label && <span className="text-xs text-[var(--mute)]">Idle</span>}
+            {busy && currentRunId && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs text-destructive hover:text-destructive"
+                onClick={() => {
+                  api.opsCancelRun(currentRunId).then(() => toast.success("Stopped"));
+                }}
+              >
+                Stop
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"

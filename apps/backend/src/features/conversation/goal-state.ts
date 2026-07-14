@@ -1,4 +1,5 @@
 import type { WorkSummary } from "@my-agent-team/plugin-goal";
+import type { SettingsService } from "../settings/service.js";
 
 export interface GoalHistoryEntry {
   turn: number;
@@ -16,22 +17,64 @@ export interface GoalState {
   history: GoalHistoryEntry[];
 }
 
-export function createGoalState(): GoalState {
-  return { condition: null, paused: false, turns: 0, tokens: 0, history: [] };
+export interface GoalStateStore {
+  get(conversationId: string): GoalState;
+  clear(conversationId: string): void;
+  /** Persist condition + paused to survive restart. */
+  savePersistent(conversationId: string, condition: string | null, paused: boolean): void;
 }
 
-// Per-conversation goal state registry (in-memory, not persisted)
-const goalStates = new Map<string, GoalState>();
+/** Persisted subset: condition + paused survive restart.
+ *  turns/tokens/history are runtime-only (re-accumulated on resume). */
+interface PersistedGoal {
+  condition: string | null;
+  paused: boolean;
+}
 
-export function getGoalState(conversationId: string): GoalState {
-  let state = goalStates.get(conversationId);
-  if (!state) {
-    state = createGoalState();
-    goalStates.set(conversationId, state);
+const settingsKey = (conversationId: string) => `goal.${conversationId}`;
+
+export function createGoalStateStore(settingsSvc: SettingsService): GoalStateStore {
+  // Runtime state: live mutable object. get() returns this ref so caller mutations
+  // (gs.turns++, gs.history.push) land in the cache.
+  const states = new Map<string, GoalState & { _persisted?: PersistedGoal }>();
+
+  function loadPersisted(conversationId: string): PersistedGoal | undefined {
+    return settingsSvc.get<PersistedGoal>(settingsKey(conversationId));
   }
-  return state;
-}
 
-export function clearGoalState(conversationId: string): void {
-  goalStates.delete(conversationId);
+  return {
+    get(conversationId: string): GoalState {
+      let state = states.get(conversationId);
+      if (!state) {
+        const persisted = loadPersisted(conversationId);
+        state = {
+          condition: persisted?.condition ?? null,
+          paused: persisted?.paused ?? false,
+          turns: 0,
+          tokens: 0,
+          history: [],
+        };
+        states.set(conversationId, state);
+      }
+      return state;
+    },
+
+    clear(conversationId: string): void {
+      states.delete(conversationId);
+      // ponytail: settings has no DELETE, overwrite with cleared state
+      settingsSvc.set<PersistedGoal>(settingsKey(conversationId), {
+        condition: null,
+        paused: false,
+      });
+    },
+
+    savePersistent(conversationId: string, condition: string | null, paused: boolean): void {
+      const state = states.get(conversationId);
+      if (state) {
+        state.condition = condition;
+        state.paused = paused;
+      }
+      settingsSvc.set<PersistedGoal>(settingsKey(conversationId), { condition, paused });
+    },
+  };
 }

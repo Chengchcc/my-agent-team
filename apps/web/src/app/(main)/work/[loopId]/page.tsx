@@ -32,8 +32,13 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { EvidenceChainPanel } from "@/components/work/EvidenceChainPanel";
-import { useSetCronEnabled } from "@/features/cron/hooks";
-import { useActivateLoop, useAddLoopItem, useLoopDetail, useRunLoop } from "@/features/loop/hooks";
+import {
+  useActivateLoop,
+  useAddLoopItem,
+  useDeactivateLoop,
+  useLoopDetail,
+  useRunLoop,
+} from "@/features/loop/hooks";
 
 const STEP_ORDER = ["fixing", "verifying", "awaiting_review", "resolved"] as const;
 const STEP_BADGE: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -48,7 +53,7 @@ export default function LoopDetailPage() {
   const { data, isLoading } = useLoopDetail(loopId);
   const runMu = useRunLoop();
   const activateMu = useActivateLoop();
-  const disableMu = useSetCronEnabled();
+  const deactivateMu = useDeactivateLoop();
   const addItemMu = useAddLoopItem(loopId);
 
   const loop = data?.loop;
@@ -134,15 +139,12 @@ export default function LoopDetailPage() {
                 <Switch
                   checked
                   onCheckedChange={() =>
-                    disableMu.mutate(
-                      { id: loopId, enabled: false },
-                      {
-                        onSuccess: () => toast.success("Loop disabled"),
-                        onError: (e) => toast.error(`Disable failed: ${String(e)}`),
-                      },
-                    )
+                    deactivateMu.mutate(loopId, {
+                      onSuccess: () => toast.success("Loop disabled"),
+                      onError: (e) => toast.error(`Disable failed: ${String(e)}`),
+                    })
                   }
-                  disabled={disableMu.isPending}
+                  disabled={deactivateMu.isPending}
                 />
                 Enabled
               </label>

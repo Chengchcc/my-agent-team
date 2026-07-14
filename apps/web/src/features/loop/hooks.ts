@@ -70,6 +70,14 @@ export function useActivateLoop() {
   });
 }
 
+export function useDeactivateLoop() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deactivateLoop(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: loopKeys.all }),
+  });
+}
+
 export function useRefineLoop(id: string) {
   const qc = useQueryClient();
   return useMutation({

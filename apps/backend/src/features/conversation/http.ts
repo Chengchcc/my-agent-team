@@ -1,11 +1,15 @@
 import { conversationEvents, createSseEncoder } from "@my-agent-team/api-contract";
 import { Elysia, t } from "elysia";
 import { sseResponse } from "../../http/response.js";
-import { clearGoalState, getGoalState } from "./goal-state.js";
+import type { GoalStateStore } from "./goal-state.js";
 import type { ConversationService } from "./service.js";
 import { ConversationBusyError } from "./service.js";
 
-export function conversationRoutes(svc: ConversationService, idGen: () => string) {
+export function conversationRoutes(
+  svc: ConversationService,
+  idGen: () => string,
+  goalStore: GoalStateStore,
+) {
   return (
     new Elysia()
       .get("/api/conversations", ({ query: { agentId } }) => {
@@ -250,7 +254,7 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
       )
       // ── Goal state management ──
       .get("/api/conversations/:id/goal", ({ params: { id } }) => {
-        const state = getGoalState(id);
+        const state = goalStore.get(id);
         return {
           condition: state.condition,
           paused: state.paused,
@@ -262,23 +266,18 @@ export function conversationRoutes(svc: ConversationService, idGen: () => string
       .post(
         "/api/conversations/:id/goal",
         async ({ params: { id }, body }) => {
-          const state = getGoalState(id);
           switch (body.action) {
             case "set":
-              state.condition = body.condition!;
-              state.paused = false;
-              state.turns = 0;
-              state.tokens = 0;
-              state.history = [];
+              goalStore.savePersistent(id, body.condition!, false);
               break;
             case "clear":
-              clearGoalState(id);
+              goalStore.clear(id);
               break;
             case "pause":
-              state.paused = true;
+              goalStore.savePersistent(id, goalStore.get(id).condition, true);
               break;
             case "resume":
-              state.paused = false;
+              goalStore.savePersistent(id, goalStore.get(id).condition, false);
               break;
           }
           return { ok: true };
