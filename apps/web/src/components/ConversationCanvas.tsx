@@ -44,7 +44,7 @@ export function ConversationCanvas({
     queueEdit,
     queueRemove,
   } = useConversation(conversationId, snapshot);
-  const { viewerMemberId, roster, items, error, todos, triggerMode } = state;
+  const { viewerMemberId, roster, items, error, todos, triggerMode, streamConn } = state;
 
   // W3+W5: use the most recent agent run's status, not first-found.
   // Scan from newest to oldest to get the current run's transient state.
@@ -255,6 +255,24 @@ export function ConversationCanvas({
         {/* Goal status bar */}
         <GoalStatusBar conversationId={conversationId} />
       </div>
+
+      {/* SSE connection warning */}
+      {(streamConn === "reconnecting" || streamConn === "closed") && (
+        <div
+          className={`shrink-0 px-6 py-1.5 flex items-center gap-2 text-xs ${
+            streamConn === "closed" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"
+          }`}
+        >
+          <span
+            className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+              streamConn === "closed" ? "bg-red-500" : "bg-amber-500"
+            }`}
+          />
+          {streamConn === "closed"
+            ? "Connection lost. Reconnect by refreshing the page."
+            : "Reconnecting…"}
+        </div>
+      )}
 
       {/* M14.6: Todo progress — pinned above message stream */}
       <TodoPanel todos={todos} />
