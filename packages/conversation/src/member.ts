@@ -12,7 +12,7 @@ export const AgentMember = z.object({
 export const HumanMember = z.object({
   kind: z.literal("human"),
   memberId: z.string().min(1),
-  userRef: z.string().min(1),
+  userRef: z.string().min(1).optional(),
   displayName: z.string().optional(),
 });
 
