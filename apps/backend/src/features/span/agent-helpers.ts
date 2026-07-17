@@ -14,7 +14,9 @@ import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill"
 import {
   bashTool,
   createEditTool,
+  createLsTool,
   createReadTool,
+  createTreeTool,
   createWriteTool,
   globTool,
   grepTool,
@@ -48,6 +50,8 @@ export function defaultTools(cwd: string): Tool[] {
     createReadTool({ cwd }),
     createWriteTool({ cwd }),
     createEditTool({ cwd }),
+    createLsTool({ cwd }),
+    createTreeTool({ cwd }),
     bashTool,
     globTool,
     grepTool,
