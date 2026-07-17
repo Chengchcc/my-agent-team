@@ -78,6 +78,27 @@ used_by:
   - **Flash highlight**：选中 agent 后 1.5s 高亮消失，平滑引导注意力
 
   不值得借鉴的：daemon/computer 管理（架构不兼容）、WebSocket hub（SSE 够用）、artifact HTML 生成（过重）、channel team graph ReactFlow（130KB 依赖，文本 RELATIONSHIPS.md 足够）、thread panel（940 行，扁平对话够用）。
+- **Pi 架构借鉴（2026-07-17）**　分析了 [earendil-works/pi](https://github.com/earendil-works/pi) 的核心架构设计，以下按优先级记录值得借鉴的技术架构点：
+
+  | 优先级 | 设计 | Pi 做法 | 我们现状 | 成本 |
+  |---|---|---|---|---|
+  | **P0** | Provider 注册制 | `Provider` 接口（id/auth/models/stream）+ `Models` 注册表（setProvider/deleteProvider/getModel），provider 在启动时注册一次全局复用，stream 按 `model.provider` 分派 | `createModel()` 硬编码 `new AnthropicChatModel`，每次调用都 new SDK client，只支持 Anthropic | 2-3 天 |
+  | **P0** | Model 对象替代裸字符串 | `Model<TApi>` 有 provider/id/api/baseUrl，agent config 存 `{provider, id}` 而非裸 `modelName: "claude-sonnet-4"` | `agent.modelName` 是字符串，不校验是否存在，不关联 provider | 1 天（依赖 P0 Provider） |
+  | **P1** | Hook 事件返回类型 | `AgentHarnessEventResultMap` 每个 hook 有明确返回类型，`beforeProviderRequest` 可 per-call 改 headers/timeout/retries | `PluginHooks` 返回值简单，无 `beforeProviderRequest` hook，无法 per-call 注入 headers | 2 天 |
+  | **P1** | AgentMessage declaration merging | `CustomAgentMessages` 空接口，app 通过 declaration merging 加自定义消息类型，`AgentMessage = Message \| CustomAgentMessages[keyof]` | `Message` 是固定 union，加新类型要改 `@my-agent-team/message` 包 | 半天 |
+  | **P2** | ExecutionEnv 抽象 | `FileSystem` + `Shell` 接口 + 稳定错误码（FileErrorCode/ExecutionErrorCode），可注入不同实现（node:fs/sandbox/浏览器） | 工具直接用 `node:fs` 和 `Bun.spawn`，硬编码 | 3-5 天 |
+  | **P2** | Session Tree | Session 是树结构（非线性数组），每条 entry 有 id+parentId，支持 fork/回溯/中途换模型/压缩点保留可逆 | `Thread.messages` 线性数组，checkpointer 只做 save/load | 极高（架构级重设计） |
+  | **P2** | Compaction 可逆 | `CompactionEntry` + `BranchSummaryEntry`，压缩在树里打节点保留分支摘要，可回溯到压缩前 | `summarizingContextManager` 直接替换旧消息，不可逆 | 高（依赖 Session Tree） |
+  | **P3** | Result<T,E> 错误类型 | `Result<TValue, TError>` 显式 `{ok, value} \| {ok: false, error}`，不依赖 throw | 全用 throw + try/catch + DomainError 层级 | 低（风格偏好，不值得迁移） |
+  | **P3** | Tool terminate 标记 | `AgentToolResult.terminate: boolean`，工具可标记"执行后终止 agent loop" | 无，工具不能主动终止 loop（InterruptSignal 已覆盖类似场景） | 低 |
+
+  Pi 的 Provider 设计是最高价值借鉴点。当前 `createModel` 硬编码 Anthropic 是多 provider 支持的根本障碍。Pi 的 `createProvider` 工厂 + `Models` 注册表模式可以：
+  1. 启动时注册 provider（anthropic/openai/custom），全局复用 SDK client
+  2. agent 配置存 `{provider, id}` 替代裸字符串
+  3. `Models.stream(model, context)` 按 provider 分派，auth 在请求时解析
+  4. 未来加新 provider 只需 `setProvider(newProvider)`，不改框架代码
+
+  不值得借鉴的：OAuth（桌面端场景）、动态 model 列表拉取（可后加）、TypeBox 类型（我们用 zod 已够用）。
 - **Ops 导航转 session / trace 中心**　现状 Ops 面以 run 为中心列举（run 列表 → run 详情），词汇与分区都停在 daemon 时代的 `run`。[标识符体系](../foundations/identifiers.md) 把本体收敛为「session（一条 trace）→ span（root span）→ attempt（重试序号）」后，Ops 导航也应顺着这条链改：顶层按 **session** 聚合（一个 agent 在一个上下文里的整条记忆线），点进去看这条线上的 **span 序列**（每次 prompt loop 一段，按 spanId 切的 `checkpoint_events` 即其执行事实流），再下钻到 **attempt / child span**。这让「这条线到底跑过几轮、第 3 轮前是什么状态」成为一次自然的层层下钻，而不是在扁平 run 列表里靠 `idempotencyKey` 反推。依赖：[标识符体系](../foundations/identifiers.md)、[数据模型](../backend/data-model.md)。
 - **删除 transport / heartbeat 残骸**　**已解决。** `attempt` 表的 `pid` / `heartbeat_at` 列已删除（migration 0009），reaper 心跳分支已移除，超时由 per-span 看门狗（主动 cancel）表达。
 - **Harness 运行时加固（M22）**　**已落地。** 四项子任务全部完成，相关 `status: current` 页面已回填：
