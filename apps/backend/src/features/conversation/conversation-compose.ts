@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { join } from "node:path";
 import type { McpClientManager } from "@my-agent-team/adapter-mcp";
+import type { ContextStore } from "@my-agent-team/framework";
 import type { SessionManager } from "@my-agent-team/harness";
 import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
@@ -15,6 +16,7 @@ import {
   conversationContextPlugin,
 } from "@my-agent-team/plugin-conversation-context";
 import { goalPlugin } from "@my-agent-team/plugin-goal";
+import { SkillIndexKey } from "@my-agent-team/plugin-progressive-skill";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
@@ -187,7 +189,29 @@ export function createConversationFeature(
             },
           }),
         ],
-        contextManager: defaultContextManager(settingsSvc),
+        metaContext: ({
+          context,
+        }: {
+          context: ContextStore;
+          sessionId: string;
+          threadMessages: readonly Message[];
+        }) => {
+          const parts: string[] = [
+            `<system-reminder>`,
+            `<current-date>${new Date().toISOString().slice(0, 10)}</current-date>`,
+            `<workspace>`,
+            `  <root path="${cwd}" />`,
+            `</workspace>`,
+          ];
+          const skillIndex = context.get(SkillIndexKey);
+          if (skillIndex) {
+            parts.push(`<available-skills>`);
+            parts.push(skillIndex);
+            parts.push(`</available-skills>`);
+          }
+          parts.push(`</system-reminder>`);
+          return parts.join("\n");
+        },
       };
       const existingSid = convPort.getMemberSessionId(conversationId, agentMemberId);
       const session = existingSid

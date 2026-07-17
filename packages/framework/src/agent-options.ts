@@ -63,6 +63,14 @@ export interface AgentConfig {
   sessionId?: string;
   messages?: Message[];
   startSpan?: (spanId: string, sessionId: string, opts?: unknown) => Promise<RunSpan> | RunSpan;
+  /** Inject a meta user message before the first real user message each turn.
+   *  Used for runtime context (date, workspace, skill index) that changes per-turn
+   *  but shouldn't be baked into the system prompt. Returns XML string or null. */
+  metaContext?: (ctx: {
+    sessionId: string;
+    threadMessages: readonly Message[];
+    context: ContextStore;
+  }) => string | null;
 }
 
 export interface PluginRunner {
@@ -96,4 +104,12 @@ export interface AgentRuntime {
   toolStates: MessageToolState[];
   assistantBlocks: ContentBlock[];
   subscribers: Set<AgentEventListener>;
+  /** Per-run context store, set at run start. Plugins write to it via beforeModel,
+   *  metaContext callback reads from it to compose the meta user message. */
+  context: ContextStore;
+  metaContext?: (ctx: {
+    sessionId: string;
+    threadMessages: readonly Message[];
+    context: ContextStore;
+  }) => string | null;
 }

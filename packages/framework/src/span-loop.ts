@@ -33,6 +33,15 @@ export function buildAssistantRevision(
   };
 }
 
+/** Insert a meta user message before the first real user message.
+ *  System messages stay before meta; the first user message comes after. */
+function insertMetaMessage(messages: readonly Message[], metaText: string): Message[] {
+  const firstUser = messages.findIndex((m) => m.role === "user");
+  const meta: Message = { role: "user", text: metaText };
+  if (firstUser < 0) return [...messages, meta];
+  return [...messages.slice(0, firstUser), meta, ...messages.slice(firstUser)];
+}
+
 /** Extract tool states from tool_use blocks (all "running" initially). */
 export function extractToolStates(blocks: ContentBlock[]): MessageToolState[] {
   return blocks
@@ -100,8 +109,16 @@ export async function* spanLoop(
       // Injected content (memory, skill index, system prompt) is marked as
       // preserved so the shaper doesn't drop it.
       const injected = await rt.plugins.fireBeforeModel(rt.thread.messages);
-      // Mark all injected messages as preserved — shaper must not drop them.
-      const preserve = { ranges: [{ start: 0, end: injected.length }] };
+      // Insert meta user message (runtime context: date, workspace, skills)
+      // after plugins have injected system prompts, before contextManager.shape.
+      const metaText = rt.metaContext?.({
+        sessionId: rt.thread.id,
+        threadMessages: injected,
+        context: rt.context,
+      });
+      const withMeta = metaText ? insertMetaMessage(injected, metaText) : injected;
+      // Mark all messages (including meta) as preserved - shaper must not drop them.
+      const preserve = { ranges: [{ start: 0, end: withMeta.length }] };
       const finalMsgs = await rt.contextManager.shape(
         {
           sessionId: rt.thread.id,
@@ -110,7 +127,7 @@ export async function* spanLoop(
           model: rt.model,
           preserve,
         },
-        injected,
+        withMeta,
       );
 
       await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {

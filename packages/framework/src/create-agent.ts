@@ -112,6 +112,8 @@ function createAgentInternal(
     toolStates: [],
     assistantBlocks: [],
     subscribers,
+    context: ctx.context,
+    metaContext: config.metaContext,
   };
 
   function spanLoopOpts(opts: AgentRunOptions) {
@@ -166,6 +168,7 @@ function createAgentInternal(
       rt.spanId = opts.spanId ?? crypto.randomUUID();
       ctx.span = await config.startSpan?.(rt.spanId, thread.id, opts.origin);
       ctx.context = opts.context ?? emptyStore;
+      rt.context = ctx.context;
       rt.toolStates = [];
       rt.assistantBlocks = [];
       let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";
@@ -221,6 +224,7 @@ function createAgentInternal(
       rt.spanId = opts.spanId ?? crypto.randomUUID();
       ctx.span = await config.startSpan?.(rt.spanId, thread.id, opts.origin);
       ctx.context = opts.context ?? emptyStore;
+      rt.context = ctx.context;
       rt.toolStates = [];
       rt.assistantBlocks = [];
       let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";
@@ -263,6 +267,7 @@ function createAgentInternal(
       rt.spanId = opts.spanId ?? crypto.randomUUID();
       ctx.span = await config.startSpan?.(rt.spanId, thread.id, opts.origin);
       ctx.context = opts.context ?? emptyStore;
+      rt.context = ctx.context;
       rt.toolStates = [];
       rt.assistantBlocks = [];
       let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";

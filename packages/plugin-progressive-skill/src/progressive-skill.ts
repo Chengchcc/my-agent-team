@@ -1,11 +1,13 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Plugin } from "@my-agent-team/framework";
+import { defineContext, type Plugin } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
 import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { loadSkillIndexWithMtimeCache, type SkillMeta } from "./cache.js";
 import { skillLoadTool } from "./skill-load.js";
 
+/** Context key for skill index. progressive-skill writes, metaContext reads. */
+export const SkillIndexKey = defineContext<string>("skill-index");
 function nodeFsAdapter(cwd: string): AgentFsLike {
   return {
     async read(path: string) {
@@ -92,24 +94,12 @@ export function progressiveSkillPlugin(options: ProgressiveSkillOptions): Plugin
 
         if (skills.length === 0) return [...messages];
 
-        const systemIdx = messages.findIndex((m) => m.role === "system");
-        if (systemIdx < 0) {
-          ctx.logger.warn("progressive-skill: no system message, skipping injection");
-          return [...messages];
-        }
-
+        // Write skill index to context store for metaContext to pick up.
+        // No longer appended to system message - moved to meta user message.
         const indexBlock = renderIndex(skills.filter((s) => !s.disableModelInvocation));
-        const sys = messages[systemIdx];
-        if (!sys) return messages as Message[];
-        const newSys = {
-          ...sys,
-          text: `${sys.text ?? ""}\n\n${indexBlock}`,
-        };
-        return [
-          ...messages.slice(0, systemIdx),
-          newSys,
-          ...messages.slice(systemIdx + 1),
-        ] as Message[];
+        ctx.context.set(SkillIndexKey, indexBlock);
+
+        return [...messages];
       },
     },
   };
