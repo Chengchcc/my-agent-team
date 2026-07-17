@@ -16,8 +16,8 @@ import {
   ConversationCtx,
   conversationContextPlugin,
 } from "@my-agent-team/plugin-conversation-context";
-import { goalPlugin } from "@my-agent-team/plugin-goal";
 import { MemoryKey } from "@my-agent-team/plugin-fs-memory";
+import { goalPlugin } from "@my-agent-team/plugin-goal";
 import { SkillIndexKey } from "@my-agent-team/plugin-progressive-skill";
 import { TodoKey } from "@my-agent-team/plugin-todo";
 import type { BackendConfig } from "../../config.js";
@@ -159,7 +159,7 @@ export function createConversationFeature(
       const isLark = members.some((m) => m.kind === "human" && m.userRef?.startsWith("lark:"));
       const surface = isLark ? "lark" : "web";
 
-      const { modelName } = await agentSvc.getById(agentId);
+      const { modelName, name: agentName } = await agentSvc.getById(agentId);
       const cwd = join(config.dataDir, "agents", agentId);
       const cTools = convTools(convPort, conversationId);
       const mcpTools = mcpClientManager.getTools(agentId);
@@ -167,7 +167,7 @@ export function createConversationFeature(
         model: createModel(modelName, config),
         tools: [...defaultTools(cwd), ...cTools, ...mcpTools],
         plugins: [
-          ...defaultPlugins(cwd, config),
+          ...defaultPlugins(cwd, config, undefined, agentName),
           conversationContextPlugin({ tools: cTools }),
           goalPlugin({
             goalCondition: () => goalStore.get(conversationId).condition,

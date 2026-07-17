@@ -69,9 +69,10 @@ export function defaultPlugins(
   cwd: string,
   config: BackendConfig,
   skillRoots?: SkillRoots,
+  agentName?: string,
 ): Plugin[] {
   return [
-    identityPlugin({ cwd }),
+    identityPlugin({ cwd, agentName }),
     fsMemoryPlugin({ cwd: config.workspaceRoot, root: "./memory/" }),
     progressiveSkillPlugin(
       skillRoots

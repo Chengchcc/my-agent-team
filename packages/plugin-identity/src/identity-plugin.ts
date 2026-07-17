@@ -81,6 +81,8 @@ export const BOOTSTRAP_TEMPLATE = [
 
 export interface IdentityPluginOptions {
   cwd: string;
+  agentName?: string;
+  agentRole?: string;
 }
 
 /**
@@ -88,7 +90,7 @@ export interface IdentityPluginOptions {
  * Handles genesis mode (BOOTSTRAP_TEMPLATE) when no SOUL.md exists.
  */
 export function identityPlugin(opts: IdentityPluginOptions): Plugin {
-  const { cwd } = opts;
+  const { cwd, agentName, agentRole } = opts;
 
   async function readIdentityFile(path: string): Promise<string | null> {
     try {
@@ -143,8 +145,9 @@ export function identityPlugin(opts: IdentityPluginOptions): Plugin {
           yestLog: yestLog ?? "",
           today,
           yesterday,
+          agentName,
+          agentRole,
         });
-
         return [{ role: "system", text: prompt }, ...messages];
       },
     },
