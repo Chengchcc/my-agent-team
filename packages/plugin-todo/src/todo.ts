@@ -6,7 +6,7 @@ import type { Message } from "@my-agent-team/message";
 export const TodoKey = defineContext<string>("todo-progress");
 // ─── Types ───
 
-export type TodoStatus = "pending" | "in_progress" | "done";
+export type TodoStatus = "pending" | "in_progress" | "done" | "cancelled";
 
 export interface Todo {
   step: string;
@@ -24,7 +24,14 @@ function renderTodo(list: readonly Todo[]): string {
   if (list.length === 0) return "(empty plan)";
   return list
     .map((t) => {
-      const mark = t.status === "done" ? "x" : t.status === "in_progress" ? ">" : " ";
+      const mark =
+        t.status === "done"
+          ? "x"
+          : t.status === "in_progress"
+            ? ">"
+            : t.status === "cancelled"
+              ? "-"
+              : " ";
       return `- [${mark}] ${t.step}`;
     })
     .join("\n");
@@ -58,8 +65,11 @@ function createTodoWriteTool(opts: {
   return {
     name: "todo_write",
     description:
-      "Manage the todo list: add steps, update step status, reorder, or delete steps. " +
-      "Only one step should be in_progress at a time.",
+      "Creates or updates the assistant's visible todo list for tracking multi-step work. " +
+      "Only use for non-trivial tasks with several concrete steps where tracking progress helps the user - " +
+      "skip it for single-step or trivial requests, where it just adds overhead. " +
+      "Only one step should be in_progress at a time. " +
+      "Actions: add (new steps), update (change status), move (reorder), delete (remove steps).",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -79,7 +89,7 @@ function createTodoWriteTool(opts: {
             type: "object",
             properties: {
               step: { type: "string" },
-              status: { type: "string", enum: ["pending", "in_progress", "done"] },
+              status: { type: "string", enum: ["pending", "in_progress", "done", "cancelled"] },
             },
             required: ["step", "status"],
           },

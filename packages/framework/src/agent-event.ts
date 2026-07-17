@@ -62,7 +62,10 @@ const agentEventSchema = z.discriminatedUnion("type", [
     spanId: z.string().optional(),
     payload: z.object({
       todos: z.array(
-        z.object({ step: z.string(), status: z.enum(["pending", "in_progress", "done"]) }),
+        z.object({
+          step: z.string(),
+          status: z.enum(["pending", "in_progress", "done", "cancelled"]),
+        }),
       ),
     }),
   }),

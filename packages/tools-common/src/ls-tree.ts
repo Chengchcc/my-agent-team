@@ -1,5 +1,5 @@
 import { readdirSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { join } from "node:path";
 import type { Tool } from "@my-agent-team/core";
 
 const DEFAULT_IGNORES = new Set([
