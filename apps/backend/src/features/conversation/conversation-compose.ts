@@ -12,24 +12,21 @@ import {
   systemMessageId,
 } from "@my-agent-team/message";
 import {
+  ConversationContextKey,
   ConversationCtx,
   conversationContextPlugin,
 } from "@my-agent-team/plugin-conversation-context";
 import { goalPlugin } from "@my-agent-team/plugin-goal";
+import { MemoryKey } from "@my-agent-team/plugin-fs-memory";
 import { SkillIndexKey } from "@my-agent-team/plugin-progressive-skill";
+import { TodoKey } from "@my-agent-team/plugin-todo";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
 import type { AgentService } from "../agent/index.js";
 import type { RelationshipService } from "../agent/relationship-service.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import type { SettingsService } from "../settings/index.js";
-import {
-  convTools,
-  createModel,
-  defaultContextManager,
-  defaultPlugins,
-  defaultTools,
-} from "../span/agent-helpers.js";
+import { convTools, createModel, defaultPlugins, defaultTools } from "../span/agent-helpers.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
 import { createGoalStateStore, type GoalStateStore } from "./goal-state.js";
 import { sqliteConversationAdapter } from "./index.js";
@@ -204,13 +201,22 @@ export function createConversationFeature(
             `</workspace>`,
           ];
           const skillIndex = context.get(SkillIndexKey);
+          const convCtx = context.get(ConversationContextKey);
+          if (convCtx) parts.push(convCtx);
+          const memContent = context.get(MemoryKey);
+          if (memContent) {
+            parts.push(`<memory>`);
+            parts.push(memContent);
+            parts.push(`</memory>`);
+          }
           if (skillIndex) {
             parts.push(`<available-skills>`);
             parts.push(skillIndex);
             parts.push(`</available-skills>`);
           }
+          const todoProgress = context.get(TodoKey);
+          if (todoProgress) parts.push(todoProgress);
           parts.push(`</system-reminder>`);
-          return parts.join("\n");
         },
       };
       const existingSid = convPort.getMemberSessionId(conversationId, agentMemberId);

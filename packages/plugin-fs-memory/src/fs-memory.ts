@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Plugin } from "@my-agent-team/framework";
+import { defineContext, type Plugin } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
 import type { AgentFsLike } from "@my-agent-team/tools-common";
 import { pjoin } from "@my-agent-team/tools-common";
@@ -9,6 +9,8 @@ import { memoryReadTool } from "./memory-read.js";
 import { memorySearchTool } from "./memory-search.js";
 import { memoryWriteTool } from "./memory-write.js";
 
+/** Context key for memory content. fs-memory writes, metaContext reads. */
+export const MemoryKey = defineContext<string>("fs-memory");
 function nodeFsAdapter(cwd: string): AgentFsLike {
   const root = resolve(cwd); // normalize away src/.. etc.
   return {
@@ -101,17 +103,9 @@ export function fsMemoryPlugin(options: FsMemoryOptions): Plugin {
           return [...messages];
         }
         if (!memContent) return [...messages];
-        const systemIdx = messages.findIndex((m) => m.role === "system");
-        if (systemIdx < 0) {
-          ctx.logger.warn("fs-memory: no system message found");
-          return [...messages];
-        }
-        const sys = messages[systemIdx]!;
-        return [
-          ...messages.slice(0, systemIdx),
-          { ...sys, text: `${sys.text ?? ""}\n\n<memory>\n${memContent}\n</memory>` },
-          ...messages.slice(systemIdx + 1),
-        ] as Message[];
+        // Write to context store for metaContext to pick up.
+        ctx.context.set(MemoryKey, memContent);
+        return [...messages];
       },
     },
   };

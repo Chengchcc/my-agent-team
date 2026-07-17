@@ -1,12 +1,24 @@
 import { describe, expect, it } from "bun:test";
 import type { Message } from "@my-agent-team/message";
-import { type Todo, todoPlugin } from "./todo.js";
+import { type Todo, TodoKey, todoPlugin } from "./todo.js";
 
 /** Minimal fake HookContext for testing beforeModel. */
-function fakeCtx(sessionId: string, emit?: (e: unknown) => void): never {
+function fakeCtx(sessionId: string, emit?: (e: unknown) => void) {
+  const map = new Map<string, unknown>();
   return {
     sessionId,
     emit: emit as never,
+    context: {
+      get: <T>(key: { name: string }): T | undefined => map.get(key.name) as T | undefined,
+      set: <T>(key: { name: string }, value: T): void => {
+        map.set(key.name, value);
+      },
+      has: (key: { name: string }): boolean => map.has(key.name),
+      delete: (key: { name: string }): boolean => map.delete(key.name),
+      clear: (): void => {
+        map.clear();
+      },
+    },
   } as never;
 }
 
@@ -133,12 +145,13 @@ describe("todoPlugin", () => {
       expect(result[0]!.text).toBe("sys");
     });
 
-    it("injects <todo> block into system prompt when todos exist", async () => {
+    it("writes <todo> block to context store when todos exist", async () => {
       const plugin = todoPlugin();
       const tool = plugin.tools!.find((t) => t.name === "todo_write")!;
 
       // Seed todos with mixed statuses
-      await plugin.hooks!.beforeModel!(fakeCtx("s1"), [{ role: "system", text: "sys" }]);
+      const ctx = fakeCtx("s1");
+      await plugin.hooks!.beforeModel!(ctx, [{ role: "system", text: "sys" }]);
       await tool.execute({ action: "add", steps: ["Done step", "Active step", "Pending step"] });
       await tool.execute({
         action: "update",
@@ -148,18 +161,22 @@ describe("todoPlugin", () => {
         ],
       });
 
-      // Now beforeModel should inject progress
+      // Now beforeModel should write progress to context store
       const msgs: Message[] = [
         { role: "system", text: "sys" },
         { role: "user", text: "hi" },
       ];
-      const result = await plugin.hooks!.beforeModel!(fakeCtx("s1"), msgs);
+      const result = await plugin.hooks!.beforeModel!(ctx, msgs);
+      // Messages unchanged - progress goes to context store, not system message
       expect(result).toHaveLength(2);
-      expect(result[0]!.text).toContain("<todo>");
-      expect(result[0]!.text).toContain("[x] Done step");
-      expect(result[0]!.text).toContain("[>] Active step");
-      expect(result[0]!.text).toContain("[ ] Pending step");
-      expect(result[0]!.text).toContain("</todo>");
+      expect(result[0]!.text).toBe("sys");
+      // Context store has the todo block
+      const stored = ctx.context.get(TodoKey);
+      expect(stored).toContain("<todo>");
+      expect(stored).toContain("[x] Done step");
+      expect(stored).toContain("[>] Active step");
+      expect(stored).toContain("[ ] Pending step");
+      expect(stored).toContain("</todo>");
     });
   });
 });

@@ -31,6 +31,9 @@ function escapeXml(s: string): string {
  * The caller writes via `AgentSession.setContext(ConversationCtx, data)`
  * before calling prompt(). The framework forwards the store to ctx at run start.
  */
+/** Context key for conversation context XML. Plugin writes, metaContext reads. */
+export const ConversationContextKey = defineContext<string>("conversation-context-xml");
+
 export function conversationContextPlugin(opts: ConversationContextPluginOptions): Plugin {
   return definePlugin({
     name: "conversation-context",
@@ -39,19 +42,19 @@ export function conversationContextPlugin(opts: ConversationContextPluginOptions
       async beforeModel(ctx, messages: Message[]): Promise<Message[]> {
         const conv = ConversationCtx.get(ctx);
         if (!conv?.id) return messages;
-        const contextMsg: Message = {
-          role: "system",
-          text: `<conversation>
+        // Write to context store for metaContext to pick up.
+        ctx.context.set(
+          ConversationContextKey,
+          `<conversation>
   <id>${escapeXml(conv.id)}</id>
   <surface>${escapeXml(conv.surface)}</surface>
   <trigger>
     <from>${escapeXml(conv.senderName)}</from>
     <message>${escapeXml(conv.input)}</message>
   </trigger>
-</conversation>
-如需更多上下文，使用 read_conversation_history 等工具。`,
-        };
-        return [contextMsg, ...messages];
+</conversation>`,
+        );
+        return messages;
       },
     },
   });

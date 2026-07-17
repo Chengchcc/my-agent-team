@@ -36,6 +36,7 @@
     "@my-agent-team/plugin-identity": "workspace:*",
     "@my-agent-team/plugin-progressive-skill": "workspace:*",
     "@my-agent-team/plugin-goal": "workspace:*",
+    "@my-agent-team/plugin-todo": "workspace:*",
     "@my-agent-team/tools-common": "workspace:*",
     "@my-agent-team/runtime-observability": "workspace:*",
     "drizzle-orm": "^0.44.0",

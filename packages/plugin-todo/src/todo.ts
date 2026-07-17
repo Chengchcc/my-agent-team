@@ -1,8 +1,9 @@
 import type { Tool } from "@my-agent-team/core";
-import type { Plugin } from "@my-agent-team/framework";
-import { definePlugin } from "@my-agent-team/framework";
+import { defineContext, definePlugin, type Plugin } from "@my-agent-team/framework";
 import type { Message } from "@my-agent-team/message";
 
+/** Context key for todo progress. Plugin writes, metaContext reads. */
+export const TodoKey = defineContext<string>("todo-progress");
 // ─── Types ───
 
 export type TodoStatus = "pending" | "in_progress" | "done";
@@ -194,7 +195,8 @@ export function todoPlugin(opts?: TodoPluginOptions): Plugin {
             return `- [${mark}] ${t.step}`;
           })
           .join("\n");
-        return injectIntoSystem(messages, `<todo>\n${view}\n</todo>`);
+        ctx.context.set(TodoKey, `<todo>\n${view}\n</todo>`);
+        return [...messages];
       },
     },
   });

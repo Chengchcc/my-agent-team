@@ -4,8 +4,8 @@ export {
   type SkillMeta,
 } from "./cache.js";
 export {
-  SkillIndexKey,
   findSkillByName,
   type ProgressiveSkillOptions,
   progressiveSkillPlugin,
+  SkillIndexKey,
 } from "./progressive-skill.js";
