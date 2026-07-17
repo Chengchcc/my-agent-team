@@ -1,5 +1,11 @@
 import type { Tool } from "@my-agent-team/core";
 
+const descriptionParam = {
+  type: "string" as const,
+  description:
+    "Must be the first parameter. A short human-readable summary explaining why this search is being performed.",
+};
+
 export const globTool: Tool = {
   name: "glob",
   description:
@@ -8,7 +14,11 @@ export const globTool: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      pattern: { type: "string", description: "The glob pattern to match (e.g. '**/*.ts')" },
+      description: descriptionParam,
+      pattern: {
+        type: "string",
+        description: "The glob pattern to match (e.g. '**/*.ts')",
+      },
       cwd: {
         type: "string",
         description: "Directory to search from (optional)",

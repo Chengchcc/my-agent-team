@@ -1,5 +1,11 @@
 import type { Tool } from "@my-agent-team/core";
 
+const descriptionParam = {
+  type: "string" as const,
+  description:
+    "Must be the first parameter. A short human-readable summary explaining why this search is being performed.",
+};
+
 export const grepTool: Tool = {
   name: "grep",
   description:
@@ -8,7 +14,11 @@ export const grepTool: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      pattern: { type: "string", description: "The regex pattern to search for" },
+      description: descriptionParam,
+      pattern: {
+        type: "string",
+        description: "The regex pattern to search for",
+      },
       path: {
         type: "string",
         description: "File or directory to search in (optional, defaults to cwd)",

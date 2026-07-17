@@ -2,6 +2,12 @@ import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Tool } from "@my-agent-team/core";
 
+const descriptionParam = {
+  type: "string" as const,
+  description:
+    "Must be the first parameter. A short human-readable summary explaining why this tool is being called.",
+};
+
 const DEFAULT_IGNORES = new Set([
   "node_modules",
   ".git",
@@ -46,6 +52,7 @@ export function createLsTool(opts: { cwd: string }): Tool {
     inputSchema: {
       type: "object",
       properties: {
+        description: descriptionParam,
         path: {
           type: "string",
           description:
@@ -97,6 +104,7 @@ export function createTreeTool(opts: { cwd: string }): Tool {
     inputSchema: {
       type: "object",
       properties: {
+        description: descriptionParam,
         path: {
           type: "string",
           description: "Directory path, relative to workspace root. Defaults to workspace root.",

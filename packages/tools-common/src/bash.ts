@@ -1,5 +1,11 @@
 import type { Tool } from "@my-agent-team/core";
 
+const descriptionParam = {
+  type: "string" as const,
+  description:
+    "Must be the first parameter. A short human-readable summary explaining why this command is being run.",
+};
+
 export const bashTool: Tool = {
   name: "bash",
   description:
@@ -7,7 +13,11 @@ export const bashTool: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      command: { type: "string", description: "The shell command to execute" },
+      description: descriptionParam,
+      command: {
+        type: "string",
+        description: "The shell command to execute",
+      },
       timeout: {
         type: "number",
         description: "Timeout in milliseconds (default 30000, max 600000)",

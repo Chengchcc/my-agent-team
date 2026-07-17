@@ -33,6 +33,13 @@ const IMAGE_EXTENSIONS = new Set([
 ]);
 const READ_MAX_SIZE_BYTES = 256 * 1024;
 
+/** Shared "description" parameter - forces the model to explain its intent before each tool call. */
+const descriptionParam = {
+  type: "string" as const,
+  description:
+    "Must be the first parameter. A short human-readable summary explaining why this tool is being called.",
+};
+
 // ─── read ──────────────────────────────────────────────────────
 
 /** Create a read-file tool scoped to a cwd. */
@@ -46,6 +53,7 @@ export function createReadTool(opts: { cwd: string }): Tool {
     inputSchema: {
       type: "object",
       properties: {
+        description: descriptionParam,
         path: {
           type: "string",
           description: "Path to the file to read, relative to workspace root",
@@ -122,6 +130,7 @@ export function createWriteTool(opts: { cwd: string }): Tool {
     inputSchema: {
       type: "object",
       properties: {
+        description: descriptionParam,
         path: {
           type: "string",
           description: "Path to the file to write, relative to workspace root",
@@ -165,6 +174,7 @@ export function createEditTool(opts: { cwd: string }): Tool {
     inputSchema: {
       type: "object",
       properties: {
+        description: descriptionParam,
         path: {
           type: "string",
           description: "Path to the file to edit, relative to workspace root",
