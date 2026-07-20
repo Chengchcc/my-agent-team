@@ -58,7 +58,7 @@ L1 Protocols    Type contracts: Message / ChatModel / Tool / ContentBlock
 | `packages/core/` | Protocol types + `run()` + `collectStream()` |
 | `packages/framework/` | `createAgent()`, plugins, context managers, checkpointers |
 | `packages/loop/` | Pure state machine (reducer, STATE.md I/O, config parsing) |
-| `packages/adapter-anthropic/` | Anthropic SDK → ChatModel adapter |
+| `packages/ai/` | Provider + Model registry, AnthropicChatModel, model metadata |
 | `packages/tools-common/` | read/write/edit/bash/grep/glob/web tools |
 | `packages/test-helpers/` | `echoModel()` for deterministic test doubles |
 | `packages/plugin-*/` | 5 plugins (identity, fs-memory, progressive-skill, task-guard, conversation-context) |
@@ -170,7 +170,7 @@ Two layers: **packages/loop** (pure state machine, no I/O) + **apps/backend loop
 | `packages/framework/src/plugin.ts` | `definePlugin()` + `PluginHooks` |
 | `packages/core/src/run.ts` | `run()` — synchronous agent loop |
 | `packages/loop/src/loop-reducer.ts` | Pure reducer for Loop item state machine |
-| `packages/adapter-anthropic/src/anthropic-chat-model.ts` | Anthropic SDK → ChatModel |
+| `packages/ai/src/providers/anthropic-chat-model.ts` | Anthropic SDK -> ChatModel |
 | `apps/web/src/lib/api.ts` | Typed API client (Eden Treaty) |
 | `apps/web/src/lib/client.ts` | BFF client + `unwrap()` helper |
 | `biome.json` | Formatter (space/2/100) + linter config |

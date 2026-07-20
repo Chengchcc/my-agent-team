@@ -69,7 +69,7 @@ packages/
   framework/               createAgent()、插件系统、Checkpointer、ContextManager
   harness/                 AgentSession 编排、identityPlugin、compaction
   loop/                    Loop 状态机（纯 reducer）
-  adapter-anthropic/       Anthropic SDK → ChatModel 适配
+  ai/                      Provider 注册制 + Model 元数据 + AnthropicChatModel
   message/                 消息类型与 MessageRevision
   conversation/            成员、@提及、LedgerEntry codec
   tools-common/            通用工具：read/write/edit/bash/grep/glob

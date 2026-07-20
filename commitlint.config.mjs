@@ -17,7 +17,7 @@ export default {
         "config",
         "conversation",
         "framework",
-        "adapter-anthropic",
+        "ai",
         "harness",
         "loop",
         "adapter-mcp",

@@ -36,7 +36,7 @@ DI 把「造」和「用」切开：**造的责任上移到组装根，用的责
 ```mermaid
 flowchart RL
   Backend["backend / main.ts<br/>组装：new 具体实现"] -->|注入| Harness["harness<br/>AgentSession 只认接口"]
-  Adapter["adapter-anthropic<br/>实现接口"] -->|implements| Core
+  Adapter["ai<br/>实现接口"] -->|implements| Core
   Harness -->|依赖| Core["core<br/>定义窄接口<br/>ChatModel / Tool"]
   Framework["framework<br/>Checkpointer / ContextManager / Plugin"] -->|依赖| Core
 ```
@@ -46,7 +46,7 @@ flowchart RL
 落到代码：
 
 - `packages/core/src/chat-model.ts:20` 定义 `interface ChatModel { stream(...): AsyncIterable<AIMessageChunk> }`——一个纯抽象，**不知道 Anthropic 的存在**。
-- `packages/adapter-anthropic/src/anthropic-chat-model.ts` 里 `class AnthropicChatModel implements ChatModel`——具体实现被推到**最外层**。
+- `packages/ai/src/providers/anthropic-chat-model.ts` 里 `class AnthropicChatModel implements ChatModel`——具体实现被推到**最外层**。
 - `packages/harness/src/agent-session.ts` 的 `AgentSession` 构造只收 `ChatModel` 接口，不认任何具体厂商。
 - `apps/backend/src/main.ts` 在顶层 `new AnthropicChatModel(...)`，再把它注入下去。
 
