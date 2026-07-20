@@ -1,7 +1,7 @@
 {
-  "name": "@my-agent-team/adapter-anthropic",
+  "name": "@my-agent-team/ai",
   "version": "0.1.0",
-  "description": "Anthropic ChatModel adapter",
+  "description": "Provider + Model registry",
   "type": "module",
   "exports": {
     ".": {

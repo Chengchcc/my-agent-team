@@ -70,7 +70,7 @@ export class AnthropicChatModel implements ChatModel {
           event.content_block.type === "thinking" ||
           event.content_block.type === "redacted_thinking"
         ) {
-          void 0; // filtered out — thinking is not surfaced to the UI
+          void 0; // filtered out - thinking is not surfaced to the UI
         }
       } else if (event.type === "content_block_delta") {
         if (event.delta.type === "text_delta") {
@@ -93,7 +93,7 @@ export class AnthropicChatModel implements ChatModel {
     const finalMessage = await stream.finalMessage();
     yield {
       done: true,
-      // Adapter boundary: Anthropic SDK stop_reason → internal AIMessageChunk.stopReason.
+      // Adapter boundary: Anthropic SDK stop_reason -> internal AIMessageChunk.stopReason.
       // SDK: "end_turn" | "max_tokens" | "stop_sequence" | "tool_use" | null
       // Internal: same + "pause_turn" | "refusal" (future Anthropic values, passthrough)
       stopReason: (finalMessage?.stop_reason ?? undefined) as AIMessageChunk["stopReason"],

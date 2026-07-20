@@ -1,4 +1,4 @@
-import type { ModelRegistry } from "@my-agent-team/core";
+import type { ModelRegistry } from "@my-agent-team/ai";
 import { Elysia } from "elysia";
 
 export function modelRoutes(registry: ModelRegistry) {

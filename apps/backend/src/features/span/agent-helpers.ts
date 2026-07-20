@@ -1,7 +1,12 @@
 import { mkdirSync } from "node:fs";
-import { anthropicProvider } from "@my-agent-team/adapter-anthropic";
-import type { ChatModel, ModelRef, ModelRegistry, Tool } from "@my-agent-team/core";
-import { createModelRegistry, parseModelRef } from "@my-agent-team/core";
+import {
+  anthropicProvider,
+  createModelRegistry,
+  type Model,
+  type ModelRegistry,
+  type ProviderAuth,
+} from "@my-agent-team/ai";
+import type { ChatModel, Tool } from "@my-agent-team/core";
 import {
   autoSummarize,
   type ContextManager,
@@ -47,18 +52,14 @@ export function createDefaultModelRegistry(config: BackendConfig): ModelRegistry
   return registry;
 }
 
-/** Create a ChatModel from a model ref string or ModelRef, using the registry.
- *  Bare strings default to "anthropic" provider (backward compat). */
+/** Create a ChatModel from a Model object using the registry.
+ *  No bare-string compat: callers must resolve Model via registry.getModel(). */
 export function createModel(
-  modelRef: ModelRef | string,
+  model: Model,
   registry: ModelRegistry,
-  config: BackendConfig,
+  auth: ProviderAuth,
 ): ChatModel {
-  const ref = typeof modelRef === "string" ? parseModelRef(modelRef) : modelRef;
-  return registry.createModel(ref, {
-    apiKey: config.anthropicApiKey,
-    baseUrl: config.anthropicBaseUrl,
-  });
+  return registry.createModel(model, auth);
 }
 
 // ─── Tools ────────────────────────────────────────────────

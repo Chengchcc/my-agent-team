@@ -87,6 +87,7 @@ const settingsSvc = createSettingsService({
 });
 
 const modelRegistry = createDefaultModelRegistry(config);
+const anthropicAuth = { apiKey: config.anthropicApiKey, baseUrl: config.anthropicBaseUrl };
 const mcpClientManager = createMcpClientManager();
 
 const obsConfig = resolveObservabilityConfig({ serviceName: "backend" });
@@ -129,7 +130,7 @@ const skillPackSvc = createSkillPackServiceFn({
     void runInstall(
       { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
       {
-        model: createModel("claude-sonnet-4-6", modelRegistry, config),
+        model: createModel(modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!, modelRegistry, anthropicAuth),
         dataDir: config.dataDir,
         port: skillPackPort,
         checkpointer: sqliteCheckpointer({ db: join(config.dataDir, "checkpointer.db") }),
@@ -148,7 +149,7 @@ const skillPackSvc = createSkillPackServiceFn({
     void runSync(
       { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
       {
-        model: createModel("claude-sonnet-4-6", modelRegistry, config),
+        model: createModel(modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!, modelRegistry, anthropicAuth),
         dataDir: config.dataDir,
         port: skillPackPort,
         checkpointer: sqliteCheckpointer({ db: join(config.dataDir, "checkpointer.db") }),
@@ -341,7 +342,7 @@ const app = createApp(config.authToken, {
     ulid,
     sessionManager,
     (params) => ({
-      model: createModel(params.modelName, modelRegistry, config),
+      model: createModel(modelRegistry.getModel("anthropic", params.modelName) ?? modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!, modelRegistry, anthropicAuth),
       tools: [...defaultTools(params.cwd), ...mcpClientManager.getTools("loop-agent")],
       plugins: defaultPlugins(params.cwd, config, params.skillRoots),
       contextManager: defaultContextManager(settingsSvc),
