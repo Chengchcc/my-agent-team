@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { join } from "node:path";
 import type { McpClientManager } from "@my-agent-team/adapter-mcp";
-import type { Model, ModelRegistry, ProviderAuth } from "@my-agent-team/ai";
+import type { ModelRegistry, ProviderAuth } from "@my-agent-team/ai";
 import type { ContextStore } from "@my-agent-team/framework";
 import type { SessionManager } from "@my-agent-team/harness";
 import type { Message, MessageRevision } from "@my-agent-team/message";
@@ -167,14 +167,23 @@ export function createConversationFeature(
       const cTools = convTools(convPort, conversationId);
       const mcpTools = mcpClientManager.getTools(agentId);
       const agentConfig = {
-        model: createModel(modelRegistry.getModel("anthropic", modelName) ?? modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!, modelRegistry, auth),
+        model: createModel(
+          modelRegistry.getModel("anthropic", modelName) ??
+            modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!,
+          modelRegistry,
+          auth,
+        ),
         tools: [...defaultTools(cwd), ...cTools, ...mcpTools],
         plugins: [
           ...defaultPlugins(cwd, config, undefined, agentName),
           conversationContextPlugin({ tools: cTools }),
           goalPlugin({
             goalCondition: () => goalStore.get(conversationId).condition,
-            evaluatorModel: createModel(modelRegistry.getModel("anthropic", "claude-sonnet-4")!, modelRegistry, auth), // ponytail: reuse main model, swap to Haiku later
+            evaluatorModel: createModel(
+              modelRegistry.getModel("anthropic", "claude-sonnet-4")!,
+              modelRegistry,
+              auth,
+            ), // ponytail: reuse main model, swap to Haiku later
             onEvaluation: ({ summary, evaluation }) => {
               const gs = goalStore.get(conversationId);
               if (gs.paused) return;

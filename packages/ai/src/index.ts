@@ -1,3 +1,10 @@
+export {
+  ANTHROPIC_MODELS,
+  AnthropicChatModel,
+  type AnthropicChatModelConfig,
+  anthropicProvider,
+  toAnthropicTools,
+} from "./providers/index.js";
 export { createModelRegistry } from "./registry.js";
 export type {
   InputModality,
@@ -7,10 +14,3 @@ export type {
   Provider,
   ProviderAuth,
 } from "./types.js";
-export {
-  ANTHROPIC_MODELS,
-  AnthropicChatModel,
-  type AnthropicChatModelConfig,
-  anthropicProvider,
-  toAnthropicTools,
-} from "./providers/index.js";

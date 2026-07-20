@@ -142,8 +142,8 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
     const body: Record<string, unknown> = {
       name: values.name,
       model: {
-        provider: "anthropic",
-        model: values.model,
+        provider: values.model.split("/")[0] ?? "anthropic",
+        model: values.model.split("/").slice(1).join("/") || values.model,
         ...(values.baseURL ? { baseURL: values.baseURL } : {}),
       },
       permissionMode: values.permissionMode,

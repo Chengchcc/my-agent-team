@@ -57,6 +57,7 @@ export function createApp(token: string, features: FeatureSet) {
     mcp,
     loops,
     settings,
+    models,
   } = features;
   const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
@@ -73,6 +74,7 @@ export function createApp(token: string, features: FeatureSet) {
     .use(skillPacks)
     .use(settings)
     .use(mcp)
+    .use(models)
     .onError(({ code, error, set }) => {
       if (error instanceof DomainError) {
         set.status = error.status;

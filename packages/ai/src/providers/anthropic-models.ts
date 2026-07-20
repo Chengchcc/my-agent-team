@@ -54,7 +54,7 @@ export const ANTHROPIC_MODELS: readonly Model[] = [
   },
   {
     id: "claude-sonnet-4",
-    name: "Claude Sonnet 4",
+    name: "Claude Sonnet 4 (alias)",
     provider: "anthropic",
     reasoning: true,
     input: ["text", "image"],

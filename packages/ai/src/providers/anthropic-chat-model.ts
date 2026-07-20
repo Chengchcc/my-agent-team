@@ -19,7 +19,7 @@ export class AnthropicChatModel implements ChatModel {
 
   constructor(config: AnthropicChatModelConfig = {}) {
     this.#config = config;
-    this.id = config.model ?? "claude-opus-4-7";
+    this.id = config.model ?? "claude-sonnet-4-6";
     this.#client = new Anthropic({
       apiKey: config.apiKey ?? process.env.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_AUTH_TOKEN,
       baseURL: config.baseUrl,
@@ -40,7 +40,7 @@ export class AnthropicChatModel implements ChatModel {
 
     const stream = this.#client.messages.stream(
       {
-        model: this.#config.model ?? "claude-opus-4-7",
+        model: this.#config.model ?? "claude-sonnet-4-6",
         max_tokens: this.#config.maxTokens ?? 16000,
         messages: apiMessages,
         ...(system ? { system } : {}),

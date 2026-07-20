@@ -130,7 +130,11 @@ const skillPackSvc = createSkillPackServiceFn({
     void runInstall(
       { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
       {
-        model: createModel(modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!, modelRegistry, anthropicAuth),
+        model: createModel(
+          modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!,
+          modelRegistry,
+          anthropicAuth,
+        ),
         dataDir: config.dataDir,
         port: skillPackPort,
         checkpointer: sqliteCheckpointer({ db: join(config.dataDir, "checkpointer.db") }),
@@ -149,7 +153,11 @@ const skillPackSvc = createSkillPackServiceFn({
     void runSync(
       { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
       {
-        model: createModel(modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!, modelRegistry, anthropicAuth),
+        model: createModel(
+          modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!,
+          modelRegistry,
+          anthropicAuth,
+        ),
         dataDir: config.dataDir,
         port: skillPackPort,
         checkpointer: sqliteCheckpointer({ db: join(config.dataDir, "checkpointer.db") }),
@@ -342,7 +350,12 @@ const app = createApp(config.authToken, {
     ulid,
     sessionManager,
     (params) => ({
-      model: createModel(modelRegistry.getModel("anthropic", params.modelName) ?? modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!, modelRegistry, anthropicAuth),
+      model: createModel(
+        modelRegistry.getModel("anthropic", params.modelName) ??
+          modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!,
+        modelRegistry,
+        anthropicAuth,
+      ),
       tools: [...defaultTools(params.cwd), ...mcpClientManager.getTools("loop-agent")],
       plugins: defaultPlugins(params.cwd, config, params.skillRoots),
       contextManager: defaultContextManager(settingsSvc),

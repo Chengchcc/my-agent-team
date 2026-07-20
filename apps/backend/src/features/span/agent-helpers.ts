@@ -54,11 +54,7 @@ export function createDefaultModelRegistry(config: BackendConfig): ModelRegistry
 
 /** Create a ChatModel from a Model object using the registry.
  *  No bare-string compat: callers must resolve Model via registry.getModel(). */
-export function createModel(
-  model: Model,
-  registry: ModelRegistry,
-  auth: ProviderAuth,
-): ChatModel {
+export function createModel(model: Model, registry: ModelRegistry, auth: ProviderAuth): ChatModel {
   return registry.createModel(model, auth);
 }
 

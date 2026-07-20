@@ -322,7 +322,16 @@ export const api = {
         id: string;
         name: string;
         baseUrl?: string;
-        models: Array<{ provider: string; id: string; name?: string }>;
+        models: Array<{
+          id: string;
+          name: string;
+          provider: string;
+          reasoning: boolean;
+          input: string[];
+          cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+          contextWindow: number;
+          maxTokens: number;
+        }>;
       }>;
     };
   },
