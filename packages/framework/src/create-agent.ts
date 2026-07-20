@@ -9,6 +9,9 @@ import type {
   ResumeCommand,
 } from "./agent-options.js";
 import { type Checkpointer, validateCheckpointer } from "./checkpointer.js";
+import type { EventLog } from "./event-log.js";
+import type { InterruptStore } from "./interrupt-store.js";
+import type { MessageStore } from "./message-store.js";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 import { createContextStore } from "./context.js";
 import { passthroughContextManager } from "./context-managers/passthrough.js";
@@ -33,21 +36,37 @@ export type {
 
 export async function createAgent(config: AgentConfig): Promise<Agent> {
   const sessionId = config.sessionId ?? crypto.randomUUID();
-  const checkpointer = config.checkpointer ?? inMemoryCheckpointer();
-  validateCheckpointer(checkpointer);
+  // Accept either a composite Checkpointer (legacy shortcut) or explicit
+  // split interfaces. Ponytail: derive the three from whichever is provided.
+  const checkpointer: Checkpointer | undefined = config.checkpointer;
+  const messageStore: MessageStore = config.messageStore ?? checkpointer ?? inMemoryCheckpointer();
+  const eventLog: EventLog | undefined =
+    config.eventLog ??
+    (checkpointer?.appendEvent && checkpointer?.readEvents
+      ? (checkpointer as EventLog)
+      : undefined);
+  const interruptStore: InterruptStore | undefined =
+    config.interruptStore ??
+    (checkpointer?.saveInterrupt && checkpointer?.consumeInterrupt
+      ? (checkpointer as InterruptStore)
+      : undefined);
+  // Validate pairing on a composite checkpointer if one was given.
+  if (checkpointer) validateCheckpointer(checkpointer);
 
   let messages: Message[];
   if (config.messages) {
     messages = config.messages;
-    checkpointer.save(sessionId, messages).catch(() => {});
+    messageStore.save(sessionId, messages).catch(() => {});
   } else {
-    const loaded = await checkpointer.load(sessionId);
+    const loaded = await messageStore.load(sessionId);
     messages = loaded ?? [];
   }
 
   return createAgentInternal({
     ...config,
-    checkpointer,
+    messageStore,
+    eventLog,
+    interruptStore,
     sessionId,
     _initialMessages: messages,
   });
@@ -57,7 +76,9 @@ function createAgentInternal(
   config: AgentConfig & {
     _initialMessages: Message[];
     sessionId: string;
-    checkpointer: Checkpointer;
+    messageStore: MessageStore;
+    eventLog?: EventLog;
+    interruptStore?: InterruptStore;
   },
 ): Agent {
   const thread = createThread(config._initialMessages, config.sessionId);
@@ -65,7 +86,9 @@ function createAgentInternal(
   const tools = validatePlugins(plugins, config.tools);
   const toolMap = new Map(tools.map((t) => [t.name, t]));
   const systemPrompt = config.systemPrompt;
-  const checkpointer = config.checkpointer;
+  const messageStore = config.messageStore;
+  const eventLog = config.eventLog;
+  const interruptStore = config.interruptStore;
   const contextManager = config.contextManager ?? passthroughContextManager();
   const logger = config.logger ?? consoleLogger({ level: "info" });
   const model = config.model;
@@ -73,9 +96,9 @@ function createAgentInternal(
 
   const save = async (msgs: Message[]) => {
     try {
-      await checkpointer.save(thread.id, msgs);
+      await messageStore.save(thread.id, msgs);
     } catch (err) {
-      logger.warn(`checkpointer.save ${thread.id}`, err);
+      logger.warn(`messageStore.save ${thread.id}`, err);
     }
   };
 
@@ -85,7 +108,9 @@ function createAgentInternal(
     sessionId: thread.id,
     signal: undefined,
     logger,
-    checkpointer,
+    messageStore,
+    eventLog,
+    interruptStore,
     contextManager,
     emit: (event: AgentEvent) => {
       pendingEvents.push(event);
@@ -100,8 +125,10 @@ function createAgentInternal(
   const rt: AgentRuntime = {
     thread,
     plugins: pluginRunner,
+    messageStore,
+    eventLog,
+    interruptStore,
     toolMap,
-    checkpointer,
     contextManager,
     logger,
     model,
@@ -148,7 +175,9 @@ function createAgentInternal(
         ...config,
         plugins: [...plugins],
         sessionId: newId,
-        checkpointer,
+        messageStore,
+        eventLog,
+        interruptStore,
         _initialMessages: msgs ?? structuredClone(thread.messages),
       });
     },
@@ -182,7 +211,7 @@ function createAgentInternal(
         if (input.trim()) {
           thread.messages.push({ role: "user", text: input });
           await save(thread.messages);
-          await checkpointer.appendEvent?.(thread.id, rt.spanId, {
+          await rt.eventLog?.appendEvent(thread.id, rt.spanId, {
             type: "user_input",
             content: input,
             ts: Date.now(),
@@ -274,10 +303,10 @@ function createAgentInternal(
       let lastError: string | undefined;
       try {
         yield { type: "agent_start" as const, spanId: rt.spanId };
-        const it = await checkpointer.consumeInterrupt?.(thread.id);
+        const it = await rt.interruptStore?.consumeInterrupt(thread.id);
         if (!it) throw new Error("No pending interrupt for this thread");
 
-        await checkpointer.appendEvent?.(thread.id, rt.spanId, {
+        await rt.eventLog?.appendEvent(thread.id, rt.spanId, {
           type: "resume",
           ts: Date.now(),
         });

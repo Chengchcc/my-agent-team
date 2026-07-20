@@ -1,6 +1,8 @@
 import type { Tool, ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
-import type { Checkpointer } from "./checkpointer.js";
+import type { EventLog } from "./event-log.js";
+import type { InterruptStore } from "./interrupt-store.js";
+import type { MessageStore } from "./message-store.js";
 import type { ContextStore } from "./context.js";
 import type { ContextManager } from "./context-manager.js";
 import type { AgentEvent } from "./create-agent.js";
@@ -14,10 +16,12 @@ export type StopDecision = { continue: true; reason: string } | { continue: fals
  *  plugins read via `MyKey.get(ctx)`, callers write via `session.setContext(key, value)`. */
 export interface HookContext {
   sessionId: string;
-  span?: RunSpan;
   signal?: AbortSignal;
+  span?: RunSpan;
+  messageStore: MessageStore;
+  eventLog?: EventLog;
+  interruptStore?: InterruptStore;
   logger: Logger;
-  checkpointer: Checkpointer;
   contextManager: ContextManager;
   emit?(event: AgentEvent): void;
   /** Per-run data store. Always present (may be empty). Cleared after each run. */

@@ -1,7 +1,7 @@
 import type { ToolResultBlock, ToolUseBlock } from "@my-agent-team/core";
 import type { AgentEvent } from "./agent-event.js";
 import type { AgentRuntime } from "./agent-options.js";
-import { InterruptSignal } from "./checkpointer.js";
+import { InterruptSignal } from "./interrupt-store.js";
 import { wrapToolResult } from "./plugin-dispatcher.js";
 
 // ─── executeOne (extracted from createAgentInternal) ────────────
@@ -12,7 +12,7 @@ export async function* executeOne(
   opts: { signal?: AbortSignal },
   step: number,
 ): AsyncGenerator<AgentEvent, boolean> {
-  await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+  await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
     type: "tool_start",
     call,
     ts: Date.now(),
@@ -63,19 +63,19 @@ export async function* executeOne(
   } catch (err) {
     if (err instanceof InterruptSignal) {
       await rt.save(rt.thread.messages);
-      if (!rt.checkpointer.saveInterrupt) {
+      if (!rt.interruptStore) {
         throw new Error(
-          "Tool requested interrupt but checkpointer does not support it. " +
-            "Use a checkpointer that implements saveInterrupt/consumeInterrupt.",
+          "Tool requested interrupt but interruptStore is not configured. " +
+            "Provide an interruptStore implementing saveInterrupt/consumeInterrupt.",
           { cause: err },
         );
       }
-      await rt.checkpointer.saveInterrupt(rt.thread.id, {
+      await rt.interruptStore.saveInterrupt(rt.thread.id, {
         pendingTool: { call, reason: err.reason },
         ts: Date.now(),
         meta: err.meta,
       });
-      await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+      await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
         type: "interrupt",
         pendingTool: call,
         reason: err.reason,
@@ -108,7 +108,7 @@ export async function* executeOne(
   rt.thread.messages.push({ role: "user", blocks: [resultBlock] });
   await rt.plugins.fireAfterTool(call, resultBlock, rt.thread.messages);
   for (const ev of rt.pendingEvents.splice(0)) yield ev;
-  await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+  await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
     type: "tool_end",
     result: resultBlock,
     durationMs: Date.now() - toolStart,
@@ -171,7 +171,7 @@ export async function runOneCollect(
   const events: AgentEvent[] = [];
   const toolStart = Date.now();
 
-  await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+  await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
     type: "tool_start",
     call,
     ts: Date.now(),
@@ -219,19 +219,19 @@ export async function runOneCollect(
   } catch (err) {
     if (err instanceof InterruptSignal) {
       await rt.save(rt.thread.messages);
-      if (!rt.checkpointer.saveInterrupt) {
+      if (!rt.interruptStore) {
         throw new Error(
-          "Tool requested interrupt but checkpointer does not support it. " +
-            "Use a checkpointer that implements saveInterrupt/consumeInterrupt.",
+          "Tool requested interrupt but interruptStore is not configured. " +
+            "Provide an interruptStore implementing saveInterrupt/consumeInterrupt.",
           { cause: err },
         );
       }
-      await rt.checkpointer.saveInterrupt(rt.thread.id, {
+      await rt.interruptStore.saveInterrupt(rt.thread.id, {
         pendingTool: { call, reason: err.reason },
         ts: Date.now(),
         meta: err.meta,
       });
-      await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+      await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
         type: "interrupt",
         pendingTool: call,
         reason: err.reason,
@@ -269,7 +269,7 @@ export async function runOneCollect(
   // of which tool completes first in a parallel batch.
   await rt.plugins.fireAfterTool(call, resultBlock, rt.thread.messages);
   for (const ev of rt.pendingEvents.splice(0)) events.push(ev);
-  await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+  await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
     type: "tool_end",
     result: resultBlock,
     durationMs: Date.now() - toolStart,

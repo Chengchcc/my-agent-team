@@ -8,6 +8,9 @@ import type {
 import type { Message, MessageToolState } from "@my-agent-team/message";
 import type { AgentEvent } from "./agent-event.js";
 import type { Checkpointer } from "./checkpointer.js";
+import type { EventLog } from "./event-log.js";
+import type { InterruptStore } from "./interrupt-store.js";
+import type { MessageStore } from "./message-store.js";
 import type { ContextStore } from "./context.js";
 import type { ContextManager } from "./context-manager.js";
 import type { Logger } from "./logger.js";
@@ -58,6 +61,9 @@ export interface AgentConfig {
   systemPrompt?: string;
   plugins?: readonly Plugin[];
   checkpointer?: Checkpointer;
+  messageStore?: MessageStore;
+  eventLog?: EventLog;
+  interruptStore?: InterruptStore;
   contextManager?: ContextManager;
   logger?: Logger;
   sessionId?: string;
@@ -91,9 +97,11 @@ export interface PluginRunner {
 
 export interface AgentRuntime {
   thread: Thread;
+  messageStore: MessageStore;
+  eventLog?: EventLog;
+  interruptStore?: InterruptStore;
   plugins: PluginRunner;
   toolMap: ReadonlyMap<string, Tool>;
-  checkpointer: Checkpointer;
   contextManager: ContextManager;
   logger: Logger;
   model: ChatModel;

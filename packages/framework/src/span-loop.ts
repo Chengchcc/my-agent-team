@@ -89,7 +89,7 @@ export async function* spanLoop(
             error: { message: "Run aborted" },
           },
         };
-        await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+        await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
           type: "run_end",
           reason: "aborted",
           ts: Date.now(),
@@ -130,7 +130,7 @@ export async function* spanLoop(
         withMeta,
       );
 
-      await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+      await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
         type: "model_start",
         messageCount: finalMsgs.length,
         ts: Date.now(),
@@ -178,7 +178,7 @@ export async function* spanLoop(
       }
 
       const latencyMs = Date.now() - llmStart;
-      await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+      await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
         type: "model_end",
         blocks: blocks.slice(),
         usage,
@@ -249,7 +249,7 @@ export async function* spanLoop(
           if (verdict?.continue) {
             forceContinues++;
             rt.thread.messages.push({ role: "user", text: verdict.reason });
-            await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+            await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
               type: "force_continue",
               reason: verdict.reason,
               attempt: forceContinues,
@@ -270,7 +270,7 @@ export async function* spanLoop(
             rt.toolStates,
           ),
         };
-        await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+        await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
           type: "run_end",
           reason: "complete",
           ts: Date.now(),
@@ -418,7 +418,7 @@ export async function* spanLoop(
         error: { message: "Max steps reached" },
       },
     };
-    await rt.checkpointer.appendEvent?.(rt.thread.id, rt.spanId, {
+    await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
       type: "run_end",
       reason: "maxSteps",
       ts: Date.now(),

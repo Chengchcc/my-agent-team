@@ -42,7 +42,9 @@ function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRunti
         sessionId: "t1",
         signal: undefined,
         logger,
-        checkpointer,
+        messageStore: checkpointer,
+        eventLog: checkpointer,
+        interruptStore: checkpointer,
         contextManager: passthroughContextManager(),
         context: createContextStore(),
         emit: () => {},
@@ -50,7 +52,6 @@ function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRunti
       logger,
     ),
     toolMap,
-    checkpointer,
     contextManager: passthroughContextManager(),
     logger,
     model: { id: "test", stream: async function* () {}, countTokens: async () => 0 },
@@ -61,6 +62,7 @@ function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRunti
     toolStates: [],
     assistantBlocks: [],
     subscribers: new Set(),
+    context: createContextStore(),
   };
 }
 

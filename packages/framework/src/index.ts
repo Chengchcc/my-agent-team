@@ -1,10 +1,14 @@
 export type {
   CheckpointEvent,
   CheckpointEventRow,
-  Checkpointer,
-  InterruptState,
-} from "./checkpointer.js";
-export { InterruptSignal, validateCheckpointer } from "./checkpointer.js";
+} from "./event-log.js";
+export type { EventLog } from "./event-log.js";
+export type { InterruptState } from "./interrupt-store.js";
+export type { InterruptStore } from "./interrupt-store.js";
+export { InterruptSignal } from "./interrupt-store.js";
+export type { MessageStore } from "./message-store.js";
+export type { Checkpointer } from "./checkpointer.js";
+export { validateCheckpointer } from "./checkpointer.js";
 export { fileCheckpointer } from "./checkpointers/file-checkpointer.js";
 export { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 export {
