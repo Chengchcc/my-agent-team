@@ -87,8 +87,8 @@ used_by:
   | **P1** | Hook 事件返回类型 | `AgentHarnessEventResultMap` 每个 hook 有明确返回类型，`beforeProviderRequest` 可 per-call 改 headers/timeout/retries | `PluginHooks` 返回值简单，无 `beforeProviderRequest` hook，无法 per-call 注入 headers | 2 天 |
   | **P1** | AgentMessage declaration merging | `CustomAgentMessages` 空接口，app 通过 declaration merging 加自定义消息类型，`AgentMessage = Message \| CustomAgentMessages[keyof]` | `Message` 是固定 union，加新类型要改 `@my-agent-team/message` 包 | 半天 |
   | **P2** | ExecutionEnv 抽象 | `FileSystem` + `Shell` 接口 + 稳定错误码（FileErrorCode/ExecutionErrorCode），可注入不同实现（node:fs/sandbox/浏览器） | 工具直接用 `node:fs` 和 `Bun.spawn`，硬编码 | 3-5 天 |
-  | **P2** | Session Tree | Session 是树结构（非线性数组），每条 entry 有 id+parentId，支持 fork/回溯/中途换模型/压缩点保留可逆 | `Thread.messages` 线性数组，checkpointer 只做 save/load | 极高（架构级重设计） |
-  | **P2** | Compaction 可逆 | `CompactionEntry` + `BranchSummaryEntry`，压缩在树里打节点保留分支摘要，可回溯到压缩前 | `summarizingContextManager` 直接替换旧消息，不可逆 | 高（依赖 Session Tree） |
+
+  | **P0** | Session Tree + Checkpointer 拆分 | 见下方专节 | 拆 Checkpointer + 树结构 + SessionRepo | 4-5 周 |
   | **P3** | Result<T,E> 错误类型 | `Result<TValue, TError>` 显式 `{ok, value} \| {ok: false, error}`，不依赖 throw | 全用 throw + try/catch + DomainError 层级 | 低（风格偏好，不值得迁移） |
   | **P3** | Tool terminate 标记 | `AgentToolResult.terminate: boolean`，工具可标记"执行后终止 agent loop" | 无，工具不能主动终止 loop（InterruptSignal 已覆盖类似场景） | 低 |
 
@@ -99,6 +99,29 @@ used_by:
   4. 未来加新 provider 只需 `setProvider(newProvider)`，不改框架代码
 
   不值得借鉴的：OAuth（桌面端场景）、动态 model 列表拉取（可后加）、TypeBox 类型（我们用 zod 已够用）。
+- **Session Tree + Checkpointer 拆分（2026-07-17）**　参考 pi-ai 的 Session 设计，将线性消息数组升级为树结构，同时拆分 Checkpointer 的混合职责。这是架构级重设计，分三步：
+
+  | 步骤 | 内容 | 为什么 | 成本 |
+  |---|---|---|---|
+  | **Step 1: 拆 Checkpointer** | 把 `Checkpointer` 拆成 `MessageStore`（load/save/fork/getBranch）+ `EventLog`（appendEvent/readEvents）。`AgentSession` 依赖 `MessageStore`，`SpanSupervisor` 依赖 `EventLog`。SessionManager 管理 `MessageStore` 生命周期。 | Checkpointer 当前混了两件事：消息持久化（session 职责）+ 执行事件日志（observability 职责）。概念纠缠导致三层嵌套（SessionManager -> AgentSession -> Checkpointer），每层都有 id，想加 fork/回溯改不动。 | 1 周 |
+  | **Step 2: Session Tree** | `Message[]` 升级为 `SessionTreeEntry[]`（每条有 id + parentId）。支持 fork（`moveTo(entryId)` 回到任意节点重新分支）、回溯（`getBranch(fromId)`）、可逆压缩（`CompactionEntry` 在树里打节点，保留旧消息）。 | 线性数组不可回溯，压缩不可逆。Pi 的树结构让 fork/回溯/可逆压缩都自然落地，且 `ModelChangeEntry` 等记录中途状态变更。 | 2-3 周 |
+  | **Step 3: SessionRepo** | 引入 `SessionRepo` 接口（create/open/list/delete/fork），实现 JSONL 和 SQLite 两种 storage。Session 不再是内存对象，而是可持久化、可分享的文件。 | 当前 session 只在内存 + checkpointer DB 里，不可分享。Pi 的 JSONL session 可直接作为文件分享和调试。 | 1 周 |
+
+  Pi 的 Session 设计核心：
+  - `SessionStorage` 接口：appendEntry/getEntry/getPathToRoot -- 树存储原语
+  - `Session` 类：appendMessage/fork/moveTo/buildContext -- session 操作
+  - `SessionTreeEntry` union：MessageEntry / CompactionEntry / ModelChangeEntry / BranchSummaryEntry -- 统一存储消息和状态变更
+  - `buildSessionContext`：从根到叶子的路径构建 messages，处理 compaction 截断
+  - `SessionRepo.fork(source, { entryId, position })`：从任意节点 fork 新 session
+
+  当前概念栈对比：
+  ```
+  我们:  Thread(消息数组) -> Checkpointer(load/save+事件日志) -> AgentSession(retry/compaction) -> SessionManager(生命周期)
+  Pi:    SessionStorage(树存储) -> Session(append/fork/moveTo) -> AgentHarness(hooks/compaction)
+  ```
+  差异：Checkpointer 混了消息持久化 + 事件日志；Thread 线性不支持 fork；没有 SessionRepo。
+
+  不做：Pi 的 `CustomAgentMessages` declaration merging（Message 类型已稳定）、`Result<T,E>` 错误类型（风格偏好）。
 - **Ops 导航转 session / trace 中心**　现状 Ops 面以 run 为中心列举（run 列表 → run 详情），词汇与分区都停在 daemon 时代的 `run`。[标识符体系](../foundations/identifiers.md) 把本体收敛为「session（一条 trace）→ span（root span）→ attempt（重试序号）」后，Ops 导航也应顺着这条链改：顶层按 **session** 聚合（一个 agent 在一个上下文里的整条记忆线），点进去看这条线上的 **span 序列**（每次 prompt loop 一段，按 spanId 切的 `checkpoint_events` 即其执行事实流），再下钻到 **attempt / child span**。这让「这条线到底跑过几轮、第 3 轮前是什么状态」成为一次自然的层层下钻，而不是在扁平 run 列表里靠 `idempotencyKey` 反推。依赖：[标识符体系](../foundations/identifiers.md)、[数据模型](../backend/data-model.md)。
 - **删除 transport / heartbeat 残骸**　**已解决。** `attempt` 表的 `pid` / `heartbeat_at` 列已删除（migration 0009），reaper 心跳分支已移除，超时由 per-span 看门狗（主动 cancel）表达。
 - **Harness 运行时加固（M22）**　**已落地。** 四项子任务全部完成，相关 `status: current` 页面已回填：
