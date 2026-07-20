@@ -1,6 +1,5 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
 import { createMcpClientManager } from "@my-agent-team/adapter-mcp";
 import {
   autoSummarize,
@@ -34,6 +33,7 @@ import { createLarkBotRegistry } from "./features/lark-bot/lark-bot-registry-fac
 import { loopRoutes } from "./features/loop/http.js";
 import { createLoopStateStore } from "./features/loop/loop-state-store.js";
 import { createMcpService, mcpRoutes, sqliteMcpServerAdapter } from "./features/mcp/index.js";
+import { modelRoutes } from "./features/models/index.js";
 import {
   createProjectService,
   projectRoutes,
@@ -59,6 +59,7 @@ import {
   sqliteSkillPackAdapter,
 } from "./features/skill-pack/index.js";
 import {
+  createDefaultModelRegistry,
   createModel,
   defaultContextManager,
   defaultPlugins,
@@ -85,6 +86,7 @@ const settingsSvc = createSettingsService({
   config,
 });
 
+const modelRegistry = createDefaultModelRegistry(config);
 const mcpClientManager = createMcpClientManager();
 
 const obsConfig = resolveObservabilityConfig({ serviceName: "backend" });
@@ -127,11 +129,7 @@ const skillPackSvc = createSkillPackServiceFn({
     void runInstall(
       { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
       {
-        model: new AnthropicChatModel({
-          apiKey: config.anthropicApiKey,
-          model: "claude-sonnet-4-6",
-          baseUrl: config.anthropicBaseUrl,
-        }),
+        model: createModel("claude-sonnet-4-6", modelRegistry, config),
         dataDir: config.dataDir,
         port: skillPackPort,
         checkpointer: sqliteCheckpointer({ db: join(config.dataDir, "checkpointer.db") }),
@@ -150,11 +148,7 @@ const skillPackSvc = createSkillPackServiceFn({
     void runSync(
       { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
       {
-        model: new AnthropicChatModel({
-          apiKey: config.anthropicApiKey,
-          model: "claude-sonnet-4-6",
-          baseUrl: config.anthropicBaseUrl,
-        }),
+        model: createModel("claude-sonnet-4-6", modelRegistry, config),
         dataDir: config.dataDir,
         port: skillPackPort,
         checkpointer: sqliteCheckpointer({ db: join(config.dataDir, "checkpointer.db") }),
@@ -197,6 +191,7 @@ const conv = createConversationFeature(
   sessionManager,
   settingsSvc,
   mcpClientManager,
+  modelRegistry,
   relSvc,
 );
 
@@ -308,6 +303,7 @@ const cronScheduler = createCronScheduler({
   sessionManager,
   projectPort,
   store: loopStore,
+  modelRegistry,
 });
 
 // Resume route for ToolApprovalCard interrupt flow — uses AgentSession.resume()
@@ -345,7 +341,7 @@ const app = createApp(config.authToken, {
     ulid,
     sessionManager,
     (params) => ({
-      model: createModel(params.modelName, config),
+      model: createModel(params.modelName, modelRegistry, config),
       tools: [...defaultTools(params.cwd), ...mcpClientManager.getTools("loop-agent")],
       plugins: defaultPlugins(params.cwd, config, params.skillRoots),
       contextManager: defaultContextManager(settingsSvc),
@@ -359,6 +355,7 @@ const app = createApp(config.authToken, {
   skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
   settings: settingsRoutes(settingsSvc),
   mcp: mcpRoutes(mcpSvc),
+  models: modelRoutes(modelRegistry),
 });
 
 // ─── Start ────────────────────────────────────────────────────

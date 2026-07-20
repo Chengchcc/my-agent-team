@@ -1,4 +1,12 @@
 export type { AIMessageChunk, ChatModel, ChatModelOptions } from "./chat-model.js";
+export {
+  type ModelRef,
+  type ModelRegistry,
+  type Provider,
+  type ProviderModelOptions,
+  createModelRegistry,
+  parseModelRef,
+} from "./provider.js";
 export type {
   ContentBlock,
   TextBlock,

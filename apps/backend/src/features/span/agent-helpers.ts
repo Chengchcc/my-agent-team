@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
-import { AnthropicChatModel } from "@my-agent-team/adapter-anthropic";
-import type { ChatModel, Tool } from "@my-agent-team/core";
+import { anthropicProvider } from "@my-agent-team/adapter-anthropic";
+import type { ChatModel, ModelRef, ModelRegistry, Tool } from "@my-agent-team/core";
+import { createModelRegistry, parseModelRef } from "@my-agent-team/core";
 import {
   autoSummarize,
   type ContextManager,
@@ -32,12 +33,30 @@ import type { ConversationPort } from "../conversation/ports.js";
 import type { SettingsService } from "../settings/index.js";
 import type { SkillRoots } from "./skill-roots.js";
 
-// ─── Model ────────────────────────────────────────────────
+// ─── Model Registry ────────────────────────────────────────
 
-export function createModel(modelName: string, config: BackendConfig): ChatModel {
-  return new AnthropicChatModel({
+/** Create and register providers from config. Called once at startup. */
+export function createDefaultModelRegistry(config: BackendConfig): ModelRegistry {
+  const registry = createModelRegistry();
+  registry.register(
+    anthropicProvider({
+      apiKey: config.anthropicApiKey,
+      baseUrl: config.anthropicBaseUrl,
+    }),
+  );
+  return registry;
+}
+
+/** Create a ChatModel from a model ref string or ModelRef, using the registry.
+ *  Bare strings default to "anthropic" provider (backward compat). */
+export function createModel(
+  modelRef: ModelRef | string,
+  registry: ModelRegistry,
+  config: BackendConfig,
+): ChatModel {
+  const ref = typeof modelRef === "string" ? parseModelRef(modelRef) : modelRef;
+  return registry.createModel(ref, {
     apiKey: config.anthropicApiKey,
-    model: modelName,
     baseUrl: config.anthropicBaseUrl,
   });
 }

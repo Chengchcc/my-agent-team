@@ -314,4 +314,16 @@ export const api = {
       method: "DELETE",
       credentials: "include",
     }).then((r) => r.ok),
+  // Models (direct fetch - route not visible to Eden treaty)
+  listModels: async () => {
+    const resp = await fetch("/api/bff/api/models", { credentials: "include" });
+    return (await resp.json()) as {
+      providers: Array<{
+        id: string;
+        name: string;
+        baseUrl?: string;
+        models: Array<{ provider: string; id: string; name?: string }>;
+      }>;
+    };
+  },
 };

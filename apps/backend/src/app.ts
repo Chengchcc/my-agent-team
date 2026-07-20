@@ -3,6 +3,7 @@ import type { agentRoutes } from "./features/agent/http.js";
 import type { conversationRoutes } from "./features/conversation/http.js";
 import type { cronJobRoutes } from "./features/cron/http.js";
 import type { loopRoutes } from "./features/loop/http.js";
+import type { modelRoutes } from "./features/models/http.js";
 import type { mcpRoutes } from "./features/mcp/http.js";
 import type { projectRoutes } from "./features/project/http.js";
 import type { opsRoutes } from "./features/runtime-ops/http.js";
@@ -24,6 +25,7 @@ export interface FeatureSet {
   skillPacks: ReturnType<typeof skillPackRoutes>;
   mcp: ReturnType<typeof mcpRoutes>;
   settings: ReturnType<typeof settingsRoutes>;
+  models: ReturnType<typeof modelRoutes>;
 }
 
 // ── Auth plugin ──

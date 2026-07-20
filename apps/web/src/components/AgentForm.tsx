@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { agentKeys, useCreateAgent, useUpdateAgent } from "@/features/agents/hooks";
+import { useModelList } from "@/features/models/hooks";
 import {
   useAgentSkillPacks,
   useSetAgentPacks,
@@ -62,12 +63,19 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   const [setupLoading, setSetupLoading] = useState(false);
   const [serverError, setServerError] = useState("");
   const [selectedPackIds, setSelectedPackIds] = useState<string[]>([]);
+  const { data: modelData } = useModelList();
+  const modelGroups = useMemo(() => {
+    const providers = modelData?.providers ?? [];
+    return providers.flatMap((p) =>
+      p.models.map((m) => ({ id: `${p.id}/${m.id}`, name: `${p.name} / ${m.name ?? m.id}` })),
+    );
+  }, [modelData]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: editAgent?.name ?? "",
-      model: editAgent?.modelName ?? "claude-sonnet-4-6",
+      model: editAgent?.modelName ?? "anthropic/claude-sonnet-4-6",
       baseURL: editAgent?.modelBaseUrl ?? "",
       permissionMode: editAgent?.permissionMode ?? "ask",
       maxSteps: editAgent?.maxSteps?.toString() ?? "",
@@ -83,7 +91,9 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
     if (editAgent) {
       form.reset({
         name: editAgent.name,
-        model: editAgent.modelName,
+        model: editAgent.modelName.includes("/")
+          ? editAgent.modelName
+          : `anthropic/${editAgent.modelName}`,
         baseURL: editAgent.modelBaseUrl ?? "",
         permissionMode: editAgent.permissionMode,
         maxSteps: editAgent.maxSteps?.toString() ?? "",
@@ -277,11 +287,21 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                       <FormItem>
                         <FormLabel className={labelClass}>Model *</FormLabel>
                         <FormControl>
-                          <Input
-                            {...field}
-                            placeholder="claude-sonnet-4-6"
-                            className={fieldClass}
-                          />
+                          <Select
+                            value={field.value}
+                            onValueChange={(v) => field.onChange(v ?? "")}
+                          >
+                            <SelectTrigger className={fieldClass}>
+                              <SelectValue placeholder="Select model…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {modelGroups.map((m) => (
+                                <SelectItem key={m.id} value={m.id}>
+                                  {m.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </FormControl>
                         <FormMessage />
                       </FormItem>

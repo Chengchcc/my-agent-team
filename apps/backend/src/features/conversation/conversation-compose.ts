@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { join } from "node:path";
 import type { McpClientManager } from "@my-agent-team/adapter-mcp";
 import type { ContextStore } from "@my-agent-team/framework";
+import type { ModelRegistry } from "@my-agent-team/core";
 import type { SessionManager } from "@my-agent-team/harness";
 import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
@@ -53,6 +54,7 @@ export function createConversationFeature(
   sessionManager: SessionManager,
   settingsSvc: SettingsService,
   mcpClientManager: McpClientManager,
+  modelRegistry: ModelRegistry,
   relSvc: RelationshipService,
   lock: ConversationLock = new ConversationLock(),
 ): ConversationFeature {
@@ -72,7 +74,7 @@ export function createConversationFeature(
 
   // Auto-title: fire-and-forget on first terminal response
   const autoTitle = async (cid: string) => {
-    const model = createModel("claude", config);
+    const model = createModel("claude", modelRegistry, config);
     const entries = convPort.getLedgerEntries(cid).filter((e) => e.kind === "message");
     const msgs: Message[] = entries.slice(0, 6).map((e) => {
       const result = deserializeLedgerContent(e.content);
@@ -164,14 +166,14 @@ export function createConversationFeature(
       const cTools = convTools(convPort, conversationId);
       const mcpTools = mcpClientManager.getTools(agentId);
       const agentConfig = {
-        model: createModel(modelName, config),
+        model: createModel(modelName, modelRegistry, config),
         tools: [...defaultTools(cwd), ...cTools, ...mcpTools],
         plugins: [
           ...defaultPlugins(cwd, config, undefined, agentName),
           conversationContextPlugin({ tools: cTools }),
           goalPlugin({
             goalCondition: () => goalStore.get(conversationId).condition,
-            evaluatorModel: createModel("claude-sonnet-4", config), // ponytail: reuse main model, swap to Haiku later
+            evaluatorModel: createModel("claude-sonnet-4", modelRegistry, config), // ponytail: reuse main model, swap to Haiku later
             onEvaluation: ({ summary, evaluation }) => {
               const gs = goalStore.get(conversationId);
               if (gs.paused) return;

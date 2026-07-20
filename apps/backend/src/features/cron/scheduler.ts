@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { ModelRegistry } from "@my-agent-team/core";
 import type { SessionManager } from "@my-agent-team/harness";
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
@@ -44,6 +45,7 @@ export function createCronScheduler(deps: {
   sessionManager: SessionManager;
   projectPort?: ProjectPort;
   store: LoopStateStore;
+  modelRegistry: ModelRegistry;
 }) {
   const sched = deps.scheduler ?? bunScheduler;
   const handles = new Map<string, CronHandle>();
@@ -71,7 +73,7 @@ export function createCronScheduler(deps: {
       const { modelName } = await deps.agentSvc.getById(job.agentId);
       const cwd = join(deps.config.dataDir, "agents", job.agentId);
       const session = deps.sessionManager.create({
-        model: createModel(modelName, deps.config),
+        model: createModel(modelName, deps.modelRegistry, deps.config),
         tools: defaultTools(cwd),
         plugins: defaultPlugins(cwd, deps.config),
         contextManager: defaultContextManager(),
@@ -152,7 +154,7 @@ export function createCronScheduler(deps: {
   // buildConfig for loop agent sessions — delegates to agentConfig
   function buildConfig(params: { modelName: string; cwd: string; skillRoots?: SkillRoots }) {
     return {
-      model: createModel(params.modelName, deps.config),
+      model: createModel(params.modelName, deps.modelRegistry, deps.config),
       tools: defaultTools(params.cwd),
       plugins: defaultPlugins(params.cwd, deps.config, params.skillRoots),
       contextManager: defaultContextManager(),
