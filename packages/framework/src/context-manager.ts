@@ -1,6 +1,7 @@
 import type { ChatModel } from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
 import type { Logger } from "./logger.js";
+import type { Session } from "./session.js";
 
 /** Marks index ranges in a Message[] that must not be dropped by shape(). */
 export interface PreserveHint {
@@ -17,6 +18,8 @@ export interface ContextManagerContext {
   model: ChatModel;
   /** Optional hint marking message indices that must survive shaping. */
   preserve?: PreserveHint;
+  /** Session for reversible compaction. Present when the agent has a session. */
+  session?: Session;
 }
 
 export interface ContextManager {

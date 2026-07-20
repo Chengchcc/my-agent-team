@@ -20,7 +20,7 @@ function testCtx(overrides?: Partial<HookContext>): HookContext {
   return {
     sessionId: "t1",
     logger: consoleLogger({ level: "silent" }),
-    checkpointer: inMemoryCheckpointer(),
+    messageStore: inMemoryCheckpointer(),
     contextManager: passthroughContextManager(),
     context: createContextStore(),
     ...overrides,
@@ -73,7 +73,7 @@ describe("definePlugin", () => {
 
     expect(capturedCtx).toHaveProperty("sessionId", "t1");
     expect(capturedCtx).toHaveProperty("logger");
-    expect(capturedCtx).toHaveProperty("checkpointer");
+    expect(capturedCtx).toHaveProperty("messageStore");
     expect(capturedCtx).toHaveProperty("contextManager");
     expect(capturedMsgs).toBe(msgs);
   });

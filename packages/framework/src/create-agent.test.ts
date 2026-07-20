@@ -656,7 +656,7 @@ describe("createAgent", () => {
       },
     });
 
-    await expect(collect(agent.run("do it"))).rejects.toThrow("does not support");
+    await expect(collect(agent.run("do it"))).rejects.toThrow("interruptStore is not configured");
   });
 
   // ─── H1: Multi-tool interrupt preserves tool_results ──────────
@@ -877,7 +877,7 @@ describe("createAgent", () => {
 
   // ─── M4: HookContext exposes three capabilities ───────────────
 
-  test("HookContext exposes logger, checkpointer, contextManager", async () => {
+  test("HookContext exposes logger, messageStore, contextManager", async () => {
     let hookCtx: unknown = null;
 
     const agent = await createAgent({
@@ -899,7 +899,7 @@ describe("createAgent", () => {
 
     expect(hookCtx).toHaveProperty("sessionId");
     expect(hookCtx).toHaveProperty("logger");
-    expect(hookCtx).toHaveProperty("checkpointer");
+    expect(hookCtx).toHaveProperty("messageStore");
     expect(hookCtx).toHaveProperty("contextManager");
   });
 

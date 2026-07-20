@@ -1,10 +1,5 @@
-export type {
-  CheckpointEvent,
-  CheckpointEventRow,
-  Checkpointer,
-  InterruptState,
-} from "./checkpointer.js";
-export { InterruptSignal, validateCheckpointer } from "./checkpointer.js";
+export type { Checkpointer } from "./checkpointer.js";
+export { validateCheckpointer } from "./checkpointer.js";
 export { fileCheckpointer } from "./checkpointers/file-checkpointer.js";
 export { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 export {
@@ -47,9 +42,17 @@ export {
   type SteeringQueue,
   safeParseAgentEvent,
 } from "./create-agent.js";
+export type {
+  CheckpointEvent,
+  CheckpointEventRow,
+  EventLog,
+} from "./event-log.js";
 export type { RunOneResult as SpanOneResult } from "./execute-one.js";
 export { runOneCollect as spanOneCollect } from "./execute-one.js";
+export type { InterruptState, InterruptStore } from "./interrupt-store.js";
+export { InterruptSignal } from "./interrupt-store.js";
 export { consoleLogger, type Logger, type LogLevel, noopLogger } from "./logger.js";
+export type { MessageStore } from "./message-store.js";
 export {
   definePlugin,
   type HookContext,
@@ -61,4 +64,25 @@ export {
 } from "./plugin.js";
 export { repairToolPairs } from "./repair-tool-pairs.js";
 export type { Thread } from "./thread.js";
+export type {
+  CompactionEntry,
+  MessageEntry,
+  ModelChangeEntry,
+  SessionContext,
+  SessionTreeEntry,
+  SessionTreeEntryBase,
+} from "./session-tree.js";
+export type { SessionRepo, SessionMetadata } from "./session-repo.js";
+export {
+  type SqliteSessionRepoOptions,
+  sqliteSessionRepo,
+} from "./repos/sqlite-session-repo.js";
+export type { SessionStorage } from "./session-storage.js";
+export { Session } from "./session.js";
+export { memorySessionStorage } from "./storages/memory-session-storage.js";
+export {
+  ensureSessionSchema,
+  type SqliteSessionStorageOptions,
+  sqliteSessionStorage,
+} from "./storages/sqlite-session-storage.js";
 export type { RunSpan } from "./trace.js";

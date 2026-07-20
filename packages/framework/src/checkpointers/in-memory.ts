@@ -1,29 +1,30 @@
 import type { Message } from "@my-agent-team/message";
-import type { CheckpointEventRow, Checkpointer, InterruptState } from "../checkpointer.js";
+import type { Checkpointer } from "../checkpointer.js";
+import type { CheckpointEventRow, EventLog } from "../event-log.js";
+import type { InterruptState, InterruptStore } from "../interrupt-store.js";
+import type { MessageStore } from "../message-store.js";
 
-export function inMemoryCheckpointer(): Checkpointer {
+/** 消息存储 -- 内存实现。 */
+export function inMemoryMessageStore(): MessageStore {
   const messages = new Map<string, Message[]>();
-  const interrupts = new Map<string, InterruptState>();
-  const events = new Map<string, CheckpointEventRow[]>();
-
   return {
-    async save(sessionId, msgs) {
-      messages.set(sessionId, structuredClone([...msgs]));
-    },
     async load(sessionId) {
       const found = messages.get(sessionId);
       return found ? structuredClone(found) : null;
     },
-
-    async saveInterrupt(sessionId, state) {
-      interrupts.set(sessionId, state);
+    async save(sessionId, msgs) {
+      messages.set(sessionId, structuredClone([...msgs]));
     },
-    async consumeInterrupt(sessionId) {
-      const s = interrupts.get(sessionId);
-      interrupts.delete(sessionId);
-      return s ?? null;
+    async deleteThread(sessionId) {
+      messages.delete(sessionId);
     },
+  };
+}
 
+/** 执行事件日志 -- 内存实现。 */
+export function inMemoryEventLog(): EventLog {
+  const events = new Map<string, CheckpointEventRow[]>();
+  return {
     async appendEvent(sessionId, spanId, event) {
       if (!events.has(sessionId)) events.set(sessionId, []);
       events.get(sessionId)?.push({ ...event, spanId: spanId ?? null, ts: event.ts });
@@ -35,11 +36,36 @@ export function inMemoryCheckpointer(): Checkpointer {
         yield e;
       }
     },
+  };
+}
 
-    async deleteThread(sessionId) {
-      messages.delete(sessionId);
-      interrupts.delete(sessionId);
-      events.delete(sessionId);
+/** 中断状态存储 -- 内存实现。 */
+export function inMemoryInterruptStore(): InterruptStore {
+  const interrupts = new Map<string, InterruptState>();
+  return {
+    async saveInterrupt(sessionId, state) {
+      interrupts.set(sessionId, state);
     },
+    async consumeInterrupt(sessionId) {
+      const s = interrupts.get(sessionId);
+      interrupts.delete(sessionId);
+      return s ?? null;
+    },
+  };
+}
+
+/** 组合 checkpointer -- 三个拆分实现组装为 Checkpointer 复合接口。 */
+export function inMemoryCheckpointer(): Checkpointer {
+  const messageStore = inMemoryMessageStore();
+  const eventLog = inMemoryEventLog();
+  const interruptStore = inMemoryInterruptStore();
+  return {
+    load: messageStore.load.bind(messageStore),
+    save: messageStore.save.bind(messageStore),
+    deleteThread: messageStore.deleteThread?.bind(messageStore),
+    appendEvent: eventLog.appendEvent.bind(eventLog),
+    readEvents: eventLog.readEvents.bind(eventLog),
+    saveInterrupt: interruptStore.saveInterrupt.bind(interruptStore),
+    consumeInterrupt: interruptStore.consumeInterrupt.bind(interruptStore),
   };
 }
