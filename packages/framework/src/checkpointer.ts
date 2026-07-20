@@ -43,3 +43,28 @@ export function validateCheckpointer(cp: Checkpointer): void {
     );
   }
 }
+
+/** Compose a Checkpointer from split interfaces. */
+export function composeCheckpointer(
+  messages: MessageStore,
+  events?: EventLog,
+  interrupts?: InterruptStore,
+): Checkpointer {
+  return {
+    load: messages.load.bind(messages),
+    save: messages.save.bind(messages),
+    ...(messages.deleteThread ? { deleteThread: messages.deleteThread.bind(messages) } : {}),
+    ...(events
+      ? {
+          appendEvent: events.appendEvent.bind(events),
+          readEvents: events.readEvents.bind(events),
+        }
+      : {}),
+    ...(interrupts
+      ? {
+          saveInterrupt: interrupts.saveInterrupt.bind(interrupts),
+          consumeInterrupt: interrupts.consumeInterrupt.bind(interrupts),
+        }
+      : {}),
+  };
+}

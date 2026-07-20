@@ -1,4 +1,11 @@
-import { type RunSpan, Session, sqliteCheckpointer, sqliteSessionStorage } from "@my-agent-team/framework";
+import {
+  type RunSpan,
+  type SessionRepo,
+  Session,
+  sqliteCheckpointer,
+  sqliteSessionRepo,
+  sqliteSessionStorage,
+} from "@my-agent-team/framework";
 import { AgentSession, type SessionConfig } from "./agent-session.js";
 
 /** Span tracking callback -- same signature as AgentSessionConfig.startSpan. */
@@ -44,9 +51,11 @@ export interface SessionManager {
 export class SqliteSessionManager implements SessionManager {
   #sessions = new Map<string, AgentSession>();
   #config: SessionManagerConfig;
+  #repo: SessionRepo;
 
   constructor(config: SessionManagerConfig) {
     this.#config = config;
+    this.#repo = sqliteSessionRepo({ db: config.checkpointerPath });
   }
 
   create(config: SessionConfig): AgentSession {
@@ -54,7 +63,7 @@ export class SqliteSessionManager implements SessionManager {
     const checkpointer = sqliteCheckpointer({
       db: this.#config.checkpointerPath,
     });
-    const session: Session = new Session(
+    const session = new Session(
       sqliteSessionStorage({ db: this.#config.checkpointerPath, sessionId }),
     );
     const agentSession = new AgentSession({
@@ -74,7 +83,7 @@ export class SqliteSessionManager implements SessionManager {
     const checkpointer = sqliteCheckpointer({
       db: this.#config.checkpointerPath,
     });
-    const session: Session = new Session(
+    const session = new Session(
       sqliteSessionStorage({ db: this.#config.checkpointerPath, sessionId }),
     );
     const agentSession = new AgentSession({
@@ -98,5 +107,10 @@ export class SqliteSessionManager implements SessionManager {
       session.dispose();
       this.#sessions.delete(sessionId);
     }
+  }
+
+  /** SessionRepo for fork/list/delete operations. */
+  get repo(): SessionRepo {
+    return this.#repo;
   }
 }

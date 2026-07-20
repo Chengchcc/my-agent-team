@@ -1,5 +1,4 @@
-export type { Checkpointer } from "./checkpointer.js";
-export { validateCheckpointer } from "./checkpointer.js";
+export { type Checkpointer, composeCheckpointer, validateCheckpointer } from "./checkpointer.js";
 export { fileCheckpointer } from "./checkpointers/file-checkpointer.js";
 export { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 export {
