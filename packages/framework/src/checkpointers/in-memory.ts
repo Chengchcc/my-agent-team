@@ -1,8 +1,8 @@
 import type { Message } from "@my-agent-team/message";
+import type { Checkpointer } from "../checkpointer.js";
 import type { CheckpointEventRow, EventLog } from "../event-log.js";
 import type { InterruptState, InterruptStore } from "../interrupt-store.js";
 import type { MessageStore } from "../message-store.js";
-import type { Checkpointer } from "../checkpointer.js";
 
 /** 消息存储 -- 内存实现。 */
 export function inMemoryMessageStore(): MessageStore {

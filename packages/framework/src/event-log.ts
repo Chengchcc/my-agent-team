@@ -46,11 +46,7 @@ export interface EventLog {
    * Append an execution fact event. spanId identifies the current prompt loop
    * (runId in backend terms); pass undefined for events outside a span context.
    */
-  appendEvent(
-    sessionId: string,
-    spanId: string | undefined,
-    event: CheckpointEvent,
-  ): Promise<void>;
+  appendEvent(sessionId: string, spanId: string | undefined, event: CheckpointEvent): Promise<void>;
   /** Read execution fact events. Pass { spanId } to filter to a single span. */
   readEvents(sessionId: string, opts?: { spanId?: string }): AsyncIterable<CheckpointEventRow>;
 }

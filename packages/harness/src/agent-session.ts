@@ -10,6 +10,7 @@ import type {
   Logger,
   Plugin,
   RunSpan,
+  Session,
   SteeringQueue,
 } from "@my-agent-team/framework";
 import { createAgent, createContextStore } from "@my-agent-team/framework";
@@ -40,6 +41,9 @@ export interface SessionConfig {
 export interface AgentSessionConfig extends SessionConfig {
   sessionId?: string;
   checkpointer?: Checkpointer;
+  /** Session: tree-structured persistence (fork/回溯/可逆压缩).
+   *  If provided, passed to createAgent. SessionManager constructs this. */
+  session?: Session;
   startSpan?: (spanId: string, sessionId: string, opts?: unknown) => Promise<RunSpan> | RunSpan;
   logger?: Logger;
   maxSteps?: number;
@@ -255,6 +259,9 @@ export class AgentSession {
       // Persist compacted messages
       await this.#config.checkpointer.save(this.#agent.thread.id, messages);
       this.#agent.thread.messages.splice(0, this.#agent.thread.messages.length, ...messages);
+      // ponytail: mark dirty so the next save/flush reconciles the session
+      // with the compacted cache (rebuilds the tree from the cache).
+      this.#agent.thread.markDirty();
 
       this.#emit({
         type: "compaction_end",
@@ -328,6 +335,7 @@ export class AgentSession {
           : this.#config.tools,
       plugins: this.#config.plugins as readonly Plugin[],
       checkpointer: this.#config.checkpointer,
+      session: this.#config.session,
       contextManager: this.#config.contextManager,
       logger: this.#config.logger,
       systemPrompt: this.#config.systemPrompt,

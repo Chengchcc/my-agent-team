@@ -62,6 +62,9 @@ export async function* spanLoop(
     followUp?: FollowUpQueue;
   },
 ): AsyncGenerator<AgentEvent> {
+  // Refresh thread cache from session at span start so fork/回溯/compaction
+  // are reflected. No-op when the thread has no session.
+  await rt.thread.refreshMessages?.();
   let forceContinues = 0;
   const maxForce = opts.maxForceContinues ?? 3;
   // M17.4 (Patch C v3): a run materializes as a single growing assistant
@@ -101,7 +104,7 @@ export async function* spanLoop(
       // or another agent). They appear as user messages at the next step boundary.
       const pending = opts.steering?.drain() ?? [];
       if (pending.length > 0) {
-        rt.thread.messages.push(...pending);
+        for (const m of pending) rt.thread.push(m);
         await rt.save(rt.thread.messages);
       }
 
@@ -126,6 +129,7 @@ export async function* spanLoop(
           logger: rt.logger,
           model: rt.model,
           preserve,
+          session: rt.session,
         },
         withMeta,
       );
@@ -215,7 +219,7 @@ export async function* spanLoop(
 
       // Push assistant message to thread (internal, for LLM context)
       const assistantMsg: Message = { role: "assistant", blocks: blocks.slice() };
-      rt.thread.messages.push(assistantMsg);
+      rt.thread.push(assistantMsg);
       await rt.plugins.fireAfterModel(rt.thread.messages);
 
       // M17.2 fix: Accumulate blocks for full-run visibility
@@ -248,7 +252,7 @@ export async function* spanLoop(
           for (const ev of rt.pendingEvents.splice(0)) yield ev;
           if (verdict?.continue) {
             forceContinues++;
-            rt.thread.messages.push({ role: "user", text: verdict.reason });
+            rt.thread.push({ role: "user", text: verdict.reason });
             await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {
               type: "force_continue",
               reason: verdict.reason,
@@ -311,7 +315,7 @@ export async function* spanLoop(
           if (interrupted) {
             // executeOne does not push tool_result on interrupt — push it here
             // so the interrupting tool gets a placeholder (matches old serial-loop cleanup)
-            rt.thread.messages.push({
+            rt.thread.push({
               role: "user",
               blocks: [wrapToolResult(batch[0]!, { content: "Interrupted", isError: true })],
             });
@@ -339,7 +343,7 @@ export async function* spanLoop(
 
           // Write tool_results in original tool_use order (not completion order)
           for (let rIdx = 0; rIdx < batch.length; rIdx++) {
-            rt.thread.messages.push({ role: "user", blocks: [results[rIdx]!.resultBlock] });
+            rt.thread.push({ role: "user", blocks: [results[rIdx]!.resultBlock] });
           }
           await rt.save(rt.thread.messages);
 
@@ -356,7 +360,7 @@ export async function* spanLoop(
           const batchIdx = batches.indexOf(batch);
           for (let bi = batchIdx + 1; bi < batches.length; bi++) {
             for (const call of batches[bi]!) {
-              rt.thread.messages.push({
+              rt.thread.push({
                 role: "user",
                 blocks: [wrapToolResult(call, { content: "Interrupted", isError: true })],
               });
@@ -396,7 +400,7 @@ export async function* spanLoop(
     // prompts) and restart the inner loop as new "user" input.
     const followUps = opts.followUp?.drain() ?? [];
     if (followUps.length === 0) break;
-    rt.thread.messages.push(...followUps);
+    for (const m of followUps) rt.thread.push(m);
     await rt.save(rt.thread.messages);
     forceContinues = 0;
     doneNormally = false;

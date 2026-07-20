@@ -35,7 +35,16 @@ function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRunti
   const checkpointer = inMemoryCheckpointer();
   const logger = consoleLogger({ level: "silent" });
   return {
-    thread: { id: "t1", messages: opts.messages ?? [] },
+    thread: {
+      id: "t1",
+      messages: opts.messages ?? [],
+      push: function (this: { messages: Message[] }, m: Message) {
+        this.messages.push(m);
+      },
+      refreshMessages: async () => {
+        /* mock */
+      },
+    },
     plugins: createPluginRunner(
       [],
       {

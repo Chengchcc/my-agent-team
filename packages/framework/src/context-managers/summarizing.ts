@@ -86,6 +86,20 @@ export function autoSummarize(opts: SummarizingOptions): ContextManager {
         ? await opts.summarizer(old, model)
         : await defaultSummarize(old, model, ctx.signal);
 
+      // Reversible compaction: if a Session is available, append a
+      // CompactionEntry so the original messages remain in the tree and the
+      // compaction can be undone (moveTo before the CompactionEntry).
+      const session = ctx.session;
+      if (session) {
+        const tokensBefore = typeof total === "number" ? total : 0;
+        // ponytail: firstKeptEntryId="" -- Session.buildContext treats unknown
+        // id as "keep all tail", which is the safe default here since the
+        // shaper only knows message indices, not tree entry ids.
+        await session.appendCompaction(summary.text ?? "", "", tokensBefore);
+        const built = await session.buildContext();
+        return repairToolPairs(built.messages);
+      }
+
       return repairToolPairs([summary, ...recent]);
     },
   };

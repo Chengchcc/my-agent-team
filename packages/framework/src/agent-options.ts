@@ -8,13 +8,14 @@ import type {
 import type { Message, MessageToolState } from "@my-agent-team/message";
 import type { AgentEvent } from "./agent-event.js";
 import type { Checkpointer } from "./checkpointer.js";
-import type { EventLog } from "./event-log.js";
-import type { InterruptStore } from "./interrupt-store.js";
-import type { MessageStore } from "./message-store.js";
 import type { ContextStore } from "./context.js";
 import type { ContextManager } from "./context-manager.js";
+import type { EventLog } from "./event-log.js";
+import type { InterruptStore } from "./interrupt-store.js";
 import type { Logger } from "./logger.js";
+import type { MessageStore } from "./message-store.js";
 import type { Plugin, StopDecision } from "./plugin.js";
+import type { Session } from "./session.js";
 import type { Thread } from "./thread.js";
 import type { RunSpan } from "./trace.js";
 
@@ -64,6 +65,9 @@ export interface AgentConfig {
   messageStore?: MessageStore;
   eventLog?: EventLog;
   interruptStore?: InterruptStore;
+  /** Session: tree-structured persistence for fork/回溯/可逆压缩.
+   *  If omitted, createAgent constructs one over a memory storage. */
+  session?: Session;
   contextManager?: ContextManager;
   logger?: Logger;
   sessionId?: string;
@@ -100,6 +104,7 @@ export interface AgentRuntime {
   messageStore: MessageStore;
   eventLog?: EventLog;
   interruptStore?: InterruptStore;
+  session: Session;
   plugins: PluginRunner;
   toolMap: ReadonlyMap<string, Tool>;
   contextManager: ContextManager;

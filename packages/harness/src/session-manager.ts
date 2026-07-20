@@ -1,5 +1,4 @@
-import type { RunSpan } from "@my-agent-team/framework";
-import { sqliteCheckpointer } from "@my-agent-team/framework";
+import { type RunSpan, Session, sqliteCheckpointer, sqliteSessionStorage } from "@my-agent-team/framework";
 import { AgentSession, type SessionConfig } from "./agent-session.js";
 
 /** Span tracking callback -- same signature as AgentSessionConfig.startSpan. */
@@ -55,14 +54,18 @@ export class SqliteSessionManager implements SessionManager {
     const checkpointer = sqliteCheckpointer({
       db: this.#config.checkpointerPath,
     });
-    const session = new AgentSession({
+    const session: Session = new Session(
+      sqliteSessionStorage({ db: this.#config.checkpointerPath, sessionId }),
+    );
+    const agentSession = new AgentSession({
       ...config,
       sessionId,
       checkpointer,
+      session,
       startSpan: this.#config.startSpan,
     });
-    this.#sessions.set(sessionId, session);
-    return session;
+    this.#sessions.set(sessionId, agentSession);
+    return agentSession;
   }
 
   open(sessionId: string, config: SessionConfig): AgentSession {
@@ -71,14 +74,18 @@ export class SqliteSessionManager implements SessionManager {
     const checkpointer = sqliteCheckpointer({
       db: this.#config.checkpointerPath,
     });
-    const session = new AgentSession({
+    const session: Session = new Session(
+      sqliteSessionStorage({ db: this.#config.checkpointerPath, sessionId }),
+    );
+    const agentSession = new AgentSession({
       ...config,
       sessionId,
       checkpointer,
+      session,
       startSpan: this.#config.startSpan,
     });
-    this.#sessions.set(sessionId, session);
-    return session;
+    this.#sessions.set(sessionId, agentSession);
+    return agentSession;
   }
 
   get(sessionId: string): AgentSession | undefined {

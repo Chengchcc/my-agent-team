@@ -31,7 +31,7 @@ export async function* executeOne(
       content: decision.result ?? "Tool skipped",
       isError: decision.isError ?? (decision.result ? true : undefined),
     });
-    rt.thread.messages.push({ role: "user", blocks: [r] });
+    rt.thread.push({ role: "user", blocks: [r] });
     await rt.save(rt.thread.messages);
     yield {
       type: "tool_call",
@@ -105,7 +105,7 @@ export async function* executeOne(
     });
   }
 
-  rt.thread.messages.push({ role: "user", blocks: [resultBlock] });
+  rt.thread.push({ role: "user", blocks: [resultBlock] });
   await rt.plugins.fireAfterTool(call, resultBlock, rt.thread.messages);
   for (const ev of rt.pendingEvents.splice(0)) yield ev;
   await rt.eventLog?.appendEvent(rt.thread.id, rt.spanId, {

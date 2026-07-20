@@ -9,18 +9,20 @@ import type {
   ResumeCommand,
 } from "./agent-options.js";
 import { type Checkpointer, validateCheckpointer } from "./checkpointer.js";
-import type { EventLog } from "./event-log.js";
-import type { InterruptStore } from "./interrupt-store.js";
-import type { MessageStore } from "./message-store.js";
 import { inMemoryCheckpointer } from "./checkpointers/in-memory.js";
 import { createContextStore } from "./context.js";
 import { passthroughContextManager } from "./context-managers/passthrough.js";
+import type { EventLog } from "./event-log.js";
+import type { InterruptStore } from "./interrupt-store.js";
 import { consoleLogger } from "./logger.js";
+import type { MessageStore } from "./message-store.js";
 import type { HookContext } from "./plugin.js";
 import { validatePlugins } from "./plugin.js";
 import { createPluginRunner } from "./plugin-dispatcher.js";
+import { Session } from "./session.js";
 import { spanLoop } from "./span-loop.js";
 import { createThread } from "./thread.js";
+import { memorySessionStorage } from "./storages/memory-session-storage.js";
 
 export type { AgentEvent, Interrupt } from "./agent-event.js";
 export { parseAgentEvent, safeParseAgentEvent } from "./agent-event.js";
@@ -53,6 +55,12 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   // Validate pairing on a composite checkpointer if one was given.
   if (checkpointer) validateCheckpointer(checkpointer);
 
+  // Session: use provided session, or construct one over a memory storage.
+  // ponytail: Session is the tree-structured persistence layer; messageStore
+  // remains the flat persistence for backward compat. When a session is
+  // provided, the caller owns its storage (e.g. SqliteSessionStorage).
+  const session: Session = config.session ?? new Session(memorySessionStorage());
+
   let messages: Message[];
   if (config.messages) {
     messages = config.messages;
@@ -61,13 +69,24 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     const loaded = await messageStore.load(sessionId);
     messages = loaded ?? [];
   }
+  // Seed the session so refreshMessages() reflects the loaded history.
+  // ponytail: only seed when the session is empty (e.g. new memory storage).
+  // A caller-provided session (SessionManager.open) may already have entries
+  // from persistent storage - skip to avoid duplicates.
+  const branch = await session.getBranch();
+  const sessionEmpty = branch.length === 0;
+  if (sessionEmpty) {
+    for (const m of messages) await session.appendMessage(m);
+  }
 
   return createAgentInternal({
     ...config,
     messageStore,
     eventLog,
     interruptStore,
+    session,
     sessionId,
+    sessionEmpty,
     _initialMessages: messages,
   });
 }
@@ -79,9 +98,19 @@ function createAgentInternal(
     messageStore: MessageStore;
     eventLog?: EventLog;
     interruptStore?: InterruptStore;
+    session: Session;
+    sessionEmpty?: boolean;
   },
 ): Agent {
-  const thread = createThread(config._initialMessages, config.sessionId);
+  // Dirty when the session is empty but we have initial messages (e.g. fork
+  // with a fresh session). flushSession reconciles on first save.
+  const sessionEmpty = config.sessionEmpty ?? false;
+  const thread = createThread(
+    config._initialMessages,
+    config.sessionId,
+    config.session,
+    sessionEmpty && config._initialMessages.length > 0,
+  );
   const plugins = [...(config.plugins ?? [])];
   const tools = validatePlugins(plugins, config.tools);
   const toolMap = new Map(tools.map((t) => [t.name, t]));
@@ -99,6 +128,13 @@ function createAgentInternal(
       await messageStore.save(thread.id, msgs);
     } catch (err) {
       logger.warn(`messageStore.save ${thread.id}`, err);
+    }
+    // ponytail: reconcile session with cache on save. Cheap no-op when clean.
+    // Session errors are best-effort (the cache is the primary source).
+    try {
+      await thread.flushSession();
+    } catch (err) {
+      logger.warn(`thread.flushSession ${thread.id}`, err);
     }
   };
 
@@ -128,6 +164,7 @@ function createAgentInternal(
     messageStore,
     eventLog,
     interruptStore,
+    session: config.session,
     toolMap,
     contextManager,
     logger,
@@ -178,6 +215,8 @@ function createAgentInternal(
         messageStore,
         eventLog,
         interruptStore,
+        session: new Session(memorySessionStorage()),
+        sessionEmpty: true,
         _initialMessages: msgs ?? structuredClone(thread.messages),
       });
     },
@@ -207,9 +246,10 @@ function createAgentInternal(
         opts.signal?.throwIfAborted();
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
           thread.messages.unshift({ role: "system", text: systemPrompt });
+          thread.markDirty();
         }
         if (input.trim()) {
-          thread.messages.push({ role: "user", text: input });
+          thread.push({ role: "user", text: input });
           await save(thread.messages);
           await rt.eventLog?.appendEvent(thread.id, rt.spanId, {
             type: "user_input",
@@ -222,6 +262,7 @@ function createAgentInternal(
         if (seeded !== thread.messages) {
           thread.messages.length = 0;
           thread.messages.push(...seeded);
+          thread.markDirty();
           await save(thread.messages);
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
@@ -259,17 +300,16 @@ function createAgentInternal(
       let runStatus: "succeeded" | "error" | "interrupted" = "succeeded";
       let lastError: string | undefined;
       try {
-        yield { type: "agent_start" as const, spanId: rt.spanId };
-        opts.signal?.throwIfAborted();
         if (systemPrompt && !thread.messages.some((m) => m.role === "system")) {
           thread.messages.unshift({ role: "system", text: systemPrompt });
+          thread.markDirty();
           await save(thread.messages);
         }
-
         const seeded = await pluginRunner.fireBeforeRun(thread.messages);
         if (seeded !== thread.messages) {
           thread.messages.length = 0;
           thread.messages.push(...seeded);
+          thread.markDirty();
           await save(thread.messages);
         }
         for (const ev of pendingEvents.splice(0)) yield ev;
@@ -329,8 +369,9 @@ function createAgentInternal(
         };
         if (placeholderIdx >= 0) {
           thread.messages[placeholderIdx] = { role: "user", blocks: [realResult] };
+          thread.markDirty();
         } else {
-          thread.messages.push({ role: "user", blocks: [realResult] });
+          thread.push({ role: "user", blocks: [realResult] });
         }
         await save(thread.messages);
         yield* withSubscribers(spanLoop(rt, spanLoopOpts(opts)));
