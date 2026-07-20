@@ -1,5 +1,5 @@
-import { Elysia } from "elysia";
 import type { ModelRegistry } from "@my-agent-team/core";
+import { Elysia } from "elysia";
 
 export function modelRoutes(registry: ModelRegistry) {
   return new Elysia().get("/api/models", () => {
