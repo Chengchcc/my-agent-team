@@ -1,4 +1,4 @@
-import type { Model, Provider, ProviderAuth } from "../types.js";
+import type { Model, Provider } from "../types.js";
 import { createOpenAICompatProvider } from "./openai-compat.js";
 
 export interface CustomProviderConfig {

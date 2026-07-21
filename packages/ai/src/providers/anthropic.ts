@@ -1,6 +1,6 @@
 import type { ChatModel } from "@my-agent-team/core";
-import type { Model, Provider, ProviderAuth } from "../types.js";
 import { getApiImplementation } from "../api/registry.js";
+import type { Model, Provider, ProviderAuth } from "../types.js";
 import { ANTHROPIC_MODELS } from "./anthropic-models.js";
 
 export function anthropicProvider(auth: ProviderAuth = {}): Provider {

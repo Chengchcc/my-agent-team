@@ -1,5 +1,4 @@
-import type { Model } from "../types.js";
-import type { Provider, ProviderAuth } from "../types.js";
+import type { Model, Provider, ProviderAuth } from "../types.js";
 import { createOpenAICompatProvider } from "./openai-compat.js";
 
 const DEEPSEEK_MODELS: readonly Model[] = [

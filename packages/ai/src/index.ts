@@ -2,31 +2,31 @@
 import "./api/index.js";
 
 export {
-  type Api,
-  type ApiImplementation,
-  type ApiStreamOptions,
-  type KnownApi,
-  type InputModality,
-  type Model,
-  type ModelCost,
-  type ModelRegistry,
-  type Provider,
-  type ProviderAuth,
-} from "./types.js";
-export { createModelRegistry } from "./registry.js";
+  anthropicMessagesApi,
+  getApiImplementation,
+  openAICompletionsApi,
+  parseSSE,
+  registerApi,
+} from "./api/index.js";
 export {
   ANTHROPIC_MODELS,
   anthropicProvider,
-  createOpenAICompatProvider,
-  type OpenAICompatProviderConfig,
-  deepseekProvider,
-  customProvider,
   type CustomProviderConfig,
+  createOpenAICompatProvider,
+  customProvider,
+  deepseekProvider,
+  type OpenAICompatProviderConfig,
 } from "./providers/index.js";
-export {
-  parseSSE,
-  registerApi,
-  getApiImplementation,
-  anthropicMessagesApi,
-  openAICompletionsApi,
-} from "./api/index.js";
+export { createModelRegistry } from "./registry.js";
+export type {
+  Api,
+  ApiImplementation,
+  ApiStreamOptions,
+  InputModality,
+  KnownApi,
+  Model,
+  ModelCost,
+  ModelRegistry,
+  Provider,
+  ProviderAuth,
+} from "./types.js";

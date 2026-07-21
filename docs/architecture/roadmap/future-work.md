@@ -82,46 +82,42 @@ used_by:
 
   | 优先级 | 设计 | Pi 做法 | 我们现状 | 成本 |
   |---|---|---|---|---|
-  | **P0** | Provider 注册制 | `Provider` 接口（id/auth/models/stream）+ `Models` 注册表（setProvider/deleteProvider/getModel），provider 在启动时注册一次全局复用，stream 按 `model.provider` 分派 | `createModel()` 硬编码 `new AnthropicChatModel`，每次调用都 new SDK client，只支持 Anthropic | 2-3 天 |
-  | **P0** | Model 对象替代裸字符串 | `Model<TApi>` 有 provider/id/api/baseUrl，agent config 存 `{provider, id}` 而非裸 `modelName: "claude-sonnet-4"` | `agent.modelName` 是字符串，不校验是否存在，不关联 provider | 1 天（依赖 P0 Provider） |
+  | **P0** | Provider 注册制 | ✅ 已完成 | `@my-agent-team/ai` 包，Provider/ModelRegistry/anthropicProvider，启动时注册全局复用 | 2026-07-17 |
+  | **P0** | Model 对象替代裸字符串 | ✅ 已完成 | Model 带 cost/contextWindow/maxTokens/reasoning/input，agent 配置存 provider/id | 2026-07-17 |
   | **P1** | Hook 事件返回类型 | `AgentHarnessEventResultMap` 每个 hook 有明确返回类型，`beforeProviderRequest` 可 per-call 改 headers/timeout/retries | `PluginHooks` 返回值简单，无 `beforeProviderRequest` hook，无法 per-call 注入 headers | 2 天 |
-  | **P1** | AgentMessage declaration merging | `CustomAgentMessages` 空接口，app 通过 declaration merging 加自定义消息类型，`AgentMessage = Message \| CustomAgentMessages[keyof]` | `Message` 是固定 union，加新类型要改 `@my-agent-team/message` 包 | 半天 |
-  | **P2** | ExecutionEnv 抽象 | `FileSystem` + `Shell` 接口 + 稳定错误码（FileErrorCode/ExecutionErrorCode），可注入不同实现（node:fs/sandbox/浏览器） | 工具直接用 `node:fs` 和 `Bun.spawn`，硬编码 | 3-5 天 |
+  | **P1** | AgentMessage declaration merging | ⏳ 待办 | Message 是固定 union | 半天 |
+  | **P2** | ExecutionEnv 抽象 | ⏳ 待办 | 工具直接用 node:fs 和 Bun.spawn | 3-5 天 |
 
-  | **P0** | Session Tree + Checkpointer 拆分 | 见下方专节 | 拆 Checkpointer + 树结构 + SessionRepo | 4-5 周 |
+  | **P0** | Session Tree + Checkpointer 拆分 | ✅ 已完成 | 见下方专节（Step 1-3 全部落地） | 2026-07-17 |
   | **P3** | Result<T,E> 错误类型 | `Result<TValue, TError>` 显式 `{ok, value} \| {ok: false, error}`，不依赖 throw | 全用 throw + try/catch + DomainError 层级 | 低（风格偏好，不值得迁移） |
   | **P3** | Tool terminate 标记 | `AgentToolResult.terminate: boolean`，工具可标记"执行后终止 agent loop" | 无，工具不能主动终止 loop（InterruptSignal 已覆盖类似场景） | 低 |
 
-  Pi 的 Provider 设计是最高价值借鉴点。当前 `createModel` 硬编码 Anthropic 是多 provider 支持的根本障碍。Pi 的 `createProvider` 工厂 + `Models` 注册表模式可以：
-  1. 启动时注册 provider（anthropic/openai/custom），全局复用 SDK client
-  2. agent 配置存 `{provider, id}` 替代裸字符串
-  3. `Models.stream(model, context)` 按 provider 分派，auth 在请求时解析
-  4. 未来加新 provider 只需 `setProvider(newProvider)`，不改框架代码
+  Pi 的 Provider 设计已落地：`@my-agent-team/ai` 包，`anthropicProvider` + `openAICompletionsApi` + `createOpenAICompatProvider`，删掉 `@anthropic-ai/sdk` 依赖，直接 fetch + SSE 解析。加新 provider（DeepSeek/Groq/custom）只需 5 行配置。
 
   不值得借鉴的：OAuth（桌面端场景）、动态 model 列表拉取（可后加）、TypeBox 类型（我们用 zod 已够用）。
-- **Session Tree + Checkpointer 拆分（2026-07-17）**　参考 pi-ai 的 Session 设计，将线性消息数组升级为树结构，同时拆分 Checkpointer 的混合职责。这是架构级重设计，分三步：
+- **Session Tree + Checkpointer 拆分（2026-07-17）**　**已落地。** 参考 pi-ai 的 Session 设计，将线性消息数组升级为树结构，同时拆分 Checkpointer 的混合职责。三步全部完成：
 
-  | 步骤 | 内容 | 为什么 | 成本 |
-  |---|---|---|---|
-  | **Step 1: 拆 Checkpointer** | 把 `Checkpointer` 拆成 `MessageStore`（load/save/fork/getBranch）+ `EventLog`（appendEvent/readEvents）。`AgentSession` 依赖 `MessageStore`，`SpanSupervisor` 依赖 `EventLog`。SessionManager 管理 `MessageStore` 生命周期。 | Checkpointer 当前混了两件事：消息持久化（session 职责）+ 执行事件日志（observability 职责）。概念纠缠导致三层嵌套（SessionManager -> AgentSession -> Checkpointer），每层都有 id，想加 fork/回溯改不动。 | 1 周 |
-  | **Step 2: Session Tree** | `Message[]` 升级为 `SessionTreeEntry[]`（每条有 id + parentId）。支持 fork（`moveTo(entryId)` 回到任意节点重新分支）、回溯（`getBranch(fromId)`）、可逆压缩（`CompactionEntry` 在树里打节点，保留旧消息）。 | 线性数组不可回溯，压缩不可逆。Pi 的树结构让 fork/回溯/可逆压缩都自然落地，且 `ModelChangeEntry` 等记录中途状态变更。 | 2-3 周 |
-  | **Step 3: SessionRepo** | 引入 `SessionRepo` 接口（create/open/list/delete/fork），实现 JSONL 和 SQLite 两种 storage。Session 不再是内存对象，而是可持久化、可分享的文件。 | 当前 session 只在内存 + checkpointer DB 里，不可分享。Pi 的 JSONL session 可直接作为文件分享和调试。 | 1 周 |
+  | 步骤 | 状态 | 内容 |
+  |---|---|---|
+  | **Step 1: 拆 Checkpointer** | ✅ 已完成 | `Checkpointer` 拆成 `MessageStore` + `EventLog` + `InterruptStore`。AgentRuntime 用拆分接口。 |
+  | **Step 2: Session Tree** | ✅ 已完成 | `SessionTreeEntry[]` 树结构，Session 类（appendMessage/buildContext/moveTo/getBranch/appendCompaction），Memory + SQLite 存储，Thread 委托 Session。 |
+  | **Step 3: SessionRepo** | ✅ 已完成 | `SessionRepo` 接口（create/open/list/delete/fork），`SqliteSessionRepo` 实现，SessionManager 暴露 `.repo` getter。 |
 
-  Pi 的 Session 设计核心：
-  - `SessionStorage` 接口：appendEntry/getEntry/getPathToRoot -- 树存储原语
-  - `Session` 类：appendMessage/fork/moveTo/buildContext -- session 操作
-  - `SessionTreeEntry` union：MessageEntry / CompactionEntry / ModelChangeEntry / BranchSummaryEntry -- 统一存储消息和状态变更
-  - `buildSessionContext`：从根到叶子的路径构建 messages，处理 compaction 截断
-  - `SessionRepo.fork(source, { entryId, position })`：从任意节点 fork 新 session
-
-  当前概念栈对比：
-  ```
-  我们:  Thread(消息数组) -> Checkpointer(load/save+事件日志) -> AgentSession(retry/compaction) -> SessionManager(生命周期)
-  Pi:    SessionStorage(树存储) -> Session(append/fork/moveTo) -> AgentHarness(hooks/compaction)
-  ```
-  差异：Checkpointer 混了消息持久化 + 事件日志；Thread 线性不支持 fork；没有 SessionRepo。
+  Conversation fork/undo/replay 也已落地（migration 0011，ledger 软删除 + fork 来源追踪）。
 
   不做：Pi 的 `CustomAgentMessages` declaration merging（Message 类型已稳定）、`Result<T,E>` 错误类型（风格偏好）。
+- **oh-my-pi 架构借鉴（2026-07-21）**　分析了 [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) 的增强架构，以下值得借鉴：
+
+  | 优先级 | 设计 | OMP 做法 | 我们现状 | 成本 |
+  |---|---|---|---|---|
+  | **P1** | Append-Only Context（Prompt Cache 优化） | `StablePrefix` 冻结 system prompt + tool specs 字节序列，后续 turn 复用直到 `invalidate()`；`AppendOnlyLog` 消息只追加不重序列化。每轮只有增量消息是 cache miss。 | `beforeModel` 每轮重新拼接 system prompt（读文件+读目录），即使内容没变字节也可能不同，导致 prompt cache miss。 | 2-3 天 |
+  | **P2** | Compaction "Shake"（机械缩减） | 纯机械操作（不调 LLM）：大的 tool_result 和 fenced/XML 块替换为占位符，保护最近 N tokens + 特定工具结果。比 LLM 摘要更快更便宜。 | `summarizingContextManager` 用 LLM 生成摘要替换旧消息，每次压缩都消耗 token。 | 2 天 |
+  | **P2** | Tool Protection（工具结果保护） | 按工具名或谓词保护 `tool_result` 不被压缩/缩减，默认保护 `skill` 工具结果。 | compaction 无差别替换旧消息，包括 agent 之前读取的重要文件内容。 | 半天 |
+  | **P2** | Pause Gate（进程级暂停） | `AgentPauseGate` 进程内所有 agent loop 在下一个安全点冻结，不中断正在进行的 LLM 调用和工具执行。 | `/stop` 是 cancel abort，直接中断。pause 更温和。 | 1 天 |
+  | **P3** | Telemetry（OTel GenAI 语义约定） | OpenTelemetry span 层级（invoke_agent -> chat/execute_tool），GenAI 语义属性，run collector 聚合。 | 有 `runtime-observability` 包但非 OTel 标准。 | 1 周 |
+  | **P3** | Tokenizer（精确 token 计数） | 原生 tokenizer（`@oh-my-pi/pi-natives`），可选精确模式 vs 估算模式（4 bytes/token）。 | 用 `JSON.stringify().length / 4` 估算。 | 2 天 |
+
+  OMP 的 dialect 系统（anthropic/deepseek/gemini/glm/kimi/qwen3 等 15+ 个 dialect 的 prompt 格式适配）不值得抄 -- 我们的 API 层已有消息转换，且不需要 thinking 格式适配（不同模型的 reasoning 格式差异由 API 层处理）。
 - **Ops 导航转 session / trace 中心**　现状 Ops 面以 run 为中心列举（run 列表 → run 详情），词汇与分区都停在 daemon 时代的 `run`。[标识符体系](../foundations/identifiers.md) 把本体收敛为「session（一条 trace）→ span（root span）→ attempt（重试序号）」后，Ops 导航也应顺着这条链改：顶层按 **session** 聚合（一个 agent 在一个上下文里的整条记忆线），点进去看这条线上的 **span 序列**（每次 prompt loop 一段，按 spanId 切的 `checkpoint_events` 即其执行事实流），再下钻到 **attempt / child span**。这让「这条线到底跑过几轮、第 3 轮前是什么状态」成为一次自然的层层下钻，而不是在扁平 run 列表里靠 `idempotencyKey` 反推。依赖：[标识符体系](../foundations/identifiers.md)、[数据模型](../backend/data-model.md)。
 - **删除 transport / heartbeat 残骸**　**已解决。** `attempt` 表的 `pid` / `heartbeat_at` 列已删除（migration 0009），reaper 心跳分支已移除，超时由 per-span 看门狗（主动 cancel）表达。
 - **Harness 运行时加固（M22）**　**已落地。** 四项子任务全部完成，相关 `status: current` 页面已回填：

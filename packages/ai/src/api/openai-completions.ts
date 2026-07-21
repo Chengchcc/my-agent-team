@@ -1,5 +1,5 @@
 import type { AIMessageChunk, Tool } from "@my-agent-team/core";
-import { extractText, type Message } from "@my-agent-team/message";
+import type { Message } from "@my-agent-team/message";
 import type { ApiImplementation, ApiStreamOptions, Model } from "../types.js";
 import { parseSSE } from "./sse-parser.js";
 
