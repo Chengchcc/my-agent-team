@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Plugin } from "@my-agent-team/framework";
@@ -90,6 +90,24 @@ export interface IdentityPluginOptions {
  * Handles genesis mode (BOOTSTRAP_TEMPLATE) when no SOUL.md exists.
  */
 export function identityPlugin(opts: IdentityPluginOptions): Plugin {
+  /** StablePrefix: cache system prompt by file mtimes for prompt cache hit rate. */
+  interface PromptCache {
+    fingerprint: string;
+    prompt: string;
+  }
+  let promptCache: PromptCache | null = null;
+
+  function buildFingerprint(cwd: string, files: string[]): string {
+    return files
+      .map((f) => {
+        try {
+          return `${f}:${statSync(join(cwd, f)).mtimeMs}`;
+        } catch {
+          return `${f}:0`;
+        }
+      })
+      .join("|");
+  }
   const { cwd, agentName, agentRole } = opts;
 
   async function readIdentityFile(path: string): Promise<string | null> {
@@ -126,7 +144,7 @@ export function identityPlugin(opts: IdentityPluginOptions): Plugin {
           return [{ role: "system", text: template }, ...messages];
         }
 
-        // Normal mode: compose full system prompt
+        // Normal mode: read identity files
         const [userDoc, toolsDoc, agentsDoc, todayLog, yestLog] = await Promise.all([
           readIdentityFile("USER.md"),
           readIdentityFile("TOOLS.md"),
@@ -134,6 +152,23 @@ export function identityPlugin(opts: IdentityPluginOptions): Plugin {
           readIdentityFile(`memory/${today}.md`),
           readIdentityFile(`memory/${yesterday}.md`),
         ]);
+
+        // StablePrefix: cache system prompt by file mtimes.
+        // If no identity file changed since last call, reuse the exact same prompt string.
+        // This ensures provider prompt caches (Anthropic, DeepSeek) hit at max rate.
+        const identityFiles = [
+          "SOUL.md",
+          "USER.md",
+          "TOOLS.md",
+          "AGENTS.md",
+          `memory/${today}.md`,
+          `memory/${yesterday}.md`,
+        ];
+        const fingerprint = buildFingerprint(cwd, identityFiles);
+
+        if (promptCache && promptCache.fingerprint === fingerprint) {
+          return [{ role: "system", text: promptCache.prompt }, ...messages];
+        }
 
         const prompt = composeSystemPrompt({
           workspace: cwd,
@@ -148,6 +183,7 @@ export function identityPlugin(opts: IdentityPluginOptions): Plugin {
           agentName,
           agentRole,
         });
+        promptCache = { fingerprint, prompt };
         return [{ role: "system", text: prompt }, ...messages];
       },
     },
