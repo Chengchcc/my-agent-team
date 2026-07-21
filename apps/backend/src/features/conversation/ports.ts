@@ -9,8 +9,12 @@ export interface ConversationRow {
   hopCount: number;
   createdAt: number;
   title: string | null;
-  /** M19: Origin — 'user' for user chats, 'issue' for issue-side conversations. */
+  /** M19: Origin - 'user' for user chats, 'issue' for issue-side conversations. */
   origin: string;
+  /** Fork provenance: source conversation id when origin='fork', else null. */
+  forkSource: string | null;
+  /** Fork provenance: source ledger seq the fork was cut from, else null. */
+  forkFromSeq: number | null;
 }
 
 export interface MemberRow {
@@ -35,6 +39,10 @@ export interface CreateConversationInput {
   triggerMode?: string;
   origin?: string;
   createdAt: number;
+  /** Fork provenance: source conversation id (set when origin='fork'). */
+  forkSource?: string | null;
+  /** Fork provenance: source ledger seq the fork was cut from. */
+  forkFromSeq?: number | null;
 }
 
 export interface CreateMemberInput {
@@ -64,6 +72,8 @@ export interface ConversationWithMembers {
   hopCount: number;
   createdAt: number;
   title: string | null;
+  /** Fork provenance: source conversation id when this conversation is a fork, else null. */
+  forkSource: string | null;
   members: MemberRow[];
   /** Last ledger entry timestamp; null when the conversation has no messages yet. */
   lastActivityAt: number | null;
@@ -95,6 +105,10 @@ export interface ConversationPort {
   updateLedgerContent?(seq: number, content: string, ts: number): void;
   /** Dedup guard: check if (spanId, content) already exists in the ledger. */
   hasLedgerContent?(spanId: string, content: string): boolean;
+  /** Mark a ledger entry as undone (soft delete). */
+  markLedgerEntryUndone?(conversationId: string, seq: number): void;
+  /** Get fork source metadata for a conversation. */
+  getForkSource?(conversationId: string): { source: string; fromSeq: number } | null;
   /** Keyword search across all conversation ledger content. */
   searchLedger(
     keyword: string,

@@ -83,4 +83,49 @@ export function useResumeRun() {
   });
 }
 
+export function useForkConversation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { id: string; fromSeq: number; title?: string }) =>
+      api.forkConversation(params.id, params.fromSeq, params.title),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: conversationKeys.recent() });
+    },
+  });
+}
+
+export function useUndoMessages() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { id: string; count?: number }) =>
+      api.undoMessages(params.id, params.count ?? 1),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: conversationKeys.detail(vars.id) });
+    },
+  });
+}
+
+export function useReplayFromMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: {
+      id: string;
+      fromSeq: number;
+      editedContent: string;
+      senderMemberId: string;
+      addressedTo: string[];
+    }) =>
+      api.replayFromMessage(
+        params.id,
+        params.fromSeq,
+        params.editedContent,
+        params.senderMemberId,
+        params.addressedTo,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: conversationKeys.recent() });
+    },
+  });
+}
+
 export { conversationKeys };

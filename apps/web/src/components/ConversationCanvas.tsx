@@ -319,6 +319,7 @@ export function ConversationCanvas({
                 <Timeline
                   messages={items}
                   viewerMemberId={viewerMemberId}
+                  conversationId={conversationId}
                   scrollContainerRef={scrollRef}
                 />
               </div>

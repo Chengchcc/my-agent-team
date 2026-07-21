@@ -116,6 +116,26 @@ export interface ConversationService {
   }): Promise<{ oldConversationId: string; newConversationId: string; controlSeq: number }>;
   clearConversation(conversationId: string): Promise<void>;
   compactConversation(conversationId: string): Promise<void>;
+  /** Fork a conversation from a ledger seq into a new conversation.
+   *  Copies members + live (non-undone) ledger entries with seq <= fromSeq. */
+  forkConversation(input: {
+    conversationId: string;
+    fromSeq: number;
+    title?: string;
+  }): Promise<{ newConversationId: string }>;
+  /** Soft-delete the most recent N live message entries (undo). */
+  undoMessages(input: {
+    conversationId: string;
+    count?: number;
+  }): Promise<{ undoneSeqs: number[] }>;
+  /** Fork from fromSeq-1, append an edited user message, trigger agent run (replay). */
+  replayFromMessage(input: {
+    conversationId: string;
+    fromSeq: number;
+    editedContent: string;
+    senderMemberId: string;
+    addressedTo: string[];
+  }): Promise<{ newConversationId: string }>;
 }
 
 export function createConversationService(deps: ConversationServiceDeps): ConversationService {
@@ -817,5 +837,109 @@ class ConversationServiceImpl implements ConversationService {
 
   async compactConversation(conversationId: string): Promise<void> {
     await this.#onCompact?.(conversationId);
+  }
+
+  // ─── Fork / Undo / Replay ───────────────────────
+
+  async forkConversation(input: {
+    conversationId: string;
+    fromSeq: number;
+    title?: string;
+  }): Promise<{ newConversationId: string }> {
+    const source = this.port.getConversation(input.conversationId);
+    if (!source) throw new Error(`Conversation not found: ${input.conversationId}`);
+
+    const newId = this.#idGen();
+    this.port.createConversation({
+      conversationId: newId,
+      triggerMode: source.triggerMode,
+      origin: "fork",
+      createdAt: Date.now(),
+      forkSource: input.conversationId,
+      forkFromSeq: input.fromSeq,
+    });
+    this.port.setConversationTitle(newId, input.title ?? `Fork of ${input.conversationId.slice(0, 8)}`);
+
+    // Copy members (preserve memberId so @mentions and session bindings carry over).
+    for (const m of this.port.getMembers(input.conversationId)) {
+      this.port.addMember({
+        conversationId: newId,
+        memberId: m.memberId,
+        kind: m.kind,
+        agentId: m.agentId,
+        userRef: m.userRef,
+        displayName: m.displayName,
+        joinedAt: Date.now(),
+      });
+    }
+
+    // Copy live (non-undone) ledger entries up to fromSeq, preserving content/kind/ts.
+    const entries = this.port
+      .getLedgerEntries(input.conversationId)
+      .filter((e) => e.seq <= input.fromSeq && !e.undone);
+    for (const entry of entries) {
+      this.port.appendLedgerEntry({
+        conversationId: newId,
+        senderMemberId: entry.senderMemberId,
+        addressedTo: entry.addressedTo,
+        kind: entry.kind,
+        // getLedgerEntries parses content back to an object (zod transform); re-serialize
+        // so the new row stores the same JSON string as the source.
+        content: typeof entry.content === "string" ? entry.content : JSON.stringify(entry.content),
+        ts: entry.ts,
+        spanId: entry.spanId ?? undefined,
+      });
+    }
+
+    return { newConversationId: newId };
+  }
+
+  async undoMessages(input: {
+    conversationId: string;
+    count?: number;
+  }): Promise<{ undoneSeqs: number[] }> {
+    const count = input.count ?? 1;
+    const entries = this.port
+      .getLedgerEntries(input.conversationId)
+      .filter((e) => e.kind === "message" && !e.undone);
+    const toUndo = entries.slice(-count);
+    const undoneSeqs: number[] = [];
+    for (const entry of toUndo) {
+      this.port.markLedgerEntryUndone?.(input.conversationId, entry.seq);
+      undoneSeqs.push(entry.seq);
+    }
+    // Broadcast an undo ledger entry so subscribers grey out the messages.
+    if (undoneSeqs.length > 0) {
+      await this.#appendAndBroadcast({
+        conversationId: input.conversationId,
+        senderMemberId: "__system__",
+        addressedTo: [],
+        kind: "undo",
+        content: { undoneSeqs },
+      });
+    }
+    return { undoneSeqs };
+  }
+
+  async replayFromMessage(input: {
+    conversationId: string;
+    fromSeq: number;
+    editedContent: string;
+    senderMemberId: string;
+    addressedTo: string[];
+  }): Promise<{ newConversationId: string }> {
+    // Fork everything before the edited message, then post the edited message
+    // which reuses postMessage's trigger logic to start agent runs.
+    const { newConversationId } = await this.forkConversation({
+      conversationId: input.conversationId,
+      fromSeq: input.fromSeq - 1,
+    });
+    await this.postMessage({
+      conversationId: newConversationId,
+      senderMemberId: input.senderMemberId,
+      addressedTo: input.addressedTo,
+      content: input.editedContent,
+    });
+    return { newConversationId };
   }
 }

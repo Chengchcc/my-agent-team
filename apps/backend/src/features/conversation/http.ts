@@ -84,6 +84,8 @@ export function conversationRoutes(
           hopCount: conv.hopCount,
           title: conv.title,
           createdAt: conv.createdAt,
+          forkSource: conv.forkSource,
+          forkFromSeq: conv.forkFromSeq,
           lastActivityAt: svc.port.getLastActivityAt?.(id) ?? null,
           members,
         };
@@ -249,6 +251,39 @@ export function conversationRoutes(
             title: t.Optional(t.String()),
             requestedByRunId: t.String({ minLength: 1 }),
             idempotencyKey: t.String({ minLength: 1 }),
+          }),
+        },
+      )
+      // ── Fork / Undo / Replay ──
+      .post(
+        "/api/conversations/:id/fork",
+        async ({ params: { id }, body, set }) => {
+          const result = await svc.forkConversation({ conversationId: id, ...body });
+          set.status = 201;
+          return result;
+        },
+        { body: t.Object({ fromSeq: t.Number(), title: t.Optional(t.String()) }) },
+      )
+      .post(
+        "/api/conversations/:id/undo",
+        async ({ params: { id }, body }) => {
+          return await svc.undoMessages({ conversationId: id, ...body });
+        },
+        { body: t.Object({ count: t.Optional(t.Number()) }) },
+      )
+      .post(
+        "/api/conversations/:id/replay",
+        async ({ params: { id }, body, set }) => {
+          const result = await svc.replayFromMessage({ conversationId: id, ...body });
+          set.status = 201;
+          return result;
+        },
+        {
+          body: t.Object({
+            fromSeq: t.Number(),
+            editedContent: t.String(),
+            senderMemberId: t.String(),
+            addressedTo: t.Array(t.String()),
           }),
         },
       )

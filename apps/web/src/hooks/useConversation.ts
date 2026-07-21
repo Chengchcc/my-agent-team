@@ -169,7 +169,9 @@ export function useConversation(
           type: "message",
           seq,
           senderMemberId: entry.senderMemberId,
+          addressedTo: entry.addressedTo,
           content,
+          undone: entry.undone,
         });
       }
     });
@@ -196,6 +198,18 @@ export function useConversation(
           : null;
       if (Array.isArray(todos)) {
         dispatch({ type: "todo/update", todos });
+      }
+    });
+
+    ts.on("undo", (entry) => {
+      const seq = guard(entry);
+      if (seq === null) return;
+      const payload = typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
+      if (payload && typeof payload === "object" && "undoneSeqs" in payload) {
+        const seqs = payload.undoneSeqs;
+        if (Array.isArray(seqs) && seqs.every((n): n is number => typeof n === "number")) {
+          dispatch({ type: "undo", undoneSeqs: seqs });
+        }
       }
     });
 
