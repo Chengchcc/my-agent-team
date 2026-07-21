@@ -67,9 +67,9 @@ describe("Member", () => {
     expect(r.success).toBe(false);
   });
 
-  test("HumanMember requires userRef", () => {
+  test("HumanMember accepts optional userRef", () => {
     const r = HumanMember.safeParse({ kind: "human", memberId: "x" });
-    expect(r.success).toBe(false);
+    expect(r.success).toBe(true);
   });
 });
 

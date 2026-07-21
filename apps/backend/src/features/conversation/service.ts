@@ -858,7 +858,10 @@ class ConversationServiceImpl implements ConversationService {
       forkSource: input.conversationId,
       forkFromSeq: input.fromSeq,
     });
-    this.port.setConversationTitle(newId, input.title ?? `Fork of ${input.conversationId.slice(0, 8)}`);
+    this.port.setConversationTitle(
+      newId,
+      input.title ?? `Fork of ${input.conversationId.slice(0, 8)}`,
+    );
 
     // Copy members (preserve memberId so @mentions and session bindings carry over).
     for (const m of this.port.getMembers(input.conversationId)) {

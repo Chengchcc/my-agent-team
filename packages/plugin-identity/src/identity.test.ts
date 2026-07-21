@@ -115,15 +115,17 @@ describe("identityPlugin", () => {
       expect(result[0]!.text).toContain("<agents>");
     });
 
-    it("includes workspace path and date info in the prompt", async () => {
+    it("includes soul content and agent wrapper in the prompt", async () => {
       await writeFile(join(cwd, "SOUL.md"), "soul", "utf-8");
 
       const plugin = identityPlugin({ cwd });
       const result = await plugin.hooks!.beforeModel!({} as never, [{ role: "user", text: "hi" }]);
 
-      expect(result[0]!.text).toContain("<workspace>");
-      expect(result[0]!.text).toContain(cwd);
-      expect(result[0]!.text).toContain("Today:");
+      expect(result[0]!.text).toContain("<agent");
+      expect(result[0]!.text).toContain("<soul>");
+      expect(result[0]!.text).toContain("soul");
+      expect(result[0]!.text).toContain("</soul>");
+      expect(result[0]!.text).toContain("<skill-system>");
     });
 
     it("does not inject BOOTSTRAP_TEMPLATE when SOUL.md exists", async () => {

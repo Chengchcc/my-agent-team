@@ -320,7 +320,10 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     },
     getForkSource(conversationId: string): { source: string; fromSeq: number } | null {
       const row = d
-        .select({ forkSource: schema.conversation.forkSource, forkFromSeq: schema.conversation.forkFromSeq })
+        .select({
+          forkSource: schema.conversation.forkSource,
+          forkFromSeq: schema.conversation.forkFromSeq,
+        })
         .from(schema.conversation)
         .where(eq(schema.conversation.conversationId, conversationId))
         .get();

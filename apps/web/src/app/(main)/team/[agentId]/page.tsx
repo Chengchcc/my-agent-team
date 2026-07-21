@@ -219,7 +219,6 @@ function AgentSkillsPanel({ agentId }: { agentId: string }) {
 }
 
 function AgentRelationshipsPanel({ agentId }: { agentId: string }) {
-  const { data: agent } = useAgentDetail(agentId);
   const { data: rels } = useAgentRelationships(agentId);
   const { data: allAgents } = useAgentList();
   return (

@@ -37,9 +37,7 @@ function ForkSourceMarker({ sourceId, createdAt }: { sourceId: string; createdAt
   return (
     <p className="text-[10px] text-[var(--mute)] flex items-center gap-1">
       <span>↳</span>
-      <span className="truncate">
-        forked from {sourceTitle}
-      </span>
+      <span className="truncate">forked from {sourceTitle}</span>
       {relativeTime(createdAt) && <span>· {relativeTime(createdAt)}</span>}
     </p>
   );

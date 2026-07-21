@@ -83,5 +83,5 @@ export {
   type SqliteSessionStorageOptions,
   sqliteSessionStorage,
 } from "./storages/sqlite-session-storage.js";
-export type { Thread } from "./thread.js";
+export { type Thread, createThread } from "./thread.js";
 export type { RunSpan } from "./trace.js";

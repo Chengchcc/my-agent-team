@@ -5,8 +5,11 @@ import { runOneCollect } from "./execute-one.js";
 import {
   consoleLogger,
   createContextStore,
+  createThread,
   inMemoryCheckpointer,
+  memorySessionStorage,
   passthroughContextManager,
+  Session,
 } from "./index.js";
 import { createPluginRunner } from "./plugin-dispatcher.js";
 
@@ -15,7 +18,8 @@ function makeRuntime(tools: Tool[] = []): AgentRuntime {
   const checkpointer = inMemoryCheckpointer();
   const logger = consoleLogger({ level: "silent" });
   return {
-    thread: { id: "t1", messages: [] },
+    thread: createThread([], "t1"),
+    session: new Session(memorySessionStorage()),
     plugins: createPluginRunner(
       [],
       {
@@ -23,8 +27,8 @@ function makeRuntime(tools: Tool[] = []): AgentRuntime {
         signal: undefined,
         logger,
         messageStore: checkpointer,
-        eventLog: checkpointer,
-        interruptStore: checkpointer,
+        eventLog: checkpointer as never,
+        interruptStore: checkpointer as never,
         contextManager: passthroughContextManager(),
         context: createContextStore(),
         emit: () => {},
@@ -33,8 +37,9 @@ function makeRuntime(tools: Tool[] = []): AgentRuntime {
     ),
     toolMap,
     messageStore: checkpointer,
-    eventLog: checkpointer,
-    interruptStore: checkpointer,
+    eventLog: checkpointer as never,
+    interruptStore: checkpointer as never,
+    contextManager: passthroughContextManager(),
     logger,
     model: { id: "test", stream: async function* () {}, countTokens: async () => 0 },
     tools,
@@ -44,7 +49,8 @@ function makeRuntime(tools: Tool[] = []): AgentRuntime {
     toolStates: [],
     assistantBlocks: [],
     subscribers: new Set(),
-  };
+    context: createContextStore(),
+  } as unknown as AgentRuntime;
 }
 
 const testCall: ToolUseBlock = {

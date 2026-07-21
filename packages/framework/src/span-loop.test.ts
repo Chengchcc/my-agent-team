@@ -11,8 +11,11 @@ import type { AgentRuntime, FollowUpQueue, SteeringQueue } from "./agent-options
 import {
   consoleLogger,
   createContextStore,
+  createThread,
   inMemoryCheckpointer,
+  memorySessionStorage,
   passthroughContextManager,
+  Session,
 } from "./index.js";
 import { createPluginRunner } from "./plugin-dispatcher.js";
 import { spanLoop } from "./span-loop.js";
@@ -35,16 +38,8 @@ function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRunti
   const checkpointer = inMemoryCheckpointer();
   const logger = consoleLogger({ level: "silent" });
   return {
-    thread: {
-      id: "t1",
-      messages: opts.messages ?? [],
-      push: function (this: { messages: Message[] }, m: Message) {
-        this.messages.push(m);
-      },
-      refreshMessages: async () => {
-        /* mock */
-      },
-    },
+    thread: createThread(opts.messages ?? [], "t1"),
+    session: new Session(memorySessionStorage()),
     plugins: createPluginRunner(
       [],
       {
@@ -52,8 +47,8 @@ function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRunti
         signal: undefined,
         logger,
         messageStore: checkpointer,
-        eventLog: checkpointer,
-        interruptStore: checkpointer,
+        eventLog: checkpointer as never,
+        interruptStore: checkpointer as never,
         contextManager: passthroughContextManager(),
         context: createContextStore(),
         emit: () => {},
@@ -61,6 +56,9 @@ function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRunti
       logger,
     ),
     toolMap,
+    messageStore: checkpointer,
+    eventLog: checkpointer as never,
+    interruptStore: checkpointer as never,
     contextManager: passthroughContextManager(),
     logger,
     model: { id: "test", stream: async function* () {}, countTokens: async () => 0 },
@@ -72,7 +70,7 @@ function makeRt(opts: { tools?: Tool[]; messages?: Message[] } = {}): AgentRunti
     assistantBlocks: [],
     subscribers: new Set(),
     context: createContextStore(),
-  };
+  } as unknown as AgentRuntime;
 }
 
 function toolUseModel(calls: Array<{ id: string; name: string; input?: unknown }>): ChatModel {

@@ -1,13 +1,18 @@
 import { describe, expect, it } from "bun:test";
-import type { Message } from "@my-agent-team/message";
+import type { HookContext } from "@my-agent-team/framework";
 import { type Todo, TodoKey, todoPlugin } from "./todo.js";
-
+import type { Message } from "@my-agent-team/message";
 /** Minimal fake HookContext for testing beforeModel. */
 function fakeCtx(sessionId: string, emit?: (e: unknown) => void) {
   const map = new Map<string, unknown>();
   return {
     sessionId,
     emit: emit as never,
+    messageStore: { load: async () => null, save: async () => {} },
+    eventLog: undefined,
+    interruptStore: undefined,
+    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+    contextManager: { shape: (_ctx: unknown, msgs: readonly never[]) => [...msgs] },
     context: {
       get: <T>(key: { name: string }): T | undefined => map.get(key.name) as T | undefined,
       set: <T>(key: { name: string }, value: T): void => {
@@ -19,7 +24,7 @@ function fakeCtx(sessionId: string, emit?: (e: unknown) => void) {
         map.clear();
       },
     },
-  } as never;
+  } as unknown as HookContext;
 }
 
 describe("todoPlugin", () => {

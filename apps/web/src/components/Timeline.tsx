@@ -83,7 +83,12 @@ function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {
   return anchors;
 }
 
-export function Timeline({ messages, viewerMemberId, conversationId, scrollContainerRef }: TimelineProps) {
+export function Timeline({
+  messages,
+  viewerMemberId,
+  conversationId,
+  scrollContainerRef,
+}: TimelineProps) {
   const segments = useMemo(() => groupTurns(messages), [messages]);
   const anchors = useMemo(() => extractAnchors(segments), [segments]);
   // Map segment id → per-conversation turn number (1-based)
@@ -245,9 +250,7 @@ export function Timeline({ messages, viewerMemberId, conversationId, scrollConta
                     {renderContentBlocks(m.content)}
                   </MessageActions>
                   {isUndone && (
-                    <div className="text-[10px] text-[var(--mute)] italic mt-0.5">
-                      ↳ undone
-                    </div>
+                    <div className="text-[10px] text-[var(--mute)] italic mt-0.5">↳ undone</div>
                   )}
                 </div>
               </div>
