@@ -1,7 +1,7 @@
 import {
   type RunSpan,
-  type SessionRepo,
   Session,
+  type SessionRepo,
   sqliteCheckpointer,
   sqliteSessionRepo,
   sqliteSessionStorage,

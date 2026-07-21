@@ -1,11 +1,11 @@
 import type { Message } from "@my-agent-team/message";
+import type { SessionStorage } from "./session-storage.js";
 import type {
   CompactionEntry,
   ModelChangeEntry,
   SessionContext,
   SessionTreeEntry,
 } from "./session-tree.js";
-import type { SessionStorage } from "./session-storage.js";
 
 /**
  * Session: 一次会话的状态机，底层用 SessionStorage 存储树结构。
@@ -115,8 +115,7 @@ export class Session {
       const before = keptStart === -1 ? [] : path.slice(keptStart, compactionIdx);
       const after = path.slice(compactionIdx + 1);
       const keptMessages = [...before, ...after].filter(
-        (e): e is Extract<SessionTreeEntry, { type: "message" }> =>
-          e.type === "message",
+        (e): e is Extract<SessionTreeEntry, { type: "message" }> => e.type === "message",
       );
       // summary 作为一条 system 消息前置
       messages = [
@@ -125,10 +124,7 @@ export class Session {
       ];
     } else {
       messages = path
-        .filter(
-          (e): e is Extract<SessionTreeEntry, { type: "message" }> =>
-            e.type === "message",
-        )
+        .filter((e): e is Extract<SessionTreeEntry, { type: "message" }> => e.type === "message")
         .map((e) => e.message);
     }
 

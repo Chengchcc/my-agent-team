@@ -1,6 +1,6 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import type { Message } from "@my-agent-team/message";
-import { Database } from "bun:sqlite";
 import { Session } from "./session.js";
 import { memorySessionStorage } from "./storages/memory-session-storage.js";
 import { sqliteSessionStorage } from "./storages/sqlite-session-storage.js";
@@ -54,11 +54,7 @@ describe("Session (memory)", () => {
     await s.appendCompaction("summary of old", id2, 100);
     await s.appendMessage(a("after"));
     const ctx = await s.buildContext();
-    expect(ctx.messages.map((m) => m.text)).toEqual([
-      "summary of old",
-      "old2",
-      "after",
-    ]);
+    expect(ctx.messages.map((m) => m.text)).toEqual(["summary of old", "old2", "after"]);
     expect(ctx.messages[0]?.role).toBe("system");
   });
 
@@ -126,11 +122,7 @@ describe("Session (sqlite)", () => {
     await s.appendCompaction("sum", id2, 100);
     await s.appendMessage(a("after"));
     const ctx = await s.buildContext();
-    expect(ctx.messages.map((m) => m.text)).toEqual([
-      "sum",
-      "old2",
-      "after",
-    ]);
+    expect(ctx.messages.map((m) => m.text)).toEqual(["sum", "old2", "after"]);
   });
 
   test("reopening storage persists leaf + entries", async () => {

@@ -1,5 +1,5 @@
-import type { SessionTreeEntry } from "../session-tree.js";
 import type { SessionStorage } from "../session-storage.js";
+import type { SessionTreeEntry } from "../session-tree.js";
 
 /**
  * 内存实现 -- Map<id, entry> + leafId 状态。
@@ -22,9 +22,7 @@ export function memorySessionStorage(): SessionStorage {
     },
     async appendEntry(entry) {
       if (entry.parentId !== null && !entries.has(entry.parentId)) {
-        throw new Error(
-          `memorySessionStorage.appendEntry: parentId ${entry.parentId} not found`,
-        );
+        throw new Error(`memorySessionStorage.appendEntry: parentId ${entry.parentId} not found`);
       }
       entries.set(entry.id, entry);
       order.push(entry.id);
@@ -35,8 +33,7 @@ export function memorySessionStorage(): SessionStorage {
     getPathToRoot(fromLeafId) {
       if (fromLeafId === null) return [];
       const chain: SessionTreeEntry[] = [];
-      let cur: SessionTreeEntry | undefined =
-        entries.get(fromLeafId);
+      let cur: SessionTreeEntry | undefined = entries.get(fromLeafId);
       // ponytail: 简单回溯，无环检测 -- 树由 appendEntry 的 parentId 约束保证
       while (cur !== undefined) {
         chain.push(cur);

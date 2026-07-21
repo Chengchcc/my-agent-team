@@ -21,8 +21,8 @@ import { validatePlugins } from "./plugin.js";
 import { createPluginRunner } from "./plugin-dispatcher.js";
 import { Session } from "./session.js";
 import { spanLoop } from "./span-loop.js";
-import { createThread } from "./thread.js";
 import { memorySessionStorage } from "./storages/memory-session-storage.js";
+import { createThread } from "./thread.js";
 
 export type { AgentEvent, Interrupt } from "./agent-event.js";
 export { parseAgentEvent, safeParseAgentEvent } from "./agent-event.js";

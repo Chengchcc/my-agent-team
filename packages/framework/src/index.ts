@@ -62,7 +62,13 @@ export {
   validatePlugins,
 } from "./plugin.js";
 export { repairToolPairs } from "./repair-tool-pairs.js";
-export type { Thread } from "./thread.js";
+export {
+  type SqliteSessionRepoOptions,
+  sqliteSessionRepo,
+} from "./repos/sqlite-session-repo.js";
+export { Session } from "./session.js";
+export type { SessionMetadata, SessionRepo } from "./session-repo.js";
+export type { SessionStorage } from "./session-storage.js";
 export type {
   CompactionEntry,
   MessageEntry,
@@ -71,17 +77,11 @@ export type {
   SessionTreeEntry,
   SessionTreeEntryBase,
 } from "./session-tree.js";
-export type { SessionRepo, SessionMetadata } from "./session-repo.js";
-export {
-  type SqliteSessionRepoOptions,
-  sqliteSessionRepo,
-} from "./repos/sqlite-session-repo.js";
-export type { SessionStorage } from "./session-storage.js";
-export { Session } from "./session.js";
 export { memorySessionStorage } from "./storages/memory-session-storage.js";
 export {
   ensureSessionSchema,
   type SqliteSessionStorageOptions,
   sqliteSessionStorage,
 } from "./storages/sqlite-session-storage.js";
+export type { Thread } from "./thread.js";
 export type { RunSpan } from "./trace.js";

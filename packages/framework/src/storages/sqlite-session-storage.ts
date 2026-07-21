@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
-import type { SessionTreeEntry } from "../session-tree.js";
 import type { SessionStorage } from "../session-storage.js";
+import type { SessionTreeEntry } from "../session-tree.js";
 
 export interface SqliteSessionStorageOptions {
   db: Database | string;
@@ -32,9 +32,7 @@ export function ensureSessionSchema(db: Database): void {
   // ponytail: migrate legacy DBs -- ALTER TABLE ADD COLUMN has no IF NOT EXISTS,
   // so probe pragma_table_info. Cheaper than try/catch per column.
   const cols = db
-    .prepare<{ name: string }, []>(
-      "SELECT name FROM pragma_table_info('session_metadata')",
-    )
+    .prepare<{ name: string }, []>("SELECT name FROM pragma_table_info('session_metadata')")
     .all()
     .map((r) => r.name);
   if (!cols.includes("created_at")) {
@@ -63,17 +61,12 @@ interface LeafRow {
  * ponytail: 直接用 bun:sqlite prepared statements + 数组绑定（对象命名绑定
  * 在 bun:sqlite 行为不稳），不走 drizzle-kit 迁移；schema 极简且独立。
  */
-export function sqliteSessionStorage(
-  opts: SqliteSessionStorageOptions,
-): SessionStorage {
-  const db: Database =
-    typeof opts.db === "string" ? new Database(opts.db) : opts.db;
+export function sqliteSessionStorage(opts: SqliteSessionStorageOptions): SessionStorage {
+  const db: Database = typeof opts.db === "string" ? new Database(opts.db) : opts.db;
   ensureSessionSchema(db);
   const sessionId = opts.sessionId;
 
-  const selectLeafRow = db.prepare(
-    "SELECT leaf_id FROM session_metadata WHERE session_id = ?",
-  );
+  const selectLeafRow = db.prepare("SELECT leaf_id FROM session_metadata WHERE session_id = ?");
   const upsertLeaf = db.prepare(
     "INSERT INTO session_metadata (session_id, leaf_id, updated_at) " +
       "VALUES (?, ?, ?) " +
@@ -115,24 +108,13 @@ export function sqliteSessionStorage(
     },
     async appendEntry(entry) {
       if (entry.parentId !== null) {
-        const parent = selectEntry.get(entry.parentId, sessionId) as
-          | SessionTreeRow
-          | null;
+        const parent = selectEntry.get(entry.parentId, sessionId) as SessionTreeRow | null;
         if (!parent) {
-          throw new Error(
-            `sqliteSessionStorage.appendEntry: parentId ${entry.parentId} not found`,
-          );
+          throw new Error(`sqliteSessionStorage.appendEntry: parentId ${entry.parentId} not found`);
         }
       }
       const { type, id, parentId, timestamp, ...data } = entry;
-      insertEntry.run(
-        id,
-        sessionId,
-        parentId,
-        type,
-        timestamp,
-        JSON.stringify(data),
-      );
+      insertEntry.run(id, sessionId, parentId, type, timestamp, JSON.stringify(data));
     },
     getEntry(id) {
       const row = selectEntry.get(id, sessionId) as SessionTreeRow | null;
@@ -153,9 +135,7 @@ export function sqliteSessionStorage(
       return chain.reverse();
     },
     getEntries() {
-      return (selectAllBySession.all(sessionId) as SessionTreeRow[]).map(
-        parseRow,
-      );
+      return (selectAllBySession.all(sessionId) as SessionTreeRow[]).map(parseRow);
     },
   };
 }

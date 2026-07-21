@@ -1,11 +1,8 @@
 import { Database } from "bun:sqlite";
-import type { SessionRepo, SessionMetadata } from "../session-repo.js";
 import { Session } from "../session.js";
+import type { SessionMetadata, SessionRepo } from "../session-repo.js";
 import type { SessionTreeEntry } from "../session-tree.js";
-import {
-  ensureSessionSchema,
-  sqliteSessionStorage,
-} from "../storages/sqlite-session-storage.js";
+import { ensureSessionSchema, sqliteSessionStorage } from "../storages/sqlite-session-storage.js";
 
 export interface SqliteSessionRepoOptions {
   db: Database | string;
@@ -28,21 +25,15 @@ interface MetadataRow {
  * ponytail: 直接用 bun:sqlite prepared statements，复用 ensureSessionSchema；
  * 不走 drizzle-kit 迁移 -- schema 由 sqliteSessionStorage 管理。
  */
-export function sqliteSessionRepo(
-  opts: SqliteSessionRepoOptions,
-): SessionRepo {
-  const db: Database =
-    typeof opts.db === "string" ? new Database(opts.db) : opts.db;
+export function sqliteSessionRepo(opts: SqliteSessionRepoOptions): SessionRepo {
+  const db: Database = typeof opts.db === "string" ? new Database(opts.db) : opts.db;
   ensureSessionSchema(db);
 
   const selectMeta = db.prepare<MetadataRow, [string]>(
     "SELECT session_id, leaf_id, created_at, updated_at " +
       "FROM session_metadata WHERE session_id = ?",
   );
-  const insertMeta = db.prepare<
-    Record<string, never>,
-    [string, string | null, number, number]
-  >(
+  const insertMeta = db.prepare<Record<string, never>, [string, string | null, number, number]>(
     "INSERT INTO session_metadata (session_id, leaf_id, created_at, updated_at) " +
       "VALUES (?, ?, ?, ?)",
   );
@@ -92,15 +83,10 @@ export function sqliteSessionRepo(
     return new Session(storage);
   };
 
-  const forkSync = (
-    sourceSessionId: string,
-    options?: { entryId?: string },
-  ): Session => {
+  const forkSync = (sourceSessionId: string, options?: { entryId?: string }): Session => {
     const row = selectMeta.get(sourceSessionId);
     if (!row) {
-      throw new Error(
-        `sqliteSessionRepo.fork: source session ${sourceSessionId} not found`,
-      );
+      throw new Error(`sqliteSessionRepo.fork: source session ${sourceSessionId} not found`);
     }
     // 收集源会话从根到目标 entryId 的路径条目。
     const sourceStorage = sqliteSessionStorage({
@@ -121,8 +107,7 @@ export function sqliteSessionRepo(
     for (const entry of path) {
       const newId = newStorage.createEntryId();
       idMap.set(entry.id, newId);
-      const newParentId =
-        entry.parentId === null ? null : (idMap.get(entry.parentId) ?? null);
+      const newParentId = entry.parentId === null ? null : (idMap.get(entry.parentId) ?? null);
       const copied: SessionTreeEntry = {
         ...entry,
         id: newId,
@@ -145,8 +130,7 @@ export function sqliteSessionRepo(
       deleteMeta.run(sessionId);
       return Promise.resolve();
     },
-    fork: (sourceSessionId, options) =>
-      Promise.resolve(forkSync(sourceSessionId, options)),
+    fork: (sourceSessionId, options) => Promise.resolve(forkSync(sourceSessionId, options)),
     // Sync helpers for SqliteSessionManager (ADR 0012: manager stays sync).
     createSync,
     openSync,
