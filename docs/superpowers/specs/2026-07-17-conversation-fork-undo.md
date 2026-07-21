@@ -193,11 +193,14 @@ async replayFromMessage(input: {
 forked from [原对话名] · 2h ago
 ```
 
-### Session Tree 集成
+### Session Tree 集成（不做）
 
-Fork 操作同时调 `sessionRepo.fork(sourceSessionId, { entryId })`，新对话的 session tree 从指定 entry 开始。
+Conversation fork 和 session tree fork 是两层不同的 fork，不耦合：
 
-Undo 操作调 `session.moveTo(entryId)` 回到 undo 前的节点。
+- Conversation fork（本 spec）：用户级别的对话分叉，复制 conversation ledger entries 到新对话。新对话的 agent 从 ledger 重建上下文，session tree 从空开始 -- 这是正确行为，新对话是一条新的对话线，不需要继承原对话的 checkpointer/session 状态。
+- Session tree fork（sessionRepo.fork / session.moveTo）：agent session 内部的分支/回溯，用于同一个对话内 agent 中途 fork 思考分支或回溯到某节点重跑。这是 checkpointer 层的能力，和 conversation ledger 是两套独立数据。
+
+两层 fork 各自独立工作，不需要打通。未来如果需要在 fork 出的新对话里保留原对话的 agent 记忆线（而非从 ledger 重建），再考虑集成。
 
 ### DB 改动
 
