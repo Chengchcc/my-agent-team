@@ -5,6 +5,7 @@ export {
   type SqliteCheckpointerOptions,
   sqliteCheckpointer,
 } from "./checkpointers/sqlite-checkpointer.js";
+export { DEFAULT_SHAKE_CONFIG, type ShakeConfig, shakeMessages } from "./compaction/shake.js";
 export {
   type ContextKey,
   type ContextStore,
@@ -84,4 +85,5 @@ export {
   sqliteSessionStorage,
 } from "./storages/sqlite-session-storage.js";
 export { createThread, type Thread } from "./thread.js";
+export { countMessageTokens, countTokens } from "./tokenizer.js";
 export type { RunSpan } from "./trace.js";

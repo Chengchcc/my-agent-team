@@ -1,6 +1,7 @@
 import type { ChatModel } from "@my-agent-team/core";
 import { collectStream } from "@my-agent-team/core";
 import { extractText, type Message } from "@my-agent-team/message";
+import { DEFAULT_SHAKE_CONFIG, shakeMessages } from "../compaction/shake.js";
 import type { ContextManager } from "../context-manager.js";
 import { repairToolPairs } from "../repair-tool-pairs.js";
 
@@ -74,13 +75,16 @@ export function autoSummarize(opts: SummarizingOptions): ContextManager {
       const counter = opts.countTokens ?? ctx.model.countTokens ?? approximateTokens;
       const total = await counter(messages);
 
-      if (total <= triggerAt) return [...messages];
+      // Step 1: mechanically shake large tool results (no LLM call)
+      const shaken = shakeMessages(messages, DEFAULT_SHAKE_CONFIG);
+      const shakenTotal = await counter(shaken);
+      if (shakenTotal <= triggerAt) return shaken;
 
-      const recent = messages.slice(-keepRecent);
-      const old = messages.slice(0, -keepRecent);
+      // Step 2: if shake wasn't enough, LLM summarize the rest
+      const recent = shaken.slice(-keepRecent);
+      const old = shaken.slice(0, -keepRecent);
 
-      if (old.length === 0) return [...messages];
-
+      if (old.length === 0) return shaken;
       const model = summarizerModel ?? ctx.model;
       const summary = opts.summarizer
         ? await opts.summarizer(old, model)
