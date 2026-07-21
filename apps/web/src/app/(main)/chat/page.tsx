@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreateConversation, useRecentConversations } from "@/features/conversations/hooks";
-import { api } from "@/lib/api";
+import { api, getForkSourceId } from "@/lib/api";
 
 function relativeTime(ts: number | null | undefined): string {
   if (!ts) return "";
@@ -24,6 +24,25 @@ function relativeTime(ts: number | null | undefined): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
   return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
+/** Lazy "forked from X" marker - fetches source conversation title on demand. */
+function ForkSourceMarker({ sourceId, createdAt }: { sourceId: string; createdAt: number }) {
+  const { data: sourceConv } = useQuery({
+    queryKey: ["conv", sourceId],
+    queryFn: () => api.getConversation(sourceId),
+    staleTime: 60_000,
+  });
+  const sourceTitle = sourceConv?.title ?? `Conversation ${sourceId.slice(0, 8)}`;
+  return (
+    <p className="text-[10px] text-[var(--mute)] flex items-center gap-1">
+      <span>↳</span>
+      <span className="truncate">
+        forked from {sourceTitle}
+      </span>
+      {relativeTime(createdAt) && <span>· {relativeTime(createdAt)}</span>}
+    </p>
+  );
 }
 
 export default function ChatOverviewPage() {
@@ -228,6 +247,11 @@ export default function ChatOverviewPage() {
                     </p>
                   </div>
                 </div>
+                {(() => {
+                  const fid = getForkSourceId(conv);
+                  if (!fid) return null;
+                  return <ForkSourceMarker sourceId={fid} createdAt={conv.createdAt} />;
+                })()}
                 <ChevronRight size={14} className="text-[var(--hairline)] shrink-0 ml-3" />
               </div>
             ))}

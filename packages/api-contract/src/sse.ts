@@ -9,6 +9,7 @@ export const conversationEvents = {
   "member.joined": LedgerEntry,
   "member.left": LedgerEntry,
   todo: LedgerEntry,
+  undo: LedgerEntry,
 } as const satisfies SSEEventMap;
 
 // ── SSE endpoint registry (path template + event map, single source) ──

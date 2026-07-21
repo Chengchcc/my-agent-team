@@ -43,6 +43,15 @@ export type { ContentBlock };
 export type MemberInfo = Member;
 export type { LedgerEntry };
 
+/** Extract fork source ID from a conversation snapshot (defensive - field arrives once backend ships). */
+export function getForkSourceId(conv: ConversationSnapshot): string | null {
+  if ("forkSource" in conv) {
+    const v = conv.forkSource;
+    return typeof v === "string" ? v : null;
+  }
+  return null;
+}
+
 export function classifyError(e: unknown) {
   if (e instanceof Error && e.name === "ApiError") {
     const ae = e as Error & { status: number };
@@ -334,5 +343,39 @@ export const api = {
         }>;
       }>;
     };
+  },
+  // Conversation fork/undo/replay (direct fetch - new routes)
+  forkConversation: async (id: string, fromSeq: number, title?: string) => {
+    const resp = await fetch(`/api/bff/api/conversations/${id}/fork`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fromSeq, ...(title ? { title } : {}) }),
+    });
+    return (await resp.json()) as { newConversationId: string };
+  },
+  undoMessages: async (id: string, count = 1) => {
+    const resp = await fetch(`/api/bff/api/conversations/${id}/undo`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ count }),
+    });
+    return (await resp.json()) as { undoneSeqs: number[] };
+  },
+  replayFromMessage: async (
+    id: string,
+    fromSeq: number,
+    editedContent: string,
+    senderMemberId: string,
+    addressedTo: string[],
+  ) => {
+    const resp = await fetch(`/api/bff/api/conversations/${id}/replay`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fromSeq, editedContent, senderMemberId, addressedTo }),
+    });
+    return (await resp.json()) as { newConversationId: string };
   },
 };

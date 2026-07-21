@@ -1,8 +1,16 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import type { SenderRef, UiItem } from "@/lib/conversation-reducer";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  useForkConversation,
+  useReplayFromMessage,
+  useUndoMessages,
+} from "@/features/conversations/hooks";
+import type { MessageItem, SenderRef, UiItem } from "@/lib/conversation-reducer";
 import { groupTurns, type TurnSegment } from "@/lib/conversation-reducer";
 import { renderContentBlocks } from "@/lib/render-blocks";
 import { extractText } from "@/lib/timeline";
@@ -12,6 +20,7 @@ import { ReasoningTrace } from "./ReasoningTrace";
 interface TimelineProps {
   messages: UiItem[];
   viewerMemberId: string;
+  conversationId: string;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -74,7 +83,7 @@ function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {
   return anchors;
 }
 
-export function Timeline({ messages, viewerMemberId, scrollContainerRef }: TimelineProps) {
+export function Timeline({ messages, viewerMemberId, conversationId, scrollContainerRef }: TimelineProps) {
   const segments = useMemo(() => groupTurns(messages), [messages]);
   const anchors = useMemo(() => extractAnchors(segments), [segments]);
   // Map segment id → per-conversation turn number (1-based)
@@ -197,10 +206,13 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
             // single segment: human / standalone agent (notices rendered above)
             const m = seg.item;
             const isSelf = m.sender.memberId === viewerMemberId;
+            const isUndone = m.undone === true;
             const virt = {
               contentVisibility: "auto" as const,
               containIntrinsicSize: "auto 80px" as const,
             };
+            // Skip hover actions on optimistic (seq=-1) messages - no backend target yet.
+            const canAct = m.seq >= 0 && !isUndone;
 
             return (
               <div key={m.id}>
@@ -217,30 +229,25 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
                       <div className="flex-1 h-px bg-[var(--hairline)]" />
                     </div>
                   ))}
-                <div style={virt}>
-                  {typeof m.content === "string" ? (
-                    <MessageBubble
-                      align={isSelf ? "right" : "left"}
-                      name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
-                      kind={m.sender.kind}
-                      agentId={m.sender.agentId}
-                      content={m.content}
-                    />
-                  ) : (
-                    <>
-                      {extractText(m.content) && (
-                        <MessageBubble
-                          align={isSelf ? "right" : "left"}
-                          name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
-                          kind={m.sender.kind}
-                          agentId={m.sender.agentId}
-                          content={extractText(m.content)}
-                          isStreaming={m.content.state === "streaming"}
-                          runStatus={m.content.runStatus}
-                        />
-                      )}
-                      {renderContentBlocks(m.content)}
-                    </>
+                <div style={virt} className={`group relative ${isUndone ? "opacity-50" : ""}`}>
+                  <MessageActions conversationId={conversationId} item={m} canAct={canAct}>
+                    {extractText(m.content) && (
+                      <MessageBubble
+                        align={isSelf ? "right" : "left"}
+                        name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
+                        kind={m.sender.kind}
+                        agentId={m.sender.agentId}
+                        content={extractText(m.content)}
+                        isStreaming={m.content.state === "streaming"}
+                        runStatus={m.content.runStatus}
+                      />
+                    )}
+                    {renderContentBlocks(m.content)}
+                  </MessageActions>
+                  {isUndone && (
+                    <div className="text-[10px] text-[var(--mute)] italic mt-0.5">
+                      ↳ undone
+                    </div>
                   )}
                 </div>
               </div>
@@ -248,6 +255,150 @@ export function Timeline({ messages, viewerMemberId, scrollContainerRef }: Timel
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Hover action buttons + inline edit for fork/undo/replay.
+ *  Buttons appear on group hover; Edit & Replay swaps the bubble for a textarea. */
+function MessageActions({
+  conversationId,
+  item,
+  canAct,
+  children,
+}: {
+  conversationId: string;
+  item: MessageItem;
+  canAct: boolean;
+  children: React.ReactNode;
+}) {
+  const router = useRouter();
+  const forkMut = useForkConversation();
+  const undoMut = useUndoMessages();
+  const replayMut = useReplayFromMessage();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const isUser = item.sender.kind === "human";
+
+  const handleStartEdit = useCallback(() => {
+    setDraft(extractText(item.content));
+    setEditing(true);
+  }, [item.content]);
+
+  const handleConfirmReplay = useCallback(() => {
+    const text = draft.trim();
+    if (!text) return;
+    replayMut.mutate(
+      {
+        id: conversationId,
+        fromSeq: item.seq,
+        editedContent: text,
+        senderMemberId: item.sender.memberId,
+        addressedTo: item.addressedTo,
+      },
+      {
+        onSuccess: (data) => router.push(`/chat/${data.newConversationId}`),
+        onError: (err) =>
+          toast.error("Replay failed", {
+            description: err instanceof Error ? err.message : "Unknown error",
+          }),
+      },
+    );
+    setEditing(false);
+  }, [draft, replayMut, conversationId, item.seq, item.sender.memberId, item.addressedTo, router]);
+
+  if (editing) {
+    return (
+      <div className="py-2 w-full max-w-[85%]">
+        <Textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          className="min-h-20 resize-none text-sm"
+          autoFocus
+        />
+        <div className="flex gap-2 mt-1 justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setEditing(false)}
+            disabled={replayMut.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleConfirmReplay}
+            disabled={replayMut.isPending || !draft.trim()}
+          >
+            {replayMut.isPending ? "Replaying..." : "Replay"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      {children}
+      {canAct && (
+        <div
+          className="opacity-0 group-hover:opacity-100 transition-opacity
+                     flex gap-1 mt-1
+                     justify-end"
+        >
+          {isUser ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-[10px] text-[var(--mute)] hover:text-[var(--body)]"
+              onClick={handleStartEdit}
+            >
+              Edit &amp; Replay
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-[10px] text-[var(--mute)] hover:text-[var(--body)]"
+              onClick={() =>
+                undoMut.mutate(
+                  { id: conversationId, count: 1 },
+                  {
+                    onSuccess: () => toast.success("Undone"),
+                    onError: (err) =>
+                      toast.error("Undo failed", {
+                        description: err instanceof Error ? err.message : "Unknown error",
+                      }),
+                  },
+                )
+              }
+              disabled={undoMut.isPending}
+            >
+              {undoMut.isPending ? "Undoing..." : "Undo"}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 text-[10px] text-[var(--mute)] hover:text-[var(--body)]"
+            onClick={() =>
+              forkMut.mutate(
+                { id: conversationId, fromSeq: item.seq },
+                {
+                  onSuccess: (data) => router.push(`/chat/${data.newConversationId}`),
+                  onError: (err) =>
+                    toast.error("Fork failed", {
+                      description: err instanceof Error ? err.message : "Unknown error",
+                    }),
+                },
+              )
+            }
+            disabled={forkMut.isPending}
+          >
+            {forkMut.isPending ? "Forking..." : "Fork from here"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

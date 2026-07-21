@@ -19,7 +19,18 @@ export interface SenderRef {
 }
 
 export type UiItem =
-  | { kind: "message"; id: string; sender: SenderRef; content: Message }
+  | {
+      kind: "message";
+      id: string;
+      sender: SenderRef;
+      content: Message;
+      /** Ledger seq - needed for fork/undo/replay targeting. */
+      seq: number;
+      /** Original addressedTo - needed for replay. */
+      addressedTo: string[];
+      /** Soft-delete flag - greyed out when true. */
+      undone?: boolean;
+    }
   | { kind: "notice"; id: string; text: string };
 
 /** "message" variant of UiItem — derived, not a new domain concept. */
@@ -55,7 +66,16 @@ export type Action =
   | { type: "send/error"; message: string }
   | { type: "todo/update"; todos: ConvState["todos"] }
   | { type: "member"; seq: number; kind: string; payload: unknown }
-  | { type: "message"; seq: number; senderMemberId: string; content: unknown }
+  | {
+      type: "message";
+      seq: number;
+      senderMemberId: string;
+      addressedTo: string[];
+      content: unknown;
+      /** Soft-delete flag from ledger entry (absent = live). */
+      undone?: boolean;
+    }
+  | { type: "undo"; undoneSeqs: number[] }
   | { type: "queue/update"; messages: string[] }
   | { type: "queue/add"; text: string }
   | { type: "queue/edit"; index: number; text: string }
@@ -133,11 +153,23 @@ function upsertAuthoritative(
   sender: SenderRef,
   content: Message,
   viewerMemberId: string,
+  seq: number,
+  addressedTo: string[],
+  undone?: boolean,
 ): UiItem[] {
   const idx = list.findIndex((item) => item.kind === "message" && item.id === id);
   if (idx >= 0) {
     const next = [...list];
-    next[idx] = { kind: "message", id, sender, content };
+    const prev = next[idx]!;
+    next[idx] = {
+      kind: "message",
+      id,
+      sender,
+      content,
+      seq,
+      addressedTo,
+      undone: undone ?? (prev.kind === "message" ? prev.undone : undefined),
+    };
     return next;
   }
   // Self echo: replace optimistic self message
@@ -153,11 +185,11 @@ function upsertAuthoritative(
     if (optIdx >= 0) {
       const real = list.length - 1 - optIdx;
       const next = [...list];
-      next[real] = { kind: "message", id, sender, content };
+      next[real] = { kind: "message", id, sender, content, seq, addressedTo, undone };
       return next;
     }
   }
-  return [...list, { kind: "message", id, sender, content }];
+  return [...list, { kind: "message", id, sender, content, seq, addressedTo, undone }];
 }
 
 // ─── Turn Grouping (pure render-layer) ─────────────────────
@@ -273,8 +305,6 @@ export function reducer(s: ConvState, a: Action): ConvState {
         );
         return s;
       }
-      // W1 fix: use existing message as merge base so incremental revisions
-      // (text-only, state-only, runStatus-only) don't overwrite prior content.
       const existing = s.items.find(
         (it): it is Extract<UiItem, { kind: "message" }> =>
           it.kind === "message" && it.id === revision.messageId,
@@ -285,11 +315,28 @@ export function reducer(s: ConvState, a: Action): ConvState {
         memberId: a.senderMemberId,
         kind: "agent" as const,
       };
-      const items = upsertAuthoritative(s.items, id, sender, message, s.viewerMemberId);
+      const items = upsertAuthoritative(
+        s.items,
+        id,
+        sender,
+        message,
+        s.viewerMemberId,
+        a.seq,
+        a.addressedTo ?? [],
+        a.undone,
+      );
       const cleared = sender.kind === "agent" && s.pendingSendCount > 0 ? 0 : s.pendingSendCount;
       return { ...s, items, pendingSendCount: cleared };
     }
 
+    case "undo": {
+      // Soft-delete: mark messages with seq in undoneSeqs as undone (greyed out).
+      const undoSet = new Set(a.undoneSeqs);
+      const items = s.items.map((item) =>
+        item.kind === "message" && undoSet.has(item.seq) ? { ...item, undone: true } : item,
+      );
+      return { ...s, items };
+    }
     case "send": {
       // W7: use stable UUID instead of opt- prefix — enables precise matching
       // when backend echoes the message back (future: clientMsgId in API).
@@ -304,6 +351,8 @@ export function reducer(s: ConvState, a: Action): ConvState {
             id,
             sender: a.viewer,
             content: { id, role: "user" as const, state: "done" as const, text: a.text },
+            seq: -1, // ponytail: sentinel - replaced when backend echoes authoritative seq
+            addressedTo: [],
           },
         ],
       };

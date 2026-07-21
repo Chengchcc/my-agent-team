@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { and, desc, eq, gt, like, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, like, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import type {
@@ -37,6 +37,8 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           hopCount: 0,
           origin: input.origin ?? "user",
           createdAt: input.createdAt,
+          forkSource: input.forkSource ?? null,
+          forkFromSeq: input.forkFromSeq ?? null,
         })
         .returning()
         .get();
@@ -71,7 +73,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       const convs = d
         .select()
         .from(schema.conversation)
-        .where(eq(schema.conversation.origin, "user"))
+        .where(inArray(schema.conversation.origin, ["user", "fork"]))
         .orderBy(desc(schema.conversation.createdAt))
         .all();
       // N+1: members fetched per conversation - kept as-is for behavior equivalence.
@@ -282,6 +284,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           content: r.content,
           ts: r.ts,
           spanId: r.spanId,
+          undone: r.undone === 1,
         } as LedgerEntry;
       });
     },
@@ -303,6 +306,26 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         snippet: r.content.slice(0, 200),
         ts: r.ts,
       }));
+    },
+    markLedgerEntryUndone(conversationId: string, seq: number): void {
+      d.update(schema.conversationLedger)
+        .set({ undone: 1 })
+        .where(
+          and(
+            eq(schema.conversationLedger.conversationId, conversationId),
+            eq(schema.conversationLedger.seq, seq),
+          ),
+        )
+        .run();
+    },
+    getForkSource(conversationId: string): { source: string; fromSeq: number } | null {
+      const row = d
+        .select({ forkSource: schema.conversation.forkSource, forkFromSeq: schema.conversation.forkFromSeq })
+        .from(schema.conversation)
+        .where(eq(schema.conversation.conversationId, conversationId))
+        .get();
+      if (!row?.forkSource || row.forkFromSeq === null) return null;
+      return { source: row.forkSource, fromSeq: row.forkFromSeq };
     },
   };
 }

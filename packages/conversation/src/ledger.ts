@@ -8,6 +8,7 @@ export const LedgerKind = z.enum([
   "member.left",
   "todo",
   "surface.control",
+  "undo",
 ]);
 
 /** Type-level LedgerKind — use this for type annotations.
@@ -24,11 +25,16 @@ export const LedgerEntry = z.object({
   kind: LedgerKind,
   // content is always a serialized string (JSON.stringify for structured payloads).
   // Message entries use serializeMessageRevision; other kinds use JSON.stringify.
+  // undo entries use JSON.stringify({ undoneSeqs: number[] }).
   content: z.string(),
   ts: z.number(),
   /** Run that produced this entry. Present for assistant messages (run traceability),
    *  absent for human/system messages. */
   spanId: z.string().optional(),
+  /** Soft-delete flag (fork/undo): when true the entry is logically removed from the
+   *  conversation but the ledger stays append-only. Absent on entries written before
+   *  migration 0011 and on entries that are still live. */
+  undone: z.boolean().optional(),
 });
 
 export type LedgerEntry = z.infer<typeof LedgerEntry>;

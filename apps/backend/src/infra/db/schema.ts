@@ -40,6 +40,8 @@ export const conversation = sqliteTable("conversation", {
   title: text(),
   origin: text().notNull().default("user"),
   createdAt: integer({ mode: "number" }).notNull(),
+  forkSource: text("fork_source"),
+  forkFromSeq: integer("fork_from_seq"),
 });
 
 // ─── member ────────────────────────────────────────────────────────
@@ -79,6 +81,7 @@ export const conversationLedger = sqliteTable(
     content: text().notNull(),
     ts: integer({ mode: "number" }).notNull(),
     spanId: text("span_id"),
+    undone: integer({ mode: "number" }).notNull().default(0),
   },
   (table) => [
     index("idx_ledger_conv").on(table.conversationId, table.seq),
@@ -359,6 +362,7 @@ export const surfaceHealthSelectSchema = createSelectSchema(surfaceHealth, {
 export const conversationLedgerSelectSchema = createSelectSchema(conversationLedger, {
   addressedTo: (s) => s.transform((v: string) => JSON.parse(v) as string[]),
   content: (s) => s.transform((v: string) => JSON.parse(v) as unknown),
+  undone: (s) => s.transform((v: number) => v !== 0),
 });
 
 export const projectSelectSchema = createSelectSchema(project, {
