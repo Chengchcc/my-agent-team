@@ -47,13 +47,6 @@ export function sqliteSessionRepo(opts: SqliteSessionRepoOptions): SessionRepo {
     "SELECT session_id, leaf_id, created_at, updated_at " +
       "FROM session_metadata ORDER BY updated_at DESC",
   );
-  const selectEntriesBySession = db.prepare<
-    { id: string; parent_id: string | null; type: string; timestamp: number; data: string },
-    [string]
-  >(
-    "SELECT id, parent_id, type, timestamp, data FROM session_tree " +
-      "WHERE session_id = ? ORDER BY timestamp ASC",
-  );
 
   const toMetadata = (row: MetadataRow): SessionMetadata => ({
     id: row.session_id,

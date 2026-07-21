@@ -1,6 +1,5 @@
 import type { Tool } from "@my-agent-team/core";
 import { defineContext, definePlugin, type Plugin } from "@my-agent-team/framework";
-import type { Message } from "@my-agent-team/message";
 
 /** Context key for todo progress. Plugin writes, metaContext reads. */
 export const TodoKey = defineContext<string>("todo-progress");
@@ -35,17 +34,6 @@ function renderTodo(list: readonly Todo[]): string {
       return `- [${mark}] ${t.step}`;
     })
     .join("\n");
-}
-
-function injectIntoSystem(messages: readonly Message[], block: string): Message[] {
-  const systemIdx = messages.findIndex((m) => m.role === "system");
-  if (systemIdx < 0) return [...messages];
-  const sys = messages[systemIdx]!;
-  const newSys = {
-    ...sys,
-    text: `${sys.text ?? ""}\n\n${block}`,
-  };
-  return [...messages.slice(0, systemIdx), newSys, ...messages.slice(systemIdx + 1)];
 }
 
 // ─── todo_write tool ───

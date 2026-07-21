@@ -17,15 +17,6 @@ interface SearchResult {
   ts: number;
 }
 
-function highlightMatch(text: string, query: string): string {
-  if (!query.trim()) return text;
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return text.replace(
-    new RegExp(`(${escaped})`, "gi"),
-    '<mark class="bg-yellow-200 px-0.5 rounded">$1</mark>',
-  );
-}
-
 function formatTime(ts: number): string {
   const diff = Date.now() - ts;
   if (diff < 60_000) return "just now";
@@ -168,12 +159,7 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                   </span>
                   <span className="text-[10px] text-[var(--mute)]">{formatTime(r.ts)}</span>
                 </div>
-                <p
-                  className="text-sm text-[var(--ink-strong)] line-clamp-2"
-                  dangerouslySetInnerHTML={{
-                    __html: highlightMatch(r.snippet, query),
-                  }}
-                />
+                <p className="text-sm text-[var(--ink-strong)] line-clamp-2">{r.snippet}</p>
               </button>
             ))}
           </div>

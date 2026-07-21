@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { HookContext } from "@my-agent-team/framework";
-import { type Todo, TodoKey, todoPlugin } from "./todo.js";
 import type { Message } from "@my-agent-team/message";
+import { type Todo, TodoKey, todoPlugin } from "./todo.js";
+
 /** Minimal fake HookContext for testing beforeModel. */
 function fakeCtx(sessionId: string, emit?: (e: unknown) => void) {
   const map = new Map<string, unknown>();

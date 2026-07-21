@@ -106,7 +106,7 @@ export class Session {
       }
     }
 
-    let messages: Message[] = [];
+    let messages: Message[];
     if (compactionIdx !== -1) {
       const compaction = path[compactionIdx] as CompactionEntry;
       // firstKeptEntryId 是 compaction 之前保留的最旧消息；

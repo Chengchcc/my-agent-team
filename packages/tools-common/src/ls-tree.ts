@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
+import { type Dirent, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Tool } from "@my-agent-team/core";
 
@@ -125,7 +125,7 @@ export function createTreeTool(opts: { cwd: string }): Tool {
 
       function walk(currentDir: string, prefix: string, depth: number): void {
         if (depth > maxDepth) return;
-        let entries;
+        let entries: Dirent[];
         try {
           entries = readdirSync(currentDir, { withFileTypes: true })
             .filter((e) => !isIgnored(e.name))

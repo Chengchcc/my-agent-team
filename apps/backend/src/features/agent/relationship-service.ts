@@ -1,4 +1,6 @@
 import type { Database } from "bun:sqlite";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { eq, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { BackendConfig } from "../../config.js";
@@ -201,8 +203,6 @@ export function createRelationshipService(db: Database, config: BackendConfig) {
       // Write to agent workspace
       const agent = d.select().from(schema.agents).where(eq(schema.agents.id, agentId)).get();
       if (!agent) continue;
-      const { writeFileSync, mkdirSync } = require("node:fs") as typeof import("node:fs");
-      const { join } = require("node:path") as typeof import("node:path");
       const workspaceDir = join(config.workspaceRoot, agentId, "workspace");
       try {
         mkdirSync(workspaceDir, { recursive: true });
