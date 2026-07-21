@@ -131,7 +131,6 @@
       "name": "@my-agent-team/ai",
       "version": "0.1.0",
       "dependencies": {
-        "@anthropic-ai/sdk": "^0.100.1",
         "@my-agent-team/core": "workspace:*",
         "@my-agent-team/message": "workspace:*",
       },

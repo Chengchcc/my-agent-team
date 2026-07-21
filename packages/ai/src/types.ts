@@ -1,4 +1,5 @@
-import type { ChatModel } from "@my-agent-team/core";
+import type { AIMessageChunk, ChatModel, Tool } from "@my-agent-team/core";
+import type { Message } from "@my-agent-team/message";
 
 /** 模型输入模态 */
 export type InputModality = "text" | "image";
@@ -16,6 +17,7 @@ export interface Model {
   id: string;
   name: string;
   provider: string;
+  api: Api;
   baseUrl?: string;
   reasoning: boolean;
   input: readonly InputModality[];
@@ -48,4 +50,26 @@ export interface ModelRegistry {
   getModels(provider?: string): readonly Model[];
   getModel(provider: string, id: string): Model | undefined;
   createModel(model: Model, auth?: ProviderAuth): ChatModel;
+}
+
+/** API 类型标识。 */
+export type KnownApi = "anthropic-messages" | "openai-completions";
+export type Api = KnownApi | (string & {});
+
+/** API 流选项。 */
+export interface ApiStreamOptions {
+  apiKey?: string;
+  baseUrl?: string;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  tools?: readonly Tool[];
+}
+
+/** API 实现接口 -- 每个 API 导出一个 stream 函数。 */
+export interface ApiImplementation {
+  stream(
+    model: Model,
+    messages: readonly Message[],
+    options?: ApiStreamOptions,
+  ): AsyncIterable<AIMessageChunk>;
 }
