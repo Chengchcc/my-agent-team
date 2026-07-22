@@ -19,6 +19,7 @@ import {
 } from "@my-agent-team/plugin-conversation-context";
 import { MemoryKey } from "@my-agent-team/plugin-fs-memory";
 import { goalPlugin } from "@my-agent-team/plugin-goal";
+import { PetBarkKey, petPlugin } from "@my-agent-team/plugin-pet";
 import { SkillIndexKey } from "@my-agent-team/plugin-progressive-skill";
 import { TodoKey } from "@my-agent-team/plugin-todo";
 import type { BackendConfig } from "../../config.js";
@@ -197,6 +198,18 @@ export function createConversationFeature(
               });
             },
           }),
+          petPlugin({
+            petModel: createModel(
+              modelRegistry.getModel(
+                settingsSvc.get<string>("pet.provider") ?? "anthropic",
+                settingsSvc.get<string>("pet.model") ?? "claude-haiku-3-5",
+              ) ?? modelRegistry.getModel("anthropic", "claude-haiku-3-5")!,
+              modelRegistry,
+              auth,
+            ),
+            cwd,
+            enabled: settingsSvc.get<boolean>("pet.enabled") ?? false,
+          }),
         ],
         metaContext: ({
           context,
@@ -228,6 +241,12 @@ export function createConversationFeature(
           }
           const todoProgress = context.get(TodoKey);
           if (todoProgress) parts.push(todoProgress);
+          const petBark = context.get(PetBarkKey);
+          if (petBark) {
+            parts.push(`<pet mood="${petBark.mood}" level="${petBark.level}">`);
+            parts.push(petBark.text);
+            parts.push(`</pet>`);
+          }
           parts.push(`</system-reminder>`);
         },
       };
