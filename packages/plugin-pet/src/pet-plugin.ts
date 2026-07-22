@@ -9,14 +9,42 @@ export interface PetPluginOptions {
   petModel: ChatModel;
   cwd: string;
   enabled?: boolean;
+  /** Settings service for persisting pet state across runs. */
+  settings?: PetSettingsStore;
+}
+
+export interface PetSettingsStore {
+  get(key: string, prefix: string): string | undefined;
+  getNumber(key: string, prefix: string): number | undefined;
+  set(key: string, value: string, prefix: string): void;
 }
 
 export { PetBarkKey } from "./bark.js";
 export type { PetBark, PetMood, PetPersistedState, PetState } from "./types.js";
 
+const PET_PREFIX = "pet";
+
+function loadState(store: PetSettingsStore | undefined): PetState {
+  const s = createInitialState();
+  if (!store) return s;
+  s.level = store.getNumber("level", PET_PREFIX) ?? 1;
+  s.xp = store.getNumber("xp", PET_PREFIX) ?? 0;
+  s.totalTurns = store.getNumber("totalTurns", PET_PREFIX) ?? 0;
+  s.totalBarks = store.getNumber("totalBarks", PET_PREFIX) ?? 0;
+  return s;
+}
+
+function saveState(store: PetSettingsStore | undefined, state: PetState): void {
+  if (!store) return;
+  store.set("level", String(state.level), PET_PREFIX);
+  store.set("xp", String(state.xp), PET_PREFIX);
+  store.set("totalTurns", String(state.totalTurns), PET_PREFIX);
+  store.set("totalBarks", String(state.totalBarks), PET_PREFIX);
+}
+
 export function petPlugin(opts: PetPluginOptions): Plugin {
   const enabled = opts.enabled ?? false;
-  const state: PetState = createInitialState();
+  const state: PetState = loadState(opts.settings);
 
   return definePlugin({
     name: "pet",
@@ -53,7 +81,7 @@ export function petPlugin(opts: PetPluginOptions): Plugin {
         state.turnCount++;
         state.totalTurns++;
 
-        const leveledUp = awardXP(state);
+        awardXP(state);
         updateMood(state);
 
         if (shouldBark(state)) {
@@ -61,16 +89,21 @@ export function petPlugin(opts: PetPluginOptions): Plugin {
           if (bark) {
             state.totalBarks++;
             state.lastBarkTurn = state.turnCount;
-            ctx.context.set(PetBarkKey, {
+            const barkData = {
               mood: state.mood,
               text: bark,
               level: state.level,
               turn: state.turnCount,
+            };
+            ctx.context.set(PetBarkKey, barkData);
+            ctx.emit?.({
+              type: "pet_bark",
+              payload: barkData,
             });
-            // ponytail: reuse todo_update event as carrier (pet_bark not in union yet)
-            void leveledUp;
           }
         }
+
+        saveState(opts.settings, state);
       },
     },
   });

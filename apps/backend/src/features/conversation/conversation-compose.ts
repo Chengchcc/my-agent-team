@@ -209,6 +209,17 @@ export function createConversationFeature(
             ),
             cwd,
             enabled: settingsSvc.get<boolean>("pet.enabled") ?? false,
+            settings: {
+              get(key, _prefix) {
+                return settingsSvc.get<string>(`pet.${agentId}.${key}`);
+              },
+              getNumber(key, _prefix) {
+                return settingsSvc.get<number>(`pet.${agentId}.${key}`);
+              },
+              set(key, value, _prefix) {
+                settingsSvc.set(`pet.${agentId}.${key}`, value);
+              },
+            },
           }),
         ],
         metaContext: ({

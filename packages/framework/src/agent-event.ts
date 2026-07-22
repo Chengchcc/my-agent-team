@@ -70,6 +70,15 @@ const agentEventSchema = z.discriminatedUnion("type", [
     }),
   }),
   z.object({
+    type: z.literal("pet_bark"),
+    payload: z.object({
+      mood: z.enum(["happy", "neutral", "frustrated", "excited"]),
+      text: z.string(),
+      level: z.number(),
+      turn: z.number(),
+    }),
+  }),
+  z.object({
     type: z.literal("agent_end"),
     spanId: z.string().optional(),
     status: z.enum(["succeeded", "error", "interrupted"]),

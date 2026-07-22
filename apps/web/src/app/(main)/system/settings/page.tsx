@@ -121,6 +121,16 @@ const SECTIONS: Section[] = [
       { key: "loop.defaultDenylist", label: "Denylist (comma-separated)", type: "array" },
     ],
   },
+  {
+    id: "pet",
+    title: "Pet",
+    description: "Companion life form that barks advice at the primary agent.",
+    fields: [
+      { key: "pet.enabled", label: "Enabled", type: "boolean" },
+      { key: "pet.provider", label: "Provider", type: "string" },
+      { key: "pet.model", label: "Model", type: "string" },
+    ],
+  },
 ];
 
 // ── Default values (used when settings KV is empty) ──
@@ -147,6 +157,9 @@ const DEFAULTS: Record<string, unknown> = {
   "loop.defaultAcceptance": "",
   "loop.defaultDailyCap": 200000,
   "loop.defaultDenylist": [".env", "auth/", "payments/", "secrets/"],
+  "pet.enabled": false,
+  "pet.provider": "anthropic",
+  "pet.model": "claude-haiku-3-5",
 };
 
 // ── Helpers ──

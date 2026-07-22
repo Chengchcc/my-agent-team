@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { AgentForm } from "@/components/AgentForm";
+import { AgentPetPanel } from "@/components/AgentPetPanel";
 import { ConversationList } from "@/components/ConversationList";
 import { IdentityPanel } from "@/components/IdentityPanel";
 import { McpServerPanel } from "@/components/McpServerPanel";
@@ -23,7 +24,7 @@ import { useAgentDetail, useAgentList, useAgentRelationships } from "@/features/
 import { useOpsRuns } from "@/features/ops/hooks";
 import { useAgentSkillPacks } from "@/features/skill-packs/hooks";
 
-type Tab = "persona" | "skills" | "activity" | "mcp" | "relationships";
+type Tab = "persona" | "skills" | "activity" | "mcp" | "relationships" | "pet";
 
 type PackStatus = "pending" | "installing" | "ready" | "failed" | "syncing";
 
@@ -151,6 +152,15 @@ export default function AgentDetailPage() {
             >
               Relationships
             </Button>
+            <Button
+              variant="ghost"
+              role="tab"
+              aria-selected={tab === "pet"}
+              className={tabClass("pet")}
+              onClick={() => setTab("pet")}
+            >
+              Pet
+            </Button>
           </div>
         </div>
       </div>
@@ -168,6 +178,7 @@ export default function AgentDetailPage() {
           )}
           {tab === "mcp" && <McpServerPanel agentId={id} />}
           {tab === "relationships" && <AgentRelationshipsPanel agentId={id} />}
+          {tab === "pet" && <AgentPetPanel agentId={id} />}
         </div>
       </div>
     </div>
