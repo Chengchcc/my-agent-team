@@ -65,7 +65,9 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   const [selectedPackIds, setSelectedPackIds] = useState<string[]>([]);
   const { data: modelData } = useModelList();
   const providers = useMemo(() => modelData?.providers ?? [], [modelData]);
-  const [selProvider, setSelProvider] = useState<string>("");
+  const [selProvider, setSelProvider] = useState<string>(
+    (editAgent?.modelName ?? "").includes("/") ? (editAgent?.modelName ?? "").split("/")[0]! : "",
+  );
   const modelGroups = useMemo(() => {
     return providers.flatMap((p) =>
       p.models.map((m) => ({
