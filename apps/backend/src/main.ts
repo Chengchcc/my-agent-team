@@ -64,6 +64,7 @@ import {
   defaultContextManager,
   defaultPlugins,
   defaultTools,
+  resolveModel,
 } from "./features/span/agent-helpers.js";
 import { resumeRoutes } from "./features/span/http.js";
 import { SpanSupervisor } from "./features/span/supervisor.js";
@@ -131,7 +132,7 @@ const skillPackSvc = createSkillPackServiceFn({
       { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
       {
         model: createModel(
-          modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!,
+          resolveModel("anthropic/claude-sonnet-4-6", modelRegistry),
           modelRegistry,
           anthropicAuth,
         ),
@@ -154,7 +155,7 @@ const skillPackSvc = createSkillPackServiceFn({
       { packId, sourceKind: ctx.sourceKind, sourceUrl: ctx.sourceUrl, versionRef: ctx.versionRef },
       {
         model: createModel(
-          modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!,
+          resolveModel("anthropic/claude-sonnet-4-6", modelRegistry),
           modelRegistry,
           anthropicAuth,
         ),
@@ -351,8 +352,7 @@ const app = createApp(config.authToken, {
     sessionManager,
     (params) => ({
       model: createModel(
-        modelRegistry.getModel("anthropic", params.modelName) ??
-          modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!,
+        resolveModel(params.modelName, modelRegistry),
         modelRegistry,
         anthropicAuth,
       ),

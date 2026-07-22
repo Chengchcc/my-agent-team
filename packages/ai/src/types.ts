@@ -45,6 +45,8 @@ export interface Provider {
 /** Provider 注册表。启动时注册，全局复用。 */
 export interface ModelRegistry {
   register(provider: Provider): void;
+  /** Upsert a provider by id (replaces existing). */
+  setProvider(provider: Provider): void;
   getProvider(id: string): Provider | undefined;
   getProviders(): readonly Provider[];
   getModels(provider?: string): readonly Model[];

@@ -13,6 +13,7 @@ import {
   defaultContextManager,
   defaultPlugins,
   defaultTools,
+  resolveModel,
 } from "../span/agent-helpers.js";
 import type { SkillRoots } from "../span/skill-roots.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
@@ -70,12 +71,11 @@ export function createCronScheduler(deps: {
 
     const spanId = deps.idGen();
     try {
-      const { modelName } = await deps.agentSvc.getById(job.agentId);
+      const { modelProvider, modelName } = await deps.agentSvc.getById(job.agentId);
       const cwd = join(deps.config.dataDir, "agents", job.agentId);
       const session = deps.sessionManager.create({
         model: createModel(
-          deps.modelRegistry.getModel("anthropic", modelName) ??
-            deps.modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!,
+          resolveModel(`${modelProvider}/${modelName}`, deps.modelRegistry),
           deps.modelRegistry,
           {
             apiKey: deps.config.anthropicApiKey,
@@ -162,15 +162,10 @@ export function createCronScheduler(deps: {
   // buildConfig for loop agent sessions — delegates to agentConfig
   function buildConfig(params: { modelName: string; cwd: string; skillRoots?: SkillRoots }) {
     return {
-      model: createModel(
-        deps.modelRegistry.getModel("anthropic", params.modelName) ??
-          deps.modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!,
-        deps.modelRegistry,
-        {
-          apiKey: deps.config.anthropicApiKey,
-          baseUrl: deps.config.anthropicBaseUrl,
-        } as ProviderAuth,
-      ),
+      model: createModel(resolveModel(params.modelName, deps.modelRegistry), deps.modelRegistry, {
+        apiKey: deps.config.anthropicApiKey,
+        baseUrl: deps.config.anthropicBaseUrl,
+      } as ProviderAuth),
       tools: defaultTools(params.cwd),
       plugins: defaultPlugins(params.cwd, deps.config, params.skillRoots),
       contextManager: defaultContextManager(),

@@ -1,11 +1,5 @@
 import { mkdirSync } from "node:fs";
-import {
-  anthropicProvider,
-  createModelRegistry,
-  type Model,
-  type ModelRegistry,
-  type ProviderAuth,
-} from "@my-agent-team/ai";
+import { type Model, type ModelRegistry, type ProviderAuth, resolveModel } from "@my-agent-team/ai";
 import type { ChatModel, Tool } from "@my-agent-team/core";
 import {
   autoSummarize,
@@ -37,20 +31,21 @@ import {
 import type { ConversationPort } from "../conversation/ports.js";
 import type { SettingsService } from "../settings/index.js";
 import type { SkillRoots } from "./skill-roots.js";
-
 // ─── Model Registry ────────────────────────────────────────
 
-/** Create and register providers from config. Called once at startup. */
+import { loadModelRegistry } from "../../model-registry-loader.js";
+
+/** Create and register providers from <dataDir>/models.yml or env auto-detection. */
 export function createDefaultModelRegistry(config: BackendConfig): ModelRegistry {
-  const registry = createModelRegistry();
-  registry.register(
-    anthropicProvider({
-      apiKey: config.anthropicApiKey,
-      baseUrl: config.anthropicBaseUrl,
-    }),
-  );
+  const yamlPath = `${config.dataDir}/models.yml`;
+  const registry = loadModelRegistry(yamlPath);
+  if (registry.getProviders().length === 0) {
+    throw new Error(`No model providers configured. Set ANTHROPIC_API_KEY or create ${yamlPath}`);
+  }
   return registry;
 }
+
+export { resolveModel };
 
 /** Create a ChatModel from a Model object using the registry.
  *  No bare-string compat: callers must resolve Model via registry.getModel(). */

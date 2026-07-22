@@ -8,6 +8,8 @@ export {
   parseSSE,
   registerApi,
 } from "./api/index.js";
+export type { ModelConfig, ProviderConfig } from "./builtin-providers.js";
+export { BUILTIN_PROVIDERS, buildModels, loadProvider } from "./provider-config.js";
 export {
   ANTHROPIC_MODELS,
   anthropicProvider,
@@ -18,6 +20,7 @@ export {
   type OpenAICompatProviderConfig,
 } from "./providers/index.js";
 export { createModelRegistry } from "./registry.js";
+export { resolveModel } from "./resolve-model.js";
 export type {
   Api,
   ApiImplementation,

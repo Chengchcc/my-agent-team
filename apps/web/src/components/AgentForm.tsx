@@ -64,12 +64,21 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
   const [serverError, setServerError] = useState("");
   const [selectedPackIds, setSelectedPackIds] = useState<string[]>([]);
   const { data: modelData } = useModelList();
+  const providers = useMemo(() => modelData?.providers ?? [], [modelData]);
+  const [selProvider, setSelProvider] = useState<string>("");
   const modelGroups = useMemo(() => {
-    const providers = modelData?.providers ?? [];
     return providers.flatMap((p) =>
-      p.models.map((m) => ({ id: `${p.id}/${m.id}`, name: `${p.name} / ${m.name ?? m.id}` })),
+      p.models.map((m) => ({
+        id: `${p.id}/${m.id}`,
+        name: `${p.name} / ${m.name ?? m.id}`,
+        provider: p.id,
+      })),
     );
-  }, [modelData]);
+  }, [providers]);
+  const filteredModels = useMemo(() => {
+    if (!selProvider) return modelGroups;
+    return modelGroups.filter((m) => m.provider === selProvider);
+  }, [modelGroups, selProvider]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -271,15 +280,36 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                 />
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <div>
-                    <label className={labelClass}>Provider</label>
-                    <Input
-                      value="Anthropic"
-                      disabled
-                      className={`${fieldClass} opacity-50 cursor-not-allowed`}
-                    />
-                    <p className={hintClass}>Sole provider</p>
-                  </div>
+                  <FormField
+                    control={form.control}
+                    name="model"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className={labelClass}>Provider</FormLabel>
+                        <Select
+                          value={field.value.split("/")[0] ?? ""}
+                          onValueChange={(v) => {
+                            const vv = v ?? "";
+                            setSelProvider(vv);
+                            const modelId = field.value.split("/").slice(1).join("/");
+                            field.onChange(`${vv}/${modelId}`);
+                          }}
+                        >
+                          <SelectTrigger className={fieldClass}>
+                            <SelectValue placeholder="Select provider…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {providers.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                   <FormField
                     control={form.control}
                     name="model"
@@ -295,7 +325,7 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel }: AgentFormProps
                               <SelectValue placeholder="Select model…" />
                             </SelectTrigger>
                             <SelectContent>
-                              {modelGroups.map((m) => (
+                              {filteredModels.map((m) => (
                                 <SelectItem key={m.id} value={m.id}>
                                   {m.name}
                                 </SelectItem>

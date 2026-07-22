@@ -28,7 +28,13 @@ import type { AgentService } from "../agent/index.js";
 import type { RelationshipService } from "../agent/relationship-service.js";
 import type { RuntimeOpsStore } from "../runtime-ops/index.js";
 import type { SettingsService } from "../settings/index.js";
-import { convTools, createModel, defaultPlugins, defaultTools } from "../span/agent-helpers.js";
+import {
+  convTools,
+  createModel,
+  defaultPlugins,
+  defaultTools,
+  resolveModel,
+} from "../span/agent-helpers.js";
 import type { SpanSupervisor } from "../span/supervisor.js";
 import { createGoalStateStore, type GoalStateStore } from "./goal-state.js";
 import { sqliteConversationAdapter } from "./index.js";
@@ -76,7 +82,7 @@ export function createConversationFeature(
 
   // Auto-title: fire-and-forget on first terminal response
   const autoTitle = async (cid: string) => {
-    const model = createModel(modelRegistry.getModel("anthropic", "claude")!, modelRegistry, auth);
+    const model = createModel(resolveModel("anthropic/claude", modelRegistry), modelRegistry, auth);
     const entries = convPort.getLedgerEntries(cid).filter((e) => e.kind === "message");
     const msgs: Message[] = entries.slice(0, 6).map((e) => {
       const result = deserializeLedgerContent(e.content);
@@ -163,14 +169,13 @@ export function createConversationFeature(
       const isLark = members.some((m) => m.kind === "human" && m.userRef?.startsWith("lark:"));
       const surface = isLark ? "lark" : "web";
 
-      const { modelName, name: agentName } = await agentSvc.getById(agentId);
+      const { modelProvider, modelName, name: agentName } = await agentSvc.getById(agentId);
       const cwd = join(config.dataDir, "agents", agentId);
       const cTools = convTools(convPort, conversationId);
       const mcpTools = mcpClientManager.getTools(agentId);
       const agentConfig = {
         model: createModel(
-          modelRegistry.getModel("anthropic", modelName) ??
-            modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!,
+          resolveModel(`${modelProvider}/${modelName}`, modelRegistry),
           modelRegistry,
           auth,
         ),
@@ -181,10 +186,10 @@ export function createConversationFeature(
           goalPlugin({
             goalCondition: () => goalStore.get(conversationId).condition,
             evaluatorModel: createModel(
-              modelRegistry.getModel("anthropic", "claude-sonnet-4")!,
+              resolveModel("anthropic/claude-sonnet-4", modelRegistry),
               modelRegistry,
               auth,
-            ), // ponytail: reuse main model, swap to Haiku later
+            ),
             onEvaluation: ({ summary, evaluation }) => {
               const gs = goalStore.get(conversationId);
               if (gs.paused) return;

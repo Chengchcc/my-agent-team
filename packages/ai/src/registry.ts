@@ -12,6 +12,10 @@ export function createModelRegistry(): ModelRegistry {
       providers.set(provider.id, provider);
     },
 
+    setProvider(provider: Provider): void {
+      providers.set(provider.id, provider);
+    },
+
     getProvider(id: string): Provider | undefined {
       return providers.get(id);
     },

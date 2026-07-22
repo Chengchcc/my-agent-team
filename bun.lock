@@ -55,6 +55,7 @@
         "drizzle-orm": "^0.44.0",
         "elysia": "^1.0.0",
         "handlebars": "^4.7.9",
+        "yaml": "^2.9.0",
         "zod": "^3.23.0",
       },
       "devDependencies": {
