@@ -9,15 +9,17 @@ import type { Model, ModelRegistry } from "./types.js";
  * Throws if not found so callers don't silently fall back.
  */
 export function resolveModel(name: string, registry: ModelRegistry): Model {
-  const slash = name.indexOf("/");
+  // Guard: strip accidental leading "/" from empty provider
+  const clean = name.startsWith("/") ? name.slice(1) : name;
+  const slash = clean.indexOf("/");
   if (slash > 0) {
-    const provider = name.slice(0, slash);
-    const id = name.slice(slash + 1);
+    const provider = clean.slice(0, slash);
+    const id = clean.slice(slash + 1);
     const model = registry.getModel(provider, id);
     if (model) return model;
   } else {
     for (const p of registry.getProviders()) {
-      const model = registry.getModel(p.id, name);
+      const model = registry.getModel(p.id, clean);
       if (model) return model;
     }
   }

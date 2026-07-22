@@ -14,12 +14,8 @@ export function loadProvider(config: ProviderConfig): Provider | undefined {
   switch (config.api) {
     case "anthropic-messages": {
       const provider = anthropicProvider(auth);
-      return {
-        ...provider,
-        getModels: () => models,
-      };
+      return { ...provider, getModels: () => models, name: config.id };
     }
-    case "openai-completions":
     default: {
       return createOpenAICompatProvider({
         id: config.id,
