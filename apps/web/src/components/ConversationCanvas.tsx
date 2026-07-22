@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { PetStatusBar } from "@/components/PetBar";
 import { Button } from "@/components/ui/button";
 import { useConversation } from "@/hooks/useConversation";
 import type { ConversationSnapshot } from "@/lib/api";
@@ -425,6 +426,7 @@ export function ConversationCanvas({
       {/* Composer */}
       <div className="shrink-0 border-t border-[var(--hairline)]">
         <div className="flex items-center gap-2 px-6 pt-3">
+          <PetStatusBar bark={null} />
           <Button
             onClick={toggleTriggerMode}
             className="text-[10px] tracking-[0.1em] uppercase px-2 py-0.5 rounded border border-[var(--hairline)] text-[var(--mute)] hover:text-[var(--body)] hover:border-[var(--primary)] transition-colors"
