@@ -7,7 +7,7 @@ export interface PetBark {
   turn: number;
 }
 
-/** 持久化状态（跨 session） */
+/** Persisted state (cross-session). */
 export interface PetPersistedState {
   level: number;
   xp: number;
@@ -15,10 +15,11 @@ export interface PetPersistedState {
   totalBarks: number;
 }
 
-/** 完整状态（持久化 + 会话内） */
+/** Full state (persisted + per-run). */
 export interface PetState extends PetPersistedState {
   mood: PetMood;
   consecutiveErrors: number;
+  consecutiveSuccesses: number;
   lastBarkTurn: number;
   turnCount: number;
   lastReviewedMessageCount: number;
@@ -33,25 +34,10 @@ export function createInitialState(): PetState {
     totalBarks: 0,
     mood: "neutral",
     consecutiveErrors: 0,
+    consecutiveSuccesses: 0,
     lastBarkTurn: 0,
     turnCount: 0,
     lastReviewedMessageCount: 0,
     barkHistory: new Set(),
-  };
-}
-
-export function toPersisted(state: PetState): PetPersistedState {
-  return {
-    level: state.level,
-    xp: state.xp,
-    totalTurns: state.totalTurns,
-    totalBarks: state.totalBarks,
-  };
-}
-
-export function fromPersisted(persisted: PetPersistedState): PetState {
-  return {
-    ...createInitialState(),
-    ...persisted,
   };
 }

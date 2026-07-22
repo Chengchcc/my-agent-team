@@ -7,4 +7,4 @@ export {
 } from "./pet-plugin.js";
 export { awardXP, updateMood } from "./state.js";
 export type { PetBark, PetMood, PetPersistedState, PetState } from "./types.js";
-export { createInitialState, fromPersisted, toPersisted } from "./types.js";
+export { createInitialState } from "./types.js";

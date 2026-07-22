@@ -14,9 +14,9 @@ export interface PetPluginOptions {
 }
 
 export interface PetSettingsStore {
-  get(key: string, prefix: string): string | undefined;
-  getNumber(key: string, prefix: string): number | undefined;
-  set(key: string, value: string, prefix: string): void;
+  get(key: string): string | undefined;
+  getNumber(key: string): number | undefined;
+  set(key: string, value: string): void;
 }
 
 export { PetBarkKey } from "./bark.js";
@@ -27,19 +27,19 @@ const PET_PREFIX = "pet";
 function loadState(store: PetSettingsStore | undefined): PetState {
   const s = createInitialState();
   if (!store) return s;
-  s.level = store.getNumber("level", PET_PREFIX) ?? 1;
-  s.xp = store.getNumber("xp", PET_PREFIX) ?? 0;
-  s.totalTurns = store.getNumber("totalTurns", PET_PREFIX) ?? 0;
-  s.totalBarks = store.getNumber("totalBarks", PET_PREFIX) ?? 0;
+  s.level = store.getNumber(`${PET_PREFIX}.level`) ?? 1;
+  s.xp = store.getNumber(`${PET_PREFIX}.xp`) ?? 0;
+  s.totalTurns = store.getNumber(`${PET_PREFIX}.totalTurns`) ?? 0;
+  s.totalBarks = store.getNumber(`${PET_PREFIX}.totalBarks`) ?? 0;
   return s;
 }
 
 function saveState(store: PetSettingsStore | undefined, state: PetState): void {
   if (!store) return;
-  store.set("level", String(state.level), PET_PREFIX);
-  store.set("xp", String(state.xp), PET_PREFIX);
-  store.set("totalTurns", String(state.totalTurns), PET_PREFIX);
-  store.set("totalBarks", String(state.totalBarks), PET_PREFIX);
+  store.set(`${PET_PREFIX}.level`, String(state.level));
+  store.set(`${PET_PREFIX}.xp`, String(state.xp));
+  store.set(`${PET_PREFIX}.totalTurns`, String(state.totalTurns));
+  store.set(`${PET_PREFIX}.totalBarks`, String(state.totalBarks));
 }
 
 export function petPlugin(opts: PetPluginOptions): Plugin {
@@ -53,6 +53,7 @@ export function petPlugin(opts: PetPluginOptions): Plugin {
         if (!enabled) return [...messages];
         state.mood = "neutral";
         state.consecutiveErrors = 0;
+        state.consecutiveSuccesses = 0;
         state.lastBarkTurn = 0;
         state.turnCount = 0;
         state.lastReviewedMessageCount = 0;
@@ -64,6 +65,7 @@ export function petPlugin(opts: PetPluginOptions): Plugin {
         if (!enabled) return;
         if (result.is_error) {
           state.consecutiveErrors++;
+          state.consecutiveSuccesses = 0;
           if (state.consecutiveErrors >= 3) {
             state.mood = "frustrated";
           }
@@ -72,6 +74,10 @@ export function petPlugin(opts: PetPluginOptions): Plugin {
             state.mood = "neutral";
           }
           state.consecutiveErrors = 0;
+          state.consecutiveSuccesses++;
+          if (state.consecutiveSuccesses >= 3) {
+            state.mood = "happy";
+          }
         }
       },
 
@@ -81,8 +87,8 @@ export function petPlugin(opts: PetPluginOptions): Plugin {
         state.turnCount++;
         state.totalTurns++;
 
-        awardXP(state);
-        updateMood(state);
+        updateMood(state); // decay happy/excited from previous turn FIRST
+        awardXP(state); // may set excited on level-up
 
         if (shouldBark(state)) {
           const bark = await generateBark(opts.petModel, state, messages);

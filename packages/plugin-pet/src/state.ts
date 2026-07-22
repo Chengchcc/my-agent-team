@@ -1,6 +1,6 @@
 import type { PetState } from "./types.js";
 
-/** Award XP for a completed turn. */
+/** Award XP for a completed turn. Returns true if leveled up. */
 export function awardXP(state: PetState): boolean {
   state.xp += 10;
   if (state.consecutiveErrors === 0) state.xp += 5;
@@ -8,22 +8,16 @@ export function awardXP(state: PetState): boolean {
   if (state.xp >= xpForNextLevel) {
     state.xp -= xpForNextLevel;
     state.level++;
-    return true; // leveled up
+    state.mood = "excited";
+    return true;
   }
   return false;
 }
 
-/** Update mood based on turn-level signals. */
+/** Decay non-frustrated elevated moods back to neutral. */
 export function updateMood(state: PetState): void {
-  // Frustrated already set by afterTool (3+ consecutive errors)
   if (state.mood === "frustrated") return;
-
-  // Non-frustrated moods decay to neutral after 1 turn
   if (state.mood === "happy" || state.mood === "excited") {
     state.mood = "neutral";
-    return;
   }
-
-  // Neutral stays neutral (happy/excited set by specific signals)
-  // ponytail: no complex signal detection for now -- afterTool handles frustrated
 }

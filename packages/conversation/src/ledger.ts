@@ -9,6 +9,7 @@ export const LedgerKind = z.enum([
   "todo",
   "surface.control",
   "undo",
+  "pet_bark",
 ]);
 
 /** Type-level LedgerKind — use this for type annotations.

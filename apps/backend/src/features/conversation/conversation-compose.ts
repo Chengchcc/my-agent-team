@@ -215,13 +215,13 @@ export function createConversationFeature(
             cwd,
             enabled: settingsSvc.get<boolean>("pet.enabled") ?? false,
             settings: {
-              get(key, _prefix) {
+              get(key: string) {
                 return settingsSvc.get<string>(`pet.${agentId}.${key}`);
               },
-              getNumber(key, _prefix) {
+              getNumber(key: string) {
                 return settingsSvc.get<number>(`pet.${agentId}.${key}`);
               },
-              set(key, value, _prefix) {
+              set(key: string, value: string) {
                 settingsSvc.set(`pet.${agentId}.${key}`, value);
               },
             },
@@ -313,6 +313,18 @@ export function createConversationFeature(
             todos: (event as { payload: { todos: Array<{ step: string; status: string }> } })
               .payload.todos,
           };
+        }
+        if (event.type === "pet_bark") {
+          const ts = Date.now();
+          void convPort.appendLedgerEntry({
+            conversationId,
+            senderMemberId: agentMemberId,
+            addressedTo: [],
+            kind: "pet_bark",
+            content: JSON.stringify(event.payload),
+            ts,
+            spanId: spanId,
+          });
         }
       });
       // Execute — origin via prompt opts, context via setContext

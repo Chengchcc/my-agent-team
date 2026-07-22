@@ -44,6 +44,7 @@ export function ConversationCanvas({
     queuedMessages,
     queueEdit,
     queueRemove,
+    petBark,
   } = useConversation(conversationId, snapshot);
   const { viewerMemberId, roster, items, error, todos, triggerMode, streamConn } = state;
 
@@ -426,7 +427,7 @@ export function ConversationCanvas({
       {/* Composer */}
       <div className="shrink-0 border-t border-[var(--hairline)]">
         <div className="flex items-center gap-2 px-6 pt-3">
-          <PetStatusBar bark={null} />
+          <PetStatusBar bark={petBark} />
           <Button
             onClick={toggleTriggerMode}
             className="text-[10px] tracking-[0.1em] uppercase px-2 py-0.5 rounded border border-[var(--hairline)] text-[var(--mute)] hover:text-[var(--body)] hover:border-[var(--primary)] transition-colors"

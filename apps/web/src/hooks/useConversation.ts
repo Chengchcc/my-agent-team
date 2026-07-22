@@ -1,7 +1,7 @@
 "use client";
 
 import { conversationEvents } from "@my-agent-team/api-contract";
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 import { toast } from "sonner";
 import {
   useConversationSnapshot,
@@ -39,11 +39,22 @@ function resolveAddressedTo(s: ConvState): string[] {
   return [];
 }
 
+interface PetBarkData {
+  mood: "happy" | "neutral" | "frustrated" | "excited";
+  text: string;
+  level: number;
+  turn: number;
+}
+const VALID_MOODS = new Set(["happy", "neutral", "frustrated", "excited"]);
+function isPetMood(s: string): s is "happy" | "neutral" | "frustrated" | "excited" {
+  return VALID_MOODS.has(s);
+}
 export function useConversation(
   conversationId: string,
   preFetchedSnapshot?: ConversationSnapshot | null,
 ) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
+  const [petBark, setPetBark] = useState<PetBarkData | null>(null);
 
   // 1) Snapshot bootstrap (roster + viewerMemberId)
   const snap = useConversationSnapshot(conversationId, preFetchedSnapshot);
@@ -201,6 +212,20 @@ export function useConversation(
       }
     });
 
+    ts.on("pet_bark", (entry) => {
+      const payload = typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
+      if (payload && typeof payload === "object" && "mood" in payload && "text" in payload) {
+        const mood = String(payload.mood);
+        if (!isPetMood(mood)) return;
+        setPetBark({
+          mood,
+          text: String(payload.text),
+          level: Number((payload as Record<string, unknown>).level ?? 1),
+          turn: Number((payload as Record<string, unknown>).turn ?? 0),
+        });
+      }
+    });
+
     ts.on("undo", (entry) => {
       const seq = guard(entry);
       if (seq === null) return;
@@ -291,5 +316,6 @@ export function useConversation(
     queuedMessages: state.queuedMessages,
     queueEdit,
     queueRemove,
+    petBark,
   };
 }

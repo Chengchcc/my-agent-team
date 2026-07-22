@@ -3,13 +3,13 @@ import type { z } from "zod";
 
 // ── SSE event maps (event name → zod schema) ──
 
-/** Conversation SSE events — reuse LedgerEntry from @my-agent-team/conversation. */
 export const conversationEvents = {
   message: LedgerEntry,
   "member.joined": LedgerEntry,
   "member.left": LedgerEntry,
   todo: LedgerEntry,
   undo: LedgerEntry,
+  pet_bark: LedgerEntry,
 } as const satisfies SSEEventMap;
 
 // ── SSE endpoint registry (path template + event map, single source) ──
