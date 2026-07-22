@@ -220,8 +220,12 @@ export function useConversation(
         setPetBark({
           mood,
           text: String(payload.text),
-          level: Number((payload as Record<string, unknown>).level ?? 1),
-          turn: Number((payload as Record<string, unknown>).turn ?? 0),
+          level:
+            payload && typeof payload === "object" && "level" in payload
+              ? Number(payload.level)
+              : 1,
+          turn:
+            payload && typeof payload === "object" && "turn" in payload ? Number(payload.turn) : 0,
         });
       }
     });
