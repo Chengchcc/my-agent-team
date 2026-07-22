@@ -110,14 +110,62 @@ used_by:
 
   | 优先级 | 设计 | OMP 做法 | 我们现状 | 成本 |
   |---|---|---|---|---|
-  | **P1** | Append-Only Context（Prompt Cache 优化） | `StablePrefix` 冻结 system prompt + tool specs 字节序列，后续 turn 复用直到 `invalidate()`；`AppendOnlyLog` 消息只追加不重序列化。每轮只有增量消息是 cache miss。 | `beforeModel` 每轮重新拼接 system prompt（读文件+读目录），即使内容没变字节也可能不同，导致 prompt cache miss。 | 2-3 天 |
-  | **P2** | Compaction "Shake"（机械缩减） | 纯机械操作（不调 LLM）：大的 tool_result 和 fenced/XML 块替换为占位符，保护最近 N tokens + 特定工具结果。比 LLM 摘要更快更便宜。 | `summarizingContextManager` 用 LLM 生成摘要替换旧消息，每次压缩都消耗 token。 | 2 天 |
-  | **P2** | Tool Protection（工具结果保护） | 按工具名或谓词保护 `tool_result` 不被压缩/缩减，默认保护 `skill` 工具结果。 | compaction 无差别替换旧消息，包括 agent 之前读取的重要文件内容。 | 半天 |
-  | **P2** | Pause Gate（进程级暂停） | `AgentPauseGate` 进程内所有 agent loop 在下一个安全点冻结，不中断正在进行的 LLM 调用和工具执行。 | `/stop` 是 cancel abort，直接中断。pause 更温和。 | 1 天 |
-  | **P3** | Telemetry（OTel GenAI 语义约定） | OpenTelemetry span 层级（invoke_agent -> chat/execute_tool），GenAI 语义属性，run collector 聚合。 | 有 `runtime-observability` 包但非 OTel 标准。 | 1 周 |
-  | **P3** | Tokenizer（精确 token 计数） | 原生 tokenizer（`@oh-my-pi/pi-natives`），可选精确模式 vs 估算模式（4 bytes/token）。 | 用 `JSON.stringify().length / 4` 估算。 | 2 天 |
+  | **P1** | Append-Only Context（Prompt Cache 优化） | ✅ 已完成 | identityPlugin mtime 指纹缓存 system prompt | 2026-07-21 |
+  | **P2** | Compaction "Shake"（机械缩减） | ✅ 已完成 | shakeMessages 在 autoSummarize Step 1 机械替换大 tool_result | 2026-07-21 |
+  | **P2** | Tool Protection（工具结果保护） | ✅ 已完成 | shakeMessages protectedTools 配置，默认保护 skill | 2026-07-21 |
+  | **P2** | Pause Gate（进程级暂停） | ❌ 不做 | 服务端运行时不需要，/stop 够用 | - |
+  | **P3** | Telemetry（OTel GenAI 语义约定） | ⏳ 待办 | 有 runtime-observability 但非 OTel 标准 | 1 周 |
+  | **P3** | Tokenizer（精确 token 计数） | ✅ 已完成 | countTokens/countMessageTokens 工具函数 | 2026-07-21 |
 
   OMP 的 dialect 系统（anthropic/deepseek/gemini/glm/kimi/qwen3 等 15+ 个 dialect 的 prompt 格式适配）不值得抄 -- 我们的 API 层已有消息转换，且不需要 thinking 格式适配（不同模型的 reasoning 格式差异由 API 层处理）。
+- **Autonomous Memory（自主记忆）（2026-07-21）**　参考 OMP 的 memory pipeline，实现后台自动提取 + 跨 session 合并的记忆系统。当前 `fsMemoryPlugin` 只让 agent 手动写 MEMORY.md，OMP 的方式是自动的 -- 后台 pipeline 自动提取和合并。
+
+  | 阶段 | 内容 | OMP 做法 | 我们对应 |
+  |---|---|---|---|
+  | **Phase 1: Per-session 提取** | 每个 session 结束后，用小模型读 session 历史，提取技术决策、约束、解决方案 | 并发 8 个 LLM 调用，过滤太新(<12h)/太旧(>30d)/活跃中，结果存 SQLite | 从 conversation_ledger 读取，用 `@my-agent-team/ai` 的 modelRegistry 调 Haiku 级别模型 |
+  | **Phase 2: 跨 session 合并** | 把所有提取结果合并成 MEMORY.md + memory_summary.md + skills/ | 一次 LLM 调用，输出 memory_md + memory_summary + skills[] | 同上，输出写入 agent workspace |
+  | **注入** | 下次 session 启动时注入 memory_summary 到 system prompt | read-path.md 模板，告知"trust memory for heuristics, trust repo for facts" | identityPlugin 的 beforeModel 读 memory_summary.md |
+  | **后台 pipeline** | 不阻塞用户 | agent session 启动时异步跑 | backend 启动时或 cron 触发 |
+  | **增量处理** | 只处理变化的 session | SQLite 存提取状态，跳过已处理 | conversation_ledger 的 ts 做增量判断 |
+  | **Skill 生成** | 从 session 历史自动提取可复用 playbook | Phase 2 输出 skills[] 写入 skills/<name>/SKILL.md | 写入 agent workspace 的 skills 目录 |
+  | **Secret 脱敏** | 写入前自动 redact | 正则匹配 token/key 模式 | 同上 |
+
+  关键 prompt 模板（OMP 的 `prompts/memories/` 目录）：
+  - `stage_one_system.md` -- Phase 1 提取 prompt（输出 JSON: raw_memory + rollout_summary + rollout_slug）
+  - `stage_one_input.md` -- Phase 1 输入模板（thread_id + response_items_json）
+  - `consolidation_system.md` -- Phase 2 合并 system prompt
+  - `consolidation.md` -- Phase 2 输入模板（raw_memories + rollout_summaries -> memory_md + memory_summary + skills）
+  - `read-path.md` -- 注入模板（memory_summary + learned lessons）
+
+  成本：1-2 周（后台 pipeline + 两阶段 LLM + SQLite 存储 + 注入模板）
+
+- **Pet（陪伴审查 agent）（2026-07-21）**　参考 OMP 的 advisor，实现一个只读的第二 agent，每轮结束后审查 primary agent 的输出并注入建议。"pet" 概念比 "advisor" 更直觉 -- 一个跟着 agent 的小宠物，时不时叫两声提醒。
+
+  | 组件 | OMP 做法 | 我们对应 |
+  |---|---|---|
+  | **PetRuntime** | 独立 agent 实例，用自己的模型（Haiku 级别），挂载只读工具（read/grep/glob） | 在 conversation-compose 里创建第二个 AgentSession，用 `modelRegistry.getModel("anthropic","claude-haiku-3-5")` |
+  | **advise 工具** | 唯一输出通道，`advise(note, severity)` 注入建议到 primary session | pet agent 的 tools 数组只有 read/grep/glob + advise |
+  | **EmissionGuard** | 去重 + 过滤垃圾建议（"Stop." 重复 114 次的问题），每轮最多一条 | pet plugin 的 afterModel hook 里做去重 |
+  | **增量审查** | 每轮结束后收到 primary 的增量 transcript，不重读全部历史 | primary 的 afterModel hook 触发 pet.prompt(增量消息) |
+  | **severity 分档** | nit（建议）/ concern（关注）/ blocker（阻断） | 同上，blocker 可以阻止 primary 继续直到用户介入 |
+  | **context 管理** | pet 有自己的 context，可以 compact | pet AgentSession 有自己的 checkpointer/contextManager |
+
+  关键设计约束（OMP 的教训）：
+  - pet **不能执行操作**，只能建议（read-only tools + advise tool）
+  - pet **不修改 primary session 状态**，建议通过队列注入
+  - 每轮最多一条 advise（防止刷屏）-- OMP 遇到过 advisor 309 次调用 92 条独特建议，114 次 "Stop."
+  - pet 有自己的 context 管理（可以 compact），不和 primary 共享
+  - pet 的 system prompt 明确"weigh, don't blindly obey" -- 建议而非命令
+
+  与 agent relationship graph 的结合：pet 是一种特殊的关系类型（`pet_of`），可以在 relationship panel 里配置哪个 agent 是哪个 agent 的 pet。
+
+  成本：1 周（PetRuntime + advise 工具 + EmissionGuard + system prompt + 接线）
+
+  **优先级判断：Pet 先做。** 理由：
+  1. Pet 对"在场协作"故事线有直接价值 -- 用户看到 pet 的建议，提升 agent 输出质量
+  2. Autonomous Memory 对"离场托付"故事线有价值，但需要后台 pipeline 基础设施，成本更高
+  3. Pet 可以复用现有的 AgentSession + plugin 系统，改动面小
+  4. Pet 的 EmissionGuard 和增量审查模式可以为后续 Autonomous Memory 的 Phase 1 提取提供经验
 - **Ops 导航转 session / trace 中心**　现状 Ops 面以 run 为中心列举（run 列表 → run 详情），词汇与分区都停在 daemon 时代的 `run`。[标识符体系](../foundations/identifiers.md) 把本体收敛为「session（一条 trace）→ span（root span）→ attempt（重试序号）」后，Ops 导航也应顺着这条链改：顶层按 **session** 聚合（一个 agent 在一个上下文里的整条记忆线），点进去看这条线上的 **span 序列**（每次 prompt loop 一段，按 spanId 切的 `checkpoint_events` 即其执行事实流），再下钻到 **attempt / child span**。这让「这条线到底跑过几轮、第 3 轮前是什么状态」成为一次自然的层层下钻，而不是在扁平 run 列表里靠 `idempotencyKey` 反推。依赖：[标识符体系](../foundations/identifiers.md)、[数据模型](../backend/data-model.md)。
 - **删除 transport / heartbeat 残骸**　**已解决。** `attempt` 表的 `pid` / `heartbeat_at` 列已删除（migration 0009），reaper 心跳分支已移除，超时由 per-span 看门狗（主动 cancel）表达。
 - **Harness 运行时加固（M22）**　**已落地。** 四项子任务全部完成，相关 `status: current` 页面已回填：
