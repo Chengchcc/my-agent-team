@@ -118,26 +118,18 @@ used_by:
   | **P3** | Tokenizer（精确 token 计数） | ✅ 已完成 | countTokens/countMessageTokens 工具函数 | 2026-07-21 |
 
   OMP 的 dialect 系统（anthropic/deepseek/gemini/glm/kimi/qwen3 等 15+ 个 dialect 的 prompt 格式适配）不值得抄 -- 我们的 API 层已有消息转换，且不需要 thinking 格式适配（不同模型的 reasoning 格式差异由 API 层处理）。
-- **Autonomous Memory（自主记忆）（2026-07-21）**　参考 OMP 的 memory pipeline，实现后台自动提取 + 跨 session 合并的记忆系统。当前 `fsMemoryPlugin` 只让 agent 手动写 MEMORY.md，OMP 的方式是自动的 -- 后台 pipeline 自动提取和合并。
+- **Autonomous Memory（自主记忆）（2026-07-22）**　✅ **已完成**。参考 OMP 的 memory pipeline，实现两阶段自动提取 + 合并。
 
-  | 阶段 | 内容 | OMP 做法 | 我们对应 |
-  |---|---|---|---|
-  | **Phase 1: Per-session 提取** | 每个 session 结束后，用小模型读 session 历史，提取技术决策、约束、解决方案 | 并发 8 个 LLM 调用，过滤太新(<12h)/太旧(>30d)/活跃中，结果存 SQLite | 从 conversation_ledger 读取，用 `@my-agent-team/ai` 的 modelRegistry 调 Haiku 级别模型 |
-  | **Phase 2: 跨 session 合并** | 把所有提取结果合并成 MEMORY.md + memory_summary.md + skills/ | 一次 LLM 调用，输出 memory_md + memory_summary + skills[] | 同上，输出写入 agent workspace |
-  | **注入** | 下次 session 启动时注入 memory_summary 到 system prompt | read-path.md 模板，告知"trust memory for heuristics, trust repo for facts" | identityPlugin 的 beforeModel 读 memory_summary.md |
-  | **后台 pipeline** | 不阻塞用户 | agent session 启动时异步跑 | backend 启动时或 cron 触发 |
-  | **增量处理** | 只处理变化的 session | SQLite 存提取状态，跳过已处理 | conversation_ledger 的 ts 做增量判断 |
-  | **Skill 生成** | 从 session 历史自动提取可复用 playbook | Phase 2 输出 skills[] 写入 skills/<name>/SKILL.md | 写入 agent workspace 的 skills 目录 |
-  | **Secret 脱敏** | 写入前自动 redact | 正则匹配 token/key 模式 | 同上 |
+  | 组件 | 实现 |
+  |---|---|
+  | **包改名** | `plugin-fs-memory` → `plugin-memory` |
+  | **工具升级** | `memory_retain`（批量 + context）、`memory_search`（多词 AND + 时间过滤） |
+  | **Stage 1** | 每轮 afterModel 后用小模型提取增量消息的 durable knowledge → `memory/facts/<ts>-<slug>.md` |
+  | **Phase 2** | 累积 10 条 facts 后 LLM 合并 → `memory_summary.md`（1-3 句浓缩） |
+  | **注入** | `memoryPlugin.beforeRun` 读 `memory_summary.md` → `<memory>` 标签注入 system prompt |
+  | **UI** | Agent 详情页 Memory tab（只读 facts + summary） |
+  | **配置** | 7 项 settings，`memory.autoExtract` 默认开启 |
 
-  关键 prompt 模板（OMP 的 `prompts/memories/` 目录）：
-  - `stage_one_system.md` -- Phase 1 提取 prompt（输出 JSON: raw_memory + rollout_summary + rollout_slug）
-  - `stage_one_input.md` -- Phase 1 输入模板（thread_id + response_items_json）
-  - `consolidation_system.md` -- Phase 2 合并 system prompt
-  - `consolidation.md` -- Phase 2 输入模板（raw_memories + rollout_summaries -> memory_md + memory_summary + skills）
-  - `read-path.md` -- 注入模板（memory_summary + learned lessons）
-
-  成本：1-2 周（后台 pipeline + 两阶段 LLM + SQLite 存储 + 注入模板）
 
 - **Pet（陪伴审查 agent）（2026-07-21）**　✅ **已完成（2026-07-22）**。参考 OMP 的 advisor，实现一个有状态的生命体 agent，每轮结束后审查 primary agent 的输出并"叫"出建议。
 
