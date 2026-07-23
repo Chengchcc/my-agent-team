@@ -81,8 +81,8 @@ export function memoryPlugin(options: MemoryPluginOptions): Plugin {
   const consolidateModel = options.consolidateModel;
 
   let lastExtractedCount = 0;
+  let lastConsolidatedCount = 0;
   let initialized = false;
-
   const tools = [memoryReadTool({ ws, root }), memorySearchTool({ ws, root, limit })];
   if (enableWrite) tools.push(memoryRetainTool({ ws, root }));
 
