@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PetStatusBar } from "@/components/PetBar";
 import { RecapPanel } from "@/components/RecapPanel";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useConversation } from "@/hooks/useConversation";
 import type { ConversationSnapshot } from "@/lib/api";
@@ -444,29 +445,19 @@ export function ConversationCanvas({
           >
             {triggerMode === "auto" ? "Auto" : "@ Mention"}
           </Button>
-          {/* Connection status dot */}
-          <span
-            className="ml-auto h-2 w-2 rounded-full shrink-0"
-            style={{
-              backgroundColor:
-                streamConn === "open"
-                  ? "#22c55e"
-                  : streamConn === "reconnecting"
-                    ? "#eab308"
-                    : streamConn === "closed"
-                      ? "#ef4444"
-                      : "#94a3b8",
-            }}
-            title={
-              streamConn === "open"
-                ? "Connected"
-                : streamConn === "reconnecting"
-                  ? "Reconnecting..."
-                  : streamConn === "closed"
-                    ? "Disconnected"
-                    : "Connecting..."
-            }
-          />
+          {/* Connection status */}
+          {streamConn !== "open" && (
+            <Badge
+              variant={streamConn === "closed" ? "destructive" : "secondary"}
+              className="ml-auto text-[10px] h-4 px-1.5"
+            >
+              {streamConn === "reconnecting"
+                ? "Reconnecting"
+                : streamConn === "closed"
+                  ? "Disconnected"
+                  : "Connecting"}
+            </Badge>
+          )}
         </div>
         <Composer
           onSend={send}
