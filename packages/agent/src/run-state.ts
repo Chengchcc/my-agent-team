@@ -1,1 +1,3 @@
-export interface RunState { readonly _brand?: void; }
+export interface RunState {
+  readonly _brand?: undefined;
+}

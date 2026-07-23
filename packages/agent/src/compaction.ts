@@ -1,1 +1,3 @@
-export interface CompactionResult { readonly _brand?: void; }
+export interface CompactionResult {
+  readonly _brand?: undefined;
+}

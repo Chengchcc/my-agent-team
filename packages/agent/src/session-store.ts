@@ -1,1 +1,3 @@
-export interface SessionStore { readonly _brand?: void; }
+export interface SessionStore {
+  readonly _brand?: undefined;
+}

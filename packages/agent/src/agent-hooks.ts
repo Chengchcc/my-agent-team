@@ -1,1 +1,3 @@
-export interface AgentHooks { readonly _brand?: void; }
+export interface AgentHooks {
+  readonly _brand?: undefined;
+}
