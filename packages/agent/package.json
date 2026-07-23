@@ -1,0 +1,20 @@
+{
+  "name": "@my-agent-team/agent",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check . && eslint .",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "dependencies": {
+    "@my-agent-team/core": "workspace:*",
+    "@my-agent-team/framework": "workspace:*",
+    "@my-agent-team/message": "workspace:*"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.7.0"
+  }
+}

@@ -15,7 +15,7 @@ export default {
         "message",
         "api-contract",
         "config",
-        "conversation",
+        "agent",
         "framework",
         "ai",
         "harness",
@@ -29,6 +29,7 @@ export default {
         "test-helpers",
         // Plugins
         "plugin-fs-memory",
+        "plugin-memory",
         "plugin-goal",
         "plugin-identity",
         "plugin-progressive-skill",
