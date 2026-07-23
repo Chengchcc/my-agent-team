@@ -1,4 +1,6 @@
 import { Elysia, t } from "elysia";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join as pathJoin } from "node:path";
 import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
 import type { AgentIdentityStore } from "./agent-identity.js";
 import type { AgentRow } from "./domain.js";
@@ -52,6 +54,7 @@ export function agentRoutes(
   larkStatusOf?: (agentId: string) => string,
   getSetupManager?: () => LarkSetupManager,
   relSvc?: RelationshipService,
+  dataDir?: string,
 ) {
   const statusOf = (row: AgentRow) => deriveLarkStatus(row, larkStatusOf?.(row.id));
 
@@ -170,6 +173,25 @@ export function agentRoutes(
           return Response.json({ error: err.message }, { status: 404 });
         throw err;
       }
+    })
+    .get("/api/agents/:id/memory", ({ params: { id } }) => {
+      if (!dataDir) return { memories: [], memSummary: null, memoryMd: null };
+      const memDir = pathJoin(dataDir, "agents", id, "memory");
+      const factsDir = pathJoin(memDir, "facts");
+      const factFiles = existsSync(factsDir)
+        ? readdirSync(factsDir).filter((f) => f.endsWith(".md"))
+        : [];
+      const facts = factFiles.map((f) => ({
+        file: f,
+        content: readFileSync(pathJoin(factsDir, f), "utf-8").slice(0, 2000),
+      }));
+      const summaryPath = pathJoin(memDir, "memory_summary.md");
+      const mdPath = pathJoin(memDir, "MEMORY.md");
+      return {
+        memories: facts,
+        memSummary: existsSync(summaryPath) ? readFileSync(summaryPath, "utf-8") : null,
+        memoryMd: existsSync(mdPath) ? readFileSync(mdPath, "utf-8") : null,
+      };
     })
     .put(
       "/api/agents/:id/identity",
