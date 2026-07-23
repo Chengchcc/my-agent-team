@@ -1,2 +1,1 @@
-// TODO: implement in Phase 2
-export type CompactionResult = {};
+export interface CompactionResult { readonly _brand?: void; }

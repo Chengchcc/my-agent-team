@@ -1,2 +1,1 @@
-// TODO: implement in Phase 5
-export type RunState = {};
+export interface RunState { readonly _brand?: void; }

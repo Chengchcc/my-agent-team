@@ -1,2 +1,1 @@
-// TODO: implement in Phase 5
-export type AgentHooks = {};
+export interface AgentHooks { readonly _brand?: void; }

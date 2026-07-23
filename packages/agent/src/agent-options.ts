@@ -1,2 +1,1 @@
-// TODO: implement in Phase 2
-export type AgentConfig = {};
+export interface AgentConfig { readonly _brand?: void; }

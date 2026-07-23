@@ -1,2 +1,1 @@
-// TODO: implement in Phase 3
-export type SessionStore = {};
+export interface SessionStore { readonly _brand?: void; }
