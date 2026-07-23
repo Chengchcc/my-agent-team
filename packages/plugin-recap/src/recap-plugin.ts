@@ -12,11 +12,14 @@ export interface RecapPluginOptions {
 export function recapPlugin(opts: RecapPluginOptions): Plugin {
   const enabled = opts.enabled ?? true;
   let turnCount = 0;
+  let lastReviewedMessageCount = 0;
 
   async function generateRecap(messages: readonly Message[]): Promise<string | null> {
-    // ponytail: only pass last 20 messages to keep context small
-    const recent = messages.slice(-20);
-    const promptMsgs: Message[] = [...recent, { role: "user", text: formatRecapPrompt(turnCount) }];
+    if (messages.length === 0) return null;
+    const promptMsgs: Message[] = [
+      ...messages,
+      { role: "user", text: formatRecapPrompt(turnCount) },
+    ];
     const { blocks } = await collectStream(opts.recapModel.stream(promptMsgs));
     const text = extractText({
       blocks: blocks.filter(
@@ -31,12 +34,16 @@ export function recapPlugin(opts: RecapPluginOptions): Plugin {
     hooks: {
       async beforeRun(_ctx, messages: readonly Message[]): Promise<Message[]> {
         turnCount = 0;
+        lastReviewedMessageCount = 0;
         return [...messages];
       },
       async afterModel(ctx, messages) {
         if (!enabled) return;
         turnCount++;
-        const text = await generateRecap(messages);
+        // Only recap this loop's new messages, not the full history
+        const newMessages = messages.slice(lastReviewedMessageCount);
+        lastReviewedMessageCount = messages.length;
+        const text = await generateRecap(newMessages);
         if (text) {
           ctx.emit?.({
             type: "recap_update",
