@@ -171,15 +171,15 @@ used_by:
   | **RecapPanel** | ConversationCanvas 右侧 260px，显示最新 recap 文本 |
   | **配置** | `recap.enabled` / `recap.provider` / `recap.model` via settings KV |
   | **Prompt** | XML 格式（`<recap-request>` + `<objective>` / `<constraints>` / `<example>`） |
-- **Compaction 质量提升（2026-07-21）**　参考 Pi 和 OMP 的 compaction 设计，在现有 `autoSummarize` + `shakeMessages` 基础上做 3 个改进：
+- **Compaction 质量提升（2026-07-22）**　✅ **已完成**。三个改进全部落地 + 架构文档（`docs/architecture/runtime/compaction.md`）：
 
-  | 改进 | 来源 | 内容 | 成本 |
-  |---|---|---|---|
-  | **结构化摘要 prompt** | Pi `SUMMARIZATION_PROMPT` | 替换 `defaultSummarize` 的自由文本 prompt 为结构化模板（Goal/Constraints/Progress/Decisions/Next Steps/Critical Context），让 agent 恢复后能快速理解之前做了什么 | 半天 |
-  | **迭代更新 prompt** | Pi `UPDATE_SUMMARIZATION_PROMPT` | 第二次压缩时不重新生成，而是基于 previousSummary 更新（保留已有信息 + 添加新进展）。需要 autoSummarize 传入 previousSummary 参数 | 半天 |
-  | **智能切点** | Pi `findCutPoint` | 从尾部累积 token 找切点，只在合法位置切（user/assistant 消息边界），不切 tool_use/tool_result 中间。当前 `slice(-keepRecent)` 可能切在工具调用中间导致消息不合法 | 半天 |
+  | 改进 | 来源 | 实现 |
+  |---|---|---|
+  | **结构化摘要 prompt** | OMP `compaction-summary.md` | 替换 5 段中文为 8 段英文 markdown（`compaction/prompts.ts`） |
+  | **迭代更新 prompt** | OMP `compaction-update-summary.md` | `updateSummarize` + `previousSummary` 选项 |
+  | **智能切点** | Pi `findCutPoint` | 从尾部反向累 token，只停在 user/assistant 边界，双向 fallback |
+  | **废弃别名** | — | 删除 `summarizingContextManager`，完成重构 |
 
-  不抄的：snapcompact（Rust 原生 + vision 依赖）、6 种触发方式（只需 threshold）、split-turn（边缘场景）、remote compaction（modelRegistry 已覆盖）、文件操作追踪（通用 agent 价值不大）。
 - **Ops 导航转 session / trace 中心**　现状 Ops 面以 run 为中心列举（run 列表 → run 详情），词汇与分区都停在 daemon 时代的 `run`。[标识符体系](../foundations/identifiers.md) 把本体收敛为「session（一条 trace）→ span（root span）→ attempt（重试序号）」后，Ops 导航也应顺着这条链改：顶层按 **session** 聚合（一个 agent 在一个上下文里的整条记忆线），点进去看这条线上的 **span 序列**（每次 prompt loop 一段，按 spanId 切的 `checkpoint_events` 即其执行事实流），再下钻到 **attempt / child span**。这让「这条线到底跑过几轮、第 3 轮前是什么状态」成为一次自然的层层下钻，而不是在扁平 run 列表里靠 `idempotencyKey` 反推。依赖：[标识符体系](../foundations/identifiers.md)、[数据模型](../backend/data-model.md)。
 - **删除 transport / heartbeat 残骸**　**已解决。** `attempt` 表的 `pid` / `heartbeat_at` 列已删除（migration 0009），reaper 心跳分支已移除，超时由 per-span 看门狗（主动 cancel）表达。
 - **Harness 运行时加固（M22）**　**已落地。** 四项子任务全部完成，相关 `status: current` 页面已回填：
