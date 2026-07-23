@@ -305,7 +305,10 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         )
         .leftJoin(
           schema.member,
-          eq(schema.conversationLedger.senderMemberId, schema.member.memberId),
+          and(
+            eq(schema.conversationLedger.senderMemberId, schema.member.memberId),
+            eq(schema.conversationLedger.conversationId, schema.member.conversationId),
+          ),
         )
         .where(like(schema.conversationLedger.content, `%${keyword}%`))
         .limit(limit)
