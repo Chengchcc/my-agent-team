@@ -46,6 +46,17 @@ used_by:
 
   > **Phase 1/2/3 是实现顺序，不是自主度**：这三档说的是「按什么顺序把这套本体建出来」。一条**已经建好**的 loop 还有另一条正交的放权轴——L1 报告 → L2 辅助 → L3 无人值守（每档等上一档证明价值后再放开，创建默认 L1），详见 [Loop Engineering](../foundations/loop-engineering.md) 的「运营成熟度」与 [Loop Pattern](../foundations/loop-pattern.md) 的信任层级。别把「Phase 实现顺序」和「L 自主度」两条轴混为一谈。
 
+
+  **当前 Loop 实现缺口（2026-07-22 审计）**　Phase 1 的「文件态本体 + 单 Loop 编排」已有基础落地，但以下能力缺失：
+
+  | 缺口 | 现状 | 影响 | 成本 |
+  |---|---|---|---|
+  | **带 feedback 重试** | evaluator 只能 ACCEPT/REJECT，无法给 generator 修改建议。Item 被 reject 后无法带着 critique 重跑 | 循环断裂——验证发现了问题但没法解决 | 1 天 |
+  | **多 attempt 追溯** | 每个 item 只有单次运行，无 attempt 历史。判断"这个 item 试了几次才过"需要翻 STATE.md 时间线反推 | 无法评估生成质量，无法发现"反复不过"的问题 item | 0.5 天 |
+  | **Evaluator 结构化输出** | evaluator 输出是自由文本 VERDICT.md，generator 下次运行看不到 evaluator 的 critique | evaluator 的验证结果无法被 generator 消费 | 0.5 天 |
+  | **优先级感知** | 所有 item 平等对待，无"这个 critical，多试几次"的概念。maxAttempts 全局统一 | 关键任务和次要任务消耗同样的资源 | 0.5 天 |
+
+  这些不改变 Loop 的架构（文件态 + 无状态编排 + Generator/Evaluator 分离），只是让当前回路真正「闭环」——验证发现问题后能带着信息回到生成环节。成本合计 2.5 天。
   原则：每个 Phase 落地时，同步回填它所触及的 `status: current` 页（[Issue](../foundations/issue.md)、[Orchestrator](../backend/orchestrator.md)、[CronJob](../foundations/cron-job.md)），并把 [Loop](../foundations/loop.md)、[LoopRunner](../backend/loop-runner.md)、[Loop Engineering](../foundations/loop-engineering.md) 对应小节从 `design` 推进为现状。
 - **产品力审查发现（2026-07-13）**　从业务故事线（在场协作 / 离场托付 / 系统管理）出发的全面审查，识别出以下产品缺口。**大部分已于 2026-07-14 修复**，标注 ✅ 已完成 / ⏳ 待办。
 
