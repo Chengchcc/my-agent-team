@@ -444,6 +444,29 @@ export function ConversationCanvas({
           >
             {triggerMode === "auto" ? "Auto" : "@ Mention"}
           </Button>
+          {/* Connection status dot */}
+          <span
+            className="ml-auto h-2 w-2 rounded-full shrink-0"
+            style={{
+              backgroundColor:
+                streamConn === "open"
+                  ? "#22c55e"
+                  : streamConn === "reconnecting"
+                    ? "#eab308"
+                    : streamConn === "closed"
+                      ? "#ef4444"
+                      : "#94a3b8",
+            }}
+            title={
+              streamConn === "open"
+                ? "Connected"
+                : streamConn === "reconnecting"
+                  ? "Reconnecting..."
+                  : streamConn === "closed"
+                    ? "Disconnected"
+                    : "Connecting..."
+            }
+          />
         </div>
         <Composer
           onSend={send}
