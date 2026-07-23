@@ -82,7 +82,7 @@ export function convTools(port: ConversationPort, conversationId: string): Tool[
 
 export function defaultPlugins(
   cwd: string,
-  config: BackendConfig,
+  _config: BackendConfig,
   skillRoots?: SkillRoots,
   agentName?: string,
 ): Plugin[] {

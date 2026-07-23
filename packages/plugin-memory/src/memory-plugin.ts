@@ -115,10 +115,12 @@ export function memoryPlugin(options: MemoryPluginOptions): Plugin {
           const result = await extractMemories(extractModel, messages);
           if (!result || result.items.length === 0) return;
           await persistExtractedMemories(ws, root, result.items);
-
           const factsDir = pjoin(root, "facts");
           const files = (await ws.list(factsDir)).filter((f) => f.endsWith(".md"));
-          if (files.length >= consolidateThreshold && consolidateModel) {
+          const newSinceLastConsolidation = files.length - lastConsolidatedCount;
+          if (newSinceLastConsolidation < consolidateThreshold || !consolidateModel) return;
+          lastConsolidatedCount = files.length;
+          {
             const facts: string[] = [];
             for (const f of files.slice(-consolidateThreshold)) {
               const content = await ws.read(pjoin(factsDir, f));
