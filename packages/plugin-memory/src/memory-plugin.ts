@@ -107,33 +107,30 @@ export function memoryPlugin(options: MemoryPluginOptions): Plugin {
 
       async afterModel(ctx, messages) {
         if (!autoExtract || !extractModel) return;
-        const newCount = messages.length - lastExtractedCount;
-        if (newCount < minMessages) return;
+
+        const newMessages = messages.slice(lastExtractedCount);
         lastExtractedCount = messages.length;
+        if (newMessages.length < minMessages) return;
 
         try {
-          const result = await extractMemories(extractModel, messages);
+          const result = await extractMemories(extractModel, newMessages);
           if (!result || result.items.length === 0) return;
           await persistExtractedMemories(ws, root, result.items);
+
           const factsDir = pjoin(root, "facts");
           const files = (await ws.list(factsDir)).filter((f) => f.endsWith(".md"));
           const newSinceLastConsolidation = files.length - lastConsolidatedCount;
           if (newSinceLastConsolidation < consolidateThreshold || !consolidateModel) return;
           lastConsolidatedCount = files.length;
-          {
-            const facts: string[] = [];
-            for (const f of files.slice(-consolidateThreshold)) {
-              const content = await ws.read(pjoin(factsDir, f));
-              if (content) facts.push(content);
-            }
-            const consolidated = await consolidateMemories(
-              consolidateModel,
-              facts.join("\n\n---\n\n"),
-            );
-            if (consolidated) {
-              await ws.write(pjoin(root, "MEMORY.md"), consolidated.memoryMd);
-              await ws.write(pjoin(root, "memory_summary.md"), consolidated.memorySummary);
-            }
+
+          const facts: string[] = [];
+          for (const f of files.slice(-consolidateThreshold)) {
+            const content = await ws.read(pjoin(factsDir, f));
+            if (content) facts.push(content);
+          }
+          const summary = await consolidateMemories(consolidateModel, facts.join("\n\n---\n\n"));
+          if (summary) {
+            await ws.write(pjoin(root, "memory_summary.md"), summary);
           }
         } catch (err) {
           ctx.logger.warn("memory: auto-extract failed", err);

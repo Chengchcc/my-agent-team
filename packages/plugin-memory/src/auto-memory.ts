@@ -41,10 +41,7 @@ export async function persistExtractedMemories(
 }
 
 /** Run Phase 2 consolidation: all facts → MEMORY.md + memory_summary.md. */
-export async function consolidateMemories(
-  model: ChatModel,
-  facts: string,
-): Promise<{ memoryMd: string; memorySummary: string } | null> {
+export async function consolidateMemories(model: ChatModel, facts: string): Promise<string | null> {
   const promptMsgs: Message[] = [
     { role: "user", text: `Raw memories:\n\n${facts}\n\n${CONSOLIDATION_PROMPT}` },
   ];
@@ -52,8 +49,8 @@ export async function consolidateMemories(
   const text = extractText({ blocks: blocks as { type: string; text?: string }[] });
   try {
     const json = JSON.parse(text);
-    if (!json.memory_md || !json.memory_summary) return null;
-    return { memoryMd: json.memory_md, memorySummary: json.memory_summary };
+    if (!json.memory_summary) return null;
+    return json.memory_summary;
   } catch {
     return null;
   }
