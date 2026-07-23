@@ -1,6 +1,6 @@
-import { Elysia, t } from "elysia";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join as pathJoin } from "node:path";
+import { Elysia, t } from "elysia";
 import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
 import type { AgentIdentityStore } from "./agent-identity.js";
 import type { AgentRow } from "./domain.js";
