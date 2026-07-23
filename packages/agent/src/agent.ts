@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentEventListener } from "@my-agent-team/framework";
+import type { AgentEventListener } from "@my-agent-team/framework";
 import { AgentSession as HarnessAgent, type SessionConfig } from "@my-agent-team/harness";
 import type { AgentConfig, AgentState } from "./agent-options.js";
 import type { CompactionResult } from "./compaction.js";
