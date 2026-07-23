@@ -141,6 +141,20 @@ const SECTIONS: Section[] = [
       { key: "recap.model", label: "Model", type: "string" },
     ],
   },
+  {
+    id: "memory",
+    title: "Memory",
+    description: "Autonomous memory extraction and search configuration.",
+    fields: [
+      { key: "memory.autoExtract", label: "Auto Extract", type: "boolean" },
+      { key: "memory.extractProvider", label: "Extract Provider", type: "string" },
+      { key: "memory.extractModel", label: "Extract Model", type: "string" },
+      { key: "memory.consolidateProvider", label: "Consolidate Provider", type: "string" },
+      { key: "memory.consolidateModel", label: "Consolidate Model", type: "string" },
+      { key: "memory.minMessagesForExtraction", label: "Min Msgs for Extract", type: "number" },
+      { key: "memory.consolidateThreshold", label: "Consolidate Threshold", type: "number" },
+    ],
+  },
 ];
 
 // ── Default values (used when settings KV is empty) ──
@@ -173,6 +187,13 @@ const DEFAULTS: Record<string, unknown> = {
   "recap.enabled": true,
   "recap.provider": "anthropic",
   "recap.model": "claude-haiku-3-5",
+  "memory.autoExtract": false,
+  "memory.extractProvider": "anthropic",
+  "memory.extractModel": "claude-haiku-3-5",
+  "memory.consolidateProvider": "anthropic",
+  "memory.consolidateModel": "claude-sonnet-4-6",
+  "memory.minMessagesForExtraction": 5,
+  "memory.consolidateThreshold": 10,
 };
 
 // ── Helpers ──

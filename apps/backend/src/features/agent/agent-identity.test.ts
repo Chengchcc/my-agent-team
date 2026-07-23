@@ -39,7 +39,6 @@ describe("AgentIdentityStore", () => {
     const identity = await store.getIdentity(`agent-${Date.now()}`);
     expect(identity.soul).toBeNull();
     expect(identity.user).toBeNull();
-    expect(identity.memories).toEqual([]);
   });
 
   test("getIdentity reads SOUL.md and USER.md from workspace", async () => {
@@ -53,40 +52,6 @@ describe("AgentIdentityStore", () => {
     const identity = await store.getIdentity(agentId);
     expect(identity.soul).toBe("I am a tester");
     expect(identity.user).toBe("human dev");
-  });
-
-  test("getIdentity reads memory/MEMORY.md as summary", async () => {
-    const agentId = `mem-summary-${Date.now()}`;
-    const root = agentRoot(agentId);
-    await mkdir(path.join(root, "memory"), { recursive: true });
-    await writeFile(path.join(root, "memory", "MEMORY.md"), "dated summary text", "utf-8");
-
-    const store = makeStore();
-    const identity = await store.getIdentity(agentId);
-    expect(identity.memories).toHaveLength(1);
-    expect(identity.memories[0]).toEqual({ date: "summary", content: "dated summary text" });
-  });
-
-  test("getIdentity reads memory/facts/*.md as facts", async () => {
-    const agentId = `mem-facts-${Date.now()}`;
-    const root = agentRoot(agentId);
-    await mkdir(path.join(root, "memory", "facts"), { recursive: true });
-    await writeFile(
-      path.join(root, "memory", "facts", "2025-06-01.md"),
-      "Today I learned X",
-      "utf-8",
-    );
-    await writeFile(
-      path.join(root, "memory", "facts", "2025-06-02.md"),
-      "Today I fixed Y",
-      "utf-8",
-    );
-
-    const store = makeStore();
-    const identity = await store.getIdentity(agentId);
-    expect(identity.memories).toHaveLength(2);
-    const dates = identity.memories.map((m) => m.date).sort();
-    expect(dates).toEqual(["2025-06-01", "2025-06-02"]);
   });
 
   test("reads identity files from agent workspace", async () => {

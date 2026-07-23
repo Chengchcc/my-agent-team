@@ -17,8 +17,8 @@ import {
   ConversationCtx,
   conversationContextPlugin,
 } from "@my-agent-team/plugin-conversation-context";
-import { MemoryKey } from "@my-agent-team/plugin-fs-memory";
 import { goalPlugin } from "@my-agent-team/plugin-goal";
+import { MemoryKey } from "@my-agent-team/plugin-memory";
 import { PetBarkKey, petPlugin } from "@my-agent-team/plugin-pet";
 import { SkillIndexKey } from "@my-agent-team/plugin-progressive-skill";
 import { recapPlugin } from "@my-agent-team/plugin-recap";

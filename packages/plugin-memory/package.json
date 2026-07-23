@@ -1,5 +1,5 @@
 {
-  "name": "@my-agent-team/plugin-fs-memory",
+  "name": "@my-agent-team/plugin-memory",
   "version": "0.1.0",
   "description": "File-system backed memory plugin with bootstrap injection",
   "type": "module",

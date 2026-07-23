@@ -44,9 +44,9 @@
         "@my-agent-team/loop": "workspace:*",
         "@my-agent-team/message": "workspace:*",
         "@my-agent-team/plugin-conversation-context": "workspace:*",
-        "@my-agent-team/plugin-fs-memory": "workspace:*",
         "@my-agent-team/plugin-goal": "workspace:*",
         "@my-agent-team/plugin-identity": "workspace:*",
+        "@my-agent-team/plugin-memory": "workspace:*",
         "@my-agent-team/plugin-pet": "workspace:*",
         "@my-agent-team/plugin-progressive-skill": "workspace:*",
         "@my-agent-team/plugin-recap": "workspace:*",
@@ -213,16 +213,6 @@
         "@my-agent-team/message": "workspace:*",
       },
     },
-    "packages/plugin-fs-memory": {
-      "name": "@my-agent-team/plugin-fs-memory",
-      "version": "0.1.0",
-      "dependencies": {
-        "@my-agent-team/core": "workspace:*",
-        "@my-agent-team/framework": "workspace:*",
-        "@my-agent-team/message": "workspace:*",
-        "@my-agent-team/tools-common": "workspace:*",
-      },
-    },
     "packages/plugin-goal": {
       "name": "@my-agent-team/plugin-goal",
       "version": "0.1.0",
@@ -242,6 +232,16 @@
         "@my-agent-team/core": "workspace:*",
         "@my-agent-team/framework": "workspace:*",
         "@my-agent-team/message": "workspace:*",
+      },
+    },
+    "packages/plugin-memory": {
+      "name": "@my-agent-team/plugin-memory",
+      "version": "0.1.0",
+      "dependencies": {
+        "@my-agent-team/core": "workspace:*",
+        "@my-agent-team/framework": "workspace:*",
+        "@my-agent-team/message": "workspace:*",
+        "@my-agent-team/tools-common": "workspace:*",
       },
     },
     "packages/plugin-pet": {
@@ -673,11 +673,11 @@
 
     "@my-agent-team/plugin-conversation-context": ["@my-agent-team/plugin-conversation-context@workspace:packages/plugin-conversation-context"],
 
-    "@my-agent-team/plugin-fs-memory": ["@my-agent-team/plugin-fs-memory@workspace:packages/plugin-fs-memory"],
-
     "@my-agent-team/plugin-goal": ["@my-agent-team/plugin-goal@workspace:packages/plugin-goal"],
 
     "@my-agent-team/plugin-identity": ["@my-agent-team/plugin-identity@workspace:packages/plugin-identity"],
+
+    "@my-agent-team/plugin-memory": ["@my-agent-team/plugin-memory@workspace:packages/plugin-memory"],
 
     "@my-agent-team/plugin-pet": ["@my-agent-team/plugin-pet@workspace:packages/plugin-pet"],
 

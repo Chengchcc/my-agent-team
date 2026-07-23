@@ -8,8 +8,8 @@ import {
   pipeContextManagers,
   toolResultTruncator,
 } from "@my-agent-team/framework";
-import { fsMemoryPlugin } from "@my-agent-team/plugin-fs-memory";
 import { identityPlugin } from "@my-agent-team/plugin-identity";
+import { memoryPlugin } from "@my-agent-team/plugin-memory";
 import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
 import {
   bashTool,
@@ -88,7 +88,7 @@ export function defaultPlugins(
 ): Plugin[] {
   return [
     identityPlugin({ cwd, agentName }),
-    fsMemoryPlugin({ cwd: config.workspaceRoot, root: "./memory/" }),
+    memoryPlugin({ cwd, root: "./memory/" }),
     progressiveSkillPlugin(
       skillRoots
         ? { ws: skillRoots.ws, roots: skillRoots.roots, posixSkillRoot: skillRoots.posixSkillRoot }

@@ -4,7 +4,6 @@ import path from "node:path";
 export interface IdentityData {
   soul: string | null;
   user: string | null;
-  memories: Array<{ date: string; content: string }>;
 }
 
 export interface IdentityPatch {
@@ -38,60 +37,6 @@ async function readTextOrNull(filePath: string): Promise<string | null> {
  *    memory/facts/*.md         — agent-written facts
  *
  *  Also reads flat memory/*.md for backward compat (legacy agents). */
-async function readMemoryFacts(cwd: string): Promise<Array<{ date: string; content: string }>> {
-  const memories: Array<{ date: string; content: string }> = [];
-  const memoryRoot = path.join(cwd, "memory");
-
-  // 1) MEMORY.md — dated summary
-  const summary = await readTextOrNull(path.join(memoryRoot, "MEMORY.md"));
-  if (summary?.trim()) {
-    memories.push({ date: "summary", content: summary });
-  }
-
-  // 2) memory/facts/*.md — agent-written facts
-  const factsDir = path.join(memoryRoot, "facts");
-  try {
-    const entries = await readdir(factsDir);
-    for (const entry of entries) {
-      if (!entry.endsWith(".md")) continue;
-      if (entry.includes("..") || entry.includes("/") || entry.includes("\\")) continue;
-      const content = await readTextOrNull(path.join(factsDir, entry));
-      if (content?.trim()) {
-        const dateMatch = entry.match(/^(\d{4}-\d{2}-\d{2})/);
-        memories.push({ date: dateMatch?.[1] ?? "fact", content });
-      }
-    }
-  } catch (err) {
-    if (!isCode(err, "ENOENT")) throw err;
-  }
-
-  // 3) Flat shared/memory/*.md (legacy compat) — skip MEMORY.md
-  try {
-    const entries = await readdir(memoryRoot);
-    for (const entry of entries) {
-      if (!entry.endsWith(".md")) continue;
-      if (entry === "MEMORY.md") continue;
-      if (entry.includes("..") || entry.includes("/") || entry.includes("\\")) continue;
-      // Skip if also exists in facts/ (dedup)
-      try {
-        await readFile(path.join(factsDir, entry), "utf-8");
-        continue; // already read in step 2
-      } catch (err) {
-        if (!isCode(err, "ENOENT")) throw err;
-        // not in facts — read from flat
-      }
-      const content = await readTextOrNull(path.join(memoryRoot, entry));
-      if (content?.trim()) {
-        const dateMatch = entry.match(/^(\d{4}-\d{2}-\d{2})/);
-        memories.push({ date: dateMatch?.[1] ?? "legacy", content });
-      }
-    }
-  } catch (err) {
-    if (!isCode(err, "ENOENT")) throw err;
-  }
-
-  return memories;
-}
 
 /** Simple layout: dataDir/agents/{agentId}/ — flat workspace, no shared/private split. */
 function agentDir(dataDir: string, agentId: string): string {
@@ -108,13 +53,11 @@ export function createAgentIdentityStore(opts: {
       const root = agentDir(opts.dataDir, agentId);
       await mkdir(root, { recursive: true });
 
-      const [soul, user, memories] = await Promise.all([
+      const [soul, user] = await Promise.all([
         readTextOrNull(path.join(root, "SOUL.md")),
         readTextOrNull(path.join(root, "USER.md")),
-        readMemoryFacts(root),
       ]);
-
-      return { soul, user, memories };
+      return { soul, user };
     },
 
     async updateIdentity(agentId: string, patch: IdentityPatch): Promise<void> {

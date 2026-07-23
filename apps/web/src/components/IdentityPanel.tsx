@@ -130,31 +130,6 @@ export function IdentityPanel({ agentId }: { agentId: string }) {
         onSave={save}
         onChange={setDraft}
       />
-
-      <div className="border border-[var(--hairline)] rounded-lg p-8 bg-[var(--canvas)]">
-        <h3 className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] mb-4 font-[family-name:var(--font-sans)] font-semibold">
-          Memory ({data.memories.length})
-        </h3>
-        {data.memories.length === 0 ? (
-          <p className="text-sm text-[var(--mute)]">No memories recorded</p>
-        ) : (
-          <div className="space-y-5 max-h-96 overflow-y-auto">
-            {data.memories.map((mem, i) => (
-              <div key={i}>
-                <p className="text-[10px] tracking-[2.52px] uppercase text-[var(--mute)] mb-2 font-[family-name:var(--font-sans)] font-semibold">
-                  {mem.date}
-                </p>
-                <pre className="text-sm leading-relaxed text-[var(--ink)] whitespace-pre-wrap font-[family-name:var(--font-sans)] max-h-48 overflow-y-auto">
-                  {mem.content}
-                </pre>
-                {i < data.memories.length - 1 && (
-                  <div className="mt-5 border-t border-[var(--hairline)]" />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

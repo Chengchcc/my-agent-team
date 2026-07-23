@@ -14,7 +14,7 @@ function slugify(text: string): string {
 export async function writeFact(
   ws: AgentFsLike,
   root: string,
-  params: { content: string; tags?: string[] },
+  params: { content: string; context?: string; tags?: string[] },
 ): Promise<string> {
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const slug = slugify(params.content.slice(0, 40));
@@ -29,9 +29,10 @@ export async function writeFact(
   const firstLine = params.content.split("\n").find((l) => l.trim()) ?? "";
   const title = firstLine.replace(/^#+\s*/, "").slice(0, 80);
   const tags = JSON.stringify(params.tags ?? []);
+  const contextLine = params.context ? `\ncontext: ${JSON.stringify(params.context)}` : "";
   await ws.write(
     filepath,
-    `---\nts: ${ts}\ntitle: ${JSON.stringify(title)}\ntags: ${tags}\n---\n${params.content}`,
+    `---\nts: ${ts}\ntitle: ${JSON.stringify(title)}\ntags: ${tags}${contextLine}\n---\n${params.content}`,
   );
   return filepath;
 }
