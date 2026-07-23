@@ -79,6 +79,13 @@ const agentEventSchema = z.discriminatedUnion("type", [
     }),
   }),
   z.object({
+    type: z.literal("recap_update"),
+    payload: z.object({
+      text: z.string(),
+      turn: z.number(),
+    }),
+  }),
+  z.object({
     type: z.literal("agent_end"),
     spanId: z.string().optional(),
     status: z.enum(["succeeded", "error", "interrupted"]),

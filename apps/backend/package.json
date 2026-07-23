@@ -35,6 +35,7 @@
     "@my-agent-team/plugin-goal": "workspace:*",
     "@my-agent-team/plugin-identity": "workspace:*",
     "@my-agent-team/plugin-pet": "workspace:*",
+    "@my-agent-team/plugin-recap": "workspace:*",
     "@my-agent-team/plugin-progressive-skill": "workspace:*",
     "@my-agent-team/plugin-todo": "workspace:*",
     "@my-agent-team/runtime-observability": "workspace:*",

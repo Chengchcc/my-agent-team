@@ -21,6 +21,7 @@ import { MemoryKey } from "@my-agent-team/plugin-fs-memory";
 import { goalPlugin } from "@my-agent-team/plugin-goal";
 import { PetBarkKey, petPlugin } from "@my-agent-team/plugin-pet";
 import { SkillIndexKey } from "@my-agent-team/plugin-progressive-skill";
+import { recapPlugin } from "@my-agent-team/plugin-recap";
 import { TodoKey } from "@my-agent-team/plugin-todo";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
@@ -226,6 +227,17 @@ export function createConversationFeature(
               },
             },
           }),
+          recapPlugin({
+            recapModel: createModel(
+              modelRegistry.getModel(
+                settingsSvc.get<string>("recap.provider") ?? "anthropic",
+                settingsSvc.get<string>("recap.model") ?? "claude-haiku-3-5",
+              ) ?? modelRegistry.getModel("anthropic", "claude-haiku-3-5")!,
+              modelRegistry,
+              auth,
+            ),
+            enabled: settingsSvc.get<boolean>("recap.enabled") ?? true,
+          }),
         ],
         metaContext: ({
           context,
@@ -321,6 +333,18 @@ export function createConversationFeature(
             senderMemberId: agentMemberId,
             addressedTo: [],
             kind: "pet_bark",
+            content: JSON.stringify(event.payload),
+            ts,
+            spanId: spanId,
+          });
+        }
+        if (event.type === "recap_update") {
+          const ts = Date.now();
+          void convPort.appendLedgerEntry({
+            conversationId,
+            senderMemberId: agentMemberId,
+            addressedTo: [],
+            kind: "recap",
             content: JSON.stringify(event.payload),
             ts,
             spanId: spanId,

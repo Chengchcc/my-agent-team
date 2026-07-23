@@ -55,6 +55,7 @@ export function useConversation(
 ) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [petBark, setPetBark] = useState<PetBarkData | null>(null);
+  const [recap, setRecap] = useState<{ text: string; turn: number } | null>(null);
 
   // 1) Snapshot bootstrap (roster + viewerMemberId)
   const snap = useConversationSnapshot(conversationId, preFetchedSnapshot);
@@ -230,6 +231,16 @@ export function useConversation(
       }
     });
 
+    ts.on("recap", (entry) => {
+      const payload = typeof entry.content === "string" ? safeParse(entry.content) : entry.content;
+      if (payload && typeof payload === "object" && "text" in payload && "turn" in payload) {
+        setRecap({
+          text: String(payload.text),
+          turn: "turn" in payload ? Number(payload.turn) : 0,
+        });
+      }
+    });
+
     ts.on("undo", (entry) => {
       const seq = guard(entry);
       if (seq === null) return;
@@ -302,6 +313,7 @@ export function useConversation(
       approveMut.mutate({ runId: approvalTarget!.runId, approved: true, message }),
     [approveMut, approvalTarget],
   );
+
   const deny = useCallback(
     (message?: string) =>
       approveMut.mutate({ runId: approvalTarget!.runId, approved: false, message }),
@@ -321,5 +333,6 @@ export function useConversation(
     queueEdit,
     queueRemove,
     petBark,
+    recap,
   };
 }

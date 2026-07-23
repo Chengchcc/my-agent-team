@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PetStatusBar } from "@/components/PetBar";
+import { RecapPanel } from "@/components/RecapPanel";
 import { Button } from "@/components/ui/button";
 import { useConversation } from "@/hooks/useConversation";
 import type { ConversationSnapshot } from "@/lib/api";
@@ -45,6 +46,7 @@ export function ConversationCanvas({
     queueEdit,
     queueRemove,
     petBark,
+    recap,
   } = useConversation(conversationId, snapshot);
   const { viewerMemberId, roster, items, error, todos, triggerMode, streamConn } = state;
 
@@ -383,6 +385,9 @@ export function ConversationCanvas({
             </aside>
           </>
         )}
+
+        {/* RecapPanel — right sidebar */}
+        {recap && <RecapPanel recap={recap} />}
       </div>
 
       {/* M17: Ledger-native approval — data from waiting revision, not run EventSource */}
