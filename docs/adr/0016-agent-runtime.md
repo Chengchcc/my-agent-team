@@ -55,6 +55,17 @@ interface Capability {
 
 每个 Capability 是一个自包含函数：`(services: Services) => Capability`。
 
+### 实施契约说明
+
+本 ADR 的 TypeScript 片段表达目标方向，不是迁移期间可直接执行的完整接口。跨 phase 的具体公共边界、不变量、兼容策略和 handoff 规则以 [`2026-07-23-agent-runtime-contract.md`](../../superpowers/specs/2026-07-23-agent-runtime-contract.md) 为准。
+
+具体约束：
+
+- Capability 的 Agent 扩展通过 `AgentExtension` 声明式聚合；不要求 Capability 在构造后任意修改 Agent。
+- `agent.emit()` 不作为外部任意事件写入口；外部只订阅 Agent 事件，业务事件通过受控 hook/context/projection 边界产生。
+- `steering` 和 `followUp` 在迁移期保持现有独立语义，不能直接合并成一个未定义的 `interrupt(input)` API。
+- `slots` 第一阶段只保存 slot 标识，不携带 React 组件类型。
+
 **约定位置（Slot）：**
 
 | Slot | 位置 |
