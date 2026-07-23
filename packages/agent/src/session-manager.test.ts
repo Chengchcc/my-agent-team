@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { SessionManager } from "./session-manager.js";
 import { echoModel } from "@my-agent-team/test-helpers";
+import { SessionManager } from "./session-manager.js";
 
 function makeConfig() {
   return { model: echoModel({ turns: [{ type: "text", text: "ok" }] }), maxSteps: 2 };

@@ -1,4 +1,14 @@
-import type { AgentEvent, AgentEventListener } from "@my-agent-team/framework";
+import type {
+  ChatModel,
+  Checkpointer,
+  ContextManager,
+  Logger,
+  Plugin,
+  RunSpan,
+  Session,
+  Tool,
+} from "./framework-adapter.js";
+import type { AgentEvent, AgentEventListener } from "./framework-adapter.js";
 
 export type AgentState =
   | "idle"
@@ -10,19 +20,18 @@ export type AgentState =
   | "error";
 
 export interface AgentConfig {
-  model: unknown;
-  tools?: unknown[];
-  plugins?: unknown[];
-  contextManager?: unknown;
+  model: ChatModel;
+  tools?: Tool[];
+  plugins?: Plugin[];
+  contextManager?: ContextManager;
   systemPrompt?: string;
   sessionId?: string;
-  checkpointer?: unknown;
-  session?: unknown;
-  logger?: unknown;
+  checkpointer?: Checkpointer;
+  session?: Session;
+  startSpan?: (spanId: string, sessionId: string, opts?: unknown) => RunSpan | Promise<RunSpan>;
   maxSteps?: number;
   retry?: { maxAttempts: number; backoffMs: number; maxBackoffMs?: number };
   compaction?: { autoCompact?: boolean; keepRecent?: number };
-  startSpan?: (...args: unknown[]) => unknown;
 }
 
 export type { AgentEvent, AgentEventListener };

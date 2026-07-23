@@ -1,7 +1,7 @@
-import { AgentSession as HarnessAgent, type SessionConfig } from "@my-agent-team/harness";
-import type { AgentEvent, AgentEventListener } from "./framework-adapter.js";
+import { AgentSession as HarnessAgent } from "@my-agent-team/harness";
 import type { AgentConfig, AgentState } from "./agent-options.js";
 import type { CompactionResult } from "./compaction.js";
+import type { AgentEventListener } from "./framework-adapter.js";
 
 /**
  * Agent class — lifecycle facade wrapping the existing AgentSession.
@@ -11,7 +11,7 @@ export class Agent {
   readonly #session: HarnessAgent;
 
   constructor(config: AgentConfig) {
-    this.#session = new HarnessAgent(config as SessionConfig);
+    this.#session = new HarnessAgent(config);
   }
 
   get sessionId(): string | undefined {
@@ -27,7 +27,6 @@ export class Agent {
   ): Promise<void> {
     await this.#session.prompt(input, opts);
   }
-
   async continue(opts?: {
     signal?: AbortSignal;
     spanId?: string;
@@ -35,7 +34,6 @@ export class Agent {
   }): Promise<void> {
     await this.#session.continue(opts);
   }
-
   async resume(
     command: { approved: boolean; message?: string },
     opts?: { signal?: AbortSignal },

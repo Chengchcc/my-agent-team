@@ -1,4 +1,3 @@
-import type { ToolUseBlock, ToolResultBlock } from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
 import type { RunState } from "./run-state.js";
 
@@ -22,7 +21,7 @@ export interface AgentHooks {
   "before:run"?: (
     ctx: AgentContext,
     input: { text: string },
-  ) => { text: string } | void | Promise<{ text: string } | void>;
+  ) => { text: string } | undefined | Promise<{ text: string } | undefined>;
 
   "before:model"?: (
     ctx: AgentContext,
@@ -38,7 +37,7 @@ export interface AgentHooks {
   "before:tool"?: (
     ctx: AgentContext,
     call: { id: string; name: string; input: unknown },
-  ) => BeforeToolResult | void | Promise<BeforeToolResult | void>;
+  ) => BeforeToolResult | undefined | Promise<BeforeToolResult | undefined>;
 
   "after:tool"?: (
     ctx: AgentContext,
@@ -51,5 +50,5 @@ export interface AgentHooks {
   "before:stop"?: (
     ctx: AgentContext,
     messages: readonly Message[],
-  ) => StopDecision | void | Promise<StopDecision | void>;
+  ) => StopDecision | undefined | Promise<StopDecision | undefined>;
 }
