@@ -1,8 +1,3 @@
-/**
- * Framework adapter — SINGLE point of contact with @my-agent-team/framework.
- * All framework types flow through here. Nothing else in packages/agent imports framework.
- */
-
 // Framework types re-exported for public API
 export type {
   Agent,
@@ -19,3 +14,6 @@ export type {
 
 // Core types needed by AgentConfig
 export type { ChatModel, Tool } from "@my-agent-team/core";
+
+// Agent-local types
+export type { AgentHooks } from "./agent-hooks.js";

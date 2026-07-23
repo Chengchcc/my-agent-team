@@ -1,4 +1,5 @@
 import type {
+  AgentHooks,
   ChatModel,
   Checkpointer,
   ContextManager,
@@ -28,10 +29,12 @@ export interface AgentConfig {
   sessionId?: string;
   checkpointer?: Checkpointer;
   session?: Session;
-  startSpan?: (spanId: string, sessionId: string, opts?: unknown) => RunSpan | Promise<RunSpan>;
+  logger?: Logger;
+  hooks?: AgentHooks;
   maxSteps?: number;
   retry?: { maxAttempts: number; backoffMs: number; maxBackoffMs?: number };
   compaction?: { autoCompact?: boolean; keepRecent?: number };
+  startSpan?: (spanId: string, sessionId: string, opts?: unknown) => RunSpan | Promise<RunSpan>;
 }
 
 export type { AgentEvent, AgentEventListener };
