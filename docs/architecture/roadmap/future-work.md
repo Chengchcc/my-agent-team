@@ -139,33 +139,28 @@ used_by:
 
   成本：1-2 周（后台 pipeline + 两阶段 LLM + SQLite 存储 + 注入模板）
 
-- **Pet（陪伴审查 agent）（2026-07-21）**　参考 OMP 的 advisor，实现一个只读的第二 agent，每轮结束后审查 primary agent 的输出并注入建议。"pet" 概念比 "advisor" 更直觉 -- 一个跟着 agent 的小宠物，时不时叫两声提醒。
+- **Pet（陪伴审查 agent）（2026-07-21）**　✅ **已完成（2026-07-22）**。参考 OMP 的 advisor，实现一个有状态的生命体 agent，每轮结束后审查 primary agent 的输出并"叫"出建议。
 
-  | 组件 | OMP 做法 | 我们对应 |
+  | 组件 | 设计 | 实现 |
   |---|---|---|
-  | **PetRuntime** | 独立 agent 实例，用自己的模型（Haiku 级别），挂载只读工具（read/grep/glob） | 在 conversation-compose 里创建第二个 AgentSession，用 `modelRegistry.getModel("anthropic","claude-haiku-3-5")` |
-  | **advise 工具** | 唯一输出通道，`advise(note, severity)` 注入建议到 primary session | pet agent 的 tools 数组只有 read/grep/glob + advise |
-  | **EmissionGuard** | 去重 + 过滤垃圾建议（"Stop." 重复 114 次的问题），每轮最多一条 | pet plugin 的 afterModel hook 里做去重 |
-  | **增量审查** | 每轮结束后收到 primary 的增量 transcript，不重读全部历史 | primary 的 afterModel hook 触发 pet.prompt(增量消息) |
-  | **severity 分档** | nit（建议）/ concern（关注）/ blocker（阻断） | 同上，blocker 可以阻止 primary 继续直到用户介入 |
-  | **context 管理** | pet 有自己的 context，可以 compact | pet AgentSession 有自己的 checkpointer/contextManager |
+  | **PetPlugin** | beforeRun/afterTool/afterModel 三个 hook | `packages/plugin-pet`：情绪状态机（happy/neutral/frustrated/excited）、XP/等级系统、连续成功/失败检测 |
+  | **Bark** | pet 的唯一输出，去重 + 过滤垃圾建议 | `bark.ts`：shouldBark（frustrated/excited 必叫）、generateBark（一次 model.stream）、filterBark（去重 + USELESS_NOTES 黑名单） |
+  | **持久化** | settings KV per-agent | `pet.<agentId>.level/xp/totalTurns/totalBarks` |
+  | **SSE 转发** | pet_bark event → ledger → conversation SSE → 前端 PetStatusBar 实时更新 | `LedgerKind` 加 `pet_bark`，subscriber 写账本，useConversation 消费 |
+  | **meta 注入** | `<pet mood="..." level="...">text</pet>` 标签注入 meta user message | primary agent 能在 system-reminder 里看到 pet 的叫声 |
+  | **前端** | 底部 PetStatusBar（情绪 + 等级）+ Agent 详情 Pet tab（XP 进度条） | ConversationCanvas + AgentPetPanel |
+  | **配置** | `pet.enabled` / `pet.provider` / `pet.model` via settings KV | 前端下拉从 `/api/models` 加载 |
 
-  关键设计约束（OMP 的教训）：
-  - pet **不能执行操作**，只能建议（read-only tools + advise tool）
-  - pet **不修改 primary session 状态**，建议通过队列注入
-  - 每轮最多一条 advise（防止刷屏）-- OMP 遇到过 advisor 309 次调用 92 条独特建议，114 次 "Stop."
-  - pet 有自己的 context 管理（可以 compact），不和 primary 共享
-  - pet 的 system prompt 明确"weigh, don't blindly obey" -- 建议而非命令
+- **Provider 配置化（models.yml + 环境变量自动检测）（2026-07-22）**　✅ **已完成**。在 Pi Provider 注册制基础上，将 Provider 从代码注册升级为声明式配置：
 
-  与 agent relationship graph 的结合：pet 是一种特殊的关系类型（`pet_of`），可以在 relationship panel 里配置哪个 agent 是哪个 agent 的 pet。
-
-  成本：1 周（PetRuntime + advise 工具 + EmissionGuard + system prompt + 接线）
-
-  **优先级判断：Pet 先做。** 理由：
-  1. Pet 对"在场协作"故事线有直接价值 -- 用户看到 pet 的建议，提升 agent 输出质量
-  2. Autonomous Memory 对"离场托付"故事线有价值，但需要后台 pipeline 基础设施，成本更高
-  3. Pet 可以复用现有的 AgentSession + plugin 系统，改动面小
-  4. Pet 的 EmissionGuard 和增量审查模式可以为后续 Autonomous Memory 的 Phase 1 提取提供经验
+  | 组件 | 内容 |
+  |---|---|
+  | **models.yml** | 可选 YAML 配置文件，声明 provider（api/baseUrl/apiKey env var/models） |
+  | **自动检测** | 无 yml 时根据 `ANTHROPIC_API_KEY`/`DEEPSEEK_API_KEY`/`OPENAI_API_KEY` 自动注册内置 provider |
+  | **resolveModel** | 统一模型解析入口，支持 `"provider/id"` 和 bare id 两种格式 |
+  | **前端下拉** | AgentForm provider+model 级联 Select，`/api/models` 动态加载 |
+  | **Runtime 替换** | 12 处 `getModel("anthropic", ...)` 全部替换为 `resolveModel(name, registry)` |
+  | **LedgerKind** | 加 `pet_bark` 枚举值，pet bark 事件通过 conversation SSE 转发到前端 |
 - **Compaction 质量提升（2026-07-21）**　参考 Pi 和 OMP 的 compaction 设计，在现有 `autoSummarize` + `shakeMessages` 基础上做 3 个改进：
 
   | 改进 | 来源 | 内容 | 成本 |
