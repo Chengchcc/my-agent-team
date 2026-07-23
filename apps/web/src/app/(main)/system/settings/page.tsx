@@ -187,7 +187,7 @@ const DEFAULTS: Record<string, unknown> = {
   "recap.enabled": true,
   "recap.provider": "anthropic",
   "recap.model": "claude-haiku-3-5",
-  "memory.autoExtract": false,
+  "memory.autoExtract": true,
   "memory.extractProvider": "anthropic",
   "memory.extractModel": "claude-haiku-3-5",
   "memory.consolidateProvider": "anthropic",
