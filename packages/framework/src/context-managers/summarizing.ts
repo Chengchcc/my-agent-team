@@ -1,16 +1,23 @@
 import type { ChatModel } from "@my-agent-team/core";
 import { collectStream } from "@my-agent-team/core";
 import { extractText, type Message } from "@my-agent-team/message";
+import { findCutPoint } from "../compaction/cut-point.js";
+import { STRUCTURED_SUMMARY_PROMPT, UPDATE_SUMMARY_PROMPT } from "../compaction/prompts.js";
 import { DEFAULT_SHAKE_CONFIG, shakeMessages } from "../compaction/shake.js";
 import type { ContextManager } from "../context-manager.js";
 import { repairToolPairs } from "../repair-tool-pairs.js";
 
 export interface SummarizingOptions {
   triggerAt: number;
-  keepRecent: number;
+  /** Number of recent messages to keep. Ignored if keepRecentTokens is set. */
+  keepRecent?: number;
+  /** Token budget for recent messages — enables findCutPoint boundary-aware cutting. */
+  keepRecentTokens?: number;
   summarizer?: (old: Message[], model: ChatModel) => Promise<Message>;
   summarizerModel?: ChatModel;
   countTokens?: (messages: readonly Message[]) => number | Promise<number>;
+  /** Previous summary for iterative update (merges new messages into existing summary). */
+  previousSummary?: string;
 }
 
 const APPROX_CHARS_PER_TOKEN = 4;
@@ -36,27 +43,35 @@ export async function defaultSummarize(
   return { role: "user", text: `[Earlier conversation summary]: ${text}` };
 }
 
-/** Structured summarizer: prompts the model to output a five-section summary
- *  (目标/约束/进度/关键决策/下一步) instead of free-form text.
- *  Missing sections are tolerated — the prompt is a strong hint, not a schema. */
+/** Structured summarizer: OMP 8-section markdown format. */
 export async function structuredSummarize(
   old: Message[],
   model: ChatModel,
   signal?: AbortSignal,
 ): Promise<Message> {
+  const promptMsgs: Message[] = [...old, { role: "user", text: STRUCTURED_SUMMARY_PROMPT }];
+  const { blocks } = await collectStream(model.stream(promptMsgs, { signal }));
+  const text = extractText({ blocks: blocks as readonly { type: string; text?: string }[] });
+  return { role: "user", text: `[Earlier conversation summary]:\n${text}` };
+}
+
+/** Iterative update: merge new messages into an existing summary. */
+export async function updateSummarize(
+  newMessages: Message[],
+  previousSummary: string,
+  model: ChatModel,
+  signal?: AbortSignal,
+): Promise<Message> {
   const promptMsgs: Message[] = [
-    ...old,
+    ...newMessages,
     {
       role: "user",
       text: [
-        "Summarize the conversation above in the following structured format. ",
-        "Output ONLY the summary in the exact format below, no preamble or commentary:\n",
-        "[对话摘要]",
-        "- 目标: (what the user is trying to achieve)",
-        "- 约束: (any constraints or limits mentioned)",
-        "- 进度: (what has been completed so far)",
-        "- 关键决策: (important decisions made)",
-        "- 下一步: (what needs to happen next)",
+        `<previous-summary>`,
+        previousSummary,
+        `</previous-summary>`,
+        ``,
+        UPDATE_SUMMARY_PROMPT,
       ].join("\n"),
     },
   ];
@@ -67,6 +82,7 @@ export async function structuredSummarize(
 
 export function autoSummarize(opts: SummarizingOptions): ContextManager {
   const keepRecent = opts.keepRecent;
+  const keepRecentTokens = opts.keepRecentTokens;
   const triggerAt = opts.triggerAt;
   const summarizerModel = opts.summarizerModel;
 
@@ -81,24 +97,30 @@ export function autoSummarize(opts: SummarizingOptions): ContextManager {
       if (shakenTotal <= triggerAt) return shaken;
 
       // Step 2: if shake wasn't enough, LLM summarize the rest
-      const recent = shaken.slice(-keepRecent);
-      const old = shaken.slice(0, -keepRecent);
+      const cutIdx = keepRecentTokens
+        ? findCutPoint(shaken, keepRecentTokens)
+        : keepRecent
+          ? shaken.length - keepRecent
+          : shaken.length;
+      const old = shaken.slice(0, cutIdx);
+      const recent = shaken.slice(cutIdx);
 
       if (old.length === 0) return shaken;
       const model = summarizerModel ?? ctx.model;
-      const summary = opts.summarizer
-        ? await opts.summarizer(old, model)
-        : await defaultSummarize(old, model, ctx.signal);
 
-      // Reversible compaction: if a Session is available, append a
-      // CompactionEntry so the original messages remain in the tree and the
-      // compaction can be undone (moveTo before the CompactionEntry).
+      let summary: Message;
+      if (opts.summarizer) {
+        summary = await opts.summarizer(old, model);
+      } else if (opts.previousSummary) {
+        summary = await updateSummarize(old, opts.previousSummary, model, ctx.signal);
+      } else {
+        summary = await structuredSummarize(old, model, ctx.signal);
+      }
+
+      // Reversible compaction
       const session = ctx.session;
       if (session) {
         const tokensBefore = typeof total === "number" ? total : 0;
-        // ponytail: firstKeptEntryId="" -- Session.buildContext treats unknown
-        // id as "keep all tail", which is the safe default here since the
-        // shaper only knows message indices, not tree entry ids.
         await session.appendCompaction(summary.text ?? "", "", tokensBefore);
         const built = await session.buildContext();
         return repairToolPairs(built.messages);
@@ -107,9 +129,4 @@ export function autoSummarize(opts: SummarizingOptions): ContextManager {
       return repairToolPairs([summary, ...recent]);
     },
   };
-}
-
-/** @deprecated Use {@link autoSummarize} instead. */
-export function summarizingContextManager(opts: SummarizingOptions): ContextManager {
-  return autoSummarize(opts);
 }

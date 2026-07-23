@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ChatModel } from "@my-agent-team/core";
 import type { Message } from "@my-agent-team/message";
 import { consoleLogger } from "../logger.js";
-import { summarizingContextManager } from "./summarizing.js";
+import { autoSummarize } from "./summarizing.js";
 
 const ctx = {
   sessionId: "t1",
@@ -22,7 +22,7 @@ function msgs(count: number): Message[] {
 describe("summarizingContextManager", () => {
   test("passes through when under trigger", async () => {
     const messages = msgs(3);
-    const result = await summarizingContextManager({
+    const result = await autoSummarize({
       triggerAt: 1_000_000,
       keepRecent: 2,
       countTokens: () => 100,
@@ -35,7 +35,7 @@ describe("summarizingContextManager", () => {
     const messages = msgs(20);
     let summarizerCalled = false;
 
-    const result = await summarizingContextManager({
+    const result = await autoSummarize({
       triggerAt: 10,
       keepRecent: 2,
       summarizer: async (old) => {
@@ -53,7 +53,7 @@ describe("summarizingContextManager", () => {
 
   test("empty old → passes through even when over trigger", async () => {
     const messages = msgs(2);
-    const result = await summarizingContextManager({
+    const result = await autoSummarize({
       triggerAt: 1,
       keepRecent: 10,
       countTokens: () => 1000,
@@ -74,7 +74,7 @@ describe("summarizingContextManager", () => {
       },
     };
 
-    await summarizingContextManager({
+    await autoSummarize({
       triggerAt: 10,
       keepRecent: 2,
       summarizerModel: customModel,
@@ -98,7 +98,7 @@ describe("summarizingContextManager", () => {
       },
     };
 
-    await summarizingContextManager({
+    await autoSummarize({
       triggerAt: 10,
       keepRecent: 2,
       countTokens: () => 1000,
@@ -120,7 +120,7 @@ describe("structuredSummarize", () => {
         yield {
           delta: {
             type: "text",
-            text: "- 目标: test goal\n- 约束: none\n- 进度: halfway\n- 关键决策: decided A\n- 下一步: continue",
+            text: "## Goal\ntest goal\n\n## Progress\n\n### Done\n- [x] completed A\n\n### In Progress\n- [ ] doing B",
           },
           usage: { input: 10, output: 20 },
         };
@@ -138,11 +138,11 @@ describe("structuredSummarize", () => {
 
     expect(result.role).toBe("user");
     expect(result.text).toContain("[Earlier conversation summary]");
-    expect(result.text).toContain("目标: test goal");
-    expect(result.text).toContain("关键决策: decided A");
+    expect(result.text).toContain("## Goal");
+    expect(result.text).toContain("test goal");
     expect(capturedMsgs.length).toBeGreaterThan(old.length);
     const lastMsg = capturedMsgs[capturedMsgs.length - 1];
-    expect(lastMsg?.text).toContain("Summarize the conversation");
+    expect(lastMsg?.text).toContain("You MUST summarize");
   });
 
   test("tolerates missing sections in model output", async () => {

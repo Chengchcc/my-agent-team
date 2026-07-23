@@ -22,9 +22,8 @@ export {
   autoSummarize,
   defaultSummarize,
   structuredSummarize,
-  summarizingContextManager,
+  updateSummarize,
 } from "./context-managers/summarizing.js";
-export type { TokenBudgetOptions } from "./context-managers/token-budget.js";
 export { tokenBudgetContextManager } from "./context-managers/token-budget.js";
 export type { ToolResultTruncatorOptions } from "./context-managers/tool-result-truncator.js";
 export { toolResultTruncator } from "./context-managers/tool-result-truncator.js";
