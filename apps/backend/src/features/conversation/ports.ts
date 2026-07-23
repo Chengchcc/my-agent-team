@@ -118,5 +118,7 @@ export interface ConversationPort {
     seq: number;
     snippet: string;
     ts: number;
+    senderName: string;
+    conversationTitle: string | null;
   }>;
 }

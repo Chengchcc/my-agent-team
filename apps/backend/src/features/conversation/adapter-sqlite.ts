@@ -295,8 +295,18 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           seq: schema.conversationLedger.seq,
           content: schema.conversationLedger.content,
           ts: schema.conversationLedger.ts,
+          senderName: schema.member.displayName,
+          conversationTitle: schema.conversation.title,
         })
         .from(schema.conversationLedger)
+        .leftJoin(
+          schema.conversation,
+          eq(schema.conversationLedger.conversationId, schema.conversation.conversationId),
+        )
+        .leftJoin(
+          schema.member,
+          eq(schema.conversationLedger.senderMemberId, schema.member.memberId),
+        )
         .where(like(schema.conversationLedger.content, `%${keyword}%`))
         .limit(limit)
         .all();
@@ -305,6 +315,8 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         seq: r.seq,
         snippet: r.content.slice(0, 200),
         ts: r.ts,
+        senderName: r.senderName ?? "unknown",
+        conversationTitle: r.conversationTitle ?? null,
       }));
     },
     markLedgerEntryUndone(conversationId: string, seq: number): void {

@@ -5,24 +5,23 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
+interface SearchResult {
+  conversationId: string;
+  conversationTitle: string | null;
+  seq: number;
+  snippet: string;
+  senderName: string;
+  ts: number;
+}
+
 interface GlobalSearchProps {
   open: boolean;
   onClose: () => void;
 }
 
-interface SearchResult {
-  conversationId: string;
-  seq: number;
-  snippet: string;
-  ts: number;
-}
-
 function formatTime(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return new Date(ts).toLocaleDateString();
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
@@ -48,6 +47,7 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!query.trim()) {
       setResults([]);
+      setActiveIndex(-1);
       return;
     }
     setIsLoading(true);
@@ -55,11 +55,10 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
       try {
         const data = await api.searchConversations(query.trim());
         const items = data.results ?? [];
-        setResults(items);
+        setResults(Array.isArray(items) ? items : []);
         setActiveIndex(items.length > 0 ? 0 : -1);
       } catch {
         setResults([]);
-        setActiveIndex(-1);
       } finally {
         setIsLoading(false);
       }
@@ -68,14 +67,6 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query]);
-
-  const navigateToResult = useCallback(
-    (result: SearchResult) => {
-      onClose();
-      router.push(`/chat/${result.conversationId}`);
-    },
-    [router, onClose],
-  );
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -95,18 +86,15 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
         case "Enter":
           e.preventDefault();
           if (activeIndex >= 0 && activeIndex < results.length) {
-            navigateToResult(results[activeIndex]!);
+            const r = results[activeIndex]!;
+            onClose();
+            router.push(`/chat/${r.conversationId}`);
           }
           break;
       }
     },
-    [results, activeIndex, onClose, navigateToResult],
+    [results, activeIndex, onClose, router],
   );
-
-  const activeItemRef = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => {
-    activeItemRef.current?.scrollIntoView({ block: "nearest" });
-  }, []);
 
   if (!open) return null;
 
@@ -120,58 +108,79 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
       aria-modal="true"
       aria-label="Search conversations"
     >
-      <div
-        className="w-full max-w-xl rounded-lg border border-[var(--hairline)] bg-[var(--canvas)] shadow-xl overflow-hidden"
-        onKeyDown={handleKeyDown}
-      >
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--hairline)]">
-          <Search size={16} className="text-[var(--mute)] shrink-0" />
+      <div className="w-full max-w-xl rounded-lg border border-[var(--hairline)] bg-[var(--canvas)] shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center border-b border-[var(--hairline)] px-4 py-0">
+          <Search className="mr-3 h-5 w-5 shrink-0 text-[var(--mute)]" />
           <input
             ref={inputRef}
+            type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search conversations…"
-            className="flex-1 bg-transparent text-sm text-[var(--ink-strong)] placeholder:text-[var(--mute)] focus:outline-none"
+            onKeyDown={handleKeyDown}
+            placeholder="Search conversations..."
+            className="flex-1 bg-transparent py-3 text-base outline-none placeholder:text-[var(--mute)]"
+            autoComplete="off"
+            spellCheck={false}
           />
-          {isLoading && <span className="text-xs text-[var(--mute)]">searching…</span>}
           <button
+            type="button"
             onClick={onClose}
-            className="text-[var(--mute)] hover:text-[var(--ink-strong)] shrink-0"
+            className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded text-[var(--mute)] hover:text-[var(--ink)] hover:bg-[var(--canvas-soft)]"
+            aria-label="Close"
           >
-            <X size={16} />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        {results.length > 0 ? (
-          <div className="max-h-[50vh] overflow-y-auto">
-            {results.map((r, i) => (
+        {/* Results */}
+        <div className="max-h-80 overflow-y-auto">
+          {isLoading && (
+            <div className="flex items-center justify-center py-12 text-sm text-[var(--mute)]">
+              Searching...
+            </div>
+          )}
+
+          {!isLoading && query.trim() === "" && (
+            <div className="flex flex-col items-center py-12 text-[var(--mute)]">
+              <Search className="mb-3 h-8 w-8 opacity-30" />
+              <p className="text-sm">Type to search across all conversations</p>
+            </div>
+          )}
+
+          {!isLoading && query.trim() !== "" && results.length === 0 && (
+            <div className="py-12 text-center text-sm text-[var(--mute)]">No results found.</div>
+          )}
+
+          {!isLoading &&
+            results.map((r, i) => (
               <button
                 key={`${r.conversationId}-${r.seq}`}
-                ref={i === activeIndex ? activeItemRef : undefined}
-                onClick={() => navigateToResult(r)}
-                className={`w-full text-left px-4 py-3 border-b border-[var(--hairline)] last:border-0 transition-colors ${
-                  i === activeIndex ? "bg-[var(--canvas-soft)]" : "hover:bg-[var(--canvas-soft)]"
-                }`}
+                type="button"
+                onClick={() => {
+                  onClose();
+                  router.push(`/chat/${r.conversationId}`);
+                }}
+                onMouseEnter={() => setActiveIndex(i)}
+                className={`flex w-full flex-col gap-1 border-b border-[var(--hairline)] px-4 py-3 text-left transition-colors last:border-b-0 ${i === activeIndex ? "bg-[var(--canvas-soft)]" : "hover:bg-[var(--canvas-soft)]"}`}
               >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-mono text-[var(--mute)]">
-                    {r.conversationId.slice(0, 12)}…
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-[var(--ink-strong)] truncate max-w-[200px]">
+                    {r.conversationTitle ?? r.conversationId.slice(0, 8)}
                   </span>
-                  <span className="text-[10px] text-[var(--mute)]">{formatTime(r.ts)}</span>
+                  <span className="text-xs text-[var(--mute)]">· {r.senderName}</span>
+                  <span className="ml-auto text-xs text-[var(--mute)]">{formatTime(r.ts)}</span>
                 </div>
-                <p className="text-sm text-[var(--ink-strong)] line-clamp-2">{r.snippet}</p>
+                <p className="line-clamp-2 text-sm text-[var(--ink-strong)]">{r.snippet}</p>
               </button>
             ))}
-          </div>
-        ) : query.trim() && !isLoading ? (
-          <div className="px-4 py-8 text-center">
-            <p className="text-sm text-[var(--mute)]">No results found</p>
-          </div>
-        ) : null}
-
-        <div className="px-4 py-2 border-t border-[var(--hairline)] flex items-center justify-between text-[10px] text-[var(--mute)]">
-          <span>↑↓ to navigate · Enter to open · Esc to close</span>
         </div>
+
+        {!isLoading && results.length > 0 && (
+          <div className="border-t border-[var(--hairline)] px-4 py-2">
+            <p className="text-xs text-[var(--mute)]">{results.length} results</p>
+          </div>
+        )}
       </div>
     </div>
   );

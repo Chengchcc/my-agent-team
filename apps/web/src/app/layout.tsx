@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { GlobalSearchTrigger } from "@/components/GlobalSearchTrigger";
 import { cn } from "@/lib/utils";
 import { QueryProvider } from "@/providers/QueryProvider";
 import "./globals.css";
@@ -29,7 +30,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-background text-foreground">
-        <QueryProvider>{children}</QueryProvider>
+        <QueryProvider>
+          <GlobalSearchTrigger />
+          {children}
+        </QueryProvider>
       </body>
     </html>
   );
