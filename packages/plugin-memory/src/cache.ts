@@ -4,7 +4,7 @@ import { type Fact, readFact } from "./frontmatter.js";
 
 const memCaches = new Map<string, { content: string; mtime: number }>();
 export async function readMemoryWithMtimeCache(ws: AgentFsLike, root: string): Promise<string> {
-  const memPath = pjoin(root, "MEMORY.md");
+  const memPath = pjoin(root, "memory_summary.md");
   const s = await ws.stat(memPath);
   if (!s) return "";
   const cached = memCaches.get(root);
