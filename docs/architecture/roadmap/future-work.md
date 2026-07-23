@@ -69,7 +69,7 @@ used_by:
   | **P0** | 连接状态指示器 | `network-status.tsx` 65 行：`navigator.onLine` + online/offline 事件 + 顶部 banner（offline 红色 / 恢复绿色 3s 后隐藏） | `streamConn` 状态已有但零 UI 反馈，SSE 断了用户看到冻结画面无感知 | 1 小时 |
   | **P1** | Agent 关系图 + Wake Routing | 两种关系 `assigns_to`/`collaborates_with`（带 weight + instruction）；关系变更自动生成 `RELATIONSHIPS.md` 写入 agent workspace；coordinator 选择 ~20 行算法（遍历关系图找无 parent 的根节点）；wake routing ~55 行（有 @mention 只唤醒被提及的；无 @mention 自动选 coordinator） | agent 之间扁平，靠用户手动 @mention 路由，无 coordinator 概念 | 3 天 |
   | **P1** | Task 看板 + Claim Window | 5 状态 `todo→in_progress→in_review→done/closed`，严格转换矩阵；claim 窗口 ~155 行纯内存（@mention 的 agent 有 30s 独占认领权，超时放给其他 agent）；actor 权限（agent 不能 close/reopen，只有 creator 能 accept）；agent 旁路 `CompleteTaskForAgent` 跳过 guard 自动提交 review | Loop `ItemState` 已有 priority/step/awaiting_review，数据模型在但缺 UI 看板层 | 3-5 天 |
-  | **P2** | CMD+K 全局搜索 | 337 行：全屏 overlay + 300ms 防抖 + 键盘导航（ArrowUp/Down/Enter/Escape）+ `<mark>` 高亮 + 点击跳转消息位置 | 有 `/api/conversations/search` 但只在 chat 页用，无全局快捷入口 | 2-3 天 |
+  | **P2** | CMD+K 全局搜索 | ✅ 已完成 | 全屏 overlay + 300ms 防抖 + ↑↓Enter Esc 导航 + 点击跳对话 + 右下角 ⌘K 提示按钮。后端 `searchLedger` JOIN member/conversation 返回 sender/title | 2026-07-22 |
 
   Solo 的设计亮点模式（实现时参考）：
   - **URL as state**：面板/视图/task/thread 状态编码到 URL searchParams，可分享、可前进后退
