@@ -131,6 +131,16 @@ const SECTIONS: Section[] = [
       { key: "pet.model", label: "Model", type: "string" },
     ],
   },
+  {
+    id: "recap",
+    title: "Recap",
+    description: "Per-turn conversation summary panel on the right side.",
+    fields: [
+      { key: "recap.enabled", label: "Enabled", type: "boolean" },
+      { key: "recap.provider", label: "Provider", type: "string" },
+      { key: "recap.model", label: "Model", type: "string" },
+    ],
+  },
 ];
 
 // ── Default values (used when settings KV is empty) ──
@@ -160,6 +170,9 @@ const DEFAULTS: Record<string, unknown> = {
   "pet.enabled": false,
   "pet.provider": "anthropic",
   "pet.model": "claude-haiku-3-5",
+  "recap.enabled": true,
+  "recap.provider": "anthropic",
+  "recap.model": "claude-haiku-3-5",
 };
 
 // ── Helpers ──

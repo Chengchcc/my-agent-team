@@ -14,11 +14,9 @@ export function recapPlugin(opts: RecapPluginOptions): Plugin {
   let turnCount = 0;
 
   async function generateRecap(messages: readonly Message[]): Promise<string | null> {
-    if (messages.length === 0) return null;
-    const promptMsgs: Message[] = [
-      ...messages,
-      { role: "user", text: formatRecapPrompt(turnCount) },
-    ];
+    // ponytail: only pass last 20 messages to keep context small
+    const recent = messages.slice(-20);
+    const promptMsgs: Message[] = [...recent, { role: "user", text: formatRecapPrompt(turnCount) }];
     const { blocks } = await collectStream(opts.recapModel.stream(promptMsgs));
     const text = extractText({
       blocks: blocks.filter(
