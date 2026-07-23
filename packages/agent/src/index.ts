@@ -5,4 +5,5 @@ export type { CompactionResult } from "./compaction.js";
 // Re-export from framework adapter for public API
 export type { AgentEvent, AgentEventListener } from "./framework-adapter.js";
 export type { ContextKey, RunState } from "./run-state.js";
-export { SessionManager } from "./session-manager.js";
+export type { SessionManager } from "./session-manager.js";
+export { InMemorySessionManager } from "./session-manager.js";

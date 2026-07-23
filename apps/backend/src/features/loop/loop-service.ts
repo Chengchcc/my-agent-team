@@ -1,5 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
-import type { SessionConfig, SessionManager } from "@my-agent-team/harness";
+import type { SessionManager } from "@my-agent-team/agent";
+import type { SessionConfig } from "@my-agent-team/harness";
 import type { ItemState, LoopState, Verdict } from "@my-agent-team/loop";
 import type { AppendLedgerInput } from "../conversation/ports.js";
 import type { CronJobPort } from "../cron/ports.js";

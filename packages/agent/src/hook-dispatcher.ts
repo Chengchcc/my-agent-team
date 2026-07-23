@@ -9,12 +9,12 @@ export function createHookPlugin(hooks: AgentHooks, agentCtx: AgentContext): Plu
 
   if (hooks["before:model"]) {
     const fn = hooks["before:model"];
-    fw.beforeModel = (ctx: HookContext, msgs: readonly Message[]) => fn(agentCtx, msgs);
+    fw.beforeModel = (_ctx: HookContext, msgs: readonly Message[]) => fn(agentCtx, msgs);
   }
 
   if (hooks["after:model"]) {
     const fn = hooks["after:model"];
-    fw.afterModel = (ctx: HookContext, msgs: readonly Message[]) =>
+    fw.afterModel = (_ctx: HookContext, msgs: readonly Message[]) =>
       fn(agentCtx, msgs, { input: 0, output: 0 });
   }
 

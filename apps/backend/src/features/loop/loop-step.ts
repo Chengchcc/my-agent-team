@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import type { SessionConfig, SessionManager } from "@my-agent-team/harness";
+import type { SessionManager } from "@my-agent-team/agent";
+import type { SessionConfig } from "@my-agent-team/harness";
 import type { LoopConfig, LoopState } from "@my-agent-team/loop";
 import { loopReducer, parseLoopConfig, parseVerdictMd } from "@my-agent-team/loop";
 import type { AppendLedgerInput } from "../conversation/ports.js";

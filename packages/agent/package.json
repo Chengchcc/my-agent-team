@@ -17,5 +17,12 @@
     "bun-types": "latest",
     "typescript": "^5.7.0",
     "@my-agent-team/test-helpers": "workspace:*"
-  }
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts"
 }

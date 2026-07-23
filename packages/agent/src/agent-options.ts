@@ -1,4 +1,6 @@
 import type {
+  AgentEvent,
+  AgentEventListener,
   AgentHooks,
   ChatModel,
   Checkpointer,
@@ -9,7 +11,6 @@ import type {
   Session,
   Tool,
 } from "./framework-adapter.js";
-import type { AgentEvent, AgentEventListener } from "./framework-adapter.js";
 
 export type AgentState =
   | "idle"

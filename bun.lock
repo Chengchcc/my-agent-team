@@ -34,6 +34,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@my-agent-team/adapter-mcp": "workspace:*",
+        "@my-agent-team/agent": "workspace:*",
         "@my-agent-team/ai": "workspace:*",
         "@my-agent-team/api-contract": "workspace:*",
         "@my-agent-team/config": "workspace:*",

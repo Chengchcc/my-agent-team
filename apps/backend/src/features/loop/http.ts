@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import type { SessionManager } from "@my-agent-team/harness";
+import type { SessionManager } from "@my-agent-team/agent";
 import { loopReducer } from "@my-agent-team/loop";
 import { Elysia, t } from "elysia";
 import { ulid } from "../../infra/ids.js";

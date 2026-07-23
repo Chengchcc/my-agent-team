@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChatModel } from "@my-agent-team/core";
 import type { Checkpointer, ContextManager, Plugin } from "@my-agent-team/framework";
-import { AgentSession } from "@my-agent-team/harness";
+import { Agent } from "@my-agent-team/agent";
 import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
 import type { SkillPackSource } from "./entities.js";
 import { posixSkillRoot } from "./entities.js";
@@ -65,9 +65,9 @@ function buildPrompt(source: InstallSource, action: "install" | "sync"): string 
 
 // ─── Session creation ───
 
-async function createInstallSession(deps: InstallSessionDeps): Promise<AgentSession> {
+async function createInstallSession(deps: InstallSessionDeps): Promise<Agent> {
   const sessionId = `install-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  return new AgentSession({
+  return new Agent({
     sessionId,
     model: deps.model,
     plugins: buildInstallPlugins(deps.dataDir),

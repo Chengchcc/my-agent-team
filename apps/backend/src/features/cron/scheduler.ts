@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { ModelRegistry, ProviderAuth } from "@my-agent-team/ai";
-import type { SessionManager } from "@my-agent-team/harness";
+import type { SessionManager } from "@my-agent-team/agent";
 import type { BackendConfig } from "../../config.js";
 import type { AgentService } from "../agent/index.js";
 import type { LoopStateStore } from "../loop/loop-state-store.js";

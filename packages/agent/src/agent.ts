@@ -1,6 +1,5 @@
-import type { Agent as FrameworkAgent, AgentEvent, Plugin } from "@my-agent-team/framework";
 import { createAgent, createContextStore } from "@my-agent-team/framework";
-import type { Message } from "@my-agent-team/message";
+import type { AgentEvent, Agent as FrameworkAgent, Plugin } from "@my-agent-team/framework";
 import type { AgentConfig, AgentState } from "./agent-options.js";
 import type { CompactionResult } from "./compaction.js";
 import type { AgentEventListener } from "./framework-adapter.js";
@@ -17,7 +16,7 @@ export class Agent {
   #lastError: string | null = null;
   #steering: { role: "user"; text: string }[] = [];
   #followUp: { role: "user"; text: string }[] = [];
-  #pendingContext = createContextStore();
+  #pendingContext: Record<string, unknown> = {};
 
   constructor(config: AgentConfig) {
     this.#config = {
@@ -59,7 +58,7 @@ export class Agent {
   }
 
   async resume(
-    command: { approved: boolean; message?: string },
+    _command: { approved: boolean; message?: string },
     opts?: { signal?: AbortSignal },
   ): Promise<void> {
     if (!this.#core) throw new Error("Agent not initialized");
@@ -124,6 +123,10 @@ export class Agent {
   followUp(input: string): void {
     this.#followUp.push({ role: "user", text: input });
     this.#emitQueueUpdate();
+  }
+
+  setContext(key: unknown, value: unknown): void {
+    this.#pendingContext[key as string] = value;
   }
 
   // ── Maintenance ───────────────────────────────────
