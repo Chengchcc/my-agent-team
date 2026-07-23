@@ -38,8 +38,9 @@ used_by:
 1. [AgentSession](./harness/harness.md)
 2. [Framework 运行循环](./runtime/framework.md)
 3. [上下文管理器](./runtime/context-manager.md)
-4. [运行时插件机制](./runtime/plugin.md)
-5. [标识符体系](./foundations/identifiers.md)
+4. [Compaction](./runtime/compaction.md)
+5. [运行时插件机制](./runtime/plugin.md)
+6. [标识符体系](./foundations/identifiers.md)
 
 ### 在 Web 或飞书端干活
 

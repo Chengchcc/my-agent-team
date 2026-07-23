@@ -26,16 +26,22 @@ export function findCutPoint(messages: readonly Message[], keepRecentTokens: num
     accumulated += tokens;
 
     if (accumulated >= keepRecentTokens) {
-      // Found budget boundary — but only cut at user or assistant messages.
-      // Walk forward from here to the next valid boundary.
+      // Walk forward to find next user/assistant boundary
       for (let j = i; j < messages.length; j++) {
         const m = messages[j]!;
         if (m.role === "user" || m.role === "assistant") {
           return j;
         }
       }
-      // No valid boundary found forward — keep everything from this point
-      return i;
+      // No boundary forward — walk backward to find one
+      for (let j = i; j >= 0; j--) {
+        const m = messages[j]!;
+        if (m.role === "user" || m.role === "assistant") {
+          return j + 1; // cut AFTER this valid boundary
+        }
+      }
+      // Nothing valid found — keep everything
+      return 0;
     }
   }
   // All messages fit in budget
