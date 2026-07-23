@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { useAgentDetail, useAgentList, useAgentRelationships } from "@/features/agents/hooks";
 import { useOpsRuns } from "@/features/ops/hooks";
 import { useAgentSkillPacks } from "@/features/skill-packs/hooks";
+
 type Tab = "persona" | "skills" | "activity" | "mcp" | "relationships" | "pet" | "memory";
 
 type PackStatus = "pending" | "installing" | "ready" | "failed" | "syncing";

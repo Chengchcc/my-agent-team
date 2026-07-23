@@ -18,7 +18,7 @@ import {
   conversationContextPlugin,
 } from "@my-agent-team/plugin-conversation-context";
 import { goalPlugin } from "@my-agent-team/plugin-goal";
-import { MemoryKey } from "@my-agent-team/plugin-memory";
+import { MemoryKey, memoryPlugin } from "@my-agent-team/plugin-memory";
 import { PetBarkKey, petPlugin } from "@my-agent-team/plugin-pet";
 import { SkillIndexKey } from "@my-agent-team/plugin-progressive-skill";
 import { recapPlugin } from "@my-agent-team/plugin-recap";
@@ -182,7 +182,7 @@ export function createConversationFeature(
         ),
         tools: [...defaultTools(cwd), ...cTools, ...mcpTools],
         plugins: [
-          ...defaultPlugins(cwd, config, undefined, agentName),
+          ...defaultPlugins(cwd, config, undefined, agentName).filter((p) => p.name !== "memory"),
           conversationContextPlugin({ tools: cTools }),
           goalPlugin({
             goalCondition: () => goalStore.get(conversationId).condition,
@@ -237,6 +237,29 @@ export function createConversationFeature(
               auth,
             ),
             enabled: settingsSvc.get<boolean>("recap.enabled") ?? true,
+          }),
+          memoryPlugin({
+            cwd,
+            root: "./memory/",
+            autoExtract: settingsSvc.get<boolean>("memory.autoExtract") ?? false,
+            extractModel: createModel(
+              modelRegistry.getModel(
+                settingsSvc.get<string>("memory.extractProvider") ?? "anthropic",
+                settingsSvc.get<string>("memory.extractModel") ?? "claude-haiku-3-5",
+              ) ?? modelRegistry.getModel("anthropic", "claude-haiku-3-5")!,
+              modelRegistry,
+              auth,
+            ),
+            consolidateModel: createModel(
+              modelRegistry.getModel(
+                settingsSvc.get<string>("memory.consolidateProvider") ?? "anthropic",
+                settingsSvc.get<string>("memory.consolidateModel") ?? "claude-sonnet-4-6",
+              ) ?? modelRegistry.getModel("anthropic", "claude-sonnet-4-6")!,
+              modelRegistry,
+              auth,
+            ),
+            minMessagesForExtraction: settingsSvc.get<number>("memory.minMessagesForExtraction"),
+            consolidateThreshold: settingsSvc.get<number>("memory.consolidateThreshold"),
           }),
         ],
         metaContext: ({
