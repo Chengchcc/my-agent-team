@@ -161,6 +161,16 @@ used_by:
   | **前端下拉** | AgentForm provider+model 级联 Select，`/api/models` 动态加载 |
   | **Runtime 替换** | 12 处 `getModel("anthropic", ...)` 全部替换为 `resolveModel(name, registry)` |
   | **LedgerKind** | 加 `pet_bark` 枚举值，pet bark 事件通过 conversation SSE 转发到前端 |
+
+- **Recap Panel（每轮对话实时摘要）（2026-07-22）**　✅ **已完成**。参考 pi-recap，在 ConversationCanvas 右侧添加常驻 RecapPanel，每轮 loop 结束后用 cheap model 生成一句话摘要。
+
+  | 组件 | 内容 |
+  |---|---|
+  | **plugin-recap** | beforeRun/afterModel hook，`lastReviewedMessageCount` 只摘本轮增量消息，`ChatModel.stream()` 一次性调用 |
+  | **recap_update 事件** | AgentEvent → subscriber → ledger（`kind: "recap"`）→ conversation SSE → 前端 |
+  | **RecapPanel** | ConversationCanvas 右侧 260px，显示最新 recap 文本 |
+  | **配置** | `recap.enabled` / `recap.provider` / `recap.model` via settings KV |
+  | **Prompt** | XML 格式（`<recap-request>` + `<objective>` / `<constraints>` / `<example>`） |
 - **Compaction 质量提升（2026-07-21）**　参考 Pi 和 OMP 的 compaction 设计，在现有 `autoSummarize` + `shakeMessages` 基础上做 3 个改进：
 
   | 改进 | 来源 | 内容 | 成本 |
