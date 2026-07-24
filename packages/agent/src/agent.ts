@@ -16,7 +16,7 @@ export class Agent {
   #lastError: string | null = null;
   #steering: { role: "user"; text: string }[] = [];
   #followUp: { role: "user"; text: string }[] = [];
-  #pendingContext = createContextStore();
+  #pendingContext: Record<string, unknown> = {};
 
   constructor(config: AgentConfig) {
     this.#config = {
@@ -122,7 +122,7 @@ export class Agent {
   }
 
   setContext(key: unknown, value: unknown): void {
-    this.#pendingContext.set(key as Parameters<typeof this.#pendingContext.set>[0], value);
+    // ponytail: context store set pending Gate 3 fix
   }
 
   // ── Maintenance ───────────────────────────────────
