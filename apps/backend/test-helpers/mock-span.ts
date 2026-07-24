@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { SessionConfig } from "@my-agent-team/harness";
+import type { AgentConfig as SessionConfig } from "@my-agent-team/agent";
 import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 import { RuntimeOpsStore } from "../src/features/runtime-ops/store.js";
 import { SpanSupervisor } from "../src/features/span/supervisor.js";

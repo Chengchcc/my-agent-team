@@ -167,6 +167,7 @@ async function mergeExtensions(
 export class CapabilityRegistry {
   readonly #caps = new Map<string, Capability>();
   readonly #order: string[] = [];
+  readonly #commands = new Map<string, { handler: (input: string) => string | Promise<string> }>();
 
   register(cap: Capability): void {
     if (this.#caps.has(cap.id)) throw new Error(`Duplicate capability: ${cap.id}`);
@@ -195,6 +196,12 @@ export class CapabilityRegistry {
     for (const id of this.#order) {
       await this.#caps.get(id)!.installServer?.(ctx);
     }
+  }
+
+  /** Register a command — uniqueness enforced by the context, not the registry. */
+  registerCommand(name: string, handler: (input: string) => string | Promise<string>): void {
+    if (this.#commands.has(name)) throw new Error(`Duplicate command: ${name}`);
+    this.#commands.set(name, { handler });
   }
 
   getManifests(): CapabilityManifest[] {
