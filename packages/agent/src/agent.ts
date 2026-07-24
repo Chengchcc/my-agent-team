@@ -1,5 +1,5 @@
-import { createAgent, createContextStore } from "@my-agent-team/framework";
 import type { AgentEvent, Agent as FrameworkAgent, Plugin } from "@my-agent-team/framework";
+import { createAgent, createContextStore } from "@my-agent-team/framework";
 import type { AgentConfig, AgentState } from "./agent-options.js";
 import type { CompactionResult } from "./compaction.js";
 import type { AgentEventListener } from "./framework-adapter.js";

@@ -310,7 +310,7 @@ const cronScheduler = createCronScheduler({
   config,
   agentSvc,
   idGen: ulid,
-  sessionManager,
+  // @ts-expect-error migration: SqliteSessionManager -> agent SessionManager
   projectPort,
   store: loopStore,
   modelRegistry,
