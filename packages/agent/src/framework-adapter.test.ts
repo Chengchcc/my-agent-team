@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Agent } from "./agent.js";
 import { echoModel } from "@my-agent-team/test-helpers";
+import { Agent } from "./agent.js";
 
 describe("framework-adapter boundary", () => {
   test("Agent can be constructed without importing framework directly", () => {

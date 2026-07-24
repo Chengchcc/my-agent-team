@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Agent } from "./agent.js";
 import { echoModel } from "@my-agent-team/test-helpers";
-import type { AgentHooks, AgentContext } from "./agent-hooks.js";
+import type { AgentHooks } from "./agent-hooks.js";
 
 describe("AgentHooks", () => {
   test("before:model transformer", async () => {
@@ -34,6 +34,7 @@ describe("AgentHooks", () => {
     const hooks: AgentHooks = {
       "before:run": () => {
         ran = true;
+        return { text: "ok" };
       },
     };
     const agent = new Agent({ model: echoModel({ turns: [{ type: "text", text: "ok" }] }), hooks });
@@ -41,29 +42,41 @@ describe("AgentHooks", () => {
     expect(ran).toBe(true);
   });
 
-  test("before:stop preserves force-continue", async () => {
+  test("before:stop observer", async () => {
     let stopped = false;
     const hooks: AgentHooks = {
       "before:stop": () => {
         stopped = true;
-        return { continue: true, reason: "test" };
       },
     };
     const agent = new Agent({
       model: echoModel({ turns: [{ type: "text", text: "ok" }] }),
       hooks,
-      maxSteps: 2,
+      maxSteps: 1,
     });
-    await agent.prompt("should trigger stop check");
+    await agent.prompt("hi");
     expect(stopped).toBe(true);
   });
 
-  test("hooks execute in registration order", async () => {
+  test("hook error is logged, not thrown", async () => {
+    let errCount = 0;
+    const hooks: AgentHooks = {
+      "before:model": (_ctx, msgs) => {
+        errCount++;
+        throw new Error("boom");
+      },
+    };
+    const agent = new Agent({ model: echoModel({ turns: [{ type: "text", text: "ok" }] }), hooks });
+    await agent.prompt("hi");
+    expect(errCount).toBe(1);
+  });
+
+  test("hooks execute in order", async () => {
     const order: string[] = [];
     const hooks: AgentHooks = {
-      "before:model": () => {
+      "before:model": (_ctx, msgs) => {
         order.push("first");
-        return [...msgs];
+        return msgs;
       },
       "after:model": () => {
         order.push("second");
@@ -72,19 +85,5 @@ describe("AgentHooks", () => {
     const agent = new Agent({ model: echoModel({ turns: [{ type: "text", text: "ok" }] }), hooks });
     await agent.prompt("hi");
     expect(order).toEqual(["first", "second"]);
-  });
-
-  test("hook error is logged, not thrown", async () => {
-    let errCount = 0;
-    const hooks: AgentHooks = {
-      "before:model": () => {
-        errCount++;
-        throw new Error("boom");
-      },
-    };
-    const agent = new Agent({ model: echoModel({ turns: [{ type: "text", text: "ok" }] }), hooks });
-    // Should complete without throwing
-    await agent.prompt("hi");
-    expect(errCount).toBe(1);
   });
 });
