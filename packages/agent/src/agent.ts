@@ -121,7 +121,10 @@ export class Agent {
     this.#emitQueueUpdate();
   }
 
-  setContext(_key: unknown, _value: unknown): void {}
+  setContext(key: unknown, value: unknown): void {
+    // ponytail: context injection via raw write to framework ContextStore
+    (this.#pendingContext as unknown as Record<string, unknown>)[key as string] = value;
+  }
 
   // ── Maintenance ───────────────────────────────────
 
