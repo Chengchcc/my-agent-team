@@ -7,7 +7,7 @@ import {
   sqliteCheckpointer,
   toolResultTruncator,
 } from "@my-agent-team/framework";
-import { SqliteSessionManager } from "@my-agent-team/harness";
+import { SqliteSessionManager } from "@my-agent-team/agent";
 import {
   createRuntimeTracer,
   resolveObservabilityConfig,
@@ -310,8 +310,7 @@ const cronScheduler = createCronScheduler({
   config,
   agentSvc,
   idGen: ulid,
-  // @ts-expect-error migration: SqliteSessionManager -> agent SessionManager
-  projectPort,
+  sessionManager,
   store: loopStore,
   modelRegistry,
 });

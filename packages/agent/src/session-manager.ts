@@ -1,10 +1,25 @@
+import {
+  type RunSpan,
+  Session,
+  type SessionRepo,
+  sqliteCheckpointer,
+  sqliteSessionRepo,
+  sqliteSessionStorage,
+} from "@my-agent-team/framework";
 import { Agent } from "./agent.js";
 import type { AgentConfig } from "./agent-options.js";
 
-/**
- * SessionManager interface — creates/configures Agent instances.
- * Implementation lives in backend (adapter over SqliteSessionManager during migration).
- */
+export type StartSpanFn = (
+  spanId: string,
+  sessionId: string,
+  opts?: unknown,
+) => Promise<RunSpan> | RunSpan;
+
+export interface SessionManagerConfig {
+  checkpointerPath: string;
+  startSpan?: StartSpanFn;
+}
+
 export interface SessionManager {
   create(config: AgentConfig): Agent;
   open(sessionId: string, config: AgentConfig): Agent;
@@ -12,36 +27,58 @@ export interface SessionManager {
   dispose(sessionId: string): void;
 }
 
-/**
- * In-memory SessionManager for testing.
- */
-export class InMemorySessionManager implements SessionManager {
-  readonly #live = new Map<string, Agent>();
+export class SqliteSessionManager implements SessionManager {
+  #sessions = new Map<string, Agent>();
+  #config: SessionManagerConfig;
+  #repo: SessionRepo;
+
+  constructor(config: SessionManagerConfig) {
+    this.#config = config;
+    this.#repo = sqliteSessionRepo({ db: config.checkpointerPath });
+  }
 
   create(config: AgentConfig): Agent {
-    const sessionId = config.sessionId ?? crypto.randomUUID();
-    const agent = new Agent({ ...config, sessionId });
-    this.#live.set(sessionId, agent);
+    const sessionId = crypto.randomUUID();
+    const agent = new Agent({
+      ...config,
+      sessionId,
+      checkpointer: sqliteCheckpointer({ db: this.#config.checkpointerPath }),
+      session: new Session(sqliteSessionStorage({ db: this.#config.checkpointerPath, sessionId })),
+      startSpan: this.#config.startSpan,
+    });
+    this.#sessions.set(sessionId, agent);
     return agent;
   }
 
   open(sessionId: string, config: AgentConfig): Agent {
-    const existing = this.#live.get(sessionId);
+    const existing = this.#sessions.get(sessionId);
     if (existing) return existing;
-    const agent = new Agent({ ...config, sessionId });
-    this.#live.set(sessionId, agent);
+    const agent = new Agent({
+      ...config,
+      sessionId,
+      checkpointer: sqliteCheckpointer({ db: this.#config.checkpointerPath }),
+      session: new Session(sqliteSessionStorage({ db: this.#config.checkpointerPath, sessionId })),
+      startSpan: this.#config.startSpan,
+    });
+    this.#sessions.set(sessionId, agent);
     return agent;
   }
 
   get(sessionId: string): Agent | undefined {
-    return this.#live.get(sessionId);
+    return this.#sessions.get(sessionId);
   }
 
   dispose(sessionId: string): void {
-    const agent = this.#live.get(sessionId);
-    if (agent) {
-      agent.dispose();
-      this.#live.delete(sessionId);
+    const session = this.#sessions.get(sessionId);
+    if (session) {
+      session.dispose();
+      this.#sessions.delete(sessionId);
     }
   }
+
+  get repo(): SessionRepo {
+    return this.#repo;
+  }
 }
+
+export { InMemorySessionManager } from "./session-manager-memory.js";

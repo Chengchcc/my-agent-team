@@ -1,4 +1,4 @@
-import type { SessionManager } from "@my-agent-team/harness";
+import type { SessionManager } from "@my-agent-team/agent";
 import { Elysia, t } from "elysia";
 
 /**
