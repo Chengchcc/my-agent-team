@@ -16,7 +16,7 @@ export class Agent {
   #lastError: string | null = null;
   #steering: { role: "user"; text: string }[] = [];
   #followUp: { role: "user"; text: string }[] = [];
-  #pendingContext: Record<string, unknown> = {};
+  #pendingContext = createContextStore();
 
   constructor(config: AgentConfig) {
     this.#config = {
@@ -122,7 +122,7 @@ export class Agent {
   }
 
   setContext(key: unknown, value: unknown): void {
-    this.#pendingContext[key as string] = value;
+    this.#pendingContext.set(key as Parameters<typeof this.#pendingContext.set>[0], value);
   }
 
   // ── Maintenance ───────────────────────────────────
