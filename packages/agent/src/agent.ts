@@ -121,7 +121,7 @@ export class Agent {
     this.#emitQueueUpdate();
   }
 
-  setContext(key: unknown, value: unknown): void {
+  setContext(_key: unknown, _value: unknown): void {
     // ponytail: context store set pending Gate 3 fix
   }
 

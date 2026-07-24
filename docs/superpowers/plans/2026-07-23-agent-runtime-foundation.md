@@ -290,7 +290,82 @@ bun run --cwd packages/framework typecheck
 
 Only after this gate may Capability code call `extendAgent()` and return AgentHooks.
 
-## 6. Workstream completion gate
+## 6. Foundation remediation / re-baseline
+
+> This task group was added after the current branch started partial backend and Capability work before Foundation gates passed. Existing Capability prototype files are paused and do not count as completed Capability migration.
+
+### Scope
+
+- Modify: `packages/agent/src/agent-events.ts`
+- Modify: `packages/agent/src/agent.ts`
+- Modify: `packages/agent/src/agent-options.ts`
+- Modify: `packages/agent/src/run-state.ts`
+- Modify: `packages/agent/src/hook-dispatcher.ts`
+- Modify: `packages/agent/src/agent-hooks.ts`
+- Modify: `packages/agent/src/compaction.ts`
+- Modify: `packages/agent/src/session-manager.ts`
+- Modify: `apps/backend/src/main.ts` only to remove migration suppression after the production SessionManager boundary is resolved
+- Modify affected tests beside the above files
+
+### Required fixes
+
+1. Replace `AgentEvent = unknown` with a real discriminated union, reusing or adapting the existing framework event schema without changing payload semantics.
+2. Implement `resume(command)` through the real runtime resume path; the command must not be ignored, and interrupt consumption must remain one-shot.
+3. Replace the compaction stub with the existing real compaction behavior; verify message replacement, persistence, thread update, and failure preservation.
+4. Replace fixed `getUsage() { return 0; }` with a real usage read from the persisted/runtime event source.
+5. Make RunState real and per-run: define/create/read/write it, pass it into the runtime run options, and clear it after every run.
+6. Implement all declared hook points, including `before:run` and `after:turn`.
+7. Aggregate hook handlers as ordered chains; do not use object assignment that lets a later hook overwrite an earlier hook.
+8. Remove `@ts-expect-error` migration suppression. Resolve the production `SqliteSessionManager` / Agent `SessionManager` boundary explicitly instead of suppressing it.
+9. Keep framework-only types behind the adapter. New backend callers must not import framework types for the same Agent config boundary.
+10. Make tests fail on target behavior failures. Do not catch and accept compaction/resume/usage failures without asserting the expected error or state.
+
+### Forbidden
+
+- Do not add new Capability wrappers.
+- Do not wire the existing Capability registry into production Agent creation.
+- Do not migrate pet/recap/memory.
+- Do not delete framework/harness.
+- Do not change database schema or checkpoint table/file formats.
+- Do not use `any`, `@ts-ignore`, `@ts-expect-error`, or `as unknown as` to bypass the new boundary.
+
+### Acceptance tests
+
+```text
+AgentEvent parses every event consumed by backend projection
+resume approved and rejected paths
+compaction changes and persists messages
+compaction failure preserves original messages
+usage reflects recorded model usage
+RunState is visible to a hook in one run and absent in the next
+before:run and after:turn execute in order
+multiple hooks on the same event all execute in registration order
+no migration suppression remains
+```
+
+### Acceptance commands
+
+```bash
+bun install
+bun run --cwd packages/agent typecheck
+bun run --cwd packages/agent build
+bun test packages/agent
+bun run --cwd packages/framework typecheck
+bun test packages/framework
+bun run --cwd apps/backend typecheck
+```
+
+Structural checks:
+
+```bash
+! grep -R 'AgentEvent = unknown\|return 0;\|@ts-expect-error migration\|as unknown as' packages/agent apps/backend/src/capabilities apps/backend/src/main.ts
+```
+
+### Gate
+
+P4R is not complete until every command passes and the structural checks return no matches. Backend caller adoption and Capability production wiring remain blocked until this gate passes.
+
+## 7. Workstream completion gate
 
 ```bash
 bun run --cwd packages/agent build

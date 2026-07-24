@@ -251,7 +251,7 @@ docs/architecture/runtime/plugin.md
 docs/architecture/harness/harness.md
 docs/architecture/backend/conversation-projection.md
 docs/architecture/foundations/lifecycle-overview.md
-docs/architecture/adr/2026-07-22-agent-runtime.md
+docs/adr/0016-agent-runtime.md
 ```
 
 Add if needed:

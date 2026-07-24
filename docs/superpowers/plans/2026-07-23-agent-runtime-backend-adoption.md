@@ -6,11 +6,11 @@
 >
 > **Architecture:** 逐个垂直切片迁移 caller。每个切片独立 typecheck/test/build；不做新旧 Agent 双写。Session 绑定、Span/Origin、ledger projection、retry、interrupt 和 cleanup 语义保持不变。
 >
-> **Contract:** [`2026-07-23-agent-runtime-contract.md`](../specs/2026-07-23-agent-runtime-contract.md)
->
-> **Prerequisite:** [`2026-07-23-agent-runtime-foundation.md`](./2026-07-23-agent-runtime-foundation.md) 已完成并通过 gate。
->
-> ---
+**Contract:** [`2026-07-23-agent-runtime-contract.md`](../specs/2026-07-23-agent-runtime-contract.md)
+
+**Prerequisite:** [`2026-07-23-agent-runtime-foundation.md`](./2026-07-23-agent-runtime-foundation.md) P0-P4 and P4R remediation are complete. The current branch contains partial import migration; that work is not accepted until the caller-specific gates below pass.
+
+---
 
 ## 0. Shared migration rules
 

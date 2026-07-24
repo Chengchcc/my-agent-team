@@ -4,7 +4,7 @@
 >
 > **Contract:** [`2026-07-23-agent-runtime-contract.md`](../specs/2026-07-23-agent-runtime-contract.md)
 >
-> **ADR:** [`2026-07-22-agent-runtime.md`](../../architecture/adr/2026-07-22-agent-runtime.md)
+> **ADR:** [`0016-agent-runtime.md`](../../adr/0016-agent-runtime.md)
 
 **Goal:** 在不破坏 Agent 生命周期、Session 持久化、Interrupt/Resume、Conversation projection、Cron 和 Loop 行为的前提下，将 `framework + harness` 收敛为 `@my-agent-team/agent`，并把 backend 功能装配收敛为 Capability。
 
@@ -18,7 +18,7 @@
 
 | 文档 | 职责 |
 |---|---|
-| `docs/architecture/adr/2026-07-22-agent-runtime.md` | 为什么重构、最终架构决策、长期不做项 |
+| `docs/adr/0016-agent-runtime.md` | 为什么重构、最终架构决策、长期不做项 |
 | `docs/superpowers/specs/2026-07-23-agent-runtime-contract.md` | 跨 phase 公共接口、不变量、边界；执行 agent 不得自行修改 |
 | 本文 | 全局依赖 DAG、workstream 顺序、phase gate、风险和回滚 |
 | `2026-07-23-agent-runtime-foundation.md` | `packages/agent` 生命周期基础设施 |
@@ -41,13 +41,14 @@ P3 SessionManager / persistence
   ↓
 P4 Framework adapter + AgentHooks
   ↓
+P4R Foundation remediation / re-baseline
+  ↓
 ┌────────────────────────────────────────────┐
 │ Backend caller adoption                     │
 │ conversation / resume / cron / loop / skill │
 └────────────────────────────────────────────┘
   ↓
 P5 Capability registry + Services
-  ↓
 ┌────────────────────────────────────────────┐
 │ Capability migration                         │
 │ context / control-flow / side-effect / memory│
@@ -75,6 +76,7 @@ P9 Remove framework/harness and final verification
 Agent 行为覆盖 AgentSession 基线
 SessionManager 可恢复已有 session
 AgentHooks 有独立行为测试
+P4R remediation 已完成
 backend 尚未迁移，但原有 backend 继续可 build
 ```
 
@@ -95,6 +97,8 @@ Conversation、Resume、Cron、Loop、Skill Pack 都使用 @my-agent-team/agent
 ### Workstream C：Capabilities
 
 文件：`2026-07-23-agent-runtime-capabilities.md`
+
+前置条件：Foundation、P4R remediation、Backend Adoption 全部通过。当前分支已有 Capability registry/wrapper prototype；它们处于暂停状态，不计入 workstream 完成，也不得继续接入生产 Agent。
 
 完成后必须得到：
 
@@ -124,16 +128,17 @@ framework/harness 无业务引用并可删除
 |---|---|---|
 | P0 | 当前工作树 | baseline build/typecheck/test 已记录；已有失败清单明确 |
 | P1 | 无新包 | `packages/agent` 独立 build/typecheck/test；无 backend/React 依赖 |
-| P2 | P1 | Agent 行为测试覆盖 prompt/retry/compact/interrupt/steer/follow-up/dispose |
+| P2 | P1 | Agent 行为测试覆盖 prompt/retry/compact/interrupt/steer/follow-up/dispose；不得吞掉目标行为失败 |
 | P3 | P2 | SessionManager persistence recovery 测试通过；caller 不创建技术存储 |
-| P4 | P3 | framework adapter and AgentHooks tests pass; backend does not need framework to create Agent |
-| P5A-E | P4 | corresponding caller scoped tests/typecheck/build pass; behavior unchanged |
-| P6 | P5A-E | Capability registry tests pass; no React dependency; static install order is deterministic |
+| P4 | P3 | framework adapter 和 AgentHooks tests pass；backend 不需要 framework 才能创建 Agent |
+| P4R | P4 | `AgentEvent` 非 `unknown`；resume 真正消费 command；compact 真实持久化；usage 非固定 0；RunState per-run 透传；before:run/after:turn 完整；无 `@ts-expect-error` migration suppression；生产 SessionManager 边界明确 |
+| P5A-E | P4R | 对应 caller scoped tests/typecheck/build pass；行为不变；不得从 harness/framework 混合导入同一配置边界 |
+| P6 | P5A-E | Capability registry tests pass；无 React 依赖；异步 extension 不静默丢弃；hook chain 按顺序合并；真实 scope 由调用方传入 |
 | P7 | P6 | context/control-flow/side-effect/memory capability tests and backend integration tests pass |
-| P8 | P7 | conversation projection and Agent factory are separated; behavior tests pass |
-| P9 | P8 | main/bootstrap smoke test passes; main no longer assembles plugins directly |
-| P10 | P9 | each old name is cleaned independently; scoped gate passes |
-| P11 | P10 | framework/harness have no business references; full CI and smoke tests pass |
+| P8 | P7 | conversation projection and Agent factory are separated；行为测试通过 |
+| P9 | P8 | main/bootstrap smoke test passes；main no longer assembles plugins directly |
+| P10 | P9 | each old name is cleaned independently；scoped gate passes |
+| P11 | P10 | framework/harness have no business references；full CI and smoke tests pass |
 
 ## 5. 统一执行规则
 

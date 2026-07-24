@@ -123,14 +123,11 @@ describe("Agent", () => {
     agent.subscribe((e) => events.push(e.type));
     // compact requires the agent to be initialized (prompt has been called)
     await agent.prompt("hi");
-    try {
-      await agent.compact();
-      expect(events).toContain("compaction_start");
-    } catch {
-      // compaction may fail without checkpointer — accept
-    }
-  });
+    await agent.compact();
+    expect(events).toContain("compaction_start");
+    expect(events).toContain("compaction_end");
 
+  });
   // ── Multiple runs ──
   test("second prompt routes as steer (does not error)", async () => {
     const agent = new Agent(makeConfig());

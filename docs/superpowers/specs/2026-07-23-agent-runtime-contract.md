@@ -2,7 +2,7 @@
 
 > 状态：draft contract，供后续 implementation plans 和 agent handoff 使用。
 >
-> 上游决策：[`docs/architecture/adr/2026-07-22-agent-runtime.md`](../../architecture/adr/2026-07-22-agent-runtime.md)
+> 上游决策：[`docs/adr/0016-agent-runtime.md`](../../adr/0016-agent-runtime.md)
 >
 > 本文冻结跨 phase 的公共边界和不变量。执行 agent 不得自行修改本契约；发现契约缺口时必须停止当前任务并报告。
 

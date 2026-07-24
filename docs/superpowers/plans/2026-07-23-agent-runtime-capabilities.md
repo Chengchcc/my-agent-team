@@ -6,16 +6,18 @@
 >
 > **Architecture:** Capability 是 backend/application 层的安装单元；AgentHooks/Tools 是 Agent runtime 扩展；Services 由 backend closure 注入。Capability 不直接写 ledger、不依赖 React、不进入 `packages/agent`。
 >
-> **Contract:** [`2026-07-23-agent-runtime-contract.md`](../specs/2026-07-23-agent-runtime-contract.md)
->
-> **Prerequisites:**
->
-> - Runtime Foundation complete.
-> - Backend Adoption complete.
-> - AgentHooks tests pass.
-> - Existing plugin tests pass.
->
-> ---
+**Contract:** [`2026-07-23-agent-runtime-contract.md`](../specs/2026-07-23-agent-runtime-contract.md)
+
+## Prerequisites
+
+- Runtime Foundation complete.
+- Foundation P4R remediation complete.
+- Backend Adoption complete.
+- AgentHooks tests pass.
+- Existing plugin tests pass.
+- The current registry/wrapper prototype is treated as paused spike code; it is not production-wired and does not satisfy this workstream gate.
+
+---
 
 ## 0. Capability boundary
 
