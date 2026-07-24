@@ -22,9 +22,7 @@ export interface AgentScope {
 }
 
 /** Context for server-side installation (routes, commands). */
-export interface CapabilityServerContext {
-  // ponytail: wire when needed in subsequent tasks
-}
+export type CapabilityServerContext = {};
 
 /**
  * A Capability — self-contained module that extends Agent + Gateway + UI.
