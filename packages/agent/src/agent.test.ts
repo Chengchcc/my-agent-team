@@ -182,6 +182,35 @@ describe("Agent", () => {
   });
 
   // ── Retry ──
+  // ── after:turn contract ──
+  test("after:turn fires exactly once per external turn", async () => {
+    const calls: unknown[][] = [];
+    const agent = new Agent(
+      makeConfig({
+        hooks: { "after:turn": async (_ctx, msgs) => void calls.push(msgs) },
+      }),
+    );
+    await agent.prompt("hi");
+    expect(calls.length).toBe(1);
+  });
+
+  test("after:turn fires once on error, not per retry attempt", async () => {
+    const calls: unknown[][] = [];
+    const agent = new Agent(
+      makeConfig({
+        hooks: { "after:turn": async (_ctx, msgs) => void calls.push(msgs) },
+        model: {},
+        retry: { maxAttempts: 2, backoffMs: 10 },
+      }),
+    );
+    try {
+      await agent.prompt("hi");
+    } catch {
+      /* expected */
+    }
+    expect(calls.length).toBe(1);
+  });
+
   test("retry on failure model", async () => {
     let calls = 0;
     const agent = new Agent(

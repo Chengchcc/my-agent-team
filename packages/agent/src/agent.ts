@@ -335,7 +335,12 @@ export class Agent {
             continue;
           }
           const aborted = this.#abort?.signal.aborted ?? false;
-          this.#state = aborted || this.#lastError ? "error" : "done";
+          if (this.#config.hooks?.["after:turn"]) {
+            await this.#config.hooks["after:turn"](
+              { sessionId: this.sessionId ?? "", state: this.#pendingContext },
+              this.#core!.thread.messages.slice(),
+            );
+          }
           this.#emit({
             type: "agent_end",
             messages: this.#core!.thread.messages.slice(),

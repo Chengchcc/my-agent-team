@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
-import type { SessionManager } from "@my-agent-team/agent";
-import type { SessionConfig } from "@my-agent-team/harness";
+import type { AgentConfig as SessionConfig, SessionManager } from "@my-agent-team/agent";
 import type { LoopConfig, LoopState } from "@my-agent-team/loop";
 import { loopReducer, parseLoopConfig, parseVerdictMd } from "@my-agent-team/loop";
 import type { AppendLedgerInput } from "../conversation/ports.js";
@@ -309,7 +308,6 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
       .catch(() => "");
     await genSession.prompt(buildGeneratorPrompt(item, genPrompt, { repoPath: cwd, gitLog }));
     unsubGen();
-    params.sessionManager.dispose(genSession.sessionId ?? "");
     if (dailyCap > 0) {
       spent = params.store.addBudget(
         params.loopId,
@@ -317,6 +315,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
         await tallyUsage(params.sessionManager, genSession.sessionId ?? ""),
       );
     }
+    params.sessionManager.dispose(genSession.sessionId ?? "");
 
     const headSha = (await git.revParse(cwd)).text().trim();
     const filesChanged = (await git.diff(cwd, baseSha, headSha)).text().trim();
@@ -370,7 +369,6 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
     ]).catch(() => {
       console.error(`[loop] evaluator timeout/crash for item ${item.id}`);
     });
-    params.sessionManager.dispose(evalSession.sessionId ?? "");
     if (dailyCap > 0) {
       spent = params.store.addBudget(
         params.loopId,
@@ -378,6 +376,7 @@ async function loopStepImpl(params: LoopStepParams): Promise<LoopState> {
         await tallyUsage(params.sessionManager, evalSession.sessionId ?? ""),
       );
     }
+    params.sessionManager.dispose(evalSession.sessionId ?? "");
     // Read verdict
     const verdictMd = await Bun.file(verdictPath)
       .text()
