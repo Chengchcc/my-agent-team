@@ -1,32 +1,40 @@
 import type { AgentHooks } from "@my-agent-team/agent";
 import type { Tool } from "@my-agent-team/core";
 
-/** Agent extension contributed by a Capability. */
 export interface AgentExtension {
   hooks?: AgentHooks;
   tools?: readonly Tool[];
   systemPrompt?: string;
 }
 
-/** Manifest describing a Capability's UI slots. */
+export interface ResolvedExtension {
+  capabilityId: string;
+  extension: AgentExtension;
+}
+
 export interface CapabilityManifest {
   id: string;
   slots?: readonly string[];
 }
 
-/** Scope identifying which Agent instance a Capability is extending. */
 export interface AgentScope {
   agentId: string;
   sessionId: string;
   conversationId?: string;
+  memberId?: string;
+  cwd: string;
 }
 
-/** Context for server-side installation (routes, commands). */
-export type CapabilityServerContext = { readonly _brand?: undefined };
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface TypedRoute {}
 
-/**
- * A Capability — self-contained module that extends Agent + Gateway + UI.
- */
+export type CommandHandler = (input: string) => string | Promise<string>;
+
+export interface CapabilityServerContext {
+  registerRoute(route: TypedRoute): void;
+  registerCommand(name: string, handler: CommandHandler): void;
+}
+
 export interface Capability {
   readonly id: string;
   extendAgent?(scope: AgentScope): AgentExtension | Promise<AgentExtension>;
