@@ -58,19 +58,15 @@ export class Agent {
   }
 
   async resume(
-    _command: { approved: boolean; message?: string },
+    command: { approved: boolean; message?: string },
     opts?: { signal?: AbortSignal },
   ): Promise<void> {
     if (!this.#core) throw new Error("Agent not initialized");
     this.#state = "running";
     this.#abort = new AbortController();
     try {
-      const gen = this.#core.continue({
+      const gen = this.#core.resume(command, {
         signal: this.#combineSignal(opts?.signal),
-        stream: true,
-        maxSteps: this.#config.maxSteps,
-        steering: { drain: () => this.#steering.splice(0) },
-        followUp: { drain: () => this.#followUp.splice(0) },
       });
       for await (const _ of gen) {
         /* events via subscriber */
@@ -221,6 +217,7 @@ export class Agent {
               signal,
               stream: true,
               maxSteps: this.#config.maxSteps,
+              context: this.#pendingContext,
               steering: { drain: () => this.#steering.splice(0) },
               followUp: { drain: () => this.#followUp.splice(0) },
               spanId: opts?.spanId,
@@ -233,7 +230,7 @@ export class Agent {
             const gen = this.#core.continue({
               signal,
               stream: true,
-              maxSteps: this.#config.maxSteps,
+              context: this.#pendingContext,
               steering: { drain: () => this.#steering.splice(0) },
               followUp: { drain: () => this.#followUp.splice(0) },
               spanId: opts?.spanId,

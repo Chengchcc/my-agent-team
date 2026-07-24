@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "bun-types": "latest",
+    "@my-agent-team/test-helpers": "workspace:*",
     "typescript": "^5.7.0",
     "@my-agent-team/test-helpers": "workspace:*"
   },
