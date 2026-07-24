@@ -1,13 +1,13 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { createMcpClientManager } from "@my-agent-team/adapter-mcp";
+import { SqliteSessionManager } from "@my-agent-team/agent";
 import {
   autoSummarize,
   pipeContextManagers,
   sqliteCheckpointer,
   toolResultTruncator,
 } from "@my-agent-team/framework";
-import { SqliteSessionManager } from "@my-agent-team/agent";
 import {
   createRuntimeTracer,
   resolveObservabilityConfig,
