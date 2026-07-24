@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { SqliteSessionManager } from "@my-agent-team/harness";
+import { SqliteSessionManager } from "@my-agent-team/agent";
 import { echoModel } from "@my-agent-team/test-helpers";
 import { mockConfig } from "../../../test-helpers/mock-deps.js";
 import { openDb } from "../../infra/sqlite/db.js";
