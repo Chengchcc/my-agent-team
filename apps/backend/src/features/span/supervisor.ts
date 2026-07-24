@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { RunSpan } from "@my-agent-team/framework";
+import type { RunSpan } from "@my-agent-team/agent";
 import type { MessageRevision } from "@my-agent-team/message";
 import type { RuntimeTracer } from "@my-agent-team/runtime-observability";
 import { and, eq, isNull } from "drizzle-orm";

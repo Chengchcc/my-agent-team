@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { CheckpointEvent, CheckpointEventRow } from "@my-agent-team/framework";
+import type { CheckpointEvent, CheckpointEventRow } from "@my-agent-team/agent";
 
 /** Map of every CheckpointEvent type variant. Using `satisfies Record<...>`
  *  ensures tsc catches missing variants when the union grows. */

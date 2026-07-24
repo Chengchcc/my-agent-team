@@ -180,15 +180,13 @@ export class Agent {
   }
 
   async getUsage(): Promise<number> {
-    if (!this.#config.checkpointer || !this.sessionId) return 0;
+    const cp = this.#config.checkpointer;
+    if (!cp || !this.sessionId) return 0;
+    const readEvents = cp.readEvents;
+    if (typeof readEvents !== "function") return 0;
     try {
-      // @ts-expect-error: readEvents is optional (Partial<EventLog>), checkpointer truthiness guards
-      const iter: AsyncIterable<Record<string, unknown>> = this.#config.checkpointer.readEvents(
-        this.sessionId,
-      );
-      if (!iter) return 0;
       let total = 0;
-      for await (const e of iter) {
+      for await (const e of readEvents.call(cp, this.sessionId)) {
         if (e.type === "model_end" && "usage" in e) {
           const u = e.usage as { input?: number; output?: number };
           total += (u.input ?? 0) + (u.output ?? 0);

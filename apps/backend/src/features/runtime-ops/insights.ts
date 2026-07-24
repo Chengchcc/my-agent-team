@@ -1,4 +1,4 @@
-import type { CheckpointEvent } from "@my-agent-team/framework";
+import type { CheckpointEvent } from "@my-agent-team/agent";
 import type { CheckpointEventsStore } from "./checkpoint-events-store.js";
 import { estimateCost, type Usage } from "./pricing.js";
 

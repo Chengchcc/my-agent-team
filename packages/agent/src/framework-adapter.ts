@@ -6,6 +6,8 @@ export type {
   Agent,
   AgentEvent,
   AgentEventListener,
+  CheckpointEvent,
+  CheckpointEventRow,
   Checkpointer,
   ContextKey,
   ContextManager,
