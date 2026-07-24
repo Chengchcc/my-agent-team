@@ -1,4 +1,4 @@
-export interface ContextKey<T> {
+export interface ContextKey<_T> {
   readonly name: string;
 }
 

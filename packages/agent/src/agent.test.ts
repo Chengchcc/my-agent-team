@@ -84,12 +84,8 @@ describe("Agent", () => {
         }),
       }),
     );
-    let queueSeen = false;
-    agent.subscribe((e) => {
-      if (e.type === "queue_update") queueSeen = true;
-    });
+    agent.subscribe((_e) => {});
     const p = agent.prompt("hi");
-    // steer while running
     try {
       agent.steer("correct course");
     } catch {

@@ -47,6 +47,7 @@ describe("AgentHooks", () => {
     const hooks: AgentHooks = {
       "before:stop": () => {
         stopped = true;
+        return undefined as ReturnType<NonNullable<AgentHooks["before:stop"]>>;
       },
     };
     const agent = new Agent({
