@@ -40,17 +40,19 @@ describe("CapabilityRegistry", () => {
 
   test("collectExtensions rejects tool name collisions", () => {
     const reg = new CapabilityRegistry();
+    const stubTool = {
+      name: "dup",
+      description: "desc",
+      inputSchema: {},
+      execute: async () => ({ role: "tool" as const, tool_call_id: "x", content: "ok" }),
+    };
     reg.register({
       id: "x",
-      extendAgent: () => ({
-        tools: [{ name: "dup", description: "desc", inputSchema: {} } as const],
-      }),
+      extendAgent: () => ({ tools: [stubTool] }),
     });
     reg.register({
       id: "y",
-      extendAgent: () => ({
-        tools: [{ name: "dup", description: "desc", inputSchema: {} } as const],
-      }),
+      extendAgent: () => ({ tools: [{ ...stubTool }] }),
     });
     expect(() => reg.collectExtensions()).toThrow("Tool name collision");
   });

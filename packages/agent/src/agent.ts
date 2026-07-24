@@ -129,9 +129,9 @@ export class Agent {
     this.#emitQueueUpdate();
   }
 
-  setContext(key: string, value: unknown): void {
-    // ponytail: construct minimal ContextKey — store.set only reads .name
-    this.#pendingContext.set({ name: key } as never, value);
+  setContext(key: string | { readonly name: string }, value: unknown): void {
+    const name = typeof key === "string" ? key : key.name;
+    this.#pendingContext.set({ name } as never, value);
   }
 
   // ── Maintenance ───────────────────────────────────

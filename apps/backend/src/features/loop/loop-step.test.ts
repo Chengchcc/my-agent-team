@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
-import type { SessionConfig, SessionManager } from "@my-agent-team/harness";
+import type { AgentConfig, SessionManager } from "@my-agent-team/agent";
+import { Agent } from "@my-agent-team/agent";
 import type { LoopState } from "@my-agent-team/loop";
 import { loopReducer } from "@my-agent-team/loop";
 import { echoModel } from "@my-agent-team/test-helpers";
@@ -149,7 +150,7 @@ function mockSessionManager(verdictMd: string, workDir: string = TMP): SessionMa
   >();
 
   const manager: SessionManager = {
-    create(_config: SessionConfig) {
+    create(_config: AgentConfig) {
       callCount++;
       const isEvaluator = callCount % 2 === 0; // gen=1, eval=2, gen=3, eval=4, ...
       const sessionId = `mock-${callCount}`;
@@ -168,9 +169,9 @@ function mockSessionManager(verdictMd: string, workDir: string = TMP): SessionMa
         subscribe: () => () => {},
       };
       sessions.set(sessionId, session);
-      return session as never;
+      return session as unknown as Agent;
     },
-    open(sessionId: string, _config: SessionConfig) {
+    open(sessionId: string, _config: AgentConfig) {
       const existing = sessions.get(sessionId);
       if (existing) return existing as never;
       return this.create(_config);
@@ -536,7 +537,7 @@ function captureSessionManager(
   const sessions = new Map<string, unknown>();
 
   const manager = {
-    create(_config: SessionConfig) {
+    create(_config: AgentConfig) {
       callCount++;
       const isEvaluator = callCount % 2 === 0;
       const sessionId = `cap-${callCount}`;
@@ -557,9 +558,9 @@ function captureSessionManager(
         subscribe: () => () => {},
       };
       sessions.set(sessionId, session);
-      return session as never;
+      return session as unknown as Agent;
     },
-    open(sessionId: string, _config: SessionConfig) {
+    open(sessionId: string, _config: AgentConfig) {
       const existing = sessions.get(sessionId);
       if (existing) return existing as never;
       return this.create(_config);
@@ -632,7 +633,7 @@ describe("loopStep T3/T4/T5 - context, timeout, budget", () => {
     // Override: make eval prompt reject immediately to exercise the .catch path
     const origCreate = sessionManager.create.bind(sessionManager);
     let callCount = 0;
-    sessionManager.create = ((config: SessionConfig) => {
+    sessionManager.create = ((config: AgentConfig) => {
       callCount++;
       const session = origCreate(config) as unknown as {
         sessionId: string;
@@ -646,7 +647,7 @@ describe("loopStep T3/T4/T5 - context, timeout, budget", () => {
         // Evaluator session: prompt rejects (simulates crash/timeout)
         session.prompt = () => Promise.reject(new Error("evaluator crashed"));
       }
-      return session as never;
+      return session as unknown as Agent;
     }) as SessionManager["create"];
 
     const next = await loopStep({
