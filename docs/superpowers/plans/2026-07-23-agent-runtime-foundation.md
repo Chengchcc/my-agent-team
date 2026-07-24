@@ -290,35 +290,117 @@ bun run --cwd packages/framework typecheck
 
 Only after this gate may Capability code call `extendAgent()` and return AgentHooks.
 
-## 6. Foundation remediation / re-baseline
+## 6. P4R Agent runtime completion / framework absorption
 
 > This task group was added after the current branch started partial backend and Capability work before Foundation gates passed. Existing Capability prototype files are paused and do not count as completed Capability migration.
 
-### Scope
+P4R is four executable tasks. They remain part of Foundation because they complete the Agent public behavior contract; they must not be deferred until structural cleanup.
 
-- Modify: `packages/agent/src/agent-events.ts`
+### P4R-1: Compact absorption
+
+**Files:**
+
 - Modify: `packages/agent/src/agent.ts`
-- Modify: `packages/agent/src/agent-options.ts`
-- Modify: `packages/agent/src/run-state.ts`
-- Modify: `packages/agent/src/hook-dispatcher.ts`
-- Modify: `packages/agent/src/agent-hooks.ts`
+- Modify or move with minimal API change: `packages/harness/src/compaction.ts` into an agent-owned module
 - Modify: `packages/agent/src/compaction.ts`
-- Modify: `packages/agent/src/session-manager.ts`
-- Modify: `apps/backend/src/main.ts` only to remove migration suppression after the production SessionManager boundary is resolved
-- Modify affected tests beside the above files
+- Test: `packages/agent/src/agent.test.ts`
 
-### Required fixes
+**Required behavior:**
 
-1. Replace `AgentEvent = unknown` with a real discriminated union, reusing or adapting the existing framework event schema without changing payload semantics.
-2. Implement `resume(command)` through the real runtime resume path; the command must not be ignored, and interrupt consumption must remain one-shot.
-3. Replace the compaction stub with the existing real compaction behavior; verify message replacement, persistence, thread update, and failure preservation.
-4. Replace fixed `getUsage() { return 0; }` with a real usage read from the persisted/runtime event source.
-5. Make RunState real and per-run: define/create/read/write it, pass it into the runtime run options, and clear it after every run.
-6. Implement all declared hook points, including `before:run` and `after:turn`.
-7. Aggregate hook handlers as ordered chains; do not use object assignment that lets a later hook overwrite an earlier hook.
-8. Remove `@ts-expect-error` migration suppression. Resolve the production `SqliteSessionManager` / Agent `SessionManager` boundary explicitly instead of suppressing it.
-9. Keep framework-only types behind the adapter. New backend callers must not import framework types for the same Agent config boundary.
-10. Make tests fail on target behavior failures. Do not catch and accept compaction/resume/usage failures without asserting the expected error or state.
+- Reuse the existing `compactThread()` algorithm rather than inventing a second summarizer.
+- Load messages from the configured Checkpointer/SessionStore.
+- Save compacted messages.
+- Replace the runtime thread messages and reconcile session state.
+- Emit real `compaction_start` / `compaction_end` payloads.
+- Preserve original messages if compaction fails.
+
+**Acceptance:**
+
+```text
+message count/content changes when compaction is needed
+persisted messages contain the compacted result
+runtime thread contains the same compacted result
+failure leaves original messages intact
+manual and automatic compaction use the same implementation
+```
+
+### P4R-2: Usage absorption
+
+**Files:**
+
+- Modify: `packages/agent/src/agent.ts`
+- Modify: `packages/agent/src/session-manager.ts` only if persistence access is needed
+- Test: `packages/agent/src/agent.test.ts`
+- Later caller fix: `apps/backend/src/features/loop/loop-step.ts`
+
+**Required behavior:**
+
+- Read existing checkpoint events through `readEvents(sessionId)`.
+- Sum `model_end.usage.input + usage.output`.
+- Return 0 only when there are genuinely no usage events.
+- Do not make usage depend on the Agent remaining in the live SessionManager map.
+
+**Loop ordering requirement:**
+
+```text
+read usage
+→ dispose Agent
+```
+
+or provide a proven persisted usage read after dispose. The current `dispose → getUsage` order is not accepted.
+
+### P4R-3: Raw input lifecycle
+
+**Files:**
+
+- Modify: `packages/agent/src/agent.ts`
+- Modify: `packages/agent/src/agent-hooks.ts`
+- Modify: `packages/agent/src/hook-dispatcher.ts` only for message-level compatibility hooks
+- Test: `packages/agent/src/agent-hooks.test.ts`
+
+**Required semantics:**
+
+`AgentHooks["before:run"]` is a raw input transformer:
+
+```text
+Agent.prompt(input)
+  → before:run(ctx, { text: input })
+  → transformed input
+  → framework Agent.run(transformed input)
+```
+
+Do not map it to framework `PluginHooks.beforeRun(messages)`. The latter remains a separate message-list transformer.
+
+Async hook results must be awaited. The transformed input must affect the model-visible user message.
+
+### P4R-4: Turn lifecycle
+
+**Files:**
+
+- Modify: `packages/agent/src/agent.ts`
+- Modify: `packages/agent/src/agent-hooks.ts`
+- Modify: `packages/agent/src/hook-dispatcher.ts` only if needed for existing hook adapters
+- Test: `packages/agent/src/agent-hooks.test.ts`
+
+**Required semantics:**
+
+`after:turn` means one external Agent turn, not one internal model/tool step:
+
+```text
+prompt / continue / resume
+  → zero or more model/tool iterations
+  → succeeded / error / interrupted
+  → after:turn exactly once
+```
+
+It must fire for successful, failed, and interrupted turns according to the contract. It must not fire once per tool call.
+
+### Shared P4R fixes
+
+- Replace `AgentEvent = unknown` with a concrete discriminated event boundary. A framework re-export is allowed only as a temporary adapter; the public Agent package must expose typed events.
+- Implement typed `setContext<T>(key: ContextKey<T>, value: T)` through the real ContextStore/RunState API; no raw `unknown` key or `as unknown as` write.
+- Keep framework-only types behind the adapter and remove migration suppressions.
+- Make tests fail on target behavior failures. Do not catch and accept compact/resume/usage failures without asserting the expected outcome.
 
 ### Forbidden
 
@@ -329,24 +411,11 @@ Only after this gate may Capability code call `extendAgent()` and return AgentHo
 - Do not change database schema or checkpoint table/file formats.
 - Do not use `any`, `@ts-ignore`, `@ts-expect-error`, or `as unknown as` to bypass the new boundary.
 
-### Acceptance tests
-
-```text
-AgentEvent parses every event consumed by backend projection
-resume approved and rejected paths
-compaction changes and persists messages
-compaction failure preserves original messages
-usage reflects recorded model usage
-RunState is visible to a hook in one run and absent in the next
-before:run and after:turn execute in order
-multiple hooks on the same event all execute in registration order
-no migration suppression remains
-```
-
-### Acceptance commands
+### P4R acceptance commands
 
 ```bash
 bun install
+bun run build
 bun run --cwd packages/agent typecheck
 bun run --cwd packages/agent build
 bun test packages/agent
@@ -355,15 +424,16 @@ bun test packages/framework
 bun run --cwd apps/backend typecheck
 ```
 
-Structural checks:
+### Structural checks
 
 ```bash
-! grep -R 'AgentEvent = unknown\|return 0;\|@ts-expect-error migration\|as unknown as' packages/agent apps/backend/src/capabilities apps/backend/src/main.ts
+! grep -R 'AgentEvent = unknown\|return 0;\|@ts-expect-error migration' packages/agent apps/backend/src/main.ts
+! grep -R 'setContext.*unknown\|as unknown as' packages/agent/src
 ```
 
 ### Gate
 
-P4R is not complete until every command passes and the structural checks return no matches. Backend caller adoption and Capability production wiring remain blocked until this gate passes.
+P4R is not complete until all four tasks, their behavior tests, and every command pass. Backend caller adoption and Capability production wiring remain blocked until this gate passes.
 
 ## 7. Workstream completion gate
 

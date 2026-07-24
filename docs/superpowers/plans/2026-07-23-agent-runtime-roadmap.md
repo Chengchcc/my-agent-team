@@ -41,7 +41,7 @@ P3 SessionManager / persistence
   ↓
 P4 Framework adapter + AgentHooks
   ↓
-P4R Foundation remediation / re-baseline
+P4R Agent runtime completion / framework absorption
   ↓
 ┌────────────────────────────────────────────┐
 │ Backend caller adoption                     │
@@ -76,7 +76,7 @@ P9 Remove framework/harness and final verification
 Agent 行为覆盖 AgentSession 基线
 SessionManager 可恢复已有 session
 AgentHooks 有独立行为测试
-P4R remediation 已完成
+P4R Agent runtime completion 已完成
 backend 尚未迁移，但原有 backend 继续可 build
 ```
 
@@ -92,13 +92,13 @@ Conversation、Resume、Cron、Loop、Skill Pack 都使用 @my-agent-team/agent
 数据库 schema、AgentEvent payload、用户路径不变
 ```
 
-五个 caller task 可以在 Runtime Foundation 完成后并行，但每个 task 必须有独立文件 owner，不能同时修改 shared `package.json` / `bun.lock`。
+五个 caller task 可以在 P4R Agent runtime completion 完成后并行，但每个 task 必须有独立文件 owner，不能同时修改 shared `package.json` / `bun.lock`。
 
 ### Workstream C：Capabilities
 
 文件：`2026-07-23-agent-runtime-capabilities.md`
 
-前置条件：Foundation、P4R remediation、Backend Adoption 全部通过。当前分支已有 Capability registry/wrapper prototype；它们处于暂停状态，不计入 workstream 完成，也不得继续接入生产 Agent。
+前置条件：Foundation、P4R Agent runtime completion、Backend Adoption 全部通过。当前分支已有 Capability registry prototype；它处于暂停状态，不计入 workstream 完成，也不得继续接入生产 Agent。
 
 完成后必须得到：
 
@@ -113,7 +113,9 @@ plugin 行为保持兼容
 
 文件：`2026-07-23-agent-runtime-cleanup.md`
 
-只能在 A/B/C 全部完成后开始。完成后必须得到：
+只能在 Foundation、Backend Adoption、Capability Migration 全部完成，并且 P4R Agent runtime completion 已通过后开始。P4R 的 runtime completion 不属于此 structural cleanup plan。
+
+完成后必须得到：
 
 ```text
 conversation-compose 按职责拆分
@@ -131,7 +133,7 @@ framework/harness 无业务引用并可删除
 | P2 | P1 | Agent 行为测试覆盖 prompt/retry/compact/interrupt/steer/follow-up/dispose；不得吞掉目标行为失败 |
 | P3 | P2 | SessionManager persistence recovery 测试通过；caller 不创建技术存储 |
 | P4 | P3 | framework adapter 和 AgentHooks tests pass；backend 不需要 framework 才能创建 Agent |
-| P4R | P4 | `AgentEvent` 非 `unknown`；resume 真正消费 command；compact 真实持久化；usage 非固定 0；RunState per-run 透传；before:run/after:turn 完整；无 `@ts-expect-error` migration suppression；生产 SessionManager 边界明确 |
+| P4R | P4 | Agent runtime completion：`AgentEvent` typed；resume 真正消费 command；compact 真实持久化；usage 非固定 0；RunState per-run 透传；before:run/after:turn 完整；无 migration suppression；生产 SessionManager 边界明确 |
 | P5A-E | P4R | 对应 caller scoped tests/typecheck/build pass；行为不变；不得从 harness/framework 混合导入同一配置边界 |
 | P6 | P5A-E | Capability registry tests pass；无 React 依赖；异步 extension 不静默丢弃；hook chain 按顺序合并；真实 scope 由调用方传入 |
 | P7 | P6 | context/control-flow/side-effect/memory capability tests and backend integration tests pass |

@@ -1,21 +1,21 @@
-# Agent Runtime Cleanup Implementation Plan
+# Agent Runtime Structural Cleanup Implementation Plan
 
-> **For agentic workers:** 只有 Foundation、Backend Adoption、Capability Migration 全部通过 gate 后执行。本计划处理 composition 拆分、bootstrap 收敛、单项命名迁移和旧包删除；不重新设计 Agent 行为。
->
+> **For agentic workers:** P4R Agent runtime completion is part of Foundation and must pass before this plan starts. This plan is structural cleanup only: composition split, bootstrap split, naming cleanup, and old package deletion. It must not introduce new Agent behavior.
+
 > **Goal:** 将已经验证过的 Agent/Capability 行为整理为最终边界，删除旧业务引用和临时适配层。
->
+
 > **Architecture:** Cleanup 是最后阶段，不与行为迁移并行。先拆职责，再做单项 rename，最后删除 framework/harness。每个 rename 和删除都是独立 gate，禁止一次性大清理。
->
+
 > **Contract:** [`2026-07-23-agent-runtime-contract.md`](../specs/2026-07-23-agent-runtime-contract.md)
->
+
 > **Prerequisites:**
 >
-> - Foundation complete.
+> - Foundation P0-P4 and P4R Agent runtime completion pass.
 > - Backend Adoption complete.
 > - Capability Migration complete.
 > - Full backend tests pass before cleanup starts.
->
-> ---
+
+---
 
 ## 0. Cleanup baseline
 

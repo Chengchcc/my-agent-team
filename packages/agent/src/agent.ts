@@ -44,8 +44,16 @@ export class Agent {
       this.steer(input);
       return;
     }
+    let text = input;
+    if (this.#config.hooks?.["before:run"]) {
+      const result = await this.#config.hooks["before:run"](
+        { sessionId: this.sessionId ?? "", state: this.#pendingContext },
+        { text: input },
+      );
+      if (result) text = result.text;
+    }
     await this.#ensureCore();
-    await this.#execute(input, opts);
+    await this.#execute(text, opts);
   }
 
   async continue(opts?: {
@@ -128,27 +136,70 @@ export class Agent {
 
   // ── Maintenance ───────────────────────────────────
 
-  async compact(_instructions?: string): Promise<CompactionResult> {
+  async compact(instructions?: string): Promise<CompactionResult> {
     if (!this.#core) throw new Error("Agent not initialized");
+    if (!this.#config.checkpointer) throw new Error("Checkpointer required for compaction");
     this.#state = "compacting";
-    this.#emit({ type: "compaction_start", reason: "manual" } as AgentEvent);
-    this.#emit({
-      type: "compaction_end",
-      reason: "manual",
-      result: undefined,
-      aborted: false,
-      willRetry: false,
-    } as AgentEvent);
-    this.#state = "done";
-    return { messageCount: this.#core.thread.messages.length };
+    const reason = instructions ? "manual" : "threshold";
+    this.#emit({ type: "compaction_start", reason } as AgentEvent);
+    try {
+      const { compactThread } = await import("./compaction.js");
+      const { messages, result } = await compactThread({
+        model: this.#config.model,
+        checkpointer: this.#config.checkpointer,
+        sessionId: this.sessionId ?? "",
+        keepRecent: this.#config.compaction?.keepRecent,
+        customInstructions: instructions,
+      });
+      await this.#config.checkpointer.save(this.sessionId ?? "", messages);
+      this.#core.thread.messages.splice(0, this.#core.thread.messages.length, ...messages);
+      this.#emit({
+        type: "compaction_end",
+        reason,
+        result,
+        aborted: false,
+        willRetry: false,
+      } as AgentEvent);
+      this.#state = "done";
+      return result;
+    } catch (err) {
+      this.#state = "error";
+      this.#emit({
+        type: "compaction_end",
+        reason,
+        aborted: true,
+        willRetry: true,
+        errorMessage: String(err),
+      } as AgentEvent);
+      throw err;
+    }
   }
-
   getContextUsage(): { messageCount: number } | undefined {
     return this.#core ? { messageCount: this.#core.thread.messages.length } : undefined;
   }
 
   async getUsage(): Promise<number> {
-    return 0;
+    if (!this.#config.checkpointer || !this.sessionId) return 0;
+    try {
+      const events = await this.#config.checkpointer.readEvents?.(this.sessionId);
+      if (!events || !Array.isArray(events)) return 0;
+      let total = 0;
+      for (const e of events) {
+        if (
+          typeof e === "object" &&
+          e !== null &&
+          "type" in e &&
+          e.type === "model_end" &&
+          "usage" in e
+        ) {
+          const u = e.usage as { input?: number; output?: number };
+          total += (u.input ?? 0) + (u.output ?? 0);
+        }
+      }
+      return total;
+    } catch {
+      return 0;
+    }
   }
 
   // ── Events ────────────────────────────────────────
@@ -240,6 +291,12 @@ export class Agent {
             for await (const _ of gen) {
               /* events via subscriber */
             }
+          }
+          if (this.#config.hooks?.["after:turn"]) {
+            await this.#config.hooks["after:turn"](
+              { sessionId: this.sessionId ?? "", state: this.#pendingContext },
+              this.#core!.thread.messages.slice(),
+            );
           }
           this.#state = "done";
           this.#emit({

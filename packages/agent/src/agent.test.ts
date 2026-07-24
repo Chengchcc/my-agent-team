@@ -113,15 +113,10 @@ describe("Agent", () => {
   });
 
   // ── compact ──
-  test("compact emits compaction events", async () => {
+  test("compact throws without checkpointer", async () => {
     const agent = new Agent(makeConfig());
-    const events: string[] = [];
-    agent.subscribe((e) => events.push(e.type));
-    // compact requires the agent to be initialized (prompt has been called)
     await agent.prompt("hi");
-    await agent.compact();
-    expect(events).toContain("compaction_start");
-    expect(events).toContain("compaction_end");
+    await expect(agent.compact()).rejects.toThrow("Checkpointer");
   });
   // ── Multiple runs ──
   test("second prompt routes as steer (does not error)", async () => {

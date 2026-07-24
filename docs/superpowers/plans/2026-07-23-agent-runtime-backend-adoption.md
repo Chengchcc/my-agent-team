@@ -8,7 +8,7 @@
 >
 **Contract:** [`2026-07-23-agent-runtime-contract.md`](../specs/2026-07-23-agent-runtime-contract.md)
 
-**Prerequisite:** [`2026-07-23-agent-runtime-foundation.md`](./2026-07-23-agent-runtime-foundation.md) P0-P4 and P4R remediation are complete. The current branch contains partial import migration; that work is not accepted until the caller-specific gates below pass.
+**Prerequisite:** [`2026-07-23-agent-runtime-foundation.md`](./2026-07-23-agent-runtime-foundation.md) P0-P4 and P4R Agent runtime completion are complete. The current branch contains partial import migration; that work is not accepted until the caller-specific gates below pass.
 
 ---
 

@@ -11,7 +11,7 @@
 ## Prerequisites
 
 - Runtime Foundation complete.
-- Foundation P4R remediation complete.
+- Foundation P4R Agent runtime completion complete.
 - Backend Adoption complete.
 - AgentHooks tests pass.
 - Existing plugin tests pass.
