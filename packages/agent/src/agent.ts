@@ -129,9 +129,9 @@ export class Agent {
     this.#emitQueueUpdate();
   }
 
-  setContext(key: unknown, value: unknown): void {
-    // ponytail: context injection via raw write to framework ContextStore
-    (this.#pendingContext as unknown as Record<string, unknown>)[key as string] = value;
+  setContext(key: string, value: unknown): void {
+    // ponytail: construct minimal ContextKey — store.set only reads .name
+    this.#pendingContext.set({ name: key } as never, value);
   }
 
   // ── Maintenance ───────────────────────────────────
@@ -153,6 +153,7 @@ export class Agent {
       });
       await this.#config.checkpointer.save(this.sessionId ?? "", messages);
       this.#core.thread.messages.splice(0, this.#core.thread.messages.length, ...messages);
+      this.#core.thread.markDirty?.();
       this.#emit({
         type: "compaction_end",
         reason,
@@ -181,17 +182,14 @@ export class Agent {
   async getUsage(): Promise<number> {
     if (!this.#config.checkpointer || !this.sessionId) return 0;
     try {
-      const events = await this.#config.checkpointer.readEvents?.(this.sessionId);
-      if (!events || !Array.isArray(events)) return 0;
+      // @ts-expect-error: readEvents is optional (Partial<EventLog>), checkpointer truthiness guards
+      const iter: AsyncIterable<Record<string, unknown>> = this.#config.checkpointer.readEvents(
+        this.sessionId,
+      );
+      if (!iter) return 0;
       let total = 0;
-      for (const e of events) {
-        if (
-          typeof e === "object" &&
-          e !== null &&
-          "type" in e &&
-          e.type === "model_end" &&
-          "usage" in e
-        ) {
+      for await (const e of iter) {
+        if (e.type === "model_end" && "usage" in e) {
           const u = e.usage as { input?: number; output?: number };
           total += (u.input ?? 0) + (u.output ?? 0);
         }
