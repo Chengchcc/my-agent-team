@@ -121,8 +121,7 @@ export class Agent {
     this.#emitQueueUpdate();
   }
 
-  setContext(_key: unknown, _value: unknown): void {
-  }
+  setContext(_key: unknown, _value: unknown): void {}
 
   // ── Maintenance ───────────────────────────────────
 

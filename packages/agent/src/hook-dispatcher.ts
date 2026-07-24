@@ -7,6 +7,13 @@ import type { AgentContext, AgentHooks } from "./agent-hooks.js";
 export function createHookPlugin(hooks: AgentHooks, agentCtx: AgentContext): Plugin {
   const fw: Record<string, unknown> = {};
 
+  if (hooks["before:run"]) {
+    const fn = hooks["before:run"];
+    fw.beforeRun = (_ctx: HookContext, msgs: readonly Message[]) => {
+      const result = fn(agentCtx, { text: "" });
+      return result instanceof Promise ? msgs : [...msgs];
+    };
+  }
   if (hooks["before:model"]) {
     const fn = hooks["before:model"];
     fw.beforeModel = (_ctx: HookContext, msgs: readonly Message[]) => fn(agentCtx, msgs);
