@@ -126,7 +126,6 @@ describe("Agent", () => {
     await agent.compact();
     expect(events).toContain("compaction_start");
     expect(events).toContain("compaction_end");
-
   });
   // ── Multiple runs ──
   test("second prompt routes as steer (does not error)", async () => {
