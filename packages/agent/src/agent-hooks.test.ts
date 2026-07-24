@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Agent } from "./agent.js";
 import { echoModel } from "@my-agent-team/test-helpers";
+import { Agent } from "./agent.js";
 import type { AgentHooks } from "./agent-hooks.js";
 
 describe("AgentHooks", () => {
@@ -61,7 +61,7 @@ describe("AgentHooks", () => {
   test("hook error is logged, not thrown", async () => {
     let errCount = 0;
     const hooks: AgentHooks = {
-      "before:model": (_ctx, msgs) => {
+      "before:model": (_ctx, _msgs) => {
         errCount++;
         throw new Error("boom");
       },

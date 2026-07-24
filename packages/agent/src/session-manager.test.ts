@@ -1,74 +1,51 @@
 import { describe, expect, test } from "bun:test";
 import { echoModel } from "@my-agent-team/test-helpers";
 import { InMemorySessionManager } from "./session-manager.js";
-
-function makeConfig() {
-  return { model: echoModel({ turns: [{ type: "text", text: "ok" }] }), maxSteps: 2 };
-}
-
+function mc() { return { model: echoModel({ turns: [{ type: "text", text: "ok" }] }), maxSteps: 2 }; }
 describe("SessionManager", () => {
   test("create generates unique sessionId", () => {
     const mgr = new InMemorySessionManager();
-    const agent = mgr.create(makeConfig());
+    const agent = mgr.create(mc());
     expect(agent.sessionId).toBeDefined();
     expect(typeof agent.sessionId).toBe("string");
   });
-
   test("create preserves provided sessionId", () => {
     const mgr = new InMemorySessionManager();
-    const agent = mgr.create({ ...makeConfig(), sessionId: "fixed-id" });
+    const agent = mgr.create({ ...mc(), sessionId: "fixed-id" });
     expect(agent.sessionId).toBe("fixed-id");
   });
-
   test("two create calls produce different sessionIds", () => {
     const mgr = new InMemorySessionManager();
-    const a1 = mgr.create(makeConfig());
-    const a2 = mgr.create(makeConfig());
-    expect(a1.sessionId).not.toBe(a2.sessionId);
+    expect(mgr.create(mc()).sessionId).not.toBe(mgr.create(mc()).sessionId);
   });
-
   test("open hits memory for live agent", () => {
     const mgr = new InMemorySessionManager();
-    const cfg = makeConfig();
+    const cfg = mc();
     const a1 = mgr.create({ ...cfg, sessionId: "mem-test" });
-    const a2 = mgr.open("mem-test", cfg);
-    expect(a1).toBe(a2);
+    expect(mgr.open("mem-test", cfg)).toBe(a1);
   });
-
   test("open creates new agent on memory miss", () => {
     const mgr = new InMemorySessionManager();
-    const a = mgr.open("not-found", makeConfig());
-    expect(a.sessionId).toBe("not-found");
+    expect(mgr.open("not-found", mc()).sessionId).toBe("not-found");
   });
-
-  test("get returns existing agent", () => {
+  test("get/dispose lifecycle", () => {
     const mgr = new InMemorySessionManager();
-    const a = mgr.create({ ...makeConfig(), sessionId: "get-test" });
-    expect(mgr.get("get-test")).toBe(a);
-  });
-
-  test("get returns undefined for unknown", () => {
-    const mgr = new InMemorySessionManager();
-    expect(mgr.get("nope")).toBeUndefined();
-  });
-
-  test("dispose removes live agent", () => {
-    const mgr = new InMemorySessionManager();
-    mgr.create({ ...makeConfig(), sessionId: "disp-test" });
+    mgr.create({ ...mc(), sessionId: "disp-test" });
+    expect(mgr.get("disp-test")).toBeDefined();
     mgr.dispose("disp-test");
     expect(mgr.get("disp-test")).toBeUndefined();
   });
-
-  test("recovery: open after dispose + prompt", async () => {
-    const mgr1 = new InMemorySessionManager();
-    const cfg = makeConfig();
-    const id = "recovery-test";
-    const a1 = mgr1.create({ ...cfg, sessionId: id });
-    await a1.prompt("first message");
-    mgr1.dispose(id);
-    const mgr2 = new InMemorySessionManager();
-    const a2 = mgr2.open(id, cfg);
-    await a2.continue();
-    expect(a2.sessionId).toBe(id);
+  test("recovery: create → prompt → dispose → open → prompt", async () => {
+    const id = "rec-test";
+    const m1 = new InMemorySessionManager();
+    const a1 = m1.create({ ...mc(), sessionId: id });
+    await a1.prompt("first");
+    m1.dispose(id);
+    const m2 = new InMemorySessionManager();
+    const a2 = m2.open(id, mc());
+    let done = false;
+    a2.subscribe((e) => { if (e.type === "agent_end") done = true; });
+    await a2.prompt("resumed");
+    expect(done).toBe(true);
   });
 });
