@@ -26,7 +26,7 @@ export interface AgentScope {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface TypedRoute {}
+export type TypedRoute = {};
 
 export type CommandHandler = (input: string) => string | Promise<string>;
 

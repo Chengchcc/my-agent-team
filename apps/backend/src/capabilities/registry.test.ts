@@ -1,8 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { CapabilityRegistry } from "./registry.js";
-import type { AgentScope, Capability } from "./types.js";
+import type { AgentScope } from "./types.js";
 
 const scope: AgentScope = { agentId: "a", sessionId: "s", cwd: "/tmp" };
+const ctx = {
+  sessionId: "",
+  state: {
+    get: () => undefined,
+    set: () => {},
+    has: () => false,
+    delete: () => {},
+    clear: () => {},
+  },
+};
 
 describe("CapabilityRegistry", () => {
   test("empty registry list is empty", () => {
@@ -39,15 +49,32 @@ describe("CapabilityRegistry", () => {
 
   test("propagates async rejection", async () => {
     const r = new CapabilityRegistry();
-    r.register({ id: "fail", extendAgent: async () => { throw new Error("boom"); } });
+    r.register({
+      id: "fail",
+      extendAgent: async () => {
+        throw new Error("boom");
+      },
+    });
     await expect(r.collectExtensions(scope)).rejects.toThrow("boom");
   });
 
   test("passes real scope to extension", async () => {
     const r = new CapabilityRegistry();
     let received: AgentScope | undefined;
-    r.register({ id: "s", extendAgent: (s) => { received = { ...s }; return {}; } });
-    const s: AgentScope = { agentId: "a1", sessionId: "s1", conversationId: "c1", memberId: "m1", cwd: "/w" };
+    r.register({
+      id: "s",
+      extendAgent: (s) => {
+        received = { ...s };
+        return {};
+      },
+    });
+    const s: AgentScope = {
+      agentId: "a1",
+      sessionId: "s1",
+      conversationId: "c1",
+      memberId: "m1",
+      cwd: "/w",
+    };
     await r.collectExtensions(s);
     expect(received).toEqual(s);
   });
@@ -55,7 +82,13 @@ describe("CapabilityRegistry", () => {
   test("scope is not leaked between calls", async () => {
     const r = new CapabilityRegistry();
     const scopes: AgentScope[] = [];
-    r.register({ id: "x", extendAgent: (s) => { scopes.push({ ...s }); return {}; } });
+    r.register({
+      id: "x",
+      extendAgent: (s) => {
+        scopes.push({ ...s });
+        return {};
+      },
+    });
     await r.collectExtensions({ agentId: "a", sessionId: "1", cwd: "/a" });
     await r.collectExtensions({ agentId: "b", sessionId: "2", cwd: "/b" });
     expect(scopes).toHaveLength(2);
@@ -65,7 +98,12 @@ describe("CapabilityRegistry", () => {
 
   test("rejects capability vs capability tool collision", async () => {
     const r = new CapabilityRegistry();
-    const t = { name: "dup", description: "d", inputSchema: {}, execute: async () => ({ role: "tool" as const, id: "x", name: "t", content: "ok" }) };
+    const t = {
+      name: "dup",
+      description: "d",
+      inputSchema: {},
+      execute: async () => ({ role: "tool" as const, id: "x", name: "t", content: "ok" }),
+    };
     r.register({ id: "x", extendAgent: () => ({ tools: [t] }) });
     r.register({ id: "y", extendAgent: () => ({ tools: [{ ...t }] }) });
     await expect(r.collectExtensions(scope)).rejects.toThrow("Tool name collision");
@@ -73,38 +111,97 @@ describe("CapabilityRegistry", () => {
 
   test("rejects capability vs base tool collision", async () => {
     const r = new CapabilityRegistry();
-    const base = { name: "base", description: "d", inputSchema: {}, execute: async () => ({ role: "tool" as const, id: "x", name: "t", content: "ok" }) };
+    const base = {
+      name: "base",
+      description: "d",
+      inputSchema: {},
+      execute: async () => ({ role: "tool" as const, id: "x", name: "t", content: "ok" }),
+    };
     r.register({ id: "c", extendAgent: () => ({ tools: [{ ...base }] }) });
     await expect(r.collectExtensions(scope, [base])).rejects.toThrow("base");
   });
 
   test("before:run transforms flow through chain", async () => {
     const r = new CapabilityRegistry();
-    r.register({ id: "a", extendAgent: () => ({ hooks: { "before:run": async (_c, inp) => ({ text: inp.text + " +a" }) } }) });
-    r.register({ id: "b", extendAgent: () => ({ hooks: { "before:run": async (_c, inp) => ({ text: inp.text + " +b" }) } }) });
+    r.register({
+      id: "a",
+      extendAgent: () => ({
+        hooks: { "before:run": async (_c, inp) => ({ text: inp.text + " +a" }) },
+      }),
+    });
+    r.register({
+      id: "b",
+      extendAgent: () => ({
+        hooks: { "before:run": async (_c, inp) => ({ text: inp.text + " +b" }) },
+      }),
+    });
     const ext = await r.collectExtensions(scope);
-    const result = await ext.hooks?.["before:run"]?.({ sessionId: "", state: null! as never }, { text: "start" });
+    const result = await ext.hooks?.["before:run"]?.(ctx, { text: "start" });
     expect(result?.text).toBe("start +a +b");
   });
 
   test("before:model handlers run in registration order", async () => {
     const calls: string[] = [];
     const r = new CapabilityRegistry();
-    r.register({ id: "first", extendAgent: () => ({ hooks: { "before:model": async (_c, msgs) => { calls.push("first"); return msgs; } } }) });
-    r.register({ id: "second", extendAgent: () => ({ hooks: { "before:model": async (_c, msgs) => { calls.push("second"); return msgs; } } }) });
+    r.register({
+      id: "first",
+      extendAgent: () => ({
+        hooks: {
+          "before:model": async (_c, msgs) => {
+            calls.push("first");
+            return msgs;
+          },
+        },
+      }),
+    });
+    r.register({
+      id: "second",
+      extendAgent: () => ({
+        hooks: {
+          "before:model": async (_c, msgs) => {
+            calls.push("second");
+            return msgs;
+          },
+        },
+      }),
+    });
     const ext = await r.collectExtensions(scope);
-    await ext.hooks?.["before:model"]?.({ sessionId: "", state: null! as never }, []);
+    await ext.hooks?.["before:model"]?.(ctx, []);
     expect(calls).toEqual(["first", "second"]);
   });
 
   test("after:model + after:turn observers run in order", async () => {
     const calls: string[] = [];
     const r = new CapabilityRegistry();
-    r.register({ id: "o1", extendAgent: () => ({ hooks: { "after:model": async () => { calls.push("a1"); }, "after:turn": async () => { calls.push("t1"); } } }) });
-    r.register({ id: "o2", extendAgent: () => ({ hooks: { "after:model": async () => { calls.push("a2"); }, "after:turn": async () => { calls.push("t2"); } } }) });
+    r.register({
+      id: "o1",
+      extendAgent: () => ({
+        hooks: {
+          "after:model": async () => {
+            calls.push("a1");
+          },
+          "after:turn": async () => {
+            calls.push("t1");
+          },
+        },
+      }),
+    });
+    r.register({
+      id: "o2",
+      extendAgent: () => ({
+        hooks: {
+          "after:model": async () => {
+            calls.push("a2");
+          },
+          "after:turn": async () => {
+            calls.push("t2");
+          },
+        },
+      }),
+    });
     const ext = await r.collectExtensions(scope);
-    await ext.hooks?.["after:model"]?.({ sessionId: "", state: null! as never }, []);
-    await ext.hooks?.["after:turn"]?.({ sessionId: "", state: null! as never }, []);
+    await ext.hooks?.["after:model"]?.(ctx, [], { input: 0, output: 0 });
+    await ext.hooks?.["after:turn"]?.(ctx, []);
     expect(calls).toEqual(["a1", "a2", "t1", "t2"]);
   });
 
@@ -134,7 +231,7 @@ describe("CapabilityRegistry", () => {
       }),
     });
     const ext = await r.collectExtensions(scope);
-    const d = await ext.hooks?.["before:tool"]?.({ sessionId: "", state: null! as never }, { id: "x", name: "t", input: "orig" });
+    const d = await ext.hooks?.["before:tool"]?.(ctx, { id: "x", name: "t", input: "orig" });
     expect(d).toBeUndefined();
     expect(received).toEqual(["orig", "mod"]);
   });
@@ -146,28 +243,46 @@ describe("CapabilityRegistry", () => {
       id: "skip",
       extendAgent: () => ({
         hooks: {
-          "before:tool": async () => { calls.push("skip"); return { skip: true }; },
+          "before:tool": async () => {
+            calls.push("skip");
+            return { skip: true };
+          },
         },
       }),
     });
     r.register({
       id: "never",
       extendAgent: () => ({
-        hooks: { "before:tool": async () => { calls.push("never"); return undefined; } },
+        hooks: {
+          "before:tool": async () => {
+            calls.push("never");
+            return undefined;
+          },
+        },
       }),
     });
     const ext = await r.collectExtensions(scope);
-    const d = await ext.hooks?.["before:tool"]?.({ sessionId: "", state: null! as never }, { id: "x", name: "t", input: "a" });
+    const d = await ext.hooks?.["before:tool"]?.(ctx, { id: "x", name: "t", input: "a" });
     expect(d).toEqual({ skip: true });
     expect(calls).toEqual(["skip"]);
   });
 
   test("before:stop reasons combine", async () => {
     const r = new CapabilityRegistry();
-    r.register({ id: "r1", extendAgent: () => ({ hooks: { "before:stop": async () => ({ continue: true, reason: "R1" }) } }) });
-    r.register({ id: "r2", extendAgent: () => ({ hooks: { "before:stop": async () => ({ continue: true, reason: "R2" }) } }) });
+    r.register({
+      id: "r1",
+      extendAgent: () => ({
+        hooks: { "before:stop": async () => ({ continue: true, reason: "R1" }) },
+      }),
+    });
+    r.register({
+      id: "r2",
+      extendAgent: () => ({
+        hooks: { "before:stop": async () => ({ continue: true, reason: "R2" }) },
+      }),
+    });
     const ext = await r.collectExtensions(scope);
-    const d = await ext.hooks?.["before:stop"]?.({ sessionId: "", state: null! as never }, []);
+    const d = await ext.hooks?.["before:stop"]?.(ctx, []);
     expect(d).toEqual({ continue: true, reason: "R1\n\nR2" });
   });
 

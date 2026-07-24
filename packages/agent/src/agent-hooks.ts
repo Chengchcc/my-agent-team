@@ -26,7 +26,7 @@ export interface AgentHooks {
   "before:model"?: (
     ctx: AgentContext,
     messages: readonly Message[],
-  ) => Message[] | Promise<Message[]>;
+  ) => readonly Message[] | Promise<readonly Message[]>;
 
   "after:model"?: (
     ctx: AgentContext,

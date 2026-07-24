@@ -6,7 +6,6 @@ import type {
   Capability,
   CapabilityManifest,
   CapabilityServerContext,
-  CommandHandler,
   ResolvedExtension,
 } from "./types.js";
 
@@ -76,7 +75,7 @@ function composeBeforeModel(handlers: readonly BeforeModelHandler[]): AgentHooks
   if (handlers.length === 0) return undefined;
   return async (ctx, messages) => {
     let cur = [...messages];
-    for (const h of handlers) cur = await h(ctx, cur);
+    for (const h of handlers) cur = [...(await h(ctx, cur))];
     return cur;
   };
 }
@@ -168,7 +167,6 @@ async function mergeExtensions(
 export class CapabilityRegistry {
   readonly #caps = new Map<string, Capability>();
   readonly #order: string[] = [];
-  readonly #commands = new Map<string, CommandHandler>();
 
   register(cap: Capability): void {
     if (this.#caps.has(cap.id)) throw new Error(`Duplicate capability: ${cap.id}`);
