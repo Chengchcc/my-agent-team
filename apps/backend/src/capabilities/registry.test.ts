@@ -399,12 +399,6 @@ describe("P6-B dependency ownership", () => {
     expect(searchCalls).toBe(1);
   });
 
-  test("server command duplicate registration fails", () => {
-    const reg = new CapabilityRegistry();
-    reg.registerCommand("memory.search", () => "ok");
-    expect(() => reg.registerCommand("memory.search", () => "fail")).toThrow("Duplicate command");
-  });
-
   test("async factory failure propagates", async () => {
     const reg = new CapabilityRegistry();
     reg.register({

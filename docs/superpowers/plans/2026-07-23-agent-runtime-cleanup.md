@@ -12,7 +12,9 @@
 >
 > - Foundation P0-P4 and P4R Agent runtime completion pass.
 > - Backend Adoption complete.
-> - Capability Migration complete.
+> - P6-A/P6-B complete.
+> - P6-C `createAgentSession()` SDK host complete.
+> - P7 Capability Migration complete.
 > - Full backend tests pass before cleanup starts.
 
 ---

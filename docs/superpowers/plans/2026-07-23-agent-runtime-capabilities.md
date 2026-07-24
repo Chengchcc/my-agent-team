@@ -1,21 +1,24 @@
 # Agent Runtime Capability Migration Implementation Plan
 
-> **For agentic workers:** 本计划在 Runtime Foundation 和 Backend Adoption 完成后执行。先建立 Capability registry，再按行为类型迁移 plugin。不要在此计划内删除 framework/harness，不做最终命名清理。
->
-> **Goal:** 把 backend 的 Agent 功能装配从 `conversation-compose.ts` 的手工 plugin 数组收敛为 Capability factory，同时保持 plugin 行为、模型配置、settings key、事件 payload 和 Conversation projection 兼容。
->
-> **Architecture:** Capability 是 backend/application 层的安装单元；AgentHooks/Tools 是 Agent runtime 扩展；Services 由 backend closure 注入。Capability 不直接写 ledger、不依赖 React、不进入 `packages/agent`。
->
-**Contract:** [`2026-07-23-agent-runtime-contract.md`](../specs/2026-07-23-agent-runtime-contract.md)
+> **For agentic workers:** 本计划在 Runtime Foundation、Backend Adoption 和 Agent SDK P6-C 完成后执行。P6-A/P6-B 已定义 extension composition 和 service ownership；本计划只迁移产品 Capability，不在 backend 重复实现通用 composer。
+
+> **Goal:** 把 backend 的 Agent 功能装配从手工 plugin 数组迁移为 product Capability factory，并通过 `packages/agent` 的 `createAgentSession()` 组装 Agent，同时保持 plugin 行为、模型配置、settings key、事件 payload 和 Conversation projection 兼容。
+
+> **Architecture:** Capability 是 backend/application 层的产品功能单元；它拥有产品 service，输出 `AgentExtensionFactory` 和 server contributions。`packages/agent` SDK 负责 await、hook/tool/prompt composition、collision validation 和 Agent session creation。
+
+> **Contract:** [`2026-07-23-agent-runtime-contract.md`](../specs/2026-07-23-agent-runtime-contract.md)
 
 ## Prerequisites
 
 - Runtime Foundation complete.
 - Foundation P4R Agent runtime completion complete.
 - Backend Adoption complete.
+- P6-A extension composition complete.
+- P6-B service ownership complete.
+- P6-C `createAgentSession()` SDK host complete.
 - AgentHooks tests pass.
 - Existing plugin tests pass.
-- The current registry/wrapper prototype is treated as paused spike code; it is not production-wired and does not satisfy this workstream gate.
+- The current backend registry prototype must be migrated or reduced to capability catalog behavior before P7 production wiring.
 
 ---
 
@@ -69,6 +72,54 @@ apps/web
 Elysia route internals from packages/agent
 Conversation ledger adapter directly from capability implementation
 ```
+## P6-C boundary handoff: Agent SDK assembly host
+
+P7 cannot start until `packages/agent` owns generic extension composition. This task belongs to the Foundation/SDK workstream, but its acceptance is recorded here because P7 depends on it.
+
+### SDK responsibilities
+
+`packages/agent` must provide a public `createAgentSession()` entry point that:
+
+- receives runtime-neutral `AgentExtensionFactory` values;
+- awaits factories with the real Agent scope;
+- composes hooks, tools and system prompts in registration order;
+- rejects base/capability tool collisions;
+- injects SessionManager/persistence and runtime options;
+- returns a working `Agent`.
+
+### Backend responsibilities
+
+Backend Capability code may:
+
+- own product service factories;
+- create `AgentExtensionFactory` closures;
+- register routes/commands through `CapabilityServerContext`;
+- expose manifests.
+
+Backend Capability code must not reimplement:
+
+```text
+hook composition
+tool merge/collision validation
+system prompt merge
+generic Agent creation
+```
+
+### P6-C acceptance
+
+```bash
+bun run build
+bun run --cwd packages/agent typecheck
+bun test packages/agent
+bun run --cwd apps/backend typecheck
+```
+
+Structural check:
+
+```bash
+! git grep -n 'composeBeforeModel\|composeBeforeTool\|mergeTools\|mergeSystemPrompts' -- apps/backend/src
+```
+
 
 Capability wrappers may receive ConversationPort through Services, but must not write ledger directly. They emit Agent events or return Agent hooks; projection remains Conversation-owned.
 

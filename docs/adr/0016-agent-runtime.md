@@ -39,25 +39,50 @@ L1 core       run()            ← 正常运行
 - `PluginHooks` → 升级为 typed `AgentHooks`（event + handler + return value）
 - `Harness` 包 → 撤销，剩余非 Agent 职能（span 管理）留在 backend
 
-### 2. Extension 系统
+### 2. Extension 与 SDK 系统
 
-Backend 从 monolithic composition root 变为薄启动层。所有功能以 Capability 形式注册：
+`packages/agent` 不只是 Agent 生命周期类，还提供通用 Agent SDK。公共入口使用 `createAgentSession()`；`ExtensionHost`、resource loading 和组合器是 SDK 内部/高级实现，不额外暴露一个必须持有的 `AgentSdk` 对象。SDK 负责：
+
+- `createAgentSession()` / Agent factory；
+- ExtensionHost；
+- hooks、tools、system prompt 的有序组合；
+- resource loading boundary；
+- SessionManager / persistence 注入；
+- AgentConfig 的最终构造。
+
+```text
+backend Capability factory
+  → AgentExtension
+  → packages/agent Agent SDK
+  → Agent
+```
+
+Capability 是 backend/application 层的产品功能单元，可以贡献 AgentExtension、server routes、commands 和 manifest；通用的 AgentExtension 组合逻辑属于 `packages/agent`，不得在 backend 重复实现。
 
 ```typescript
+// packages/agent：runtime-neutral extension
+interface AgentExtension {
+  id: string;
+  hooks?: AgentHooks;
+  tools?: readonly Tool[];
+  systemPrompt?: string;
+  resources?: ResourceProvider;
+}
+
+// apps/backend：product capability
 interface Capability {
   id: string;
-  hooks?: (agent: Agent) => void;        // Agent hooks
-  commands?: Record<string, Handler>;    // 命令
-  routes?: Record<string, RouteHandler>; // HTTP routes
-  slots?: Record<string, SlotComponent>; // 前端组件
+  createExtension?: (scope: CapabilityScope) => AgentExtension | Promise<AgentExtension>;
+  installServer?: (ctx: CapabilityServerContext) => void | Promise<void>;
+  manifest?: CapabilityManifest;
 }
 ```
 
-每个 Capability 是一个自包含函数：`(services: Services) => Capability`。
+`packages/agent` 不依赖 `SettingsService`、`ConversationPort`、Elysia、React 或 backend 数据库。Backend 负责创建共享基础设施；Capability factory 负责创建和拥有产品 service；Agent SDK 负责通用 Agent 组装。
 
 ### 实施契约说明
 
-本 ADR 的 TypeScript 片段表达目标方向，不是迁移期间可直接执行的完整接口。跨 phase 的具体公共边界、不变量、兼容策略和 handoff 规则以 [`2026-07-23-agent-runtime-contract.md`](../../superpowers/specs/2026-07-23-agent-runtime-contract.md) 为准。
+本 ADR 的 TypeScript 片段表达目标方向，不是迁移期间可直接执行的完整接口。跨 phase 的具体公共边界、不变量、兼容策略和 handoff 规则以 [`2026-07-23-agent-runtime-contract.md`](../superpowers/specs/2026-07-23-agent-runtime-contract.md) 为准。
 
 具体约束：
 

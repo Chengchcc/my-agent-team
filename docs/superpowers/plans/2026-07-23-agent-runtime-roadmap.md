@@ -48,19 +48,21 @@ P4R Agent runtime completion / framework absorption
 │ conversation / resume / cron / loop / skill │
 └────────────────────────────────────────────┘
   ↓
-P5 Capability registry + Services
-┌────────────────────────────────────────────┐
-│ Capability migration                         │
-│ context / control-flow / side-effect / memory│
-└────────────────────────────────────────────┘
+P6-A Agent extension composition primitives
   ↓
-P6 Conversation composition split
+P6-B Backend service ownership
   ↓
-P7 Backend bootstrap cleanup
+P6-C Agent SDK assembly host (`createAgentSession`)
   ↓
-P8 One-at-a-time naming migration
+P7 Capability migration through Agent SDK
   ↓
-P9 Remove framework/harness and final verification
+P8 Conversation composition split
+  ↓
+P9 Backend bootstrap cleanup
+  ↓
+P10 One-at-a-time naming migration
+  ↓
+P11 Remove framework/harness and final verification
 ```
 
 ## 3. Workstream 顺序

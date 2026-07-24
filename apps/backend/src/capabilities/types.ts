@@ -1,17 +1,12 @@
 import type { AgentHooks } from "@my-agent-team/agent";
 import type { ChatModel, Tool } from "@my-agent-team/core";
 
-// ── Agent extension (registry output) ──
+// ── Capability (backend product unit) ──
 
 export interface AgentExtension {
   hooks?: AgentHooks;
   tools?: readonly Tool[];
   systemPrompt?: string;
-}
-
-export interface ResolvedExtension {
-  capabilityId: string;
-  extension: AgentExtension;
 }
 
 export interface CapabilityManifest {
@@ -27,8 +22,6 @@ export interface AgentScope {
   cwd: string;
 }
 
-// ── Server-side installation ──
-
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export type TypedRoute = {};
 
@@ -39,8 +32,6 @@ export interface CapabilityServerContext {
   registerCommand(name: string, handler: CommandHandler): void;
 }
 
-// ── Capability (the stored unit, created by a factory closure) ──
-
 export interface Capability {
   readonly id: string;
   extendAgent?(scope: AgentScope): AgentExtension | Promise<AgentExtension>;
@@ -48,9 +39,8 @@ export interface Capability {
   readonly manifest?: CapabilityManifest;
 }
 
-// ── Backend infrastructure (created once by main.ts) ──
+// ── Backend infrastructure ──
 
-/** Process-level shared services. Never given to Agent or packages/agent. */
 export interface BackendInfrastructure {
   modelRegistry: { get(name: string): ChatModel };
   settings: {
@@ -62,39 +52,31 @@ export interface BackendInfrastructure {
   sse: { emit(event: string, data: unknown): void };
 }
 
-// ── Capability-specific dependency types ──
+// ── Capability-specific deps ──
 
-/** Memory capability: needs modelRegistry + settings + fs. Owns MemoryService. */
 export interface MemoryCapabilityDeps {
   modelRegistry: BackendInfrastructure["modelRegistry"];
   settings: BackendInfrastructure["settings"];
   fs: BackendInfrastructure["fs"];
 }
 
-/** Pet capability: needs modelRegistry + settings + fs. Owns PetService. */
 export interface PetCapabilityDeps {
   modelRegistry: BackendInfrastructure["modelRegistry"];
   settings: BackendInfrastructure["settings"];
   fs: BackendInfrastructure["fs"];
 }
 
-/** Recap capability: needs modelRegistry. Owns RecapService. */
 export interface RecapCapabilityDeps {
   modelRegistry: BackendInfrastructure["modelRegistry"];
 }
 
-/** Identity capability: needs fs (for SOUL.md/USER.md). Owns AgentIdentityStore. */
 export interface IdentityCapabilityDeps {
   fs: BackendInfrastructure["fs"];
 }
 
-/** Conversation-context capability: no business deps — pure tool injection. */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export type ConversationContextDeps = {};
 
-// ── Narrow shared ports (for capability-to-capability communication) ──
-
-/** Port exposed by the Memory capability for other capabilities to query. */
 export interface MemoryReader {
   search(
     query: string,

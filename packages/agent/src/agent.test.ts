@@ -187,7 +187,7 @@ describe("Agent", () => {
     const calls: unknown[][] = [];
     const agent = new Agent(
       makeConfig({
-        hooks: { "after:turn": async (_ctx, msgs) => void calls.push(msgs) },
+        hooks: { "after:turn": async (_ctx: unknown, msgs: unknown[]) => void calls.push(msgs) },
       }),
     );
     await agent.prompt("hi");
@@ -198,7 +198,7 @@ describe("Agent", () => {
     const calls: unknown[][] = [];
     const agent = new Agent(
       makeConfig({
-        hooks: { "after:turn": async (_ctx, msgs) => void calls.push(msgs) },
+        hooks: { "after:turn": async (_ctx: unknown, msgs: unknown[]) => void calls.push(msgs) },
         model: {},
         retry: { maxAttempts: 2, backoffMs: 10 },
       }),

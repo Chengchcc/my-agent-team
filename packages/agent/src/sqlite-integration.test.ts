@@ -12,7 +12,7 @@ function makeAgent(cfg: Partial<AgentConfig> & { sessionId: string; db: string }
   return new Agent({
     model: echoModel({ turns: [{ type: "text", text: "ok" }] }),
     maxSteps: 2,
-    sessionId: cfg.sessionId,
+
     checkpointer: sqliteCheckpointer({ db: cfg.db }),
     session: new Session(sqliteSessionStorage({ db: cfg.db, sessionId: cfg.sessionId })),
     ...cfg,

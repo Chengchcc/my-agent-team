@@ -300,7 +300,58 @@ Caller 不负责：
 - 创建 Checkpointer/SessionStore。
 - 直接写 checkpoint 表。
 
-## 8. Backend Capability
+## 8. Agent SDK assembly host
+
+`packages/agent` owns the generic Agent assembly capability. The public entry point is `createAgentSession()`; an `AgentSdk` object is not required in the first version. `ExtensionHost` and the composers are internal or advanced implementation surfaces.
+
+```ts
+export interface AgentExtension {
+  id: string;
+  hooks?: AgentHooks;
+  tools?: readonly Tool[];
+  systemPrompt?: string;
+  resources?: ResourceProvider;
+}
+
+export type AgentExtensionFactory = (
+  scope: AgentScope,
+) => AgentExtension | Promise<AgentExtension>;
+
+export interface CreateAgentSessionInput {
+  scope: AgentScope;
+  model: Model;
+  extensions?: readonly AgentExtensionFactory[];
+  tools?: readonly Tool[];
+  systemPrompt?: string;
+}
+
+export async function createAgentSession(
+  input: CreateAgentSessionInput,
+): Promise<Agent>;
+```
+
+The SDK must:
+
+- await extension factories;
+- preserve extension registration order;
+- compose hooks, tools and system prompts;
+- reject tool collisions;
+- inject SessionManager/persistence and runtime options;
+- create the final Agent.
+
+The SDK must not depend on backend `Services`, `SettingsService`, `ConversationPort`, Elysia, React or backend database types.
+
+Backend Capability factories must:
+
+- own product services and capability-specific dependencies;
+- create `AgentExtensionFactory` values;
+- install backend routes/commands;
+- expose surface manifest metadata.
+
+The backend Capability registry may resolve product capabilities, but generic extension composition has one source of truth in `packages/agent`.
+
+
+## 9. Backend Capability
 
 Capability 只存在于 backend/application composition 层，不放入 `packages/agent`。
 
@@ -333,31 +384,38 @@ export interface CapabilityManifest {
 
 `AgentScope` and `CapabilityServerContext` are backend-local composition types. Their concrete fields must be defined by the Capability workstream from existing backend services; they are not dependencies of `packages/agent`. At minimum, `AgentScope` identifies the Agent/member/session scope and exposes only the extension inputs needed by a capability. `CapabilityServerContext` exposes typed route/command registration and the backend `Services` object. Do not add placeholder `any` fields merely to satisfy these sketches.
 
-### 8.1 Services
+### 9.1 Backend infrastructure and Capability ownership
 
-Services 是 backend composition root 的依赖，不进入 AgentContext：
-
-```ts
-export interface Services {
-  modelRegistry: ModelRegistry;
-  settings: SettingsService;
-  sse: SseBus;
-  fs: AgentFs;
-  conversation?: ConversationPort;
-}
-```
-
-数据流：
+Backend creates and owns process-level infrastructure:
 
 ```text
-Services
-  → capability factory
-  → AgentExtension
-  → Agent config
+ModelRegistry
+Settings storage/service
+AgentFs
+SseBus
+database ports
+```
+
+Each Capability owns its product service and receives only capability-specific dependencies. Do not pass a broad `Services` object to every Capability when a narrower dependency type is sufficient.
+
+```text
+backend infrastructure
+  → Capability factory/deps
+  → AgentExtensionFactory
+  → createAgentSession()
   → Agent
 ```
 
-### 8.2 Capability 限制
+Capability-to-capability dependencies must use narrow ports such as `MemoryReader`; a Capability must not reach into another Capability's internal service.
+
+### 9.2 Capability limitations
+
+- Capability must not write Conversation ledger directly.
+- Capability must not control Agent terminal state.
+- Capability must not depend on React; slots are manifest identifiers only.
+- First version uses static imports; no jiti/dynamic loader.
+- Generic hook/tool/prompt composition has one source of truth in `packages/agent`.
+- Backend must not create a second Agent composer.
 
 - Capability 不直接写 ledger。
 - Capability 不直接控制 Agent terminal state。

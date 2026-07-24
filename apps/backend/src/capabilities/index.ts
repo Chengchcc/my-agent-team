@@ -1,6 +1,5 @@
 export { CapabilityRegistry } from "./registry.js";
 export type {
-  AgentExtension,
   AgentScope,
   BackendInfrastructure,
   Capability,
@@ -12,5 +11,4 @@ export type {
   MemoryReader,
   PetCapabilityDeps,
   RecapCapabilityDeps,
-  ResolvedExtension,
 } from "./types.js";
