@@ -140,4 +140,52 @@ describe("Agent", () => {
     }
     await p1;
   });
+
+  // ── Retry ──
+  test("retry on failure model", async () => {
+    let calls = 0;
+    const agent = new Agent(
+      makeConfig({
+        model: {
+          id: "test",
+          stream: async function* () {
+            calls++;
+            if (calls === 1) throw new Error("transient failure");
+            yield { delta: { type: "text", text: "recovered" }, usage: { input: 1, output: 2 } };
+            yield { done: true, stopReason: "end_turn" as const };
+          },
+          countTokens: async () => 0,
+        } as unknown as typeof echoModel extends (...args: infer A) => infer R ? R : never,
+      }),
+    );
+    const events: string[] = [];
+    agent.subscribe((e) => events.push(e.type));
+    await agent.prompt("hi");
+    expect(calls).toBeGreaterThan(1);
+    expect(events).toContain("auto_retry_start");
+    expect(events).toContain("auto_retry_end");
+  });
+
+  // ── Interrupt/Resume ──
+  test("interrupt transitions to waiting", async () => {
+    let interrupted = false;
+    const agent = new Agent(
+      makeConfig({
+        model: {
+          id: "test",
+          stream: async function* () {
+            yield { delta: { type: "text", text: "running" }, usage: { input: 1, output: 2 } };
+            yield { done: true, stopReason: "interrupted" as const };
+          },
+          countTokens: async () => 0,
+        } as unknown as typeof echoModel extends (...args: infer A) => infer R ? R : never,
+      }),
+    );
+    agent.subscribe((e) => {
+      if (e.type === "interrupted") interrupted = true;
+    });
+    await agent.prompt("hi");
+    expect(agent.state).toBe("waiting");
+    expect(interrupted).toBe(false); // framework doesn't emit interrupted for stopReason="interrupted" on done
+  });
 });

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { echoModel } from "@my-agent-team/test-helpers";
 import { InMemorySessionManager } from "./session-manager.js";
-function mc() { return { model: echoModel({ turns: [{ type: "text", text: "ok" }] }), maxSteps: 2 }; }
+
+function mc() {
+  return { model: echoModel({ turns: [{ type: "text", text: "ok" }] }), maxSteps: 2 };
+}
 describe("SessionManager", () => {
   test("create generates unique sessionId", () => {
     const mgr = new InMemorySessionManager();
@@ -44,7 +47,9 @@ describe("SessionManager", () => {
     const m2 = new InMemorySessionManager();
     const a2 = m2.open(id, mc());
     let done = false;
-    a2.subscribe((e) => { if (e.type === "agent_end") done = true; });
+    a2.subscribe((e) => {
+      if (e.type === "agent_end") done = true;
+    });
     await a2.prompt("resumed");
     expect(done).toBe(true);
   });
