@@ -3,6 +3,7 @@ export type { AgentEvent, AgentEventListener } from "./agent-events.js";
 export type { AgentContext, AgentHooks, BeforeToolResult, StopDecision } from "./agent-hooks.js";
 export type { AgentConfig, AgentState } from "./agent-options.js";
 export type { CompactionResult } from "./compaction.js";
+export type { Checkpointer, ContextManager, ContextStore, Plugin } from "./framework-adapter.js";
 export type { ContextKey, RunState } from "./run-state.js";
 export type { SessionManager, SessionManagerConfig } from "./session-manager.js";
 export { InMemorySessionManager, SqliteSessionManager } from "./session-manager.js";

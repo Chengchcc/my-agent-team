@@ -1,9 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { join } from "node:path";
 import type { McpClientManager } from "@my-agent-team/adapter-mcp";
-import type { SessionManager } from "@my-agent-team/agent";
+import type { ContextStore, SessionManager } from "@my-agent-team/agent";
 import type { ModelRegistry, ProviderAuth } from "@my-agent-team/ai";
-import type { ContextStore } from "@my-agent-team/framework";
 import type { Message, MessageRevision } from "@my-agent-team/message";
 import {
   deserializeLedgerContent,

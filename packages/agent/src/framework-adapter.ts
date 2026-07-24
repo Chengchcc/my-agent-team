@@ -9,6 +9,7 @@ export type {
   Checkpointer,
   ContextKey,
   ContextManager,
+  ContextStore,
   Logger,
   Plugin,
   RunSpan,

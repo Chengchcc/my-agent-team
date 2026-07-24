@@ -1,9 +1,9 @@
 import { unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Checkpointer, ContextManager, Plugin } from "@my-agent-team/agent";
 import { Agent } from "@my-agent-team/agent";
 import type { ChatModel } from "@my-agent-team/core";
-import type { Checkpointer, ContextManager, Plugin } from "@my-agent-team/framework";
 import { progressiveSkillPlugin } from "@my-agent-team/plugin-progressive-skill";
 import type { SkillPackSource } from "./entities.js";
 import { posixSkillRoot } from "./entities.js";
