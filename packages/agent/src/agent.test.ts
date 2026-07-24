@@ -165,5 +165,4 @@ describe("Agent", () => {
     expect(events).toContain("auto_retry_start");
     expect(events).toContain("auto_retry_end");
   });
-
 });

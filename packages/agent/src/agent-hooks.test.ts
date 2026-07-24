@@ -9,7 +9,7 @@ describe("AgentHooks", () => {
     const hooks: AgentHooks = {
       "before:model": (_ctx, msgs) => {
         transformed = true;
-        return msgs;
+        return msgs.slice();
       },
     };
     const agent = new Agent({ model: echoModel({ turns: [{ type: "text", text: "ok" }] }), hooks });
@@ -76,7 +76,7 @@ describe("AgentHooks", () => {
     const hooks: AgentHooks = {
       "before:model": (_ctx, msgs) => {
         order.push("first");
-        return msgs;
+        return msgs.slice();
       },
       "after:model": () => {
         order.push("second");
