@@ -3,8 +3,6 @@ import { dirname, join } from "node:path";
 import type { ProjectedHistoryItem, Usage } from "@chengchenccc/agent-contract";
 import type { AIMessageChunk, JsonSchema, Message } from "@chengchenccc/message";
 import subagentPrompt from "../../prompts/agents/subagent.md" with { type: "text" };
-import { createSpawnPool, GateError } from "./pool.js";
-import { parseAndValidate, spillResults } from "./results.js";
 import {
   type ContextBudget,
   type ContextSummarizer,
@@ -22,6 +20,8 @@ import {
   settleEntry,
   updateEntry,
 } from "../coordination/registry.js";
+import { createSpawnPool, GateError } from "./pool.js";
+import { parseAndValidate, spillResults } from "./results.js";
 
 export interface SubagentSpec {
   readonly prompt: string;
